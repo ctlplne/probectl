@@ -598,6 +598,10 @@ func (g generator) writeGoOperation(b *bytes.Buffer, op operation) {
 		if p.In != "query" {
 			continue
 		}
+		if schemaType(p.Schema) == "array" {
+			fmt.Fprintf(b, "\tif req.%s != nil { for _, value := range *req.%s { query.Add(%q, formatQueryValue(value)) } }\n", p.GoField, p.GoField, p.Name)
+			continue
+		}
 		fmt.Fprintf(b, "\tif req.%s != nil { query.Set(%q, formatQueryValue(*req.%s)) }\n", p.GoField, p.Name, p.GoField)
 	}
 	body := "nil"
@@ -822,6 +826,10 @@ func (g generator) writeTSMethod(b *bytes.Buffer, op operation) {
 	b.WriteString("    const query = new URLSearchParams()\n")
 	for _, p := range op.Params {
 		if p.In == "query" {
+			if schemaType(p.Schema) == "array" {
+				fmt.Fprintf(b, "    if (request.%s !== undefined) for (const value of request.%s) query.append(%q, String(value))\n", p.TSField, p.TSField, p.Name)
+				continue
+			}
 			fmt.Fprintf(b, "    if (request.%s !== undefined) query.set(%q, String(request.%s))\n", p.TSField, p.Name, p.TSField)
 		}
 	}

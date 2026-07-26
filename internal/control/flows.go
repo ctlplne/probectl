@@ -9,6 +9,7 @@ package control
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
@@ -20,7 +21,8 @@ import (
 // and the store scopes every query by it before anything else (CLAUDE.md §6).
 
 // handleFlowTop serves GET /v1/flows/top — the top-talkers view.
-// Query: by=src|dst|pair|src_asn|dst_asn, window=1h, limit=10.
+// Query: by=<allowlisted facet>, window=1h, bucket=3m, limit=10, and repeated
+// filter=<field>:<value>. Filters never carry tenant scope.
 func (s *Server) handleFlowTop(w http.ResponseWriter, r *http.Request) error {
 	tid, err := s.principalTenant(r)
 	if err != nil {
@@ -34,13 +36,27 @@ func (s *Server) handleFlowTop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	bucket, err := windowParam(r, "bucket", 3*time.Minute)
+	if err != nil {
+		return err
+	}
+	filters, err := flowFiltersParam(r)
+	if err != nil {
+		return err
+	}
 	q := flowstore.TopQuery{
 		TenantID: tid,
 		By:       r.URL.Query().Get("by"),
 		Window:   window,
+		Bucket:   bucket,
 		Limit:    limit,
+		Filters:  filters,
 	}
 	rows, err := s.flowStore.TopTalkers(r.Context(), q)
+	if err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	series, err := s.flowStore.TopSeries(r.Context(), q, rows)
 	if err != nil {
 		return apierror.BadRequest(err.Error())
 	}
@@ -56,10 +72,36 @@ func (s *Server) handleFlowTop(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":           rows,
+		"series":          series,
 		"effective_limit": effLimit,
+		"series_limit":    min(len(rows), 6),
 		"window":          window.String(),
+		"bucket":          bucket.String(),
+		"filters":         filters,
 	})
 	return nil
+}
+
+// flowFiltersParam parses repeated filter=<field>:<value> parameters. SplitN
+// preserves IPv6 values; field/value semantics are normalized again in the
+// store so every caller (not only HTTP) gets the same fail-closed validation.
+func flowFiltersParam(r *http.Request) ([]flowstore.Filter, error) {
+	raw := r.URL.Query()["filter"]
+	if len(raw) > 12 {
+		return nil, apierror.BadRequest("too many flow filters (max 12)")
+	}
+	filters := make([]flowstore.Filter, 0, len(raw))
+	for _, encoded := range raw {
+		parts := strings.SplitN(encoded, ":", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return nil, apierror.BadRequest("invalid flow filter: want field:value")
+		}
+		filters = append(filters, flowstore.Filter{
+			Field: flowstore.FilterField(strings.TrimSpace(parts[0])),
+			Value: strings.TrimSpace(parts[1]),
+		})
+	}
+	return filters, nil
 }
 
 // handleFlowCapacity serves GET /v1/flows/capacity — per-exporter/interface

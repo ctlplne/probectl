@@ -24,13 +24,15 @@ func seedFlows(t *testing.T, s *Server) {
 	now := time.Now().UTC()
 	devTenant := "00000000-0000-0000-0000-000000000001"
 	rows := []flowstore.Row{
-		{TenantID: devTenant, Exporter: "r1", TS: now.Add(-2 * time.Minute),
+		{TenantID: devTenant, Exporter: "r1", Protocol: "netflow5", TS: now.Add(-2 * time.Minute),
 			SrcAddr: "10.0.0.1", DstAddr: "10.0.0.9", InIf: 1, BytesScaled: 9000, PacketsScaled: 9,
-			SrcASN: 64500, SrcASName: "ACME"},
-		{TenantID: devTenant, Exporter: "r1", TS: now.Add(-1 * time.Minute),
-			SrcAddr: "10.0.0.2", DstAddr: "10.0.0.9", InIf: 1, BytesScaled: 4000, PacketsScaled: 4},
-		{TenantID: "t-other", Exporter: "rX", TS: now.Add(-1 * time.Minute),
-			SrcAddr: "172.16.9.9", DstAddr: "172.16.9.8", InIf: 1, BytesScaled: 1 << 40, PacketsScaled: 1},
+			SrcASN: 64500, SrcASName: "ACME", SrcCountry: "US", DstCountry: "DE", DstPort: 443},
+		{TenantID: devTenant, Exporter: "r1", Protocol: "ipfix", TS: now.Add(-1 * time.Minute),
+			SrcAddr: "10.0.0.2", DstAddr: "10.0.0.9", InIf: 1, BytesScaled: 4000, PacketsScaled: 4,
+			SrcCountry: "CA", DstCountry: "DE", DstPort: 53},
+		{TenantID: "t-other", Exporter: "rX", Protocol: "netflow5", TS: now.Add(-1 * time.Minute),
+			SrcAddr: "172.16.9.9", DstAddr: "172.16.9.8", InIf: 1, BytesScaled: 1 << 40, PacketsScaled: 1,
+			SrcCountry: "US", DstCountry: "DE", DstPort: 443},
 	}
 	if err := s.flowStore.Insert(context.Background(), rows); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -43,12 +45,14 @@ func TestFlowTopTalkersAPI(t *testing.T) {
 	srv := testServer(fakePinger{})
 	seedFlows(t, srv)
 
-	rec := do(srv, http.MethodGet, "/v1/flows/top?by=src&window=1h&limit=5")
+	rec := do(srv, http.MethodGet, "/v1/flows/top?by=src&window=1h&bucket=1m&limit=5")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Items []flowstore.TopRow `json:"items"`
+		Items   []flowstore.TopRow      `json:"items"`
+		Series  []flowstore.SeriesPoint `json:"series"`
+		Filters []flowstore.Filter      `json:"filters"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -63,6 +67,28 @@ func TestFlowTopTalkersAPI(t *testing.T) {
 		if r.Key == "172.16.9.9" {
 			t.Fatalf("CROSS-TENANT LEAK: %+v", r)
 		}
+	}
+	if len(resp.Series) != 2 {
+		t.Fatalf("series = %+v, want two tenant-local buckets", resp.Series)
+	}
+	for _, point := range resp.Series {
+		if point.Key == "172.16.9.9" {
+			t.Fatalf("CROSS-TENANT SERIES LEAK: %+v", point)
+		}
+	}
+
+	rec = do(srv, http.MethodGet, "/v1/flows/top?by=dst_country&filter=protocol:netflow5&filter=port:443")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("filtered status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("filtered decode: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Key != "DE" || resp.Items[0].Bytes != 9000 {
+		t.Fatalf("filtered items = %+v", resp.Items)
+	}
+	if len(resp.Filters) != 2 || resp.Filters[0].Field != flowstore.FilterProtocol {
+		t.Fatalf("effective filters = %+v", resp.Filters)
 	}
 }
 
@@ -95,6 +121,9 @@ func TestFlowCapacityAndAnomalyAPI(t *testing.T) {
 		"/v1/flows/top?window=banana",
 		"/v1/flows/top?limit=-3",
 		"/v1/flows/top?by=bogus",
+		"/v1/flows/top?filter=tenant_id:t-other",
+		"/v1/flows/top?filter=port:70000",
+		"/v1/flows/top?filter=missing-colon",
 		"/v1/flows/capacity?direction=sideways",
 		"/v1/flows/anomalies?k=-1",
 	} {

@@ -7,7 +7,25 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
-export type FlowGroupBy = 'src' | 'dst' | 'pair' | 'src_asn' | 'dst_asn'
+export type FlowGroupBy =
+  | 'src'
+  | 'dst'
+  | 'pair'
+  | 'src_asn'
+  | 'dst_asn'
+  | 'as_name'
+  | 'src_country'
+  | 'dst_country'
+  | 'port'
+  | 'protocol'
+  | 'exporter'
+
+export type FlowFilterField = Exclude<FlowGroupBy, 'pair'>
+
+export interface FlowFilter {
+  field: FlowFilterField
+  value: string
+}
 
 export interface FlowTopRow {
   key: string
@@ -19,8 +37,21 @@ export interface FlowTopRow {
 
 export interface FlowTopResponse {
   items: FlowTopRow[]
+  series?: FlowSeriesPoint[]
+  filters?: FlowFilter[]
   effective_limit?: number
+  series_limit?: number
   window?: string
+  bucket?: string
+}
+
+export interface FlowSeriesPoint {
+  ts: string
+  key: string
+  detail?: string
+  bytes: number
+  packets: number
+  flows: number
 }
 
 export interface FlowCapacityPoint {
@@ -96,13 +127,21 @@ export interface DeviceConfigResponse {
   redaction_policy?: string
 }
 
-export function useFlowTop(by: FlowGroupBy, window = '1h', limit = 10) {
+export function useFlowTop(
+  by: FlowGroupBy,
+  window = '1h',
+  limit = 10,
+  filters: FlowFilter[] = [],
+  bucket = '3m',
+) {
+  const encodedFilters = filters.map((filter) => `${filter.field}:${filter.value}`)
   return useQuery({
-    queryKey: ['flows', 'top', by, window, limit],
-    queryFn: () =>
-      apiFetch<FlowTopResponse>(
-        `/flows/top?by=${encodeURIComponent(by)}&window=${encodeURIComponent(window)}&limit=${limit}`,
-      ),
+    queryKey: ['flows', 'top', by, window, bucket, limit, encodedFilters],
+    queryFn: () => {
+      const params = new URLSearchParams({ by, window, bucket, limit: String(limit) })
+      encodedFilters.forEach((filter) => params.append('filter', filter))
+      return apiFetch<FlowTopResponse>(`/flows/top?${params.toString()}`)
+    },
   })
 }
 

@@ -798,8 +798,45 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             flows: 18,
           },
         ],
+        series: [
+          {
+            ts: '2026-06-04T11:55:00Z',
+            key: '10.0.0.10',
+            detail: 'checkout',
+            bytes: 314_572_800,
+            packets: 70_000,
+            flows: 24,
+          },
+          {
+            ts: '2026-06-04T12:00:00Z',
+            key: '10.0.0.10',
+            detail: 'checkout',
+            bytes: 209_715_200,
+            packets: 50_000,
+            flows: 18,
+          },
+          {
+            ts: '2026-06-04T11:55:00Z',
+            key: '10.0.0.20',
+            detail: 'payments',
+            bytes: 62_914_560,
+            packets: 13_400,
+            flows: 10,
+          },
+          {
+            ts: '2026-06-04T12:00:00Z',
+            key: '10.0.0.20',
+            detail: 'payments',
+            bytes: 41_943_040,
+            packets: 9_000,
+            flows: 8,
+          },
+        ],
         effective_limit: 8,
+        series_limit: 6,
         window: '1h',
+        bucket: '3m',
+        filters: [],
       })
     if (path === '/v1/flows/capacity')
       return jsonResponse({

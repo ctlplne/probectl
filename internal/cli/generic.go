@@ -78,7 +78,7 @@ func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writ
 	fs := flag.NewFlagSet(op.Method+" "+op.Path, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	bodyRaw := fs.String("body", "", "JSON request body")
-	query := kvFlag{}
+	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -87,7 +87,7 @@ func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "unexpected args: %s\n", strings.Join(fs.Args(), " "))
 		return 2
 	}
-	path = withQuery(path, map[string]string(query))
+	path = withQueryValues(path, query)
 	body, err := parseBody(*bodyRaw)
 	if err != nil {
 		fmt.Fprintln(stderr, "invalid --body: "+err.Error())
@@ -127,6 +127,49 @@ func withQuery(path string, params map[string]string) string {
 	sort.Strings(keys)
 	for _, k := range keys {
 		q.Set(k, params[k])
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// queryFlag preserves repeated keys. Flow exploration uses repeated
+// filter=field:value values, so collapsing --query into a map would silently
+// discard every chip except the last one.
+type queryFlag map[string][]string
+
+func (q *queryFlag) String() string { return "" }
+
+func (q *queryFlag) Set(v string) error {
+	i := strings.IndexByte(v, '=')
+	if i <= 0 {
+		return fmt.Errorf("expected k=v, got %q", v)
+	}
+	if *q == nil {
+		*q = queryFlag{}
+	}
+	key := v[:i]
+	(*q)[key] = append((*q)[key], v[i+1:])
+	return nil
+}
+
+func withQueryValues(path string, params queryFlag) string {
+	if len(params) == 0 {
+		return path
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return path
+	}
+	q := u.Query()
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		for _, value := range params[key] {
+			q.Add(key, value)
+		}
 	}
 	u.RawQuery = q.Encode()
 	return u.String()

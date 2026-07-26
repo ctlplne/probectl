@@ -552,7 +552,7 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/planes.ts',
     method: 'GET',
-    path: '`/flows/top?by=${encodeURIComponent(by)}&window=${encodeURIComponent(window)}&limit=${limit}`',
+    path: '`/flows/top?${params.toString()}`',
     response: 'FlowTopResponse',
     generated: 'FlowTopTalkersResponse',
   },
@@ -773,6 +773,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   pathLink: true,
   flowTopRow: true,
   flowTopList: true,
+  flowFilter: true,
+  flowSeriesPoint: true,
   flowCapacityPoint: true,
   flowCapacityList: true,
   flowAnomaly: true,
@@ -832,6 +834,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   pathLink: GeneratedHasViewKeys<SDK.Link, Paths.Link>
   flowTopRow: GeneratedHasViewKeys<SDK.FlowTopRow, Planes.FlowTopRow>
   flowTopList: GeneratedHasViewKeys<SDK.FlowTopList, Planes.FlowTopResponse>
+  flowFilter: GeneratedHasViewKeys<SDK.FlowFilter, Planes.FlowFilter>
+  flowSeriesPoint: GeneratedHasViewKeys<SDK.FlowSeriesPoint, Planes.FlowSeriesPoint>
   flowCapacityPoint: GeneratedHasViewKeys<SDK.FlowCapacityPoint, Planes.FlowCapacityPoint>
   flowCapacityList: GeneratedHasViewKeys<SDK.FlowCapacityList, Planes.FlowCapacityResponse>
   flowAnomaly: GeneratedHasViewKeys<SDK.FlowAnomaly, Planes.FlowAnomaly>

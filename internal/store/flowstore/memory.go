@@ -107,29 +107,14 @@ func (m *Memory) TopTalkers(_ context.Context, q TopQuery) ([]TopRow, error) {
 	}
 	groups := make(map[string]*agg)
 	for _, r := range m.inWindow(q.TenantID, q.Now.Add(-q.Window), q.Now) {
-		var key, detail string
-		switch q.By {
-		case BySrc:
-			key = r.SrcAddr
-		case ByDst:
-			key = r.DstAddr
-		case ByPair:
-			key, detail = r.SrcAddr, r.DstAddr
-		case BySrcASN:
-			if r.SrcASN == 0 {
-				continue
-			}
-			key, detail = strconv.FormatUint(uint64(r.SrcASN), 10), r.SrcASName
-		case ByDstASN:
-			if r.DstASN == 0 {
-				continue
-			}
-			key, detail = strconv.FormatUint(uint64(r.DstASN), 10), r.DstASName
-		}
-		if key == "" {
+		if !matchesFilters(r, q.Filters) {
 			continue
 		}
-		gk := key + "\x00" + detail
+		key, detail, ok := groupRow(r, q.By)
+		if !ok {
+			continue
+		}
+		gk := groupKey(key, detail)
 		g, ok := groups[gk]
 		if !ok {
 			g = &agg{detail: detail}
@@ -157,6 +142,153 @@ func (m *Memory) TopTalkers(_ context.Context, q TopQuery) ([]TopRow, error) {
 		out = out[:q.Limit]
 	}
 	return out, nil
+}
+
+// TopSeries aggregates the same filtered rows into aligned time buckets for
+// the first six ranked contributors. The top list comes from TopTalkers, so
+// the chart cannot disagree with the adjacent table about which keys are top.
+func (m *Memory) TopSeries(_ context.Context, q TopQuery, top []TopRow) ([]SeriesPoint, error) {
+	if err := q.normalize(); err != nil {
+		return nil, err
+	}
+	keyLimit := seriesKeyLimit(top)
+	if keyLimit == 0 {
+		return []SeriesPoint{}, nil
+	}
+	selected := make(map[string]struct{}, keyLimit)
+	for _, row := range top[:keyLimit] {
+		selected[groupKey(row.Key, row.Detail)] = struct{}{}
+	}
+	type seriesKey struct {
+		bucket int64
+		key    string
+		detail string
+	}
+	type agg struct{ bytes, packets, flows uint64 }
+	groups := make(map[seriesKey]*agg)
+	bucketSecs := int64(q.Bucket / time.Second)
+	for _, r := range m.inWindow(q.TenantID, q.Now.Add(-q.Window), q.Now) {
+		if !matchesFilters(r, q.Filters) {
+			continue
+		}
+		key, detail, ok := groupRow(r, q.By)
+		if !ok {
+			continue
+		}
+		if _, ok := selected[groupKey(key, detail)]; !ok {
+			continue
+		}
+		k := seriesKey{
+			bucket: r.TS.Unix() / bucketSecs * bucketSecs,
+			key:    key,
+			detail: detail,
+		}
+		g := groups[k]
+		if g == nil {
+			g = &agg{}
+			groups[k] = g
+		}
+		g.bytes += r.BytesScaled
+		g.packets += r.PacketsScaled
+		g.flows++
+	}
+	out := make([]SeriesPoint, 0, len(groups))
+	for k, g := range groups {
+		out = append(out, SeriesPoint{
+			TS:      time.Unix(k.bucket, 0).UTC(),
+			Key:     k.key,
+			Detail:  k.detail,
+			Bytes:   g.bytes,
+			Packets: g.packets,
+			Flows:   g.flows,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].TS.Equal(out[j].TS) {
+			return out[i].TS.Before(out[j].TS)
+		}
+		if out[i].Key != out[j].Key {
+			return out[i].Key < out[j].Key
+		}
+		return out[i].Detail < out[j].Detail
+	})
+	return out, nil
+}
+
+func groupKey(key, detail string) string { return key + "\x00" + detail }
+
+func groupRow(r Row, by string) (key, detail string, ok bool) {
+	switch by {
+	case BySrc:
+		key = r.SrcAddr
+	case ByDst:
+		key = r.DstAddr
+	case ByPair:
+		key, detail = r.SrcAddr, r.DstAddr
+	case BySrcASN:
+		if r.SrcASN != 0 {
+			key, detail = strconv.FormatUint(uint64(r.SrcASN), 10), r.SrcASName
+		}
+	case ByDstASN:
+		if r.DstASN != 0 {
+			key, detail = strconv.FormatUint(uint64(r.DstASN), 10), r.DstASName
+		}
+	case ByASName:
+		key = r.DstASName
+		if key == "" {
+			key = r.SrcASName
+		}
+	case BySrcCountry:
+		key = r.SrcCountry
+	case ByDstCountry:
+		key = r.DstCountry
+	case ByPort:
+		port := r.DstPort
+		if port == 0 {
+			port = r.SrcPort
+		}
+		if port != 0 {
+			key = strconv.FormatUint(uint64(port), 10)
+		}
+	case ByProtocol:
+		key = r.Protocol
+	case ByExporter:
+		key = r.Exporter
+	}
+	return key, detail, key != ""
+}
+
+func matchesFilters(r Row, filters []Filter) bool {
+	for _, filter := range filters {
+		var match bool
+		switch filter.Field {
+		case FilterSrc:
+			match = r.SrcAddr == filter.Value
+		case FilterDst:
+			match = r.DstAddr == filter.Value
+		case FilterSrcASN:
+			match = strconv.FormatUint(uint64(r.SrcASN), 10) == filter.Value
+		case FilterDstASN:
+			match = strconv.FormatUint(uint64(r.DstASN), 10) == filter.Value
+		case FilterASName:
+			match = r.SrcASName == filter.Value || r.DstASName == filter.Value
+		case FilterSrcCountry:
+			match = r.SrcCountry == filter.Value
+		case FilterDstCountry:
+			match = r.DstCountry == filter.Value
+		case FilterPort:
+			match = strconv.FormatUint(uint64(r.SrcPort), 10) == filter.Value ||
+				strconv.FormatUint(uint64(r.DstPort), 10) == filter.Value
+		case FilterProtocol:
+			match = r.Protocol == filter.Value
+		case FilterExporter:
+			match = r.Exporter == filter.Value
+		}
+		if !match {
+			return false
+		}
+	}
+	return true
 }
 
 // Capacity buckets the window into per-(exporter, iface) throughput points.

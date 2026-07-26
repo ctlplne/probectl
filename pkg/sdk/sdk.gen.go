@@ -703,10 +703,28 @@ type FlowCapacityPoint struct {
 	Ts       string  `json:"ts,omitempty"`
 }
 
+type FlowFilter struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
+}
+
+type FlowSeriesPoint struct {
+	Bytes   int    `json:"bytes"`
+	Detail  string `json:"detail,omitempty"`
+	Flows   int    `json:"flows"`
+	Key     string `json:"key"`
+	Packets int    `json:"packets"`
+	Ts      string `json:"ts"`
+}
+
 type FlowTopList struct {
-	EffectiveLimit int          `json:"effective_limit,omitempty"`
-	Items          []FlowTopRow `json:"items,omitempty"`
-	Window         string       `json:"window,omitempty"`
+	Bucket         string            `json:"bucket,omitempty"`
+	EffectiveLimit int               `json:"effective_limit,omitempty"`
+	Filters        []FlowFilter      `json:"filters,omitempty"`
+	Items          []FlowTopRow      `json:"items,omitempty"`
+	Series         []FlowSeriesPoint `json:"series,omitempty"`
+	SeriesLimit    int               `json:"series_limit,omitempty"`
+	Window         string            `json:"window,omitempty"`
 }
 
 // One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name.
@@ -2418,9 +2436,11 @@ func (c *Client) FlowCapacity(ctx context.Context, req FlowCapacityRequest) (*Fl
 
 // Top talkers from the flow plane (sampling-corrected)
 type FlowTopTalkersRequest struct {
-	By     *string `json:"-"`
-	Window *string `json:"-"`
-	Limit  *int    `json:"-"`
+	By     *string   `json:"-"`
+	Window *string   `json:"-"`
+	Bucket *string   `json:"-"`
+	Limit  *int      `json:"-"`
+	Filter *[]string `json:"-"`
 }
 
 func (c *Client) FlowTopTalkers(ctx context.Context, req FlowTopTalkersRequest) (*FlowTopList, error) {
@@ -2432,8 +2452,16 @@ func (c *Client) FlowTopTalkers(ctx context.Context, req FlowTopTalkersRequest) 
 	if req.Window != nil {
 		query.Set("window", formatQueryValue(*req.Window))
 	}
+	if req.Bucket != nil {
+		query.Set("bucket", formatQueryValue(*req.Bucket))
+	}
 	if req.Limit != nil {
 		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Filter != nil {
+		for _, value := range *req.Filter {
+			query.Add("filter", formatQueryValue(value))
+		}
 	}
 	var out FlowTopList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {

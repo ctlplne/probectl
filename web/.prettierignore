@@ -3,4 +3,5 @@ coverage
 node_modules
 package-lock.json
 src/api/sdk.gen.ts
+src/viz/geo/land-110m.json
 vite.config.ts.timestamp-*.mjs

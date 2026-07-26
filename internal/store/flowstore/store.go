@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/anomaly"
@@ -69,19 +70,59 @@ type Row struct {
 
 // Top-talker groupings.
 const (
-	BySrc    = "src"
-	ByDst    = "dst"
-	ByPair   = "pair"
-	BySrcASN = "src_asn"
-	ByDstASN = "dst_asn"
+	BySrc        = "src"
+	ByDst        = "dst"
+	ByPair       = "pair"
+	BySrcASN     = "src_asn"
+	ByDstASN     = "dst_asn"
+	ByASName     = "as_name"
+	BySrcCountry = "src_country"
+	ByDstCountry = "dst_country"
+	ByPort       = "port"
+	ByProtocol   = "protocol"
+	ByExporter   = "exporter"
 )
+
+// FilterField is an allowlisted, exact-match flow facet. Values are always
+// transported as bound ClickHouse parameters; fields are the only query
+// structure and are validated here before either backend sees them.
+type FilterField string
+
+const (
+	FilterSrc        FilterField = "src"
+	FilterDst        FilterField = "dst"
+	FilterSrcASN     FilterField = "src_asn"
+	FilterDstASN     FilterField = "dst_asn"
+	FilterASName     FilterField = "as_name"
+	FilterSrcCountry FilterField = "src_country"
+	FilterDstCountry FilterField = "dst_country"
+	FilterPort       FilterField = "port"
+	FilterProtocol   FilterField = "protocol"
+	FilterExporter   FilterField = "exporter"
+)
+
+const (
+	maxTopFilters  = 12
+	maxFilterValue = 256
+	maxSeriesKeys  = 6
+)
+
+// Filter narrows a flow query by one exact-match facet. Multiple filters are
+// ANDed. Repeating a field is valid but usually yields no rows unless the
+// normalized values are identical; clients should de-duplicate chips.
+type Filter struct {
+	Field FilterField `json:"field"`
+	Value string      `json:"value"`
+}
 
 // TopQuery selects the top-N traffic contributors within a window.
 type TopQuery struct {
 	TenantID string
-	By       string // src | dst | pair | src_asn | dst_asn
+	By       string
 	Window   time.Duration
+	Bucket   time.Duration
 	Limit    int
+	Filters  []Filter
 	Now      time.Time // zero = time.Now()
 }
 
@@ -93,6 +134,18 @@ type TopRow struct {
 	Bytes   uint64 `json:"bytes"`
 	Packets uint64 `json:"packets"`
 	Flows   uint64 `json:"flows"`
+}
+
+// SeriesPoint is one time bucket for one of the highest-ranked contributors.
+// The series is deliberately capped independently of the tabular top-N result
+// so a limit=1000 request cannot manufacture thousands of chart series.
+type SeriesPoint struct {
+	TS      time.Time `json:"ts"`
+	Key     string    `json:"key"`
+	Detail  string    `json:"detail,omitempty"`
+	Bytes   uint64    `json:"bytes"`
+	Packets uint64    `json:"packets"`
+	Flows   uint64    `json:"flows"`
 }
 
 // MarshalJSON additionally emits the counters as STRINGS (bytes_str, ...)
@@ -167,6 +220,7 @@ type Anomaly struct {
 type Store interface {
 	Insert(ctx context.Context, rows []Row) error
 	TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, error)
+	TopSeries(ctx context.Context, q TopQuery, top []TopRow) ([]SeriesPoint, error)
 	Capacity(ctx context.Context, q CapacityQuery) ([]CapacityPoint, error)
 	Anomalies(ctx context.Context, q AnomalyQuery) ([]Anomaly, error)
 	// DeleteTenant removes EVERY flow of one tenant (S-T5 verifiable
@@ -217,7 +271,8 @@ func (q *TopQuery) normalize() error {
 	switch q.By {
 	case "":
 		q.By = BySrc
-	case BySrc, ByDst, ByPair, BySrcASN, ByDstASN:
+	case BySrc, ByDst, ByPair, BySrcASN, ByDstASN, ByASName,
+		BySrcCountry, ByDstCountry, ByPort, ByProtocol, ByExporter:
 	default:
 		return fmt.Errorf("flowstore: unknown top-talkers grouping %q", q.By)
 	}
@@ -230,10 +285,65 @@ func (q *TopQuery) normalize() error {
 	if q.Limit > 1000 {
 		q.Limit = 1000
 	}
+	if q.Bucket <= 0 {
+		q.Bucket = q.Window / 20
+	}
+	if q.Bucket < time.Minute {
+		q.Bucket = time.Minute
+	}
+	if q.Bucket > q.Window {
+		q.Bucket = q.Window
+	}
+	if len(q.Filters) > maxTopFilters {
+		return fmt.Errorf("flowstore: too many filters (max %d)", maxTopFilters)
+	}
+	for i := range q.Filters {
+		if err := q.Filters[i].normalize(); err != nil {
+			return fmt.Errorf("flowstore: filter %d: %w", i+1, err)
+		}
+	}
 	if q.Now.IsZero() {
 		q.Now = time.Now()
 	}
 	return nil
+}
+
+func (f *Filter) normalize() error {
+	f.Value = strings.TrimSpace(f.Value)
+	if f.Value == "" {
+		return errors.New("value is required")
+	}
+	if len(f.Value) > maxFilterValue {
+		return fmt.Errorf("value exceeds %d bytes", maxFilterValue)
+	}
+	switch f.Field {
+	case FilterSrc, FilterDst, FilterASName, FilterSrcCountry, FilterDstCountry,
+		FilterProtocol, FilterExporter:
+		return nil
+	case FilterSrcASN, FilterDstASN:
+		value, err := strconv.ParseUint(f.Value, 10, 32)
+		if err != nil {
+			return errors.New("ASN must be an unsigned 32-bit integer")
+		}
+		f.Value = strconv.FormatUint(value, 10)
+		return nil
+	case FilterPort:
+		value, err := strconv.ParseUint(f.Value, 10, 16)
+		if err != nil {
+			return errors.New("port must be between 0 and 65535")
+		}
+		f.Value = strconv.FormatUint(value, 10)
+		return nil
+	default:
+		return fmt.Errorf("unknown field %q", f.Field)
+	}
+}
+
+func seriesKeyLimit(top []TopRow) int {
+	if len(top) < maxSeriesKeys {
+		return len(top)
+	}
+	return maxSeriesKeys
 }
 
 func (q *CapacityQuery) normalize() error {

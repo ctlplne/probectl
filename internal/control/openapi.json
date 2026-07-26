@@ -2651,7 +2651,7 @@
             "name": "by",
             "in": "query",
             "required": false,
-            "description": "Grouping: src | dst | pair | src_asn | dst_asn (default src).",
+            "description": "Allowlisted grouping facet (default src). as_name groups by destination AS organization with source fallback; port groups by destination port with source fallback.",
             "schema": {
               "type": "string",
               "enum": [
@@ -2659,7 +2659,13 @@
                 "dst",
                 "pair",
                 "src_asn",
-                "dst_asn"
+                "dst_asn",
+                "as_name",
+                "src_country",
+                "dst_country",
+                "port",
+                "protocol",
+                "exporter"
               ]
             }
           },
@@ -2674,6 +2680,16 @@
             }
           },
           {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "description": "Time-series bucket as a positive Go duration (default 3m, one-minute floor).",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+(ns|us|ms|s|m|h)$"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -2682,6 +2698,22 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 1000
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "description": "Repeatable exact-match facet filters in field:value form. Allowed fields: src, dst, src_asn, dst_asn, as_name, src_country, dst_country, port, protocol, exporter. Filters are ANDed, values are bound parameters, and tenant scope never comes from this list.",
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "maxItems": 12,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z_]+:.+$"
+              }
             }
           }
         ],
@@ -11020,13 +11052,92 @@
               "$ref": "#/components/schemas/FlowTopRow"
             }
           },
+          "series": {
+            "type": "array",
+            "description": "Bucketed history for at most the first six ranked contributors.",
+            "items": {
+              "$ref": "#/components/schemas/FlowSeriesPoint"
+            }
+          },
+          "filters": {
+            "type": "array",
+            "description": "The effective tenant-safe exact-match filters.",
+            "items": {
+              "$ref": "#/components/schemas/FlowFilter"
+            }
+          },
           "effective_limit": {
             "type": "integer"
           },
+          "series_limit": {
+            "type": "integer",
+            "maximum": 6
+          },
           "window": {
+            "type": "string"
+          },
+          "bucket": {
             "type": "string"
           }
         }
+      },
+      "FlowFilter": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "src",
+              "dst",
+              "src_asn",
+              "dst_asn",
+              "as_name",
+              "src_country",
+              "dst_country",
+              "port",
+              "protocol",
+              "exporter"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ]
+      },
+      "FlowSeriesPoint": {
+        "type": "object",
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "key": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "packets": {
+            "type": "integer"
+          },
+          "flows": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ts",
+          "key",
+          "bytes",
+          "packets",
+          "flows"
+        ]
       },
       "FlowCapacityPoint": {
         "type": "object",

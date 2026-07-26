@@ -624,9 +624,27 @@ export interface FlowCapacityPoint {
   ts?: string
 }
 
+export interface FlowFilter {
+  field: "src" | "dst" | "src_asn" | "dst_asn" | "as_name" | "src_country" | "dst_country" | "port" | "protocol" | "exporter"
+  value: string
+}
+
+export interface FlowSeriesPoint {
+  bytes: number
+  detail?: string
+  flows: number
+  key: string
+  packets: number
+  ts: string
+}
+
 export interface FlowTopList {
+  bucket?: string
   effective_limit?: number
+  filters?: FlowFilter[]
   items?: FlowTopRow[]
+  series?: FlowSeriesPoint[]
+  series_limit?: number
   window?: string
 }
 
@@ -1564,9 +1582,11 @@ export interface FlowCapacityRequest {
 export type FlowCapacityResponse = FlowCapacityList
 
 export interface FlowTopTalkersRequest {
-  by?: "src" | "dst" | "pair" | "src_asn" | "dst_asn"
+  by?: "src" | "dst" | "pair" | "src_asn" | "dst_asn" | "as_name" | "src_country" | "dst_country" | "port" | "protocol" | "exporter"
   window?: string
+  bucket?: string
   limit?: number
+  filter?: string[]
 }
 
 export type FlowTopTalkersResponse = FlowTopList
@@ -2580,7 +2600,9 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.by !== undefined) query.set("by", String(request.by))
     if (request.window !== undefined) query.set("window", String(request.window))
+    if (request.bucket !== undefined) query.set("bucket", String(request.bucket))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.filter !== undefined) for (const value of request.filter) query.append("filter", String(value))
     return this.requestJSON<FlowTopTalkersResponse>("GET", path, query, undefined)
   }
 

@@ -54,6 +54,11 @@ describe('plane workspaces', () => {
     renderApp('/planes/flow')
 
     expect(
+      await screen.findByRole('table', {
+        name: /flow bytes over time for the highest-ranked contributors/i,
+      }),
+    ).toBeInTheDocument()
+    expect(
       await screen.findByRole('img', { name: /flow sankey view with 2 of 2/i }),
     ).toBeInTheDocument()
     expect(
@@ -63,6 +68,35 @@ describe('plane workspaces', () => {
     const table = screen.getByRole('table', { name: /flow top talkers/i })
     expect(within(table).getByText('10.0.0.10')).toBeInTheDocument()
     expect(within(table).getByText('checkout')).toBeInTheDocument()
+  })
+
+  test('pivots facets and narrows flows with removable filter chips', async () => {
+    const calls: string[] = []
+    const fallback = defaultFetch()
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(String(input))
+      return fallback(input, init)
+    })
+    const user = userEvent.setup()
+    renderApp('/planes/flow')
+
+    const table = await screen.findByRole('table', { name: /flow top talkers/i })
+    const narrow = within(table).getByRole('button', {
+      name: /narrow flows to 10\.0\.0\.10.*checkout/i,
+    })
+    narrow.focus()
+    expect(narrow).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(
+      await screen.findByRole('button', { name: /remove src filter 10\.0\.0\.10/i }),
+    ).toBeInTheDocument()
+    expect(calls.some((call) => call.includes('filter=src%3A10.0.0.10'))).toBe(true)
+
+    await user.selectOptions(screen.getByLabelText('Group'), 'protocol')
+    expect(calls.some((call) => call.includes('by=protocol'))).toBe(true)
+
+    await user.click(screen.getByRole('button', { name: /clear filters/i }))
+    expect(screen.queryByRole('button', { name: /remove src filter/i })).not.toBeInTheDocument()
   })
 
   test('discloses visualization cardinality guardrails', async () => {

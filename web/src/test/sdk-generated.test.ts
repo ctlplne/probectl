@@ -41,4 +41,23 @@ describe('generated OpenAPI SDK', () => {
       }),
     )
   })
+
+  test('flowTopTalkers preserves repeated exact-match filters', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 }))
+    const client = new ProbectlSDKClient({
+      baseUrl: '',
+      tenant: 'tenant-a',
+      fetch: fetcher as unknown as typeof fetch,
+    })
+
+    await client.flowTopTalkers({
+      by: 'dst_country',
+      filter: ['src:10.0.0.1', 'protocol:ipfix'],
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      '/v1/flows/top?by=dst_country&filter=src%3A10.0.0.1&filter=protocol%3Aipfix',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
 })

@@ -588,12 +588,11 @@ func chValidUser(u string) error {
 	return nil
 }
 
-// topSQL builds the top-talkers query (tested: the WHERE must lead with
-// tenant_id, and every VALUE travels as a bound parameter — only structure
-// from validated enums/ints is rendered into the SQL text).
-func topSQL(q TopQuery, table string) (string, chParams) {
-	var key, detail, extra string
-	switch q.By {
+// topDimension turns one already-validated enum into fixed SQL structure. The
+// generic as_name and port facets use the destination value with a source
+// fallback for grouping; their filters match either side.
+func topDimension(by string) (key, detail, extra string) {
+	switch by {
 	case BySrc:
 		key, detail = "src_addr", "''"
 	case ByDst:
@@ -601,14 +600,69 @@ func topSQL(q TopQuery, table string) (string, chParams) {
 	case ByPair:
 		key, detail = "src_addr", "dst_addr"
 	case BySrcASN:
-		key, detail, extra = "toString(src_asn)", "any(src_as_name)", " AND src_asn != 0"
+		key, detail, extra = "toString(src_asn)", "src_as_name", " AND src_asn != 0"
 	case ByDstASN:
-		key, detail, extra = "toString(dst_asn)", "any(dst_as_name)", " AND dst_asn != 0"
+		key, detail, extra = "toString(dst_asn)", "dst_as_name", " AND dst_asn != 0"
+	case ByASName:
+		key, detail, extra = "if(dst_as_name != '', dst_as_name, src_as_name)", "''", " AND (src_as_name != '' OR dst_as_name != '')"
+	case BySrcCountry:
+		key, detail, extra = "src_country", "''", " AND src_country != ''"
+	case ByDstCountry:
+		key, detail, extra = "dst_country", "''", " AND dst_country != ''"
+	case ByPort:
+		key, detail, extra = "toString(if(dst_port != 0, dst_port, src_port))", "''", " AND (src_port != 0 OR dst_port != 0)"
+	case ByProtocol:
+		key, detail, extra = "protocol", "''", " AND protocol != ''"
+	case ByExporter:
+		key, detail, extra = "exporter", "''", " AND exporter != ''"
 	}
-	groupBy := "k"
-	if q.By == ByPair {
-		groupBy = "k, d"
+	return key, detail, extra
+}
+
+// topFilterSQL appends exact-match predicates using typed ClickHouse bound
+// parameters. No caller-controlled value or field name enters the SQL text.
+func topFilterSQL(filters []Filter, params chParams) string {
+	var sql strings.Builder
+	for i, filter := range filters {
+		name := fmt.Sprintf("filter_%d", i)
+		params[name] = filter.Value
+		switch filter.Field {
+		case FilterSrc:
+			fmt.Fprintf(&sql, " AND src_addr={%s:String}", name)
+		case FilterDst:
+			fmt.Fprintf(&sql, " AND dst_addr={%s:String}", name)
+		case FilterSrcASN:
+			fmt.Fprintf(&sql, " AND src_asn={%s:UInt32}", name)
+		case FilterDstASN:
+			fmt.Fprintf(&sql, " AND dst_asn={%s:UInt32}", name)
+		case FilterASName:
+			fmt.Fprintf(&sql, " AND (src_as_name={%s:String} OR dst_as_name={%s:String})", name, name)
+		case FilterSrcCountry:
+			fmt.Fprintf(&sql, " AND src_country={%s:String}", name)
+		case FilterDstCountry:
+			fmt.Fprintf(&sql, " AND dst_country={%s:String}", name)
+		case FilterPort:
+			fmt.Fprintf(&sql, " AND (src_port={%s:UInt16} OR dst_port={%s:UInt16})", name, name)
+		case FilterProtocol:
+			fmt.Fprintf(&sql, " AND protocol={%s:String}", name)
+		case FilterExporter:
+			fmt.Fprintf(&sql, " AND exporter={%s:String}", name)
+		}
 	}
+	return sql.String()
+}
+
+// topSQL builds the top-talkers query (tested: the WHERE must lead with
+// tenant_id, and every VALUE travels as a bound parameter — only structure
+// from validated enums/ints is rendered into the SQL text).
+func topSQL(q TopQuery, table string) (string, chParams) {
+	key, detail, extra := topDimension(q.By)
+	params := chParams{
+		"tenant": q.TenantID,
+		"since":  chTimeParam(q.Now.Add(-q.Window)),
+		"until":  chTimeParam(q.Now),
+	}
+	filters := topFilterSQL(q.Filters, params)
 	// CORRECT-003: FINAL collapses the ReplacingMergeTree's redelivered-duplicate
 	// rows (same sort key incl. row_id) BEFORE the sum(), so a redelivered NetFlow
 	// batch is not double-counted — matching the eBPF store. Without FINAL the
@@ -616,13 +670,9 @@ func topSQL(q TopQuery, table string) (string, chParams) {
 	sql := fmt.Sprintf(
 		`SELECT %s AS k, %s AS d, sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f `+
 			`FROM %s FINAL WHERE tenant_id={tenant:String} AND ts >= {since:DateTime64(3)} AND ts <= {until:DateTime64(3)}%s `+
-			`GROUP BY %s ORDER BY b DESC, k ASC LIMIT %d`,
-		key, detail, table, extra, groupBy, q.Limit)
-	return sql, chParams{
-		"tenant": q.TenantID,
-		"since":  chTimeParam(q.Now.Add(-q.Window)),
-		"until":  chTimeParam(q.Now),
-	}
+			`GROUP BY k, d ORDER BY b DESC, k ASC, d ASC LIMIT %d`,
+		key, detail, table, filters+extra, q.Limit)
+	return sql, params
 }
 
 // TopTalkers runs the aggregation in ClickHouse, on the tenant's routed store.
@@ -649,6 +699,77 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 	out := make([]TopRow, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, TopRow{
+			Key:     chToString(r["k"]),
+			Detail:  chToString(r["d"]),
+			Bytes:   chToUint64(r["b"]),
+			Packets: chToUint64(r["p"]),
+			Flows:   chToUint64(r["f"]),
+		})
+	}
+	return out, nil
+}
+
+func topSeriesSQL(q TopQuery, table string, top []TopRow) (string, chParams) {
+	key, detail, extra := topDimension(q.By)
+	params := chParams{
+		"tenant": q.TenantID,
+		"since":  chTimeParam(q.Now.Add(-q.Window)),
+		"until":  chTimeParam(q.Now),
+	}
+	filters := topFilterSQL(q.Filters, params)
+	var selected strings.Builder
+	selected.WriteString(" AND (")
+	for i, row := range top[:seriesKeyLimit(top)] {
+		if i > 0 {
+			selected.WriteString(" OR ")
+		}
+		keyName := fmt.Sprintf("series_key_%d", i)
+		detailName := fmt.Sprintf("series_detail_%d", i)
+		params[keyName] = row.Key
+		params[detailName] = row.Detail
+		fmt.Fprintf(&selected, "(%s={%s:String} AND %s={%s:String})", key, keyName, detail, detailName)
+	}
+	selected.WriteString(")")
+	secs := int64(q.Bucket / time.Second)
+	sql := fmt.Sprintf(
+		`SELECT toStartOfInterval(ts, INTERVAL %d second) AS t, %s AS k, %s AS d, `+
+			`sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f `+
+			`FROM %s FINAL WHERE tenant_id={tenant:String} AND ts >= {since:DateTime64(3)} AND ts <= {until:DateTime64(3)}%s%s%s `+
+			`GROUP BY t, k, d ORDER BY t ASC, k ASC, d ASC`,
+		secs, key, detail, table, filters, extra, selected.String())
+	return sql, params
+}
+
+// TopSeries returns time buckets for the already-ranked top contributors. It
+// reuses the exact tenant/window/filter boundary from TopTalkers and caps the
+// selected keys before building the bound predicate list.
+func (c *ClickHouse) TopSeries(ctx context.Context, q TopQuery, top []TopRow) ([]SeriesPoint, error) {
+	if q.TenantID == "" {
+		return nil, ErrNoTenant
+	}
+	if err := q.normalize(); err != nil {
+		return nil, err
+	}
+	if seriesKeyLimit(top) == 0 {
+		return []SeriesPoint{}, nil
+	}
+	t, err := c.route(q.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return nil, err
+	}
+	sql, params := topSeriesSQL(q, table, top)
+	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, sql, params)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SeriesPoint, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SeriesPoint{
+			TS:      chParseTime(chToString(r["t"])),
 			Key:     chToString(r["k"]),
 			Detail:  chToString(r["d"]),
 			Bytes:   chToUint64(r["b"]),

@@ -640,6 +640,33 @@ func TestCLIBGPSurfaceEvents(t *testing.T) {
 	}
 }
 
+func TestCLIFlowTopPreservesStackedFilters(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/flows/top", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query()["filter"]; len(got) != 2 ||
+			got[0] != "src:10.0.0.1" || got[1] != "protocol:ipfix" {
+			t.Fatalf("filter query = %v, want both ordered filters", got)
+		}
+		if got := r.URL.Query().Get("by"); got != "dst_country" {
+			t.Fatalf("by query = %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"key": "DE", "bytes": 8000, "packets": 8, "flows": 1},
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	_, errs, code := run(t, srv,
+		"flow", "top",
+		"--query", "by=dst_country",
+		"--query", "filter=src:10.0.0.1",
+		"--query", "filter=protocol:ipfix")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+}
+
 func TestCLIBGPSetupSurfaceRegistersBGPSource(t *testing.T) {
 	op, ok := surfaceCommands["bgp"].Ops["setup"]
 	if !ok {

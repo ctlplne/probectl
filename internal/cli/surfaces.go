@@ -137,7 +137,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"status": {Method: http.MethodGet, Path: "/v1/fairness"},
 	}},
 	"flow": {Name: "flow", Summary: "flow analytics", Ops: map[string]apiOp{
-		"top":       {Method: http.MethodGet, Path: "/v1/flows/top"},
+		"top":       {Method: http.MethodGet, Path: "/v1/flows/top", Description: "pivot top contributors and bucketed history; repeat --query filter=field:value to narrow"},
 		"capacity":  {Method: http.MethodGet, Path: "/v1/flows/capacity"},
 		"anomalies": {Method: http.MethodGet, Path: "/v1/flows/anomalies"},
 	}},

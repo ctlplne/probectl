@@ -36,6 +36,12 @@
   align-items: start;
 }
 
+.panelGrid > *,
+.stack,
+.visualStack {
+  min-width: 0;
+}
+
 .stack {
   display: flex;
   flex-direction: column;
@@ -53,6 +59,27 @@
   gap: var(--space-3);
   flex-wrap: wrap;
   align-items: end;
+}
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.filterChip {
+  border-radius: var(--radius-pill);
+  gap: var(--space-2);
+}
+
+.contributorButton {
+  height: auto;
+  min-height: var(--density-control-block-sm);
+  padding-block: var(--space-1);
+  text-align: start;
+  white-space: normal;
 }
 
 .kv {

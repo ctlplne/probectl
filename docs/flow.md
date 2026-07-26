@@ -212,15 +212,26 @@ authenticated principal's tenant before any value is read (the tenant never
 comes from a query parameter):
 
 ```text
-GET /v1/flows/top?by=src|dst|pair|src_asn|dst_asn&window=1h&limit=10
+GET /v1/flows/top?by=<facet>&window=1h&bucket=3m&limit=10&filter=protocol:ipfix&filter=port:443
 GET /v1/flows/capacity?exporter=&direction=in|out&window=1h&bucket=3m
 GET /v1/flows/anomalies?window=1h&bucket=3m&k=3&min_bps=1000
 ```
 
 - **Top-talkers** aggregates the sampling-corrected bytes / packets / flow-counts
   by the requested key and returns the highest contributors (`limit` defaults to
-  10, capped at 1000). `by=pair` groups source→destination; `by=src_asn` /
-  `dst_asn` group by enriched AS number.
+  10, capped at 1000), plus bucketed history for the first six rows so the web
+  workspace can show the ranked table and time series from the same query.
+  `by` accepts `src`, `dst`, `pair`, `src_asn`, `dst_asn`, `as_name`,
+  `src_country`, `dst_country`, `port`, `protocol`, and `exporter`.
+  `by=pair` groups source→destination. `as_name` uses the destination AS
+  organization with a source fallback; `port` uses the destination service port
+  with a source fallback.
+- **Narrowing filters** are repeated exact-match `filter=field:value` query
+  values and are ANDed. The allowlist is every grouping except `pair`; use one
+  `src` and one `dst` filter for a pair. The authenticated principal supplies
+  tenant scope before filters are evaluated—`tenant_id` is not a valid filter.
+  ClickHouse receives every filter value as a typed bound parameter; only the
+  allowlisted field enum becomes SQL structure.
 - **Capacity** buckets per-`(exporter, interface)` throughput into bps/pps
   (bits per second / packets per second) over
   time. `direction` selects which interface (ingress/egress) to group by
@@ -266,6 +277,11 @@ PROBECTL_FLOW_BUS_BROKERS=localhost:9092 ./bin/probectl-flow-agent
 
 # ask the API (tenant comes from the authenticated principal, not the URL)
 curl -s "https://localhost:8443/v1/flows/top?by=src_asn&window=15m&limit=5"
+
+# CLI parity: pivot, then retain both narrowing filters.
+probectl flow top --query by=dst_country \
+  --query filter=protocol:ipfix \
+  --query filter=port:443
 ```
 
 See [`deploying-agents.md`](deploying-agents.md) for where the collector sits

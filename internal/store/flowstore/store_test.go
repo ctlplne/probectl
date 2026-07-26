@@ -27,15 +27,23 @@ func seed(t *testing.T, s Store) {
 	rows := []Row{
 		{TenantID: "t-a", Exporter: "r1", Protocol: "netflow5", TS: now.Add(-5 * time.Minute),
 			SrcAddr: "10.0.0.1", DstAddr: "10.0.0.9", SrcASN: 64500, SrcASName: "ACME-NET",
+			DstASN: 64510, DstASName: "DEST-NET", SrcCountry: "US", DstCountry: "DE",
+			SrcPort: 12000, DstPort: 443, Transport: "tcp",
 			InIf: 1, OutIf: 2, BytesScaled: 10_000, PacketsScaled: 10},
 		{TenantID: "t-a", Exporter: "r1", Protocol: "netflow5", TS: now.Add(-4 * time.Minute),
 			SrcAddr: "10.0.0.1", DstAddr: "10.0.0.9", SrcASN: 64500, SrcASName: "ACME-NET",
+			DstASN: 64510, DstASName: "DEST-NET", SrcCountry: "US", DstCountry: "DE",
+			SrcPort: 12001, DstPort: 443, Transport: "tcp",
 			InIf: 1, OutIf: 2, BytesScaled: 12_000, PacketsScaled: 12},
 		{TenantID: "t-a", Exporter: "r1", Protocol: "ipfix", TS: now.Add(-3 * time.Minute),
 			SrcAddr: "10.0.0.1", DstAddr: "10.0.0.8", SrcASN: 64500, SrcASName: "ACME-NET",
+			DstASN: 64511, DstASName: "BACKUP-NET", SrcCountry: "US", DstCountry: "GB",
+			SrcPort: 12002, DstPort: 8443, Transport: "tcp",
 			InIf: 1, OutIf: 2, BytesScaled: 8_000, PacketsScaled: 8},
 		{TenantID: "t-a", Exporter: "r1", Protocol: "sflow5", TS: now.Add(-2 * time.Minute),
 			SrcAddr: "10.0.0.2", DstAddr: "10.0.0.9", SrcASN: 64501, SrcASName: "OTHER-NET",
+			DstASN: 64510, DstASName: "DEST-NET", SrcCountry: "CA", DstCountry: "DE",
+			SrcPort: 53000, DstPort: 53, Transport: "udp",
 			InIf: 1, OutIf: 2, BytesScaled: 5_000, PacketsScaled: 5},
 		// outside the window
 		{TenantID: "t-a", Exporter: "r1", Protocol: "netflow5", TS: now.Add(-3 * time.Hour),
@@ -95,6 +103,82 @@ func TestMemoryTopTalkers(t *testing.T) {
 	}
 	if _, err := m.TopTalkers(ctx, TopQuery{TenantID: "t-a", By: "bogus"}); err == nil {
 		t.Fatal("bogus grouping must error")
+	}
+}
+
+func TestMemoryFlowFacetsFiltersAndSeries(t *testing.T) {
+	m := NewMemory()
+	seed(t, m)
+	ctx := context.Background()
+
+	tests := []struct {
+		by      string
+		wantKey string
+	}{
+		{ByASName, "DEST-NET"},
+		{BySrcCountry, "US"},
+		{ByDstCountry, "DE"},
+		{ByPort, "443"},
+		{ByProtocol, "netflow5"},
+		{ByExporter, "r1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.by, func(t *testing.T) {
+			top, err := m.TopTalkers(ctx, TopQuery{
+				TenantID: "t-a", By: tc.by, Window: time.Hour, Now: now,
+			})
+			if err != nil {
+				t.Fatalf("top %s: %v", tc.by, err)
+			}
+			if len(top) == 0 || top[0].Key != tc.wantKey {
+				t.Fatalf("top %s = %+v, want leading key %q", tc.by, top, tc.wantKey)
+			}
+		})
+	}
+
+	q := TopQuery{
+		TenantID: "t-a",
+		By:       ByDst,
+		Window:   time.Hour,
+		Bucket:   time.Minute,
+		Now:      now,
+		Filters: []Filter{
+			{Field: FilterSrc, Value: "10.0.0.1"},
+			{Field: FilterProtocol, Value: "ipfix"},
+			{Field: FilterPort, Value: "8443"},
+		},
+	}
+	top, err := m.TopTalkers(ctx, q)
+	if err != nil {
+		t.Fatalf("filtered top: %v", err)
+	}
+	if len(top) != 1 || top[0].Key != "10.0.0.8" || top[0].Bytes != 8_000 {
+		t.Fatalf("stacked filters = %+v", top)
+	}
+	series, err := m.TopSeries(ctx, q, top)
+	if err != nil {
+		t.Fatalf("filtered series: %v", err)
+	}
+	if len(series) != 1 || series[0].Key != "10.0.0.8" || series[0].Bytes != 8_000 {
+		t.Fatalf("filtered series = %+v", series)
+	}
+	for _, point := range series {
+		if strings.HasPrefix(point.Key, "172.16.") {
+			t.Fatalf("CROSS-TENANT SERIES LEAK: %+v", point)
+		}
+	}
+
+	for _, invalid := range []Filter{
+		{Field: FilterField("tenant_id"), Value: "t-b"},
+		{Field: FilterPort, Value: "70000"},
+		{Field: FilterSrcASN, Value: "not-an-asn"},
+		{Field: FilterExporter, Value: ""},
+	} {
+		if _, err := m.TopTalkers(ctx, TopQuery{
+			TenantID: "t-a", By: BySrc, Filters: []Filter{invalid},
+		}); err == nil {
+			t.Fatalf("invalid filter accepted: %+v", invalid)
+		}
 	}
 }
 
@@ -355,8 +439,47 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	aq := TopQuery{TenantID: "t-a", By: BySrcASN, Window: time.Hour, Now: now}
 	_ = aq.normalize()
 	asql, _ := topSQL(aq, sharedFlowsTable)
-	if !strings.Contains(asql, "src_asn != 0") || !strings.Contains(asql, "any(src_as_name)") {
+	if !strings.Contains(asql, "src_asn != 0") || !strings.Contains(asql, "src_as_name AS d") {
 		t.Fatalf("asn sql = %s", asql)
+	}
+
+	// Facet values are bound even when they contain SQL injection syntax.
+	fq := TopQuery{
+		TenantID: "t-a", By: ByProtocol, Window: time.Hour, Now: now,
+		Filters: []Filter{
+			{Field: FilterProtocol, Value: "tcp' OR 1=1 --"},
+			{Field: FilterPort, Value: "443"},
+		},
+	}
+	if err := fq.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	fsql, fparams := topSQL(fq, sharedFlowsTable)
+	if strings.Contains(fsql, "OR 1=1") || strings.Contains(fsql, "tcp'") {
+		t.Fatalf("INJECTION: filter value leaked into SQL: %s", fsql)
+	}
+	for _, want := range []string{
+		"protocol={filter_0:String}",
+		"(src_port={filter_1:UInt16} OR dst_port={filter_1:UInt16})",
+	} {
+		if !strings.Contains(fsql, want) {
+			t.Fatalf("filtered SQL missing %q: %s", want, fsql)
+		}
+	}
+	if fparams["filter_0"] != "tcp' OR 1=1 --" || fparams["filter_1"] != "443" {
+		t.Fatalf("filter params = %v", fparams)
+	}
+
+	seriesSQL, seriesParams := topSeriesSQL(fq, sharedFlowsTable, []TopRow{
+		{Key: "tcp' OR 1=1 --"},
+	})
+	if strings.Contains(seriesSQL, "tcp'") ||
+		!strings.Contains(seriesSQL, "WHERE tenant_id={tenant:String}") ||
+		!strings.Contains(seriesSQL, "INTERVAL 180 second") {
+		t.Fatalf("series SQL lost binding/scope/bucket contract: %s", seriesSQL)
+	}
+	if seriesParams["tenant"] != "t-a" || seriesParams["series_key_0"] != "tcp' OR 1=1 --" {
+		t.Fatalf("series params = %v", seriesParams)
 	}
 }
 

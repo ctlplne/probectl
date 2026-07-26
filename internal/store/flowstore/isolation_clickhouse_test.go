@@ -68,6 +68,18 @@ func TestClickHouseCrossTenantIsolation(t *testing.T) {
 			t.Fatalf("CROSS-TENANT LEAK: tenant A read tenant B's flow %+v", r)
 		}
 	}
+	series, err := c.TopSeries(ctx, q, rows)
+	if err != nil {
+		t.Fatalf("top series: %v", err)
+	}
+	if len(series) != 2 {
+		t.Fatalf("tenant A sees %d series points, want exactly its own 2", len(series))
+	}
+	for _, point := range series {
+		if point.Key == "192.0.2.77" {
+			t.Fatalf("CROSS-TENANT SERIES LEAK: tenant A read tenant B's flow %+v", point)
+		}
+	}
 
 	// Verifiable deletion stays scoped: erasing A leaves B intact.
 	if _, err := c.DeleteTenant(ctx, ta); err != nil {

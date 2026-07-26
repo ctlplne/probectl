@@ -31,7 +31,9 @@ import {
   useFlowTop,
   type DeviceConfigVersion,
   type DeviceSyslogEvent,
+  type FlowFilter,
   type FlowGroupBy,
+  type FlowTopRow,
 } from '../api/planes'
 import { useTopology, type TopoEdge, type TopoNode } from '../api/topology'
 import { DateTime } from '../time/DateTime'
@@ -44,6 +46,7 @@ import {
   formatScaledBytes,
 } from '../i18n/number'
 import { BgpAsPathView, FlowSankeyView } from '../viz/PlaneRelationships'
+import { TimeSeries } from '../components/TimeSeries'
 import {
   parsePivotContext,
   planePivotHref,
@@ -108,9 +111,10 @@ export function PlanesPage() {
   const { locale, t } = useI18n()
   const active: PlaneID = isPlaneID(plane) ? plane : 'bgp'
   const [flowBy, setFlowBy] = useState<FlowGroupBy>('src')
+  const [flowFilters, setFlowFilters] = useState<FlowFilter[]>([])
   const topology = useTopology()
   const endpoints = useEndpoints()
-  const topTalkers = useFlowTop(flowBy, '1h', 8)
+  const topTalkers = useFlowTop(flowBy, '1h', 8, flowFilters)
   const capacity = useFlowCapacity('1h', '5m')
   const anomalies = useFlowAnomalies('1h', '5m')
   const deviceSyslog = useDeviceSyslog(5)
@@ -220,6 +224,8 @@ export function PlanesPage() {
         <FlowPanel
           flowBy={flowBy}
           onFlowBy={setFlowBy}
+          filters={flowFilters}
+          onFilters={setFlowFilters}
           topTalkers={topTalkers}
           anomalies={anomalies}
           latestCapacity={latestCapacity}
@@ -406,27 +412,69 @@ function BGPPanel({
 function FlowPanel({
   flowBy,
   onFlowBy,
+  filters,
+  onFilters,
   topTalkers,
   anomalies,
   latestCapacity,
 }: {
   flowBy: FlowGroupBy
   onFlowBy: (value: FlowGroupBy) => void
+  filters: FlowFilter[]
+  onFilters: (filters: FlowFilter[]) => void
   topTalkers: ReturnType<typeof useFlowTop>
   anomalies: ReturnType<typeof useFlowAnomalies>
   latestCapacity?: { bps: number; pps: number; exporter: string; iface: number; ts: string }
 }) {
   const { locale, t } = useI18n()
   const topRows = topTalkers.data?.items ?? []
+  const seriesPoints = topTalkers.data?.series ?? []
+  const seriesRows = topRows.slice(0, topTalkers.data?.series_limit ?? 6)
+  const seriesTimestamps = [...new Set(seriesPoints.map((point) => point.ts))].sort()
+  const chartSeries = seriesRows.map((row) => {
+    const values = new Map(
+      seriesPoints
+        .filter((point) => point.key === row.key && (point.detail ?? '') === (row.detail ?? ''))
+        .map((point) => [point.ts, point.bytes]),
+    )
+    return {
+      label: row.detail ? `${row.key} → ${row.detail}` : row.key,
+      values: seriesTimestamps.map((timestamp) => values.get(timestamp) ?? null),
+    }
+  })
+  const narrow = (row: FlowTopRow) => {
+    const next = flowFiltersForRow(flowBy, row)
+    const merged = [...filters]
+    for (const filter of next) {
+      if (
+        !merged.some(
+          (existing) => existing.field === filter.field && existing.value === filter.value,
+        )
+      ) {
+        merged.push(filter)
+      }
+    }
+    onFilters(merged)
+  }
   const topColumns: Column<NonNullable<typeof topTalkers.data>['items'][number]>[] = [
     {
       key: 'key',
       header: t('planes.flow.column.contributor'),
       render: (r) => (
-        <div>
-          <strong>{r.key}</strong>
-          {r.detail ? <div className={styles.muted}>{r.detail}</div> : null}
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.contributorButton}
+          onClick={() => narrow(r)}
+          aria-label={t('planes.flow.filter.narrow', {
+            value: r.detail ? `${r.key} → ${r.detail}` : r.key,
+          })}
+        >
+          <span>
+            <strong>{r.key}</strong>
+            {r.detail ? <div className={styles.muted}>{r.detail}</div> : null}
+          </span>
+        </Button>
       ),
     },
     {
@@ -497,17 +545,60 @@ function FlowPanel({
                   { value: 'pair', label: t('planes.flow.group.pair') },
                   { value: 'src_asn', label: t('planes.flow.group.srcAsn') },
                   { value: 'dst_asn', label: t('planes.flow.group.dstAsn') },
+                  { value: 'as_name', label: t('planes.flow.group.asName') },
+                  { value: 'src_country', label: t('planes.flow.group.srcCountry') },
+                  { value: 'dst_country', label: t('planes.flow.group.dstCountry') },
+                  { value: 'port', label: t('planes.flow.group.port') },
+                  { value: 'protocol', label: t('planes.flow.group.protocol') },
+                  { value: 'exporter', label: t('planes.flow.group.exporter') },
                 ]}
               />
             }
           />
           <CardBody>
+            <div className={styles.filterBar} aria-label={t('planes.flow.filter.active')}>
+              <span className={styles.muted}>{t('planes.flow.filter.active')}</span>
+              {filters.length === 0 ? (
+                <span className={styles.muted}>{t('planes.flow.filter.none')}</span>
+              ) : (
+                filters.map((filter, index) => (
+                  <Button
+                    key={`${filter.field}-${filter.value}`}
+                    size="sm"
+                    variant="secondary"
+                    className={styles.filterChip}
+                    aria-label={t('planes.flow.filter.remove', {
+                      field: filter.field,
+                      value: filter.value,
+                    })}
+                    onClick={() => onFilters(filters.filter((_, candidate) => candidate !== index))}
+                  >
+                    <span>{filter.field}</span>
+                    <strong>{filter.value}</strong>
+                    <span aria-hidden="true">×</span>
+                  </Button>
+                ))
+              )}
+              {filters.length > 0 ? (
+                <Button size="sm" variant="ghost" onClick={() => onFilters([])}>
+                  {t('planes.flow.filter.clear')}
+                </Button>
+              ) : null}
+            </div>
             {topTalkers.isLoading ? (
               <LoadingState label={t('planes.flow.top.loading')} />
             ) : topTalkers.isError ? (
               <ErrorState description={t('planes.flow.top.error')} />
             ) : topRows.length > 0 ? (
               <div className={styles.visualStack}>
+                {seriesTimestamps.length > 0 && chartSeries.length > 0 ? (
+                  <TimeSeries
+                    timestamps={seriesTimestamps}
+                    series={chartSeries}
+                    label={t('planes.flow.series.label')}
+                    formatValue={(value) => bytes(value, locale)}
+                  />
+                ) : null}
                 <FlowSankeyView rows={topRows} />
                 <Table
                   caption={t('planes.flow.top.caption')}
@@ -578,6 +669,16 @@ function FlowPanel({
       />
     </section>
   )
+}
+
+function flowFiltersForRow(by: FlowGroupBy, row: FlowTopRow): FlowFilter[] {
+  if (by === 'pair') {
+    return [
+      { field: 'src', value: row.key },
+      { field: 'dst', value: row.detail ?? '' },
+    ].filter((filter) => filter.value !== '') as FlowFilter[]
+  }
+  return [{ field: by, value: row.key }]
 }
 
 function DevicePanel({
