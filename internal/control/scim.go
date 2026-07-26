@@ -54,6 +54,8 @@ const (
 	scimDefaultRatePerMin         = 600
 )
 
+var errSCIMInvalidUserPatch = errors.New("control: invalid SCIM user patch")
+
 // WithSCIMControls overrides the built-in SCIM directory caps and token-scoped
 // rate limit. Non-positive caps keep the hardened defaults; a non-positive rate
 // disables the token bucket for test/dev profiles that need it.
@@ -195,9 +197,9 @@ func (s *Server) scimPutUser(w http.ResponseWriter, r *http.Request, tenantID st
 	if !decodeSCIM(w, r, &in) {
 		return
 	}
-	s.applyUserWrite(w, r, tenantID, id, func(_ *store.User) store.User {
+	s.applyUserWrite(w, r, tenantID, id, func(_ *store.User) (store.User, error) {
 		next := scimToUser(in)
-		return next
+		return next, nil
 	})
 }
 
@@ -207,16 +209,26 @@ func (s *Server) scimPatchUser(w http.ResponseWriter, r *http.Request, tenantID 
 	if !decodeSCIM(w, r, &patch) {
 		return
 	}
-	s.applyUserWrite(w, r, tenantID, id, func(cur *store.User) store.User {
+	s.applyUserWrite(w, r, tenantID, id, func(cur *store.User) (store.User, error) {
 		su := userToSCIM(*cur, scimBase(r))
-		_ = scim.ApplyUserPatch(&su, patch.Operations)
-		return scimToUser(su)
+		if err := scim.ApplyUserPatch(&su, patch.Operations); err != nil {
+			// Do not wrap or log the parser error: it can contain the
+			// untrusted PATCH value. The fixed sentinel is enough to map the
+			// request to a generic SCIM invalidValue response.
+			return store.User{}, errSCIMInvalidUserPatch
+		}
+		return scimToUser(su), nil
 	})
 }
 
 // applyUserWrite loads the user, computes the next state via mutate, persists it,
 // and — if the user is now inactive — revokes the user's sessions + tokens at once.
-func (s *Server) applyUserWrite(w http.ResponseWriter, r *http.Request, tenantID, id string, mutate func(*store.User) store.User) {
+func (s *Server) applyUserWrite(
+	w http.ResponseWriter,
+	r *http.Request,
+	tenantID, id string,
+	mutate func(*store.User) (store.User, error),
+) {
 	var out *store.User
 	deactivated := false
 	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
@@ -224,7 +236,10 @@ func (s *Server) applyUserWrite(w http.ResponseWriter, r *http.Request, tenantID
 		if e != nil {
 			return e
 		}
-		next := mutate(cur)
+		next, e := mutate(cur)
+		if e != nil {
+			return e
+		}
 		u, e := store.Users{}.Update(ctx, sc, id, next)
 		if e != nil {
 			return e
@@ -238,6 +253,10 @@ func (s *Server) applyUserWrite(w http.ResponseWriter, r *http.Request, tenantID
 		return auditSCIM(ctx, sc, action, u.ID, map[string]any{"active": !deactivated})
 	})
 	if err != nil {
+		if errors.Is(err, errSCIMInvalidUserPatch) {
+			writeSCIMError(w, http.StatusBadRequest, "invalidValue", "invalid user PATCH value")
+			return
+		}
 		s.writeSCIMStoreError(w, err, "user")
 		return
 	}

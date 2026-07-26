@@ -355,6 +355,11 @@ func TestSCIMDeprovisionRevokesSession(t *testing.T) {
 
 	if rec := withCookie(t, h, http.MethodGet, "/v1/me", cookie); rec.Code != http.StatusOK {
 		t.Fatalf("session should resolve before deprovision: %d %s", rec.Code, rec.Body)
+	} else if rotated := findCookie(rec.Result().Cookies(), auth.SessionCookie); rotated != nil && rotated.Value != "" {
+		// The first authorization can rotate a session whose permission
+		// fingerprint was not present at issuance. Follow the live token so
+		// the post-deprovision 401 proves revocation, not stale-cookie reuse.
+		cookie = rotated
 	}
 
 	// deprovision via SCIM (active=false)
@@ -366,6 +371,80 @@ func TestSCIMDeprovisionRevokesSession(t *testing.T) {
 	// the session is revoked at once → 401
 	if rec := withCookie(t, h, http.MethodGet, "/v1/me", cookie); rec.Code != http.StatusUnauthorized {
 		t.Errorf("session must be revoked immediately on deprovision: %d", rec.Code)
+	}
+}
+
+func TestSCIMInvalidUserPatchLeavesUserSessionAndAuditUnchanged(t *testing.T) {
+	srv, db := setupSessionAPI(t, auth.Identity{})
+	h := srv.Handler()
+	tenant := freshTenant(t, db, "sciminvalid")
+	token := scimToken(t, db, tenant, "okta")
+
+	id := scimID(t, scimReq(
+		t,
+		h,
+		http.MethodPost,
+		"/scim/v2/Users",
+		token,
+		scimUserBody("invalid-patch@x.com", "invalid-patch-1", "x"),
+	))
+	sessTok, err := srv.sessions.Issue(context.Background(), auth.Session{
+		TenantID:    tenant,
+		UserID:      id,
+		Email:       "invalid-patch@x.com",
+		DisplayName: "Invalid Patch",
+		ExpiresAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := &http.Cookie{Name: auth.SessionCookie, Value: sessTok}
+
+	invalidPatches := []string{
+		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Must Not Persist"},{"op":"replace","path":"active","value":"maybe"}]}`,
+		`{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","value":{"active":"maybe"}}]}`,
+	}
+	for i, patch := range invalidPatches {
+		rec := scimReq(t, h, http.MethodPatch, "/scim/v2/Users/"+id, token, patch)
+		if rec.Code != http.StatusBadRequest ||
+			!strings.Contains(rec.Body.String(), `"scimType":"invalidValue"`) {
+			t.Fatalf("invalid PATCH %d = %d %s, want 400 invalidValue", i, rec.Code, rec.Body)
+		}
+		if strings.Contains(rec.Body.String(), "maybe") {
+			t.Fatalf("invalid PATCH %d echoed the rejected value: %s", i, rec.Body)
+		}
+
+		got := scimReq(t, h, http.MethodGet, "/scim/v2/Users/"+id, token, "")
+		var user map[string]any
+		mustJSON(t, got, &user)
+		if got.Code != http.StatusOK || user["active"] != true || user["displayName"] != "Test User" {
+			t.Fatalf("invalid PATCH %d changed user: %d %+v", i, got.Code, user)
+		}
+		if session := withCookie(t, h, http.MethodGet, "/v1/me", cookie); session.Code != http.StatusOK {
+			t.Fatalf("invalid PATCH %d revoked session: %d %s", i, session.Code, session.Body)
+		} else if rotated := findCookie(session.Result().Cookies(), auth.SessionCookie); rotated != nil && rotated.Value != "" {
+			cookie = rotated
+		}
+	}
+
+	if got := countTenantRows(
+		t,
+		db,
+		tenant,
+		`SELECT count(*) FROM audit_events
+		  WHERE target = $1 AND action IN ('directory.update', 'directory.deprovision')`,
+		id,
+	); got != 0 {
+		t.Fatalf("invalid PATCH appended %d successful update/deprovision audit rows", got)
+	}
+
+	// Preserve Entra's string-boolean form, including immediate revocation.
+	entra := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"active","value":"False"}]}`
+	if rec := scimReq(t, h, http.MethodPatch, "/scim/v2/Users/"+id, token, entra); rec.Code != http.StatusOK {
+		t.Fatalf("valid Entra deprovision = %d %s", rec.Code, rec.Body)
+	}
+	if session := withCookie(t, h, http.MethodGet, "/v1/me", cookie); session.Code != http.StatusUnauthorized {
+		t.Fatalf("valid Entra deprovision left session active: %d %s", session.Code, session.Body)
 	}
 }
 

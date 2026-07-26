@@ -77,6 +77,14 @@ func TestApplyUserPatchDeactivation(t *testing.T) {
 	if err := ApplyUserPatch(&u, ops(`[{"op":"replace","path":"active","value":"maybe"}]`)); err == nil {
 		t.Error("want error on invalid boolean")
 	}
+	// Invalid Okta object form must fail too; it used to be silently ignored.
+	u = User{Active: true}
+	if err := ApplyUserPatch(&u, ops(`[{"op":"replace","value":{"active":"maybe"}}]`)); err == nil {
+		t.Error("want error on invalid object-form boolean")
+	}
+	if !u.Active {
+		t.Error("invalid object-form boolean mutated active")
+	}
 }
 
 func TestParseGroupPatch(t *testing.T) {

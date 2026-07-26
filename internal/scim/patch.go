@@ -60,9 +60,11 @@ func ApplyUserPatch(u *User, ops []PatchOperation) error {
 				return fmt.Errorf("scim: patch value is not an object: %w", err)
 			}
 			if v, ok := m["active"]; ok {
-				if b, err := parseSCIMBool(v); err == nil {
-					u.Active = b
+				b, err := parseSCIMBool(v)
+				if err != nil {
+					return err
 				}
+				u.Active = b
 			}
 			if v, ok := m["userName"]; ok {
 				u.UserName = trimJSONString(v)
