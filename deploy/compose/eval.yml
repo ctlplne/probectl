@@ -8,8 +8,8 @@
 # flow end-to-end with one command and no Go toolchain:
 #
 #     docker compose -f deploy/compose/eval.yml up --build -d
-#     # wait ~20s for the control plane to migrate + start, then:
-#     docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+#     # The viewer waits for control-plane readiness and sample topology data:
+#     docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
 #     # -> a JSON service-map (topology) built from sample flows = first data.
 #
 # How it reaches data with zero enrollment: the eBPF agent runs in FIXTURE mode
@@ -84,6 +84,25 @@ services:
       start_period: 20s
     networks: [probectl]
 
+  # Kafka clients intentionally do not rely on implicit topic creation. The
+  # fixture producers are finite jobs, so their target topics must exist before
+  # they emit or an async first publish can fail after the process has exited.
+  kafka-init:
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
+          --create --if-not-exists --topic probectl.ebpf.flows \
+          --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
+          --create --if-not-exists --topic probectl.bgp.events \
+          --partitions 3 --replication-factor 1
+    networks: [probectl]
+    restart: "no"
+
   # ---- one-shot: self-signed server TLS into the shared `certs` volume ------
   # Uses the same locally-built image as `control`; `gen-cert` is mode-agnostic.
   # SANs include `control` so in-network HTTPS to the service name verifies; the
@@ -134,6 +153,56 @@ services:
     networks: [probectl]
     restart: unless-stopped
 
+  # Register the fixed SAMPLE collector identity after control has created the
+  # schema. This is eval-only database scaffolding, not a tenant-verification
+  # bypass: the production topology consumer still verifies every batch against
+  # the tenant-scoped agents registry and fails closed if this row is absent.
+  # The bounded schema poll replaces any host-speed-dependent startup sleep.
+  eval-registry:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae
+    depends_on:
+      control: { condition: service_started }
+    environment:
+      PGHOST: postgres
+      PGUSER: probectl
+      PGPASSWORD: probectl
+      PGDATABASE: probectl
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        attempt=0
+        while [ "$$(psql -Atqc "SELECT to_regclass('public.agents')::text" 2>/dev/null || true)" != "agents" ]; do
+          attempt=$$((attempt + 1))
+          if [ "$$attempt" -ge 60 ]; then
+            echo "eval-registry: agents schema did not become ready" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        psql -v ON_ERROR_STOP=1 -c "
+          BEGIN;
+          SELECT set_config('probectl.tenant_id', '00000000-0000-0000-0000-000000000001', true);
+          INSERT INTO agents
+            (id, tenant_id, name, hostname, status, capabilities, spiffe_id, last_seen_at)
+          VALUES
+            ('00000000-0000-0000-0000-000000000101',
+             '00000000-0000-0000-0000-000000000001',
+             'sample-ebpf', 'sample-node', 'online',
+             '[\"collector\",\"ebpf\"]'::jsonb,
+             'spiffe://probectl/tenant/00000000-0000-0000-0000-000000000001/agent/00000000-0000-0000-0000-000000000101',
+             now())
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            hostname = EXCLUDED.hostname,
+            status = EXCLUDED.status,
+            capabilities = EXCLUDED.capabilities,
+            spiffe_id = EXCLUDED.spiffe_id,
+            last_seen_at = EXCLUDED.last_seen_at
+          WHERE agents.tenant_id = EXCLUDED.tenant_id;
+          COMMIT;"
+    networks: [probectl]
+    restart: "no"
+
   # ---- producer: eBPF agent in FIXTURE mode (no kernel, any OS) -------------
   # Built locally WITHOUT the `ebpf` tag = the portable fixture/replay build (the
   # live CO-RE loader needs Linux + CAP_BPF and is a separate -tags ebpf image).
@@ -146,7 +215,8 @@ services:
         COMPONENT: probectl-ebpf-agent   # no GO_TAGS => fixture-capable portable build
     image: probectl-ebpf-agent-eval:dev
     depends_on:
-      kafka: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      eval-registry: { condition: service_completed_successfully }
     environment:
       PROBECTL_EBPF_TENANT_ID: "00000000-0000-0000-0000-000000000001"  # built-in default tenant
       PROBECTL_EBPF_FIXTURE_PATH: "/flows.json"      # SAMPLE data, mounted below
@@ -175,7 +245,7 @@ services:
       dockerfile: deploy/docker/Dockerfile.bgp-analyzer
     image: probectl-bgp-analyzer-eval:dev
     depends_on:
-      kafka: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
     environment:
       PROBECTL_BGP_ANALYZER_CONFIG: /etc/probectl/analyzer.json
       PROBECTL_BGP_ANALYZER_SOURCE: replay
@@ -194,7 +264,7 @@ services:
   # Shares the control plane's network namespace so it can reach 127.0.0.1:8443
   # (which is not published to your host). `--profile tools` keeps it off the
   # default `up`; run it on demand:
-  #   docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+  #   docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
   viewer:
     image: curlimages/curl:8.11.1   # eval-only helper; operators may digest-pin (SUPPLY-001)
     profiles: ["tools"]
@@ -202,11 +272,44 @@ services:
     depends_on: [control]
     volumes:
       - certs:/certs:ro
-    # dev auth needs no token; --cacert trusts the self-signed quickstart cert.
-    # Defaults to the topology; override the path, e.g. -e URL=/v1/results/latest.
+    # Dev auth needs no token; --cacert trusts the self-signed quickstart cert.
+    # The default path waits for both API readiness and at least one sample-flow
+    # edge, so an empty graph cannot masquerade as successful "first data".
+    # Override the path (for example -e URL=/v1/results/latest) to wait only for
+    # readiness and then read that endpoint once.
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - 'curl -sS --cacert /certs/ca.crt "https://127.0.0.1:8443${URL:-/v1/topology}"'
+      - |
+        set -eu
+        base=https://127.0.0.1:8443
+        attempt=0
+        until curl -fsS --cacert /certs/ca.crt "$$base/readyz" >/dev/null; do
+          attempt=$$((attempt + 1))
+          if [ "$$attempt" -ge 60 ]; then
+            echo "viewer: control plane did not become ready; inspect: docker compose -f deploy/compose/eval.yml logs control" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        target="$${URL:-/v1/topology}"
+        if [ "$$target" != "/v1/topology" ]; then
+          exec curl -fsS --cacert /certs/ca.crt "$$base$$target"
+        fi
+        attempt=0
+        body=
+        while [ "$$attempt" -lt 60 ]; do
+          if body="$$(curl -fsS --cacert /certs/ca.crt "$$base$$target")"; then
+            if printf '%s' "$$body" | grep -Eq '"flow_edges"[[:space:]]*:[[:space:]]*[1-9][0-9]*'; then
+              printf '%s\n' "$$body"
+              exit 0
+            fi
+          fi
+          attempt=$$((attempt + 1))
+          sleep 2
+        done
+        echo "viewer: control plane became ready but sample topology data did not arrive" >&2
+        printf '%s\n' "$$body" >&2
+        exit 1
 
 volumes:
   pgdata: {}

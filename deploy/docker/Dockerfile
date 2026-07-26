@@ -29,6 +29,12 @@ COPY ee/web /ee/web
 # imports this committed product baseline from outside web/. Preserve that same
 # repository-relative path inside the isolated web build stage.
 COPY docs/ux/journey-baseline.json /docs/ux/journey-baseline.json
+# The web prebuild runs the rendered-browser self-test from the repository
+# `scripts/` directory. That self-test also validates its dashboard fixture
+# against the served OpenAPI schema, so both inputs must exist at their original
+# repository-relative paths inside this isolated stage.
+COPY scripts/web_rendered_a11y.mjs /scripts/web_rendered_a11y.mjs
+COPY internal/control/openapi.json /internal/control/openapi.json
 RUN npm run build   # → /web/dist (hashed assets)
 
 # Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no
@@ -66,6 +72,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} \
         -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}" \
       -o /out/app ./cmd/${COMPONENT}
+# A named volume mounted over a path absent from the image is initialized as
+# root-owned. Seed an empty non-root directory so the one-shot `gen-cert`
+# process can write the shared quickstart certificate without running as root;
+# the 0600 private key remains owned by the same non-root identity as control.
+RUN install -d -m 0700 -o 65532 -g 65532 /out/certs
 
 # Minimal, non-root runtime. distroless/static keeps the image tiny and
 # vulnerability-free for static Go binaries.
@@ -75,5 +86,6 @@ LABEL org.opencontainers.image.source="https://github.com/imfeelingtheagi/probec
       org.opencontainers.image.title="${COMPONENT}" \
       org.opencontainers.image.description="probectl ${COMPONENT}"
 COPY --from=build /out/app /usr/local/bin/app
+COPY --from=build --chown=nonroot:nonroot /out/certs/ /certs/
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/app"]

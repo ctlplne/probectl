@@ -93,8 +93,8 @@ macOS/Windows/Linux). The control plane folds those flows into the
 
 ```sh
 docker compose -f deploy/compose/eval.yml up --build -d
-# wait ~20s for migrate + start, then read first data:
-docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+# The viewer waits for control-plane readiness and sample topology data:
+docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
 ```
 
 It is fenced as evaluation-only on purpose: the API runs **dev auth** (every

@@ -65,13 +65,14 @@ record, agent, query, metric, event, and object.
 > in [`docs/scale-gate.md`](docs/scale-gate.md). Treat dev-run flows/sec figures
 > as smoke evidence, not production capacity claims.
 
-**Try it in a few minutes** (Docker only, no Go toolchain on your host — the
-image builds from source on first run, then it's ~60 seconds to first data;
-full walkthrough in the [Quickstart](#quickstart-run-it)):
+**Try the evaluation stack** (Docker only, no Go toolchain on your host — the
+image builds from source on first run, and the viewer waits for control-plane
+readiness plus sample topology data; full walkthrough in the
+[Quickstart](#quickstart-run-it)):
 
 ```sh
 docker compose -f deploy/compose/eval.yml up --build -d
-docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer   # → your first data
+docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer   # → your first data
 ```
 
 ## Why probectl
@@ -302,8 +303,8 @@ command and no Go toolchain:
 
 ```sh
 docker compose -f deploy/compose/eval.yml up --build -d
-# ~20s for the control plane to migrate + start, then:
-docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+# The viewer waits for control-plane readiness and sample topology data:
+docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
 ```
 
 `viewer` prints the `/v1/topology` service map the control plane folded out of

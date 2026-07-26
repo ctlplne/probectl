@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S16, SEC-004).
+# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S17, SEC-004).
 #
 # The audit confirmed a set of HONEST-CLAIM strengths: the default AI is the
 # air-gapped builtin, there is no vendor-telemetry egress in the source, no
@@ -201,6 +201,26 @@ run_checks() { # run_checks <root>
     echo "DOCS-S16: stale root-LICENSE placeholder/pending-counsel claim found" >&2; f=1
   fi
 
+  # DOCS-S17: quickstart time-to-first-data is readiness-based, not a
+  # host/cache-dependent stopwatch promise. The viewer must wait for both the
+  # ready endpoint and a non-empty sample-flow topology, then fail loudly.
+  if grep -niE '~20s|~60|60 seconds to first data|a couple of minutes|wait a few seconds' \
+       "$r/README.md" "$r/docs/getting-started.md" "$r/docs/install.md" \
+       "$r/deploy/compose/README.md" "$r/deploy/compose/eval.yml" 2>/dev/null | grep -q .; then
+    echo "DOCS-S17: uncited quickstart timing promise found; use readiness-based language" >&2; f=1
+  fi
+  if ! grep -q 'viewer waits for control-plane readiness and sample topology data' "$r/README.md" 2>/dev/null \
+     || ! grep -q 'viewer waits for control-plane readiness and sample topology data' "$r/docs/getting-started.md" 2>/dev/null \
+     || ! grep -q 'viewer waits for control-plane readiness and sample topology data' "$r/docs/install.md" 2>/dev/null \
+     || ! grep -q -- '--profile tools run --rm --no-deps viewer' "$r/README.md" 2>/dev/null \
+     || ! grep -q -- '--profile tools run --rm --no-deps viewer' "$r/docs/getting-started.md" 2>/dev/null \
+     || ! grep -q -- '--profile tools run --rm --no-deps viewer' "$r/docs/install.md" 2>/dev/null \
+     || ! grep -q 'until curl .*readyz' "$r/deploy/compose/eval.yml" 2>/dev/null \
+     || ! grep -Fq "grep -Eq '\"flow_edges\"[[:space:]]*:[[:space:]]*[1-9][0-9]*'" "$r/deploy/compose/eval.yml" 2>/dev/null \
+     || ! grep -q 'sample topology data did not arrive' "$r/deploy/compose/eval.yml" 2>/dev/null; then
+    echo "DOCS-S17: eval viewer must gate success on readiness plus non-empty sample topology data" >&2; f=1
+  fi
+
   # SEC-004: SECURITY.md scopes provider-operator break-glass abuse as in-scope.
   if [ -f "$r/SECURITY.md" ] \
      && ! grep -qi 'break-glass-gate bypass' "$r/SECURITY.md"; then
@@ -216,7 +236,7 @@ write_good_fixture() { # write_good_fixture <dir>
     "$d/.github/workflows" \
     "$d/cmd" "$d/ee" "$d/internal/ai/eval" "$d/internal/control" \
     "$d/internal/ebpf" "$d/internal/otel/otlp" "$d/internal/threat" \
-    "$d/pkg" "$d/docs/compliance" "$d/docs/features"
+    "$d/pkg" "$d/docs/compliance" "$d/docs/features" "$d/deploy/compose"
 
   cat > "$d/internal/control/ai.go" <<'EOF'
 package control
@@ -332,6 +352,30 @@ EOF
   cat > "$d/docs/pricing.md" <<'EOF'
 The core license grant is already final; draft `ee/LICENSE` and commercial agreements remain counsel-owned.
 EOF
+  cat > "$d/docs/getting-started.md" <<'EOF'
+The viewer waits for control-plane readiness and sample topology data.
+docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
+EOF
+  cat > "$d/docs/install.md" <<'EOF'
+The viewer waits for control-plane readiness and sample topology data.
+docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
+EOF
+  cat > "$d/deploy/compose/README.md" <<'EOF'
+The viewer waits for control-plane readiness and sample topology data.
+EOF
+  cat >> "$d/README.md" <<'EOF'
+The viewer waits for control-plane readiness and sample topology data.
+docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
+EOF
+  cat > "$d/deploy/compose/eval.yml" <<'EOF'
+services:
+  viewer:
+    command:
+      - |
+        until curl -fsS https://127.0.0.1:8443/readyz; do sleep 2; done
+        if printf '%s' "$body" | grep -Eq '"flow_edges"[[:space:]]*:[[:space:]]*[1-9][0-9]*'; then exit 0; fi
+        echo "sample topology data did not arrive"
+EOF
   cat > "$d/docs/features/cost-slo-and-chaos.md" <<'EOF'
 ../limitations.md#built-not-yet-served-edges
 EOF
@@ -439,6 +483,11 @@ EOF
 The `LICENSE` / commercial license texts are a legal artifact pending counsel (placeholder in-tree).
 EOF
       ;;
+    DOCS-S17)
+      cat >> "$d/README.md" <<'EOF'
+First data arrives in ~60 seconds.
+EOF
+      ;;
     SEC-004)
       echo '# scope' > "$d/SECURITY.md"
       ;;
@@ -472,7 +521,7 @@ expect_label_failure() { # expect_label_failure <label>
 }
 
 if [ "${1:-}" = "SELFTEST" ]; then
-  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 SEC-004}"
+  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 DOCS-S17 SEC-004}"
   for label in $labels; do
     expect_label_failure "$label"
   done
@@ -482,4 +531,4 @@ fi
 
 run_checks "." || fail=1
 if [ "$fail" -ne 0 ]; then exit 1; fi
-echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S16, SEC-004)"
+echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S17, SEC-004)"

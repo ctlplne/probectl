@@ -314,7 +314,7 @@ need_pattern PRODUCT-013 internal/apierror/apierror_test.go 'TestWithCodeStringL
 need_pattern PRODUCT-013 internal/cli/cli.go 'request_id=%s'
 need_pattern PRODUCT-013 internal/cli/cli_test.go 'TestCLIAPIErrorIncludesRequestID|formatted error missing code/request_id'
 need_pattern PRODUCT-014 docs/getting-started.md 'The fastest way to first data: the evaluation stack|deploy/compose/eval\.yml'
-need_pattern PRODUCT-014 docs/getting-started.md 'See first data|--profile tools run --rm viewer|/v1/topology'
+need_pattern PRODUCT-014 docs/getting-started.md 'See first data|--profile tools run --rm --no-deps viewer|/v1/topology'
 need_pattern PRODUCT-014 docs/getting-started.md 'Add synthetic probes|PROBECTL_JOIN_TOKEN|/v1/results/latest'
 need_pattern PRODUCT-014 docs/getting-started.md 'HTTPS on loopback|gRPC/mTLS listener|PROBECTL_AUTH_MODE=dev'
 need_pattern PRODUCT-014 docs/getting-started.md 'curl --cacert ./certs/ca\.crt https://127\.0\.0\.1:8443/v1/(results/latest|topology)'

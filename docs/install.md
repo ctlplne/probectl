@@ -169,8 +169,8 @@ Don't follow a one-off recipe here — the canonical journey is already written:
 
   ```sh
   docker compose -f deploy/compose/eval.yml up --build -d
-  # wait ~20s for the control plane to migrate + start, then read first data:
-  docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+  # The viewer waits for control-plane readiness and sample topology data:
+  docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
   ```
 
   The `viewer` prints the `/v1/topology` service map built from the sample flows —

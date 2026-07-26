@@ -108,6 +108,31 @@ func TestGeneratedEBPFConfigsDeclareSchemaVersion(t *testing.T) {
 	}
 }
 
+func TestEvalFixtureUsesRegisteredTenantBoundIdentity(t *testing.T) {
+	eval := readDeployContractFile(t, "deploy/compose/eval.yml")
+	fixture := readDeployContractFile(t, "internal/ebpf/testdata/flows.json")
+	const sampleAgent = "00000000-0000-0000-0000-000000000101"
+
+	for _, want := range []string{
+		"kafka-init:",
+		"--topic probectl.ebpf.flows",
+		"eval-registry:",
+		"eval-registry: { condition: service_completed_successfully }",
+		"INSERT INTO agents",
+		sampleAgent,
+	} {
+		if !strings.Contains(eval, want) {
+			t.Fatalf("eval stack is missing sample-ingest prerequisite %q", want)
+		}
+	}
+	if !strings.Contains(fixture, `"agent_id":"`+sampleAgent+`"`) {
+		t.Fatalf("eBPF fixture does not stamp registered sample agent %s", sampleAgent)
+	}
+	if strings.Contains(fixture, `"agent_id":"agent-1"`) {
+		t.Fatal("eBPF fixture regressed to a non-UUID, unregistered agent identity")
+	}
+}
+
 func TestAgentLegacyCapabilityModeIsFenced(t *testing.T) {
 	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
 	daemonset := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/daemonset.yaml")

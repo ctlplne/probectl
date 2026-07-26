@@ -68,11 +68,11 @@ control plane consumes it and folds the flows into the service-map (topology)
 graph:
 
 ```sh
-# Builds the local eval images on first run (a couple of minutes), then starts.
+# Builds the local eval images on first run; duration depends on host and cache.
 docker compose -f deploy/compose/eval.yml up --build -d
 
-# Give the control plane ~20s to migrate + start, then read first data:
-docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+# The viewer waits for control-plane readiness and sample topology data:
+docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
 ```
 
 The `viewer` is a tiny `curl` helper that **shares the control plane's network
@@ -80,10 +80,14 @@ namespace** — the only way to reach the loopback-only API. It prints the
 `/v1/topology` graph: nodes and flow edges built from the sample connections
 (e.g. `10.0.1.5 → 10.0.2.9:443`). That JSON is **real data through the real
 pipeline** — agent → Kafka → consumer → topology — proving the loop end to end.
-It is clearly *sample input*, not traffic on your machine. (If you get a
-connection error, the control plane is still starting — wait a few seconds, or
+It is clearly *sample input*, not traffic on your machine. The viewer retries
+readiness and the sample topology for a bounded window, then fails loudly
+instead of printing an empty graph as success. If it exhausts that window,
 watch `docker compose -f deploy/compose/eval.yml logs control` for
-`tenant isolation posture verified` followed by `starting probectl-control`.)
+`tenant isolation posture verified` followed by `starting probectl-control`.
+The `--no-deps` flag is intentional: the preceding `up` command already started
+the stack, and this prevents Compose from rerunning the one-shot certificate
+generator underneath the live control plane.
 
 Tear it all down with `docker compose -f deploy/compose/eval.yml down -v`.
 
