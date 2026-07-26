@@ -495,7 +495,7 @@ export function DashboardsPage() {
                   lastSuccessfulIngest={costSummary?.pricing_as_of ?? null}
                   coverageLimitation="A cost trend requires attributed flow records and current local pricing data."
                   action={
-                    <Button variant="secondary" onClick={() => navigate('/cost')}>
+                    <Button variant="secondary" onClick={() => void navigate('/cost')}>
                       Open cost readiness
                     </Button>
                   }
@@ -516,7 +516,7 @@ export function DashboardsPage() {
                   lastSuccessfulIngest={latestCapacity?.ts ?? null}
                   coverageLimitation="Only registered exporters and interfaces can contribute capacity samples."
                   action={
-                    <Button variant="secondary" onClick={() => navigate('/planes/flow')}>
+                    <Button variant="secondary" onClick={() => void navigate('/planes/flow')}>
                       Open flow readiness
                     </Button>
                   }
@@ -538,7 +538,7 @@ export function DashboardsPage() {
                   lastSuccessfulIngest={latestResults.at(-1)?.observed_at ?? null}
                   coverageLimitation="Latency exists only for configured tests that have returned a result."
                   action={
-                    <Button variant="secondary" onClick={() => navigate('/targets')}>
+                    <Button variant="secondary" onClick={() => void navigate('/targets')}>
                       Open synthetic readiness
                     </Button>
                   }

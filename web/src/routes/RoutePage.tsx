@@ -70,7 +70,7 @@ export function NotFoundPage() {
             title={t('page.notFound.errorTitle')}
             description={t('page.notFound.description')}
             action={
-              <Button variant="primary" onClick={() => navigate('/dashboards')}>
+              <Button variant="primary" onClick={() => void navigate('/dashboards')}>
                 {t('page.notFound.action')}
               </Button>
             }

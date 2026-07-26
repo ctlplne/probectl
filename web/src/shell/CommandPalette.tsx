@@ -116,7 +116,7 @@ export function CommandPalette({
         disabledReason,
         tag: spec.journey,
         run: () =>
-          navigate(
+          void navigate(
             journeyCommandHref(spec, `${location.pathname}${location.search}${location.hash}`),
           ),
       }
@@ -129,7 +129,7 @@ export function CommandPalette({
         icon: 'targets',
         changesRoute: true,
         disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
-        run: () => navigate('/targets?create=test'),
+        run: () => void navigate('/targets?create=test'),
       },
       {
         id: 'task:discover-path',
@@ -138,7 +138,7 @@ export function CommandPalette({
         icon: 'path',
         changesRoute: true,
         disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
-        run: () => navigate(pivotHref('/path', currentContext, { task: 'discover-path' })),
+        run: () => void navigate(pivotHref('/path', currentContext, { task: 'discover-path' })),
       },
       {
         id: 'task:silence-alert',
@@ -147,7 +147,7 @@ export function CommandPalette({
         icon: 'alert',
         changesRoute: true,
         disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
-        run: () => navigate('/alerts?alert_state=firing&task=silence-alert'),
+        run: () => void navigate('/alerts?alert_state=firing&task=silence-alert'),
       },
       {
         id: 'task:schedule-maintenance',
@@ -156,7 +156,7 @@ export function CommandPalette({
         icon: 'alert',
         changesRoute: true,
         disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
-        run: () => navigate('/alerts?task=schedule-maintenance'),
+        run: () => void navigate('/alerts?task=schedule-maintenance'),
       },
       {
         id: 'task:export-audit',
@@ -168,7 +168,7 @@ export function CommandPalette({
           permissions.length > 0 && !permissions.includes('audit.read')
             ? t('command.unavailable.audit')
             : undefined,
-        run: () => navigate('/audit?task=export-audit'),
+        run: () => void navigate('/audit?task=export-audit'),
       },
       {
         id: 'task:open-support-bundle',
@@ -177,7 +177,7 @@ export function CommandPalette({
         icon: 'admin',
         changesRoute: true,
         disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
-        run: () => navigate('/admin#support-bundle'),
+        run: () => void navigate('/admin#support-bundle'),
       },
       {
         id: 'task:register-collector',
@@ -185,7 +185,7 @@ export function CommandPalette({
         hint: t('command.task.registerCollectorHint'),
         icon: 'admin',
         changesRoute: true,
-        run: () => navigate('/admin?register_collector=flow'),
+        run: () => void navigate('/admin?register_collector=flow'),
       },
     ]
     const go = NAV.map<Command>((n) => ({
@@ -195,7 +195,7 @@ export function CommandPalette({
       icon: n.icon,
       changesRoute: true,
       run: () =>
-        navigate(
+        void navigate(
           parsedPivot.hasContract && PIVOT_ROUTES.has(n.to)
             ? pivotHref(n.to, currentContext)
             : n.to,
@@ -220,7 +220,7 @@ export function CommandPalette({
               // Clear every object/action-bearing URL before the provider-owned
               // tenant switch can update credentials. This prevents a render in
               // the new tenant from replaying the old tenant's selected object.
-              navigate('/onboarding', { replace: true })
+              void navigate('/onboarding', { replace: true })
               switchTenant(tenant.id)
             },
           }))

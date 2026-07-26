@@ -75,10 +75,10 @@ function NavigationProbe() {
   return (
     <div>
       <output data-testid="route-location">{`${location.pathname}${location.search}`}</output>
-      <button type="button" onClick={() => navigate(-1)}>
+      <button type="button" onClick={() => void navigate(-1)}>
         Test back
       </button>
-      <button type="button" onClick={() => navigate(1)}>
+      <button type="button" onClick={() => void navigate(1)}>
         Test forward
       </button>
     </div>

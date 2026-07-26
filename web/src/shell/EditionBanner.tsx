@@ -58,7 +58,7 @@ export function EditionBanner() {
         {grace ? t('edition.banner.badge.grace') : t('edition.banner.badge.readOnly')}
       </Badge>
       <span>{message}</span>
-      <Button variant="secondary" size="sm" onClick={() => navigate('/admin')}>
+      <Button variant="secondary" size="sm" onClick={() => void navigate('/admin')}>
         {t('edition.banner.manage')}
       </Button>
       <Button variant="ghost" size="sm" onClick={() => setDismissed(true)}>

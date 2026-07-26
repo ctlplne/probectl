@@ -279,7 +279,7 @@ export function OnboardingPage() {
     )?.next_action
     if (nextAction === '/onboarding') return
     if (nextAction && nextAction !== '/onboarding#first-run-agent') {
-      navigate(nextAction)
+      void navigate(nextAction)
       return
     }
     if (plane.id === 'synthetic' || nextAction === '/onboarding#first-run-agent') {
@@ -288,7 +288,7 @@ export function OnboardingPage() {
       target?.querySelector<HTMLButtonElement | HTMLInputElement>('input, button')?.focus()
       return
     }
-    navigate(`/admin?register_collector=${plane.id}`)
+    void navigate(`/admin?register_collector=${plane.id}`)
   }
 
   return (
@@ -296,7 +296,7 @@ export function OnboardingPage() {
       title={t('onboarding.page.title')}
       subtitle={t('onboarding.page.subtitle')}
       actions={
-        <Button variant="secondary" onClick={() => navigate('/admin')}>
+        <Button variant="secondary" onClick={() => void navigate('/admin')}>
           <Icon name="admin" /> {t('onboarding.action.admin')}
         </Button>
       }
@@ -346,7 +346,7 @@ export function OnboardingPage() {
             </time>
             <Button
               variant="primary"
-              onClick={() => navigate(persistedProgress.first_finding!.href)}
+              onClick={() => void navigate(persistedProgress.first_finding!.href)}
             >
               <Icon name="targets" /> {t('onboarding.finding.open')}
             </Button>
@@ -425,7 +425,7 @@ export function OnboardingPage() {
                 <span>{engine.detail}</span>
               </div>
               <Badge tone={readinessTone(engine.state)}>{engine.state}</Badge>
-              <Button variant="secondary" onClick={() => navigate(engine.next_action)}>
+              <Button variant="secondary" onClick={() => void navigate(engine.next_action)}>
                 {t('onboarding.engines.nextAction')}
               </Button>
             </li>
@@ -546,7 +546,7 @@ export function OnboardingPage() {
                   label={t('onboarding.test.enabled', { name: createdTest.name })}
                 />
                 <code>{createdTest.target}</code>
-                <Button variant="secondary" onClick={() => navigate('/targets')}>
+                <Button variant="secondary" onClick={() => void navigate('/targets')}>
                   <Icon name="targets" /> {t('onboarding.test.openTests')}
                 </Button>
               </div>

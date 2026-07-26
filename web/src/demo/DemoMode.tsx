@@ -36,7 +36,7 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
     if (!active || requestedByURL) return
     const params = new URLSearchParams(location.search)
     params.set('demo', '1')
-    navigate(`${location.pathname}?${params.toString()}${location.hash}`, { replace: true })
+    void navigate(`${location.pathname}?${params.toString()}${location.hash}`, { replace: true })
   }, [active, location.hash, location.pathname, location.search, navigate, requestedByURL])
 
   useEffect(() => () => setDemoTransportIsolation(false), [])
@@ -48,7 +48,7 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
     const params = new URLSearchParams(location.search)
     params.delete('demo')
     const search = params.toString()
-    navigate(`${location.pathname}${search ? `?${search}` : ''}${location.hash}`, {
+    void navigate(`${location.pathname}${search ? `?${search}` : ''}${location.hash}`, {
       replace: true,
     })
   }, [location.hash, location.pathname, location.search, navigate])

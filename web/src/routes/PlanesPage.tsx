@@ -135,7 +135,9 @@ export function PlanesPage() {
     b.ts.localeCompare(a.ts),
   )[0]
   const impairedEndpoints = endpointItems.filter((e) => e.slow).length
-  const setActive = (next: PlaneID) => navigate(planePivotHref(next, pivotContext))
+  const setActive = (next: PlaneID) => {
+    void navigate(planePivotHref(next, pivotContext))
+  }
 
   useEffect(() => {
     const selectionUnavailable = Boolean(

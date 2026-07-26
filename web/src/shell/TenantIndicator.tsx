@@ -73,7 +73,7 @@ export function TenantIndicator() {
                 // Neutralize all tenant-owned object references and pending
                 // task parameters before provider code switches credentials.
                 // The new tenant therefore cannot replay an old-tenant action.
-                navigate('/onboarding', { replace: true })
+                void navigate('/onboarding', { replace: true })
                 switchTenant(t.id)
                 setOpen(false)
               }}
