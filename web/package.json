@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:fixtures": "PROBECTL_WEB_FIXTURES=1 vite",
     "dev:fixtures:cold": "PROBECTL_WEB_FIXTURES=1 PROBECTL_WEB_FIXTURES_PROFILE=cold vite",
+    "prebuild": "node ../scripts/web_rendered_a11y.mjs --selftest",
     "build": "tsc --noEmit && vite build",
     "bundle:check": "node ../scripts/check_web_bundle_budget.mjs",
     "preview": "vite preview",

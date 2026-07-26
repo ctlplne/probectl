@@ -20,6 +20,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(scriptDir);
 const webRoot = join(repoRoot, "web");
 const browserWorkerRoot = join(repoRoot, "browser-worker");
+const appBasePath = "/ui";
 // Theme matrix. Default stays the CI pair; PROBECTL_A11Y_THEMES widens or
 // narrows a run without a code change (e.g. =dark,aurora,ember locally, or in
 // a scheduled workflow) — only themes the token contract defines are accepted.
@@ -63,6 +64,13 @@ const dashboardCaptions = [
   "Threat signal dashboard",
   "Tenant health dashboard",
 ];
+
+function appURL(baseURL, route) {
+  if (!route.startsWith("/")) {
+    throw new Error(`rendered browser route must start with "/": ${route}`);
+  }
+  return new URL(`${appBasePath}${route}`, `${baseURL}/`).href;
+}
 
 const bwRequire = createRequire(join(browserWorkerRoot, "package.json"));
 const webRequire = createRequire(join(webRoot, "package.json"));
@@ -761,7 +769,7 @@ async function runPerformanceProfile(browser, baseURL) {
       await context.addInitScript(performanceObserverSource());
       const page = await context.newPage();
       try {
-        await page.goto(`${baseURL}${route}`, { waitUntil: "networkidle" });
+        await page.goto(appURL(baseURL, route), { waitUntil: "networkidle" });
         await page.waitForSelector("main", { timeout: 10_000 });
         await settleTwoFrames(page);
         await exerciseJourneyInteraction(page, route);
@@ -803,7 +811,11 @@ async function runPerformanceProfile(browser, baseURL) {
 async function startVite() {
   const { preview } = await loadVite();
   const server = await preview({
-    configFile: false,
+    // Load the shipping config so preview serves the same /ui/ asset base as
+    // the embedded control-plane UI. B-409bafc5: configFile:false served a
+    // root-relative build while BrowserRouter required basename="/ui", so the
+    // gate waited on pages that could never mount.
+    configFile: join(webRoot, "vite.config.ts"),
     root: webRoot,
     preview: { host: "127.0.0.1", port: 0, strictPort: false },
     logLevel: "error",
@@ -1169,7 +1181,7 @@ async function main() {
             record.runtime.push(`HTTP ${resp.status()} ${url.pathname}`);
           });
           try {
-            await page.goto(`${baseURL}${route}`, {
+            await page.goto(appURL(baseURL, route), {
               waitUntil: "networkidle",
             });
             await page.waitForSelector("main", { timeout: 10_000 });
@@ -1285,7 +1297,41 @@ async function main() {
   console.log(`web performance receipt: ${performanceReceiptPath}`);
 }
 
-main().catch((err) => {
+async function selfTest() {
+  const example = appURL("http://127.0.0.1:4173", "/onboarding");
+  if (example !== "http://127.0.0.1:4173/ui/onboarding") {
+    throw new Error(`self-check failed: shipping route resolved to ${example}`);
+  }
+  const [viteConfig, appSource, scriptSource] = await Promise.all([
+    readFile(join(webRoot, "vite.config.ts"), "utf8"),
+    readFile(join(webRoot, "src/App.tsx"), "utf8"),
+    readFile(fileURLToPath(import.meta.url), "utf8"),
+  ]);
+  if (!viteConfig.includes(`base: '${appBasePath}/'`)) {
+    throw new Error(
+      `self-check failed: vite.config.ts does not use base ${appBasePath}/`,
+    );
+  }
+  if (!appSource.includes(`BrowserRouter basename="${appBasePath}"`)) {
+    throw new Error(
+      `self-check failed: BrowserRouter does not use basename ${appBasePath}`,
+    );
+  }
+  const routedNavigations = scriptSource.match(
+    /page\.goto\(appURL\(baseURL, route\)/g,
+  );
+  if (routedNavigations?.length !== 2) {
+    throw new Error(
+      "self-check failed: every route matrix must navigate through appURL",
+    );
+  }
+  console.log(
+    `rendered browser route contract OK (${example}; shipping Vite config + BrowserRouter agree)`,
+  );
+}
+
+const run = process.argv.includes("--selftest") ? selfTest : main;
+run().catch((err) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });
