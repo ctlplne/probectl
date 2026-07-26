@@ -112,7 +112,7 @@ export function AuthoringPanel() {
   }
 
   return (
-    <Card>
+    <Card data-targets-authoring>
       <CardHeader
         title="Author with AI"
         description="Describe what to monitor, or add a suggested target. Nothing is created until you confirm."

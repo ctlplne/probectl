@@ -283,9 +283,7 @@ export function TargetsPage() {
         </Button>
       }
     >
-      <AuthoringPanel />
-
-      <Card>
+      <Card data-targets-inventory>
         <CardHeader
           title="Tests"
           description="Open Results on any test for its per-type latest result detail."
@@ -403,6 +401,8 @@ export function TargetsPage() {
           )}
         </CardBody>
       </Card>
+
+      <AuthoringPanel />
 
       <CreateTestModal open={creating} onClose={() => setCreating(false)} />
       {codeFor ? (

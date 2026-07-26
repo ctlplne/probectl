@@ -54,6 +54,11 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
 
     renderApp('/targets')
     await screen.findByText('edge-dns')
+    const testsHeading = screen.getByRole('heading', { name: /^tests$/i })
+    const authoringHeading = screen.getByRole('heading', { name: /author with ai/i })
+    expect(
+      testsHeading.compareDocumentPosition(authoringHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
     expect(screen.queryByText('Demo data')).not.toBeInTheDocument()
     expect(screen.queryByText(/Avg RTT \(24h\)/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Packet loss \(24h\)/i)).not.toBeInTheDocument()

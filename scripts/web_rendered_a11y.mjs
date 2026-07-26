@@ -982,6 +982,36 @@ async function mobileCardHeaderCheck(page) {
   });
 }
 
+// Targets is an operational inventory first and an optional authoring aid
+// second. Keep that hierarchy measurable in a real layout: DOM-order tests
+// cannot prove that the inventory reaches the first desktop viewport.
+async function targetsHierarchyCheck(page, viewportName) {
+  return page.evaluate((currentViewport) => {
+    const problems = [];
+    const inventory = document.querySelector("[data-targets-inventory]");
+    const authoring = document.querySelector("[data-targets-authoring]");
+    if (!inventory) problems.push("missing Tests inventory marker");
+    if (!authoring) problems.push("missing AI authoring marker");
+    if (!inventory || !authoring) return problems;
+
+    const inventoryRect = inventory.getBoundingClientRect();
+    const authoringRect = authoring.getBoundingClientRect();
+    if (inventoryRect.top >= authoringRect.top) {
+      problems.push("AI authoring precedes the Tests inventory");
+    }
+
+    if (currentViewport === "desktop") {
+      if (inventoryRect.top >= window.innerHeight) {
+        problems.push("Tests inventory begins below the desktop viewport");
+      }
+      if (!inventory.querySelector("tbody tr")) {
+        problems.push("populated Tests inventory has no rendered row");
+      }
+    }
+    return problems;
+  }, viewportName);
+}
+
 async function targetAndTabChecks(page) {
   return page.evaluate(() => {
     const selector = [
@@ -1217,6 +1247,26 @@ async function selfCheck(browser, axeSource) {
       "self-check failed: mobile CardHeader check did not catch a deliberate non-wrapping regression",
     );
   }
+  await page.setViewportSize(viewports[0]);
+  await page.setContent(`
+    <section data-targets-authoring>Author with AI</section>
+    <section data-targets-inventory style="margin-top:1000px">
+      <table><tbody><tr><td>Planted test</td></tr></tbody></table>
+    </section>
+  `);
+  const targetsHierarchy = await targetsHierarchyCheck(page, viewports[0].name);
+  if (
+    !targetsHierarchy.some((problem) =>
+      problem.includes("AI authoring precedes"),
+    ) ||
+    !targetsHierarchy.some((problem) =>
+      problem.includes("inventory begins below the desktop viewport"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: Targets hierarchy check did not catch the planted authoring-first regression",
+    );
+  }
   await page.close();
 }
 
@@ -1273,6 +1323,7 @@ async function main() {
             overflow: [],
             cardHeader: [],
             dashboard: [],
+            targets: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -1342,6 +1393,14 @@ async function main() {
                 );
               }
             }
+            if (route === "/targets") {
+              record.targets = await targetsHierarchyCheck(page, viewport.name);
+              if (record.targets.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: Targets hierarchy violations\n  ${record.targets.join("\n  ")}`,
+                );
+              }
+            }
           } catch (err) {
             record.runtime.push(
               `route check failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1360,6 +1419,7 @@ async function main() {
             record.overflow.length === 0 &&
             record.cardHeader.length === 0 &&
             record.dashboard.length === 0 &&
+            record.targets.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";

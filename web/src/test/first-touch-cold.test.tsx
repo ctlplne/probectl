@@ -57,6 +57,12 @@ describe('cold start — the first thirty minutes', () => {
 
     expect(await screen.findByRole('heading', { name: /targets & tests/i })).toBeInTheDocument()
     expect(screen.queryByText('checkout-http')).toBeNull()
+    expect(screen.getAllByRole('button', { name: /new test/i }).length).toBeGreaterThan(0)
+    const testsHeading = screen.getByRole('heading', { name: /^tests$/i })
+    const authoringHeading = screen.getByRole('heading', { name: /author with ai/i })
+    expect(
+      testsHeading.compareDocumentPosition(authoringHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
   })
 
   test('onboarding: derives step one from the cold lists, never complete', async () => {
