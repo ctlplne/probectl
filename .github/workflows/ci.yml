@@ -167,6 +167,8 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Current third-party inventory + vendored assets (SUPPLY-009)
         run: make third-party-gate
+      - name: Exhaustive release-note preview
+        run: make release-notes-gate
       - name: Install nfpm + envsubst
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.0

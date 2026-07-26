@@ -111,18 +111,28 @@ for a tag cut off a side branch or by an admin who bypassed branch protection
 other shut; see [`ops/branch-protection.md`](ops/branch-protection.md)).
 Practically, that means: get the commit green on `main` first, *then* tag it.
 
-1. Confirm CI is green on the commit you intend to tag — that single CI run
+1. Preview the notes from the previous release and review the visible
+   `Other changes` section for any commit that does not use a recognized
+   Conventional Commit type:
+
+   ```sh
+   bash scripts/release_notes.sh "$(git describe --tags --abbrev=0)" HEAD
+   ```
+
+   The preview accounts for every non-merge commit exactly once; it never
+   silently drops an unconventional subject.
+2. Confirm CI is green on the commit you intend to tag — that single CI run
    includes every gate (`cross-tenant-isolation`, `openapi-gate`, `migration-gate`,
    `helm-gate`, `perf-smoke`, and the rest; see
    [`development.md`](development.md) for the full job list).
-2. Tag and push:
+3. Tag and push:
 
    ```sh
    git tag -a v0.1.0 -m "probectl v0.1.0"
    git push origin v0.1.0
    ```
 
-3. The `release` workflow builds and publishes the images, binaries, SBOMs, and
+4. The `release` workflow builds and publishes the images, binaries, SBOMs, and
    GitHub Release. Confirm the images and their attestations appear under the
    repository's Packages, and that the release assets include the `.sig`/`.pem`
    signatures.

@@ -388,6 +388,10 @@ airgap-bundle: ## OPS-003: build the offline install bundle from signed dist/ in
 airgap-gate: ## OPS-003: network-free complete-bundle fixture + fail-closed signature/release wiring.
 	bash scripts/check_cosign_wiring.sh
 
+.PHONY: release-notes-gate
+release-notes-gate: ## Release-note preview accounts for every non-merge commit exactly once.
+	bash scripts/check_release_notes.sh
+
 .PHONY: compose-prod-preflight
 compose-prod-preflight: ## OPS-001: fail fast with login/mirror/local-build guidance before production compose pulls.
 	bash scripts/compose_image_preflight.sh
