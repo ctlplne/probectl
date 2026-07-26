@@ -1,6 +1,10 @@
 .shell {
   display: grid;
-  grid-template-columns: var(--layout-sidebar-width) 1fr;
+  /* A bare 1fr track has an automatic min-content floor. On mobile that let
+   * the top bar's controls make the track 399px inside a 390px shell even
+   * though their flex/ellipsis rules could shrink. Zero is the track floor;
+   * content components own any intentional local scrolling. */
+  grid-template-columns: var(--layout-sidebar-width) minmax(0, 1fr);
   grid-template-rows: var(--layout-topbar-height) auto 1fr;
   grid-template-areas:
     'sidebar topbar'
@@ -35,7 +39,7 @@
 
 @media (max-width: 720px) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       'topbar'
       'banner'

@@ -1113,6 +1113,19 @@ async function selfCheck(browser, axeSource) {
       "self-check failed: target-size check did not catch a deliberate tiny control",
     );
   }
+  await page.setContent(`
+    <style>
+      .shell { display: grid; grid-template-columns: 1fr; width: 100vw; }
+      .topbar { min-width: calc(100vw + 9px); }
+    </style>
+    <div class="shell"><header class="topbar">Planted shell-width regression</header></div>
+  `);
+  const overflow = await horizontalOverflowCheck(page);
+  if (!overflow.some((problem) => problem.includes("document scrolls horizontally"))) {
+    throw new Error(
+      "self-check failed: horizontal-overflow check did not catch a deliberate shell-width regression",
+    );
+  }
   await page.close();
 }
 
