@@ -779,10 +779,28 @@ type ErrorDetail struct {
 	RequestId string    `json:"request_id,omitempty"`
 }
 
+type ExplorerAlignmentExecutionReceipt struct {
+	ElapsedMs        int    `json:"elapsed_ms"`
+	ReturnedRows     int    `json:"returned_rows"`
+	RowLimit         int    `json:"row_limit"`
+	Truncated        bool   `json:"truncated"`
+	TruncationReason string `json:"truncation_reason"`
+}
+
 type ExplorerColumn struct {
 	Key     string `json:"key"`
 	Label   string `json:"label"`
 	Numeric bool   `json:"numeric,omitempty"`
+}
+
+// Two tenant-scoped logical receipts plus the bounded local alignment stage.
+type ExplorerComparisonExecutionReceipt struct {
+	Alignment       ExplorerAlignmentExecutionReceipt `json:"alignment"`
+	ContractVersion string                            `json:"contract_version"`
+	Current         ExplorerExecutionReceipt          `json:"current"`
+	Previous        ExplorerExecutionReceipt          `json:"previous"`
+	TenantScoped    bool                              `json:"tenant_scoped"`
+	TotalMs         int                               `json:"total_ms"`
 }
 
 // The query carries the current absolute window. The previous window is explicit and independently validated. Tenant scope is never accepted in the body.
@@ -793,19 +811,20 @@ type ExplorerComparisonRequest struct {
 }
 
 type ExplorerComparisonResult struct {
-	ContractVersion   string                  `json:"contract_version"`
-	Current           ExplorerQuery           `json:"current"`
-	CurrentPreview    string                  `json:"current_preview"`
-	CurrentTruncated  bool                    `json:"current_truncated"`
-	EvidencePath      string                  `json:"evidence_path"`
-	Groupings         []string                `json:"groupings"`
-	Previous          ExplorerQuery           `json:"previous"`
-	PreviousPreview   string                  `json:"previous_preview"`
-	PreviousTruncated bool                    `json:"previous_truncated"`
-	Rows              []ExplorerComparisonRow `json:"rows"`
-	RowsTruncated     bool                    `json:"rows_truncated"`
-	State             string                  `json:"state"`
-	Suggestions       map[string][]string     `json:"suggestions"`
+	ContractVersion   string                             `json:"contract_version"`
+	Current           ExplorerQuery                      `json:"current"`
+	CurrentPreview    string                             `json:"current_preview"`
+	CurrentTruncated  bool                               `json:"current_truncated"`
+	EvidencePath      string                             `json:"evidence_path"`
+	Execution         ExplorerComparisonExecutionReceipt `json:"execution"`
+	Groupings         []string                           `json:"groupings"`
+	Previous          ExplorerQuery                      `json:"previous"`
+	PreviousPreview   string                             `json:"previous_preview"`
+	PreviousTruncated bool                               `json:"previous_truncated"`
+	Rows              []ExplorerComparisonRow            `json:"rows"`
+	RowsTruncated     bool                               `json:"rows_truncated"`
+	State             string                             `json:"state"`
+	Suggestions       map[string][]string                `json:"suggestions"`
 }
 
 type ExplorerComparisonRow struct {
@@ -817,6 +836,42 @@ type ExplorerComparisonRow struct {
 	Measure       string            `json:"measure"`
 	PercentChange *float64          `json:"percent_change"`
 	PreviousValue *float64          `json:"previous_value"`
+}
+
+// The normalized time and row bounds enforced by the server.
+type ExplorerExecutionBounds struct {
+	From     string `json:"from"`
+	RowLimit int    `json:"row_limit"`
+	To       string `json:"to"`
+}
+
+type ExplorerExecutionProjection struct {
+	Dimensions []string `json:"dimensions"`
+	Groupings  []string `json:"groupings"`
+	Measures   []string `json:"measures"`
+}
+
+// A sanitized logical execution receipt. It never contains SQL, physical plans, tenant identity, literal filter values, secrets, or datastore-wide cardinality.
+type ExplorerExecutionReceipt struct {
+	Bounds           ExplorerExecutionBounds     `json:"bounds"`
+	ContractVersion  string                      `json:"contract_version"`
+	FilterKeys       []string                    `json:"filter_keys"`
+	Projection       ExplorerExecutionProjection `json:"projection"`
+	Recipe           string                      `json:"recipe"`
+	ReturnedRows     int                         `json:"returned_rows"`
+	Source           string                      `json:"source"`
+	SourceRows       int                         `json:"source_rows"`
+	TenantScoped     bool                        `json:"tenant_scoped"`
+	Timings          ExplorerExecutionTimings    `json:"timings"`
+	Truncated        bool                        `json:"truncated"`
+	TruncationReason string                      `json:"truncation_reason"`
+}
+
+// Server-measured logical stage timings. Values can be zero for sub-millisecond work.
+type ExplorerExecutionTimings struct {
+	ShapingMs int `json:"shaping_ms"`
+	SourceMs  int `json:"source_ms"`
+	TotalMs   int `json:"total_ms"`
 }
 
 type ExplorerQuery struct {
@@ -834,13 +889,14 @@ type ExplorerQuery struct {
 }
 
 type ExplorerResult struct {
-	Columns      []ExplorerColumn    `json:"columns"`
-	EvidencePath string              `json:"evidence_path"`
-	Preview      string              `json:"preview"`
-	Query        ExplorerQuery       `json:"query"`
-	Rows         []map[string]any    `json:"rows"`
-	Suggestions  map[string][]string `json:"suggestions"`
-	Truncated    bool                `json:"truncated"`
+	Columns      []ExplorerColumn         `json:"columns"`
+	EvidencePath string                   `json:"evidence_path"`
+	Execution    ExplorerExecutionReceipt `json:"execution"`
+	Preview      string                   `json:"preview"`
+	Query        ExplorerQuery            `json:"query"`
+	Rows         []map[string]any         `json:"rows"`
+	Suggestions  map[string][]string      `json:"suggestions"`
+	Truncated    bool                     `json:"truncated"`
 }
 
 type ExplorerSchemaResponse struct {

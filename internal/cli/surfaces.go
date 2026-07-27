@@ -135,8 +135,8 @@ var surfaceCommands = map[string]surfaceCommand{
 	}},
 	"explorer": {Name: "explorer", Summary: "structured and natural-language telemetry explorer", Ops: map[string]apiOp{
 		"schema":  {Method: http.MethodGet, Path: "/v1/explorer/schema"},
-		"query":   {Method: http.MethodPost, Path: "/v1/explorer/query"},
-		"compare": {Method: http.MethodPost, Path: "/v1/explorer/compare"},
+		"query":   {Method: http.MethodPost, Path: "/v1/explorer/query", Description: "return exact rows plus a sanitized tenant-scoped logical execution receipt"},
+		"compare": {Method: http.MethodPost, Path: "/v1/explorer/compare", Description: "return aligned windows plus sanitized source and alignment execution receipts"},
 	}},
 	"endpoint": {Name: "endpoint", Summary: "endpoint/DEM fleet", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/endpoints"},

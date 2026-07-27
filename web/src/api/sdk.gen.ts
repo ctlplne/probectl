@@ -701,10 +701,27 @@ export interface ErrorDetail {
   request_id?: string
 }
 
+export interface ExplorerAlignmentExecutionReceipt {
+  elapsed_ms: number
+  returned_rows: number
+  row_limit: number
+  truncated: boolean
+  truncation_reason: "none" | "comparison_row_limit"
+}
+
 export interface ExplorerColumn {
   key: string
   label: string
   numeric?: boolean
+}
+
+export interface ExplorerComparisonExecutionReceipt {
+  alignment: ExplorerAlignmentExecutionReceipt
+  contract_version: string
+  current: ExplorerExecutionReceipt
+  previous: ExplorerExecutionReceipt
+  tenant_scoped: boolean
+  total_ms: number
 }
 
 export interface ExplorerComparisonRequest {
@@ -719,6 +736,7 @@ export interface ExplorerComparisonResult {
   current_preview: string
   current_truncated: boolean
   evidence_path: string
+  execution: ExplorerComparisonExecutionReceipt
   groupings: string[]
   previous: ExplorerQuery
   previous_preview: string
@@ -740,6 +758,39 @@ export interface ExplorerComparisonRow {
   previous_value: number | null
 }
 
+export interface ExplorerExecutionBounds {
+  from: string
+  row_limit: number
+  to: string
+}
+
+export interface ExplorerExecutionProjection {
+  dimensions: string[]
+  groupings: string[]
+  measures: string[]
+}
+
+export interface ExplorerExecutionReceipt {
+  bounds: ExplorerExecutionBounds
+  contract_version: string
+  filter_keys: string[]
+  projection: ExplorerExecutionProjection
+  recipe: string
+  returned_rows: number
+  source: "flow" | "changes" | "path" | "topology" | "endpoints" | "tls" | "cost" | "slo"
+  source_rows: number
+  tenant_scoped: boolean
+  timings: ExplorerExecutionTimings
+  truncated: boolean
+  truncation_reason: "none" | "row_limit"
+}
+
+export interface ExplorerExecutionTimings {
+  shaping_ms: number
+  source_ms: number
+  total_ms: number
+}
+
 export interface ExplorerQuery {
   dimensions?: string[]
   filters?: { [key: string]: string }
@@ -757,6 +808,7 @@ export interface ExplorerQuery {
 export interface ExplorerResult {
   columns: ExplorerColumn[]
   evidence_path: string
+  execution: ExplorerExecutionReceipt
   preview: string
   query: ExplorerQuery
   rows: JsonObject[]

@@ -1836,7 +1836,7 @@
         "tags": [
           "ai"
         ],
-        "description": "Resolves tenant scope from authentication before source RBAC, then runs the same bounded source dispatch for the current and previous windows. Numeric measures are aligned by the requested groupings with explicit missing-current, missing-previous, and zero-baseline states. Only sources with exact historical-window reads are accepted; current-state-only sources fail closed.",
+        "description": "Resolves tenant scope from authentication before source RBAC, then runs the same bounded source dispatch for the current and previous windows. Numeric measures are aligned by the requested groupings with explicit missing-current, missing-previous, and zero-baseline states. Only sources with exact historical-window reads are accepted; current-state-only sources fail closed. The response includes sanitized logical execution receipts for both windows and alignment; it never exposes SQL, physical plans, tenant identity, or literal filter values.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -1854,7 +1854,7 @@
         },
         "responses": {
           "200": {
-            "description": "Aligned exact measure values and honest delta states for both authorized windows.",
+            "description": "Aligned exact measure values, honest delta states, and sanitized logical execution receipts for both authorized windows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1884,7 +1884,7 @@
         "tags": [
           "ai"
         ],
-        "description": "Resolves tenant scope from authentication first, checks source-specific RBAC second, and then queries the existing tenant-bound flow, change, path, topology, endpoint, TLS, cost, or SLO store. Tenant selectors are rejected. Value suggestions are derived only from the authorized result rows.",
+        "description": "Resolves tenant scope from authentication first, checks source-specific RBAC second, and then queries the existing tenant-bound flow, change, path, topology, endpoint, TLS, cost, or SLO store. Tenant selectors are rejected. Value suggestions are derived only from the authorized result rows. The response includes a sanitized logical execution receipt with enforced bounds and stage timings; it never exposes SQL, physical plans, tenant identity, or literal filter values.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -1902,7 +1902,7 @@
         },
         "responses": {
           "200": {
-            "description": "Exact rows, query receipt, tenant-derived suggestions, and evidence pivot.",
+            "description": "Exact rows, readable query receipt, sanitized logical execution receipt, tenant-derived suggestions, and evidence pivot.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10848,6 +10848,134 @@
           "numeric": { "type": "boolean" }
         }
       },
+      "ExplorerExecutionBounds": {
+        "type": "object",
+        "required": ["from", "to", "row_limit"],
+        "properties": {
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "row_limit": { "type": "integer", "minimum": 1, "maximum": 500 }
+        },
+        "description": "The normalized time and row bounds enforced by the server."
+      },
+      "ExplorerExecutionProjection": {
+        "type": "object",
+        "required": ["dimensions", "groupings", "measures"],
+        "properties": {
+          "dimensions": {
+            "type": "array",
+            "maxItems": 8,
+            "items": { "type": "string" }
+          },
+          "groupings": {
+            "type": "array",
+            "maxItems": 4,
+            "items": { "type": "string" }
+          },
+          "measures": {
+            "type": "array",
+            "maxItems": 6,
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "ExplorerExecutionTimings": {
+        "type": "object",
+        "required": ["source_ms", "shaping_ms", "total_ms"],
+        "properties": {
+          "source_ms": { "type": "integer", "minimum": 0 },
+          "shaping_ms": { "type": "integer", "minimum": 0 },
+          "total_ms": { "type": "integer", "minimum": 0 }
+        },
+        "description": "Server-measured logical stage timings. Values can be zero for sub-millisecond work."
+      },
+      "ExplorerExecutionReceipt": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "recipe",
+          "source",
+          "tenant_scoped",
+          "bounds",
+          "projection",
+          "filter_keys",
+          "source_rows",
+          "returned_rows",
+          "truncated",
+          "truncation_reason",
+          "timings"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "explorer-execution/v1"
+          },
+          "recipe": {
+            "type": "string",
+            "description": "The allow-listed recipe ID or custom. It never contains question or filter text."
+          },
+          "source": {
+            "type": "string",
+            "enum": ["flow", "changes", "path", "topology", "endpoints", "tls", "cost", "slo"]
+          },
+          "tenant_scoped": {
+            "type": "boolean",
+            "const": true,
+            "description": "True only after the authenticated principal tenant has been resolved and supplied to the source query."
+          },
+          "bounds": { "$ref": "#/components/schemas/ExplorerExecutionBounds" },
+          "projection": { "$ref": "#/components/schemas/ExplorerExecutionProjection" },
+          "filter_keys": {
+            "type": "array",
+            "maxItems": 12,
+            "items": { "type": "string" },
+            "description": "Sorted allow-listed filter field names. Literal values are deliberately omitted."
+          },
+          "source_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Rows produced by the already tenant-scoped logical source before response shaping."
+          },
+          "returned_rows": { "type": "integer", "minimum": 0, "maximum": 500 },
+          "truncated": { "type": "boolean" },
+          "truncation_reason": {
+            "type": "string",
+            "enum": ["none", "row_limit"]
+          },
+          "timings": { "$ref": "#/components/schemas/ExplorerExecutionTimings" }
+        },
+        "description": "A sanitized logical execution receipt. It never contains SQL, physical plans, tenant identity, literal filter values, secrets, or datastore-wide cardinality."
+      },
+      "ExplorerAlignmentExecutionReceipt": {
+        "type": "object",
+        "required": ["row_limit", "returned_rows", "truncated", "truncation_reason", "elapsed_ms"],
+        "properties": {
+          "row_limit": { "type": "integer", "minimum": 1, "maximum": 500 },
+          "returned_rows": { "type": "integer", "minimum": 0, "maximum": 500 },
+          "truncated": { "type": "boolean" },
+          "truncation_reason": {
+            "type": "string",
+            "enum": ["none", "comparison_row_limit"]
+          },
+          "elapsed_ms": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ExplorerComparisonExecutionReceipt": {
+        "type": "object",
+        "required": ["contract_version", "tenant_scoped", "current", "previous", "alignment", "total_ms"],
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "explorer-comparison-execution/v1"
+          },
+          "tenant_scoped": { "type": "boolean", "const": true },
+          "current": { "$ref": "#/components/schemas/ExplorerExecutionReceipt" },
+          "previous": { "$ref": "#/components/schemas/ExplorerExecutionReceipt" },
+          "alignment": { "$ref": "#/components/schemas/ExplorerAlignmentExecutionReceipt" },
+          "total_ms": { "type": "integer", "minimum": 0 }
+        },
+        "description": "Two tenant-scoped logical receipts plus the bounded local alignment stage."
+      },
       "ExplorerResult": {
         "type": "object",
         "required": [
@@ -10857,7 +10985,8 @@
           "rows",
           "suggestions",
           "evidence_path",
-          "truncated"
+          "truncated",
+          "execution"
         ],
         "properties": {
           "query": { "$ref": "#/components/schemas/ExplorerQuery" },
@@ -10881,7 +11010,8 @@
             }
           },
           "evidence_path": { "type": "string" },
-          "truncated": { "type": "boolean" }
+          "truncated": { "type": "boolean" },
+          "execution": { "$ref": "#/components/schemas/ExplorerExecutionReceipt" }
         }
       },
       "ExplorerComparisonRequest": {
@@ -10985,7 +11115,8 @@
           "state",
           "current_truncated",
           "previous_truncated",
-          "rows_truncated"
+          "rows_truncated",
+          "execution"
         ],
         "properties": {
           "contract_version": {
@@ -11046,7 +11177,8 @@
           },
           "rows_truncated": {
             "type": "boolean"
-          }
+          },
+          "execution": { "$ref": "#/components/schemas/ExplorerComparisonExecutionReceipt" }
         }
       },
       "AIQueryRange": {

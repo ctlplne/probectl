@@ -55,6 +55,49 @@ export interface ExplorerColumn {
   label: string
   numeric?: boolean
 }
+
+export interface ExplorerExecutionReceipt {
+  contract_version: 'explorer-execution/v1'
+  recipe: string
+  source: ExplorerSource
+  tenant_scoped: true
+  bounds: {
+    from: string
+    to: string
+    row_limit: number
+  }
+  projection: {
+    dimensions: string[]
+    groupings: string[]
+    measures: string[]
+  }
+  filter_keys: string[]
+  source_rows: number
+  returned_rows: number
+  truncated: boolean
+  truncation_reason: 'none' | 'row_limit'
+  timings: {
+    source_ms: number
+    shaping_ms: number
+    total_ms: number
+  }
+}
+
+export interface ExplorerComparisonExecutionReceipt {
+  contract_version: 'explorer-comparison-execution/v1'
+  tenant_scoped: true
+  current: ExplorerExecutionReceipt
+  previous: ExplorerExecutionReceipt
+  alignment: {
+    row_limit: number
+    returned_rows: number
+    truncated: boolean
+    truncation_reason: 'none' | 'comparison_row_limit'
+    elapsed_ms: number
+  }
+  total_ms: number
+}
+
 export interface ExplorerResult {
   query: ExplorerQuery
   preview: string
@@ -63,6 +106,7 @@ export interface ExplorerResult {
   suggestions: Record<string, string[]>
   evidence_path: string
   truncated: boolean
+  execution: ExplorerExecutionReceipt
 }
 
 export interface ExplorerComparisonRequest {
@@ -102,6 +146,7 @@ export interface ExplorerComparisonResult {
   current_truncated: boolean
   previous_truncated: boolean
   rows_truncated: boolean
+  execution: ExplorerComparisonExecutionReceipt
 }
 
 export function useExplorerSchema() {

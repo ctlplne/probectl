@@ -16,10 +16,10 @@ covers the ten canonical operator questions in `docs/ux/teardown.md`.
 
 `GET /v1/explorer/schema` returns the fixed catalog of ten recipes. `POST
 /v1/explorer/query` accepts an `ExplorerQuery` and returns normalized rows, exact columns, a
-readable preview, bounded value suggestions, truncation state, and the native evidence path.
-Queries are limited to 500 rows, 12 exact filters, a 90-day time range, and an allow-listed
-vocabulary per source. Explorer is intentionally not arbitrary SQL, PromQL, or ClickHouse
-syntax.
+readable preview, bounded value suggestions, truncation state, the native evidence path, and a
+sanitized logical execution receipt. Queries are limited to 500 rows, 12 exact filters, a
+90-day time range, and an allow-listed vocabulary per source. Explorer is intentionally not
+arbitrary SQL, PromQL, or ClickHouse syntax.
 
 Supported sources are `flow`, `changes`, `path`, `topology`, `endpoints`, `tls`, `cost`, and
 `slo`. Each is dispatched to the production store already used by its native screen. Store
@@ -51,6 +51,33 @@ Both input windows and the aligned output stay under the query's bounded row lim
 500). `current_truncated`, `previous_truncated`, and `rows_truncated` make a partial result
 explicit. Narrow both windows or add a filter before interpreting a partial delta.
 
+## Logical execution receipt
+
+Every query response includes `execution` with contract
+`explorer-execution/v1`. It is a server-authored “nutrition label” for the work
+that just completed:
+
+- allow-listed recipe and logical source;
+- `tenant_scoped: true`, asserted only after the authenticated tenant is
+  resolved and supplied to the source;
+- normalized `from`, `to`, and `row_limit` bounds;
+- selected dimensions, groupings, measures, and filter **keys**;
+- rows produced by the tenant-scoped source, rows returned, and a bounded
+  truncation reason;
+- source, response-shaping, and total elapsed milliseconds.
+
+Comparison responses include `explorer-comparison-execution/v1`: the current
+and previous receipts plus the bounded alignment row count, truncation reason,
+and timing. The native Explorer page exposes these facts in a keyboard-operable
+details panel for normal, empty, partial, and one-sided results. The generic CLI
+prints the same versioned JSON receipt.
+
+The receipt never contains tenant identity, literal filter values, SQL,
+physical database plans, index names, secrets, or datastore-wide cardinality.
+ELI5: it shows the rules and the size of the authenticated tenant drawer that
+was just opened; it does not reveal the drawer label or the warehouse floor
+plan.
+
 ## Tenant and authorization boundary
 
 There is no `tenant_id` field in `ExplorerQuery`. The server resolves the tenant from the
@@ -61,7 +88,9 @@ variants such as `tenant`, `tenant_id`, `tenant-id`, and `tenant.name` are rejec
 Value suggestions are calculated from the already-authorized result rows. There is no global
 suggestion index to leak another tenant's site, endpoint, service, or certificate names.
 Cross-tenant tests insert distinguishable flow rows in both comparison windows and prove that
-the exact table, aligned values, and suggestion list stay inside the caller's store partition.
+the exact table, aligned values, suggestion list, and receipt-derived row counts stay inside
+the caller's store partition. Receipt construction occurs only after that tenant-scoped source
+call succeeds.
 
 Saved Explorer views reuse `/v1/inventory/views`. That store's outer key is `tenant_id` and its
 next key is the authenticated owner. A saved view contains grammar/filter choices only;

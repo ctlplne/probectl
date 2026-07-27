@@ -451,6 +451,47 @@ export const sampleExplorerTemplates = [
   evidence_path,
 }))
 
+interface FixtureExplorerQuery {
+  template?: string
+  source: string
+  from: string
+  to: string
+  dimensions: string[]
+  filters: Record<string, string>
+  groupings: string[]
+  measures: string[]
+  limit: number
+}
+
+function explorerExecution(query: FixtureExplorerQuery, returnedRows: number, truncated = false) {
+  return {
+    contract_version: 'explorer-execution/v1',
+    recipe: query.template ?? 'custom',
+    source: query.source,
+    tenant_scoped: true,
+    bounds: {
+      from: query.from,
+      to: query.to,
+      row_limit: query.limit,
+    },
+    projection: {
+      dimensions: query.dimensions,
+      groupings: query.groupings,
+      measures: query.measures,
+    },
+    filter_keys: Object.keys(query.filters).sort(),
+    source_rows: returnedRows,
+    returned_rows: returnedRows,
+    truncated,
+    truncation_reason: truncated ? 'row_limit' : 'none',
+    timings: {
+      source_ms: 2,
+      shaping_ms: 1,
+      total_ms: 3,
+    },
+  }
+}
+
 /**
  * pathOf parses a fetched URL to its PATHNAME (no query, no origin) so stub
  * routes match by exact path, not substring. RED-006/UX-006: matching with
@@ -837,6 +878,27 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         current_truncated: false,
         previous_truncated: false,
         rows_truncated: false,
+        execution: {
+          contract_version: 'explorer-comparison-execution/v1',
+          tenant_scoped: true,
+          current: explorerExecution(request.query, request.query.measures.length),
+          previous: explorerExecution(
+            {
+              ...request.query,
+              from: request.previous_from,
+              to: request.previous_to,
+            },
+            request.query.measures.length,
+          ),
+          alignment: {
+            row_limit: request.query.limit,
+            returned_rows: request.query.measures.length,
+            truncated: false,
+            truncation_reason: 'none',
+            elapsed_ms: 1,
+          },
+          total_ms: 7,
+        },
       })
     }
     if (path === '/v1/explorer/query') {
@@ -880,6 +942,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         ),
         evidence_path: template?.evidence_path ?? '/explore',
         truncated: false,
+        execution: explorerExecution(query, rows.length),
       })
     }
     if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })

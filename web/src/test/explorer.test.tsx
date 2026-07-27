@@ -75,6 +75,14 @@ describe('structured and natural-language Explorer', () => {
       screen.getByRole('img', { name: /topology visualization of authorized Explorer results/i }),
     ).toBeInTheDocument()
     expect(document.querySelector('datalist option[value="from-value"]')).not.toBeNull()
+    const execution = screen.getByText('Query execution receipt')
+    expect(execution).toBeInTheDocument()
+    await user.click(execution)
+    expect(screen.getByText('Authenticated tenant enforced')).toBeInTheDocument()
+    expect(
+      screen.getByText(/1 returned \/ 100 maximum from 1 authorized source rows/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/never contains SQL/i)).toBeInTheDocument()
 
     const stable = screen.getByRole('link', { name: 'Stable view link' }).getAttribute('href') ?? ''
     const pivot = screen.getByRole('link', { name: 'Open evidence' }).getAttribute('href') ?? ''
@@ -137,6 +145,11 @@ describe('structured and natural-language Explorer', () => {
     expect(within(table).getByText('edges')).toBeInTheDocument()
     expect(within(table).getByText('100%')).toBeInTheDocument()
     expect(screen.getByText('explorer-comparison/v1')).toBeInTheDocument()
+    const execution = screen.getByText('Comparison execution receipt')
+    await user.click(execution)
+    expect(screen.getAllByText('Authenticated tenant enforced')).toHaveLength(2)
+    expect(screen.getByText(/1 aligned rows \/ 100 maximum/)).toBeInTheDocument()
+    expect(screen.getByText(/explorer-comparison-execution\/v1/)).toBeInTheDocument()
     expect(
       screen.getByRole('img', {
         name: /Current and previous values for 1 aligned Explorer measure/,
@@ -200,6 +213,58 @@ describe('structured and natural-language Explorer', () => {
           current_truncated: true,
           previous_truncated: false,
           rows_truncated: false,
+          execution: {
+            contract_version: 'explorer-comparison-execution/v1',
+            tenant_scoped: true,
+            current: {
+              contract_version: 'explorer-execution/v1',
+              recipe: 'service-dependencies',
+              source: 'topology',
+              tenant_scoped: true,
+              bounds: {
+                from: String(request.query.from),
+                to: String(request.query.to),
+                row_limit: 100,
+              },
+              projection: {
+                dimensions: ['from', 'to', 'kind'],
+                groupings: ['kind'],
+                measures: ['edges'],
+              },
+              filter_keys: [],
+              source_rows: 0,
+              returned_rows: 0,
+              truncated: true,
+              truncation_reason: 'row_limit',
+              timings: { source_ms: 1, shaping_ms: 0, total_ms: 1 },
+            },
+            previous: {
+              contract_version: 'explorer-execution/v1',
+              recipe: 'service-dependencies',
+              source: 'topology',
+              tenant_scoped: true,
+              bounds: { from: request.previous_from, to: request.previous_to, row_limit: 100 },
+              projection: {
+                dimensions: ['from', 'to', 'kind'],
+                groupings: ['kind'],
+                measures: ['edges'],
+              },
+              filter_keys: [],
+              source_rows: 0,
+              returned_rows: 0,
+              truncated: false,
+              truncation_reason: 'none',
+              timings: { source_ms: 1, shaping_ms: 0, total_ms: 1 },
+            },
+            alignment: {
+              row_limit: 100,
+              returned_rows: 0,
+              truncated: false,
+              truncation_reason: 'none',
+              elapsed_ms: 0,
+            },
+            total_ms: 2,
+          },
         })
       }),
     )
@@ -210,6 +275,7 @@ describe('structured and natural-language Explorer', () => {
     await user.click(screen.getByRole('button', { name: 'Compare periods' }))
     expect(await screen.findByText(/Neither window has authorized rows/i)).toBeInTheDocument()
     expect(screen.getByText(/comparison is partial/i)).toBeInTheDocument()
+    expect(screen.getByText('Comparison execution receipt')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Compare periods' }))
     expect(

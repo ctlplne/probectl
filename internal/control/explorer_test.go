@@ -20,7 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 )
 
-func TestExplorerQueryAndSuggestionsAreTenantScoped(t *testing.T) {
+func TestExplorerQuerySuggestionsAndExecutionReceiptAreTenantScoped(t *testing.T) {
 	flows := flowstore.NewMemory()
 	at := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	rows := []flowstore.Row{
@@ -51,6 +51,25 @@ func TestExplorerQueryAndSuggestionsAreTenantScoped(t *testing.T) {
 	if len(got.Suggestions["site"]) != 1 || got.Suggestions["site"][0] != "site-a" {
 		t.Fatalf("tenant-a suggestions = %+v", got.Suggestions)
 	}
+	if got.Execution.ContractVersion != "explorer-execution/v1" ||
+		!got.Execution.TenantScoped ||
+		got.Execution.Source != ai.ExplorerFlow ||
+		got.Execution.Recipe != "custom" ||
+		got.Execution.Bounds.RowLimit != 100 ||
+		got.Execution.SourceRows != 1 ||
+		got.Execution.ReturnedRows != 1 ||
+		got.Execution.Truncated ||
+		got.Execution.TruncationReason != "none" {
+		t.Fatalf("tenant-a execution receipt = %+v", got.Execution)
+	}
+	if got.Execution.Bounds.From != time.Date(2026, 7, 14, 11, 0, 0, 0, time.UTC) ||
+		got.Execution.Bounds.To != time.Date(2026, 7, 14, 13, 0, 0, 0, time.UTC) {
+		t.Fatalf("tenant-a receipt bounds = %+v", got.Execution.Bounds)
+	}
+	if strings.Contains(rec.Body.String(), "00000000-0000-0000-0000-000000000001") ||
+		strings.Contains(rec.Body.String(), "00000000-0000-0000-0000-000000000002") {
+		t.Fatalf("Explorer response exposed tenant identity: %s", rec.Body.String())
+	}
 
 	reqB := httptest.NewRequest(http.MethodPost, "/v1/explorer/query", bytes.NewReader(body))
 	reqB.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-000000000002")
@@ -58,9 +77,16 @@ func TestExplorerQueryAndSuggestionsAreTenantScoped(t *testing.T) {
 	if recB.Code != http.StatusOK || !strings.Contains(recB.Body.String(), "SECRET-SITE-B") || strings.Contains(recB.Body.String(), "site-a") {
 		t.Fatalf("tenant-b Explorer response = %d %s", recB.Code, recB.Body.String())
 	}
+	var gotB explorerResult
+	if err := json.Unmarshal(recB.Body.Bytes(), &gotB); err != nil {
+		t.Fatal(err)
+	}
+	if gotB.Execution.SourceRows != 1 || gotB.Execution.ReturnedRows != 1 || !gotB.Execution.TenantScoped {
+		t.Fatalf("tenant-b execution receipt = %+v", gotB.Execution)
+	}
 }
 
-func TestExplorerComparisonRowsAndSuggestionsAreTenantScoped(t *testing.T) {
+func TestExplorerComparisonRowsSuggestionsAndExecutionReceiptsAreTenantScoped(t *testing.T) {
 	const (
 		tenantA = "00000000-0000-0000-0000-000000000001"
 		tenantB = "00000000-0000-0000-0000-000000000002"
@@ -107,6 +133,98 @@ func TestExplorerComparisonRowsAndSuggestionsAreTenantScoped(t *testing.T) {
 	}
 	if values := got.Suggestions["site"]; len(values) != 1 || values[0] != "site-a" {
 		t.Fatalf("tenant-a comparison suggestions = %+v", got.Suggestions)
+	}
+	if got.Execution.ContractVersion != "explorer-comparison-execution/v1" ||
+		!got.Execution.TenantScoped ||
+		!got.Execution.Current.TenantScoped ||
+		!got.Execution.Previous.TenantScoped ||
+		got.Execution.Current.SourceRows != 1 ||
+		got.Execution.Previous.SourceRows != 1 ||
+		got.Execution.Alignment.ReturnedRows != 1 ||
+		got.Execution.Alignment.RowLimit != 100 ||
+		got.Execution.Alignment.TruncationReason != "none" {
+		t.Fatalf("comparison execution receipt = %+v", got.Execution)
+	}
+	if strings.Contains(rec.Body.String(), tenantA) || strings.Contains(rec.Body.String(), tenantB) {
+		t.Fatalf("comparison response exposed tenant identity: %s", rec.Body.String())
+	}
+}
+
+func TestExplorerExecutionReceiptContainsFilterKeysButNotValues(t *testing.T) {
+	flows := flowstore.NewMemory()
+	at := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	if err := flows.Insert(t.Context(), []flowstore.Row{{
+		TenantID: "00000000-0000-0000-0000-000000000001",
+		AgentID:  "a",
+		Exporter: "site-a",
+		TS:       at,
+		InIf:     7,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	srv := testServer(fakePinger{}).WithFlowStore(flows)
+	body := []byte(`{
+		"template":"top-talkers-site",
+		"question":"Show top talkers by site","source":"flow",
+		"from":"2026-07-14T11:00:00Z","to":"2026-07-14T13:00:00Z",
+		"dimensions":["site"],"filters":{"site":"site-a"},
+		"measures":["bps"],"visualization":"table","limit":100
+	}`)
+	rec := doReq(srv, httptest.NewRequest(http.MethodPost, "/v1/explorer/query", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("query = %d %s", rec.Code, rec.Body.String())
+	}
+	var got explorerResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Execution.Recipe != "top-talkers-site" ||
+		len(got.Execution.FilterKeys) != 1 ||
+		got.Execution.FilterKeys[0] != "site" {
+		t.Fatalf("execution filter receipt = %+v", got.Execution)
+	}
+	encoded, err := json.Marshal(got.Execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"site-a", "00000000-0000-0000-0000-000000000001", "SELECT", "EXPLAIN"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("execution receipt exposed %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestExplorerExecutionReceiptExplainsRowLimitTruncation(t *testing.T) {
+	const tenantID = "00000000-0000-0000-0000-000000000001"
+	flows := flowstore.NewMemory()
+	rows := []flowstore.Row{
+		{TenantID: tenantID, AgentID: "a", Exporter: "site-a", TS: time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC), InIf: 7, BytesScaled: 9000, PacketsScaled: 9},
+		{TenantID: tenantID, AgentID: "a", Exporter: "site-a", TS: time.Date(2026, 7, 14, 12, 1, 0, 0, time.UTC), InIf: 7, BytesScaled: 8000, PacketsScaled: 8},
+	}
+	if err := flows.Insert(t.Context(), rows); err != nil {
+		t.Fatal(err)
+	}
+	srv := testServer(fakePinger{}).WithFlowStore(flows)
+	body := []byte(`{
+		"question":"Show bounded flow rows","source":"flow",
+		"from":"2026-07-14T11:00:00Z","to":"2026-07-14T13:00:00Z",
+		"dimensions":["site"],"measures":["bps"],
+		"visualization":"table","limit":1
+	}`)
+	rec := doReq(srv, httptest.NewRequest(http.MethodPost, "/v1/explorer/query", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("query = %d %s", rec.Code, rec.Body.String())
+	}
+	var got explorerResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Truncated ||
+		!got.Execution.Truncated ||
+		got.Execution.TruncationReason != "row_limit" ||
+		got.Execution.SourceRows != 2 ||
+		got.Execution.ReturnedRows != 1 {
+		t.Fatalf("truncated execution receipt = %+v", got.Execution)
 	}
 }
 

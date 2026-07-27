@@ -31,14 +31,69 @@ type explorerColumn struct {
 	Numeric bool   `json:"numeric,omitempty"`
 }
 
+// explorerExecutionReceipt is a sanitized, server-authored explanation of the
+// logical work Explorer performed. It deliberately describes bounds and
+// projection rather than returning SQL, a physical query plan, tenant
+// identity, literal filter values, or datastore-wide cardinality.
+type explorerExecutionReceipt struct {
+	ContractVersion  string                      `json:"contract_version"`
+	Recipe           string                      `json:"recipe"`
+	Source           ai.ExplorerSource           `json:"source"`
+	TenantScoped     bool                        `json:"tenant_scoped"`
+	Bounds           explorerExecutionBounds     `json:"bounds"`
+	Projection       explorerExecutionProjection `json:"projection"`
+	FilterKeys       []string                    `json:"filter_keys"`
+	SourceRows       int                         `json:"source_rows"`
+	ReturnedRows     int                         `json:"returned_rows"`
+	Truncated        bool                        `json:"truncated"`
+	TruncationReason string                      `json:"truncation_reason"`
+	Timings          explorerExecutionTimings    `json:"timings"`
+}
+
+type explorerExecutionBounds struct {
+	From     time.Time `json:"from"`
+	To       time.Time `json:"to"`
+	RowLimit int       `json:"row_limit"`
+}
+
+type explorerExecutionProjection struct {
+	Dimensions []string `json:"dimensions"`
+	Groupings  []string `json:"groupings"`
+	Measures   []string `json:"measures"`
+}
+
+type explorerExecutionTimings struct {
+	SourceMS  int64 `json:"source_ms"`
+	ShapingMS int64 `json:"shaping_ms"`
+	TotalMS   int64 `json:"total_ms"`
+}
+
+type explorerComparisonExecutionReceipt struct {
+	ContractVersion string                            `json:"contract_version"`
+	TenantScoped    bool                              `json:"tenant_scoped"`
+	Current         explorerExecutionReceipt          `json:"current"`
+	Previous        explorerExecutionReceipt          `json:"previous"`
+	Alignment       explorerAlignmentExecutionReceipt `json:"alignment"`
+	TotalMS         int64                             `json:"total_ms"`
+}
+
+type explorerAlignmentExecutionReceipt struct {
+	RowLimit         int    `json:"row_limit"`
+	ReturnedRows     int    `json:"returned_rows"`
+	Truncated        bool   `json:"truncated"`
+	TruncationReason string `json:"truncation_reason"`
+	ElapsedMS        int64  `json:"elapsed_ms"`
+}
+
 type explorerResult struct {
-	Query        ai.ExplorerQuery    `json:"query"`
-	Preview      string              `json:"preview"`
-	Columns      []explorerColumn    `json:"columns"`
-	Rows         []ai.Row            `json:"rows"`
-	Suggestions  map[string][]string `json:"suggestions"`
-	EvidencePath string              `json:"evidence_path"`
-	Truncated    bool                `json:"truncated"`
+	Query        ai.ExplorerQuery         `json:"query"`
+	Preview      string                   `json:"preview"`
+	Columns      []explorerColumn         `json:"columns"`
+	Rows         []ai.Row                 `json:"rows"`
+	Suggestions  map[string][]string      `json:"suggestions"`
+	EvidencePath string                   `json:"evidence_path"`
+	Truncated    bool                     `json:"truncated"`
+	Execution    explorerExecutionReceipt `json:"execution"`
 }
 
 type explorerComparisonRequest struct {
@@ -59,19 +114,20 @@ type explorerComparisonRow struct {
 }
 
 type explorerComparisonResult struct {
-	ContractVersion   string                  `json:"contract_version"`
-	Current           ai.ExplorerQuery        `json:"current"`
-	Previous          ai.ExplorerQuery        `json:"previous"`
-	CurrentPreview    string                  `json:"current_preview"`
-	PreviousPreview   string                  `json:"previous_preview"`
-	Groupings         []string                `json:"groupings"`
-	Rows              []explorerComparisonRow `json:"rows"`
-	Suggestions       map[string][]string     `json:"suggestions"`
-	EvidencePath      string                  `json:"evidence_path"`
-	State             string                  `json:"state"`
-	CurrentTruncated  bool                    `json:"current_truncated"`
-	PreviousTruncated bool                    `json:"previous_truncated"`
-	RowsTruncated     bool                    `json:"rows_truncated"`
+	ContractVersion   string                             `json:"contract_version"`
+	Current           ai.ExplorerQuery                   `json:"current"`
+	Previous          ai.ExplorerQuery                   `json:"previous"`
+	CurrentPreview    string                             `json:"current_preview"`
+	PreviousPreview   string                             `json:"previous_preview"`
+	Groupings         []string                           `json:"groupings"`
+	Rows              []explorerComparisonRow            `json:"rows"`
+	Suggestions       map[string][]string                `json:"suggestions"`
+	EvidencePath      string                             `json:"evidence_path"`
+	State             string                             `json:"state"`
+	CurrentTruncated  bool                               `json:"current_truncated"`
+	PreviousTruncated bool                               `json:"previous_truncated"`
+	RowsTruncated     bool                               `json:"rows_truncated"`
+	Execution         explorerComparisonExecutionReceipt `json:"execution"`
 }
 
 // handleExplorerSchema returns the fixed grammar and discoverable J3 recipes.
@@ -116,7 +172,7 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
 
-	filtered, truncated, err := s.executeExplorerBounded(r.Context(), p.TenantID, query)
+	filtered, execution, err := s.executeExplorerBounded(r.Context(), p.TenantID, query)
 	if err != nil {
 		s.log.Warn("explorer query failed", "tenant_id", p.TenantID, "source", query.Source, "error", err)
 		return apierror.Unavailable("the selected Explorer source is temporarily unavailable")
@@ -124,7 +180,7 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 	result := explorerResult{
 		Query: query, Preview: ai.ExplorerPreview(query), Columns: explorerColumns(query),
 		Rows: filtered, Suggestions: explorerSuggestions(filtered, query.Dimensions),
-		EvidencePath: explorerEvidencePath(query), Truncated: truncated,
+		EvidencePath: explorerEvidencePath(query), Truncated: execution.Truncated, Execution: execution,
 	}
 	writeJSON(w, http.StatusOK, result)
 	return nil
@@ -176,17 +232,20 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
 
-	currentRows, currentTruncated, err := s.executeExplorerBounded(r.Context(), p.TenantID, current)
+	comparisonStarted := time.Now()
+	currentRows, currentExecution, err := s.executeExplorerBounded(r.Context(), p.TenantID, current)
 	if err != nil {
 		s.log.Warn("explorer comparison current window failed", "tenant_id", p.TenantID, "source", current.Source, "error", err)
 		return apierror.Unavailable("the current Explorer window is temporarily unavailable")
 	}
-	previousRows, previousTruncated, err := s.executeExplorerBounded(r.Context(), p.TenantID, previous)
+	previousRows, previousExecution, err := s.executeExplorerBounded(r.Context(), p.TenantID, previous)
 	if err != nil {
 		s.log.Warn("explorer comparison previous window failed", "tenant_id", p.TenantID, "source", current.Source, "error", err)
 		return apierror.Unavailable("the previous Explorer window is temporarily unavailable")
 	}
+	alignmentStarted := time.Now()
 	rows, rowsTruncated := alignExplorerComparison(currentRows, previousRows, current.Groupings, current.Measures, current.Limit)
+	alignmentElapsed := time.Since(alignmentStarted).Milliseconds()
 	suggestionRows := append(append([]ai.Row{}, currentRows...), previousRows...)
 	writeJSON(w, http.StatusOK, explorerComparisonResult{
 		ContractVersion: "explorer-comparison/v1",
@@ -199,16 +258,35 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 			explorerRowsHaveMeasures(currentRows, current.Measures),
 			explorerRowsHaveMeasures(previousRows, current.Measures),
 		),
-		CurrentTruncated: currentTruncated, PreviousTruncated: previousTruncated, RowsTruncated: rowsTruncated,
+		CurrentTruncated: currentExecution.Truncated, PreviousTruncated: previousExecution.Truncated, RowsTruncated: rowsTruncated,
+		Execution: explorerComparisonExecutionReceipt{
+			ContractVersion: "explorer-comparison-execution/v1",
+			TenantScoped:    true,
+			Current:         currentExecution,
+			Previous:        previousExecution,
+			Alignment: explorerAlignmentExecutionReceipt{
+				RowLimit:         current.Limit,
+				ReturnedRows:     len(rows),
+				Truncated:        rowsTruncated,
+				TruncationReason: explorerTruncationReason(rowsTruncated, "comparison_row_limit"),
+				ElapsedMS:        alignmentElapsed,
+			},
+			TotalMS: time.Since(comparisonStarted).Milliseconds(),
+		},
 	})
 	return nil
 }
 
-func (s *Server) executeExplorerBounded(ctx context.Context, tenant string, query ai.ExplorerQuery) ([]ai.Row, bool, error) {
+func (s *Server) executeExplorerBounded(ctx context.Context, tenant string, query ai.ExplorerQuery) ([]ai.Row, explorerExecutionReceipt, error) {
+	started := time.Now()
+	sourceStarted := time.Now()
 	rows, err := s.executeExplorer(ctx, tenant, query)
 	if err != nil {
-		return nil, false, err
+		return nil, explorerExecutionReceipt{}, err
 	}
+	sourceElapsed := time.Since(sourceStarted).Milliseconds()
+	shapingStarted := time.Now()
+	sourceRows := len(rows)
 	filtered := filterExplorerRows(rows, query.Filters)
 	truncated := len(filtered) > query.Limit
 	if truncated {
@@ -217,7 +295,53 @@ func (s *Server) executeExplorerBounded(ctx context.Context, tenant string, quer
 	if filtered == nil {
 		filtered = []ai.Row{}
 	}
-	return filtered, truncated, nil
+	shapingElapsed := time.Since(shapingStarted).Milliseconds()
+	receipt := explorerExecutionReceipt{
+		ContractVersion: "explorer-execution/v1",
+		Recipe:          explorerRecipe(query),
+		Source:          query.Source,
+		TenantScoped:    true,
+		Bounds: explorerExecutionBounds{
+			From: query.From, To: query.To, RowLimit: query.Limit,
+		},
+		Projection: explorerExecutionProjection{
+			Dimensions: append([]string{}, query.Dimensions...),
+			Groupings:  append([]string{}, query.Groupings...),
+			Measures:   append([]string{}, query.Measures...),
+		},
+		FilterKeys:       explorerFilterKeys(query.Filters),
+		SourceRows:       sourceRows,
+		ReturnedRows:     len(filtered),
+		Truncated:        truncated,
+		TruncationReason: explorerTruncationReason(truncated, "row_limit"),
+		Timings: explorerExecutionTimings{
+			SourceMS: sourceElapsed, ShapingMS: shapingElapsed, TotalMS: time.Since(started).Milliseconds(),
+		},
+	}
+	return filtered, receipt, nil
+}
+
+func explorerRecipe(query ai.ExplorerQuery) string {
+	if strings.TrimSpace(query.Template) == "" {
+		return "custom"
+	}
+	return query.Template
+}
+
+func explorerFilterKeys(filters map[string]string) []string {
+	keys := make([]string, 0, len(filters))
+	for key := range filters {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func explorerTruncationReason(truncated bool, reason string) string {
+	if !truncated {
+		return "none"
+	}
+	return reason
 }
 
 func explorerComparisonSource(source ai.ExplorerSource) bool {

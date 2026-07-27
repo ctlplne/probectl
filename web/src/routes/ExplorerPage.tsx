@@ -25,7 +25,9 @@ import {
   useExplorerComparison,
   useExplorerQuery,
   useExplorerSchema,
+  type ExplorerComparisonExecutionReceipt,
   type ExplorerComparisonRow,
+  type ExplorerExecutionReceipt,
   type ExplorerQuery,
   type ExplorerSource,
   type ExplorerTemplate,
@@ -200,6 +202,114 @@ function comparisonStateLabel(state: ExplorerComparisonRow['delta_state']) {
     default:
       return 'Comparable'
   }
+}
+
+function receiptList(values: string[]) {
+  return values.length ? values.join(', ') : 'None'
+}
+
+function ExecutionReceiptFacts({ receipt }: { receipt: ExplorerExecutionReceipt }) {
+  return (
+    <dl className={styles.executionFacts}>
+      <div>
+        <dt>Recipe / source</dt>
+        <dd>
+          {receipt.recipe} / {receipt.source}
+        </dd>
+      </div>
+      <div>
+        <dt>Tenant boundary</dt>
+        <dd>{receipt.tenant_scoped ? 'Authenticated tenant enforced' : 'Unavailable'}</dd>
+      </div>
+      <div>
+        <dt>Time bound</dt>
+        <dd>
+          <time dateTime={receipt.bounds.from}>{receipt.bounds.from}</time> →{' '}
+          <time dateTime={receipt.bounds.to}>{receipt.bounds.to}</time>
+        </dd>
+      </div>
+      <div>
+        <dt>Row budget</dt>
+        <dd>
+          {receipt.returned_rows} returned / {receipt.bounds.row_limit} maximum from{' '}
+          {receipt.source_rows} authorized source rows
+        </dd>
+      </div>
+      <div>
+        <dt>Dimensions</dt>
+        <dd>{receiptList(receipt.projection.dimensions)}</dd>
+      </div>
+      <div>
+        <dt>Groupings</dt>
+        <dd>{receiptList(receipt.projection.groupings)}</dd>
+      </div>
+      <div>
+        <dt>Measures</dt>
+        <dd>{receiptList(receipt.projection.measures)}</dd>
+      </div>
+      <div>
+        <dt>Filter keys</dt>
+        <dd>{receiptList(receipt.filter_keys)}</dd>
+      </div>
+      <div>
+        <dt>Truncation</dt>
+        <dd>{receipt.truncation_reason}</dd>
+      </div>
+      <div>
+        <dt>Timing</dt>
+        <dd>
+          source {receipt.timings.source_ms} ms · shaping {receipt.timings.shaping_ms} ms · total{' '}
+          {receipt.timings.total_ms} ms
+        </dd>
+      </div>
+    </dl>
+  )
+}
+
+function ExecutionReceipt({
+  receipt,
+  label = 'Query',
+}: {
+  receipt: ExplorerExecutionReceipt
+  label?: string
+}) {
+  return (
+    <details className={styles.executionReceipt}>
+      <summary>{label} execution receipt</summary>
+      <p>
+        <code>{receipt.contract_version}</code> is a sanitized logical plan. It never contains SQL,
+        a physical database plan, tenant identity, or filter values.
+      </p>
+      <ExecutionReceiptFacts receipt={receipt} />
+    </details>
+  )
+}
+
+function ComparisonExecutionReceipt({ receipt }: { receipt: ExplorerComparisonExecutionReceipt }) {
+  return (
+    <details className={styles.executionReceipt}>
+      <summary>Comparison execution receipt</summary>
+      <p>
+        <code>{receipt.contract_version}</code> applies one authenticated tenant boundary to both
+        windows. Total elapsed time: {receipt.total_ms} ms.
+      </p>
+      <section aria-labelledby="explorer-current-execution">
+        <h3 id="explorer-current-execution">Current window</h3>
+        <ExecutionReceiptFacts receipt={receipt.current} />
+      </section>
+      <section aria-labelledby="explorer-previous-execution">
+        <h3 id="explorer-previous-execution">Previous window</h3>
+        <ExecutionReceiptFacts receipt={receipt.previous} />
+      </section>
+      <section aria-labelledby="explorer-alignment-execution">
+        <h3 id="explorer-alignment-execution">Alignment</h3>
+        <p>
+          {receipt.alignment.returned_rows} aligned rows / {receipt.alignment.row_limit} maximum ·{' '}
+          {receipt.alignment.truncation_reason} · {receipt.alignment.elapsed_ms} ms
+        </p>
+      </section>
+    </details>
+  )
 }
 
 function ComparisonBars({ rows }: { rows: ExplorerComparisonRow[] }) {
@@ -689,6 +799,7 @@ export function ExplorerPage() {
                 <strong>Previous</strong> <code>{comparisonRun.data.previous_preview}</code>
               </p>
             </div>
+            <ComparisonExecutionReceipt receipt={comparisonRun.data.execution} />
             {comparisonRun.data.rows.length ? (
               <ChartShell
                 title="Current versus previous"
@@ -748,6 +859,7 @@ export function ExplorerPage() {
             <p className={styles.receipt}>
               <code>{run.data.preview}</code>
             </p>
+            <ExecutionReceipt receipt={run.data.execution} />
             {run.data.query.visualization !== 'table' ? (
               <ChartShell
                 title={`${run.data.query.visualization} visualization`}

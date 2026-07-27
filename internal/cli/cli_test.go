@@ -862,6 +862,13 @@ func TestCLIExplorerComparisonSurfaceIsReadOnly(t *testing.T) {
 	if op.Method != http.MethodPost || op.Path != "/v1/explorer/compare" {
 		t.Fatalf("explorer compare op = %+v, want POST /v1/explorer/compare", op)
 	}
+	if !strings.Contains(op.Description, "execution receipts") {
+		t.Fatalf("explorer compare must explain its execution receipt output: %+v", op)
+	}
+	query := surfaceCommands["explorer"].Ops["query"]
+	if !strings.Contains(query.Description, "tenant-scoped logical execution receipt") {
+		t.Fatalf("explorer query must explain its execution receipt output: %+v", query)
+	}
 }
 
 func TestCLIIncidentJournalSurfaces(t *testing.T) {

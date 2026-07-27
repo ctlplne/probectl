@@ -299,7 +299,7 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
-    capability: 'Structured and natural-language telemetry Explorer',
+    capability: 'Structured telemetry Explorer + logical execution receipts',
     featureIds: ['F13'],
     sprint: 'X7',
     kind: 'native',
