@@ -135,6 +135,16 @@ surface freshness, confidence, protocol, and device/port provenance. Collection
 is capped at 256 rows per device and performs no subnet scan, CLI login, vendor
 SDK call, or remote lookup.
 
+The agent independently publishes a bounded, non-secret LLDP/CDP attempt
+receipt on `probectl.device.collection-outcomes`. This keeps collection truth
+separate from topology evidence: `healthy_empty` means a successful walk with
+zero rows, while `failed`, `unsupported`, and `never_observed` are distinct
+states and never clear last-known-good adjacency. The forced-RLS store, audited
+`GET /v1/device/collection-outcomes`, generated SDKs, `probectl device
+outcomes`, and native Device/Admin cards all expose the same versioned contract.
+No raw SNMP value, credential, discovered target, scan, write, or external
+service participates.
+
 When those local sources disagree about a management address, device name, or
 interface identity, probectl preserves both normalized claims before updating
 the topology label. Operators review the bounded result at **Planes → Device**

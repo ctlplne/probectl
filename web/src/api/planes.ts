@@ -163,6 +163,51 @@ export interface DeviceNeighborResponse {
   }
 }
 
+export type DeviceCollectionOutcomeState =
+  | 'ok_with_rows'
+  | 'healthy_empty'
+  | 'unsupported'
+  | 'failed'
+  | 'never_observed'
+
+export interface DeviceCollectionOutcome {
+  agent_id: string
+  configured_target: string
+  protocol: 'lldp' | 'cdp'
+  last_attempt_at: string | null
+  last_success_at: string | null
+  state: DeviceCollectionOutcomeState
+  reason:
+    | 'rows_observed'
+    | 'no_rows_observed'
+    | 'mib_unsupported'
+    | 'poll_failed'
+    | 'credential_unavailable'
+    | 'transport_unreachable'
+    | 'base_poll_failed'
+    | 'never_attempted'
+  row_count: number
+  next_action:
+    | 'review_neighbor_evidence'
+    | 'review_target_neighbor_configuration'
+    | 'enable_protocol_on_configured_target'
+    | 'verify_configured_target_access'
+    | 'wait_for_first_collection'
+}
+
+export interface DeviceCollectionOutcomeResponse {
+  contract_version: 'probectl.device-collection-outcomes/v1'
+  items: DeviceCollectionOutcome[]
+  collection_running: boolean
+  effective_limit: number
+  truncated: boolean
+  as_of: string
+  retention: {
+    max_per_tenant: number
+    retention_days: number
+  }
+}
+
 export function useFlowTop(
   by: FlowGroupBy,
   window = '1h',
@@ -219,5 +264,13 @@ export function useDeviceNeighbors(limit = 100) {
   return useQuery({
     queryKey: ['device', 'neighbors', limit],
     queryFn: () => apiFetch<DeviceNeighborResponse>(`/device/neighbors?limit=${limit}`),
+  })
+}
+
+export function useDeviceCollectionOutcomes(limit = 100) {
+  return useQuery({
+    queryKey: ['device', 'collection-outcomes', limit],
+    queryFn: () =>
+      apiFetch<DeviceCollectionOutcomeResponse>(`/device/collection-outcomes?limit=${limit}`),
   })
 }

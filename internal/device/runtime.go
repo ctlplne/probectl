@@ -18,16 +18,18 @@ import (
 
 // Stats are the collector's monotonic counters (probectl observes probectl).
 type Stats struct {
-	Polls              atomic.Uint64
-	PollErrors         atomic.Uint64
-	Metrics            atomic.Uint64
-	EmitErrors         atomic.Uint64
-	GNMIStreams        atomic.Uint64
-	CounterResets      atomic.Uint64 // CORRECT-001: counter resets detected and dropped
-	NeighborSnapshots  atomic.Uint64
-	Neighbors          atomic.Uint64
-	NeighborPollErrors atomic.Uint64
-	NeighborEmitErrors atomic.Uint64
+	Polls                       atomic.Uint64
+	PollErrors                  atomic.Uint64
+	Metrics                     atomic.Uint64
+	EmitErrors                  atomic.Uint64
+	GNMIStreams                 atomic.Uint64
+	CounterResets               atomic.Uint64 // CORRECT-001: counter resets detected and dropped
+	NeighborSnapshots           atomic.Uint64
+	Neighbors                   atomic.Uint64
+	NeighborPollErrors          atomic.Uint64
+	NeighborEmitErrors          atomic.Uint64
+	CollectionOutcomes          atomic.Uint64
+	CollectionOutcomeEmitErrors atomic.Uint64
 	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
 	// the cycle is SKIPPED — fail closed, never poll with stale material).
 	CredErrors atomic.Uint64
@@ -62,6 +64,9 @@ type Runtime struct {
 	counterMu    sync.Mutex
 	counterCache map[counterKey]float64
 
+	outcomeMu          sync.Mutex
+	outcomeLastSuccess map[collectionOutcomeKey]time.Time
+
 	// dialSNMP/gnmiDialOpts are test seams (canned SNMP conns, bufconn gNMI).
 	dialSNMP func(Target, Credential) (snmpConn, error)
 }
@@ -82,14 +87,15 @@ func New(cfg *Config, em Emitter, creds CredentialSource, log *slog.Logger) (*Ru
 		log = slog.Default()
 	}
 	return &Runtime{
-		cfg:          cfg,
-		creds:        creds,
-		emit:         em,
-		log:          log,
-		correlator:   NewCorrelator(),
-		traps:        NewMemoryTrapStore(0),
-		counterCache: make(map[counterKey]float64),
-		dialSNMP:     dialSNMP,
+		cfg:                cfg,
+		creds:              creds,
+		emit:               em,
+		log:                log,
+		correlator:         NewCorrelator(),
+		traps:              NewMemoryTrapStore(0),
+		counterCache:       make(map[counterKey]float64),
+		outcomeLastSuccess: make(map[collectionOutcomeKey]time.Time),
+		dialSNMP:           dialSNMP,
 	}, nil
 }
 
@@ -103,17 +109,19 @@ func (r *Runtime) TrapStore() TrapStore { return r.traps }
 // StatsSnapshot returns a copy of the counters.
 func (r *Runtime) StatsSnapshot() map[string]uint64 {
 	return map[string]uint64{
-		"polls":                r.stats.Polls.Load(),
-		"poll_errors":          r.stats.PollErrors.Load(),
-		"metrics":              r.stats.Metrics.Load(),
-		"emit_errors":          r.stats.EmitErrors.Load(),
-		"gnmi_streams":         r.stats.GNMIStreams.Load(),
-		"cred_errors":          r.stats.CredErrors.Load(),
-		"counter_resets":       r.stats.CounterResets.Load(),
-		"neighbor_snapshots":   r.stats.NeighborSnapshots.Load(),
-		"neighbors":            r.stats.Neighbors.Load(),
-		"neighbor_poll_errors": r.stats.NeighborPollErrors.Load(),
-		"neighbor_emit_errors": r.stats.NeighborEmitErrors.Load(),
+		"polls":                          r.stats.Polls.Load(),
+		"poll_errors":                    r.stats.PollErrors.Load(),
+		"metrics":                        r.stats.Metrics.Load(),
+		"emit_errors":                    r.stats.EmitErrors.Load(),
+		"gnmi_streams":                   r.stats.GNMIStreams.Load(),
+		"cred_errors":                    r.stats.CredErrors.Load(),
+		"counter_resets":                 r.stats.CounterResets.Load(),
+		"neighbor_snapshots":             r.stats.NeighborSnapshots.Load(),
+		"neighbors":                      r.stats.Neighbors.Load(),
+		"neighbor_poll_errors":           r.stats.NeighborPollErrors.Load(),
+		"neighbor_emit_errors":           r.stats.NeighborEmitErrors.Load(),
+		"collection_outcomes":            r.stats.CollectionOutcomes.Load(),
+		"collection_outcome_emit_errors": r.stats.CollectionOutcomeEmitErrors.Load(),
 	}
 }
 
@@ -211,9 +219,11 @@ func (r *Runtime) trapReceiver() (*TrapReceiver, error) {
 func (r *Runtime) pollLoop(ctx context.Context, dev Target, credFn func() (Credential, error)) {
 	ticker := time.NewTicker(dev.Interval)
 	defer ticker.Stop()
+	r.emitNeverObservedOutcomes(ctx, dev)
 	for {
 		if cred, err := credFn(); err != nil {
 			r.stats.CredErrors.Add(1)
+			r.emitFailedOutcomes(ctx, dev, time.Now().UTC(), CollectionReasonCredentialUnavailable)
 			r.log.Warn("device credential resolve failed; skipping cycle",
 				"device", dev.Address, "error", err.Error())
 		} else {
@@ -233,6 +243,7 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	conn, err := r.dialSNMP(dev, cred)
 	if err != nil {
 		r.stats.PollErrors.Add(1)
+		r.emitFailedOutcomes(ctx, dev, time.Now().UTC(), CollectionReasonTransportUnreachable)
 		r.log.Warn("snmp dial failed", "device", dev.Address, "error", err.Error())
 		return
 	}
@@ -242,6 +253,7 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	metrics, inv, err := pollSNMP(conn, dev, r.cfg.TenantID, r.cfg.AgentID, observedAt)
 	if err != nil {
 		r.stats.PollErrors.Add(1)
+		r.emitFailedOutcomes(ctx, dev, observedAt, CollectionReasonBasePollFailed)
 		r.log.Warn("snmp poll failed", "device", dev.Address, "error", err.Error())
 		return
 	}
@@ -249,7 +261,10 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	r.pruneCorrelator(observedAt)
 
 	if dev.Neighbors {
-		neighbors, err := pollSNMPNeighbors(conn, dev, r.cfg.TenantID, r.cfg.AgentID, inv, observedAt)
+		neighbors, attempts, err := pollSNMPNeighborAttempts(conn, dev, r.cfg.TenantID, r.cfg.AgentID, inv, observedAt)
+		for _, attempt := range attempts {
+			r.emitCollectionOutcome(ctx, dev, attempt.Protocol, attempt.State, attempt.Reason, attempt.RowCount, &observedAt)
+		}
 		if err != nil {
 			r.stats.NeighborPollErrors.Add(1)
 			r.log.Warn("device neighbor poll failed; preserving previous snapshot",
@@ -287,6 +302,82 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 		return
 	}
 	r.stats.Metrics.Add(uint64(len(metrics)))
+}
+
+type collectionOutcomeKey struct {
+	target   string
+	protocol string
+}
+
+func (r *Runtime) emitNeverObservedOutcomes(ctx context.Context, dev Target) {
+	if !dev.Neighbors {
+		return
+	}
+	for _, protocol := range []string{NeighborProtocolLLDP, NeighborProtocolCDP} {
+		r.emitCollectionOutcome(ctx, dev, protocol, CollectionStateNeverObserved,
+			CollectionReasonNeverAttempted, 0, nil)
+	}
+}
+
+func (r *Runtime) emitFailedOutcomes(ctx context.Context, dev Target, at time.Time, reason string) {
+	if !dev.Neighbors {
+		return
+	}
+	for _, protocol := range []string{NeighborProtocolLLDP, NeighborProtocolCDP} {
+		r.emitCollectionOutcome(ctx, dev, protocol, CollectionStateFailed, reason, 0, &at)
+	}
+}
+
+func (r *Runtime) emitCollectionOutcome(
+	ctx context.Context,
+	dev Target,
+	protocol, state, reason string,
+	rowCount int,
+	attemptAt *time.Time,
+) {
+	emitter, ok := r.emit.(CollectionOutcomeEmitter)
+	if !ok {
+		return
+	}
+	key := collectionOutcomeKey{target: dev.Address, protocol: protocol}
+	r.outcomeMu.Lock()
+	var lastSuccess *time.Time
+	if state == CollectionStateOKWithRows || state == CollectionStateHealthyEmpty {
+		if attemptAt != nil {
+			r.outcomeLastSuccess[key] = attemptAt.UTC()
+		}
+	}
+	if success, ok := r.outcomeLastSuccess[key]; ok {
+		value := success
+		lastSuccess = &value
+	}
+	r.outcomeMu.Unlock()
+
+	nextAction := CollectionActionVerifyLocalAccess
+	switch state {
+	case CollectionStateOKWithRows:
+		nextAction = CollectionActionReviewEvidence
+	case CollectionStateHealthyEmpty:
+		nextAction = CollectionActionReviewConfiguration
+	case CollectionStateUnsupported:
+		nextAction = CollectionActionEnableProtocol
+	case CollectionStateNeverObserved:
+		nextAction = CollectionActionWaitForFirstAttempt
+	}
+	outcome := CollectionOutcome{
+		TenantID: r.cfg.TenantID, AgentID: r.cfg.AgentID,
+		ConfiguredTarget: dev.Address, Protocol: protocol,
+		LastAttemptAt: attemptAt, LastSuccessAt: lastSuccess,
+		State: state, Reason: reason, RowCount: rowCount, NextAction: nextAction,
+	}
+	if err := emitter.EmitCollectionOutcome(ctx, outcome); err != nil {
+		r.stats.CollectionOutcomeEmitErrors.Add(1)
+		r.log.Error("device collection outcome emit failed",
+			"tenant_id", r.cfg.TenantID, "agent_id", r.cfg.AgentID,
+			"configured_target", dev.Address, "protocol", protocol, "error", err.Error())
+		return
+	}
+	r.stats.CollectionOutcomes.Add(1)
 }
 
 func (r *Runtime) pruneCorrelator(now time.Time) {

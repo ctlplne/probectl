@@ -35,10 +35,11 @@ func TestBundleHasNoSecrets(t *testing.T) {
 			"database_url":            "postgres://probectl:xxxxx@db:5432/probectl",
 			"envelope_key_configured": true,
 		},
-		Health:      Health{Status: StatusOK},
-		SelfMetrics: map[string]float64{"goroutines": 12},
-		Topology:    TopologySummary{Tenants: 3, Agents: 9, Region: "us-east"},
-		Runtime:     CollectRuntime(time.Now().Add(-time.Hour)),
+		Health:           Health{Status: StatusOK},
+		SelfMetrics:      map[string]float64{"goroutines": 12},
+		Topology:         TopologySummary{Tenants: 3, Agents: 9, Region: "us-east"},
+		DeviceCollection: DeviceCollectionSummary{ContractVersion: "probectl.device-collection-outcomes/v1", Receipts: []DeviceCollectionReceipt{}},
+		Runtime:          CollectRuntime(time.Now().Add(-time.Hour)),
 		// Defense in depth: even if a secret slipped into a field, it is
 		// scrubbed from the assembled bytes.
 		RedactValues: []string{envelopeKey, bearerToken, dbPassword},
@@ -55,7 +56,7 @@ func TestBundleHasNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The expected diagnostics files are present.
-	for _, want := range []string{"manifest.json", "version.json", "config-redacted.json", "health.json", "self-metrics.json", "topology-summary.json", "runtime.json"} {
+	for _, want := range []string{"manifest.json", "version.json", "config-redacted.json", "health.json", "self-metrics.json", "topology-summary.json", "device-collection.json", "runtime.json"} {
 		if _, ok := files[want]; !ok {
 			t.Fatalf("bundle missing %s (have %v)", want, keys(files))
 		}

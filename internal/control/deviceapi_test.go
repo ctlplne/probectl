@@ -140,6 +140,58 @@ func TestDeviceNeighborAPITenantScopedWithFreshnessAndBounds(t *testing.T) {
 	}
 }
 
+func TestDeviceCollectionOutcomeAPITenantScopedVersionedAndRedacted(t *testing.T) {
+	st := devicepkg.NewMemoryCollectionOutcomeStore()
+	now := time.Now().UTC().Truncate(time.Second)
+	def := tenancy.DefaultTenantID.String()
+	for tenant, target := range map[string]string{
+		def:         "router-a.internal",
+		otherTenant: "secret-router-b.internal",
+	} {
+		at := now
+		if err := st.UpsertCollectionOutcome(context.Background(), tenant, devicepkg.CollectionOutcome{
+			TenantID: tenant, AgentID: "agent-1", ConfiguredTarget: target,
+			Protocol: devicepkg.NeighborProtocolLLDP, LastAttemptAt: &at,
+			State: devicepkg.CollectionStateFailed, Reason: devicepkg.CollectionReasonPollFailed,
+			NextAction: devicepkg.CollectionActionVerifyLocalAccess,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := testServer(fakePinger{}).WithDeviceCollectionOutcomes(st)
+	rec := do(srv, http.MethodGet, "/v1/device/collection-outcomes?state=failed&limit=5")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp deviceCollectionOutcomeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.ContractVersion != "probectl.device-collection-outcomes/v1" ||
+		!resp.CollectionRunning || len(resp.Items) != 1 ||
+		resp.Items[0].ConfiguredTarget != "router-a.internal" ||
+		resp.Retention.MaxPerTenant != devicepkg.MaxCollectionOutcomesPerTenant {
+		t.Fatalf("response = %+v", resp)
+	}
+	body := rec.Body.String()
+	for _, forbidden := range []string{"secret-router-b", "community", "password", "raw_varbind"} {
+		if strings.Contains(strings.ToLower(body), forbidden) {
+			t.Fatalf("collection outcome leaked forbidden data %q: %s", forbidden, body)
+		}
+	}
+	if bad := do(srv, http.MethodGet, "/v1/device/collection-outcomes?state=unknown"); bad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid state status = %d body=%s", bad.Code, bad.Body.String())
+	}
+}
+
+func TestDeviceCollectionOutcomeAPIReportsUnwiredHonestly(t *testing.T) {
+	rec := do(testServer(fakePinger{}), http.MethodGet, "/v1/device/collection-outcomes")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"collection_running":false`) ||
+		!strings.Contains(rec.Body.String(), `"items":[]`) {
+		t.Fatalf("unwired response status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDeviceSyslogAPITenantScoped(t *testing.T) {
 	srv := testServer(fakePinger{})
 	def := tenancy.DefaultTenantID.String()

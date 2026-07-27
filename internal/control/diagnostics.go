@@ -9,11 +9,13 @@ package control
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/version"
@@ -170,10 +172,11 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) error
 
 // handleDiagnosticsBundle streams the secret-stripped support bundle (tar.gz).
 func (s *Server) handleDiagnosticsBundle(w http.ResponseWriter, r *http.Request) error {
-	if _, err := s.principalTenant(r); err != nil {
+	tid, err := s.principalTenant(r)
+	if err != nil {
 		return err
 	}
-	src := s.supportSources(r.Context())
+	src := s.supportSources(r.Context(), tid)
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="probectl-support-bundle.tar.gz"`)
 	if _, err := support.Generate(w, src); err != nil {
@@ -187,16 +190,52 @@ func (s *Server) handleDiagnosticsBundle(w http.ResponseWriter, r *http.Request)
 // is safe by construction: config.Redacted is an allowlist, the topology is
 // anonymized counts, and the known secrets are passed as RedactValues so they
 // are scrubbed from the assembled bytes (defense in depth).
-func (s *Server) supportSources(ctx context.Context) support.Sources {
+func (s *Server) supportSources(ctx context.Context, tenant string) support.Sources {
 	return support.Sources{
-		Version:        version.Get(),
-		ConfigRedacted: s.cfg.Redacted(),
-		Health:         s.deepHealth(ctx),
-		SelfMetrics:    support.SelfSnapshot(s.startedAt),
-		Topology:       s.topologySummary(ctx),
-		Runtime:        support.CollectRuntime(s.startedAt),
-		RedactValues:   s.knownSecrets(),
+		Version:          version.Get(),
+		ConfigRedacted:   s.cfg.Redacted(),
+		Health:           s.deepHealth(ctx),
+		SelfMetrics:      support.SelfSnapshot(s.startedAt),
+		Topology:         s.topologySummary(ctx),
+		DeviceCollection: s.supportDeviceCollection(ctx, tenant),
+		Runtime:          support.CollectRuntime(s.startedAt),
+		RedactValues:     s.knownSecrets(),
 	}
+}
+
+func (s *Server) supportDeviceCollection(ctx context.Context, tenant string) support.DeviceCollectionSummary {
+	out := support.DeviceCollectionSummary{
+		ContractVersion:   "probectl.device-collection-outcomes/v1",
+		CollectionRunning: s.deviceOutcomes != nil,
+		Receipts:          []support.DeviceCollectionReceipt{},
+	}
+	if s.deviceOutcomes == nil || tenant == "" {
+		return out
+	}
+	rows, truncated, err := s.deviceOutcomes.ListCollectionOutcomes(ctx, tenant, device.CollectionOutcomeFilter{
+		Limit: device.MaxCollectionOutcomeRead,
+	})
+	if err != nil {
+		out.Error = "tenant-scoped outcome read unavailable"
+		return out
+	}
+	agentRefs, targetRefs := map[string]string{}, map[string]string{}
+	for _, row := range rows {
+		if agentRefs[row.AgentID] == "" {
+			agentRefs[row.AgentID] = fmt.Sprintf("agent-%04d", len(agentRefs)+1)
+		}
+		targetKey := row.AgentID + "\x00" + row.ConfiguredTarget
+		if targetRefs[targetKey] == "" {
+			targetRefs[targetKey] = fmt.Sprintf("target-%04d", len(targetRefs)+1)
+		}
+		out.Receipts = append(out.Receipts, support.DeviceCollectionReceipt{
+			AgentRef: agentRefs[row.AgentID], TargetRef: targetRefs[targetKey],
+			Protocol: row.Protocol, LastAttempt: row.LastAttemptAt, LastSuccess: row.LastSuccessAt,
+			State: row.State, Reason: row.Reason, RowCount: row.RowCount, NextAction: row.NextAction,
+		})
+	}
+	out.Truncated = truncated
+	return out
 }
 
 // topologySummary returns ANONYMIZED deployment counts (no tenant identifiers

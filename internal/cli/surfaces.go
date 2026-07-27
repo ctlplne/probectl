@@ -85,6 +85,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list":           {Method: http.MethodGet, Path: "/v1/devices"},
 		"metrics":        {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},
 		"neighbors":      {Method: http.MethodGet, Path: "/v1/device/neighbors", Description: "list bounded tenant LLDP/CDP physical adjacency evidence"},
+		"outcomes":       {Method: http.MethodGet, Path: "/v1/device/collection-outcomes", Description: "list bounded per-target LLDP/CDP collection outcome receipts"},
 		"conflicts":      {Method: http.MethodGet, Path: "/v1/device/identity-conflicts", Description: "list bounded read-only cross-source device identity conflicts"},
 		"syslog":         {Method: http.MethodGet, Path: "/v1/device/syslog", Description: "list bounded tenant device syslog events"},
 		"ingest-syslog":  {Method: http.MethodPost, Path: "/v1/device/syslog", Description: "ingest one authenticated device syslog event"},

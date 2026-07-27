@@ -638,6 +638,16 @@ function coldFixture(path: string): Response | null {
         as_of: '2026-06-04T12:00:00Z',
         retention: { max_per_device: 256, max_per_tenant: 16384, stale_retention_hours: 24 },
       })
+    case '/v1/device/collection-outcomes':
+      return jsonResponse({
+        contract_version: 'probectl.device-collection-outcomes/v1',
+        items: [],
+        collection_running: true,
+        effective_limit: 100,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        retention: { max_per_tenant: 4096, retention_days: 30 },
+      })
     case '/v1/device/syslog':
       return jsonResponse({ items: [], syslog_running: true })
     case '/v1/device/configs':
@@ -1164,6 +1174,39 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         as_of: '2026-06-04T12:00:00Z',
         latest_at: '2026-06-04T12:00:00Z',
         retention: { max_per_device: 256, max_per_tenant: 16384, stale_retention_hours: 24 },
+      })
+    if (path === '/v1/device/collection-outcomes')
+      return jsonResponse({
+        contract_version: 'probectl.device-collection-outcomes/v1',
+        items: [
+          {
+            agent_id: 'device-agent-1',
+            configured_target: 'edge-r1.internal',
+            protocol: 'lldp',
+            last_attempt_at: '2026-06-04T12:00:00Z',
+            last_success_at: '2026-06-04T11:55:00Z',
+            state: 'failed',
+            reason: 'poll_failed',
+            row_count: 0,
+            next_action: 'verify_configured_target_access',
+          },
+          {
+            agent_id: 'device-agent-1',
+            configured_target: 'edge-r1.internal',
+            protocol: 'cdp',
+            last_attempt_at: '2026-06-04T12:00:00Z',
+            last_success_at: '2026-06-04T12:00:00Z',
+            state: 'healthy_empty',
+            reason: 'no_rows_observed',
+            row_count: 0,
+            next_action: 'review_target_neighbor_configuration',
+          },
+        ],
+        collection_running: true,
+        effective_limit: 100,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        retention: { max_per_tenant: 4096, retention_days: 30 },
       })
     if (path === '/v1/device/syslog')
       return jsonResponse({

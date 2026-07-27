@@ -651,6 +651,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'ListDeviceNeighborsResponse',
   },
   {
+    file: 'api/planes.ts',
+    method: 'GET',
+    path: '`/device/collection-outcomes?limit=${limit}`',
+    response: 'DeviceCollectionOutcomeResponse',
+    generated: 'ListDeviceCollectionOutcomesResponse',
+  },
+  {
     file: 'api/remediation.ts',
     method: 'GET',
     path: '/remediation/proposals',

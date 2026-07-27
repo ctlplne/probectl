@@ -38,6 +38,7 @@ A `.tar.gz` of JSON files. The code lives in `internal/support/bundle.go`.
 | `health.json` | the deep-health report (each component + the aggregate) |
 | `self-metrics.json` | goroutines, memory, uptime, GC, GOMAXPROCS |
 | `topology-summary.json` | **anonymized** counts (tenants, agents, isolation models, region) — no tenant identifiers, no telemetry |
+| `device-collection.json` | bounded LLDP/CDP readiness receipts with bundle-local `agent-NNNN` / `target-NNNN` references; no raw tenant, agent, target, credential, varbind, or error text |
 | `runtime.json` | a runtime snapshot of the process |
 
 ### How it stays secret-free (defense in depth)
@@ -53,8 +54,11 @@ Three independent layers, so no single mistake leaks a secret:
    the boolean `envelope_key_configured` (true/false), never the key itself. The
    safety is structural: a secret field someone adds *later* can't leak,
    because it simply isn't on the allowlist.
-2. **Anonymized topology.** The deployment-shape file is counts only — never a
-   tenant ID, hostname, IP, or any telemetry.
+2. **Anonymized operational identity.** The deployment-shape file is counts
+   only. Device collection receipts preserve stable state/reason/time evidence
+   but replace agent and configured-target identities with bundle-local ordinal
+   references. Neither file carries a tenant ID, hostname, IP, credential, raw
+   varbind, discovered neighbor, or free-form dependency error.
 3. **A final scrub.** Before the bundle is written, it's swept once more for the
    *specific* sensitive values this deployment actually holds — the envelope
    key, the OIDC / CMDB / SIEM / AI-model secrets, the provider-bootstrap and

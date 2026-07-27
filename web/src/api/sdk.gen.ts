@@ -553,6 +553,30 @@ export interface DeepHealth {
   status: HealthStatus
 }
 
+export interface DeviceCollectionOutcome {
+  agent_id: string
+  configured_target: string
+  last_attempt_at: string | null
+  last_success_at: string | null
+  next_action: "review_neighbor_evidence" | "review_target_neighbor_configuration" | "enable_protocol_on_configured_target" | "verify_configured_target_access" | "wait_for_first_collection"
+  protocol: "lldp" | "cdp"
+  reason: "rows_observed" | "no_rows_observed" | "mib_unsupported" | "poll_failed" | "credential_unavailable" | "transport_unreachable" | "base_poll_failed" | "never_attempted"
+  row_count: number
+  state: DeviceCollectionOutcomeState
+}
+
+export interface DeviceCollectionOutcomeResponse {
+  as_of: string
+  collection_running: boolean
+  contract_version: string
+  effective_limit: number
+  items: DeviceCollectionOutcome[]
+  retention: JsonObject
+  truncated: boolean
+}
+
+export type DeviceCollectionOutcomeState = "ok_with_rows" | "healthy_empty" | "unsupported" | "failed" | "never_observed"
+
 export interface DeviceConfigArchiveRequest {
   content: string
   device: string
@@ -1935,6 +1959,15 @@ export interface ExportDashboardManifestRequest {
 
 export type ExportDashboardManifestResponse = DashboardManifest
 
+export interface ListDeviceCollectionOutcomesRequest {
+  agentId?: string
+  target?: string
+  state?: DeviceCollectionOutcomeState
+  limit?: number
+}
+
+export type ListDeviceCollectionOutcomesResponse = DeviceCollectionOutcomeResponse
+
 export interface ListDeviceConfigsRequest {
   device?: string
   limit?: number
@@ -3005,6 +3038,16 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ExportDashboardManifestResponse>("GET", path, query, undefined)
+  }
+
+  async listDeviceCollectionOutcomes(request: ListDeviceCollectionOutcomesRequest = {}): Promise<ListDeviceCollectionOutcomesResponse> {
+    let path = "/v1/device/collection-outcomes"
+    const query = new URLSearchParams()
+    if (request.agentId !== undefined) query.set("agent_id", String(request.agentId))
+    if (request.target !== undefined) query.set("target", String(request.target))
+    if (request.state !== undefined) query.set("state", String(request.state))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListDeviceCollectionOutcomesResponse>("GET", path, query, undefined)
   }
 
   async listDeviceConfigs(request: ListDeviceConfigsRequest = {}): Promise<ListDeviceConfigsResponse> {

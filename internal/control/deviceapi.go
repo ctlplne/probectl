@@ -65,6 +65,21 @@ type deviceNeighborResponse struct {
 	Retention         deviceNeighborRetention   `json:"retention"`
 }
 
+type deviceCollectionOutcomeRetention struct {
+	MaxPerTenant  int `json:"max_per_tenant"`
+	RetentionDays int `json:"retention_days"`
+}
+
+type deviceCollectionOutcomeResponse struct {
+	ContractVersion   string                           `json:"contract_version"`
+	Items             []device.CollectionOutcome       `json:"items"`
+	CollectionRunning bool                             `json:"collection_running"`
+	EffectiveLimit    int                              `json:"effective_limit"`
+	Truncated         bool                             `json:"truncated"`
+	AsOf              time.Time                        `json:"as_of"`
+	Retention         deviceCollectionOutcomeRetention `json:"retention"`
+}
+
 type deviceSyslogRequest struct {
 	Device        string            `json:"device"`
 	SourceAddress string            `json:"source_address,omitempty"`
@@ -380,6 +395,52 @@ func (s *Server) handleDeviceNeighbors(w http.ResponseWriter, r *http.Request) e
 			at := rows[i].ObservedAt
 			resp.LatestAt = &at
 		}
+	}
+	resp.Items, resp.Truncated = rows, truncated
+	writeJSON(w, http.StatusOK, resp)
+	return nil
+}
+
+// handleDeviceCollectionOutcomes serves one bounded current receipt per
+// explicitly configured target/protocol. It never includes credentials, raw
+// SNMP values, discovered-neighbor identities, or free-form error strings.
+func (s *Server) handleDeviceCollectionOutcomes(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	limit, err := intParam(r, "limit", deviceDefaultLimit)
+	if err != nil {
+		return err
+	}
+	if limit > device.MaxCollectionOutcomeRead {
+		limit = device.MaxCollectionOutcomeRead
+	}
+	state := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("state")))
+	if state != "" && !device.ValidCollectionState(state) {
+		return apierror.BadRequest("state must be ok_with_rows, healthy_empty, unsupported, failed, or never_observed")
+	}
+	resp := deviceCollectionOutcomeResponse{
+		ContractVersion: "probectl.device-collection-outcomes/v1",
+		Items:           []device.CollectionOutcome{}, CollectionRunning: s.deviceOutcomes != nil,
+		EffectiveLimit: limit, AsOf: time.Now().UTC(),
+		Retention: deviceCollectionOutcomeRetention{
+			MaxPerTenant:  device.MaxCollectionOutcomesPerTenant,
+			RetentionDays: int(device.CollectionOutcomeRetention / (24 * time.Hour)),
+		},
+	}
+	if s.deviceOutcomes == nil {
+		writeJSON(w, http.StatusOK, resp)
+		return nil
+	}
+	rows, truncated, err := s.deviceOutcomes.ListCollectionOutcomes(r.Context(), tid, device.CollectionOutcomeFilter{
+		AgentID: strings.TrimSpace(r.URL.Query().Get("agent_id")),
+		Target:  strings.TrimSpace(r.URL.Query().Get("target")),
+		State:   state,
+		Limit:   limit,
+	})
+	if err != nil {
+		return err
 	}
 	resp.Items, resp.Truncated = rows, truncated
 	writeJSON(w, http.StatusOK, resp)

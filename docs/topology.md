@@ -227,6 +227,12 @@ a deployment outgrows a single process.
   device/port provenance, freshness, and confidence. Permission:
   `topology.read`; reads are tenant-audited. The same data appears in
   **Planes → Device** and `probectl device neighbors`.
+- `GET /v1/device/collection-outcomes` — bounded current receipt per configured
+  target/protocol, distinguishing rows, successful empty, unsupported, failed,
+  and never observed. Permission: `topology.read`; reads are tenant-audited.
+  The receipt is stored independently, so a failed attempt never clears
+  last-known-good physical edges. The same contract appears in Device, Admin,
+  generated SDKs, and `probectl device outcomes`.
 
 ## Out of scope (by design)
 

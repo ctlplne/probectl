@@ -916,6 +916,9 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["neighbors"]; got.Method != http.MethodGet || got.Path != "/v1/device/neighbors" {
 		t.Fatalf("device neighbors op = %+v, want GET /v1/device/neighbors", got)
 	}
+	if got := surfaceCommands["device"].Ops["outcomes"]; got.Method != http.MethodGet || got.Path != "/v1/device/collection-outcomes" {
+		t.Fatalf("device outcomes op = %+v, want GET /v1/device/collection-outcomes", got)
+	}
 	if got := surfaceCommands["device"].Ops["conflicts"]; got.Method != http.MethodGet || got.Path != "/v1/device/identity-conflicts" {
 		t.Fatalf("device conflicts op = %+v, want GET /v1/device/identity-conflicts", got)
 	}
@@ -958,6 +961,18 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
 			{"id": "neighbor:abc", "name": "leaf-1", "status": "current", "summary": "xe-0/0/1 to Ethernet1"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/device/collection-outcomes", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("state"); got != "failed" {
+			t.Fatalf("outcome state query = %q, want failed", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{
+				"agent_id": "agent-1", "configured_target": "router-a.internal",
+				"protocol": "lldp", "state": "failed", "reason": "poll_failed",
+				"row_count": 0, "next_action": "verify_configured_target_access",
+			},
 		}})
 	})
 	mux.HandleFunc("GET /v1/device/identity-conflicts", func(w http.ResponseWriter, r *http.Request) {
@@ -1048,6 +1063,16 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	}
 	if !strings.Contains(out, "leaf-1") || !strings.Contains(out, "current") {
 		t.Fatalf("device neighbors output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "outcomes", "--query", "state=failed")
+	if code != 0 {
+		t.Fatalf("outcomes exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "agent-1") ||
+		!strings.Contains(out, "router-a.internal") ||
+		!strings.Contains(out, "lldp / poll_failed / verify_configured_target_access") {
+		t.Fatalf("device outcomes output missing expected receipt:\n%s", out)
 	}
 
 	out, errs, code = run(t, srv, "device", "conflicts", "--query", "status=active")

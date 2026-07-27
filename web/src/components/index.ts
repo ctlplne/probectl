@@ -32,3 +32,4 @@ export {
 export { ChartShell, Sparkline } from './ChartShell'
 export { Icon, ICON_NAMES } from './Icon'
 export type { IconName } from './Icon'
+export { DeviceCollectionOutcomesCard } from './DeviceCollectionOutcomesCard'

@@ -30,6 +30,7 @@ func TestBundleCompleteness(t *testing.T) {
 	//   health           — what is broken right now? (component health rollup)
 	//   self-metrics     — RED/USE on probectl's own pipelines (saturation/errors)
 	//   topology-summary — scale shape (tenants/agents/region) without telemetry
+	//   device-collection — anonymized per-target collection readiness receipts
 	//   runtime          — go version / OS / arch / goroutines / mem / uptime
 	//   manifest         — the index (+ the secret-stripped notice)
 	required := []string{
@@ -38,17 +39,19 @@ func TestBundleCompleteness(t *testing.T) {
 		"health.json",
 		"self-metrics.json",
 		"topology-summary.json",
+		"device-collection.json",
 		"runtime.json",
 		"manifest.json",
 	}
 
 	src := Sources{
-		Version:        version.Info{Version: "v1.2.3", Commit: "deadbee"},
-		ConfigRedacted: map[string]any{"database_url": "postgres://u:xxxxx@db/probectl", "envelope_key_configured": true},
-		Health:         Health{Status: StatusOK},
-		SelfMetrics:    SelfSnapshot(time.Now().Add(-time.Minute)),
-		Topology:       TopologySummary{Tenants: 5, Agents: 20, Region: "eu-west"},
-		Runtime:        CollectRuntime(time.Now().Add(-time.Hour)),
+		Version:          version.Info{Version: "v1.2.3", Commit: "deadbee"},
+		ConfigRedacted:   map[string]any{"database_url": "postgres://u:xxxxx@db/probectl", "envelope_key_configured": true},
+		Health:           Health{Status: StatusOK},
+		SelfMetrics:      SelfSnapshot(time.Now().Add(-time.Minute)),
+		Topology:         TopologySummary{Tenants: 5, Agents: 20, Region: "eu-west"},
+		DeviceCollection: DeviceCollectionSummary{ContractVersion: "probectl.device-collection-outcomes/v1", Receipts: []DeviceCollectionReceipt{}},
+		Runtime:          CollectRuntime(time.Now().Add(-time.Hour)),
 	}
 
 	var buf bytes.Buffer

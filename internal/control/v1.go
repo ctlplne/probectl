@@ -94,6 +94,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/devices", s.handleListDevices, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/device/metrics", s.handleDeviceMetrics, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/device/neighbors", s.handleDeviceNeighbors, ai.PermTopologyRead},
+		{http.MethodGet, "/v1/device/collection-outcomes", s.handleDeviceCollectionOutcomes, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/device/identity-conflicts", s.handleIdentityConflicts, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/device/syslog", s.handleListDeviceSyslog, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/device/syslog", s.handleIngestDeviceSyslog, permMetricsWrite},

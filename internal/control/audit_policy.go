@@ -246,6 +246,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/devices":                             auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/device/metrics":                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/device/neighbors":                    auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/device/collection-outcomes":          auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/device/identity-conflicts":           auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/device/syslog":                       auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/device/syslog":                      auditExplicit(auditFacetMutation, "device.syslog_ingest"),

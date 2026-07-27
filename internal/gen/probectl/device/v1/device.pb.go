@@ -471,6 +471,171 @@ func (x *DeviceNeighborSnapshot) GetNeighbors() []*DeviceNeighborEvidence {
 	return nil
 }
 
+// One bounded, non-secret collection receipt for an explicitly configured
+// target and one read-only neighbor protocol. Free-form device/SNMP values and
+// credential material are intentionally absent.
+type DeviceCollectionOutcome struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	TenantId              string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	AgentId               string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	ConfiguredTarget      string                 `protobuf:"bytes,3,opt,name=configured_target,json=configuredTarget,proto3" json:"configured_target,omitempty"`
+	Protocol              string                 `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"`                                                               // lldp | cdp
+	LastAttemptAtUnixNano int64                  `protobuf:"varint,5,opt,name=last_attempt_at_unix_nano,json=lastAttemptAtUnixNano,proto3" json:"last_attempt_at_unix_nano,omitempty"` // zero only for never_observed
+	LastSuccessAtUnixNano int64                  `protobuf:"varint,6,opt,name=last_success_at_unix_nano,json=lastSuccessAtUnixNano,proto3" json:"last_success_at_unix_nano,omitempty"` // zero until first successful collection
+	State                 string                 `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`                                                                     // ok_with_rows | healthy_empty | unsupported | failed | never_observed
+	Reason                string                 `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`                                                                   // normalized allowlisted reason code
+	RowCount              uint32                 `protobuf:"varint,9,opt,name=row_count,json=rowCount,proto3" json:"row_count,omitempty"`
+	NextAction            string                 `protobuf:"bytes,10,opt,name=next_action,json=nextAction,proto3" json:"next_action,omitempty"` // normalized local-only action code
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *DeviceCollectionOutcome) Reset() {
+	*x = DeviceCollectionOutcome{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceCollectionOutcome) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceCollectionOutcome) ProtoMessage() {}
+
+func (x *DeviceCollectionOutcome) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceCollectionOutcome.ProtoReflect.Descriptor instead.
+func (*DeviceCollectionOutcome) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DeviceCollectionOutcome) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *DeviceCollectionOutcome) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *DeviceCollectionOutcome) GetConfiguredTarget() string {
+	if x != nil {
+		return x.ConfiguredTarget
+	}
+	return ""
+}
+
+func (x *DeviceCollectionOutcome) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *DeviceCollectionOutcome) GetLastAttemptAtUnixNano() int64 {
+	if x != nil {
+		return x.LastAttemptAtUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceCollectionOutcome) GetLastSuccessAtUnixNano() int64 {
+	if x != nil {
+		return x.LastSuccessAtUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceCollectionOutcome) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *DeviceCollectionOutcome) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *DeviceCollectionOutcome) GetRowCount() uint32 {
+	if x != nil {
+		return x.RowCount
+	}
+	return 0
+}
+
+func (x *DeviceCollectionOutcome) GetNextAction() string {
+	if x != nil {
+		return x.NextAction
+	}
+	return ""
+}
+
+// DeviceCollectionOutcomeBatch is the tenant-keyed payload on
+// probectl.device.collection-outcomes.
+type DeviceCollectionOutcomeBatch struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Outcomes      []*DeviceCollectionOutcome `protobuf:"bytes,1,rep,name=outcomes,proto3" json:"outcomes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceCollectionOutcomeBatch) Reset() {
+	*x = DeviceCollectionOutcomeBatch{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceCollectionOutcomeBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceCollectionOutcomeBatch) ProtoMessage() {}
+
+func (x *DeviceCollectionOutcomeBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceCollectionOutcomeBatch.ProtoReflect.Descriptor instead.
+func (*DeviceCollectionOutcomeBatch) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DeviceCollectionOutcomeBatch) GetOutcomes() []*DeviceCollectionOutcome {
+	if x != nil {
+		return x.Outcomes
+	}
+	return nil
+}
+
 var File_probectl_device_v1_device_proto protoreflect.FileDescriptor
 
 const file_probectl_device_v1_device_proto_rawDesc = "" +
@@ -520,7 +685,22 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\vdevice_name\x18\x04 \x01(\tR\n" +
 	"deviceName\x121\n" +
 	"\x15observed_at_unix_nano\x18\x05 \x01(\x03R\x12observedAtUnixNano\x12H\n" +
-	"\tneighbors\x18\x06 \x03(\v2*.probectl.device.v1.DeviceNeighborEvidenceR\tneighborsBNZLgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
+	"\tneighbors\x18\x06 \x03(\v2*.probectl.device.v1.DeviceNeighborEvidenceR\tneighbors\"\xfa\x02\n" +
+	"\x17DeviceCollectionOutcome\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12+\n" +
+	"\x11configured_target\x18\x03 \x01(\tR\x10configuredTarget\x12\x1a\n" +
+	"\bprotocol\x18\x04 \x01(\tR\bprotocol\x128\n" +
+	"\x19last_attempt_at_unix_nano\x18\x05 \x01(\x03R\x15lastAttemptAtUnixNano\x128\n" +
+	"\x19last_success_at_unix_nano\x18\x06 \x01(\x03R\x15lastSuccessAtUnixNano\x12\x14\n" +
+	"\x05state\x18\a \x01(\tR\x05state\x12\x16\n" +
+	"\x06reason\x18\b \x01(\tR\x06reason\x12\x1b\n" +
+	"\trow_count\x18\t \x01(\rR\browCount\x12\x1f\n" +
+	"\vnext_action\x18\n" +
+	" \x01(\tR\n" +
+	"nextAction\"g\n" +
+	"\x1cDeviceCollectionOutcomeBatch\x12G\n" +
+	"\boutcomes\x18\x01 \x03(\v2+.probectl.device.v1.DeviceCollectionOutcomeR\boutcomesBNZLgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
 
 var (
 	file_probectl_device_v1_device_proto_rawDescOnce sync.Once
@@ -534,21 +714,24 @@ func file_probectl_device_v1_device_proto_rawDescGZIP() []byte {
 	return file_probectl_device_v1_device_proto_rawDescData
 }
 
-var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_probectl_device_v1_device_proto_goTypes = []any{
-	(*DeviceMetric)(nil),           // 0: probectl.device.v1.DeviceMetric
-	(*DeviceMetricBatch)(nil),      // 1: probectl.device.v1.DeviceMetricBatch
-	(*DeviceNeighborEvidence)(nil), // 2: probectl.device.v1.DeviceNeighborEvidence
-	(*DeviceNeighborSnapshot)(nil), // 3: probectl.device.v1.DeviceNeighborSnapshot
+	(*DeviceMetric)(nil),                 // 0: probectl.device.v1.DeviceMetric
+	(*DeviceMetricBatch)(nil),            // 1: probectl.device.v1.DeviceMetricBatch
+	(*DeviceNeighborEvidence)(nil),       // 2: probectl.device.v1.DeviceNeighborEvidence
+	(*DeviceNeighborSnapshot)(nil),       // 3: probectl.device.v1.DeviceNeighborSnapshot
+	(*DeviceCollectionOutcome)(nil),      // 4: probectl.device.v1.DeviceCollectionOutcome
+	(*DeviceCollectionOutcomeBatch)(nil), // 5: probectl.device.v1.DeviceCollectionOutcomeBatch
 }
 var file_probectl_device_v1_device_proto_depIdxs = []int32{
 	0, // 0: probectl.device.v1.DeviceMetricBatch.metrics:type_name -> probectl.device.v1.DeviceMetric
 	2, // 1: probectl.device.v1.DeviceNeighborSnapshot.neighbors:type_name -> probectl.device.v1.DeviceNeighborEvidence
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 2: probectl.device.v1.DeviceCollectionOutcomeBatch.outcomes:type_name -> probectl.device.v1.DeviceCollectionOutcome
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_probectl_device_v1_device_proto_init() }
@@ -562,7 +745,7 @@ func file_probectl_device_v1_device_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_device_v1_device_proto_rawDesc), len(file_probectl_device_v1_device_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -51,3 +51,12 @@ func stampDeviceBatchLaneTenant(batch *devicev1.DeviceMetricBatch, tenant string
 		m.TenantId = tenant
 	}
 }
+
+func stampDeviceCollectionOutcomeBatchLaneTenant(batch *devicev1.DeviceCollectionOutcomeBatch, tenant string) {
+	if tenant == "" || batch == nil {
+		return
+	}
+	for _, outcome := range batch.GetOutcomes() {
+		outcome.TenantId = tenant
+	}
+}

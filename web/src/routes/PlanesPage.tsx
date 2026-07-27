@@ -14,6 +14,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  DeviceCollectionOutcomesCard,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -874,6 +875,7 @@ function DevicePanel({
     <section id="plane-panel-device" role="tabpanel" className={styles.panelGrid}>
       <div className={styles.stack}>
         <IdentityConflictsCard surface="device" />
+        <DeviceCollectionOutcomesCard />
         <Card>
           <CardHeader
             title={t('planes.device.devices.title')}

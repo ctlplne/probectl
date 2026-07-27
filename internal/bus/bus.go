@@ -57,6 +57,10 @@ const DeviceMetricsTopic = "probectl.device.metrics"
 // device collector. Payload: devicev1.DeviceNeighborSnapshot.
 const DeviceNeighborsTopic = "probectl.device.neighbors"
 
+// DeviceCollectionOutcomesTopic carries bounded per-configured-target
+// readiness receipts. Payload: devicev1.DeviceCollectionOutcomeBatch.
+const DeviceCollectionOutcomesTopic = "probectl.device.collection-outcomes"
+
 // EndpointResultsTopic carries DEM results from the endpoint agent (S37) — WiFi /
 // gateway / last-mile / session signals and the slowdown attribution — tenant-
 // tagged via the message key. Payload: resultv1.Result (the canonical canary

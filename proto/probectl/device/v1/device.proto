@@ -80,3 +80,25 @@ message DeviceNeighborSnapshot {
   int64 observed_at_unix_nano = 5;
   repeated DeviceNeighborEvidence neighbors = 6;
 }
+
+// One bounded, non-secret collection receipt for an explicitly configured
+// target and one read-only neighbor protocol. Free-form device/SNMP values and
+// credential material are intentionally absent.
+message DeviceCollectionOutcome {
+  string tenant_id = 1;
+  string agent_id = 2;
+  string configured_target = 3;
+  string protocol = 4; // lldp | cdp
+  int64 last_attempt_at_unix_nano = 5; // zero only for never_observed
+  int64 last_success_at_unix_nano = 6; // zero until first successful collection
+  string state = 7; // ok_with_rows | healthy_empty | unsupported | failed | never_observed
+  string reason = 8; // normalized allowlisted reason code
+  uint32 row_count = 9;
+  string next_action = 10; // normalized local-only action code
+}
+
+// DeviceCollectionOutcomeBatch is the tenant-keyed payload on
+// probectl.device.collection-outcomes.
+message DeviceCollectionOutcomeBatch {
+  repeated DeviceCollectionOutcome outcomes = 1;
+}

@@ -203,13 +203,42 @@ func printGenericItems(w io.Writer, items []any) {
 	fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tSUMMARY")
 	for _, item := range items {
 		m, _ := item.(map[string]any)
-		id := firstString(m, "id", "window_id", "answer_id", "name")
-		name := firstString(m, "name", "title", "target", "service")
-		status := firstString(m, "status", "severity", "state", "confidence")
-		summary := firstString(m, "summary", "description", "root_cause", "model")
+		id, name, status, summary := genericDisplayFields(m)
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", short(id), name, status, summary)
 	}
 	_ = tw.Flush()
+}
+
+func genericDisplayFields(m map[string]any) (id, name, status, summary string) {
+	// Collection outcomes deliberately have no synthetic global ID: their
+	// tenant-local identity is agent + configured target + protocol. Preserve
+	// that evidence in the human table without changing the stable JSON shape.
+	if target := firstString(m, "configured_target"); target != "" {
+		id = firstString(m, "agent_id")
+		name = target
+		status = firstString(m, "state")
+		summary = strings.Join(nonEmptyStrings(
+			firstString(m, "protocol"),
+			firstString(m, "reason"),
+			firstString(m, "next_action"),
+		), " / ")
+		return id, name, status, summary
+	}
+	id = firstString(m, "id", "window_id", "answer_id", "name")
+	name = firstString(m, "name", "title", "target", "service")
+	status = firstString(m, "status", "severity", "state", "confidence")
+	summary = firstString(m, "summary", "description", "root_cause", "model")
+	return id, name, status, summary
+}
+
+func nonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func firstString(m map[string]any, keys ...string) string {

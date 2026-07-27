@@ -92,6 +92,7 @@ type serveRuntime struct {
 	tenantBinding pipeline.TenantBinding
 	topoStore     topology.Store
 	neighborStore device.NeighborStore
+	outcomeStore  device.CollectionOutcomeStore
 
 	costEngine       *cost.Engine
 	carbonEngine     *carbon.Engine
@@ -185,6 +186,7 @@ func (rt *serveRuntime) buildServeEngines() error {
 	rt.cmdbResolver = control.BuildCMDB(rt.cfg, rt.log)
 	rt.tenantBinding = pipeline.NewRegistryBinding(rt.db.Pool())
 	rt.neighborStore = store.NewDeviceNeighbors(rt.db.Pool())
+	rt.outcomeStore = store.NewDeviceCollectionOutcomes(rt.db.Pool())
 
 	var corrOpts []incident.Option
 	if rt.dispatcher != nil {
@@ -292,6 +294,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithSecrets(rt.secretsResolver).
 		WithTopology(rt.topoStore).
 		WithDeviceNeighbors(rt.neighborStore).
+		WithDeviceCollectionOutcomes(rt.outcomeStore).
 		WithEBPFStore(rt.ebpfStore).
 		WithCost(rt.costEngine).
 		WithCarbon(rt.carbonEngine)
@@ -357,6 +360,7 @@ func (rt *serveRuntime) startTopologyConsumer() {
 				WithNamespaceTenants(snap.tenants).
 				WithEBPFStore(rt.ebpfStore).
 				WithDeviceNeighborStore(rt.neighborStore).
+				WithDeviceCollectionOutcomeStore(rt.outcomeStore).
 				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				WithMetrics(rt.srv.Metrics()).
 				Run(ctx)

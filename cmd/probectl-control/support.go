@@ -55,9 +55,13 @@ func supportBundle(args []string) error {
 		ConfigRedacted: cfg.Redacted(),
 		Health:         health,
 		SelfMetrics:    support.SelfSnapshot(time.Now()),
-		Runtime:        support.CollectRuntime(time.Now()),
-		Notes:          []string{"Generated offline by `probectl-control support-bundle` — for a live bundle (topology, self-metrics over time) use GET /v1/diagnostics/bundle."},
-		RedactValues:   offlineSecrets(cfg),
+		DeviceCollection: support.DeviceCollectionSummary{
+			ContractVersion: "probectl.device-collection-outcomes/v1",
+			Receipts:        []support.DeviceCollectionReceipt{},
+		},
+		Runtime:      support.CollectRuntime(time.Now()),
+		Notes:        []string{"Generated offline by `probectl-control support-bundle` — for a live bundle (topology, self-metrics over time) use GET /v1/diagnostics/bundle."},
+		RedactValues: offlineSecrets(cfg),
 	}
 
 	w := os.Stdout

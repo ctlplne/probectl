@@ -56,12 +56,28 @@ type cdpRow struct {
 	capabilities               []string
 }
 
+type neighborProtocolAttempt struct {
+	Protocol string
+	State    string
+	Reason   string
+	RowCount int
+}
+
 // pollSNMPNeighbors performs bounded read-only LLDP/CDP table walks over the
 // same authenticated session as the ordinary device poll. Missing MIBs degrade
 // to an empty protocol subset; no scan or follow-up connection occurs.
 func pollSNMPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time) ([]NeighborEvidence, error) {
+	neighbors, _, err := pollSNMPNeighborAttempts(conn, dev, tenant, agent, inv, now)
+	return neighbors, err
+}
+
+// pollSNMPNeighborAttempts returns one normalized outcome per protocol while
+// retaining all-or-nothing adjacency replacement. A failure in either walk
+// reports honest outcomes but never releases a partial snapshot that could
+// erase last-known-good evidence for the failed protocol.
+func pollSNMPNeighborAttempts(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time) ([]NeighborEvidence, []neighborProtocolAttempt, error) {
 	if !dev.Neighbors {
-		return nil, nil
+		return nil, nil, nil
 	}
 	fallbackFresh := 2 * dev.Interval
 	if fallbackFresh < 2*time.Minute {
@@ -70,13 +86,17 @@ func pollSNMPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 	if fallbackFresh > 10*time.Minute {
 		fallbackFresh = 10 * time.Minute
 	}
-	lldp, err := pollLLDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh)
-	if err != nil {
-		return nil, err
+	lldp, lldpSupported, lldpErr := pollLLDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh)
+	cdp, cdpSupported, cdpErr := pollCDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh)
+	attempts := []neighborProtocolAttempt{
+		classifyNeighborProtocolAttempt(NeighborProtocolLLDP, lldpSupported, len(lldp), lldpErr),
+		classifyNeighborProtocolAttempt(NeighborProtocolCDP, cdpSupported, len(cdp), cdpErr),
 	}
-	cdp, err := pollCDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh)
-	if err != nil {
-		return nil, err
+	if lldpErr != nil {
+		return nil, attempts, lldpErr
+	}
+	if cdpErr != nil {
+		return nil, attempts, cdpErr
 	}
 	out := make([]NeighborEvidence, 0, len(lldp)+len(cdp))
 	out = append(out, lldp...)
@@ -89,14 +109,38 @@ func pollSNMPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 		DeviceName: inv.SysName, ObservedAt: now, Neighbors: out,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("validate neighbor snapshot: %w", err)
+		for i := range attempts {
+			attempts[i].State = CollectionStateFailed
+			attempts[i].Reason = CollectionReasonPollFailed
+			attempts[i].RowCount = 0
+		}
+		return nil, attempts, fmt.Errorf("validate neighbor snapshot: %w", err)
 	}
-	return valid.Neighbors, nil
+	return valid.Neighbors, attempts, nil
 }
 
-func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, fallback time.Duration) ([]NeighborEvidence, error) {
+func classifyNeighborProtocolAttempt(protocol string, supported bool, rows int, err error) neighborProtocolAttempt {
+	out := neighborProtocolAttempt{Protocol: protocol}
+	switch {
+	case err != nil:
+		out.State, out.Reason = CollectionStateFailed, CollectionReasonPollFailed
+	case !supported:
+		out.State, out.Reason = CollectionStateUnsupported, CollectionReasonMIBUnsupported
+	case rows == 0:
+		out.State, out.Reason = CollectionStateHealthyEmpty, CollectionReasonNoRowsObserved
+	default:
+		out.State, out.Reason, out.RowCount = CollectionStateOKWithRows, CollectionReasonRowsObserved, rows
+	}
+	return out
+}
+
+func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, fallback time.Duration) ([]NeighborEvidence, bool, error) {
+	sawValue, sawUnsupported := false, false
 	walk := func(field, root string, indexParts int, fn func([]uint32, gosnmp.SnmpPDU)) error {
-		if err := walkIndexed(conn, root, indexParts, fn); err != nil {
+		observation, err := walkIndexed(conn, root, indexParts, fn)
+		sawValue = sawValue || observation.sawValue
+		sawUnsupported = sawUnsupported || observation.sawUnsupported
+		if err != nil {
 			return fmt.Errorf("lldp %s: %w", field, err)
 		}
 		return nil
@@ -105,14 +149,14 @@ func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 	if err := walk("local port ID", oidLLDPLocPortID, 1, func(index []uint32, p gosnmp.SnmpPDU) {
 		localPorts[index[0]] = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("local port description", oidLLDPLocPortDesc, 1, func(index []uint32, p gosnmp.SnmpPDU) {
 		if localPorts[index[0]] == "" {
 			localPorts[index[0]] = neighborPDUText(p)
 		}
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	rows := map[[3]uint32]*lldpRow{}
 	row := func(index []uint32) *lldpRow {
@@ -125,37 +169,37 @@ func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 	if err := walk("remote TTL", oidLLDPRemTTL, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).ttl = time.Duration(pduFloat(p)) * time.Second
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("remote chassis ID", oidLLDPRemChassisID, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).chassis = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("remote port ID", oidLLDPRemPortID, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).port = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("remote port description", oidLLDPRemPortDesc, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).portDesc = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("remote system name", oidLLDPRemSysName, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).name = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("remote system description", oidLLDPRemSysDesc, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).sysDesc = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("remote capabilities", oidLLDPRemSysCapEnable, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).capabilities = decodeLLDPCapabilities(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	keys := make([][3]uint32, 0, len(rows))
 	for key := range rows {
@@ -199,12 +243,16 @@ func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 			break
 		}
 	}
-	return out, nil
+	return out, sawValue || !sawUnsupported, nil
 }
 
-func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, freshness time.Duration) ([]NeighborEvidence, error) {
+func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, freshness time.Duration) ([]NeighborEvidence, bool, error) {
+	sawValue, sawUnsupported := false, false
 	walk := func(field, root string, fn func([]uint32, gosnmp.SnmpPDU)) error {
-		if err := walkIndexed(conn, root, 2, fn); err != nil {
+		observation, err := walkIndexed(conn, root, 2, fn)
+		sawValue = sawValue || observation.sawValue
+		sawUnsupported = sawUnsupported || observation.sawUnsupported
+		if err != nil {
 			return fmt.Errorf("cdp %s: %w", field, err)
 		}
 		return nil
@@ -220,32 +268,32 @@ func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inven
 	if err := walk("management address", oidCDPCacheAddress, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).address = pduAddress(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("version", oidCDPCacheVersion, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).version = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("device ID", oidCDPCacheDeviceID, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).deviceID = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("device port", oidCDPCacheDevicePort, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).port = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("platform", oidCDPCachePlatform, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).platform = neighborPDUText(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := walk("capabilities", oidCDPCacheCapabilities, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).capabilities = decodeCDPCapabilities(p)
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	keys := make([][2]uint32, 0, len(rows))
 	for key := range rows {
@@ -281,15 +329,23 @@ func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inven
 			break
 		}
 	}
-	return out, nil
+	return out, sawValue || !sawUnsupported, nil
 }
 
-func walkIndexed(conn snmpConn, root string, indexParts int, fn func([]uint32, gosnmp.SnmpPDU)) error {
+type walkObservation struct {
+	sawValue       bool
+	sawUnsupported bool
+}
+
+func walkIndexed(conn snmpConn, root string, indexParts int, fn func([]uint32, gosnmp.SnmpPDU)) (walkObservation, error) {
+	var observation walkObservation
 	err := conn.BulkWalk(root, func(p gosnmp.SnmpPDU) error {
 		switch p.Type {
 		case gosnmp.NoSuchObject, gosnmp.NoSuchInstance, gosnmp.EndOfMibView:
+			observation.sawUnsupported = true
 			return nil
 		}
+		observation.sawValue = true
 		index, ok := trailingIndex(p.Name, root, indexParts)
 		if ok {
 			fn(index, p)
@@ -297,9 +353,9 @@ func walkIndexed(conn snmpConn, root string, indexParts int, fn func([]uint32, g
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("bulk walk %s: %w", root, err)
+		return observation, fmt.Errorf("bulk walk %s: %w", root, err)
 	}
-	return nil
+	return observation, nil
 }
 
 func trailingIndex(name, root string, parts int) ([]uint32, bool) {

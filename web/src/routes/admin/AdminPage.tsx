@@ -13,6 +13,7 @@ import {
   CardBody,
   CardHeader,
   Column,
+  DeviceCollectionOutcomesCard,
   EmptyState,
   ErrorState,
   Field,
@@ -895,6 +896,7 @@ export function AdminPage() {
         initialPlane={deepLinkedCollectorPlane}
       />
       <RolloutCard available={isPending ? undefined : fleet.rolloutsAvailable} />
+      <DeviceCollectionOutcomesCard />
       <SecretBackendsCard />
       <IdentityCard />
       <KeysCard />

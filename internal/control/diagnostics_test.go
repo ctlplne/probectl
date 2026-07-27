@@ -16,11 +16,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -192,6 +194,45 @@ func TestSupportBundleEndpointNoSecrets(t *testing.T) {
 	}
 	if cfgMap["envelope_key_configured"] != true {
 		t.Fatalf("envelope key must surface as a boolean: %v", cfgMap["envelope_key_configured"])
+	}
+}
+
+func TestSupportBundleAnonymizesDeviceCollectionReceipts(t *testing.T) {
+	cfg := &config.Config{HTTPAddr: ":0", AuthMode: "dev"}
+	outcomes := device.NewMemoryCollectionOutcomeStore()
+	now := time.Now().UTC().Truncate(time.Second)
+	tenant := tenancy.DefaultTenantID.String()
+	if err := outcomes.UpsertCollectionOutcome(context.Background(), tenant, device.CollectionOutcome{
+		TenantID: tenant, AgentID: "agent-secret-name",
+		ConfiguredTarget: "router-secret.internal", Protocol: device.NeighborProtocolLLDP,
+		LastAttemptAt: &now, State: device.CollectionStateFailed,
+		Reason:     device.CollectionReasonPollFailed,
+		NextAction: device.CollectionActionVerifyLocalAccess,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), okPinger{}, nil, nil, nil).
+		WithDeviceCollectionOutcomes(outcomes)
+
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics/bundle", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	files, err := support.ReadBundle(bytes.NewReader(rr.Body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := files["device-collection.json"]
+	for _, forbidden := range []string{"agent-secret-name", "router-secret.internal", tenant} {
+		if bytes.Contains(raw, []byte(forbidden)) {
+			t.Fatalf("raw device identifier leaked into support receipt: %q in %s", forbidden, raw)
+		}
+	}
+	for _, want := range []string{`"agent_ref": "agent-0001"`, `"target_ref": "target-0001"`, `"state": "failed"`, `"reason": "poll_failed"`} {
+		if !bytes.Contains(raw, []byte(want)) {
+			t.Fatalf("support receipt missing %s: %s", want, raw)
+		}
 	}
 }
 

@@ -141,6 +141,24 @@ coverage on **Topology**, through `GET /v1/device/neighbors`, or with
 `probectl device neighbors`. Every surface distinguishes current, stale,
 future/unknown, unavailable, empty, and truncated states.
 
+Every neighbor-enabled target also emits a separate, versioned collection
+receipt after each authoritative LLDP and CDP attempt on
+`probectl.device.collection-outcomes`. The receipt is deliberately separate
+from `probectl.device.neighbors`: a failed walk therefore cannot replace
+last-known-good adjacency with an apparently healthy empty snapshot. Its stable
+states are `ok_with_rows`, `healthy_empty`, `unsupported`, `failed`, and
+`never_observed`; stable reason and next-action codes explain which one applies.
+Only the configured target, agent, protocol, attempt/success times, row count,
+and allowlisted codes are carried. Credentials, raw varbinds, discovered
+neighbors, and free-form errors are excluded.
+
+The forced-RLS current-receipt store keeps at most 4,096 target/protocol rows
+per tenant for 30 days, and reads return at most 500. Operators see the same
+tenant-audited contract in **Planes → Device**, **Admin → Device collection
+readiness**, `GET /v1/device/collection-outcomes`, generated SDKs, and
+`probectl device outcomes`. The support bundle includes the same states using
+bundle-local `agent-NNNN` and `target-NNNN` references, never raw identifiers.
+
 This is intentionally narrow. It does not scan a subnet, probe discovered
 addresses, open a CLI/SSH session, fetch from a vendor service, mutate a device,
 or infer bridge FDB, ARP/ND, or STP relationships. Those later evidence types

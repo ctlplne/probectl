@@ -112,6 +112,7 @@ type Server struct {
 	otelStore       otelstore.Store
 	deviceOps       device.OpsStore
 	deviceNeighbors device.NeighborStore
+	deviceOutcomes  device.CollectionOutcomeStore
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -357,6 +358,15 @@ func (s *Server) WithDeviceOps(st device.OpsStore) *Server {
 func (s *Server) WithDeviceNeighbors(st device.NeighborStore) *Server {
 	if st != nil {
 		s.deviceNeighbors = st
+	}
+	return s
+}
+
+// WithDeviceCollectionOutcomes attaches bounded tenant-scoped LLDP/CDP
+// readiness receipts. nil keeps the endpoint honest with collection_running=false.
+func (s *Server) WithDeviceCollectionOutcomes(st device.CollectionOutcomeStore) *Server {
+	if st != nil {
+		s.deviceOutcomes = st
 	}
 	return s
 }

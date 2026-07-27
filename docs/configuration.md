@@ -1392,7 +1392,10 @@ samples normalize into one `DeviceMetric` shape and publish to
 `probectl.device.metrics` (tenant-keyed). An explicitly configured SNMP target
 with `neighbors: true` also publishes a bounded LLDP/CDP snapshot to
 `probectl.device.neighbors`; it never scans for devices or opens a follow-up
-session. Accepted traps become tenant-scoped event and alert rows. The full
+session. Each LLDP/CDP attempt separately publishes a stable, non-secret
+readiness receipt to `probectl.device.collection-outcomes`, so failure,
+successful-empty, unsupported, and never-observed cannot be confused. Accepted
+traps become tenant-scoped event and alert rows. The full
 device list and optional trap listener live in a
 YAML config
 (see `deploy/agent/probectl-device-agent.example.yml`); the env vars below override
@@ -1427,8 +1430,11 @@ In YAML, `neighbors: true` is a per-device opt-in and is valid only for SNMP
 targets. One snapshot contains at most 256 normalized neighbors. The control
 plane retains at most 16,384 current/stale rows per tenant, returns at most 500
 rows per read, and prunes evidence more than 24 hours old. Unsupported LLDP/CDP
-MIBs remain an explicit empty snapshot; probectl does not infer a link from a
-name or management address alone.
+MIBs remain explicit. The independent receipt store retains at most 4,096
+configured target/protocol receipts per tenant for 30 days and returns at most
+500 per read. Receipt payloads contain allowlisted states/reasons/actions, not
+raw SNMP values, credentials, discovered targets, or free-form errors. probectl
+does not infer a link from a name or management address alone.
 
 | Variable                                  | Used by        | Meaning                                        |
 | ------------------------------------------ | -------------- | ----------------------------------------------- |

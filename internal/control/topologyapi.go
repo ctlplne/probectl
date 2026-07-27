@@ -191,6 +191,9 @@ type TopologyConsumer struct {
 	// neighbors is the durable current-evidence store for LLDP/CDP snapshots.
 	// The graph remains a derived view; persistence happens before bus ack.
 	neighbors device.NeighborStore
+	// collectionOutcomes stores the bounded readiness receipt independently
+	// from adjacency snapshots, so failure cannot be interpreted as empty.
+	collectionOutcomes device.CollectionOutcomeStore
 	// strictLane refuses agent-published records on the shared pooled lane.
 	// Tenant-namespaced broker lanes remain authoritative (WIRE-001).
 	strictLane bool
@@ -206,6 +209,12 @@ func (tc *TopologyConsumer) WithEBPFStore(s ebpfstore.Store) *TopologyConsumer {
 // WithDeviceNeighborStore wires forced-RLS current-evidence persistence.
 func (tc *TopologyConsumer) WithDeviceNeighborStore(s device.NeighborStore) *TopologyConsumer {
 	tc.neighbors = s
+	return tc
+}
+
+// WithDeviceCollectionOutcomeStore wires forced-RLS current receipt persistence.
+func (tc *TopologyConsumer) WithDeviceCollectionOutcomeStore(s device.CollectionOutcomeStore) *TopologyConsumer {
+	tc.collectionOutcomes = s
 	return tc
 }
 
@@ -281,6 +290,9 @@ func (tc *TopologyConsumer) Run(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		return pipeline.RunLanes(gctx, tc.bus, bus.DeviceNeighborsTopic, viewGroup("topology-device-neighbors"), tc.nsTenants, tc.handleDeviceNeighborLane)
+	})
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, tc.bus, bus.DeviceCollectionOutcomesTopic, viewGroup("topology-device-collection-outcomes"), tc.nsTenants, tc.handleDeviceCollectionOutcomeLane)
 	})
 	return g.Wait()
 }
@@ -472,6 +484,78 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 
 func (tc *TopologyConsumer) handleDeviceNeighbors(ctx context.Context, msg bus.Message) error {
 	return tc.handleDeviceNeighborLane(ctx, msg, "")
+}
+
+func (tc *TopologyConsumer) handleDeviceCollectionOutcomes(ctx context.Context, msg bus.Message) error {
+	return tc.handleDeviceCollectionOutcomeLane(ctx, msg, "")
+}
+
+func (tc *TopologyConsumer) handleDeviceCollectionOutcomeLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+	tc.ledger.addReceived("device", 1)
+	var batch devicev1.DeviceCollectionOutcomeBatch
+	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+		tc.ledger.addMalformed("device", 1)
+		tc.log.Warn("topology: skipping malformed device collection outcome batch", "error", err)
+		return nil
+	}
+	stampDeviceCollectionOutcomeBatchLaneTenant(&batch, laneTenant)
+	if len(batch.GetOutcomes()) == 0 || len(batch.GetOutcomes()) > device.MaxCollectionOutcomesPerTenant {
+		tc.ledger.addMalformed("device", 1)
+		return nil
+	}
+	first := batch.GetOutcomes()[0]
+	if first.GetTenantId() == "" || first.GetAgentId() == "" {
+		tc.ledger.addUnscoped("device", 1)
+		return nil
+	}
+	ids := make([]pipeline.Identity, 0, len(batch.GetOutcomes()))
+	for _, raw := range batch.GetOutcomes() {
+		if raw.GetTenantId() != first.GetTenantId() || raw.GetAgentId() != first.GetAgentId() {
+			tc.ledger.addRejected("device", 1)
+			tc.log.Error("REJECTED device collection outcome batch: mixed tenant or agent identities",
+				"tenant_id", first.GetTenantId(), "agent_id", first.GetAgentId())
+			return nil
+		}
+		ids = append(ids, pipeline.Identity{Tenant: raw.GetTenantId(), Agent: raw.GetAgentId()})
+	}
+	if tc.rejectBatch(ctx, "device", laneTenant, ids) {
+		return nil
+	}
+
+	receivedAt := tc.receivedAt()
+	validated := make([]device.CollectionOutcome, 0, len(batch.GetOutcomes()))
+	for _, raw := range batch.GetOutcomes() {
+		outcome := device.CollectionOutcomeFromProto(raw)
+		if raw.GetLastAttemptAtUnixNano() != 0 {
+			at := pipeline.NormalizeEventTimeUnixNano(raw.GetLastAttemptAtUnixNano(), receivedAt)
+			outcome.LastAttemptAt = &at
+		}
+		if raw.GetLastSuccessAtUnixNano() != 0 {
+			at := pipeline.NormalizeEventTimeUnixNano(raw.GetLastSuccessAtUnixNano(), receivedAt)
+			outcome.LastSuccessAt = &at
+		}
+		valid, err := device.ValidateCollectionOutcome(outcome)
+		if err != nil {
+			tc.ledger.addMalformed("device", 1)
+			tc.log.Warn("topology: rejecting invalid device collection outcome", "error", err)
+			return nil
+		}
+		validated = append(validated, valid)
+	}
+	if tc.collectionOutcomes == nil {
+		return nil
+	}
+	for _, valid := range validated {
+		if err := tc.collectionOutcomes.UpsertCollectionOutcome(ctx, valid.TenantID, valid); err != nil {
+			tc.ledger.addPersistFailed("device", 1)
+			tc.log.Error("device collection outcome persist failed; refusing ack so the bus can redeliver",
+				"tenant_id", valid.TenantID, "agent_id", valid.AgentID,
+				"protocol", valid.Protocol, "error", err.Error())
+			return fmt.Errorf("topology: persist device collection outcome: %w", err)
+		}
+		tc.ledger.addStored("device", 1)
+	}
+	return nil
 }
 
 func (tc *TopologyConsumer) handleDeviceNeighborLane(ctx context.Context, msg bus.Message, laneTenant string) error {

@@ -492,6 +492,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/devices":                    "bounded",
 	"/v1/device/identity-conflicts":  "bounded",
 	"/v1/device/neighbors":           "bounded",
+	"/v1/device/collection-outcomes": "bounded",
 	"/v1/device/metrics":             "bounded",
 	"/v1/device/syslog":              "bounded",
 	"/v1/device/configs":             "bounded",

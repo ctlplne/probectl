@@ -7,6 +7,7 @@
 package device
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/netip"
@@ -297,6 +298,66 @@ func TestBusEmitterPublishesBoundedNeighborSnapshotOnNamespacedLane(t *testing.T
 		len(snapshot.GetNeighbors()) != 1 || snapshot.GetNeighbors()[0].GetRemotePortId() != "Ethernet1" {
 		t.Fatalf("neighbor snapshot tenant=%q agent=%q neighbors=%d",
 			snapshot.GetTenantId(), snapshot.GetAgentId(), len(snapshot.GetNeighbors()))
+	}
+}
+
+func TestBusEmitterPublishesTenantTaggedSecretFreeCollectionOutcome(t *testing.T) {
+	b := bus.NewMemory()
+	topic, err := bus.TopicFor("silo-a", bus.DeviceCollectionOutcomesTopic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got bus.Message
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = b.Subscribe(ctx, topic, "outcome-test", func(_ context.Context, m bus.Message) error {
+			got = m
+			close(done)
+			return nil
+		})
+	}()
+	time.Sleep(20 * time.Millisecond)
+	em, err := NewNamespacedBusEmitter(b, "t-a", "silo-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	outcome := CollectionOutcome{
+		TenantID: "t-a", AgentID: "agent-a", ConfiguredTarget: "192.0.2.1",
+		Protocol: NeighborProtocolLLDP, LastAttemptAt: &now, LastSuccessAt: &now,
+		State: CollectionStateOKWithRows, Reason: CollectionReasonRowsObserved,
+		RowCount: 2, NextAction: CollectionActionReviewEvidence,
+	}
+	if err := em.EmitCollectionOutcome(ctx, outcome); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("collection outcome was not published")
+	}
+	if bus.TenantFromKey(got.Key) != "t-a" || got.Topic != topic {
+		t.Fatalf("outcome lane topic=%q key=%q", got.Topic, got.Key)
+	}
+	for _, forbidden := range [][]byte{
+		[]byte("community-secret"), []byte("auth-password"), []byte("raw-varbind"),
+		[]byte("credential"),
+	} {
+		if bytes.Contains(bytes.ToLower(got.Value), forbidden) {
+			t.Fatalf("collection outcome leaked forbidden material %q: %q", forbidden, got.Value)
+		}
+	}
+	var batch devicev1.DeviceCollectionOutcomeBatch
+	if err := proto.Unmarshal(got.Value, &batch); err != nil || len(batch.GetOutcomes()) != 1 {
+		t.Fatalf("outcome batch=%+v err=%v", batch.GetOutcomes(), err)
+	}
+	gotOutcome := batch.GetOutcomes()[0]
+	if gotOutcome.GetTenantId() != "t-a" || gotOutcome.GetConfiguredTarget() != "192.0.2.1" ||
+		gotOutcome.GetProtocol() != NeighborProtocolLLDP ||
+		gotOutcome.GetState() != CollectionStateOKWithRows || gotOutcome.GetRowCount() != 2 {
+		t.Fatalf("outcome = %+v", gotOutcome)
 	}
 }
 

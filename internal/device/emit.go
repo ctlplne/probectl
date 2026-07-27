@@ -28,6 +28,12 @@ type NeighborEmitter interface {
 	EmitNeighbors(context.Context, NeighborSnapshot) error
 }
 
+// CollectionOutcomeEmitter is an optional extension implemented by the
+// production bus emitter. It never carries raw SNMP values or credentials.
+type CollectionOutcomeEmitter interface {
+	EmitCollectionOutcome(context.Context, CollectionOutcome) error
+}
+
 // BusEmitter publishes DeviceMetricBatches to probectl.device.metrics,
 // tenant-keyed (pooled tenant-tagging, CLAUDE.md §6).
 type BusEmitter struct {
@@ -97,6 +103,27 @@ func (e *BusEmitter) EmitNeighbors(ctx context.Context, snapshot NeighborSnapsho
 	topic, err := bus.TopicFor(e.namespace, bus.DeviceNeighborsTopic)
 	if err != nil {
 		return err // constructor already validates; fail closed if state changes
+	}
+	return e.bus.Publish(ctx, topic, bus.TenantKey(e.tenant, valid.AgentID), value)
+}
+
+// EmitCollectionOutcome publishes one bounded readiness receipt on the
+// existing tenant-tagged bus. A separate topic prevents a failed attempt from
+// being mistaken for an authoritative empty adjacency snapshot.
+func (e *BusEmitter) EmitCollectionOutcome(ctx context.Context, outcome CollectionOutcome) error {
+	valid, err := ValidateCollectionOutcome(outcome)
+	if err != nil {
+		return err
+	}
+	value, err := proto.Marshal(&devicev1.DeviceCollectionOutcomeBatch{
+		Outcomes: []*devicev1.DeviceCollectionOutcome{valid.ToProto()},
+	})
+	if err != nil {
+		return fmt.Errorf("device: marshal collection outcome: %w", err)
+	}
+	topic, err := bus.TopicFor(e.namespace, bus.DeviceCollectionOutcomesTopic)
+	if err != nil {
+		return err
 	}
 	return e.bus.Publish(ctx, topic, bus.TenantKey(e.tenant, valid.AgentID), value)
 }

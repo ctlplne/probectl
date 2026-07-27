@@ -626,6 +626,30 @@ type DeepHealth struct {
 	Status      HealthStatus        `json:"status"`
 }
 
+type DeviceCollectionOutcome struct {
+	AgentId          string                       `json:"agent_id"`
+	ConfiguredTarget string                       `json:"configured_target"`
+	LastAttemptAt    *string                      `json:"last_attempt_at"`
+	LastSuccessAt    *string                      `json:"last_success_at"`
+	NextAction       string                       `json:"next_action"`
+	Protocol         string                       `json:"protocol"`
+	Reason           string                       `json:"reason"`
+	RowCount         int                          `json:"row_count"`
+	State            DeviceCollectionOutcomeState `json:"state"`
+}
+
+type DeviceCollectionOutcomeResponse struct {
+	AsOf              string                    `json:"as_of"`
+	CollectionRunning bool                      `json:"collection_running"`
+	ContractVersion   string                    `json:"contract_version"`
+	EffectiveLimit    int                       `json:"effective_limit"`
+	Items             []DeviceCollectionOutcome `json:"items"`
+	Retention         map[string]any            `json:"retention"`
+	Truncated         bool                      `json:"truncated"`
+}
+
+type DeviceCollectionOutcomeState string
+
 type DeviceConfigArchiveRequest struct {
 	Content    string `json:"content"`
 	Device     string `json:"device"`
@@ -2634,6 +2658,36 @@ func (c *Client) ExportDashboardManifest(ctx context.Context, req ExportDashboar
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out DashboardManifest
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List per-target LLDP/CDP collection outcome receipts
+type ListDeviceCollectionOutcomesRequest struct {
+	AgentId *string                       `json:"-"`
+	Target  *string                       `json:"-"`
+	State   *DeviceCollectionOutcomeState `json:"-"`
+	Limit   *int                          `json:"-"`
+}
+
+func (c *Client) ListDeviceCollectionOutcomes(ctx context.Context, req ListDeviceCollectionOutcomesRequest) (*DeviceCollectionOutcomeResponse, error) {
+	path := "/v1/device/collection-outcomes"
+	query := url.Values{}
+	if req.AgentId != nil {
+		query.Set("agent_id", formatQueryValue(*req.AgentId))
+	}
+	if req.Target != nil {
+		query.Set("target", formatQueryValue(*req.Target))
+	}
+	if req.State != nil {
+		query.Set("state", formatQueryValue(*req.State))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceCollectionOutcomeResponse
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

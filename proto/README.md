@@ -23,7 +23,7 @@ upstream schemas are vendored so probectl interoperates with the real ecosystem.
 | `probectl/bgp/v1/bgp.proto` | `probectl.bgp.v1` | `BGPEvent` / `BGPEventBatch` — the canonical form the Go bridge republishes from the Python analyzer |
 | `probectl/flow/v1/flow.proto` | `probectl.flow.v1` | `FlowRecord` / `FlowBatch` — device and cloud flow records |
 | `probectl/ebpf/v1/ebpf.proto` | `probectl.ebpf.v1` | `Flow` / `ServiceEdge` / `L7Call` — eBPF host/L7 observations |
-| `probectl/device/v1/device.proto` | `probectl.device.v1` | `DeviceMetricBatch` plus bounded `DeviceNeighborSnapshot` — SNMP/gNMI metrics and LLDP/CDP physical adjacency |
+| `probectl/device/v1/device.proto` | `probectl.device.v1` | `DeviceMetricBatch`, bounded `DeviceNeighborSnapshot`, and `DeviceCollectionOutcomeBatch` — SNMP/gNMI metrics, LLDP/CDP physical adjacency, and non-secret per-target attempt receipts |
 | `prometheus/v1/remote.proto` | `prometheus.v1` | a minimal Prometheus remote-write schema (so probectl avoids the large Prometheus Go module) |
 | `gnmi/`, `gnmi_ext/` | `gnmi`, `gnmi_ext` | vendored openconfig/gNMI schemas (kept wire-compatible; lint-exempt in `buf.yaml`) |
 

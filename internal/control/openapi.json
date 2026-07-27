@@ -2468,6 +2468,81 @@
         }
       }
     },
+    "/v1/device/collection-outcomes": {
+      "get": {
+        "operationId": "listDeviceCollectionOutcomes",
+        "summary": "List per-target LLDP/CDP collection outcome receipts",
+        "description": "Returns one bounded, versioned, tenant-scoped readiness receipt per explicitly configured target and discovery protocol. Receipts contain stable states and reason codes only; they exclude credentials, raw SNMP values, discovered targets, free-form errors, scans, and write actions.",
+        "tags": [
+          "devices",
+          "topology"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "description": "Optional exact configured agent identifier filter.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "required": false,
+            "description": "Optional exact explicitly configured target filter.",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "description": "Optional stable outcome-state filter.",
+            "schema": {
+              "$ref": "#/components/schemas/DeviceCollectionOutcomeState"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum current receipts to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded readiness receipts or an explicit unwired state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCollectionOutcomeResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 500,
+          "reason": "Each tenant retains at most 4096 current target/protocol receipts for 30 days and API reads are clamped to 500 rows."
+        }
+      }
+    },
     "/v1/device/syslog": {
       "get": {
         "operationId": "listDeviceSyslog",
@@ -12506,6 +12581,152 @@
               "max_per_device",
               "max_per_tenant",
               "stale_retention_hours"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "items",
+          "collection_running",
+          "effective_limit",
+          "truncated",
+          "as_of",
+          "retention"
+        ]
+      },
+      "DeviceCollectionOutcomeState": {
+        "type": "string",
+        "enum": [
+          "ok_with_rows",
+          "healthy_empty",
+          "unsupported",
+          "failed",
+          "never_observed"
+        ]
+      },
+      "DeviceCollectionOutcome": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "configured_target": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "lldp",
+              "cdp"
+            ]
+          },
+          "last_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DeviceCollectionOutcomeState"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "rows_observed",
+              "no_rows_observed",
+              "mib_unsupported",
+              "poll_failed",
+              "credential_unavailable",
+              "transport_unreachable",
+              "base_poll_failed",
+              "never_attempted"
+            ]
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "review_neighbor_evidence",
+              "review_target_neighbor_configuration",
+              "enable_protocol_on_configured_target",
+              "verify_configured_target_access",
+              "wait_for_first_collection"
+            ]
+          }
+        },
+        "required": [
+          "agent_id",
+          "configured_target",
+          "protocol",
+          "last_attempt_at",
+          "last_success_at",
+          "state",
+          "reason",
+          "row_count",
+          "next_action"
+        ]
+      },
+      "DeviceCollectionOutcomeResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl.device-collection-outcomes/v1"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/DeviceCollectionOutcome"
+            }
+          },
+          "collection_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retention": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "max_per_tenant": {
+                "type": "integer",
+                "const": 4096
+              },
+              "retention_days": {
+                "type": "integer",
+                "const": 30
+              }
+            },
+            "required": [
+              "max_per_tenant",
+              "retention_days"
             ]
           }
         },

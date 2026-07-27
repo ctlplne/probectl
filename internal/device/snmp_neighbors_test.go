@@ -210,6 +210,7 @@ type captureNeighborEmitter struct {
 	captureEmitter
 	neighborMu sync.Mutex
 	snapshots  []NeighborSnapshot
+	outcomes   []CollectionOutcome
 	store      NeighborStore
 }
 
@@ -227,6 +228,19 @@ func (e *captureNeighborEmitter) neighborSnapshot() []NeighborSnapshot {
 	e.neighborMu.Lock()
 	defer e.neighborMu.Unlock()
 	return append([]NeighborSnapshot(nil), e.snapshots...)
+}
+
+func (e *captureNeighborEmitter) EmitCollectionOutcome(_ context.Context, outcome CollectionOutcome) error {
+	e.neighborMu.Lock()
+	defer e.neighborMu.Unlock()
+	e.outcomes = append(e.outcomes, outcome)
+	return nil
+}
+
+func (e *captureNeighborEmitter) collectionOutcomes() []CollectionOutcome {
+	e.neighborMu.Lock()
+	defer e.neighborMu.Unlock()
+	return append([]CollectionOutcome(nil), e.outcomes...)
 }
 
 func TestRuntimeNeighborFailurePreservesPreviousSnapshotAndSuccessfulEmptyClears(t *testing.T) {
@@ -275,8 +289,19 @@ func TestRuntimeNeighborFailurePreservesPreviousSnapshotAndSuccessfulEmptyClears
 	}
 	stats := rt.StatsSnapshot()
 	if stats["neighbor_poll_errors"] != 1 || stats["neighbor_snapshots"] != 1 ||
-		stats["metrics"] == 0 {
+		stats["metrics"] == 0 || stats["collection_outcomes"] != 4 {
 		t.Fatalf("stats after partial poll failure = %+v", stats)
+	}
+	outcomes := emitter.collectionOutcomes()
+	if len(outcomes) != 4 ||
+		outcomes[0].State != CollectionStateHealthyEmpty ||
+		outcomes[1].State != CollectionStateOKWithRows ||
+		outcomes[1].RowCount != 1 ||
+		outcomes[2].State != CollectionStateFailed ||
+		outcomes[2].Reason != CollectionReasonPollFailed ||
+		outcomes[2].LastSuccessAt == nil ||
+		outcomes[3].State != CollectionStateHealthyEmpty {
+		t.Fatalf("per-protocol outcomes after failure = %+v", outcomes)
 	}
 	logged := logs.String()
 	if !strings.Contains(logged, "device neighbor poll failed; preserving previous snapshot") ||
@@ -296,7 +321,13 @@ func TestRuntimeNeighborFailurePreservesPreviousSnapshotAndSuccessfulEmptyClears
 		t.Fatalf("successful empty poll did not clear stored evidence: rows=%+v err=%v", rows, err)
 	}
 	if stats := rt.StatsSnapshot(); stats["neighbor_poll_errors"] != 1 ||
-		stats["neighbor_snapshots"] != 2 {
+		stats["neighbor_snapshots"] != 2 || stats["collection_outcomes"] != 6 {
 		t.Fatalf("stats after successful empty snapshot = %+v", stats)
+	}
+	outcomes = emitter.collectionOutcomes()
+	if outcomes[4].State != CollectionStateHealthyEmpty ||
+		outcomes[5].State != CollectionStateHealthyEmpty ||
+		outcomes[4].LastSuccessAt == nil || outcomes[5].LastSuccessAt == nil {
+		t.Fatalf("successful empty outcome receipts = %+v", outcomes[4:])
 	}
 }

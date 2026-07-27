@@ -46,19 +46,44 @@ type Runtime struct {
 	UptimeSec    int64  `json:"uptime_seconds"`
 }
 
+// DeviceCollectionReceipt is an anonymized readiness receipt. The refs are
+// bundle-local ordinal labels; raw tenant, agent, and target identifiers never
+// leave the control plane in a support bundle.
+type DeviceCollectionReceipt struct {
+	AgentRef    string     `json:"agent_ref"`
+	TargetRef   string     `json:"target_ref"`
+	Protocol    string     `json:"protocol"`
+	LastAttempt *time.Time `json:"last_attempt_at"`
+	LastSuccess *time.Time `json:"last_success_at"`
+	State       string     `json:"state"`
+	Reason      string     `json:"reason"`
+	RowCount    int        `json:"row_count"`
+	NextAction  string     `json:"next_action"`
+}
+
+// DeviceCollectionSummary carries bounded, anonymized readiness detail.
+type DeviceCollectionSummary struct {
+	ContractVersion   string                    `json:"contract_version"`
+	CollectionRunning bool                      `json:"collection_running"`
+	Receipts          []DeviceCollectionReceipt `json:"receipts"`
+	Truncated         bool                      `json:"truncated"`
+	Error             string                    `json:"error,omitempty"`
+}
+
 // Sources is everything a bundle includes. All fields are SAFE by
 // construction (redacted/anonymized/operational). RedactValues are
 // known-sensitive strings (e.g. the envelope key, tokens, DSN passwords) that
 // are scrubbed from the assembled bytes as defense in depth.
 type Sources struct {
-	Version        version.Info
-	ConfigRedacted map[string]any
-	Health         Health
-	SelfMetrics    map[string]float64
-	Topology       TopologySummary
-	Runtime        Runtime
-	Notes          []string
-	RedactValues   []string
+	Version          version.Info
+	ConfigRedacted   map[string]any
+	Health           Health
+	SelfMetrics      map[string]float64
+	Topology         TopologySummary
+	DeviceCollection DeviceCollectionSummary
+	Runtime          Runtime
+	Notes            []string
+	RedactValues     []string
 }
 
 // Manifest indexes the bundle.
@@ -96,7 +121,7 @@ func Generate(w io.Writer, src Sources) (Manifest, error) {
 		GeneratedAt:   now,
 		Version:       src.Version.Version,
 		Notes: append([]string{
-			"This bundle is SECRET-STRIPPED: config is an allowlist with passwords/keys/tokens removed; no tenant telemetry or PII is included.",
+			"This bundle is SECRET-STRIPPED: config is an allowlist with passwords/keys/tokens removed; no raw tenant, agent, target, telemetry, or PII identifiers are included. Device readiness receipts use bundle-local ordinal references.",
 		}, src.Notes...),
 	}
 
@@ -113,6 +138,7 @@ func Generate(w io.Writer, src Sources) (Manifest, error) {
 		{"health.json", src.Health},
 		{"self-metrics.json", src.SelfMetrics},
 		{"topology-summary.json", src.Topology},
+		{"device-collection.json", src.DeviceCollection},
 		{"runtime.json", src.Runtime},
 	}
 	for _, f := range files {

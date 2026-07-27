@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { fixtureFetch, jsonResponse, type FixtureProfile } from '../test/fixtureApi'
 import { fixtureContractErrors, type FixtureContractRequest } from '../test/openapiFixtureContract'
-import type { DeviceNeighborResponse } from './planes'
+import type { DeviceCollectionOutcomeResponse, DeviceNeighborResponse } from './planes'
 import type { TopologyResponse } from './topology'
 import { API_BASE } from './client'
 import { API_CALL_CONTRACTS, type APICallContract } from './openapi-contracts'
@@ -55,6 +55,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/device/configs' },
   { method: 'GET', path: '/v1/device/identity-conflicts' },
   { method: 'GET', path: '/v1/device/neighbors' },
+  { method: 'GET', path: '/v1/device/collection-outcomes' },
   { method: 'GET', path: '/v1/device/syslog' },
   { method: 'GET', path: '/v1/diagnostics' },
   { method: 'GET', path: '/v1/directory/scim-tokens' },
@@ -342,7 +343,9 @@ describe('design-loop fixture to OpenAPI response contracts', () => {
       ])
       const neighbors = (await neighborResponse.json()) as DeviceNeighborResponse
       const topology = (await topologyResponse.json()) as TopologyResponse
-      const currentNeighbors = neighbors.items.filter((neighbor) => neighbor.freshness === 'current')
+      const currentNeighbors = neighbors.items.filter(
+        (neighbor) => neighbor.freshness === 'current',
+      )
       const physicalEdges = topology.edges.filter((edge) => edge.kind === 'physical')
       const nodeIDs = new Set(topology.nodes.map((node) => node.id))
 
@@ -362,13 +365,30 @@ describe('design-loop fixture to OpenAPI response contracts', () => {
         }
 
         expect(physicalEdges, `${profile} edge for ${neighbor.id}`).toContainEqual(expectedEdge)
-        expect(nodeIDs.has(expectedEdge.from), `${profile} local endpoint ${expectedEdge.from}`).toBe(
-          true,
-        )
+        expect(
+          nodeIDs.has(expectedEdge.from),
+          `${profile} local endpoint ${expectedEdge.from}`,
+        ).toBe(true)
         expect(nodeIDs.has(expectedEdge.to), `${profile} remote endpoint ${expectedEdge.to}`).toBe(
           true,
         )
       }
+    }
+  })
+
+  it('keeps populated and cold device-collection receipts versioned and explicit', async () => {
+    for (const [profile, expectedRows] of [
+      ['populated', 2],
+      ['cold', 0],
+    ] as const) {
+      const response = await fixtureFetch(profile)(
+        'https://fixture.probectl.test/v1/device/collection-outcomes',
+      )
+      const outcomes = (await response.json()) as DeviceCollectionOutcomeResponse
+      expect(outcomes.contract_version).toBe('probectl.device-collection-outcomes/v1')
+      expect(outcomes.collection_running).toBe(true)
+      expect(outcomes.items).toHaveLength(expectedRows)
+      expect(outcomes.retention).toEqual({ max_per_tenant: 4096, retention_days: 30 })
     }
   })
 

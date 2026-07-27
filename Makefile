@@ -396,6 +396,11 @@ proto: ## Lint and generate Go (+ gRPC) from protobuf via buf.
 	buf lint
 	buf generate
 
+.PHONY: proto-gate
+proto-gate: proto ## Regenerate protobuf bindings and fail when committed Go code is stale.
+	git diff --exit-code -- internal/gen \
+		|| { echo "protobuf bindings are stale — run 'make proto' and commit internal/gen"; exit 1; }
+
 .PHONY: proto-tools
 proto-tools: ## Install protobuf codegen tools (buf + Go plugins) into GOPATH/bin.
 	$(GO) install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
