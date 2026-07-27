@@ -1402,6 +1402,26 @@ YAML config
 it and give a **single-device quick start** for trying one device fast. See
 [`device-telemetry.md`](device-telemetry.md).
 
+Set top-level `collection_profile` to `minimal`, `standard`, or
+`topology-rich` to expand one compiled evidence budget across the configured
+targets. The vocabulary uses only the agent's existing SNMP and gNMI
+collectors. `minimal` uses 5m SNMP / 2m gNMI cadence with no optional walks;
+`standard` uses 1m / 30s with base interface and host evidence; and
+`topology-rich` additionally enables SNMP temperature and bounded LLDP/CDP
+walks. gNMI stays on the two supported OpenConfig interface paths because the
+agent does not own a gNMI topology collector.
+
+Profile changes belong under each target's `collection_overrides` block:
+`interval`, `sensors`, and `neighbors` for SNMP, or
+`gnmi_sample_interval` and `gnmi_paths` for gNMI. Mixing a profile with the old
+top-level collection knobs fails closed. SNMP overrides are bounded to
+15s–24h; gNMI cadence is bounded to 5s–1h; and profile-mode paths are restricted
+to the compiled counters/status paths. A config without `collection_profile`
+keeps the legacy explicit behavior. Run `probectl-device-agent config-check
+-config <path>` or `probectl device config-preview --config <path>` for the
+credential- and tenant-free effective plan; neither command opens a network
+connection.
+
 | Variable                       | Default     | Meaning                                                          |
 | ------------------------------- | ----------- | ----------------------------------------------------------------- |
 | `PROBECTL_DEVICE_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)                |
@@ -1410,11 +1430,13 @@ it and give a **single-device quick start** for trying one device fast. See
 | `PROBECTL_DEVICE_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                               |
 | `PROBECTL_DEVICE_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                        |
 | `PROBECTL_DEVICE_BUS_NAMESPACE`  | (none)      | publish on this tenant's siloed bus lane instead of the shared topic (siloed deployments) |
+| `PROBECTL_DEVICE_PROFILE`        | (none)      | optional compiled profile: `minimal` \| `standard` \| `topology-rich`; empty preserves legacy explicit config |
 | `PROBECTL_DEVICE_TARGET`         | (none)      | quick start: add one device by address                            |
 | `PROBECTL_DEVICE_TRANSPORT`      | `snmpv2c`   | quick-start transport: `snmpv2c` \| `snmpv3` \| `gnmi`            |
 | `PROBECTL_DEVICE_CREDENTIAL`     | (none)      | quick start: credential NAME for the device (see below)           |
 | `PROBECTL_DEVICE_PORT`           | `161` (SNMP) / `9339` (gNMI) | quick start: port override (defaults to the transport's standard port) |
-| `PROBECTL_DEVICE_INTERVAL`       | `60s`       | quick start: poll/sample interval                                 |
+| `PROBECTL_DEVICE_INTERVAL`       | profile value (`60s` legacy) | quick start: explicit poll/sample interval override               |
+| `PROBECTL_DEVICE_SENSORS`        | `false`     | quick start: explicit temperature-sensor override; with a profile this is recorded as `collection_overrides.sensors` |
 | `PROBECTL_DEVICE_NEIGHBORS`      | `false`     | quick start: opt in to bounded, read-only LLDP/CDP MIB walks on the configured SNMP target; no subnet scan |
 | `PROBECTL_DEVICE_CORRELATION_RETENTION` | `2160h` | age-retention clock for the device agent's in-process sysName/interface correlation cache; stale device labels are no longer matchable after this window. `0` disables agent-local pruning |
 | `PROBECTL_DEVICE_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                            |
@@ -1426,8 +1448,9 @@ environment (the `PROBECTL_DEVICE_CRED_<NAME>_*` vars below); the secrets backen
 plug Vault/CyberArk into the same seam. An unresolvable name fails closed at
 startup. `<NAME>` is the upper-cased credential name with `-`/`.` → `_`:
 
-In YAML, `neighbors: true` is a per-device opt-in and is valid only for SNMP
-targets. One snapshot contains at most 256 normalized neighbors. The control
+In legacy YAML without a profile, `neighbors: true` is a per-device opt-in. In
+profile mode, use `collection_overrides.neighbors: true`. Both forms are valid
+only for SNMP targets. One snapshot contains at most 256 normalized neighbors. The control
 plane retains at most 16,384 current/stale rows per tenant, returns at most 500
 rows per read, and prunes evidence more than 24 hours old. Unsupported LLDP/CDP
 MIBs remain explicit. The independent receipt store retains at most 4,096

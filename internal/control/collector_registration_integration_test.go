@@ -54,7 +54,7 @@ func collectorEnrollService(t *testing.T, db *store.DB) *enroll.Service {
 	return svc
 }
 
-func TestCollectorRegistrationIsTenantScopedAndPublishBound(t *testing.T) {
+func TestDeviceCollectorProfileRegistrationIsTenantScopedAndPublishBound(t *testing.T) {
 	db := changeDB(t)
 	svc := collectorEnrollService(t, db)
 	tenantA := freshTenant(t, db, "collector-a")
@@ -70,15 +70,22 @@ func TestCollectorRegistrationIsTenantScopedAndPublishBound(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
+	invalid := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenantA, map[string]any{
+		"token": token, "plane": "device", "hostname": "edge-flow-1", "collection_profile": "vendor-ultra",
+	})
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid profile registration = %d %s, want 400", invalid.Code, invalid.Body)
+	}
+
 	cross := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenantB, map[string]any{
-		"token": token, "plane": "flow", "hostname": "edge-flow-1",
+		"token": token, "plane": "device", "hostname": "edge-flow-1", "collection_profile": "topology-rich",
 	})
 	if cross.Code != http.StatusUnauthorized {
 		t.Fatalf("cross-tenant registration = %d %s, want 401", cross.Code, cross.Body)
 	}
 
 	ok := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenantA, map[string]any{
-		"token": token, "plane": "flow", "hostname": "edge-flow-1",
+		"token": token, "plane": "device", "hostname": "edge-flow-1", "collection_profile": "topology-rich",
 	})
 	if ok.Code != http.StatusCreated {
 		t.Fatalf("tenant registration = %d %s, want 201", ok.Code, ok.Body)
@@ -87,11 +94,14 @@ func TestCollectorRegistrationIsTenantScopedAndPublishBound(t *testing.T) {
 	if err := json.Unmarshal(ok.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if out.TenantID != tenantA || out.AgentID != agentID || out.Plane != "flow" {
+	if out.TenantID != tenantA || out.AgentID != agentID || out.Plane != "device" {
 		t.Fatalf("registration response = %+v", out)
 	}
-	if got := out.Config.Env["PROBECTL_FLOW_AGENT_ID"]; got != agentID {
-		t.Fatalf("flow env agent id = %q, want %q", got, agentID)
+	if got := out.Config.Env["PROBECTL_DEVICE_AGENT_ID"]; got != agentID {
+		t.Fatalf("device env agent id = %q, want %q", got, agentID)
+	}
+	if got := out.Config.Env["PROBECTL_DEVICE_PROFILE"]; got != "topology-rich" {
+		t.Fatalf("device profile env = %q, want topology-rich", got)
 	}
 
 	binding := pipeline.NewRegistryBinding(db.Pool())
@@ -108,8 +118,8 @@ func TestCollectorRegistrationIsTenantScopedAndPublishBound(t *testing.T) {
 			return err
 		}
 		got := strings.Join(a.Capabilities, ",")
-		if got != "collector,flow" {
-			t.Fatalf("capabilities = %q, want collector,flow", got)
+		if got != "collector,device" {
+			t.Fatalf("capabilities = %q, want collector,device", got)
 		}
 		return nil
 	}); err != nil {

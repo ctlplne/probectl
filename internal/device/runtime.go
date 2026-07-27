@@ -170,7 +170,16 @@ func (r *Runtime) Run(ctx context.Context) error {
 			}()
 		}
 	}
-	r.log.Info("device collector running", "devices", len(r.cfg.Devices), "tenant", r.cfg.TenantID)
+	profile := string(r.cfg.CollectionProfile)
+	if profile == "" {
+		profile = "explicit"
+	}
+	r.log.Info(
+		"device collector running",
+		"devices", len(r.cfg.Devices),
+		"tenant", r.cfg.TenantID,
+		"collection_profile", profile,
+	)
 
 	statsTicker := time.NewTicker(60 * time.Second)
 	defer statsTicker.Stop()

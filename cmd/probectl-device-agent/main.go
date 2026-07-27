@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -53,12 +54,44 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "config-check":
+			if err := runConfigCheck(os.Args[2:], os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, "probectl-device-agent config-check:", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "probectl-device-agent:", err)
 		os.Exit(1)
 	}
+}
+
+// runConfigCheck expands the effective collection plan without constructing a
+// secret resolver, bus, runtime, or network client. Its JSON is therefore safe
+// to attach to a review ticket before agent startup.
+func runConfigCheck(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("probectl-device-agent config-check", flag.ContinueOnError)
+	configPath := fs.String("config", os.Getenv("PROBECTL_DEVICE_CONFIG"), "path to the device collector YAML config")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) != 0 {
+		return fmt.Errorf("unexpected arguments: %v", fs.Args())
+	}
+	cfg, err := device.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	preview, err := cfg.EffectiveCollectionPreview()
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	return enc.Encode(preview)
 }
 
 func run() error {

@@ -111,6 +111,60 @@ voids it. Only an unreachable or mis-authenticated device (the system group
 itself fails) fails the whole poll. You get partial truth instead of an all-or-
 nothing error.
 
+## Built-in evidence-budget profiles
+
+`collection_profile` is a tiny compiled vocabulary for choosing how much
+read-only evidence the agent asks each already-configured device to provide. It
+does not download a MIB catalog, load plugins, discover targets, try
+credentials, or enable a new protocol. Think of it as three factory-set
+flashlight brightness levels over collectors already in the binary:
+
+| Profile | SNMP cadence and optional walks | gNMI cadence and paths |
+| --- | --- | --- |
+| `minimal` | 5m; base system/interface/address/CPU/memory walks; no sensors or neighbors | 2m; interface operational status |
+| `standard` | 1m; base walks; no sensors or neighbors | 30s; interface counters + operational status |
+| `topology-rich` | 1m; base walks + temperature sensors + bounded LLDP/CDP | 30s; interface counters + operational status |
+
+All profiles are local, deterministic, and bounded. `topology-rich` adds
+adjacency only for SNMP targets because the current gNMI collector does not own
+a topology path. It does not manufacture equivalent evidence.
+
+A target may change a profile value only under `collection_overrides`; mixing a
+profile with the legacy top-level `interval`, `sensors`, `neighbors`,
+`gnmi.sample_interval`, or `gnmi.paths` keys fails configuration validation.
+This makes an override visible during review instead of silently winning by
+parse order. SNMP interval overrides are bounded to 15s–24h. gNMI sample
+overrides are bounded to 5s–1h, and profile-mode paths are limited to the two
+compiled OpenConfig paths above. Existing configurations without
+`collection_profile` keep their prior explicit behavior.
+
+```yaml
+collection_profile: topology-rich
+devices:
+  - address: 192.0.2.10
+    transport: snmpv3
+    credential: core-ro
+    collection_overrides:
+      interval: 90s
+      sensors: false
+      neighbors: true
+```
+
+Review the exact effective plan before startup:
+
+```bash
+probectl-device-agent config-check -config /etc/probectl/device-agent.yaml
+probectl device profiles
+probectl device config-preview --config /etc/probectl/device-agent.yaml
+```
+
+The preview validates and expands the file but constructs no secret resolver,
+bus, runtime, or network client. It includes target addresses, cadence, and
+walk/path names, but excludes tenant identity and credential names/material.
+Admin → Register collector exposes the same three profiles and returns the
+selected `PROBECTL_DEVICE_PROFILE` / `collection_profile` hint. That selection
+is not centrally persisted; the deployed local config remains authoritative.
+
 ## Physical adjacency — direct LLDP/CDP evidence
 
 Metrics say how a port feels; LLDP/CDP says which port is plugged into which
@@ -369,8 +423,9 @@ Quick start against one switch:
 export PROBECTL_DEVICE_TENANT=t-acme
 export PROBECTL_DEVICE_TARGET=192.0.2.1 PROBECTL_DEVICE_TRANSPORT=snmpv2c
 export PROBECTL_DEVICE_CREDENTIAL=core-ro
-export PROBECTL_DEVICE_NEIGHBORS=true
+export PROBECTL_DEVICE_PROFILE=topology-rich
 export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
+./bin/probectl-device-agent config-check
 ./bin/probectl-device-agent
 ```
 

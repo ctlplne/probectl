@@ -399,9 +399,10 @@ type CollectorConfigHint struct {
 }
 
 type CollectorRegisterRequest struct {
-	Hostname string `json:"hostname,omitempty"`
-	Plane    string `json:"plane"`
-	Token    string `json:"token"`
+	CollectionProfile string `json:"collection_profile,omitempty"`
+	Hostname          string `json:"hostname,omitempty"`
+	Plane             string `json:"plane"`
+	Token             string `json:"token"`
 }
 
 type CollectorRegistration struct {

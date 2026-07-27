@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
 
@@ -41,6 +43,18 @@ type GNMIConfig struct {
 	Plaintext bool `yaml:"plaintext"`
 }
 
+// CollectionOverrides are the only collection-budget overrides accepted when
+// collection_profile is active. Pointer booleans preserve an explicit false.
+// Transport/security fields (address, port, credential, CA, plaintext) remain
+// on Target because profiles do not own them.
+type CollectionOverrides struct {
+	Interval           time.Duration `yaml:"interval,omitempty"`
+	Sensors            *bool         `yaml:"sensors,omitempty"`
+	Neighbors          *bool         `yaml:"neighbors,omitempty"`
+	GNMIPaths          []string      `yaml:"gnmi_paths,omitempty"`
+	GNMISampleInterval time.Duration `yaml:"gnmi_sample_interval,omitempty"`
+}
+
 // Target is one polled/subscribed device (the per-device config entry).
 type Target struct {
 	Address   string `yaml:"address"`
@@ -55,6 +69,10 @@ type Target struct {
 	// explicitly configured SNMP target. It never scans for other devices.
 	Neighbors bool       `yaml:"neighbors"`
 	GNMI      GNMIConfig `yaml:"gnmi"`
+
+	// CollectionOverrides intentionally separate profile changes from the
+	// legacy collection knobs above. Mixing the two is rejected as ambiguous.
+	CollectionOverrides CollectionOverrides `yaml:"collection_overrides,omitempty"`
 }
 
 // TrapSourceRef names one authenticated SNMP trap sender. Credential is a
@@ -98,6 +116,10 @@ type Config struct {
 
 	Bus BusConfig `yaml:"bus"`
 
+	// CollectionProfile selects one compiled evidence budget for every target.
+	// Empty preserves the pre-profile explicit configuration behavior.
+	CollectionProfile CollectionProfile `yaml:"collection_profile,omitempty"`
+
 	// CorrelationRetention bounds the in-agent device/interface identity cache
 	// used to enrich path/flow signals with sysName and interface labels.
 	// 0 disables age pruning; default is 90 days.
@@ -105,6 +127,10 @@ type Config struct {
 
 	Devices []Target   `yaml:"devices"`
 	Traps   TrapConfig `yaml:"traps"`
+
+	legacyCollectionFields map[int][]string
+	profileExpanded        bool
+	profileEnvErrors       []string
 }
 
 // Default returns the built-in defaults (memory bus, hostname agent id).
@@ -139,6 +165,9 @@ func decodeConfigYAML(raw []byte, cfg *Config) error {
 	if err := configschema.DecodeStrictYAML(raw, cfg); err != nil {
 		return err
 	}
+	if err := cfg.recordLegacyCollectionFields(raw); err != nil {
+		return err
+	}
 	apiVersion, err := configschema.ResolveAPIVersion("device", cfg.APIVersion, cfg.SchemaVersion, ConfigAPIVersion)
 	if err != nil {
 		return err
@@ -170,6 +199,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 			}
 		}
 	}
+	if v := getenv("PROBECTL_DEVICE_PROFILE"); v != "" {
+		c.CollectionProfile = CollectionProfile(v)
+	}
 	if v := getenv("PROBECTL_DEVICE_CORRELATION_RETENTION"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
 			c.CorrelationRetention = d
@@ -193,11 +225,40 @@ func (c *Config) applyEnv(getenv func(string) string) {
 		}
 		if v := getenv("PROBECTL_DEVICE_INTERVAL"); v != "" {
 			if d, err := time.ParseDuration(v); err == nil && d > 0 {
-				dev.Interval = d
+				if c.CollectionProfile != "" {
+					if dev.Transport == TransportGNMI {
+						dev.CollectionOverrides.GNMISampleInterval = d
+					} else {
+						dev.CollectionOverrides.Interval = d
+					}
+				} else {
+					dev.Interval = d
+				}
+			} else if c.CollectionProfile != "" {
+				c.profileEnvErrors = append(c.profileEnvErrors, "PROBECTL_DEVICE_INTERVAL must be a positive duration")
+			}
+		}
+		if v := getenv("PROBECTL_DEVICE_SENSORS"); v != "" {
+			if enabled, err := strconv.ParseBool(v); err == nil {
+				if c.CollectionProfile != "" {
+					dev.CollectionOverrides.Sensors = &enabled
+				} else {
+					dev.Sensors = enabled
+				}
+			} else if c.CollectionProfile != "" {
+				c.profileEnvErrors = append(c.profileEnvErrors, "PROBECTL_DEVICE_SENSORS must be true or false")
 			}
 		}
 		if v := getenv("PROBECTL_DEVICE_NEIGHBORS"); v != "" {
-			dev.Neighbors, _ = strconv.ParseBool(v)
+			if enabled, err := strconv.ParseBool(v); err == nil {
+				if c.CollectionProfile != "" {
+					dev.CollectionOverrides.Neighbors = &enabled
+				} else {
+					dev.Neighbors = enabled
+				}
+			} else if c.CollectionProfile != "" {
+				c.profileEnvErrors = append(c.profileEnvErrors, "PROBECTL_DEVICE_NEIGHBORS must be true or false")
+			}
 		}
 		c.Devices = append(c.Devices, dev)
 	}
@@ -209,6 +270,9 @@ func (c *Config) Validate() error {
 	if c.TenantID == "" {
 		return errors.New("device: tenant_id is required (PROBECTL_DEVICE_TENANT)")
 	}
+	if len(c.profileEnvErrors) > 0 {
+		return fmt.Errorf("device: invalid profile override: %s", strings.Join(c.profileEnvErrors, "; "))
+	}
 	if c.CorrelationRetention < 0 {
 		return errors.New("device: correlation_retention must be >= 0")
 	}
@@ -218,10 +282,47 @@ func (c *Config) Validate() error {
 	if err := c.Traps.validate(); err != nil {
 		return err
 	}
-	for i := range c.Devices {
-		d := &c.Devices[i]
+	var profile CollectionProfile
+	if c.CollectionProfile != "" {
+		var err error
+		profile, err = ParseCollectionProfile(string(c.CollectionProfile))
+		if err != nil {
+			return err
+		}
+		c.CollectionProfile = profile
+	}
+	devices := c.Devices
+	expandProfile := profile != "" && !c.profileExpanded
+	if expandProfile {
+		// Expand into a copy so one invalid later target cannot leave an
+		// earlier target partially mutated after validation fails.
+		devices = append([]Target(nil), c.Devices...)
+	}
+	for i := range devices {
+		d := &devices[i]
 		if d.Address == "" {
 			return fmt.Errorf("device: devices[%d] has no address", i)
+		}
+		if profile == "" {
+			if !d.CollectionOverrides.empty() {
+				return fmt.Errorf(
+					"device: devices[%d] (%s): collection_overrides requires collection_profile",
+					i,
+					d.Address,
+				)
+			}
+		} else if expandProfile {
+			if fields := c.legacyProfileFields(i, d); len(fields) > 0 {
+				return fmt.Errorf(
+					"device: devices[%d] (%s): collection_profile conflicts with %s; move collection-budget changes under collection_overrides",
+					i,
+					d.Address,
+					strings.Join(fields, ", "),
+				)
+			}
+			if err := applyCollectionProfile(d, profile, i); err != nil {
+				return err
+			}
 		}
 		switch d.Transport {
 		case TransportSNMPv2c, TransportSNMPv3:
@@ -243,8 +344,8 @@ func (c *Config) Validate() error {
 			}
 			if len(d.GNMI.Paths) == 0 {
 				d.GNMI.Paths = []string{
-					"/interfaces/interface/state/counters",
-					"/interfaces/interface/state/oper-status",
+					defaultGNMICountersPath,
+					defaultGNMIStatusPath,
 				}
 			}
 		default:
@@ -252,6 +353,181 @@ func (c *Config) Validate() error {
 		}
 		if d.Credential == "" {
 			return fmt.Errorf("device: devices[%d] (%s): credential name is required", i, d.Address)
+		}
+	}
+	if expandProfile {
+		c.Devices = devices
+		c.profileExpanded = true
+	}
+	return nil
+}
+
+func (o CollectionOverrides) empty() bool {
+	return o.Interval == 0 &&
+		o.Sensors == nil &&
+		o.Neighbors == nil &&
+		len(o.GNMIPaths) == 0 &&
+		o.GNMISampleInterval == 0
+}
+
+func (c *Config) legacyProfileFields(index int, d *Target) []string {
+	fields := append([]string(nil), c.legacyCollectionFields[index]...)
+	if len(fields) > 0 {
+		return fields
+	}
+	if d.Interval != 0 {
+		fields = append(fields, "interval")
+	}
+	if d.Sensors {
+		fields = append(fields, "sensors")
+	}
+	if d.Neighbors {
+		fields = append(fields, "neighbors")
+	}
+	if d.GNMI.SampleInterval != 0 {
+		fields = append(fields, "gnmi.sample_interval")
+	}
+	if len(d.GNMI.Paths) > 0 {
+		fields = append(fields, "gnmi.paths")
+	}
+	return fields
+}
+
+func applyCollectionProfile(d *Target, profile CollectionProfile, index int) error {
+	plan, ok := planForCollectionProfile(profile)
+	if !ok {
+		return fmt.Errorf("device: devices[%d]: invalid collection profile %q", index, profile)
+	}
+	o := d.CollectionOverrides
+	switch d.Transport {
+	case TransportSNMPv2c, TransportSNMPv3:
+		if o.GNMISampleInterval != 0 || len(o.GNMIPaths) > 0 {
+			return fmt.Errorf(
+				"device: devices[%d] (%s): gNMI collection overrides require transport gnmi",
+				index,
+				d.Address,
+			)
+		}
+		d.Interval = plan.snmpInterval
+		d.Sensors = plan.sensors
+		d.Neighbors = plan.neighbors
+		if o.Interval != 0 {
+			if o.Interval < 15*time.Second || o.Interval > 24*time.Hour {
+				return fmt.Errorf(
+					"device: devices[%d] (%s): collection_overrides.interval must be between 15s and 24h",
+					index,
+					d.Address,
+				)
+			}
+			d.Interval = o.Interval
+		}
+		if o.Sensors != nil {
+			d.Sensors = *o.Sensors
+		}
+		if o.Neighbors != nil {
+			d.Neighbors = *o.Neighbors
+		}
+	case TransportGNMI:
+		if o.Interval != 0 || o.Sensors != nil || o.Neighbors != nil {
+			return fmt.Errorf(
+				"device: devices[%d] (%s): SNMP collection overrides require transport snmpv2c or snmpv3",
+				index,
+				d.Address,
+			)
+		}
+		d.GNMI.SampleInterval = plan.gnmiSampleInterval
+		d.GNMI.Paths = append([]string(nil), plan.gnmiPaths...)
+		if o.GNMISampleInterval != 0 {
+			if o.GNMISampleInterval < 5*time.Second || o.GNMISampleInterval > time.Hour {
+				return fmt.Errorf(
+					"device: devices[%d] (%s): collection_overrides.gnmi_sample_interval must be between 5s and 1h",
+					index,
+					d.Address,
+				)
+			}
+			d.GNMI.SampleInterval = o.GNMISampleInterval
+		}
+		if len(o.GNMIPaths) > 0 {
+			if len(o.GNMIPaths) > 2 {
+				return fmt.Errorf(
+					"device: devices[%d] (%s): collection_overrides.gnmi_paths exceeds the two compiled paths",
+					index,
+					d.Address,
+				)
+			}
+			seen := make(map[string]struct{}, len(o.GNMIPaths))
+			for _, path := range o.GNMIPaths {
+				if !supportedProfileGNMIPath(path) {
+					return fmt.Errorf(
+						"device: devices[%d] (%s): unsupported profile gNMI path %q",
+						index,
+						d.Address,
+						path,
+					)
+				}
+				if _, duplicate := seen[path]; duplicate {
+					return fmt.Errorf(
+						"device: devices[%d] (%s): duplicate profile gNMI path %q",
+						index,
+						d.Address,
+						path,
+					)
+				}
+				seen[path] = struct{}{}
+			}
+			d.GNMI.Paths = append([]string(nil), o.GNMIPaths...)
+		}
+	default:
+		// The established transport validator below returns the canonical error.
+	}
+	return nil
+}
+
+func (c *Config) recordLegacyCollectionFields(raw []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
+	c.legacyCollectionFields = make(map[int][]string)
+	if len(doc.Content) == 0 || len(doc.Content[0].Content) == 0 {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "devices" {
+			continue
+		}
+		devices := root.Content[i+1]
+		if devices.Kind != yaml.SequenceNode {
+			return nil
+		}
+		for index, target := range devices.Content {
+			if target.Kind != yaml.MappingNode {
+				continue
+			}
+			for j := 0; j+1 < len(target.Content); j += 2 {
+				key, value := target.Content[j].Value, target.Content[j+1]
+				switch key {
+				case "interval", "sensors", "neighbors":
+					c.legacyCollectionFields[index] = append(c.legacyCollectionFields[index], key)
+				case "gnmi":
+					if value.Kind != yaml.MappingNode {
+						continue
+					}
+					for k := 0; k+1 < len(value.Content); k += 2 {
+						switch value.Content[k].Value {
+						case "paths", "sample_interval":
+							c.legacyCollectionFields[index] = append(
+								c.legacyCollectionFields[index],
+								"gnmi."+value.Content[k].Value,
+							)
+						}
+					}
+				}
+			}
 		}
 	}
 	return nil

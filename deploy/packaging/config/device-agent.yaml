@@ -7,6 +7,7 @@
 apiVersion: probectl.io/device-agent/v1
 tenant_id: ""                 # REQUIRED: binds every metric to one tenant (F50)
 agent_id: ""                  # defaults to the OS hostname
+collection_profile: topology-rich # compiled local profile; no downloaded catalog
 bus:
   mode: kafka                 # memory | kafka
   brokers: ["BROKER-HOST:9093"]
@@ -27,14 +28,10 @@ devices:
     port: 161
     transport: "snmpv3"       # snmpv2c | snmpv3 | gnmi
     credential: "device-snmp" # NAME of the secret, resolved at runtime
-    interval: 60s
-    sensors: true
-    neighbors: true            # bounded read-only LLDP/CDP evidence; no subnet scan
   # gNMI example (TLS verified against the device CA; never plaintext in prod):
   # - address: "192.0.2.2"
   #   port: 9339
   #   transport: "gnmi"
   #   credential: "device-gnmi"
   #   gnmi:
-  #     sample_interval: 30s
   #     ca_file: /etc/probectl/device-ca.crt

@@ -1030,6 +1030,21 @@ const en = {
   'admin.collectorDialog.yamlKey': 'YAML {key}',
   'admin.collectorDialog.collectorPlane': 'Collector plane',
   'admin.collectorDialog.guidance': 'Prerequisites: {prerequisites} First signal: {firstSignal}',
+  'admin.collectorDialog.deviceProfile': 'Device evidence profile',
+  'admin.collectorDialog.deviceProfile.minimal': 'Minimal',
+  'admin.collectorDialog.deviceProfile.standard': 'Standard',
+  'admin.collectorDialog.deviceProfile.topology-rich': 'Topology-rich',
+  'admin.collectorDialog.deviceProfile.minimal.description':
+    'Lower-frequency base health with no optional sensor or neighbor walks.',
+  'admin.collectorDialog.deviceProfile.standard.description':
+    'Balanced interface, host-health, and OpenConfig counter evidence.',
+  'admin.collectorDialog.deviceProfile.topology-rich.description':
+    'Standard evidence plus SNMP temperature and bounded LLDP/CDP adjacency walks.',
+  'admin.collectorDialog.devicePreview': 'Credential-free effective collection preview',
+  'admin.collectorDialog.devicePreview.snmp': 'SNMP cadence and walks',
+  'admin.collectorDialog.devicePreview.gnmi': 'gNMI cadence and paths',
+  'admin.collectorDialog.devicePreview.safety':
+    'Configured targets only. Read-only; no discovery scan, credential probe, device write, downloaded code, or vendor cloud.',
   'admin.collectorDialog.label': 'Collector label',
   'admin.collectorDialog.labelHint': 'Optional host or source label recorded in the registry.',
   'admin.collectorDialog.pinnedID': 'Pinned collector id',
@@ -2136,6 +2151,21 @@ const es: Record<MessageKey, string> = {
   'admin.collectorDialog.collectorPlane': 'Plano colector',
   'admin.collectorDialog.guidance':
     'Requisitos previos: {prerequisites} Primera senal: {firstSignal}',
+  'admin.collectorDialog.deviceProfile': 'Perfil de evidencia del dispositivo',
+  'admin.collectorDialog.deviceProfile.minimal': 'Mínimo',
+  'admin.collectorDialog.deviceProfile.standard': 'Estándar',
+  'admin.collectorDialog.deviceProfile.topology-rich': 'Topología enriquecida',
+  'admin.collectorDialog.deviceProfile.minimal.description':
+    'Salud básica con menor frecuencia, sin recorridos opcionales de sensores ni vecinos.',
+  'admin.collectorDialog.deviceProfile.standard.description':
+    'Evidencia equilibrada de interfaces, salud del host y contadores OpenConfig.',
+  'admin.collectorDialog.deviceProfile.topology-rich.description':
+    'Evidencia estándar más temperatura SNMP y recorridos de adyacencia LLDP/CDP acotados.',
+  'admin.collectorDialog.devicePreview': 'Vista previa efectiva sin credenciales',
+  'admin.collectorDialog.devicePreview.snmp': 'Cadencia y recorridos SNMP',
+  'admin.collectorDialog.devicePreview.gnmi': 'Cadencia y rutas gNMI',
+  'admin.collectorDialog.devicePreview.safety':
+    'Solo destinos configurados. Solo lectura; sin descubrimiento, prueba de credenciales, escritura, código descargado ni nube del proveedor.',
   'admin.collectorDialog.label': 'Etiqueta de colector',
   'admin.collectorDialog.labelHint':
     'Host opcional o etiqueta de fuente registrada en el registro.',
@@ -3191,6 +3221,21 @@ const ar: Record<MessageKey, string> = {
   'admin.collectorDialog.yamlKey': 'YAML {key}',
   'admin.collectorDialog.collectorPlane': 'مستوى المجمع',
   'admin.collectorDialog.guidance': 'المتطلبات: {prerequisites} أول إشارة: {firstSignal}',
+  'admin.collectorDialog.deviceProfile': 'ملف أدلة الجهاز',
+  'admin.collectorDialog.deviceProfile.minimal': 'الحد الأدنى',
+  'admin.collectorDialog.deviceProfile.standard': 'قياسي',
+  'admin.collectorDialog.deviceProfile.topology-rich': 'طوبولوجيا موسعة',
+  'admin.collectorDialog.deviceProfile.minimal.description':
+    'صحة أساسية بتردد أقل دون قراءات اختيارية للمستشعرات أو الجيران.',
+  'admin.collectorDialog.deviceProfile.standard.description':
+    'أدلة متوازنة للواجهات وصحة المضيف وعدادات OpenConfig.',
+  'admin.collectorDialog.deviceProfile.topology-rich.description':
+    'أدلة قياسية مع حرارة SNMP وقراءات LLDP/CDP محدودة.',
+  'admin.collectorDialog.devicePreview': 'معاينة التجميع الفعلي دون بيانات اعتماد',
+  'admin.collectorDialog.devicePreview.snmp': 'دورية وقراءات SNMP',
+  'admin.collectorDialog.devicePreview.gnmi': 'دورية ومسارات gNMI',
+  'admin.collectorDialog.devicePreview.safety':
+    'الأهداف المضبوطة فقط. قراءة فقط؛ دون اكتشاف أو اختبار اعتماد أو كتابة جهاز أو كود محمل أو سحابة مورّد.',
   'admin.collectorDialog.label': 'تسمية المجمع',
   'admin.collectorDialog.labelHint': 'تسمية مضيف أو مصدر اختيارية مسجلة في السجل.',
   'admin.collectorDialog.pinnedID': 'معرف مجمع مثبت',

@@ -71,11 +71,13 @@ export interface AgentEnrollToken {
 }
 
 export type CollectorPlane = 'bgp' | 'flow' | 'device' | 'ebpf' | 'endpoint'
+export type DeviceCollectionProfile = 'minimal' | 'standard' | 'topology-rich'
 
 export interface RegisterCollectorInput {
   token: string
   plane: CollectorPlane
   hostname?: string
+  collection_profile?: DeviceCollectionProfile
 }
 
 export interface CollectorRegistration {

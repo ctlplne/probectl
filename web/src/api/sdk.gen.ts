@@ -326,6 +326,7 @@ export interface CollectorConfigHint {
 }
 
 export interface CollectorRegisterRequest {
+  collection_profile?: "minimal" | "standard" | "topology-rich"
   hostname?: string
   plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
   token: string

@@ -14133,6 +14133,15 @@
           "hostname": {
             "type": "string",
             "description": "Optional operator label or collector host/source name."
+          },
+          "collection_profile": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "topology-rich"
+            ],
+            "description": "Optional compiled device evidence-budget profile. Valid only when plane=device; defaults to standard."
           }
         },
         "required": [

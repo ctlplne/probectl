@@ -46,3 +46,44 @@ func TestEnrollRoutesUnconfiguredAnswer503(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectorCollectionProfileIsBoundedAndDeviceOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		plane   string
+		raw     string
+		want    string
+		wantErr string
+	}{
+		{name: "device default", plane: "device", want: "standard"},
+		{name: "device minimal", plane: "device", raw: "minimal", want: "minimal"},
+		{name: "device topology", plane: "device", raw: "topology-rich", want: "topology-rich"},
+		{name: "unknown", plane: "device", raw: "vendor-ultra", wantErr: "unknown collection_profile"},
+		{name: "other plane", plane: "flow", raw: "standard", wantErr: "valid only for the device collector"},
+		{name: "other plane empty", plane: "flow", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := collectorCollectionProfile(tt.plane, tt.raw)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Fatalf("profile = %q, err=%v, want %q", got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeviceCollectorConfigIncludesCompiledProfile(t *testing.T) {
+	hint := collectorConfig("device", "tenant-a", "agent-a", "topology-rich")
+	if got := hint.Env["PROBECTL_DEVICE_PROFILE"]; got != "topology-rich" {
+		t.Fatalf("profile env = %q", got)
+	}
+	if got := hint.YAML["collection_profile"]; got != "topology-rich" {
+		t.Fatalf("profile YAML = %q", got)
+	}
+}

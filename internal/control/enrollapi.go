@@ -15,6 +15,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -173,16 +174,21 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 		return apierror.Unavailable("agent enrollment is not configured (run: probectl-control agent-ca init)")
 	}
 	var req struct {
-		Token    string `json:"token"`
-		Plane    string `json:"plane"`
-		Hostname string `json:"hostname,omitempty"`
+		Token             string `json:"token"`
+		Plane             string `json:"plane"`
+		Hostname          string `json:"hostname,omitempty"`
+		CollectionProfile string `json:"collection_profile,omitempty"`
 	}
 	if err := decodeJSONLimit(r, 16<<10, &req); err != nil {
 		return err
 	}
 	hostname := strings.TrimSpace(req.Hostname)
+	collectionProfile, err := collectorCollectionProfile(req.Plane, req.CollectionProfile)
+	if err != nil {
+		return apierror.BadRequest(err.Error())
+	}
 	var out collectorRegistrationResponse
-	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		id, err := s.enrollSvc.RegisterCollectorForTenant(ctx, sc.Tenant.String(), req.Token, hostname, req.Plane)
 		if err != nil {
 			return err
@@ -193,10 +199,10 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			Plane:        id.Plane,
 			Hostname:     hostname,
 			Capabilities: []string{"collector", id.Plane},
-			Config:       collectorConfig(id.Plane, id.TenantID, id.AgentID),
+			Config:       collectorConfig(id.Plane, id.TenantID, id.AgentID, collectionProfile),
 		}
 		return s.recordAudit(ctx, sc, r, "collector.registered", id.AgentID, map[string]any{
-			"plane": id.Plane, "hostname": hostname,
+			"plane": id.Plane, "hostname": hostname, "collection_profile": collectionProfile,
 		})
 	})
 	if err != nil {
@@ -214,7 +220,24 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
-func collectorConfig(plane, tenantID, agentID string) collectorConfigHint {
+func collectorCollectionProfile(plane, raw string) (string, error) {
+	if strings.ToLower(strings.TrimSpace(plane)) != "device" {
+		if raw != "" {
+			return "", errors.New("collection_profile is valid only for the device collector")
+		}
+		return "", nil
+	}
+	if raw == "" {
+		return string(device.DefaultCollectionProfile), nil
+	}
+	profile, err := device.ParseCollectionProfile(raw)
+	if err != nil {
+		return "", err
+	}
+	return string(profile), nil
+}
+
+func collectorConfig(plane, tenantID, agentID, collectionProfile string) collectorConfigHint {
 	h := collectorConfigHint{Env: map[string]string{}, YAML: map[string]string{"tenant_id": tenantID}}
 	switch plane {
 	case "bgp":
@@ -244,7 +267,9 @@ func collectorConfig(plane, tenantID, agentID string) collectorConfigHint {
 	case "device":
 		h.Env["PROBECTL_DEVICE_TENANT"] = tenantID
 		h.Env["PROBECTL_DEVICE_AGENT_ID"] = agentID
+		h.Env["PROBECTL_DEVICE_PROFILE"] = collectionProfile
 		h.YAML["agent_id"] = agentID
+		h.YAML["collection_profile"] = collectionProfile
 	case "endpoint":
 		h.Env["PROBECTL_ENDPOINT_TENANT_ID"] = tenantID
 		h.Env["PROBECTL_ENDPOINT_AGENT_ID"] = agentID

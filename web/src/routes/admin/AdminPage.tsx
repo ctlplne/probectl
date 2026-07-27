@@ -35,6 +35,7 @@ import {
   type AgentEnrollToken,
   type CollectorPlane,
   type CollectorRegistration,
+  type DeviceCollectionProfile,
 } from '../../api/agents'
 import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
@@ -49,6 +50,7 @@ import { useI18n } from '../../i18n/useI18n'
 import type { MessageKey } from '../../i18n/messages'
 import { CodeExportPanel } from '../CodeExportPanel'
 import { collectorRegistrationAsCode } from '../codeExport'
+import { deviceCollectionProfile, deviceCollectionProfiles } from './deviceCollectionProfiles'
 
 type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -361,6 +363,7 @@ function CollectorRegisterDialog({
   const mint = useMintAgentEnrollToken()
   const register = useRegisterCollector()
   const [plane, setPlane] = useState<CollectorPlane>(initialPlane ?? 'flow')
+  const [collectionProfile, setCollectionProfile] = useState<DeviceCollectionProfile>('standard')
   const [hostname, setHostname] = useState('')
   const [agentID, setAgentID] = useState('')
   const [registered, setRegistered] = useState<CollectorRegistration | null>(null)
@@ -369,6 +372,7 @@ function CollectorRegisterDialog({
   useEffect(() => {
     if (!open) return
     setPlane(initialPlane ?? 'flow')
+    setCollectionProfile('standard')
     setRegistered(null)
     setError('')
   }, [initialPlane, open])
@@ -387,6 +391,7 @@ function CollectorRegisterDialog({
         token: token.token,
         plane,
         ...(hostname.trim() ? { hostname: hostname.trim() } : {}),
+        ...(plane === 'device' ? { collection_profile: collectionProfile } : {}),
       })
       setRegistered(out)
     } catch (err) {
@@ -395,8 +400,10 @@ function CollectorRegisterDialog({
   }
 
   const envText = registered ? formatKeyValues(registered.config.env) : ''
-  const labelPlaceholder = plane === 'bgp' ? 'rrc00' : 'edge-flow-1'
+  const labelPlaceholder =
+    plane === 'bgp' ? 'rrc00' : plane === 'device' ? 'core-device-1' : 'edge-flow-1'
   const guidance = collectorPlaneGuidance[plane]
+  const profilePreview = deviceCollectionProfile(collectionProfile)
 
   return (
     <Modal
@@ -486,6 +493,43 @@ function CollectorRegisterDialog({
               firstSignal: t(guidance.firstSignalKey),
             })}
           </p>
+          {plane === 'device' ? (
+            <>
+              <Select
+                label={t('admin.collectorDialog.deviceProfile')}
+                options={deviceCollectionProfiles.map((profile) => ({
+                  value: profile.value,
+                  label: t(`admin.collectorDialog.deviceProfile.${profile.value}`),
+                }))}
+                value={collectionProfile}
+                onChange={(event) =>
+                  setCollectionProfile(event.target.value as DeviceCollectionProfile)
+                }
+              />
+              <section aria-label={t('admin.collectorDialog.devicePreview')}>
+                <p className={styles.editionsLede}>
+                  {t(`admin.collectorDialog.deviceProfile.${collectionProfile}.description`)}
+                </p>
+                <dl>
+                  <div>
+                    <dt>{t('admin.collectorDialog.devicePreview.snmp')}</dt>
+                    <dd>
+                      {profilePreview.snmpInterval} · {profilePreview.snmpWalks.join(', ')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('admin.collectorDialog.devicePreview.gnmi')}</dt>
+                    <dd>
+                      {profilePreview.gnmiInterval} · {profilePreview.gnmiPaths.join(', ')}
+                    </dd>
+                  </div>
+                </dl>
+                <p className={styles.editionsLede}>
+                  {t('admin.collectorDialog.devicePreview.safety')}
+                </p>
+              </section>
+            </>
+          ) : null}
           <Field
             label={t('admin.collectorDialog.label')}
             value={hostname}

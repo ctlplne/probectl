@@ -9,6 +9,7 @@ apiVersion: probectl.io/device-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001" # REQUIRED — every metric is tenant-bound (F50)
 agent_id: "" # default: OS hostname
 correlation_retention: 2160h # 90d; 0 disables agent-local sysName/interface cache aging
+collection_profile: standard # minimal | standard | topology-rich
 
 bus:
   mode: memory # memory | kafka
@@ -32,9 +33,11 @@ devices:
     transport: snmpv2c # snmpv2c | snmpv3 | gnmi
     credential: core-ro
     # port: 161
-    # interval: 60s
-    # sensors: true   # opt-in ENTITY-SENSOR temperature walk
-    # neighbors: true # opt-in bounded, read-only LLDP/CDP adjacency walk
+    # Explicit profile changes live under one unambiguous override block:
+    # collection_overrides:
+    #   interval: 90s
+    #   sensors: false
+    #   neighbors: true
 
   # SNMP v3 (USM). Credential supplies USERNAME/AUTH_*/PRIV_* — prefer SHA-2 +
   # AES (MD5/DES are not FIPS-approved).
@@ -52,8 +55,8 @@ devices:
     gnmi:
       # ca_file: /etc/probectl/device-ca.pem
       # plaintext: false
-      sample_interval: 30s
-      # Default subscriptions when omitted:
-      paths:
-        - /interfaces/interface/state/counters
-        - /interfaces/interface/state/oper-status
+    # collection_overrides:
+    #   gnmi_sample_interval: 45s
+    #   gnmi_paths:
+    #     - /interfaces/interface/state/counters
+    #     - /interfaces/interface/state/oper-status

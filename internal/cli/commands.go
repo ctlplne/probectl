@@ -16,6 +16,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/imfeelingtheagi/probectl/internal/device"
 )
 
 func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
@@ -192,6 +194,58 @@ func cmdAgent(cfg Config, args []string, stdout, stderr io.Writer) int {
 	default:
 		fmt.Fprintf(stderr, "agent: unknown subcommand %q\n", args[0])
 		return 2
+	}
+}
+
+func cmdDevice(cfg Config, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return cmdSurface(cfg, surfaceCommands["device"], args, stdout, stderr)
+	}
+	switch args[0] {
+	case "profiles":
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "device profiles: no arguments expected")
+			return 2
+		}
+		catalog := device.CollectionProfileCatalog()
+		if cfg.JSON {
+			return printJSON(stdout, catalog)
+		}
+		for _, profile := range catalog {
+			fmt.Fprintf(
+				stdout,
+				"%s\tSNMP %s\tgNMI %s\t%s\n",
+				profile.Name,
+				profile.SNMPInterval,
+				profile.GNMISampleInterval,
+				profile.Description,
+			)
+			fmt.Fprintf(stdout, "  SNMP walks: %s\n", strings.Join(profile.SNMPWalks, ", "))
+			fmt.Fprintf(stdout, "  gNMI paths: %s\n", strings.Join(profile.GNMIPaths, ", "))
+		}
+		return 0
+	case "config-preview":
+		fs := flag.NewFlagSet("device config-preview", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		configPath := fs.String("config", os.Getenv("PROBECTL_DEVICE_CONFIG"), "path to the device collector YAML config")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if len(fs.Args()) != 0 {
+			fmt.Fprintf(stderr, "device config-preview: unexpected arguments: %s\n", strings.Join(fs.Args(), " "))
+			return 2
+		}
+		deviceConfig, err := device.Load(*configPath)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		preview, err := deviceConfig.EffectiveCollectionPreview()
+		if err != nil {
+			return fail(stderr, err)
+		}
+		return printJSON(stdout, preview)
+	default:
+		return cmdSurface(cfg, surfaceCommands["device"], args, stdout, stderr)
 	}
 }
 
