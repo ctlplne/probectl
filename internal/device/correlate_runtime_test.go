@@ -219,7 +219,11 @@ func TestBusEmitterTenantTaggedBatch(t *testing.T) {
 	if err := em.Emit(ctx, nil); err != nil {
 		t.Fatalf("empty emit: %v", err)
 	}
-	ms := []Metric{{TenantID: "t-a", Device: "192.0.2.1", Name: MetricUptimeSeconds, Value: 42, At: pollTime}}
+	ms := []Metric{{
+		TenantID: "t-a", Device: "192.0.2.1", IfIndex: 7, IfName: "eth0",
+		InterfaceAddresses: []string{"10.0.0.1"},
+		Name:               MetricUptimeSeconds, Value: 42, At: pollTime,
+	}}
 	if err := em.Emit(ctx, ms); err != nil {
 		t.Fatalf("emit: %v", err)
 	}
@@ -237,6 +241,9 @@ func TestBusEmitterTenantTaggedBatch(t *testing.T) {
 	}
 	if batch.Metrics[0].GetName() != MetricUptimeSeconds || batch.Metrics[0].GetValue() != 42 {
 		t.Fatalf("metric = %+v", batch.Metrics[0])
+	}
+	if got := batch.Metrics[0].GetInterfaceAddresses(); len(got) != 1 || got[0] != "10.0.0.1" {
+		t.Fatalf("interface addresses = %v, want replayable identity", got)
 	}
 }
 

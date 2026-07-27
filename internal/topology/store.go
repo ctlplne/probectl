@@ -35,6 +35,7 @@ type TenantStore interface {
 	ObserveServiceEdge(in ServiceEdgeInput, at time.Time)
 	ObserveRouting(in RoutingInput, at time.Time)
 	ObserveDevice(in DeviceInput, at time.Time)
+	IdentityConflicts() IdentityConflictSnapshot
 
 	SnapshotAt(at time.Time) Snapshot
 	Latest() Snapshot
@@ -47,6 +48,7 @@ type tenantBackend interface {
 	observeServiceEdgeTenant(tenant string, in ServiceEdgeInput, at time.Time)
 	observeRoutingTenant(tenant string, in RoutingInput, at time.Time)
 	observeDeviceTenant(tenant string, in DeviceInput, at time.Time)
+	identityConflictsTenant(tenant string) IdentityConflictSnapshot
 	snapshotAtTenant(tenant string, at time.Time) Snapshot
 	latestTenant(tenant string) Snapshot
 	neighborsTenant(tenant, nodeID string, at time.Time) []string
@@ -98,6 +100,11 @@ func (t tenantStore) ObserveRouting(in RoutingInput, at time.Time) {
 // ObserveDevice implements TenantStore.
 func (t tenantStore) ObserveDevice(in DeviceInput, at time.Time) {
 	t.store.observeDeviceTenant(t.tenant, in, at)
+}
+
+// IdentityConflicts implements TenantStore.
+func (t tenantStore) IdentityConflicts() IdentityConflictSnapshot {
+	return t.store.identityConflictsTenant(t.tenant)
 }
 
 // SnapshotAt implements TenantStore.
@@ -269,6 +276,14 @@ func (s *MemoryStore) observeRoutingTenant(tenant string, in RoutingInput, at ti
 
 func (s *MemoryStore) observeDeviceTenant(tenant string, in DeviceInput, at time.Time) {
 	s.graph(tenant).ObserveDevice(in, at)
+}
+
+func (s *MemoryStore) identityConflictsTenant(tenant string) IdentityConflictSnapshot {
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return IdentityConflictSnapshot{}
+	}
+	return g.IdentityConflicts()
 }
 
 func (s *MemoryStore) snapshotAtTenant(tenant string, at time.Time) Snapshot {

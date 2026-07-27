@@ -166,8 +166,12 @@ func TestPollSNMPHealthyDevice(t *testing.T) {
 	if up.Value != 86_400 || up.TenantID != "t-a" || up.Device != "192.0.2.1" || up.Source != SourceSNMP {
 		t.Fatalf("uptime = %+v", up)
 	}
-	if v := find(t, ms, MetricIfOperStatus, "eth0").Value; v != 1 {
-		t.Fatalf("eth0 oper = %v", v)
+	eth0Oper := find(t, ms, MetricIfOperStatus, "eth0")
+	if eth0Oper.Value != 1 {
+		t.Fatalf("eth0 oper = %v", eth0Oper.Value)
+	}
+	if len(eth0Oper.InterfaceAddresses) != 1 || eth0Oper.InterfaceAddresses[0] != "10.0.0.1" {
+		t.Fatalf("eth0 metric lost replayable interface identity: %+v", eth0Oper.InterfaceAddresses)
 	}
 	if v := find(t, ms, MetricIfOperStatus, "eth1").Value; v != 0 {
 		t.Fatalf("eth1 oper = %v", v)

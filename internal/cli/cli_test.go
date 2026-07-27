@@ -889,6 +889,9 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["metrics"]; got.Method != http.MethodGet || got.Path != "/v1/device/metrics" {
 		t.Fatalf("device metrics op = %+v, want GET /v1/device/metrics", got)
 	}
+	if got := surfaceCommands["device"].Ops["conflicts"]; got.Method != http.MethodGet || got.Path != "/v1/device/identity-conflicts" {
+		t.Fatalf("device conflicts op = %+v, want GET /v1/device/identity-conflicts", got)
+	}
 	if got := surfaceCommands["device"].Ops["syslog"]; got.Method != http.MethodGet || got.Path != "/v1/device/syslog" {
 		t.Fatalf("device syslog op = %+v, want GET /v1/device/syslog", got)
 	}
@@ -920,6 +923,22 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
 			{"id": "collector-1|10.0.0.1|||probectl_device_cpu_utilization", "device": "10.0.0.1", "name": "probectl_device_cpu_utilization", "summary": "10.0.0.1", "metric": "probectl_device_cpu_utilization", "value": 42, "last_seen": "2026-06-30T12:00:00Z"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/device/identity-conflicts", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("status"); got != "active" {
+			t.Fatalf("identity conflict status query = %q, want active", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{
+				"id":               "ic_device_name_example",
+				"kind":             "device_name",
+				"name":             "device_name",
+				"status":           "active",
+				"subject":          "10.0.0.1",
+				"summary":          "edge-primary conflicts with edge-secondary",
+				"competing_values": []string{"edge-primary", "edge-secondary"},
+			},
 		}})
 	})
 	mux.HandleFunc("GET /v1/device/syslog", func(w http.ResponseWriter, r *http.Request) {
@@ -986,6 +1005,14 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	}
 	if !strings.Contains(out, "10.0.0.1") || !strings.Contains(out, "probectl_device_cpu_utilization") {
 		t.Fatalf("device metrics output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "conflicts", "--query", "status=active")
+	if code != 0 {
+		t.Fatalf("conflicts exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "device_name") || !strings.Contains(out, "edge-primary") {
+		t.Fatalf("device conflicts output missing expected row:\n%s", out)
 	}
 
 	out, errs, code = run(t, srv, "device", "syslog",

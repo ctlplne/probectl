@@ -541,7 +541,7 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
   },
   {
-    capability: 'Device telemetry collectors and topology attribution',
+    capability: 'Device telemetry, topology attribution, and cross-source identity conflict review',
     featureIds: ['PLANE_DEVICE_TELEMETRY', 'F18'],
     sprint: 'S33',
     kind: 'native',
@@ -549,10 +549,12 @@ export const SURFACES: SurfaceDecl[] = [
     evidence: [
       'openapi:/v1/devices',
       'openapi:/v1/device/metrics',
+      'openapi:/v1/device/identity-conflicts',
       'openapi:/v1/device/syslog',
       'openapi:/v1/device/configs',
       'cli:probectl device list',
       'cli:probectl device metrics',
+      'cli:probectl device conflicts',
       'file:docs/features/telemetry-planes.md',
     ],
     liveReceipt: DEVICE_LIVE_RECEIPT,

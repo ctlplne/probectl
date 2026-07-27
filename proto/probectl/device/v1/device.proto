@@ -36,6 +36,11 @@ message DeviceMetric {
   string unit = 10; // octets | packets | percent | celsius | seconds | bps | ""
 
   int64 time_unix_nano = 11; // sample time (OTel-style ns)
+
+  // Normalized interface addresses observed with this interface sample. Used
+  // for tenant-local path/topology correlation and bounded identity-conflict
+  // evidence. Never contains credentials.
+  repeated string interface_addresses = 12; // -> "probectl.device.interface.address"
 }
 
 // DeviceMetricBatch is the bus payload on probectl.device.metrics: one

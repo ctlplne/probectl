@@ -204,10 +204,10 @@ export const NATIVE_DATA_SURFACE_TRUTH: readonly NativeDataTruthContract[] = [
   contract(
     '/planes/device',
     'device collector',
-    'device collector, syslog, and config archive responses',
-    'device/syslog/config observed timestamp',
-    'collector protocol and archive coverage',
-    'register a device collector or retry',
+    'device collector, identity-conflict, syslog, and config archive responses',
+    'device/identity/syslog/config observed timestamp',
+    'collector protocol, identity provenance, and archive coverage',
+    'register a device collector, inspect identity evidence, or retry',
   ),
   contract(
     '/planes/ebpf',

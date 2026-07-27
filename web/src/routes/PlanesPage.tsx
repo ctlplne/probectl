@@ -54,6 +54,7 @@ import {
   type PlaneID,
 } from './pivotContext'
 import { ExplainView } from './ExplainView'
+import { IdentityConflictsCard } from './IdentityConflictsCard'
 
 interface Plane {
   id: PlaneID
@@ -792,6 +793,7 @@ function DevicePanel({
   return (
     <section id="plane-panel-device" role="tabpanel" className={styles.panelGrid}>
       <div className={styles.stack}>
+        <IdentityConflictsCard surface="device" />
         <Card>
           <CardHeader
             title={t('planes.device.devices.title')}

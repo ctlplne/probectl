@@ -126,6 +126,15 @@ secret itself is resolved at runtime and never written to config or logs, and a
 name that resolves to nothing fails closed at startup rather than silently
 downgrading to an unauthenticated poll.
 
+When those local sources disagree about a management address, device name, or
+interface identity, probectl preserves both normalized claims before updating
+the topology label. Operators review the bounded result at **Planes → Device**
+or **Topology**, through `GET /v1/device/identity-conflicts`, or with
+`probectl device conflicts`. Every row carries source/agent provenance,
+freshness, competing values, and affected path/flow/topology references. The
+workflow is read-only: there is no merge endpoint, automatic winner, external
+identity service, or outbound lookup.
+
 probectl never phones home: the eBPF agent, the flow collector, and the device
 agent fetch nothing on their own, and every channel uses TLS with certificate
 validation that is not disabled in a normal path.

@@ -172,6 +172,14 @@ func (s *IndexedStore) observeDeviceTenant(tenant string, in DeviceInput, at tim
 	s.graph(tenant).observe(func(g *Graph) { g.ObserveDevice(in, at) })
 }
 
+func (s *IndexedStore) identityConflictsTenant(tenant string) IdentityConflictSnapshot {
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return IdentityConflictSnapshot{}
+	}
+	return g.inner.IdentityConflicts()
+}
+
 func (s *IndexedStore) snapshotAtTenant(tenant string, at time.Time) Snapshot {
 	g, ok := s.graphIfExists(tenant)
 	if !ok {

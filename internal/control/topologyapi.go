@@ -427,12 +427,20 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 			tc.log.Error("topology: rejecting device metric with invalid tenant scope", "tenant_id", m.GetTenantId(), "error", err.Error())
 			continue
 		}
-		// S39 telemetry exposes no interface IPs yet, so this yields device
-		// nodes without device→hop links — surfaced as a coverage note by the
-		// what-if API, never silently complete.
+		// Interface addresses are additive replayable identity metadata. Older
+		// producers omit them and still yield device nodes without device→hop
+		// links; the what-if API reports that coverage gap explicitly.
 		graph.ObserveDevice(topology.DeviceInput{
 			Address: m.GetDeviceAddress(),
 			Name:    m.GetDeviceName(),
+			Source:  m.GetSource(),
+			AgentID: m.GetAgentId(),
+			IfIndex: m.GetIfIndex(),
+			IfName:  m.GetIfName(),
+			InterfaceIPs: append(
+				[]string(nil),
+				m.GetInterfaceAddresses()...,
+			),
 		}, pipeline.NormalizeEventTimeUnixNano(m.GetTimeUnixNano(), receivedAt))
 		tc.ledger.addStored("device", 1)
 	}

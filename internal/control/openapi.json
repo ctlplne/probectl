@@ -2180,6 +2180,100 @@
         }
       }
     },
+    "/v1/device/identity-conflicts": {
+      "get": {
+        "operationId": "listDeviceIdentityConflicts",
+        "summary": "List tenant-local cross-source device identity conflicts",
+        "description": "Returns a bounded read-only view of competing management-address, device-name, interface-address, interface-name, and interface-index assertions preserved before topology label upserts can hide the losing claim. Evidence is derived locally from authenticated tenant-tagged device telemetry; the endpoint performs no outbound lookup and never merges or rewrites an entity.",
+        "tags": [
+          "devices",
+          "topology"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive match over conflict id, subject, values, source, agent, and basis.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "description": "Optional identity field filter.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "management_address",
+                "device_name",
+                "interface_address",
+                "interface_name",
+                "interface_index"
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "Optional exact source filter such as snmp or gnmi.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Optional freshness-derived review state.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "stale",
+                "unknown"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum conflicts to return after filtering.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded identity conflicts for the caller tenant, or an explicit unwired state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceIdentityConflictResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 200,
+          "reason": "The per-tenant claim store is capped at 1024 identity keys and eight provenance claims per key; the response is independently clamped to 200 conflicts."
+        }
+      }
+    },
     "/v1/device/metrics": {
       "get": {
         "operationId": "listDeviceMetricSummaries",
@@ -11422,6 +11516,257 @@
             "format": "date-time"
           }
         }
+      },
+      "DeviceIdentityClaim": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "value": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "agent_id": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "basis": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "age_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "stale",
+              "future"
+            ]
+          }
+        },
+        "required": [
+          "value",
+          "source",
+          "basis",
+          "first_seen",
+          "last_seen",
+          "age_seconds",
+          "freshness"
+        ]
+      },
+      "DeviceIdentityAffectedCorrelation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plane": {
+            "type": "string",
+            "enum": [
+              "device",
+              "topology",
+              "path",
+              "flow"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string",
+            "pattern": "^/topology\\?topo_q="
+          }
+        },
+        "required": [
+          "plane",
+          "kind",
+          "ref",
+          "reason",
+          "href"
+        ]
+      },
+      "DeviceIdentityReviewProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "read_only"
+            ]
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "merge_supported": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "mode",
+          "instruction",
+          "merge_supported"
+        ]
+      },
+      "DeviceIdentityConflict": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 800
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "management_address",
+              "device_name",
+              "interface_address",
+              "interface_name",
+              "interface_index"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "stale",
+              "unknown"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "distinct_values_for_one_tenant_local_identity_key"
+            ]
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "claims": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/DeviceIdentityClaim"
+            }
+          },
+          "affected_correlations": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/DeviceIdentityAffectedCorrelation"
+            }
+          },
+          "review_proposal": {
+            "$ref": "#/components/schemas/DeviceIdentityReviewProposal"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "subject",
+          "status",
+          "confidence",
+          "basis",
+          "first_seen",
+          "last_seen",
+          "claims",
+          "affected_correlations",
+          "review_proposal"
+        ]
+      },
+      "DeviceIdentityConflictResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/DeviceIdentityConflict"
+            }
+          },
+          "topology_running": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stale_after_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "effective_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "filtered_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "store_truncated": {
+            "type": "boolean"
+          },
+          "response_truncated": {
+            "type": "boolean"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "partial_reasons": {
+            "type": "array",
+            "maxItems": 2,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "items",
+          "topology_running",
+          "effective_limit",
+          "truncated",
+          "partial_reasons"
+        ]
       },
       "DeviceMetricSummary": {
         "type": "object",

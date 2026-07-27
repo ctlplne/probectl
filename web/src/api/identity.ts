@@ -6,6 +6,25 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import type { DeviceIdentityConflict, DeviceIdentityConflictResponse } from './sdk.gen'
+
+export type {
+  DeviceIdentityAffectedCorrelation,
+  DeviceIdentityClaim,
+  DeviceIdentityConflict,
+  DeviceIdentityConflictResponse,
+} from './sdk.gen'
+
+export type IdentityConflictKind = DeviceIdentityConflict['kind']
+export type IdentityConflictStatus = DeviceIdentityConflict['status']
+
+export interface IdentityConflictFilters {
+  q?: string
+  kind?: IdentityConflictKind | 'all'
+  source?: string
+  status?: IdentityConflictStatus | 'all'
+  limit?: number
+}
 
 export interface ScimToken {
   id: string
@@ -122,5 +141,27 @@ export function useDeleteABACPolicy() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/abac/policies/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['identity', 'abac-policies'] }),
+  })
+}
+
+export function useIdentityConflicts(filters: IdentityConflictFilters = {}) {
+  const query = new URLSearchParams()
+  if (filters.q?.trim()) query.set('q', filters.q.trim())
+  if (filters.kind && filters.kind !== 'all') query.set('kind', filters.kind)
+  if (filters.source?.trim()) query.set('source', filters.source.trim())
+  if (filters.status && filters.status !== 'all') query.set('status', filters.status)
+  query.set('limit', String(filters.limit ?? 100))
+  const qs = query.toString()
+  return useQuery({
+    queryKey: [
+      'device',
+      'identity-conflicts',
+      filters.q ?? '',
+      filters.kind ?? 'all',
+      filters.source ?? '',
+      filters.status ?? 'all',
+      filters.limit ?? 100,
+    ],
+    queryFn: () => apiFetch<DeviceIdentityConflictResponse>(`/device/identity-conflicts?${qs}`),
   })
 }

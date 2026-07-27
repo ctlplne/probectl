@@ -1,0 +1,75 @@
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--layout-sidebar-width), 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  margin-bottom: var(--space-4);
+}
+
+.subject {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.claims,
+.correlations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.claim {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.claim:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.claimHeader,
+.claimMeta,
+.reviewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.evidenceButton {
+  height: auto;
+  min-height: var(--density-control-block-sm);
+  padding-block: var(--space-1);
+  text-align: start;
+  white-space: normal;
+}
+
+.review summary {
+  cursor: pointer;
+  color: var(--color-accent);
+}
+
+.reviewBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.partial {
+  margin-bottom: var(--space-4);
+  color: var(--color-warning);
+}

@@ -92,6 +92,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/bgp/events", s.handleListBGPEvents, ai.PermEventsRead},
 		{http.MethodGet, "/v1/devices", s.handleListDevices, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/device/metrics", s.handleDeviceMetrics, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/identity-conflicts", s.handleIdentityConflicts, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/device/syslog", s.handleListDeviceSyslog, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/device/syslog", s.handleIngestDeviceSyslog, permMetricsWrite},
 		{http.MethodGet, "/v1/device/configs", s.handleListDeviceConfigs, ai.PermMetricsRead},

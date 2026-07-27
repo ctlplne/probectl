@@ -50,6 +50,7 @@ flowchart LR
   A -- "syslog + config snapshots (tenant-scoped)" --> O[(device ops store)]
   B --> P[control plane DeviceConsumer]
   P --> T[(TSDB: probectl_device_* series)]
+  P --> I[(tenant-local topology + identity conflicts)]
   A -- "interface inventory (ifIndex, ifName, addresses)" --> C[Correlator]
   C -. "hop IP -> device/interface" .-> PathPlane[path plane]
   C -. "exporter+ifIndex -> interface" .-> FlowPlane[flow plane]
@@ -77,7 +78,10 @@ its signals onto OpenTelemetry semantic conventions wherever a standard exists,
 but **no OTel convention covers network-device telemetry**, so this is one of the
 few places probectl owns the names. In the TSDB they become `probectl_device_*`
 with labels `tenant_id, agent_id, device, device_name, source, if_index,
-if_name` (`source` is `snmp` or `gnmi`).
+if_name` (`source` is `snmp` or `gnmi`). SNMP interface samples also carry
+their normalized interface addresses in the tenant-keyed protobuf bus payload.
+Those addresses rebuild local topology/correlation evidence during replay; they
+do not become high-cardinality TSDB labels.
 
 The agent also keeps a tiny in-process correlation cache so a path hop or flow
 exporter can be explained as "this device/interface." That cache is not the
@@ -124,6 +128,39 @@ back to `ifDescr`), and the IP addresses from `ipAddrTable`. The
 This is what lets a cross-plane incident say *"the path test slowed at the same
 interface where the flow plane sees a traffic spike and the device plane sees
 rising discards"* — one interface, three views.
+
+### When identity sources disagree
+
+SNMP and gNMI do not always agree. A replacement device may reuse an address, an
+interface may be renamed, or two inventories may claim the same interface
+address. A normal graph-label upsert would keep only the newest string, making
+the disagreement invisible. probectl therefore records the bounded normalized
+claim **before** updating the display label.
+
+The local identity index detects five conflict shapes:
+
+- one device name claimed by competing management addresses;
+- one management address claimed with competing device names;
+- one interface address claimed by competing devices;
+- one `(device address, ifIndex)` claimed with competing interface names;
+- one `(device address, interface name)` claimed with competing indexes.
+
+`GET /v1/device/identity-conflicts` exposes those records with the source,
+tenant-bound agent, first/last observation time, age, evidence basis, competing
+values, and the path/flow/topology correlations that could be wrong. The read is
+bounded to 200 response rows; the tenant-local store is capped at 1,024 identity
+keys, eight provenance claims per key, 64 interface addresses per observation,
+and 512 Unicode characters per normalized identity field. Truncation is
+explicit. Future-clock evidence is `unknown`, old disagreement is `stale`, and
+two fresh distinct sources are an `active` high-confidence conflict.
+
+The same native review card appears under **Planes → Device** and **Topology**,
+and the CLI path is `probectl device conflicts`. It is intentionally
+observe-only: the proposal says what a human should verify, while
+`merge_supported:false` guarantees the API has no merge/remediation operation.
+Correct the authoritative producer or inventory outside probectl, then let
+retention remove the losing claim. No external identity service, geolocation,
+or outbound lookup participates.
 
 ## Discovery and import review
 
@@ -301,4 +338,8 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   simulator, or skip cleanly when the target is unset.
 - The correlation contract (hop IP ↔ interface, flow exporter+ifIndex ↔
   interface) is pinned by `TestCorrelatorHopToInterface` and
-  `TestCorrelatorFlowToInterface`.
+  `TestCorrelatorFlowToInterface`. `TestPollSNMPHealthyDevice`,
+  `TestBusEmitterTenantTaggedBatch`, and
+  `TestIdentityConflictAPIIngestsCompetingSourcesAndIsTenantScoped` prove
+  interface addresses survive poll → protobuf bus → tenant-local conflict
+  detection.

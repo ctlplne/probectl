@@ -607,6 +607,58 @@ type DeviceConfigVersion struct {
 	Version      int    `json:"version,omitempty"`
 }
 
+type DeviceIdentityAffectedCorrelation struct {
+	Href   string `json:"href"`
+	Kind   string `json:"kind"`
+	Plane  string `json:"plane"`
+	Reason string `json:"reason"`
+	Ref    string `json:"ref"`
+}
+
+type DeviceIdentityClaim struct {
+	AgeSeconds int    `json:"age_seconds"`
+	AgentId    string `json:"agent_id,omitempty"`
+	Basis      string `json:"basis"`
+	FirstSeen  string `json:"first_seen"`
+	Freshness  string `json:"freshness"`
+	LastSeen   string `json:"last_seen"`
+	Source     string `json:"source"`
+	Value      string `json:"value"`
+}
+
+type DeviceIdentityConflict struct {
+	AffectedCorrelations []DeviceIdentityAffectedCorrelation `json:"affected_correlations"`
+	Basis                string                              `json:"basis"`
+	Claims               []DeviceIdentityClaim               `json:"claims"`
+	Confidence           string                              `json:"confidence"`
+	FirstSeen            string                              `json:"first_seen"`
+	Id                   string                              `json:"id"`
+	Kind                 string                              `json:"kind"`
+	LastSeen             string                              `json:"last_seen"`
+	ReviewProposal       DeviceIdentityReviewProposal        `json:"review_proposal"`
+	Status               string                              `json:"status"`
+	Subject              string                              `json:"subject"`
+}
+
+type DeviceIdentityConflictResponse struct {
+	AsOf              string                   `json:"as_of,omitempty"`
+	EffectiveLimit    int                      `json:"effective_limit"`
+	FilteredCount     int                      `json:"filtered_count,omitempty"`
+	Items             []DeviceIdentityConflict `json:"items"`
+	PartialReasons    []string                 `json:"partial_reasons"`
+	ResponseTruncated bool                     `json:"response_truncated,omitempty"`
+	StaleAfterSeconds int                      `json:"stale_after_seconds,omitempty"`
+	StoreTruncated    bool                     `json:"store_truncated,omitempty"`
+	TopologyRunning   bool                     `json:"topology_running"`
+	Truncated         bool                     `json:"truncated"`
+}
+
+type DeviceIdentityReviewProposal struct {
+	Instruction    string `json:"instruction"`
+	MergeSupported bool   `json:"merge_supported"`
+	Mode           string `json:"mode"`
+}
+
 // One managed network device visible in the tenant topology graph.
 type DeviceInventory struct {
 	Address   string            `json:"address,omitempty"`
@@ -2448,6 +2500,40 @@ func (c *Client) ArchiveDeviceConfig(ctx context.Context, req ArchiveDeviceConfi
 	query := url.Values{}
 	var out DeviceConfigVersion
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List tenant-local cross-source device identity conflicts
+type ListDeviceIdentityConflictsRequest struct {
+	Q      *string `json:"-"`
+	Kind   *string `json:"-"`
+	Source *string `json:"-"`
+	Status *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListDeviceIdentityConflicts(ctx context.Context, req ListDeviceIdentityConflictsRequest) (*DeviceIdentityConflictResponse, error) {
+	path := "/v1/device/identity-conflicts"
+	query := url.Values{}
+	if req.Q != nil {
+		query.Set("q", formatQueryValue(*req.Q))
+	}
+	if req.Kind != nil {
+		query.Set("kind", formatQueryValue(*req.Kind))
+	}
+	if req.Source != nil {
+		query.Set("source", formatQueryValue(*req.Source))
+	}
+	if req.Status != nil {
+		query.Set("status", formatQueryValue(*req.Status))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceIdentityConflictResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -47,12 +47,16 @@ type DeviceMetric struct {
 	// name is one of the probectl.device.* metric names (see internal/device):
 	// e.g. probectl.device.uptime.seconds, probectl.device.if.in.octets,
 	// probectl.device.if.oper.status, probectl.device.cpu.utilization.
-	Name          string  `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
-	Value         float64 `protobuf:"fixed64,9,opt,name=value,proto3" json:"value,omitempty"`
-	Unit          string  `protobuf:"bytes,10,opt,name=unit,proto3" json:"unit,omitempty"`                                        // octets | packets | percent | celsius | seconds | bps | ""
-	TimeUnixNano  int64   `protobuf:"varint,11,opt,name=time_unix_nano,json=timeUnixNano,proto3" json:"time_unix_nano,omitempty"` // sample time (OTel-style ns)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Name         string  `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	Value        float64 `protobuf:"fixed64,9,opt,name=value,proto3" json:"value,omitempty"`
+	Unit         string  `protobuf:"bytes,10,opt,name=unit,proto3" json:"unit,omitempty"`                                        // octets | packets | percent | celsius | seconds | bps | ""
+	TimeUnixNano int64   `protobuf:"varint,11,opt,name=time_unix_nano,json=timeUnixNano,proto3" json:"time_unix_nano,omitempty"` // sample time (OTel-style ns)
+	// Normalized interface addresses observed with this interface sample. Used
+	// for tenant-local path/topology correlation and bounded identity-conflict
+	// evidence. Never contains credentials.
+	InterfaceAddresses []string `protobuf:"bytes,12,rep,name=interface_addresses,json=interfaceAddresses,proto3" json:"interface_addresses,omitempty"` // -> "probectl.device.interface.address"
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *DeviceMetric) Reset() {
@@ -162,6 +166,13 @@ func (x *DeviceMetric) GetTimeUnixNano() int64 {
 	return 0
 }
 
+func (x *DeviceMetric) GetInterfaceAddresses() []string {
+	if x != nil {
+		return x.InterfaceAddresses
+	}
+	return nil
+}
+
 // DeviceMetricBatch is the bus payload on probectl.device.metrics: one
 // collector flush, tenant-keyed.
 type DeviceMetricBatch struct {
@@ -212,7 +223,7 @@ var File_probectl_device_v1_device_proto protoreflect.FileDescriptor
 
 const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\n" +
-	"\x1fprobectl/device/v1/device.proto\x12\x12probectl.device.v1\"\xbe\x02\n" +
+	"\x1fprobectl/device/v1/device.proto\x12\x12probectl.device.v1\"\xef\x02\n" +
 	"\fDeviceMetric\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12%\n" +
@@ -226,7 +237,8 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\x05value\x18\t \x01(\x01R\x05value\x12\x12\n" +
 	"\x04unit\x18\n" +
 	" \x01(\tR\x04unit\x12$\n" +
-	"\x0etime_unix_nano\x18\v \x01(\x03R\ftimeUnixNano\"O\n" +
+	"\x0etime_unix_nano\x18\v \x01(\x03R\ftimeUnixNano\x12/\n" +
+	"\x13interface_addresses\x18\f \x03(\tR\x12interfaceAddresses\"O\n" +
 	"\x11DeviceMetricBatch\x12:\n" +
 	"\ametrics\x18\x01 \x03(\v2 .probectl.device.v1.DeviceMetricR\ametricsBNZLgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
 

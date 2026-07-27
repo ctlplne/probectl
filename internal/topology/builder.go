@@ -48,6 +48,10 @@ type DeviceInput struct {
 	Address      string // management address (the device's identity)
 	Name         string // sysName / gNMI target (label)
 	InterfaceIPs []string
+	Source       string // snmp | gnmi | another local device producer
+	AgentID      string
+	IfIndex      uint32
+	IfName       string
 }
 
 func hopID(ip string) string      { return "hop:" + ip }
@@ -123,6 +127,10 @@ func (g *Graph) ObserveDevice(in DeviceInput, at time.Time) {
 	if in.Address == "" {
 		return
 	}
+	// Capture competing source assertions before the graph's display-label
+	// upsert can replace the previous value. This is read-only evidence; it
+	// never chooses a winner or rewrites an entity.
+	observeDeviceIdentity(g, in, at)
 	dev := deviceID(in.Address)
 	label := in.Name
 	if label == "" {

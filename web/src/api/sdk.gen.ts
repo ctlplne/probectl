@@ -534,6 +534,58 @@ export interface DeviceConfigVersion {
   version?: number
 }
 
+export interface DeviceIdentityAffectedCorrelation {
+  href: string
+  kind: string
+  plane: "device" | "topology" | "path" | "flow"
+  reason: string
+  ref: string
+}
+
+export interface DeviceIdentityClaim {
+  age_seconds: number
+  agent_id?: string
+  basis: string
+  first_seen: string
+  freshness: "fresh" | "stale" | "future"
+  last_seen: string
+  source: string
+  value: string
+}
+
+export interface DeviceIdentityConflict {
+  affected_correlations: DeviceIdentityAffectedCorrelation[]
+  basis: "distinct_values_for_one_tenant_local_identity_key"
+  claims: DeviceIdentityClaim[]
+  confidence: "low" | "medium" | "high"
+  first_seen: string
+  id: string
+  kind: "management_address" | "device_name" | "interface_address" | "interface_name" | "interface_index"
+  last_seen: string
+  review_proposal: DeviceIdentityReviewProposal
+  status: "active" | "stale" | "unknown"
+  subject: string
+}
+
+export interface DeviceIdentityConflictResponse {
+  as_of?: string
+  effective_limit: number
+  filtered_count?: number
+  items: DeviceIdentityConflict[]
+  partial_reasons: string[]
+  response_truncated?: boolean
+  stale_after_seconds?: number
+  store_truncated?: boolean
+  topology_running: boolean
+  truncated: boolean
+}
+
+export interface DeviceIdentityReviewProposal {
+  instruction: string
+  merge_supported: boolean
+  mode: "read_only"
+}
+
 export interface DeviceInventory {
   address?: string
   first_seen?: string
@@ -1748,6 +1800,16 @@ export interface ArchiveDeviceConfigRequest {
 
 export type ArchiveDeviceConfigResponse = DeviceConfigVersion
 
+export interface ListDeviceIdentityConflictsRequest {
+  q?: string
+  kind?: "management_address" | "device_name" | "interface_address" | "interface_name" | "interface_index"
+  source?: string
+  status?: "active" | "stale" | "unknown"
+  limit?: number
+}
+
+export type ListDeviceIdentityConflictsResponse = DeviceIdentityConflictResponse
+
 export interface ListDeviceMetricSummariesRequest {
   device?: string
   metric?: string
@@ -2792,6 +2854,17 @@ export class ProbectlSDKClient {
     let path = "/v1/device/configs"
     const query = new URLSearchParams()
     return this.requestJSON<ArchiveDeviceConfigResponse>("POST", path, query, request.body)
+  }
+
+  async listDeviceIdentityConflicts(request: ListDeviceIdentityConflictsRequest = {}): Promise<ListDeviceIdentityConflictsResponse> {
+    let path = "/v1/device/identity-conflicts"
+    const query = new URLSearchParams()
+    if (request.q !== undefined) query.set("q", String(request.q))
+    if (request.kind !== undefined) query.set("kind", String(request.kind))
+    if (request.source !== undefined) query.set("source", String(request.source))
+    if (request.status !== undefined) query.set("status", String(request.status))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListDeviceIdentityConflictsResponse>("GET", path, query, undefined)
   }
 
   async listDeviceMetricSummaries(request: ListDeviceMetricSummariesRequest = {}): Promise<ListDeviceMetricSummariesResponse> {

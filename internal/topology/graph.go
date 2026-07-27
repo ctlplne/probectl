@@ -21,6 +21,10 @@ type Graph struct {
 	mu     sync.RWMutex
 	nodes  map[string]*Node
 	edges  map[string]*Edge
+	// identityClaims is a bounded, tenant-owned derived index of source
+	// assertions. It records disagreement before label upserts can hide it.
+	identityClaims          map[string]*identityClaimSet
+	identityClaimsTruncated bool
 
 	// recent collects edge upserts since the last drainRecentEdges call — the
 	// O(touched) feed for the S43 indexed engine's adjacency indexes.
@@ -41,7 +45,10 @@ type Graph struct {
 
 // NewGraph returns an empty graph for a tenant.
 func NewGraph(tenant string) *Graph {
-	return &Graph{tenant: tenant, nodes: map[string]*Node{}, edges: map[string]*Edge{}, now: time.Now}
+	return &Graph{
+		tenant: tenant, nodes: map[string]*Node{}, edges: map[string]*Edge{},
+		identityClaims: map[string]*identityClaimSet{}, now: time.Now,
+	}
 }
 
 // SetBounds configures per-tenant node/edge caps and the Latest() staleness
@@ -288,6 +295,10 @@ func (g *Graph) PruneBefore(cutoff time.Time) (nodesDeleted, edgesDeleted int) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// Identity evidence has the same derived-identity retention boundary as
+	// graph labels. Its count is folded into nodesDeleted so tenant-lifecycle
+	// receipts include every locally erased identity record.
+	nodesDeleted += g.pruneIdentityClaimsBeforeLocked(cutoff)
 	for id, e := range g.edges {
 		if e.LastSeen.Before(cutoff) {
 			delete(g.edges, id)

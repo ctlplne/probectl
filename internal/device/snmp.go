@@ -242,6 +242,10 @@ func pollSNMP(conn snmpConn, dev Target, tenant, agent string, now time.Time) ([
 			m := base
 			m.DeviceName = inv.SysName
 			m.IfIndex, m.IfName = idx, e.Name
+			m.InterfaceAddresses = make([]string, 0, len(e.Addrs))
+			for _, address := range e.Addrs {
+				m.InterfaceAddresses = append(m.InterfaceAddresses, address.String())
+			}
 			m.Name, m.Value, m.Unit = name, v, unit
 			out = append(out, m)
 		}

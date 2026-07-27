@@ -459,6 +459,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'DeletePolicyResponse',
   },
   {
+    file: 'api/identity.ts',
+    method: 'GET',
+    path: '`/device/identity-conflicts?${qs}`',
+    response: 'DeviceIdentityConflictResponse',
+    generated: 'ListDeviceIdentityConflictsResponse',
+  },
+  {
     file: 'api/incidents.ts',
     method: 'GET',
     path: '/incidents',

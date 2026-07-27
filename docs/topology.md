@@ -88,6 +88,9 @@ store enforces it below the API/AI/RBAC layer.
   traversal RCA — root-cause analysis — walks).
 - `Observe{Path,ServiceEdge,Routing,Device}(…, at)` — fold one plane's telemetry
   into the bound tenant's graph.
+- `IdentityConflicts()` — return the bound tenant's bounded cross-source
+  disagreement records. The handle accepts no tenant argument, so a caller
+  cannot query a second tenant after binding.
 
 Invalid or empty tenant scopes fail closed. Reading a never-seen tenant returns
 an empty snapshot without creating a graph.
@@ -113,6 +116,15 @@ does (`ObserveDevice` with `InterfaceIPs`), the device node links to the hops it
 carries. When it does not — which is the case for the SNMP/gNMI device telemetry
 today — the device node still exists, but **without** links, and that gap is
 **reported** as a coverage note (below), never silently treated as "complete."
+
+Before a device observation updates the graph's visible label, the graph also
+retains its normalized source claim. Distinct management-address, device-name,
+interface-address, interface-name, or interface-index values become stable
+read-only conflict records instead of disappearing behind last-writer-wins.
+These records are a replayable derived view, not a new system of record: bus
+replay rebuilds them after restart, the per-tenant graph caps their memory, the
+derived-identity retention sweep prunes their evidence, and tenant erasure
+drops them with the graph. They never pick a winner or mutate topology.
 
 ## What-if / impact simulation
 
@@ -189,6 +201,11 @@ a deployment outgrows a single process.
   The overlay is labelled **observe-only dry-run** and shows affected tests,
   services, the authorized linked incident, routes, known SLOs, confidence, and
   gaps before offering the audited JSON export.
+- `GET /v1/device/identity-conflicts` — bounded conflict/provenance rows and
+  exact affected-correlation pivots. Permission: `topology.read`; every
+  successful read is tenant-audited. The same review-only card is present in
+  the Topology and Device workflows. `topology_running:false`, truncation, and
+  clean/filtered-empty states are distinct.
 
 ## Out of scope (by design)
 

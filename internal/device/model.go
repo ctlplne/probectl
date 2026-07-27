@@ -54,6 +54,10 @@ type Metric struct {
 
 	IfIndex uint32 // 0 when device-wide
 	IfName  string
+	// InterfaceAddresses are the normalized addresses assigned to IfIndex.
+	// They travel with the interface sample so the control plane can rebuild
+	// correlation and conflict state by replaying the tenant-tagged bus.
+	InterfaceAddresses []string
 
 	Name  string
 	Value float64
@@ -75,6 +79,10 @@ func (m Metric) ToProto() *devicev1.DeviceMetric {
 		Value:         m.Value,
 		Unit:          m.Unit,
 		TimeUnixNano:  m.At.UnixNano(),
+		InterfaceAddresses: append(
+			[]string(nil),
+			m.InterfaceAddresses...,
+		),
 	}
 }
 

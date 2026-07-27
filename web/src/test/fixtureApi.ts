@@ -562,6 +562,19 @@ function coldFixture(path: string): Response | null {
       return jsonResponse({ items: [], detections_running: true })
     case '/v1/endpoints':
       return jsonResponse({ items: [], collector_running: true })
+    case '/v1/device/identity-conflicts':
+      return jsonResponse({
+        items: [],
+        topology_running: true,
+        as_of: '2026-06-04T12:00:00Z',
+        stale_after_seconds: 3600,
+        effective_limit: 100,
+        filtered_count: 0,
+        store_truncated: false,
+        response_truncated: false,
+        truncated: false,
+        partial_reasons: [],
+      })
     case '/v1/device/syslog':
       return jsonResponse({ items: [], syslog_running: true })
     case '/v1/device/configs':
@@ -933,6 +946,74 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
       })
     if (path === '/v1/results/latest')
       return jsonResponse({ items: sampleLatestResults, collector_running: true })
+    if (path === '/v1/device/identity-conflicts')
+      return jsonResponse({
+        items: [
+          {
+            id: 'identity:device_name:MTAuMC4wLjE',
+            kind: 'device_name',
+            subject: '10.0.0.1',
+            status: 'active',
+            confidence: 'high',
+            basis: 'distinct_values_for_one_tenant_local_identity_key',
+            first_seen: '2026-06-04T11:55:00Z',
+            last_seen: '2026-06-04T12:00:00Z',
+            claims: [
+              {
+                value: 'edge-r1',
+                source: 'snmp',
+                agent_id: 'device-snmp-1',
+                basis: 'device.metric.device_name',
+                first_seen: '2026-06-04T11:55:00Z',
+                last_seen: '2026-06-04T12:00:00Z',
+                age_seconds: 0,
+                freshness: 'fresh',
+              },
+              {
+                value: 'edge-router-1',
+                source: 'gnmi',
+                agent_id: 'device-gnmi-1',
+                basis: 'device.metric.device_name',
+                first_seen: '2026-06-04T11:56:00Z',
+                last_seen: '2026-06-04T11:59:00Z',
+                age_seconds: 60,
+                freshness: 'fresh',
+              },
+            ],
+            affected_correlations: [
+              {
+                plane: 'topology',
+                kind: 'device_node',
+                ref: 'device:10.0.0.1',
+                reason: 'Device label attribution may name the wrong node.',
+                href: '/topology?topo_q=10.0.0.1',
+              },
+              {
+                plane: 'flow',
+                kind: 'exporter',
+                ref: '10.0.0.1',
+                reason: 'Exporter attribution may inherit the wrong device name.',
+                href: '/topology?topo_q=10.0.0.1',
+              },
+            ],
+            review_proposal: {
+              mode: 'read_only',
+              instruction:
+                'Compare source ownership and freshness, then correct the authoritative producer outside probectl.',
+              merge_supported: false,
+            },
+          },
+        ],
+        topology_running: true,
+        as_of: '2026-06-04T12:00:00Z',
+        stale_after_seconds: 3600,
+        effective_limit: 100,
+        filtered_count: 1,
+        store_truncated: false,
+        response_truncated: false,
+        truncated: false,
+        partial_reasons: [],
+      })
     if (path === '/v1/device/syslog')
       return jsonResponse({
         items: [
