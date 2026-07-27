@@ -31,9 +31,9 @@ network latency.
 
 | Journey | Complete outcome                                          | Interactions | Typed characters |                Context breaks | Active-time proxy |
 | ------- | --------------------------------------------------------- | -----------: | ---------------: | ----------------------------: | ----------------: |
-| J1      | healthy producer plus named real finding                  |            8 |     0 in product | 1 documented shell enrollment |          6–12 min |
+| J1      | healthy producer plus named real finding                  |            4 |     0 in product | 1 documented shell enrollment |          6–12 min |
 | J2      | cited RCA plus authorized stable replay                   |            4 |                0 |                             0 |         15–45 sec |
-| J3      | 10/10 canonical questions answered                        | 2 per answer |                0 |                             0 |     1–3 min total |
+| J3      | 10/10 canonical questions answered                        | 20 (2 each)  |                0 |                             0 |     1–3 min total |
 | J4      | lossy ECMP branch isolated, compared, shared, and pivoted |            5 |                0 |                             0 |         30–90 sec |
 | J5      | stale/skewed agents identified and safe action opened     |            2 |                0 |                             0 |          5–30 sec |
 | J6      | metadata triage, siloed EU tenant, and usage export       |  8 after MFA |               16 |                             0 |        30–120 sec |
