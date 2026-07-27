@@ -154,6 +154,7 @@ describe('i18n catalog', () => {
       resolve(process.cwd(), 'src/routes/SLOsPage.tsx'),
       resolve(process.cwd(), 'src/routes/CostPage.tsx'),
       resolve(process.cwd(), 'src/routes/admin/AdminCards.tsx'),
+      resolve(process.cwd(), 'src/routes/admin/LifecycleCards.tsx'),
     ]
     const existingLocalizedBanned = [
       'Targets & Tests',
@@ -177,6 +178,16 @@ describe('i18n catalog', () => {
       'Approvals are disabled',
       'Approved (not executed)',
       'Native attribution, showback, budgets, and hourly trends; use Dashboards or Explorer for cross-plane drilldown.',
+      'Deployment-local self-observability',
+      'Local process metrics',
+      'Allocated memory',
+      'Runtime memory',
+      'Garbage collections',
+      'Process capacity (GOMAXPROCS)',
+      'Build identity',
+      'Build field',
+      'Local process metrics are unavailable or incomplete',
+      'Build identity is unavailable or incomplete',
     ]
     const planesBanned = [
       'First-class workspaces for routing, flow, device, and host/L7 telemetry.',

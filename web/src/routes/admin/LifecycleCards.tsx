@@ -311,7 +311,7 @@ function EraseTenantDialog({
  *  secret-stripped support bundle for triage. The bundle never contains
  *  credentials or PII. */
 export function SupportCard() {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const { data, isPending, isError, refetch, isFetching } = useDiagnostics()
   const checks = data?.checks ?? []
   const findings = checks.flatMap((check) => (check.finding ? [check.finding] : []))
@@ -324,43 +324,49 @@ export function SupportCard() {
     ? [
         {
           id: 'goroutines',
-          metric: 'Goroutines',
+          metric: t('admin.support.metrics.goroutines'),
           value: formatInteger(selfMetrics.goroutines, locale),
         },
         {
           id: 'mem-alloc',
-          metric: 'Allocated memory',
+          metric: t('admin.support.metrics.allocatedMemory'),
           value: formatScaledBytes(selfMetrics.mem_alloc_bytes, locale),
         },
         {
           id: 'mem-sys',
-          metric: 'Runtime memory',
+          metric: t('admin.support.metrics.runtimeMemory'),
           value: formatScaledBytes(selfMetrics.mem_sys_bytes, locale),
         },
         {
           id: 'gc',
-          metric: 'Garbage collections',
+          metric: t('admin.support.metrics.garbageCollections'),
           value: formatInteger(selfMetrics.num_gc, locale),
         },
         {
           id: 'uptime',
-          metric: 'Uptime',
-          value: `${formatInteger(selfMetrics.uptime_seconds, locale)} s`,
+          metric: t('admin.support.metrics.uptime'),
+          value: t('admin.support.metrics.uptimeValue', {
+            seconds: formatInteger(selfMetrics.uptime_seconds, locale),
+          }),
         },
         {
           id: 'capacity',
-          metric: 'Process capacity (GOMAXPROCS)',
+          metric: t('admin.support.metrics.processCapacity'),
           value: formatInteger(selfMetrics.max_procs, locale),
         },
       ]
     : []
   const buildRows = buildReady
     ? [
-        { id: 'version', field: 'Version', value: build.version },
-        { id: 'commit', field: 'Commit', value: build.commit },
-        { id: 'built', field: 'Built', value: build.date },
-        { id: 'go', field: 'Go runtime', value: build.go_version },
-        { id: 'platform', field: 'Platform', value: `${build.os}/${build.arch}` },
+        { id: 'version', field: t('admin.support.build.version'), value: build.version },
+        { id: 'commit', field: t('admin.support.build.commit'), value: build.commit },
+        { id: 'built', field: t('admin.support.build.built'), value: build.date },
+        { id: 'go', field: t('admin.support.build.goRuntime'), value: build.go_version },
+        {
+          id: 'platform',
+          field: t('admin.support.build.platform'),
+          value: `${build.os}/${build.arch}`,
+        },
       ]
     : []
 
@@ -415,33 +421,45 @@ export function SupportCard() {
               </p>
             ) : null}
             <p className={styles.editionsLede}>
-              <strong>Deployment-local self-observability</strong> · administrator-only process
-              posture; no tenant identity or telemetry is included.
+              <strong>{t('admin.support.self.title')}</strong>
+              {' · '}
+              {t('admin.support.self.description')}
             </p>
             {selfMetricsReady ? (
               <Table
-                caption="Local process metrics"
+                caption={t('admin.support.metrics.caption')}
                 columns={[
-                  { key: 'metric', header: 'Metric', render: (row) => row.metric },
-                  { key: 'value', header: 'Current value', render: (row) => row.value },
+                  {
+                    key: 'metric',
+                    header: t('admin.support.metrics.column.metric'),
+                    render: (row) => row.metric,
+                  },
+                  {
+                    key: 'value',
+                    header: t('admin.support.metrics.column.value'),
+                    render: (row) => row.value,
+                  },
                 ]}
                 rows={selfMetricRows}
                 rowKey={(row) => row.id}
               />
             ) : (
               <p role="status" className={styles.editionsLede}>
-                Local process metrics are unavailable or incomplete from this control-plane replica.
-                No healthy state is being inferred; retry after all replicas are upgraded.
+                {t('admin.support.metrics.unavailable')}
               </p>
             )}
             {buildReady ? (
               <Table
-                caption="Build identity"
+                caption={t('admin.support.build.caption')}
                 columns={[
-                  { key: 'field', header: 'Build field', render: (row) => row.field },
+                  {
+                    key: 'field',
+                    header: t('admin.support.build.column.field'),
+                    render: (row) => row.field,
+                  },
                   {
                     key: 'value',
-                    header: 'Value',
+                    header: t('admin.support.build.column.value'),
                     render: (row) => <code>{row.value}</code>,
                   },
                 ]}
@@ -450,8 +468,7 @@ export function SupportCard() {
               />
             ) : (
               <p role="status" className={styles.editionsLede}>
-                Build identity is unavailable or incomplete from this control-plane replica. No
-                version is being guessed.
+                {t('admin.support.build.unavailable')}
               </p>
             )}
             <Table

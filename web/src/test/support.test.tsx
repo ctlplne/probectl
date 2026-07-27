@@ -14,6 +14,55 @@ import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
  *  posture, build identity, deep health, and the secret-stripped bundle. */
 
 describe('support & diagnostics (S-EE4)', () => {
+  test.each([
+    {
+      locale: 'es',
+      direction: 'ltr',
+      title: 'Autoobservabilidad local del despliegue',
+      metricsCaption: 'Métricas del proceso local',
+      metric: 'Memoria asignada',
+      uptime: 'Tiempo activo',
+      buildCaption: 'Identidad de compilación',
+      buildField: 'Versión',
+    },
+    {
+      locale: 'ar-EG',
+      direction: 'rtl',
+      title: 'المراقبة الذاتية المحلية للنشر',
+      metricsCaption: 'مقاييس العملية المحلية',
+      metric: 'الذاكرة المخصصة',
+      uptime: 'مدة التشغيل',
+      buildCaption: 'هوية البناء',
+      buildField: 'الإصدار',
+    },
+  ])(
+    'renders self-observability from the $locale catalog',
+    async ({
+      locale,
+      direction,
+      title,
+      metricsCaption,
+      metric,
+      uptime,
+      buildCaption,
+      buildField,
+    }) => {
+      vi.stubGlobal('fetch', defaultFetch())
+      renderApp('/admin', { locale })
+
+      expect(await screen.findByText(title)).toBeInTheDocument()
+      const processMetrics = screen.getByRole('table', { name: metricsCaption })
+      expect(within(processMetrics).getByText(metric)).toBeInTheDocument()
+      const uptimeText = within(processMetrics).getByText(uptime).closest('tr')?.textContent ?? ''
+      expect(uptimeText).toMatch(/[0-9٠-٩]/)
+      expect(uptimeText).toContain(locale === 'es' ? 's' : 'ث')
+      expect(uptimeText).not.toContain(locale === 'es' ? 'ث' : ' s')
+      const build = screen.getByRole('table', { name: buildCaption })
+      expect(within(build).getByText(buildField)).toBeInTheDocument()
+      expect(document.documentElement.dir).toBe(direction)
+    },
+  )
+
   test('renders native self-observability, findings, component checks, and the bundle link', async () => {
     vi.stubGlobal('fetch', defaultFetch())
     renderApp('/admin')
