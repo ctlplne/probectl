@@ -501,8 +501,10 @@ export interface DashboardView {
 }
 
 export interface DeepHealth {
+  build?: Version
   checked_at: string
   checks: HealthCheck[]
+  self_metrics?: SelfMetricsSnapshot
   status: HealthStatus
 }
 
@@ -1326,6 +1328,15 @@ export interface SIEMStatus {
   summary: string
   tls_required: boolean
   token_configured: boolean
+}
+
+export interface SelfMetricsSnapshot {
+  goroutines: number
+  max_procs: number
+  mem_alloc_bytes: number
+  mem_sys_bytes: number
+  num_gc: number
+  uptime_seconds: number
 }
 
 export interface Signal {

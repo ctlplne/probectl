@@ -127,7 +127,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"download":        {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts/{id}", ArgName: "id", Description: "download one audited PDF or CSV artifact"},
 	}},
 	"diagnostics": {Name: "diagnostics", Summary: "diagnostics and support bundle", Ops: map[string]apiOp{
-		"status": {Method: http.MethodGet, Path: "/v1/diagnostics", Description: "show actionable local readiness findings"},
+		"status": {Method: http.MethodGet, Path: "/v1/diagnostics", Description: "show native local self-observability and actionable readiness findings"},
 		"bundle": {Method: http.MethodGet, Path: "/v1/diagnostics/bundle"},
 	}},
 	"editions": {Name: "editions", Summary: "license and edition state", Ops: map[string]apiOp{

@@ -658,7 +658,7 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
-    capability: 'Supportability: diagnostics, bundles, health evidence',
+    capability: 'Supportability: native self-observability, diagnostics, bundles, health evidence',
     featureIds: ['F35'],
     sprint: 'S51',
     kind: 'native',

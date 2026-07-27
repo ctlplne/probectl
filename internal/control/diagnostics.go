@@ -139,12 +139,32 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 	return support.RunChecks(ctx, checks, time.Now)
 }
 
-// handleDiagnostics serves GET /v1/diagnostics — the deep-health report.
+// diagnosticsResponse is the admin-only native self-observability contract.
+// The deployment-local fields contain no tenant identity or telemetry.
+type diagnosticsResponse struct {
+	support.Health
+	SelfMetrics support.SelfMetrics `json:"self_metrics"`
+	Build       version.Info        `json:"build"`
+}
+
+// diagnosticsSnapshot collects health, local process metrics, and build
+// identity in one response. The same process metrics collector feeds the
+// support bundle and protocol-compatible TSDB output.
+func (s *Server) diagnosticsSnapshot(ctx context.Context) diagnosticsResponse {
+	return diagnosticsResponse{
+		Health:      s.deepHealth(ctx),
+		SelfMetrics: support.CollectSelfMetrics(s.startedAt),
+		Build:       version.Get(),
+	}
+}
+
+// handleDiagnostics serves GET /v1/diagnostics — the admin-only deep-health
+// and deployment-local self-observability report.
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.principalTenant(r); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, s.deepHealth(r.Context()))
+	writeJSON(w, http.StatusOK, s.diagnosticsSnapshot(r.Context()))
 	return nil
 }
 

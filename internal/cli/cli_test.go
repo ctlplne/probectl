@@ -284,7 +284,7 @@ func TestCLIRolloutSurfaceMapsHumanGatedOps(t *testing.T) {
 	}
 }
 
-func TestCLIDiagnosticsStatusDescribesLocalReadinessFindings(t *testing.T) {
+func TestCLIDiagnosticsStatusDescribesNativeSelfObservability(t *testing.T) {
 	spec, ok := surfaceCommands["diagnostics"]
 	if !ok {
 		t.Fatal("diagnostics CLI surface is not registered")
@@ -295,7 +295,7 @@ func TestCLIDiagnosticsStatusDescribesLocalReadinessFindings(t *testing.T) {
 	}
 	if status.Method != http.MethodGet ||
 		status.Path != "/v1/diagnostics" ||
-		status.Description != "show actionable local readiness findings" {
+		status.Description != "show native local self-observability and actionable readiness findings" {
 		t.Fatalf("diagnostics status = %+v", status)
 	}
 }

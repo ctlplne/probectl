@@ -14,6 +14,8 @@ export type {
   HealthStatus,
   ReadinessAction,
   ReadinessFinding,
+  SelfMetricsSnapshot,
+  Version,
 } from './sdk.gen'
 
 /**

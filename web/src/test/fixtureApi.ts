@@ -1329,6 +1329,22 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
       return jsonResponse({
         status: 'degraded',
         checked_at: '2026-06-06T00:00:00Z',
+        self_metrics: {
+          goroutines: 12,
+          mem_alloc_bytes: 1_048_576,
+          mem_sys_bytes: 8_388_608,
+          num_gc: 9,
+          uptime_seconds: 7200,
+          max_procs: 8,
+        },
+        build: {
+          version: '1.1.0',
+          commit: 'abc1234',
+          date: '2026-06-05T12:00:00Z',
+          go_version: 'go1.26.0',
+          os: 'linux',
+          arch: 'arm64',
+        },
         checks: [
           { name: 'database', status: 'ok' },
           {

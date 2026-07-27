@@ -30,6 +30,44 @@ func (w *supportGlobalOnlyWriter) WriteGlobal(_ context.Context, s []tsdb.Series
 
 func (w *supportGlobalOnlyWriter) Close() error { return nil }
 
+func TestCollectSelfMetricsIsCompleteAndNonNegative(t *testing.T) {
+	snapshot := CollectSelfMetrics(time.Now().Add(-2 * time.Second))
+	if snapshot.Goroutines < 1 {
+		t.Fatalf("goroutines = %d, want at least one", snapshot.Goroutines)
+	}
+	if snapshot.MemAllocBytes == 0 || snapshot.MemSysBytes == 0 {
+		t.Fatalf("memory snapshot is incomplete: %+v", snapshot)
+	}
+	if snapshot.UptimeSeconds < 1 {
+		t.Fatalf("uptime = %f, want at least one second", snapshot.UptimeSeconds)
+	}
+	if snapshot.MaxProcs < 1 {
+		t.Fatalf("max_procs = %d, want at least one", snapshot.MaxProcs)
+	}
+
+	// A future start time can happen after a wall-clock correction. The public
+	// contract must remain honest and schema-valid rather than reporting a
+	// negative uptime.
+	future := CollectSelfMetrics(time.Now().Add(time.Hour))
+	if future.UptimeSeconds != 0 {
+		t.Fatalf("future-start uptime = %f, want zero", future.UptimeSeconds)
+	}
+
+	legacy := SelfSnapshot(time.Now().Add(-2 * time.Second))
+	for _, key := range []string{
+		"goroutines",
+		"mem_alloc_bytes",
+		"mem_sys_bytes",
+		"num_gc",
+		"uptime_seconds",
+		"max_procs",
+	} {
+		if _, ok := legacy[key]; !ok {
+			t.Errorf("legacy snapshot missing %q: %+v", key, legacy)
+		}
+	}
+}
+
 // TestWriteSelfSeries: the self-monitoring series land in the TSDB (probectl
 // observes probectl), including build_info with version labels.
 func TestWriteSelfSeries(t *testing.T) {

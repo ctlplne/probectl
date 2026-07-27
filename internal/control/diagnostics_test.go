@@ -24,6 +24,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 // okPinger / downPinger drive the deep-health database check.
@@ -44,12 +45,37 @@ func TestDeepHealthEndpoint(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	var h support.Health
-	if err := json.Unmarshal(rr.Body.Bytes(), &h); err != nil {
+	var report diagnosticsResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &report); err != nil {
 		t.Fatal(err)
 	}
+	h := report.Health
 	if h.Status != support.StatusOK {
 		t.Fatalf("healthy db must aggregate ok: %+v", h)
+	}
+	if report.SelfMetrics.Goroutines < 1 ||
+		report.SelfMetrics.MemAllocBytes == 0 ||
+		report.SelfMetrics.MemSysBytes == 0 ||
+		report.SelfMetrics.MaxProcs < 1 {
+		t.Fatalf("native self-observability snapshot is incomplete: %+v", report.SelfMetrics)
+	}
+	if report.SelfMetrics.UptimeSeconds < 0 {
+		t.Fatalf("native uptime must be non-negative: %+v", report.SelfMetrics)
+	}
+	if report.Build != version.Get() {
+		t.Fatalf("build identity = %+v, want %+v", report.Build, version.Get())
+	}
+	if strings.Contains(rr.Body.String(), "tenant_id") {
+		t.Fatalf("deployment-global diagnostics must not carry tenant identity: %s", rr.Body.String())
+	}
+	var diagnosticsPermission string
+	for _, route := range srv.apiRoutes() {
+		if route.Method == http.MethodGet && route.Pattern == "/v1/diagnostics" {
+			diagnosticsPermission = route.Permission
+		}
+	}
+	if diagnosticsPermission != permDiagnosticsRead {
+		t.Fatalf("diagnostics permission = %q, want %q", diagnosticsPermission, permDiagnosticsRead)
 	}
 
 	// A down database drives the aggregate down.
@@ -57,7 +83,9 @@ func TestDeepHealthEndpoint(t *testing.T) {
 	srv = testServer(downPinger{err: errors.New(rawDatabaseError)}).WithAlertingActive(true)
 	rr = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics", nil))
-	_ = json.Unmarshal(rr.Body.Bytes(), &h)
+	report = diagnosticsResponse{}
+	_ = json.Unmarshal(rr.Body.Bytes(), &report)
+	h = report.Health
 	if h.Status != support.StatusDown {
 		t.Fatalf("down db must aggregate down: %+v", h)
 	}

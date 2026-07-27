@@ -574,9 +574,11 @@ type DashboardView struct {
 }
 
 type DeepHealth struct {
-	CheckedAt string        `json:"checked_at"`
-	Checks    []HealthCheck `json:"checks"`
-	Status    HealthStatus  `json:"status"`
+	Build       Version             `json:"build,omitempty"`
+	CheckedAt   string              `json:"checked_at"`
+	Checks      []HealthCheck       `json:"checks"`
+	SelfMetrics SelfMetricsSnapshot `json:"self_metrics,omitempty"`
+	Status      HealthStatus        `json:"status"`
 }
 
 type DeviceConfigArchiveRequest struct {
@@ -1418,6 +1420,16 @@ type SIEMStatus struct {
 	Summary               string   `json:"summary"`
 	TlsRequired           bool     `json:"tls_required"`
 	TokenConfigured       bool     `json:"token_configured"`
+}
+
+// A point-in-time snapshot of this control-plane process. It is deployment-local and contains no tenant identity, labels, or telemetry.
+type SelfMetricsSnapshot struct {
+	Goroutines    int     `json:"goroutines"`
+	MaxProcs      int     `json:"max_procs"`
+	MemAllocBytes int     `json:"mem_alloc_bytes"`
+	MemSysBytes   int     `json:"mem_sys_bytes"`
+	NumGc         int     `json:"num_gc"`
+	UptimeSeconds float64 `json:"uptime_seconds"`
 }
 
 // One plane's observation on an incident timeline (extensible: plane/kind are free-form, attributes is arbitrary).
@@ -2620,7 +2632,7 @@ func (c *Client) ListDevices(ctx context.Context, req ListDevicesRequest) (*Devi
 	return &out, nil
 }
 
-// Actionable local readiness report (S-EE4): redacted per-component health plus deterministic findings and safe local next actions, aggregated to the worst status — admin diagnostics.read
+// Native local self-observability (S-EE4): redacted per-component health, process metrics, and build identity with deterministic findings and safe local next actions — admin diagnostics.read; no tenant telemetry
 type GetV1DiagnosticsRequest struct {
 }
 

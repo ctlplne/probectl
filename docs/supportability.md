@@ -69,7 +69,8 @@ Each file is bounded (4 MiB max) and the whole bundle is gzip'd.
 | Method | Use |
 |---|---|
 | `GET /v1/diagnostics/bundle` | the **live** bundle (topology, deep health, self-metrics). Admin-only — requires the `diagnostics.read` permission. The Admin → Support & diagnostics page has the download button. |
-| `probectl diagnostics status` | the live JSON health and readiness findings, for local scripts and terminals. |
+| `GET /v1/diagnostics` | the live native diagnostics contract: deep health, deployment-local process metrics, and build identity. Admin-only — requires `diagnostics.read`; it contains no tenant telemetry. |
+| `probectl diagnostics status` | the same live JSON diagnostics contract, including self-metrics and build identity, for local scripts and terminals. |
 | `probectl-control support-bundle [-o file]` | an **offline** bundle straight from the binary (version, redacted config, a database health check, runtime) — no running server needed. |
 
 ## Deep health checks
@@ -101,11 +102,12 @@ fabricates a task. A finding contains:
 | `summary`, `evidence` | bounded operator text; raw dependency errors and secret values are never copied |
 | `next_action` | a relative local `navigate` or `download` link; it never runs remediation |
 
-The native Admin → Support & diagnostics card puts findings first, followed by
-the underlying component table. The same contract is available to the CLI and
-generated Go/TypeScript SDKs. An older replica that reports an unhealthy check
-without a finding is displayed as incomplete during a rolling upgrade; the UI
-does not pretend that state is healthy.
+The native Admin → Support & diagnostics card shows the local process snapshot
+and build identity alongside findings and the underlying component table. The
+same contract is available to the CLI and generated Go/TypeScript SDKs. During
+a rolling upgrade an older replica may omit self-metrics, build identity, or
+finding details. Each missing section is displayed as unavailable/incomplete;
+the UI does not invent a value or pretend that state is healthy.
 
 This is separate from the liveness/readiness probes (`/healthz`, `/readyz`) —
 **liveness** asks "is the process alive at all?" and **readiness** asks "should
@@ -124,21 +126,25 @@ RBAC, with a cross-tenant isolation test.
 
 ## Self-monitoring (probectl observes probectl)
 
-The control plane emits `probectl_self_*` metrics every 30 seconds —
+The control plane collects and emits `probectl_self_*` metrics every 30 seconds —
 `goroutines`, `mem_alloc_bytes`, `mem_sys_bytes`, `num_gc`, `uptime_seconds`,
 `max_procs` — plus `probectl_build_info{version,commit,go}` (value `1`, the
 standard Prometheus build-info trick: the *labels* carry the info, the value is
-just a constant). Together with the multi-region `probectl_cluster_*` series and
-the per-tenant fairness `probectl_fairness_*` series, these feed a ready-made
-native view on `/dashboards`. Agent scrape targets add tenant-agnostic
+just a constant). The authoritative, dependency-free native view is
+**Admin → Support & diagnostics**, backed by `GET /v1/diagnostics`; it shows
+goroutines, memory, garbage collections, uptime, process capacity, and build
+identity. It is intentionally administrator-only because these are
+deployment-global process facts. The response contains no tenant identity,
+labels, or telemetry. Agent scrape targets add tenant-agnostic
 `probectl_agent_*` RED/USE
 series: collection and publish rates, errors, bounded-buffer depth, and latest
 publish latency.
 
-The product does not bundle or require an external dashboard runtime. Operators
-who already run a compatible client may optionally import
-`deploy/grafana/dashboards/probectl-self.json`; that example is interoperability
-material, not the authoritative probectl surface or a deployment dependency.
+The product does not bundle or require an external dashboard runtime. The
+`/metrics` output and any example dashboard JSON are optional,
+operator-supplied protocol interoperability only; they are not the
+authoritative probectl surface, a runtime dependency, or part of the shipped
+application path.
 
 ## Configuration
 

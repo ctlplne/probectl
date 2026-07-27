@@ -30,8 +30,15 @@ import {
   type LifecycleRetentionInput,
   type LifecycleStoreResult,
 } from '../../api/lifecycle'
-import { useDiagnostics, type HealthStatus } from '../../api/diagnostics'
+import {
+  useDiagnostics,
+  type HealthStatus,
+  type SelfMetricsSnapshot,
+  type Version,
+} from '../../api/diagnostics'
 import { DateTime } from '../../time/DateTime'
+import { useI18n } from '../../i18n/useI18n'
+import { formatInteger, formatScaledBytes } from '../../i18n/number'
 
 /** LifecycleCard (S-T5, core): self-service data export, the retention
  *  control, and residency/isolation visibility — export + verifiable
@@ -304,11 +311,58 @@ function EraseTenantDialog({
  *  secret-stripped support bundle for triage. The bundle never contains
  *  credentials or PII. */
 export function SupportCard() {
+  const { locale } = useI18n()
   const { data, isPending, isError, refetch, isFetching } = useDiagnostics()
   const checks = data?.checks ?? []
   const findings = checks.flatMap((check) => (check.finding ? [check.finding] : []))
-  const missingFindings =
-    checks.filter((check) => check.status !== 'ok' && !check.finding).length
+  const missingFindings = checks.filter((check) => check.status !== 'ok' && !check.finding).length
+  const selfMetrics = data?.self_metrics
+  const build = data?.build
+  const selfMetricsReady = hasCompleteSelfMetrics(selfMetrics)
+  const buildReady = hasCompleteBuildIdentity(build)
+  const selfMetricRows = selfMetricsReady
+    ? [
+        {
+          id: 'goroutines',
+          metric: 'Goroutines',
+          value: formatInteger(selfMetrics.goroutines, locale),
+        },
+        {
+          id: 'mem-alloc',
+          metric: 'Allocated memory',
+          value: formatScaledBytes(selfMetrics.mem_alloc_bytes, locale),
+        },
+        {
+          id: 'mem-sys',
+          metric: 'Runtime memory',
+          value: formatScaledBytes(selfMetrics.mem_sys_bytes, locale),
+        },
+        {
+          id: 'gc',
+          metric: 'Garbage collections',
+          value: formatInteger(selfMetrics.num_gc, locale),
+        },
+        {
+          id: 'uptime',
+          metric: 'Uptime',
+          value: `${formatInteger(selfMetrics.uptime_seconds, locale)} s`,
+        },
+        {
+          id: 'capacity',
+          metric: 'Process capacity (GOMAXPROCS)',
+          value: formatInteger(selfMetrics.max_procs, locale),
+        },
+      ]
+    : []
+  const buildRows = buildReady
+    ? [
+        { id: 'version', field: 'Version', value: build.version },
+        { id: 'commit', field: 'Commit', value: build.commit },
+        { id: 'built', field: 'Built', value: build.date },
+        { id: 'go', field: 'Go runtime', value: build.go_version },
+        { id: 'platform', field: 'Platform', value: `${build.os}/${build.arch}` },
+      ]
+    : []
 
   const tone = (s: HealthStatus) =>
     s === 'ok' ? 'success' : s === 'degraded' ? 'warning' : 'danger'
@@ -355,11 +409,51 @@ export function SupportCard() {
           <div className={styles.form}>
             {missingFindings > 0 ? (
               <p role="alert" className={styles.editionsLede}>
-                {missingFindings} unhealthy {missingFindings === 1 ? 'component is' : 'components are'}{' '}
-                missing finding details. Review component health and retry after all control-plane
-                replicas are upgraded.
+                {missingFindings} unhealthy{' '}
+                {missingFindings === 1 ? 'component is' : 'components are'} missing finding details.
+                Review component health and retry after all control-plane replicas are upgraded.
               </p>
             ) : null}
+            <p className={styles.editionsLede}>
+              <strong>Deployment-local self-observability</strong> · administrator-only process
+              posture; no tenant identity or telemetry is included.
+            </p>
+            {selfMetricsReady ? (
+              <Table
+                caption="Local process metrics"
+                columns={[
+                  { key: 'metric', header: 'Metric', render: (row) => row.metric },
+                  { key: 'value', header: 'Current value', render: (row) => row.value },
+                ]}
+                rows={selfMetricRows}
+                rowKey={(row) => row.id}
+              />
+            ) : (
+              <p role="status" className={styles.editionsLede}>
+                Local process metrics are unavailable or incomplete from this control-plane replica.
+                No healthy state is being inferred; retry after all replicas are upgraded.
+              </p>
+            )}
+            {buildReady ? (
+              <Table
+                caption="Build identity"
+                columns={[
+                  { key: 'field', header: 'Build field', render: (row) => row.field },
+                  {
+                    key: 'value',
+                    header: 'Value',
+                    render: (row) => <code>{row.value}</code>,
+                  },
+                ]}
+                rows={buildRows}
+                rowKey={(row) => row.id}
+              />
+            ) : (
+              <p role="status" className={styles.editionsLede}>
+                Build identity is unavailable or incomplete from this control-plane replica. No
+                version is being guessed.
+              </p>
+            )}
             <Table
               caption="Actionable readiness findings"
               columns={[
@@ -404,7 +498,9 @@ export function SupportCard() {
               empty={
                 <EmptyState
                   icon="admin"
-                  title={data?.status === 'ok' ? 'No readiness findings' : 'Finding details unavailable'}
+                  title={
+                    data?.status === 'ok' ? 'No readiness findings' : 'Finding details unavailable'
+                  }
                   description={
                     data?.status === 'ok'
                       ? 'Every reported component is healthy.'
@@ -447,6 +543,30 @@ export function SupportCard() {
         )}
       </CardBody>
     </Card>
+  )
+}
+
+function hasCompleteSelfMetrics(
+  metrics: SelfMetricsSnapshot | undefined,
+): metrics is SelfMetricsSnapshot {
+  if (!metrics) return false
+  return (
+    [
+      metrics.goroutines,
+      metrics.mem_alloc_bytes,
+      metrics.mem_sys_bytes,
+      metrics.num_gc,
+      metrics.uptime_seconds,
+    ].every((value) => Number.isFinite(value) && value >= 0) &&
+    Number.isFinite(metrics.max_procs) &&
+    metrics.max_procs >= 1
+  )
+}
+
+function hasCompleteBuildIdentity(build: Version | undefined): build is Version {
+  if (!build) return false
+  return [build.version, build.commit, build.date, build.go_version, build.os, build.arch].every(
+    (value) => typeof value === 'string' && value.trim() !== '',
   )
 }
 

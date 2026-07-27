@@ -16,18 +16,49 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
+// SelfMetrics is a point-in-time, deployment-local process snapshot. It
+// contains no tenant labels or telemetry and is safe for the admin diagnostics
+// surface and the secret-stripped support bundle.
+type SelfMetrics struct {
+	Goroutines    int     `json:"goroutines"`
+	MemAllocBytes uint64  `json:"mem_alloc_bytes"`
+	MemSysBytes   uint64  `json:"mem_sys_bytes"`
+	NumGC         uint32  `json:"num_gc"`
+	UptimeSeconds float64 `json:"uptime_seconds"`
+	MaxProcs      int     `json:"max_procs"`
+}
+
+// CollectSelfMetrics returns the typed process snapshot used by native
+// diagnostics. Keep this as the single collector so the native surface, bundle,
+// and optional metrics-protocol integrations report the same values.
+func CollectSelfMetrics(startedAt time.Time) SelfMetrics {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	uptime := time.Since(startedAt).Seconds()
+	if uptime < 0 {
+		uptime = 0
+	}
+	return SelfMetrics{
+		Goroutines:    runtime.NumGoroutine(),
+		MemAllocBytes: ms.Alloc,
+		MemSysBytes:   ms.Sys,
+		NumGC:         ms.NumGC,
+		UptimeSeconds: uptime,
+		MaxProcs:      runtime.GOMAXPROCS(0),
+	}
+}
+
 // SelfSnapshot returns the self-monitoring metric values (probectl observes
 // probectl) — included in the support bundle and emitted as TSDB series.
 func SelfSnapshot(startedAt time.Time) map[string]float64 {
-	var ms runtime.MemStats
-	runtime.ReadMemStats(&ms)
+	snapshot := CollectSelfMetrics(startedAt)
 	return map[string]float64{
-		"goroutines":      float64(runtime.NumGoroutine()),
-		"mem_alloc_bytes": float64(ms.Alloc),
-		"mem_sys_bytes":   float64(ms.Sys),
-		"num_gc":          float64(ms.NumGC),
-		"uptime_seconds":  time.Since(startedAt).Seconds(),
-		"max_procs":       float64(runtime.GOMAXPROCS(0)),
+		"goroutines":      float64(snapshot.Goroutines),
+		"mem_alloc_bytes": float64(snapshot.MemAllocBytes),
+		"mem_sys_bytes":   float64(snapshot.MemSysBytes),
+		"num_gc":          float64(snapshot.NumGC),
+		"uptime_seconds":  snapshot.UptimeSeconds,
+		"max_procs":       float64(snapshot.MaxProcs),
 	}
 }
 

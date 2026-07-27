@@ -6653,10 +6653,10 @@
     },
     "/v1/diagnostics": {
       "get": {
-        "summary": "Actionable local readiness report (S-EE4): redacted per-component health plus deterministic findings and safe local next actions, aggregated to the worst status \u2014 admin diagnostics.read",
+        "summary": "Native local self-observability (S-EE4): redacted per-component health, process metrics, and build identity with deterministic findings and safe local next actions \u2014 admin diagnostics.read; no tenant telemetry",
         "responses": {
           "200": {
-            "description": "The current deep-health report.",
+            "description": "The current deep-health and deployment-local process report. During a rolling upgrade, self_metrics or build may be absent; clients must report that state as unavailable rather than infer health.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8546,6 +8546,48 @@
           "next_action"
         ]
       },
+      "SelfMetricsSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A point-in-time snapshot of this control-plane process. It is deployment-local and contains no tenant identity, labels, or telemetry.",
+        "properties": {
+          "goroutines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mem_alloc_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "mem_sys_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "num_gc": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uptime_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_procs": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "goroutines",
+          "mem_alloc_bytes",
+          "mem_sys_bytes",
+          "num_gc",
+          "uptime_seconds",
+          "max_procs"
+        ]
+      },
       "DeepHealth": {
         "type": "object",
         "additionalProperties": false,
@@ -8562,6 +8604,12 @@
           "checked_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "self_metrics": {
+            "$ref": "#/components/schemas/SelfMetricsSnapshot"
+          },
+          "build": {
+            "$ref": "#/components/schemas/Version"
           }
         },
         "required": [
