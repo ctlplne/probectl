@@ -111,7 +111,21 @@
 
 .nextAction {
   padding: var(--space-3);
-  background: var(--color-warning-soft);
-  border: var(--border-width-thin) solid var(--color-warning);
+  border: var(--border-width-thin) solid;
   border-radius: var(--radius-sm);
+}
+
+.nextAction[data-action-tone='healthy'] {
+  background: var(--color-success-soft);
+  border-color: var(--color-success);
+}
+
+.nextAction[data-action-tone='degraded'] {
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning);
+}
+
+.nextAction[data-action-tone='unhealthy'] {
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger);
 }

@@ -107,6 +107,16 @@ describe('Admin fleet health action center', () => {
     expect(
       within(flowQuality).getByText('Verify template export on this configured exporter.'),
     ).toBeInTheDocument()
+    expect(
+      within(flowQuality)
+        .getByText('Continue monitoring; no change is recommended.')
+        .closest('[data-action-tone]'),
+    ).toHaveAttribute('data-action-tone', 'healthy')
+    expect(
+      within(flowQuality)
+        .getByText('Verify template export on this configured exporter.')
+        .closest('[data-action-tone]'),
+    ).toHaveAttribute('data-action-tone', 'degraded')
     expect(within(flowQuality).queryByRole('table')).not.toBeInTheDocument()
 
     await user.click(within(table).getByRole('button', { name: 'Review rollout health gate' }))

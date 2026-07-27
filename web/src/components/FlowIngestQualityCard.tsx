@@ -172,7 +172,10 @@ export function FlowIngestQualityCard() {
                       <DateTime value={row.window_ended_at} />
                     </dd>
                   </div>
-                  <div className={`${styles.fact} ${styles.nextAction}`}>
+                  <div
+                    className={`${styles.fact} ${styles.nextAction}`}
+                    data-action-tone={row.state}
+                  >
                     <dt>{t('flow.quality.column.nextAction')}</dt>
                     <dd>{t(actionLabels[row.next_action])}</dd>
                   </div>
