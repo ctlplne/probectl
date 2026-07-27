@@ -65,9 +65,9 @@ docs/third-party-licenses.md.
 - go golang.org/x/sync v0.21.0 (runtime) - BSD
 - go golang.org/x/sys v0.46.0 (runtime) - BSD
 - go golang.org/x/text v0.39.0 (runtime) - BSD
-- go google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 (runtime) - Apache-2.0
-- go google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 (runtime) - Apache-2.0
-- go google.golang.org/grpc v1.81.1 (runtime) - Apache-2.0
+- go google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 (runtime) - Apache-2.0
+- go google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 (runtime) - Apache-2.0
+- go google.golang.org/grpc v1.82.1 (runtime) - Apache-2.0
 - go google.golang.org/protobuf v1.36.11 (runtime) - BSD
 - go gopkg.in/yaml.v3 v3.0.1 (runtime) - Apache-2.0
 - npm:browser-worker fsevents 2.3.2 (runtime) - MIT
