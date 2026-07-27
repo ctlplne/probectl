@@ -48,7 +48,7 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/jackc/pgservicefile` | v0.0.0-20240606120523-5a60cdf6a761 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/jackc/pgx/v5` | v5.9.2 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/jackc/puddle/v2` | v2.2.2 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `github.com/klauspost/compress` | v1.18.6 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `github.com/klauspost/compress` | v1.18.7 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/mattn/go-colorable` | v0.1.13 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/mattn/go-isatty` | v0.0.20 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/miekg/dns` | v1.1.72 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
