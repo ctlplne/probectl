@@ -27,5 +27,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, "probectl:", err)
 		os.Exit(1)
 	}
-	os.Exit(cli.Run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
+	os.Exit(cli.RunWithStdin(os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr))
 }

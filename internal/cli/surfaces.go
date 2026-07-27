@@ -114,6 +114,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list":   {Method: http.MethodGet, Path: "/v1/dashboards"},
 		"create": {Method: http.MethodPost, Path: "/v1/dashboards"},
 		"get":    {Method: http.MethodGet, Path: "/v1/dashboards/{id}", ArgName: "id"},
+		"export": {Method: http.MethodGet, Path: "/v1/dashboards/{id}/manifest", ArgName: "id", Description: "write one deterministic redacted native manifest to stdout"},
+		"import": {Method: http.MethodPost, Path: "/v1/dashboard-manifests/import", Description: "read a native manifest from a file or stdin, preview by default, and create only with --confirm"},
 	}},
 	"dashboard-report": {Name: "dashboard-report", Summary: "local dashboard report inbox", Ops: map[string]apiOp{
 		"schedules":       {Method: http.MethodGet, Path: "/v1/dashboard-report-schedules"},

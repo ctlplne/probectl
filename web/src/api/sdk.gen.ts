@@ -342,6 +342,60 @@ export interface DashboardDefinition {
   redaction_state: string
 }
 
+export interface DashboardManifest {
+  api_version: string
+  kind: string
+  metadata: DashboardManifestMetadata
+  spec: DashboardManifestSpec
+}
+
+export interface DashboardManifestDefinition {
+  absolute_from: string
+  absolute_to: string
+  coverage_limitations: string[]
+  metrics: DashboardManifestMetric[]
+  provenance: string[]
+  redaction_state: string
+}
+
+export interface DashboardManifestImportRequest {
+  confirm: boolean
+  manifest: DashboardManifest
+}
+
+export interface DashboardManifestImportResponse {
+  dashboard?: DashboardView
+  manifest: DashboardManifest
+  preview: DashboardManifestPreview
+  status: "preview" | "created"
+}
+
+export interface DashboardManifestMetadata {
+  name: string
+}
+
+export interface DashboardManifestMetric {
+  name: string
+  value: string
+}
+
+export interface DashboardManifestPreview {
+  absolute_from: string
+  absolute_to: string
+  coverage_limitation_count: number
+  metric_count: number
+  name: string
+  preset: "operator" | "executive"
+  provenance_count: number
+  shared: boolean
+}
+
+export interface DashboardManifestSpec {
+  definition: DashboardManifestDefinition
+  preset: "operator" | "executive"
+  shared: boolean
+}
+
 export interface DashboardReportArtifact {
   absolute_from: string
   absolute_to: string
@@ -1556,6 +1610,12 @@ export interface ListVantageCoverageRequest {
 
 export type ListVantageCoverageResponse = CoverageMatrixResponse
 
+export interface ImportDashboardManifestRequest {
+  body: DashboardManifestImportRequest
+}
+
+export type ImportDashboardManifestResponse = DashboardManifestImportResponse
+
 export interface ListDashboardReportArtifactsRequest {
 }
 
@@ -1600,6 +1660,12 @@ export interface GetDashboardRequest {
 }
 
 export type GetDashboardResponse = DashboardView
+
+export interface ExportDashboardManifestRequest {
+  id: string
+}
+
+export type ExportDashboardManifestResponse = DashboardManifest
 
 export interface ListDeviceConfigsRequest {
   device?: string
@@ -2576,6 +2642,12 @@ export class ProbectlSDKClient {
     return this.requestJSON<ListVantageCoverageResponse>("GET", path, query, undefined)
   }
 
+  async importDashboardManifest(request: ImportDashboardManifestRequest): Promise<ImportDashboardManifestResponse> {
+    let path = "/v1/dashboard-manifests/import"
+    const query = new URLSearchParams()
+    return this.requestJSON<ImportDashboardManifestResponse>("POST", path, query, request.body)
+  }
+
   async listDashboardReportArtifacts(): Promise<ListDashboardReportArtifactsResponse> {
     let path = "/v1/dashboard-report-artifacts"
     const query = new URLSearchParams()
@@ -2624,6 +2696,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetDashboardResponse>("GET", path, query, undefined)
+  }
+
+  async exportDashboardManifest(request: ExportDashboardManifestRequest): Promise<ExportDashboardManifestResponse> {
+    let path = "/v1/dashboards/{id}/manifest"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ExportDashboardManifestResponse>("GET", path, query, undefined)
   }
 
   async listDeviceConfigs(request: ListDeviceConfigsRequest = {}): Promise<ListDeviceConfigsResponse> {

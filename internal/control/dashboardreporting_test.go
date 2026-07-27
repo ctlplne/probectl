@@ -7,8 +7,12 @@
 package control
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/store"
 )
 
 func validDashboardRequest() dashboardCreateRequest {
@@ -63,18 +67,103 @@ func TestExportAuditContractNamesEveryDashboardDataAccess(t *testing.T) {
 	// are appended transactionally; this unit test catches accidental renames.
 	want := map[string]bool{
 		"dashboard.save":            true,
+		"dashboard.manifest_export": true,
+		"dashboard.manifest_import": true,
 		"dashboard.report_schedule": true,
 		"dashboard.report_export":   true,
 		"dashboard.report_download": true,
 		"dashboard.report_delivery": true,
 	}
 	for _, action := range []string{
-		"dashboard.save", "dashboard.report_schedule", "dashboard.report_export", "dashboard.report_download",
-		"dashboard.report_delivery",
+		"dashboard.save", "dashboard.manifest_export", "dashboard.manifest_import",
+		"dashboard.report_schedule", "dashboard.report_export", "dashboard.report_download", "dashboard.report_delivery",
 	} {
 		if !want[action] {
 			t.Fatalf("missing audit contract %q", action)
 		}
+	}
+}
+
+func TestDashboardManifestIsDeterministicRedactedAndRoundTrips(t *testing.T) {
+	from := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+	tenantID := "11111111-1111-1111-1111-111111111111"
+	ownerID := "owner@example.test"
+	definition, err := json.Marshal(dashboardDefinition{
+		AbsoluteFrom: from,
+		AbsoluteTo:   from.Add(time.Hour),
+		Provenance: []string{
+			"collector " + tenantID,
+			"owned by " + ownerID,
+		},
+		RedactionState:      "token=plain-secret",
+		CoverageLimitations: []string{"host 198.51.100.42 is offline"},
+		Metrics: map[string]string{
+			"z token":      "api_key=manifest-secret",
+			"a owner note": ownerID,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := &store.DashboardView{
+		ID: "never-export-this-id", TenantID: tenantID, OwnerID: ownerID,
+		Name: "Dashboard for " + ownerID, Preset: "operator", Shared: true, Definition: definition,
+	}
+
+	first, err := dashboardManifestFromView(view)
+	if err != nil {
+		t.Fatalf("dashboardManifestFromView: %v", err)
+	}
+	firstJSON, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := dashboardManifestFromView(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondJSON, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(firstJSON) != string(secondJSON) {
+		t.Fatalf("manifest is not byte deterministic:\n%s\n%s", firstJSON, secondJSON)
+	}
+	for _, forbidden := range []string{tenantID, ownerID, "manifest-secret", "plain-secret", view.ID, "198.51.100.42"} {
+		if strings.Contains(string(firstJSON), forbidden) {
+			t.Errorf("manifest leaked %q: %s", forbidden, firstJSON)
+		}
+	}
+	if got := first.Spec.Definition.Metrics[0].Name; got != "a owner note" {
+		t.Fatalf("metrics are not sorted: first = %q", got)
+	}
+	roundTrip, err := dashboardManifestToCreate(first)
+	if err != nil {
+		t.Fatalf("dashboardManifestToCreate: %v", err)
+	}
+	if roundTrip.Name != first.Metadata.Name || roundTrip.Preset != "operator" ||
+		len(roundTrip.Definition.Metrics) != 2 {
+		t.Fatalf("unexpected round trip: %+v", roundTrip)
+	}
+}
+
+func TestDashboardManifestRejectsUnknownVersionDuplicateMetricsAndInvalidBounds(t *testing.T) {
+	base := dashboardCreateToManifest(validDashboardRequest())
+	base.APIVersion = "probectl.io/dashboard/v99"
+	if _, err := dashboardManifestToCreate(base); err == nil {
+		t.Fatal("unknown manifest version must fail closed")
+	}
+
+	base = dashboardCreateToManifest(validDashboardRequest())
+	base.Spec.Definition.Metrics = append(base.Spec.Definition.Metrics, base.Spec.Definition.Metrics[0])
+	if _, err := dashboardManifestToCreate(base); err == nil {
+		t.Fatal("duplicate manifest metric names must fail closed")
+	}
+
+	base = dashboardCreateToManifest(validDashboardRequest())
+	base.Spec.Definition.AbsoluteTo = base.Spec.Definition.AbsoluteFrom
+	if _, err := dashboardManifestToCreate(base); err == nil {
+		t.Fatal("invalid manifest time bounds must fail closed")
 	}
 }
 

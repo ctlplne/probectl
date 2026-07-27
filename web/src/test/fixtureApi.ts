@@ -562,7 +562,13 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         email: 'operator@probectl.test',
         display_name: 'Test Operator',
         mfa_satisfied: true,
-        permissions: ['incident.read', 'incident.write', 'ai.query'],
+        permissions: [
+          'incident.read',
+          'incident.write',
+          'ai.query',
+          'metrics.read',
+          'metrics.write',
+        ],
       })
     if (path === '/v1/tests') return jsonResponse({ items: sampleTests })
     if (path === '/v1/coverage/vantages')

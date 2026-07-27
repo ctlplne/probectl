@@ -299,9 +299,13 @@ export const SURFACES: SurfaceDecl[] = [
     route: '/dashboards',
     evidence: [
       'openapi:/v1/dashboards',
+      'openapi:/v1/dashboards/{id}/manifest',
+      'openapi:/v1/dashboard-manifests/import',
       'openapi:/v1/dashboard-report-schedules',
       'openapi:/v1/dashboard-reports',
       'openapi:/v1/dashboard-report-artifacts',
+      'cli:probectl dashboard export',
+      'cli:probectl dashboard import',
     ],
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },

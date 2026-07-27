@@ -7705,6 +7705,49 @@
         }
       }
     },
+    "/v1/dashboards/{id}/manifest": {
+      "get": {
+        "operationId": "exportDashboardManifest",
+        "summary": "Export a deterministic redacted native dashboard manifest",
+        "description": "Exports only the portable dashboard recipe. Tenant id, owner id, dashboard id, creation/update timestamps, credentials, secrets, and direct identifiers are omitted or redacted; the bounded observation interval remains. Missing, private, and cross-tenant identifiers are indistinguishable.",
+        "tags": ["dashboards"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Versioned native dashboard manifest attachment.",
+            "headers": {
+              "Content-Disposition": {"schema": {"type": "string"}, "description": "Fixed local JSON attachment filename."}
+            },
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifest"}}}
+          },
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
+    "/v1/dashboard-manifests/import": {
+      "post": {
+        "operationId": "importDashboardManifest",
+        "summary": "Preview or explicitly confirm a native dashboard manifest import",
+        "description": "Strictly validates the version and every bounded definition field, redacts sensitive text again, and returns a normalized preview. The default confirm=false path creates no dashboard. On confirm=true the server assigns a new id and derives tenant and owner from the authenticated principal.",
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifestImportRequest"}}}
+        },
+        "responses": {
+          "200": {"description": "Validated normalized preview; nothing was created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifestImportResponse"}}}},
+          "201": {"description": "Dashboard created under the authenticated tenant and owner.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifestImportResponse"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "413": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
     "/v1/dashboard-report-schedules": {
       "get": {
         "operationId": "listDashboardReportSchedules",
@@ -7925,6 +7968,92 @@
           "definition": {"$ref": "#/components/schemas/DashboardDefinition"},
           "created_at": {"type": "string", "format": "date-time"},
           "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DashboardManifestMetric": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "value": {"type": "string", "maxLength": 240}
+        }
+      },
+      "DashboardManifestDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["absolute_from", "absolute_to", "provenance", "redaction_state", "coverage_limitations", "metrics"],
+        "properties": {
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "provenance": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 240}},
+          "redaction_state": {"type": "string", "minLength": 1, "maxLength": 120},
+          "coverage_limitations": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 240}},
+          "metrics": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/components/schemas/DashboardManifestMetric"}}
+        }
+      },
+      "DashboardManifestMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 120}
+        }
+      },
+      "DashboardManifestSpec": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["preset", "shared", "definition"],
+        "properties": {
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean", "description": "Shares only inside the importing tenant."},
+          "definition": {"$ref": "#/components/schemas/DashboardManifestDefinition"}
+        }
+      },
+      "DashboardManifest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["api_version", "kind", "metadata", "spec"],
+        "properties": {
+          "api_version": {"type": "string", "const": "probectl.io/dashboard/v1"},
+          "kind": {"type": "string", "const": "Dashboard"},
+          "metadata": {"$ref": "#/components/schemas/DashboardManifestMetadata"},
+          "spec": {"$ref": "#/components/schemas/DashboardManifestSpec"}
+        }
+      },
+      "DashboardManifestImportRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["manifest", "confirm"],
+        "properties": {
+          "manifest": {"$ref": "#/components/schemas/DashboardManifest"},
+          "confirm": {"type": "boolean", "description": "False validates and previews only; true explicitly creates a new dashboard."}
+        }
+      },
+      "DashboardManifestPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "preset", "shared", "absolute_from", "absolute_to", "metric_count", "provenance_count", "coverage_limitation_count"],
+        "properties": {
+          "name": {"type": "string"},
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean"},
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "metric_count": {"type": "integer", "minimum": 0, "maximum": 100},
+          "provenance_count": {"type": "integer", "minimum": 1, "maximum": 20},
+          "coverage_limitation_count": {"type": "integer", "minimum": 1, "maximum": 20}
+        }
+      },
+      "DashboardManifestImportResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "manifest", "preview"],
+        "properties": {
+          "status": {"type": "string", "enum": ["preview", "created"]},
+          "manifest": {"$ref": "#/components/schemas/DashboardManifest"},
+          "preview": {"$ref": "#/components/schemas/DashboardManifestPreview"},
+          "dashboard": {"$ref": "#/components/schemas/DashboardView"}
         }
       },
       "DashboardReportScheduleRequest": {

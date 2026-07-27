@@ -39,6 +39,37 @@ export interface DashboardCreateInput {
   definition: DashboardDefinition
 }
 
+export interface DashboardManifest {
+  api_version: 'probectl.io/dashboard/v1'
+  kind: 'Dashboard'
+  metadata: { name: string }
+  spec: {
+    preset: DashboardPreset
+    shared: boolean
+    definition: Omit<DashboardDefinition, 'metrics'> & {
+      metrics: Array<{ name: string; value: string }>
+    }
+  }
+}
+
+export interface DashboardManifestPreview {
+  name: string
+  preset: DashboardPreset
+  shared: boolean
+  absolute_from: string
+  absolute_to: string
+  metric_count: number
+  provenance_count: number
+  coverage_limitation_count: number
+}
+
+export interface DashboardManifestImportResponse {
+  status: 'preview' | 'created'
+  manifest: DashboardManifest
+  preview: DashboardManifestPreview
+  dashboard?: DashboardView
+}
+
 export interface ReportDestination {
   id: string
   name: string
@@ -111,6 +142,22 @@ export function useCreateDashboard() {
     mutationFn: (input: DashboardCreateInput) =>
       apiFetch<DashboardView>('/dashboards', jsonInit('POST', input)),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['dashboards', 'saved'] }),
+  })
+}
+
+export function useImportDashboardManifest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { manifest: DashboardManifest; confirm: boolean }) =>
+      apiFetch<DashboardManifestImportResponse>(
+        '/dashboard-manifests/import',
+        jsonInit('POST', input),
+      ),
+    onSuccess: (result) => {
+      if (result.dashboard) {
+        void queryClient.invalidateQueries({ queryKey: ['dashboards', 'saved'] })
+      }
+    },
   })
 }
 

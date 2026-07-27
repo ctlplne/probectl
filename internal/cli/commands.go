@@ -7,11 +7,14 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -228,6 +231,90 @@ func cmdDashboardReport(cfg Config, args []string, stdout, stderr io.Writer) int
 		return fail(stderr, err)
 	}
 	return 0
+}
+
+const maxDashboardManifestInput = 64 << 10
+
+func cmdDashboard(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return cmdSurface(cfg, surfaceCommands["dashboard"], args, stdout, stderr)
+	}
+	switch args[0] {
+	case "export":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "dashboard export: missing <id>")
+			return 2
+		}
+		if len(args) > 2 {
+			fmt.Fprintf(stderr, "dashboard export: unexpected args: %s\n", strings.Join(args[2:], " "))
+			return 2
+		}
+		path := "/v1/dashboards/" + url.PathEscape(args[1]) + "/manifest"
+		if err := newClient(cfg).stream(http.MethodGet, path, nil, stdout); err != nil {
+			return fail(stderr, err)
+		}
+		return 0
+	case "import":
+		return dashboardManifestImport(cfg, args[1:], stdin, stdout, stderr)
+	default:
+		return cmdSurface(cfg, surfaceCommands["dashboard"], args, stdout, stderr)
+	}
+}
+
+func dashboardManifestImport(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("dashboard import", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	filename := fs.String("file", "-", "manifest path, or - for stdin")
+	confirm := fs.Bool("confirm", false, "create the dashboard after server validation; otherwise preview only")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if len(fs.Args()) > 0 {
+		fmt.Fprintf(stderr, "dashboard import: unexpected args: %s\n", strings.Join(fs.Args(), " "))
+		return 2
+	}
+
+	manifest, err := readDashboardManifest(*filename, stdin)
+	if err != nil {
+		fmt.Fprintln(stderr, "dashboard import: "+err.Error())
+		return 2
+	}
+	var out any
+	if err := newClient(cfg).do(http.MethodPost, "/v1/dashboard-manifests/import", map[string]any{
+		"manifest": json.RawMessage(manifest),
+		"confirm":  *confirm,
+	}, &out); err != nil {
+		return fail(stderr, err)
+	}
+	return printJSON(stdout, out)
+}
+
+func readDashboardManifest(filename string, stdin io.Reader) ([]byte, error) {
+	reader := stdin
+	var closeFile func() error
+	if filename != "-" {
+		file, err := os.Open(filename)
+		if err != nil {
+			return nil, fmt.Errorf("open %q: %w", filename, err)
+		}
+		reader = file
+		closeFile = file.Close
+	}
+	if closeFile != nil {
+		defer closeFile() //nolint:errcheck // the complete bounded read reports meaningful file errors
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, maxDashboardManifestInput+1))
+	if err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+	if len(data) > maxDashboardManifestInput {
+		return nil, fmt.Errorf("manifest exceeds %d-byte limit", maxDashboardManifestInput)
+	}
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '{' || !json.Valid(data) {
+		return nil, fmt.Errorf("manifest must be one valid JSON object")
+	}
+	return data, nil
 }
 
 func lifecycleExport(c *client, args []string, stdout, stderr io.Writer) int {

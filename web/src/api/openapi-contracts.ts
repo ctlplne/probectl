@@ -286,6 +286,13 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/dashboardReporting.ts',
+    method: 'POST',
+    path: '/dashboard-manifests/import',
+    response: 'DashboardManifestImportResponse',
+    generated: 'ImportDashboardManifestResponse',
+  },
+  {
+    file: 'api/dashboardReporting.ts',
     method: 'GET',
     path: '/dashboard-report-schedules',
     response: 'ScheduleList',

@@ -68,6 +68,12 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		if _, err := (DashboardReports{}).GetArtifact(ctx, sc, "artifact-a", "alice"); err != nil {
 			t.Fatalf("owner read A artifact: %v", err)
 		}
+		if _, err := (DashboardReports{}).CreateView(ctx, sc, DashboardViewInput{
+			ID: "manifest-imported-a", OwnerID: "alice", Name: "Imported A posture",
+			Preset: "operator", Shared: false, Definition: definition,
+		}); err != nil {
+			t.Fatalf("create manifest-imported A dashboard: %v", err)
+		}
 		if _, err := (DashboardReports{}).GetArtifact(ctx, sc, "artifact-a", "bob"); err != nil {
 			if apiErr, ok := apierror.As(err); !ok || apiErr.Kind != apierror.KindNotFound {
 				t.Fatalf("same-tenant private artifact read = %v, want NotFound", err)
@@ -86,6 +92,10 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		for name, get := range map[string]func() error{
 			"view": func() error {
 				_, err := (DashboardReports{}).GetView(ctx, sc, "view-a", "alice")
+				return err
+			},
+			"manifest-imported view": func() error {
+				_, err := (DashboardReports{}).GetView(ctx, sc, "manifest-imported-a", "alice")
 				return err
 			},
 			"artifact": func() error {

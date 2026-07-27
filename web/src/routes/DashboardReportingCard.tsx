@@ -11,13 +11,18 @@ import {
   useCreateReportSchedule,
   useDashboards,
   useGenerateDashboardReport,
+  useImportDashboardManifest,
   useReportArtifacts,
   useReportSchedules,
   type DashboardDefinition,
+  type DashboardManifest,
+  type DashboardManifestImportResponse,
   type DashboardPreset,
   type ReportCadence,
   type ReportFormat,
 } from '../api/dashboardReporting'
+import { apiURL } from '../api/client'
+import { useAuth } from '../auth/useAuth'
 import { Badge, Button, Card, CardBody, CardHeader, Field, Select, useToast } from '../components'
 import { DateTime } from '../time/DateTime'
 import styles from './dashboards.module.css'
@@ -30,6 +35,7 @@ export function DashboardReportingCard({
   definition: DashboardDefinition
 }) {
   const { push } = useToast()
+  const { permissions } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const dashboards = useDashboards()
   const schedules = useReportSchedules()
@@ -37,11 +43,14 @@ export function DashboardReportingCard({
   const createDashboard = useCreateDashboard()
   const createSchedule = useCreateReportSchedule()
   const generateReport = useGenerateDashboardReport()
+  const importDashboard = useImportDashboardManifest()
   const [name, setName] = useState('Cross-plane posture')
   const [shared, setShared] = useState(false)
   const [selectedID, setSelectedID] = useState('')
   const [format, setFormat] = useState<ReportFormat>('pdf')
   const [cadence, setCadence] = useState<ReportCadence>('weekly')
+  const [manifestText, setManifestText] = useState('')
+  const [manifestPreview, setManifestPreview] = useState<DashboardManifestImportResponse>()
 
   const views = dashboards.data?.items ?? []
   const requestedID = searchParams.get('view') ?? ''
@@ -51,6 +60,7 @@ export function DashboardReportingCard({
   const readyDestinations = (schedules.data?.destinations ?? []).filter((item) => item.ready)
   const destination = readyDestinations[0]
   const firstRun = useMemo(() => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), [])
+  const canWrite = permissions.includes('metrics.write')
 
   function selectView(id: string) {
     setSelectedID(id)
@@ -111,6 +121,54 @@ export function DashboardReportingCard({
     }
   }
 
+  function parseManifest(): DashboardManifest {
+    const parsed = JSON.parse(manifestText) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('The manifest must be one JSON object.')
+    }
+    return parsed as DashboardManifest
+  }
+
+  async function previewManifest() {
+    try {
+      const result = await importDashboard.mutateAsync({
+        manifest: parseManifest(),
+        confirm: false,
+      })
+      setManifestPreview(result)
+      setManifestText(JSON.stringify(result.manifest, null, 2))
+      push({
+        tone: 'success',
+        title: 'Manifest validated',
+        message: 'Review the normalized native dashboard below. Nothing has been created.',
+      })
+    } catch (error) {
+      setManifestPreview(undefined)
+      push({ tone: 'danger', title: 'Manifest preview failed', message: String(error) })
+    }
+  }
+
+  async function confirmManifestImport() {
+    if (!manifestPreview) return
+    try {
+      const result = await importDashboard.mutateAsync({
+        manifest: manifestPreview.manifest,
+        confirm: true,
+      })
+      if (!result.dashboard) throw new Error('The server did not return the created dashboard.')
+      setManifestPreview(undefined)
+      setManifestText(JSON.stringify(result.manifest, null, 2))
+      selectView(result.dashboard.id)
+      push({
+        tone: 'success',
+        title: 'Dashboard imported',
+        message: 'A new tenant-scoped dashboard was created under your authenticated identity.',
+      })
+    } catch (error) {
+      push({ tone: 'danger', title: 'Dashboard import failed', message: String(error) })
+    }
+  }
+
   const loading = dashboards.isLoading || schedules.isLoading || artifacts.isLoading
   const failed = dashboards.isError || schedules.isError || artifacts.isError
 
@@ -144,13 +202,14 @@ export function DashboardReportingCard({
               <input
                 type="checkbox"
                 checked={shared}
+                disabled={!canWrite}
                 onChange={(event) => setShared(event.target.checked)}
               />
               Share inside this tenant
             </label>
             <Button
               onClick={() => void save()}
-              disabled={!name.trim() || createDashboard.isPending || failed}
+              disabled={!canWrite || !name.trim() || createDashboard.isPending || failed}
             >
               {createDashboard.isPending ? 'Saving…' : 'Save dashboard'}
             </Button>
@@ -205,7 +264,9 @@ export function DashboardReportingCard({
               </Button>
               <Button
                 onClick={() => void scheduleReport()}
-                disabled={!activeID || !destination || createSchedule.isPending || failed}
+                disabled={
+                  !canWrite || !activeID || !destination || createSchedule.isPending || failed
+                }
               >
                 Schedule delivery
               </Button>
@@ -230,6 +291,82 @@ export function DashboardReportingCard({
               <span>{Object.keys(activeView.definition.metrics).length} exact values</span>
             </section>
           ) : null}
+
+          <section className={styles.manifestSection} aria-labelledby="dashboard-manifest-heading">
+            <div className={styles.manifestHeading}>
+              <div>
+                <h3 id="dashboard-manifest-heading">Native dashboard manifest</h3>
+                <p>
+                  Export a versioned, identity-free JSON recipe or validate one locally before an
+                  explicit import.
+                </p>
+              </div>
+              {activeID ? (
+                <a
+                  className={styles.manifestDownload}
+                  href={apiURL(`/dashboards/${encodeURIComponent(activeID)}/manifest`)}
+                  download="probectl-dashboard.json"
+                >
+                  Export manifest
+                </a>
+              ) : null}
+            </div>
+            {!canWrite ? (
+              <p className={styles.reportingEmpty}>
+                Read-only access: export is available, but saving and importing require
+                metrics.write.
+              </p>
+            ) : null}
+            <label className={styles.manifestField}>
+              <span>Manifest JSON</span>
+              <textarea
+                value={manifestText}
+                rows={9}
+                spellCheck={false}
+                placeholder='Paste a probectl.io/dashboard/v1 manifest, then choose "Preview import".'
+                onChange={(event) => {
+                  setManifestText(event.target.value)
+                  setManifestPreview(undefined)
+                }}
+              />
+            </label>
+            <div className={styles.reportActions}>
+              <Button
+                onClick={() => void previewManifest()}
+                disabled={!canWrite || !manifestText.trim() || importDashboard.isPending || failed}
+              >
+                {importDashboard.isPending ? 'Validating…' : 'Preview import'}
+              </Button>
+              {manifestPreview ? (
+                <Button
+                  variant="primary"
+                  onClick={() => void confirmManifestImport()}
+                  disabled={!canWrite || importDashboard.isPending}
+                >
+                  Confirm import
+                </Button>
+              ) : null}
+            </div>
+            {manifestPreview ? (
+              <section className={styles.manifestPreview} aria-label="Dashboard import preview">
+                <Badge tone="warning">preview only · not created</Badge>
+                <strong>{manifestPreview.preview.name}</strong>
+                <span>
+                  {manifestPreview.preview.preset} ·{' '}
+                  {manifestPreview.preview.shared ? 'shared in this tenant' : 'private'}
+                </span>
+                <span>
+                  <DateTime value={manifestPreview.preview.absolute_from} /> –{' '}
+                  <DateTime value={manifestPreview.preview.absolute_to} />
+                </span>
+                <span>{manifestPreview.preview.metric_count} exact values</span>
+                <span>
+                  {manifestPreview.preview.provenance_count} provenance ·{' '}
+                  {manifestPreview.preview.coverage_limitation_count} coverage notes
+                </span>
+              </section>
+            ) : null}
+          </section>
 
           <div className={styles.reportingLists}>
             <section aria-labelledby="report-schedules-heading">

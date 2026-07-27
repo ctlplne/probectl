@@ -292,7 +292,13 @@ function apiPayload(path, method, pagePath = "") {
       email: "operator@probectl.test",
       display_name: "Test Operator",
       mfa_satisfied: true,
-      permissions: ["incident.read", "incident.write", "ai.query"],
+      permissions: [
+        "incident.read",
+        "incident.write",
+        "ai.query",
+        "metrics.read",
+        "metrics.write",
+      ],
     });
   if (path === "/v1/tests") return json({ items: sampleTests });
   if (path === "/v1/agents")

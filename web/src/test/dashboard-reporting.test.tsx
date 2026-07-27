@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
@@ -17,6 +17,23 @@ describe('tenant-safe dashboard reporting', () => {
     const views: Array<Record<string, unknown>> = []
     const schedules: Array<Record<string, unknown>> = []
     const artifacts: Array<Record<string, unknown>> = []
+    const portableManifest = {
+      api_version: 'probectl.io/dashboard/v1',
+      kind: 'Dashboard',
+      metadata: { name: 'Imported fleet posture' },
+      spec: {
+        preset: 'operator',
+        shared: false,
+        definition: {
+          absolute_from: '2026-07-14T11:00:00Z',
+          absolute_to: '2026-07-14T12:00:00Z',
+          provenance: ['native control-plane APIs'],
+          redaction_state: 'secrets removed',
+          coverage_limitations: ['offline collectors omitted'],
+          metrics: [{ name: 'Active tests', value: '7' }],
+        },
+      },
+    }
 
     vi.stubGlobal(
       'fetch',
@@ -41,6 +58,42 @@ describe('tenant-safe dashboard reporting', () => {
             return jsonResponse(view, 201)
           }
           return jsonResponse({ items: views })
+        }
+        if (path === '/v1/dashboard-manifests/import' && method === 'POST') {
+          const confirm = body?.confirm === true
+          const response: Record<string, unknown> = {
+            status: confirm ? 'created' : 'preview',
+            manifest: portableManifest,
+            preview: {
+              name: 'Imported fleet posture',
+              preset: 'operator',
+              shared: false,
+              absolute_from: '2026-07-14T11:00:00Z',
+              absolute_to: '2026-07-14T12:00:00Z',
+              metric_count: 1,
+              provenance_count: 1,
+              coverage_limitation_count: 1,
+            },
+          }
+          if (confirm) {
+            const imported = {
+              id: 'view-imported',
+              tenant_id: '00000000-0000-0000-0000-000000000001',
+              owner_id: 'u_test',
+              name: 'Imported fleet posture',
+              preset: 'operator',
+              shared: false,
+              definition: {
+                ...portableManifest.spec.definition,
+                metrics: { 'Active tests': '7' },
+              },
+              created_at: '2026-07-14T12:02:00Z',
+              updated_at: '2026-07-14T12:02:00Z',
+            }
+            views.push(imported)
+            response.dashboard = imported
+          }
+          return jsonResponse(response, confirm ? 201 : 200)
         }
         if (path === '/v1/dashboard-report-schedules') {
           if (method === 'POST') {
@@ -95,7 +148,7 @@ describe('tenant-safe dashboard reporting', () => {
       }),
     )
 
-    renderApp('/dashboards')
+    renderApp('/dashboards', { me: { permissions: ['metrics.read', 'metrics.write'] } })
     const user = userEvent.setup()
     const scope = await screen.findByRole('region', { name: /dashboard scope and preset/i })
     expect(within(scope).getByText('Acme Industries')).toBeInTheDocument()
@@ -133,6 +186,10 @@ describe('tenant-safe dashboard reporting', () => {
       coverage_limitations: expect.any(Array),
       metrics: expect.objectContaining({ 'Active tests': '1' }),
     })
+    expect(screen.getByRole('link', { name: /export manifest/i })).toHaveAttribute(
+      'href',
+      '/v1/dashboards/view-1/manifest',
+    )
 
     await user.click(screen.getByRole('button', { name: /generate pdf/i }))
     expect(await screen.findByRole('link', { name: 'cross-plane-posture.pdf' })).toHaveAttribute(
@@ -151,6 +208,33 @@ describe('tenant-safe dashboard reporting', () => {
       cadence: 'weekly',
       destination_id: 'tenant-report-inbox',
     })
+
+    expect(screen.queryByRole('button', { name: /confirm import/i })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: /manifest json/i }), {
+      target: { value: JSON.stringify(portableManifest) },
+    })
+    await user.click(screen.getByRole('button', { name: /preview import/i }))
+    const preview = await screen.findByRole('region', { name: /dashboard import preview/i })
+    expect(preview).toHaveTextContent('preview only · not created')
+    expect(preview).toHaveTextContent('Imported fleet posture')
+    const previewRequest = requests.find(
+      (request) =>
+        request.path === '/v1/dashboard-manifests/import' && request.body?.confirm === false,
+    )
+    expect(previewRequest?.body).not.toHaveProperty('tenant_id')
+    expect(
+      views.some((view) => view.id === 'view-imported'),
+      'preview must not create a dashboard',
+    ).toBe(false)
+    await user.click(screen.getByRole('button', { name: /confirm import/i }))
+    await screen.findByText(/a new tenant-scoped dashboard was created/i)
+    expect(
+      requests.some(
+        (request) =>
+          request.path === '/v1/dashboard-manifests/import' && request.body?.confirm === true,
+      ),
+    ).toBe(true)
+
     expect(
       requests.every((request) => request.path.startsWith('/v1/') || request.path === '/branding'),
     ).toBe(true)
@@ -194,6 +278,13 @@ describe('tenant-safe dashboard reporting', () => {
     expect(snapshot).toHaveTextContent('Executive weekly evidence')
     expect(snapshot).toHaveTextContent('executive preset')
     expect(snapshot).toHaveTextContent('2 exact values')
+    expect(screen.getByRole('button', { name: /save dashboard/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /preview import/i })).toBeDisabled()
+    expect(screen.getByText(/read-only access: export is available/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /export manifest/i })).toHaveAttribute(
+      'href',
+      '/v1/dashboards/view-shared/manifest',
+    )
     expect(screen.queryByRole('alert', { name: /unavailable/i })).not.toBeInTheDocument()
   })
 })

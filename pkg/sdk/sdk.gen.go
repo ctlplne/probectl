@@ -415,6 +415,60 @@ type DashboardDefinition struct {
 	RedactionState      string            `json:"redaction_state"`
 }
 
+type DashboardManifest struct {
+	ApiVersion string                    `json:"api_version"`
+	Kind       string                    `json:"kind"`
+	Metadata   DashboardManifestMetadata `json:"metadata"`
+	Spec       DashboardManifestSpec     `json:"spec"`
+}
+
+type DashboardManifestDefinition struct {
+	AbsoluteFrom        string                    `json:"absolute_from"`
+	AbsoluteTo          string                    `json:"absolute_to"`
+	CoverageLimitations []string                  `json:"coverage_limitations"`
+	Metrics             []DashboardManifestMetric `json:"metrics"`
+	Provenance          []string                  `json:"provenance"`
+	RedactionState      string                    `json:"redaction_state"`
+}
+
+type DashboardManifestImportRequest struct {
+	Confirm  bool              `json:"confirm"`
+	Manifest DashboardManifest `json:"manifest"`
+}
+
+type DashboardManifestImportResponse struct {
+	Dashboard DashboardView            `json:"dashboard,omitempty"`
+	Manifest  DashboardManifest        `json:"manifest"`
+	Preview   DashboardManifestPreview `json:"preview"`
+	Status    string                   `json:"status"`
+}
+
+type DashboardManifestMetadata struct {
+	Name string `json:"name"`
+}
+
+type DashboardManifestMetric struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type DashboardManifestPreview struct {
+	AbsoluteFrom            string `json:"absolute_from"`
+	AbsoluteTo              string `json:"absolute_to"`
+	CoverageLimitationCount int    `json:"coverage_limitation_count"`
+	MetricCount             int    `json:"metric_count"`
+	Name                    string `json:"name"`
+	Preset                  string `json:"preset"`
+	ProvenanceCount         int    `json:"provenance_count"`
+	Shared                  bool   `json:"shared"`
+}
+
+type DashboardManifestSpec struct {
+	Definition DashboardManifestDefinition `json:"definition"`
+	Preset     string                      `json:"preset"`
+	Shared     bool                        `json:"shared"`
+}
+
 type DashboardReportArtifact struct {
 	AbsoluteFrom        string   `json:"absolute_from"`
 	AbsoluteTo          string   `json:"absolute_to"`
@@ -2125,6 +2179,21 @@ func (c *Client) ListVantageCoverage(ctx context.Context, req ListVantageCoverag
 	return &out, nil
 }
 
+// Preview or explicitly confirm a native dashboard manifest import
+type ImportDashboardManifestRequest struct {
+	Body *DashboardManifestImportRequest `json:"-"`
+}
+
+func (c *Client) ImportDashboardManifest(ctx context.Context, req ImportDashboardManifestRequest) (*DashboardManifestImportResponse, error) {
+	path := "/v1/dashboard-manifests/import"
+	query := url.Values{}
+	var out DashboardManifestImportResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List generated artifacts in the caller tenant's report inbox
 type ListDashboardReportArtifactsRequest struct {
 }
@@ -2240,6 +2309,25 @@ func (c *Client) GetDashboard(ctx context.Context, req GetDashboardRequest) (*Da
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out DashboardView
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Export a deterministic redacted native dashboard manifest
+type ExportDashboardManifestRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ExportDashboardManifest(ctx context.Context, req ExportDashboardManifestRequest) (*DashboardManifest, error) {
+	path := "/v1/dashboards/{id}/manifest"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out DashboardManifest
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

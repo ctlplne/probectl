@@ -11,6 +11,15 @@ authorized browser saw, provenance, redaction state, and known blind spots. A
 report renderer can turn that card into PDF or CSV without contacting another
 service.
 
+The portable manifest is a deliberately smaller recipe card. Its stable
+`probectl.io/dashboard/v1` document contains only the name, preset, same-tenant
+sharing choice, bounded absolute interval, disclosure notes, and exact metric
+name/value pairs. It cannot carry a tenant ID, owner ID, dashboard ID,
+credential, storage locator, or creation/update timestamp. The bounded
+`absolute_from` / `absolute_to` observation interval remains part of the recipe.
+Export removes known tenant/owner identifiers and applies the native telemetry
+secret/PII redactor before bytes leave the API.
+
 ## Scope shown in every view and artifact
 
 The page keeps these facts visible above the panels:
@@ -36,19 +45,38 @@ checking RBAC. The browser never sends `tenant_id`.
 | `GET /v1/dashboards`                      | `metrics.read`                   | List views owned by the caller or shared inside this tenant |
 | `POST /v1/dashboards`                     | `metrics.write`                  | Save a bounded dashboard definition                         |
 | `GET /v1/dashboards/{id}`                 | `metrics.read`                   | Read an owned/shared view; foreign IDs look missing         |
+| `GET /v1/dashboards/{id}/manifest`        | `metrics.read`                   | Export a deterministic, redacted native JSON manifest       |
+| `POST /v1/dashboard-manifests/import`     | `metrics.write`                  | Preview or explicitly confirm a strictly validated import   |
 | `GET/POST /v1/dashboard-report-schedules` | `metrics.read` / `metrics.write` | Inspect configured destinations or create a schedule        |
 | `POST /v1/dashboard-reports`              | `metrics.read`                   | Generate a PDF/CSV artifact in the tenant inbox             |
 | `GET /v1/dashboard-report-artifacts`      | `metrics.read`                   | List artifact metadata without loading binary bodies        |
 | `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read`                   | Audited artifact download                                   |
 
-Malformed JSON is `400`; semantically invalid input is `422`. A missing,
-private, or cross-tenant object is the same `404` shape (apart from the unique
-request ID), so an identifier cannot be used to discover another tenant's
-objects.
+Malformed or unknown-field JSON is `400`; a manifest over 64 KiB is `413`;
+semantically invalid bounds, duplicate metric names, kinds, or versions are
+`422`. A missing, private, or cross-tenant object is the same `404` shape
+(apart from the unique request ID), so an identifier cannot be used to
+discover another tenant's objects.
+
+Import is two-step:
+
+1. Send `confirm: false`. The server validates every bound, runs redaction
+   again, returns the canonical manifest plus a preview, and creates no row.
+2. After a human reviews that preview, send its returned manifest with
+   `confirm: true`. The server generates a fresh ID and derives tenant and owner
+   from the authenticated request before the forced-RLS insert.
+
+The preview is intentionally stateless. There is no import staging table,
+background service, external dashboard engine, or outbound call.
 
 The same operations are available from the terminal surface:
 
 - `probectl dashboard list|create|get` manages saved views;
+- `probectl dashboard export <id> > dashboard.json` writes the redacted native
+  manifest to standard output;
+- `probectl dashboard import --file dashboard.json` previews without creating;
+- `probectl dashboard import --file - --confirm < dashboard.json` explicitly
+  creates after validation;
 - `probectl dashboard-report schedules|create-schedule|generate|artifacts`
   manages the local report inbox; and
 - `probectl dashboard-report download <id>` streams the audited PDF/CSV bytes to
@@ -112,6 +140,8 @@ Save a new view when the intended observation interval changes.
 The tenant hash chain records:
 
 - `dashboard.save`;
+- `dashboard.manifest_export`;
+- `dashboard.manifest_import` with `confirmed: false|true`;
 - `dashboard.report_schedule`;
 - `dashboard.report_export`;
 - `dashboard.report_delivery` (actor `probectl-report-scheduler`);
@@ -128,11 +158,14 @@ npm test -- src/test/dashboards.test.tsx src/test/dashboard-reporting.test.tsx
 
 cd ..
 GOCACHE=/private/tmp/probectl-gocache go test ./internal/control ./internal/store \
-  -run 'Test.*Dashboard.*Tenant|Test.*Report.*Tenant|Test.*Export.*Audit' -count=1
+  -run 'Test.*Dashboard.*Tenant|Test.*DashboardManifest|Test.*Report.*Tenant|Test.*Export.*Audit' -count=1
+
+GOCACHE=/private/tmp/probectl-gocache go test ./internal/cli \
+  -run 'TestCLIDashboardManifest' -count=1
 
 PROBECTL_DATABASE_URL='postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable' \
 GOCACHE=/private/tmp/probectl-gocache go test -tags=integration ./internal/control ./internal/store \
-  -run 'TestDashboardExportAuditAndTenantIsolation|TestDashboardReportTenantIsolation' -count=1
+  -run 'TestDashboardManifestRoundTripAndTenantIsolation|TestDashboardExportAuditAndTenantIsolation|TestDashboardReportTenantIsolation' -count=1
 ```
 
 If scheduled delivery stops, check the singleton coordinator and search the

@@ -154,6 +154,7 @@ var auditExportRoutes = map[string]bool{
 	"GET /v1/topology/whatif/export":          true,
 	"POST /v1/dashboard-reports":              true,
 	"GET /v1/dashboard-report-artifacts/{id}": true,
+	"GET /v1/dashboards/{id}/manifest":        true,
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
@@ -203,6 +204,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/dashboards":                          auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/dashboards":                         auditExplicit(auditFacetMutation, "dashboard.save"),
 	"GET /v1/dashboards/{id}":                     auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/dashboards/{id}/manifest":            auditExplicit(auditFacetExport, "dashboard.manifest_export"),
+	"POST /v1/dashboard-manifests/import":         auditExplicit(auditFacetMutation, "dashboard.manifest_import"),
 	"GET /v1/dashboard-report-schedules":          auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/dashboard-report-schedules":         auditExplicit(auditFacetMutation, "dashboard.report_schedule"),
 	"POST /v1/dashboard-reports":                  auditExplicit(auditFacetExport, "dashboard.report_export"),

@@ -190,6 +190,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/dashboards", s.handleListDashboards, permMetricsRead},
 		{http.MethodPost, "/v1/dashboards", s.handleCreateDashboard, permMetricsWrite},
 		{http.MethodGet, "/v1/dashboards/{id}", s.handleGetDashboard, permMetricsRead},
+		{http.MethodGet, "/v1/dashboards/{id}/manifest", s.handleExportDashboardManifest, permMetricsRead},
+		{http.MethodPost, "/v1/dashboard-manifests/import", s.handleImportDashboardManifest, permMetricsWrite},
 		{http.MethodGet, "/v1/dashboard-report-schedules", s.handleListReportSchedules, permMetricsRead},
 		{http.MethodPost, "/v1/dashboard-report-schedules", s.handleCreateReportSchedule, permMetricsWrite},
 		{http.MethodPost, "/v1/dashboard-reports", s.handleGenerateDashboardReport, permMetricsRead},

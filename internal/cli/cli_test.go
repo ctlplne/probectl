@@ -290,6 +290,8 @@ func TestCLIDashboardAndReportSurfacesMapEveryOperation(t *testing.T) {
 			"list":   {Method: http.MethodGet, Path: "/v1/dashboards"},
 			"create": {Method: http.MethodPost, Path: "/v1/dashboards"},
 			"get":    {Method: http.MethodGet, Path: "/v1/dashboards/{id}", ArgName: "id"},
+			"export": {Method: http.MethodGet, Path: "/v1/dashboards/{id}/manifest", ArgName: "id"},
+			"import": {Method: http.MethodPost, Path: "/v1/dashboard-manifests/import"},
 		},
 		"dashboard-report": {
 			"schedules":       {Method: http.MethodGet, Path: "/v1/dashboard-report-schedules"},
@@ -313,6 +315,102 @@ func TestCLIDashboardAndReportSurfacesMapEveryOperation(t *testing.T) {
 				t.Fatalf("%s %s = %+v, want %+v", group, name, got, want)
 			}
 		}
+	}
+}
+
+func TestCLIDashboardManifestUsesStdoutStdinAndExplicitConfirmation(t *testing.T) {
+	manifest := `{"api_version":"probectl.io/dashboard/v1","kind":"Dashboard","metadata":{"name":"Fleet"},"spec":{"preset":"operator","shared":false,"definition":{"absolute_from":"2026-07-26T10:00:00Z","absolute_to":"2026-07-26T11:00:00Z","provenance":["native"],"redaction_state":"redacted","coverage_limitations":["bounded"],"metrics":[]}}}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/dashboards/{id}/manifest", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.PathValue("id"); got != "view/one" {
+			t.Fatalf("dashboard id = %q", got)
+		}
+		if got := r.Header.Get("X-Probectl-Tenant"); got != "tenant-a" {
+			t.Fatalf("tenant header = %q", got)
+		}
+		_, _ = w.Write([]byte(manifest))
+	})
+	var confirms []bool
+	mux.HandleFunc("POST /v1/dashboard-manifests/import", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Manifest json.RawMessage `json:"manifest"`
+			Confirm  bool            `json:"confirm"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if string(body.Manifest) != manifest {
+			t.Fatalf("manifest changed in transit:\n%s", body.Manifest)
+		}
+		confirms = append(confirms, body.Confirm)
+		status := "preview"
+		if body.Confirm {
+			status = "created"
+			w.WriteHeader(http.StatusCreated)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": status})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	env := func(key string) string {
+		if key == "PROBECTL_API_URL" {
+			return srv.URL
+		}
+		return ""
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := RunWithStdin(
+		[]string{"--tenant", "tenant-a", "dashboard", "export", "view/one"},
+		env, strings.NewReader(""), &stdout, &stderr,
+	)
+	if code != 0 || stdout.String() != manifest {
+		t.Fatalf("export code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunWithStdin(
+		[]string{"dashboard", "import", "--file", "-"},
+		env, strings.NewReader(manifest), &stdout, &stderr,
+	)
+	if code != 0 || !strings.Contains(stdout.String(), `"status": "preview"`) {
+		t.Fatalf("preview code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunWithStdin(
+		[]string{"dashboard", "import", "--confirm"},
+		env, strings.NewReader(manifest), &stdout, &stderr,
+	)
+	if code != 0 || !strings.Contains(stdout.String(), `"status": "created"`) {
+		t.Fatalf("confirm code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if len(confirms) != 2 || confirms[0] || !confirms[1] {
+		t.Fatalf("confirmation sequence = %v", confirms)
+	}
+}
+
+func TestCLIDashboardManifestRejectsMalformedAndOversizeInputBeforeRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{name: "malformed", input: `{"api_version":`},
+		{name: "oversize", input: "{" + strings.Repeat("x", maxDashboardManifestInput)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := RunWithStdin(
+				[]string{"dashboard", "import"},
+				func(string) string { return "http://127.0.0.1:1" },
+				strings.NewReader(tc.input), &stdout, &stderr,
+			)
+			if code != 2 || !strings.Contains(stderr.String(), "dashboard import:") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+		})
 	}
 }
 

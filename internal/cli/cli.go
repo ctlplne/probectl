@@ -34,6 +34,13 @@ type Config struct {
 // with respect to its arguments, environment accessor, and writers, so it is
 // straightforward to test.
 func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	return RunWithStdin(args, getenv, bytes.NewReader(nil), stdout, stderr)
+}
+
+// RunWithStdin is Run with an explicit input stream. Dashboard manifest import
+// uses it for Unix-friendly pipelines while Run remains source-compatible for
+// embedders and existing tests.
+func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cfg := Config{
 		BaseURL: envOr(getenv, "PROBECTL_API_URL", "https://localhost:8443"),
 		Token:   getenv("PROBECTL_API_TOKEN"),
@@ -74,6 +81,8 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return cmdLifecycle(cfg, rest[1:], stdout, stderr)
 	case "dashboard-report":
 		return cmdDashboardReport(cfg, rest[1:], stdout, stderr)
+	case "dashboard":
+		return cmdDashboard(cfg, rest[1:], stdin, stdout, stderr)
 	case "api":
 		return cmdAPI(cfg, rest[1:], stdout, stderr)
 	default:

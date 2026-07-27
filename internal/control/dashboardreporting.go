@@ -12,21 +12,26 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/reporting"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 const (
-	reportInboxDestination = "tenant-report-inbox"
-	maxReportMetrics       = 100
-	maxReportDisclosure    = 20
+	reportInboxDestination    = "tenant-report-inbox"
+	dashboardManifestVersion  = "probectl.io/dashboard/v1"
+	dashboardManifestKind     = "Dashboard"
+	maxDashboardManifestBytes = 64 << 10
+	maxReportMetrics          = 100
+	maxReportDisclosure       = 20
 )
 
 type dashboardDefinition struct {
@@ -43,6 +48,63 @@ type dashboardCreateRequest struct {
 	Preset     string              `json:"preset"`
 	Shared     bool                `json:"shared"`
 	Definition dashboardDefinition `json:"definition"`
+}
+
+// dashboardManifest is the stable, portable representation of a native saved
+// dashboard. Identity and storage fields are absent by construction: the
+// importing server derives tenant, owner, id, and timestamps.
+type dashboardManifest struct {
+	APIVersion string                    `json:"api_version"`
+	Kind       string                    `json:"kind"`
+	Metadata   dashboardManifestMetadata `json:"metadata"`
+	Spec       dashboardManifestSpec     `json:"spec"`
+}
+
+type dashboardManifestMetadata struct {
+	Name string `json:"name"`
+}
+
+type dashboardManifestSpec struct {
+	Preset     string                      `json:"preset"`
+	Shared     bool                        `json:"shared"`
+	Definition dashboardManifestDefinition `json:"definition"`
+}
+
+type dashboardManifestDefinition struct {
+	AbsoluteFrom        time.Time                 `json:"absolute_from"`
+	AbsoluteTo          time.Time                 `json:"absolute_to"`
+	Provenance          []string                  `json:"provenance"`
+	RedactionState      string                    `json:"redaction_state"`
+	CoverageLimitations []string                  `json:"coverage_limitations"`
+	Metrics             []dashboardManifestMetric `json:"metrics"`
+}
+
+type dashboardManifestMetric struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type dashboardManifestImportRequest struct {
+	Manifest dashboardManifest `json:"manifest"`
+	Confirm  bool              `json:"confirm"`
+}
+
+type dashboardManifestPreview struct {
+	Name                    string    `json:"name"`
+	Preset                  string    `json:"preset"`
+	Shared                  bool      `json:"shared"`
+	AbsoluteFrom            time.Time `json:"absolute_from"`
+	AbsoluteTo              time.Time `json:"absolute_to"`
+	MetricCount             int       `json:"metric_count"`
+	ProvenanceCount         int       `json:"provenance_count"`
+	CoverageLimitationCount int       `json:"coverage_limitation_count"`
+}
+
+type dashboardManifestImportResponse struct {
+	Status    string                   `json:"status"`
+	Manifest  dashboardManifest        `json:"manifest"`
+	Preview   dashboardManifestPreview `json:"preview"`
+	Dashboard *store.DashboardView     `json:"dashboard,omitempty"`
 }
 
 type reportScheduleCreateRequest struct {
@@ -158,6 +220,136 @@ func cleanDisclosure(values *[]string, field string) error {
 	return nil
 }
 
+func dashboardManifestToCreate(manifest dashboardManifest) (dashboardCreateRequest, error) {
+	if manifest.APIVersion != dashboardManifestVersion {
+		return dashboardCreateRequest{}, apierror.Validation(
+			"unsupported dashboard manifest api_version; expected " + dashboardManifestVersion,
+		)
+	}
+	if manifest.Kind != dashboardManifestKind {
+		return dashboardCreateRequest{}, apierror.Validation("dashboard manifest kind must be Dashboard")
+	}
+	if len(manifest.Spec.Definition.Metrics) > maxReportMetrics {
+		return dashboardCreateRequest{}, apierror.Validation("dashboard definition may contain at most 100 exact metrics")
+	}
+	metrics := make(map[string]string, len(manifest.Spec.Definition.Metrics))
+	for _, metric := range manifest.Spec.Definition.Metrics {
+		name := strings.TrimSpace(metric.Name)
+		if _, exists := metrics[name]; exists {
+			return dashboardCreateRequest{}, apierror.Validation("dashboard manifest metric names must be unique")
+		}
+		metrics[name] = metric.Value
+	}
+	return cleanDashboardCreate(dashboardCreateRequest{
+		Name:   manifest.Metadata.Name,
+		Preset: manifest.Spec.Preset,
+		Shared: manifest.Spec.Shared,
+		Definition: dashboardDefinition{
+			AbsoluteFrom:        manifest.Spec.Definition.AbsoluteFrom,
+			AbsoluteTo:          manifest.Spec.Definition.AbsoluteTo,
+			Provenance:          manifest.Spec.Definition.Provenance,
+			RedactionState:      manifest.Spec.Definition.RedactionState,
+			CoverageLimitations: manifest.Spec.Definition.CoverageLimitations,
+			Metrics:             metrics,
+		},
+	})
+}
+
+func dashboardCreateToManifest(req dashboardCreateRequest) dashboardManifest {
+	names := make([]string, 0, len(req.Definition.Metrics))
+	for name := range req.Definition.Metrics {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	metrics := make([]dashboardManifestMetric, 0, len(names))
+	for _, name := range names {
+		metrics = append(metrics, dashboardManifestMetric{Name: name, Value: req.Definition.Metrics[name]})
+	}
+	return dashboardManifest{
+		APIVersion: dashboardManifestVersion,
+		Kind:       dashboardManifestKind,
+		Metadata:   dashboardManifestMetadata{Name: req.Name},
+		Spec: dashboardManifestSpec{
+			Preset: req.Preset,
+			Shared: req.Shared,
+			Definition: dashboardManifestDefinition{
+				AbsoluteFrom:        req.Definition.AbsoluteFrom,
+				AbsoluteTo:          req.Definition.AbsoluteTo,
+				Provenance:          req.Definition.Provenance,
+				RedactionState:      req.Definition.RedactionState,
+				CoverageLimitations: req.Definition.CoverageLimitations,
+				Metrics:             metrics,
+			},
+		},
+	}
+}
+
+func sanitizeDashboardCreate(req dashboardCreateRequest, identities ...string) (dashboardCreateRequest, error) {
+	policy := govern.DefaultPIIPolicy()
+	sanitizeText := func(value string) string {
+		for _, identity := range identities {
+			if identity != "" {
+				value = strings.ReplaceAll(value, identity, "[redacted]")
+			}
+		}
+		return govern.RedactTelemetryText(policy, value)
+	}
+	req.Name = sanitizeText(req.Name)
+	req.Definition.RedactionState = sanitizeText(req.Definition.RedactionState)
+	for i := range req.Definition.Provenance {
+		req.Definition.Provenance[i] = sanitizeText(req.Definition.Provenance[i])
+	}
+	for i := range req.Definition.CoverageLimitations {
+		req.Definition.CoverageLimitations[i] = sanitizeText(req.Definition.CoverageLimitations[i])
+	}
+	metrics := make(map[string]string, len(req.Definition.Metrics))
+	names := make([]string, 0, len(req.Definition.Metrics))
+	for name := range req.Definition.Metrics {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		cleanName := sanitizeText(name)
+		if _, exists := metrics[cleanName]; exists {
+			return req, apierror.Validation("dashboard metric names collide after identity redaction")
+		}
+		metrics[cleanName] = govern.RedactTelemetryAttribute(policy, cleanName, sanitizeText(req.Definition.Metrics[name]))
+	}
+	req.Definition.Metrics = metrics
+	return cleanDashboardCreate(req)
+}
+
+func dashboardManifestPreviewFor(req dashboardCreateRequest) dashboardManifestPreview {
+	return dashboardManifestPreview{
+		Name:                    req.Name,
+		Preset:                  req.Preset,
+		Shared:                  req.Shared,
+		AbsoluteFrom:            req.Definition.AbsoluteFrom,
+		AbsoluteTo:              req.Definition.AbsoluteTo,
+		MetricCount:             len(req.Definition.Metrics),
+		ProvenanceCount:         len(req.Definition.Provenance),
+		CoverageLimitationCount: len(req.Definition.CoverageLimitations),
+	}
+}
+
+func dashboardManifestFromView(view *store.DashboardView) (dashboardManifest, error) {
+	var definition dashboardDefinition
+	if err := json.Unmarshal(view.Definition, &definition); err != nil {
+		return dashboardManifest{}, apierror.Internal("stored dashboard definition is invalid").Wrap(err)
+	}
+	clean, err := cleanDashboardCreate(dashboardCreateRequest{
+		Name: view.Name, Preset: view.Preset, Shared: view.Shared, Definition: definition,
+	})
+	if err != nil {
+		return dashboardManifest{}, apierror.Internal("stored dashboard definition is invalid").Wrap(err)
+	}
+	clean, err = sanitizeDashboardCreate(clean, view.TenantID, view.OwnerID)
+	if err != nil {
+		return dashboardManifest{}, err
+	}
+	return dashboardCreateToManifest(clean), nil
+}
+
 func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) error {
 	var req dashboardCreateRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -222,6 +414,89 @@ func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 	writeJSON(w, http.StatusOK, view)
+	return nil
+}
+
+func (s *Server) handleExportDashboardManifest(w http.ResponseWriter, r *http.Request) error {
+	var manifest dashboardManifest
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		view, err := (store.DashboardReports{}).GetView(ctx, sc, r.PathValue("id"), dashboardActorID(r))
+		if err != nil {
+			return err
+		}
+		manifest, err = dashboardManifestFromView(view)
+		if err != nil {
+			return err
+		}
+		return s.recordAudit(ctx, sc, r, "dashboard.manifest_export", view.ID, map[string]any{
+			"api_version": dashboardManifestVersion,
+			"shared":      view.Shared,
+		})
+	}); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="probectl-dashboard.json"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	writeJSON(w, http.StatusOK, manifest)
+	return nil
+}
+
+func (s *Server) handleImportDashboardManifest(w http.ResponseWriter, r *http.Request) error {
+	var body dashboardManifestImportRequest
+	if err := decodeJSONLimit(r, maxDashboardManifestBytes, &body); err != nil {
+		return err
+	}
+	clean, err := dashboardManifestToCreate(body.Manifest)
+	if err != nil {
+		return err
+	}
+
+	var response dashboardManifestImportResponse
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		sanitized, err := sanitizeDashboardCreate(clean, sc.Tenant.String(), dashboardActorID(r))
+		if err != nil {
+			return err
+		}
+		response = dashboardManifestImportResponse{
+			Status:   "preview",
+			Manifest: dashboardCreateToManifest(sanitized),
+			Preview:  dashboardManifestPreviewFor(sanitized),
+		}
+		target := "dashboard-manifest-preview"
+		if body.Confirm {
+			id, err := crypto.UUIDv4()
+			if err != nil {
+				return apierror.Internal("could not generate dashboard id").Wrap(err)
+			}
+			definition, err := json.Marshal(sanitized.Definition)
+			if err != nil {
+				return err
+			}
+			created, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{
+				ID: id, OwnerID: dashboardActorID(r), Name: sanitized.Name, Preset: sanitized.Preset,
+				Shared: sanitized.Shared, Definition: definition,
+			})
+			if err != nil {
+				return err
+			}
+			response.Status = "created"
+			response.Dashboard = created
+			target = id
+		}
+		return s.recordAudit(ctx, sc, r, "dashboard.manifest_import", target, map[string]any{
+			"api_version": dashboardManifestVersion,
+			"confirmed":   body.Confirm,
+			"shared":      sanitized.Shared,
+		})
+	}); err != nil {
+		return err
+	}
+	status := http.StatusOK
+	if body.Confirm {
+		status = http.StatusCreated
+		w.Header().Set("Location", "/v1/dashboards/"+response.Dashboard.ID)
+	}
+	writeJSON(w, status, response)
 	return nil
 }
 
