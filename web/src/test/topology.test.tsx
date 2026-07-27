@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { renderApp } from './renderApp'
@@ -171,8 +171,10 @@ describe('topology + what-if (S43)', () => {
     expect(within(table).getByRole('button', { name: 'api' })).toBeInTheDocument()
     expect(within(table).queryByRole('button', { name: 'db' })).toBeNull()
 
-    await userEvent.clear(screen.getByLabelText(/search topology/i))
-    await userEvent.type(screen.getByLabelText(/search topology/i), 'probe-1')
+    const search = screen.getByLabelText(/search topology/i)
+    fireEvent.change(search, { target: { value: 'probe-1' } })
+    expect(search).toHaveValue('probe-1')
+    expect(within(table).getByRole('button', { name: 'api' })).toBeInTheDocument()
     await waitFor(() => {
       const updatedTable = screen.getByRole('table', { name: /topology nodes/i })
       expect(within(updatedTable).queryByRole('button', { name: 'api' })).toBeNull()

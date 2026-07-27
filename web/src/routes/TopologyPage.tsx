@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './topology.module.css'
 import { Page } from './RoutePage'
@@ -65,8 +65,7 @@ export function TopologyPage() {
   const linkedIncident = useIncident(pivotContext.incidentId)
   const whatIf = useWhatIf()
   const autoPreviewed = useRef('')
-  const urlQuery = filterValue(params, 'topo_q', pivotContext.filters.topo_q ?? '')
-  const [query, setQuery] = useState(urlQuery)
+  const query = filterValue(params, 'topo_q', pivotContext.filters.topo_q ?? '')
   const kind = filterValue(params, 'topo_kind', pivotContext.filters.topo_kind ?? 'all')
   const site = filterValue(params, 'topo_site', pivotContext.filters.topo_site ?? 'all')
   const tag = filterValue(params, 'topo_tag', pivotContext.filters.topo_tag ?? 'all')
@@ -110,10 +109,13 @@ export function TopologyPage() {
     () => ({ topo_q: query, topo_kind: kind, topo_site: site, topo_tag: tag }),
     [kind, query, site, tag],
   )
-  const setFilter = (patch: Record<string, string>) =>
-    setParams(topologySearchParams(params, pivotContext, { ...currentFilters, ...patch }), {
-      replace: true,
-    })
+  const setFilter = useCallback(
+    (patch: Record<string, string>) =>
+      setParams(topologySearchParams(params, pivotContext, { ...currentFilters, ...patch }), {
+        replace: true,
+      }),
+    [currentFilters, params, pivotContext, setParams],
+  )
   const savedFilters = activeFiltersForSave(currentFilters, TOPOLOGY_FILTER_DEFAULTS)
   const activeFilterCount = Object.keys(savedFilters).length
 
@@ -147,18 +149,6 @@ export function TopologyPage() {
     selected,
     setParams,
   ])
-
-  useEffect(() => {
-    setQuery(urlQuery)
-  }, [urlQuery])
-
-  useEffect(() => {
-    if (query === urlQuery) return undefined
-    const handle = window.setTimeout(() => {
-      setParams(topologySearchParams(params, pivotContext, currentFilters), { replace: true })
-    }, 250)
-    return () => window.clearTimeout(handle)
-  }, [currentFilters, params, pivotContext, query, setParams, urlQuery])
 
   useEffect(() => {
     const nextAt = topologyTime(params, pivotContext)
@@ -249,7 +239,7 @@ export function TopologyPage() {
             siteOptions={siteOptions}
             tagOptions={tagOptions}
             filters={savedFilters}
-            onQueryChange={setQuery}
+            onQueryChange={(nextQuery) => setFilter({ topo_q: nextQuery })}
             onChange={setFilter}
             onApply={(filters) =>
               setParams(
@@ -518,12 +508,24 @@ function TopologyFilters({
   onChange: (patch: Record<string, string>) => void
   onApply: (filters: Record<string, string>) => void
 }) {
+  const [draftQuery, setDraftQuery] = useState(query)
+
+  useEffect(() => {
+    setDraftQuery(query)
+  }, [query])
+
+  useEffect(() => {
+    if (draftQuery === query) return undefined
+    const handle = window.setTimeout(() => onQueryChange(draftQuery), 250)
+    return () => window.clearTimeout(handle)
+  }, [draftQuery, onQueryChange, query])
+
   return (
     <FilterBar>
       <Field
         label="Search topology"
-        value={query}
-        onChange={(e) => onQueryChange(e.target.value)}
+        value={draftQuery}
+        onChange={(e) => setDraftQuery(e.target.value)}
         placeholder="device, service, prefix, tag"
       />
       <Select
