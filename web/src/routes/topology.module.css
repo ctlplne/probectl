@@ -122,7 +122,7 @@
   min-width: 0;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 90rem) {
   .grid {
     grid-template-columns: 1fr;
   }
@@ -138,10 +138,71 @@
 .graphWrap {
   overflow: auto;
   max-height: 70vh;
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  scrollbar-gutter: stable;
+}
+
+.graphWrap:focus-visible {
+  outline: var(--border-width-thin) solid var(--color-focus);
+  outline-offset: var(--space-1);
 }
 
 .graphWrap > svg {
+  display: block;
   max-width: none;
+}
+
+.graphNavigator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-block-end: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.graphNavigatorCopy {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.graphNavigatorCopy strong {
+  font-size: var(--font-size-sm);
+}
+
+.graphNavigatorCopy span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.graphNavigatorActions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+@media (min-width: 64rem) {
+  .graphWrap > svg {
+    width: 100%;
+    height: auto;
+  }
+}
+
+@media (max-width: 40rem) {
+  .graphNavigator {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .graphNavigatorActions {
+    justify-content: space-between;
+  }
 }
 
 .coverage {

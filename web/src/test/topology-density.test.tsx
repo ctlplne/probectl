@@ -37,7 +37,9 @@ describe('Topology visual hierarchy', () => {
     const graphCard = graph.closest('[data-topology-graph]')
     const controlsLabel = screen.getByText('History & filters')
     const controls = controlsLabel.closest('details')
-    if (!graphCard || !controls) throw new Error('missing topology hierarchy markers')
+    const identityConflicts = document.querySelector('[data-identity-conflicts]')
+    if (!graphCard || !controls || !identityConflicts)
+      throw new Error('missing topology hierarchy markers')
 
     expect(controls).not.toHaveAttribute('open')
     const summary = controlsLabel.closest('summary')
@@ -47,6 +49,9 @@ describe('Topology visual hierarchy', () => {
     expect(controls.compareDocumentPosition(graphCard) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
       0,
     )
+    expect(
+      graphCard.compareDocumentPosition(identityConflicts) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
 
     await userEvent.click(controlsLabel)
     expect(controls).toHaveAttribute('open')

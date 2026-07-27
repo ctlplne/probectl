@@ -266,8 +266,6 @@ export function TopologyPage() {
         </div>
       </details>
 
-      <IdentityConflictsCard surface="topology" />
-
       {at && comparison.isError ? (
         <ErrorState
           title="Topology comparison unavailable"
@@ -318,6 +316,8 @@ export function TopologyPage() {
           />
         </div>
       )}
+
+      <IdentityConflictsCard surface="topology" />
 
       <ExplainView
         surface="topology"
@@ -645,11 +645,55 @@ function TopologyGraphCard({
   impacted: ImpactOverlay
   onSelect: (node: TopoNode) => void
 }) {
+  const graphViewportRef = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState(() => initialGraphViewport(layout))
+
+  useEffect(() => {
+    const graphViewport = graphViewportRef.current
+    if (!graphViewport) return undefined
+
+    const update = () => {
+      const next = measureGraphViewport(layout, graphViewport)
+      setViewport((current) => (sameGraphViewport(current, next) ? current : next))
+    }
+    update()
+    window.addEventListener('resize', update)
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update)
+    resizeObserver?.observe(graphViewport)
+
+    return () => {
+      window.removeEventListener('resize', update)
+      resizeObserver?.disconnect()
+    }
+  }, [layout])
+
+  const moveViewport = (direction: -1 | 1) => {
+    const graphViewport = graphViewportRef.current
+    if (!graphViewport) return
+    const page = Math.max(graphViewport.clientWidth * 0.8, T_NODE_W)
+    graphViewport.scrollTo({
+      left: graphViewport.scrollLeft + direction * page,
+      behavior: 'auto',
+    })
+  }
+
+  const visibleKinds = layout.columns
+    .slice(Math.max(0, viewport.start - 1), viewport.end)
+    .map((column) => column.kind)
+    .join(', ')
+  const position =
+    viewport.start === 1 && viewport.end === viewport.total
+      ? `All ${viewport.total} columns visible`
+      : `${viewport.start === viewport.end ? 'Column' : 'Columns'} ${viewport.start}${
+          viewport.start === viewport.end ? '' : `–${viewport.end}`
+        } of ${viewport.total}`
+
   return (
     <Card className={styles.graphCard} data-topology-graph>
       <CardHeader
         title="Dependency graph"
-        description="Click a node to inspect it, then simulate its failure."
+        description="Explore the graph, select a node to inspect it, then simulate its failure."
       />
       <CardBody>
         {coverageNotes.length > 0 && (
@@ -669,8 +713,54 @@ function TopologyGraphCard({
           <EmptyState title="No matching nodes" description="Adjust search or filters." />
         ) : (
           <>
-            <div className={styles.graphWrap}>
+            <div
+              className={styles.graphNavigator}
+              role="group"
+              aria-label="Graph exploration controls"
+              data-topology-navigation
+            >
+              <div className={styles.graphNavigatorCopy}>
+                <strong>Explore graph</strong>
+                <span aria-live="polite" data-topology-position>
+                  {position}
+                  {visibleKinds ? ` · ${visibleKinds}` : ''}
+                </span>
+              </div>
+              <div className={styles.graphNavigatorActions}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!viewport.canBack}
+                  aria-controls="topology-graph-canvas"
+                  onClick={() => moveViewport(-1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!viewport.canForward}
+                  aria-controls="topology-graph-canvas"
+                  onClick={() => moveViewport(1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            <div
+              ref={graphViewportRef}
+              className={styles.graphWrap}
+              role="region"
+              aria-label="Scrollable topology graph viewport"
+              tabIndex={0}
+              data-topology-viewport
+              onScroll={(event) => {
+                const next = measureGraphViewport(layout, event.currentTarget)
+                setViewport((current) => (sameGraphViewport(current, next) ? current : next))
+              }}
+            >
               <svg
+                id="topology-graph-canvas"
                 role="group"
                 aria-label="Topology graph"
                 width={layout.width}
@@ -743,6 +833,59 @@ function TopologyGraphCard({
       </CardBody>
     </Card>
   )
+}
+
+interface GraphViewport {
+  start: number
+  end: number
+  total: number
+  canBack: boolean
+  canForward: boolean
+}
+
+function sameGraphViewport(left: GraphViewport, right: GraphViewport): boolean {
+  return (
+    left.start === right.start &&
+    left.end === right.end &&
+    left.total === right.total &&
+    left.canBack === right.canBack &&
+    left.canForward === right.canForward
+  )
+}
+
+function initialGraphViewport(layout: TopoLayout): GraphViewport {
+  const total = layout.columns.length
+  return {
+    start: total > 0 ? 1 : 0,
+    end: total > 0 ? 1 : 0,
+    total,
+    canBack: false,
+    canForward: total > 1,
+  }
+}
+
+function measureGraphViewport(layout: TopoLayout, viewport: HTMLDivElement): GraphViewport {
+  const initial = initialGraphViewport(layout)
+  const svg = viewport.querySelector('svg')
+  const renderedWidth = svg?.getBoundingClientRect().width ?? 0
+  if (viewport.clientWidth <= 0 || renderedWidth <= 0 || layout.width <= 0) return initial
+
+  const scale = renderedWidth / layout.width
+  const left = viewport.scrollLeft / scale
+  const right = (viewport.scrollLeft + viewport.clientWidth) / scale
+  const visible = layout.columns
+    .map((column, index) => ({ index, center: column.x + T_NODE_W / 2 }))
+    .filter((column) => column.center >= left && column.center <= right)
+  const start = (visible.at(0)?.index ?? 0) + 1
+  const end = (visible.at(-1)?.index ?? start - 1) + 1
+
+  return {
+    start,
+    end,
+    total: layout.columns.length,
+    canBack: viewport.scrollLeft > 1,
+    canForward: viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 1,
+  }
 }
 
 function TopologyListCard({
@@ -825,7 +968,8 @@ function edgePath(e: TopoLayout['edges'][number]): string {
     const exit = e.x1 + T_EDGE_BOW
     return `M ${e.x1} ${e.y1} C ${exit} ${e.y1}, ${exit} ${e.y2}, ${e.x1} ${e.y2}`
   }
-  return `M ${e.x1} ${e.y1} C ${e.x1 + T_EDGE_BOW} ${e.y1}, ${e.x2 - T_EDGE_BOW} ${e.y2}, ${e.x2} ${e.y2}`
+  const bow = Math.min(T_EDGE_BOW, (e.x2 - e.x1) / 2)
+  return `M ${e.x1} ${e.y1} C ${e.x1 + bow} ${e.y1}, ${e.x2 - bow} ${e.y2}, ${e.x2} ${e.y2}`
 }
 
 function TopologyLegend({ layout }: { layout: TopoLayout }) {

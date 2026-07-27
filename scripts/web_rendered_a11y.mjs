@@ -47,6 +47,11 @@ const targetsLaptopViewport = {
   width: 1280,
   height: 720,
 };
+const topologyLaptopViewport = {
+  name: "topology-laptop",
+  width: 1280,
+  height: 720,
+};
 const journeyRoutes = [
   { journey: "J1", route: "/onboarding" },
   { journey: "J2", route: "/incidents" },
@@ -1209,18 +1214,38 @@ async function targetsHierarchyCheck(page, viewportName) {
 // The graph is Topology's hero artifact. The complete history/filter stack is
 // kept in a native disclosure so it stays keyboard-reachable without consuming
 // the first viewport in the default live state.
-async function topologyHierarchyCheck(page) {
-  return page.evaluate(() => {
+async function topologyHierarchyCheck(page, viewportName) {
+  return page.evaluate(async (currentViewport) => {
     const problems = [];
+    // Earlier generic focus checks visit every control and may leave the page
+    // scrolled. Hero hierarchy is an initial-frame contract, so measure it from
+    // the same origin a user gets on a fresh navigation.
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve)),
+    );
     const controls = document.querySelector("[data-topology-controls]");
     const graphCard = document.querySelector("[data-topology-graph]");
     const graph = graphCard?.querySelector('[aria-label="Topology graph"]');
     const instruction = graphCard?.querySelector("[data-card-heading] p");
+    const viewport = graphCard?.querySelector("[data-topology-viewport]");
+    const navigation = graphCard?.querySelector("[data-topology-navigation]");
+    const position = navigation?.querySelector("[data-topology-position]");
+    const topologyTable = Array.from(document.querySelectorAll("table")).find(
+      (table) =>
+        table.querySelector("caption")?.textContent?.trim() ===
+        "Topology nodes",
+    );
     if (!controls) problems.push("missing history/filter disclosure marker");
     if (!graphCard) problems.push("missing dependency graph marker");
     if (!graph) problems.push("missing rendered dependency graph");
     if (!instruction)
       problems.push("missing primary node-selection instruction");
+    if (!viewport) problems.push("missing topology graph viewport");
+    if (!navigation) problems.push("missing graph exploration controls");
+    if (!position) problems.push("missing graph column-position status");
+    if (!topologyTable)
+      problems.push("missing exact Topology nodes table alternative");
     if (!controls || !graphCard || !graph || !instruction) return problems;
 
     if (controls.open) {
@@ -1244,8 +1269,113 @@ async function topologyHierarchyCheck(page) {
         "primary node-selection instruction falls below the viewport",
       );
     }
+    if (!viewport || !navigation || !position) return problems;
+
+    // The generic focus audit runs first and correctly scrolls off-screen SVG
+    // buttons into view. Restore the product's true initial frame before
+    // checking its mobile exploration affordance.
+    if (currentViewport === "mobile") {
+      viewport.scrollTo({ left: 0, behavior: "auto" });
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      );
+    }
+
+    const positionText = position.textContent?.trim() ?? "";
+    if (
+      !/^All \d+ columns visible(?:\s*·|$)|^Columns? \d+(?:–\d+)? of \d+(?:\s*·|$)/.test(
+        positionText,
+      )
+    ) {
+      problems.push(
+        "graph navigation does not expose its current column position",
+      );
+    }
+
+    if (currentViewport === "topology-laptop") {
+      if (viewport.scrollWidth - viewport.clientWidth > 1) {
+        problems.push(
+          "topology laptop overview still requires horizontal scrolling",
+        );
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const nodes = Array.from(graph.querySelectorAll('[role="button"]'));
+      const partiallyClipped = nodes.filter((node) => {
+        const rect = node.getBoundingClientRect();
+        const overlaps =
+          rect.right > viewportRect.left &&
+          rect.left < viewportRect.right &&
+          rect.bottom > viewportRect.top &&
+          rect.top < viewportRect.bottom;
+        const fullyVisible =
+          rect.left >= viewportRect.left - 1 &&
+          rect.right <= viewportRect.right + 1 &&
+          rect.top >= viewportRect.top - 1 &&
+          rect.bottom <= viewportRect.bottom + 1;
+        return overlaps && !fullyVisible;
+      });
+      if (partiallyClipped.length > 0) {
+        problems.push(
+          `${partiallyClipped.length} focusable topology node(s) are partially clipped`,
+        );
+      }
+
+      for (const kind of ["hop", "device", "service"]) {
+        const node = nodes.find((candidate) =>
+          candidate.getAttribute("aria-label")?.startsWith(`${kind} `),
+        );
+        if (!node) {
+          problems.push(`missing ${kind} node in the laptop dependency chain`);
+          continue;
+        }
+        const rect = node.getBoundingClientRect();
+        if (
+          rect.left < viewportRect.left - 1 ||
+          rect.right > viewportRect.right + 1 ||
+          rect.top < viewportRect.top - 1 ||
+          rect.bottom > viewportRect.bottom + 1
+        ) {
+          problems.push(
+            `${kind} node is not fully visible in the laptop overview`,
+          );
+        }
+        if (rect.width < 110) {
+          problems.push(
+            `${kind} node is too small to read in the laptop overview`,
+          );
+        }
+      }
+    }
+
+    if (
+      currentViewport === "mobile" &&
+      viewport.scrollWidth > viewport.clientWidth + 1
+    ) {
+      const next = navigation.querySelector("button:last-of-type");
+      if (!next || next.disabled) {
+        problems.push(
+          "mobile graph overflow has no enabled forward exploration control",
+        );
+      } else {
+        const beforeScroll = viewport.scrollLeft;
+        const beforePosition = position.textContent?.trim();
+        next.click();
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        );
+        if (viewport.scrollLeft <= beforeScroll + 1) {
+          problems.push("mobile graph Next control does not move the viewport");
+        }
+        if (position.textContent?.trim() === beforePosition) {
+          problems.push(
+            "mobile graph position does not update after navigation",
+          );
+        }
+      }
+    }
     return problems;
-  });
+  }, viewportName);
 }
 
 // Explorer's working query must lead its teaching chrome. On mobile, canonical
@@ -1588,13 +1718,16 @@ async function selfCheck(browser, axeSource) {
       <svg aria-label="Topology graph"></svg>
     </section>
   `);
-  const topologyHierarchy = await topologyHierarchyCheck(page);
+  const topologyHierarchy = await topologyHierarchyCheck(page, "mobile");
   if (
     !topologyHierarchy.some((problem) =>
       problem.includes("expanded in the default live state"),
     ) ||
     !topologyHierarchy.some((problem) =>
       problem.includes("graph content begins below"),
+    ) ||
+    !topologyHierarchy.some((problem) =>
+      problem.includes("missing graph exploration controls"),
     )
   ) {
     throw new Error(
@@ -1781,7 +1914,15 @@ async function main() {
               }
             }
             if (route === "/topology") {
-              record.topology = await topologyHierarchyCheck(page);
+              if (viewport.name === "desktop") {
+                await page.setViewportSize(topologyLaptopViewport);
+              }
+              record.topology = await topologyHierarchyCheck(
+                page,
+                viewport.name === "desktop"
+                  ? topologyLaptopViewport.name
+                  : viewport.name,
+              );
               if (record.topology.length > 0) {
                 failures.push(
                   `${viewport.name} ${theme} ${route}: Topology hierarchy violations\n  ${record.topology.join("\n  ")}`,

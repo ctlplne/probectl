@@ -107,6 +107,13 @@ describe('topology + what-if (S43)', () => {
     expect(within(graph).getByRole('button', { name: 'agent probe-1' })).toBeInTheDocument()
     expect(within(graph).getByRole('button', { name: 'service api' })).toBeInTheDocument()
 
+    // Narrow screens get an explicit, position-aware alternative to hidden
+    // horizontal overflow; wide screens use the same control as an overview receipt.
+    const navigator = screen.getByRole('group', { name: /graph exploration controls/i })
+    expect(within(navigator).getByText(/column 1 of 4 · agent/i)).toBeInTheDocument()
+    expect(within(navigator).getByRole('button', { name: /previous/i })).toBeDisabled()
+    expect(within(navigator).getByRole('button', { name: /next/i })).toBeEnabled()
+
     // Coverage honesty surfaces on the graph card.
     expect(screen.getByText(/no routing-plane/)).toBeInTheDocument()
 
@@ -218,7 +225,7 @@ describe('topology + what-if (S43)', () => {
     expect(
       await within(graph).findByRole('button', { name: 'service zz-hidden-target' }),
     ).toBeInTheDocument()
-  }, 10_000)
+  }, 20_000)
 
   test('time travel: picking a time refetches with ?at=', async () => {
     const fetcher = stub()

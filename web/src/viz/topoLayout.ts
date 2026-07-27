@@ -18,7 +18,9 @@ import type { TopoEdge, TopoNode } from '../api/topology'
 
 export const T_NODE_W = 148
 export const T_NODE_H = 40
-export const T_COL_GAP = 110
+// Keep a useful hop → device → service chain readable as one laptop overview.
+// Edges still get a dedicated channel; edgePath bounds its curve to this gap.
+export const T_COL_GAP = 48
 export const T_ROW_GAP = 14
 export const T_MARGIN = 30
 /** Vertical room above the node grid for the per-kind column headers. */
