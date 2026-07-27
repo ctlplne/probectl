@@ -958,7 +958,8 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         items: [
           {
             fingerprint: 'fp-dashboard',
-            rule_id: 'r-dashboard',
+            evaluation_fingerprint: 'eval:checkout-series',
+            rule_id: '40000000-0000-4000-8000-000000000001',
             rule_name: 'checkout latency burn',
             severity: 'warning',
             metric: 'probectl_result_duration_ms',
@@ -970,6 +971,33 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
           },
         ],
         evaluator_running: true,
+      })
+    if (path === '/v1/alerts/40000000-0000-4000-8000-000000000001/evaluations')
+      return jsonResponse({
+        contract_version: 'probectl.alert-evaluations/v1',
+        items: [
+          {
+            contract_version: 'probectl.alert-evaluation/v1',
+            fingerprint: 'eval:checkout-series',
+            rule_id: '40000000-0000-4000-8000-000000000001',
+            rule_revision: '2026-06-04T11:00:00Z',
+            state: 'firing',
+            observed_at: '2026-06-04T12:00:00Z',
+            observed_value: 184,
+            expectation: { kind: 'threshold', comparison: 'gt', threshold: 150 },
+            breach_count: 2,
+            required_breaches: 2,
+            reason: 'probectl_result_duration_ms=184 gt 150',
+            labels: { target: 'checkout', service: 'checkout' },
+          },
+        ],
+        truncated: false,
+        limit: 64,
+        freshness: 'current',
+        latest_at: '2026-06-04T12:00:00Z',
+        evaluator_running: true,
+        persistence_running: true,
+        retention: { max_per_series: 64, max_per_rule: 256, expires_days: 7 },
       })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/threat/intel/status') return jsonResponse(sampleIntelStatus)

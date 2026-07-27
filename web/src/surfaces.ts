@@ -259,11 +259,12 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: CROSS_PLANE_INCIDENT_RECEIPT,
   },
   {
-    capability: 'Alerting: active alerts, silence/ack, rule config',
+    capability: 'Alerting: active alerts, bounded evaluation receipts, silence/ack, rule config',
     featureIds: ['F8', 'F27'],
     sprint: 'S-FE1',
     kind: 'native',
     route: '/alerts',
+    evidence: ['openapi:/v1/alerts/{id}/evaluations', 'cli:probectl alert evaluations'],
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {

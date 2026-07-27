@@ -176,6 +176,16 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	if sink != nil {
 		opts = append(opts, alert.WithAlertSink(sink))
 	}
+	// The closure is bound to this evaluator's tenant before the engine sees
+	// it. Append runs through InTenant + forced RLS and enforces count/age
+	// retention on every write. Persistence failure is logged by the engine
+	// and never stops alert evaluation or notification delivery.
+	opts = append(opts, alert.WithEvaluationSink(func(ctx context.Context, receipt alert.EvaluationReceipt) error {
+		return tenancy.InTenant(tenancy.WithTenant(ctx, tenant), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				return (store.AlertEvaluations{}).Append(ctx, sc, receipt)
+			})
+	}))
 	engine := alert.NewEngine(source, alert.NewNotifier(deps, log), log, opts...)
 	// ARCH-005 (scoped per the volatile-stores ADR): silences, acks, and
 	// maintenance windows are documented exceptions — reload them so a restart

@@ -308,20 +308,22 @@ operator evidence first-class:
 3. Query-operability evidence. Kentik's June 2026 release exposes Query Explain
    and shareable explain state.
 
-At the current product revision, probectl has the native topology canvas,
-tenant-local alert engine/workflow receipts, and bounded Explorer recipes, but
-it does not yet collect LLDP/CDP neighbors, persist bounded alert-evaluation
-transitions, or emit a sanitized Explorer execution receipt.
+That comparison produced three native slices. The current product revision now
+emits sanitized Explorer execution receipts and persists bounded
+alert-evaluation transitions with a native state timeline. Physical LLDP/CDP
+neighbor collection remains the explicit next gap; the existing topology canvas
+does not synthesize links when that evidence is absent.
 
 The approved product direction is native:
 
 - collect bounded, timestamped LLDP/CDP evidence through the existing
   tenant-bound Go device agent and feed the existing topology model;
 - retain bounded local alert-evaluation receipts with observed value, expected
-  band/threshold, warmup/no-data state, and fire/resolve transition;
+  band/threshold, warmup/no-data state, and fire/resolve transition
+  (**delivered**);
 - expose a sanitized logical Explorer receipt with recipe/source, tenant/time/
   row bounds, truncation reason, returned rows, and elapsed time—never raw SQL
-  or a physical database plan.
+  or a physical database plan (**delivered**).
 
 Grafana, Netdata, OneUptime, LanLens, and other competitor runtimes remain
 research inputs only. probectl does not ship, embed, require, or rebrand them.

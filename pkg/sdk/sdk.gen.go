@@ -206,6 +206,51 @@ type AlertChannelTestResponse struct {
 	Type     string `json:"type"`
 }
 
+type AlertEvaluationExpectation struct {
+	Comparison string  `json:"comparison,omitempty"`
+	Kind       string  `json:"kind"`
+	Lower      float64 `json:"lower,omitempty"`
+	Mean       float64 `json:"mean,omitempty"`
+	Stddev     float64 `json:"stddev,omitempty"`
+	Threshold  float64 `json:"threshold,omitempty"`
+	Upper      float64 `json:"upper,omitempty"`
+}
+
+type AlertEvaluationReceipt struct {
+	BreachCount      int                        `json:"breach_count"`
+	ContractVersion  string                     `json:"contract_version"`
+	Expectation      AlertEvaluationExpectation `json:"expectation"`
+	Fingerprint      string                     `json:"fingerprint"`
+	Labels           map[string]string          `json:"labels,omitempty"`
+	ObservedAt       string                     `json:"observed_at"`
+	ObservedValue    float64                    `json:"observed_value,omitempty"`
+	Reason           string                     `json:"reason"`
+	RequiredBreaches int                        `json:"required_breaches"`
+	RuleId           string                     `json:"rule_id"`
+	RuleRevision     string                     `json:"rule_revision"`
+	State            string                     `json:"state"`
+	WarmupRequired   int                        `json:"warmup_required,omitempty"`
+	WarmupSamples    int                        `json:"warmup_samples,omitempty"`
+}
+
+type AlertEvaluationRetention struct {
+	ExpiresDays  int `json:"expires_days"`
+	MaxPerRule   int `json:"max_per_rule"`
+	MaxPerSeries int `json:"max_per_series"`
+}
+
+type AlertEvaluationsResponse struct {
+	ContractVersion    string                   `json:"contract_version"`
+	EvaluatorRunning   bool                     `json:"evaluator_running"`
+	Freshness          string                   `json:"freshness"`
+	Items              []AlertEvaluationReceipt `json:"items"`
+	LatestAt           string                   `json:"latest_at,omitempty"`
+	Limit              int                      `json:"limit"`
+	PersistenceRunning bool                     `json:"persistence_running"`
+	Retention          AlertEvaluationRetention `json:"retention"`
+	Truncated          bool                     `json:"truncated"`
+}
+
 type AlertList struct {
 	Items []AlertRule `json:"items,omitempty"`
 }
@@ -2166,6 +2211,33 @@ func (c *Client) DeleteAlert(ctx context.Context, req DeleteAlertRequest) error 
 	path := "/v1/alerts/{id}"
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// List bounded alert evaluation receipts
+type ListAlertEvaluationsRequest struct {
+	Id          string  `json:"-"`
+	Fingerprint *string `json:"-"`
+	Limit       *int    `json:"-"`
+}
+
+func (c *Client) ListAlertEvaluations(ctx context.Context, req ListAlertEvaluationsRequest) (*AlertEvaluationsResponse, error) {
+	path := "/v1/alerts/{id}/evaluations"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Fingerprint != nil {
+		query.Set("fingerprint", formatQueryValue(*req.Fingerprint))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out AlertEvaluationsResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Read a page of the tenant's tamper-evident audit trail

@@ -16,6 +16,15 @@ type baseline struct {
 	buf    []float64
 }
 
+type baselineEvaluation struct {
+	anomalous bool
+	warming   bool
+	mean      float64
+	std       float64
+	samples   int
+	required  int
+}
+
 func newBaseline(window int) *baseline {
 	if window < 2 {
 		window = 2
@@ -26,19 +35,25 @@ func newBaseline(window int) *baseline {
 // evaluate compares value against the established baseline, then records it (the
 // baseline is adaptive). It returns whether value is anomalous and whether the
 // baseline is still warming up.
-func (b *baseline) evaluate(value, sensitivity float64) (anomalous, warming bool) {
+func (b *baseline) evaluate(value, sensitivity float64) baselineEvaluation {
 	if len(b.buf) < b.window {
 		b.add(value)
-		return false, true
+		mean, std := meanStd(b.buf)
+		return baselineEvaluation{
+			warming: true, mean: mean, std: std, samples: len(b.buf), required: b.window,
+		}
 	}
 	mean, std := meanStd(b.buf)
+	anomalous := false
 	if std == 0 {
 		anomalous = value != mean
 	} else {
 		anomalous = math.Abs(value-mean) > sensitivity*std
 	}
 	b.add(value)
-	return anomalous, false
+	return baselineEvaluation{
+		anomalous: anomalous, mean: mean, std: std, samples: b.window, required: b.window,
+	}
 }
 
 func (b *baseline) add(v float64) {

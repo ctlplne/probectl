@@ -224,6 +224,9 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 func (s *Server) handleDeleteAlert(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if e := (store.AlertEvaluations{}).DeleteRule(ctx, sc, id); e != nil {
+			return e
+		}
 		if e := (store.AlertRules{}).Delete(ctx, sc, id); e != nil {
 			return e
 		}

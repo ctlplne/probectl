@@ -137,6 +137,51 @@ export interface AlertChannelTestResponse {
   type: "webhook" | "email"
 }
 
+export interface AlertEvaluationExpectation {
+  comparison?: "gt" | "lt" | "gte" | "lte" | "eq" | "neq"
+  kind: "threshold" | "baseline"
+  lower?: number
+  mean?: number
+  stddev?: number
+  threshold?: number
+  upper?: number
+}
+
+export interface AlertEvaluationReceipt {
+  breach_count: number
+  contract_version: "probectl.alert-evaluation/v1"
+  expectation: AlertEvaluationExpectation
+  fingerprint: string
+  labels?: { [key: string]: string }
+  observed_at: string
+  observed_value?: number
+  reason: string
+  required_breaches: number
+  rule_id: string
+  rule_revision: string
+  state: "no_data" | "warming" | "normal" | "pending" | "firing" | "steady" | "resolved"
+  warmup_required?: number
+  warmup_samples?: number
+}
+
+export interface AlertEvaluationRetention {
+  expires_days: number
+  max_per_rule: number
+  max_per_series: number
+}
+
+export interface AlertEvaluationsResponse {
+  contract_version: "probectl.alert-evaluations/v1"
+  evaluator_running: boolean
+  freshness: "current" | "stale" | "unavailable"
+  items: AlertEvaluationReceipt[]
+  latest_at?: string
+  limit: number
+  persistence_running: boolean
+  retention: AlertEvaluationRetention
+  truncated: boolean
+}
+
 export interface AlertList {
   items?: AlertRule[]
 }
@@ -1721,6 +1766,14 @@ export interface DeleteAlertRequest {
 
 export type DeleteAlertResponse = void
 
+export interface ListAlertEvaluationsRequest {
+  id: string
+  fingerprint?: string
+  limit?: number
+}
+
+export type ListAlertEvaluationsResponse = AlertEvaluationsResponse
+
 export interface ListAuditRequest {
   after?: number
   limit?: number
@@ -2757,6 +2810,15 @@ export class ProbectlSDKClient {
     let path = "/v1/alerts/{id}"
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async listAlertEvaluations(request: ListAlertEvaluationsRequest): Promise<ListAlertEvaluationsResponse> {
+    let path = "/v1/alerts/{id}/evaluations"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListAlertEvaluationsResponse>("GET", path, query, undefined)
   }
 
   async listAudit(request: ListAuditRequest = {}): Promise<ListAuditResponse> {

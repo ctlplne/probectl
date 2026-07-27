@@ -38,6 +38,7 @@ function alertsBackend() {
     active: [
       {
         fingerprint: 'fp-1',
+        evaluation_fingerprint: 'eval:db-series',
         rule_id: 'r1',
         rule_name: 'rtt high',
         severity: 'critical',
@@ -50,6 +51,7 @@ function alertsBackend() {
       } as ActiveAlert,
       {
         fingerprint: 'fp-2',
+        evaluation_fingerprint: 'eval:web-series',
         rule_id: 'r1',
         rule_name: 'rtt high',
         severity: 'warning',
@@ -136,6 +138,51 @@ function alertsBackend() {
 
     if (url.endsWith('/v1/alerts/active') && method === 'GET') {
       return jsonResponse({ items: state.active, evaluator_running: true })
+    }
+    if (
+      url.includes('/v1/alerts/r1/evaluations?fingerprint=eval%3Adb-series') &&
+      method === 'GET'
+    ) {
+      return jsonResponse({
+        contract_version: 'probectl.alert-evaluations/v1',
+        items: [
+          {
+            contract_version: 'probectl.alert-evaluation/v1',
+            fingerprint: 'eval:db-series',
+            rule_id: 'r1',
+            rule_revision: since,
+            state: 'normal',
+            observed_at: '2026-06-04T11:58:00Z',
+            observed_value: 80,
+            expectation: { kind: 'threshold', comparison: 'gt', threshold: 100 },
+            breach_count: 0,
+            required_breaches: 1,
+            reason: 'probectl_result_rtt_ms=80 gt 100',
+            labels: { target: 'db' },
+          },
+          {
+            contract_version: 'probectl.alert-evaluation/v1',
+            fingerprint: 'eval:db-series',
+            rule_id: 'r1',
+            rule_revision: since,
+            state: 'firing',
+            observed_at: since,
+            observed_value: 250,
+            expectation: { kind: 'threshold', comparison: 'gt', threshold: 100 },
+            breach_count: 1,
+            required_breaches: 1,
+            reason: 'probectl_result_rtt_ms=250 gt 100',
+            labels: { target: 'db' },
+          },
+        ],
+        truncated: false,
+        limit: 64,
+        freshness: 'current',
+        latest_at: since,
+        evaluator_running: true,
+        persistence_running: true,
+        retention: { max_per_series: 64, max_per_rule: 256, expires_days: 7 },
+      })
     }
     if (url.endsWith('/v1/alerts/active/silence') && method === 'POST') {
       const a = state.active.find((x) => x.fingerprint === body.fingerprint)
@@ -415,6 +462,15 @@ describe('alerting surface (S-FE1)', () => {
     ).toBeDefined()
     await userEvent.click(screen.getAllByRole('button', { name: 'Details' })[0])
     const dialog = await screen.findByRole('dialog')
+    const timeline = await within(dialog).findByRole('list', {
+      name: 'Deterministic evaluation receipts',
+    })
+    expect(within(timeline).getByText('normal')).toBeDefined()
+    expect(within(timeline).getByText('firing')).toBeDefined()
+    expect(within(timeline).getAllByText('gt 100')).toHaveLength(2)
+    expect(within(timeline).getByText('0 / 1 breaches')).toBeDefined()
+    expect(within(timeline).getByText('1 / 1 breaches')).toBeDefined()
+    expect(dialog).not.toHaveTextContent('tenant_id')
 
     // Silence -> the API was called and the UI reflects the engine's answer.
     await userEvent.click(within(dialog).getByRole('button', { name: 'Silence' }))

@@ -70,6 +70,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/alerts/maintenance", s.handleUpsertMaintenanceWindow, permAlertWrite},
 		{http.MethodPost, "/v1/alerts/maintenance/preview", s.handlePreviewMaintenanceWindows, permAlertRead},
 		{http.MethodDelete, "/v1/alerts/maintenance/{id}", s.handleDeleteMaintenanceWindow, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/{id}/evaluations", s.handleListAlertEvaluations, permAlertRead},
 		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert, permAlertRead},
 		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert, permAlertWrite},
 		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert, permAlertWrite},

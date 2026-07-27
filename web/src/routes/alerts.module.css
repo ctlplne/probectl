@@ -144,6 +144,66 @@
   gap: var(--space-3);
 }
 
+.evaluations {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-start: var(--space-5);
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--color-border-subtle);
+}
+
+.evaluations h3,
+.evaluations p {
+  margin: 0;
+}
+
+.evaluationIntro {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.evaluationIntro > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.evaluationTimeline {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evaluationReceipt {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-inline-start: var(--space-1) solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-size: var(--font-size-sm);
+}
+
+.evaluationFacts {
+  display: grid;
+  grid-template-columns: minmax(max-content, auto) minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.evaluationFacts dt {
+  color: var(--color-text-muted);
+}
+
+.evaluationFacts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .workflow {
   display: grid;
   gap: var(--space-3);

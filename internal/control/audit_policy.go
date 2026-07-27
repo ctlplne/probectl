@@ -222,6 +222,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/alerts/maintenance":                 auditExplicit(auditFacetMutation, "alert.maintenance_upsert"),
 	"POST /v1/alerts/maintenance/preview":         auditWrapped(auditFacetSensitiveRead),
 	"DELETE /v1/alerts/maintenance/{id}":          auditExplicit(auditFacetMutation, "alert.maintenance_delete"),
+	"GET /v1/alerts/{id}/evaluations":             auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/alerts/{id}":                         auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/alerts/{id}":                         auditExplicit(auditFacetMutation, "alert.update"),
 	"DELETE /v1/alerts/{id}":                      auditExplicit(auditFacetMutation, "alert.delete"),

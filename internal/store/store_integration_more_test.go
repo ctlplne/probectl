@@ -128,6 +128,86 @@ func TestAlertMaintenanceTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestAlertEvaluationReceiptsAreTenantIsolatedAndStorageBounded(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	tenantA, err := NewTenants(pool).Create(ctx, "alert-eval-a-"+suffix, "Alert eval A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantB, err := NewTenants(pool).Create(ctx, "alert-eval-b-"+suffix, "Alert eval B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type seeded struct {
+		tenant string
+		ruleID string
+		target string
+	}
+	seeds := []seeded{
+		{tenant: tenantA.ID, target: "tenant-a-target"},
+		{tenant: tenantB.ID, target: "tenant-b-target"},
+	}
+	base := time.Now().UTC().Add(-time.Hour)
+	for i := range seeds {
+		inTenant(ctx, t, pool, seeds[i].tenant, func(ctx context.Context, s tenancy.Scope) error {
+			rule, err := (AlertRules{}).Create(ctx, s, alert.Rule{
+				Name: "bounded-receipts", Enabled: true, Metric: "rtt",
+				Type: alert.Threshold, Comparison: alert.GT, Threshold: 100,
+				Severity: alert.SeverityWarning,
+			})
+			if err != nil {
+				return err
+			}
+			seeds[i].ruleID = rule.ID
+			for n := 0; n < MaxAlertEvaluationReceiptsPerSeries+2; n++ {
+				value := float64(n)
+				if err := (AlertEvaluations{}).Append(ctx, s, alert.EvaluationReceipt{
+					ContractVersion: alert.EvaluationReceiptVersion,
+					Fingerprint:     "same-fingerprint", RuleID: rule.ID,
+					RuleRevision: "rev-1", State: alert.EvaluationSteady,
+					ObservedAt:    base.Add(time.Duration(n) * time.Minute),
+					ObservedValue: &value,
+					Expectation: alert.EvaluationExpectation{
+						Kind: alert.Threshold, Comparison: alert.GT, Threshold: floatRefForStoreTest(100),
+					},
+					RequiredBreaches: 1, Reason: seeds[i].target,
+					Labels: map[string]string{"target": seeds[i].target},
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	for _, seed := range seeds {
+		inTenant(ctx, t, pool, seed.tenant, func(ctx context.Context, s tenancy.Scope) error {
+			items, truncated, err := (AlertEvaluations{}).List(
+				ctx, s, seed.ruleID, "same-fingerprint", MaxAlertEvaluationReceiptRead,
+			)
+			if err != nil {
+				return err
+			}
+			if truncated || len(items) != MaxAlertEvaluationReceiptsPerSeries ||
+				items[0].Reason != seed.target ||
+				items[len(items)-1].Labels["target"] != seed.target {
+				t.Fatalf("tenant %s receipts = %d truncated=%v first=%+v last=%+v",
+					seed.tenant, len(items), truncated, items[0], items[len(items)-1])
+			}
+			for _, item := range items {
+				if item.Reason != seed.target || item.Labels["target"] != seed.target {
+					t.Fatalf("tenant %s cross-tenant receipt = %+v", seed.tenant, item)
+				}
+			}
+			return nil
+		})
+	}
+}
+
+func floatRefForStoreTest(value float64) *float64 { return &value }
+
 func TestAgentsProducerReadinessTenantIsolation(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)

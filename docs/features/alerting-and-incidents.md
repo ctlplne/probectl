@@ -63,6 +63,16 @@ evaluations before firing), a renotify cadence (how often a still-firing alert
 repeats its notification), a severity, and delivery channels. The default
 evaluation interval is 30 seconds.
 
+The evaluator keeps a native, deterministic **state timeline** so the operator
+can see why one series moved from normal to pending to firing and back to
+resolved. Threshold receipts show the observed value and trip line; baseline
+receipts show warmup progress and the learned lower/upper band. The ledger is
+not a log platform: it stores only state transitions (plus bounded baseline
+warmup steps), expires after seven days, caps each series at 64 rows and each
+rule at 256, and returns at most 100 rows. PostgreSQL forced RLS plus an explicit
+tenant predicate protect every write, prune, read, and rule deletion. Receipts
+omit the ambient tenant ID and expose no SQL or physical query plan.
+
 Two operator actions on a firing alert, and they are deliberately different:
 
 - **Silence** is the smoke alarm's hush button. The detector keeps detecting and
@@ -240,13 +250,15 @@ probectl --json incident journal <id>
 
 In the web interface, the **Alerts** page shows the active-alert table over
 durable rules and maintenance windows. One detail workbench carries the operator
-from firing state through acknowledge, bounded silence, immutable actor/reason/
-start/expiry receipts, on-call or ticket delivery status, and the linked
-incident/postmortem context. A state change does not close the workbench merely
-because the table is filtered to `firing`; an expired silence visibly returns to
-firing. The **Incidents** view then opens the unified five-plane room. A firing
-incident is auto-selected, and one **Find likely cause** interaction renders
-cited RCA inline.
+from the exact native evaluation timeline through acknowledge, bounded silence,
+immutable actor/reason/start/expiry receipts, on-call or ticket delivery status,
+and the linked incident/postmortem context. Missing persistence, stale history,
+an empty ledger, and truncation are explicit states rather than a false “no
+problem.” A state change does not close the workbench merely because the table
+is filtered to `firing`; an expired silence visibly returns to firing. The
+**Incidents** view then opens the unified five-plane room. A firing incident is
+auto-selected, and one **Find likely cause** interaction renders cited RCA
+inline.
 
 ## Pitfalls & limits
 
@@ -287,6 +299,7 @@ cited RCA inline.
 | Capability | Surface | Permission |
 |---|---|---|
 | List firing alerts (with operator state) | `GET /v1/alerts/active` | `alert.read` |
+| Read bounded threshold/baseline state transitions | `GET /v1/alerts/<rule-id>/evaluations` / `probectl alert evaluations <rule-id>` | `alert.read` |
 | Read alert operation, incident, and delivery receipts | `GET /v1/alerts/active/<fingerprint>/workflow` | `alert.read` |
 | Silence a firing series | `POST /v1/alerts/active/silence` | `alert.write` |
 | Acknowledge a firing series | `POST /v1/alerts/active/ack` | `alert.write` |
@@ -301,13 +314,13 @@ cited RCA inline.
 | Replay an authenticated snapshot | `GET /v1/incident-shares/<share-id>` | `incident.read` |
 
 Properties you can rely on: the displayed firing state is always the engine's
-current truth (never computed in the browser); silences and acknowledgements
+current truth (never computed in the browser); its explanation timeline is
+server-authored, tenant-scoped, and bounded; silences and acknowledgements
 persist across a restart and never leak from one firing episode into the next;
 maintenance windows are reusable, durable, tenant-scoped planned suppressors
 with preview and audit on change; every silence and acknowledgement is
-tenant-scoped, reasoned, and audited; and one
-underlying fault surfaces as one tenant-scoped incident with evidence drawn from
-every plane that observed it.
+tenant-scoped, reasoned, and audited; and one underlying fault surfaces as one
+tenant-scoped incident with evidence drawn from every plane that observed it.
 
 ## See also
 

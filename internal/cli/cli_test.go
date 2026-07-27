@@ -548,6 +548,22 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 			{"id": "alert-1", "name": "packet loss", "severity": "warning", "description": "synthetic probe loss"},
 		}})
 	})
+	mux.HandleFunc("GET /v1/alerts/r1/evaluations", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("fingerprint"); got != "eval:db-series" {
+			t.Fatalf("evaluation fingerprint query = %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "5" {
+			t.Fatalf("evaluation limit query = %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"freshness": "current",
+			"items": []map[string]any{{
+				"state":          "firing",
+				"observed_value": 250,
+				"reason":         "probectl_result_rtt_ms=250 gt 100",
+			}},
+		})
+	})
 	mux.HandleFunc("GET /v1/alerts/maintenance", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
 			{"id": "mw-db", "name": "database patch", "status": "daily", "description": "planned maintenance"},
@@ -658,6 +674,7 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 	}{
 		{name: "incidents", args: []string{"incident", "list", "--query", "status=open"}, want: []string{"WAN loss", "critical"}},
 		{name: "alerts", args: []string{"alert", "active"}, want: []string{"packet loss", "warning"}},
+		{name: "alert-evaluations", args: []string{"--json", "alert", "evaluations", "r1", "--query", "fingerprint=eval:db-series", "--query", "limit=5"}, want: []string{"firing", "probectl_result_rtt_ms=250 gt 100"}},
 		{name: "maintenance", args: []string{"alert", "maintenance"}, want: []string{"database patch", "daily"}},
 		{name: "maintenance-upsert", args: []string{"alert", "maintenance-upsert", "--body", maintenanceBody}, want: []string{"mw-new", "database patch"}},
 		{name: "maintenance-preview", args: []string{"alert", "maintenance-preview", "--body", maintenancePreviewBody}, want: []string{"mw-db", "matched"}},

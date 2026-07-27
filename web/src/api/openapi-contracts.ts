@@ -116,6 +116,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'GET',
+    path: "`/alerts/${encodeURIComponent(ruleID ?? '')}/evaluations${suffix}`",
+    response: 'AlertEvaluationsResponse',
+    generated: 'ListAlertEvaluationsResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'GET',
     path: "`/alerts/active/${encodeURIComponent(fingerprint ?? '')}/workflow${suffix}`",
     response: 'AlertWorkflow',
     generated: 'GetAlertWorkflowResponse',

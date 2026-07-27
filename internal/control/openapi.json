@@ -943,6 +943,69 @@
         }
       }
     },
+    "/v1/alerts/{id}/evaluations": {
+      "get": {
+        "operationId": "listAlertEvaluations",
+        "summary": "List bounded alert evaluation receipts",
+        "description": "Returns the caller tenant's retained deterministic state transitions for one alert rule. The store repeats tenant_id in every query under forced RLS. Receipts explain threshold or baseline math but never expose SQL, physical plans, global cardinality, or an ambient tenant identifier.",
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdPath"
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "required": false,
+            "description": "Optional evaluation_fingerprint from an authorized active alert. Rule-level no-data transitions remain visible.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum newest receipts returned in chronological order.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bounded tenant-scoped evaluation ledger, including explicit evaluator, persistence, freshness, truncation, and retention state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertEvaluationsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 100,
+          "reason": "The transition ledger expires after seven days and is capped at 64 receipts per series and 256 per rule; each read is limited to 100."
+        }
+      }
+    },
     "/v1/incidents": {
       "get": {
         "operationId": "listIncidents",
@@ -5209,6 +5272,10 @@
                           "fingerprint": {
                             "type": "string"
                           },
+                          "evaluation_fingerprint": {
+                            "type": "string",
+                            "description": "Tenant-local, opaque digest handle used to retrieve bounded evaluation receipts. It contains no tenant identifier or label values."
+                          },
                           "rule_id": {
                             "type": "string"
                           },
@@ -9399,6 +9466,209 @@
               "webhook",
               "email"
             ]
+          }
+        }
+      },
+      "AlertEvaluationExpectation": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "threshold",
+              "baseline"
+            ]
+          },
+          "comparison": {
+            "type": "string",
+            "enum": [
+              "gt",
+              "lt",
+              "gte",
+              "lte",
+              "eq",
+              "neq"
+            ]
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "mean": {
+            "type": "number"
+          },
+          "stddev": {
+            "type": "number"
+          },
+          "lower": {
+            "type": "number"
+          },
+          "upper": {
+            "type": "number"
+          }
+        }
+      },
+      "AlertEvaluationReceipt": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "fingerprint",
+          "rule_id",
+          "rule_revision",
+          "state",
+          "observed_at",
+          "expectation",
+          "breach_count",
+          "required_breaches",
+          "reason"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "enum": [
+              "probectl.alert-evaluation/v1"
+            ]
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_revision": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "no_data",
+              "warming",
+              "normal",
+              "pending",
+              "firing",
+              "steady",
+              "resolved"
+            ]
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_value": {
+            "type": "number"
+          },
+          "expectation": {
+            "$ref": "#/components/schemas/AlertEvaluationExpectation"
+          },
+          "breach_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_breaches": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "warmup_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "warmup_required": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Authorized series labels with ambient tenant_id removed."
+          }
+        }
+      },
+      "AlertEvaluationRetention": {
+        "type": "object",
+        "required": [
+          "max_per_series",
+          "max_per_rule",
+          "expires_days"
+        ],
+        "properties": {
+          "max_per_series": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "max_per_rule": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "expires_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7
+          }
+        }
+      },
+      "AlertEvaluationsResponse": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "items",
+          "truncated",
+          "limit",
+          "freshness",
+          "evaluator_running",
+          "persistence_running",
+          "retention"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "enum": [
+              "probectl.alert-evaluations/v1"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AlertEvaluationReceipt"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "current",
+              "stale",
+              "unavailable"
+            ]
+          },
+          "latest_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evaluator_running": {
+            "type": "boolean"
+          },
+          "persistence_running": {
+            "type": "boolean"
+          },
+          "retention": {
+            "$ref": "#/components/schemas/AlertEvaluationRetention"
           }
         }
       },

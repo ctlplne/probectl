@@ -55,9 +55,11 @@ flowchart LR
   T[(TSDB)] --> E
   O[(alert_ops\nsilences/acks · RLS)] -. restore on boot .-> E
   M[(alert_maintenance_windows\nplanned work · RLS)] -. restore on boot .-> E
+  E -- state transitions --> V[(alert_evaluation_receipts\nforced RLS · 7d / row caps)]
   E -- notify --> C[channels: webhook/email]
   E -- sink --> I[incident correlator]
   E -- "Active / Silence / Ack / Maintenance" --> A["/v1/alerts/active* · /v1/alerts/maintenance*"]
+  V --> A
   A --> W[web: Alerts page]
 ```
 
@@ -87,6 +89,7 @@ explicit degraded field is the automation signal.
 | Route | Perm | Meaning |
 | --- | --- | --- |
 | `GET /v1/alerts/active` | `alert.read` | Every firing series for the caller's tenant, with operator state. `evaluator_running=false` distinguishes "quiet" from "not evaluating". |
+| `GET /v1/alerts/{rule-id}/evaluations` | `alert.read` | Bounded deterministic state transitions for one tenant-authorized rule. Optionally pass the active alert's `evaluation_fingerprint` and `limit=1..100`. |
 | `GET /v1/alerts/active/{fingerprint}/workflow` | `alert.read` | Join engine truth, immutable ack/silence receipts, an optional freshly authorized `incident_id`, and persisted connector/ticket receipts. Missing or other-tenant references fail closed. |
 | `POST /v1/alerts/active/silence` | `alert.write` | `{fingerprint, duration_minutes, reason}` — suppress notifications until the deadline (`0` clears; max 7 days) and return the durable audit receipt. |
 | `POST /v1/alerts/active/ack` | `alert.write` | `{fingerprint, reason}` — record the caller as owning the alert and return the durable audit receipt. |
@@ -107,6 +110,45 @@ identity, which is the handle for actions. Both actions are:
 - they return the engine's *updated* view plus actor, reason, start/expiry, and
   immutable audit reference, so the UI can render the write receipt immediately
   while the workflow read catches up.
+
+## Evaluation receipts: why the alert changed state
+
+Every active alert also carries a separate `evaluation_fingerprint`. It is the
+handle for its server-authored evaluation ledger; it is deliberately separate
+from the action fingerprint so silence/ack restart compatibility does not depend
+on an explanation API. Fetch it with:
+
+```sh
+probectl alert evaluations <rule-id> \
+  --query fingerprint='<evaluation_fingerprint>' \
+  --query limit=64
+```
+
+The response records state changes only: `no_data`, baseline `warming`,
+`normal`, debounce `pending`, first `firing`, renotify `steady`, and
+`resolved`. Each receipt includes the observed value, the fixed threshold or
+learned baseline band, current/required breach counts, baseline sample progress,
+rule revision, reason, and sanitized series labels. It does **not** contain SQL,
+a physical query plan, global cardinality, an ambient tenant ID, or hidden data
+from another series. Think of it as the smoke detector showing the exact sensor
+reading and trip line, not as a general-purpose log database.
+
+The ledger is intentionally small:
+
+- at most 64 receipts per series;
+- at most 256 receipts per rule;
+- seven-day expiry; and
+- at most 100 rows in one API read.
+
+Migration `0065_alert_evaluation_receipts.sql` creates `tenant_id` on the table
+from its first version, forces PostgreSQL RLS, and indexes tenant-first reads.
+Every store statement also binds `tenant_id`, so both the database boundary and
+the query text must agree. Deleting a rule deletes its receipts in the same
+tenant transaction; expiry remains the bounded cleanup fallback. A receipt
+write failure is logged but never stops the evaluator or notification path.
+`persistence_running`, `evaluator_running`, `freshness`, and `truncated` keep
+missing, stale, and partial history explicit instead of presenting a false
+empty timeline.
 
 ## Semantics (the operator contract)
 
@@ -162,23 +204,26 @@ The mechanics are restart-safe without leaking across episodes:
 
 `/alerts` on the app shell: the active-alert table (state + severity filters)
 sits over durable rules and maintenance windows. Its detail is one compact
-alert-to-postmortem workbench: engine state, bounded silence/ack actions,
-immutable operator receipts, connector/ticket delivery status, and the linked
-incident. An opened detail stays open when its state changes even if the table's
-current filter would hide the updated row. The active list polls the engine every
-15s; expired silence returns visibly to firing. The surface uses only the shared
-design-system components/tokens and remains under the WCAG 2.2 AA gate.
+alert-to-postmortem workbench: engine state, the native threshold/baseline state
+timeline, bounded silence/ack actions, immutable operator receipts,
+connector/ticket delivery status, and the linked incident. An opened detail
+stays open when its state changes even if the table's current filter would hide
+the updated row. The active list polls the engine every 15s; expired silence
+returns visibly to firing. The surface uses only the shared design-system
+components/tokens and remains under the WCAG 2.2 AA gate.
 
 ## Testing
 
 `go test ./internal/alert ./internal/control` covers the engine state machine
 (episode start, silence suppression including renotify windows + expiry, resolve
-clearing operator state, fail-closed errors), restart restore-and-cleanup of
-silences/acks, planned-window suppression/expiry/recurrence/tenant isolation, and
-the handlers (RBAC perms, tenant fail-closed workflow and incident references,
-preview, and 404/422/503 paths). Integration-tagged store tests prove maintenance
-rows cannot cross tenant RLS; control tests prove window audit events land in the
-tenant trail. `cd web && npx vitest run` covers the surface: list + filters, the
-four-interaction alert-to-postmortem journey, durable receipts, expired silence,
-blocked connectors, tenant scoping (no client-side tenant selection),
-evaluator-off honesty, and the axe a11y pass.
+clearing operator state, exact evaluation-transition sequence, threshold math,
+baseline warmup/bands, fail-closed errors), restart restore-and-cleanup of
+silences/acks, planned-window suppression/expiry/recurrence/tenant isolation,
+and the handlers (RBAC perms, tenant fail-closed workflow, evaluation, and
+incident references, preview, and 404/422/503 paths). Named two-tenant
+integration tests prove maintenance and evaluation rows cannot cross forced RLS;
+control tests prove window audit events land in the tenant trail. `cd web && npx
+vitest run` covers the surface: list + filters, deterministic evaluation
+timeline, the four-interaction alert-to-postmortem journey, durable receipts,
+expired silence, blocked connectors, tenant scoping (no client-side tenant
+selection), evaluator-off honesty, and the axe a11y pass.

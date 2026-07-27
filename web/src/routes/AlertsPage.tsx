@@ -27,6 +27,7 @@ import {
 import { severityTone } from '../api/incidents'
 import {
   alertStateOf,
+  useAlertEvaluations,
   useAlertWorkflow,
   useAckAlert,
   useActiveAlerts,
@@ -42,6 +43,8 @@ import {
   useTestOncallConnector,
   type ActiveAlert,
   type AlertActionResponse,
+  type AlertEvaluationExpectation,
+  type AlertEvaluationState,
   type AlertRule,
   type AlertRuleInput,
   type AlertWorkflowOperation,
@@ -195,6 +198,26 @@ function stateTone(s: 'firing' | 'silenced' | 'acked'): 'danger' | 'neutral' | '
   return 'neutral'
 }
 
+function evaluationTone(
+  state: AlertEvaluationState,
+): 'danger' | 'neutral' | 'info' | 'success' | 'warning' {
+  if (state === 'firing' || state === 'steady') return 'danger'
+  if (state === 'pending' || state === 'warming') return 'warning'
+  if (state === 'normal' || state === 'resolved') return 'success'
+  if (state === 'no_data') return 'neutral'
+  return 'info'
+}
+
+function evaluationExpectation(expectation: AlertEvaluationExpectation): string {
+  if (expectation.kind === 'threshold') {
+    return `${expectation.comparison ?? 'comparison unavailable'} ${expectation.threshold ?? 'threshold unavailable'}`
+  }
+  if (expectation.lower !== undefined && expectation.upper !== undefined) {
+    return `${expectation.lower.toLocaleString()} – ${expectation.upper.toLocaleString()} (mean ${expectation.mean?.toLocaleString() ?? 'unavailable'}, σ ${expectation.stddev?.toLocaleString() ?? 'unavailable'})`
+  }
+  return 'Baseline band is still warming'
+}
+
 /** ActiveAlertDetail shows one firing series with its operator actions —
  *  everything rendered comes from the engine response, never client state. */
 function linkedIncidentForAlert(alert: ActiveAlert, incidents: Incident[]): Incident | undefined {
@@ -223,6 +246,7 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
   const [operationReason, setOperationReason] = useState('Investigating the firing alert')
   const state = alertStateOf(alert)
   const linkedIncident = linkedIncidentForAlert(alert, incidents.data ?? [])
+  const evaluations = useAlertEvaluations(alert.rule_id, alert.evaluation_fingerprint)
   const workflow = useAlertWorkflow(alert.fingerprint, linkedIncident?.id)
   const operationReceipts = useMemo(() => {
     const receipts = [...(workflow.data?.operations ?? [])]
@@ -387,6 +411,97 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
       {oncall.isError ? (
         <ErrorState description="Could not load on-call connector readiness." />
       ) : null}
+
+      <section className={styles.evaluations} aria-label="Alert evaluation timeline">
+        <div className={styles.evaluationIntro}>
+          <div>
+            <h3>Why this alert fired</h3>
+            <p className={styles.muted}>
+              Server-authored threshold or baseline transitions for this authorized series. This is
+              bounded evaluator math, not a generic event or log feed.
+            </p>
+          </div>
+          {evaluations.data ? (
+            <Badge tone={evaluations.data.freshness === 'current' ? 'success' : 'warning'}>
+              {evaluations.data.freshness}
+            </Badge>
+          ) : null}
+        </div>
+        {evaluations.isLoading ? (
+          <LoadingState label="Loading evaluation receipts…" />
+        ) : evaluations.isError ? (
+          <ErrorState description="Could not load this rule's tenant-scoped evaluation receipts." />
+        ) : !evaluations.data?.persistence_running ? (
+          <div className={styles.workflowBlocked} role="status">
+            <strong>Evaluation history unavailable</strong>
+            <span>
+              The evaluator can still fire alerts, but the local Postgres receipt store is not
+              running.
+            </span>
+          </div>
+        ) : (
+          <>
+            {evaluations.data.freshness === 'stale' ? (
+              <div className={styles.workflowBlocked} role="status">
+                <strong>Evaluation history is stale</strong>
+                <span>
+                  The newest transition is older than two evaluator intervals. Check evaluator
+                  readiness before treating it as current truth.
+                </span>
+              </div>
+            ) : null}
+            <ol
+              className={styles.evaluationTimeline}
+              aria-label="Deterministic evaluation receipts"
+            >
+              {evaluations.data.items.map((receipt) => (
+                <li
+                  key={`${receipt.fingerprint}:${receipt.observed_at}:${receipt.state}`}
+                  className={styles.evaluationReceipt}
+                >
+                  <div className={styles.receiptHeading}>
+                    <Badge tone={evaluationTone(receipt.state)}>
+                      {receipt.state.replace('_', ' ')}
+                    </Badge>
+                    <DateTime value={receipt.observed_at} />
+                  </div>
+                  <strong>{receipt.reason}</strong>
+                  <dl className={styles.evaluationFacts}>
+                    <dt>Observed</dt>
+                    <dd>{receipt.observed_value?.toLocaleString() ?? 'no data'}</dd>
+                    <dt>Expected</dt>
+                    <dd>{evaluationExpectation(receipt.expectation)}</dd>
+                    <dt>Debounce</dt>
+                    <dd>
+                      {receipt.breach_count} / {receipt.required_breaches} breaches
+                    </dd>
+                    {receipt.warmup_required ? (
+                      <>
+                        <dt>Warmup</dt>
+                        <dd>
+                          {receipt.warmup_samples ?? 0} / {receipt.warmup_required} samples
+                        </dd>
+                      </>
+                    ) : null}
+                  </dl>
+                </li>
+              ))}
+            </ol>
+            {evaluations.data.items.length === 0 ? (
+              <p className={styles.muted}>
+                No retained state transition exists for this series yet.
+                {!evaluations.data.evaluator_running ? ' The tenant evaluator is not running.' : ''}
+              </p>
+            ) : null}
+            <p className={styles.muted}>
+              Retention: {evaluations.data.retention.max_per_series} per series,{' '}
+              {evaluations.data.retention.max_per_rule} per rule,{' '}
+              {evaluations.data.retention.expires_days} days.
+              {evaluations.data.truncated ? ' This response was truncated to its read limit.' : ''}
+            </p>
+          </>
+        )}
+      </section>
 
       <section className={styles.workflow} aria-label="Alert operator workflow">
         <h3>Alert → postmortem workflow</h3>

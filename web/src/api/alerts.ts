@@ -90,6 +90,7 @@ export type AlertRuleInput = Omit<AlertRule, 'id' | 'tenant_id' | 'created_at' |
 
 export interface ActiveAlert {
   fingerprint: string
+  evaluation_fingerprint: string
   rule_id: string
   rule_name: string
   severity: Severity
@@ -102,6 +103,58 @@ export interface ActiveAlert {
   silenced_until?: string
   acked_by?: string
   acked_at?: string
+}
+
+export type AlertEvaluationState =
+  | 'no_data'
+  | 'warming'
+  | 'normal'
+  | 'pending'
+  | 'firing'
+  | 'steady'
+  | 'resolved'
+
+export interface AlertEvaluationExpectation {
+  kind: 'threshold' | 'baseline'
+  comparison?: 'gt' | 'lt' | 'gte' | 'lte' | 'eq' | 'neq'
+  threshold?: number
+  mean?: number
+  stddev?: number
+  lower?: number
+  upper?: number
+}
+
+export interface AlertEvaluationReceipt {
+  contract_version: 'probectl.alert-evaluation/v1'
+  fingerprint: string
+  rule_id: string
+  rule_revision: string
+  state: AlertEvaluationState
+  observed_at: string
+  observed_value?: number
+  expectation: AlertEvaluationExpectation
+  breach_count: number
+  required_breaches: number
+  warmup_samples?: number
+  warmup_required?: number
+  reason: string
+  labels?: Record<string, string>
+}
+
+export interface AlertEvaluationsResponse {
+  contract_version: 'probectl.alert-evaluations/v1'
+  items: AlertEvaluationReceipt[]
+  truncated: boolean
+  limit: number
+  freshness: 'current' | 'stale' | 'unavailable'
+  latest_at?: string
+  evaluator_running: boolean
+  persistence_running: boolean
+  retention: {
+    max_per_series: number
+    max_per_rule: number
+    expires_days: number
+  }
 }
 
 export interface AlertWorkflowOperation {
@@ -180,6 +233,22 @@ export function useActiveAlerts() {
     queryKey: ['alerts', 'active'],
     queryFn: () => apiFetch<ActiveAlertsResponse>('/alerts/active'),
     refetchInterval: 15_000,
+  })
+}
+
+/** useAlertEvaluations reads the bounded server-authored state-transition ledger. */
+export function useAlertEvaluations(ruleID: string | undefined, fingerprint?: string) {
+  const query = new URLSearchParams()
+  if (fingerprint) query.set('fingerprint', fingerprint)
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  return useQuery({
+    queryKey: ['alerts', 'evaluations', ruleID, fingerprint ?? ''],
+    enabled: !!ruleID,
+    queryFn: () =>
+      apiFetch<AlertEvaluationsResponse>(
+        `/alerts/${encodeURIComponent(ruleID ?? '')}/evaluations${suffix}`,
+      ),
+    retry: false,
   })
 }
 

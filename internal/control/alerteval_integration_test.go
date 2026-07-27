@@ -14,6 +14,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 )
 
 func TestAlertSupervisorEvaluatesTwoNonDefaultTenants(t *testing.T) {
-	_, db := setupAPI(t)
+	srv, db := setupAPIServerWithLatest(t, nil)
 	ctx := context.Background()
 	tenants := store.NewTenants(db.Pool())
 	a, err := tenants.Create(ctx, fmt.Sprintf("alert-a-%d", time.Now().UnixNano()), "Alert A")
@@ -35,8 +37,9 @@ func TestAlertSupervisorEvaluatesTwoNonDefaultTenants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create tenant B: %v", err)
 	}
+	ruleIDs := map[string]string{}
 	for _, tn := range []*store.Tenant{a, b} {
-		createSupervisorRule(t, db, tn.ID, "loss-"+tn.Slug)
+		ruleIDs[tn.ID] = createSupervisorRule(t, db, tn.ID, "loss-"+tn.Slug)
 	}
 
 	mem := tsdb.NewMemory()
@@ -48,7 +51,6 @@ func TestAlertSupervisorEvaluatesTwoNonDefaultTenants(t *testing.T) {
 		t.Fatalf("write tsdb samples: %v", err)
 	}
 
-	srv := testServer(fakePinger{})
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup, ok := BuildAlertEvaluatorSupervisor(db.Pool(), mem, alert.ChannelDeps{}, time.Hour,
 		nil, log,
@@ -64,6 +66,17 @@ func TestAlertSupervisorEvaluatesTwoNonDefaultTenants(t *testing.T) {
 
 	assertTenantActiveAlert(t, srv, a.ID, "loss-"+a.Slug)
 	assertTenantActiveAlert(t, srv, b.ID, "loss-"+b.Slug)
+	assertTenantAlertEvaluationReceipt(t, srv, a.ID, ruleIDs[a.ID], "a", "b")
+	assertTenantAlertEvaluationReceipt(t, srv, b.ID, ruleIDs[b.ID], "b", "a")
+
+	// The other tenant's rule UUID is not a global receipt handle. Rule lookup
+	// and receipt query run inside tenant B's forced-RLS transaction first.
+	cross := apiReq(t, srv.Handler(), http.MethodGet,
+		"/v1/alerts/"+ruleIDs[a.ID]+"/evaluations", b.ID, nil)
+	if cross.Code != http.StatusNotFound ||
+		strings.Contains(cross.Body.String(), `"target":"a"`) {
+		t.Fatalf("tenant B read tenant A evaluations = %d %s", cross.Code, cross.Body.String())
+	}
 
 	if _, err := tenants.UpdateStatus(ctx, a.ID, "suspended"); err != nil {
 		t.Fatalf("suspend tenant A: %v", err)
@@ -75,11 +88,12 @@ func TestAlertSupervisorEvaluatesTwoNonDefaultTenants(t *testing.T) {
 	assertTenantActiveAlert(t, srv, b.ID, "loss-"+b.Slug)
 }
 
-func createSupervisorRule(t *testing.T, db *store.DB, tenantID, name string) {
+func createSupervisorRule(t *testing.T, db *store.DB, tenantID, name string) string {
 	t.Helper()
+	var ruleID string
 	err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(tenantID)), db.Pool(),
 		func(ctx context.Context, sc tenancy.Scope) error {
-			_, err := (store.AlertRules{}).Create(ctx, sc, alert.Rule{
+			rule, err := (store.AlertRules{}).Create(ctx, sc, alert.Rule{
 				Name:       name,
 				Enabled:    true,
 				Metric:     "probectl_test_loss_ratio",
@@ -88,10 +102,38 @@ func createSupervisorRule(t *testing.T, db *store.DB, tenantID, name string) {
 				Threshold:  0.5,
 				Severity:   alert.SeverityWarning,
 			})
+			if err == nil {
+				ruleID = rule.ID
+			}
 			return err
 		})
 	if err != nil {
 		t.Fatalf("create rule %s: %v", name, err)
+	}
+	return ruleID
+}
+
+func assertTenantAlertEvaluationReceipt(t *testing.T, srv *Server, tenantID, ruleID, wantTarget, denyTarget string) {
+	t.Helper()
+	active := readTenantActiveAlerts(t, srv, tenantID)
+	if len(active.Items) != 1 {
+		t.Fatalf("tenant %s active alerts = %+v", tenantID, active.Items)
+	}
+	path := "/v1/alerts/" + ruleID + "/evaluations?fingerprint=" +
+		url.QueryEscape(active.Items[0].EvaluationFingerprint)
+	rec := apiReq(t, srv.Handler(), http.MethodGet, path, tenantID, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant %s evaluations = %d %s", tenantID, rec.Code, rec.Body.String())
+	}
+	var got alertEvaluationsResponse
+	mustJSON(t, rec, &got)
+	if !got.PersistenceRunning || !got.EvaluatorRunning || len(got.Items) != 1 ||
+		got.Items[0].State != alert.EvaluationFiring ||
+		got.Items[0].Labels["target"] != wantTarget ||
+		got.Items[0].Labels["tenant_id"] != "" ||
+		strings.Contains(rec.Body.String(), `"target":"`+denyTarget+`"`) ||
+		strings.Contains(rec.Body.String(), tenantID) {
+		t.Fatalf("tenant %s evaluation receipt = %+v body=%s", tenantID, got, rec.Body.String())
 	}
 }
 

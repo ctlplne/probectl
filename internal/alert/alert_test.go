@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -125,13 +126,14 @@ func TestThresholdBreaches(t *testing.T) {
 func TestBaselineColdStartThenAnomaly(t *testing.T) {
 	b := newBaseline(4)
 	for i := 0; i < 4; i++ {
-		if anom, warming := b.evaluate(10, 3); anom || !warming {
-			t.Fatalf("sample %d: anom=%v warming=%v, want false/true (cold start)", i, anom, warming)
+		evaluation := b.evaluate(10, 3)
+		if evaluation.anomalous || !evaluation.warming {
+			t.Fatalf("sample %d: evaluation=%+v, want non-anomalous warmup", i, evaluation)
 		}
 	}
 	// History established (all 10 → std 0): a different value is anomalous.
-	if anom, warming := b.evaluate(100, 3); !anom || warming {
-		t.Errorf("spike: anom=%v warming=%v, want true/false", anom, warming)
+	if evaluation := b.evaluate(100, 3); !evaluation.anomalous || evaluation.warming {
+		t.Errorf("spike: evaluation=%+v, want anomalous/non-warming", evaluation)
 	}
 }
 
@@ -140,10 +142,10 @@ func TestBaselineWithVariance(t *testing.T) {
 	for _, v := range []float64{9, 10, 11, 10} { // mean 10, std ~0.707
 		b.evaluate(v, 3)
 	}
-	if anom, _ := b.evaluate(10.5, 3); anom { // within 3 sigma (~2.12)
+	if evaluation := b.evaluate(10.5, 3); evaluation.anomalous { // within 3 sigma (~2.12)
 		t.Error("10.5 should be within baseline")
 	}
-	if anom, _ := b.evaluate(100, 3); !anom {
+	if evaluation := b.evaluate(100, 3); !evaluation.anomalous {
 		t.Error("100 should be anomalous")
 	}
 }
@@ -176,6 +178,110 @@ func TestEngineThresholdDebounceFireDedupeResolve(t *testing.T) {
 	a, _ = en.Evaluate(context.Background(), rule)
 	if len(a) != 1 || a[0].State != StateResolved {
 		t.Fatalf("eval 4: want 1 resolved, got %+v", a)
+	}
+}
+
+func TestEngineEmitsBoundedLogicalEvaluationTransitions(t *testing.T) {
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	src := &fakeSource{}
+	var receipts []EvaluationReceipt
+	en := NewEngine(src, nil, discard(), WithEvaluationSink(func(_ context.Context, receipt EvaluationReceipt) error {
+		receipts = append(receipts, receipt)
+		return nil
+	}))
+	en.clock = func() time.Time { return now }
+	rule := thresholdRule()
+	rule.ForN = 2
+	rule.UpdatedAt = now.Add(-time.Hour)
+	labels := map[string]string{"target": "db", "tenant_id": "t1"}
+
+	src.samples = nil
+	if _, err := en.Evaluate(context.Background(), rule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := en.Evaluate(context.Background(), rule); err != nil {
+		t.Fatal(err)
+	}
+	src.samples = []Sample{sample(0.1, labels)}
+	if _, err := en.Evaluate(context.Background(), rule); err != nil {
+		t.Fatal(err)
+	}
+	src.samples = []Sample{sample(0.9, labels)}
+	for i := 0; i < 3; i++ {
+		now = now.Add(time.Minute)
+		if _, err := en.Evaluate(context.Background(), rule); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src.samples = []Sample{sample(0.1, labels)}
+	now = now.Add(time.Minute)
+	if _, err := en.Evaluate(context.Background(), rule); err != nil {
+		t.Fatal(err)
+	}
+
+	gotStates := make([]EvaluationState, len(receipts))
+	for i, receipt := range receipts {
+		gotStates[i] = receipt.State
+		if receipt.ContractVersion != EvaluationReceiptVersion ||
+			receipt.RuleID != rule.ID ||
+			receipt.RuleRevision == "" ||
+			receipt.RequiredBreaches != 2 {
+			t.Fatalf("receipt %d = %+v", i, receipt)
+		}
+		if _, exposed := receipt.Labels["tenant_id"]; exposed {
+			t.Fatalf("receipt exposed ambient tenant label: %+v", receipt)
+		}
+		if !strings.HasPrefix(receipt.Fingerprint, "eval:") ||
+			len(receipt.Fingerprint) != len("eval:")+64 ||
+			strings.Contains(receipt.Fingerprint, "tenant_id") ||
+			strings.Contains(receipt.Fingerprint, "target=db") {
+			t.Fatalf("receipt fingerprint is not bounded and opaque: %q", receipt.Fingerprint)
+		}
+	}
+	wantStates := []EvaluationState{
+		EvaluationNoData, EvaluationNormal, EvaluationPending,
+		EvaluationFiring, EvaluationSteady, EvaluationResolved,
+	}
+	if fmt.Sprint(gotStates) != fmt.Sprint(wantStates) {
+		t.Fatalf("states = %v, want %v", gotStates, wantStates)
+	}
+	if receipts[0].ObservedValue != nil {
+		t.Fatalf("no-data receipt has observed value: %+v", receipts[0])
+	}
+	if receipts[3].ObservedValue == nil || *receipts[3].ObservedValue != 0.9 ||
+		receipts[3].Expectation.Threshold == nil ||
+		*receipts[3].Expectation.Threshold != rule.Threshold {
+		t.Fatalf("firing math receipt = %+v", receipts[3])
+	}
+}
+
+func TestEngineBaselineReceiptsExposeWarmupAndExpectedBand(t *testing.T) {
+	src := &fakeSource{}
+	var receipts []EvaluationReceipt
+	en := NewEngine(src, nil, discard(), WithEvaluationSink(func(_ context.Context, receipt EvaluationReceipt) error {
+		receipts = append(receipts, receipt)
+		return nil
+	}))
+	rule := Rule{
+		ID: "b1", TenantID: "t1", Name: "latency", Enabled: true,
+		Metric: "rtt", Type: Baseline, Window: 2, Sensitivity: 2,
+		Severity: SeverityWarning,
+	}
+	for _, value := range []float64{10, 10, 100} {
+		src.samples = []Sample{sample(value, map[string]string{"target": "db"})}
+		if _, err := en.Evaluate(context.Background(), rule); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(receipts) != 3 ||
+		receipts[0].State != EvaluationWarming ||
+		receipts[1].WarmupSamples != 2 ||
+		receipts[2].State != EvaluationFiring ||
+		receipts[2].Expectation.Mean == nil ||
+		*receipts[2].Expectation.Mean != 10 ||
+		receipts[2].Expectation.Upper == nil ||
+		*receipts[2].Expectation.Upper != 10 {
+		t.Fatalf("baseline receipts = %+v", receipts)
 	}
 }
 

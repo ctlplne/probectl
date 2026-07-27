@@ -33,6 +33,11 @@ type seriesState struct {
 	since      time.Time // first firing of the current episode
 	lastSeen   time.Time // last evaluation of this series
 
+	// lastEvaluationState deduplicates the durable receipt stream to state
+	// transitions. Baseline warmup is the one exception: each bounded warmup
+	// step records its progress.
+	lastEvaluationState EvaluationState
+
 	// Operator actions (S-FE1): cleared automatically on resolve.
 	silencedUntil time.Time
 	ackedBy       string

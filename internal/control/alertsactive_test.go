@@ -197,6 +197,32 @@ func TestAlertWorkflowTenantScopeFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAlertEvaluationReceiptsExposeExplicitUnavailableStateWithoutPersistence(t *testing.T) {
+	srv := testServer(fakePinger{}).WithAlertState(tenancy.DefaultTenantID.String(), newStubAlertState())
+	rec := do(srv, http.MethodGet, "/v1/alerts/r1/evaluations?limit=12&fingerprint=fp-1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("evaluations = %d %s", rec.Code, rec.Body.String())
+	}
+	var got alertEvaluationsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ContractVersion != "probectl.alert-evaluations/v1" ||
+		got.PersistenceRunning ||
+		!got.EvaluatorRunning ||
+		got.Freshness != "unavailable" ||
+		got.Limit != 12 ||
+		len(got.Items) != 0 ||
+		got.Retention.MaxPerSeries != 64 ||
+		got.Retention.MaxPerRule != 256 ||
+		got.Retention.ExpiresDays != 7 {
+		t.Fatalf("evaluation availability receipt = %+v", got)
+	}
+	if rec := do(srv, http.MethodGet, "/v1/alerts/r1/evaluations?limit=101"); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("over-limit evaluations = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAlertOperationReceiptProjection(t *testing.T) {
 	expires := time.Date(2026, 6, 4, 13, 0, 0, 0, time.UTC)
 	ev := audit.Event{
@@ -260,6 +286,7 @@ func TestActiveAlertRoutePerms(t *testing.T) {
 	want := map[string]string{
 		"GET /v1/alerts/active":                        permAlertRead,
 		"GET /v1/alerts/active/{fingerprint}/workflow": permAlertRead,
+		"GET /v1/alerts/{id}/evaluations":              permAlertRead,
 		"POST /v1/alerts/active/silence":               permAlertWrite,
 		"POST /v1/alerts/active/ack":                   permAlertWrite,
 		"GET /v1/alerts/maintenance":                   permAlertRead,

@@ -75,6 +75,7 @@ function roundtripBackend(options: { expiredSilence?: boolean; connectorBlocked?
   const fallback = defaultFetch()
   const active = {
     fingerprint: 'fp-roundtrip',
+    evaluation_fingerprint: 'eval:roundtrip-series',
     rule_id: 'rule-db-latency',
     rule_name: 'Database latency',
     severity: 'critical',
@@ -111,6 +112,34 @@ function roundtripBackend(options: { expiredSilence?: boolean; connectorBlocked?
 
     if (path === '/v1/alerts/active' && method === 'GET') {
       return jsonResponse({ items: [active], evaluator_running: true })
+    }
+    if (path === '/v1/alerts/rule-db-latency/evaluations' && method === 'GET') {
+      return jsonResponse({
+        contract_version: 'probectl.alert-evaluations/v1',
+        items: [
+          {
+            contract_version: 'probectl.alert-evaluation/v1',
+            fingerprint: active.evaluation_fingerprint,
+            rule_id: active.rule_id,
+            rule_revision: SINCE,
+            state: 'firing',
+            observed_at: LAST_SEEN,
+            observed_value: 250,
+            expectation: { kind: 'threshold', comparison: 'gt', threshold: 100 },
+            breach_count: 2,
+            required_breaches: 2,
+            reason: 'probectl_result_rtt_ms=250 gt 100',
+            labels: { target: 'db' },
+          },
+        ],
+        truncated: false,
+        limit: 64,
+        freshness: 'current',
+        latest_at: LAST_SEEN,
+        evaluator_running: true,
+        persistence_running: true,
+        retention: { max_per_series: 64, max_per_rule: 256, expires_days: 7 },
+      })
     }
     if (path === '/v1/alerts/active/ack' && method === 'POST') {
       active.acked_by = 'operator@probectl.test'
@@ -235,6 +264,12 @@ describe('alert-to-postmortem round trip (X11)', () => {
     await userEvent.click(within(activeTable).getByRole('button', { name: 'Details' }))
     interactions += 1
     let dialog = await screen.findByRole('dialog', { name: 'Database latency' })
+    const evaluationTimeline = await within(dialog).findByRole('list', {
+      name: 'Deterministic evaluation receipts',
+    })
+    expect(evaluationTimeline).toHaveTextContent('firing')
+    expect(evaluationTimeline).toHaveTextContent('gt 100')
+    expect(evaluationTimeline).toHaveTextContent('2 / 2 breaches')
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Acknowledge' }))
     interactions += 1

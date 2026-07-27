@@ -50,6 +50,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"get":                 {Method: http.MethodGet, Path: "/v1/alerts/{id}", ArgName: "id"},
 		"update":              {Method: http.MethodPut, Path: "/v1/alerts/{id}", ArgName: "id"},
 		"delete":              {Method: http.MethodDelete, Path: "/v1/alerts/{id}", ArgName: "id"},
+		"evaluations":         {Method: http.MethodGet, Path: "/v1/alerts/{id}/evaluations", ArgName: "id", Description: "show bounded tenant-scoped evaluation receipts"},
 		"active":              {Method: http.MethodGet, Path: "/v1/alerts/active"},
 		"workflow":            {Method: http.MethodGet, Path: "/v1/alerts/active/{fingerprint}/workflow", ArgName: "fingerprint", Description: "show durable alert actions, incident context, and delivery receipts"},
 		"ack":                 {Method: http.MethodPost, Path: "/v1/alerts/active/ack"},

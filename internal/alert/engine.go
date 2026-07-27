@@ -35,9 +35,14 @@ type Engine struct {
 	clock    func() time.Time
 
 	sink func(context.Context, Alert) // optional: every acted alert is forwarded here
+	// evaluationSink records a bounded explanation after tenant-scoped metric
+	// evaluation. A persistence failure is logged but never blocks alerting.
+	evaluationSink EvaluationSink
 
 	mu     sync.Mutex
 	states map[string]*seriesState
+	// noDataRules suppresses duplicate rule-level no-data receipts.
+	noDataRules map[string]bool
 
 	maintenance map[string]MaintenanceWindow
 
@@ -84,17 +89,24 @@ func WithAlertSink(fn func(context.Context, Alert)) EngineOption {
 	return func(e *Engine) { e.sink = fn }
 }
 
+// WithEvaluationSink records deterministic evaluation receipts. The caller
+// binds this sink to exactly one tenant before constructing the engine.
+func WithEvaluationSink(fn EvaluationSink) EngineOption {
+	return func(e *Engine) { e.evaluationSink = fn }
+}
+
 // NewEngine builds an engine. clock defaults to time.Now (overridable in tests).
 func NewEngine(source MetricSource, notifier *Notifier, log *slog.Logger, opts ...EngineOption) *Engine {
 	if log == nil {
 		log = slog.Default()
 	}
 	e := &Engine{
-		source:   source,
-		notifier: notifier,
-		log:      log,
-		clock:    time.Now,
-		states:   make(map[string]*seriesState),
+		source:      source,
+		notifier:    notifier,
+		log:         log,
+		clock:       time.Now,
+		states:      make(map[string]*seriesState),
+		noDataRules: make(map[string]bool),
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -112,10 +124,18 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	if err != nil {
 		return nil, fmt.Errorf("alert: query %q: %w", rule.Metric, err)
 	}
+	if len(samples) == 0 {
+		en.recordNoData(ctx, rule)
+		return nil, nil
+	}
+	en.mu.Lock()
+	en.noDataRules[rule.ID] = false
+	en.mu.Unlock()
 
 	var acted []Alert
 	for _, s := range samples {
-		alert, notify := en.evalSample(rule, s)
+		alert, notify, receipt := en.evalSample(rule, s)
+		en.recordEvaluation(ctx, receipt)
 		if notify {
 			if en.notifier != nil {
 				en.notifier.Deliver(ctx, rule, alert)
@@ -132,21 +152,43 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 // evalSample evaluates one sample under the engine lock: the same state is read
 // by the active-alert surface (Active/Silence/Acknowledge), so every mutation
 // happens locked. Notification delivery stays outside the lock.
-func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool) {
+func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationReceipt) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
 	key := stateKey(rule.ID, s.Labels)
 	st := en.stateForLocked(rule, s.Labels)
-	breached, reason := en.breached(rule, st, s.Value)
+	decision := en.breached(rule, st, s.Value)
 
 	// Capture the rendered state the surface serves (engine truth).
 	st.ruleID, st.ruleName = rule.ID, rule.Name
 	st.severity, st.metric = rule.Severity, rule.Metric
 	st.labels = s.Labels
-	st.lastValue, st.lastReason = s.Value, reason
+	st.lastValue, st.lastReason = s.Value, decision.reason
 	st.lastSeen = en.clock()
 
-	return en.transition(key, rule, st, s, breached, reason)
+	acted, notify, state := en.transition(key, rule, st, s, decision)
+	record := state != st.lastEvaluationState || state == EvaluationWarming
+	st.lastEvaluationState = state
+	if !record {
+		return acted, notify, nil
+	}
+	value := s.Value
+	return acted, notify, &EvaluationReceipt{
+		ContractVersion:  EvaluationReceiptVersion,
+		Fingerprint:      evaluationFingerprint(rule.ID, s.Labels),
+		RuleID:           rule.ID,
+		RuleRevision:     ruleRevision(rule),
+		State:            state,
+		ObservedAt:       st.lastSeen,
+		ObservedValue:    &value,
+		Expectation:      decision.expectation,
+		BreachCount:      st.breachCount,
+		RequiredBreaches: requiredBreaches(rule),
+		WarmupSamples:    decision.warmupSamples,
+		WarmupRequired:   decision.warmupNeeded,
+		Reason:           decision.reason,
+		Labels:           receiptLabels(s.Labels),
+	}
 }
 
 // stateForLocked returns (creating if needed) the per-series state. en.mu held.
@@ -164,35 +206,66 @@ func (en *Engine) stateForLocked(rule Rule, labels map[string]string) *seriesSta
 }
 
 // breached decides whether the value breaches the rule, returning a reason.
-func (en *Engine) breached(rule Rule, st *seriesState, value float64) (bool, string) {
+func (en *Engine) breached(rule Rule, st *seriesState, value float64) evaluationDecision {
 	switch rule.Type {
 	case Baseline:
 		if st.base == nil {
 			st.base = newBaseline(rule.Window)
 		}
-		anomalous, warming := st.base.evaluate(value, rule.Sensitivity)
-		if warming {
-			return false, ""
+		evaluation := st.base.evaluate(value, rule.Sensitivity)
+		expectation := EvaluationExpectation{
+			Kind:   Baseline,
+			Mean:   floatRef(evaluation.mean),
+			StdDev: floatRef(evaluation.std),
+			Lower:  floatRef(evaluation.mean - rule.Sensitivity*evaluation.std),
+			Upper:  floatRef(evaluation.mean + rule.Sensitivity*evaluation.std),
 		}
-		return anomalous, fmt.Sprintf("%s=%g deviates from its baseline (>%g sigma)", rule.Metric, value, rule.Sensitivity)
+		if evaluation.warming {
+			return evaluationDecision{
+				warming: true, reason: "baseline warming",
+				expectation: expectation, warmupSamples: evaluation.samples,
+				warmupNeeded: evaluation.required,
+			}
+		}
+		reason := fmt.Sprintf("%s=%g is within its baseline band", rule.Metric, value)
+		if evaluation.anomalous {
+			reason = fmt.Sprintf("%s=%g deviates from its baseline (>%g sigma)", rule.Metric, value, rule.Sensitivity)
+		}
+		return evaluationDecision{
+			breached:    evaluation.anomalous,
+			reason:      reason,
+			expectation: expectation, warmupSamples: evaluation.samples,
+			warmupNeeded: evaluation.required,
+		}
 	default: // Threshold
 		b := breaches(rule.Comparison, value, rule.Threshold)
-		return b, fmt.Sprintf("%s=%g %s %g", rule.Metric, value, rule.Comparison, rule.Threshold)
+		return evaluationDecision{
+			breached: b,
+			reason:   fmt.Sprintf("%s=%g %s %g", rule.Metric, value, rule.Comparison, rule.Threshold),
+			expectation: EvaluationExpectation{
+				Kind: Threshold, Comparison: rule.Comparison, Threshold: floatRef(rule.Threshold),
+			},
+		}
 	}
 }
 
 // transition advances the series state machine and returns an alert to notify (if
 // any), applying ForN debounce, renotify dedupe, and resolved transitions.
-func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, breached bool, reason string) (Alert, bool) {
+func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, decision evaluationDecision) (Alert, bool, EvaluationState) {
 	forN := rule.ForN
 	if forN < 1 {
 		forN = 1
 	}
 
-	if breached {
+	if decision.warming {
+		st.breachCount = 0
+		return Alert{}, false, EvaluationWarming
+	}
+
+	if decision.breached {
 		st.breachCount++
 		if st.breachCount < forN {
-			return Alert{}, false // still pending (debounce)
+			return Alert{}, false, EvaluationPending // still pending (debounce)
 		}
 		firstFiring := !st.firing
 		st.firing = true
@@ -215,20 +288,30 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, b
 			if occ.EndsAt.After(st.silencedUntil) {
 				st.silencedUntil = occ.EndsAt
 			}
-			return Alert{}, false
+			if firstFiring {
+				return Alert{}, false, EvaluationFiring
+			}
+			return Alert{}, false, EvaluationSteady
 		}
 		// A silence (S-FE1) suppresses firing notifications until its deadline;
 		// the series keeps evaluating and stays visible as firing.
 		if st.silencedUntil.After(now) {
-			return Alert{}, false
+			if firstFiring {
+				return Alert{}, false, EvaluationFiring
+			}
+			return Alert{}, false, EvaluationSteady
 		}
 		renotify := rule.RenotifySeconds > 0 &&
 			now.Sub(st.lastNotified) >= time.Duration(rule.RenotifySeconds)*time.Second
 		if firstFiring || st.lastNotified.IsZero() || renotify {
 			st.lastNotified = now
-			return en.alert(rule, s, StateFiring, reason), true
+			state := EvaluationSteady
+			if firstFiring {
+				state = EvaluationFiring
+			}
+			return en.alert(rule, s, StateFiring, decision.reason), true, state
 		}
-		return Alert{}, false // already firing, within the renotify window (dedupe)
+		return Alert{}, false, EvaluationSteady // already firing, within the renotify window (dedupe)
 	}
 
 	// Not breached.
@@ -242,9 +325,50 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, b
 			// Delete the persisted op so a future episode starts clean.
 			go en.onResolve(key)
 		}
-		return en.alert(rule, s, StateResolved, "value recovered"), true
+		return en.alert(rule, s, StateResolved, "value recovered"), true, EvaluationResolved
 	}
-	return Alert{}, false
+	return Alert{}, false, EvaluationNormal
+}
+
+func (en *Engine) recordNoData(ctx context.Context, rule Rule) {
+	en.mu.Lock()
+	if en.noDataRules[rule.ID] {
+		en.mu.Unlock()
+		return
+	}
+	en.noDataRules[rule.ID] = true
+	observedAt := en.clock()
+	en.mu.Unlock()
+	en.recordEvaluation(ctx, &EvaluationReceipt{
+		ContractVersion:  EvaluationReceiptVersion,
+		Fingerprint:      noDataEvaluationFingerprint(rule.ID),
+		RuleID:           rule.ID,
+		RuleRevision:     ruleRevision(rule),
+		State:            EvaluationNoData,
+		ObservedAt:       observedAt,
+		Expectation:      expectationForNoData(rule),
+		RequiredBreaches: requiredBreaches(rule),
+		Reason:           "no matching series returned by the tenant-scoped metric source",
+	})
+}
+
+func expectationForNoData(rule Rule) EvaluationExpectation {
+	if rule.Type == Baseline {
+		return EvaluationExpectation{Kind: Baseline}
+	}
+	return EvaluationExpectation{
+		Kind: Threshold, Comparison: rule.Comparison, Threshold: floatRef(rule.Threshold),
+	}
+}
+
+func (en *Engine) recordEvaluation(ctx context.Context, receipt *EvaluationReceipt) {
+	if receipt == nil || en.evaluationSink == nil {
+		return
+	}
+	if err := en.evaluationSink(ctx, *receipt); err != nil {
+		en.log.Warn("alert evaluation receipt persistence failed",
+			"rule_id", receipt.RuleID, "state", receipt.State, "error", err)
+	}
 }
 
 func (en *Engine) alert(rule Rule, s Sample, state State, reason string) Alert {

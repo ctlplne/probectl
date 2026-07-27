@@ -39,16 +39,17 @@ var ErrNotActive = errors.New("alert: series is not firing")
 type ActiveAlert struct {
 	// Fingerprint identifies the (rule, series) pair — the handle for
 	// silence/acknowledge actions. Opaque to clients.
-	Fingerprint string            `json:"fingerprint"`
-	RuleID      string            `json:"rule_id"`
-	RuleName    string            `json:"rule_name"`
-	Severity    Severity          `json:"severity"`
-	Metric      string            `json:"metric"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Value       float64           `json:"value"`
-	Reason      string            `json:"reason"`
-	Since       time.Time         `json:"since"`
-	LastSeenAt  time.Time         `json:"last_seen_at"`
+	Fingerprint           string            `json:"fingerprint"`
+	EvaluationFingerprint string            `json:"evaluation_fingerprint"`
+	RuleID                string            `json:"rule_id"`
+	RuleName              string            `json:"rule_name"`
+	Severity              Severity          `json:"severity"`
+	Metric                string            `json:"metric"`
+	Labels                map[string]string `json:"labels,omitempty"`
+	Value                 float64           `json:"value"`
+	Reason                string            `json:"reason"`
+	Since                 time.Time         `json:"since"`
+	LastSeenAt            time.Time         `json:"last_seen_at"`
 
 	SilencedUntil *time.Time `json:"silenced_until,omitempty"`
 	AckedBy       string     `json:"acked_by,omitempty"`
@@ -58,16 +59,17 @@ type ActiveAlert struct {
 // snapshotLocked renders one firing series (en.mu held).
 func (en *Engine) snapshotLocked(key string, st *seriesState) ActiveAlert {
 	a := ActiveAlert{
-		Fingerprint: key,
-		RuleID:      st.ruleID,
-		RuleName:    st.ruleName,
-		Severity:    st.severity,
-		Metric:      st.metric,
-		Labels:      st.labels,
-		Value:       st.lastValue,
-		Reason:      st.lastReason,
-		Since:       st.since,
-		LastSeenAt:  st.lastSeen,
+		Fingerprint:           key,
+		EvaluationFingerprint: evaluationFingerprint(st.ruleID, st.labels),
+		RuleID:                st.ruleID,
+		RuleName:              st.ruleName,
+		Severity:              st.severity,
+		Metric:                st.metric,
+		Labels:                st.labels,
+		Value:                 st.lastValue,
+		Reason:                st.lastReason,
+		Since:                 st.since,
+		LastSeenAt:            st.lastSeen,
 	}
 	if st.silencedUntil.After(en.clock()) {
 		t := st.silencedUntil
