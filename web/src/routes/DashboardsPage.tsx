@@ -343,19 +343,25 @@ export function DashboardsPage() {
                 Executive
               </Button>
             </div>
-            <div className={styles.scopeFact}>
-              <span className={styles.scopeLabel}>Tenant</span>
-              <strong>{tenant.name}</strong>
-              <code>{tenant.id}</code>
+            <div className={styles.scopeContext} data-dashboard-scope-context>
+              <div className={styles.scopeFact}>
+                <div className={styles.scopeFactHeading}>
+                  <span className={styles.scopeLabel}>Tenant</span>
+                  <strong>{tenant.name}</strong>
+                </div>
+                <code data-dashboard-tenant-id>{tenant.id}</code>
+              </div>
+              <div className={styles.scopeFact}>
+                <div className={styles.scopeFactHeading}>
+                  <span className={styles.scopeLabel}>Absolute time · UTC</span>
+                  <Badge tone="info">1 hour coordinated</Badge>
+                </div>
+                <strong className={styles.scopeTimeValue} data-dashboard-time-range>
+                  <DateTime value={scopeFrom.toISOString()} /> –{' '}
+                  <DateTime value={scopeTo.toISOString()} />
+                </strong>
+              </div>
             </div>
-            <div className={styles.scopeFact}>
-              <span className={styles.scopeLabel}>Absolute time · UTC</span>
-              <strong>
-                <DateTime value={scopeFrom.toISOString()} /> –{' '}
-                <DateTime value={scopeTo.toISOString()} />
-              </strong>
-            </div>
-            <Badge tone="info">1 hour coordinated</Badge>
             <details className={styles.scopeDetails}>
               <summary>Coverage, provenance, and redaction details</summary>
               <dl>

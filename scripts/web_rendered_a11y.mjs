@@ -47,6 +47,11 @@ const targetsLaptopViewport = {
   width: 1280,
   height: 720,
 };
+const dashboardLaptopViewport = {
+  name: "dashboard-laptop",
+  width: 1280,
+  height: 720,
+};
 const topologyLaptopViewport = {
   name: "topology-laptop",
   width: 1280,
@@ -1609,6 +1614,74 @@ async function dashboardChecks(page) {
   }, dashboardCaptions);
 }
 
+async function dashboardScopeGeometryChecks(page, viewportName) {
+  return page.evaluate((name) => {
+    const problems = [];
+    const scope = document.querySelector(
+      '[aria-label="Dashboard scope and preset"]',
+    );
+    const context = scope?.querySelector("[data-dashboard-scope-context]");
+    const tenantID = scope?.querySelector("[data-dashboard-tenant-id]");
+    const timeRange = scope?.querySelector("[data-dashboard-time-range]");
+    if (!scope || !context || !tenantID || !timeRange) {
+      return ["missing grouped dashboard tenant/time scope"];
+    }
+    if (
+      String(tenantID.textContent || "").trim() !==
+      "00000000-0000-0000-0000-000000000001"
+    ) {
+      problems.push("full immutable tenant ID is not visibly rendered");
+    }
+    const scopeBox = scope.getBoundingClientRect();
+    for (const [label, element] of [
+      ["scope context", context],
+      ["tenant ID", tenantID],
+      ["absolute UTC range", timeRange],
+    ]) {
+      const box = element.getBoundingClientRect();
+      if (
+        box.left < scopeBox.left - 1 ||
+        box.right > scopeBox.right + 1 ||
+        box.width < 1 ||
+        box.height < 1
+      ) {
+        problems.push(
+          `${label} escapes or disappears from the scope strip ` +
+            `(item ${box.left.toFixed(1)}–${box.right.toFixed(1)}, ` +
+            `scope ${scopeBox.left.toFixed(1)}–${scopeBox.right.toFixed(1)})`,
+        );
+      }
+    }
+    if (
+      tenantID.scrollWidth > tenantID.clientWidth + 1 ||
+      timeRange.scrollWidth > timeRange.clientWidth + 1
+    ) {
+      problems.push("dashboard tenant/time scope clips horizontal content");
+    }
+    if (name === "dashboard-laptop") {
+      const tenantLineHeight = Number.parseFloat(
+        getComputedStyle(tenantID).lineHeight,
+      );
+      const timeLineHeight = Number.parseFloat(
+        getComputedStyle(timeRange).lineHeight,
+      );
+      if (
+        Number.isFinite(tenantLineHeight) &&
+        tenantID.getBoundingClientRect().height > tenantLineHeight * 1.5
+      ) {
+        problems.push("tenant ID fragments across lines at 1280x720");
+      }
+      if (
+        Number.isFinite(timeLineHeight) &&
+        timeRange.getBoundingClientRect().height > timeLineHeight * 1.5
+      ) {
+        problems.push("absolute UTC range fragments across lines at 1280x720");
+      }
+    }
+    return problems;
+  }, viewportName);
+}
+
 async function selfCheck(browser, axeSource) {
   const page = await browser.newPage({ viewport: viewports[0] });
   await page.setContent(`
@@ -1679,6 +1752,37 @@ async function selfCheck(browser, axeSource) {
   ) {
     throw new Error(
       "self-check failed: mobile CardHeader check did not catch a deliberate non-wrapping regression",
+    );
+  }
+  await page.setViewportSize(dashboardLaptopViewport);
+  await page.setContent(`
+    <section aria-label="Dashboard scope and preset" style="width:900px">
+      <div data-dashboard-scope-context>
+        <code
+          data-dashboard-tenant-id
+          style="display:block;width:90px;line-height:16px;overflow-wrap:anywhere"
+        >00000000-0000-0000-0000-000000000001</code>
+        <strong
+          data-dashboard-time-range
+          style="display:block;width:140px;line-height:20px;white-space:normal"
+        >Jul 27, 2026, 06:47:28 UTC – Jul 27, 2026, 07:47:28 UTC</strong>
+      </div>
+    </section>
+  `);
+  const dashboardScope = await dashboardScopeGeometryChecks(
+    page,
+    dashboardLaptopViewport.name,
+  );
+  if (
+    !dashboardScope.some((problem) =>
+      problem.includes("tenant ID fragments across lines"),
+    ) ||
+    !dashboardScope.some((problem) =>
+      problem.includes("absolute UTC range fragments across lines"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: dashboard scope check did not catch planted tenant/time fragmentation",
     );
   }
   await page.setViewportSize(targetsLaptopViewport);
@@ -1890,7 +1994,18 @@ async function main() {
               );
             }
             if (route === "/dashboards") {
-              record.dashboard = await dashboardChecks(page);
+              if (viewport.name === "desktop") {
+                await page.setViewportSize(dashboardLaptopViewport);
+              }
+              record.dashboard = [
+                ...(await dashboardChecks(page)),
+                ...(await dashboardScopeGeometryChecks(
+                  page,
+                  viewport.name === "desktop"
+                    ? dashboardLaptopViewport.name
+                    : viewport.name,
+                )),
+              ];
               if (record.dashboard.length > 0) {
                 failures.push(
                   `${viewport.name} ${theme} ${route}: dashboard coverage violations\n  ${record.dashboard.join("\n  ")}`,

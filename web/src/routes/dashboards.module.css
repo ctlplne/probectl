@@ -1,6 +1,6 @@
 .scopeBar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 2fr) auto;
+  grid-template-columns: 1fr;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
@@ -9,16 +9,33 @@
   background: var(--color-surface-raised);
 }
 
-.presetGroup,
-.scopeFact {
+.presetGroup {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
 }
 
+.scopeContext {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--space-8) * 8), min-content) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .scopeFact {
+  display: grid;
+  align-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.scopeFactHeading {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
 }
 
 .scopeFact code,
@@ -27,6 +44,15 @@
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+}
+
+.scopeFact code,
+.scopeTimeValue {
+  white-space: nowrap;
+}
+
+.scopeTimeValue {
+  font-variant-numeric: tabular-nums;
 }
 
 .scopeLabel {
@@ -342,10 +368,6 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .scopeBar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .reportingControls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -356,7 +378,6 @@
     grid-template-columns: 1fr;
   }
 
-  .scopeBar,
   .scopeDetails dl,
   .reportingControls,
   .reportingLists {
@@ -378,15 +399,20 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .scopeContext {
+    grid-template-columns: 1fr;
+  }
+
   /* Unbroken strings (tenant UUID, ISO timestamps) wrap instead of widening
    * the page beyond the viewport. */
   .scopeFact code,
-  .scopeFact strong {
+  .scopeTimeValue {
     overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .presetGroup,
-  .scopeFact {
+  .scopeFactHeading {
     align-items: flex-start;
   }
 }

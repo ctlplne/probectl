@@ -155,6 +155,12 @@ describe('tenant-safe dashboard reporting', () => {
     expect(within(scope).getByText('00000000-0000-0000-0000-000000000001')).toBeInTheDocument()
     expect(within(scope).getByText(/absolute time · utc/i)).toBeInTheDocument()
     expect(within(scope).getByText(/1 hour coordinated/i)).toBeInTheDocument()
+    expect(scope.querySelector('[data-dashboard-scope-context]')).toContainElement(
+      scope.querySelector('[data-dashboard-tenant-id]'),
+    )
+    expect(scope.querySelector('[data-dashboard-scope-context]')).toContainElement(
+      scope.querySelector('[data-dashboard-time-range]'),
+    )
 
     const operator = within(scope).getByRole('button', { name: 'Operator' })
     const executive = within(scope).getByRole('button', { name: 'Executive' })
