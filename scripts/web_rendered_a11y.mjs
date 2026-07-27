@@ -1082,6 +1082,59 @@ async function horizontalOverflowCheck(page) {
   });
 }
 
+// A hidden-overflow component can clip a control without widening the
+// document. The control remains in the accessibility tree, so axe and the
+// document-level overflow check both stay green even though a user cannot see
+// or reach its full hit target. Deliberate local scroll viewports are exempt:
+// their controls remain reachable by scrolling that widget.
+async function interactiveClippingCheck(page) {
+  return page.evaluate(() => {
+    const problems = [];
+    const controls = document.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="button"]',
+    );
+    for (const control of controls) {
+      const rect = control.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+
+      let hasLocalHorizontalScroll = false;
+      for (
+        let ancestor = control.parentElement;
+        ancestor && ancestor !== document.body;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (
+          (style.overflowX === "auto" || style.overflowX === "scroll") &&
+          ancestor.scrollWidth > ancestor.clientWidth + 1
+        ) {
+          hasLocalHorizontalScroll = true;
+        }
+        if (
+          (style.overflowX === "hidden" || style.overflowX === "clip") &&
+          !hasLocalHorizontalScroll
+        ) {
+          const clip = ancestor.getBoundingClientRect();
+          if (rect.left < clip.left - 1 || rect.right > clip.right + 1) {
+            const name =
+              control.getAttribute("aria-label")?.trim() ||
+              control.textContent?.trim().replace(/\s+/g, " ").slice(0, 64) ||
+              control.getAttribute("name") ||
+              control.tagName.toLowerCase();
+            problems.push(
+              `"${name}" is clipped by hidden-overflow ${ancestor.tagName.toLowerCase()}: ` +
+                `control ${Math.round(rect.left)}..${Math.round(rect.right)}, ` +
+                `container ${Math.round(clip.left)}..${Math.round(clip.right)}`,
+            );
+            break;
+          }
+        }
+      }
+    }
+    return problems;
+  });
+}
+
 // Card actions are allowed to wrap, but never to steal the heading's readable
 // measure or disappear behind Card's intentional overflow clipping. The data
 // markers are a stable component contract; CSS-module class hashes are not.
@@ -1719,6 +1772,24 @@ async function selfCheck(browser, axeSource) {
       "self-check failed: horizontal-overflow check did not catch a deliberate shell-width regression",
     );
   }
+  await page.setContent(`
+    <section style="width:160px;overflow:hidden">
+      <div style="display:flex;width:260px">
+        <button style="flex:0 0 120px">Visible control</button>
+        <button style="flex:0 0 140px">Planted clipped control</button>
+      </div>
+    </section>
+  `);
+  const clippedControls = await interactiveClippingCheck(page);
+  if (
+    !clippedControls.some((problem) =>
+      problem.includes("Planted clipped control"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: interactive-clipping check did not catch a control beyond a hidden-overflow ancestor",
+    );
+  }
   await page.setViewportSize(viewports[1]);
   await page.setContent(`
     <style>
@@ -1922,6 +1993,7 @@ async function main() {
             axe: [],
             custom: [],
             overflow: [],
+            clippedControls: [],
             cardHeader: [],
             dashboard: [],
             targets: [],
@@ -1985,6 +2057,12 @@ async function main() {
             if (record.overflow.length > 0) {
               failures.push(
                 `${viewport.name} ${theme} ${route}: horizontal overflow\n  ${record.overflow.join("\n  ")}`,
+              );
+            }
+            record.clippedControls = await interactiveClippingCheck(page);
+            if (record.clippedControls.length > 0) {
+              failures.push(
+                `${viewport.name} ${theme} ${route}: clipped interactive controls\n  ${record.clippedControls.join("\n  ")}`,
               );
             }
             record.cardHeader = await mobileCardHeaderCheck(page);
@@ -2071,6 +2149,7 @@ async function main() {
             record.axe.length === 0 &&
             record.custom.length === 0 &&
             record.overflow.length === 0 &&
+            record.clippedControls.length === 0 &&
             record.cardHeader.length === 0 &&
             record.dashboard.length === 0 &&
             record.targets.length === 0 &&
