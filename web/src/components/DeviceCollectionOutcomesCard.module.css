@@ -1,0 +1,117 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+
+.receiptList {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.receipt {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.receiptHeader {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.identity,
+.protocol {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.identity {
+  flex: 1 1 calc(var(--space-8) * 5);
+}
+
+.protocol {
+  flex: 0 0 auto;
+  justify-items: start;
+}
+
+.label,
+.facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.target {
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-tight);
+  overflow-wrap: break-word;
+}
+
+.agent {
+  width: fit-content;
+  max-width: 100%;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-8) * 5)), 1fr));
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  margin: 0;
+  border-top: var(--border-width-thin) solid var(--color-border);
+}
+
+.fact {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: var(--space-1);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  overflow-wrap: break-word;
+}
+
+.outcome,
+.nextAction {
+  grid-column: 1 / -1;
+}
+
+.outcomeValue {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.reason {
+  color: var(--color-text-muted);
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+.nextAction {
+  padding: var(--space-3);
+  background: var(--color-info-soft);
+  border: var(--border-width-thin) solid var(--color-info);
+  border-radius: var(--radius-sm);
+}

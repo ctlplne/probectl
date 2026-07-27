@@ -15,7 +15,7 @@ import { DateTime } from '../time/DateTime'
 import { Badge, StatusDot, type BadgeTone } from './Badge'
 import { Card, CardBody, CardHeader } from './Card'
 import { EmptyState, ErrorState, LoadingState } from './States'
-import { Table, type Column } from './Table'
+import styles from './DeviceCollectionOutcomesCard.module.css'
 
 const stateLabels: Record<DeviceCollectionOutcomeState, MessageKey> = {
   ok_with_rows: 'device.outcomes.state.okWithRows',
@@ -56,66 +56,6 @@ export function DeviceCollectionOutcomesCard() {
   const { t } = useI18n()
   const outcomes = useDeviceCollectionOutcomes(100)
   const rows = outcomes.data?.items ?? []
-  const columns: Column<DeviceCollectionOutcome>[] = [
-    {
-      key: 'target',
-      header: t('device.outcomes.column.target'),
-      render: (row) => (
-        <span>
-          <strong>{row.configured_target}</strong>
-          <div>
-            <code>{row.agent_id}</code>
-          </div>
-        </span>
-      ),
-    },
-    {
-      key: 'protocol',
-      header: t('device.outcomes.column.protocol'),
-      render: (row) => <Badge tone="info">{row.protocol.toUpperCase()}</Badge>,
-    },
-    {
-      key: 'outcome',
-      header: t('device.outcomes.column.outcome'),
-      render: (row) => (
-        <span>
-          <StatusDot tone={stateTone(row.state)} label={t(stateLabels[row.state])} />
-          <div>{t(reasonLabels[row.reason])}</div>
-        </span>
-      ),
-    },
-    {
-      key: 'rows',
-      header: t('device.outcomes.column.rows'),
-      numeric: true,
-      render: (row) => String(row.row_count),
-    },
-    {
-      key: 'attempt',
-      header: t('device.outcomes.column.lastAttempt'),
-      render: (row) =>
-        row.last_attempt_at ? (
-          <DateTime value={row.last_attempt_at} />
-        ) : (
-          t('device.outcomes.value.never')
-        ),
-    },
-    {
-      key: 'success',
-      header: t('device.outcomes.column.lastSuccess'),
-      render: (row) =>
-        row.last_success_at ? (
-          <DateTime value={row.last_success_at} />
-        ) : (
-          t('device.outcomes.value.never')
-        ),
-    },
-    {
-      key: 'action',
-      header: t('device.outcomes.column.nextAction'),
-      render: (row) => t(actionLabels[row.next_action]),
-    },
-  ]
 
   return (
     <Card>
@@ -139,20 +79,70 @@ export function DeviceCollectionOutcomesCard() {
             title={t('device.outcomes.unavailable.title')}
             description={t('device.outcomes.unavailable.description')}
           />
-        ) : (
-          <Table
-            caption={t('device.outcomes.caption')}
-            columns={columns}
-            rows={rows}
-            rowKey={(row) => `${row.agent_id}:${row.configured_target}:${row.protocol}`}
-            empty={
-              <EmptyState
-                icon="admin"
-                title={t('device.outcomes.empty.title')}
-                description={t('device.outcomes.empty.description')}
-              />
-            }
+        ) : rows.length === 0 ? (
+          <EmptyState
+            icon="admin"
+            title={t('device.outcomes.empty.title')}
+            description={t('device.outcomes.empty.description')}
           />
+        ) : (
+          <ul className={styles.receiptList} aria-label={t('device.outcomes.caption')}>
+            {rows.map((row) => (
+              <li
+                className={styles.receipt}
+                key={`${row.agent_id}:${row.configured_target}:${row.protocol}`}
+              >
+                <div className={styles.receiptHeader}>
+                  <div className={styles.identity}>
+                    <span className={styles.label}>{t('device.outcomes.column.target')}</span>
+                    <strong className={styles.target}>{row.configured_target}</strong>
+                    <code className={styles.agent}>{row.agent_id}</code>
+                  </div>
+                  <div className={styles.protocol}>
+                    <span className={styles.label}>{t('device.outcomes.column.protocol')}</span>
+                    <Badge tone="info">{row.protocol.toUpperCase()}</Badge>
+                  </div>
+                </div>
+                <dl className={styles.facts}>
+                  <div className={`${styles.fact} ${styles.outcome}`}>
+                    <dt>{t('device.outcomes.column.outcome')}</dt>
+                    <dd className={styles.outcomeValue}>
+                      <StatusDot tone={stateTone(row.state)} label={t(stateLabels[row.state])} />
+                      <span className={styles.reason}>{t(reasonLabels[row.reason])}</span>
+                    </dd>
+                  </div>
+                  <div className={styles.fact}>
+                    <dt>{t('device.outcomes.column.rows')}</dt>
+                    <dd className={styles.numeric}>{row.row_count}</dd>
+                  </div>
+                  <div className={styles.fact}>
+                    <dt>{t('device.outcomes.column.lastAttempt')}</dt>
+                    <dd>
+                      {row.last_attempt_at ? (
+                        <DateTime value={row.last_attempt_at} />
+                      ) : (
+                        t('device.outcomes.value.never')
+                      )}
+                    </dd>
+                  </div>
+                  <div className={styles.fact}>
+                    <dt>{t('device.outcomes.column.lastSuccess')}</dt>
+                    <dd>
+                      {row.last_success_at ? (
+                        <DateTime value={row.last_success_at} />
+                      ) : (
+                        t('device.outcomes.value.never')
+                      )}
+                    </dd>
+                  </div>
+                  <div className={`${styles.fact} ${styles.nextAction}`}>
+                    <dt>{t('device.outcomes.column.nextAction')}</dt>
+                    <dd>{t(actionLabels[row.next_action])}</dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+          </ul>
         )}
       </CardBody>
     </Card>

@@ -821,6 +821,41 @@ function apiPayload(path, method, pagePath = "") {
       retention_days: 30,
       byok: "byok",
     });
+  if (path === "/v1/device/collection-outcomes" && method === "GET")
+    return json({
+      contract_version: "probectl.device-collection-outcomes/v1",
+      items: [
+        {
+          agent_id:
+            "device-agent-with-a-deliberately-long-offline-safe-identifier",
+          configured_target:
+            "edge-router-with-a-deliberately-long-name.internal.example",
+          protocol: "lldp",
+          last_attempt_at: "2026-06-04T12:00:00Z",
+          last_success_at: "2026-06-04T11:55:00Z",
+          state: "failed",
+          reason: "poll_failed",
+          row_count: 0,
+          next_action: "verify_configured_target_access",
+        },
+        {
+          agent_id: "device-agent-1",
+          configured_target: "edge-r1.internal",
+          protocol: "cdp",
+          last_attempt_at: "2026-06-04T12:00:00Z",
+          last_success_at: "2026-06-04T12:00:00Z",
+          state: "healthy_empty",
+          reason: "no_rows_observed",
+          row_count: 0,
+          next_action: "review_target_neighbor_configuration",
+        },
+      ],
+      collection_running: true,
+      effective_limit: 100,
+      truncated: false,
+      as_of: "2026-06-04T12:00:00Z",
+      retention: { max_per_tenant: 4096, retention_days: 30 },
+    });
   return json({ error: { code: "not_found", message: "not found" } }, 404);
 }
 
@@ -1759,6 +1794,93 @@ async function dashboardScopeGeometryChecks(page, viewportName) {
   }, viewportName);
 }
 
+async function deviceCollectionReceiptChecks(page) {
+  return page.evaluate(() => {
+    const problems = [];
+    const normalize = (value) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const list = document.querySelector(
+      '[aria-label="Per-target device collection outcome receipts"]',
+    );
+    if (!list) return ["missing responsive device collection receipt list"];
+    if (list.tagName !== "UL") {
+      problems.push(
+        `device collection receipts use ${list.tagName.toLowerCase()}, want a semantic list`,
+      );
+    }
+    if (list.querySelector("table")) {
+      problems.push("device collection receipts still contain a wide table");
+    }
+    if (list.scrollWidth > list.clientWidth + 1) {
+      problems.push(
+        `device collection receipt list scrolls horizontally: ${list.scrollWidth}px > ${list.clientWidth}px`,
+      );
+    }
+
+    const listBox = list.getBoundingClientRect();
+    const receipts = [...list.querySelectorAll(":scope > li")];
+    if (receipts.length === 0) {
+      problems.push("device collection receipt list has no populated receipts");
+    }
+    for (const [index, receipt] of receipts.entries()) {
+      const receiptBox = receipt.getBoundingClientRect();
+      if (
+        receipt.scrollWidth > receipt.clientWidth + 1 ||
+        receiptBox.left < listBox.left - 1 ||
+        receiptBox.right > listBox.right + 1
+      ) {
+        problems.push(
+          `device collection receipt ${index + 1} escapes its list`,
+        );
+      }
+      const labels = new Map(
+        [...receipt.querySelectorAll("dt")].map((term) => [
+          normalize(term.textContent),
+          term.parentElement,
+        ]),
+      );
+      for (const required of [
+        "Outcome / reason",
+        "Rows",
+        "Last attempt",
+        "Last success",
+        "Safe next action",
+      ]) {
+        if (!labels.has(required)) {
+          problems.push(
+            `device collection receipt ${index + 1} is missing ${required}`,
+          );
+        }
+      }
+      const safeAction = labels.get("Safe next action");
+      const actionText = normalize(
+        safeAction?.querySelector("dd")?.textContent,
+      );
+      if (!actionText) {
+        problems.push(
+          `device collection receipt ${index + 1} has no visible safe next action`,
+        );
+      }
+      if (safeAction) {
+        const actionBox = safeAction.getBoundingClientRect();
+        if (
+          actionBox.width < 1 ||
+          actionBox.height < 1 ||
+          actionBox.left < receiptBox.left - 1 ||
+          actionBox.right > receiptBox.right + 1
+        ) {
+          problems.push(
+            `device collection receipt ${index + 1} hides its safe next action`,
+          );
+        }
+      }
+    }
+    return problems;
+  });
+}
+
 async function selfCheck(browser, axeSource) {
   const page = await browser.newPage({ viewport: viewports[0] });
   await page.setContent(`
@@ -1847,6 +1969,34 @@ async function selfCheck(browser, axeSource) {
   ) {
     throw new Error(
       "self-check failed: mobile CardHeader check did not catch a deliberate non-wrapping regression",
+    );
+  }
+  await page.setContent(`
+    <ul
+      aria-label="Per-target device collection outcome receipts"
+      style="width:160px;overflow:hidden"
+    >
+      <li style="width:300px">
+        <dl>
+          <div><dt>Outcome / reason</dt><dd>Failed because the protocol read failed.</dd></div>
+          <div><dt>Rows</dt><dd>0</dd></div>
+          <div><dt>Last attempt</dt><dd>Now</dd></div>
+          <div><dt>Last success</dt><dd>Never</dd></div>
+          <div><dt>Safe next action</dt><dd>Verify local access.</dd></div>
+        </dl>
+      </li>
+    </ul>
+  `);
+  const deviceReceipt = await deviceCollectionReceiptChecks(page);
+  if (
+    !deviceReceipt.some(
+      (problem) =>
+        problem.includes("scrolls horizontally") ||
+        problem.includes("escapes its list"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: device receipt check did not catch planted horizontal clipping",
     );
   }
   await page.setViewportSize(dashboardLaptopViewport);
@@ -2029,6 +2179,7 @@ async function main() {
             targets: [],
             topology: [],
             explorer: [],
+            deviceReceipt: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -2120,6 +2271,14 @@ async function main() {
                 );
               }
             }
+            if (route === "/planes/device" || route === "/admin") {
+              record.deviceReceipt = await deviceCollectionReceiptChecks(page);
+              if (record.deviceReceipt.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: device receipt layout violations\n  ${record.deviceReceipt.join("\n  ")}`,
+                );
+              }
+            }
             if (route === "/targets") {
               if (viewport.name === "desktop") {
                 await page.setViewportSize(targetsLaptopViewport);
@@ -2185,6 +2344,7 @@ async function main() {
             record.targets.length === 0 &&
             record.topology.length === 0 &&
             record.explorer.length === 0 &&
+            record.deviceReceipt.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";

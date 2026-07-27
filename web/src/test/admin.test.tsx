@@ -90,12 +90,16 @@ describe('Admin fleet health action center', () => {
     expect(within(table).getByText('None reported')).toBeInTheDocument()
     expect(within(table).getByText('canary · applying')).toBeInTheDocument()
     expect(within(table).getAllByText(/older than the 5m0s health gate/)).toHaveLength(2)
-    const outcomes = await screen.findByRole('table', {
+    const outcomes = await screen.findByRole('list', {
       name: /per-target device collection outcome receipts/i,
     })
     expect(within(outcomes).getAllByText('edge-r1.internal')).toHaveLength(2)
     expect(within(outcomes).getByText('Failed')).toBeInTheDocument()
     expect(within(outcomes).getByText('Healthy, empty')).toBeInTheDocument()
+    expect(
+      within(outcomes).getByText('Verify local access to the configured target.'),
+    ).toBeInTheDocument()
+    expect(within(outcomes).queryByRole('table')).not.toBeInTheDocument()
 
     await user.click(within(table).getByRole('button', { name: 'Review rollout health gate' }))
     const dialog = await screen.findByRole('dialog', { name: 'Safe action for edge-stale' })

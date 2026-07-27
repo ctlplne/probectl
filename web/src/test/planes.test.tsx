@@ -32,13 +32,17 @@ describe('plane workspaces', () => {
     expect(within(physicalNeighbors).getByText('leaf-1')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('LLDP')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('95%')).toBeInTheDocument()
-    const collectionOutcomes = await screen.findByRole('table', {
+    const collectionOutcomes = await screen.findByRole('list', {
       name: /per-target device collection outcome receipts/i,
     })
     expect(within(collectionOutcomes).getAllByText('edge-r1.internal')).toHaveLength(2)
     expect(within(collectionOutcomes).getByText('Failed')).toBeInTheDocument()
     expect(within(collectionOutcomes).getByText('Healthy, empty')).toBeInTheDocument()
     expect(within(collectionOutcomes).getByText('The protocol read failed.')).toBeInTheDocument()
+    expect(
+      within(collectionOutcomes).getByText('Verify local access to the configured target.'),
+    ).toBeInTheDocument()
+    expect(within(collectionOutcomes).queryByRole('table')).not.toBeInTheDocument()
     const deviceCoverage = screen
       .getByRole('heading', { name: /device coverage/i })
       .closest('section')
