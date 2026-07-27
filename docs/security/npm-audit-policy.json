@@ -2,16 +2,6 @@
   "version": 1,
   "exceptions": [
     {
-      "id": "SEC-004-vite-esbuild-dev-only",
-      "workspace": "web",
-      "packages": ["vite", "esbuild"],
-      "advisories": ["GHSA-fx2h-pf6j-xcff"],
-      "max_severity": "high",
-      "dev_only": true,
-      "expires_at": "2026-09-30",
-      "reason": "Vite/esbuild are build-time and dev-server tooling only; CI separately evaluates the shipped production tree through this exact, expiring policy. This exception must be removed or renewed by upgrading the Vite/esbuild path before the expiry date."
-    },
-    {
       "id": "SUPPLY-008-react-router-rsc-only",
       "workspace": "web",
       "packages": ["react-router", "react-router-dom"],
