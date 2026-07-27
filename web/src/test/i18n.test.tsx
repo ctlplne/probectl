@@ -111,6 +111,40 @@ describe('i18n catalog', () => {
     }
   })
 
+  test('iteration-two Spanish cost, SLO, and journal copy keeps natural diacritics', () => {
+    expect(messages.es['cost.egress.description']).toContain('Atribución')
+    expect(messages.es['slo.card.description']).toContain('rápida')
+    expect(messages.es['slo.card.description']).toContain('señales')
+    expect(messages.es['slo.coldStart']).toBe('arranque frío')
+    expect(messages.es['slo.unwired.description']).toContain('inició')
+
+    const journalCopy = [
+      messages.es['incidents.journal.title'],
+      messages.es['incidents.journal.description'],
+      messages.es['incidents.journal.body'],
+      messages.es['incidents.journal.placeholder.note'],
+      messages.es['incidents.journal.placeholder.checkpoint'],
+      messages.es['incidents.journal.citation.required'],
+      messages.es['incidents.journal.empty'],
+      messages.es['incidents.journal.truncated'],
+      messages.es['incidents.journal.citation.unavailable'],
+    ].join(' ')
+
+    for (const expected of [
+      'investigación',
+      'remediación',
+      'hipótesis',
+      'observación',
+      'conclusión',
+      'qué',
+      'referenciará',
+      'Aún',
+      'está',
+    ]) {
+      expect(journalCopy).toContain(expected)
+    }
+  })
+
   test('localized route and shared UI sources do not reintroduce cited raw English labels', () => {
     const existingLocalizedSources = [
       resolve(process.cwd(), 'src/nav/ia.ts'),
@@ -246,7 +280,7 @@ describe('i18n catalog', () => {
   test.each([
     [
       'es',
-      'Atribucion nativa, reparto de costos, presupuestos y tendencias por hora; usa Paneles o Explorador para profundizar entre planos.',
+      'Atribución nativa, reparto de costos, presupuestos y tendencias por hora; usa Paneles o Explorador para profundizar entre planos.',
     ],
     [
       'ar-EG',

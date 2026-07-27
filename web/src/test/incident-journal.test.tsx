@@ -105,6 +105,33 @@ function incidentJournalFetch(
 }
 
 describe('tenant-local incident investigation journal', () => {
+  test('renders the corrected Spanish investigation copy from the shipped catalog', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      incidentJournalFetch(() => jsonResponse({ items: [], truncated: false, limit: 200 })),
+    )
+
+    renderApp('/incidents', { locale: 'es', ...journalOperator })
+
+    expect(await screen.findByText('Diario de investigación')).toBeInTheDocument()
+    expect(screen.getByText(/no puede ejecutar herramientas ni remediación/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Nota de investigación')).toHaveAttribute(
+      'placeholder',
+      'Registra una hipótesis, observación o conclusión...',
+    )
+    expect(await screen.findByText('Aún no hay entradas')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Tipo de entrada'), 'checkpoint')
+    expect(screen.getByLabelText('Nota de investigación')).toHaveAttribute(
+      'placeholder',
+      'Explica qué confirma esta evidencia citada...',
+    )
+    expect(
+      screen.getByText(/El punto de control referenciará un elemento exacto/),
+    ).toBeInTheDocument()
+  })
+
   test('shows the honest empty state and appends inert human text', async () => {
     const user = userEvent.setup()
     const entries: Record<string, unknown>[] = []
