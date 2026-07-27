@@ -108,6 +108,18 @@ const sampleIncident = {
   ],
 }
 
+const sampleChange = {
+  id: '50000000-0000-4000-8000-000000000001',
+  source: 'git',
+  kind: 'deployment',
+  title: 'DNS edge route update',
+  summary: 'A reviewed route configuration changed inside the selected path window.',
+  target: '1.1.1.1',
+  actor: 'network-automation',
+  ref: 'change-42',
+  occurred_at: '2026-06-04T12:00:00Z',
+}
+
 /** Discovered path for edge-dns (→ 1.1.1.1): an ECMP fan at TTL 2–4 with
  * an MPLS label on one branch, a loss hotspot on the other, reconverging
  * before the destination — enough story for the J4 hero to demonstrate
@@ -956,6 +968,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
       })
     }
     if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })
+    if (path === '/v1/changes') return jsonResponse({ items: [sampleChange] })
     if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001')
       return jsonResponse(sampleIncident)
     if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001/journal')

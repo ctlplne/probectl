@@ -59,6 +59,21 @@ describe('API failures stay distinct from empty or unavailable states', () => {
     expect(screen.getByText(/selected path/i)).toBeInTheDocument()
   })
 
+  test('populated path fixture serves normal incident and change overlay evidence', async () => {
+    renderApp('/path')
+
+    expect(
+      await screen.findByRole(
+        'link',
+        { name: /open change evidence: dns edge route update/i },
+        ERROR_WAIT,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/could not load incident and change overlays for this path/i),
+    ).not.toBeInTheDocument()
+  })
+
   test('onboarding progress failure leaves setup actions available', async () => {
     failReads((input) => pathOf(input) === '/v1/onboarding/progress')
 

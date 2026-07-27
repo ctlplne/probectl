@@ -46,6 +46,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/cost/summary' },
   { method: 'GET', path: '/v1/coverage/debt' },
   { method: 'GET', path: '/v1/coverage/vantages' },
+  { method: 'GET', path: '/v1/changes' },
   { method: 'GET', path: '/v1/dashboard-report-artifacts' },
   { method: 'GET', path: '/v1/dashboard-report-schedules' },
   { method: 'GET', path: '/v1/dashboards' },
