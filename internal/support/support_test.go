@@ -102,17 +102,49 @@ func TestScrubberSkipsTrivial(t *testing.T) {
 // TestDeepHealthAggregates: RunChecks reports each component and aggregates to
 // the worst status; ordering is stable.
 func TestDeepHealthAggregates(t *testing.T) {
+	const secret = "postgres://operator:do-not-leak@private-db/probectl"
 	checks := map[string]CheckFunc{
 		"database": PingCheck("database", func(context.Context) error { return nil }),
-		"bus":      func(context.Context) Check { return Check{Status: StatusDegraded, Detail: "lagging"} },
-		"secrets":  PingCheck("secrets", func(context.Context) error { return errors.New("vault sealed") }),
+		"bus": func(context.Context) Check {
+			return Check{
+				Status: StatusDegraded,
+				Detail: "lagging",
+				Finding: NewReadinessFinding(
+					"INVALID ID",
+					strings.Repeat("summary ", 30),
+					strings.Repeat("evidence ", 100),
+					LocalAction{Label: "Open cloud console", Href: "https://example.invalid", Kind: ActionNavigate},
+				),
+			}
+		},
+		"secrets": PingCheck("secrets", func(context.Context) error { return errors.New(secret) }),
 	}
-	h := RunChecks(context.Background(), checks, func() time.Time { return time.Unix(1700000000, 0) })
+	observedAt := time.Unix(1700000000, 0).UTC()
+	h := RunChecks(context.Background(), checks, func() time.Time { return observedAt })
 	if h.Status != StatusDown { // the worst (secrets is down) wins
 		t.Fatalf("aggregate must be the worst component: %s", h.Status)
 	}
 	if len(h.Checks) != 3 || h.Checks[0].Name != "bus" || h.Checks[1].Name != "database" || h.Checks[2].Name != "secrets" {
 		t.Fatalf("checks must be name-sorted: %+v", h.Checks)
+	}
+	if h.Checks[1].Finding != nil {
+		t.Fatalf("healthy checks must not fabricate operator work: %+v", h.Checks[1])
+	}
+	for _, c := range []Check{h.Checks[0], h.Checks[2]} {
+		if c.Finding == nil || c.Finding.Component != c.Name || c.Finding.Scope != "deployment" || !c.Finding.ObservedAt.Equal(observedAt) {
+			t.Fatalf("unhealthy check lacks normalized finding: %+v", c)
+		}
+	}
+	if h.Checks[0].Finding.ID != "readiness.bus" ||
+		h.Checks[0].Finding.NextAction.Href != "/admin#support-bundle" ||
+		len([]rune(h.Checks[0].Finding.Summary)) > 160 ||
+		len([]rune(h.Checks[0].Finding.Evidence)) > 512 {
+		t.Fatalf("unsafe or unbounded finding was not normalized: %+v", h.Checks[0].Finding)
+	}
+	if h.Checks[2].Finding.Severity != FindingCritical ||
+		h.Checks[2].Detail != "health check failed" ||
+		strings.Contains(h.Checks[2].Detail+h.Checks[2].Finding.Evidence, secret) {
+		t.Fatalf("raw dependency error leaked or severity is wrong: %+v", h.Checks[2])
 	}
 	// A nil ping is down.
 	if c := PingCheck("x", nil)(context.Background()); c.Status != StatusDown {
@@ -121,6 +153,28 @@ func TestDeepHealthAggregates(t *testing.T) {
 	// All-ok aggregates ok; empty set is ok.
 	if RunChecks(context.Background(), nil, nil).Status != StatusOK {
 		t.Fatal("empty checks must be ok")
+	}
+}
+
+func TestReadinessActionsStayWithinTheLocalDeployment(t *testing.T) {
+	for _, href := range []string{
+		"https://advisor.example.invalid/finding",
+		"//advisor.example.invalid/finding",
+		`/\advisor.example.invalid/finding`,
+		"/admin\nexternal",
+	} {
+		got := normalizeAction(LocalAction{Label: "Unsafe", Href: href, Kind: ActionNavigate})
+		if got.Href != "/admin#support-bundle" || got.Label != "Review diagnostics" {
+			t.Fatalf("unsafe action %q was not replaced: %+v", href, got)
+		}
+	}
+	got := normalizeAction(LocalAction{
+		Label: "Download redacted support bundle",
+		Href:  "/v1/diagnostics/bundle",
+		Kind:  ActionDownload,
+	})
+	if got.Href != "/v1/diagnostics/bundle" || got.Kind != ActionDownload {
+		t.Fatalf("safe local action changed: %+v", got)
 	}
 }
 

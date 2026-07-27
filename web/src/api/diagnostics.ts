@@ -8,7 +8,13 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type { DeepHealth } from './sdk.gen'
 
-export type { DeepHealth, HealthCheck, HealthStatus } from './sdk.gen'
+export type {
+  DeepHealth,
+  HealthCheck,
+  HealthStatus,
+  ReadinessAction,
+  ReadinessFinding,
+} from './sdk.gen'
 
 /**
  * The supportability API (S-EE4). Deep health reports per-component status

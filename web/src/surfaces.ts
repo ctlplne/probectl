@@ -638,9 +638,15 @@ export const SURFACES: SurfaceDecl[] = [
     capability: 'Supportability: diagnostics, bundles, health evidence',
     featureIds: ['F35'],
     sprint: 'S51',
-    kind: 'federated',
-    evidence: ['file:docs/supportability.md', 'openapi:/v1/diagnostics/bundle'],
-    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
+    kind: 'native',
+    route: '/admin',
+    evidence: [
+      'file:docs/supportability.md',
+      'file:web/src/routes/admin/LifecycleCards.tsx',
+      'openapi:/v1/diagnostics',
+      'openapi:/v1/diagnostics/bundle',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Change intelligence ingestion and incident correlation',

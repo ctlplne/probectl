@@ -284,6 +284,22 @@ func TestCLIRolloutSurfaceMapsHumanGatedOps(t *testing.T) {
 	}
 }
 
+func TestCLIDiagnosticsStatusDescribesLocalReadinessFindings(t *testing.T) {
+	spec, ok := surfaceCommands["diagnostics"]
+	if !ok {
+		t.Fatal("diagnostics CLI surface is not registered")
+	}
+	status, ok := spec.Ops["status"]
+	if !ok {
+		t.Fatal("diagnostics status operation is not registered")
+	}
+	if status.Method != http.MethodGet ||
+		status.Path != "/v1/diagnostics" ||
+		status.Description != "show actionable local readiness findings" {
+		t.Fatalf("diagnostics status = %+v", status)
+	}
+}
+
 func TestCLIDashboardAndReportSurfacesMapEveryOperation(t *testing.T) {
 	cases := map[string]map[string]apiOp{
 		"dashboard": {

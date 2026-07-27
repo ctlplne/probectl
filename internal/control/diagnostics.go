@@ -9,7 +9,6 @@ package control
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,15 +25,27 @@ import (
 
 // deepHealth runs the registered component checks against the server's deps.
 func (s *Server) deepHealth(ctx context.Context) support.Health {
-	checks := map[string]support.CheckFunc{
-		"database": support.PingCheck("database", func(ctx context.Context) error {
-			if s.pinger == nil {
-				return errors.New("not configured")
-			}
+	databaseCheck := support.PingCheck("database", nil)
+	if s.pinger != nil {
+		databaseCheck = support.PingCheck("database", func(ctx context.Context) error {
 			c, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 			return s.pinger.Ping(c)
-		}),
+		})
+	}
+	checks := map[string]support.CheckFunc{
+		"database": func(ctx context.Context) support.Check {
+			check := databaseCheck(ctx)
+			if check.Status != support.StatusOK {
+				check.Finding = support.NewReadinessFinding(
+					"readiness.database",
+					"Database writer is unavailable",
+					"The local writer database ping did not complete successfully; connection details are redacted.",
+					support.LocalAction{Label: "Download redacted support bundle", Href: "/v1/diagnostics/bundle", Kind: support.ActionDownload},
+				)
+			}
+			return check
+		},
 		"alert_evaluator": func(context.Context) support.Check {
 			health := s.alertingHealth()
 			if health.EvaluatorRunning {
@@ -43,6 +54,12 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 			return support.Check{
 				Status: support.StatusDegraded,
 				Detail: health.Detail + "; setup: " + health.Setup,
+				Finding: support.NewReadinessFinding(
+					"readiness.alert_evaluator",
+					"Alert rules are not being evaluated",
+					"The local alert evaluator is inactive, so stored rules cannot create active alerts.",
+					support.LocalAction{Label: "Review alert setup", Href: "/alerts", Kind: support.ActionNavigate},
+				),
 			}
 		},
 	}
@@ -57,14 +74,32 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 					detail = "a secret backend is failing"
 				}
 			}
-			return support.Check{Status: st, Detail: detail}
+			check := support.Check{Status: st, Detail: detail}
+			if st != support.StatusOK {
+				check.Finding = support.NewReadinessFinding(
+					"readiness.secrets_resolver",
+					"A configured secret backend is unavailable",
+					"The local resolver reports a failure newer than its last successful read; secret values are not included.",
+					support.LocalAction{Label: "Download redacted support bundle", Href: "/v1/diagnostics/bundle", Kind: support.ActionDownload},
+				)
+			}
+			return check
 		}
 	}
 	// Multi-region cluster (S-EE2): degraded while writes are fenced.
 	if s.cluster != nil {
 		checks["cluster"] = func(context.Context) support.Check {
-			if ok, reason := s.cluster.WriterUsable(); !ok {
-				return support.Check{Status: support.StatusDegraded, Detail: reason}
+			if ok, _ := s.cluster.WriterUsable(); !ok {
+				return support.Check{
+					Status: support.StatusDegraded,
+					Detail: "writes are fenced while the local writer is not usable",
+					Finding: support.NewReadinessFinding(
+						"readiness.cluster",
+						"Control-plane writes are temporarily fenced",
+						"The local cluster check cannot prove that the configured writer is the current writable primary.",
+						support.LocalAction{Label: "Download redacted support bundle", Href: "/v1/diagnostics/bundle", Kind: support.ActionDownload},
+					),
+				}
 			}
 			return support.Check{Status: support.StatusOK}
 		}
@@ -75,9 +110,27 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 			info := s.licenseManager().Info()
 			switch string(info.State) {
 			case "read_only":
-				return support.Check{Status: support.StatusDegraded, Detail: "license expired — read-only"}
+				return support.Check{
+					Status: support.StatusDegraded,
+					Detail: "license expired — read-only",
+					Finding: support.NewReadinessFinding(
+						"readiness.license",
+						"Commercial configuration is read-only",
+						"The offline-verified license is past its grace period; telemetry pipelines continue running.",
+						support.LocalAction{Label: "Review edition state", Href: "/admin#editions", Kind: support.ActionNavigate},
+					),
+				}
 			case "grace":
-				return support.Check{Status: support.StatusDegraded, Detail: "license expired — grace period"}
+				return support.Check{
+					Status: support.StatusDegraded,
+					Detail: "license expired — grace period",
+					Finding: support.NewReadinessFinding(
+						"readiness.license",
+						"Commercial license is in its grace period",
+						"The offline-verified license has expired and will become read-only after the local grace period.",
+						support.LocalAction{Label: "Review edition state", Href: "/admin#editions", Kind: support.ActionNavigate},
+					),
+				}
 			default:
 				return support.Check{Status: support.StatusOK, Detail: string(info.Tier)}
 			}

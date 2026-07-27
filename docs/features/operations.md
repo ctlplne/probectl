@@ -281,7 +281,9 @@ survive.
 - **Health probes:** `GET /healthz` (liveness), `GET /readyz` (readiness, carrying
   the cluster view: region, writer role, `writes_usable`, replica lag). Deep
   per-component health is at `GET /v1/diagnostics` (admin only); the aggregate
-  equals the worst component.
+  equals the worst component, and every unhealthy check includes a stable,
+  redacted finding with a safe local next action. The native Admin card and
+  `probectl diagnostics status` consume the same contract.
 - **Agent rollout:** one-version compatibility window in both directions; staged
   cohorts (canary → early → main), advanced one ring at a time.
 - **Hardened crypto posture:** reported under `fips` on `GET /v1/editions`

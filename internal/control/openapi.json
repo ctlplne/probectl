@@ -6503,7 +6503,7 @@
     },
     "/v1/diagnostics": {
       "get": {
-        "summary": "Deep health report (S-EE4): per-component status (database, secrets resolver, cluster, license) aggregated to the worst \u2014 admin diagnostics.read",
+        "summary": "Actionable local readiness report (S-EE4): redacted per-component health plus deterministic findings and safe local next actions, aggregated to the worst status \u2014 admin diagnostics.read",
         "responses": {
           "200": {
             "description": "The current deep-health report.",
@@ -8305,11 +8305,95 @@
           },
           "detail": {
             "type": "string"
+          },
+          "finding": {
+            "$ref": "#/components/schemas/ReadinessFinding"
           }
         },
         "required": [
           "name",
           "status"
+        ]
+      },
+      "ReadinessAction": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A safe, non-executing action within the self-hosted deployment.",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "href": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^/(?!/)"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "navigate",
+              "download"
+            ]
+          }
+        },
+        "required": [
+          "label",
+          "href",
+          "kind"
+        ]
+      },
+      "ReadinessFinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A deterministic local readiness issue. Healthy checks omit this object.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^readiness\\.[a-z0-9._-]+$"
+          },
+          "component": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "deployment"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "warning",
+              "critical"
+            ]
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/ReadinessAction"
+          }
+        },
+        "required": [
+          "id",
+          "component",
+          "scope",
+          "severity",
+          "observed_at",
+          "summary",
+          "evidence",
+          "next_action"
         ]
       },
       "DeepHealth": {

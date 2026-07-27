@@ -870,9 +870,10 @@ type Health struct {
 }
 
 type HealthCheck struct {
-	Detail string       `json:"detail,omitempty"`
-	Name   string       `json:"name"`
-	Status HealthStatus `json:"status"`
+	Detail  string           `json:"detail,omitempty"`
+	Finding ReadinessFinding `json:"finding,omitempty"`
+	Name    string           `json:"name"`
+	Status  HealthStatus     `json:"status"`
 }
 
 type HealthStatus string
@@ -1254,6 +1255,25 @@ type PathSnapshot struct {
 	Id         string `json:"id"`
 	ObservedAt string `json:"observed_at"`
 	Path       Path   `json:"path"`
+}
+
+// A safe, non-executing action within the self-hosted deployment.
+type ReadinessAction struct {
+	Href  string `json:"href"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+}
+
+// A deterministic local readiness issue. Healthy checks omit this object.
+type ReadinessFinding struct {
+	Component  string          `json:"component"`
+	Evidence   string          `json:"evidence"`
+	Id         string          `json:"id"`
+	NextAction ReadinessAction `json:"next_action"`
+	ObservedAt string          `json:"observed_at"`
+	Scope      string          `json:"scope"`
+	Severity   string          `json:"severity"`
+	Summary    string          `json:"summary"`
 }
 
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.
@@ -2452,7 +2472,7 @@ func (c *Client) ListDevices(ctx context.Context, req ListDevicesRequest) (*Devi
 	return &out, nil
 }
 
-// Deep health report (S-EE4): per-component status (database, secrets resolver, cluster, license) aggregated to the worst — admin diagnostics.read
+// Actionable local readiness report (S-EE4): redacted per-component health plus deterministic findings and safe local next actions, aggregated to the worst status — admin diagnostics.read
 type GetV1DiagnosticsRequest struct {
 }
 

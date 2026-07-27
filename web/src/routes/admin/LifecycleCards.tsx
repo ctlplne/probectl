@@ -304,7 +304,11 @@ function EraseTenantDialog({
  *  secret-stripped support bundle for triage. The bundle never contains
  *  credentials or PII. */
 export function SupportCard() {
-  const { data, isPending, isError } = useDiagnostics()
+  const { data, isPending, isError, refetch, isFetching } = useDiagnostics()
+  const checks = data?.checks ?? []
+  const findings = checks.flatMap((check) => (check.finding ? [check.finding] : []))
+  const missingFindings =
+    checks.filter((check) => check.status !== 'ok' && !check.finding).length
 
   const tone = (s: HealthStatus) =>
     s === 'ok' ? 'success' : s === 'degraded' ? 'warning' : 'danger'
@@ -323,6 +327,12 @@ export function SupportCard() {
             <Badge tone="neutral">unknown</Badge>
           )}
           {' · '}
+          {data ? (
+            <>
+              checked <DateTime value={data.checked_at} /> · {findings.length}{' '}
+              {findings.length === 1 ? 'finding' : 'findings'} ·{' '}
+            </>
+          ) : null}
           <a href="/v1/diagnostics/bundle" download>
             Download support bundle (tar.gz)
           </a>
@@ -330,38 +340,110 @@ export function SupportCard() {
         {isPending ? (
           <LoadingState label="Running health checks…" />
         ) : isError ? (
-          <ErrorState description="Could not load diagnostics." />
+          <>
+            <ErrorState description="Could not load diagnostics. No healthy state is being inferred." />
+            <Button
+              onClick={() => {
+                void refetch()
+              }}
+              disabled={isFetching}
+            >
+              {isFetching ? 'Retrying…' : 'Retry diagnostics'}
+            </Button>
+          </>
         ) : (
-          <Table
-            caption="Component health"
-            columns={[
-              {
-                key: 'name',
-                header: 'Component',
-                render: (c: { name: string }) => <code>{c.name}</code>,
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (c: { status: HealthStatus }) =>
-                  c.status === 'ok' ? (
-                    <StatusDot tone="success" label="OK" />
-                  ) : c.status === 'degraded' ? (
-                    <StatusDot tone="warning" label="Degraded" />
-                  ) : (
-                    <StatusDot tone="danger" label="Down" />
+          <div className={styles.form}>
+            {missingFindings > 0 ? (
+              <p role="alert" className={styles.editionsLede}>
+                {missingFindings} unhealthy {missingFindings === 1 ? 'component is' : 'components are'}{' '}
+                missing finding details. Review component health and retry after all control-plane
+                replicas are upgraded.
+              </p>
+            ) : null}
+            <Table
+              caption="Actionable readiness findings"
+              columns={[
+                {
+                  key: 'severity',
+                  header: 'Severity',
+                  render: (f) =>
+                    f.severity === 'critical' ? (
+                      <StatusDot tone="danger" label="Critical" />
+                    ) : (
+                      <StatusDot tone="warning" label="Warning" />
+                    ),
+                },
+                {
+                  key: 'component',
+                  header: 'Component',
+                  render: (f) => <code>{f.component}</code>,
+                },
+                {
+                  key: 'finding',
+                  header: 'Finding',
+                  render: (f) => (
+                    <>
+                      <strong>{f.summary}</strong>
+                      <br />
+                      <span>{f.evidence}</span>
+                    </>
                   ),
-              },
-              {
-                key: 'detail',
-                header: 'Detail',
-                render: (c: { detail?: string }) => c.detail || '—',
-              },
-            ]}
-            rows={data?.checks ?? []}
-            rowKey={(c) => c.name}
-            empty={<EmptyState icon="admin" title="No checks" description="—" />}
-          />
+                },
+                {
+                  key: 'action',
+                  header: 'Safe local action',
+                  render: (f) => (
+                    <a href={f.next_action.href} download={f.next_action.kind === 'download'}>
+                      {f.next_action.label}
+                    </a>
+                  ),
+                },
+              ]}
+              rows={findings}
+              rowKey={(f) => f.id}
+              empty={
+                <EmptyState
+                  icon="admin"
+                  title={data?.status === 'ok' ? 'No readiness findings' : 'Finding details unavailable'}
+                  description={
+                    data?.status === 'ok'
+                      ? 'Every reported component is healthy.'
+                      : 'Review component health below; no healthy state is being inferred.'
+                  }
+                />
+              }
+            />
+            <Table
+              caption="Component health"
+              columns={[
+                {
+                  key: 'name',
+                  header: 'Component',
+                  render: (c: { name: string }) => <code>{c.name}</code>,
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (c: { status: HealthStatus }) =>
+                    c.status === 'ok' ? (
+                      <StatusDot tone="success" label="OK" />
+                    ) : c.status === 'degraded' ? (
+                      <StatusDot tone="warning" label="Degraded" />
+                    ) : (
+                      <StatusDot tone="danger" label="Down" />
+                    ),
+                },
+                {
+                  key: 'detail',
+                  header: 'Detail',
+                  render: (c: { detail?: string }) => c.detail || '—',
+                },
+              ]}
+              rows={checks}
+              rowKey={(c) => c.name}
+              empty={<EmptyState icon="admin" title="No checks" description="—" />}
+            />
+          </div>
         )}
       </CardBody>
     </Card>
@@ -419,7 +501,7 @@ export function EditionsCard() {
   ]
 
   return (
-    <Card>
+    <Card id="editions">
       <CardHeader
         title="Editions"
         description="License state and the commercial feature map. Verification is offline (no phone-home); expiry degrades read-only after a 30-day grace — running telemetry never breaks."

@@ -790,6 +790,7 @@ export interface Health {
 
 export interface HealthCheck {
   detail?: string
+  finding?: ReadinessFinding
   name: string
   status: HealthStatus
 }
@@ -1167,6 +1168,23 @@ export interface PathSnapshot {
   id: string
   observed_at: string
   path: Path
+}
+
+export interface ReadinessAction {
+  href: string
+  kind: "navigate" | "download"
+  label: string
+}
+
+export interface ReadinessFinding {
+  component: string
+  evidence: string
+  id: string
+  next_action: ReadinessAction
+  observed_at: string
+  scope: "deployment"
+  severity: "warning" | "critical"
+  summary: string
 }
 
 export interface SCIMToken {

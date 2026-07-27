@@ -53,7 +53,8 @@ func TestDeepHealthEndpoint(t *testing.T) {
 	}
 
 	// A down database drives the aggregate down.
-	srv = testServer(downPinger{err: context.DeadlineExceeded}).WithAlertingActive(true)
+	const rawDatabaseError = "dial postgres://operator:super-secret@private-db/probectl: deadline exceeded"
+	srv = testServer(downPinger{err: errors.New(rawDatabaseError)}).WithAlertingActive(true)
 	rr = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics", nil))
 	_ = json.Unmarshal(rr.Body.Bytes(), &h)
@@ -64,10 +65,21 @@ func TestDeepHealthEndpoint(t *testing.T) {
 	for _, c := range h.Checks {
 		if c.Name == "database" && c.Status == support.StatusDown {
 			dbDown = true
+			if c.Finding == nil ||
+				c.Finding.ID != "readiness.database" ||
+				c.Finding.Severity != support.FindingCritical ||
+				c.Finding.ObservedAt != h.CheckedAt ||
+				c.Finding.NextAction.Href != "/v1/diagnostics/bundle" ||
+				c.Finding.NextAction.Kind != support.ActionDownload {
+				t.Fatalf("database finding is not stable and locally actionable: %+v", c)
+			}
 		}
 	}
 	if !dbDown {
 		t.Fatalf("the database check must report down: %+v", h.Checks)
+	}
+	if strings.Contains(rr.Body.String(), rawDatabaseError) || strings.Contains(rr.Body.String(), "super-secret") {
+		t.Fatalf("raw database error leaked into diagnostics: %s", rr.Body.String())
 	}
 }
 
@@ -89,6 +101,12 @@ func TestDeepHealthReportsAlertingInactive(t *testing.T) {
 		if check.Name == "alert_evaluator" {
 			if check.Status != support.StatusDegraded || !strings.Contains(check.Detail, "not evaluated") || !strings.Contains(check.Detail, "docs/alerting.md") {
 				t.Fatalf("alert evaluator check lacks actionable detail: %+v", check)
+			}
+			if check.Finding == nil ||
+				check.Finding.ID != "readiness.alert_evaluator" ||
+				check.Finding.NextAction.Href != "/alerts" ||
+				check.Finding.NextAction.Kind != support.ActionNavigate {
+				t.Fatalf("alert evaluator lacks a safe local finding: %+v", check)
 			}
 			return
 		}

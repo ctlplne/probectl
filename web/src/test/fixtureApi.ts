@@ -1114,7 +1114,22 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
           {
             name: 'cluster',
             status: 'degraded',
-            detail: 'writer endpoint points at a read-only standby (failover in progress)',
+            detail: 'writes are fenced while the local writer is not usable',
+            finding: {
+              id: 'readiness.cluster',
+              component: 'cluster',
+              scope: 'deployment',
+              severity: 'warning',
+              observed_at: '2026-06-06T00:00:00Z',
+              summary: 'Control-plane writes are temporarily fenced',
+              evidence:
+                'The local cluster check cannot prove that the configured writer is the current writable primary.',
+              next_action: {
+                label: 'Download redacted support bundle',
+                href: '/v1/diagnostics/bundle',
+                kind: 'download',
+              },
+            },
           },
         ],
       })

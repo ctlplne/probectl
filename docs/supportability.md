@@ -10,6 +10,8 @@ this layer provides:
   flight data recorder for the deployment: it captures the instruments, never
   the passengers' conversations),
 - **deep health checks** (per-component status, plus one "is it healthy?" answer),
+- **actionable readiness findings** (a stable local task for every unhealthy
+  component, with bounded redacted evidence and a safe in-product next step),
 - **self-monitoring** (probectl emits metrics *about itself* — the monitoring
   platform is also a service someone has to operate).
 
@@ -67,6 +69,7 @@ Each file is bounded (4 MiB max) and the whole bundle is gzip'd.
 | Method | Use |
 |---|---|
 | `GET /v1/diagnostics/bundle` | the **live** bundle (topology, deep health, self-metrics). Admin-only — requires the `diagnostics.read` permission. The Admin → Support & diagnostics page has the download button. |
+| `probectl diagnostics status` | the live JSON health and readiness findings, for local scripts and terminals. |
 | `probectl-control support-bundle [-o file]` | an **offline** bundle straight from the binary (version, redacted config, a database health check, runtime) — no running server needed. |
 
 ## Deep health checks
@@ -81,9 +84,28 @@ checks are wired up in `internal/control/diagnostics.go`:
 | Check | Degraded / down when |
 |---|---|
 | `database` | the writer connection-pool ping fails → `down` |
+| `alert_evaluator` | stored alert rules are not being evaluated → `degraded` |
 | `secrets_resolver` | a configured secret backend is failing → `degraded` |
 | `cluster` | writes are fenced during a multi-region failover → `degraded` |
 | `license` | expired into the grace period or read-only state → `degraded` |
+
+Every `degraded` or `down` check carries one `finding`; an `ok` check never
+fabricates a task. A finding contains:
+
+| Field | Meaning |
+|---|---|
+| `id` | stable machine key such as `readiness.cluster` |
+| `component`, `scope` | the affected component and the redacted `deployment` scope |
+| `severity` | `warning` for degraded, `critical` for down |
+| `observed_at` | exactly the report's local `checked_at` time |
+| `summary`, `evidence` | bounded operator text; raw dependency errors and secret values are never copied |
+| `next_action` | a relative local `navigate` or `download` link; it never runs remediation |
+
+The native Admin → Support & diagnostics card puts findings first, followed by
+the underlying component table. The same contract is available to the CLI and
+generated Go/TypeScript SDKs. An older replica that reports an unhealthy check
+without a finding is displayed as incomplete during a rolling upgrade; the UI
+does not pretend that state is healthy.
 
 This is separate from the liveness/readiness probes (`/healthz`, `/readyz`) —
 **liveness** asks "is the process alive at all?" and **readiness** asks "should
@@ -91,6 +113,14 @@ the load balancer send it traffic right now?". Those answer a blunt up/down for
 machines making routing decisions. The deep report is richer — it's for a human
 doing **triage** (deciding what is broken and what to look at first) and for
 the support bundle.
+
+The endpoint is a tenant-authenticated, `diagnostics.read`-authorized sensitive
+read and is audited by the central route policy. Its current findings are
+deployment-wide and redacted: no tenant identifier, hostname, IP address,
+credential, or telemetry is returned. There is no remote advisor, cloud model,
+plugin catalog, phone-home, or outbound request in this path. If a future check
+uses tenant data, it must resolve tenant scope at the storage layer before
+RBAC, with a cross-tenant isolation test.
 
 ## Self-monitoring (probectl observes probectl)
 
