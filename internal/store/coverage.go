@@ -49,8 +49,8 @@ func (Agents) CoverageCandidates(ctx context.Context, s tenancy.Scope, limit int
 	rows, err := s.Q.Query(ctx, `
 		SELECT t.id::text, t.name, t.type, t.target, t.interval_seconds,
 		       COALESCE(a.id::text, ''),
-		       COALESCE(NULLIF(a.labels->>'region', ''), 'unlabeled'),
-		       COALESCE(NULLIF(a.labels->>'site', ''), 'unlabeled'),
+		       COALESCE(NULLIF(a.labels->>'region', ''), 'unlabeled') AS region,
+		       COALESCE(NULLIF(a.labels->>'site', ''), 'unlabeled') AS site,
 		       COALESCE(a.status, 'unavailable'),
 		       a.last_seen_at
 		  FROM tests t
