@@ -110,13 +110,24 @@ function firstTestTargetPlaceholder(type: string): string {
   }
 }
 
+type ReadinessStepID = 'credential' | 'connected' | 'healthy' | 'result' | 'finding'
+
+interface ReadinessStep {
+  id: ReadinessStepID
+  label: string
+  detail: string
+  done: boolean
+}
+
 function ProgressItem({
+  id,
   label,
   detail,
   done,
   active,
   readyLabel,
 }: {
+  id: ReadinessStepID
   label: string
   detail: string
   done: boolean
@@ -125,7 +136,10 @@ function ProgressItem({
   readyLabel: string
 }) {
   return (
-    <li className={`${styles.progressItem} ${active ? styles.progressActive : ''}`}>
+    <li
+      className={`${styles.progressItem} ${active ? styles.progressActive : ''}`}
+      data-readiness-step={id}
+    >
       <StatusDot
         tone={done ? 'success' : active ? 'warning' : 'neutral'}
         label={done ? readyLabel : label}
@@ -169,11 +183,12 @@ export function OnboardingPage() {
     ? agentEnrollCommand(agentToken, controlURL.trim() || defaultControlPlaneURL())
     : ''
 
-  const progress = useMemo(() => {
+  const progress = useMemo<ReadinessStep[]>(() => {
     const tokenCreated =
       agentToken !== null || Boolean(persistedProgress?.agent_enroll_token_created)
     return [
       {
+        id: 'credential',
         label: t('onboarding.progress.credential'),
         done: tokenCreated,
         detail: tokenCreated
@@ -181,6 +196,7 @@ export function OnboardingPage() {
           : t('onboarding.progress.credential.waiting'),
       },
       {
+        id: 'connected',
         label: t('onboarding.progress.connected'),
         done: Boolean(persistedProgress?.agent_connected),
         detail: persistedProgress?.agent_connected
@@ -188,6 +204,7 @@ export function OnboardingPage() {
           : t('onboarding.progress.connected.waiting'),
       },
       {
+        id: 'healthy',
         label: t('onboarding.progress.healthy'),
         done: Boolean(persistedProgress?.producer_healthy),
         detail: persistedProgress?.producer_healthy
@@ -195,6 +212,7 @@ export function OnboardingPage() {
           : t('onboarding.progress.healthy.waiting'),
       },
       {
+        id: 'result',
         label: t('onboarding.progress.result'),
         done: Boolean(persistedProgress?.first_result_received),
         detail: persistedProgress?.first_result_received
@@ -202,6 +220,7 @@ export function OnboardingPage() {
           : t('onboarding.progress.result.waiting'),
       },
       {
+        id: 'finding',
         label: t('onboarding.progress.finding'),
         done: Boolean(persistedProgress?.first_finding_visible),
         detail: persistedProgress?.first_finding_visible
@@ -317,7 +336,7 @@ export function OnboardingPage() {
         <ul className={styles.progressList} role="list">
           {progress.map((item, index) => (
             <ProgressItem
-              key={item.label}
+              key={item.id}
               {...item}
               active={index === activeProgressIndex}
               readyLabel={t('onboarding.progress.ready', { label: item.label })}

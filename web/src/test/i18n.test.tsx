@@ -288,6 +288,59 @@ describe('i18n catalog', () => {
     expect(document.documentElement.dir).toBe(dir)
   })
 
+  test('Arabic onboarding keeps five ordered stable steps without duplicate React keys', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const originalFindingLabel = messages.ar['onboarding.progress.finding']
+
+    try {
+      const view = renderApp('/onboarding', { locale: 'ar-EG' })
+
+      const progress = await screen.findByRole('region', {
+        name: messages.ar['onboarding.progress.aria'],
+      })
+      const steps = within(progress).getAllByRole('listitem')
+      const expected = [
+        ['credential', messages.ar['onboarding.progress.credential']],
+        ['connected', messages.ar['onboarding.progress.connected']],
+        ['healthy', messages.ar['onboarding.progress.healthy']],
+        ['result', messages.ar['onboarding.progress.result']],
+        ['finding', messages.ar['onboarding.progress.finding']],
+      ] as const
+
+      expect(steps).toHaveLength(expected.length)
+      expected.forEach(([id, label], index) => {
+        expect(steps[index]).toHaveAttribute('data-readiness-step', id)
+        expect(steps[index]).toHaveTextContent(label)
+      })
+      expect(messages.ar['onboarding.progress.result']).not.toBe(
+        messages.ar['onboarding.progress.finding'],
+      )
+
+      // Stable machine identity must survive even a future catalog collision.
+      // This makes key={item.label} a deterministic test failure.
+      view.unmount()
+      messages.ar['onboarding.progress.finding'] = messages.ar['onboarding.progress.result']
+      renderApp('/onboarding', { locale: 'ar-EG' })
+      const collisionProgress = await screen.findByRole('region', {
+        name: messages.ar['onboarding.progress.aria'],
+      })
+      expect(
+        within(collisionProgress)
+          .getAllByRole('listitem')
+          .map((item) => item.getAttribute('data-readiness-step')),
+      ).toEqual(expected.map(([id]) => id))
+
+      const duplicateKeyDiagnostics = consoleError.mock.calls
+        .flat()
+        .map(String)
+        .filter((message) => /same key|unique ["']key["']/i.test(message))
+      expect(duplicateKeyDiagnostics).toEqual([])
+    } finally {
+      messages.ar['onboarding.progress.finding'] = originalFindingLabel
+      consoleError.mockRestore()
+    }
+  })
+
   test.each([
     [
       'es',
