@@ -70,6 +70,43 @@ func TestBusEmitterTenantTaggedBatch(t *testing.T) {
 	}
 }
 
+func TestBusEmitterPublishesVersionedTenantTaggedSecretFreeQualityReceipt(t *testing.T) {
+	cb := &captureBus{}
+	em, err := NewNamespacedBusEmitter(cb, "tenant-a", "silo-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := validQualityReceipt()
+	receipt.TenantID = "tenant-a"
+	if err := em.EmitQuality(context.Background(), []QualityReceipt{receipt}); err != nil {
+		t.Fatalf("emit quality: %v", err)
+	}
+	wantTopic, err := bus.TopicFor("silo-a", bus.FlowIngestQualityTopic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cb.topic != wantTopic || string(cb.key) != string(bus.TenantKey("tenant-a", receipt.AgentID)) {
+		t.Fatalf("quality publish topic=%q key=%q", cb.topic, cb.key)
+	}
+	var batch flowv1.FlowIngestQualityBatch
+	if err := proto.Unmarshal(cb.value, &batch); err != nil {
+		t.Fatal(err)
+	}
+	if batch.GetContractVersion() != QualityContractVersion || len(batch.GetReceipts()) != 1 {
+		t.Fatalf(
+			"quality batch contract_version=%q receipts=%d",
+			batch.GetContractVersion(),
+			len(batch.GetReceipts()),
+		)
+	}
+	raw := string(cb.value)
+	for _, forbidden := range []string{"community", "password", "raw_datagram", "source_address"} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("quality payload retained forbidden field %q", forbidden)
+		}
+	}
+}
+
 // TestConfigEnvOverrides: env wins over defaults, listeners toggle, validation
 // catches the missing tenant.
 func TestConfigEnvOverrides(t *testing.T) {

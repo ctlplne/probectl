@@ -101,6 +101,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/device/configs", s.handleListDeviceConfigs, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/device/configs", s.handleArchiveDeviceConfig, permMetricsWrite},
 		{http.MethodGet, "/v1/ebpf/service-map", s.handleEBPFServiceMap, ai.PermTopologyRead},
+		{http.MethodGet, "/v1/flows/ingest-quality", s.handleFlowIngestQuality, permFlowRead},
 		{http.MethodGet, "/v1/flows/top", s.handleFlowTop, permFlowRead},
 		{http.MethodGet, "/v1/flows/capacity", s.handleFlowCapacity, permFlowRead},
 		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},

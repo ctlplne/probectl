@@ -539,6 +539,16 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S32',
     kind: 'native',
     route: '/planes/flow',
+    evidence: [
+      'openapi:/v1/flows/top',
+      'openapi:/v1/flows/capacity',
+      'openapi:/v1/flows/anomalies',
+      'openapi:/v1/flows/ingest-quality',
+      'cli:probectl flow quality',
+      'file:web/src/components/FlowIngestQualityCard.tsx',
+      'file:docs/flow.md',
+      'file:docs/features/telemetry-planes.md',
+    ],
     liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
   },
   {

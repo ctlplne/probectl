@@ -3081,6 +3081,90 @@
         }
       }
     },
+    "/v1/flows/ingest-quality": {
+      "get": {
+        "operationId": "listFlowIngestQuality",
+        "summary": "List bounded per-exporter flow ingest quality receipts",
+        "description": "Returns current, secret-free quality receipts only for ACL-accepted exporters in the caller's tenant. Raw datagrams, decoded flow fields, rejected-source addresses, credentials, and free-form errors are never retained by this path.",
+        "tags": [
+          "flows"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "exporter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "ip"
+            }
+          },
+          {
+            "name": "protocol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "netflow",
+                "netflow5",
+                "netflow9",
+                "ipfix",
+                "sflow5"
+              ]
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/FlowIngestQualityState"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded current flow ingest quality receipts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowIngestQualityResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 500,
+          "reason": "Current receipts are hard-capped per tenant and filterable by agent, exporter, protocol, and state."
+        }
+      }
+    },
     "/v1/flows/top": {
       "get": {
         "operationId": "flowTopTalkers",
@@ -13237,6 +13321,217 @@
           "id",
           "name",
           "token"
+        ]
+      },
+      "FlowIngestQualityState": {
+        "type": "string",
+        "enum": [
+          "healthy",
+          "degraded",
+          "stale"
+        ]
+      },
+      "FlowIngestQualityReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "exporter_address": {
+            "type": "string",
+            "format": "ip"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "netflow",
+              "netflow5",
+              "netflow9",
+              "ipfix",
+              "sflow5"
+            ]
+          },
+          "window_started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window_ended_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_packet_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_valid_record_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "packets_received": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "records_decoded": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "decode_error_packets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "template_misses": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "queue_dropped_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "emit_dropped_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "template_state": {
+            "type": "string",
+            "enum": [
+              "not_applicable",
+              "unknown",
+              "learning",
+              "ready",
+              "missing"
+            ]
+          },
+          "sampling_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "unsampled",
+              "sampled",
+              "mixed"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/FlowIngestQualityState"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "receiving_valid_records",
+              "waiting_for_templates",
+              "template_missing",
+              "decode_errors",
+              "queue_loss",
+              "emit_loss",
+              "no_valid_records",
+              "no_recent_packets"
+            ]
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "continue_monitoring",
+              "verify_exporter_templates",
+              "verify_exporter_protocol",
+              "reduce_local_ingest_pressure",
+              "verify_local_bus_delivery",
+              "verify_exporter_delivery"
+            ]
+          }
+        },
+        "required": [
+          "agent_id",
+          "exporter_address",
+          "protocol",
+          "window_started_at",
+          "window_ended_at",
+          "last_packet_at",
+          "last_valid_record_at",
+          "packets_received",
+          "records_decoded",
+          "decode_error_packets",
+          "template_misses",
+          "queue_dropped_records",
+          "emit_dropped_records",
+          "template_state",
+          "sampling_state",
+          "state",
+          "reason",
+          "next_action"
+        ]
+      },
+      "FlowIngestQualityResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl.flow-ingest-quality/v1"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/FlowIngestQualityReceipt"
+            }
+          },
+          "ingest_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stale_after_seconds": {
+            "type": "integer",
+            "const": 180
+          },
+          "retention": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "max_per_tenant": {
+                "type": "integer",
+                "const": 4096
+              },
+              "retention_days": {
+                "type": "integer",
+                "const": 30
+              }
+            },
+            "required": [
+              "max_per_tenant",
+              "retention_days"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "items",
+          "ingest_running",
+          "effective_limit",
+          "truncated",
+          "as_of",
+          "stale_after_seconds",
+          "retention"
         ]
       },
       "FlowTopRow": {

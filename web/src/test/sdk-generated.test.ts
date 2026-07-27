@@ -60,4 +60,40 @@ describe('generated OpenAPI SDK', () => {
       expect.objectContaining({ method: 'GET' }),
     )
   })
+
+  test('listFlowIngestQuality preserves bounded allowlisted filters', async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            contract_version: 'probectl.flow-ingest-quality/v1',
+            items: [],
+            ingest_running: true,
+            effective_limit: 25,
+            truncated: false,
+            as_of: '2026-07-28T00:00:00Z',
+            stale_after_seconds: 180,
+            retention: { max_per_tenant: 4096, retention_days: 30 },
+          }),
+          { status: 200 },
+        ),
+    )
+    const client = new ProbectlSDKClient({
+      baseUrl: '',
+      tenant: 'tenant-a',
+      fetch: fetcher as unknown as typeof fetch,
+    })
+
+    await client.listFlowIngestQuality({
+      agentId: 'flow-agent-a',
+      protocol: 'ipfix',
+      state: 'degraded',
+      limit: 25,
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      '/v1/flows/ingest-quality?agent_id=flow-agent-a&protocol=ipfix&state=degraded&limit=25',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
 })

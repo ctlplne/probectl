@@ -37,12 +37,15 @@ type Stats struct {
 	// DroppedRecords counts records LOST after emit retries were exhausted
 	// (CORRECT-001) — distinct from EmitErrors (failed flush attempts). Telemetry
 	// loss is never silent: it rides the stats snapshot + the periodic stats log.
-	DroppedRecords atomic.Uint64
+	DroppedRecords    atomic.Uint64
+	QualityReceipts   atomic.Uint64
+	QualityEmitErrors atomic.Uint64
 }
 
 // StatsSnapshot is a point-in-time copy for logging/tests.
 type StatsSnapshot struct {
 	Packets, Records, DecodeErrors, TemplateMisses, QueueDrops, EmitErrors, SourceDrops, DroppedRecords uint64
+	QualityReceipts, QualityEmitErrors                                                                  uint64
 }
 
 // Collector binds the configured UDP listeners, decodes datagrams into
@@ -76,11 +79,16 @@ type Collector struct {
 	// c.dec.Decode; tests inject a panicking decoder to prove the read loop
 	// survives a hostile/corrupt datagram.
 	decodeFn func(pkt []byte, exporter string, now time.Time) ([]Record, int, error)
+	clock    func() time.Time
 
 	mu         sync.Mutex
 	conns      map[string]net.PacketConn // protocol name -> bound socket
 	sourceACLs map[string][]netip.Prefix // protocol name -> allowed exporter CIDRs
 	done       chan struct{}
+
+	qualityMu       sync.Mutex
+	quality         map[qualityKey]*qualityWindow
+	qualityInterval time.Duration
 }
 
 // New validates cfg and builds a collector.
@@ -99,16 +107,19 @@ func New(cfg *Config, em Emitter, log *slog.Logger) (*Collector, error) {
 		return nil, err
 	}
 	c := &Collector{
-		cfg:            cfg,
-		emit:           em,
-		log:            log,
-		dec:            NewDecoder(cfg.TemplateTTL, cfg.MaxTemplates),
-		queue:          make(chan Record, cfg.QueueSize),
-		emitMaxRetries: 2,
-		emitRetryBase:  50 * time.Millisecond,
-		conns:          make(map[string]net.PacketConn),
-		sourceACLs:     sourceACLs,
-		done:           make(chan struct{}),
+		cfg:             cfg,
+		emit:            em,
+		log:             log,
+		dec:             NewDecoder(cfg.TemplateTTL, cfg.MaxTemplates),
+		queue:           make(chan Record, cfg.QueueSize),
+		emitMaxRetries:  2,
+		emitRetryBase:   50 * time.Millisecond,
+		conns:           make(map[string]net.PacketConn),
+		sourceACLs:      sourceACLs,
+		done:            make(chan struct{}),
+		clock:           time.Now,
+		quality:         make(map[qualityKey]*qualityWindow),
+		qualityInterval: time.Minute,
 	}
 	c.sleep = c.defaultSleep
 	return c, nil
@@ -200,14 +211,16 @@ func (c *Collector) LocalAddr(protocol string) string {
 // StatsSnapshot returns a copy of the counters.
 func (c *Collector) StatsSnapshot() StatsSnapshot {
 	return StatsSnapshot{
-		Packets:        c.stats.Packets.Load(),
-		Records:        c.stats.Records.Load(),
-		DecodeErrors:   c.stats.DecodeErrors.Load(),
-		TemplateMisses: c.stats.TemplateMisses.Load(),
-		QueueDrops:     c.stats.QueueDrops.Load(),
-		EmitErrors:     c.stats.EmitErrors.Load(),
-		SourceDrops:    c.stats.SourceDrops.Load(),
-		DroppedRecords: c.stats.DroppedRecords.Load(),
+		Packets:           c.stats.Packets.Load(),
+		Records:           c.stats.Records.Load(),
+		DecodeErrors:      c.stats.DecodeErrors.Load(),
+		TemplateMisses:    c.stats.TemplateMisses.Load(),
+		QueueDrops:        c.stats.QueueDrops.Load(),
+		EmitErrors:        c.stats.EmitErrors.Load(),
+		SourceDrops:       c.stats.SourceDrops.Load(),
+		DroppedRecords:    c.stats.DroppedRecords.Load(),
+		QualityReceipts:   c.stats.QualityReceipts.Load(),
+		QualityEmitErrors: c.stats.QualityEmitErrors.Load(),
 	}
 }
 
@@ -236,14 +249,18 @@ func (c *Collector) readLoop(ctx context.Context, name string, conn net.PacketCo
 		exporter := exporterHost(addr)
 		if !c.sourceAllowed(name, addr) {
 			c.stats.SourceDrops.Add(1)
-			c.log.Debug("flow: datagram rejected by source ACL", "listener", name, "exporter", exporter)
+			// A rejected source never enters receipts or retained logs. Only
+			// the normalized listener and counter are observable.
+			c.log.Debug("flow: datagram rejected by source ACL", "listener", name)
 			continue
 		}
+		receivedAt := c.now()
 		// FUZZ-006: a malformed/hostile datagram must never panic the read loop
 		// (which would silently stop flow ingestion). decodeSafely recovers
 		// per-packet, counts it as a decode error, drops the packet, and the
 		// loop keeps reading.
-		recs, misses, derr := c.decodeSafely(buf[:n], exporter, name)
+		recs, misses, derr := c.decodeSafely(buf[:n], exporter, name, receivedAt)
+		qualityKey := c.observeQualityPacket(exporter, qualityProtocol(name, buf[:n]), receivedAt, recs, misses, derr != nil)
 		if misses > 0 {
 			c.stats.TemplateMisses.Add(uint64(misses))
 		}
@@ -258,6 +275,7 @@ func (c *Collector) readLoop(ctx context.Context, name string, conn net.PacketCo
 			case c.queue <- recs[i]:
 			default:
 				c.stats.QueueDrops.Add(1)
+				c.observeQualityQueueDrop(qualityKey)
 			}
 		}
 	}
@@ -267,7 +285,7 @@ func (c *Collector) readLoop(ctx context.Context, name string, conn net.PacketCo
 // crafted/corrupt datagram is converted into a decode error (counted by the
 // caller) and the packet is dropped, so a single bad packet can never take down
 // the UDP read loop.
-func (c *Collector) decodeSafely(pkt []byte, exporter, listener string) (recs []Record, misses int, derr error) {
+func (c *Collector) decodeSafely(pkt []byte, exporter, listener string, now time.Time) (recs []Record, misses int, derr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			recs, misses = nil, 0
@@ -281,7 +299,7 @@ func (c *Collector) decodeSafely(pkt []byte, exporter, listener string) (recs []
 	if decode == nil {
 		decode = c.dec.Decode
 	}
-	return decode(pkt, exporter, time.Now())
+	return decode(pkt, exporter, now)
 }
 
 // flushLoop drains the queue into size/time-bounded batches for the emitter,
@@ -290,8 +308,10 @@ func (c *Collector) flushLoop(ctx context.Context) {
 	batch := make([]Record, 0, c.cfg.BatchSize)
 	ticker := time.NewTicker(c.cfg.FlushInterval)
 	statsTicker := time.NewTicker(60 * time.Second)
+	qualityTicker := time.NewTicker(c.qualityInterval)
 	defer ticker.Stop()
 	defer statsTicker.Stop()
+	defer qualityTicker.Stop()
 
 	flush := func() {
 		if len(batch) == 0 {
@@ -316,12 +336,15 @@ func (c *Collector) flushLoop(ctx context.Context) {
 			}
 		case <-ticker.C:
 			flush()
+		case at := <-qualityTicker.C:
+			c.emitQualityReceipts(ctx, at.UTC())
 		case <-statsTicker.C:
 			s := c.StatsSnapshot()
 			c.log.Info("flow: collector stats",
 				"packets", s.Packets, "records", s.Records, "decode_errors", s.DecodeErrors,
 				"template_misses", s.TemplateMisses, "queue_drops", s.QueueDrops,
 				"emit_errors", s.EmitErrors, "source_drops", s.SourceDrops, "dropped_records", s.DroppedRecords,
+				"quality_receipts", s.QualityReceipts, "quality_emit_errors", s.QualityEmitErrors,
 				"templates", c.dec.TemplateCount())
 		}
 	}
@@ -334,12 +357,20 @@ func (c *Collector) flushBatch(ctx context.Context, batch []Record) {
 	if err := c.emitWithRetry(ctx, batch); err != nil {
 		c.stats.EmitErrors.Add(1)
 		c.stats.DroppedRecords.Add(uint64(len(batch)))
+		c.observeQualityEmitDrops(batch)
 		c.log.Error("flow: emit failed after retries — batch dropped (telemetry loss)",
 			"records", len(batch), "attempts", c.emitMaxRetries+1, "error", err.Error(),
 			"dropped_records_total", c.stats.DroppedRecords.Load())
 		return
 	}
 	c.stats.Records.Add(uint64(len(batch)))
+}
+
+func (c *Collector) now() time.Time {
+	if c.clock != nil {
+		return c.clock().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // emitWithRetry attempts the emit up to 1+emitMaxRetries times with jittered

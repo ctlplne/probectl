@@ -70,6 +70,35 @@ type DeviceCollectionSummary struct {
 	Error             string                    `json:"error,omitempty"`
 }
 
+// FlowQualityReceipt is an anonymized flow-ingest readiness receipt. Agent
+// and exporter refs are bundle-local ordinals; no address leaves the control
+// plane in a support bundle.
+type FlowQualityReceipt struct {
+	AgentRef            string `json:"agent_ref"`
+	ExporterRef         string `json:"exporter_ref"`
+	Protocol            string `json:"protocol"`
+	State               string `json:"state"`
+	Reason              string `json:"reason"`
+	PacketsReceived     uint64 `json:"packets_received"`
+	RecordsDecoded      uint64 `json:"records_decoded"`
+	DecodeErrorPackets  uint64 `json:"decode_error_packets"`
+	TemplateMisses      uint64 `json:"template_misses"`
+	QueueDroppedRecords uint64 `json:"queue_dropped_records"`
+	EmitDroppedRecords  uint64 `json:"emit_dropped_records"`
+	TemplateState       string `json:"template_state"`
+	SamplingState       string `json:"sampling_state"`
+	NextAction          string `json:"next_action"`
+}
+
+// FlowQualitySummary carries bounded, ordinal-only ingest readiness detail.
+type FlowQualitySummary struct {
+	ContractVersion string               `json:"contract_version"`
+	IngestRunning   bool                 `json:"ingest_running"`
+	Receipts        []FlowQualityReceipt `json:"receipts"`
+	Truncated       bool                 `json:"truncated"`
+	Error           string               `json:"error,omitempty"`
+}
+
 // Sources is everything a bundle includes. All fields are SAFE by
 // construction (redacted/anonymized/operational). RedactValues are
 // known-sensitive strings (e.g. the envelope key, tokens, DSN passwords) that
@@ -81,6 +110,7 @@ type Sources struct {
 	SelfMetrics      map[string]float64
 	Topology         TopologySummary
 	DeviceCollection DeviceCollectionSummary
+	FlowQuality      FlowQualitySummary
 	Runtime          Runtime
 	Notes            []string
 	RedactValues     []string
@@ -121,7 +151,7 @@ func Generate(w io.Writer, src Sources) (Manifest, error) {
 		GeneratedAt:   now,
 		Version:       src.Version.Version,
 		Notes: append([]string{
-			"This bundle is SECRET-STRIPPED: config is an allowlist with passwords/keys/tokens removed; no raw tenant, agent, target, telemetry, or PII identifiers are included. Device readiness receipts use bundle-local ordinal references.",
+			"This bundle is SECRET-STRIPPED: config is an allowlist with passwords/keys/tokens removed; no raw tenant, agent, target, exporter, telemetry, or PII identifiers are included. Device and flow readiness receipts use bundle-local ordinal references.",
 		}, src.Notes...),
 	}
 
@@ -139,6 +169,7 @@ func Generate(w io.Writer, src Sources) (Manifest, error) {
 		{"self-metrics.json", src.SelfMetrics},
 		{"topology-summary.json", src.Topology},
 		{"device-collection.json", src.DeviceCollection},
+		{"flow-ingest-quality.json", src.FlowQuality},
 		{"runtime.json", src.Runtime},
 	}
 	for _, f := range files {

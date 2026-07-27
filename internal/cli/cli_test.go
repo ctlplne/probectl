@@ -800,6 +800,43 @@ func TestCLIFlowTopPreservesStackedFilters(t *testing.T) {
 	}
 }
 
+func TestCLIFlowQualityShowsBoundedSafeReceipt(t *testing.T) {
+	op := surfaceCommands["flow"].Ops["quality"]
+	if op.Method != http.MethodGet || op.Path != "/v1/flows/ingest-quality" {
+		t.Fatalf("flow quality op = %+v, want GET /v1/flows/ingest-quality", op)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/flows/ingest-quality", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("agent_id"); got != "flow-agent-a" {
+			t.Fatalf("agent_id query = %q, want flow-agent-a", got)
+		}
+		if got := r.URL.Query().Get("state"); got != "degraded" {
+			t.Fatalf("state query = %q, want degraded", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{
+				"agent_id": "flow-agent-a", "exporter_address": "2001:db8::44",
+				"protocol": "ipfix", "state": "degraded", "reason": "template_missing",
+				"next_action": "verify_exporter_templates",
+			},
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "flow", "quality",
+		"--query", "agent_id=flow-agent-a",
+		"--query", "state=degraded")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "flow-agent-a") ||
+		!strings.Contains(out, "2001:db8::44") ||
+		!strings.Contains(out, "ipfix / template_missing / verify_exporter_templates") {
+		t.Fatalf("flow quality output missing expected receipt:\n%s", out)
+	}
+}
+
 func TestCLIBGPSetupSurfaceRegistersBGPSource(t *testing.T) {
 	op, ok := surfaceCommands["bgp"].Ops["setup"]
 	if !ok {

@@ -253,6 +253,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/device/configs":                      auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/device/configs":                     auditExplicit(auditFacetMutation, "device.config_archive"),
 	"GET /v1/ebpf/service-map":                    auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/flows/ingest-quality":                auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/flows/top":                           auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/flows/capacity":                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/flows/anomalies":                     auditWrapped(auditFacetSensitiveRead),

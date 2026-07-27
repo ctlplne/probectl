@@ -19,6 +19,16 @@ describe('plane workspaces', () => {
     expect(await screen.findByRole('table', { name: /bgp routing edges/i })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Flow' }))
+    const flowQuality = await screen.findByRole('list', {
+      name: /per-exporter flow ingest quality receipts/i,
+    })
+    expect(within(flowQuality).getByText('2001:db8:100:200::1234')).toBeInTheDocument()
+    expect(within(flowQuality).getByText('Healthy')).toBeInTheDocument()
+    expect(within(flowQuality).getByText('Degraded')).toBeInTheDocument()
+    expect(
+      within(flowQuality).getByText('Verify template export on this configured exporter.'),
+    ).toBeInTheDocument()
+    expect(within(flowQuality).queryByRole('table')).not.toBeInTheDocument()
     const topTalkers = await screen.findByRole('table', { name: /flow top talkers/i })
     expect(within(topTalkers).getByText('10.0.0.10')).toBeInTheDocument()
 
@@ -82,6 +92,14 @@ describe('plane workspaces', () => {
     expect(within(deviceCoverage).getByText('Physical links').nextElementSibling).toHaveTextContent(
       /^0$/,
     )
+  })
+
+  test('cold flow ingest remains honestly empty', async () => {
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/planes/flow')
+
+    expect(await screen.findByText('No flow ingest receipts yet')).toBeInTheDocument()
+    expect(screen.queryByText('Healthy')).not.toBeInTheDocument()
   })
 
   test('Spanish physical-neighbor copy is natural across populated, unavailable, and empty states', async () => {

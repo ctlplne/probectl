@@ -36,6 +36,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/imfeelingtheagi/probectl/internal/flow"
 	"github.com/imfeelingtheagi/probectl/internal/inventory"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
@@ -109,6 +110,7 @@ type Server struct {
 	// Flow analytics store (S38). Defaults to in-memory; main attaches the
 	// configured store (ClickHouse in production) via WithFlowStore.
 	flowStore       flowstore.Store
+	flowQuality     flow.QualityStore
 	otelStore       otelstore.Store
 	deviceOps       device.OpsStore
 	deviceNeighbors device.NeighborStore
@@ -378,6 +380,15 @@ func (s *Server) WithFlowStore(fs flowstore.Store) *Server {
 	if fs != nil {
 		s.flowStore = fs
 		s.rebuildAnalyzer()
+	}
+	return s
+}
+
+// WithFlowQualityReceipts attaches bounded tenant-scoped flow ingest quality
+// receipts. nil keeps the endpoint honest with collection_running=false.
+func (s *Server) WithFlowQualityReceipts(store flow.QualityStore) *Server {
+	if store != nil {
+		s.flowQuality = store
 	}
 	return s
 }

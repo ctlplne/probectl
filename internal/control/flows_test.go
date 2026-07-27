@@ -10,9 +10,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/flow"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 )
 
@@ -131,5 +133,73 @@ func TestFlowCapacityAndAnomalyAPI(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400", bad, rec.Code)
 		}
+	}
+}
+
+func TestFlowIngestQualityAPITenantScopedVersionedAndRedacted(t *testing.T) {
+	store := flow.NewMemoryQualityStore()
+	now := time.Now().UTC().Truncate(time.Second)
+	write := func(tenant, agent, exporter string) {
+		t.Helper()
+		last := now.Add(-time.Second)
+		receipt := flow.EvaluateQualityState(flow.QualityReceipt{
+			TenantID: tenant, AgentID: agent, ExporterAddress: exporter,
+			Protocol: flow.ProtoIPFIX, WindowStartedAt: now.Add(-time.Minute),
+			WindowEndedAt: now, LastPacketAt: last, LastValidRecordAt: &last,
+			PacketsReceived: 10, RecordsDecoded: 20,
+			TemplateState: flow.QualityTemplateReady,
+			SamplingState: flow.QualitySamplingSampled,
+		}, now)
+		if err := store.UpsertQualityReceipt(context.Background(), tenant, receipt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const tenantA = "00000000-0000-0000-0000-000000000001"
+	write(tenantA, "agent-a", "192.0.2.10")
+	write("00000000-0000-0000-0000-000000000002", "agent-secret", "198.51.100.20")
+	srv := testServer(fakePinger{}).WithFlowQualityReceipts(store)
+	rec := do(srv, http.MethodGet, "/v1/flows/ingest-quality?limit=10&protocol=ipfix")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp flowQualityResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.ContractVersion != flow.QualityContractVersion || !resp.IngestRunning ||
+		len(resp.Items) != 1 || resp.Items[0].ExporterAddress != "192.0.2.10" {
+		t.Fatalf("response=%+v", resp)
+	}
+	body := rec.Body.String()
+	for _, forbidden := range []string{
+		"198.51.100.20", "agent-secret", "tenant_id", "raw_datagram",
+		"source_address", "destination_address", "credential", "error_text",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("response retained forbidden/cross-tenant field %q: %s", forbidden, body)
+		}
+	}
+	for _, path := range []string{
+		"/v1/flows/ingest-quality?state=unknown",
+		"/v1/flows/ingest-quality?protocol=snmp",
+		"/v1/flows/ingest-quality?exporter=router.internal",
+	} {
+		if got := do(srv, http.MethodGet, path).Code; got != http.StatusBadRequest {
+			t.Fatalf("%s status=%d, want 400", path, got)
+		}
+	}
+}
+
+func TestFlowIngestQualityAPIReportsUnwiredHonestly(t *testing.T) {
+	rec := do(testServer(fakePinger{}), http.MethodGet, "/v1/flows/ingest-quality")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp flowQualityResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.IngestRunning || len(resp.Items) != 0 {
+		t.Fatalf("unwired response=%+v", resp)
 	}
 }

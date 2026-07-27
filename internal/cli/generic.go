@@ -210,6 +210,20 @@ func printGenericItems(w io.Writer, items []any) {
 }
 
 func genericDisplayFields(m map[string]any) (id, name, status, summary string) {
+	// Flow quality receipts use exporter + protocol as their tenant-local
+	// identity. Keep the allowlisted reason and safe action visible without
+	// inventing a synthetic ID or exposing any decoded flow field.
+	if exporter := firstString(m, "exporter_address"); exporter != "" {
+		id = firstString(m, "agent_id")
+		name = strings.Join(nonEmptyStrings(firstString(m, "agent_id"), exporter), " @ ")
+		status = firstString(m, "state")
+		summary = strings.Join(nonEmptyStrings(
+			firstString(m, "protocol"),
+			firstString(m, "reason"),
+			firstString(m, "next_action"),
+		), " / ")
+		return id, name, status, summary
+	}
 	// Collection outcomes deliberately have no synthetic global ID: their
 	// tenant-local identity is agent + configured target + protocol. Preserve
 	// that evidence in the human table without changing the stable JSON shape.

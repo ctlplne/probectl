@@ -1092,6 +1092,40 @@ type FlowFilter struct {
 	Value string `json:"value"`
 }
 
+type FlowIngestQualityReceipt struct {
+	AgentId             string                 `json:"agent_id"`
+	DecodeErrorPackets  int                    `json:"decode_error_packets"`
+	EmitDroppedRecords  int                    `json:"emit_dropped_records"`
+	ExporterAddress     string                 `json:"exporter_address"`
+	LastPacketAt        string                 `json:"last_packet_at"`
+	LastValidRecordAt   *string                `json:"last_valid_record_at"`
+	NextAction          string                 `json:"next_action"`
+	PacketsReceived     int                    `json:"packets_received"`
+	Protocol            string                 `json:"protocol"`
+	QueueDroppedRecords int                    `json:"queue_dropped_records"`
+	Reason              string                 `json:"reason"`
+	RecordsDecoded      int                    `json:"records_decoded"`
+	SamplingState       string                 `json:"sampling_state"`
+	State               FlowIngestQualityState `json:"state"`
+	TemplateMisses      int                    `json:"template_misses"`
+	TemplateState       string                 `json:"template_state"`
+	WindowEndedAt       string                 `json:"window_ended_at"`
+	WindowStartedAt     string                 `json:"window_started_at"`
+}
+
+type FlowIngestQualityResponse struct {
+	AsOf              string                     `json:"as_of"`
+	ContractVersion   string                     `json:"contract_version"`
+	EffectiveLimit    int                        `json:"effective_limit"`
+	IngestRunning     bool                       `json:"ingest_running"`
+	Items             []FlowIngestQualityReceipt `json:"items"`
+	Retention         map[string]any             `json:"retention"`
+	StaleAfterSeconds int                        `json:"stale_after_seconds"`
+	Truncated         bool                       `json:"truncated"`
+}
+
+type FlowIngestQualityState string
+
 type FlowSeriesPoint struct {
 	Bytes   int    `json:"bytes"`
 	Detail  string `json:"detail,omitempty"`
@@ -3110,6 +3144,40 @@ func (c *Client) FlowCapacity(ctx context.Context, req FlowCapacityRequest) (*Fl
 		query.Set("bucket", formatQueryValue(*req.Bucket))
 	}
 	var out FlowCapacityList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List bounded per-exporter flow ingest quality receipts
+type ListFlowIngestQualityRequest struct {
+	AgentId  *string                 `json:"-"`
+	Exporter *string                 `json:"-"`
+	Protocol *string                 `json:"-"`
+	State    *FlowIngestQualityState `json:"-"`
+	Limit    *int                    `json:"-"`
+}
+
+func (c *Client) ListFlowIngestQuality(ctx context.Context, req ListFlowIngestQualityRequest) (*FlowIngestQualityResponse, error) {
+	path := "/v1/flows/ingest-quality"
+	query := url.Values{}
+	if req.AgentId != nil {
+		query.Set("agent_id", formatQueryValue(*req.AgentId))
+	}
+	if req.Exporter != nil {
+		query.Set("exporter", formatQueryValue(*req.Exporter))
+	}
+	if req.Protocol != nil {
+		query.Set("protocol", formatQueryValue(*req.Protocol))
+	}
+	if req.State != nil {
+		query.Set("state", formatQueryValue(*req.State))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out FlowIngestQualityResponse
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

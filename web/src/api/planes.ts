@@ -97,6 +97,57 @@ export interface FlowAnomalyResponse {
   items: FlowAnomaly[]
 }
 
+export type FlowIngestQualityState = 'healthy' | 'degraded' | 'stale'
+
+export interface FlowIngestQualityReceipt {
+  agent_id: string
+  exporter_address: string
+  protocol: 'netflow' | 'netflow5' | 'netflow9' | 'ipfix' | 'sflow5'
+  window_started_at: string
+  window_ended_at: string
+  last_packet_at: string
+  last_valid_record_at: string | null
+  packets_received: number
+  records_decoded: number
+  decode_error_packets: number
+  template_misses: number
+  queue_dropped_records: number
+  emit_dropped_records: number
+  template_state: 'not_applicable' | 'unknown' | 'learning' | 'ready' | 'missing'
+  sampling_state: 'unknown' | 'unsampled' | 'sampled' | 'mixed'
+  state: FlowIngestQualityState
+  reason:
+    | 'receiving_valid_records'
+    | 'waiting_for_templates'
+    | 'template_missing'
+    | 'decode_errors'
+    | 'queue_loss'
+    | 'emit_loss'
+    | 'no_valid_records'
+    | 'no_recent_packets'
+  next_action:
+    | 'continue_monitoring'
+    | 'verify_exporter_templates'
+    | 'verify_exporter_protocol'
+    | 'reduce_local_ingest_pressure'
+    | 'verify_local_bus_delivery'
+    | 'verify_exporter_delivery'
+}
+
+export interface FlowIngestQualityResponse {
+  contract_version: 'probectl.flow-ingest-quality/v1'
+  items: FlowIngestQualityReceipt[]
+  ingest_running: boolean
+  effective_limit: number
+  truncated: boolean
+  as_of: string
+  stale_after_seconds: number
+  retention: {
+    max_per_tenant: number
+    retention_days: number
+  }
+}
+
 export interface DeviceSyslogEvent {
   id: string
   device: string
@@ -243,6 +294,13 @@ export function useFlowAnomalies(window = '1h', bucket = '5m') {
       apiFetch<FlowAnomalyResponse>(
         `/flows/anomalies?window=${encodeURIComponent(window)}&bucket=${encodeURIComponent(bucket)}`,
       ),
+  })
+}
+
+export function useFlowIngestQuality(limit = 100) {
+  return useQuery({
+    queryKey: ['flows', 'ingest-quality', limit],
+    queryFn: () => apiFetch<FlowIngestQualityResponse>(`/flows/ingest-quality?limit=${limit}`),
   })
 }
 

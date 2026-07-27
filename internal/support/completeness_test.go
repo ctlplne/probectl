@@ -31,6 +31,7 @@ func TestBundleCompleteness(t *testing.T) {
 	//   self-metrics     — RED/USE on probectl's own pipelines (saturation/errors)
 	//   topology-summary — scale shape (tenants/agents/region) without telemetry
 	//   device-collection — anonymized per-target collection readiness receipts
+	//   flow-ingest-quality — anonymized per-exporter ingest quality receipts
 	//   runtime          — go version / OS / arch / goroutines / mem / uptime
 	//   manifest         — the index (+ the secret-stripped notice)
 	required := []string{
@@ -40,6 +41,7 @@ func TestBundleCompleteness(t *testing.T) {
 		"self-metrics.json",
 		"topology-summary.json",
 		"device-collection.json",
+		"flow-ingest-quality.json",
 		"runtime.json",
 		"manifest.json",
 	}
@@ -51,6 +53,7 @@ func TestBundleCompleteness(t *testing.T) {
 		SelfMetrics:      SelfSnapshot(time.Now().Add(-time.Minute)),
 		Topology:         TopologySummary{Tenants: 5, Agents: 20, Region: "eu-west"},
 		DeviceCollection: DeviceCollectionSummary{ContractVersion: "probectl.device-collection-outcomes/v1", Receipts: []DeviceCollectionReceipt{}},
+		FlowQuality:      FlowQualitySummary{ContractVersion: "probectl.flow-ingest-quality/v1", Receipts: []FlowQualityReceipt{}},
 		Runtime:          CollectRuntime(time.Now().Add(-time.Hour)),
 	}
 

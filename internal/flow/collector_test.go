@@ -64,7 +64,7 @@ func TestDecodeSafelyRecoversFromPanic(t *testing.T) {
 	}
 
 	// The panicking packet must be survived and counted, not propagated.
-	recs, _, derr := c.decodeSafely([]byte{0xFF}, "10.0.0.1", "netflow")
+	recs, _, derr := c.decodeSafely([]byte{0xFF}, "10.0.0.1", "netflow", time.Now())
 	if recs != nil {
 		t.Errorf("panic path returned %d records, want 0", len(recs))
 	}
@@ -75,7 +75,7 @@ func TestDecodeSafelyRecoversFromPanic(t *testing.T) {
 		t.Errorf("DecodeErrors = %d, want 1 after a recovered panic", got)
 	}
 	// The loop keeps working: a non-sentinel packet decodes normally.
-	recs, _, derr = c.decodeSafely([]byte{0x01}, "10.0.0.1", "netflow")
+	recs, _, derr = c.decodeSafely([]byte{0x01}, "10.0.0.1", "netflow", time.Now())
 	if derr != nil || len(recs) != 1 {
 		t.Errorf("post-panic decode = (%d recs, %v), want (1, nil) — loop did not recover", len(recs), derr)
 	}
@@ -210,6 +210,10 @@ func TestCollectorAllowsListedSource(t *testing.T) {
 	if got := c.StatsSnapshot().SourceDrops; got != 0 {
 		t.Fatalf("listed source was dropped: %+v", c.StatsSnapshot())
 	}
+	quality := c.QualitySnapshot(time.Now().UTC())
+	if len(quality) != 1 || quality[0].ExporterAddress != "127.0.0.1" {
+		t.Fatalf("listed source quality receipt = %+v", quality)
+	}
 }
 
 func TestCollectorRejectsUnlistedSource(t *testing.T) {
@@ -244,6 +248,9 @@ func TestCollectorRejectsUnlistedSource(t *testing.T) {
 	if got := em.snapshot(); len(got) != 0 {
 		t.Fatalf("unlisted source emitted records: %+v", got)
 	}
+	if got := c.QualitySnapshot(time.Now().UTC()); len(got) != 0 {
+		t.Fatalf("unlisted source was retained in quality receipts: %+v", got)
+	}
 }
 
 // TestCollectorValidation: bad configs and nil emitters are refused.
@@ -255,6 +262,11 @@ func TestCollectorValidation(t *testing.T) {
 	cfg.TenantID = ""
 	if _, err := New(cfg, &captureEmitter{}, nil); err == nil {
 		t.Error("missing tenant accepted")
+	}
+	cfg = testConfig()
+	cfg.AgentID = ""
+	if _, err := New(cfg, &captureEmitter{}, nil); err == nil {
+		t.Error("missing agent accepted")
 	}
 	cfg = testConfig()
 	cfg.NetFlow.Enabled, cfg.IPFIX.Enabled, cfg.SFlow.Enabled = false, false, false

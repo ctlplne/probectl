@@ -23,6 +23,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/device"
+	"github.com/imfeelingtheagi/probectl/internal/flow"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -230,6 +231,57 @@ func TestSupportBundleAnonymizesDeviceCollectionReceipts(t *testing.T) {
 		}
 	}
 	for _, want := range []string{`"agent_ref": "agent-0001"`, `"target_ref": "target-0001"`, `"state": "failed"`, `"reason": "poll_failed"`} {
+		if !bytes.Contains(raw, []byte(want)) {
+			t.Fatalf("support receipt missing %s: %s", want, raw)
+		}
+	}
+}
+
+func TestSupportBundleAnonymizesFlowQualityReceipts(t *testing.T) {
+	cfg := &config.Config{HTTPAddr: ":0", AuthMode: "dev"}
+	receipts := flow.NewMemoryQualityStore()
+	now := time.Now().UTC().Truncate(time.Second)
+	last := now.Add(-time.Second)
+	tenant := tenancy.DefaultTenantID.String()
+	receipt := flow.EvaluateQualityState(flow.QualityReceipt{
+		TenantID: tenant, AgentID: "flow-agent-secret-name",
+		ExporterAddress: "2001:db8:feed::44", Protocol: flow.ProtoIPFIX,
+		WindowStartedAt: now.Add(-time.Minute), WindowEndedAt: now,
+		LastPacketAt: last, LastValidRecordAt: &last,
+		PacketsReceived: 12, RecordsDecoded: 48,
+		TemplateState: flow.QualityTemplateReady,
+		SamplingState: flow.QualitySamplingSampled,
+	}, now)
+	if err := receipts.UpsertQualityReceipt(context.Background(), tenant, receipt); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), okPinger{}, nil, nil, nil).
+		WithFlowQualityReceipts(receipts)
+
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics/bundle", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	files, err := support.ReadBundle(bytes.NewReader(rr.Body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := files["flow-ingest-quality.json"]
+	for _, forbidden := range []string{
+		"flow-agent-secret-name", "2001:db8:feed::44", tenant,
+		"raw_datagram", "src_addr", "dst_addr", "credential", "error_message",
+	} {
+		if bytes.Contains(raw, []byte(forbidden)) {
+			t.Fatalf("raw flow identifier or forbidden field leaked into support receipt: %q in %s", forbidden, raw)
+		}
+	}
+	for _, want := range []string{
+		`"agent_ref": "agent-0001"`,
+		`"exporter_ref": "exporter-0001"`,
+		`"state": "healthy"`,
+		`"reason": "receiving_valid_records"`,
+	} {
 		if !bytes.Contains(raw, []byte(want)) {
 			t.Fatalf("support receipt missing %s: %s", want, raw)
 		}

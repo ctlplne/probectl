@@ -39,6 +39,7 @@ func TestBundleHasNoSecrets(t *testing.T) {
 		SelfMetrics:      map[string]float64{"goroutines": 12},
 		Topology:         TopologySummary{Tenants: 3, Agents: 9, Region: "us-east"},
 		DeviceCollection: DeviceCollectionSummary{ContractVersion: "probectl.device-collection-outcomes/v1", Receipts: []DeviceCollectionReceipt{}},
+		FlowQuality:      FlowQualitySummary{ContractVersion: "probectl.flow-ingest-quality/v1", Receipts: []FlowQualityReceipt{}},
 		Runtime:          CollectRuntime(time.Now().Add(-time.Hour)),
 		// Defense in depth: even if a secret slipped into a field, it is
 		// scrubbed from the assembled bytes.
@@ -56,7 +57,7 @@ func TestBundleHasNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The expected diagnostics files are present.
-	for _, want := range []string{"manifest.json", "version.json", "config-redacted.json", "health.json", "self-metrics.json", "topology-summary.json", "device-collection.json", "runtime.json"} {
+	for _, want := range []string{"manifest.json", "version.json", "config-redacted.json", "health.json", "self-metrics.json", "topology-summary.json", "device-collection.json", "flow-ingest-quality.json", "runtime.json"} {
 		if _, ok := files[want]; !ok {
 			t.Fatalf("bundle missing %s (have %v)", want, keys(files))
 		}

@@ -607,6 +607,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/planes.ts',
     method: 'GET',
+    path: '`/flows/ingest-quality?limit=${limit}`',
+    response: 'FlowIngestQualityResponse',
+    generated: 'ListFlowIngestQualityResponse',
+  },
+  {
+    file: 'api/planes.ts',
+    method: 'GET',
     path: '`/flows/top?${params.toString()}`',
     response: 'FlowTopResponse',
     generated: 'FlowTopTalkersResponse',
@@ -845,6 +852,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   pathLink: true,
   flowTopRow: true,
   flowTopList: true,
+  flowIngestQualityReceipt: true,
+  flowIngestQualityResponse: true,
   flowFilter: true,
   flowSeriesPoint: true,
   flowCapacityPoint: true,
@@ -912,6 +921,14 @@ export const OPENAPI_TYPE_CONTRACTS = {
   pathLink: GeneratedHasViewKeys<SDK.Link, Paths.Link>
   flowTopRow: GeneratedHasViewKeys<SDK.FlowTopRow, Planes.FlowTopRow>
   flowTopList: GeneratedHasViewKeys<SDK.FlowTopList, Planes.FlowTopResponse>
+  flowIngestQualityReceipt: GeneratedHasViewKeys<
+    SDK.FlowIngestQualityReceipt,
+    Planes.FlowIngestQualityReceipt
+  >
+  flowIngestQualityResponse: GeneratedHasViewKeys<
+    SDK.FlowIngestQualityResponse,
+    Planes.FlowIngestQualityResponse
+  >
   flowFilter: GeneratedHasViewKeys<SDK.FlowFilter, Planes.FlowFilter>
   flowSeriesPoint: GeneratedHasViewKeys<SDK.FlowSeriesPoint, Planes.FlowSeriesPoint>
   flowCapacityPoint: GeneratedHasViewKeys<SDK.FlowCapacityPoint, Planes.FlowCapacityPoint>

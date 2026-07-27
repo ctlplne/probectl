@@ -1008,6 +1008,40 @@ export interface FlowFilter {
   value: string
 }
 
+export interface FlowIngestQualityReceipt {
+  agent_id: string
+  decode_error_packets: number
+  emit_dropped_records: number
+  exporter_address: string
+  last_packet_at: string
+  last_valid_record_at: string | null
+  next_action: "continue_monitoring" | "verify_exporter_templates" | "verify_exporter_protocol" | "reduce_local_ingest_pressure" | "verify_local_bus_delivery" | "verify_exporter_delivery"
+  packets_received: number
+  protocol: "netflow" | "netflow5" | "netflow9" | "ipfix" | "sflow5"
+  queue_dropped_records: number
+  reason: "receiving_valid_records" | "waiting_for_templates" | "template_missing" | "decode_errors" | "queue_loss" | "emit_loss" | "no_valid_records" | "no_recent_packets"
+  records_decoded: number
+  sampling_state: "unknown" | "unsampled" | "sampled" | "mixed"
+  state: FlowIngestQualityState
+  template_misses: number
+  template_state: "not_applicable" | "unknown" | "learning" | "ready" | "missing"
+  window_ended_at: string
+  window_started_at: string
+}
+
+export interface FlowIngestQualityResponse {
+  as_of: string
+  contract_version: string
+  effective_limit: number
+  ingest_running: boolean
+  items: FlowIngestQualityReceipt[]
+  retention: JsonObject
+  stale_after_seconds: number
+  truncated: boolean
+}
+
+export type FlowIngestQualityState = "healthy" | "degraded" | "stale"
+
 export interface FlowSeriesPoint {
   bytes: number
   detail?: string
@@ -2114,6 +2148,16 @@ export interface FlowCapacityRequest {
 
 export type FlowCapacityResponse = FlowCapacityList
 
+export interface ListFlowIngestQualityRequest {
+  agentId?: string
+  exporter?: string
+  protocol?: "netflow" | "netflow5" | "netflow9" | "ipfix" | "sflow5"
+  state?: FlowIngestQualityState
+  limit?: number
+}
+
+export type ListFlowIngestQualityResponse = FlowIngestQualityResponse
+
 export interface FlowTopTalkersRequest {
   by?: "src" | "dst" | "pair" | "src_asn" | "dst_asn" | "as_name" | "src_country" | "dst_country" | "port" | "protocol" | "exporter"
   window?: string
@@ -3211,6 +3255,17 @@ export class ProbectlSDKClient {
     if (request.window !== undefined) query.set("window", String(request.window))
     if (request.bucket !== undefined) query.set("bucket", String(request.bucket))
     return this.requestJSON<FlowCapacityResponse>("GET", path, query, undefined)
+  }
+
+  async listFlowIngestQuality(request: ListFlowIngestQualityRequest = {}): Promise<ListFlowIngestQualityResponse> {
+    let path = "/v1/flows/ingest-quality"
+    const query = new URLSearchParams()
+    if (request.agentId !== undefined) query.set("agent_id", String(request.agentId))
+    if (request.exporter !== undefined) query.set("exporter", String(request.exporter))
+    if (request.protocol !== undefined) query.set("protocol", String(request.protocol))
+    if (request.state !== undefined) query.set("state", String(request.state))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListFlowIngestQualityResponse>("GET", path, query, undefined)
   }
 
   async flowTopTalkers(request: FlowTopTalkersRequest = {}): Promise<FlowTopTalkersResponse> {

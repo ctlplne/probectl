@@ -13,12 +13,93 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/flow"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 )
 
 // Flow analytics (S38, F17): tenant-scoped reads over the flow store. The
 // tenant comes from the authenticated principal — never from a query param —
 // and the store scopes every query by it before anything else (CLAUDE.md §6).
+
+type flowQualityRetention struct {
+	MaxPerTenant  int `json:"max_per_tenant"`
+	RetentionDays int `json:"retention_days"`
+}
+
+type flowQualityResponse struct {
+	ContractVersion   string                `json:"contract_version"`
+	Items             []flow.QualityReceipt `json:"items"`
+	IngestRunning     bool                  `json:"ingest_running"`
+	EffectiveLimit    int                   `json:"effective_limit"`
+	Truncated         bool                  `json:"truncated"`
+	AsOf              time.Time             `json:"as_of"`
+	StaleAfterSeconds int                   `json:"stale_after_seconds"`
+	Retention         flowQualityRetention  `json:"retention"`
+}
+
+// handleFlowIngestQuality serves one bounded current receipt per
+// ACL-accepted exporter/protocol. It never exposes raw datagrams, decoded flow
+// fields, rejected-source addresses, credentials, or free-form errors.
+func (s *Server) handleFlowIngestQuality(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	limit, err := intParam(r, "limit", 100)
+	if err != nil {
+		return err
+	}
+	if limit > flow.MaxQualityReceiptRead {
+		limit = flow.MaxQualityReceiptRead
+	}
+	state := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("state")))
+	if state != "" && !flow.ValidQualityState(state) {
+		return apierror.BadRequest("state must be healthy, degraded, or stale")
+	}
+	protocol := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("protocol")))
+	if protocol != "" && !flow.ValidQualityProtocol(protocol) {
+		return apierror.BadRequest("protocol must be netflow, netflow5, netflow9, ipfix, or sflow5")
+	}
+	exporter := strings.TrimSpace(r.URL.Query().Get("exporter"))
+	if exporter != "" {
+		exporter, err = flow.NormalizeQualityExporter(exporter)
+		if err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
+	agentID := strings.TrimSpace(r.URL.Query().Get("agent_id"))
+	if len(agentID) > 128 {
+		return apierror.BadRequest("agent_id must be at most 128 characters")
+	}
+	asOf := time.Now().UTC()
+	resp := flowQualityResponse{
+		ContractVersion: flow.QualityContractVersion,
+		Items:           []flow.QualityReceipt{}, IngestRunning: s.flowQuality != nil,
+		EffectiveLimit: limit, AsOf: asOf,
+		StaleAfterSeconds: int(flow.QualityStaleAfter / time.Second),
+		Retention: flowQualityRetention{
+			MaxPerTenant:  flow.MaxQualityReceiptsPerTenant,
+			RetentionDays: int(flow.QualityReceiptRetention / (24 * time.Hour)),
+		},
+	}
+	if s.flowQuality == nil {
+		writeJSON(w, http.StatusOK, resp)
+		return nil
+	}
+	rows, truncated, err := s.flowQuality.ListQualityReceipts(r.Context(), tid, flow.QualityFilter{
+		AgentID:  agentID,
+		Exporter: exporter, Protocol: protocol, State: state, Limit: limit,
+	})
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		rows[i] = flow.EvaluateQualityState(rows[i], asOf)
+	}
+	resp.Items, resp.Truncated = rows, truncated
+	writeJSON(w, http.StatusOK, resp)
+	return nil
+}
 
 // handleFlowTop serves GET /v1/flows/top — the top-talkers view.
 // Query: by=<allowlisted facet>, window=1h, bucket=3m, limit=10, and repeated

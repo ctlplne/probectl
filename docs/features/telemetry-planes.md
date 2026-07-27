@@ -107,6 +107,17 @@ comes from the collector's own binding or authenticated local import context,
 never from anything the datagram or cloud log claims — source payloads cannot
 assert which tenant they belong to.
 
+The same collector also emits a separate bounded
+`probectl.flow-ingest-quality/v1` receipt for each ACL-approved
+exporter/protocol. It reports only windows, last-packet/last-valid times,
+saturating packet/record/error/template/queue/emit counters, allowlisted state,
+and a safe next action. Rejected addresses, raw datagrams, decoded flow fields,
+credentials, and free-form errors are never retained. The independent consumer
+verifies tenant+agent identity and stores one current row behind forced
+PostgreSQL RLS. Operators read the authoritative first-party view at
+**Planes → Flow** or **Admin**, through `GET /v1/flows/ingest-quality`, or with
+`probectl flow quality`; no external dashboard runtime is shipped or required.
+
 For AI/GPU fabrics and hybrid/multi-cloud networks, treat flow as the shared
 context layer. probectl can show who is talking to whom, how much traffic crosses
 an on-prem/cloud or cloud/cloud boundary, which eBPF-observed service edge is

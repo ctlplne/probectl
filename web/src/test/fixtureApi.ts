@@ -545,6 +545,17 @@ function coldFixture(path: string): Response | null {
     case '/v1/flows/anomalies':
     case '/v1/inventory/views':
       return jsonResponse({ items: [] })
+    case '/v1/flows/ingest-quality':
+      return jsonResponse({
+        contract_version: 'probectl.flow-ingest-quality/v1',
+        items: [],
+        ingest_running: true,
+        effective_limit: 100,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        stale_after_seconds: 180,
+        retention: { max_per_tenant: 4096, retention_days: 30 },
+      })
     case '/v1/agents':
       return jsonResponse({ items: [], control_version: '0.1.0', rollouts_available: true })
     case '/v1/results/latest':
@@ -1206,6 +1217,59 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         effective_limit: 100,
         truncated: false,
         as_of: '2026-06-04T12:00:00Z',
+        retention: { max_per_tenant: 4096, retention_days: 30 },
+      })
+    if (path === '/v1/flows/ingest-quality')
+      return jsonResponse({
+        contract_version: 'probectl.flow-ingest-quality/v1',
+        items: [
+          {
+            agent_id:
+              'flow-agent-at-a-very-long-sovereign-site-name-that-must-wrap-without-overflow',
+            exporter_address: '2001:db8:100:200::1234',
+            protocol: 'ipfix',
+            window_started_at: '2026-06-04T11:59:00Z',
+            window_ended_at: '2026-06-04T12:00:00Z',
+            last_packet_at: '2026-06-04T11:59:58Z',
+            last_valid_record_at: '2026-06-04T11:59:58Z',
+            packets_received: 128,
+            records_decoded: 2048,
+            decode_error_packets: 0,
+            template_misses: 0,
+            queue_dropped_records: 0,
+            emit_dropped_records: 0,
+            template_state: 'ready',
+            sampling_state: 'sampled',
+            state: 'healthy',
+            reason: 'receiving_valid_records',
+            next_action: 'continue_monitoring',
+          },
+          {
+            agent_id: 'flow-agent-1',
+            exporter_address: '192.0.2.44',
+            protocol: 'netflow9',
+            window_started_at: '2026-06-04T11:59:00Z',
+            window_ended_at: '2026-06-04T12:00:00Z',
+            last_packet_at: '2026-06-04T11:59:57Z',
+            last_valid_record_at: null,
+            packets_received: 9,
+            records_decoded: 0,
+            decode_error_packets: 0,
+            template_misses: 9,
+            queue_dropped_records: 0,
+            emit_dropped_records: 0,
+            template_state: 'missing',
+            sampling_state: 'unknown',
+            state: 'degraded',
+            reason: 'template_missing',
+            next_action: 'verify_exporter_templates',
+          },
+        ],
+        ingest_running: true,
+        effective_limit: 100,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        stale_after_seconds: 180,
         retention: { max_per_tenant: 4096, retention_days: 30 },
       })
     if (path === '/v1/device/syslog')

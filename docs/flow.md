@@ -34,9 +34,13 @@ flowchart LR
   R[routers / switches<br/>NetFlow v5/v9 · IPFIX · sFlow v5] -- UDP --> C[probectl-flow-agent<br/>decode · templates · sampling]
   CL[cloud flow-log exports<br/>AWS VPC · Azure NSG · GCP VPC] -- "local file / object export" --> C
   C -- "probectl.flow.events (FlowBatch, tenant-keyed)" --> B[(bus)]
+  C -- "probectl.flow.ingest-quality (bounded receipt, tenant-keyed)" --> B
   B --> P[control-plane FlowConsumer<br/>verify tenant · ASN/geo enrich (opt-in)]
+  B --> Q[FlowQualityConsumer<br/>verify tenant + agent · validate allowlists]
   P --> S[(ClickHouse probectl_flows<br/>tenant-first partition + ORDER BY)]
+  Q --> PG[(PostgreSQL current receipts<br/>tenant_id + forced RLS)]
   S --> API["/v1/flows/top · /v1/flows/capacity · /v1/flows/anomalies"]
+  PG --> APIQ["/v1/flows/ingest-quality"]
 ```
 
 The path through the code is worth holding in your head, because every other
@@ -51,6 +55,12 @@ section is just a zoom-in on one arrow:
    (`internal/store/flowstore/`);
 4. the `/v1/flows/*` handlers (`internal/control/flows.go`) run the analytics
    queries, tenant-scoped, against that store.
+
+In parallel, the collector summarizes accepted-packet health into a small
+`FlowIngestQualityReceipt`. This is a control receipt, not another copy of flow
+analytics: it travels on `probectl.flow.ingest-quality`, is identity-verified by
+an independent consumer, and lands as one current forced-RLS PostgreSQL row per
+tenant/agent/exporter/protocol.
 
 ## Sources
 
@@ -172,6 +182,54 @@ Device-asserted AS numbers (NetFlow v5/v9/IPFIX can export them) always pass
 through and are never overridden — enrichment only fills blanks, is cached, and
 degrades gracefully: a down or rate-limited source never blocks ingest.
 
+## Per-exporter ingest quality receipts
+
+“No flows” is ambiguous: the exporter may be quiet, disconnected, sending the
+wrong protocol, waiting for a template, or losing records locally. The flow
+agent therefore emits the versioned
+`probectl.flow-ingest-quality/v1` contract once per reporting window for each
+**ACL-accepted** exporter/protocol it has observed.
+
+Each receipt is deliberately small and closed:
+
+- identity: agent, normalized exporter IP, and allowlisted protocol;
+- time: bounded window, last accepted packet, and last valid record;
+- saturating counters: packets, decoded records, decode-error packets, template
+  misses, local queue drops, and local bus-emission drops;
+- allowlisted template/sampling state; and
+- an honest `healthy`, `degraded`, or `stale` state with a fixed reason and
+  fixed safe next action.
+
+The state matrix is deterministic:
+
+| Evidence | State | Safe action |
+|---|---|---|
+| recent packet + valid record + no observed loss | `healthy` | continue monitoring |
+| template missing/learning | `degraded` | verify exporter templates |
+| decode failures or no valid records | `degraded` | verify exporter protocol/version |
+| local queue loss | `degraded` | reduce local ingest pressure |
+| local bus delivery loss | `degraded` | verify the local bus |
+| last accepted packet older than three minutes | `stale` | verify exporter delivery |
+
+Privacy is structural. Rejected-source addresses never enter the aggregator.
+Raw datagrams, decoded five-tuples, credentials, and free-form error strings are
+not fields in the protobuf, Go model, migration, API schema, or support-bundle
+view. Vocabulary is allowlisted at producer, consumer, and storage edges. Agent
+memory is capped at 1,024 exporter/protocol pairs; the tenant store is capped at
+4,096 current rows with 30-day cleanup. Counters saturate instead of wrapping.
+
+The bus message is keyed by tenant. The control-plane consumer verifies
+tenant+agent binding before persistence; a namespaced lane overwrites a forged
+payload tenant with its authenticated lane tenant. PostgreSQL stores receipts
+under `tenant_id` with `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL
+SECURITY`, and every query retains an explicit tenant predicate as defense in
+depth.
+
+This path is entirely first-party and self-hosted. It adds no external runtime,
+dashboard dependency, browser call, or outbound request. The authoritative UI is
+the native **Planes → Flow** receipt list, also visible to administrators under
+**Admin**.
+
 ## Storage
 
 Records land in the ClickHouse table `probectl_flows`, created idempotently by
@@ -207,7 +265,7 @@ pooled table.
 
 ## Query API (tenant-scoped, `flow.read`)
 
-Three read endpoints, all gated by the `flow.read` permission and scoped to the
+Four read endpoints, all gated by the `flow.read` permission and scoped to the
 authenticated principal's tenant before any value is read (the tenant never
 comes from a query parameter):
 
@@ -215,6 +273,7 @@ comes from a query parameter):
 GET /v1/flows/top?by=<facet>&window=1h&bucket=3m&limit=10&filter=protocol:ipfix&filter=port:443
 GET /v1/flows/capacity?exporter=&direction=in|out&window=1h&bucket=3m
 GET /v1/flows/anomalies?window=1h&bucket=3m&k=3&min_bps=1000
+GET /v1/flows/ingest-quality?agent_id=&exporter=&protocol=&state=&limit=100
 ```
 
 - **Top-talkers** aggregates the sampling-corrected bytes / packets / flow-counts
@@ -247,6 +306,13 @@ GET /v1/flows/anomalies?window=1h&bucket=3m&k=3&min_bps=1000
   response includes the model name, training-window provenance, the latest
   tenant-local feature vector, and feature citations. The same detector runs over
   both store backends.
+- **Ingest quality** returns at most 500 current receipts from the forced-RLS
+  PostgreSQL store. State is recalculated at read time, so a stopped agent cannot
+  leave a permanently green receipt. `ingest_running:false` means the receipt
+  store is not wired (see the centralized
+  [limitations ledger](limitations.md#built-not-yet-served-edges)); an empty
+  `items` array with `ingest_running:true` means no ACL-approved exporter has
+  been observed yet.
 
 ## Operations
 
@@ -282,6 +348,9 @@ curl -s "https://localhost:8443/v1/flows/top?by=src_asn&window=15m&limit=5"
 probectl flow top --query by=dst_country \
   --query filter=protocol:ipfix \
   --query filter=port:443
+
+# Inspect bounded, secret-free exporter health without a dashboard dependency.
+probectl flow quality --query state=degraded --query protocol=ipfix
 ```
 
 See [`deploying-agents.md`](deploying-agents.md) for where the collector sits

@@ -119,6 +119,12 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("flow: parse config: %w", err)
 		}
 	}
+	// Shipped examples use agent_id: "" to request the documented hostname
+	// default. Strict YAML decoding replaces the preloaded default, so restore
+	// it before environment overrides and validation.
+	if strings.TrimSpace(cfg.AgentID) == "" {
+		cfg.AgentID, _ = os.Hostname()
+	}
 	cfg.applyEnv(os.Getenv)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -205,6 +211,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 func (c *Config) Validate() error {
 	if c.TenantID == "" {
 		return errors.New("flow: tenant_id is required (PROBECTL_FLOW_TENANT)")
+	}
+	if strings.TrimSpace(c.AgentID) == "" || len(c.AgentID) > 128 {
+		return errors.New("flow: bounded agent_id is required (PROBECTL_FLOW_AGENT_ID)")
 	}
 	cloud := c.cloudImportEnabled()
 	if !c.NetFlow.Enabled && !c.IPFIX.Enabled && !c.SFlow.Enabled && !cloud {

@@ -19,9 +19,10 @@ import (
 // BusEmitter publishes FlowBatches to probectl.flow.events, tenant-keyed
 // (pooled tenant-tagging, CLAUDE.md §6), mirroring the eBPF/endpoint emitters.
 type BusEmitter struct {
-	bus    bus.Bus
-	tenant string
-	topic  string // shared, or the tenant's namespaced lane (TENANT-107)
+	bus       bus.Bus
+	tenant    string
+	namespace string
+	topic     string // shared, or the tenant's namespaced lane (TENANT-107)
 }
 
 // NewBusEmitter returns an Emitter publishing to bus.FlowEventsTopic, or to
@@ -40,7 +41,7 @@ func NewNamespacedBusEmitter(b bus.Bus, tenant, namespace string) (*BusEmitter, 
 	if err != nil {
 		return nil, fmt.Errorf("flow: refusing to start: %w", err)
 	}
-	return &BusEmitter{bus: b, tenant: tenant, topic: topic}, nil
+	return &BusEmitter{bus: b, tenant: tenant, namespace: namespace, topic: topic}, nil
 }
 
 // Emit marshals the batch and publishes it. An empty batch is a no-op.
@@ -62,3 +63,45 @@ func (e *BusEmitter) Emit(ctx context.Context, recs []Record) error {
 	}
 	return e.bus.Publish(ctx, e.topic, bus.TenantKey(e.tenant, entropy), value)
 }
+
+// EmitQuality publishes one bounded versioned receipt batch on the separate
+// flow-ingest quality topic. The analytics event payload is never duplicated.
+func (e *BusEmitter) EmitQuality(ctx context.Context, receipts []QualityReceipt) error {
+	if len(receipts) == 0 {
+		return nil
+	}
+	if len(receipts) > MaxQualityReceiptBatch {
+		return fmt.Errorf("flow: quality receipt batch exceeds %d", MaxQualityReceiptBatch)
+	}
+	batch := &flowv1.FlowIngestQualityBatch{
+		ContractVersion: QualityContractVersion,
+		Receipts:        make([]*flowv1.FlowIngestQualityReceipt, 0, len(receipts)),
+	}
+	agentID := ""
+	for _, receipt := range receipts {
+		if receipt.TenantID != e.tenant {
+			return fmt.Errorf("flow: quality receipt tenant scope mismatch")
+		}
+		valid, err := ValidateQualityReceipt(receipt)
+		if err != nil {
+			return err
+		}
+		if agentID == "" {
+			agentID = valid.AgentID
+		} else if agentID != valid.AgentID {
+			return fmt.Errorf("flow: quality receipt batch mixes agents")
+		}
+		batch.Receipts = append(batch.Receipts, valid.ToProto())
+	}
+	value, err := proto.Marshal(batch)
+	if err != nil {
+		return fmt.Errorf("flow: marshal quality receipt batch: %w", err)
+	}
+	topic, err := bus.TopicFor(e.namespace, bus.FlowIngestQualityTopic)
+	if err != nil {
+		return fmt.Errorf("flow: quality receipt topic: %w", err)
+	}
+	return e.bus.Publish(ctx, topic, bus.TenantKey(e.tenant, agentID), value)
+}
+
+var _ QualityEmitter = (*BusEmitter)(nil)

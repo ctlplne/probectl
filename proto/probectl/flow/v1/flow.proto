@@ -73,3 +73,38 @@ message FlowRecord {
 message FlowBatch {
   repeated FlowRecord flows = 1;
 }
+
+// FlowIngestQualityReceipt is a bounded, secret-free current summary for one
+// ACL-accepted exporter/protocol pair. It deliberately excludes raw datagrams,
+// decoded flow fields, credentials, rejected-source addresses, and free-form
+// errors. Stable allowlisted state/reason/action strings keep the payload safe
+// for persistence and support-bundle summarization.
+message FlowIngestQualityReceipt {
+  string tenant_id = 1;
+  string agent_id = 2;
+  string exporter_address = 3;
+  string flow_protocol = 4;
+  int64 window_started_at_unix_nano = 5;
+  int64 window_ended_at_unix_nano = 6;
+  int64 last_packet_at_unix_nano = 7;
+  int64 last_valid_record_at_unix_nano = 8;
+  uint64 packets_received = 9;
+  uint64 records_decoded = 10;
+  uint64 decode_error_packets = 11;
+  uint64 template_misses = 12;
+  uint64 queue_dropped_records = 13;
+  uint64 emit_dropped_records = 14;
+  string template_state = 15;
+  string sampling_state = 16;
+  string state = 17;
+  string reason = 18;
+  string next_action = 19;
+}
+
+// FlowIngestQualityBatch is the tenant-keyed payload on
+// probectl.flow.ingest-quality. contract_version is required and fail-closed
+// so a consumer never guesses how to interpret a future schema.
+message FlowIngestQualityBatch {
+  string contract_version = 1;
+  repeated FlowIngestQualityReceipt receipts = 2;
+}

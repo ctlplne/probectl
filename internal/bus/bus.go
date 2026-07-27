@@ -47,6 +47,11 @@ const (
 // (S15), and persists to ClickHouse (internal/store/flowstore).
 const FlowEventsTopic = "probectl.flow.events"
 
+// FlowIngestQualityTopic carries bounded, secret-free current quality
+// receipts for ACL-accepted flow exporters. Payload:
+// flowv1.FlowIngestQualityBatch.
+const FlowIngestQualityTopic = "probectl.flow.ingest-quality"
+
 // DeviceMetricsTopic carries normalized device-telemetry batches (SNMP polls +
 // gNMI/OpenConfig subscriptions, S39) from the device collector, tenant-tagged
 // via the message key. Payload: devicev1.DeviceMetricBatch. The control plane

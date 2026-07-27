@@ -505,6 +505,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/flows/top":                  "bounded",
 	"/v1/flows/capacity":             "bounded",
 	"/v1/flows/anomalies":            "bounded",
+	"/v1/flows/ingest-quality":       "bounded",
 	"/v1/topology":                   "bounded",
 	"/v1/slos":                       "bounded",
 	"/v1/outages":                    "bounded",

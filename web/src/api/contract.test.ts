@@ -11,7 +11,11 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { fixtureFetch, jsonResponse, type FixtureProfile } from '../test/fixtureApi'
 import { fixtureContractErrors, type FixtureContractRequest } from '../test/openapiFixtureContract'
-import type { DeviceCollectionOutcomeResponse, DeviceNeighborResponse } from './planes'
+import type {
+  DeviceCollectionOutcomeResponse,
+  DeviceNeighborResponse,
+  FlowIngestQualityResponse,
+} from './planes'
 import type { TopologyResponse } from './topology'
 import { API_BASE } from './client'
 import { API_CALL_CONTRACTS, type APICallContract } from './openapi-contracts'
@@ -102,6 +106,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/explorer/schema' },
   { method: 'GET', path: '/v1/flows/anomalies' },
   { method: 'GET', path: '/v1/flows/capacity' },
+  { method: 'GET', path: '/v1/flows/ingest-quality' },
   { method: 'GET', path: '/v1/flows/top' },
   { method: 'GET', path: '/v1/incidents' },
   {
@@ -389,6 +394,25 @@ describe('design-loop fixture to OpenAPI response contracts', () => {
       expect(outcomes.collection_running).toBe(true)
       expect(outcomes.items).toHaveLength(expectedRows)
       expect(outcomes.retention).toEqual({ max_per_tenant: 4096, retention_days: 30 })
+    }
+  })
+
+  it('keeps populated and cold flow-ingest receipts versioned, bounded, and secret-free', async () => {
+    for (const [profile, expectedRows] of [
+      ['populated', 2],
+      ['cold', 0],
+    ] as const) {
+      const response = await fixtureFetch(profile)(
+        'https://fixture.probectl.test/v1/flows/ingest-quality',
+      )
+      const quality = (await response.json()) as FlowIngestQualityResponse
+      expect(quality.contract_version).toBe('probectl.flow-ingest-quality/v1')
+      expect(quality.ingest_running).toBe(true)
+      expect(quality.items).toHaveLength(expectedRows)
+      expect(quality.retention).toEqual({ max_per_tenant: 4096, retention_days: 30 })
+      expect(JSON.stringify(quality)).not.toMatch(
+        /raw_datagram|src_addr|dst_addr|credential|error_message/,
+      )
     }
   })
 

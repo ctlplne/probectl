@@ -17,6 +17,7 @@ import {
   DeviceCollectionOutcomesCard,
   EmptyState,
   ErrorState,
+  FlowIngestQualityCard,
   LoadingState,
   PlanesPreview,
   Select,
@@ -550,6 +551,7 @@ function FlowPanel({
   return (
     <section id="plane-panel-flow" role="tabpanel" className={styles.panelGrid}>
       <div className={styles.stack}>
+        <FlowIngestQualityCard />
         <Card>
           <CardHeader
             title={t('planes.flow.top.title')}

@@ -34,6 +34,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/imfeelingtheagi/probectl/internal/flow"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
@@ -66,16 +67,17 @@ type serveRuntime struct {
 	log             *slog.Logger
 	secretsResolver *secrets.Resolver
 
-	resultBus     bus.Bus
-	tsdbWriter    tsdb.Writer
-	ingestWriter  tsdb.Writer
-	pathStore     pathstore.Store
-	pathCH        *pathstore.ClickHouse
-	otelStore     otelstore.Store
-	flowStore     flowstore.Store
-	ebpfStore     ebpfstore.Store
-	endpointStore endpointstore.Store
-	objectStore   objectstore.Store
+	resultBus        bus.Bus
+	tsdbWriter       tsdb.Writer
+	ingestWriter     tsdb.Writer
+	pathStore        pathstore.Store
+	pathCH           *pathstore.ClickHouse
+	otelStore        otelstore.Store
+	flowStore        flowstore.Store
+	flowQualityStore flow.QualityStore
+	ebpfStore        ebpfstore.Store
+	endpointStore    endpointstore.Store
+	objectStore      objectstore.Store
 
 	ctx  context.Context
 	stop context.CancelFunc
@@ -187,6 +189,7 @@ func (rt *serveRuntime) buildServeEngines() error {
 	rt.tenantBinding = pipeline.NewRegistryBinding(rt.db.Pool())
 	rt.neighborStore = store.NewDeviceNeighbors(rt.db.Pool())
 	rt.outcomeStore = store.NewDeviceCollectionOutcomes(rt.db.Pool())
+	rt.flowQualityStore = store.NewFlowQualityReceipts(rt.db.Pool())
 
 	var corrOpts []incident.Option
 	if rt.dispatcher != nil {
@@ -283,6 +286,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 	rt.srv = control.New(rt.cfg, rt.log, rt.db, rt.db.Pool(), rt.pathStore, nil).
 		WithDispatcher(rt.dispatcher).
 		WithFlowStore(rt.flowStore).
+		WithFlowQualityReceipts(rt.flowQualityStore).
 		WithOTelStore(rt.otelStore).
 		WithTSDB(rt.tsdbWriter).
 		WithCMDB(rt.cmdbResolver).
@@ -474,6 +478,16 @@ func (rt *serveRuntime) startIngestConsumers() {
 				WithNamespaceTenants(snap.tenants).
 				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				WithFairness(rt.fairGate).
+				WithMetrics(rt.srv.Metrics()).
+				Run(ctx)
+		})
+	})
+	rt.g.Go(func() error {
+		return superviseBusLaneRestart(rt.gctx, "flow-quality-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+			return pipeline.NewFlowQualityConsumer(rt.resultBus, rt.flowQualityStore, rt.log).
+				WithTenantBinding(rt.tenantBinding).
+				WithNamespaceTenants(snap.tenants).
+				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				WithMetrics(rt.srv.Metrics()).
 				Run(ctx)
 		})

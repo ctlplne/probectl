@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/device"
+	"github.com/imfeelingtheagi/probectl/internal/flow"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/version"
@@ -198,9 +199,49 @@ func (s *Server) supportSources(ctx context.Context, tenant string) support.Sour
 		SelfMetrics:      support.SelfSnapshot(s.startedAt),
 		Topology:         s.topologySummary(ctx),
 		DeviceCollection: s.supportDeviceCollection(ctx, tenant),
+		FlowQuality:      s.supportFlowQuality(ctx, tenant),
 		Runtime:          support.CollectRuntime(s.startedAt),
 		RedactValues:     s.knownSecrets(),
 	}
+}
+
+func (s *Server) supportFlowQuality(ctx context.Context, tenant string) support.FlowQualitySummary {
+	out := support.FlowQualitySummary{
+		ContractVersion: flow.QualityContractVersion,
+		IngestRunning:   s.flowQuality != nil,
+		Receipts:        []support.FlowQualityReceipt{},
+	}
+	if s.flowQuality == nil || tenant == "" {
+		return out
+	}
+	rows, truncated, err := s.flowQuality.ListQualityReceipts(ctx, tenant, flow.QualityFilter{
+		Limit: flow.MaxQualityReceiptRead,
+	})
+	if err != nil {
+		out.Error = "tenant-scoped flow quality read unavailable"
+		return out
+	}
+	agentRefs, exporterRefs := map[string]string{}, map[string]string{}
+	for _, row := range rows {
+		if agentRefs[row.AgentID] == "" {
+			agentRefs[row.AgentID] = fmt.Sprintf("agent-%04d", len(agentRefs)+1)
+		}
+		exporterKey := row.AgentID + "\x00" + row.ExporterAddress
+		if exporterRefs[exporterKey] == "" {
+			exporterRefs[exporterKey] = fmt.Sprintf("exporter-%04d", len(exporterRefs)+1)
+		}
+		out.Receipts = append(out.Receipts, support.FlowQualityReceipt{
+			AgentRef: agentRefs[row.AgentID], ExporterRef: exporterRefs[exporterKey],
+			Protocol: row.Protocol, State: row.State, Reason: row.Reason,
+			PacketsReceived: row.PacketsReceived, RecordsDecoded: row.RecordsDecoded,
+			DecodeErrorPackets: row.DecodeErrorPackets, TemplateMisses: row.TemplateMisses,
+			QueueDroppedRecords: row.QueueDroppedRecords, EmitDroppedRecords: row.EmitDroppedRecords,
+			TemplateState: row.TemplateState, SamplingState: row.SamplingState,
+			NextAction: row.NextAction,
+		})
+	}
+	out.Truncated = truncated
+	return out
 }
 
 func (s *Server) supportDeviceCollection(ctx context.Context, tenant string) support.DeviceCollectionSummary {

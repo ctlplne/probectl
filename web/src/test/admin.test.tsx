@@ -100,6 +100,14 @@ describe('Admin fleet health action center', () => {
       within(outcomes).getByText('Verify local access to the configured target.'),
     ).toBeInTheDocument()
     expect(within(outcomes).queryByRole('table')).not.toBeInTheDocument()
+    const flowQuality = await screen.findByRole('list', {
+      name: /per-exporter flow ingest quality receipts/i,
+    })
+    expect(within(flowQuality).getByText('2001:db8:100:200::1234')).toBeInTheDocument()
+    expect(
+      within(flowQuality).getByText('Verify template export on this configured exporter.'),
+    ).toBeInTheDocument()
+    expect(within(flowQuality).queryByRole('table')).not.toBeInTheDocument()
 
     await user.click(within(table).getByRole('button', { name: 'Review rollout health gate' }))
     const dialog = await screen.findByRole('dialog', { name: 'Safe action for edge-stale' })

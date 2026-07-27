@@ -376,6 +376,254 @@ func (x *FlowBatch) GetFlows() []*FlowRecord {
 	return nil
 }
 
+// FlowIngestQualityReceipt is a bounded, secret-free current summary for one
+// ACL-accepted exporter/protocol pair. It deliberately excludes raw datagrams,
+// decoded flow fields, credentials, rejected-source addresses, and free-form
+// errors. Stable allowlisted state/reason/action strings keep the payload safe
+// for persistence and support-bundle summarization.
+type FlowIngestQualityReceipt struct {
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	TenantId                  string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	AgentId                   string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	ExporterAddress           string                 `protobuf:"bytes,3,opt,name=exporter_address,json=exporterAddress,proto3" json:"exporter_address,omitempty"`
+	FlowProtocol              string                 `protobuf:"bytes,4,opt,name=flow_protocol,json=flowProtocol,proto3" json:"flow_protocol,omitempty"`
+	WindowStartedAtUnixNano   int64                  `protobuf:"varint,5,opt,name=window_started_at_unix_nano,json=windowStartedAtUnixNano,proto3" json:"window_started_at_unix_nano,omitempty"`
+	WindowEndedAtUnixNano     int64                  `protobuf:"varint,6,opt,name=window_ended_at_unix_nano,json=windowEndedAtUnixNano,proto3" json:"window_ended_at_unix_nano,omitempty"`
+	LastPacketAtUnixNano      int64                  `protobuf:"varint,7,opt,name=last_packet_at_unix_nano,json=lastPacketAtUnixNano,proto3" json:"last_packet_at_unix_nano,omitempty"`
+	LastValidRecordAtUnixNano int64                  `protobuf:"varint,8,opt,name=last_valid_record_at_unix_nano,json=lastValidRecordAtUnixNano,proto3" json:"last_valid_record_at_unix_nano,omitempty"`
+	PacketsReceived           uint64                 `protobuf:"varint,9,opt,name=packets_received,json=packetsReceived,proto3" json:"packets_received,omitempty"`
+	RecordsDecoded            uint64                 `protobuf:"varint,10,opt,name=records_decoded,json=recordsDecoded,proto3" json:"records_decoded,omitempty"`
+	DecodeErrorPackets        uint64                 `protobuf:"varint,11,opt,name=decode_error_packets,json=decodeErrorPackets,proto3" json:"decode_error_packets,omitempty"`
+	TemplateMisses            uint64                 `protobuf:"varint,12,opt,name=template_misses,json=templateMisses,proto3" json:"template_misses,omitempty"`
+	QueueDroppedRecords       uint64                 `protobuf:"varint,13,opt,name=queue_dropped_records,json=queueDroppedRecords,proto3" json:"queue_dropped_records,omitempty"`
+	EmitDroppedRecords        uint64                 `protobuf:"varint,14,opt,name=emit_dropped_records,json=emitDroppedRecords,proto3" json:"emit_dropped_records,omitempty"`
+	TemplateState             string                 `protobuf:"bytes,15,opt,name=template_state,json=templateState,proto3" json:"template_state,omitempty"`
+	SamplingState             string                 `protobuf:"bytes,16,opt,name=sampling_state,json=samplingState,proto3" json:"sampling_state,omitempty"`
+	State                     string                 `protobuf:"bytes,17,opt,name=state,proto3" json:"state,omitempty"`
+	Reason                    string                 `protobuf:"bytes,18,opt,name=reason,proto3" json:"reason,omitempty"`
+	NextAction                string                 `protobuf:"bytes,19,opt,name=next_action,json=nextAction,proto3" json:"next_action,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *FlowIngestQualityReceipt) Reset() {
+	*x = FlowIngestQualityReceipt{}
+	mi := &file_probectl_flow_v1_flow_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlowIngestQualityReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlowIngestQualityReceipt) ProtoMessage() {}
+
+func (x *FlowIngestQualityReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_flow_v1_flow_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlowIngestQualityReceipt.ProtoReflect.Descriptor instead.
+func (*FlowIngestQualityReceipt) Descriptor() ([]byte, []int) {
+	return file_probectl_flow_v1_flow_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *FlowIngestQualityReceipt) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetExporterAddress() string {
+	if x != nil {
+		return x.ExporterAddress
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetFlowProtocol() string {
+	if x != nil {
+		return x.FlowProtocol
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetWindowStartedAtUnixNano() int64 {
+	if x != nil {
+		return x.WindowStartedAtUnixNano
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetWindowEndedAtUnixNano() int64 {
+	if x != nil {
+		return x.WindowEndedAtUnixNano
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetLastPacketAtUnixNano() int64 {
+	if x != nil {
+		return x.LastPacketAtUnixNano
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetLastValidRecordAtUnixNano() int64 {
+	if x != nil {
+		return x.LastValidRecordAtUnixNano
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetPacketsReceived() uint64 {
+	if x != nil {
+		return x.PacketsReceived
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetRecordsDecoded() uint64 {
+	if x != nil {
+		return x.RecordsDecoded
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetDecodeErrorPackets() uint64 {
+	if x != nil {
+		return x.DecodeErrorPackets
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetTemplateMisses() uint64 {
+	if x != nil {
+		return x.TemplateMisses
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetQueueDroppedRecords() uint64 {
+	if x != nil {
+		return x.QueueDroppedRecords
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetEmitDroppedRecords() uint64 {
+	if x != nil {
+		return x.EmitDroppedRecords
+	}
+	return 0
+}
+
+func (x *FlowIngestQualityReceipt) GetTemplateState() string {
+	if x != nil {
+		return x.TemplateState
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetSamplingState() string {
+	if x != nil {
+		return x.SamplingState
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityReceipt) GetNextAction() string {
+	if x != nil {
+		return x.NextAction
+	}
+	return ""
+}
+
+// FlowIngestQualityBatch is the tenant-keyed payload on
+// probectl.flow.ingest-quality. contract_version is required and fail-closed
+// so a consumer never guesses how to interpret a future schema.
+type FlowIngestQualityBatch struct {
+	state           protoimpl.MessageState      `protogen:"open.v1"`
+	ContractVersion string                      `protobuf:"bytes,1,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
+	Receipts        []*FlowIngestQualityReceipt `protobuf:"bytes,2,rep,name=receipts,proto3" json:"receipts,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *FlowIngestQualityBatch) Reset() {
+	*x = FlowIngestQualityBatch{}
+	mi := &file_probectl_flow_v1_flow_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlowIngestQualityBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlowIngestQualityBatch) ProtoMessage() {}
+
+func (x *FlowIngestQualityBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_flow_v1_flow_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlowIngestQualityBatch.ProtoReflect.Descriptor instead.
+func (*FlowIngestQualityBatch) Descriptor() ([]byte, []int) {
+	return file_probectl_flow_v1_flow_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *FlowIngestQualityBatch) GetContractVersion() string {
+	if x != nil {
+		return x.ContractVersion
+	}
+	return ""
+}
+
+func (x *FlowIngestQualityBatch) GetReceipts() []*FlowIngestQualityReceipt {
+	if x != nil {
+		return x.Receipts
+	}
+	return nil
+}
+
 var File_probectl_flow_v1_flow_proto protoreflect.FileDescriptor
 
 const file_probectl_flow_v1_flow_proto_rawDesc = "" +
@@ -418,7 +666,32 @@ const file_probectl_flow_v1_flow_proto_rawDesc = "" +
 	"\x13destination_as_name\x18\x1e \x01(\tR\x11destinationAsName\x12/\n" +
 	"\x13destination_country\x18\x1f \x01(\tR\x12destinationCountry\"?\n" +
 	"\tFlowBatch\x122\n" +
-	"\x05flows\x18\x01 \x03(\v2\x1c.probectl.flow.v1.FlowRecordR\x05flowsBJZHgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1;flowv1b\x06proto3"
+	"\x05flows\x18\x01 \x03(\v2\x1c.probectl.flow.v1.FlowRecordR\x05flows\"\xc7\x06\n" +
+	"\x18FlowIngestQualityReceipt\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12)\n" +
+	"\x10exporter_address\x18\x03 \x01(\tR\x0fexporterAddress\x12#\n" +
+	"\rflow_protocol\x18\x04 \x01(\tR\fflowProtocol\x12<\n" +
+	"\x1bwindow_started_at_unix_nano\x18\x05 \x01(\x03R\x17windowStartedAtUnixNano\x128\n" +
+	"\x19window_ended_at_unix_nano\x18\x06 \x01(\x03R\x15windowEndedAtUnixNano\x126\n" +
+	"\x18last_packet_at_unix_nano\x18\a \x01(\x03R\x14lastPacketAtUnixNano\x12A\n" +
+	"\x1elast_valid_record_at_unix_nano\x18\b \x01(\x03R\x19lastValidRecordAtUnixNano\x12)\n" +
+	"\x10packets_received\x18\t \x01(\x04R\x0fpacketsReceived\x12'\n" +
+	"\x0frecords_decoded\x18\n" +
+	" \x01(\x04R\x0erecordsDecoded\x120\n" +
+	"\x14decode_error_packets\x18\v \x01(\x04R\x12decodeErrorPackets\x12'\n" +
+	"\x0ftemplate_misses\x18\f \x01(\x04R\x0etemplateMisses\x122\n" +
+	"\x15queue_dropped_records\x18\r \x01(\x04R\x13queueDroppedRecords\x120\n" +
+	"\x14emit_dropped_records\x18\x0e \x01(\x04R\x12emitDroppedRecords\x12%\n" +
+	"\x0etemplate_state\x18\x0f \x01(\tR\rtemplateState\x12%\n" +
+	"\x0esampling_state\x18\x10 \x01(\tR\rsamplingState\x12\x14\n" +
+	"\x05state\x18\x11 \x01(\tR\x05state\x12\x16\n" +
+	"\x06reason\x18\x12 \x01(\tR\x06reason\x12\x1f\n" +
+	"\vnext_action\x18\x13 \x01(\tR\n" +
+	"nextAction\"\x8b\x01\n" +
+	"\x16FlowIngestQualityBatch\x12)\n" +
+	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12F\n" +
+	"\breceipts\x18\x02 \x03(\v2*.probectl.flow.v1.FlowIngestQualityReceiptR\breceiptsBJZHgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1;flowv1b\x06proto3"
 
 var (
 	file_probectl_flow_v1_flow_proto_rawDescOnce sync.Once
@@ -432,18 +705,21 @@ func file_probectl_flow_v1_flow_proto_rawDescGZIP() []byte {
 	return file_probectl_flow_v1_flow_proto_rawDescData
 }
 
-var file_probectl_flow_v1_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_probectl_flow_v1_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_probectl_flow_v1_flow_proto_goTypes = []any{
-	(*FlowRecord)(nil), // 0: probectl.flow.v1.FlowRecord
-	(*FlowBatch)(nil),  // 1: probectl.flow.v1.FlowBatch
+	(*FlowRecord)(nil),               // 0: probectl.flow.v1.FlowRecord
+	(*FlowBatch)(nil),                // 1: probectl.flow.v1.FlowBatch
+	(*FlowIngestQualityReceipt)(nil), // 2: probectl.flow.v1.FlowIngestQualityReceipt
+	(*FlowIngestQualityBatch)(nil),   // 3: probectl.flow.v1.FlowIngestQualityBatch
 }
 var file_probectl_flow_v1_flow_proto_depIdxs = []int32{
 	0, // 0: probectl.flow.v1.FlowBatch.flows:type_name -> probectl.flow.v1.FlowRecord
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 1: probectl.flow.v1.FlowIngestQualityBatch.receipts:type_name -> probectl.flow.v1.FlowIngestQualityReceipt
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_probectl_flow_v1_flow_proto_init() }
@@ -457,7 +733,7 @@ func file_probectl_flow_v1_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_flow_v1_flow_proto_rawDesc), len(file_probectl_flow_v1_flow_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

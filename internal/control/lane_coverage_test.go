@@ -27,6 +27,7 @@ func TestConsumersFanOutAcrossLanes(t *testing.T) {
 	consumers := []any{
 		(*pipeline.Consumer)(nil),
 		(*pipeline.FlowConsumer)(nil),
+		(*pipeline.FlowQualityConsumer)(nil),
 		(*pipeline.DeviceConsumer)(nil),
 		(*pipeline.OTLPConsumer)(nil),
 		(*pipeline.OTLPTraceConsumer)(nil),
@@ -99,6 +100,15 @@ type laneConsumerSpec struct {
 func laneConsumerRegistry() []laneConsumerSpec {
 	log := intelTestLog()
 	return []laneConsumerSpec{
+		{
+			name:   "flow-quality",
+			topics: []string{bus.FlowIngestQualityTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewFlowQualityConsumer(b, nil, log).
+					WithNamespaceTenants(ns).
+					Run(ctx)
+			},
+		},
 		{
 			name:   "result-fan",
 			topics: []string{bus.NetworkResultsTopic},

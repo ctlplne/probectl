@@ -559,6 +559,39 @@ function apiPayload(path, method, pagePath = "") {
         },
       ],
     });
+  if (path === "/v1/flows/ingest-quality" && method === "GET")
+    return json({
+      contract_version: "probectl.flow-ingest-quality/v1",
+      items: [
+        {
+          agent_id:
+            "flow-agent-at-a-deliberately-long-sovereign-site-name-that-must-wrap",
+          exporter_address: "2001:db8:100:200::1234",
+          protocol: "ipfix",
+          window_started_at: "2026-06-04T11:59:00Z",
+          window_ended_at: "2026-06-04T12:00:00Z",
+          last_packet_at: "2026-06-04T11:59:58Z",
+          last_valid_record_at: "2026-06-04T11:59:58Z",
+          packets_received: 128,
+          records_decoded: 2048,
+          decode_error_packets: 0,
+          template_misses: 0,
+          queue_dropped_records: 0,
+          emit_dropped_records: 0,
+          template_state: "ready",
+          sampling_state: "sampled",
+          state: "healthy",
+          reason: "receiving_valid_records",
+          next_action: "continue_monitoring",
+        },
+      ],
+      ingest_running: true,
+      effective_limit: 100,
+      truncated: false,
+      as_of: "2026-06-04T12:00:00Z",
+      stale_after_seconds: 180,
+      retention: { max_per_tenant: 4096, retention_days: 30 },
+    });
   if (path === "/v1/cost/summary")
     return json({
       cost_running: true,
@@ -1881,6 +1914,90 @@ async function deviceCollectionReceiptChecks(page) {
   });
 }
 
+async function flowIngestQualityReceiptChecks(page) {
+  return page.evaluate(() => {
+    const problems = [];
+    const normalize = (value) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const list = document.querySelector(
+      '[aria-label="Per-exporter flow ingest quality receipts"]',
+    );
+    if (!list) return ["missing responsive flow ingest quality receipt list"];
+    if (list.tagName !== "UL") {
+      problems.push(
+        `flow ingest receipts use ${list.tagName.toLowerCase()}, want a semantic list`,
+      );
+    }
+    if (list.querySelector("table")) {
+      problems.push("flow ingest receipts contain a wide table");
+    }
+    if (list.scrollWidth > list.clientWidth + 1) {
+      problems.push(
+        `flow ingest receipt list scrolls horizontally: ${list.scrollWidth}px > ${list.clientWidth}px`,
+      );
+    }
+    const listBox = list.getBoundingClientRect();
+    const receipts = [...list.querySelectorAll(":scope > li")];
+    if (receipts.length === 0) {
+      problems.push("flow ingest receipt list has no populated receipts");
+    }
+    for (const [index, receipt] of receipts.entries()) {
+      const receiptBox = receipt.getBoundingClientRect();
+      if (
+        receipt.scrollWidth > receipt.clientWidth + 1 ||
+        receiptBox.left < listBox.left - 1 ||
+        receiptBox.right > listBox.right + 1
+      ) {
+        problems.push(`flow ingest receipt ${index + 1} escapes its list`);
+      }
+      const labels = new Map(
+        [...receipt.querySelectorAll("dt")].map((term) => [
+          normalize(term.textContent),
+          term.parentElement,
+        ]),
+      );
+      for (const required of [
+        "Health / reason",
+        "Packets",
+        "Valid records",
+        "Last packet",
+        "Safe next action",
+      ]) {
+        if (!labels.has(required)) {
+          problems.push(
+            `flow ingest receipt ${index + 1} is missing ${required}`,
+          );
+        }
+      }
+      const safeAction = labels.get("Safe next action");
+      const actionText = normalize(
+        safeAction?.querySelector("dd")?.textContent,
+      );
+      if (!actionText) {
+        problems.push(
+          `flow ingest receipt ${index + 1} has no visible safe next action`,
+        );
+      }
+      if (safeAction) {
+        const actionBox = safeAction.getBoundingClientRect();
+        if (
+          actionBox.width < 1 ||
+          actionBox.height < 1 ||
+          actionBox.left < receiptBox.left - 1 ||
+          actionBox.right > receiptBox.right + 1
+        ) {
+          problems.push(
+            `flow ingest receipt ${index + 1} hides its safe next action`,
+          );
+        }
+      }
+    }
+    return problems;
+  });
+}
+
 async function selfCheck(browser, axeSource) {
   const page = await browser.newPage({ viewport: viewports[0] });
   await page.setContent(`
@@ -1997,6 +2114,34 @@ async function selfCheck(browser, axeSource) {
   ) {
     throw new Error(
       "self-check failed: device receipt check did not catch planted horizontal clipping",
+    );
+  }
+  await page.setContent(`
+    <ul
+      aria-label="Per-exporter flow ingest quality receipts"
+      style="width:160px;overflow:hidden"
+    >
+      <li style="width:320px">
+        <dl>
+          <div><dt>Health / reason</dt><dd>Degraded because templates are missing.</dd></div>
+          <div><dt>Packets</dt><dd>9</dd></div>
+          <div><dt>Valid records</dt><dd>0</dd></div>
+          <div><dt>Last packet</dt><dd>Now</dd></div>
+          <div><dt>Safe next action</dt><dd>Verify exporter templates.</dd></div>
+        </dl>
+      </li>
+    </ul>
+  `);
+  const flowReceipt = await flowIngestQualityReceiptChecks(page);
+  if (
+    !flowReceipt.some(
+      (problem) =>
+        problem.includes("scrolls horizontally") ||
+        problem.includes("escapes its list"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: flow receipt check did not catch planted horizontal clipping",
     );
   }
   await page.setViewportSize(dashboardLaptopViewport);
@@ -2180,6 +2325,7 @@ async function main() {
             topology: [],
             explorer: [],
             deviceReceipt: [],
+            flowReceipt: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -2279,6 +2425,14 @@ async function main() {
                 );
               }
             }
+            if (route === "/planes/flow" || route === "/admin") {
+              record.flowReceipt = await flowIngestQualityReceiptChecks(page);
+              if (record.flowReceipt.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: flow receipt layout violations\n  ${record.flowReceipt.join("\n  ")}`,
+                );
+              }
+            }
             if (route === "/targets") {
               if (viewport.name === "desktop") {
                 await page.setViewportSize(targetsLaptopViewport);
@@ -2345,6 +2499,7 @@ async function main() {
             record.topology.length === 0 &&
             record.explorer.length === 0 &&
             record.deviceReceipt.length === 0 &&
+            record.flowReceipt.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";

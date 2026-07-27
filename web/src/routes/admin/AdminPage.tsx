@@ -17,6 +17,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FlowIngestQualityCard,
   Icon,
   LoadingState,
   Modal,
@@ -940,6 +941,7 @@ export function AdminPage() {
         initialPlane={deepLinkedCollectorPlane}
       />
       <RolloutCard available={isPending ? undefined : fleet.rolloutsAvailable} />
+      <FlowIngestQualityCard />
       <DeviceCollectionOutcomesCard />
       <SecretBackendsCard />
       <IdentityCard />
