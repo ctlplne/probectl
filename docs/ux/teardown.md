@@ -290,3 +290,50 @@ task. X0 therefore replaces the 12 placeholders with 18 atomic tasks:
 The target remains binding: the final
 [`docs/ux/rubric-results.md`](./rubric-results.md) must show probectl at or above the
 competitor maximum on at least four journeys and at or above the competitor median on all six.
+
+## Post-baseline competitive delta — 2026-07-27
+
+This section does not rewrite the dated X0 journey scores. It records the
+material product delta found by the generation-3 competitive audit.
+
+Current vendor and self-hosted products increasingly make three pieces of
+operator evidence first-class:
+
+1. Physical neighbor evidence. Auvik and Datadog build device links from
+   LLDP/CDP and related SNMP facts; Netdata now exposes cached
+   LLDP/CDP/bridge/FDB/ARP/STP topology without issuing new requests when a view
+   opens.
+2. Alert evaluation evidence. ThousandEyes explains adaptive triggers with
+   observed-versus-expected context; Grafana exposes alert-state history.
+3. Query-operability evidence. Kentik's June 2026 release exposes Query Explain
+   and shareable explain state.
+
+At the current product revision, probectl has the native topology canvas,
+tenant-local alert engine/workflow receipts, and bounded Explorer recipes, but
+it does not yet collect LLDP/CDP neighbors, persist bounded alert-evaluation
+transitions, or emit a sanitized Explorer execution receipt.
+
+The approved product direction is native:
+
+- collect bounded, timestamped LLDP/CDP evidence through the existing
+  tenant-bound Go device agent and feed the existing topology model;
+- retain bounded local alert-evaluation receipts with observed value, expected
+  band/threshold, warmup/no-data state, and fire/resolve transition;
+- expose a sanitized logical Explorer receipt with recipe/source, tenant/time/
+  row bounds, truncation reason, returned rows, and elapsed time—never raw SQL
+  or a physical database plan.
+
+Grafana, Netdata, OneUptime, LanLens, and other competitor runtimes remain
+research inputs only. probectl does not ship, embed, require, or rebrand them.
+No competitive feature is allowed to add a phone-home path, break air-gap
+operation, weaken storage-layer tenant isolation, or turn the product into an
+IPS, SIEM, APM, vulnerability scanner, or autonomous remediation system.
+
+Primary research:
+[Kentik June 2026](https://kb.kentik.com/docs/june-2026),
+[ThousandEyes changelog](https://docs.thousandeyes.com/whats-new/changelog),
+[Datadog device topology](https://docs.datadoghq.com/network_monitoring/devices/device_topology_map/),
+[Auvik topology discovery](https://support.auvik.com/hc/en-us/articles/202956414-How-does-Auvik-discover-network-topology-and-device-information),
+[Grafana alert monitoring](https://grafana.com/docs/grafana/latest/alerting/monitor-status/),
+and
+[Netdata SNMP topology](https://learn.netdata.cloud/docs/network-performance-monitoring/device-metrics/integrations/snmp-devices).
