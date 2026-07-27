@@ -56,6 +56,12 @@ func TestLatestResultsStore(t *testing.T) {
 	if s.Len("t-a") != 3 {
 		t.Fatalf("len = %d, want cap 3", s.Len("t-a"))
 	}
+	if _, truncated := s.ListWithTruncation("t-a"); !truncated {
+		t.Fatal("tenant A eviction must be reported")
+	}
+	if _, truncated := s.ListWithTruncation("t-b"); truncated {
+		t.Fatal("tenant A eviction state crossed into tenant B")
+	}
 }
 
 func TestResultsHistoryRingIsTenantScopedAndBounded(t *testing.T) {

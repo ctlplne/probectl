@@ -67,6 +67,22 @@ The map is native: Targets → **Owned-vantage coverage**, backed by
 `GET /v1/coverage/vantages` and `probectl coverage vantages`. It needs no
 Grafana/Perses runtime, IP-geolocation feed, or vendor probe fleet.
 
+The same screen also contains **Cross-plane coverage debt**, backed by
+`GET /v1/coverage/debt` and `probectl coverage debt`. The bounded response
+flattens every known tenant-local site or topology entity across synthetic,
+path, flow/eBPF, routing/BGP, and device planes. A row is `covered` only when
+that exact entity has fresh persisted local evidence for that exact plane.
+Registration and topology presence are readiness clues, not evidence; absent
+correlation, an unwired producer, or a truncated scan stays explicitly
+`unknown`. The response exposes evidence timestamps, age, basis, producer
+registration/readiness, and every truncation reason. Its only actions navigate
+to the native Targets or Topology read surfaces.
+
+This debt map performs no IP geolocation, cloud/CMDB discovery, or outbound
+lookup and adds no dashboard runtime or service dependency. The relational
+agent/test and producer reads carry an explicit tenant predicate under RLS;
+the topology read is obtained only from a tenant-bound store handle.
+
 ## How it works
 
 The control plane never goes out and measures the network itself; it

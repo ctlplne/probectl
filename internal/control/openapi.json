@@ -4097,6 +4097,62 @@
         }
       }
     },
+    "/v1/coverage/debt": {
+      "get": {
+        "operationId": "listCoverageDebt",
+        "summary": "List tenant-local cross-plane coverage debt",
+        "description": "Returns a bounded, read-only entity/site by signal-plane map derived only from the caller tenant's registered agents/collectors, latest synthetic results, and persisted local topology evidence. Covered requires fresh exact evidence for that entity and plane. Registration, topology existence, IP geolocation, and external inventory never imply covered. Missing correlation and unwired or truncated producers are explicit unknowns. The endpoint performs no outbound lookup and no remediation.",
+        "tags": [
+          "tests",
+          "agents",
+          "topology"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum tenant-local site and topology entities included. Each entity emits exactly five bounded plane rows.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded tenant-scoped coverage-debt snapshot with explicit producer and partial-state metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageDebtResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The principal lacks test.read, agent.read, or topology.read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 2500,
+          "reason": "At most 500 tenant-local entities are returned, with exactly five signal-plane rows per entity; source and entity truncation are reported explicitly."
+        }
+      }
+    },
     "/v1/coverage/vantages": {
       "get": {
         "operationId": "listVantageCoverage",
@@ -12422,6 +12478,245 @@
           "clickhouse_residency_plane_configured"
         ],
         "additionalProperties": false
+      },
+      "CoverageDebtAction": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "navigate"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "href": {
+            "type": "string",
+            "enum": [
+              "/targets",
+              "/topology"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "href"
+        ]
+      },
+      "CoverageDebtItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_kind": {
+            "type": "string",
+            "enum": [
+              "site",
+              "agent",
+              "hop",
+              "host",
+              "service",
+              "prefix",
+              "as",
+              "device"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "plane": {
+            "type": "string",
+            "enum": [
+              "synthetic",
+              "path",
+              "flow",
+              "routing",
+              "device"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "covered",
+              "stale",
+              "uncovered",
+              "unknown"
+            ]
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evidence_age_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stale_after_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "evidence_basis": {
+            "type": "string",
+            "enum": [
+              "latest_test_result",
+              "no_persisted_test_result",
+              "topology_path_edge",
+              "topology_flow_edge",
+              "topology_routing_edge",
+              "topology_device_node",
+              "topology_device_edge",
+              "no_persisted_topology_edge",
+              "no_exact_entity_correlation",
+              "producer_unwired",
+              "candidate_scan_truncated",
+              "result_evidence_truncated",
+              "future_evidence_timestamp"
+            ]
+          },
+          "evidence_ref": {
+            "type": "string"
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/CoverageDebtAction"
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_kind",
+          "label",
+          "plane",
+          "state",
+          "stale_after_seconds",
+          "evidence_basis",
+          "next_action"
+        ]
+      },
+      "CoverageDebtProducer": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plane": {
+            "type": "string",
+            "enum": [
+              "synthetic",
+              "path",
+              "flow",
+              "routing",
+              "device"
+            ]
+          },
+          "registered_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "runtime_running": {
+            "type": "boolean"
+          },
+          "evidence_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "idle",
+              "unregistered",
+              "unwired"
+            ]
+          }
+        },
+        "required": [
+          "plane",
+          "registered_count",
+          "runtime_running",
+          "evidence_count",
+          "status"
+        ]
+      },
+      "CoverageDebtResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 2500,
+            "items": {
+              "$ref": "#/components/schemas/CoverageDebtItem"
+            }
+          },
+          "producers": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/CoverageDebtProducer"
+            }
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stale_after_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "entity_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "candidate_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5000
+          },
+          "candidates_truncated": {
+            "type": "boolean"
+          },
+          "results_truncated": {
+            "type": "boolean"
+          },
+          "entities_truncated": {
+            "type": "boolean"
+          },
+          "topology_truncated": {
+            "type": "boolean"
+          },
+          "partial_reasons": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            }
+          }
+        },
+        "required": [
+          "items",
+          "producers",
+          "as_of",
+          "stale_after_seconds",
+          "entity_limit",
+          "candidate_limit",
+          "candidates_truncated",
+          "results_truncated",
+          "entities_truncated",
+          "topology_truncated",
+          "partial_reasons"
+        ]
       },
       "CoverageNextAction": {
         "type": "object",

@@ -368,6 +368,50 @@ type CollectorRegistration struct {
 	TenantId     string              `json:"tenant_id"`
 }
 
+type CoverageDebtAction struct {
+	Href  string `json:"href"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+}
+
+type CoverageDebtItem struct {
+	EntityId           string             `json:"entity_id"`
+	EntityKind         string             `json:"entity_kind"`
+	EvidenceAgeSeconds int                `json:"evidence_age_seconds,omitempty"`
+	EvidenceBasis      string             `json:"evidence_basis"`
+	EvidenceRef        string             `json:"evidence_ref,omitempty"`
+	Label              string             `json:"label"`
+	NextAction         CoverageDebtAction `json:"next_action"`
+	ObservedAt         string             `json:"observed_at,omitempty"`
+	Plane              string             `json:"plane"`
+	Region             string             `json:"region,omitempty"`
+	Site               string             `json:"site,omitempty"`
+	StaleAfterSeconds  int                `json:"stale_after_seconds"`
+	State              string             `json:"state"`
+}
+
+type CoverageDebtProducer struct {
+	EvidenceCount   int    `json:"evidence_count"`
+	Plane           string `json:"plane"`
+	RegisteredCount int    `json:"registered_count"`
+	RuntimeRunning  bool   `json:"runtime_running"`
+	Status          string `json:"status"`
+}
+
+type CoverageDebtResponse struct {
+	AsOf                string                 `json:"as_of"`
+	CandidateLimit      int                    `json:"candidate_limit"`
+	CandidatesTruncated bool                   `json:"candidates_truncated"`
+	EntitiesTruncated   bool                   `json:"entities_truncated"`
+	EntityLimit         int                    `json:"entity_limit"`
+	Items               []CoverageDebtItem     `json:"items"`
+	PartialReasons      []string               `json:"partial_reasons"`
+	Producers           []CoverageDebtProducer `json:"producers"`
+	ResultsTruncated    bool                   `json:"results_truncated"`
+	StaleAfterSeconds   int                    `json:"stale_after_seconds"`
+	TopologyTruncated   bool                   `json:"topology_truncated"`
+}
+
 type CoverageMatrixItem struct {
 	AgentCount              int                `json:"agent_count"`
 	AgentReadiness          string             `json:"agent_readiness"`
@@ -2179,6 +2223,24 @@ func (c *Client) GetCostSummary(ctx context.Context, req GetCostSummaryRequest) 
 		return nil, err
 	}
 	return out, nil
+}
+
+// List tenant-local cross-plane coverage debt
+type ListCoverageDebtRequest struct {
+	Limit *int `json:"-"`
+}
+
+func (c *Client) ListCoverageDebt(ctx context.Context, req ListCoverageDebtRequest) (*CoverageDebtResponse, error) {
+	path := "/v1/coverage/debt"
+	query := url.Values{}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out CoverageDebtResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // List the tenant's owned-vantage coverage matrix

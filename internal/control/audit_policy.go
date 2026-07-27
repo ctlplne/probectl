@@ -273,6 +273,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/results/latest":                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/results/history":                     auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/coverage/vantages":                   auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/coverage/debt":                       auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/endpoints":                           auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/inventory/views":                     auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/inventory/views":                    auditExplicit(auditFacetMutation, "inventory.view.create"),

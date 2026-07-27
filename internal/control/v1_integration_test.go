@@ -32,6 +32,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -95,7 +96,7 @@ func TestFleetHealthTenantIsolation(t *testing.T) {
 
 func TestCoverageAPITenantIsolation(t *testing.T) {
 	latest := NewLatestResults(20)
-	h, db := setupAPIWithLatest(t, latest)
+	srv, db := setupAPIServerWithLatest(t, latest)
 	ctx := context.Background()
 
 	type fixture struct {
@@ -144,6 +145,17 @@ func TestCoverageAPITenantIsolation(t *testing.T) {
 	bTime := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	a := seed("coverage-api-a", aTime)
 	b := seed("coverage-api-b", bTime)
+	topo := topology.NewIndexedStore()
+	topo.ObserveServiceEdge(a.tenantID, topology.ServiceEdgeInput{
+		Source: "coverage-api-a-service", Destination: "coverage-api-a-database",
+		Protocol: "coverage-api-a-protocol",
+	}, aTime)
+	topo.ObserveServiceEdge(b.tenantID, topology.ServiceEdgeInput{
+		Source: "coverage-api-b-secret-service", Destination: "coverage-api-b-secret-database",
+		Protocol: "coverage-api-b-secret-protocol",
+	}, bTime)
+	srv.WithTopology(topo)
+	h := srv.Handler()
 
 	rec := apiReq(t, h, http.MethodGet, "/v1/coverage/vantages", a.tenantID, nil)
 	if rec.Code != http.StatusOK {
@@ -160,9 +172,37 @@ func TestCoverageAPITenantIsolation(t *testing.T) {
 			t.Fatalf("coverage response leaked tenant B evidence %q: %s", denied, body)
 		}
 	}
+
+	debt := apiReq(t, h, http.MethodGet, "/v1/coverage/debt", a.tenantID, nil)
+	if debt.Code != http.StatusOK {
+		t.Fatalf("coverage debt = %d: %s", debt.Code, debt.Body)
+	}
+	debtBody := debt.Body.String()
+	for _, want := range []string{
+		a.region, a.site, aTime.Format(time.RFC3339),
+		"coverage-api-a-service", "coverage-api-a-database",
+	} {
+		if !strings.Contains(debtBody, want) {
+			t.Fatalf("coverage debt missing tenant A evidence %q: %s", want, debtBody)
+		}
+	}
+	for _, denied := range []string{
+		b.region, b.site, bTime.Format(time.RFC3339),
+		"coverage-api-b-secret-service", "coverage-api-b-secret-database",
+		"coverage-api-b-secret-protocol",
+	} {
+		if strings.Contains(debtBody, denied) {
+			t.Fatalf("coverage debt leaked tenant B evidence %q: %s", denied, debtBody)
+		}
+	}
 }
 
 func setupAPIWithLatest(t *testing.T, latest *LatestResults) (http.Handler, *store.DB) {
+	srv, db := setupAPIServerWithLatest(t, latest)
+	return srv.Handler(), db
+}
+
+func setupAPIServerWithLatest(t *testing.T, latest *LatestResults) (*Server, *store.DB) {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, integrationDSN(), 5, 0, 5*time.Second)
@@ -183,7 +223,7 @@ func setupAPIWithLatest(t *testing.T, latest *LatestResults) (http.Handler, *sto
 	if latest != nil {
 		srv.WithLatestResults(latest)
 	}
-	return srv.Handler(), db
+	return srv, db
 }
 
 func apiReq(t *testing.T, h http.Handler, method, path, tenant string, body any) *httptest.ResponseRecorder {

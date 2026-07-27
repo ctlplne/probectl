@@ -504,6 +504,56 @@ function coldFixture(path: string): Response | null {
         candidate_limit: 5000,
         truncated: false,
       })
+    case '/v1/coverage/debt':
+      return jsonResponse({
+        items: [],
+        producers: [
+          {
+            plane: 'synthetic',
+            registered_count: 0,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'unregistered',
+          },
+          {
+            plane: 'path',
+            registered_count: 0,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'unregistered',
+          },
+          {
+            plane: 'flow',
+            registered_count: 0,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'unregistered',
+          },
+          {
+            plane: 'routing',
+            registered_count: 0,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'unregistered',
+          },
+          {
+            plane: 'device',
+            registered_count: 0,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'unregistered',
+          },
+        ],
+        as_of: '2026-06-04T12:00:00Z',
+        stale_after_seconds: 900,
+        entity_limit: 500,
+        candidate_limit: 5000,
+        candidates_truncated: false,
+        results_truncated: false,
+        entities_truncated: false,
+        topology_truncated: false,
+        partial_reasons: [],
+      })
     case '/v1/results/history':
       return jsonResponse({ items: [], collector_running: true, window: '1h0m0s' })
     case '/v1/alerts/active':
@@ -599,6 +649,95 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         evidence_running: true,
         candidate_limit: 5000,
         truncated: false,
+      })
+    if (path === '/v1/coverage/debt')
+      return jsonResponse({
+        items: [
+          {
+            entity_id: 'site:us-east:iad-1',
+            entity_kind: 'site',
+            label: 'iad-1',
+            region: 'us-east',
+            site: 'iad-1',
+            plane: 'synthetic',
+            state: 'covered',
+            observed_at: '2026-06-04T12:00:00Z',
+            evidence_age_seconds: 0,
+            stale_after_seconds: 300,
+            evidence_basis: 'latest_test_result',
+            evidence_ref: `${EDGE_DNS_TEST_ID}/agent-a`,
+            next_action: { kind: 'navigate', label: 'Inspect tests', href: '/targets' },
+          },
+          {
+            entity_id: 'service:checkout',
+            entity_kind: 'service',
+            label: 'checkout',
+            plane: 'flow',
+            state: 'stale',
+            observed_at: '2026-06-04T10:00:00Z',
+            evidence_age_seconds: 7200,
+            stale_after_seconds: 900,
+            evidence_basis: 'topology_flow_edge',
+            evidence_ref: 'service:checkout|flow|service:payments',
+            next_action: { kind: 'navigate', label: 'Inspect topology', href: '/topology' },
+          },
+          {
+            entity_id: 'service:checkout',
+            entity_kind: 'service',
+            label: 'checkout',
+            plane: 'routing',
+            state: 'unknown',
+            stale_after_seconds: 900,
+            evidence_basis: 'no_exact_entity_correlation',
+            next_action: { kind: 'navigate', label: 'Inspect topology', href: '/topology' },
+          },
+        ],
+        producers: [
+          {
+            plane: 'synthetic',
+            registered_count: 2,
+            runtime_running: true,
+            evidence_count: 1,
+            status: 'observed',
+          },
+          {
+            plane: 'path',
+            registered_count: 2,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'idle',
+          },
+          {
+            plane: 'flow',
+            registered_count: 1,
+            runtime_running: true,
+            evidence_count: 1,
+            status: 'observed',
+          },
+          {
+            plane: 'routing',
+            registered_count: 0,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'unregistered',
+          },
+          {
+            plane: 'device',
+            registered_count: 0,
+            runtime_running: true,
+            evidence_count: 0,
+            status: 'unregistered',
+          },
+        ],
+        as_of: '2026-06-04T12:00:00Z',
+        stale_after_seconds: 900,
+        entity_limit: 500,
+        candidate_limit: 5000,
+        candidates_truncated: false,
+        results_truncated: false,
+        entities_truncated: false,
+        topology_truncated: false,
+        partial_reasons: [],
       })
     // UX-004: useAgents pages with ?after=&limit=; the query is dropped by
     // pathOf, so the exact path matches regardless. Return one (final) page.

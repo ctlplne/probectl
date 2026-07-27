@@ -62,6 +62,21 @@ func TestCoverageCandidatesCrossTenantIsolation(t *testing.T) {
 
 	a := makeFixture("coverage-a")
 	b := makeFixture("coverage-b")
+	registerCollector := func(tenantID, plane string) {
+		t.Helper()
+		inTenant(ctx, t, pool, tenantID, func(ctx context.Context, scope tenancy.Scope) error {
+			agentID := covUUID(t)
+			_, err := (Agents{}).Register(
+				ctx, scope, agentID, plane+"-"+agentID, plane+"-"+agentID, "0.1.0",
+				"spiffe://probectl/tenant/"+tenantID+"/agent/"+agentID,
+				[]string{"collector", plane},
+			)
+			return err
+		})
+	}
+	registerCollector(a.tenantID, "flow")
+	registerCollector(b.tenantID, "bgp")
+	registerCollector(b.tenantID, "bgp")
 	inTenant(ctx, t, pool, a.tenantID, func(ctx context.Context, scope tenancy.Scope) error {
 		rows, err := (Agents{}).CoverageCandidates(ctx, scope, 10)
 		if err != nil {
@@ -76,6 +91,13 @@ func TestCoverageCandidatesCrossTenantIsolation(t *testing.T) {
 		}
 		if got.TestName == b.testName || got.Target == b.target || got.Region == b.region || got.Site == b.site {
 			t.Fatalf("tenant B labels/test/target leaked into tenant A: %+v", got)
+		}
+		producers, err := (Agents{}).CoverageProducers(ctx, scope)
+		if err != nil {
+			return err
+		}
+		if producers.Flow != 1 || producers.Routing != 0 {
+			t.Fatalf("tenant A producer counts = %+v, want one flow and no tenant B routing collectors", producers)
 		}
 		return nil
 	})

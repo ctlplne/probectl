@@ -37,6 +37,62 @@ type CoverageCandidate struct {
 	LastSeenAt      *time.Time
 }
 
+// CoverageProducerCounts is a tenant-local count of registrations that can
+// sustain each signal plane. Registration is readiness metadata only: callers
+// must never turn it into covered/green without persisted evidence.
+type CoverageProducerCounts struct {
+	Synthetic int
+	Path      int
+	Flow      int
+	Routing   int
+	Device    int
+}
+
+// CoverageProducers counts only the caller tenant's locally registered agents
+// and collectors. The explicit tenant predicate is defense in depth beside
+// forced RLS. It performs no inventory discovery, geolocation, or outbound
+// lookup.
+func (Agents) CoverageProducers(ctx context.Context, s tenancy.Scope) (CoverageProducerCounts, error) {
+	var out CoverageProducerCounts
+	err := s.Q.QueryRow(ctx, `
+		SELECT
+			count(*) FILTER (
+				WHERE NOT (capabilities ? 'collector')
+				  AND (
+					jsonb_array_length(capabilities) = 0
+					OR capabilities ?| ARRAY['icmp', 'tcp', 'udp', 'http', 'dns', 'browser', 'voice']
+				  )
+			) AS synthetic,
+			count(*) FILTER (
+				WHERE NOT (capabilities ? 'collector')
+				  AND (
+					jsonb_array_length(capabilities) = 0
+					OR capabilities ?| ARRAY['icmp', 'tcp', 'udp', 'http', 'dns']
+				  )
+			) AS path,
+			count(*) FILTER (
+				WHERE capabilities ? 'collector'
+				  AND capabilities ?| ARRAY['flow', 'ebpf']
+			) AS flow,
+			count(*) FILTER (
+				WHERE capabilities ? 'collector'
+				  AND capabilities ? 'bgp'
+			) AS routing,
+			count(*) FILTER (
+				WHERE capabilities ? 'collector'
+				  AND capabilities ? 'device'
+			) AS device
+		  FROM agents
+		 WHERE tenant_id = $1::uuid`, s.Tenant.String()).Scan(
+		&out.Synthetic,
+		&out.Path,
+		&out.Flow,
+		&out.Routing,
+		&out.Device,
+	)
+	return out, err
+}
+
 // CoverageCandidates performs the only relational join behind the owned-
 // vantage cockpit. Both sides carry explicit tenant predicates in addition to
 // forced RLS. That makes the tenant boundary visible in the query itself and

@@ -845,6 +845,13 @@ func TestCLICoverageSurfaceIsReadOnly(t *testing.T) {
 	if op.Method != http.MethodGet || op.Path != "/v1/coverage/vantages" {
 		t.Fatalf("coverage vantages op = %+v, want GET /v1/coverage/vantages", op)
 	}
+	debt, ok := surfaceCommands["coverage"].Ops["debt"]
+	if !ok {
+		t.Fatal("missing probectl coverage debt surface")
+	}
+	if debt.Method != http.MethodGet || debt.Path != "/v1/coverage/debt" {
+		t.Fatalf("coverage debt op = %+v, want GET /v1/coverage/debt", debt)
+	}
 }
 
 func TestCLIExplorerComparisonSurfaceIsReadOnly(t *testing.T) {

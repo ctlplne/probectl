@@ -36,6 +36,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'ListVantageCoverageResponse',
   },
   {
+    file: 'api/coverage.ts',
+    method: 'GET',
+    path: '/coverage/debt',
+    response: 'CoverageDebtResponse',
+    generated: 'ListCoverageDebtResponse',
+  },
+  {
     file: 'api/agents.ts',
     method: 'GET',
     path: '`/agents?${params.toString()}`',
@@ -781,6 +788,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   collectorRegisterRequest: true,
   collectorRegistration: true,
   coverageMatrixItem: true,
+  coverageDebtItem: true,
+  coverageDebtProducer: true,
   onboardingProgress: true,
   aiAnswer: true,
   alertRule: true,
@@ -828,6 +837,11 @@ export const OPENAPI_TYPE_CONTRACTS = {
     Agents.CollectorRegistration
   >
   coverageMatrixItem: GeneratedHasViewKeys<SDK.CoverageMatrixItem, Coverage.CoverageMatrixItem>
+  coverageDebtItem: GeneratedHasViewKeys<SDK.CoverageDebtItem, Coverage.CoverageDebtItem>
+  coverageDebtProducer: GeneratedHasViewKeys<
+    SDK.CoverageDebtProducer,
+    Coverage.CoverageDebtProducer
+  >
   onboardingProgress: GeneratedHasViewKeys<SDK.OnboardingProgress, Agents.OnboardingProgress>
   aiAnswer: GeneratedHasViewKeys<SDK.AIAnswer, AI.Answer>
   alertRule: GeneratedHasViewKeys<SDK.AlertRule, Alerts.AlertRule>

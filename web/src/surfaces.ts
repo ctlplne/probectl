@@ -170,6 +170,27 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
+    capability: 'Cross-plane coverage debt from exact tenant-local evidence',
+    featureIds: [
+      'PLANE_ACTIVE_SYNTHETIC',
+      'PLANE_BGP_ROUTING',
+      'PLANE_FLOW_ANALYTICS',
+      'PLANE_DEVICE_TELEMETRY',
+      'PLANE_EBPF_HOST_L7',
+    ],
+    sprint: 'I-2dbf001d',
+    kind: 'native',
+    route: '/targets',
+    offNav: true,
+    evidence: [
+      'openapi:/v1/coverage/debt',
+      'cli:probectl coverage debt',
+      'file:web/src/routes/CoveragePanel.tsx',
+      'file:docs/features/active-testing.md',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'First-run tenant onboarding: enroll agent, create test, invite teammates',
     featureIds: ['F1', 'F2', 'F25'],
     sprint: 'JOURNEY-001',

@@ -295,6 +295,50 @@ export interface CollectorRegistration {
   tenant_id: string
 }
 
+export interface CoverageDebtAction {
+  href: "/targets" | "/topology"
+  kind: "navigate"
+  label: string
+}
+
+export interface CoverageDebtItem {
+  entity_id: string
+  entity_kind: "site" | "agent" | "hop" | "host" | "service" | "prefix" | "as" | "device"
+  evidence_age_seconds?: number
+  evidence_basis: "latest_test_result" | "no_persisted_test_result" | "topology_path_edge" | "topology_flow_edge" | "topology_routing_edge" | "topology_device_node" | "topology_device_edge" | "no_persisted_topology_edge" | "no_exact_entity_correlation" | "producer_unwired" | "candidate_scan_truncated" | "result_evidence_truncated" | "future_evidence_timestamp"
+  evidence_ref?: string
+  label: string
+  next_action: CoverageDebtAction
+  observed_at?: string
+  plane: "synthetic" | "path" | "flow" | "routing" | "device"
+  region?: string
+  site?: string
+  stale_after_seconds: number
+  state: "covered" | "stale" | "uncovered" | "unknown"
+}
+
+export interface CoverageDebtProducer {
+  evidence_count: number
+  plane: "synthetic" | "path" | "flow" | "routing" | "device"
+  registered_count: number
+  runtime_running: boolean
+  status: "observed" | "idle" | "unregistered" | "unwired"
+}
+
+export interface CoverageDebtResponse {
+  as_of: string
+  candidate_limit: number
+  candidates_truncated: boolean
+  entities_truncated: boolean
+  entity_limit: number
+  items: CoverageDebtItem[]
+  partial_reasons: string[]
+  producers: CoverageDebtProducer[]
+  results_truncated: boolean
+  stale_after_seconds: number
+  topology_truncated: boolean
+}
+
 export interface CoverageMatrixItem {
   agent_count: number
   agent_readiness: "ready" | "degraded" | "unavailable"
@@ -1622,6 +1666,12 @@ export interface GetCostSummaryRequest {
 
 export type GetCostSummaryResponse = JsonObject
 
+export interface ListCoverageDebtRequest {
+  limit?: number
+}
+
+export type ListCoverageDebtResponse = CoverageDebtResponse
+
 export interface ListVantageCoverageRequest {
   limit?: number
 }
@@ -2651,6 +2701,13 @@ export class ProbectlSDKClient {
     let path = "/v1/cost/summary"
     const query = new URLSearchParams()
     return this.requestJSON<GetCostSummaryResponse>("GET", path, query, undefined)
+  }
+
+  async listCoverageDebt(request: ListCoverageDebtRequest = {}): Promise<ListCoverageDebtResponse> {
+    let path = "/v1/coverage/debt"
+    const query = new URLSearchParams()
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListCoverageDebtResponse>("GET", path, query, undefined)
   }
 
   async listVantageCoverage(request: ListVantageCoverageRequest = {}): Promise<ListVantageCoverageResponse> {

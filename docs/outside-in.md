@@ -72,6 +72,14 @@ questions:
 2. Which probe packs run from each site?
 3. Which important targets have at least two independent vantages?
 
+Targets → **Cross-plane coverage debt** adds the local signal-plane view through
+`GET /v1/coverage/debt` or `probectl coverage debt --json`. It emits a bounded
+site/topology-entity × synthetic/path/flow/routing/device matrix with exact
+local evidence basis and age. Fresh exact evidence is the only path to
+`covered`; collector registration, node existence, or an IP address never
+manufactures green. Missing correlation and incomplete or unwired producers
+remain `unknown`, and every source/entity safety-bound is reported as partial.
+
 The API and native table report `uncovered` when there is no evidence, `stale`
 after the larger of three test intervals or five minutes, `non_redundant` for
 one fresh independent agent, and `covered` for two or more. Agent readiness is a

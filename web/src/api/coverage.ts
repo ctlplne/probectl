@@ -41,12 +41,78 @@ export interface CoverageMatrixResponse {
   truncated: boolean
 }
 
+export type CoverageDebtPlane = 'synthetic' | 'path' | 'flow' | 'routing' | 'device'
+export type CoverageDebtState = 'covered' | 'stale' | 'uncovered' | 'unknown'
+export type CoverageDebtEntityKind =
+  | 'site'
+  | 'agent'
+  | 'hop'
+  | 'host'
+  | 'service'
+  | 'prefix'
+  | 'as'
+  | 'device'
+
+export interface CoverageDebtAction {
+  kind: 'navigate'
+  label: string
+  href: '/targets' | '/topology'
+}
+
+export interface CoverageDebtItem {
+  entity_id: string
+  entity_kind: CoverageDebtEntityKind
+  label: string
+  region?: string
+  site?: string
+  plane: CoverageDebtPlane
+  state: CoverageDebtState
+  observed_at?: string
+  evidence_age_seconds?: number
+  stale_after_seconds: number
+  evidence_basis: string
+  evidence_ref?: string
+  next_action: CoverageDebtAction
+}
+
+export interface CoverageDebtProducer {
+  plane: CoverageDebtPlane
+  registered_count: number
+  runtime_running: boolean
+  evidence_count: number
+  status: 'observed' | 'idle' | 'unregistered' | 'unwired'
+}
+
+export interface CoverageDebtResponse {
+  items: CoverageDebtItem[]
+  producers: CoverageDebtProducer[]
+  as_of: string
+  stale_after_seconds: number
+  entity_limit: number
+  candidate_limit: number
+  candidates_truncated: boolean
+  results_truncated: boolean
+  entities_truncated: boolean
+  topology_truncated: boolean
+  partial_reasons: string[]
+}
+
 /** Read-only local coverage derivation. The server resolves tenant before it
  * joins agent labels and test definitions; the browser supplies no tenant id. */
 export function useCoverageMatrix() {
   return useQuery({
     queryKey: ['coverage', 'vantages'],
     queryFn: () => apiFetch<CoverageMatrixResponse>('/coverage/vantages'),
+    refetchInterval: 30_000,
+  })
+}
+
+/** Cross-plane debt is likewise tenant-resolved by the server. Covered is
+ * evidence-based; registrations and topology presence alone never turn green. */
+export function useCoverageDebt() {
+  return useQuery({
+    queryKey: ['coverage', 'debt'],
+    queryFn: () => apiFetch<CoverageDebtResponse>('/coverage/debt'),
     refetchInterval: 30_000,
   })
 }

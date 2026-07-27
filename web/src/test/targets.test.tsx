@@ -8,9 +8,64 @@ import { describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
-import { jsonResponse, pathOf } from './fetchStub'
+import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
 describe('Targets & Tests (live /v1/tests CRUD)', () => {
+  test('filters native cross-plane debt and preserves explicit unknowns', async () => {
+    const user = userEvent.setup()
+    renderApp('/targets')
+
+    const debtMap = await screen.findByRole('table', {
+      name: /cross-plane coverage debt map/i,
+    })
+    expect(within(debtMap).getByText('Stale')).toBeInTheDocument()
+    expect(within(debtMap).getByText('Unknown')).toBeInTheDocument()
+    expect(within(debtMap).getByText('No exact evidence')).toBeInTheDocument()
+    expect(
+      screen.getByText(/routing \/ bgp: unregistered · 0 registered · 0 evidence/i),
+    ).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Signal plane'), 'routing')
+    expect(within(debtMap).getByText('Unknown')).toBeInTheDocument()
+    expect(within(debtMap).queryByText('Stale')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Debt state'), 'unknown')
+    const pivot = within(debtMap).getByRole('button', { name: 'Inspect topology' })
+    await user.click(pivot)
+    expect(await screen.findByRole('heading', { name: 'Topology' })).toBeInTheDocument()
+  })
+
+  test('does not present an unwired empty debt response as healthy', async () => {
+    const fallback = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) !== '/v1/coverage/debt') return fallback(input, init)
+        return jsonResponse({
+          items: [],
+          producers: [],
+          as_of: '2026-07-27T12:00:00Z',
+          stale_after_seconds: 900,
+          entity_limit: 500,
+          candidate_limit: 5000,
+          candidates_truncated: false,
+          results_truncated: false,
+          entities_truncated: false,
+          topology_truncated: false,
+          partial_reasons: ['topology evidence store is not wired'],
+        })
+      }),
+    )
+
+    renderApp('/targets')
+    expect(
+      await screen.findByText(/incomplete: topology evidence store is not wired/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/no entity rows can be treated as an authoritative empty inventory/i),
+    ).toBeInTheDocument()
+  })
+
   test('renders and filters honest owned-vantage states without mutating', async () => {
     const user = userEvent.setup()
     const tests = [

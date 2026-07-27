@@ -58,6 +58,7 @@ type LatestResults struct {
 	maxHist int
 	tenants map[string]map[string]ResultView // tenant -> type|target|agent -> latest
 	recent  map[string][]ResultView          // tenant -> bounded recent ring
+	evicted map[string]bool                  // tenant -> at least one latest series was evicted
 }
 
 // NewLatestResults builds a store; maxPerTenant <= 0 takes the default.
@@ -70,6 +71,7 @@ func NewLatestResults(maxPerTenant int) *LatestResults {
 		maxHist: DefaultMaxHistoryPerTenant,
 		tenants: map[string]map[string]ResultView{},
 		recent:  map[string][]ResultView{},
+		evicted: map[string]bool{},
 	}
 }
 
@@ -109,6 +111,7 @@ func (s *LatestResults) Record(tenant string, rv ResultView) {
 		}
 		if found {
 			delete(part, stalest)
+			s.evicted[tenant] = true
 		}
 	}
 	part[key] = rv
@@ -116,6 +119,14 @@ func (s *LatestResults) Record(tenant string, rv ResultView) {
 
 // List returns the tenant's latest results, newest first (stable on ties).
 func (s *LatestResults) List(tenant string) []ResultView {
+	out, _ := s.ListWithTruncation(tenant)
+	return out
+}
+
+// ListWithTruncation returns the same stable latest-series view plus whether
+// this in-memory tenant partition has ever evicted a series at its configured
+// safety bound. Coverage callers use the flag to keep absence unknown.
+func (s *LatestResults) ListWithTruncation(tenant string) ([]ResultView, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	part := s.tenants[tenant]
@@ -132,7 +143,7 @@ func (s *LatestResults) List(tenant string) []ResultView {
 		}
 		return out[i].Target < out[j].Target
 	})
-	return out
+	return out, s.evicted[tenant]
 }
 
 // History returns the tenant's results observed inside the trailing window,
