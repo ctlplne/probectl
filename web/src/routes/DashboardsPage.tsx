@@ -4,8 +4,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useMemo, useState, type ReactElement } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import styles from './dashboards.module.css'
 import { Page } from './RoutePage'
 import {
@@ -20,6 +20,7 @@ import {
   ErrorState,
   HonestDataState,
   LoadingState,
+  Select,
   Sparkline,
   Table,
   classifySurfaceTruth,
@@ -55,6 +56,12 @@ import {
   formatScaledBitRate,
 } from '../i18n/number'
 import { DashboardReportingCard } from './DashboardReportingCard'
+import {
+  canonicalDashboardSearchParams,
+  DASHBOARD_TIME_SCOPES,
+  parseDashboardTimeScope,
+  type DashboardTimeScope,
+} from './dashboardTimeScope'
 // Direct import (not the components barrel): uplot must ride only in lazy
 // route chunks so the app-shell entry stays inside its bundle budget.
 import { TimeSeries } from '../components/TimeSeries'
@@ -92,26 +99,52 @@ const EMPTY_TESTS: Test[] = []
 const EMPTY_RESULTS: LatestResult[] = []
 const EMPTY_FLOW_ANOMALIES: FlowAnomaly[] = []
 
+function dashboardScopeAnchor(scope: DashboardTimeScope): Date {
+  // A URL scope transition (including Back/Forward) starts one coordinated
+  // relative clock. Subsequent query/render activity keeps that anchor stable.
+  switch (scope) {
+    case '15m':
+    case '1h':
+    case '6h':
+    case '24h':
+      return new Date()
+  }
+}
+
 export function DashboardsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { locale, t } = useI18n()
   const { tenant, user } = useAuth()
+  const timeScope = parseDashboardTimeScope(searchParams)
+  const canonicalSearch = canonicalDashboardSearchParams(searchParams, timeScope.value)
+  const canonicalSearchString = canonicalSearch.toString()
+  const currentSearchString = searchParams.toString()
+  useEffect(() => {
+    if (canonicalSearchString !== currentSearchString) {
+      setSearchParams(canonicalSearch, { replace: true })
+    }
+  }, [canonicalSearch, canonicalSearchString, currentSearchString, setSearchParams])
   const tests = useTests()
   const agentsQuery = useAgents()
   const incidents = useIncidents()
   const alerts = useActiveAlerts()
   const results = useLatestResults()
-  const flowTop = useFlowTop('pair', '1h', 5)
-  const flowCapacity = useFlowCapacity('1h', '5m')
-  const flowAnomalies = useFlowAnomalies('1h', '5m')
+  const flowTop = useFlowTop('pair', timeScope.value, 5, [], timeScope.bucket)
+  const flowCapacity = useFlowCapacity(timeScope.value, timeScope.bucket)
+  const flowAnomalies = useFlowAnomalies(timeScope.value, timeScope.bucket)
   const topology = useTopology()
   const cost = useCostSummary()
   const slos = useSLOs()
   const compliance = useCompliance()
   const detections = useDetections()
   const [preset, setPreset] = useState<DashboardPreset>('operator')
-  const scopeTo = useMemo(() => new Date(), [])
-  const scopeFrom = useMemo(() => new Date(scopeTo.getTime() - 60 * 60 * 1000), [scopeTo])
+  const scopeTo = useMemo(() => dashboardScopeAnchor(timeScope.value), [timeScope.value])
+  const scopeFrom = useMemo(
+    () => new Date(scopeTo.getTime() - timeScope.durationMs),
+    [scopeTo, timeScope.durationMs],
+  )
+  const timeScopeLabel = t(timeScope.labelKey)
 
   const testItems = tests.data ?? EMPTY_TESTS
   const enabledTests = testItems.filter((t) => t.enabled)
@@ -151,7 +184,7 @@ export function DashboardsPage() {
   })
   // Real latency series from /v1/results/history (oldest first); an older
   // control plane 404s and the latest snapshot keeps the tile honest.
-  const resultsHistory = useResultsHistory('1h')
+  const resultsHistory = useResultsHistory(timeScope.value)
   const resultsHistoryFailed = resultsHistory.isError && !isApiStatus(resultsHistory.error, 404)
   const historyPoints = (resultsHistory.data?.items ?? []).flatMap((result) => {
     const value = result.duration_ms ?? result.metrics?.['rtt.avg.ms']
@@ -251,6 +284,7 @@ export function DashboardsPage() {
       redaction_state: 'Secrets excluded; values are already authorized for this tenant session.',
       coverage_limitations: coverageLimitations,
       metrics: {
+        'Relative scope': timeScope.value,
         'Active tests': formatInteger(enabledTests.length, locale),
         'Latest success rate': formatRatioPercent(successRate, locale, {
           maximumFractionDigits: 1,
@@ -278,8 +312,13 @@ export function DashboardsPage() {
       successRate,
       t,
       threatItems.length,
+      timeScope.value,
     ],
   )
+
+  function selectTimeScope(value: DashboardTimeScope) {
+    setSearchParams(canonicalDashboardSearchParams(searchParams, value))
+  }
 
   const anyLoading =
     tests.isLoading ||
@@ -317,70 +356,87 @@ export function DashboardsPage() {
       title="Dashboards"
       subtitle="Curated operating view across active tests, routing, flow, device, eBPF, cost, threat, and tenant health."
     >
+      <section className={styles.scopeBar} aria-label="Dashboard scope and preset">
+        <div className={styles.presetGroup} aria-label="Dashboard preset">
+          <span className={styles.scopeLabel}>{t('dashboard.scope.preset')}</span>
+          <Button
+            size="sm"
+            variant={preset === 'operator' ? 'primary' : 'secondary'}
+            aria-pressed={preset === 'operator'}
+            onClick={() => setPreset('operator')}
+          >
+            {t('dashboard.scope.preset.operator')}
+          </Button>
+          <Button
+            size="sm"
+            variant={preset === 'executive' ? 'primary' : 'secondary'}
+            aria-pressed={preset === 'executive'}
+            onClick={() => setPreset('executive')}
+          >
+            {t('dashboard.scope.preset.executive')}
+          </Button>
+          <span className={styles.presetEffect} role="status">
+            {preset === 'operator'
+              ? t('dashboard.scope.preset.operator.effect')
+              : t('dashboard.scope.preset.executive.effect')}
+          </span>
+        </div>
+        <Select
+          className={styles.timeScopeSelect}
+          label={t('dashboard.scope.time.label')}
+          value={timeScope.value}
+          onChange={(event) => selectTimeScope(event.target.value as DashboardTimeScope)}
+          options={DASHBOARD_TIME_SCOPES.map((definition) => ({
+            value: definition.value,
+            label: t(definition.labelKey),
+          }))}
+        />
+        <div className={styles.scopeContext} data-dashboard-scope-context>
+          <div className={styles.scopeFact}>
+            <div className={styles.scopeFactHeading}>
+              <span className={styles.scopeLabel}>Tenant</span>
+              <strong>{tenant.name}</strong>
+            </div>
+            <code data-dashboard-tenant-id>{tenant.id}</code>
+          </div>
+          <div className={styles.scopeFact}>
+            <div className={styles.scopeFactHeading}>
+              <span className={styles.scopeLabel}>{t('dashboard.scope.absolute')}</span>
+              <Badge tone="info">
+                {t('dashboard.scope.coordinated', { scope: timeScopeLabel })}
+              </Badge>
+            </div>
+            <strong className={styles.scopeTimeValue} data-dashboard-time-range>
+              <DateTime value={scopeFrom.toISOString()} /> –{' '}
+              <DateTime value={scopeTo.toISOString()} />
+            </strong>
+          </div>
+        </div>
+        <details className={styles.scopeDetails}>
+          <summary>Coverage, provenance, and redaction details</summary>
+          <dl>
+            <div>
+              <dt>Provenance</dt>
+              <dd>{reportDefinition.provenance.join(' · ')}</dd>
+            </div>
+            <div>
+              <dt>Redaction</dt>
+              <dd>{reportDefinition.redaction_state}</dd>
+            </div>
+            <div>
+              <dt>Coverage gaps</dt>
+              <dd>{coverageLimitations.join(' · ')}</dd>
+            </div>
+          </dl>
+        </details>
+      </section>
+
       {anyError ? (
         <ErrorState description="Could not load every dashboard panel." />
       ) : anyLoading ? (
         <LoadingState label="Loading dashboards..." />
       ) : (
         <>
-          <section className={styles.scopeBar} aria-label="Dashboard scope and preset">
-            <div className={styles.presetGroup} aria-label="Dashboard preset">
-              <span className={styles.scopeLabel}>Preset</span>
-              <Button
-                size="sm"
-                variant={preset === 'operator' ? 'primary' : 'secondary'}
-                aria-pressed={preset === 'operator'}
-                onClick={() => setPreset('operator')}
-              >
-                Operator
-              </Button>
-              <Button
-                size="sm"
-                variant={preset === 'executive' ? 'primary' : 'secondary'}
-                aria-pressed={preset === 'executive'}
-                onClick={() => setPreset('executive')}
-              >
-                Executive
-              </Button>
-            </div>
-            <div className={styles.scopeContext} data-dashboard-scope-context>
-              <div className={styles.scopeFact}>
-                <div className={styles.scopeFactHeading}>
-                  <span className={styles.scopeLabel}>Tenant</span>
-                  <strong>{tenant.name}</strong>
-                </div>
-                <code data-dashboard-tenant-id>{tenant.id}</code>
-              </div>
-              <div className={styles.scopeFact}>
-                <div className={styles.scopeFactHeading}>
-                  <span className={styles.scopeLabel}>Absolute time · UTC</span>
-                  <Badge tone="info">1 hour coordinated</Badge>
-                </div>
-                <strong className={styles.scopeTimeValue} data-dashboard-time-range>
-                  <DateTime value={scopeFrom.toISOString()} /> –{' '}
-                  <DateTime value={scopeTo.toISOString()} />
-                </strong>
-              </div>
-            </div>
-            <details className={styles.scopeDetails}>
-              <summary>Coverage, provenance, and redaction details</summary>
-              <dl>
-                <div>
-                  <dt>Provenance</dt>
-                  <dd>{reportDefinition.provenance.join(' · ')}</dd>
-                </div>
-                <div>
-                  <dt>Redaction</dt>
-                  <dd>{reportDefinition.redaction_state}</dd>
-                </div>
-                <div>
-                  <dt>Coverage gaps</dt>
-                  <dd>{coverageLimitations.join(' · ')}</dd>
-                </div>
-              </dl>
-            </details>
-          </section>
-
           <div className={styles.metrics}>
             <DashboardMetric
               label="Active tests"
@@ -471,11 +527,12 @@ export function DashboardsPage() {
             />
           </div>
 
-          <div className={styles.grid}>
+          <div className={styles.grid} data-dashboard-preset={preset}>
             <Card className={styles.chartsCard}>
               <CardHeader
                 title="Cost and capacity"
-                description={`${formatInteger(serviceNodes, locale)} services · charts coordinated to the visible 1-hour scope`}
+                description={`${formatInteger(serviceNodes, locale)} services · flow capacity and synthetic history use the selected ${timeScopeLabel} scope; network cost is the latest server-defined summary`}
+                actions={<Badge tone="info">{timeScopeLabel}</Badge>}
               />
               <CardBody className={styles.chartStack}>
                 <DashboardTrend
@@ -557,20 +614,22 @@ export function DashboardsPage() {
               </CardBody>
             </Card>
 
-            <Card>
+            <Card hidden={preset === 'executive'} data-dashboard-detail="operator">
               <CardHeader
                 title="Active tests"
                 description="Synthetic coverage and newest result by target."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
               />
               <CardBody>
                 <ActiveTestTable rows={activeTestRows} locale={locale} />
               </CardBody>
             </Card>
 
-            <Card>
+            <Card hidden={preset === 'executive'} data-dashboard-detail="operator">
               <CardHeader
                 title={t('planes.stat.bgp.title')}
                 description="AS, prefix, and routing-edge coverage."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
               />
               <CardBody>
                 <PlaneTable
@@ -581,17 +640,22 @@ export function DashboardsPage() {
               </CardBody>
             </Card>
 
-            <Card>
-              <CardHeader title="Flow contributors" />
+            <Card hidden={preset === 'executive'} data-dashboard-detail="operator">
+              <CardHeader
+                title="Flow contributors"
+                description={`Ranked within the selected ${timeScopeLabel} interval.`}
+                actions={<Badge tone="info">{timeScopeLabel}</Badge>}
+              />
               <CardBody>
                 <FlowTable rows={topFlows.slice(0, 5)} locale={locale} />
               </CardBody>
             </Card>
 
-            <Card>
+            <Card hidden={preset === 'executive'} data-dashboard-detail="operator">
               <CardHeader
                 title="Device inventory"
                 description="Device topology and collector evidence."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
               />
               <CardBody>
                 <PlaneTable
@@ -602,10 +666,11 @@ export function DashboardsPage() {
               </CardBody>
             </Card>
 
-            <Card>
+            <Card hidden={preset === 'executive'} data-dashboard-detail="operator">
               <CardHeader
                 title="eBPF / L7"
-                description="Host and service-edge evidence without enforcement."
+                description={`Latest service map with flow anomalies from the selected ${timeScopeLabel} interval.`}
+                actions={<Badge tone="info">{timeScopeLabel}</Badge>}
               />
               <CardBody>
                 <PlaneTable
@@ -620,6 +685,7 @@ export function DashboardsPage() {
               <CardHeader
                 title="Threat signals"
                 description="Confidence-scored detections, never inline blocking."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
               />
               <CardBody>
                 <ThreatTable rows={threatItems.slice(0, 5)} locale={locale} />
@@ -630,6 +696,7 @@ export function DashboardsPage() {
               <CardHeader
                 title="Tenant health"
                 description={`Session-scoped to tenant ${tenant.id}`}
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
               />
               <CardBody>
                 <PlaneTable
@@ -641,28 +708,44 @@ export function DashboardsPage() {
             </Card>
 
             <Card>
-              <CardHeader title="Incident watch" />
+              <CardHeader
+                title="Incident watch"
+                description="Current open incidents; not a historical interval query."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
+              />
               <CardBody>
                 <IncidentTable incidents={openIncidents.slice(0, 5)} locale={locale} />
               </CardBody>
             </Card>
 
             <Card>
-              <CardHeader title="SLO burn" />
+              <CardHeader
+                title="SLO burn"
+                description="Current server-evaluated burn state and configured SLO windows."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
+              />
               <CardBody>
                 <SLOTable rows={burningSLOs.slice(0, 5)} locale={locale} />
               </CardBody>
             </Card>
 
             <Card>
-              <CardHeader title="Alert signals" />
+              <CardHeader
+                title="Alert signals"
+                description="Current active alerts; not a historical interval query."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
+              />
               <CardBody>
                 <AlertTable rows={activeAlerts.slice(0, 5)} />
               </CardBody>
             </Card>
 
             <Card>
-              <CardHeader title="Policy posture" />
+              <CardHeader
+                title="Policy posture"
+                description="Latest compliance verdicts from the tenant read model."
+                actions={<Badge tone="neutral">{t('dashboard.scope.latest')}</Badge>}
+              />
               <CardBody>
                 <ComplianceTable rows={violations.slice(0, 5)} />
               </CardBody>

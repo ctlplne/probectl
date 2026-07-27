@@ -1646,12 +1646,32 @@ async function dashboardChecks(page) {
         problems.push(`missing tenant-scoped fetch: ${requiredPath}`);
       }
     }
+    for (const scopedPath of [
+      "/v1/flows/top",
+      "/v1/flows/capacity",
+      "/v1/flows/anomalies",
+      "/v1/results/history",
+    ]) {
+      if (
+        !requests.some((raw) => {
+          const url = new URL(raw, location.origin);
+          return (
+            url.pathname === scopedPath &&
+            url.searchParams.get("window") === "1h"
+          );
+        })
+      ) {
+        problems.push(`dashboard scope did not reach ${scopedPath}`);
+      }
+    }
     const body = normalize(document.body.textContent);
     for (const requiredText of [
       "Acme Industries",
       "00000000-0000-0000-0000-000000000001",
       "Absolute time · UTC",
-      "1 hour coordinated",
+      "Relative time scope",
+      "Last 1 hour coordinated",
+      "Latest state",
       "Coverage, provenance, and redaction details",
       "Operator",
       "Executive",
@@ -1676,8 +1696,12 @@ async function dashboardScopeGeometryChecks(page, viewportName) {
     const context = scope?.querySelector("[data-dashboard-scope-context]");
     const tenantID = scope?.querySelector("[data-dashboard-tenant-id]");
     const timeRange = scope?.querySelector("[data-dashboard-time-range]");
-    if (!scope || !context || !tenantID || !timeRange) {
+    const timeScope = scope?.querySelector("select");
+    if (!scope || !context || !tenantID || !timeRange || !timeScope) {
       return ["missing grouped dashboard tenant/time scope"];
+    }
+    if (timeScope.value !== "1h") {
+      problems.push(`dashboard time scope is ${timeScope.value}, expected 1h`);
     }
     if (
       String(tenantID.textContent || "").trim() !==
@@ -1829,6 +1853,12 @@ async function selfCheck(browser, axeSource) {
   await page.setContent(`
     <section aria-label="Dashboard scope and preset" style="width:900px">
       <div data-dashboard-scope-context>
+        <label>
+          Relative time scope
+          <select>
+            <option value="1h" selected>Last 1 hour</option>
+          </select>
+        </label>
         <code
           data-dashboard-tenant-id
           style="display:block;width:90px;line-height:16px;overflow-wrap:anywhere"

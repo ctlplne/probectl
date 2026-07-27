@@ -154,7 +154,7 @@ describe('tenant-safe dashboard reporting', () => {
     expect(within(scope).getByText('Acme Industries')).toBeInTheDocument()
     expect(within(scope).getByText('00000000-0000-0000-0000-000000000001')).toBeInTheDocument()
     expect(within(scope).getByText(/absolute time · utc/i)).toBeInTheDocument()
-    expect(within(scope).getByText(/1 hour coordinated/i)).toBeInTheDocument()
+    expect(within(scope).getByText(/last 1 hour coordinated/i)).toBeInTheDocument()
     expect(scope.querySelector('[data-dashboard-scope-context]')).toContainElement(
       scope.querySelector('[data-dashboard-tenant-id]'),
     )
@@ -165,14 +165,22 @@ describe('tenant-safe dashboard reporting', () => {
     const operator = within(scope).getByRole('button', { name: 'Operator' })
     const executive = within(scope).getByRole('button', { name: 'Executive' })
     expect(operator).toHaveAttribute('aria-pressed', 'true')
+    await user.selectOptions(
+      within(scope).getByRole('combobox', { name: /relative time scope/i }),
+      '6h',
+    )
+    expect(within(scope).getByText(/last 6 hours coordinated/i)).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: /active tests dashboard/i })).toBeInTheDocument()
+    // Cost trend upgraded to the S11 TimeSeries; in jsdom (no canvas) its
+    // accessible representation is the sampled data-table twin.
+    expect(screen.getByRole('table', { name: /cost trend/i })).toBeInTheDocument()
+
     await user.click(executive)
     expect(executive).toHaveAttribute('aria-pressed', 'true')
     await user.click(within(scope).getByText(/coverage, provenance, and redaction details/i))
     expect(within(scope).getByText('Coverage gaps')).toBeVisible()
 
-    expect(screen.getByRole('table', { name: /active tests dashboard/i })).toBeInTheDocument()
-    // Cost trend upgraded to the S11 TimeSeries; in jsdom (no canvas) its
-    // accessible representation is the sampled data-table twin.
+    expect(screen.queryByRole('table', { name: /active tests dashboard/i })).not.toBeInTheDocument()
     expect(screen.getByRole('table', { name: /cost trend/i })).toBeInTheDocument()
 
     await user.click(screen.getByRole('checkbox', { name: /share inside this tenant/i }))
@@ -190,8 +198,15 @@ describe('tenant-safe dashboard reporting', () => {
       provenance: expect.any(Array),
       redaction_state: expect.any(String),
       coverage_limitations: expect.any(Array),
-      metrics: expect.objectContaining({ 'Active tests': '1' }),
+      metrics: expect.objectContaining({ 'Relative scope': '6h', 'Active tests': '1' }),
     })
+    const savedDefinition = saved?.body?.definition as
+      | { absolute_from?: string; absolute_to?: string }
+      | undefined
+    expect(
+      Date.parse(savedDefinition?.absolute_to ?? '') -
+        Date.parse(savedDefinition?.absolute_from ?? ''),
+    ).toBe(6 * 60 * 60 * 1000)
     expect(screen.getByRole('link', { name: /export manifest/i })).toHaveAttribute(
       'href',
       '/v1/dashboards/view-1/manifest',

@@ -2,8 +2,24 @@
 
 The `/dashboards` screen is the dense, first-party view for joining probectl's
 network planes. It has two presentation presets—**Operator** and **Executive**—but
-both presets keep the evidence visible: exact values remain tables, charts share
-one absolute UTC interval, and coverage gaps stay attached to the view.
+they are not cosmetic toggles: Operator shows detailed plane tables, while
+Executive keeps the cross-plane summary, risk, incident, SLO, and policy panels.
+Exact values remain tables, coverage gaps stay attached to the view, and every
+panel says whether it follows the selected interval or shows latest state.
+
+The native relative-time controller accepts only `15m`, `1h`, `6h`, and `24h`.
+It records the selection as one `range` query parameter, so reload, Back,
+Forward, and a copied same-tenant link reproduce the same evidence question.
+Missing, repeated, oversized, or unknown values canonicalize to `range=1h`.
+Client-supplied tenant keys are removed; authenticated server state remains the
+only tenant authority. The controller uses no browser storage.
+
+Flow contributors, flow capacity, flow anomalies, and synthetic result history
+all receive the selected duration. Current topology, inventory, alerts,
+incidents, SLO evaluations, compliance verdicts, detections, and other
+latest-state read models remain explicit rather than pretending to be historical
+queries. This is a native control over existing APIs, not an embedded dashboard
+runtime or a new backend contract.
 
 Think of a saved dashboard as a sealed recipe card. The card records which
 tenant it belongs to, who owns it, the absolute time range, the exact values the
@@ -26,6 +42,7 @@ The page keeps these facts visible above the panels:
 
 - tenant display name and immutable tenant UUID;
 - Operator or Executive preset;
+- selected bounded relative scope (`15m`, `1h`, `6h`, or `24h`);
 - absolute `from` and `to` timestamps in UTC;
 - the coordinated chart window;
 - an expandable receipt for provenance, redaction, and coverage limitations.
@@ -34,6 +51,12 @@ Every generated PDF/CSV repeats the same contract and adds generation time and
 generator identity. A report is rejected before storage if any mandatory field
 is absent. This prevents a chart from becoming an apparently universal claim
 after its tenant or observation window is separated from it.
+
+When an operator saves the current screen, the outer saved-view record captures
+the visible Operator/Executive preset. Its definition captures absolute UTC
+bounds calculated from the same relative clock and records the relative scope
+among the exact metrics. Scheduled reports preserve that sealed snapshot; they
+do not silently advance a relative clock later.
 
 ## API and authorization
 
@@ -154,7 +177,9 @@ artifact bytes or exact telemetry values.
 
 ```sh
 cd web
-npm test -- src/test/dashboards.test.tsx src/test/dashboard-reporting.test.tsx
+npx vitest run src/test/dashboard-time-scope.test.ts \
+  src/test/dashboards.test.tsx src/test/dashboard-reporting.test.tsx \
+  src/test/context-contract.test.tsx --maxWorkers=1
 
 cd ..
 GOCACHE=/private/tmp/probectl-gocache go test ./internal/control ./internal/store \

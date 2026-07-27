@@ -11,9 +11,19 @@
 
 .presetGroup {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+}
+
+.presetEffect {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.timeScopeSelect {
+  max-width: calc(var(--space-8) * 5);
 }
 
 .scopeContext {
