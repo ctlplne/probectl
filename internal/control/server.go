@@ -108,9 +108,10 @@ type Server struct {
 
 	// Flow analytics store (S38). Defaults to in-memory; main attaches the
 	// configured store (ClickHouse in production) via WithFlowStore.
-	flowStore flowstore.Store
-	otelStore otelstore.Store
-	deviceOps device.OpsStore
+	flowStore       flowstore.Store
+	otelStore       otelstore.Store
+	deviceOps       device.OpsStore
+	deviceNeighbors device.NeighborStore
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -347,6 +348,15 @@ func (s *Server) WithOTelStore(st otelstore.Store) *Server {
 func (s *Server) WithDeviceOps(st device.OpsStore) *Server {
 	if st != nil {
 		s.deviceOps = st
+	}
+	return s
+}
+
+// WithDeviceNeighbors attaches bounded tenant-scoped LLDP/CDP current
+// evidence. nil keeps the endpoint honest with collection_running=false.
+func (s *Server) WithDeviceNeighbors(st device.NeighborStore) *Server {
+	if st != nil {
+		s.deviceNeighbors = st
 	}
 	return s
 }

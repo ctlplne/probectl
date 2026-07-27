@@ -616,6 +616,16 @@ function coldFixture(path: string): Response | null {
         truncated: false,
         partial_reasons: [],
       })
+    case '/v1/device/neighbors':
+      return jsonResponse({
+        contract_version: 'probectl.device-neighbors/v1',
+        items: [],
+        collection_running: true,
+        effective_limit: 100,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        retention: { max_per_device: 256, max_per_tenant: 16384, stale_retention_hours: 24 },
+      })
     case '/v1/device/syslog':
       return jsonResponse({ items: [], syslog_running: true })
     case '/v1/device/configs':
@@ -1104,6 +1114,37 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         response_truncated: false,
         truncated: false,
         partial_reasons: [],
+      })
+    if (path === '/v1/device/neighbors')
+      return jsonResponse({
+        contract_version: 'probectl.device-neighbors/v1',
+        items: [
+          {
+            id: 'neighbor:0123456789abcdef01234567',
+            agent_id: 'device-agent-1',
+            local_device_address: '10.0.0.1',
+            local_device_name: 'edge-r1',
+            local_if_index: 1,
+            local_port_id: 'Gi0/1',
+            remote_chassis_id: '00:11:22:33:44:55',
+            remote_device_name: 'leaf-1',
+            remote_port_id: 'Ethernet1',
+            remote_platform: 'switch-os',
+            capabilities: ['bridge', 'router'],
+            protocol: 'lldp',
+            confidence: 0.95,
+            observed_at: '2026-06-04T12:00:00Z',
+            fresh_until: '2026-06-04T12:02:00Z',
+            freshness: 'current',
+            age_seconds: 0,
+          },
+        ],
+        collection_running: true,
+        effective_limit: 100,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        latest_at: '2026-06-04T12:00:00Z',
+        retention: { max_per_device: 256, max_per_tenant: 16384, stale_retention_hours: 24 },
       })
     if (path === '/v1/device/syslog')
       return jsonResponse({

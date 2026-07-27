@@ -247,6 +247,59 @@ func TestBusEmitterTenantTaggedBatch(t *testing.T) {
 	}
 }
 
+func TestBusEmitterPublishesBoundedNeighborSnapshotOnNamespacedLane(t *testing.T) {
+	b := bus.NewMemory()
+	topic, err := bus.TopicFor("silo-a", bus.DeviceNeighborsTopic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got bus.Message
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = b.Subscribe(ctx, topic, "neighbors-test", func(_ context.Context, m bus.Message) error {
+			got = m
+			close(done)
+			return nil
+		})
+	}()
+	time.Sleep(20 * time.Millisecond)
+	em, err := NewNamespacedBusEmitter(b, "t-a", "silo-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := em.EmitNeighbors(ctx, NeighborSnapshot{
+		TenantID: "t-a", AgentID: "agent-a", DeviceAddress: "192.0.2.1",
+		ObservedAt: now,
+		Neighbors: []NeighborEvidence{{
+			LocalPortID: "xe-0/0/1", RemoteChassisID: "leaf-a",
+			RemotePortID: "Ethernet1", Protocol: NeighborProtocolLLDP,
+			FreshUntil: now.Add(time.Minute),
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("neighbor snapshot was not published")
+	}
+	if bus.TenantFromKey(got.Key) != "t-a" || got.Topic != topic {
+		t.Fatalf("neighbor lane topic=%q key=%q", got.Topic, got.Key)
+	}
+	var snapshot devicev1.DeviceNeighborSnapshot
+	if err := proto.Unmarshal(got.Value, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.GetTenantId() != "t-a" || snapshot.GetAgentId() != "agent-a" ||
+		len(snapshot.GetNeighbors()) != 1 || snapshot.GetNeighbors()[0].GetRemotePortId() != "Ethernet1" {
+		t.Fatalf("neighbor snapshot tenant=%q agent=%q neighbors=%d",
+			snapshot.GetTenantId(), snapshot.GetAgentId(), len(snapshot.GetNeighbors()))
+	}
+}
+
 // TestConfigValidate covers transport defaults + the failure modes.
 func TestConfigValidate(t *testing.T) {
 	cfg := &Config{TenantID: "t", Devices: []Target{
@@ -264,11 +317,12 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	for name, bad := range map[string]*Config{
-		"no tenant":     {Devices: []Target{{Address: "a", Transport: TransportSNMPv2c, Credential: "c"}}},
-		"no devices":    {TenantID: "t"},
-		"no address":    {TenantID: "t", Devices: []Target{{Transport: TransportSNMPv2c, Credential: "c"}}},
-		"bad transport": {TenantID: "t", Devices: []Target{{Address: "a", Transport: "telnet", Credential: "c"}}},
-		"no credential": {TenantID: "t", Devices: []Target{{Address: "a", Transport: TransportSNMPv2c}}},
+		"no tenant":      {Devices: []Target{{Address: "a", Transport: TransportSNMPv2c, Credential: "c"}}},
+		"no devices":     {TenantID: "t"},
+		"no address":     {TenantID: "t", Devices: []Target{{Transport: TransportSNMPv2c, Credential: "c"}}},
+		"bad transport":  {TenantID: "t", Devices: []Target{{Address: "a", Transport: "telnet", Credential: "c"}}},
+		"no credential":  {TenantID: "t", Devices: []Target{{Address: "a", Transport: TransportSNMPv2c}}},
+		"gnmi neighbors": {TenantID: "t", Devices: []Target{{Address: "a", Transport: TransportGNMI, Credential: "c", Neighbors: true}}},
 	} {
 		if err := bad.Validate(); err == nil {
 			t.Errorf("%s: expected validation error", name)
@@ -287,6 +341,7 @@ func TestConfigEnvQuickStart(t *testing.T) {
 		"PROBECTL_DEVICE_CREDENTIAL":            "core",
 		"PROBECTL_DEVICE_PORT":                  "1161",
 		"PROBECTL_DEVICE_INTERVAL":              "30s",
+		"PROBECTL_DEVICE_NEIGHBORS":             "true",
 		"PROBECTL_DEVICE_CORRELATION_RETENTION": "72h",
 	}
 	cfg := Default()
@@ -296,7 +351,8 @@ func TestConfigEnvQuickStart(t *testing.T) {
 	}
 	d := cfg.Devices[0]
 	if cfg.TenantID != "t-env" || d.Address != "192.0.2.7" || d.Transport != TransportSNMPv3 ||
-		d.Port != 1161 || d.Interval != 30*time.Second || cfg.CorrelationRetention != 72*time.Hour || len(cfg.Bus.Brokers) != 2 {
+		d.Port != 1161 || d.Interval != 30*time.Second || !d.Neighbors ||
+		cfg.CorrelationRetention != 72*time.Hour || len(cfg.Bus.Brokers) != 2 {
 		t.Fatalf("cfg = %+v dev = %+v", cfg, d)
 	}
 }

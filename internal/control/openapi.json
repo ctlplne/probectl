@@ -2399,6 +2399,75 @@
         }
       }
     },
+    "/v1/device/neighbors": {
+      "get": {
+        "operationId": "listDeviceNeighbors",
+        "summary": "List current LLDP/CDP physical adjacency evidence",
+        "description": "Returns a bounded tenant-scoped snapshot collected through read-only MIB walks against explicitly configured devices. The collector performs no subnet scan, credential probing, device write, inferred FDB/ARP merge, or outbound vendor call.",
+        "tags": [
+          "devices",
+          "topology"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "required": false,
+            "description": "Optional exact local device management-address filter.",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "protocol",
+            "in": "query",
+            "required": false,
+            "description": "Optional discovery protocol filter.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "lldp",
+                "cdp"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum current evidence rows to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded physical-adjacency evidence or an explicit unwired state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceNeighborResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 500,
+          "reason": "Each source device is capped at 256 current neighbors, each tenant at 16384 rows, and API reads at 500 rows."
+        }
+      }
+    },
     "/v1/device/syslog": {
       "get": {
         "operationId": "listDeviceSyslog",
@@ -12277,6 +12346,178 @@
             "type": "integer"
           }
         }
+      },
+      "DeviceNeighborEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^neighbor:[a-f0-9]{24}$"
+          },
+          "agent_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "local_device_address": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "local_device_name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "local_if_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "local_port_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "remote_chassis_id": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "remote_device_name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "remote_port_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "remote_management_address": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "remote_platform": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "capabilities": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "lldp",
+              "cdp"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fresh_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "current",
+              "stale",
+              "future"
+            ]
+          },
+          "age_seconds": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "local_device_address",
+          "local_port_id",
+          "remote_port_id",
+          "protocol",
+          "confidence",
+          "observed_at",
+          "fresh_until",
+          "freshness",
+          "age_seconds"
+        ]
+      },
+      "DeviceNeighborResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl.device-neighbors/v1"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/DeviceNeighborEvidence"
+            }
+          },
+          "collection_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "latest_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retention": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "max_per_device": {
+                "type": "integer",
+                "const": 256
+              },
+              "max_per_tenant": {
+                "type": "integer",
+                "const": 16384
+              },
+              "stale_retention_hours": {
+                "type": "integer",
+                "const": 24
+              }
+            },
+            "required": [
+              "max_per_device",
+              "max_per_tenant",
+              "stale_retention_hours"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "items",
+          "collection_running",
+          "effective_limit",
+          "truncated",
+          "as_of",
+          "retention"
+        ]
       },
       "DeviceSyslogRequest": {
         "type": "object",

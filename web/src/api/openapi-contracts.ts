@@ -644,6 +644,13 @@ export const API_CALL_CONTRACTS = [
       'OpenAPI SDK generation is intentionally not run in the frontend gate; DeviceConfigResponse is the explicit view model for the bounded config archive list.',
   },
   {
+    file: 'api/planes.ts',
+    method: 'GET',
+    path: '`/device/neighbors?limit=${limit}`',
+    response: 'DeviceNeighborResponse',
+    generated: 'ListDeviceNeighborsResponse',
+  },
+  {
     file: 'api/remediation.ts',
     method: 'GET',
     path: '/remediation/proposals',

@@ -34,6 +34,7 @@ devices:
     # port: 161
     # interval: 60s
     # sensors: true   # opt-in ENTITY-SENSOR temperature walk
+    # neighbors: true # opt-in bounded, read-only LLDP/CDP adjacency walk
 
   # SNMP v3 (USM). Credential supplies USERNAME/AUTH_*/PRIV_* — prefer SHA-2 +
   # AES (MD5/DES are not FIPS-approved).

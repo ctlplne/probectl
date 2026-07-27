@@ -1180,7 +1180,8 @@ function ImpactCard({
           <strong>Coverage gaps</strong>
           <span>
             Edges: path {impact.coverage.path_edges}, flow {impact.coverage.flow_edges}, routing{' '}
-            {impact.coverage.routing_edges}, device {impact.coverage.device_edges}.
+            {impact.coverage.routing_edges}, device {impact.coverage.device_edges}, physical{' '}
+            {impact.coverage.physical_edges ?? 0}.
           </span>
           {coverageNotes.length > 0 ? (
             coverageNotes.map((note) => <span key={note}>{note}</span>)

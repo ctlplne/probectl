@@ -53,6 +53,10 @@ const FlowEventsTopic = "probectl.flow.events"
 // consumes it and lands the samples in the TSDB.
 const DeviceMetricsTopic = "probectl.device.metrics"
 
+// DeviceNeighborsTopic carries bounded, read-only LLDP/CDP snapshots from the
+// device collector. Payload: devicev1.DeviceNeighborSnapshot.
+const DeviceNeighborsTopic = "probectl.device.neighbors"
+
 // EndpointResultsTopic carries DEM results from the endpoint agent (S37) — WiFi /
 // gateway / last-mile / session signals and the slowdown attribution — tenant-
 // tagged via the message key. Payload: resultv1.Result (the canonical canary

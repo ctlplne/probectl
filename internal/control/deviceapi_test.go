@@ -97,6 +97,49 @@ func TestDeviceMetricsAPILatestSummariesAreTenantScoped(t *testing.T) {
 	}
 }
 
+func TestDeviceNeighborAPITenantScopedWithFreshnessAndBounds(t *testing.T) {
+	st := devicepkg.NewMemoryNeighborStore()
+	now := time.Now().UTC().Add(-time.Minute)
+	def := tenancy.DefaultTenantID.String()
+	for tenant, pair := range map[string][2]string{
+		def:         {"10.0.0.1", "leaf-a"},
+		otherTenant: {"10.0.0.99", "secret-leaf-b"},
+	} {
+		deviceAddress, remote := pair[0], pair[1]
+		if err := st.ReplaceSnapshot(context.Background(), tenant, devicepkg.NeighborSnapshot{
+			TenantID: tenant, AgentID: "agent-1", DeviceAddress: deviceAddress,
+			DeviceName: "core", ObservedAt: now,
+			Neighbors: []devicepkg.NeighborEvidence{{
+				LocalPortID: "xe-0/0/1", RemoteChassisID: remote,
+				RemoteDeviceName: remote, RemotePortID: "Ethernet1",
+				Protocol: devicepkg.NeighborProtocolLLDP, Confidence: 0.95,
+				FreshUntil: now.Add(2 * time.Minute),
+			}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := testServer(fakePinger{}).WithDeviceNeighbors(st)
+	rec := do(srv, http.MethodGet, "/v1/device/neighbors?protocol=lldp&limit=5")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp deviceNeighborResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.CollectionRunning || len(resp.Items) != 1 || resp.Items[0].RemoteDeviceName != "leaf-a" ||
+		resp.Items[0].Freshness != "current" || resp.Retention.MaxPerDevice != devicepkg.MaxNeighborsPerDevice {
+		t.Fatalf("response = %+v", resp)
+	}
+	if strings.Contains(rec.Body.String(), "secret-leaf-b") || strings.Contains(rec.Body.String(), "10.0.0.99") {
+		t.Fatalf("CROSS-TENANT NEIGHBOR LEAK: %s", rec.Body.String())
+	}
+	if bad := do(srv, http.MethodGet, "/v1/device/neighbors?protocol=telnet"); bad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid protocol status = %d body=%s", bad.Code, bad.Body.String())
+	}
+}
+
 func TestDeviceSyslogAPITenantScoped(t *testing.T) {
 	srv := testServer(fakePinger{})
 	def := tenancy.DefaultTenantID.String()

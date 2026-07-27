@@ -25,11 +25,13 @@ import {
 import { useEndpoints, type EndpointView } from '../api/endpoints'
 import {
   useDeviceConfigs,
+  useDeviceNeighbors,
   useDeviceSyslog,
   useFlowAnomalies,
   useFlowCapacity,
   useFlowTop,
   type DeviceConfigVersion,
+  type DeviceNeighborEvidence,
   type DeviceSyslogEvent,
   type FlowFilter,
   type FlowGroupBy,
@@ -120,12 +122,14 @@ export function PlanesPage() {
   const anomalies = useFlowAnomalies('1h', '5m')
   const deviceSyslog = useDeviceSyslog(5)
   const deviceConfigs = useDeviceConfigs(5)
+  const deviceNeighbors = useDeviceNeighbors(100)
 
   const nodes = topology.data?.nodes ?? EMPTY_TOPO_NODES
   const edges = topology.data?.edges ?? EMPTY_TOPO_EDGES
   const routingEdges = useMemo(() => edgesOf(edges, 'routing'), [edges])
   const flowEdges = useMemo(() => edgesOf(edges, 'flow'), [edges])
   const deviceEdges = useMemo(() => edgesOf(edges, 'device'), [edges])
+  const physicalEdges = useMemo(() => edgesOf(edges, 'physical'), [edges])
   const serviceNodes = useMemo(() => nodesOf(nodes, 'service'), [nodes])
   const prefixNodes = useMemo(() => nodesOf(nodes, 'prefix'), [nodes])
   const asNodes = useMemo(() => nodesOf(nodes, 'as'), [nodes])
@@ -245,11 +249,18 @@ export function PlanesPage() {
           isError={topology.isError || endpoints.isError}
           nodes={nodes}
           deviceEdges={deviceEdges}
+          physicalEdges={physicalEdges}
           deviceNodes={deviceNodes}
           endpoints={endpointItems}
           collectorRunning={endpoints.data?.collector_running}
           syslog={deviceSyslog.data?.items ?? []}
           configs={deviceConfigs.data?.items ?? []}
+          neighbors={deviceNeighbors.data?.items ?? []}
+          neighborsRunning={deviceNeighbors.data?.collection_running}
+          neighborsTruncated={deviceNeighbors.data?.truncated}
+          neighborRetentionHours={deviceNeighbors.data?.retention.stale_retention_hours}
+          neighborsLoading={deviceNeighbors.isLoading}
+          neighborsError={deviceNeighbors.isError}
           opsLoading={deviceSyslog.isLoading || deviceConfigs.isLoading}
           opsError={deviceSyslog.isError || deviceConfigs.isError}
         />
@@ -694,11 +705,18 @@ function DevicePanel({
   isError,
   nodes,
   deviceEdges,
+  physicalEdges,
   deviceNodes,
   endpoints,
   collectorRunning,
   syslog,
   configs,
+  neighbors,
+  neighborsRunning,
+  neighborsTruncated,
+  neighborRetentionHours,
+  neighborsLoading,
+  neighborsError,
   opsLoading,
   opsError,
 }: {
@@ -706,11 +724,18 @@ function DevicePanel({
   isError: boolean
   nodes: TopoNode[]
   deviceEdges: TopoEdge[]
+  physicalEdges: TopoEdge[]
   deviceNodes: TopoNode[]
   endpoints: EndpointView[]
   collectorRunning?: boolean
   syslog: DeviceSyslogEvent[]
   configs: DeviceConfigVersion[]
+  neighbors: DeviceNeighborEvidence[]
+  neighborsRunning?: boolean
+  neighborsTruncated?: boolean
+  neighborRetentionHours?: number
+  neighborsLoading: boolean
+  neighborsError: boolean
   opsLoading: boolean
   opsError: boolean
 }) {
@@ -790,6 +815,61 @@ function DevicePanel({
       render: (c) => <DateTime value={c.archived_at} />,
     },
   ]
+  const neighborColumns: Column<DeviceNeighborEvidence>[] = [
+    {
+      key: 'local',
+      header: t('planes.device.column.localPort'),
+      render: (n) => (
+        <span>
+          <strong>{n.local_device_name || n.local_device_address}</strong>
+          <div className={styles.muted}>{n.local_port_id}</div>
+        </span>
+      ),
+    },
+    {
+      key: 'remote',
+      header: t('planes.device.column.remotePort'),
+      render: (n) => (
+        <span>
+          <strong>
+            {n.remote_device_name || n.remote_management_address || n.remote_chassis_id}
+          </strong>
+          <div className={styles.muted}>{n.remote_port_id}</div>
+        </span>
+      ),
+    },
+    {
+      key: 'protocol',
+      header: t('planes.device.column.protocol'),
+      render: (n) => <Badge tone="info">{n.protocol.toUpperCase()}</Badge>,
+    },
+    {
+      key: 'confidence',
+      header: t('planes.device.column.confidence'),
+      numeric: true,
+      render: (n) => `${formatDecimal(n.confidence * 100, locale, { maximumFractionDigits: 0 })}%`,
+    },
+    {
+      key: 'freshness',
+      header: t('planes.device.column.freshness'),
+      render: (n) => (
+        <Badge tone={n.freshness === 'current' ? 'success' : 'warning'}>
+          {t(
+            n.freshness === 'current'
+              ? 'planes.device.neighbors.freshness.current'
+              : n.freshness === 'stale'
+                ? 'planes.device.neighbors.freshness.stale'
+                : 'planes.device.neighbors.freshness.future',
+          )}
+        </Badge>
+      ),
+    },
+    {
+      key: 'observed',
+      header: t('planes.device.column.observed'),
+      render: (n) => <DateTime value={n.observed_at} />,
+    },
+  ]
   return (
     <section id="plane-panel-device" role="tabpanel" className={styles.panelGrid}>
       <div className={styles.stack}>
@@ -837,6 +917,48 @@ function DevicePanel({
                 />
               }
             />
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader
+            title={t('planes.device.neighbors.title')}
+            description={t('planes.device.neighbors.description')}
+            actions={
+              neighborsTruncated ? (
+                <Badge tone="warning">{t('planes.device.neighbors.truncated')}</Badge>
+              ) : null
+            }
+          />
+          <CardBody>
+            {neighborsLoading ? (
+              <LoadingState label={t('planes.device.neighbors.loading')} />
+            ) : neighborsError ? (
+              <ErrorState description={t('planes.device.neighbors.error')} />
+            ) : neighborsRunning === false ? (
+              <EmptyState
+                title={t('planes.device.neighbors.unavailable.title')}
+                description={t('planes.device.neighbors.unavailable.description')}
+              />
+            ) : (
+              <Table
+                caption={t('planes.device.neighbors.caption')}
+                columns={neighborColumns}
+                rows={neighbors}
+                rowKey={(n) => n.id}
+                empty={
+                  <EmptyState
+                    title={t('planes.device.neighbors.empty.title')}
+                    description={t('planes.device.neighbors.empty.description')}
+                    preview={<PlanesPreview />}
+                  />
+                }
+              />
+            )}
+            {neighborRetentionHours ? (
+              <p className={styles.muted}>
+                {t('planes.device.neighbors.retention', { hours: neighborRetentionHours })}
+              </p>
+            ) : null}
           </CardBody>
         </Card>
         <Card>
@@ -893,6 +1015,7 @@ function DevicePanel({
         items={[
           [t('planes.device.summary.nodes'), compact(deviceNodes.length, locale)],
           [t('planes.device.summary.links'), compact(deviceEdges.length, locale)],
+          [t('planes.device.summary.physicalLinks'), compact(physicalEdges.length, locale)],
           [t('planes.device.summary.endpointAgents'), compact(endpoints.length, locale)],
           [
             t('planes.device.summary.collector'),

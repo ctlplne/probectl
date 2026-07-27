@@ -69,11 +69,12 @@ const (
 // Coverage reports what the graph actually contained at simulation time —
 // the honesty block (accuracy depends on completeness).
 type Coverage struct {
-	PathEdges    int      `json:"path_edges"`
-	FlowEdges    int      `json:"flow_edges"`
-	RoutingEdges int      `json:"routing_edges"`
-	DeviceEdges  int      `json:"device_edges"`
-	Notes        []string `json:"notes,omitempty"`
+	PathEdges     int      `json:"path_edges"`
+	FlowEdges     int      `json:"flow_edges"`
+	RoutingEdges  int      `json:"routing_edges"`
+	DeviceEdges   int      `json:"device_edges"`
+	PhysicalEdges int      `json:"physical_edges"`
+	Notes         []string `json:"notes,omitempty"`
 }
 
 // Impact is the simulation result for one failed element.
@@ -261,7 +262,7 @@ func simulationConfidence(coverage Coverage, sloWired bool) SimulationConfidence
 		coverage.PathEdges > 0,
 		coverage.FlowEdges > 0,
 		coverage.RoutingEdges > 0,
-		coverage.DeviceEdges > 0,
+		coverage.DeviceEdges > 0 || coverage.PhysicalEdges > 0,
 		sloWired,
 	} {
 		if present {
@@ -368,6 +369,8 @@ func (c *Coverage) count(k EdgeKind) {
 		c.RoutingEdges++
 	case EdgeDevice:
 		c.DeviceEdges++
+	case EdgePhysical:
+		c.PhysicalEdges++
 	}
 }
 
@@ -379,7 +382,10 @@ func (c *Coverage) annotate() {
 		c.Notes = append(c.Notes, "no routing-plane (BGP) edges — prefix impact may be incomplete")
 	}
 	if c.DeviceEdges == 0 {
-		c.Notes = append(c.Notes, "no device→hop interface links — device-level impact unavailable")
+		c.Notes = append(c.Notes, "no device→hop interface links — L3 device-to-path impact unavailable")
+	}
+	if c.PhysicalEdges == 0 {
+		c.Notes = append(c.Notes, "no LLDP/CDP physical adjacencies — switch-level impact may be incomplete")
 	}
 }
 

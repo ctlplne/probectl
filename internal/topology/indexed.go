@@ -118,6 +118,14 @@ func (s *IndexedStore) ObserveDevice(tenant string, in DeviceInput, at time.Time
 	s.observeDeviceTenant(tenant, in, at)
 }
 
+// ObservePhysicalAdjacency is a concrete compatibility helper.
+func (s *IndexedStore) ObservePhysicalAdjacency(tenant string, in PhysicalAdjacencyInput, at time.Time) {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return
+	}
+	s.observePhysicalAdjacencyTenant(tenant, in, at)
+}
+
 // SnapshotAt is a concrete compatibility helper. Tenant-owned production
 // callers should bind ForTenant first.
 func (s *IndexedStore) SnapshotAt(tenant string, at time.Time) Snapshot {
@@ -170,6 +178,10 @@ func (s *IndexedStore) observeRoutingTenant(tenant string, in RoutingInput, at t
 
 func (s *IndexedStore) observeDeviceTenant(tenant string, in DeviceInput, at time.Time) {
 	s.graph(tenant).observe(func(g *Graph) { g.ObserveDevice(in, at) })
+}
+
+func (s *IndexedStore) observePhysicalAdjacencyTenant(tenant string, in PhysicalAdjacencyInput, at time.Time) {
+	s.graph(tenant).observe(func(g *Graph) { g.ObservePhysicalAdjacency(in, at) })
 }
 
 func (s *IndexedStore) identityConflictsTenant(tenant string) IdentityConflictSnapshot {

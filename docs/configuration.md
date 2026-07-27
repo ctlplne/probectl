@@ -1389,8 +1389,11 @@ This agent reads metrics straight off network gear (routers, switches). It polls
 the old way (**SNMP v2c/v3**), listens for authenticated **SNMP traps**, and
 subscribes the modern streaming way (**gNMI/OpenConfig**). Polling/subscription
 samples normalize into one `DeviceMetric` shape and publish to
-`probectl.device.metrics` (tenant-keyed); accepted traps become tenant-scoped
-event and alert rows. The full device list and optional trap listener live in a
+`probectl.device.metrics` (tenant-keyed). An explicitly configured SNMP target
+with `neighbors: true` also publishes a bounded LLDP/CDP snapshot to
+`probectl.device.neighbors`; it never scans for devices or opens a follow-up
+session. Accepted traps become tenant-scoped event and alert rows. The full
+device list and optional trap listener live in a
 YAML config
 (see `deploy/agent/probectl-device-agent.example.yml`); the env vars below override
 it and give a **single-device quick start** for trying one device fast. See
@@ -1409,6 +1412,7 @@ it and give a **single-device quick start** for trying one device fast. See
 | `PROBECTL_DEVICE_CREDENTIAL`     | (none)      | quick start: credential NAME for the device (see below)           |
 | `PROBECTL_DEVICE_PORT`           | `161` (SNMP) / `9339` (gNMI) | quick start: port override (defaults to the transport's standard port) |
 | `PROBECTL_DEVICE_INTERVAL`       | `60s`       | quick start: poll/sample interval                                 |
+| `PROBECTL_DEVICE_NEIGHBORS`      | `false`     | quick start: opt in to bounded, read-only LLDP/CDP MIB walks on the configured SNMP target; no subnet scan |
 | `PROBECTL_DEVICE_CORRELATION_RETENTION` | `2160h` | age-retention clock for the device agent's in-process sysName/interface correlation cache; stale device labels are no longer matchable after this window. `0` disables agent-local pruning |
 | `PROBECTL_DEVICE_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                            |
 | `PROBECTL_DEVICE_LOG_FORMAT`     | `json`      | `json` \| `text`                                                  |
@@ -1418,6 +1422,13 @@ the device list. The default credential source resolves those names from the
 environment (the `PROBECTL_DEVICE_CRED_<NAME>_*` vars below); the secrets backends
 plug Vault/CyberArk into the same seam. An unresolvable name fails closed at
 startup. `<NAME>` is the upper-cased credential name with `-`/`.` → `_`:
+
+In YAML, `neighbors: true` is a per-device opt-in and is valid only for SNMP
+targets. One snapshot contains at most 256 normalized neighbors. The control
+plane retains at most 16,384 current/stale rows per tenant, returns at most 500
+rows per read, and prunes evidence more than 24 hours old. Unsupported LLDP/CDP
+MIBs remain an explicit empty snapshot; probectl does not infer a link from a
+name or management address alone.
 
 | Variable                                  | Used by        | Meaning                                        |
 | ------------------------------------------ | -------------- | ----------------------------------------------- |

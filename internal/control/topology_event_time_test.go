@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
@@ -104,5 +105,81 @@ func TestTopologyConsumerUsesEventTimeForDevice(t *testing.T) {
 	}
 	if snap := store.SnapshotAt("t1", receivedAt); len(snap.Nodes) != 0 {
 		t.Fatalf("device was stamped at receive time instead of event time: %+v", snap.Nodes)
+	}
+}
+
+func TestTopologyConsumerPersistsAndFoldsPhysicalNeighborEvidence(t *testing.T) {
+	topoStore := topology.NewMemoryStore()
+	neighbors := device.NewMemoryNeighborStore()
+	tc := NewTopologyConsumer(nil, topoStore, intelTestLog()).WithDeviceNeighborStore(neighbors)
+	receivedAt := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	eventAt := receivedAt.Add(-5 * time.Minute)
+	tc.clock = func() time.Time { return receivedAt }
+	raw, err := proto.Marshal(&devicev1.DeviceNeighborSnapshot{
+		TenantId: "tenant-a", AgentId: "agent-a", DeviceAddress: "10.0.0.1",
+		DeviceName: "core-a", ObservedAtUnixNano: eventAt.UnixNano(),
+		Neighbors: []*devicev1.DeviceNeighborEvidence{{
+			TenantId: "tenant-a", AgentId: "agent-a", LocalPortId: "xe-0/0/1",
+			RemoteChassisId: "aa:bb:cc:dd:ee:ff", RemoteDeviceName: "leaf-a",
+			RemotePortId: "Ethernet1", Protocol: "lldp", Confidence: 0.95,
+			ObservedAtUnixNano: eventAt.UnixNano(),
+			FreshUntilUnixNano: eventAt.Add(2 * time.Minute).UnixNano(),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tc.handleDeviceNeighbors(context.Background(), bus.Message{Value: raw}); err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := neighbors.ListNeighbors(context.Background(), "tenant-a", device.NeighborFilter{})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("persisted rows=%+v err=%v", rows, err)
+	}
+	snap := topoStore.SnapshotAt("tenant-a", eventAt)
+	if len(snap.Edges) != 1 || snap.Edges[0].Kind != topology.EdgePhysical ||
+		snap.Edges[0].Label != "xe-0/0/1 ↔ Ethernet1" ||
+		snap.Edges[0].Attributes["probectl.agent.id"] != "agent-a" ||
+		snap.Edges[0].Attributes["probectl.device.neighbor.fresh_until"] != eventAt.Add(2*time.Minute).Format(time.RFC3339Nano) {
+		t.Fatalf("physical topology = %+v", snap)
+	}
+	if foreign := topoStore.Latest("tenant-b"); len(foreign.Nodes) != 0 || len(foreign.Edges) != 0 {
+		t.Fatalf("neighbor evidence crossed tenant boundary: %+v", foreign)
+	}
+}
+
+func TestTopologyConsumerStrictLaneRejectsSharedNeighborPersistence(t *testing.T) {
+	topoStore := topology.NewMemoryStore()
+	neighbors := device.NewMemoryNeighborStore()
+	tc := NewTopologyConsumer(nil, topoStore, intelTestLog()).
+		WithDeviceNeighborStore(neighbors).
+		WithTenantBinding(allowTopologyBinding{}).
+		WithStrictTenantLanes(true)
+	now := time.Now().UTC()
+	raw, err := proto.Marshal(&devicev1.DeviceNeighborSnapshot{
+		TenantId: "tenant-a", AgentId: "agent-a", DeviceAddress: "10.0.0.1",
+		ObservedAtUnixNano: now.UnixNano(),
+		Neighbors: []*devicev1.DeviceNeighborEvidence{{
+			TenantId: "tenant-a", AgentId: "agent-a", LocalPortId: "port-1",
+			RemoteChassisId: "leaf-a", RemotePortId: "port-2", Protocol: "lldp",
+			FreshUntilUnixNano: now.Add(time.Minute).UnixNano(),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tc.handleDeviceNeighborLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := neighbors.ListNeighbors(context.Background(), "tenant-a", device.NeighborFilter{})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("shared strict lane persisted neighbors=%+v err=%v", rows, err)
+	}
+	if err := tc.handleDeviceNeighborLane(context.Background(), bus.Message{Value: raw}, "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err = neighbors.ListNeighbors(context.Background(), "tenant-a", device.NeighborFilter{})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("tenant lane neighbors=%+v err=%v", rows, err)
 	}
 }

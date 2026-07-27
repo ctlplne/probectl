@@ -913,6 +913,9 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["metrics"]; got.Method != http.MethodGet || got.Path != "/v1/device/metrics" {
 		t.Fatalf("device metrics op = %+v, want GET /v1/device/metrics", got)
 	}
+	if got := surfaceCommands["device"].Ops["neighbors"]; got.Method != http.MethodGet || got.Path != "/v1/device/neighbors" {
+		t.Fatalf("device neighbors op = %+v, want GET /v1/device/neighbors", got)
+	}
 	if got := surfaceCommands["device"].Ops["conflicts"]; got.Method != http.MethodGet || got.Path != "/v1/device/identity-conflicts" {
 		t.Fatalf("device conflicts op = %+v, want GET /v1/device/identity-conflicts", got)
 	}
@@ -947,6 +950,14 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
 			{"id": "collector-1|10.0.0.1|||probectl_device_cpu_utilization", "device": "10.0.0.1", "name": "probectl_device_cpu_utilization", "summary": "10.0.0.1", "metric": "probectl_device_cpu_utilization", "value": 42, "last_seen": "2026-06-30T12:00:00Z"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/device/neighbors", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("protocol"); got != "lldp" {
+			t.Fatalf("neighbor protocol query = %q, want lldp", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "neighbor:abc", "name": "leaf-1", "status": "current", "summary": "xe-0/0/1 to Ethernet1"},
 		}})
 	})
 	mux.HandleFunc("GET /v1/device/identity-conflicts", func(w http.ResponseWriter, r *http.Request) {
@@ -1029,6 +1040,14 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	}
 	if !strings.Contains(out, "10.0.0.1") || !strings.Contains(out, "probectl_device_cpu_utilization") {
 		t.Fatalf("device metrics output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "neighbors", "--query", "protocol=lldp")
+	if code != 0 {
+		t.Fatalf("neighbors exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "leaf-1") || !strings.Contains(out, "current") {
+		t.Fatalf("device neighbors output missing expected row:\n%s", out)
 	}
 
 	out, errs, code = run(t, srv, "device", "conflicts", "--query", "status=active")

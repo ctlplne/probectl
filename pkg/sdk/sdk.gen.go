@@ -745,6 +745,38 @@ type DeviceMetricSummaryList struct {
 	MetricsRunning bool                  `json:"metrics_running,omitempty"`
 }
 
+type DeviceNeighborEvidence struct {
+	AgeSeconds              int      `json:"age_seconds"`
+	AgentId                 string   `json:"agent_id"`
+	Capabilities            []string `json:"capabilities,omitempty"`
+	Confidence              float64  `json:"confidence"`
+	FreshUntil              string   `json:"fresh_until"`
+	Freshness               string   `json:"freshness"`
+	Id                      string   `json:"id"`
+	LocalDeviceAddress      string   `json:"local_device_address"`
+	LocalDeviceName         string   `json:"local_device_name,omitempty"`
+	LocalIfIndex            int      `json:"local_if_index,omitempty"`
+	LocalPortId             string   `json:"local_port_id"`
+	ObservedAt              string   `json:"observed_at"`
+	Protocol                string   `json:"protocol"`
+	RemoteChassisId         string   `json:"remote_chassis_id,omitempty"`
+	RemoteDeviceName        string   `json:"remote_device_name,omitempty"`
+	RemoteManagementAddress string   `json:"remote_management_address,omitempty"`
+	RemotePlatform          string   `json:"remote_platform,omitempty"`
+	RemotePortId            string   `json:"remote_port_id"`
+}
+
+type DeviceNeighborResponse struct {
+	AsOf              string                   `json:"as_of"`
+	CollectionRunning bool                     `json:"collection_running"`
+	ContractVersion   string                   `json:"contract_version"`
+	EffectiveLimit    int                      `json:"effective_limit"`
+	Items             []DeviceNeighborEvidence `json:"items"`
+	LatestAt          string                   `json:"latest_at,omitempty"`
+	Retention         map[string]any           `json:"retention"`
+	Truncated         bool                     `json:"truncated"`
+}
+
 type DeviceSyslogEvent struct {
 	AppName       string            `json:"app_name,omitempty"`
 	Device        string            `json:"device,omitempty"`
@@ -2699,6 +2731,32 @@ func (c *Client) ListDeviceMetricSummaries(ctx context.Context, req ListDeviceMe
 		query.Set("limit", formatQueryValue(*req.Limit))
 	}
 	var out DeviceMetricSummaryList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List current LLDP/CDP physical adjacency evidence
+type ListDeviceNeighborsRequest struct {
+	Device   *string `json:"-"`
+	Protocol *string `json:"-"`
+	Limit    *int    `json:"-"`
+}
+
+func (c *Client) ListDeviceNeighbors(ctx context.Context, req ListDeviceNeighborsRequest) (*DeviceNeighborResponse, error) {
+	path := "/v1/device/neighbors"
+	query := url.Values{}
+	if req.Device != nil {
+		query.Set("device", formatQueryValue(*req.Device))
+	}
+	if req.Protocol != nil {
+		query.Set("protocol", formatQueryValue(*req.Protocol))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceNeighborResponse
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

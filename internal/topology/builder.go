@@ -8,6 +8,7 @@ package topology
 
 import (
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -52,6 +53,22 @@ type DeviceInput struct {
 	AgentID      string
 	IfIndex      uint32
 	IfName       string
+}
+
+// PhysicalAdjacencyInput is direct LLDP/CDP evidence. It is not a subnet
+// discovery or inferred FDB/ARP relationship.
+type PhysicalAdjacencyInput struct {
+	LocalAddress   string
+	LocalName      string
+	LocalPort      string
+	RemoteAddress  string
+	RemoteIdentity string
+	RemoteName     string
+	RemotePort     string
+	Protocol       string
+	Confidence     string
+	SourceAgent    string
+	FreshUntil     time.Time
 }
 
 func hopID(ip string) string      { return "hop:" + ip }
@@ -145,6 +162,47 @@ func (g *Graph) ObserveDevice(in DeviceInput, at time.Time) {
 		g.UpsertNode(Node{ID: hopID(ip), Kind: NodeHop, Label: ip}, at)
 		g.UpsertEdge(Edge{From: dev, To: hopID(ip), Kind: EdgeDevice}, at)
 	}
+}
+
+// ObservePhysicalAdjacency folds one directly observed LLDP/CDP neighbor into
+// the temporal graph. The remote identity prefers a management address, then
+// the protocol's chassis/device identifier; no guessed IP or merge occurs.
+func (g *Graph) ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time) {
+	if in.LocalAddress == "" || (in.RemoteAddress == "" && in.RemoteIdentity == "") {
+		return
+	}
+	local := deviceID(in.LocalAddress)
+	localLabel := firstNonEmpty([]string{in.LocalName, in.LocalAddress})
+	g.UpsertNode(Node{ID: local, Kind: NodeDevice, Label: localLabel,
+		Attributes: map[string]string{"probectl.device.address": in.LocalAddress}}, at)
+	remoteKey := in.RemoteAddress
+	if remoteKey == "" {
+		remoteKey = in.Protocol + ":" + in.RemoteIdentity
+	}
+	remote := deviceID(remoteKey)
+	remoteLabel := firstNonEmpty([]string{in.RemoteName, in.RemoteAddress, in.RemoteIdentity})
+	attrs := map[string]string{"probectl.device.identity": in.RemoteIdentity}
+	if in.RemoteAddress != "" {
+		attrs["probectl.device.address"] = in.RemoteAddress
+	}
+	g.UpsertNode(Node{ID: remote, Kind: NodeDevice, Label: remoteLabel, Attributes: attrs}, at)
+	label := strings.Trim(strings.Join([]string{in.LocalPort, in.RemotePort}, " ↔ "), " ↔")
+	edgeAttrs := map[string]string{
+		"probectl.device.neighbor.protocol":   in.Protocol,
+		"probectl.device.neighbor.confidence": in.Confidence,
+		"probectl.device.local_port":          in.LocalPort,
+		"probectl.device.remote_port":         in.RemotePort,
+	}
+	if in.SourceAgent != "" {
+		edgeAttrs["probectl.agent.id"] = in.SourceAgent
+	}
+	if !in.FreshUntil.IsZero() {
+		edgeAttrs["probectl.device.neighbor.fresh_until"] = in.FreshUntil.UTC().Format(time.RFC3339Nano)
+	}
+	g.UpsertEdge(Edge{
+		From: local, To: remote, Kind: EdgePhysical, Label: label,
+		Attributes: edgeAttrs,
+	}, at)
 }
 
 // ObserveRouting folds a BGP routing observation (origin AS → prefix) into the graph.

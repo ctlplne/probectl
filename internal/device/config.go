@@ -51,7 +51,10 @@ type Target struct {
 	Credential string        `yaml:"credential"`
 	Interval   time.Duration `yaml:"interval"` // SNMP poll cadence (default 60s)
 	Sensors    bool          `yaml:"sensors"`  // entity temperature sensors (SNMP)
-	GNMI       GNMIConfig    `yaml:"gnmi"`
+	// Neighbors enables the bounded, read-only LLDP/CDP MIB snapshot for this
+	// explicitly configured SNMP target. It never scans for other devices.
+	Neighbors bool       `yaml:"neighbors"`
+	GNMI      GNMIConfig `yaml:"gnmi"`
 }
 
 // TrapSourceRef names one authenticated SNMP trap sender. Credential is a
@@ -193,6 +196,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 				dev.Interval = d
 			}
 		}
+		if v := getenv("PROBECTL_DEVICE_NEIGHBORS"); v != "" {
+			dev.Neighbors, _ = strconv.ParseBool(v)
+		}
 		c.Devices = append(c.Devices, dev)
 	}
 }
@@ -226,6 +232,9 @@ func (c *Config) Validate() error {
 				d.Interval = 60 * time.Second
 			}
 		case TransportGNMI:
+			if d.Neighbors {
+				return fmt.Errorf("device: devices[%d] (%s): neighbors requires an SNMP transport", i, d.Address)
+			}
 			if d.Port == 0 {
 				d.Port = 9339
 			}

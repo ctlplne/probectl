@@ -48,3 +48,35 @@ message DeviceMetric {
 message DeviceMetricBatch {
   repeated DeviceMetric metrics = 1;
 }
+
+// One directly observed LLDP/CDP physical adjacency. Values come only from a
+// read-only MIB walk against an explicitly configured tenant device.
+message DeviceNeighborEvidence {
+  string tenant_id = 1;
+  string agent_id = 2;
+  string local_device_address = 3;
+  string local_device_name = 4;
+  uint32 local_if_index = 5;
+  string local_port_id = 6;
+  string remote_chassis_id = 7;
+  string remote_device_name = 8;
+  string remote_port_id = 9;
+  string remote_management_address = 10;
+  string remote_platform = 11;
+  repeated string capabilities = 12;
+  string protocol = 13; // lldp | cdp
+  double confidence = 14;
+  int64 observed_at_unix_nano = 15;
+  int64 fresh_until_unix_nano = 16;
+}
+
+// DeviceNeighborSnapshot atomically replaces current adjacency evidence for
+// one explicitly configured (tenant, agent, device) source.
+message DeviceNeighborSnapshot {
+  string tenant_id = 1;
+  string agent_id = 2;
+  string device_address = 3;
+  string device_name = 4;
+  int64 observed_at_unix_nano = 5;
+  repeated DeviceNeighborEvidence neighbors = 6;
+}

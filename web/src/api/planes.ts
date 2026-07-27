@@ -127,6 +127,42 @@ export interface DeviceConfigResponse {
   redaction_policy?: string
 }
 
+export interface DeviceNeighborEvidence {
+  id: string
+  agent_id: string
+  local_device_address: string
+  local_device_name?: string
+  local_if_index?: number
+  local_port_id: string
+  remote_chassis_id?: string
+  remote_device_name?: string
+  remote_port_id: string
+  remote_management_address?: string
+  remote_platform?: string
+  capabilities?: string[]
+  protocol: 'lldp' | 'cdp'
+  confidence: number
+  observed_at: string
+  fresh_until: string
+  freshness: 'current' | 'stale' | 'future'
+  age_seconds: number
+}
+
+export interface DeviceNeighborResponse {
+  contract_version: 'probectl.device-neighbors/v1'
+  items: DeviceNeighborEvidence[]
+  collection_running: boolean
+  effective_limit: number
+  truncated: boolean
+  as_of: string
+  latest_at?: string
+  retention: {
+    max_per_device: number
+    max_per_tenant: number
+    stale_retention_hours: number
+  }
+}
+
 export function useFlowTop(
   by: FlowGroupBy,
   window = '1h',
@@ -176,5 +212,12 @@ export function useDeviceConfigs(limit = 5) {
   return useQuery({
     queryKey: ['device', 'configs', limit],
     queryFn: () => apiFetch<DeviceConfigResponse>(`/device/configs?limit=${limit}`),
+  })
+}
+
+export function useDeviceNeighbors(limit = 100) {
+  return useQuery({
+    queryKey: ['device', 'neighbors', limit],
+    queryFn: () => apiFetch<DeviceNeighborResponse>(`/device/neighbors?limit=${limit}`),
   })
 }

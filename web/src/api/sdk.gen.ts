@@ -670,6 +670,38 @@ export interface DeviceMetricSummaryList {
   metrics_running?: boolean
 }
 
+export interface DeviceNeighborEvidence {
+  age_seconds: number
+  agent_id: string
+  capabilities?: string[]
+  confidence: number
+  fresh_until: string
+  freshness: "current" | "stale" | "future"
+  id: string
+  local_device_address: string
+  local_device_name?: string
+  local_if_index?: number
+  local_port_id: string
+  observed_at: string
+  protocol: "lldp" | "cdp"
+  remote_chassis_id?: string
+  remote_device_name?: string
+  remote_management_address?: string
+  remote_platform?: string
+  remote_port_id: string
+}
+
+export interface DeviceNeighborResponse {
+  as_of: string
+  collection_running: boolean
+  contract_version: string
+  effective_limit: number
+  items: DeviceNeighborEvidence[]
+  latest_at?: string
+  retention: JsonObject
+  truncated: boolean
+}
+
 export interface DeviceSyslogEvent {
   app_name?: string
   device?: string
@@ -1934,6 +1966,14 @@ export interface ListDeviceMetricSummariesRequest {
 
 export type ListDeviceMetricSummariesResponse = DeviceMetricSummaryList
 
+export interface ListDeviceNeighborsRequest {
+  device?: string
+  protocol?: "lldp" | "cdp"
+  limit?: number
+}
+
+export type ListDeviceNeighborsResponse = DeviceNeighborResponse
+
 export interface ListDeviceSyslogRequest {
   device?: string
   limit?: number
@@ -2999,6 +3039,15 @@ export class ProbectlSDKClient {
     if (request.metric !== undefined) query.set("metric", String(request.metric))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListDeviceMetricSummariesResponse>("GET", path, query, undefined)
+  }
+
+  async listDeviceNeighbors(request: ListDeviceNeighborsRequest = {}): Promise<ListDeviceNeighborsResponse> {
+    let path = "/v1/device/neighbors"
+    const query = new URLSearchParams()
+    if (request.device !== undefined) query.set("device", String(request.device))
+    if (request.protocol !== undefined) query.set("protocol", String(request.protocol))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListDeviceNeighborsResponse>("GET", path, query, undefined)
   }
 
   async listDeviceSyslog(request: ListDeviceSyslogRequest = {}): Promise<ListDeviceSyslogResponse> {

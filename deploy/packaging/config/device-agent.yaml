@@ -29,6 +29,7 @@ devices:
     credential: "device-snmp" # NAME of the secret, resolved at runtime
     interval: 60s
     sensors: true
+    neighbors: true            # bounded read-only LLDP/CDP evidence; no subnet scan
   # gNMI example (TLS verified against the device CA; never plaintext in prod):
   # - address: "192.0.2.2"
   #   port: 9339

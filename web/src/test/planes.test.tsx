@@ -26,6 +26,12 @@ describe('plane workspaces', () => {
     const deviceNodes = await screen.findByRole('table', { name: /topology device nodes/i })
     expect(deviceNodes).toBeInTheDocument()
     expect(within(deviceNodes).getByText('edge-r1')).toBeInTheDocument()
+    const physicalNeighbors = await screen.findByRole('table', {
+      name: /lldp and cdp physical adjacency evidence/i,
+    })
+    expect(within(physicalNeighbors).getByText('leaf-1')).toBeInTheDocument()
+    expect(within(physicalNeighbors).getByText('LLDP')).toBeInTheDocument()
+    expect(within(physicalNeighbors).getByText('95%')).toBeInTheDocument()
     expect(await screen.findByRole('table', { name: /device syslog events/i })).toBeInTheDocument()
     expect(screen.getByText('Interface Gi0/1 down')).toBeInTheDocument()
     expect(

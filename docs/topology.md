@@ -16,7 +16,8 @@ the signals the other planes already produce:
   service → service call edges;
 - **BGP routing** events → autonomous-system → prefix origin edges;
 - **device telemetry** → device nodes (and device → hop links where the
-  telemetry exposes interface IPs).
+  telemetry exposes interface IPs);
+- **LLDP/CDP neighbor snapshots** → direct device/port `physical` edges.
 
 It is the substrate two things sit on top of: the AI semantic-query / root-cause
 layer traverses it to explain *why* an incident happened, and the Topology page
@@ -39,7 +40,8 @@ every sighting lands on the same vertex.
   `as:<asn>`, `device:<address>`.
 - **Edges** (`EdgeKind`): `path` (hop → hop adjacency), `flow` (service →
   service), `routing` (as → prefix), `device` (device → the hop it carries, via
-  an interface IP). An edge's canonical id is `from|kind|to`. Edge attributes
+  an interface IP), `physical` (a directly observed LLDP/CDP local-port →
+  remote-port adjacency). An edge's canonical id is `from|kind|to`. Edge attributes
   follow OTel conventions where they exist — a `flow` edge carries
   `destination.port`, `network.transport`, and `network.protocol.name`.
 
@@ -67,7 +69,8 @@ flowchart LR
   F["eBPF service map"] --> B
   R["BGP routing"] --> B
   D["device telemetry"] --> B
-  B["Observe{Path,ServiceEdge,Routing,Device}"] --> G["temporal graph<br/>nodes + edges with [first,last] seen"]
+  N["LLDP/CDP snapshots"] --> B
+  B["Observe{Path,ServiceEdge,Routing,Device,PhysicalAdjacency}"] --> G["temporal graph<br/>nodes + edges with [first,last] seen"]
   G --> Q["query API: Snapshot/Latest · Neighbors · Traverse"]
   Q --> AI["AI semantic-query / RCA layer<br/>tenant-then-RBAC"]
   Q --> UI["Topology view + what-if"]
@@ -86,8 +89,8 @@ store enforces it below the API/AI/RBAC layer.
 - `Neighbors(nodeID, t)` — a node's adjacency (the nodes touching it) at `t`.
 - `Traverse(from, to, t)` — the shortest directed path between two nodes (the
   traversal RCA — root-cause analysis — walks).
-- `Observe{Path,ServiceEdge,Routing,Device}(…, at)` — fold one plane's telemetry
-  into the bound tenant's graph.
+- `Observe{Path,ServiceEdge,Routing,Device,PhysicalAdjacency}(…, at)` — fold one
+  plane's telemetry into the bound tenant's graph.
 - `IdentityConflicts()` — return the bound tenant's bounded cross-source
   disagreement records. The handle accepts no tenant argument, so a caller
   cannot query a second tenant after binding.
@@ -110,6 +113,12 @@ control plane already receives into the graph: eBPF service edges
 telemetry (`probectl.device.metrics`). Path discoveries fold in at save time.
 Every batch's claimed tenant is verified against the agent registry; unscoped or
 unverifiable records are dropped (guardrail 1).
+
+Bounded LLDP/CDP snapshots arrive separately on
+`probectl.device.neighbors`. The consumer verifies the tenant-namespaced lane,
+agent registry, and every normalized row, persists the current snapshot before
+acknowledging it, then folds only directly observed `physical` edges into the
+tenant-bound graph. Missing neighbor evidence leaves the edge absent.
 
 Device → hop linkage depends on the telemetry exposing interface IPs. When it
 does (`ObserveDevice` with `InterfaceIPs`), the device node links to the hops it
@@ -147,16 +156,19 @@ get:
 - **SLO impact** — via the `SLOSource` seam (when the SLO engine is wired;
   absent = an explicit coverage note, never a silent empty).
 
-Two honesty rules matter. First, an **unknown target is an error**, never an
+Three honesty rules matter. First, an **unknown target is an error**, never an
 empty "no impact" — a typo in a simulation must not look like a clean result.
 Second, simulation accuracy depends on graph completeness, so every result
-carries a **coverage block** — per-plane edge counts plus notes for missing
+carries a **coverage block** — per-plane edge counts, including physical edges,
+plus notes for missing
 planes ("no flow-plane (eBPF) edges — service impact may be incomplete"). Read
 it like the station count printed on a weather forecast: trust the prediction
 in proportion to how many stations reported. The
 simulation is strictly **read-only**: it runs on a copy and never mutates the
 graph. Acting on a prediction is a separate, human-gated capability (see
 [`remediation.md`](remediation.md)) — probectl predicts, a human decides.
+Third, a name or management address alone never creates a physical edge:
+LLDP/CDP port evidence is required.
 
 ## Visualization
 
@@ -206,6 +218,10 @@ a deployment outgrows a single process.
   successful read is tenant-audited. The same review-only card is present in
   the Topology and Device workflows. `topology_running:false`, truncation, and
   clean/filtered-empty states are distinct.
+- `GET /v1/device/neighbors` — bounded current/stale LLDP/CDP rows with direct
+  device/port provenance, freshness, and confidence. Permission:
+  `topology.read`; reads are tenant-audited. The same data appears in
+  **Planes → Device** and `probectl device neighbors`.
 
 ## Out of scope (by design)
 

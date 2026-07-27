@@ -25,10 +25,11 @@ const (
 type EdgeKind string
 
 const (
-	EdgePath    EdgeKind = "path"    // traceroute adjacency (hop -> hop)
-	EdgeFlow    EdgeKind = "flow"    // eBPF service edge (service -> service)
-	EdgeRouting EdgeKind = "routing" // BGP origin (as -> prefix)
-	EdgeDevice  EdgeKind = "device"  // device -> hop it carries (interface IP; S43)
+	EdgePath     EdgeKind = "path"     // traceroute adjacency (hop -> hop)
+	EdgeFlow     EdgeKind = "flow"     // eBPF service edge (service -> service)
+	EdgeRouting  EdgeKind = "routing"  // BGP origin (as -> prefix)
+	EdgeDevice   EdgeKind = "device"   // device -> hop it carries (interface IP; S43)
+	EdgePhysical EdgeKind = "physical" // directly observed LLDP/CDP device adjacency
 )
 
 // Node is a vertex in the topology graph, valid over [FirstSeen, LastSeen].

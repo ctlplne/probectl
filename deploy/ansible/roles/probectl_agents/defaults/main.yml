@@ -83,6 +83,7 @@ probectl_device_transport: snmpv3      # snmpv2c | snmpv3 | gnmi
 probectl_device_credential: ""         # name of the runtime secret reference, never the secret value
 probectl_device_interval: 60s
 probectl_device_sensors: true
+probectl_device_neighbors: false       # explicit opt-in; bounded LLDP/CDP SNMP walks only
 
 # endpoint template knobs.
 probectl_endpoint_targets: []          # e.g. ["https://portal.example", "https://1.1.1.1"]

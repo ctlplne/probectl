@@ -30,6 +30,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/cost"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
@@ -90,6 +91,7 @@ type serveRuntime struct {
 	correlator    *incident.Correlator
 	tenantBinding pipeline.TenantBinding
 	topoStore     topology.Store
+	neighborStore device.NeighborStore
 
 	costEngine       *cost.Engine
 	carbonEngine     *carbon.Engine
@@ -182,6 +184,7 @@ func (rt *serveRuntime) buildServeEngines() error {
 	rt.dispatcher, _ = control.BuildDispatcher(rt.cfg, rt.db.Pool(), rt.log)
 	rt.cmdbResolver = control.BuildCMDB(rt.cfg, rt.log)
 	rt.tenantBinding = pipeline.NewRegistryBinding(rt.db.Pool())
+	rt.neighborStore = store.NewDeviceNeighbors(rt.db.Pool())
 
 	var corrOpts []incident.Option
 	if rt.dispatcher != nil {
@@ -288,6 +291,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithHopGeo(rt.hopGeo).
 		WithSecrets(rt.secretsResolver).
 		WithTopology(rt.topoStore).
+		WithDeviceNeighbors(rt.neighborStore).
 		WithEBPFStore(rt.ebpfStore).
 		WithCost(rt.costEngine).
 		WithCarbon(rt.carbonEngine)
@@ -352,6 +356,8 @@ func (rt *serveRuntime) startTopologyConsumer() {
 				WithTenantBinding(rt.tenantBinding).
 				WithNamespaceTenants(snap.tenants).
 				WithEBPFStore(rt.ebpfStore).
+				WithDeviceNeighborStore(rt.neighborStore).
+				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				WithMetrics(rt.srv.Metrics()).
 				Run(ctx)
 		})

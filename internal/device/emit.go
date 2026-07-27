@@ -22,12 +22,19 @@ type Emitter interface {
 	Emit(ctx context.Context, ms []Metric) error
 }
 
+// NeighborEmitter is an optional extension implemented by the production bus
+// emitter. Existing metric-only test emitters remain source-compatible.
+type NeighborEmitter interface {
+	EmitNeighbors(context.Context, NeighborSnapshot) error
+}
+
 // BusEmitter publishes DeviceMetricBatches to probectl.device.metrics,
 // tenant-keyed (pooled tenant-tagging, CLAUDE.md §6).
 type BusEmitter struct {
-	bus    bus.Bus
-	tenant string
-	topic  string // shared, or the tenant's namespaced lane (TENANT-107)
+	bus       bus.Bus
+	tenant    string
+	namespace string
+	topic     string // shared, or the tenant's namespaced lane (TENANT-107)
 }
 
 // NewBusEmitter returns an Emitter publishing to bus.DeviceMetricsTopic.
@@ -44,7 +51,7 @@ func NewNamespacedBusEmitter(b bus.Bus, tenant, namespace string) (*BusEmitter, 
 	if err != nil {
 		return nil, fmt.Errorf("device: refusing to start: %w", err)
 	}
-	return &BusEmitter{bus: b, tenant: tenant, topic: topic}, nil
+	return &BusEmitter{bus: b, tenant: tenant, namespace: namespace, topic: topic}, nil
 }
 
 // Emit marshals the batch and publishes it. An empty batch is a no-op.
@@ -65,4 +72,31 @@ func (e *BusEmitter) Emit(ctx context.Context, ms []Metric) error {
 		entropy = ms[0].AgentID
 	}
 	return e.bus.Publish(ctx, e.topic, bus.TenantKey(e.tenant, entropy), value)
+}
+
+// EmitNeighbors publishes one bounded current-evidence snapshot. Empty
+// snapshots are meaningful: they clear a device's previously observed rows.
+func (e *BusEmitter) EmitNeighbors(ctx context.Context, snapshot NeighborSnapshot) error {
+	valid, err := ValidateNeighborSnapshot(snapshot)
+	if err != nil {
+		return err
+	}
+	batch := &devicev1.DeviceNeighborSnapshot{
+		TenantId: valid.TenantID, AgentId: valid.AgentID,
+		DeviceAddress: valid.DeviceAddress, DeviceName: valid.DeviceName,
+		ObservedAtUnixNano: valid.ObservedAt.UnixNano(),
+		Neighbors:          make([]*devicev1.DeviceNeighborEvidence, 0, len(valid.Neighbors)),
+	}
+	for _, neighbor := range valid.Neighbors {
+		batch.Neighbors = append(batch.Neighbors, neighbor.ToProto())
+	}
+	value, err := proto.Marshal(batch)
+	if err != nil {
+		return fmt.Errorf("device: marshal neighbor snapshot: %w", err)
+	}
+	topic, err := bus.TopicFor(e.namespace, bus.DeviceNeighborsTopic)
+	if err != nil {
+		return err // constructor already validates; fail closed if state changes
+	}
+	return e.bus.Publish(ctx, topic, bus.TenantKey(e.tenant, valid.AgentID), value)
 }

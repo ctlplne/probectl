@@ -81,7 +81,7 @@ full how-to live in [`deploying-agents.md`](deploying-agents.md)):
 | --- | --- | --- |
 | `probectl-agent` (canary/synthetic + path engine) | active ICMP/TCP/UDP/DNS/HTTP probes and traceroutes it runs itself | **streams over gRPC/mTLS** to the control plane (`StreamResults`); the control plane re-publishes onto the bus as `probectl.network.results` |
 | `probectl-flow-agent` | passive NetFlow v5/v9, IPFIX, sFlow v5 exporter datagrams | **publishes to the bus** as `probectl.flow.events` |
-| `probectl-device-agent` | SNMP (v2c/v3) + gNMI/OpenConfig device telemetry | **publishes to the bus** as `probectl.device.metrics` |
+| `probectl-device-agent` | SNMP (v2c/v3) + gNMI/OpenConfig metrics; opt-in LLDP/CDP physical adjacency | **publishes to the bus** as `probectl.device.metrics` and `probectl.device.neighbors` |
 | `probectl-ebpf-agent` | zero-instrumentation L3/L4 host flows + service map (Linux) | **publishes to the bus** as `probectl.ebpf.flows` |
 | `probectl-endpoint` (DEM) | last-mile experience on a user's device (WiFi, gateway, ISP path, browser timings) | **publishes to the bus** as `probectl.endpoint.results` |
 | `probectl-cloud-metrics` | local AWS/Azure/GCP metric export files | **posts to `/v1/prometheus/write`** as tenant-scoped remote-write |

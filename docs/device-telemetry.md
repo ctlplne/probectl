@@ -9,7 +9,8 @@ the *outside* (your synthetic probes pass) while a switch is quietly dropping
 packets on one port or running hot. This plane reads that truth straight from
 the gear.
 
-One agent, `probectl-device-agent`, talks to network devices three ways:
+One agent, `probectl-device-agent`, talks to network devices through four
+operator-owned paths:
 
 - **SNMP** (the Simple Network Management Protocol, v2c or v3) — the agent
   *polls*: every interval it asks the device a
@@ -17,7 +18,8 @@ One agent, `probectl-device-agent`, talks to network devices three ways:
   The questions come from **MIBs** (Management Information Bases — the
   published catalogs of what a device can answer), and each question has an
   **OID** — its numeric address in that catalog (sysUpTime lives at
-  `.1.3.6.1.2.1.1.3.0`).
+  `.1.3.6.1.2.1.1.3.0`). A configured SNMP target may separately opt in to
+  bounded LLDP/CDP physical-neighbor table walks.
 - **gNMI / OpenConfig** (the gRPC Network Management Interface, speaking the
   vendor-neutral OpenConfig path schema) — the agent *subscribes*: the device
   *streams* updates as
@@ -46,10 +48,12 @@ flowchart LR
   D -- "SNMP traps (authenticated sources)" --> A
   D -- "gNMI Subscribe (stream, TLS)" --> A
   A -- "probectl.device.metrics (DeviceMetricBatch, tenant-keyed)" --> B[(bus)]
+  A -- "probectl.device.neighbors (bounded LLDP/CDP snapshot)" --> B
   A -- "SNMP trap events + alerts (tenant-scoped)" --> E[(trap store)]
   A -- "syslog + config snapshots (tenant-scoped)" --> O[(device ops store)]
   B --> P[control plane DeviceConsumer]
   P --> T[(TSDB: probectl_device_* series)]
+  P --> N[(forced-RLS current-neighbor store)]
   P --> I[(tenant-local topology + identity conflicts)]
   A -- "interface inventory (ifIndex, ifName, addresses)" --> C[Correlator]
   C -. "hop IP -> device/interface" .-> PathPlane[path plane]
@@ -106,6 +110,41 @@ section yields blanks, not a voided form — only an unreachable respondent
 voids it. Only an unreachable or mis-authenticated device (the system group
 itself fails) fails the whole poll. You get partial truth instead of an all-or-
 nothing error.
+
+## Physical adjacency — direct LLDP/CDP evidence
+
+Metrics say how a port feels; LLDP/CDP says which port is plugged into which
+neighbor. On an already-configured SNMP target, `neighbors: true` enables
+read-only walks of the standard LLDP-MIB and CISCO-CDP-MIB through the same
+authenticated session used for metrics. Each normalized row carries:
+
+- tenant-bound agent and local device identity;
+- local interface index and port;
+- remote chassis/name, port, management address, platform, and capabilities
+  when the device supplies them;
+- protocol (`lldp` or `cdp`), observed time, fresh-until time, and confidence.
+
+The row is an observation, not a guess. The control plane persists it before
+acknowledging the bus message, then folds a `physical` edge into only that
+tenant's topology. A remote management address is used as the remote node when
+present; otherwise the protocol/chassis identity remains distinct. There is no
+automatic identity merge and no invented IP.
+
+Bounds keep one noisy device from becoming the product: 256 neighbors per
+device snapshot, 16,384 retained rows per tenant, 500 rows per API read, and a
+24-hour stale-evidence window. Each new source snapshot replaces the prior
+current rows for that agent/device. Unsupported MIBs are an honest empty
+snapshot, not an error and not synthetic topology.
+
+Operators see the same evidence in **Planes → Device**, as `physical` edges and
+coverage on **Topology**, through `GET /v1/device/neighbors`, or with
+`probectl device neighbors`. Every surface distinguishes current, stale,
+future/unknown, unavailable, empty, and truncated states.
+
+This is intentionally narrow. It does not scan a subnet, probe discovered
+addresses, open a CLI/SSH session, fetch from a vendor service, mutate a device,
+or infer bridge FDB, ARP/ND, or STP relationships. Those later evidence types
+would require a separately reviewed scope.
 
 ## Correlation — tying device interfaces to the other planes
 
@@ -312,6 +351,7 @@ Quick start against one switch:
 export PROBECTL_DEVICE_TENANT=t-acme
 export PROBECTL_DEVICE_TARGET=192.0.2.1 PROBECTL_DEVICE_TRANSPORT=snmpv2c
 export PROBECTL_DEVICE_CREDENTIAL=core-ro
+export PROBECTL_DEVICE_NEIGHBORS=true
 export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
 ./bin/probectl-device-agent
 ```
@@ -328,6 +368,11 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
 - The poller/normalizer is table-driven against canned-PDU fakes (a healthy
   device, degraded MIBs, an unreachable device), and the gNMI client runs against
   an in-process mock target over bufconn — both in `go test ./internal/device/...`.
+- LLDP/CDP parser fixtures prove port/protocol/provenance normalization and the
+  256-row cap. `TestDeviceNeighborEvidenceStorageIsTenantIsolatedAndBounded`
+  exercises forced RLS and cross-tenant write/read rejection against Postgres;
+  control/API tests prove persistence-before-ack, physical-edge folding,
+  freshness, response bounds, and foreign-tenant invisibility.
 - Discovery is pinned by fixture-network tests that classify devices, keep them
   pending review, build reviewed imports, and prove a tenant cannot list another
   tenant's discovery result.

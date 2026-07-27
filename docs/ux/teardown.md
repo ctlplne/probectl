@@ -310,14 +310,16 @@ operator evidence first-class:
 
 That comparison produced three native slices. The current product revision now
 emits sanitized Explorer execution receipts and persists bounded
-alert-evaluation transitions with a native state timeline. Physical LLDP/CDP
-neighbor collection remains the explicit next gap; the existing topology canvas
-does not synthesize links when that evidence is absent.
+alert-evaluation transitions with a native state timeline. It also collects
+bounded, opt-in LLDP/CDP snapshots through the existing Go device agent and
+renders direct physical edges with freshness and confidence. The topology
+canvas still refuses to synthesize a link when direct evidence is absent.
 
 The approved product direction is native:
 
 - collect bounded, timestamped LLDP/CDP evidence through the existing
-  tenant-bound Go device agent and feed the existing topology model;
+  tenant-bound Go device agent and feed the existing topology model
+  (**delivered**);
 - retain bounded local alert-evaluation receipts with observed value, expected
   band/threshold, warmup/no-data state, and fire/resolve transition
   (**delivered**);

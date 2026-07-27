@@ -30,6 +30,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
@@ -187,12 +188,31 @@ type TopologyConsumer struct {
 	// history and survives a restart instead of living only in the RAM graph.
 	// nil = not wired (in-RAM graph only, the previous behavior).
 	ebpf ebpfstore.Store
+	// neighbors is the durable current-evidence store for LLDP/CDP snapshots.
+	// The graph remains a derived view; persistence happens before bus ack.
+	neighbors device.NeighborStore
+	// strictLane refuses agent-published records on the shared pooled lane.
+	// Tenant-namespaced broker lanes remain authoritative (WIRE-001).
+	strictLane bool
 }
 
 // WithEBPFStore wires durable persistence of eBPF service-edge aggregates
 // (ARCH-008). nil keeps the in-RAM-only behavior.
 func (tc *TopologyConsumer) WithEBPFStore(s ebpfstore.Store) *TopologyConsumer {
 	tc.ebpf = s
+	return tc
+}
+
+// WithDeviceNeighborStore wires forced-RLS current-evidence persistence.
+func (tc *TopologyConsumer) WithDeviceNeighborStore(s device.NeighborStore) *TopologyConsumer {
+	tc.neighbors = s
+	return tc
+}
+
+// WithStrictTenantLanes requires agent-published topology inputs to arrive on
+// a tenant-namespaced lane. This applies before any graph or neighbor write.
+func (tc *TopologyConsumer) WithStrictTenantLanes(strict bool) *TopologyConsumer {
+	tc.strictLane = strict
 	return tc
 }
 
@@ -230,11 +250,11 @@ func (tc *TopologyConsumer) receivedAt() time.Time {
 
 // rejectBatch verifies a batch's claimed identities and reports whether the
 // batch must be dropped (fail closed) — counted, never silent.
-func (tc *TopologyConsumer) rejectBatch(ctx context.Context, plane string, ids []pipeline.Identity) bool {
-	if tc.binding == nil || len(ids) == 0 {
+func (tc *TopologyConsumer) rejectBatch(ctx context.Context, plane, laneTenant string, ids []pipeline.Identity) bool {
+	if len(ids) == 0 || (tc.binding == nil && !tc.strictLane) {
 		return false
 	}
-	if _, _, err := pipeline.VerifyBatchTenant(ctx, tc.binding, "", ids); err != nil {
+	if _, _, err := pipeline.VerifyBatchTenantStrict(ctx, tc.binding, laneTenant, tc.strictLane, ids); err != nil {
 		tc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
 			"view", "topology", "plane", plane, "claimed_tenant", ids[0].Tenant,
 			"agent_id", ids[0].Agent, "error", err.Error())
@@ -258,6 +278,9 @@ func (tc *TopologyConsumer) Run(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		return pipeline.RunLanes(gctx, tc.bus, bus.DeviceMetricsTopic, viewGroup("topology-device"), tc.nsTenants, tc.handleDeviceLane)
+	})
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, tc.bus, bus.DeviceNeighborsTopic, viewGroup("topology-device-neighbors"), tc.nsTenants, tc.handleDeviceNeighborLane)
 	})
 	return g.Wait()
 }
@@ -283,7 +306,7 @@ func (tc *TopologyConsumer) handleEBPFLane(ctx context.Context, msg bus.Message,
 	for _, f := range batch.GetFlows() {
 		ids = append(ids, pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()})
 	}
-	if tc.rejectBatch(ctx, "ebpf", ids) {
+	if tc.rejectBatch(ctx, "ebpf", laneTenant, ids) {
 		return nil
 	}
 	// TENANT-006: an edges-only batch carries no agent id, so its tenant claim
@@ -408,7 +431,7 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 	for _, m := range batch.GetMetrics() {
 		ids = append(ids, pipeline.Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId()})
 	}
-	if tc.rejectBatch(ctx, "device", ids) {
+	if tc.rejectBatch(ctx, "device", laneTenant, ids) {
 		return nil
 	}
 	receivedAt := tc.receivedAt()
@@ -445,6 +468,98 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 		tc.ledger.addStored("device", 1)
 	}
 	return nil
+}
+
+func (tc *TopologyConsumer) handleDeviceNeighbors(ctx context.Context, msg bus.Message) error {
+	return tc.handleDeviceNeighborLane(ctx, msg, "")
+}
+
+func (tc *TopologyConsumer) handleDeviceNeighborLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+	tc.ledger.addReceived("device", 1)
+	var batch devicev1.DeviceNeighborSnapshot
+	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+		tc.ledger.addMalformed("device", 1)
+		tc.log.Warn("topology: skipping malformed device neighbor snapshot", "error", err)
+		return nil
+	}
+	if laneTenant != "" {
+		batch.TenantId = laneTenant
+		for _, n := range batch.GetNeighbors() {
+			n.TenantId = laneTenant
+		}
+	}
+	if batch.GetTenantId() == "" || batch.GetAgentId() == "" || batch.GetDeviceAddress() == "" {
+		tc.ledger.addUnscoped("device", 1)
+		return nil
+	}
+	ids := []pipeline.Identity{{Tenant: batch.GetTenantId(), Agent: batch.GetAgentId()}}
+	for _, n := range batch.GetNeighbors() {
+		if n.GetAgentId() != "" && n.GetAgentId() != batch.GetAgentId() {
+			tc.ledger.addRejected("device", 1)
+			tc.log.Error("REJECTED device neighbor snapshot: mixed agent identities", "agent_id", batch.GetAgentId())
+			return nil
+		}
+		ids = append(ids, pipeline.Identity{Tenant: firstNonEmptyString(n.GetTenantId(), batch.GetTenantId()), Agent: batch.GetAgentId()})
+	}
+	if tc.rejectBatch(ctx, "device", laneTenant, ids) {
+		return nil
+	}
+	receivedAt := tc.receivedAt()
+	observedAt := pipeline.NormalizeEventTimeUnixNano(batch.GetObservedAtUnixNano(), receivedAt)
+	snapshot := device.NeighborSnapshot{
+		TenantID: batch.GetTenantId(), AgentID: batch.GetAgentId(),
+		DeviceAddress: batch.GetDeviceAddress(), DeviceName: batch.GetDeviceName(),
+		ObservedAt: observedAt, Neighbors: make([]device.NeighborEvidence, 0, len(batch.GetNeighbors())),
+	}
+	for _, raw := range batch.GetNeighbors() {
+		n := device.NeighborEvidenceFromProto(raw)
+		n.TenantID, n.AgentID = snapshot.TenantID, snapshot.AgentID
+		n.LocalDeviceAddress, n.LocalDeviceName = snapshot.DeviceAddress, snapshot.DeviceName
+		n.ObservedAt = observedAt
+		if raw.GetFreshUntilUnixNano() > raw.GetObservedAtUnixNano() {
+			n.FreshUntil = observedAt.Add(time.Duration(raw.GetFreshUntilUnixNano() - raw.GetObservedAtUnixNano()))
+		}
+		snapshot.Neighbors = append(snapshot.Neighbors, n)
+	}
+	valid, err := device.ValidateNeighborSnapshot(snapshot)
+	if err != nil {
+		tc.ledger.addMalformed("device", 1)
+		tc.log.Warn("topology: rejecting invalid device neighbor snapshot", "error", err)
+		return nil
+	}
+	if tc.neighbors != nil {
+		if err := tc.neighbors.ReplaceSnapshot(ctx, valid.TenantID, valid); err != nil {
+			tc.ledger.addPersistFailed("device", 1)
+			tc.log.Error("device neighbor persist failed; refusing ack so the bus can redeliver",
+				"tenant_id", valid.TenantID, "device", valid.DeviceAddress, "error", err.Error())
+			return fmt.Errorf("topology: persist device neighbors: %w", err)
+		}
+	}
+	graph, err := tc.store.ForTenant(valid.TenantID)
+	if err != nil {
+		tc.ledger.addUnscoped("device", 1)
+		return nil
+	}
+	for _, n := range valid.Neighbors {
+		graph.ObservePhysicalAdjacency(topology.PhysicalAdjacencyInput{
+			LocalAddress: n.LocalDeviceAddress, LocalName: n.LocalDeviceName, LocalPort: n.LocalPortID,
+			RemoteAddress: n.RemoteManagementAddress, RemoteIdentity: n.RemoteChassisID,
+			RemoteName: n.RemoteDeviceName, RemotePort: n.RemotePortID,
+			Protocol: n.Protocol, Confidence: fmt.Sprintf("%.2f", n.Confidence),
+			SourceAgent: n.AgentID, FreshUntil: n.FreshUntil,
+		}, n.ObservedAt)
+		tc.ledger.addStored("device", 1)
+	}
+	return nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func serviceEdgeTimes(e *ebpfv1.ServiceEdge, receivedAt time.Time) (time.Time, time.Time) {

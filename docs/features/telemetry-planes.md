@@ -126,6 +126,15 @@ secret itself is resolved at runtime and never written to config or logs, and a
 name that resolves to nothing fails closed at startup rather than silently
 downgrading to an unauthenticated poll.
 
+An SNMP target can opt in with `neighbors: true` to read LLDP-MIB and
+CISCO-CDP-MIB rows through that same authenticated session. The agent publishes
+direct local-port ↔ remote-port observations—not inferred links—to the
+tenant-namespaced `probectl.device.neighbors` lane. The native Device plane,
+Topology graph, `GET /v1/device/neighbors`, and `probectl device neighbors`
+surface freshness, confidence, protocol, and device/port provenance. Collection
+is capped at 256 rows per device and performs no subnet scan, CLI login, vendor
+SDK call, or remote lookup.
+
 When those local sources disagree about a management address, device name, or
 interface identity, probectl preserves both normalized claims before updating
 the topology label. Operators review the bounded result at **Planes → Device**

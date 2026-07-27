@@ -18,12 +18,15 @@ import (
 
 // Stats are the collector's monotonic counters (probectl observes probectl).
 type Stats struct {
-	Polls         atomic.Uint64
-	PollErrors    atomic.Uint64
-	Metrics       atomic.Uint64
-	EmitErrors    atomic.Uint64
-	GNMIStreams   atomic.Uint64
-	CounterResets atomic.Uint64 // CORRECT-001: counter resets detected and dropped
+	Polls              atomic.Uint64
+	PollErrors         atomic.Uint64
+	Metrics            atomic.Uint64
+	EmitErrors         atomic.Uint64
+	GNMIStreams        atomic.Uint64
+	CounterResets      atomic.Uint64 // CORRECT-001: counter resets detected and dropped
+	NeighborSnapshots  atomic.Uint64
+	Neighbors          atomic.Uint64
+	NeighborEmitErrors atomic.Uint64
 	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
 	// the cycle is SKIPPED — fail closed, never poll with stale material).
 	CredErrors atomic.Uint64
@@ -99,13 +102,16 @@ func (r *Runtime) TrapStore() TrapStore { return r.traps }
 // StatsSnapshot returns a copy of the counters.
 func (r *Runtime) StatsSnapshot() map[string]uint64 {
 	return map[string]uint64{
-		"polls":          r.stats.Polls.Load(),
-		"poll_errors":    r.stats.PollErrors.Load(),
-		"metrics":        r.stats.Metrics.Load(),
-		"emit_errors":    r.stats.EmitErrors.Load(),
-		"gnmi_streams":   r.stats.GNMIStreams.Load(),
-		"cred_errors":    r.stats.CredErrors.Load(),
-		"counter_resets": r.stats.CounterResets.Load(),
+		"polls":                r.stats.Polls.Load(),
+		"poll_errors":          r.stats.PollErrors.Load(),
+		"metrics":              r.stats.Metrics.Load(),
+		"emit_errors":          r.stats.EmitErrors.Load(),
+		"gnmi_streams":         r.stats.GNMIStreams.Load(),
+		"cred_errors":          r.stats.CredErrors.Load(),
+		"counter_resets":       r.stats.CounterResets.Load(),
+		"neighbor_snapshots":   r.stats.NeighborSnapshots.Load(),
+		"neighbors":            r.stats.Neighbors.Load(),
+		"neighbor_emit_errors": r.stats.NeighborEmitErrors.Load(),
 	}
 }
 
@@ -239,6 +245,25 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	}
 	r.correlator.UpdateAt(inv, observedAt)
 	r.pruneCorrelator(observedAt)
+
+	if dev.Neighbors {
+		neighbors := pollSNMPNeighbors(conn, dev, r.cfg.TenantID, r.cfg.AgentID, inv, observedAt)
+		if emitter, ok := r.emit.(NeighborEmitter); ok {
+			snapshot := NeighborSnapshot{
+				TenantID: r.cfg.TenantID, AgentID: r.cfg.AgentID,
+				DeviceAddress: dev.Address, DeviceName: inv.SysName,
+				ObservedAt: observedAt, Neighbors: neighbors,
+			}
+			if err := emitter.EmitNeighbors(ctx, snapshot); err != nil {
+				r.stats.NeighborEmitErrors.Add(1)
+				r.log.Error("device neighbor snapshot emit failed",
+					"device", dev.Address, "neighbors", len(neighbors), "error", err.Error())
+			} else {
+				r.stats.NeighborSnapshots.Add(1)
+				r.stats.Neighbors.Add(uint64(len(neighbors)))
+			}
+		}
+	}
 
 	// CORRECT-001: apply counter-reset detection before emitting. Cumulative
 	// counters (octets, errors, discards) must never decrease between polls —

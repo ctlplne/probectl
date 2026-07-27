@@ -219,6 +219,258 @@ func (x *DeviceMetricBatch) GetMetrics() []*DeviceMetric {
 	return nil
 }
 
+// One directly observed LLDP/CDP physical adjacency. Values come only from a
+// read-only MIB walk against an explicitly configured tenant device.
+type DeviceNeighborEvidence struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	TenantId                string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	AgentId                 string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	LocalDeviceAddress      string                 `protobuf:"bytes,3,opt,name=local_device_address,json=localDeviceAddress,proto3" json:"local_device_address,omitempty"`
+	LocalDeviceName         string                 `protobuf:"bytes,4,opt,name=local_device_name,json=localDeviceName,proto3" json:"local_device_name,omitempty"`
+	LocalIfIndex            uint32                 `protobuf:"varint,5,opt,name=local_if_index,json=localIfIndex,proto3" json:"local_if_index,omitempty"`
+	LocalPortId             string                 `protobuf:"bytes,6,opt,name=local_port_id,json=localPortId,proto3" json:"local_port_id,omitempty"`
+	RemoteChassisId         string                 `protobuf:"bytes,7,opt,name=remote_chassis_id,json=remoteChassisId,proto3" json:"remote_chassis_id,omitempty"`
+	RemoteDeviceName        string                 `protobuf:"bytes,8,opt,name=remote_device_name,json=remoteDeviceName,proto3" json:"remote_device_name,omitempty"`
+	RemotePortId            string                 `protobuf:"bytes,9,opt,name=remote_port_id,json=remotePortId,proto3" json:"remote_port_id,omitempty"`
+	RemoteManagementAddress string                 `protobuf:"bytes,10,opt,name=remote_management_address,json=remoteManagementAddress,proto3" json:"remote_management_address,omitempty"`
+	RemotePlatform          string                 `protobuf:"bytes,11,opt,name=remote_platform,json=remotePlatform,proto3" json:"remote_platform,omitempty"`
+	Capabilities            []string               `protobuf:"bytes,12,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Protocol                string                 `protobuf:"bytes,13,opt,name=protocol,proto3" json:"protocol,omitempty"` // lldp | cdp
+	Confidence              float64                `protobuf:"fixed64,14,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	ObservedAtUnixNano      int64                  `protobuf:"varint,15,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
+	FreshUntilUnixNano      int64                  `protobuf:"varint,16,opt,name=fresh_until_unix_nano,json=freshUntilUnixNano,proto3" json:"fresh_until_unix_nano,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *DeviceNeighborEvidence) Reset() {
+	*x = DeviceNeighborEvidence{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceNeighborEvidence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceNeighborEvidence) ProtoMessage() {}
+
+func (x *DeviceNeighborEvidence) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceNeighborEvidence.ProtoReflect.Descriptor instead.
+func (*DeviceNeighborEvidence) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DeviceNeighborEvidence) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetLocalDeviceAddress() string {
+	if x != nil {
+		return x.LocalDeviceAddress
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetLocalDeviceName() string {
+	if x != nil {
+		return x.LocalDeviceName
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetLocalIfIndex() uint32 {
+	if x != nil {
+		return x.LocalIfIndex
+	}
+	return 0
+}
+
+func (x *DeviceNeighborEvidence) GetLocalPortId() string {
+	if x != nil {
+		return x.LocalPortId
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetRemoteChassisId() string {
+	if x != nil {
+		return x.RemoteChassisId
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetRemoteDeviceName() string {
+	if x != nil {
+		return x.RemoteDeviceName
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetRemotePortId() string {
+	if x != nil {
+		return x.RemotePortId
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetRemoteManagementAddress() string {
+	if x != nil {
+		return x.RemoteManagementAddress
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetRemotePlatform() string {
+	if x != nil {
+		return x.RemotePlatform
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *DeviceNeighborEvidence) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *DeviceNeighborEvidence) GetConfidence() float64 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+func (x *DeviceNeighborEvidence) GetObservedAtUnixNano() int64 {
+	if x != nil {
+		return x.ObservedAtUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceNeighborEvidence) GetFreshUntilUnixNano() int64 {
+	if x != nil {
+		return x.FreshUntilUnixNano
+	}
+	return 0
+}
+
+// DeviceNeighborSnapshot atomically replaces current adjacency evidence for
+// one explicitly configured (tenant, agent, device) source.
+type DeviceNeighborSnapshot struct {
+	state              protoimpl.MessageState    `protogen:"open.v1"`
+	TenantId           string                    `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	AgentId            string                    `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	DeviceAddress      string                    `protobuf:"bytes,3,opt,name=device_address,json=deviceAddress,proto3" json:"device_address,omitempty"`
+	DeviceName         string                    `protobuf:"bytes,4,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"`
+	ObservedAtUnixNano int64                     `protobuf:"varint,5,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
+	Neighbors          []*DeviceNeighborEvidence `protobuf:"bytes,6,rep,name=neighbors,proto3" json:"neighbors,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *DeviceNeighborSnapshot) Reset() {
+	*x = DeviceNeighborSnapshot{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceNeighborSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceNeighborSnapshot) ProtoMessage() {}
+
+func (x *DeviceNeighborSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceNeighborSnapshot.ProtoReflect.Descriptor instead.
+func (*DeviceNeighborSnapshot) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DeviceNeighborSnapshot) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *DeviceNeighborSnapshot) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *DeviceNeighborSnapshot) GetDeviceAddress() string {
+	if x != nil {
+		return x.DeviceAddress
+	}
+	return ""
+}
+
+func (x *DeviceNeighborSnapshot) GetDeviceName() string {
+	if x != nil {
+		return x.DeviceName
+	}
+	return ""
+}
+
+func (x *DeviceNeighborSnapshot) GetObservedAtUnixNano() int64 {
+	if x != nil {
+		return x.ObservedAtUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceNeighborSnapshot) GetNeighbors() []*DeviceNeighborEvidence {
+	if x != nil {
+		return x.Neighbors
+	}
+	return nil
+}
+
 var File_probectl_device_v1_device_proto protoreflect.FileDescriptor
 
 const file_probectl_device_v1_device_proto_rawDesc = "" +
@@ -240,7 +492,35 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\x0etime_unix_nano\x18\v \x01(\x03R\ftimeUnixNano\x12/\n" +
 	"\x13interface_addresses\x18\f \x03(\tR\x12interfaceAddresses\"O\n" +
 	"\x11DeviceMetricBatch\x12:\n" +
-	"\ametrics\x18\x01 \x03(\v2 .probectl.device.v1.DeviceMetricR\ametricsBNZLgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
+	"\ametrics\x18\x01 \x03(\v2 .probectl.device.v1.DeviceMetricR\ametrics\"\xa3\x05\n" +
+	"\x16DeviceNeighborEvidence\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x120\n" +
+	"\x14local_device_address\x18\x03 \x01(\tR\x12localDeviceAddress\x12*\n" +
+	"\x11local_device_name\x18\x04 \x01(\tR\x0flocalDeviceName\x12$\n" +
+	"\x0elocal_if_index\x18\x05 \x01(\rR\flocalIfIndex\x12\"\n" +
+	"\rlocal_port_id\x18\x06 \x01(\tR\vlocalPortId\x12*\n" +
+	"\x11remote_chassis_id\x18\a \x01(\tR\x0fremoteChassisId\x12,\n" +
+	"\x12remote_device_name\x18\b \x01(\tR\x10remoteDeviceName\x12$\n" +
+	"\x0eremote_port_id\x18\t \x01(\tR\fremotePortId\x12:\n" +
+	"\x19remote_management_address\x18\n" +
+	" \x01(\tR\x17remoteManagementAddress\x12'\n" +
+	"\x0fremote_platform\x18\v \x01(\tR\x0eremotePlatform\x12\"\n" +
+	"\fcapabilities\x18\f \x03(\tR\fcapabilities\x12\x1a\n" +
+	"\bprotocol\x18\r \x01(\tR\bprotocol\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\x0e \x01(\x01R\n" +
+	"confidence\x121\n" +
+	"\x15observed_at_unix_nano\x18\x0f \x01(\x03R\x12observedAtUnixNano\x121\n" +
+	"\x15fresh_until_unix_nano\x18\x10 \x01(\x03R\x12freshUntilUnixNano\"\x95\x02\n" +
+	"\x16DeviceNeighborSnapshot\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12%\n" +
+	"\x0edevice_address\x18\x03 \x01(\tR\rdeviceAddress\x12\x1f\n" +
+	"\vdevice_name\x18\x04 \x01(\tR\n" +
+	"deviceName\x121\n" +
+	"\x15observed_at_unix_nano\x18\x05 \x01(\x03R\x12observedAtUnixNano\x12H\n" +
+	"\tneighbors\x18\x06 \x03(\v2*.probectl.device.v1.DeviceNeighborEvidenceR\tneighborsBNZLgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
 
 var (
 	file_probectl_device_v1_device_proto_rawDescOnce sync.Once
@@ -254,18 +534,21 @@ func file_probectl_device_v1_device_proto_rawDescGZIP() []byte {
 	return file_probectl_device_v1_device_proto_rawDescData
 }
 
-var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_probectl_device_v1_device_proto_goTypes = []any{
-	(*DeviceMetric)(nil),      // 0: probectl.device.v1.DeviceMetric
-	(*DeviceMetricBatch)(nil), // 1: probectl.device.v1.DeviceMetricBatch
+	(*DeviceMetric)(nil),           // 0: probectl.device.v1.DeviceMetric
+	(*DeviceMetricBatch)(nil),      // 1: probectl.device.v1.DeviceMetricBatch
+	(*DeviceNeighborEvidence)(nil), // 2: probectl.device.v1.DeviceNeighborEvidence
+	(*DeviceNeighborSnapshot)(nil), // 3: probectl.device.v1.DeviceNeighborSnapshot
 }
 var file_probectl_device_v1_device_proto_depIdxs = []int32{
 	0, // 0: probectl.device.v1.DeviceMetricBatch.metrics:type_name -> probectl.device.v1.DeviceMetric
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 1: probectl.device.v1.DeviceNeighborSnapshot.neighbors:type_name -> probectl.device.v1.DeviceNeighborEvidence
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_probectl_device_v1_device_proto_init() }
@@ -279,7 +562,7 @@ func file_probectl_device_v1_device_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_device_v1_device_proto_rawDesc), len(file_probectl_device_v1_device_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

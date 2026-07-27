@@ -48,6 +48,23 @@ type deviceMetricSummary struct {
 	LastSeen   time.Time `json:"last_seen"`
 }
 
+type deviceNeighborRetention struct {
+	MaxPerDevice        int `json:"max_per_device"`
+	MaxPerTenant        int `json:"max_per_tenant"`
+	StaleRetentionHours int `json:"stale_retention_hours"`
+}
+
+type deviceNeighborResponse struct {
+	ContractVersion   string                    `json:"contract_version"`
+	Items             []device.NeighborEvidence `json:"items"`
+	CollectionRunning bool                      `json:"collection_running"`
+	EffectiveLimit    int                       `json:"effective_limit"`
+	Truncated         bool                      `json:"truncated"`
+	AsOf              time.Time                 `json:"as_of"`
+	LatestAt          *time.Time                `json:"latest_at,omitempty"`
+	Retention         deviceNeighborRetention   `json:"retention"`
+}
+
 type deviceSyslogRequest struct {
 	Device        string            `json:"device"`
 	SourceAddress string            `json:"source_address,omitempty"`
@@ -300,6 +317,72 @@ func (s *Server) handleDeviceMetrics(w http.ResponseWriter, r *http.Request) err
 		"metrics_running": true,
 		"effective_limit": limit,
 	})
+	return nil
+}
+
+// handleDeviceNeighbors serves the bounded, directly observed LLDP/CDP
+// physical adjacency snapshot. Tenant scope is resolved before the store read;
+// the Postgres implementation repeats tenant_id under forced RLS.
+func (s *Server) handleDeviceNeighbors(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	limit, err := intParam(r, "limit", deviceDefaultLimit)
+	if err != nil {
+		return err
+	}
+	if limit > device.MaxNeighborRead {
+		limit = device.MaxNeighborRead
+	}
+	protocol := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("protocol")))
+	if protocol != "" && protocol != device.NeighborProtocolLLDP && protocol != device.NeighborProtocolCDP {
+		return apierror.BadRequest("protocol must be lldp or cdp")
+	}
+	now := time.Now().UTC()
+	resp := deviceNeighborResponse{
+		ContractVersion: "probectl.device-neighbors/v1",
+		Items:           []device.NeighborEvidence{}, CollectionRunning: s.deviceNeighbors != nil,
+		EffectiveLimit: limit, AsOf: now,
+		Retention: deviceNeighborRetention{
+			MaxPerDevice:        device.MaxNeighborsPerDevice,
+			MaxPerTenant:        device.MaxNeighborsPerTenant,
+			StaleRetentionHours: int(device.NeighborStaleRetention / time.Hour),
+		},
+	}
+	if s.deviceNeighbors == nil {
+		writeJSON(w, http.StatusOK, resp)
+		return nil
+	}
+	rows, truncated, err := s.deviceNeighbors.ListNeighbors(r.Context(), tid, device.NeighborFilter{
+		Device:   strings.TrimSpace(r.URL.Query().Get("device")),
+		Protocol: protocol, Limit: limit,
+	})
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		if rows[i].ID == "" {
+			rows[i].ID = rows[i].EvidenceID()
+		}
+		switch {
+		case rows[i].ObservedAt.After(now.Add(time.Minute)):
+			rows[i].Freshness = "future"
+			rows[i].AgeSeconds = 0
+		case now.After(rows[i].FreshUntil):
+			rows[i].Freshness = "stale"
+			rows[i].AgeSeconds = max(0, int64(now.Sub(rows[i].ObservedAt).Seconds()))
+		default:
+			rows[i].Freshness = "current"
+			rows[i].AgeSeconds = max(0, int64(now.Sub(rows[i].ObservedAt).Seconds()))
+		}
+		if resp.LatestAt == nil || rows[i].ObservedAt.After(*resp.LatestAt) {
+			at := rows[i].ObservedAt
+			resp.LatestAt = &at
+		}
+	}
+	resp.Items, resp.Truncated = rows, truncated
+	writeJSON(w, http.StatusOK, resp)
 	return nil
 }
 

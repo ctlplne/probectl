@@ -35,6 +35,7 @@ type TenantStore interface {
 	ObserveServiceEdge(in ServiceEdgeInput, at time.Time)
 	ObserveRouting(in RoutingInput, at time.Time)
 	ObserveDevice(in DeviceInput, at time.Time)
+	ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time)
 	IdentityConflicts() IdentityConflictSnapshot
 
 	SnapshotAt(at time.Time) Snapshot
@@ -48,6 +49,7 @@ type tenantBackend interface {
 	observeServiceEdgeTenant(tenant string, in ServiceEdgeInput, at time.Time)
 	observeRoutingTenant(tenant string, in RoutingInput, at time.Time)
 	observeDeviceTenant(tenant string, in DeviceInput, at time.Time)
+	observePhysicalAdjacencyTenant(tenant string, in PhysicalAdjacencyInput, at time.Time)
 	identityConflictsTenant(tenant string) IdentityConflictSnapshot
 	snapshotAtTenant(tenant string, at time.Time) Snapshot
 	latestTenant(tenant string) Snapshot
@@ -100,6 +102,11 @@ func (t tenantStore) ObserveRouting(in RoutingInput, at time.Time) {
 // ObserveDevice implements TenantStore.
 func (t tenantStore) ObserveDevice(in DeviceInput, at time.Time) {
 	t.store.observeDeviceTenant(t.tenant, in, at)
+}
+
+// ObservePhysicalAdjacency implements TenantStore.
+func (t tenantStore) ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time) {
+	t.store.observePhysicalAdjacencyTenant(t.tenant, in, at)
 }
 
 // IdentityConflicts implements TenantStore.
@@ -226,6 +233,14 @@ func (s *MemoryStore) ObserveDevice(tenant string, in DeviceInput, at time.Time)
 	s.observeDeviceTenant(tenant, in, at)
 }
 
+// ObservePhysicalAdjacency is a concrete compatibility helper.
+func (s *MemoryStore) ObservePhysicalAdjacency(tenant string, in PhysicalAdjacencyInput, at time.Time) {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return
+	}
+	s.observePhysicalAdjacencyTenant(tenant, in, at)
+}
+
 // SnapshotAt is a concrete compatibility helper. Tenant-owned production
 // callers should bind ForTenant first.
 func (s *MemoryStore) SnapshotAt(tenant string, at time.Time) Snapshot {
@@ -276,6 +291,10 @@ func (s *MemoryStore) observeRoutingTenant(tenant string, in RoutingInput, at ti
 
 func (s *MemoryStore) observeDeviceTenant(tenant string, in DeviceInput, at time.Time) {
 	s.graph(tenant).ObserveDevice(in, at)
+}
+
+func (s *MemoryStore) observePhysicalAdjacencyTenant(tenant string, in PhysicalAdjacencyInput, at time.Time) {
+	s.graph(tenant).ObservePhysicalAdjacency(in, at)
 }
 
 func (s *MemoryStore) identityConflictsTenant(tenant string) IdentityConflictSnapshot {

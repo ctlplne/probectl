@@ -149,6 +149,7 @@ func TestAnsibleRoleRendersTypedAgentConfigs(t *testing.T) {
 		"probectl_device_credential":                      "device-snmp",
 		"probectl_device_interval":                        "60s",
 		"probectl_device_sensors | bool":                  "true",
+		"probectl_device_neighbors | bool":                "true",
 		"probectl_endpoint_interval":                      "60s",
 		"probectl_endpoint_targets | to_json":             `["https://portal.example","https://1.1.1.1"]`,
 		"probectl_endpoint_max_hops":                      "20",

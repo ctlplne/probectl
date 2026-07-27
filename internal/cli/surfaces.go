@@ -84,6 +84,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	"device": {Name: "device", Summary: "device inventory and telemetry", Ops: map[string]apiOp{
 		"list":           {Method: http.MethodGet, Path: "/v1/devices"},
 		"metrics":        {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},
+		"neighbors":      {Method: http.MethodGet, Path: "/v1/device/neighbors", Description: "list bounded tenant LLDP/CDP physical adjacency evidence"},
 		"conflicts":      {Method: http.MethodGet, Path: "/v1/device/identity-conflicts", Description: "list bounded read-only cross-source device identity conflicts"},
 		"syslog":         {Method: http.MethodGet, Path: "/v1/device/syslog", Description: "list bounded tenant device syslog events"},
 		"ingest-syslog":  {Method: http.MethodPost, Path: "/v1/device/syslog", Description: "ingest one authenticated device syslog event"},

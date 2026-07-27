@@ -35,6 +35,7 @@ export interface TopoCoverage {
   flow_edges: number
   routing_edges: number
   device_edges: number
+  physical_edges?: number
   notes?: string[]
 }
 
