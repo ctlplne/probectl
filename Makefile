@@ -26,7 +26,16 @@ GO_MODULE_DIRS := . test
 # (binary == chart appVersion == compose image pin). A tagged release overrides
 # it via `git describe` (the tag is authoritative on release); otherwise the
 # VERSION file is stamped into the binary so dev/compose/chart all agree.
-VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || cat VERSION 2>/dev/null || echo "0.0.0-dev")
+PROBECTL_VERSION_ORIGIN := $(origin VERSION)
+PROBECTL_REQUESTED_VERSION := $(strip $(VERSION))
+PROBECTL_EXACT_TAG    ?= $(strip $(shell git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null))
+PROBECTL_VERSION_FILE ?= $(strip $(shell cat VERSION 2>/dev/null))
+PROBECTL_UNTAGGED_VERSION := $(if $(filter undefined,$(PROBECTL_VERSION_ORIGIN)),$(PROBECTL_VERSION_FILE),$(PROBECTL_REQUESTED_VERSION))
+override VERSION := $(strip $(if $(PROBECTL_EXACT_TAG),$(patsubst v%,%,$(PROBECTL_EXACT_TAG)),$(PROBECTL_UNTAGGED_VERSION)))
+VERSION_IS_SEMVER := $(shell printf '%s\n' '$(VERSION)' | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$$' && printf valid)
+ifneq ($(VERSION_IS_SEMVER),valid)
+$(error VERSION resolved to '$(VERSION)'; expected a non-empty semantic version (for example 0.6.0 or 0.6.0-rc.1))
+endif
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w \
@@ -54,6 +63,10 @@ GOVULNCHECK_VERSION ?= v1.1.4
 .PHONY: help
 help: ## Show this help.
 	@awk 'BEGIN{FS=":.*##"; print "probectl make targets:"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+.PHONY: print-version
+print-version: ## Print the validated version this Make invocation will stamp.
+	@printf '%s\n' "$(VERSION)"
 
 # ---- build ---------------------------------------------------------------
 .PHONY: build

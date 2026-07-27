@@ -28,8 +28,9 @@ a suffix, e.g. `v0.2.0-rc.1`.
 The version is stamped into every binary at build time
 (`internal/version`, via `-ldflags` — linker flags that write values into the
 binary's variables as it is linked) and surfaced at the `/version` HTTP endpoint
-and via `probectl-control version`. So a running binary can always tell you
-exactly which tag it was cut from.
+and via each binary's local `version` command (the Terraform provider answers
+this before starting its plugin handshake). So a running artifact can always
+tell you exactly which tag or untagged source version it was cut from.
 
 The core OpenAPI artifact follows the same product version: `info.version` in
 `internal/control/openapi.json` must match the repo-root `VERSION` exactly. The
@@ -43,6 +44,14 @@ the greatest stable `vMAJOR.MINOR.PATCH` tag reachable from `HEAD`. It rejects a
 source version older than an existing release, even when all files agree on the
 same stale value. The CI checkout for this gate fetches full tag history so a
 shallow clone cannot hide that release floor.
+
+`make print-version` shows the exact validated version that `make build` will
+stamp. On an untagged source commit, Make reads the repo-root `VERSION`; on an
+exact `v...` release tag, the normalized tag is authoritative. Resolution is
+fail-closed: an empty or malformed file/tag/override stops Make before a binary
+can be linked. The consistency gate runs planted untagged, exact-tag, empty, and
+malformed cases against this real Make resolver, so the fallback cannot silently
+regress to an empty stamp.
 
 ## What a release publishes
 

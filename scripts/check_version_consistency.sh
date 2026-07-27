@@ -8,7 +8,8 @@
 # greatest stable semantic-version tag reachable from HEAD. The binary version
 # is stamped from the same VERSION file via the Makefile (a tagged release
 # overrides it with the tag, which release.yml already asserts equals the chart
-# appVersion), so every shipped surface converges.
+# appVersion), so every shipped surface converges. The gate directly exercises
+# that Make resolution path, including its fail-closed cases.
 #
 # Run: scripts/check_version_consistency.sh    (exits non-zero on any mismatch)
 set -euo pipefail
@@ -19,6 +20,10 @@ stable_semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 
 is_stable_semver() {
   [[ "$1" =~ $stable_semver_re ]]
+}
+
+make_version() {
+  env -u VERSION make --no-print-directory print-version "$@"
 }
 
 # Return success only when the first stable SemVer is numerically lower than
@@ -65,6 +70,48 @@ if [ -z "$truth" ]; then
 fi
 if ! is_stable_semver "$truth"; then
   echo "::error::VERSION ($truth) is not a stable MAJOR.MINOR.PATCH semantic version (OPS-008)"
+  exit 1
+fi
+
+# Exercise the actual Make resolver. The empty exact-tag override simulates an
+# untagged commit and catches the former `git describe | sed || cat VERSION`
+# pipeline: sed returned success on empty input, so the file fallback was
+# skipped and binaries were stamped with an empty version.
+fallback_probe="$(make_version PROBECTL_EXACT_TAG= PROBECTL_VERSION_FILE=9.8.7)"
+if [ "$fallback_probe" != "9.8.7" ]; then
+  echo "::error::untagged Make fallback resolved $fallback_probe, want 9.8.7 (OPS-008)"
+  exit 1
+fi
+tag_probe="$(make_version VERSION=9.8.6 PROBECTL_EXACT_TAG=v9.8.8 PROBECTL_VERSION_FILE=9.8.7)"
+if [ "$tag_probe" != "9.8.8" ]; then
+  echo "::error::exact stable tag did not override VERSION input/file: got $tag_probe (OPS-008)"
+  exit 1
+fi
+if make_version PROBECTL_EXACT_TAG= PROBECTL_VERSION_FILE= >/dev/null 2>&1; then
+  echo "::error::empty Make version fallback was accepted (OPS-008)"
+  exit 1
+fi
+if make_version PROBECTL_EXACT_TAG= PROBECTL_VERSION_FILE=not-semver >/dev/null 2>&1; then
+  echo "::error::malformed VERSION file fallback was accepted (OPS-008)"
+  exit 1
+fi
+if make_version VERSION=not-semver PROBECTL_EXACT_TAG= PROBECTL_VERSION_FILE=9.8.7 >/dev/null 2>&1; then
+  echo "::error::malformed explicit VERSION was accepted (OPS-008)"
+  exit 1
+fi
+if make_version PROBECTL_EXACT_TAG=vnot-semver PROBECTL_VERSION_FILE=9.8.7 >/dev/null 2>&1; then
+  echo "::error::malformed exact tag was accepted (OPS-008)"
+  exit 1
+fi
+
+exact_tag="$(git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null || true)"
+expected_make_version="$truth"
+if [ -n "$exact_tag" ]; then
+  expected_make_version="${exact_tag#v}"
+fi
+resolved_make_version="$(make_version)"
+if [ "$resolved_make_version" != "$expected_make_version" ]; then
+  echo "::error::Make resolved version ($resolved_make_version) != expected ($expected_make_version) (OPS-008)"
   exit 1
 fi
 
@@ -116,7 +163,7 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 if [ -n "$latest_stable" ]; then
-  echo "version consistency OK: VERSION=$truth == Chart appVersion == Compose pin == OpenAPI; latest reachable stable tag=v$latest_stable"
+  echo "version consistency OK: Make=$resolved_make_version; VERSION=$truth == Chart appVersion == Compose pin == OpenAPI; latest reachable stable tag=v$latest_stable"
 else
-  echo "version consistency OK: VERSION=$truth == Chart appVersion == Compose pin == OpenAPI; no reachable stable tag"
+  echo "version consistency OK: Make=$resolved_make_version; VERSION=$truth == Chart appVersion == Compose pin == OpenAPI; no reachable stable tag"
 fi
