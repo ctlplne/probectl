@@ -6,11 +6,19 @@
 
 import '@testing-library/jest-dom'
 import { expect, afterEach, beforeEach, vi } from 'vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { toHaveNoViolations } from 'jest-axe'
 import { defaultFetch } from './fetchStub'
 
 expect.extend(toHaveNoViolations)
+
+// Testing Library otherwise gives every findBy*/waitFor query only one second,
+// even though Vitest's finite hang detector below the suite is 15 seconds. A
+// fully instrumented coverage run can spend more than one second scheduling a
+// healthy render on a loaded runner. Keep async UI queries bounded, but give
+// them enough headroom to observe that render without turning retries into the
+// test oracle.
+configure({ asyncUtilTimeout: 5_000 })
 
 // Every test gets a working fetch (the read-only default); CRUD tests override
 // it with their own stateful stub via vi.stubGlobal.
