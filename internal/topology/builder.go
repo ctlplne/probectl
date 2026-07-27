@@ -71,6 +71,16 @@ type PhysicalAdjacencyInput struct {
 	FreshUntil     time.Time
 }
 
+// PhysicalAdjacencySnapshot is one authoritative, successful LLDP/CDP poll
+// for a tenant-bound agent and local device. Adjacencies omitted from the
+// snapshot are no longer current for this source, but remain queryable at
+// their historical observation times.
+type PhysicalAdjacencySnapshot struct {
+	SourceAgent  string
+	LocalAddress string
+	Adjacencies  []PhysicalAdjacencyInput
+}
+
 func hopID(ip string) string      { return "hop:" + ip }
 func hostID(ip string) string     { return "host:" + ip }
 func agentID(id string) string    { return "agent:" + id }
@@ -168,13 +178,23 @@ func (g *Graph) ObserveDevice(in DeviceInput, at time.Time) {
 // the temporal graph. The remote identity prefers a management address, then
 // the protocol's chassis/device identifier; no guessed IP or merge occurs.
 func (g *Graph) ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time) {
-	if in.LocalAddress == "" || (in.RemoteAddress == "" && in.RemoteIdentity == "") {
+	localNode, remoteNode, edge, ok := physicalAdjacencyElements(in)
+	if !ok {
 		return
+	}
+	g.UpsertNode(localNode, at)
+	g.UpsertNode(remoteNode, at)
+	g.UpsertEdge(edge, at)
+}
+
+func physicalAdjacencyElements(in PhysicalAdjacencyInput) (Node, Node, Edge, bool) {
+	if in.LocalAddress == "" || (in.RemoteAddress == "" && in.RemoteIdentity == "") {
+		return Node{}, Node{}, Edge{}, false
 	}
 	local := deviceID(in.LocalAddress)
 	localLabel := firstNonEmpty([]string{in.LocalName, in.LocalAddress})
-	g.UpsertNode(Node{ID: local, Kind: NodeDevice, Label: localLabel,
-		Attributes: map[string]string{"probectl.device.address": in.LocalAddress}}, at)
+	localNode := Node{ID: local, Kind: NodeDevice, Label: localLabel,
+		Attributes: map[string]string{"probectl.device.address": in.LocalAddress}}
 	remoteKey := in.RemoteAddress
 	if remoteKey == "" {
 		remoteKey = in.Protocol + ":" + in.RemoteIdentity
@@ -185,7 +205,7 @@ func (g *Graph) ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time
 	if in.RemoteAddress != "" {
 		attrs["probectl.device.address"] = in.RemoteAddress
 	}
-	g.UpsertNode(Node{ID: remote, Kind: NodeDevice, Label: remoteLabel, Attributes: attrs}, at)
+	remoteNode := Node{ID: remote, Kind: NodeDevice, Label: remoteLabel, Attributes: attrs}
 	label := strings.Trim(strings.Join([]string{in.LocalPort, in.RemotePort}, " ↔ "), " ↔")
 	edgeAttrs := map[string]string{
 		"probectl.device.neighbor.protocol":   in.Protocol,
@@ -199,10 +219,12 @@ func (g *Graph) ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time
 	if !in.FreshUntil.IsZero() {
 		edgeAttrs["probectl.device.neighbor.fresh_until"] = in.FreshUntil.UTC().Format(time.RFC3339Nano)
 	}
-	g.UpsertEdge(Edge{
+	edge := Edge{
 		From: local, To: remote, Kind: EdgePhysical, Label: label,
 		Attributes: edgeAttrs,
-	}, at)
+	}
+	edge.ID = EdgeID(edge.From, edge.Kind, edge.To)
+	return localNode, remoteNode, edge, true
 }
 
 // ObserveRouting folds a BGP routing observation (origin AS → prefix) into the graph.

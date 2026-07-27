@@ -368,6 +368,8 @@ func (f fakeTenantTopo) ObserveRouting(topology.RoutingInput, time.Time)        
 func (f fakeTenantTopo) ObserveDevice(topology.DeviceInput, time.Time)           {}
 func (f fakeTenantTopo) ObservePhysicalAdjacency(topology.PhysicalAdjacencyInput, time.Time) {
 }
+func (f fakeTenantTopo) ReplacePhysicalAdjacencies(topology.PhysicalAdjacencySnapshot, time.Time) {
+}
 func (f fakeTenantTopo) IdentityConflicts() topology.IdentityConflictSnapshot {
 	return topology.IdentityConflictSnapshot{}
 }

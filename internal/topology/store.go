@@ -36,6 +36,7 @@ type TenantStore interface {
 	ObserveRouting(in RoutingInput, at time.Time)
 	ObserveDevice(in DeviceInput, at time.Time)
 	ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time)
+	ReplacePhysicalAdjacencies(in PhysicalAdjacencySnapshot, at time.Time)
 	IdentityConflicts() IdentityConflictSnapshot
 
 	SnapshotAt(at time.Time) Snapshot
@@ -50,6 +51,7 @@ type tenantBackend interface {
 	observeRoutingTenant(tenant string, in RoutingInput, at time.Time)
 	observeDeviceTenant(tenant string, in DeviceInput, at time.Time)
 	observePhysicalAdjacencyTenant(tenant string, in PhysicalAdjacencyInput, at time.Time)
+	replacePhysicalAdjacenciesTenant(tenant string, in PhysicalAdjacencySnapshot, at time.Time)
 	identityConflictsTenant(tenant string) IdentityConflictSnapshot
 	snapshotAtTenant(tenant string, at time.Time) Snapshot
 	latestTenant(tenant string) Snapshot
@@ -107,6 +109,11 @@ func (t tenantStore) ObserveDevice(in DeviceInput, at time.Time) {
 // ObservePhysicalAdjacency implements TenantStore.
 func (t tenantStore) ObservePhysicalAdjacency(in PhysicalAdjacencyInput, at time.Time) {
 	t.store.observePhysicalAdjacencyTenant(t.tenant, in, at)
+}
+
+// ReplacePhysicalAdjacencies implements TenantStore.
+func (t tenantStore) ReplacePhysicalAdjacencies(in PhysicalAdjacencySnapshot, at time.Time) {
+	t.store.replacePhysicalAdjacenciesTenant(t.tenant, in, at)
 }
 
 // IdentityConflicts implements TenantStore.
@@ -241,6 +248,14 @@ func (s *MemoryStore) ObservePhysicalAdjacency(tenant string, in PhysicalAdjacen
 	s.observePhysicalAdjacencyTenant(tenant, in, at)
 }
 
+// ReplacePhysicalAdjacencies is a concrete compatibility helper.
+func (s *MemoryStore) ReplacePhysicalAdjacencies(tenant string, in PhysicalAdjacencySnapshot, at time.Time) {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return
+	}
+	s.replacePhysicalAdjacenciesTenant(tenant, in, at)
+}
+
 // SnapshotAt is a concrete compatibility helper. Tenant-owned production
 // callers should bind ForTenant first.
 func (s *MemoryStore) SnapshotAt(tenant string, at time.Time) Snapshot {
@@ -295,6 +310,10 @@ func (s *MemoryStore) observeDeviceTenant(tenant string, in DeviceInput, at time
 
 func (s *MemoryStore) observePhysicalAdjacencyTenant(tenant string, in PhysicalAdjacencyInput, at time.Time) {
 	s.graph(tenant).ObservePhysicalAdjacency(in, at)
+}
+
+func (s *MemoryStore) replacePhysicalAdjacenciesTenant(tenant string, in PhysicalAdjacencySnapshot, at time.Time) {
+	s.graph(tenant).ReplacePhysicalAdjacencies(in, at)
 }
 
 func (s *MemoryStore) identityConflictsTenant(tenant string) IdentityConflictSnapshot {

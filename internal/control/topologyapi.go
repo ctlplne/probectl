@@ -540,16 +540,20 @@ func (tc *TopologyConsumer) handleDeviceNeighborLane(ctx context.Context, msg bu
 		tc.ledger.addUnscoped("device", 1)
 		return nil
 	}
+	adjacencies := make([]topology.PhysicalAdjacencyInput, 0, len(valid.Neighbors))
 	for _, n := range valid.Neighbors {
-		graph.ObservePhysicalAdjacency(topology.PhysicalAdjacencyInput{
+		adjacencies = append(adjacencies, topology.PhysicalAdjacencyInput{
 			LocalAddress: n.LocalDeviceAddress, LocalName: n.LocalDeviceName, LocalPort: n.LocalPortID,
 			RemoteAddress: n.RemoteManagementAddress, RemoteIdentity: n.RemoteChassisID,
 			RemoteName: n.RemoteDeviceName, RemotePort: n.RemotePortID,
 			Protocol: n.Protocol, Confidence: fmt.Sprintf("%.2f", n.Confidence),
 			SourceAgent: n.AgentID, FreshUntil: n.FreshUntil,
-		}, n.ObservedAt)
+		})
 		tc.ledger.addStored("device", 1)
 	}
+	graph.ReplacePhysicalAdjacencies(topology.PhysicalAdjacencySnapshot{
+		SourceAgent: valid.AgentID, LocalAddress: valid.DeviceAddress, Adjacencies: adjacencies,
+	}, valid.ObservedAt)
 	return nil
 }
 

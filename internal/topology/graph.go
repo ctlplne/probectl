@@ -30,6 +30,12 @@ type Graph struct {
 	// O(touched) feed for the S43 indexed engine's adjacency indexes.
 	recent []Edge
 
+	// Physical adjacency is replaced by successful source snapshots, while the
+	// edge records themselves remain for historical SnapshotAt queries.
+	physicalSources map[physicalSource]physicalSourceState
+	physicalOwners  map[string]map[physicalSource]struct{}
+	physicalRetired map[string]time.Time
+
 	// Bounds (SCALE-004 / CORRECT-014). maxNodes/maxEdges cap per-tenant memory:
 	// when an upsert of a NEW element would exceed the cap, the least-recently-
 	// seen element is evicted (a runaway agent minting churn identities can't
@@ -47,8 +53,21 @@ type Graph struct {
 func NewGraph(tenant string) *Graph {
 	return &Graph{
 		tenant: tenant, nodes: map[string]*Node{}, edges: map[string]*Edge{},
-		identityClaims: map[string]*identityClaimSet{}, now: time.Now,
+		identityClaims:  map[string]*identityClaimSet{},
+		physicalSources: map[physicalSource]physicalSourceState{},
+		physicalOwners:  map[string]map[physicalSource]struct{}{},
+		physicalRetired: map[string]time.Time{},
+		now:             time.Now,
 	}
+}
+
+type physicalSource struct {
+	agent        string
+	localAddress string
+}
+
+type physicalSourceState struct {
+	edgeIDs map[string]struct{}
 }
 
 // SetBounds configures per-tenant node/edge caps and the Latest() staleness
@@ -85,7 +104,7 @@ func (g *Graph) evictOldestEdgeLocked() {
 		}
 	}
 	if oldestID != "" {
-		delete(g.edges, oldestID)
+		g.deleteEdgeLocked(oldestID)
 	}
 }
 
@@ -97,6 +116,10 @@ func (g *Graph) Tenant() string { return g.tenant }
 func (g *Graph) UpsertNode(n Node, at time.Time) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.upsertNodeLocked(n, at)
+}
+
+func (g *Graph) upsertNodeLocked(n Node, at time.Time) {
 	cur, ok := g.nodes[n.ID]
 	if !ok {
 		n.FirstSeen, n.LastSeen = at, at
@@ -128,11 +151,15 @@ func (g *Graph) UpsertNode(n Node, at time.Time) {
 
 // UpsertEdge records a directed edge observation at time `at`.
 func (g *Graph) UpsertEdge(e Edge, at time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.upsertEdgeLocked(e, at)
+}
+
+func (g *Graph) upsertEdgeLocked(e Edge, at time.Time) {
 	if e.ID == "" {
 		e.ID = EdgeID(e.From, e.Kind, e.To)
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	cur, ok := g.edges[e.ID]
 	if !ok {
 		e.FirstSeen, e.LastSeen = at, at
@@ -144,6 +171,9 @@ func (g *Graph) UpsertEdge(e Edge, at time.Time) {
 		}
 		g.edges[e.ID] = &e
 		g.recent = append(g.recent, Edge{ID: e.ID, From: e.From, To: e.To, Kind: e.Kind})
+		if e.Kind == EdgePhysical {
+			delete(g.physicalRetired, e.ID)
+		}
 		return
 	}
 	if at.Before(cur.FirstSeen) {
@@ -157,6 +187,11 @@ func (g *Graph) UpsertEdge(e Edge, at time.Time) {
 	}
 	for k, v := range e.Attributes {
 		cur.Attributes[k] = v
+	}
+	if e.Kind == EdgePhysical {
+		if retiredAt, retired := g.physicalRetired[e.ID]; retired && !at.Before(retiredAt) {
+			delete(g.physicalRetired, e.ID)
+		}
 	}
 }
 
@@ -180,8 +215,9 @@ func (g *Graph) SnapshotAt(at time.Time) Snapshot {
 	return s
 }
 
-// Latest returns the full current graph (every node and edge ever observed),
-// timestamped with the most recent observation.
+// Latest returns the current graph, timestamped with the most recent
+// observation. Historical physical edges retired by authoritative source
+// snapshots remain in SnapshotAt but are excluded here.
 func (g *Graph) Latest() Snapshot {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -207,7 +243,12 @@ func (g *Graph) Latest() Snapshot {
 			s.At = n.LastSeen
 		}
 	}
-	for _, e := range g.edges {
+	for id, e := range g.edges {
+		if e.Kind == EdgePhysical {
+			if _, retired := g.physicalRetired[id]; retired {
+				continue
+			}
+		}
 		if !fresh(e.LastSeen) {
 			continue
 		}
@@ -301,7 +342,7 @@ func (g *Graph) PruneBefore(cutoff time.Time) (nodesDeleted, edgesDeleted int) {
 	nodesDeleted += g.pruneIdentityClaimsBeforeLocked(cutoff)
 	for id, e := range g.edges {
 		if e.LastSeen.Before(cutoff) {
-			delete(g.edges, id)
+			g.deleteEdgeLocked(id)
 			edgesDeleted++
 		}
 	}
@@ -313,12 +354,12 @@ func (g *Graph) PruneBefore(cutoff time.Time) (nodesDeleted, edgesDeleted int) {
 	}
 	for id, e := range g.edges {
 		if _, ok := g.nodes[e.From]; !ok {
-			delete(g.edges, id)
+			g.deleteEdgeLocked(id)
 			edgesDeleted++
 			continue
 		}
 		if _, ok := g.nodes[e.To]; !ok {
-			delete(g.edges, id)
+			g.deleteEdgeLocked(id)
 			edgesDeleted++
 		}
 	}
@@ -332,6 +373,16 @@ func (g *Graph) PruneBefore(cutoff time.Time) (nodesDeleted, edgesDeleted int) {
 		g.recent = kept
 	}
 	return nodesDeleted, edgesDeleted
+}
+
+func (g *Graph) deleteEdgeLocked(id string) {
+	delete(g.edges, id)
+	delete(g.physicalRetired, id)
+	delete(g.physicalOwners, id)
+	for source, state := range g.physicalSources {
+		delete(state.edgeIDs, id)
+		g.physicalSources[source] = state
+	}
 }
 
 func validAt(first, last, at time.Time) bool {

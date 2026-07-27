@@ -117,8 +117,13 @@ unverifiable records are dropped (guardrail 1).
 Bounded LLDP/CDP snapshots arrive separately on
 `probectl.device.neighbors`. The consumer verifies the tenant-namespaced lane,
 agent registry, and every normalized row, persists the current snapshot before
-acknowledging it, then folds only directly observed `physical` edges into the
-tenant-bound graph. Missing neighbor evidence leaves the edge absent.
+acknowledging it, then reconciles only the emitting agent + local device's
+directly observed `physical` edges in the tenant-bound graph. A successful
+empty or partial snapshot removes omitted source-owned edges from the live
+graph without touching another source or tenant; historical snapshots retain
+the earlier observation. An incomplete poll emits no replacement snapshot, so
+previous evidence remains visible until it ages stale rather than disappearing
+as a false empty. Missing neighbor evidence leaves the live edge absent.
 
 Device → hop linkage depends on the telemetry exposing interface IPs. When it
 does (`ObserveDevice` with `InterfaceIPs`), the device node links to the hops it
