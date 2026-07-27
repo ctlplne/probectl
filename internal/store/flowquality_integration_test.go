@@ -63,6 +63,33 @@ func TestFlowQualityReceiptStorageIsForcedRLSTenantIsolatedAndSecretFree(t *test
 		t.Fatalf("tenant B rows=%+v err=%v", rowsB, err)
 	}
 
+	boundaryAsOf := now.Add(time.Hour)
+	boundaryLast := boundaryAsOf.Add(-flow.QualityStaleAfter)
+	boundary := flow.EvaluateQualityState(flow.QualityReceipt{
+		TenantID: tenantA.ID, AgentID: "agent-boundary", ExporterAddress: "192.0.2.99",
+		Protocol: flow.ProtoIPFIX, WindowStartedAt: boundaryAsOf.Add(-4 * time.Minute),
+		WindowEndedAt: boundaryAsOf, LastPacketAt: boundaryLast, LastValidRecordAt: &boundaryLast,
+		PacketsReceived: 1, RecordsDecoded: 1,
+		TemplateState: flow.QualityTemplateReady,
+		SamplingState: flow.QualitySamplingUnsampled,
+	}, boundaryAsOf)
+	if err := repo.UpsertQualityReceipt(ctx, tenantA.ID, boundary); err != nil {
+		t.Fatalf("upsert boundary receipt: %v", err)
+	}
+	healthy, _, err := repo.ListQualityReceipts(ctx, tenantA.ID, flow.QualityFilter{
+		Exporter: boundary.ExporterAddress, State: flow.QualityStateHealthy, AsOf: boundaryAsOf,
+	})
+	if err != nil || len(healthy) != 1 || healthy[0].State != flow.QualityStateHealthy {
+		t.Fatalf("healthy boundary rows=%+v err=%v", healthy, err)
+	}
+	staleAsOf := boundaryAsOf.Add(time.Nanosecond)
+	stale, _, err := repo.ListQualityReceipts(ctx, tenantA.ID, flow.QualityFilter{
+		Exporter: boundary.ExporterAddress, State: flow.QualityStateStale, AsOf: staleAsOf,
+	})
+	if err != nil || len(stale) != 1 || stale[0].State != flow.QualityStateStale {
+		t.Fatalf("stale boundary rows=%+v err=%v", stale, err)
+	}
+
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantA.ID)), pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
 			var count int

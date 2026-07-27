@@ -18,6 +18,24 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 )
 
+type captureFlowQualityStore struct {
+	filter  flow.QualityFilter
+	receipt flow.QualityReceipt
+}
+
+func (s *captureFlowQualityStore) UpsertQualityReceipt(context.Context, string, flow.QualityReceipt) error {
+	return nil
+}
+
+func (s *captureFlowQualityStore) ListQualityReceipts(_ context.Context, _ string, filter flow.QualityFilter) ([]flow.QualityReceipt, bool, error) {
+	s.filter = filter
+	receipt := flow.EvaluateQualityState(s.receipt, filter.AsOf)
+	if filter.State != "" && receipt.State != filter.State {
+		return []flow.QualityReceipt{}, false, nil
+	}
+	return []flow.QualityReceipt{receipt}, false, nil
+}
+
 // seedFlows loads the server's flow store with two tenants' rows; the second
 // tenant's row is the cross-tenant canary that must never appear (the dev-mode
 // principal is tenant 00000000-0000-0000-0000-000000000001).
@@ -187,6 +205,38 @@ func TestFlowIngestQualityAPITenantScopedVersionedAndRedacted(t *testing.T) {
 		if got := do(srv, http.MethodGet, path).Code; got != http.StatusBadRequest {
 			t.Fatalf("%s status=%d, want 400", path, got)
 		}
+	}
+}
+
+func TestFlowIngestQualityAPIUsesResponseAsOfForStateFilter(t *testing.T) {
+	last := time.Date(2020, 1, 1, 2, 0, 0, 0, time.UTC)
+	store := &captureFlowQualityStore{
+		receipt: flow.QualityReceipt{
+			AgentID: "agent-a", ExporterAddress: "192.0.2.10", Protocol: flow.ProtoIPFIX,
+			WindowStartedAt: last.Add(-time.Minute), WindowEndedAt: last,
+			LastPacketAt: last, LastValidRecordAt: &last,
+			PacketsReceived: 1, RecordsDecoded: 1,
+			TemplateState: flow.QualityTemplateReady,
+			SamplingState: flow.QualitySamplingUnsampled,
+		},
+	}
+	rec := do(
+		testServer(fakePinger{}).WithFlowQualityReceipts(store),
+		http.MethodGet,
+		"/v1/flows/ingest-quality?state=stale",
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp flowQualityResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if store.filter.AsOf.IsZero() || !resp.AsOf.Equal(store.filter.AsOf) {
+		t.Fatalf("response as_of=%s store as_of=%s", resp.AsOf, store.filter.AsOf)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].State != flow.QualityStateStale {
+		t.Fatalf("state-filtered response=%+v", resp)
 	}
 }
 

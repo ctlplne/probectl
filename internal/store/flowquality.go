@@ -151,6 +151,10 @@ func (s *FlowQualityReceipts) ListQualityReceipts(ctx context.Context, tenant st
 	if limit > flow.MaxQualityReceiptRead {
 		limit = flow.MaxQualityReceiptRead
 	}
+	asOf := filter.AsOf.UTC()
+	if asOf.IsZero() {
+		asOf = time.Now().UTC()
+	}
 	var out []flow.QualityReceipt
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))
 	err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -164,13 +168,13 @@ func (s *FlowQualityReceipts) ListQualityReceipts(ctx context.Context, tenant st
 			  FROM flow_ingest_quality_receipts
 			 WHERE tenant_id = $1
 			   AND window_ended_at
-			       >= clock_timestamp() - ($2 * interval '1 second')
-			   AND ($3 = '' OR agent_id = $3)
-			   AND ($4 = '' OR exporter_address = NULLIF($4, '')::inet)
-			   AND ($5 = '' OR protocol = $5)
+			       >= $2::timestamptz - ($3 * interval '1 second')
+			   AND ($4 = '' OR agent_id = $4)
+			   AND ($5 = '' OR exporter_address = NULLIF($5, '')::inet)
+			   AND ($6 = '' OR protocol = $6)
 			 ORDER BY window_ended_at DESC, agent_id, exporter_address, protocol
-			 LIMIT $6`,
-			sc.Tenant.String(), int64(flow.QualityReceiptRetention/time.Second),
+			 LIMIT $7`,
+			sc.Tenant.String(), asOf, int64(flow.QualityReceiptRetention/time.Second),
 			filter.AgentID, filter.Exporter, filter.Protocol,
 			flow.MaxQualityReceiptsPerTenant)
 		if err != nil {
@@ -191,7 +195,7 @@ func (s *FlowQualityReceipts) ListQualityReceipts(ctx context.Context, tenant st
 			); err != nil {
 				return err
 			}
-			row = flow.EvaluateQualityState(row, time.Now().UTC())
+			row = flow.EvaluateQualityState(row, asOf)
 			if filter.State == "" || row.State == filter.State {
 				out = append(out, row)
 			}

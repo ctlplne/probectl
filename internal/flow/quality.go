@@ -95,6 +95,9 @@ type QualityFilter struct {
 	Protocol string
 	State    string
 	Limit    int
+	// AsOf pins retention, state evaluation, and state filtering to one
+	// request-scoped clock. A zero value asks the store to capture UTC now once.
+	AsOf time.Time
 }
 
 // QualityStore is the tenant-first persistence seam for flow ingest receipts.
@@ -364,15 +367,19 @@ func (m *MemoryQualityStore) ListQualityReceipts(_ context.Context, tenant strin
 	if limit > MaxQualityReceiptRead {
 		limit = MaxQualityReceiptRead
 	}
+	asOf := filter.AsOf.UTC()
+	if asOf.IsZero() {
+		asOf = time.Now().UTC()
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]QualityReceipt, 0, len(m.rows[tenant]))
-	retainAfter := time.Now().UTC().Add(-QualityReceiptRetention)
+	retainAfter := asOf.Add(-QualityReceiptRetention)
 	for _, row := range m.rows[tenant] {
 		if row.WindowEndedAt.Before(retainAfter) {
 			continue
 		}
-		row = EvaluateQualityState(row, time.Now().UTC())
+		row = EvaluateQualityState(row, asOf)
 		if filter.AgentID != "" && row.AgentID != filter.AgentID ||
 			filter.Exporter != "" && row.ExporterAddress != filter.Exporter ||
 			filter.Protocol != "" && row.Protocol != filter.Protocol ||

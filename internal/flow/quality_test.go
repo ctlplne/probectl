@@ -121,6 +121,34 @@ func TestMemoryQualityStoreIsTenantScopedMonotonicAndDerivesStaleState(t *testin
 	}
 }
 
+func TestMemoryQualityStoreUsesFilterAsOfAtStaleBoundary(t *testing.T) {
+	store := NewMemoryQualityStore()
+	asOf := time.Date(2026, 7, 28, 2, 0, 0, 0, time.UTC)
+	receipt := validQualityReceipt()
+	receipt.WindowStartedAt = asOf.Add(-time.Minute)
+	receipt.WindowEndedAt = asOf
+	receipt.LastPacketAt = asOf.Add(-QualityStaleAfter)
+	receipt.LastValidRecordAt = &receipt.LastPacketAt
+	receipt = EvaluateQualityState(receipt, asOf)
+	if err := store.UpsertQualityReceipt(context.Background(), receipt.TenantID, receipt); err != nil {
+		t.Fatal(err)
+	}
+
+	healthy, _, err := store.ListQualityReceipts(context.Background(), receipt.TenantID, QualityFilter{
+		State: QualityStateHealthy, AsOf: asOf,
+	})
+	if err != nil || len(healthy) != 1 || healthy[0].State != QualityStateHealthy {
+		t.Fatalf("healthy boundary rows=%+v err=%v", healthy, err)
+	}
+	staleAsOf := asOf.Add(time.Nanosecond)
+	stale, _, err := store.ListQualityReceipts(context.Background(), receipt.TenantID, QualityFilter{
+		State: QualityStateStale, AsOf: staleAsOf,
+	})
+	if err != nil || len(stale) != 1 || stale[0].State != QualityStateStale {
+		t.Fatalf("stale boundary rows=%+v err=%v", stale, err)
+	}
+}
+
 func TestCollectorQualitySetIsBoundedAndCountersSaturate(t *testing.T) {
 	c, err := New(testConfig(), &captureEmitter{}, nil)
 	if err != nil {

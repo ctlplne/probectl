@@ -89,6 +89,7 @@ func (s *Server) handleFlowIngestQuality(w http.ResponseWriter, r *http.Request)
 	rows, truncated, err := s.flowQuality.ListQualityReceipts(r.Context(), tid, flow.QualityFilter{
 		AgentID:  agentID,
 		Exporter: exporter, Protocol: protocol, State: state, Limit: limit,
+		AsOf: asOf,
 	})
 	if err != nil {
 		return err
