@@ -205,16 +205,11 @@ func TestBusEmitterTenantTaggedBatch(t *testing.T) {
 	b := bus.NewMemory()
 	var got bus.Message
 	done := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		_ = b.Subscribe(ctx, bus.DeviceMetricsTopic, "t", func(_ context.Context, m bus.Message) error {
-			got = m
-			close(done)
-			return nil
-		})
-	}()
-	time.Sleep(20 * time.Millisecond)
+	ctx := subscribeMemoryBusForTest(t, b, bus.DeviceMetricsTopic, "t", func(_ context.Context, m bus.Message) error {
+		got = m
+		close(done)
+		return nil
+	})
 
 	em := NewBusEmitter(b, "t-a")
 	if err := em.Emit(ctx, nil); err != nil {
@@ -256,16 +251,11 @@ func TestBusEmitterPublishesBoundedNeighborSnapshotOnNamespacedLane(t *testing.T
 	}
 	var got bus.Message
 	done := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		_ = b.Subscribe(ctx, topic, "neighbors-test", func(_ context.Context, m bus.Message) error {
-			got = m
-			close(done)
-			return nil
-		})
-	}()
-	time.Sleep(20 * time.Millisecond)
+	ctx := subscribeMemoryBusForTest(t, b, topic, "neighbors-test", func(_ context.Context, m bus.Message) error {
+		got = m
+		close(done)
+		return nil
+	})
 	em, err := NewNamespacedBusEmitter(b, "t-a", "silo-a")
 	if err != nil {
 		t.Fatal(err)
@@ -309,16 +299,11 @@ func TestBusEmitterPublishesTenantTaggedSecretFreeCollectionOutcome(t *testing.T
 	}
 	var got bus.Message
 	done := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		_ = b.Subscribe(ctx, topic, "outcome-test", func(_ context.Context, m bus.Message) error {
-			got = m
-			close(done)
-			return nil
-		})
-	}()
-	time.Sleep(20 * time.Millisecond)
+	ctx := subscribeMemoryBusForTest(t, b, topic, "outcome-test", func(_ context.Context, m bus.Message) error {
+		got = m
+		close(done)
+		return nil
+	})
 	em, err := NewNamespacedBusEmitter(b, "t-a", "silo-a")
 	if err != nil {
 		t.Fatal(err)
@@ -359,6 +344,44 @@ func TestBusEmitterPublishesTenantTaggedSecretFreeCollectionOutcome(t *testing.T
 		gotOutcome.GetState() != CollectionStateOKWithRows || gotOutcome.GetRowCount() != 2 {
 		t.Fatalf("outcome = %+v", gotOutcome)
 	}
+}
+
+func subscribeMemoryBusForTest(
+	t *testing.T,
+	b *bus.Memory,
+	topic string,
+	group string,
+	handler bus.Handler,
+) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	subscribeErr := make(chan error, 1)
+	go func() {
+		subscribeErr <- b.Subscribe(ctx, topic, group, handler)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-subscribeErr:
+			if err != nil {
+				t.Errorf("subscribe %q: %v", topic, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Errorf("subscribe %q did not stop after cancellation", topic)
+		}
+	})
+
+	waitCtx, stopWaiting := context.WithTimeout(ctx, 2*time.Second)
+	defer stopWaiting()
+	if !b.WaitForSubscribers(waitCtx, topic, 1) {
+		select {
+		case err := <-subscribeErr:
+			t.Fatalf("subscribe %q ended before registration: %v", topic, err)
+		default:
+			t.Fatalf("subscriber for %q did not register", topic)
+		}
+	}
+	return ctx
 }
 
 // TestConfigValidate covers transport defaults + the failure modes.
