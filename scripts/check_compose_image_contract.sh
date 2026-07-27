@@ -28,9 +28,21 @@ extract_default_images() {
 
 run_checks() {
   local root="$1"
-  local images image_count required_refs
+  local images image_count required_refs version expected_prefix expected_placeholder
 
   local image=""
+  if [ ! -f "$root/VERSION" ]; then
+    err "VERSION is required to validate the Compose release image"
+    version=""
+  else
+    version="$(tr -d '[:space:]' < "$root/VERSION")"
+  fi
+  if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    err "VERSION must contain one stable MAJOR.MINOR.PATCH version, got: ${version:-<empty>}"
+  fi
+  expected_prefix="ghcr.io/imfeelingtheagi/probectl-control:v${version}@sha256:"
+  expected_placeholder="${expected_prefix}<release-digest>"
+
   images="$(extract_default_images "$root")"
   image_count="$(printf '%s\n' "$images" | sed '/^$/d' | wc -l | tr -d ' ')"
   required_refs="$(grep -c '\${PROBECTL_IMAGE:?' "$root/deploy/compose/probectl.yml" || true)"
@@ -52,8 +64,8 @@ run_checks() {
     fi
 
     case "$image" in
-      ghcr.io/imfeelingtheagi/probectl-control:v[0-9]*.[0-9]*.[0-9]*@sha256:*) ;;
-      *) err "compose default must be a digest-pinned probectl-control release, got: $image" ;;
+      "$expected_prefix"*) ;;
+      *) err "compose default must be the VERSION-matched digest-pinned release ($expected_prefix...), got: $image" ;;
     esac
 
     grep -Fq "$image" "$root/docs/install.md" \
@@ -63,8 +75,8 @@ run_checks() {
   else
     grep -Fq 'no mutable image default' "$root/docs/install.md" \
       || err "docs/install.md must say production Compose has no mutable image default"
-    grep -Fq 'PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>' "$root/deploy/compose/.env.example" \
-      || err "deploy/compose/.env.example must show a digest-pinned PROBECTL_IMAGE placeholder"
+    grep -Fq "PROBECTL_IMAGE=$expected_placeholder" "$root/deploy/compose/.env.example" \
+      || err "deploy/compose/.env.example must show the VERSION-matched digest placeholder ($expected_placeholder)"
     grep -Fq 'PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable' "$root/deploy/compose/.env.example" \
       || err "deploy/compose/.env.example must document the explicit tag-only acknowledgement"
   fi
@@ -114,7 +126,7 @@ if [ "${1:-}" = "SELFTEST" ]; then
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   mkdir -p "$tmp/deploy/compose" "$tmp/docs" "$tmp/scripts"
-  echo '0.4.0' > "$tmp/VERSION"
+  echo '9.8.7' > "$tmp/VERSION"
   echo '# no compose preflight' > "$tmp/Makefile"
   echo '# preflight placeholder' > "$tmp/scripts/compose_image_preflight.sh"
   cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
@@ -151,7 +163,7 @@ Use `docker login ghcr.io` if the release package is not anonymous.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
 MD
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
-# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>
+# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.7@sha256:<release-digest>
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
 ENV
   cat > "$tmp/Makefile" <<'MAKE'
@@ -160,6 +172,43 @@ MAKE
   run_checks "$tmp"
   if [ "$fail" -ne 0 ]; then
     echo "SELFTEST FAILED: good fixture failed" >&2
+    exit 1
+  fi
+
+  expect_fixture_failure() {
+    local label="$1"
+    fail=0
+    if run_checks "$tmp" >/dev/null 2>&1; then
+      echo "SELFTEST FAILED: $label fixture passed" >&2
+      exit 1
+    fi
+  }
+
+  cat > "$tmp/deploy/compose/.env.example" <<'ENV'
+# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.6@sha256:<release-digest>
+# PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+ENV
+  expect_fixture_failure "wrong-version"
+
+  cat > "$tmp/deploy/compose/.env.example" <<'ENV'
+# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.7
+# PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+ENV
+  expect_fixture_failure "tag-only"
+
+  cat > "$tmp/deploy/compose/.env.example" <<'ENV'
+# PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+ENV
+  expect_fixture_failure "missing-image"
+
+  cat > "$tmp/deploy/compose/.env.example" <<'ENV'
+# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.7@sha256:<release-digest>
+# PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+ENV
+  fail=0
+  run_checks "$tmp"
+  if [ "$fail" -ne 0 ]; then
+    echo "SELFTEST FAILED: good fixture did not recover after negative cases" >&2
     exit 1
   fi
   echo "compose-image-contract SELFTEST: OK"
