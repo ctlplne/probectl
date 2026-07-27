@@ -145,6 +145,37 @@ describe('i18n catalog', () => {
     }
   })
 
+  test('Spanish Device-plane copy keeps its required technical diacritics', () => {
+    expect(messages.es['planes.device.neighbors.title']).toBe('Vecinos físicos')
+    expect(messages.es['planes.device.neighbors.unavailable.title']).toContain('Colección')
+    expect(messages.es['planes.device.neighbors.unavailable.description']).toContain('almacén')
+    expect(messages.es['planes.device.neighbors.unavailable.description']).toContain('topología')
+    expect(messages.es['planes.device.neighbors.empty.description']).toContain('vacío explícito')
+    expect(messages.es['planes.device.neighbors.retention']).toContain('instantáneas')
+
+    const deviceCopy = Object.entries(messages.es)
+      .filter(([key]) => key.startsWith('planes.device.'))
+      .map(([, value]) => value)
+      .join(' ')
+    for (const unaccented of [
+      /\bfisic[oa]s?\b/i,
+      /\bcoleccion\b/i,
+      /\balmacen\b/i,
+      /\btopologia\b/i,
+      /\bvacio\b/i,
+      /\bexplicito\b/i,
+      /\binstantaneas\b/i,
+      /\btelemetria\b/i,
+      /\bultima\b/i,
+      /\bversion\b/i,
+      /\bconfiguracion\b/i,
+      /\baqui\b/i,
+      /\baun\b/i,
+    ]) {
+      expect(deviceCopy).not.toMatch(unaccented)
+    }
+  })
+
   test('localized route and shared UI sources do not reintroduce cited raw English labels', () => {
     const existingLocalizedSources = [
       resolve(process.cwd(), 'src/nav/ia.ts'),
@@ -390,7 +421,7 @@ describe('i18n catalog', () => {
     expect(await screen.findByRole('heading', { name: 'Planos' })).toBeInTheDocument()
     expect(document.documentElement.lang).toBe('es')
     expect(document.documentElement.dir).toBe('ltr')
-    expect(screen.getByRole('tablist', { name: 'Planos de telemetria' })).toBeInTheDocument()
+    expect(screen.getByRole('tablist', { name: 'Planos de telemetría' })).toBeInTheDocument()
 
     const routing = await screen.findByRole('table', { name: 'Aristas de enrutamiento BGP' })
     expect(within(routing).getByText('AS64500')).toBeInTheDocument()

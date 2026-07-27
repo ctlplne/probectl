@@ -32,7 +32,9 @@ describe('plane workspaces', () => {
     expect(within(physicalNeighbors).getByText('leaf-1')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('LLDP')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('95%')).toBeInTheDocument()
-    const deviceCoverage = screen.getByRole('heading', { name: /device coverage/i }).closest('section')
+    const deviceCoverage = screen
+      .getByRole('heading', { name: /device coverage/i })
+      .closest('section')
     if (!deviceCoverage) throw new Error('missing device coverage card')
     expect(within(deviceCoverage).getByText('Device nodes').nextElementSibling).toHaveTextContent(
       /^2$/,
@@ -58,7 +60,9 @@ describe('plane workspaces', () => {
 
     expect(await screen.findByText('No physical neighbors observed')).toBeInTheDocument()
     expect(screen.queryByText('leaf-1')).not.toBeInTheDocument()
-    const deviceCoverage = screen.getByRole('heading', { name: /device coverage/i }).closest('section')
+    const deviceCoverage = screen
+      .getByRole('heading', { name: /device coverage/i })
+      .closest('section')
     if (!deviceCoverage) throw new Error('missing device coverage card')
     expect(within(deviceCoverage).getByText('Device nodes').nextElementSibling).toHaveTextContent(
       /^0$/,
@@ -66,6 +70,55 @@ describe('plane workspaces', () => {
     expect(within(deviceCoverage).getByText('Physical links').nextElementSibling).toHaveTextContent(
       /^0$/,
     )
+  })
+
+  test('Spanish physical-neighbor copy is natural across populated, unavailable, and empty states', async () => {
+    const populated = renderApp('/planes/device', { locale: 'es' })
+
+    expect(await screen.findByRole('heading', { name: 'Vecinos físicos' })).toBeInTheDocument()
+    expect(
+      screen.getByText(/dispositivos configurados explícitamente.*nunca realiza un escaneo/i),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole('table', {
+        name: 'Evidencia de adyacencia física LLDP y CDP',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Las instantáneas conservan evidencia obsoleta/i)).toBeInTheDocument()
+    populated.unmount()
+
+    const fallback = defaultFetch()
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (pathOf(input) === '/v1/device/neighbors') {
+        return Promise.resolve(
+          jsonResponse({
+            contract_version: 'probectl.device-neighbors/v1',
+            items: [],
+            collection_running: false,
+            effective_limit: 100,
+            truncated: false,
+            as_of: '2026-06-04T12:00:00Z',
+            retention: {
+              max_per_device: 256,
+              max_per_tenant: 16384,
+              stale_retention_hours: 24,
+            },
+          }),
+        )
+      }
+      return fallback(input, init)
+    })
+    const unavailable = renderApp('/planes/device', { locale: 'es' })
+
+    expect(await screen.findByText('Colección de vecinos no disponible')).toBeInTheDocument()
+    expect(screen.getByText(/almacén LLDP\/CDP.*estado de la topología/i)).toBeInTheDocument()
+    unavailable.unmount()
+
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/planes/device', { locale: 'es' })
+
+    expect(await screen.findByText('No se observaron vecinos físicos')).toBeInTheDocument()
+    expect(screen.getByText(/vacío explícito/i)).toBeInTheDocument()
   })
 
   test('renders BGP AS-path arcs with a table fallback', async () => {
