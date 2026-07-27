@@ -26,6 +26,7 @@ type Stats struct {
 	CounterResets      atomic.Uint64 // CORRECT-001: counter resets detected and dropped
 	NeighborSnapshots  atomic.Uint64
 	Neighbors          atomic.Uint64
+	NeighborPollErrors atomic.Uint64
 	NeighborEmitErrors atomic.Uint64
 	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
 	// the cycle is SKIPPED — fail closed, never poll with stale material).
@@ -111,6 +112,7 @@ func (r *Runtime) StatsSnapshot() map[string]uint64 {
 		"counter_resets":       r.stats.CounterResets.Load(),
 		"neighbor_snapshots":   r.stats.NeighborSnapshots.Load(),
 		"neighbors":            r.stats.Neighbors.Load(),
+		"neighbor_poll_errors": r.stats.NeighborPollErrors.Load(),
 		"neighbor_emit_errors": r.stats.NeighborEmitErrors.Load(),
 	}
 }
@@ -247,8 +249,12 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	r.pruneCorrelator(observedAt)
 
 	if dev.Neighbors {
-		neighbors := pollSNMPNeighbors(conn, dev, r.cfg.TenantID, r.cfg.AgentID, inv, observedAt)
-		if emitter, ok := r.emit.(NeighborEmitter); ok {
+		neighbors, err := pollSNMPNeighbors(conn, dev, r.cfg.TenantID, r.cfg.AgentID, inv, observedAt)
+		if err != nil {
+			r.stats.NeighborPollErrors.Add(1)
+			r.log.Warn("device neighbor poll failed; preserving previous snapshot",
+				"tenant_id", r.cfg.TenantID, "device", dev.Address, "error", err.Error())
+		} else if emitter, ok := r.emit.(NeighborEmitter); ok {
 			snapshot := NeighborSnapshot{
 				TenantID: r.cfg.TenantID, AgentID: r.cfg.AgentID,
 				DeviceAddress: dev.Address, DeviceName: inv.SysName,

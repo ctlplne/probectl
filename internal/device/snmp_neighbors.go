@@ -59,9 +59,9 @@ type cdpRow struct {
 // pollSNMPNeighbors performs bounded read-only LLDP/CDP table walks over the
 // same authenticated session as the ordinary device poll. Missing MIBs degrade
 // to an empty protocol subset; no scan or follow-up connection occurs.
-func pollSNMPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time) []NeighborEvidence {
+func pollSNMPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time) ([]NeighborEvidence, error) {
 	if !dev.Neighbors {
-		return nil
+		return nil, nil
 	}
 	fallbackFresh := 2 * dev.Interval
 	if fallbackFresh < 2*time.Minute {
@@ -70,10 +70,17 @@ func pollSNMPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 	if fallbackFresh > 10*time.Minute {
 		fallbackFresh = 10 * time.Minute
 	}
-	out := append(
-		pollLLDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh),
-		pollCDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh)...,
-	)
+	lldp, err := pollLLDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh)
+	if err != nil {
+		return nil, err
+	}
+	cdp, err := pollCDPNeighbors(conn, dev, tenant, agent, inv, now, fallbackFresh)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]NeighborEvidence, 0, len(lldp)+len(cdp))
+	out = append(out, lldp...)
+	out = append(out, cdp...)
 	if len(out) > MaxNeighborsPerDevice {
 		out = out[:MaxNeighborsPerDevice]
 	}
@@ -82,21 +89,31 @@ func pollSNMPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 		DeviceName: inv.SysName, ObservedAt: now, Neighbors: out,
 	})
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("validate neighbor snapshot: %w", err)
 	}
-	return valid.Neighbors
+	return valid.Neighbors, nil
 }
 
-func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, fallback time.Duration) []NeighborEvidence {
+func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, fallback time.Duration) ([]NeighborEvidence, error) {
+	walk := func(field, root string, indexParts int, fn func([]uint32, gosnmp.SnmpPDU)) error {
+		if err := walkIndexed(conn, root, indexParts, fn); err != nil {
+			return fmt.Errorf("lldp %s: %w", field, err)
+		}
+		return nil
+	}
 	localPorts := map[uint32]string{}
-	walkIndexed(conn, oidLLDPLocPortID, 1, func(index []uint32, p gosnmp.SnmpPDU) {
+	if err := walk("local port ID", oidLLDPLocPortID, 1, func(index []uint32, p gosnmp.SnmpPDU) {
 		localPorts[index[0]] = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidLLDPLocPortDesc, 1, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("local port description", oidLLDPLocPortDesc, 1, func(index []uint32, p gosnmp.SnmpPDU) {
 		if localPorts[index[0]] == "" {
 			localPorts[index[0]] = neighborPDUText(p)
 		}
-	})
+	}); err != nil {
+		return nil, err
+	}
 	rows := map[[3]uint32]*lldpRow{}
 	row := func(index []uint32) *lldpRow {
 		key := [3]uint32{index[0], index[1], index[2]}
@@ -105,27 +122,41 @@ func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 		}
 		return rows[key]
 	}
-	walkIndexed(conn, oidLLDPRemTTL, 3, func(index []uint32, p gosnmp.SnmpPDU) {
+	if err := walk("remote TTL", oidLLDPRemTTL, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).ttl = time.Duration(pduFloat(p)) * time.Second
-	})
-	walkIndexed(conn, oidLLDPRemChassisID, 3, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("remote chassis ID", oidLLDPRemChassisID, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).chassis = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidLLDPRemPortID, 3, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("remote port ID", oidLLDPRemPortID, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).port = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidLLDPRemPortDesc, 3, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("remote port description", oidLLDPRemPortDesc, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).portDesc = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidLLDPRemSysName, 3, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("remote system name", oidLLDPRemSysName, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).name = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidLLDPRemSysDesc, 3, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("remote system description", oidLLDPRemSysDesc, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).sysDesc = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidLLDPRemSysCapEnable, 3, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("remote capabilities", oidLLDPRemSysCapEnable, 3, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).capabilities = decodeLLDPCapabilities(p)
-	})
+	}); err != nil {
+		return nil, err
+	}
 	keys := make([][3]uint32, 0, len(rows))
 	for key := range rows {
 		keys = append(keys, key)
@@ -168,10 +199,16 @@ func pollLLDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inve
 			break
 		}
 	}
-	return out
+	return out, nil
 }
 
-func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, freshness time.Duration) []NeighborEvidence {
+func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inventory, now time.Time, freshness time.Duration) ([]NeighborEvidence, error) {
+	walk := func(field, root string, fn func([]uint32, gosnmp.SnmpPDU)) error {
+		if err := walkIndexed(conn, root, 2, fn); err != nil {
+			return fmt.Errorf("cdp %s: %w", field, err)
+		}
+		return nil
+	}
 	rows := map[[2]uint32]*cdpRow{}
 	row := func(index []uint32) *cdpRow {
 		key := [2]uint32{index[0], index[1]}
@@ -180,24 +217,36 @@ func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inven
 		}
 		return rows[key]
 	}
-	walkIndexed(conn, oidCDPCacheAddress, 2, func(index []uint32, p gosnmp.SnmpPDU) {
+	if err := walk("management address", oidCDPCacheAddress, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).address = pduAddress(p)
-	})
-	walkIndexed(conn, oidCDPCacheVersion, 2, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("version", oidCDPCacheVersion, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).version = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidCDPCacheDeviceID, 2, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("device ID", oidCDPCacheDeviceID, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).deviceID = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidCDPCacheDevicePort, 2, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("device port", oidCDPCacheDevicePort, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).port = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidCDPCachePlatform, 2, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("platform", oidCDPCachePlatform, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).platform = neighborPDUText(p)
-	})
-	walkIndexed(conn, oidCDPCacheCapabilities, 2, func(index []uint32, p gosnmp.SnmpPDU) {
+	}); err != nil {
+		return nil, err
+	}
+	if err := walk("capabilities", oidCDPCacheCapabilities, func(index []uint32, p gosnmp.SnmpPDU) {
 		row(index).capabilities = decodeCDPCapabilities(p)
-	})
+	}); err != nil {
+		return nil, err
+	}
 	keys := make([][2]uint32, 0, len(rows))
 	for key := range rows {
 		keys = append(keys, key)
@@ -232,17 +281,25 @@ func pollCDPNeighbors(conn snmpConn, dev Target, tenant, agent string, inv Inven
 			break
 		}
 	}
-	return out
+	return out, nil
 }
 
-func walkIndexed(conn snmpConn, root string, indexParts int, fn func([]uint32, gosnmp.SnmpPDU)) {
-	_ = conn.BulkWalk(root, func(p gosnmp.SnmpPDU) error {
+func walkIndexed(conn snmpConn, root string, indexParts int, fn func([]uint32, gosnmp.SnmpPDU)) error {
+	err := conn.BulkWalk(root, func(p gosnmp.SnmpPDU) error {
+		switch p.Type {
+		case gosnmp.NoSuchObject, gosnmp.NoSuchInstance, gosnmp.EndOfMibView:
+			return nil
+		}
 		index, ok := trailingIndex(p.Name, root, indexParts)
 		if ok {
 			fn(index, p)
 		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("bulk walk %s: %w", root, err)
+	}
+	return nil
 }
 
 func trailingIndex(name, root string, parts int) ([]uint32, bool) {
