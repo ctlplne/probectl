@@ -1713,9 +1713,9 @@ const es: Record<MessageKey, string> = {
   'onboarding.unit.scimTokens': 'tokens SCIM',
   'onboarding.planeChooser.title': 'Elige un plano productor',
   'onboarding.planeChooser.description':
-    'Elige la primera senal que quieres poner en linea; probectl te lleva a la ruta de configuracion correcta.',
+    'Elige la primera señal que quieres poner en línea; probectl te lleva a la ruta de configuración correcta.',
   'onboarding.field.prerequisites': 'Requisitos previos',
-  'onboarding.field.firstSignal': 'Primera senal',
+  'onboarding.field.firstSignal': 'Primera señal',
   'onboarding.producer.open': 'Abrir vista del productor',
   'onboarding.producer.synthetic.title': 'Sintetico',
   'onboarding.producer.synthetic.producer': 'probectl-agent',
@@ -2150,7 +2150,7 @@ const es: Record<MessageKey, string> = {
   'admin.collectorDialog.yamlKey': 'YAML {key}',
   'admin.collectorDialog.collectorPlane': 'Plano colector',
   'admin.collectorDialog.guidance':
-    'Requisitos previos: {prerequisites} Primera senal: {firstSignal}',
+    'Requisitos previos: {prerequisites} Primera señal: {firstSignal}',
   'admin.collectorDialog.deviceProfile': 'Perfil de evidencia del dispositivo',
   'admin.collectorDialog.deviceProfile.minimal': 'Mínimo',
   'admin.collectorDialog.deviceProfile.standard': 'Estándar',

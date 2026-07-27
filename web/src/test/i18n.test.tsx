@@ -145,6 +145,15 @@ describe('i18n catalog', () => {
     }
   })
 
+  test('Spanish collector guidance preserves señal in onboarding and registration', () => {
+    expect(messages.es['onboarding.planeChooser.description']).toContain('primera señal')
+    expect(messages.es['onboarding.field.firstSignal']).toBe('Primera señal')
+    expect(messages.es['admin.collectorDialog.guidance']).toContain('Primera señal:')
+    expect(messages.es['onboarding.planeChooser.description']).not.toMatch(/\bsenal\b/i)
+    expect(messages.es['onboarding.field.firstSignal']).not.toMatch(/\bsenal\b/i)
+    expect(messages.es['admin.collectorDialog.guidance']).not.toMatch(/\bsenal\b/i)
+  })
+
   test('Spanish Device-plane copy keeps its required technical diacritics', () => {
     expect(messages.es['planes.device.neighbors.title']).toBe('Vecinos físicos')
     expect(messages.es['planes.device.neighbors.unavailable.title']).toContain('Colección')
