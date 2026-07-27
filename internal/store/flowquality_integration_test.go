@@ -96,8 +96,8 @@ func TestFlowQualityReceiptStorageIsForcedRLSTenantIsolatedAndSecretFree(t *test
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM flow_ingest_quality_receipts`).Scan(&count); err != nil {
 				return err
 			}
-			if count != 1 {
-				t.Fatalf("predicate-free forced-RLS count=%d, want 1", count)
+			if count != 2 {
+				t.Fatalf("predicate-free forced-RLS count=%d, want 2 tenant-A receipts", count)
 			}
 			tag, err := sc.Q.Exec(ctx, `DELETE FROM flow_ingest_quality_receipts WHERE tenant_id=$1`, tenantB.ID)
 			if err != nil {
