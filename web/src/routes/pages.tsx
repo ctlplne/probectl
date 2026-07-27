@@ -288,48 +288,48 @@ export function TargetsPage() {
         <CardHeader
           title="Tests"
           description="Open Results on any test for its per-type latest result detail."
-          actions={
-            <FilterBar>
-              <Field
-                label="Find"
-                value={q}
-                onChange={(e) => setFilter({ q: e.target.value })}
-                placeholder="dns, edge, 1.1.1.1"
-              />
-              <Select
-                label="Type"
-                value={type}
-                onChange={(e) => setFilter({ type: e.target.value })}
-                options={[
-                  { value: 'all', label: 'All types' },
-                  ...TEST_TYPES.map((t) => ({ value: t, label: t })),
-                ]}
-              />
-              <Select
-                label="State"
-                value={enabled}
-                onChange={(e) => setFilter({ enabled: e.target.value })}
-                options={[
-                  { value: 'all', label: 'All states' },
-                  { value: 'enabled', label: 'Enabled' },
-                  { value: 'disabled', label: 'Disabled' },
-                ]}
-              />
-              <SavedViews
-                surface="targets"
-                filters={filtersForSave(params, defaults)}
-                onApply={(filters) =>
-                  setURLFilters(params, setParams, defaults, {
-                    q: filters.q ?? '',
-                    type: filters.type ?? 'all',
-                    enabled: filters.enabled ?? 'all',
-                  })
-                }
-                placeholder="DNS tests"
-              />
-            </FilterBar>
-          }
         />
+        <div className={styles.targetsFilterToolbar} data-targets-filter-toolbar>
+          <FilterBar>
+            <Field
+              label="Find"
+              value={q}
+              onChange={(e) => setFilter({ q: e.target.value })}
+              placeholder="dns, edge, 1.1.1.1"
+            />
+            <Select
+              label="Type"
+              value={type}
+              onChange={(e) => setFilter({ type: e.target.value })}
+              options={[
+                { value: 'all', label: 'All types' },
+                ...TEST_TYPES.map((t) => ({ value: t, label: t })),
+              ]}
+            />
+            <Select
+              label="State"
+              value={enabled}
+              onChange={(e) => setFilter({ enabled: e.target.value })}
+              options={[
+                { value: 'all', label: 'All states' },
+                { value: 'enabled', label: 'Enabled' },
+                { value: 'disabled', label: 'Disabled' },
+              ]}
+            />
+            <SavedViews
+              surface="targets"
+              filters={filtersForSave(params, defaults)}
+              onApply={(filters) =>
+                setURLFilters(params, setParams, defaults, {
+                  q: filters.q ?? '',
+                  type: filters.type ?? 'all',
+                  enabled: filters.enabled ?? 'all',
+                })
+              }
+              placeholder="DNS tests"
+            />
+          </FilterBar>
+        </div>
         <CardBody>
           {isPending ? (
             <LoadingState label="Loading tests…" />

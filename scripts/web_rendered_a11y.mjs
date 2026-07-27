@@ -42,6 +42,11 @@ const viewports = [
   { name: "desktop", width: 1366, height: 900 },
   { name: "mobile", width: 390, height: 844 },
 ];
+const targetsLaptopViewport = {
+  name: "targets-laptop",
+  width: 1280,
+  height: 720,
+};
 const journeyRoutes = [
   { journey: "J1", route: "/onboarding" },
   { journey: "J2", route: "/incidents" },
@@ -1127,9 +1132,11 @@ async function targetsHierarchyCheck(page, viewportName) {
     const problems = [];
     const inventory = document.querySelector("[data-targets-inventory]");
     const authoring = document.querySelector("[data-targets-authoring]");
+    const toolbar = inventory?.querySelector("[data-targets-filter-toolbar]");
     if (!inventory) problems.push("missing Tests inventory marker");
     if (!authoring) problems.push("missing AI authoring marker");
     if (!inventory || !authoring) return problems;
+    if (!toolbar) problems.push("missing full-width Targets filter toolbar");
 
     const inventoryRect = inventory.getBoundingClientRect();
     const authoringRect = authoring.getBoundingClientRect();
@@ -1137,12 +1144,62 @@ async function targetsHierarchyCheck(page, viewportName) {
       problems.push("AI authoring precedes the Tests inventory");
     }
 
-    if (currentViewport === "desktop") {
+    if (currentViewport === "targets-laptop") {
+      const header = inventory.querySelector("[data-card-header]");
+      const tableHead = inventory.querySelector("thead");
+      const firstRow = inventory.querySelector("tbody tr");
       if (inventoryRect.top >= window.innerHeight) {
-        problems.push("Tests inventory begins below the desktop viewport");
+        problems.push("Tests inventory begins below the 1280x720 viewport");
       }
-      if (!inventory.querySelector("tbody tr")) {
+      if (!header) problems.push("missing compact Tests heading");
+      if (!tableHead)
+        problems.push("populated Tests inventory has no table header");
+      if (!firstRow) {
         problems.push("populated Tests inventory has no rendered row");
+      }
+      if (header && toolbar) {
+        const headerRect = header.getBoundingClientRect();
+        const toolbarRect = toolbar.getBoundingClientRect();
+        if (toolbarRect.top < headerRect.bottom - 1) {
+          problems.push(
+            "Targets filter toolbar does not follow the compact heading",
+          );
+        }
+        if (toolbarRect.width < inventoryRect.width * 0.9) {
+          problems.push("Targets filter toolbar leaves a blank heading column");
+        }
+      }
+      if (
+        tableHead &&
+        tableHead.getBoundingClientRect().bottom > window.innerHeight
+      ) {
+        problems.push("Tests table header falls below the 1280x720 fold");
+      }
+      if (
+        firstRow &&
+        firstRow.getBoundingClientRect().bottom > window.innerHeight
+      ) {
+        problems.push(
+          "first populated Tests row falls below the 1280x720 fold",
+        );
+      }
+    }
+
+    if (currentViewport === "mobile" && toolbar) {
+      const form = toolbar.querySelector("form");
+      if (!form) {
+        problems.push("missing Targets filter form");
+      } else {
+        const items = Array.from(form.children);
+        const rowTops = new Set(
+          items.map((item) => Math.round(item.getBoundingClientRect().top)),
+        );
+        if (items.length > 1 && rowTops.size !== items.length) {
+          problems.push("Targets mobile filters are not a one-column stack");
+        }
+        if (form.scrollWidth - form.clientWidth > 1) {
+          problems.push("Targets mobile filters overflow their toolbar");
+        }
       }
     }
     return problems;
@@ -1494,20 +1551,26 @@ async function selfCheck(browser, axeSource) {
       "self-check failed: mobile CardHeader check did not catch a deliberate non-wrapping regression",
     );
   }
-  await page.setViewportSize(viewports[0]);
+  await page.setViewportSize(targetsLaptopViewport);
   await page.setContent(`
     <section data-targets-authoring>Author with AI</section>
     <section data-targets-inventory style="margin-top:1000px">
       <table><tbody><tr><td>Planted test</td></tr></tbody></table>
     </section>
   `);
-  const targetsHierarchy = await targetsHierarchyCheck(page, viewports[0].name);
+  const targetsHierarchy = await targetsHierarchyCheck(
+    page,
+    targetsLaptopViewport.name,
+  );
   if (
     !targetsHierarchy.some((problem) =>
       problem.includes("AI authoring precedes"),
     ) ||
     !targetsHierarchy.some((problem) =>
-      problem.includes("inventory begins below the desktop viewport"),
+      problem.includes("inventory begins below the 1280x720 viewport"),
+    ) ||
+    !targetsHierarchy.some((problem) =>
+      problem.includes("first populated Tests row falls below"),
     )
   ) {
     throw new Error(
@@ -1702,7 +1765,15 @@ async function main() {
               }
             }
             if (route === "/targets") {
-              record.targets = await targetsHierarchyCheck(page, viewport.name);
+              if (viewport.name === "desktop") {
+                await page.setViewportSize(targetsLaptopViewport);
+              }
+              record.targets = await targetsHierarchyCheck(
+                page,
+                viewport.name === "desktop"
+                  ? targetsLaptopViewport.name
+                  : viewport.name,
+              );
               if (record.targets.length > 0) {
                 failures.push(
                   `${viewport.name} ${theme} ${route}: Targets hierarchy violations\n  ${record.targets.join("\n  ")}`,

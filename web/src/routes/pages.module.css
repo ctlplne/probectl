@@ -68,6 +68,17 @@
   font-size: var(--font-size-sm);
 }
 
+.targetsFilterToolbar {
+  min-width: 0;
+  padding: var(--space-3) var(--density-panel-padding);
+  background: var(--color-surface-raised);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+}
+
+.targetsFilterToolbar > form {
+  min-width: 0;
+}
+
 .editionsLede {
   margin: 0 0 var(--space-4);
   color: var(--color-text-muted);
