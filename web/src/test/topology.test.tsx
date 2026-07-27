@@ -9,7 +9,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { renderApp } from './renderApp'
-import { jsonResponse } from './fetchStub'
+import { defaultFetch, jsonResponse } from './fetchStub'
 import type { TopologyResponse, WhatIfImpact } from '../api/topology'
 
 /** S43 surface (PR1): the topology graph + what-if simulation. */
@@ -98,6 +98,16 @@ function stub() {
 }
 
 describe('topology + what-if (S43)', () => {
+  test('populated topology renders the same physical adjacency as device evidence', async () => {
+    vi.stubGlobal('fetch', defaultFetch())
+    renderApp('/topology')
+
+    const graph = await screen.findByRole('group', { name: /topology graph/i })
+    expect(within(graph).getByRole('button', { name: 'device edge-r1' })).toBeInTheDocument()
+    expect(within(graph).getByRole('button', { name: 'device leaf-1' })).toBeInTheDocument()
+    expect(screen.getByText(/^physical$/i)).toBeInTheDocument()
+  })
+
   test('renders the graph, inspects a node, simulates a failure', async () => {
     vi.stubGlobal('fetch', stub())
     renderApp('/topology')

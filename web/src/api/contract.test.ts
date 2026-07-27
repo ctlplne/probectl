@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { fixtureFetch, jsonResponse, type FixtureProfile } from '../test/fixtureApi'
 import { fixtureContractErrors, type FixtureContractRequest } from '../test/openapiFixtureContract'
+import type { DeviceNeighborResponse } from './planes'
+import type { TopologyResponse } from './topology'
 import { API_BASE } from './client'
 import { API_CALL_CONTRACTS, type APICallContract } from './openapi-contracts'
 
@@ -327,6 +329,48 @@ describe('design-loop fixture to OpenAPI response contracts', () => {
       expect(failures).toEqual([])
     })
   }
+
+  it('keeps current device-neighbor rows aligned with physical topology edges', async () => {
+    for (const [profile, expectedLinks] of [
+      ['populated', 1],
+      ['cold', 0],
+    ] as const) {
+      const fetchFixture = fixtureFetch(profile)
+      const [neighborResponse, topologyResponse] = await Promise.all([
+        fetchFixture('https://fixture.probectl.test/v1/device/neighbors'),
+        fetchFixture('https://fixture.probectl.test/v1/topology'),
+      ])
+      const neighbors = (await neighborResponse.json()) as DeviceNeighborResponse
+      const topology = (await topologyResponse.json()) as TopologyResponse
+      const currentNeighbors = neighbors.items.filter((neighbor) => neighbor.freshness === 'current')
+      const physicalEdges = topology.edges.filter((edge) => edge.kind === 'physical')
+      const nodeIDs = new Set(topology.nodes.map((node) => node.id))
+
+      expect(currentNeighbors, `${profile} current neighbor rows`).toHaveLength(expectedLinks)
+      expect(physicalEdges, `${profile} physical topology edges`).toHaveLength(expectedLinks)
+      expect(topology.coverage?.physical_edges, `${profile} physical coverage`).toBe(expectedLinks)
+
+      for (const neighbor of currentNeighbors) {
+        const remoteKey = neighbor.remote_management_address
+          ? neighbor.remote_management_address
+          : `${neighbor.protocol}:${neighbor.remote_chassis_id}`
+        const expectedEdge = {
+          from: `device:${neighbor.local_device_address}`,
+          to: `device:${remoteKey}`,
+          kind: 'physical',
+          label: `${neighbor.local_port_id} ↔ ${neighbor.remote_port_id}`,
+        }
+
+        expect(physicalEdges, `${profile} edge for ${neighbor.id}`).toContainEqual(expectedEdge)
+        expect(nodeIDs.has(expectedEdge.from), `${profile} local endpoint ${expectedEdge.from}`).toBe(
+          true,
+        )
+        expect(nodeIDs.has(expectedEdge.to), `${profile} remote endpoint ${expectedEdge.to}`).toBe(
+          true,
+        )
+      }
+    }
+  })
 
   it('fails closed on planted path, status, and response-shape drift', async () => {
     const unknownPath = await fixtureContractErrors(

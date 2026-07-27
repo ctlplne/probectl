@@ -655,7 +655,13 @@ function coldFixture(path: string): Response | null {
         at: '2026-06-04T12:00:00Z',
         nodes: [],
         edges: [],
-        coverage: { path_edges: 0, flow_edges: 0, routing_edges: 0, device_edges: 0 },
+        coverage: {
+          path_edges: 0,
+          flow_edges: 0,
+          routing_edges: 0,
+          device_edges: 0,
+          physical_edges: 0,
+        },
       })
     default:
       return null
@@ -1198,14 +1204,31 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
           { id: 'service:checkout', kind: 'service', label: 'checkout' },
           { id: 'service:payments', kind: 'service', label: 'payments' },
           { id: 'device:10.0.0.1', kind: 'device', label: 'edge-r1' },
+          {
+            id: 'device:lldp:00:11:22:33:44:55',
+            kind: 'device',
+            label: 'leaf-1',
+          },
           { id: 'hop:10.0.0.1', kind: 'hop', label: '10.0.0.1' },
         ],
         edges: [
           { from: 'as:64500', to: 'prefix:203.0.113.0/24', kind: 'routing' },
           { from: 'service:checkout', to: 'service:payments', kind: 'flow', label: 'http' },
           { from: 'device:10.0.0.1', to: 'hop:10.0.0.1', kind: 'device' },
+          {
+            from: 'device:10.0.0.1',
+            to: 'device:lldp:00:11:22:33:44:55',
+            kind: 'physical',
+            label: 'Gi0/1 ↔ Ethernet1',
+          },
         ],
-        coverage: { path_edges: 0, flow_edges: 1, routing_edges: 1, device_edges: 1 },
+        coverage: {
+          path_edges: 0,
+          flow_edges: 1,
+          routing_edges: 1,
+          device_edges: 1,
+          physical_edges: 1,
+        },
       })
     if (path === '/v1/inventory/views') return jsonResponse({ items: [] })
     if (path === '/v1/results/history')

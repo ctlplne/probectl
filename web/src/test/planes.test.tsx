@@ -7,7 +7,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
+import { coldFetch, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import { renderApp } from './renderApp'
 
 describe('plane workspaces', () => {
@@ -32,6 +32,14 @@ describe('plane workspaces', () => {
     expect(within(physicalNeighbors).getByText('leaf-1')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('LLDP')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('95%')).toBeInTheDocument()
+    const deviceCoverage = screen.getByRole('heading', { name: /device coverage/i }).closest('section')
+    if (!deviceCoverage) throw new Error('missing device coverage card')
+    expect(within(deviceCoverage).getByText('Device nodes').nextElementSibling).toHaveTextContent(
+      /^2$/,
+    )
+    expect(within(deviceCoverage).getByText('Physical links').nextElementSibling).toHaveTextContent(
+      /^1$/,
+    )
     expect(await screen.findByRole('table', { name: /device syslog events/i })).toBeInTheDocument()
     expect(screen.getByText('Interface Gi0/1 down')).toBeInTheDocument()
     expect(
@@ -42,6 +50,22 @@ describe('plane workspaces', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'eBPF' }))
     const ebpf = await screen.findByRole('table', { name: /ebpf service edges/i })
     expect(within(ebpf).getByText('checkout')).toBeInTheDocument()
+  })
+
+  test('cold device evidence and physical-link coverage remain honestly empty', async () => {
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/planes/device')
+
+    expect(await screen.findByText('No physical neighbors observed')).toBeInTheDocument()
+    expect(screen.queryByText('leaf-1')).not.toBeInTheDocument()
+    const deviceCoverage = screen.getByRole('heading', { name: /device coverage/i }).closest('section')
+    if (!deviceCoverage) throw new Error('missing device coverage card')
+    expect(within(deviceCoverage).getByText('Device nodes').nextElementSibling).toHaveTextContent(
+      /^0$/,
+    )
+    expect(within(deviceCoverage).getByText('Physical links').nextElementSibling).toHaveTextContent(
+      /^0$/,
+    )
   })
 
   test('renders BGP AS-path arcs with a table fallback', async () => {
