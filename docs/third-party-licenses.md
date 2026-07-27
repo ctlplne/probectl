@@ -175,13 +175,12 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `@esbuild/win32-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/win32-x64 |
 | npm:web | `@eslint-community/eslint-utils` | 4.9.1 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint-community/eslint-utils |
 | npm:web | `@eslint-community/regexpp` | 4.12.2 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint-community/regexpp |
-| npm:web | `@eslint/config-array` | 0.21.2 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/config-array |
-| npm:web | `@eslint/config-helpers` | 0.4.2 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/config-helpers |
-| npm:web | `@eslint/core` | 0.17.0 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/core |
-| npm:web | `@eslint/eslintrc` | 3.3.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint/eslintrc |
-| npm:web | `@eslint/js` | 9.39.4 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint/js |
-| npm:web | `@eslint/object-schema` | 2.1.7 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/object-schema |
-| npm:web | `@eslint/plugin-kit` | 0.4.1 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/plugin-kit |
+| npm:web | `@eslint/config-array` | 0.23.5 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/config-array |
+| npm:web | `@eslint/config-helpers` | 0.7.0 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/config-helpers |
+| npm:web | `@eslint/core` | 1.2.1 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/core |
+| npm:web | `@eslint/js` | 10.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint/js |
+| npm:web | `@eslint/object-schema` | 3.0.5 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/object-schema |
+| npm:web | `@eslint/plugin-kit` | 0.7.2 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/plugin-kit |
 | npm:web | `@humanfs/core` | 0.19.2 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@humanfs/core |
 | npm:web | `@humanfs/node` | 0.16.8 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@humanfs/node |
 | npm:web | `@humanfs/types` | 0.15.0 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@humanfs/types |
@@ -258,6 +257,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `@types/babel__traverse` | 7.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@types/babel__traverse |
 | npm:web | `@types/chai` | 5.2.3 | dev/build-only | MIT | web/package-lock.json:node_modules/@types/chai |
 | npm:web | `@types/deep-eql` | 4.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/@types/deep-eql |
+| npm:web | `@types/esrecurse` | 4.3.1 | dev/build-only | MIT | web/package-lock.json:node_modules/@types/esrecurse |
 | npm:web | `@types/estree` | 1.0.8 | dev/build-only | MIT | web/package-lock.json:node_modules/rollup/node_modules/@types/estree |
 | npm:web | `@types/estree` | 1.0.9 | dev/build-only | MIT | web/package-lock.json:node_modules/@types/estree |
 | npm:web | `@types/istanbul-lib-coverage` | 2.0.6 | dev/build-only | MIT | web/package-lock.json:node_modules/@types/istanbul-lib-coverage |
@@ -292,7 +292,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `@vitest/snapshot` | 4.1.8 | dev/build-only | MIT | web/package-lock.json:node_modules/@vitest/snapshot |
 | npm:web | `@vitest/spy` | 4.1.8 | dev/build-only | MIT | web/package-lock.json:node_modules/@vitest/spy |
 | npm:web | `@vitest/utils` | 4.1.8 | dev/build-only | MIT | web/package-lock.json:node_modules/@vitest/utils |
-| npm:web | `acorn` | 8.16.0 | dev/build-only | MIT | web/package-lock.json:node_modules/acorn |
+| npm:web | `acorn` | 8.17.0 | dev/build-only | MIT | web/package-lock.json:node_modules/acorn |
 | npm:web | `acorn-jsx` | 5.3.2 | dev/build-only | MIT | web/package-lock.json:node_modules/acorn-jsx |
 | npm:web | `agent-base` | 7.1.4 | dev/build-only | MIT | web/package-lock.json:node_modules/agent-base |
 | npm:web | `ajv` | 6.15.0 | dev/build-only | MIT | web/package-lock.json:node_modules/ajv |
@@ -304,21 +304,17 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `ansi-styles` | 5.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-matcher-utils/node_modules/ansi-styles |
 | npm:web | `ansi-styles` | 5.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-message-util/node_modules/ansi-styles |
 | npm:web | `ansi-styles` | 5.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/pretty-format/node_modules/ansi-styles |
-| npm:web | `argparse` | 2.0.1 | dev/build-only | Python-2.0 | web/package-lock.json:node_modules/argparse |
 | npm:web | `aria-query` | 5.3.0 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/aria-query |
 | npm:web | `assertion-error` | 2.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/assertion-error |
 | npm:web | `ast-v8-to-istanbul` | 1.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/ast-v8-to-istanbul |
 | npm:web | `asynckit` | 0.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/asynckit |
 | npm:web | `axe-core` | 3.5.6 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/axe-core |
 | npm:web | `axe-core` | 4.9.1 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/jest-axe/node_modules/axe-core |
-| npm:web | `balanced-match` | 1.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/balanced-match |
-| npm:web | `balanced-match` | 4.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/@typescript-eslint/typescript-estree/node_modules/balanced-match |
+| npm:web | `balanced-match` | 4.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/balanced-match |
 | npm:web | `baseline-browser-mapping` | 2.10.33 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/baseline-browser-mapping |
-| npm:web | `brace-expansion` | 1.1.15 | dev/build-only | MIT | web/package-lock.json:node_modules/brace-expansion |
-| npm:web | `brace-expansion` | 5.0.6 | dev/build-only | MIT | web/package-lock.json:node_modules/@typescript-eslint/typescript-estree/node_modules/brace-expansion |
+| npm:web | `brace-expansion` | 5.0.8 | dev/build-only | MIT | web/package-lock.json:node_modules/brace-expansion |
 | npm:web | `browserslist` | 4.28.2 | dev/build-only | MIT | web/package-lock.json:node_modules/browserslist |
 | npm:web | `call-bind-apply-helpers` | 1.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/call-bind-apply-helpers |
-| npm:web | `callsites` | 3.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/callsites |
 | npm:web | `caniuse-lite` | 1.0.30001793 | dev/build-only | CC-BY-4.0 | web/package-lock.json:node_modules/caniuse-lite |
 | npm:web | `chai` | 6.2.2 | dev/build-only | MIT | web/package-lock.json:node_modules/chai |
 | npm:web | `chalk` | 4.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/chalk |
@@ -326,7 +322,6 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `color-convert` | 2.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/color-convert |
 | npm:web | `color-name` | 1.1.4 | dev/build-only | MIT | web/package-lock.json:node_modules/color-name |
 | npm:web | `combined-stream` | 1.0.8 | dev/build-only | MIT | web/package-lock.json:node_modules/combined-stream |
-| npm:web | `concat-map` | 0.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/concat-map |
 | npm:web | `convert-source-map` | 2.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/convert-source-map |
 | npm:web | `cross-spawn` | 7.0.6 | dev/build-only | MIT | web/package-lock.json:node_modules/cross-spawn |
 | npm:web | `css.escape` | 1.5.1 | dev/build-only | MIT | web/package-lock.json:node_modules/css.escape |
@@ -355,14 +350,13 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `escalade` | 3.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/escalade |
 | npm:web | `escape-string-regexp` | 2.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/stack-utils/node_modules/escape-string-regexp |
 | npm:web | `escape-string-regexp` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/escape-string-regexp |
-| npm:web | `eslint` | 9.39.4 | dev/build-only | MIT | web/package-lock.json:node_modules/eslint |
-| npm:web | `eslint-plugin-react-hooks` | 5.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/eslint-plugin-react-hooks |
-| npm:web | `eslint-plugin-react-refresh` | 0.4.26 | dev/build-only | MIT | web/package-lock.json:node_modules/eslint-plugin-react-refresh |
-| npm:web | `eslint-scope` | 8.4.0 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/eslint-scope |
+| npm:web | `eslint` | 10.8.0 | dev/build-only | MIT | web/package-lock.json:node_modules/eslint |
+| npm:web | `eslint-plugin-react-hooks` | 7.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/eslint-plugin-react-hooks |
+| npm:web | `eslint-plugin-react-refresh` | 0.5.3 | dev/build-only | MIT | web/package-lock.json:node_modules/eslint-plugin-react-refresh |
+| npm:web | `eslint-scope` | 9.1.2 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/eslint-scope |
 | npm:web | `eslint-visitor-keys` | 3.4.3 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint-community/eslint-utils/node_modules/eslint-visitor-keys |
-| npm:web | `eslint-visitor-keys` | 4.2.1 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/eslint-visitor-keys |
-| npm:web | `eslint-visitor-keys` | 5.0.1 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@typescript-eslint/visitor-keys/node_modules/eslint-visitor-keys |
-| npm:web | `espree` | 10.4.0 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/espree |
+| npm:web | `eslint-visitor-keys` | 5.0.1 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/eslint-visitor-keys |
+| npm:web | `espree` | 11.2.0 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/espree |
 | npm:web | `esquery` | 1.7.0 | dev/build-only | BSD-3-Clause | web/package-lock.json:node_modules/esquery |
 | npm:web | `esrecurse` | 4.3.0 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/esrecurse |
 | npm:web | `estraverse` | 5.3.0 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/estraverse |
@@ -385,7 +379,6 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `get-intrinsic` | 1.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/get-intrinsic |
 | npm:web | `get-proto` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/get-proto |
 | npm:web | `glob-parent` | 6.0.2 | dev/build-only | ISC | web/package-lock.json:node_modules/glob-parent |
-| npm:web | `globals` | 14.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint/eslintrc/node_modules/globals |
 | npm:web | `globals` | 15.15.0 | dev/build-only | MIT | web/package-lock.json:node_modules/globals |
 | npm:web | `gopd` | 1.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/gopd |
 | npm:web | `graceful-fs` | 4.2.11 | dev/build-only | ISC | web/package-lock.json:node_modules/graceful-fs |
@@ -393,6 +386,8 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `has-symbols` | 1.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/has-symbols |
 | npm:web | `has-tostringtag` | 1.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/has-tostringtag |
 | npm:web | `hasown` | 2.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/hasown |
+| npm:web | `hermes-estree` | 0.25.1 | dev/build-only | MIT | web/package-lock.json:node_modules/hermes-estree |
+| npm:web | `hermes-parser` | 0.25.1 | dev/build-only | MIT | web/package-lock.json:node_modules/hermes-parser |
 | npm:web | `html-encoding-sniffer` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/html-encoding-sniffer |
 | npm:web | `html-escaper` | 2.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/html-escaper |
 | npm:web | `http-proxy-agent` | 7.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/http-proxy-agent |
@@ -400,7 +395,6 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `iconv-lite` | 0.6.3 | dev/build-only | MIT | web/package-lock.json:node_modules/iconv-lite |
 | npm:web | `ignore` | 5.3.2 | dev/build-only | MIT | web/package-lock.json:node_modules/ignore |
 | npm:web | `ignore` | 7.0.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@typescript-eslint/eslint-plugin/node_modules/ignore |
-| npm:web | `import-fresh` | 3.3.1 | dev/build-only | MIT | web/package-lock.json:node_modules/import-fresh |
 | npm:web | `imurmurhash` | 0.1.4 | dev/build-only | MIT | web/package-lock.json:node_modules/imurmurhash |
 | npm:web | `indent-string` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/indent-string |
 | npm:web | `is-extglob` | 2.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/is-extglob |
@@ -421,7 +415,6 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `jest-regex-util` | 30.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-regex-util |
 | npm:web | `jest-util` | 30.4.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-util |
 | npm:web | `js-tokens` | 10.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/ast-v8-to-istanbul/node_modules/js-tokens |
-| npm:web | `js-yaml` | 4.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/js-yaml |
 | npm:web | `jsdom` | 25.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jsdom |
 | npm:web | `jsesc` | 3.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jsesc |
 | npm:web | `json-buffer` | 3.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/json-buffer |
@@ -454,10 +447,9 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `mime-db` | 1.52.0 | dev/build-only | MIT | web/package-lock.json:node_modules/mime-db |
 | npm:web | `mime-types` | 2.1.35 | dev/build-only | MIT | web/package-lock.json:node_modules/mime-types |
 | npm:web | `min-indent` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/min-indent |
-| npm:web | `minimatch` | 10.2.5 | dev/build-only | BlueOak-1.0.0 | web/package-lock.json:node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch |
-| npm:web | `minimatch` | 3.1.5 | dev/build-only | ISC | web/package-lock.json:node_modules/minimatch |
+| npm:web | `minimatch` | 10.2.5 | dev/build-only | BlueOak-1.0.0 | web/package-lock.json:node_modules/minimatch |
 | npm:web | `ms` | 2.1.3 | dev/build-only | MIT | web/package-lock.json:node_modules/ms |
-| npm:web | `nanoid` | 3.3.12 | dev/build-only | MIT | web/package-lock.json:node_modules/nanoid |
+| npm:web | `nanoid` | 3.3.16 | dev/build-only | MIT | web/package-lock.json:node_modules/nanoid |
 | npm:web | `natural-compare` | 1.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/natural-compare |
 | npm:web | `node-releases` | 2.0.46 | dev/build-only | MIT | web/package-lock.json:node_modules/node-releases |
 | npm:web | `nwsapi` | 2.2.23 | dev/build-only | MIT | web/package-lock.json:node_modules/nwsapi |
@@ -465,14 +457,13 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `optionator` | 0.9.4 | dev/build-only | MIT | web/package-lock.json:node_modules/optionator |
 | npm:web | `p-limit` | 3.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/p-limit |
 | npm:web | `p-locate` | 5.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/p-locate |
-| npm:web | `parent-module` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/parent-module |
 | npm:web | `parse5` | 7.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/parse5 |
 | npm:web | `path-exists` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/path-exists |
 | npm:web | `path-key` | 3.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/path-key |
 | npm:web | `pathe` | 2.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/pathe |
 | npm:web | `picocolors` | 1.1.1 | dev/build-only | ISC | web/package-lock.json:node_modules/picocolors |
 | npm:web | `picomatch` | 4.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/picomatch |
-| npm:web | `postcss` | 8.5.15 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss |
+| npm:web | `postcss` | 8.5.23 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss |
 | npm:web | `prelude-ls` | 1.2.1 | dev/build-only | MIT | web/package-lock.json:node_modules/prelude-ls |
 | npm:web | `prettier` | 3.8.4 | dev/build-only | MIT | web/package-lock.json:node_modules/prettier |
 | npm:web | `pretty-format` | 27.5.1 | dev/build-only | MIT | web/package-lock.json:node_modules/pretty-format |
@@ -488,7 +479,6 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `react-is-19` | 19.2.6 | dev/build-only | MIT | web/package-lock.json:node_modules/react-is-19 |
 | npm:web | `react-refresh` | 0.17.0 | dev/build-only | MIT | web/package-lock.json:node_modules/react-refresh |
 | npm:web | `redent` | 3.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/redent |
-| npm:web | `resolve-from` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/resolve-from |
 | npm:web | `rolldown` | 1.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/rolldown |
 | npm:web | `rollup` | 4.60.4 | dev/build-only | MIT | web/package-lock.json:node_modules/rollup |
 | npm:web | `rrweb-cssom` | 0.7.1 | dev/build-only | MIT | web/package-lock.json:node_modules/rrweb-cssom |
@@ -507,7 +497,6 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `stackback` | 0.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/stackback |
 | npm:web | `std-env` | 4.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/std-env |
 | npm:web | `strip-indent` | 3.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/strip-indent |
-| npm:web | `strip-json-comments` | 3.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/strip-json-comments |
 | npm:web | `supports-color` | 7.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/supports-color |
 | npm:web | `symbol-tree` | 3.2.4 | dev/build-only | MIT | web/package-lock.json:node_modules/symbol-tree |
 | npm:web | `tinybench` | 2.9.0 | dev/build-only | MIT | web/package-lock.json:node_modules/tinybench |
@@ -542,6 +531,8 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `xmlchars` | 2.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/xmlchars |
 | npm:web | `yallist` | 3.1.1 | dev/build-only | ISC | web/package-lock.json:node_modules/yallist |
 | npm:web | `yocto-queue` | 0.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/yocto-queue |
+| npm:web | `zod` | 4.4.3 | dev/build-only | MIT | web/package-lock.json:node_modules/zod |
+| npm:web | `zod-validation-error` | 4.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/zod-validation-error |
 | python:analyzer | `structlog` | 25.5.0 | runtime | Apache-2.0 | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `attrs` | 26.1.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `black` | 25.11.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |

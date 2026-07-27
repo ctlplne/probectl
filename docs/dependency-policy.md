@@ -88,12 +88,22 @@ bytes but the manifest still states upgrade intent.
   **and** on every PR, so a newly-disclosed vulnerability in an *unchanged* pin
   goes red on its own — you don't have to be mid-upgrade to find out.
 - **npm audit policy is explicit and expiring.** Critical npm advisories always
-  fail. High advisories fail unless they are dev-only, listed in
+  fail. High advisories fail unless they are listed in
   [`docs/security/npm-audit-policy.json`](security/npm-audit-policy.json), and
-  still before their `expires_at` date. The current `web` exception is limited to
-  the Vite/esbuild build-tool path and expires on `2026-09-30`; production
-  dependencies are separately gated with `npm audit --omit=dev
-  --audit-level=high`, so a high in shipped code blocks the build.
+  still before their `expires_at` date. Every exception must match the **exact
+  complete High advisory set** for the named packages. The Vite/esbuild
+  exception is dev-only and expires on `2026-09-30`; a production exception
+  must additionally carry an offline applicability guard.
+  `GHSA-qwww-vcr4-c8h2` is temporarily accepted
+  for React Router through `2026-08-31` only while
+  [`scripts/check_web_router_mode.mjs`](../scripts/check_web_router_mode.mjs)
+  proves the shipped UI remains a client-only `BrowserRouter` SPA with no RSC
+  API, RSC build dependency, RSC entrypoint, or server-action directive. The
+  production `npm audit --omit=dev --json` report passes through the same
+  policy checker with `--omit-dev`, so the full report owns dev-only exception
+  freshness while production remains independently gated. Critical, another
+  High, expiry, a missing/malformed report, RSC adoption, or an exception whose
+  advisory disappeared all fail closed.
 - **Tool pins** (the `Makefile` block) are bumped deliberately and committed
   *together with their effects* — e.g. a protobuf-plugin bump ships with the
   regenerated `internal/gen` tree in the same commit, because the `proto` job

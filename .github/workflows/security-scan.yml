@@ -58,9 +58,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - name: Audit web (high advisories require active policy exception)
+      - name: Audit web (exact, expiring exceptions only)
         working-directory: web
         run: |
+          node ../scripts/check_web_router_mode.mjs --root ..
           npm audit --json > ../npm-audit-web.json || true
           node ../scripts/check_npm_audit_policy.mjs \
             --workspace web \

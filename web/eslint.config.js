@@ -26,7 +26,12 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      // Keep the pre-v7 hooks contract explicit. Plugin v7's `recommended`
+      // preset also enables compiler-era rules that require a separate,
+      // deliberate application refactor; they are not part of this
+      // supply-chain-only upgrade.
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       // CODE-009/CODE-011: type-checked rules are enabled and the lint script
       // runs with --max-warnings=0, so any production warning is a red gate.

@@ -934,21 +934,29 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: npm ci
-      - name: Audit gate (SEC-004 — high advisories require active policy exception)
+      - name: Audit gate (SEC-004 — exact, expiring exceptions only)
         run: |
+          node ../scripts/check_npm_audit_policy.mjs --selftest
+          node ../scripts/check_web_router_mode.mjs --selftest
+          node ../scripts/check_web_router_mode.mjs --root ..
           npm audit --json > ../npm-audit-web.json || true
           node ../scripts/check_npm_audit_policy.mjs \
             --workspace web \
             --audit ../npm-audit-web.json \
             --lock package-lock.json \
             --policy ../docs/security/npm-audit-policy.json
-      - name: Prod-dependency audit gate (SUPPLY-008 — no high in shipped deps)
-        # The shipped bundle contains only runtime deps; build-time tooling
-        # (esbuild/vite) carries HIGH advisories that don't reach the artifact
-        # and whose fix is a semver-major vite bump tracked separately. Gate the
-        # *production* dependency tree at --audit-level=high so a high in a
-        # shipped dep blocks the build, without failing on dev-only tooling.
-        run: npm audit --omit=dev --audit-level=high
+      - name: Prod-dependency audit gate (SUPPLY-008 — exact, expiring exceptions only)
+        # Production exceptions must name the exact advisory and remain backed
+        # by an offline source-mode guard. Critical and every other High still
+        # fail; an unused exception also fails so stale policy cannot linger.
+        run: |
+          npm audit --omit=dev --json > ../npm-audit-web-prod.json || true
+          node ../scripts/check_npm_audit_policy.mjs \
+            --workspace web \
+            --audit ../npm-audit-web-prod.json \
+            --lock package-lock.json \
+            --policy ../docs/security/npm-audit-policy.json \
+            --omit-dev
       - name: Typecheck
         run: npm run typecheck
       - name: Format check (CODE-009 — prettier)

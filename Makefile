@@ -310,7 +310,13 @@ secret-scan: ## Run gitleaks across the full git history, including deleted file
 
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
-lint: license-header-gate lint-go lint-python ## Run all linters (Go + Python).
+lint: license-header-gate lint-go lint-python web-supply-policy-gate ## Run all linters (Go + Python) and offline web supply-policy guards.
+
+.PHONY: web-supply-policy-gate
+web-supply-policy-gate: ## Offline self-tests + client-only router proof for exact npm advisory exceptions.
+	node scripts/check_npm_audit_policy.mjs --selftest
+	node scripts/check_web_router_mode.mjs --selftest
+	node scripts/check_web_router_mode.mjs --root .
 
 .PHONY: license-header-gate
 license-header-gate: ## Require MPL-2.0 SPDX + Exhibit A on hand-maintained core Go/TS/TSX/Python source.

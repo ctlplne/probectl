@@ -4,14 +4,23 @@
     {
       "id": "SEC-004-vite-esbuild-dev-only",
       "workspace": "web",
-      "packages": [
-        "vite",
-        "esbuild"
-      ],
+      "packages": ["vite", "esbuild"],
+      "advisories": ["GHSA-fx2h-pf6j-xcff"],
       "max_severity": "high",
       "dev_only": true,
       "expires_at": "2026-09-30",
-      "reason": "Vite/esbuild are build-time and dev-server tooling only; CI separately gates shipped production dependencies with npm audit --omit=dev --audit-level=high. This exception must be removed or renewed by upgrading the Vite/esbuild path before the expiry date."
+      "reason": "Vite/esbuild are build-time and dev-server tooling only; CI separately evaluates the shipped production tree through this exact, expiring policy. This exception must be removed or renewed by upgrading the Vite/esbuild path before the expiry date."
+    },
+    {
+      "id": "SUPPLY-008-react-router-rsc-only",
+      "workspace": "web",
+      "packages": ["react-router", "react-router-dom"],
+      "advisories": ["GHSA-qwww-vcr4-c8h2"],
+      "max_severity": "high",
+      "dev_only": false,
+      "expires_at": "2026-08-31",
+      "guard": "scripts/check_web_router_mode.mjs",
+      "reason": "The advisory affects only unstable React Server Component APIs. probectl is a client-only BrowserRouter SPA, and the named guard rejects RSC APIs, RSC build dependencies, RSC entrypoints, and server-action directives. No patched compatible stable release is published as of 2026-07-26. Remove this exception immediately when the audit clears or by the expiry date, whichever comes first."
     }
   ]
 }

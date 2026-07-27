@@ -442,6 +442,8 @@ need_pattern SUPPLY-007 .github/workflows/security-scan.yml 'govulncheck|npm aud
 need_pattern SUPPLY-007 .github/workflows/ci.yml 'govulncheck|Trivy filesystem scan|npm audit'
 need_pattern SUPPLY-007 scripts/check_npm_audit_policy.mjs 'critical advisory|high advisory|npm audit policy: OK'
 need_pattern SUPPLY-007 scripts/verify_all.sh 'govulncheck|trivy fs --scanners vuln --severity CRITICAL,HIGH'
+need_pattern SUPPLY-007 scripts/check_web_router_mode.mjs 'client-only BrowserRouter|planted React Router RSC API|server-action'
+need_pattern SUPPLY-007 docs/security/npm-audit-policy.json 'GHSA-qwww-vcr4-c8h2|SUPPLY-008-react-router-rsc-only|2026-08-31'
 
 # Tenant isolation controls.
 need_pattern TENANT-003 internal/tenancy/posture.go 'AssertIsolationPosture|NOBYPASSRLS|FORCE ROW LEVEL SECURITY|refusing to start'
