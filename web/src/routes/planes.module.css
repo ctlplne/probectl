@@ -82,6 +82,10 @@
   white-space: normal;
 }
 
+.flowTalkersMobile {
+  display: none;
+}
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -123,5 +127,80 @@
 @media (max-width: 960px) {
   .panelGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 40rem) {
+  .flowTalkersDesktop {
+    display: none;
+  }
+
+  .flowTalkersMobile {
+    display: grid;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    gap: var(--space-3);
+    list-style: none;
+  }
+
+  .flowTalkerRecord {
+    display: grid;
+    min-width: 0;
+    padding: var(--space-3);
+    border: var(--border-width-thin) solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+    gap: var(--space-3);
+  }
+
+  .flowTalkerHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .flowTalkerContributor {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .flowTalkerContributor > span,
+  .flowTalkerContributor .muted {
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .flowTalkerFacts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+    margin: 0;
+    gap: var(--space-3);
+  }
+
+  .flowTalkerFacts > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+  }
+
+  .flowTalkerFacts dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .flowTalkerFacts dd {
+    min-width: 0;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
   }
 }

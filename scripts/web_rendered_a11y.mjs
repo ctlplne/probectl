@@ -1494,9 +1494,7 @@ async function targetsHierarchyCheck(page, viewportName) {
           (button) => button.textContent?.trim() === "Save view",
         );
         if (!nameInput || !saveButton) {
-          problems.push(
-            "saved-view composer is missing its name or action",
-          );
+          problems.push("saved-view composer is missing its name or action");
         } else {
           const composerRect = composer.getBoundingClientRect();
           const inputRect = nameInput.getBoundingClientRect();
@@ -1504,10 +1502,7 @@ async function targetsHierarchyCheck(page, viewportName) {
           const verticalOverlap =
             Math.min(inputRect.bottom, buttonRect.bottom) -
             Math.max(inputRect.top, buttonRect.top);
-          if (
-            verticalOverlap <= 0 ||
-            buttonRect.left < inputRect.right - 1
-          ) {
+          if (verticalOverlap <= 0 || buttonRect.left < inputRect.right - 1) {
             problems.push(
               "saved-view input and action detach from their shared row",
             );
@@ -2431,6 +2426,115 @@ async function flowIngestQualityReceiptChecks(page) {
   });
 }
 
+async function flowTopTalkerChecks(page, viewportName) {
+  return page.evaluate((name) => {
+    const problems = [];
+    const desktop = document.querySelector("[data-flow-top-desktop]");
+    const mobile = document.querySelector("[data-flow-top-mobile]");
+    const visible = (element) => {
+      if (!element) return false;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+
+    if (!desktop)
+      problems.push("missing desktop Flow top-talkers presentation");
+    if (!mobile) problems.push("missing mobile Flow top-talkers presentation");
+    if (!desktop || !mobile) return problems;
+
+    if (name === "mobile") {
+      if (visible(desktop)) {
+        problems.push(
+          "desktop Flow top-talkers table remains visible at 390px",
+        );
+      }
+      if (!visible(mobile)) {
+        problems.push(
+          "mobile Flow top-talkers records are not visible at 390px",
+        );
+        return problems;
+      }
+      if (mobile.tagName !== "UL") {
+        problems.push(
+          `mobile Flow top talkers use ${mobile.tagName.toLowerCase()}, want a semantic list`,
+        );
+      }
+      if (mobile.querySelector("table")) {
+        problems.push("mobile Flow top talkers still contain a wide table");
+      }
+      if (mobile.scrollWidth > mobile.clientWidth + 1) {
+        problems.push(
+          `mobile Flow top-talkers list scrolls horizontally: ${mobile.scrollWidth}px > ${mobile.clientWidth}px`,
+        );
+      }
+
+      const listBox = mobile.getBoundingClientRect();
+      const records = [...mobile.querySelectorAll(":scope > li")];
+      if (records.length === 0) {
+        problems.push("mobile Flow top-talkers list has no populated records");
+      }
+      for (const [index, record] of records.entries()) {
+        const recordBox = record.getBoundingClientRect();
+        if (
+          record.scrollWidth > record.clientWidth + 1 ||
+          recordBox.left < listBox.left - 1 ||
+          recordBox.right > listBox.right + 1
+        ) {
+          problems.push(
+            `mobile Flow top-talker record ${index + 1} escapes its list`,
+          );
+        }
+        for (const field of [
+          "contributor",
+          "bytes",
+          "packets",
+          "flows",
+          "observation",
+        ]) {
+          const evidence = record.querySelector(
+            `[data-flow-top-field="${field}"]`,
+          );
+          if (!evidence) {
+            problems.push(
+              `mobile Flow top-talker record ${index + 1} is missing ${field}`,
+            );
+            continue;
+          }
+          const evidenceBox = evidence.getBoundingClientRect();
+          if (
+            !visible(evidence) ||
+            evidenceBox.left < recordBox.left - 1 ||
+            evidenceBox.right > recordBox.right + 1
+          ) {
+            problems.push(
+              `mobile Flow top-talker record ${index + 1} hides ${field}`,
+            );
+          }
+        }
+      }
+    } else {
+      if (!visible(desktop)) {
+        problems.push("desktop Flow top-talkers table is not visible");
+      }
+      if (visible(mobile)) {
+        problems.push(
+          "mobile Flow top-talkers records remain visible on desktop",
+        );
+      }
+      if (!desktop.querySelector("table")) {
+        problems.push("desktop Flow top talkers are not a semantic table");
+      }
+    }
+    return problems;
+  }, viewportName);
+}
+
 async function selfCheck(browser, axeSource) {
   const page = await browser.newPage({ viewport: viewports[0] });
   await page.setContent(`
@@ -2575,6 +2679,37 @@ async function selfCheck(browser, axeSource) {
   ) {
     throw new Error(
       "self-check failed: flow receipt check did not catch planted horizontal clipping",
+    );
+  }
+  await page.setViewportSize(
+    viewports.find((viewport) => viewport.name === "mobile"),
+  );
+  await page.setContent(`
+    <div data-flow-top-desktop style="display:none">
+      <table><tbody><tr><td>Desktop row</td></tr></tbody></table>
+    </div>
+    <ul data-flow-top-mobile style="display:block;width:160px;overflow:hidden">
+      <li style="width:320px">
+        <button data-flow-top-field="contributor">10.0.0.1</button>
+        <dl>
+          <div data-flow-top-field="bytes"><dt>Bytes</dt><dd>1 kB</dd></div>
+          <div data-flow-top-field="packets"><dt>Packets</dt><dd>1</dd></div>
+          <div data-flow-top-field="flows"><dt>Flows</dt><dd>1</dd></div>
+        </dl>
+      </li>
+    </ul>
+  `);
+  const flowTopTalkers = await flowTopTalkerChecks(page, "mobile");
+  if (
+    !flowTopTalkers.some(
+      (problem) =>
+        problem.includes("scrolls horizontally") ||
+        problem.includes("escapes its list") ||
+        problem.includes("missing observation"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: Flow top-talker check did not catch planted hidden observation evidence",
     );
   }
   await page.setViewportSize(dashboardLaptopViewport);
@@ -2856,6 +2991,7 @@ async function main() {
             explorer: [],
             deviceReceipt: [],
             flowReceipt: [],
+            flowTopTalkers: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -2963,6 +3099,17 @@ async function main() {
                 );
               }
             }
+            if (route === "/planes/flow") {
+              record.flowTopTalkers = await flowTopTalkerChecks(
+                page,
+                viewport.name,
+              );
+              if (record.flowTopTalkers.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: Flow top-talker layout violations\n  ${record.flowTopTalkers.join("\n  ")}`,
+                );
+              }
+            }
             if (route === "/targets") {
               if (viewport.name === "desktop") {
                 await page.setViewportSize(targetsLaptopViewport);
@@ -3042,6 +3189,7 @@ async function main() {
             record.explorer.length === 0 &&
             record.deviceReceipt.length === 0 &&
             record.flowReceipt.length === 0 &&
+            record.flowTopTalkers.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";

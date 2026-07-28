@@ -43,6 +43,20 @@ describe('plane workspaces', () => {
     expect(within(topTalkers).getByText('10.0.0.10')).toBeInTheDocument()
     expect(within(topTalkers).getByText('Observed by 2 exporters')).toBeInTheDocument()
     expect(within(topTalkers).getByText('Observed by 1 exporter')).toBeInTheDocument()
+    const mobileTopTalkers = document.querySelector<HTMLElement>('[data-flow-top-mobile]')
+    if (!mobileTopTalkers) throw new Error('missing mobile Flow top-talkers list')
+    expect(mobileTopTalkers).toHaveAttribute('aria-label', 'Flow top talkers')
+    const mobileRecords = mobileTopTalkers.querySelectorAll<HTMLElement>(
+      '[data-flow-top-mobile-record]',
+    )
+    expect(mobileRecords).toHaveLength(2)
+    for (const record of mobileRecords) {
+      for (const field of ['contributor', 'bytes', 'packets', 'flows', 'observation']) {
+        expect(record.querySelector(`[data-flow-top-field="${field}"]`)).toBeInTheDocument()
+      }
+    }
+    expect(within(mobileTopTalkers).getByText('Observed by 2 exporters')).toBeInTheDocument()
+    expect(within(mobileTopTalkers).getByText('Observed by 1 exporter')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Device' }))
     const deviceNodes = await screen.findByRole('table', { name: /topology device nodes/i })
@@ -204,6 +218,11 @@ describe('plane workspaces', () => {
     expect(within(spanishTable).getByText('Observado por 2 exportadores')).toBeInTheDocument()
     expect(within(spanishTable).getByText('Observado por 1 exportador')).toBeInTheDocument()
     expect(within(spanishTable).queryByText(/deduplic/i)).not.toBeInTheDocument()
+    const spanishMobile = document.querySelector<HTMLElement>('[data-flow-top-mobile]')
+    if (!spanishMobile) throw new Error('missing Spanish mobile Flow top-talkers list')
+    expect(spanishMobile).toHaveAttribute('aria-label', 'Principales conversadores de flujo')
+    expect(within(spanishMobile).getByText('Observado por 2 exportadores')).toBeInTheDocument()
+    expect(within(spanishMobile).getByText('Observado por 1 exportador')).toBeInTheDocument()
     spanish.unmount()
 
     renderApp('/planes/flow', { locale: 'ar' })
@@ -212,6 +231,11 @@ describe('plane workspaces', () => {
     })
     expect(within(arabicTable).getByText('شوهد بواسطة 2 مُصدّرين')).toBeInTheDocument()
     expect(within(arabicTable).getByText('شوهد بواسطة مُصدّر واحد')).toBeInTheDocument()
+    const arabicMobile = document.querySelector<HTMLElement>('[data-flow-top-mobile]')
+    if (!arabicMobile) throw new Error('missing Arabic mobile Flow top-talkers list')
+    expect(arabicMobile).toHaveAttribute('aria-label', 'أعلى متحدثي التدفق')
+    expect(within(arabicMobile).getByText('شوهد بواسطة 2 مُصدّرين')).toBeInTheDocument()
+    expect(within(arabicMobile).getByText('شوهد بواسطة مُصدّر واحد')).toBeInTheDocument()
   })
 
   test('renders missing exporter provenance as unavailable instead of one observer', async () => {
@@ -243,6 +267,10 @@ describe('plane workspaces', () => {
     const table = await screen.findByRole('table', { name: /flow top talkers/i })
     expect(within(table).getByText('Exporter identity unavailable')).toBeInTheDocument()
     expect(within(table).queryByText(/observed by 0 exporters/i)).not.toBeInTheDocument()
+    const mobile = document.querySelector<HTMLElement>('[data-flow-top-mobile]')
+    if (!mobile) throw new Error('missing mobile Flow top-talkers list')
+    expect(within(mobile).getByText('Exporter identity unavailable')).toBeInTheDocument()
+    expect(within(mobile).queryByText(/observed by 0 exporters/i)).not.toBeInTheDocument()
   })
 
   test('pivots facets and narrows flows with removable filter chips', async () => {

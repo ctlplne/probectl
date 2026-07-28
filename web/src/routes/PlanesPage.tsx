@@ -477,6 +477,16 @@ function FlowPanel({
     }
     onFilters(merged)
   }
+  const observation = (row: FlowTopRow) => {
+    const count = row.exporter_count ?? 0
+    const label =
+      count === 0
+        ? t('planes.flow.observation.unavailable')
+        : count === 1
+          ? t('planes.flow.observation.one')
+          : t('planes.flow.observation.many', { count })
+    return <Badge tone={count > 1 ? 'info' : 'neutral'}>{label}</Badge>
+  }
   const topColumns: Column<NonNullable<typeof topTalkers.data>['items'][number]>[] = [
     {
       key: 'key',
@@ -519,16 +529,7 @@ function FlowPanel({
     {
       key: 'observation',
       header: t('planes.flow.column.observation'),
-      render: (r) => {
-        const count = r.exporter_count ?? 0
-        const label =
-          count === 0
-            ? t('planes.flow.observation.unavailable')
-            : count === 1
-              ? t('planes.flow.observation.one')
-              : t('planes.flow.observation.many', { count })
-        return <Badge tone={count > 1 ? 'info' : 'neutral'}>{label}</Badge>
-      },
+      render: observation,
     },
   ]
   const anomalyColumns: Column<NonNullable<typeof anomalies.data>['items'][number]>[] = [
@@ -636,12 +637,60 @@ function FlowPanel({
                   />
                 ) : null}
                 <FlowSankeyView rows={topRows} />
-                <Table
-                  caption={t('planes.flow.top.caption')}
-                  columns={topColumns}
-                  rows={topRows}
-                  rowKey={(r) => `${r.key}-${r.detail ?? ''}`}
-                />
+                <div className={styles.flowTalkersDesktop} data-flow-top-desktop>
+                  <Table
+                    caption={t('planes.flow.top.caption')}
+                    columns={topColumns}
+                    rows={topRows}
+                    rowKey={(r) => `${r.key}-${r.detail ?? ''}`}
+                  />
+                </div>
+                <ul
+                  className={styles.flowTalkersMobile}
+                  aria-label={t('planes.flow.top.caption')}
+                  data-flow-top-mobile
+                >
+                  {topRows.map((row) => (
+                    <li
+                      key={`${row.key}-${row.detail ?? ''}`}
+                      className={styles.flowTalkerRecord}
+                      data-flow-top-mobile-record
+                    >
+                      <div className={styles.flowTalkerHeader}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`${styles.contributorButton} ${styles.flowTalkerContributor}`}
+                          onClick={() => narrow(row)}
+                          aria-label={t('planes.flow.filter.narrow', {
+                            value: row.detail ? `${row.key} → ${row.detail}` : row.key,
+                          })}
+                          data-flow-top-field="contributor"
+                        >
+                          <span>
+                            <strong>{row.key}</strong>
+                            {row.detail ? <span className={styles.muted}>{row.detail}</span> : null}
+                          </span>
+                        </Button>
+                        <span data-flow-top-field="observation">{observation(row)}</span>
+                      </div>
+                      <dl className={styles.flowTalkerFacts}>
+                        <div data-flow-top-field="bytes">
+                          <dt>{t('planes.flow.column.bytes')}</dt>
+                          <dd>{bytes(row.bytes, locale)}</dd>
+                        </div>
+                        <div data-flow-top-field="packets">
+                          <dt>{t('planes.flow.column.packets')}</dt>
+                          <dd>{compact(row.packets, locale)}</dd>
+                        </div>
+                        <div data-flow-top-field="flows">
+                          <dt>{t('planes.flow.column.flows')}</dt>
+                          <dd>{compact(row.flows, locale)}</dd>
+                        </div>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : (
               <Table
