@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S18, SEC-004).
+# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S19, SEC-004).
 #
 # The audit confirmed a set of HONEST-CLAIM strengths: the default AI is the
 # air-gapped builtin, there is no vendor-telemetry egress in the source, no
@@ -234,6 +234,26 @@ run_checks() { # run_checks <root>
     echo "DOCS-S18: MTTI/MTTR language must distinguish design intent from measured outcomes" >&2; f=1
   fi
 
+  # DOCS-S19: the canonical PoV must distinguish the zero-phone-home DEFAULT
+  # from operator-enabled egress. It must also avoid mutable, named competitor
+  # absence claims without a dated evidence link.
+  local pov="$r/docs/pov-demo-script.md"
+  if ! grep -q 'By default, no probectl call-home or product' "$pov" 2>/dev/null \
+     || ! grep -q 'remote AI (tenant' "$pov" 2>/dev/null \
+     || ! grep -q 'public-data/threat/outage feed' "$pov" 2>/dev/null \
+     || ! grep -q 'OTLP/SIEM/on-call exports' "$pov" 2>/dev/null \
+     || ! grep -q 'active probes to their configured' "$pov" 2>/dev/null; then
+    echo "DOCS-S19: canonical PoV must enumerate the default posture and operator-enabled outbound paths" >&2; f=1
+  fi
+  if grep -niE 'What leaves my network.{0,80}Nothing|telemetry never leaves your network|open-data feeds are inbound-only|have no cross-plane single-axis|None of the .* competitors|competitors (do not|don.t) (have|surface)' \
+       "$pov" 2>/dev/null | grep -q .; then
+    echo "DOCS-S19: canonical PoV contains an unqualified zero-egress or unsupported competitor-absence claim" >&2; f=1
+  fi
+  if grep -niE 'Kentik|ThousandEyes|Datadog|Auvik|Grafana' "$pov" 2>/dev/null | grep -q . \
+     && ! grep -qE 'https?://|matrix/gen-[0-9]+-matrix\.md' "$pov" 2>/dev/null; then
+    echo "DOCS-S19: named PoV comparison requires a current dated source or matrix link" >&2; f=1
+  fi
+
   # SEC-004: SECURITY.md scopes provider-operator break-glass abuse as in-scope.
   if [ -f "$r/SECURITY.md" ] \
      && ! grep -qi 'break-glass-gate bypass' "$r/SECURITY.md"; then
@@ -379,6 +399,13 @@ EOF
   cat > "$d/docs/ai-rca.md" <<'EOF'
 Reducing MTTI or MTTR is a design intent, not a measured outcome.
 EOF
+  cat > "$d/docs/pov-demo-script.md" <<'EOF'
+# Canonical PoV
+By default, no probectl call-home or product telemetry egress occurs.
+Operator-enabled outbound paths are explicit: remote AI (tenant consent,
+redaction, and audit), read-only public-data/threat/outage feed fetches,
+OTLP/SIEM/on-call exports, and active probes to their configured targets.
+EOF
   cat > "$d/deploy/compose/README.md" <<'EOF'
 The viewer waits for control-plane readiness and sample topology data.
 EOF
@@ -513,6 +540,13 @@ EOF
 The product delivers shorter MTTI and faster time-to-resolve.
 EOF
       ;;
+    DOCS-S19)
+      cat > "$d/docs/pov-demo-script.md" <<'EOF'
+# Canonical PoV
+**"What leaves my network?"** Nothing. Open-data feeds are inbound-only.
+Kentik and ThousandEyes have no cross-plane single-axis view.
+EOF
+      ;;
     SEC-004)
       echo '# scope' > "$d/SECURITY.md"
       ;;
@@ -546,7 +580,7 @@ expect_label_failure() { # expect_label_failure <label>
 }
 
 if [ "${1:-}" = "SELFTEST" ]; then
-  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 DOCS-S17 DOCS-S18 SEC-004}"
+  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 DOCS-S17 DOCS-S18 DOCS-S19 SEC-004}"
   for label in $labels; do
     expect_label_failure "$label"
   done
@@ -556,4 +590,4 @@ fi
 
 run_checks "." || fail=1
 if [ "$fail" -ne 0 ]; then exit 1; fi
-echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S18, SEC-004)"
+echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S19, SEC-004)"

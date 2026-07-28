@@ -418,6 +418,7 @@ Going deeper:
 | Feature index — every capability (F1–F57) → its page | [`docs/features.md`](docs/features.md) |
 | Glossary — the zero-knowledge dictionary | [`docs/glossary.md`](docs/glossary.md) |
 | Getting started (zero → first real data) | [`docs/getting-started.md`](docs/getting-started.md) |
+| Canonical 10-minute demo + PoV talk track | [`docs/pov-demo-script.md`](docs/pov-demo-script.md) |
 | Deploying agents & collectors (the producers) | [`docs/deploying-agents.md`](docs/deploying-agents.md) |
 | Install & deploy (compose / Helm / air-gapped) | [`docs/install.md`](docs/install.md) |
 | Day-2 admin (audit, roles, SSO) | [`docs/admin.md`](docs/admin.md) |
