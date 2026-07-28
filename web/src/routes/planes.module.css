@@ -108,6 +108,131 @@
   display: none;
 }
 
+.configVersionsMobile {
+  display: none;
+}
+
+.configDiff {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-4);
+}
+
+.configDiff > p {
+  margin: 0;
+}
+
+.configDiffMeta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  min-width: 0;
+  margin: 0;
+  gap: var(--space-2) var(--space-3);
+}
+
+.configDiffMeta dt {
+  color: var(--color-text-muted);
+}
+
+.configDiffMeta dd {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  gap: var(--space-1);
+}
+
+.configDiffMeta code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.configDiffSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.configDiffNotice {
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+}
+
+.configDiffViewport {
+  max-block-size: var(--layout-dialog-scroll-max-block);
+  overflow: auto;
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.configDiffTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.configDiffTable th,
+.configDiffTable td {
+  padding: var(--space-2);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.configDiffTable th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--color-surface-high);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.configDiffLineNumber {
+  color: var(--color-text-subtle);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  user-select: none;
+}
+
+.configDiffContent {
+  min-width: 0;
+}
+
+.configDiffContent code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.configDiffMarker {
+  display: inline-block;
+  inline-size: var(--space-5);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-bold);
+}
+
+.configDiffAdded {
+  background: var(--color-success-soft);
+}
+
+.configDiffRemoved {
+  background: var(--color-danger-soft);
+}
+
+.configDiffUnchanged {
+  background: var(--color-surface-raised);
+}
+
+.configDiffOmitted {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -232,5 +357,75 @@
     margin: 0;
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
+  }
+
+  .configVersionsDesktop {
+    display: none;
+  }
+
+  .configVersionsMobile {
+    display: grid;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    gap: var(--space-3);
+    list-style: none;
+  }
+
+  .configVersionRecord {
+    display: grid;
+    min-width: 0;
+    padding: var(--space-3);
+    border: var(--border-width-thin) solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+    gap: var(--space-3);
+  }
+
+  .configVersionHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .configVersionFacts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    margin: 0;
+    gap: var(--space-3);
+  }
+
+  .configVersionFacts > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+  }
+
+  .configVersionFacts dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .configVersionFacts dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .configVersionAction {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .configVersionAction > * {
+    max-width: 100%;
   }
 }

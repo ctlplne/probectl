@@ -300,6 +300,7 @@
   --layout-topbar-height: 56px;
   --layout-content-max: 1320px;
   --layout-dialog-inset-block: 12vh;
+  --layout-dialog-scroll-max-block: 32vh;
   --layout-palette-inset-block: 14vh;
 
   /* Stacking. */

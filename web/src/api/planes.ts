@@ -168,6 +168,8 @@ export interface DeviceConfigVersion {
   device: string
   source?: string
   version: number
+  /** Content was redacted by the control plane before archival. */
+  content?: string
   content_hash: string
   previous_hash?: string
   drifted: boolean

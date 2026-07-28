@@ -59,6 +59,8 @@ import {
 } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
+import { ConfigDiffDialog, type ConfigComparison } from './ConfigDiffDialog'
+import { findPreviousConfig } from './configDiff'
 
 interface Plane {
   id: PlaneID
@@ -852,6 +854,38 @@ function DevicePanel({
   opsError: boolean
 }) {
   const { locale, t } = useI18n()
+  const [selectedConfigID, setSelectedConfigID] = useState<string | null>(null)
+  const configComparison = useMemo<ConfigComparison | null>(() => {
+    const current = configs.find((config) => config.id === selectedConfigID)
+    if (!current) return null
+    const previous = findPreviousConfig(configs, current)
+    return previous ? { current, previous } : null
+  }, [configs, selectedConfigID])
+  const configComparisonControl = (config: DeviceConfigVersion) => {
+    const previous = findPreviousConfig(configs, config)
+    if (!config.drifted) {
+      return <span className={styles.muted}>{t('planes.device.config.compare.noChange')}</span>
+    }
+    if (!previous) {
+      return <span className={styles.muted}>{t('planes.device.config.compare.unavailable')}</span>
+    }
+    return (
+      <Button
+        size="sm"
+        variant="secondary"
+        aria-haspopup="dialog"
+        aria-expanded={configComparison?.current.id === config.id}
+        aria-label={t('planes.device.config.compare.actionLabel', {
+          device: config.device,
+          before: previous.version,
+          after: config.version,
+        })}
+        onClick={() => setSelectedConfigID(config.id)}
+      >
+        {t('planes.device.config.compare.action')}
+      </Button>
+    )
+  }
   const deviceColumns: Column<TopoNode>[] = [
     {
       key: 'device',
@@ -925,6 +959,11 @@ function DevicePanel({
       key: 'archived',
       header: t('planes.device.column.archived'),
       render: (c) => <DateTime value={c.archived_at} />,
+    },
+    {
+      key: 'comparison',
+      header: t('planes.device.column.comparison'),
+      render: configComparisonControl,
     },
   ]
   const neighborColumns: Column<DeviceNeighborEvidence>[] = [
@@ -1099,12 +1138,69 @@ function DevicePanel({
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title={t('planes.device.config.title')} />
+          <CardHeader
+            title={t('planes.device.config.title')}
+            description={t('planes.device.config.description')}
+          />
           <CardBody>
             {opsLoading ? (
               <LoadingState label={t('planes.device.config.loading')} />
             ) : opsError ? (
               <ErrorState description={t('planes.device.config.error')} />
+            ) : configs.length > 0 ? (
+              <>
+                <div className={styles.configVersionsDesktop} data-config-versions-desktop>
+                  <Table
+                    caption={t('planes.device.config.caption')}
+                    columns={configColumns}
+                    rows={configs}
+                    rowKey={(c) => c.id}
+                  />
+                </div>
+                <ul
+                  className={styles.configVersionsMobile}
+                  aria-label={t('planes.device.config.caption')}
+                  data-config-versions-mobile
+                >
+                  {configs.map((config) => (
+                    <li
+                      key={config.id}
+                      className={styles.configVersionRecord}
+                      data-config-version-mobile-record
+                    >
+                      <div className={styles.configVersionHeader}>
+                        <strong>{config.device}</strong>
+                        <Badge tone={config.drifted ? 'warning' : 'success'}>
+                          {config.drifted
+                            ? t('planes.device.badge.changed')
+                            : t('planes.device.badge.baseline')}
+                        </Badge>
+                      </div>
+                      <dl className={styles.configVersionFacts}>
+                        <div>
+                          <dt>{t('planes.device.column.version')}</dt>
+                          <dd>{config.version}</dd>
+                        </div>
+                        <div>
+                          <dt>{t('planes.device.column.hash')}</dt>
+                          <dd>
+                            <code dir="ltr">{config.content_hash.slice(0, 12)}</code>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{t('planes.device.column.archived')}</dt>
+                          <dd>
+                            <DateTime value={config.archived_at} />
+                          </dd>
+                        </div>
+                      </dl>
+                      <div className={styles.configVersionAction}>
+                        {configComparisonControl(config)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : (
               <Table
                 caption={t('planes.device.config.caption')}
@@ -1120,6 +1216,12 @@ function DevicePanel({
                 }
               />
             )}
+            {configComparison ? (
+              <ConfigDiffDialog
+                comparison={configComparison}
+                onClose={() => setSelectedConfigID(null)}
+              />
+            ) : null}
           </CardBody>
         </Card>
       </div>

@@ -1629,13 +1629,27 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             device: 'edge-r1',
             source: 'running-config',
             version: 2,
+            content:
+              'hostname edge-r1\ninterface Gi0/1\n description payments uplink\n no shutdown\nsnmp-server community [REDACTED]',
             content_hash: '0123456789abcdef',
             previous_hash: 'abcdef0123456789',
             drifted: true,
             archived_at: '2026-06-04T12:00:00Z',
           },
+          {
+            id: 'config-1',
+            device: 'edge-r1',
+            source: 'running-config',
+            version: 1,
+            content:
+              'hostname edge-r1\ninterface Gi0/1\n description checkout uplink\n shutdown\nsnmp-server community [REDACTED]',
+            content_hash: 'abcdef0123456789',
+            drifted: false,
+            archived_at: '2026-06-03T12:00:00Z',
+          },
         ],
         archive_running: true,
+        redaction_policy: 'device-secrets-v1',
       })
     if (path === '/v1/topology')
       return jsonResponse({

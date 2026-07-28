@@ -1055,6 +1055,46 @@ function apiPayload(path, method, pagePath = "") {
       as_of: "2026-06-04T12:00:00Z",
       retention: { max_per_tenant: 4096, retention_days: 30 },
     });
+  if (path === "/v1/device/syslog" && method === "GET")
+    return json({
+      items: [
+        {
+          id: "syslog-1",
+          device: "edge-r1",
+          severity_text: "warning",
+          message: "Interface Gi0/1 down",
+          observed_at: "2026-06-04T12:00:00Z",
+        },
+      ],
+      syslog_running: true,
+    });
+  if (path === "/v1/device/configs" && method === "GET")
+    return json({
+      items: [
+        {
+          id: "config-2",
+          device: "edge-r1",
+          version: 2,
+          content_hash: "0123456789abcdef",
+          previous_hash: "abcdef0123456789",
+          drifted: true,
+          archived_at: "2026-06-04T12:00:00Z",
+          content:
+            "hostname edge-r1\ninterface Gi0/1\n description payments uplink\n no shutdown\nsnmp-server community [REDACTED]",
+        },
+        {
+          id: "config-1",
+          device: "edge-r1",
+          version: 1,
+          content_hash: "abcdef0123456789",
+          drifted: false,
+          archived_at: "2026-06-03T12:00:00Z",
+          content:
+            "hostname edge-r1\ninterface Gi0/1\n description checkout uplink\n shutdown\nsnmp-server community [REDACTED]",
+        },
+      ],
+      archive_running: true,
+    });
   return json({ error: { code: "not_found", message: "not found" } }, 404);
 }
 
@@ -2583,6 +2623,131 @@ async function flowTopTalkerChecks(page, viewportName) {
   }, viewportName);
 }
 
+async function deviceConfigDiffChecks(page, viewportName, axeSource) {
+  const problems = await page.evaluate((name) => {
+    const issues = [];
+    const desktop = document.querySelector("[data-config-versions-desktop]");
+    const mobile = document.querySelector("[data-config-versions-mobile]");
+    const visible = (element) => {
+      if (!element) return false;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+
+    if (!desktop) issues.push("missing desktop config-version presentation");
+    if (!mobile) issues.push("missing mobile config-version presentation");
+    if (!desktop || !mobile) return issues;
+
+    if (name === "mobile") {
+      if (visible(desktop))
+        issues.push("desktop config-version table remains visible at 390px");
+      if (!visible(mobile))
+        issues.push("mobile config-version records are not visible at 390px");
+      if (mobile.tagName !== "UL")
+        issues.push("mobile config versions are not a semantic list");
+      if (mobile.querySelector("table"))
+        issues.push("mobile config versions still contain a wide table");
+      if (mobile.scrollWidth > mobile.clientWidth + 1)
+        issues.push("mobile config-version records scroll horizontally");
+    } else {
+      if (!visible(desktop))
+        issues.push("desktop config-version table is not visible");
+      if (visible(mobile))
+        issues.push("mobile config-version records remain visible on desktop");
+      if (!desktop.querySelector("table"))
+        issues.push("desktop config versions are not a semantic table");
+    }
+    return issues;
+  }, viewportName);
+  if (problems.length > 0) return problems;
+
+  const scope =
+    viewportName === "mobile"
+      ? "[data-config-versions-mobile]"
+      : "[data-config-versions-desktop]";
+  const action = page
+    .locator(`${scope} button[aria-haspopup="dialog"]`)
+    .first();
+  if ((await action.count()) !== 1) {
+    return [...problems, `${viewportName} config comparison action is missing`];
+  }
+
+  await action.click();
+  const dialog = page.locator('[role="dialog"]');
+  await dialog.waitFor({ state: "visible" });
+
+  const dialogAxe = blockingAxeResults(await runAxe(page, axeSource));
+  for (const violation of dialogAxe) {
+    problems.push(`config comparison axe ${violation.id}: ${violation.help}`);
+  }
+
+  problems.push(
+    ...(await page.evaluate(() => {
+      const issues = [];
+      const dialog = document.querySelector('[role="dialog"]');
+      const viewport = document.querySelector(
+        '[aria-label="Scrollable redacted config comparison"]',
+      );
+      if (!dialog) return ["config comparison dialog did not open"];
+      const dialogBox = dialog.getBoundingClientRect();
+      if (
+        dialogBox.left < -1 ||
+        dialogBox.top < -1 ||
+        dialogBox.right > innerWidth + 1 ||
+        dialogBox.bottom > innerHeight + 1
+      ) {
+        issues.push(
+          `config comparison escapes viewport: ${Math.round(dialogBox.left)},${Math.round(dialogBox.top)} ${Math.round(dialogBox.right)},${Math.round(dialogBox.bottom)} within ${innerWidth}x${innerHeight}`,
+        );
+      }
+      if (document.documentElement.scrollWidth > innerWidth + 1) {
+        issues.push("config comparison widens the document");
+      }
+      if (!dialog.contains(document.activeElement)) {
+        issues.push("config comparison does not receive focus");
+      }
+      if (!viewport) {
+        issues.push("config comparison has no local evidence viewport");
+      } else {
+        const style = getComputedStyle(viewport);
+        if (viewport.getAttribute("dir") !== "ltr")
+          issues.push("config evidence is not isolated as LTR");
+        if (style.overflowX !== "auto" || style.overflowY !== "auto")
+          issues.push("config evidence is not locally scrollable");
+      }
+      const codes = [...dialog.querySelectorAll("code")].map((node) =>
+        node.textContent?.trim(),
+      );
+      for (const hash of ["abcdef0123456789", "0123456789abcdef"]) {
+        if (!codes.includes(hash))
+          issues.push(`config comparison omits full hash ${hash}`);
+      }
+      for (const status of ["added", "removed", "unchanged"]) {
+        if (!dialog.querySelector(`[data-config-diff-row="${status}"]`))
+          issues.push(`config comparison omits ${status} line evidence`);
+      }
+      if (!codes.some((text) => text?.includes("[REDACTED]")))
+        issues.push("config comparison omits redacted-content evidence");
+      return issues;
+    })),
+  );
+
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  if (
+    !(await action.evaluate((element) => document.activeElement === element))
+  ) {
+    problems.push("config comparison does not restore trigger focus");
+  }
+  return problems;
+}
+
 async function selfCheck(browser, axeSource) {
   const page = await browser.newPage({ viewport: viewports[0] });
   await page.setContent(`
@@ -3042,6 +3207,7 @@ async function main() {
             deviceReceipt: [],
             flowReceipt: [],
             flowTopTalkers: [],
+            deviceConfigDiff: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -3160,6 +3326,18 @@ async function main() {
                 );
               }
             }
+            if (route === "/planes/device") {
+              record.deviceConfigDiff = await deviceConfigDiffChecks(
+                page,
+                viewport.name,
+                axeSource,
+              );
+              if (record.deviceConfigDiff.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: device config comparison violations\n  ${record.deviceConfigDiff.join("\n  ")}`,
+                );
+              }
+            }
             if (route === "/targets") {
               if (viewport.name === "desktop") {
                 await page.setViewportSize(targetsLaptopViewport);
@@ -3240,6 +3418,7 @@ async function main() {
             record.deviceReceipt.length === 0 &&
             record.flowReceipt.length === 0 &&
             record.flowTopTalkers.length === 0 &&
+            record.deviceConfigDiff.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";

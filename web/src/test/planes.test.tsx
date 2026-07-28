@@ -120,10 +120,44 @@ describe('plane workspaces', () => {
     )
     expect(await screen.findByRole('table', { name: /device syslog events/i })).toBeInTheDocument()
     expect(screen.getByText('Interface Gi0/1 down')).toBeInTheDocument()
+    const configVersions = await screen.findByRole('table', { name: /device config versions/i })
+    expect(within(configVersions).getByText('changed')).toBeInTheDocument()
+    expect(within(configVersions).getByText('baseline')).toBeInTheDocument()
+    const mobileConfigs = document.querySelector<HTMLElement>('[data-config-versions-mobile]')
+    if (!mobileConfigs) throw new Error('missing mobile config-version list')
+    expect(mobileConfigs).toHaveAttribute('aria-label', 'Device config versions')
+    expect(mobileConfigs.querySelectorAll('[data-config-version-mobile-record]')).toHaveLength(2)
     expect(
-      await screen.findByRole('table', { name: /device config versions/i }),
+      within(mobileConfigs).getByRole('button', {
+        name: 'Compare edge-r1 version 2 with version 1',
+        hidden: true,
+      }),
     ).toBeInTheDocument()
-    expect(screen.getByText('changed')).toBeInTheDocument()
+    await userEvent.click(
+      within(configVersions).getByRole('button', {
+        name: 'Compare edge-r1 version 2 with version 1',
+      }),
+    )
+    const comparison = await screen.findByRole('dialog', {
+      name: 'edge-r1: version 1 → 2',
+    })
+    expect(
+      within(comparison).getByText(
+        'Compared deterministically from content redacted before archival. No device was contacted and no configuration can be changed here.',
+      ),
+    ).toBeInTheDocument()
+    expect(within(comparison).getByText('2 removed')).toBeInTheDocument()
+    expect(within(comparison).getByText('2 added')).toBeInTheDocument()
+    const diffTable = within(comparison).getByRole('table', {
+      name: /redacted device config line comparison/i,
+    })
+    expect(within(diffTable).getByText('description checkout uplink')).toBeInTheDocument()
+    expect(within(diffTable).getByText('description payments uplink')).toBeInTheDocument()
+    expect(within(diffTable).getByText(/community \[REDACTED\]/)).toBeInTheDocument()
+    expect(diffTable.querySelectorAll('[data-config-diff-row="removed"]')).toHaveLength(2)
+    expect(diffTable.querySelectorAll('[data-config-diff-row="added"]')).toHaveLength(2)
+    await userEvent.click(within(comparison).getByRole('button', { name: 'Close comparison' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     await userEvent.click(screen.getByRole('tab', { name: 'eBPF' }))
     const ebpf = await screen.findByRole('table', { name: /ebpf service edges/i })
@@ -147,6 +181,84 @@ describe('plane workspaces', () => {
     expect(within(deviceCoverage).getByText('Physical links').nextElementSibling).toHaveTextContent(
       /^0$/,
     )
+  })
+
+  test('does not guess a config predecessor when exact authorized content is absent', async () => {
+    const fallback = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        pathOf(input) === '/v1/device/configs'
+          ? Promise.resolve(
+              jsonResponse({
+                items: [
+                  {
+                    id: 'config-orphan',
+                    device: 'edge-r1',
+                    version: 2,
+                    content: 'hostname edge-r1\n[REDACTED]',
+                    content_hash: 'hash-current',
+                    previous_hash: 'hash-not-returned',
+                    drifted: true,
+                    archived_at: '2026-06-04T12:00:00Z',
+                  },
+                ],
+                archive_running: true,
+              }),
+            )
+          : fallback(input, init),
+      ),
+    )
+    renderApp('/planes/device')
+
+    const versions = await screen.findByRole('table', { name: /device config versions/i })
+    expect(within(versions).getByText('Prior redacted content unavailable')).toBeInTheDocument()
+    expect(
+      within(versions).queryByRole('button', { name: /compare edge-r1/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  test('localizes the redacted config comparison and keeps evidence LTR in RTL', async () => {
+    const spanish = renderApp('/planes/device', { locale: 'es' })
+    const spanishVersions = await screen.findByRole('table', {
+      name: 'Versiones de configuración de dispositivos',
+    })
+    await userEvent.click(
+      within(spanishVersions).getByRole('button', {
+        name: 'Comparar la versión 2 de edge-r1 con la versión 1',
+      }),
+    )
+    const spanishDialog = await screen.findByRole('dialog', {
+      name: 'edge-r1: versión 1 → 2',
+    })
+    expect(
+      within(spanishDialog).getByRole('table', {
+        name: 'Comparación de líneas censuradas de configuración del dispositivo',
+      }),
+    ).toBeInTheDocument()
+    expect(within(spanishDialog).getByText('2 añadidas')).toBeInTheDocument()
+    spanish.unmount()
+
+    renderApp('/planes/device', { locale: 'ar' })
+    const arabicVersions = await screen.findByRole('table', {
+      name: 'إصدارات إعدادات الأجهزة',
+    })
+    await userEvent.click(
+      within(arabicVersions).getByRole('button', {
+        name: 'قارن الإصدار 2 للجهاز edge-r1 بالإصدار 1',
+      }),
+    )
+    const arabicDialog = await screen.findByRole('dialog', {
+      name: 'edge-r1: الإصدار 1 ← 2',
+    })
+    expect(document.documentElement.dir).toBe('rtl')
+    expect(
+      within(arabicDialog).getByRole('table', {
+        name: 'مقارنة أسطر إعدادات الجهاز المنقحة',
+      }),
+    ).toBeInTheDocument()
+    expect(arabicDialog.querySelector('[dir="ltr"][tabindex="0"]')).toBeInTheDocument()
   })
 
   test('cold flow ingest remains honestly empty', async () => {

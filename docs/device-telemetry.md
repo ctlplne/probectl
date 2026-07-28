@@ -386,6 +386,18 @@ turning probectl into a vendor-managed collector:
   previous hash produce an explicit drift flag on version 2+. `GET
   /v1/device/configs` lists the tenant's config versions, newest first.
 
+The native **Planes → Device → Config archive** can compare a changed version
+with its exact archived predecessor. The action appears only when the selected
+row's `previous_hash` matches an older, same-device `content_hash` in the
+already-authorized response and both redacted contents are present. The line
+comparison is deterministic, dependency-free, computed in the browser, and
+bounded so a pathological config cannot freeze the page; a bounded result says
+that it is incomplete. It never contacts the device, sends content to a model
+or external service, invents missing history, or offers a write/rollback action.
+`probectl device configs` reaches the same tenant-scoped API and returns the
+same redacted contents and hash linkage for CLI/export workflows; it does not
+claim a separate unredacted or device-control path.
+
 This is intentionally **customer/MSP-owned**: use a local device agent, collector
 script, or automation runner to submit syslog/config rows over the authenticated
 control-plane API. probectl does not offer managed-device custody and does not
