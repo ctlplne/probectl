@@ -324,10 +324,83 @@ describe('plane workspaces', () => {
         ),
       ).toBe(true)
     })
+    await waitFor(() => {
+      const updatedTable = screen.getByRole('table', { name: /flow top talkers/i })
+      expect(within(updatedTable).getByText('edge-r1')).toBeInTheDocument()
+      expect(within(updatedTable).getByText('edge-r2')).toBeInTheDocument()
+      expect(within(updatedTable).queryByText('10.0.0.10')).not.toBeInTheDocument()
+      expect(within(updatedTable).queryByText('10.0.0.20')).not.toBeInTheDocument()
+    })
     expect(
       screen.queryByRole('button', { name: /view .*contributing exporter/i }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /clear filters/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /clear filters/i }))
+    expect(screen.getByLabelText('Group')).toHaveValue('exporter')
+    await waitFor(() => {
+      const updatedTable = screen.getByRole('table', { name: /flow top talkers/i })
+      expect(within(updatedTable).getByText('edge-r1')).toBeInTheDocument()
+      expect(within(updatedTable).getByText('edge-r2')).toBeInTheDocument()
+    })
+
+    await user.selectOptions(screen.getByLabelText('Group'), 'src')
+    await waitFor(() => {
+      const updatedTable = screen.getByRole('table', { name: /flow top talkers/i })
+      expect(within(updatedTable).getByText('10.0.0.10')).toBeInTheDocument()
+      expect(within(updatedTable).getByText('10.0.0.20')).toBeInTheDocument()
+      expect(within(updatedTable).queryByText('edge-r2')).not.toBeInTheDocument()
+    })
+  })
+
+  test('fixture Flow responses echo filters and keep exporter totals coherent', async () => {
+    const response = await defaultFetch()(
+      '/v1/flows/top?by=exporter&window=1h&bucket=3m&limit=8&filter=src%3A10.0.0.10',
+    )
+    const body = (await response.json()) as {
+      items: Array<{
+        key: string
+        bytes: number
+        packets: number
+        flows: number
+        exporter_count: number
+      }>
+      series: Array<{ key: string; bytes: number; packets: number; flows: number }>
+      filters: Array<{ field: string; value: string }>
+      window: string
+      bucket: string
+    }
+
+    expect(body.filters).toEqual([{ field: 'src', value: '10.0.0.10' }])
+    expect(body.window).toBe('1h')
+    expect(body.bucket).toBe('3m')
+    expect(body.items).toEqual([
+      {
+        key: 'edge-r1',
+        bytes: 314_572_800,
+        packets: 70_000,
+        flows: 24,
+        exporter_count: 1,
+      },
+      {
+        key: 'edge-r2',
+        bytes: 209_715_200,
+        packets: 50_000,
+        flows: 18,
+        exporter_count: 1,
+      },
+    ])
+    expect(
+      body.series.reduce(
+        (totals, row) => ({
+          bytes: totals.bytes + row.bytes,
+          packets: totals.packets + row.packets,
+          flows: totals.flows + row.flows,
+        }),
+        { bytes: 0, packets: 0, flows: 0 },
+      ),
+    ).toEqual({ bytes: 524_288_000, packets: 120_000, flows: 42 })
+
+    const cold = await coldFetch()('/v1/flows/top?by=exporter&filter=src%3A10.0.0.10')
+    await expect(cold.json()).resolves.toEqual({ items: [] })
   })
 
   test('uses exact grouping-key filters for fallback AS-name and port contributor pivots', async () => {
@@ -340,39 +413,46 @@ describe('plane workspaces', () => {
     const user = userEvent.setup()
     renderApp('/planes/flow')
 
-    const pivot = async (group: 'as_name' | 'port', exactField: string) => {
+    const pivot = async (group: 'as_name' | 'port', exactField: string, value: string) => {
       await user.selectOptions(await screen.findByLabelText('Group'), group)
       const table = await screen.findByRole('table', { name: /flow top talkers/i })
       await user.click(
         within(table).getByRole('button', {
-          name: /view 2 contributing exporters for 10\.0\.0\.10.*checkout/i,
+          name: new RegExp(`view 2 contributing exporters for ${value}`, 'i'),
         }),
       )
 
       expect(screen.getByLabelText('Group')).toHaveValue('exporter')
       expect(
         await screen.findByRole('button', {
-          name: new RegExp(`remove ${exactField} filter 10\\.0\\.0\\.10`, 'i'),
+          name: new RegExp(`remove ${exactField} filter ${value}`, 'i'),
         }),
       ).toBeInTheDocument()
       await waitFor(() => {
         expect(
-          calls.some(
-            (call) =>
-              call.includes('by=exporter') && call.includes(`filter=${exactField}%3A10.0.0.10`),
-          ),
+          calls.some((call) => {
+            const url = new URL(call, 'http://fixture.probectl.test')
+            return (
+              url.searchParams.get('by') === 'exporter' &&
+              url.searchParams.getAll('filter').includes(`${exactField}:${value}`)
+            )
+          }),
         ).toBe(true)
       })
       expect(
-        calls.some(
-          (call) => call.includes('by=exporter') && call.includes(`filter=${group}%3A10.0.0.10`),
-        ),
+        calls.some((call) => {
+          const url = new URL(call, 'http://fixture.probectl.test')
+          return (
+            url.searchParams.get('by') === 'exporter' &&
+            url.searchParams.getAll('filter').includes(`${group}:${value}`)
+          )
+        }),
       ).toBe(false)
       await user.click(screen.getByRole('button', { name: /clear filters/i }))
     }
 
-    await pivot('as_name', 'group_as_name')
-    await pivot('port', 'group_port')
+    await pivot('as_name', 'group_as_name', 'Acme Payments')
+    await pivot('port', 'group_port', '443')
   })
 
   test('pivots facets and narrows flows with removable filter chips', async () => {

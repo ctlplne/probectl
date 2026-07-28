@@ -242,7 +242,7 @@ function literalFixturePaths(): string[] {
   const paths = new Set<string>()
   const routePattern = /(?:path\s*===|case)\s*['"]([^'"]+)['"]/g
   for (let match = routePattern.exec(source); match; match = routePattern.exec(source)) {
-    if (match[1]) paths.add(match[1])
+    if (match[1]?.startsWith('/')) paths.add(match[1])
   }
   return [...paths].sort()
 }

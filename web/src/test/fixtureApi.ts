@@ -520,10 +520,14 @@ function explorerExecution(query: FixtureExplorerQuery, returnedRows: number, tr
  * a '/v1/topology' route and render green despite the bug. Exact-pathname
  * matching plus the assertNoDoublePrefix guard below close that.
  */
-export function pathOf(input: RequestInfo | URL): string {
+function urlOf(input: RequestInfo | URL): URL {
   const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : String(input)
   // Resolve against a dummy origin so relative paths ('/v1/me') parse too.
-  return new URL(raw, 'http://t.invalid').pathname
+  return new URL(raw, 'http://t.invalid')
+}
+
+export function pathOf(input: RequestInfo | URL): string {
+  return urlOf(input).pathname
 }
 
 /** RED-006: a fetched URL must NEVER carry a doubled '/v1/v1' segment — that is
@@ -537,6 +541,315 @@ export function assertNoDoublePrefix(input: RequestInfo | URL): void {
 }
 
 export type FixtureProfile = 'populated' | 'cold'
+
+type FlowFixtureGroupBy =
+  | 'src'
+  | 'dst'
+  | 'pair'
+  | 'src_asn'
+  | 'dst_asn'
+  | 'as_name'
+  | 'src_country'
+  | 'dst_country'
+  | 'port'
+  | 'protocol'
+  | 'exporter'
+
+interface FlowFixtureObservation {
+  ts: string
+  src: string
+  srcDetail: string
+  dst: string
+  dstDetail: string
+  srcASN: number
+  dstASN: number
+  srcASName: string
+  dstASName: string
+  srcCountry: string
+  dstCountry: string
+  srcPort: number
+  dstPort: number
+  protocol: string
+  exporter: string
+  bytes: number
+  packets: number
+  flows: number
+}
+
+interface FlowFixtureFilter {
+  field: string
+  value: string
+}
+
+interface FlowFixtureAggregate {
+  key: string
+  detail?: string
+  bytes: number
+  packets: number
+  flows: number
+  exporters: Set<string>
+}
+
+const flowFixtureObservations: FlowFixtureObservation[] = [
+  {
+    ts: '2026-06-04T11:55:00Z',
+    src: '10.0.0.10',
+    srcDetail: 'checkout',
+    dst: '10.0.1.20',
+    dstDetail: 'payments',
+    srcASN: 64510,
+    dstASN: 64520,
+    srcASName: 'Acme Commerce',
+    dstASName: 'Acme Payments',
+    srcCountry: 'US',
+    dstCountry: 'DE',
+    srcPort: 51_240,
+    dstPort: 443,
+    protocol: 'tcp',
+    exporter: 'edge-r1',
+    bytes: 314_572_800,
+    packets: 70_000,
+    flows: 24,
+  },
+  {
+    ts: '2026-06-04T12:00:00Z',
+    src: '10.0.0.10',
+    srcDetail: 'checkout',
+    dst: '10.0.1.20',
+    dstDetail: 'payments',
+    srcASN: 64510,
+    dstASN: 64520,
+    srcASName: 'Acme Commerce',
+    dstASName: 'Acme Payments',
+    srcCountry: 'US',
+    dstCountry: 'DE',
+    srcPort: 51_241,
+    dstPort: 443,
+    protocol: 'tcp',
+    exporter: 'edge-r2',
+    bytes: 209_715_200,
+    packets: 50_000,
+    flows: 18,
+  },
+  {
+    ts: '2026-06-04T11:55:00Z',
+    src: '10.0.0.20',
+    srcDetail: 'payments',
+    dst: '10.0.1.30',
+    dstDetail: 'ledger',
+    srcASN: 64520,
+    dstASN: 64530,
+    srcASName: 'Acme Payments',
+    dstASName: 'Acme Data',
+    srcCountry: 'DE',
+    dstCountry: 'US',
+    srcPort: 52_120,
+    dstPort: 5432,
+    protocol: 'tcp',
+    exporter: 'edge-r1',
+    bytes: 62_914_560,
+    packets: 13_400,
+    flows: 10,
+  },
+  {
+    ts: '2026-06-04T12:00:00Z',
+    src: '10.0.0.20',
+    srcDetail: 'payments',
+    dst: '10.0.1.30',
+    dstDetail: 'ledger',
+    srcASN: 64520,
+    dstASN: 64530,
+    srcASName: 'Acme Payments',
+    dstASName: 'Acme Data',
+    srcCountry: 'DE',
+    dstCountry: 'US',
+    srcPort: 52_121,
+    dstPort: 5432,
+    protocol: 'tcp',
+    exporter: 'edge-r1',
+    bytes: 41_943_040,
+    packets: 9_000,
+    flows: 8,
+  },
+]
+
+const flowFixtureGroupBys = new Set<FlowFixtureGroupBy>([
+  'src',
+  'dst',
+  'pair',
+  'src_asn',
+  'dst_asn',
+  'as_name',
+  'src_country',
+  'dst_country',
+  'port',
+  'protocol',
+  'exporter',
+])
+
+function parseFlowFixtureFilters(url: URL): FlowFixtureFilter[] {
+  return url.searchParams.getAll('filter').flatMap((raw) => {
+    const separator = raw.indexOf(':')
+    if (separator <= 0 || separator === raw.length - 1) return []
+    return [{ field: raw.slice(0, separator), value: raw.slice(separator + 1) }]
+  })
+}
+
+function fallbackASName(row: FlowFixtureObservation): string {
+  return row.dstASName || row.srcASName
+}
+
+function fallbackPort(row: FlowFixtureObservation): number {
+  return row.dstPort || row.srcPort
+}
+
+function flowFixtureMatches(row: FlowFixtureObservation, filter: FlowFixtureFilter): boolean {
+  switch (filter.field) {
+    case 'src':
+      return row.src === filter.value
+    case 'dst':
+      return row.dst === filter.value
+    case 'src_asn':
+      return String(row.srcASN) === filter.value
+    case 'dst_asn':
+      return String(row.dstASN) === filter.value
+    case 'as_name':
+      return row.srcASName === filter.value || row.dstASName === filter.value
+    case 'group_as_name':
+      return fallbackASName(row) === filter.value
+    case 'src_country':
+      return row.srcCountry === filter.value
+    case 'dst_country':
+      return row.dstCountry === filter.value
+    case 'port':
+      return String(row.srcPort) === filter.value || String(row.dstPort) === filter.value
+    case 'group_port':
+      return String(fallbackPort(row)) === filter.value
+    case 'protocol':
+      return row.protocol === filter.value
+    case 'exporter':
+      return row.exporter === filter.value
+    default:
+      return false
+  }
+}
+
+function flowFixtureGroup(
+  row: FlowFixtureObservation,
+  by: FlowFixtureGroupBy,
+): { key: string; detail?: string } {
+  switch (by) {
+    case 'src':
+      return { key: row.src, detail: row.srcDetail }
+    case 'dst':
+      return { key: row.dst, detail: row.dstDetail }
+    case 'pair':
+      return { key: row.src, detail: row.dst }
+    case 'src_asn':
+      return { key: String(row.srcASN), detail: row.srcASName }
+    case 'dst_asn':
+      return { key: String(row.dstASN), detail: row.dstASName }
+    case 'as_name':
+      return { key: fallbackASName(row) }
+    case 'src_country':
+      return { key: row.srcCountry }
+    case 'dst_country':
+      return { key: row.dstCountry }
+    case 'port':
+      return { key: String(fallbackPort(row)) }
+    case 'protocol':
+      return { key: row.protocol }
+    case 'exporter':
+      return { key: row.exporter }
+  }
+}
+
+function addFlowFixtureObservation(
+  aggregates: Map<string, FlowFixtureAggregate>,
+  row: FlowFixtureObservation,
+  by: FlowFixtureGroupBy,
+) {
+  const group = flowFixtureGroup(row, by)
+  const mapKey = `${group.key}\u0000${group.detail ?? ''}`
+  const aggregate = aggregates.get(mapKey) ?? {
+    ...group,
+    bytes: 0,
+    packets: 0,
+    flows: 0,
+    exporters: new Set<string>(),
+  }
+  aggregate.bytes += row.bytes
+  aggregate.packets += row.packets
+  aggregate.flows += row.flows
+  aggregate.exporters.add(row.exporter)
+  aggregates.set(mapKey, aggregate)
+}
+
+function flowFixtureTop(input: RequestInfo | URL) {
+  const url = urlOf(input)
+  const requestedBy = url.searchParams.get('by') as FlowFixtureGroupBy | null
+  const by = requestedBy && flowFixtureGroupBys.has(requestedBy) ? requestedBy : 'src'
+  const filters = parseFlowFixtureFilters(url)
+  const observations = flowFixtureObservations.filter((row) =>
+    filters.every((filter) => flowFixtureMatches(row, filter)),
+  )
+  const parsedLimit = Number.parseInt(url.searchParams.get('limit') ?? '8', 10)
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 50) : 8
+
+  const totals = new Map<string, FlowFixtureAggregate>()
+  for (const row of observations) addFlowFixtureObservation(totals, row, by)
+  const items = [...totals.values()]
+    .sort((left, right) => right.bytes - left.bytes || left.key.localeCompare(right.key))
+    .slice(0, limit)
+  const visible = new Set(items.map((item) => `${item.key}\u0000${item.detail ?? ''}`))
+
+  const seriesTotals = new Map<string, FlowFixtureAggregate & { ts: string }>()
+  for (const row of observations) {
+    const group = flowFixtureGroup(row, by)
+    const groupKey = `${group.key}\u0000${group.detail ?? ''}`
+    if (!visible.has(groupKey)) continue
+    const mapKey = `${row.ts}\u0000${groupKey}`
+    const aggregate = seriesTotals.get(mapKey) ?? {
+      ...group,
+      ts: row.ts,
+      bytes: 0,
+      packets: 0,
+      flows: 0,
+      exporters: new Set<string>(),
+    }
+    aggregate.bytes += row.bytes
+    aggregate.packets += row.packets
+    aggregate.flows += row.flows
+    aggregate.exporters.add(row.exporter)
+    seriesTotals.set(mapKey, aggregate)
+  }
+
+  const serialize = (aggregate: FlowFixtureAggregate) => ({
+    key: aggregate.key,
+    ...(aggregate.detail ? { detail: aggregate.detail } : {}),
+    bytes: aggregate.bytes,
+    packets: aggregate.packets,
+    flows: aggregate.flows,
+    exporter_count: aggregate.exporters.size,
+  })
+
+  return {
+    items: items.map(serialize),
+    series: [...seriesTotals.values()]
+      .sort(
+        (left, right) =>
+          left.ts.localeCompare(right.ts) ||
+          right.bytes - left.bytes ||
+          left.key.localeCompare(right.key),
+      )
+      .map((aggregate) => ({ ts: aggregate.ts, ...serialize(aggregate) })),
+    effective_limit: limit,
+    series_limit: Math.min(limit, 6),
+    window: url.searchParams.get('window') ?? '1h',
+    bucket: url.searchParams.get('bucket') ?? '3m',
+    filters,
+  }
+}
 
 /** The install-day truth: what a freshly deployed control plane answers
  * before any agent enrolls. Only DATA endpoints appear here — identity,
@@ -1424,70 +1737,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         },
       })
     }
-    if (path === '/v1/flows/top')
-      return jsonResponse({
-        items: [
-          {
-            key: '10.0.0.10',
-            detail: 'checkout',
-            bytes: 524_288_000,
-            packets: 120_000,
-            flows: 42,
-            exporter_count: 2,
-          },
-          {
-            key: '10.0.0.20',
-            detail: 'payments',
-            bytes: 104_857_600,
-            packets: 22_400,
-            flows: 18,
-            exporter_count: 1,
-          },
-        ],
-        series: [
-          {
-            ts: '2026-06-04T11:55:00Z',
-            key: '10.0.0.10',
-            detail: 'checkout',
-            bytes: 314_572_800,
-            packets: 70_000,
-            flows: 24,
-            exporter_count: 2,
-          },
-          {
-            ts: '2026-06-04T12:00:00Z',
-            key: '10.0.0.10',
-            detail: 'checkout',
-            bytes: 209_715_200,
-            packets: 50_000,
-            flows: 18,
-            exporter_count: 1,
-          },
-          {
-            ts: '2026-06-04T11:55:00Z',
-            key: '10.0.0.20',
-            detail: 'payments',
-            bytes: 62_914_560,
-            packets: 13_400,
-            flows: 10,
-            exporter_count: 1,
-          },
-          {
-            ts: '2026-06-04T12:00:00Z',
-            key: '10.0.0.20',
-            detail: 'payments',
-            bytes: 41_943_040,
-            packets: 9_000,
-            flows: 8,
-            exporter_count: 1,
-          },
-        ],
-        effective_limit: 8,
-        series_limit: 6,
-        window: '1h',
-        bucket: '3m',
-        filters: [],
-      })
+    if (path === '/v1/flows/top') return jsonResponse(flowFixtureTop(input))
     if (path === '/v1/flows/capacity')
       return jsonResponse({
         items: [

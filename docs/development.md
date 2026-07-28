@@ -156,6 +156,8 @@ design/UI iteration with no control plane, database, or IdP on the laptop.
 Open `http://localhost:5173/ui/` and every screen renders signed in as the
 obviously-fake fixture operator; edits to components, tokens, or the fixture
 catalog itself reload live. Every response carries `x-probectl-fixture: 1`.
+Flow fixture responses honor the workspace grouping, filters, and limits, so
+contributor pivots exercise the same request/response behavior as the real API.
 
 This changes the laptop, not the product: the plugin (`web/dev/`) is
 `apply: 'serve'` so a production build never evaluates it, it is inert without
