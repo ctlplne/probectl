@@ -8,6 +8,7 @@ import { useState, type ReactNode } from 'react'
 import styles from './listControls.module.css'
 import { Button, Field, Select, useToast } from '../components'
 import { useCreateSavedView, useSavedViews, type SavedViewSurface } from '../api/savedViews'
+import { useI18n } from '../i18n/useI18n'
 
 export function FilterBar({ children }: { children: ReactNode }) {
   return (
@@ -28,6 +29,7 @@ export function SavedViews({
   onApply: (filters: Record<string, string>) => void
   placeholder?: string
 }) {
+  const { t } = useI18n()
   const { push } = useToast()
   const saved = useSavedViews(surface)
   const create = useCreateSavedView(surface)
@@ -78,7 +80,7 @@ export function SavedViews({
       <div
         className={styles.savedViewComposer}
         role="group"
-        aria-label="Create saved view"
+        aria-label={t('savedViews.createGroup')}
         data-saved-view-composer
       >
         <Field

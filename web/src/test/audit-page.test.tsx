@@ -175,4 +175,46 @@ describe('native audit route', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
     await waitFor(() => expect(requests.some((r) => r.includes('after=1'))).toBe(true))
   })
+
+  test.each([
+    {
+      locale: 'es',
+      open: 'Abrir',
+      testLabel: 'Abrir prueba test/db',
+      incidentLabel: 'Abrir incidente incident/42',
+    },
+    {
+      locale: 'ar',
+      open: 'فتح',
+      testLabel: 'فتح الاختبار test/db',
+      incidentLabel: 'فتح الحادث incident/42',
+    },
+  ])(
+    'localizes safe pivot text and accessible names for $locale without changing destinations',
+    async ({ locale, open, testLabel, incidentLabel }) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = urlOf(input)
+          if (url.pathname === '/branding') return jsonResponse({ product_name: 'probectl' })
+          if (url.pathname === '/v1/audit')
+            return jsonResponse({ items: auditEvents, next: auditEvents.at(-1)?.seq ?? 0 })
+          return jsonResponse(
+            { error: { code: 'not_found', message: `unstubbed ${url.pathname}` } },
+            404,
+          )
+        }),
+      )
+
+      renderApp('/audit', { locale, me: { permissions: ['audit.read'] } })
+
+      const table = await screen.findByRole('table', { name: 'Audit events' })
+      const testLink = within(table).getByRole('link', { name: testLabel })
+      const incidentLink = within(table).getByRole('link', { name: incidentLabel })
+      expect(testLink).toHaveTextContent(open)
+      expect(testLink.getAttribute('href')).toBe('/targets?test_id=test%2Fdb#tests')
+      expect(incidentLink).toHaveTextContent(open)
+      expect(incidentLink.getAttribute('href')).toBe('/incidents?incident=incident%2F42')
+    },
+  )
 })

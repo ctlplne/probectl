@@ -26,6 +26,9 @@ import {
 } from '../components'
 import { auditExportHref, useAuditEvents, useVerifyAudit, type AuditEvent } from '../api/audit'
 import { useAuth } from '../auth/useAuth'
+import type { I18nContextValue } from '../i18n/context'
+import type { MessageKey } from '../i18n/messages'
+import { useI18n } from '../i18n/useI18n'
 import { DateTime } from '../time/DateTime'
 
 interface AuditDraft {
@@ -50,7 +53,7 @@ function dataPreview(ev: AuditEvent): string {
 
 interface AuditTargetPivot {
   href: string
-  label: string
+  labelKey: Extract<MessageKey, 'audit.target.openTest' | 'audit.target.openIncident'>
 }
 
 function auditTargetPivot(ev: AuditEvent): AuditTargetPivot | null {
@@ -70,27 +73,31 @@ function auditTargetPivot(ev: AuditEvent): AuditTargetPivot | null {
     case 'test.delete':
       return {
         href: `/targets?test_id=${encodeURIComponent(target)}#tests`,
-        label: `Open test ${target}`,
+        labelKey: 'audit.target.openTest',
       }
     case 'incident.resolve':
       return {
         href: `/incidents?incident=${encodeURIComponent(target)}`,
-        label: `Open incident ${target}`,
+        labelKey: 'audit.target.openIncident',
       }
     default:
       return null
   }
 }
 
-function auditTarget(ev: AuditEvent) {
+function auditTarget(ev: AuditEvent, t: I18nContextValue['t']) {
   const pivot = auditTargetPivot(ev)
   if (!ev.target) return 'none'
   return (
     <span className={styles.auditTarget}>
       <span className={styles.auditTargetEvidence}>{ev.target}</span>
       {pivot ? (
-        <Link className={styles.auditTargetLink} to={pivot.href} aria-label={pivot.label}>
-          Open
+        <Link
+          className={styles.auditTargetLink}
+          to={pivot.href}
+          aria-label={t(pivot.labelKey, { target: ev.target })}
+        >
+          {t('audit.target.open')}
         </Link>
       ) : null}
     </span>
@@ -109,6 +116,7 @@ function appliedFilters(draft: AuditDraft, after?: number) {
 
 export function AuditPage() {
   const { permissions } = useAuth()
+  const { t } = useI18n()
   const { push } = useToast()
   const [draft, setDraft] = useState<AuditDraft>({
     actor: '',
@@ -152,7 +160,7 @@ export function AuditPage() {
     },
     { key: 'actor', header: 'Actor', render: (ev) => ev.actor },
     { key: 'action', header: 'Action', render: (ev) => <code>{ev.action}</code> },
-    { key: 'target', header: 'Target', render: auditTarget },
+    { key: 'target', header: 'Target', render: (ev) => auditTarget(ev, t) },
     { key: 'data', header: 'Data', render: dataPreview },
     { key: 'hash', header: 'Hash', render: (ev) => <code>{shortHash(ev.hash)}</code> },
   ]

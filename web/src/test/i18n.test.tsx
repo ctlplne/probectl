@@ -111,6 +111,15 @@ describe('i18n catalog', () => {
     }
   })
 
+  test('Audit pivots and the saved-view composer carry natural Spanish and Arabic labels', () => {
+    expect(messages.es['audit.target.openTest']).toBe('Abrir prueba {target}')
+    expect(messages.es['audit.target.openIncident']).toBe('Abrir incidente {target}')
+    expect(messages.es['savedViews.createGroup']).toBe('Crear vista guardada')
+    expect(messages.ar['audit.target.openTest']).toBe('فتح الاختبار {target}')
+    expect(messages.ar['audit.target.openIncident']).toBe('فتح الحادث {target}')
+    expect(messages.ar['savedViews.createGroup']).toBe('إنشاء عرض محفوظ')
+  })
+
   test('iteration-two Spanish cost, SLO, and journal copy keeps natural diacritics', () => {
     expect(messages.es['cost.egress.description']).toContain('Atribución')
     expect(messages.es['slo.card.description']).toContain('rápida')

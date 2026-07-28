@@ -88,6 +88,19 @@ describe('saved list views', () => {
     expect(screen.getByLabelText('Type')).toHaveValue('dns')
   })
 
+  test.each([
+    { locale: 'es', groupName: 'Crear vista guardada' },
+    { locale: 'ar', groupName: 'إنشاء عرض محفوظ' },
+  ])(
+    'localizes the saved-view composer accessible name for $locale',
+    async ({ locale, groupName }) => {
+      stubSavedViews()
+      renderApp('/targets', { locale })
+
+      expect(await screen.findByRole('group', { name: groupName })).toBeDefined()
+    },
+  )
+
   test('Agents save and restore URL-backed fleet filters', async () => {
     const { views } = stubSavedViews()
     renderApp('/admin?agent_status=online&agent_capability=ebpf')
