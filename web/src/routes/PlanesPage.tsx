@@ -798,6 +798,12 @@ function flowFiltersForRow(by: FlowGroupBy, row: FlowTopRow): FlowFilter[] {
       { field: 'dst', value: row.detail ?? '' },
     ].filter((filter) => filter.value !== '') as FlowFilter[]
   }
+  if (by === 'as_name') {
+    return [{ field: 'group_as_name', value: row.key }]
+  }
+  if (by === 'port') {
+    return [{ field: 'group_port', value: row.key }]
+  }
   return [{ field: by, value: row.key }]
 }
 

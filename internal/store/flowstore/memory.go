@@ -241,6 +241,20 @@ func addExporterIdentity(exporters map[string]struct{}, raw string) {
 
 func groupKey(key, detail string) string { return key + "\x00" + detail }
 
+func flowASNameGroupKey(r Row) string {
+	if r.DstASName != "" {
+		return r.DstASName
+	}
+	return r.SrcASName
+}
+
+func flowPortGroupKey(r Row) uint16 {
+	if r.DstPort != 0 {
+		return r.DstPort
+	}
+	return r.SrcPort
+}
+
 func groupRow(r Row, by string) (key, detail string, ok bool) {
 	switch by {
 	case BySrc:
@@ -258,19 +272,13 @@ func groupRow(r Row, by string) (key, detail string, ok bool) {
 			key, detail = strconv.FormatUint(uint64(r.DstASN), 10), r.DstASName
 		}
 	case ByASName:
-		key = r.DstASName
-		if key == "" {
-			key = r.SrcASName
-		}
+		key = flowASNameGroupKey(r)
 	case BySrcCountry:
 		key = r.SrcCountry
 	case ByDstCountry:
 		key = r.DstCountry
 	case ByPort:
-		port := r.DstPort
-		if port == 0 {
-			port = r.SrcPort
-		}
+		port := flowPortGroupKey(r)
 		if port != 0 {
 			key = strconv.FormatUint(uint64(port), 10)
 		}
@@ -296,6 +304,8 @@ func matchesFilters(r Row, filters []Filter) bool {
 			match = strconv.FormatUint(uint64(r.DstASN), 10) == filter.Value
 		case FilterASName:
 			match = r.SrcASName == filter.Value || r.DstASName == filter.Value
+		case FilterGroupASName:
+			match = flowASNameGroupKey(r) == filter.Value
 		case FilterSrcCountry:
 			match = r.SrcCountry == filter.Value
 		case FilterDstCountry:
@@ -303,6 +313,8 @@ func matchesFilters(r Row, filters []Filter) bool {
 		case FilterPort:
 			match = strconv.FormatUint(uint64(r.SrcPort), 10) == filter.Value ||
 				strconv.FormatUint(uint64(r.DstPort), 10) == filter.Value
+		case FilterGroupPort:
+			match = strconv.FormatUint(uint64(flowPortGroupKey(r)), 10) == filter.Value
 		case FilterProtocol:
 			match = r.Protocol == filter.Value
 		case FilterExporter:

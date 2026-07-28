@@ -330,6 +330,51 @@ describe('plane workspaces', () => {
     expect(screen.getByRole('button', { name: /clear filters/i })).toBeInTheDocument()
   })
 
+  test('uses exact grouping-key filters for fallback AS-name and port contributor pivots', async () => {
+    const calls: string[] = []
+    const fallback = defaultFetch()
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(String(input))
+      return fallback(input, init)
+    })
+    const user = userEvent.setup()
+    renderApp('/planes/flow')
+
+    const pivot = async (group: 'as_name' | 'port', exactField: string) => {
+      await user.selectOptions(await screen.findByLabelText('Group'), group)
+      const table = await screen.findByRole('table', { name: /flow top talkers/i })
+      await user.click(
+        within(table).getByRole('button', {
+          name: /view 2 contributing exporters for 10\.0\.0\.10.*checkout/i,
+        }),
+      )
+
+      expect(screen.getByLabelText('Group')).toHaveValue('exporter')
+      expect(
+        await screen.findByRole('button', {
+          name: new RegExp(`remove ${exactField} filter 10\\.0\\.0\\.10`, 'i'),
+        }),
+      ).toBeInTheDocument()
+      await waitFor(() => {
+        expect(
+          calls.some(
+            (call) =>
+              call.includes('by=exporter') && call.includes(`filter=${exactField}%3A10.0.0.10`),
+          ),
+        ).toBe(true)
+      })
+      expect(
+        calls.some(
+          (call) => call.includes('by=exporter') && call.includes(`filter=${group}%3A10.0.0.10`),
+        ),
+      ).toBe(false)
+      await user.click(screen.getByRole('button', { name: /clear filters/i }))
+    }
+
+    await pivot('as_name', 'group_as_name')
+    await pivot('port', 'group_port')
+  })
+
   test('pivots facets and narrows flows with removable filter chips', async () => {
     const calls: string[] = []
     const fallback = defaultFetch()

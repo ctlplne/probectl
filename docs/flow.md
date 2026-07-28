@@ -304,11 +304,16 @@ GET /v1/flows/ingest-quality?agent_id=&exporter=&protocol=&state=&limit=100
   organization with a source fallback; `port` uses the destination service port
   with a source fallback.
 - **Narrowing filters** are repeated exact-match `filter=field:value` query
-  values and are ANDed. The allowlist is every grouping except `pair`; use one
-  `src` and one `dst` filter for a pair. The authenticated principal supplies
-  tenant scope before filters are evaluated—`tenant_id` is not a valid filter.
-  ClickHouse receives every filter value as a typed bound parameter; only the
-  allowlisted field enum becomes SQL structure.
+  values and are ANDed. The public `as_name` and `port` filters retain their
+  any-endpoint meaning. `group_as_name` and `group_port` instead match the
+  destination-with-source-fallback key used by those two groupings; the native
+  row and contributor actions use these exact variants so another endpoint
+  cannot widen the selected aggregate. The remaining allowlist is every
+  grouping except `pair`; use one `src` and one `dst` filter for a pair. The
+  authenticated principal supplies tenant scope before filters are
+  evaluated—`tenant_id` is not a valid filter. ClickHouse receives every
+  filter value as a typed bound parameter; only the allowlisted field enum
+  becomes SQL structure.
 - **Capacity** buckets per-`(exporter, interface)` throughput into bps/pps
   (bits per second / packets per second) over
   time. `direction` selects which interface (ingress/egress) to group by

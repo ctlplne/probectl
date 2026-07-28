@@ -1020,7 +1020,7 @@ export interface FlowCapacityPoint {
 }
 
 export interface FlowFilter {
-  field: "src" | "dst" | "src_asn" | "dst_asn" | "as_name" | "src_country" | "dst_country" | "port" | "protocol" | "exporter"
+  field: "src" | "dst" | "src_asn" | "dst_asn" | "as_name" | "group_as_name" | "src_country" | "dst_country" | "port" | "group_port" | "protocol" | "exporter"
   value: string
 }
 

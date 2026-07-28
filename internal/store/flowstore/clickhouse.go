@@ -591,6 +591,11 @@ func chValidUser(u string) error {
 // topDimension turns one already-validated enum into fixed SQL structure. The
 // generic as_name and port facets use the destination value with a source
 // fallback for grouping; their filters match either side.
+const (
+	topASNameGroupExpr = "if(dst_as_name != '', dst_as_name, src_as_name)"
+	topPortGroupExpr   = "if(dst_port != 0, dst_port, src_port)"
+)
+
 func topDimension(by string) (key, detail, extra string) {
 	switch by {
 	case BySrc:
@@ -604,13 +609,13 @@ func topDimension(by string) (key, detail, extra string) {
 	case ByDstASN:
 		key, detail, extra = "toString(dst_asn)", "dst_as_name", " AND dst_asn != 0"
 	case ByASName:
-		key, detail, extra = "if(dst_as_name != '', dst_as_name, src_as_name)", "''", " AND (src_as_name != '' OR dst_as_name != '')"
+		key, detail, extra = topASNameGroupExpr, "''", " AND (src_as_name != '' OR dst_as_name != '')"
 	case BySrcCountry:
 		key, detail, extra = "src_country", "''", " AND src_country != ''"
 	case ByDstCountry:
 		key, detail, extra = "dst_country", "''", " AND dst_country != ''"
 	case ByPort:
-		key, detail, extra = "toString(if(dst_port != 0, dst_port, src_port))", "''", " AND (src_port != 0 OR dst_port != 0)"
+		key, detail, extra = "toString("+topPortGroupExpr+")", "''", " AND (src_port != 0 OR dst_port != 0)"
 	case ByProtocol:
 		key, detail, extra = "protocol", "''", " AND protocol != ''"
 	case ByExporter:
@@ -637,12 +642,16 @@ func topFilterSQL(filters []Filter, params chParams) string {
 			fmt.Fprintf(&sql, " AND dst_asn={%s:UInt32}", name)
 		case FilterASName:
 			fmt.Fprintf(&sql, " AND (src_as_name={%s:String} OR dst_as_name={%s:String})", name, name)
+		case FilterGroupASName:
+			fmt.Fprintf(&sql, " AND "+topASNameGroupExpr+"={%s:String}", name)
 		case FilterSrcCountry:
 			fmt.Fprintf(&sql, " AND src_country={%s:String}", name)
 		case FilterDstCountry:
 			fmt.Fprintf(&sql, " AND dst_country={%s:String}", name)
 		case FilterPort:
 			fmt.Fprintf(&sql, " AND (src_port={%s:UInt16} OR dst_port={%s:UInt16})", name, name)
+		case FilterGroupPort:
+			fmt.Fprintf(&sql, " AND "+topPortGroupExpr+"={%s:UInt16}", name)
 		case FilterProtocol:
 			fmt.Fprintf(&sql, " AND protocol={%s:String}", name)
 		case FilterExporter:

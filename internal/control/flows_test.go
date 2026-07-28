@@ -112,6 +112,94 @@ func TestFlowTopTalkersAPI(t *testing.T) {
 	}
 }
 
+func TestFlowTopGroupingKeyFiltersExcludeOtherEndpointAndForeignTenant(t *testing.T) {
+	srv := testServer(fakePinger{})
+	at := time.Now().UTC().Truncate(5 * time.Minute).Add(-2 * time.Minute)
+	const tenant = "00000000-0000-0000-0000-000000000001"
+	if err := srv.flowStore.Insert(context.Background(), []flowstore.Row{
+		{
+			TenantID: tenant, Exporter: "expected", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "10.0.0.1", DstAddr: "10.0.0.2", SrcASName: "SOURCE",
+			DstASName: "TARGET", SrcPort: 50000, DstPort: 443, BytesScaled: 100, PacketsScaled: 1,
+		},
+		{
+			TenantID: tenant, Exporter: "wrong-as-side", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "10.0.0.3", DstAddr: "10.0.0.4", SrcASName: "TARGET",
+			DstASName: "OTHER", SrcPort: 50001, DstPort: 8443, BytesScaled: 90, PacketsScaled: 1,
+		},
+		{
+			TenantID: tenant, Exporter: "wrong-port-side", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "10.0.0.5", DstAddr: "10.0.0.6", SrcASName: "SOURCE",
+			DstASName: "OTHER", SrcPort: 443, DstPort: 9443, BytesScaled: 80, PacketsScaled: 1,
+		},
+		{
+			TenantID: "t-other", Exporter: "foreign", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "192.0.2.1", DstAddr: "192.0.2.2", SrcASName: "SOURCE",
+			DstASName: "TARGET", SrcPort: 50002, DstPort: 443, BytesScaled: 10_000, PacketsScaled: 100,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	type response struct {
+		Items   []flowstore.TopRow      `json:"items"`
+		Series  []flowstore.SeriesPoint `json:"series"`
+		Filters []flowstore.Filter      `json:"filters"`
+	}
+	tests := []struct {
+		name        string
+		exactField  flowstore.FilterField
+		legacyField flowstore.FilterField
+		value       string
+		legacyExtra string
+	}{
+		{
+			name: "as_name", exactField: flowstore.FilterGroupASName,
+			legacyField: flowstore.FilterASName, value: "TARGET", legacyExtra: "wrong-as-side",
+		},
+		{
+			name: "port", exactField: flowstore.FilterGroupPort,
+			legacyField: flowstore.FilterPort, value: "443", legacyExtra: "wrong-port-side",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			read := func(field flowstore.FilterField) response {
+				t.Helper()
+				rec := do(srv, http.MethodGet,
+					"/v1/flows/top?by=exporter&window=1h&bucket=5m&filter="+string(field)+":"+tc.value)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("%s status = %d body=%s", field, rec.Code, rec.Body.String())
+				}
+				var out response
+				if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+					t.Fatal(err)
+				}
+				return out
+			}
+
+			exact := read(tc.exactField)
+			if len(exact.Items) != 1 || exact.Items[0].Key != "expected" ||
+				len(exact.Series) != 1 || exact.Series[0].Key != "expected" ||
+				len(exact.Filters) != 1 || exact.Filters[0].Field != tc.exactField {
+				t.Fatalf("exact response = %+v", exact)
+			}
+
+			legacy := read(tc.legacyField)
+			if len(legacy.Items) != 2 ||
+				legacy.Items[0].Key != "expected" ||
+				legacy.Items[1].Key != tc.legacyExtra {
+				t.Fatalf("legacy any-side response = %+v", legacy.Items)
+			}
+			for _, row := range append(exact.Items, legacy.Items...) {
+				if row.Key == "foreign" {
+					t.Fatalf("CROSS-TENANT CONTRIBUTOR LEAK: %+v", row)
+				}
+			}
+		})
+	}
+}
+
 func TestFlowTopExporterCountCannotIncludeForeignTenant(t *testing.T) {
 	srv := testServer(fakePinger{})
 	// Anchor inside the previous completed five-minute bucket so the two

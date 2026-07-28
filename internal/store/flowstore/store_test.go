@@ -264,6 +264,7 @@ func TestMemoryFlowFacetsFiltersAndSeries(t *testing.T) {
 	for _, invalid := range []Filter{
 		{Field: FilterField("tenant_id"), Value: "t-b"},
 		{Field: FilterPort, Value: "70000"},
+		{Field: FilterGroupPort, Value: "0"},
 		{Field: FilterSrcASN, Value: "not-an-asn"},
 		{Field: FilterExporter, Value: ""},
 	} {
@@ -272,6 +273,88 @@ func TestMemoryFlowFacetsFiltersAndSeries(t *testing.T) {
 		}); err == nil {
 			t.Fatalf("invalid filter accepted: %+v", invalid)
 		}
+	}
+}
+
+func TestMemoryGroupingKeyFiltersExcludeOtherEndpointAndTenant(t *testing.T) {
+	at := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
+	m := NewMemory()
+	if err := m.Insert(context.Background(), []Row{
+		{
+			TenantID: "tenant-a", Exporter: "expected", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "10.0.0.1", DstAddr: "10.0.0.2", SrcASName: "SOURCE",
+			DstASName: "TARGET", SrcPort: 50000, DstPort: 443, BytesScaled: 100, PacketsScaled: 1,
+		},
+		{
+			TenantID: "tenant-a", Exporter: "wrong-as-side", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "10.0.0.3", DstAddr: "10.0.0.4", SrcASName: "TARGET",
+			DstASName: "OTHER", SrcPort: 50001, DstPort: 8443, BytesScaled: 90, PacketsScaled: 1,
+		},
+		{
+			TenantID: "tenant-a", Exporter: "wrong-port-side", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "10.0.0.5", DstAddr: "10.0.0.6", SrcASName: "SOURCE",
+			DstASName: "OTHER", SrcPort: 443, DstPort: 9443, BytesScaled: 80, PacketsScaled: 1,
+		},
+		{
+			TenantID: "tenant-b", Exporter: "foreign", Protocol: "ipfix", TS: at.Add(-time.Minute),
+			SrcAddr: "192.0.2.1", DstAddr: "192.0.2.2", SrcASName: "SOURCE",
+			DstASName: "TARGET", SrcPort: 50002, DstPort: 443, BytesScaled: 10_000, PacketsScaled: 100,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		exact       Filter
+		legacy      Filter
+		legacyExtra string
+	}{
+		{
+			name: "as_name", exact: Filter{Field: FilterGroupASName, Value: "TARGET"},
+			legacy: Filter{Field: FilterASName, Value: "TARGET"}, legacyExtra: "wrong-as-side",
+		},
+		{
+			name: "port", exact: Filter{Field: FilterGroupPort, Value: "443"},
+			legacy: Filter{Field: FilterPort, Value: "443"}, legacyExtra: "wrong-port-side",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			exactQuery := TopQuery{
+				TenantID: "tenant-a", By: ByExporter, Window: time.Hour, Now: at,
+				Filters: []Filter{tc.exact},
+			}
+			rows, err := m.TopTalkers(context.Background(), exactQuery)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || rows[0].Key != "expected" {
+				t.Fatalf("exact contributors = %+v, want only expected", rows)
+			}
+			series, err := m.TopSeries(context.Background(), exactQuery, rows)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(series) != 1 || series[0].Key != "expected" {
+				t.Fatalf("exact contributor series = %+v, want only expected", series)
+			}
+
+			legacyQuery := exactQuery
+			legacyQuery.Filters = []Filter{tc.legacy}
+			legacy, err := m.TopTalkers(context.Background(), legacyQuery)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(legacy) != 2 || legacy[0].Key != "expected" || legacy[1].Key != tc.legacyExtra {
+				t.Fatalf("legacy any-side contributors = %+v", legacy)
+			}
+			for _, row := range append(rows, legacy...) {
+				if row.Key == "foreign" {
+					t.Fatalf("CROSS-TENANT CONTRIBUTOR LEAK: %+v", row)
+				}
+			}
+		})
 	}
 }
 
@@ -565,6 +648,32 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	}
 	if fparams["filter_0"] != "tcp' OR 1=1 --" || fparams["filter_1"] != "443" {
 		t.Fatalf("filter params = %v", fparams)
+	}
+
+	gq := TopQuery{
+		TenantID: "t-a", By: ByExporter, Window: time.Hour, Now: now,
+		Filters: []Filter{
+			{Field: FilterGroupASName, Value: "DEST-NET"},
+			{Field: FilterGroupPort, Value: "443"},
+		},
+	}
+	if err := gq.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	gsql, gparams := topSQL(gq, sharedFlowsTable)
+	for _, want := range []string{
+		"WHERE tenant_id={tenant:String}",
+		"if(dst_as_name != '', dst_as_name, src_as_name)={filter_0:String}",
+		"if(dst_port != 0, dst_port, src_port)={filter_1:UInt16}",
+	} {
+		if !strings.Contains(gsql, want) {
+			t.Fatalf("group-key SQL missing %q: %s", want, gsql)
+		}
+	}
+	if gparams["tenant"] != "t-a" ||
+		gparams["filter_0"] != "DEST-NET" ||
+		gparams["filter_1"] != "443" {
+		t.Fatalf("group-key params = %v", gparams)
 	}
 
 	seriesSQL, seriesParams := topSeriesSQL(fq, sharedFlowsTable, []TopRow{

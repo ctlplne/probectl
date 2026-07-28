@@ -89,16 +89,18 @@ const (
 type FilterField string
 
 const (
-	FilterSrc        FilterField = "src"
-	FilterDst        FilterField = "dst"
-	FilterSrcASN     FilterField = "src_asn"
-	FilterDstASN     FilterField = "dst_asn"
-	FilterASName     FilterField = "as_name"
-	FilterSrcCountry FilterField = "src_country"
-	FilterDstCountry FilterField = "dst_country"
-	FilterPort       FilterField = "port"
-	FilterProtocol   FilterField = "protocol"
-	FilterExporter   FilterField = "exporter"
+	FilterSrc         FilterField = "src"
+	FilterDst         FilterField = "dst"
+	FilterSrcASN      FilterField = "src_asn"
+	FilterDstASN      FilterField = "dst_asn"
+	FilterASName      FilterField = "as_name"
+	FilterGroupASName FilterField = "group_as_name"
+	FilterSrcCountry  FilterField = "src_country"
+	FilterDstCountry  FilterField = "dst_country"
+	FilterPort        FilterField = "port"
+	FilterGroupPort   FilterField = "group_port"
+	FilterProtocol    FilterField = "protocol"
+	FilterExporter    FilterField = "exporter"
 )
 
 const (
@@ -322,7 +324,8 @@ func (f *Filter) normalize() error {
 		return fmt.Errorf("value exceeds %d bytes", maxFilterValue)
 	}
 	switch f.Field {
-	case FilterSrc, FilterDst, FilterASName, FilterSrcCountry, FilterDstCountry,
+	case FilterSrc, FilterDst, FilterASName, FilterGroupASName,
+		FilterSrcCountry, FilterDstCountry,
 		FilterProtocol, FilterExporter:
 		return nil
 	case FilterSrcASN, FilterDstASN:
@@ -336,6 +339,13 @@ func (f *Filter) normalize() error {
 		value, err := strconv.ParseUint(f.Value, 10, 16)
 		if err != nil {
 			return errors.New("port must be between 0 and 65535")
+		}
+		f.Value = strconv.FormatUint(value, 10)
+		return nil
+	case FilterGroupPort:
+		value, err := strconv.ParseUint(f.Value, 10, 16)
+		if err != nil || value == 0 {
+			return errors.New("group_port must be between 1 and 65535")
 		}
 		f.Value = strconv.FormatUint(value, 10)
 		return nil

@@ -20,7 +20,7 @@ export type FlowGroupBy =
   | 'protocol'
   | 'exporter'
 
-export type FlowFilterField = Exclude<FlowGroupBy, 'pair'>
+export type FlowFilterField = Exclude<FlowGroupBy, 'pair'> | 'group_as_name' | 'group_port'
 
 export interface FlowFilter {
   field: FlowFilterField

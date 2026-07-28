@@ -150,6 +150,88 @@ func TestClickHouseExporterCountIsTenantScoped(t *testing.T) {
 	}
 }
 
+func TestClickHouseGroupingKeyFiltersAreExactAndTenantScoped(t *testing.T) {
+	c := chFlow(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(5 * time.Minute).Add(-2 * time.Minute)
+	ta := fmt.Sprintf("iso-group-filter-a-%d", now.UnixNano())
+	tb := fmt.Sprintf("iso-group-filter-b-%d", now.UnixNano())
+	defer func() {
+		_, _ = c.DeleteTenant(ctx, ta)
+		_, _ = c.DeleteTenant(ctx, tb)
+	}()
+
+	row := func(tenant, exporter, srcAS, dstAS string, srcPort, dstPort uint16, scaled uint64) Row {
+		r := flowRow(tenant, exporter+"-src", now.Add(-time.Minute))
+		r.Exporter = exporter
+		r.SrcASName, r.DstASName = srcAS, dstAS
+		r.SrcPort, r.DstPort = srcPort, dstPort
+		r.BytesScaled, r.PacketsScaled = scaled, 1
+		return r
+	}
+	if err := c.Insert(ctx, []Row{
+		row(ta, "expected", "SOURCE", "TARGET", 50000, 443, 100),
+		row(ta, "wrong-as-side", "TARGET", "OTHER", 50001, 8443, 90),
+		row(ta, "wrong-port-side", "SOURCE", "OTHER", 443, 9443, 80),
+		row(tb, "foreign", "SOURCE", "TARGET", 50002, 443, 10_000),
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		exact       Filter
+		legacy      Filter
+		legacyExtra string
+	}{
+		{
+			name: "as_name", exact: Filter{Field: FilterGroupASName, Value: "TARGET"},
+			legacy: Filter{Field: FilterASName, Value: "TARGET"}, legacyExtra: "wrong-as-side",
+		},
+		{
+			name: "port", exact: Filter{Field: FilterGroupPort, Value: "443"},
+			legacy: Filter{Field: FilterPort, Value: "443"}, legacyExtra: "wrong-port-side",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			exactQuery := TopQuery{
+				TenantID: ta, By: ByExporter, Window: time.Hour, Now: now,
+				Filters: []Filter{tc.exact},
+			}
+			rows, err := c.TopTalkers(ctx, exactQuery)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || rows[0].Key != "expected" {
+				t.Fatalf("exact contributors = %+v, want only expected", rows)
+			}
+			series, err := c.TopSeries(ctx, exactQuery, rows)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(series) != 1 || series[0].Key != "expected" {
+				t.Fatalf("exact contributor series = %+v, want only expected", series)
+			}
+
+			legacyQuery := exactQuery
+			legacyQuery.Filters = []Filter{tc.legacy}
+			legacy, err := c.TopTalkers(ctx, legacyQuery)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(legacy) != 2 || legacy[0].Key != "expected" || legacy[1].Key != tc.legacyExtra {
+				t.Fatalf("legacy any-side contributors = %+v", legacy)
+			}
+			for _, candidate := range append(rows, legacy...) {
+				if candidate.Key == "foreign" {
+					t.Fatalf("CROSS-TENANT CONTRIBUTOR LEAK: %+v", candidate)
+				}
+			}
+		})
+	}
+}
+
 func TestClickHouseSubjectEraseIsTenantScoped(t *testing.T) {
 	c := chFlow(t)
 	ctx := context.Background()

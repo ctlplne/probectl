@@ -3244,7 +3244,7 @@
             "name": "filter",
             "in": "query",
             "required": false,
-            "description": "Repeatable exact-match facet filters in field:value form. Allowed fields: src, dst, src_asn, dst_asn, as_name, src_country, dst_country, port, protocol, exporter. Filters are ANDed, values are bound parameters, and tenant scope never comes from this list.",
+            "description": "Repeatable exact-match facet filters in field:value form. Allowed fields: src, dst, src_asn, dst_asn, as_name, group_as_name, src_country, dst_country, port, group_port, protocol, exporter. as_name and port match either endpoint for compatibility; group_as_name and group_port exactly match the destination-with-source-fallback grouping key. Filters are ANDed, values are bound parameters, and tenant scope never comes from this list.",
             "style": "form",
             "explode": true,
             "schema": {
@@ -13686,9 +13686,11 @@
               "src_asn",
               "dst_asn",
               "as_name",
+              "group_as_name",
               "src_country",
               "dst_country",
               "port",
+              "group_port",
               "protocol",
               "exporter"
             ]
