@@ -69,6 +69,106 @@ func TestCLIAIAskHandoffUsesOneAskAndMatchesSharedContract(t *testing.T) {
 	}
 }
 
+func TestCLIAIAskHandoffAcceptsEveryBooleanTrueSpelling(t *testing.T) {
+	fixtureDir := filepath.Join("..", "..", "test", "fixtures", "ai-handoff")
+	answer, err := os.ReadFile(filepath.Join(fixtureDir, "answer.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden, err := os.ReadFile(filepath.Join(fixtureDir, "handoff.en.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/ai/ask" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(answer)
+	}))
+	t.Cleanup(server.Close)
+
+	for _, spelling := range []string{"--handoff", "-handoff", "--handoff=true", "-handoff=true"} {
+		t.Run(spelling, func(t *testing.T) {
+			before := requests.Load()
+			out, errs, code := run(
+				t,
+				server,
+				"ai",
+				"ask",
+				spelling,
+				"--body",
+				`{"question":"Why is checkout slow?"}`,
+			)
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr=%s", code, errs)
+			}
+			if delta := requests.Load() - before; delta != 1 {
+				t.Fatalf("Ask requests = %d, want exactly 1", delta)
+			}
+			if out != string(golden) {
+				t.Fatal("CLI handoff drifted from shared contract")
+			}
+		})
+	}
+}
+
+func TestCLIAIAskHandoffFalseUsesOrdinaryAskWithoutFlagLeak(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/ai/ask" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query()["scope"]; len(got) != 2 || got[0] != "current" || got[1] != "history" {
+			t.Errorf("scope query = %#v", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if body["question"] != "Why is checkout slow?" {
+			t.Errorf("question = %#v", body["question"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"answer_id":  "answer-ordinary",
+			"root_cause": "ordinary Ask response",
+			"confidence": "medium",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	for _, spelling := range []string{"--handoff=false", "-handoff=false"} {
+		t.Run(spelling, func(t *testing.T) {
+			before := requests.Load()
+			out, errs, code := run(
+				t,
+				server,
+				"ai",
+				"ask",
+				spelling,
+				"--body",
+				`{"question":"Why is checkout slow?"}`,
+				"--query",
+				"scope=current",
+				"--query",
+				"scope=history",
+			)
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr=%s", code, errs)
+			}
+			if delta := requests.Load() - before; delta != 1 {
+				t.Fatalf("Ask requests = %d, want exactly 1", delta)
+			}
+			if !strings.Contains(out, "ordinary Ask response") {
+				t.Fatalf("ordinary Ask output missing response: %s", out)
+			}
+		})
+	}
+}
+
 func TestCLIAIAskHandoffRejectsInvalidCombinationsBeforeRequest(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -88,6 +188,8 @@ func TestCLIAIAskHandoffRejectsInvalidCombinationsBeforeRequest(t *testing.T) {
 		{name: "non-object", args: []string{"ai", "ask", "--handoff", "--body", `["x"]`}, want: "must be one JSON object"},
 		{name: "missing question", args: []string{"ai", "ask", "--handoff", "--body", `{"subject":{}}`}, want: "requires a non-empty question"},
 		{name: "unexpected", args: []string{"ai", "ask", "--handoff", "--body", `{"question":"x"}`, "extra"}, want: "unexpected arguments"},
+		{name: "malformed boolean", args: []string{"ai", "ask", "--handoff=perhaps", "--body", `{"question":"x"}`}, want: "invalid boolean value"},
+		{name: "false with invalid JSON", args: []string{"ai", "ask", "--handoff=false", "--body", `{`}, want: "invalid --body"},
 	}
 
 	for _, test := range tests {

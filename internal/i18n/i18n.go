@@ -35,7 +35,7 @@ var catalog = map[string]map[string]string{
 		"cli.usage":                        englishUsage,
 		"cli.ai.handoff.body_help":         "Ask JSON request body",
 		"cli.ai.handoff.flag_help":         "render the answer as a local Markdown handoff",
-		"cli.ai.handoff.query_help":        "unsupported query parameter k=v",
+		"cli.ai.handoff.query_help":        "query parameter k=v (repeatable; unavailable with --handoff)",
 		"cli.ai.handoff.json_conflict":     "ai ask: --handoff cannot be combined with --json",
 		"cli.ai.handoff.query_conflict":    "ai ask: --handoff cannot be combined with --query",
 		"cli.ai.handoff.unexpected":        "ai ask: unexpected arguments: {args}",
@@ -59,7 +59,7 @@ var catalog = map[string]map[string]string{
 		"cli.usage":                        spanishUsage,
 		"cli.ai.handoff.body_help":         "cuerpo JSON de la solicitud Ask",
 		"cli.ai.handoff.flag_help":         "representa la respuesta como una entrega Markdown local",
-		"cli.ai.handoff.query_help":        "parámetro de consulta k=v no compatible",
+		"cli.ai.handoff.query_help":        "parámetro de consulta k=v (repetible; no disponible con --handoff)",
 		"cli.ai.handoff.json_conflict":     "ai ask: --handoff no se puede combinar con --json",
 		"cli.ai.handoff.query_conflict":    "ai ask: --handoff no se puede combinar con --query",
 		"cli.ai.handoff.unexpected":        "ai ask: argumentos inesperados: {args}", //nolint:misspell // Spanish locale copy.
@@ -71,7 +71,7 @@ var catalog = map[string]map[string]string{
 	"ar": {
 		"cli.ai.handoff.body_help":         "نص طلب Ask بصيغة JSON",
 		"cli.ai.handoff.flag_help":         "اعرض الإجابة كتسليم Markdown محلي",
-		"cli.ai.handoff.query_help":        "معامل استعلام k=v غير مدعوم",
+		"cli.ai.handoff.query_help":        "معامل استعلام k=v (قابل للتكرار؛ غير متاح مع --handoff)",
 		"cli.ai.handoff.json_conflict":     "ai ask: لا يمكن الجمع بين --handoff و --json",
 		"cli.ai.handoff.query_conflict":    "ai ask: لا يمكن الجمع بين --handoff و --query",
 		"cli.ai.handoff.unexpected":        "ai ask: معاملات غير متوقعة: {args}",

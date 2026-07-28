@@ -18,16 +18,17 @@ import (
 )
 
 func cmdAI(cfg Config, args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "ask" || !containsExactArg(args[1:], "--handoff") {
+	if len(args) == 0 || args[0] != "ask" {
 		return cmdSurface(cfg, surfaceCommands["ai"], args, stdout, stderr)
 	}
-	return aiAskHandoff(cfg, args[1:], stdout, stderr)
+	return aiAsk(cfg, args[1:], stdout, stderr)
 }
 
-// aiAskHandoff calls the same tenant-scoped Ask endpoint exactly once, then
-// renders that response locally. It adds no export route, server persistence,
-// browser state, connector, or egress.
-func aiAskHandoff(cfg Config, args []string, stdout, stderr io.Writer) int {
+// aiAsk parses every Ask invocation once so the ordinary and local-handoff
+// paths accept the same boolean spellings without leaking a specialized flag
+// into the generic parser. Either successful path calls the same tenant-scoped
+// endpoint exactly once.
+func aiAsk(cfg Config, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ai ask", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	bodyRaw := fs.String("body", "", i18n.T(cfg.Locale, "cli.ai.handoff.body_help", nil))
@@ -38,7 +39,25 @@ func aiAskHandoff(cfg Config, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if !*handoff {
-		return cmdSurface(cfg, surfaceCommands["ai"], append([]string{"ask"}, args...), stdout, stderr)
+		if len(fs.Args()) > 0 {
+			fmt.Fprintf(stderr, "unexpected args: %s\n", strings.Join(fs.Args(), " "))
+			return 2
+		}
+		body, err := parseBody(*bodyRaw)
+		if err != nil {
+			fmt.Fprintln(stderr, "invalid --body: "+err.Error())
+			return 2
+		}
+		var out any
+		if err := newClient(cfg).do(
+			http.MethodPost,
+			withQueryValues("/v1/ai/ask", query),
+			body,
+			&out,
+		); err != nil {
+			return fail(stderr, err)
+		}
+		return printGeneric(stdout, out, cfg.JSON, http.MethodPost)
 	}
 	if cfg.JSON {
 		fmt.Fprintln(stderr, i18n.T(cfg.Locale, "cli.ai.handoff.json_conflict", nil))
@@ -82,13 +101,4 @@ func aiAskHandoff(cfg Config, args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, ai.RenderHandoff(answer, cfg.Locale))
 	return 0
-}
-
-func containsExactArg(args []string, name string) bool {
-	for _, arg := range args {
-		if arg == name {
-			return true
-		}
-	}
-	return false
 }
