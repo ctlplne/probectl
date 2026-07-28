@@ -26,7 +26,7 @@ import {
   useToast,
 } from '../components'
 import { classifySurfaceTruth } from '../components'
-import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
+import { useCreateTest, useDeleteTest, useTest, useTests, type Test } from '../api/tests'
 import { AuthoringPanel } from './AuthoringPanel'
 import { CoveragePanel } from './CoveragePanel'
 import { ResultDetail } from './ResultDetail'
@@ -35,6 +35,7 @@ import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 import { CodeExportPanel } from './CodeExportPanel'
 import { testAsCode } from './codeExport'
 import { Page } from './RoutePage'
+import { useI18n } from '../i18n/useI18n'
 
 // --- Targets & Tests (live /v1/tests CRUD) ---
 
@@ -170,26 +171,23 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 export function TargetsPage() {
-  const {
-    data,
-    isPending,
-    isError,
-    error,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-    refetch,
-  } = useTests()
+  const { data, isPending, error, hasNextPage, fetchNextPage, isFetchingNextPage, refetch } =
+    useTests()
   const del = useDeleteTest()
   const { push } = useToast()
   const [creating, setCreating] = useState(false)
   const [resultsFor, setResultsFor] = useState<Test | null>(null)
   const [codeFor, setCodeFor] = useState<Test | null>(null)
   const [params, setParams] = useSearchParams()
-  const defaults = { q: '', type: 'all', enabled: 'all' }
+  const defaults = { q: '', type: 'all', enabled: 'all', test_id: '' }
   const q = filterValue(params, 'q')
   const type = filterValue(params, 'type', 'all')
   const enabled = filterValue(params, 'enabled', 'all')
+  const requestedTestID = filterValue(params, 'test_id')
+  const exactTest = useTest(requestedTestID)
+  const { t } = useI18n()
+  const registryPending = requestedTestID ? exactTest.isPending : isPending
+  const registryError = requestedTestID ? exactTest.error : error
   const setFilter = (patch: Record<string, string>) =>
     setURLFilters(params, setParams, defaults, patch)
 
@@ -202,6 +200,7 @@ export function TargetsPage() {
   }, [params, setParams])
 
   const filteredTests = useMemo(() => {
+    if (requestedTestID) return exactTest.data ? [exactTest.data] : []
     const needle = q.trim().toLowerCase()
     return (data ?? []).filter((t) => {
       const haystack = [t.name, t.type, t.target ?? ''].join(' ').toLowerCase()
@@ -211,7 +210,7 @@ export function TargetsPage() {
         (enabled === 'all' || (enabled === 'enabled' ? t.enabled : !t.enabled))
       )
     })
-  }, [data, enabled, q, type])
+  }, [data, enabled, exactTest.data, q, requestedTestID, type])
 
   function remove(t: Test) {
     del.mutate(t.id, {
@@ -284,7 +283,7 @@ export function TargetsPage() {
         </Button>
       }
     >
-      <Card data-targets-inventory>
+      <Card id="tests" data-targets-inventory>
         <CardHeader
           title="Tests"
           description="Open Results on any test for its per-type latest result detail."
@@ -324,6 +323,7 @@ export function TargetsPage() {
                   q: filters.q ?? '',
                   type: filters.type ?? 'all',
                   enabled: filters.enabled ?? 'all',
+                  test_id: filters.test_id ?? '',
                 })
               }
               placeholder="DNS tests"
@@ -331,23 +331,36 @@ export function TargetsPage() {
           </FilterBar>
         </div>
         <CardBody>
-          {isPending ? (
+          {registryPending ? (
             <LoadingState label="Loading tests…" />
-          ) : isError ? (
+          ) : registryError ? (
             <HonestDataState
-              state={classifySurfaceTruth({ error })}
+              state={classifySurfaceTruth({ error: registryError })}
               producer="Control-plane test registry"
-              producerReadiness={`The server did not return an authoritative tenant-scoped result: ${error?.message ?? 'request failed'}`}
+              producerReadiness={`The server did not return an authoritative tenant-scoped result: ${registryError.message}`}
               lastSuccessfulIngest={null}
               coverageLimitation="Synthetic definitions and their measurements are not shown while this request is unavailable."
               action={
-                <Button variant="secondary" onClick={() => void refetch()}>
+                <Button
+                  variant="secondary"
+                  onClick={() => void (requestedTestID ? exactTest.refetch() : refetch())}
+                >
                   Retry tenant-scoped request
                 </Button>
               }
             />
           ) : (
             <>
+              {requestedTestID ? (
+                <p role="status" className={styles.exactTestFilter}>
+                  <span>
+                    {t('targets.exactTestID')}: <code>{requestedTestID}</code>
+                  </span>
+                  <Button size="sm" variant="secondary" onClick={() => setFilter({ test_id: '' })}>
+                    {t('targets.clearExactTest')}
+                  </Button>
+                </p>
+              ) : null}
               <Table
                 caption="Synthetic tests"
                 columns={columns}
@@ -383,7 +396,7 @@ export function TargetsPage() {
                   )
                 }
               />
-              {hasNextPage ? (
+              {!requestedTestID && hasNextPage ? (
                 <div className={styles.pagination}>
                   <span>{data?.length ?? 0} tests loaded</span>
                   <Button

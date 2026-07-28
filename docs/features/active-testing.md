@@ -104,6 +104,18 @@ The states are intentionally closed and cautious:
 Every receipt says the **current local assignment is unverified**. Agents load
 local YAML; the control plane neither reads nor pushes that file. This feature
 does not schedule, assign, rebalance, update, disable, or retarget an agent.
+Every non-healthy receipt provides a read-only **Inspect test** action. The
+action carries the exact server `test_id` to Targets, where a tenant-scoped
+`GET /v1/tests/{id}` selects one definition even when human-readable names are
+duplicated; its existing Results and YAML actions remain available. A failed
+exact lookup shows no fallback list. The independent coverage-repair action
+remains separate, and `on_cadence` rows add no inspect prompt.
+
+At narrow viewports the native UI renders each receipt as one bounded record
+that keeps test name, probe type, target, coverage state, and cadence proof
+together. The desktop surface remains a semantic table. Cadence state, reason,
+counts, window, completeness, and assignment caveat use the `en`, `es`, `ar`,
+and pseudo-locale catalogs; Arabic retains the shell's RTL direction.
 Expected rounds begin with each agent's first exact observation in the bounded
 window; probectl does not invent rounds before that point because it cannot know
 when the local YAML assignment began. Interval validation uses every exact row

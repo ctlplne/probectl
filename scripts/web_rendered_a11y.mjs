@@ -352,6 +352,18 @@ function apiPayload(path, method, pagePath = "") {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     },
+    {
+      id: "t2",
+      name: "edge-icmp-secondary",
+      type: "icmp",
+      target: "9.9.9.9",
+      interval_seconds: 60,
+      timeout_seconds: 3,
+      params: {},
+      enabled: true,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    },
   ];
   const sampleAgents = [
     {
@@ -382,6 +394,83 @@ function apiPayload(path, method, pagePath = "") {
       ],
     });
   if (path === "/v1/tests") return json({ items: sampleTests });
+  if (path === "/v1/tests/t1") return json(sampleTests[0]);
+  if (path === "/v1/coverage/vantages")
+    return json({
+      items: [
+        {
+          test_id: "t1",
+          test_name: "edge-icmp",
+          region: "us-east",
+          site: "iad-1",
+          agent_readiness: "ready",
+          agent_count: 1,
+          ready_agent_count: 1,
+          probe_family: "icmp",
+          target: "1.1.1.1",
+          last_evidence_at: "2026-07-28T06:29:00Z",
+          independent_vantage_count: 1,
+          stale_after_seconds: 300,
+          status: "non_redundant",
+          execution_cadence: {
+            state: "gaps_observed",
+            reason: "missed_rounds",
+            attribution: "exact_test_id",
+            configured_interval_seconds: 30,
+            window_seconds: 180,
+            expected_rounds: 6,
+            observed_rounds: 4,
+            missed_rounds: 2,
+            max_gap_seconds: 90,
+            observed_agent_count: 1,
+            history_complete: true,
+            current_assignment_verified: false,
+          },
+          next_action: {
+            kind: "author_test",
+            label: "Author another test",
+            href: "/targets?create=test",
+          },
+        },
+        {
+          test_id: "t2",
+          test_name: "edge-icmp-secondary",
+          region: "us-west",
+          site: "sjc-1",
+          agent_readiness: "unavailable",
+          agent_count: 0,
+          ready_agent_count: 0,
+          probe_family: "icmp",
+          target: "9.9.9.9",
+          independent_vantage_count: 0,
+          stale_after_seconds: 300,
+          status: "uncovered",
+          execution_cadence: {
+            state: "never_observed",
+            reason: "no_exact_test_evidence",
+            attribution: "none",
+            configured_interval_seconds: 60,
+            window_seconds: 360,
+            expected_rounds: 0,
+            observed_rounds: 0,
+            missed_rounds: 0,
+            max_gap_seconds: 0,
+            observed_agent_count: 0,
+            history_complete: true,
+            current_assignment_verified: false,
+          },
+          next_action: {
+            kind: "enroll_vantage",
+            label: "Enroll or restore a vantage",
+            href: "/admin",
+          },
+        },
+      ],
+      as_of: "2026-07-28T06:30:00Z",
+      evidence_running: true,
+      candidate_limit: 5000,
+      truncated: false,
+    });
   if (path === "/v1/tests/t1/path") return json(renderedPath);
   if (path === "/v1/tests/t1/path/history")
     return json({
@@ -1392,6 +1481,12 @@ async function targetsHierarchyCheck(page, viewportName) {
           "first populated Tests row falls below the 1280x720 fold",
         );
       }
+      const coverageTable = document.querySelector(
+        "[data-targets-coverage] table",
+      );
+      if (!coverageTable || coverageTable.getClientRects().length === 0) {
+        problems.push("desktop coverage receipt is not a semantic table");
+      }
     }
 
     if (currentViewport === "mobile" && toolbar) {
@@ -1408,6 +1503,75 @@ async function targetsHierarchyCheck(page, viewportName) {
         }
         if (form.scrollWidth - form.clientWidth > 1) {
           problems.push("Targets mobile filters overflow their toolbar");
+        }
+      }
+
+      const coverage = document.querySelector("[data-targets-coverage]");
+      const records = Array.from(
+        coverage?.querySelectorAll("[data-coverage-mobile-record]") ?? [],
+      );
+      const desktopTable = coverage?.querySelector("table");
+      if (desktopTable?.getClientRects().length) {
+        problems.push("desktop coverage table remains visible at 390px");
+      }
+      if (records.length < 2) {
+        problems.push(
+          "mobile coverage needs at least two receipts to prove row association",
+        );
+      }
+      const seenTestIDs = new Set();
+      for (const [index, record] of records.entries()) {
+        const testID = record.getAttribute("data-test-id") ?? "";
+        const expectedText = [
+          record.getAttribute("data-test-name"),
+          record.getAttribute("data-probe-family"),
+          record.getAttribute("data-target"),
+        ].filter(Boolean);
+        const coverageState = record.getAttribute("data-coverage-status") ?? "";
+        const receipt = record.querySelector("[data-cadence-receipt]");
+        const evidence = record.querySelector("[data-coverage-evidence]");
+        const recordBox = record.getBoundingClientRect();
+        const coverageBox = coverage?.getBoundingClientRect();
+
+        if (!testID || seenTestIDs.has(testID)) {
+          problems.push(
+            `mobile coverage receipt ${index + 1} has an ambiguous test ID`,
+          );
+        }
+        seenTestIDs.add(testID);
+        if (
+          expectedText.some(
+            (value) => !record.textContent?.includes(String(value)),
+          ) ||
+          !coverageState ||
+          !evidence ||
+          !evidence.textContent?.trim() ||
+          !record.textContent
+            ?.toLowerCase()
+            .includes(coverageState.replaceAll("_", "-"))
+        ) {
+          problems.push(
+            `mobile coverage receipt ${index + 1} does not visibly group test, probe, target, and coverage state`,
+          );
+        }
+        if (
+          !receipt ||
+          receipt.getAttribute("data-test-id") !== testID ||
+          receipt.closest("[data-coverage-mobile-record]") !== record
+        ) {
+          problems.push(
+            `mobile coverage receipt ${index + 1} associates cadence with the wrong test`,
+          );
+        }
+        if (
+          record.scrollWidth - record.clientWidth > 1 ||
+          (coverageBox &&
+            (recordBox.left < coverageBox.left - 1 ||
+              recordBox.right > coverageBox.right + 1))
+        ) {
+          problems.push(
+            `mobile coverage receipt ${index + 1} overflows its card`,
+          );
         }
       }
     }
@@ -2375,6 +2539,55 @@ async function selfCheck(browser, axeSource) {
   ) {
     throw new Error(
       "self-check failed: Targets hierarchy check did not catch the planted authoring-first regression",
+    );
+  }
+  await page.setViewportSize(viewports[1]);
+  await page.setContent(`
+    <section data-targets-inventory>
+      <div data-targets-filter-toolbar><form><label>Find<input></label></form></div>
+    </section>
+    <section data-targets-coverage>
+      <table><tbody><tr><td>Planted desktop table</td></tr></tbody></table>
+      <ul>
+        <li
+          data-coverage-mobile-record
+          data-test-id="t1"
+          data-test-name="edge-one"
+          data-probe-family="icmp"
+          data-target="1.1.1.1"
+          data-coverage-status="uncovered"
+        >
+          edge-one icmp 1.1.1.1 uncovered
+          <span data-cadence-receipt data-test-id="t2">wrong receipt</span>
+        </li>
+        <li
+          data-coverage-mobile-record
+          data-test-id="t2"
+          data-test-name="edge-two"
+          data-probe-family="dns"
+          data-target="9.9.9.9"
+          data-coverage-status="stale"
+        >
+          <span data-cadence-receipt data-test-id="t2">missing identity</span>
+        </li>
+      </ul>
+    </section>
+    <section data-targets-authoring>Author with AI</section>
+  `);
+  const targetsMobileReceipt = await targetsHierarchyCheck(page, "mobile");
+  if (
+    !targetsMobileReceipt.some((problem) =>
+      problem.includes("desktop coverage table remains visible"),
+    ) ||
+    !targetsMobileReceipt.some((problem) =>
+      problem.includes("associates cadence with the wrong test"),
+    ) ||
+    !targetsMobileReceipt.some((problem) =>
+      problem.includes("does not visibly group"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: Targets mobile receipt check did not catch planted row-association regressions",
     );
   }
   await page.setViewportSize(viewports[1]);

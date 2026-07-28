@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type { Test, TestList, TestRequest } from './sdk.gen'
 
@@ -30,6 +30,14 @@ export function useTests() {
     ...query,
     data: query.data?.pages.flatMap((page) => page.items),
   }
+}
+
+export function useTest(id: string) {
+  return useQuery({
+    queryKey: [...key, id],
+    queryFn: () => apiFetch<Test>(`/tests/${encodeURIComponent(id)}`),
+    enabled: id.length > 0,
+  })
 }
 
 export function useCreateTest() {

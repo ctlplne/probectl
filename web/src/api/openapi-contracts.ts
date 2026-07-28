@@ -745,6 +745,13 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/tests.ts',
+    method: 'GET',
+    path: '`/tests/${encodeURIComponent(id)}`',
+    response: 'Test',
+    generated: 'GetTestResponse',
+  },
+  {
+    file: 'api/tests.ts',
     method: 'POST',
     path: '/tests',
     response: 'Test',

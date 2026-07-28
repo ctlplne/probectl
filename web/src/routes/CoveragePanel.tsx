@@ -35,6 +35,10 @@ import {
   type ExecutionCadenceState,
 } from '../api/coverage'
 import { DateTime } from '../time/DateTime'
+import { formatInteger } from '../i18n/number'
+import { useI18n } from '../i18n/useI18n'
+import type { I18nContextValue } from '../i18n/context'
+import type { MessageKey } from '../i18n/messages'
 import styles from './pages.module.css'
 import { FilterBar } from './listControls'
 
@@ -52,11 +56,11 @@ const statusTones: Record<CoverageStatus, BadgeTone> = {
   covered: 'success',
 }
 
-const cadenceLabels: Record<ExecutionCadenceState, string> = {
-  on_cadence: 'On cadence',
-  gaps_observed: 'Gaps observed',
-  never_observed: 'Never observed',
-  unknown: 'Unknown',
+const cadenceLabelKeys: Record<ExecutionCadenceState, MessageKey> = {
+  on_cadence: 'coverage.cadence.state.onCadence',
+  gaps_observed: 'coverage.cadence.state.gapsObserved',
+  never_observed: 'coverage.cadence.state.neverObserved',
+  unknown: 'coverage.cadence.state.unknown',
 }
 
 const cadenceTones: Record<ExecutionCadenceState, BadgeTone> = {
@@ -66,30 +70,98 @@ const cadenceTones: Record<ExecutionCadenceState, BadgeTone> = {
   unknown: 'neutral',
 }
 
-const cadenceReasonLabels: Record<ExecutionCadenceReason, string> = {
-  on_cadence: 'No missed round found in complete local history',
-  missed_rounds: 'One or more configured rounds have no exact result',
-  no_exact_test_evidence: 'No result has carried this exact test ID',
-  evidence_unwired: 'Recent result evidence is not wired on this control plane',
-  legacy_or_unattributed_evidence: 'Matching legacy results have no exact test ID',
-  legacy_schedule_metadata: 'Result history does not carry the effective local interval',
-  interval_mismatch: 'The local interval differs from this server definition',
-  history_truncated: 'The bounded local history cannot prove the whole window',
-  insufficient_history: 'Fewer than three exact rounds are available',
-  future_evidence_timestamp: 'A result timestamp is ahead of the receipt clock',
-  definition_mismatch: 'The exact test ID reported a different probe or target',
-  invalid_configured_interval: 'The server definition interval is invalid',
+const cadenceReasonKeys: Record<ExecutionCadenceReason, MessageKey> = {
+  on_cadence: 'coverage.cadence.reason.onCadence',
+  missed_rounds: 'coverage.cadence.reason.missedRounds',
+  no_exact_test_evidence: 'coverage.cadence.reason.noExactTestEvidence',
+  evidence_unwired: 'coverage.cadence.reason.evidenceUnwired',
+  legacy_or_unattributed_evidence: 'coverage.cadence.reason.legacyOrUnattributedEvidence',
+  legacy_schedule_metadata: 'coverage.cadence.reason.legacyScheduleMetadata',
+  interval_mismatch: 'coverage.cadence.reason.intervalMismatch',
+  history_truncated: 'coverage.cadence.reason.historyTruncated',
+  insufficient_history: 'coverage.cadence.reason.insufficientHistory',
+  future_evidence_timestamp: 'coverage.cadence.reason.futureEvidenceTimestamp',
+  definition_mismatch: 'coverage.cadence.reason.definitionMismatch',
+  invalid_configured_interval: 'coverage.cadence.reason.invalidConfiguredInterval',
 }
 
-function formatCadenceDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  if (seconds < 3600 && seconds % 60 === 0) return `${seconds / 60}m`
-  if (seconds < 86400 && seconds % 3600 === 0) return `${seconds / 3600}h`
-  return `${seconds}s`
+function formatCadenceDuration(seconds: number, locale: string, t: I18nContextValue['t']): string {
+  if (seconds < 60)
+    return t('coverage.cadence.duration.seconds', { count: formatInteger(seconds, locale) })
+  if (seconds < 3600 && seconds % 60 === 0)
+    return t('coverage.cadence.duration.minutes', {
+      count: formatInteger(seconds / 60, locale),
+    })
+  if (seconds < 86400 && seconds % 3600 === 0)
+    return t('coverage.cadence.duration.hours', {
+      count: formatInteger(seconds / 3600, locale),
+    })
+  return t('coverage.cadence.duration.seconds', { count: formatInteger(seconds, locale) })
+}
+
+function CadenceReceipt({ item }: { item: CoverageMatrixItem }) {
+  const navigate = useNavigate()
+  const { locale, t } = useI18n()
+  const cadence = item.execution_cadence
+  const observed = formatInteger(cadence.observed_rounds, locale)
+  const expected = formatInteger(cadence.expected_rounds, locale)
+  const missed = formatInteger(cadence.missed_rounds, locale)
+  const agents = formatInteger(cadence.observed_agent_count, locale)
+  const operatorAction =
+    cadence.state === 'on_cadence'
+      ? null
+      : `/targets?test_id=${encodeURIComponent(item.test_id)}#tests`
+
+  return (
+    <span className={styles.fleetCell} data-cadence-receipt data-test-id={item.test_id}>
+      <StatusDot tone={cadenceTones[cadence.state]} label={t(cadenceLabelKeys[cadence.state])} />
+      <small>{t(cadenceReasonKeys[cadence.reason])}</small>
+      <small>
+        {t('coverage.cadence.rounds', { observed, expected })} ·{' '}
+        {t(
+          cadence.missed_rounds === 1
+            ? 'coverage.cadence.missed.one'
+            : 'coverage.cadence.missed.other',
+          { count: missed },
+        )}{' '}
+        ·{' '}
+        {t('coverage.cadence.largestGap', {
+          duration: formatCadenceDuration(cadence.max_gap_seconds, locale, t),
+        })}
+      </small>
+      <small>
+        {t('coverage.cadence.window', {
+          duration: formatCadenceDuration(cadence.window_seconds, locale, t),
+        })}{' '}
+        ·{' '}
+        {t(
+          cadence.history_complete
+            ? 'coverage.cadence.history.complete'
+            : 'coverage.cadence.history.incomplete',
+        )}{' '}
+        ·{' '}
+        {t(
+          cadence.observed_agent_count === 1
+            ? 'coverage.cadence.agent.one'
+            : 'coverage.cadence.agent.other',
+          { count: agents },
+        )}
+      </small>
+      {!cadence.current_assignment_verified ? (
+        <small>{t('coverage.cadence.assignmentCaveat')}</small>
+      ) : null}
+      {operatorAction ? (
+        <Button size="sm" variant="secondary" onClick={() => void navigate(operatorAction)}>
+          {t('coverage.cadence.inspectTest', { name: item.test_name, id: item.test_id })}
+        </Button>
+      ) : null}
+    </span>
+  )
 }
 
 export function CoveragePanel() {
   const navigate = useNavigate()
+  const { locale, t } = useI18n()
   const { data, isPending, isError, error, refetch } = useCoverageMatrix()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<CoverageStatus | 'all'>('all')
@@ -180,27 +252,8 @@ export function CoveragePanel() {
     },
     {
       key: 'cadence',
-      header: 'Execution cadence',
-      render: (item) => {
-        const cadence = item.execution_cadence
-        return (
-          <span className={styles.fleetCell}>
-            <StatusDot tone={cadenceTones[cadence.state]} label={cadenceLabels[cadence.state]} />
-            <small>{cadenceReasonLabels[cadence.reason]}</small>
-            <small>
-              {cadence.observed_rounds}/{cadence.expected_rounds} rounds · {cadence.missed_rounds}{' '}
-              missed · largest gap {formatCadenceDuration(cadence.max_gap_seconds)}
-            </small>
-            <small>
-              {formatCadenceDuration(cadence.window_seconds)} window ·{' '}
-              {cadence.history_complete ? 'complete history' : 'incomplete history'} ·{' '}
-              {cadence.observed_agent_count}{' '}
-              {cadence.observed_agent_count === 1 ? 'observed agent' : 'observed agents'}
-            </small>
-            <small>Current local assignment is not verified by the control plane.</small>
-          </span>
-        )
-      },
+      header: t('coverage.cadence.column'),
+      render: (item) => <CadenceReceipt item={item} />,
     },
   ]
 
@@ -221,7 +274,12 @@ export function CoveragePanel() {
                   {gapCount} {gapCount === 1 ? 'gap' : 'gaps'}
                 </Badge>
                 <Badge tone={cadenceGapCount > 0 ? 'danger' : 'neutral'}>
-                  {cadenceGapCount} cadence {cadenceGapCount === 1 ? 'gap' : 'gaps'}
+                  {t(
+                    cadenceGapCount === 1
+                      ? 'coverage.cadence.summary.one'
+                      : 'coverage.cadence.summary.other',
+                    { count: formatInteger(cadenceGapCount, locale) },
+                  )}
                 </Badge>
                 <Badge tone="neutral">{data.items.length} matrix rows</Badge>
               </span>
@@ -297,30 +355,129 @@ export function CoveragePanel() {
                   ]}
                 />
               </FilterBar>
-              <Table
-                caption="Owned-vantage coverage matrix"
-                columns={columns}
-                rows={filtered}
-                rowKey={(item) => `${item.test_id}:${item.region}:${item.site}`}
-                empty={
-                  <EmptyState
-                    title="No coverage rows match these filters"
-                    description="Clear or change the local filters; no server data was deleted."
-                    action={
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          setQuery('')
-                          setStatus('all')
-                          setRegion('all')
-                        }}
-                      >
-                        Clear filters
-                      </Button>
-                    }
-                  />
-                }
-              />
+              <div className={styles.coverageDesktop}>
+                <Table
+                  caption="Owned-vantage coverage matrix"
+                  columns={columns}
+                  rows={filtered}
+                  rowKey={(item) => `${item.test_id}:${item.region}:${item.site}`}
+                  empty={
+                    <EmptyState
+                      title="No coverage rows match these filters"
+                      description="Clear or change the local filters; no server data was deleted."
+                      action={
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            setQuery('')
+                            setStatus('all')
+                            setRegion('all')
+                          }}
+                        >
+                          Clear filters
+                        </Button>
+                      }
+                    />
+                  }
+                />
+              </div>
+              <ul className={styles.coverageMobile} aria-label={t('coverage.cadence.mobileList')}>
+                {filtered.map((item) => (
+                  <li
+                    key={`${item.test_id}:${item.region}:${item.site}`}
+                    className={styles.coverageRecord}
+                    data-coverage-mobile-record
+                    data-test-id={item.test_id}
+                    data-test-name={item.test_name}
+                    data-probe-family={item.probe_family}
+                    data-target={item.target}
+                    data-coverage-status={item.status}
+                  >
+                    <div className={styles.coverageRecordHeader}>
+                      <strong>{item.test_name}</strong>
+                      <Badge tone="neutral">{item.probe_family}</Badge>
+                      <code>{item.target || '—'}</code>
+                    </div>
+                    <div className={styles.coverageRecordGroup}>
+                      <strong>{t('coverage.cadence.mobileCoverage')}</strong>
+                      <StatusDot
+                        tone={statusTones[item.status]}
+                        label={statusLabels[item.status]}
+                      />
+                      {item.next_action ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void navigate(item.next_action!.href)}
+                        >
+                          {item.next_action.label}
+                        </Button>
+                      ) : (
+                        <Badge tone="success">No gap</Badge>
+                      )}
+                    </div>
+                    <div className={styles.coverageRecordGroup}>
+                      <strong>{t('coverage.cadence.mobileVantage')}</strong>
+                      <span>
+                        {item.site} · {item.region}
+                      </span>
+                      <StatusDot
+                        tone={
+                          item.agent_readiness === 'ready'
+                            ? 'success'
+                            : item.agent_readiness === 'degraded'
+                              ? 'warning'
+                              : 'danger'
+                        }
+                        label={`${item.agent_readiness} · ${item.ready_agent_count}/${item.agent_count} ready`}
+                      />
+                    </div>
+                    <div
+                      className={styles.coverageRecordGroup}
+                      data-coverage-evidence={item.last_evidence_at ? 'observed' : 'never'}
+                    >
+                      <strong>{t('coverage.cadence.mobileEvidence')}</strong>
+                      {item.last_evidence_at ? (
+                        <DateTime value={item.last_evidence_at} />
+                      ) : (
+                        t('coverage.cadence.evidenceNever')
+                      )}
+                      <small>
+                        {t(
+                          item.independent_vantage_count === 1
+                            ? 'coverage.cadence.independentVantage.one'
+                            : 'coverage.cadence.independentVantage.other',
+                          { count: formatInteger(item.independent_vantage_count, locale) },
+                        )}
+                      </small>
+                    </div>
+                    <div className={styles.coverageRecordGroup}>
+                      <strong>{t('coverage.cadence.column')}</strong>
+                      <CadenceReceipt item={item} />
+                    </div>
+                  </li>
+                ))}
+                {filtered.length === 0 ? (
+                  <li>
+                    <EmptyState
+                      title="No coverage rows match these filters"
+                      description="Clear or change the local filters; no server data was deleted."
+                      action={
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            setQuery('')
+                            setStatus('all')
+                            setRegion('all')
+                          }}
+                        >
+                          Clear filters
+                        </Button>
+                      }
+                    />
+                  </li>
+                ) : null}
+              </ul>
             </>
           )}
         </CardBody>

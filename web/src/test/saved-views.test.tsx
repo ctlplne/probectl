@@ -65,8 +65,9 @@ describe('saved list views', () => {
   test('Targets serialize filters in the URL and save/apply named presets', async () => {
     const { views } = stubSavedViews()
     renderApp('/targets?q=edge&type=dns')
-    expect(await screen.findByText('edge-dns')).toBeDefined()
-    expect(screen.queryByText('api-gw')).toBeNull()
+    const inventory = await screen.findByRole('table', { name: 'Synthetic tests' })
+    expect(within(inventory).getByText('edge-dns')).toBeDefined()
+    expect(within(inventory).queryByText('api-gw')).toBeNull()
 
     await userEvent.type(screen.getByLabelText('View name'), 'DNS edge')
     await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
@@ -77,7 +78,7 @@ describe('saved list views', () => {
     await userEvent.clear(screen.getByLabelText('Find'))
     await userEvent.type(screen.getByLabelText('Find'), 'api')
     await userEvent.selectOptions(screen.getByLabelText('Type'), 'tcp')
-    expect(await screen.findByText('api-gw')).toBeDefined()
+    await waitFor(() => expect(within(inventory).getByText('api-gw')).toBeDefined())
 
     await userEvent.selectOptions(screen.getByLabelText('Saved views'), 'targets-1')
     expect(screen.getByLabelText('Find')).toHaveValue('edge')
