@@ -463,7 +463,7 @@ function FlowPanel({
       values: seriesTimestamps.map((timestamp) => values.get(timestamp) ?? null),
     }
   })
-  const narrow = (row: FlowTopRow) => {
+  const filtersFor = (row: FlowTopRow) => {
     const next = flowFiltersForRow(flowBy, row)
     const merged = [...filters]
     for (const filter of next) {
@@ -475,17 +475,52 @@ function FlowPanel({
         merged.push(filter)
       }
     }
-    onFilters(merged)
+    return merged
+  }
+  const narrow = (row: FlowTopRow) => {
+    onFilters(filtersFor(row))
+  }
+  const inspectExporters = (row: FlowTopRow) => {
+    onFilters(filtersFor(row))
+    onFlowBy('exporter')
   }
   const observation = (row: FlowTopRow) => {
     const count = row.exporter_count ?? 0
+    const contributor = row.detail ? `${row.key} → ${row.detail}` : row.key
     const label =
       count === 0
         ? t('planes.flow.observation.unavailable')
         : count === 1
           ? t('planes.flow.observation.one')
           : t('planes.flow.observation.many', { count })
-    return <Badge tone={count > 1 ? 'info' : 'neutral'}>{label}</Badge>
+    const canInspect = count > 0 && flowBy !== 'exporter'
+    return (
+      <div
+        className={styles.observationEvidence}
+        data-flow-observation-evidence
+        data-flow-known-observers={count > 0 ? 'true' : 'false'}
+      >
+        <Badge tone={count > 1 ? 'info' : 'neutral'}>{label}</Badge>
+        {canInspect ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.observationAction}
+            onClick={() => inspectExporters(row)}
+            aria-label={
+              count === 1
+                ? t('planes.flow.observation.viewLabel.one', { value: contributor })
+                : t('planes.flow.observation.viewLabel.many', { count, value: contributor })
+            }
+            data-flow-exporter-action
+          >
+            {count === 1
+              ? t('planes.flow.observation.view.one')
+              : t('planes.flow.observation.view.many', { count })}
+          </Button>
+        ) : null}
+      </div>
+    )
   }
   const topColumns: Column<NonNullable<typeof topTalkers.data>['items'][number]>[] = [
     {

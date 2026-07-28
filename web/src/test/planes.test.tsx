@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { coldFetch, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import { renderApp } from './renderApp'
@@ -43,6 +43,16 @@ describe('plane workspaces', () => {
     expect(within(topTalkers).getByText('10.0.0.10')).toBeInTheDocument()
     expect(within(topTalkers).getByText('Observed by 2 exporters')).toBeInTheDocument()
     expect(within(topTalkers).getByText('Observed by 1 exporter')).toBeInTheDocument()
+    expect(
+      within(topTalkers).getByRole('button', {
+        name: 'View 2 contributing exporters for 10.0.0.10 → checkout',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      within(topTalkers).getByRole('button', {
+        name: 'View contributing exporter for 10.0.0.20 → payments',
+      }),
+    ).toBeInTheDocument()
     const mobileTopTalkers = document.querySelector<HTMLElement>('[data-flow-top-mobile]')
     if (!mobileTopTalkers) throw new Error('missing mobile Flow top-talkers list')
     expect(mobileTopTalkers).toHaveAttribute('aria-label', 'Flow top talkers')
@@ -57,6 +67,7 @@ describe('plane workspaces', () => {
     }
     expect(within(mobileTopTalkers).getByText('Observed by 2 exporters')).toBeInTheDocument()
     expect(within(mobileTopTalkers).getByText('Observed by 1 exporter')).toBeInTheDocument()
+    expect(mobileTopTalkers.querySelectorAll('[data-flow-exporter-action]')).toHaveLength(2)
 
     await userEvent.click(screen.getByRole('tab', { name: 'Device' }))
     const deviceNodes = await screen.findByRole('table', { name: /topology device nodes/i })
@@ -223,6 +234,11 @@ describe('plane workspaces', () => {
     expect(spanishMobile).toHaveAttribute('aria-label', 'Principales conversadores de flujo')
     expect(within(spanishMobile).getByText('Observado por 2 exportadores')).toBeInTheDocument()
     expect(within(spanishMobile).getByText('Observado por 1 exportador')).toBeInTheDocument()
+    expect(
+      within(spanishTable).getByRole('button', {
+        name: 'Ver los 2 exportadores contribuyentes de 10.0.0.10 → checkout',
+      }),
+    ).toBeInTheDocument()
     spanish.unmount()
 
     renderApp('/planes/flow', { locale: 'ar' })
@@ -236,6 +252,11 @@ describe('plane workspaces', () => {
     expect(arabicMobile).toHaveAttribute('aria-label', 'أعلى متحدثي التدفق')
     expect(within(arabicMobile).getByText('شوهد بواسطة 2 مُصدّرين')).toBeInTheDocument()
     expect(within(arabicMobile).getByText('شوهد بواسطة مُصدّر واحد')).toBeInTheDocument()
+    expect(
+      within(arabicTable).getByRole('button', {
+        name: 'عرض 2 مُصدّرين مساهمين في 10.0.0.10 → checkout',
+      }),
+    ).toBeInTheDocument()
   })
 
   test('renders missing exporter provenance as unavailable instead of one observer', async () => {
@@ -271,6 +292,42 @@ describe('plane workspaces', () => {
     if (!mobile) throw new Error('missing mobile Flow top-talkers list')
     expect(within(mobile).getByText('Exporter identity unavailable')).toBeInTheDocument()
     expect(within(mobile).queryByText(/observed by 0 exporters/i)).not.toBeInTheDocument()
+    expect(document.querySelector('[data-flow-exporter-action]')).not.toBeInTheDocument()
+  })
+
+  test('pivots observation evidence directly to the existing exporter grouping', async () => {
+    const calls: string[] = []
+    const fallback = defaultFetch()
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(String(input))
+      return fallback(input, init)
+    })
+    const user = userEvent.setup()
+    renderApp('/planes/flow')
+
+    const table = await screen.findByRole('table', { name: /flow top talkers/i })
+    const inspect = within(table).getByRole('button', {
+      name: /view 2 contributing exporters for 10\.0\.0\.10.*checkout/i,
+    })
+    inspect.focus()
+    expect(inspect).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    expect(screen.getByLabelText('Group')).toHaveValue('exporter')
+    expect(
+      await screen.findByRole('button', { name: /remove src filter 10\.0\.0\.10/i }),
+    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (call) => call.includes('by=exporter') && call.includes('filter=src%3A10.0.0.10'),
+        ),
+      ).toBe(true)
+    })
+    expect(
+      screen.queryByRole('button', { name: /view .*contributing exporter/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /clear filters/i })).toBeInTheDocument()
   })
 
   test('pivots facets and narrows flows with removable filter chips', async () => {

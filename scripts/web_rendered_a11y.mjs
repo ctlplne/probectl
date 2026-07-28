@@ -2442,6 +2442,27 @@ async function flowTopTalkerChecks(page, viewportName) {
         rect.height > 0
       );
     };
+    const checkContributorAction = (evidence, bounds, label) => {
+      const known = evidence?.dataset.flowKnownObservers === "true";
+      const action = evidence?.querySelector("[data-flow-exporter-action]");
+      if (known && !action) {
+        problems.push(`${label} is missing its contributor action`);
+        return;
+      }
+      if (!known && action) {
+        problems.push(`${label} invents a contributor action without identity`);
+        return;
+      }
+      if (!action) return;
+      const actionBox = action.getBoundingClientRect();
+      if (
+        !visible(action) ||
+        actionBox.left < bounds.left - 1 ||
+        actionBox.right > bounds.right + 1
+      ) {
+        problems.push(`${label} hides its contributor action`);
+      }
+    };
 
     if (!desktop)
       problems.push("missing desktop Flow top-talkers presentation");
@@ -2517,6 +2538,20 @@ async function flowTopTalkerChecks(page, viewportName) {
             );
           }
         }
+        const observation = record.querySelector(
+          "[data-flow-observation-evidence]",
+        );
+        if (!observation) {
+          problems.push(
+            `mobile Flow top-talker record ${index + 1} is missing observation evidence`,
+          );
+        } else {
+          checkContributorAction(
+            observation,
+            recordBox,
+            `mobile Flow top-talker record ${index + 1}`,
+          );
+        }
       }
     } else {
       if (!visible(desktop)) {
@@ -2529,6 +2564,19 @@ async function flowTopTalkerChecks(page, viewportName) {
       }
       if (!desktop.querySelector("table")) {
         problems.push("desktop Flow top talkers are not a semantic table");
+      }
+      const observations = [
+        ...desktop.querySelectorAll("[data-flow-observation-evidence]"),
+      ];
+      if (observations.length === 0) {
+        problems.push("desktop Flow top talkers have no observation evidence");
+      }
+      for (const [index, observation] of observations.entries()) {
+        checkContributorAction(
+          observation,
+          desktop.getBoundingClientRect(),
+          `desktop Flow top-talker row ${index + 1}`,
+        );
       }
     }
     return problems;
@@ -2696,20 +2744,22 @@ async function selfCheck(browser, axeSource) {
           <div data-flow-top-field="packets"><dt>Packets</dt><dd>1</dd></div>
           <div data-flow-top-field="flows"><dt>Flows</dt><dd>1</dd></div>
         </dl>
+        <span data-flow-top-field="observation">
+          <span data-flow-observation-evidence data-flow-known-observers="true">
+            Observed by 2 exporters
+          </span>
+        </span>
       </li>
     </ul>
   `);
   const flowTopTalkers = await flowTopTalkerChecks(page, "mobile");
   if (
-    !flowTopTalkers.some(
-      (problem) =>
-        problem.includes("scrolls horizontally") ||
-        problem.includes("escapes its list") ||
-        problem.includes("missing observation"),
+    !flowTopTalkers.some((problem) =>
+      problem.includes("missing its contributor action"),
     )
   ) {
     throw new Error(
-      "self-check failed: Flow top-talker check did not catch planted hidden observation evidence",
+      "self-check failed: Flow top-talker check did not catch a planted missing contributor action",
     );
   }
   await page.setViewportSize(dashboardLaptopViewport);

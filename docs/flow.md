@@ -290,6 +290,14 @@ GET /v1/flows/ingest-quality?agent_id=&exporter=&protocol=&state=&limit=100
   described as **observed by N exporters**. It is observation multiplicity
   only: multiple exporters may see overlapping traffic along a path, so probectl does not
   claim the byte, packet, flow, or conversation totals were deduplicated.
+  For a positive count on any non-exporter grouping, the native Flow workspace
+  offers one **View exporter** / **View N exporters** evidence action. It
+  applies that exact row's existing filters and switches the same
+  tenant-authorized query to `by=exporter`; the resulting normal table is the
+  bounded contributor list.
+  Unknown identity and rows already grouped by exporter stay inert. The action
+  is local query navigation only—it does not fetch a separate identity list,
+  alter totals, or infer duplicate conversations.
   `by` accepts `src`, `dst`, `pair`, `src_asn`, `dst_asn`, `as_name`,
   `src_country`, `dst_country`, `port`, `protocol`, and `exporter`.
   `by=pair` groups source→destination. `as_name` uses the destination AS
