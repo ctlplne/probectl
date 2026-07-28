@@ -219,6 +219,39 @@ export function TargetsPage() {
     })
   }
 
+  const testActions = (test: Test, mobile = false) => (
+    <div
+      className={mobile ? styles.testRecordActions : styles.testTableActions}
+      role="group"
+      aria-label={`Actions for ${test.name}`}
+    >
+      <Button
+        variant={mobile ? 'secondary' : 'ghost'}
+        size="sm"
+        onClick={() => setResultsFor(test)}
+        aria-label={`Results for ${test.name}`}
+      >
+        Results
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setCodeFor(test)}
+        aria-label={`View YAML for ${test.name}`}
+      >
+        View as YAML
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => remove(test)}
+        aria-label={`Delete ${test.name}`}
+      >
+        Delete
+      </Button>
+    </div>
+  )
+
   const columns: Column<Test>[] = [
     { key: 'name', header: 'Test', render: (t) => <strong>{t.name}</strong> },
     {
@@ -242,36 +275,38 @@ export function TargetsPage() {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
       align: 'end',
-      render: (t) => (
-        <>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setResultsFor(t)}
-            aria-label={`Results for ${t.name}`}
-          >
-            Results
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCodeFor(t)}
-            aria-label={`View YAML for ${t.name}`}
-          >
-            View as YAML
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => remove(t)}
-            aria-label={`Delete ${t.name}`}
-          >
-            Delete
-          </Button>
-        </>
-      ),
+      render: (t) => testActions(t),
     },
   ]
+
+  const emptyInventory =
+    (data?.length ?? 0) > 0 ? (
+      <EmptyState
+        title="No tests match these filters"
+        description="The server returned tests, but none match the current local filter."
+        action={
+          <Button
+            variant="secondary"
+            onClick={() => setURLFilters(params, setParams, defaults, {})}
+          >
+            Clear filters
+          </Button>
+        }
+      />
+    ) : (
+      <HonestDataState
+        state="ready-no-data"
+        producer="Control-plane test registry"
+        producerReadiness="Ready; the tenant has no test definitions"
+        lastSuccessfulIngest={null}
+        coverageLimitation="No targets are configured, so no synthetic RTT, loss, DNS, HTTP, or path evidence exists yet."
+        action={
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            New test
+          </Button>
+        }
+      />
+    )
 
   return (
     <Page
@@ -361,41 +396,58 @@ export function TargetsPage() {
                   </Button>
                 </p>
               ) : null}
-              <Table
-                caption="Synthetic tests"
-                columns={columns}
-                rows={filteredTests}
-                rowKey={(t) => t.id}
-                empty={
-                  (data?.length ?? 0) > 0 ? (
-                    <EmptyState
-                      title="No tests match these filters"
-                      description="The server returned tests, but none match the current local filter."
-                      action={
-                        <Button
-                          variant="secondary"
-                          onClick={() => setURLFilters(params, setParams, defaults, {})}
-                        >
-                          Clear filters
-                        </Button>
-                      }
-                    />
-                  ) : (
-                    <HonestDataState
-                      state="ready-no-data"
-                      producer="Control-plane test registry"
-                      producerReadiness="Ready; the tenant has no test definitions"
-                      lastSuccessfulIngest={null}
-                      coverageLimitation="No targets are configured, so no synthetic RTT, loss, DNS, HTTP, or path evidence exists yet."
-                      action={
-                        <Button variant="primary" onClick={() => setCreating(true)}>
-                          New test
-                        </Button>
-                      }
-                    />
-                  )
-                }
-              />
+              <div className={styles.testsDesktop} data-targets-desktop-list>
+                <Table
+                  caption="Synthetic tests"
+                  columns={columns}
+                  rows={filteredTests}
+                  rowKey={(t) => t.id}
+                  empty={emptyInventory}
+                />
+              </div>
+              <ul
+                className={styles.testsMobile}
+                data-targets-mobile-list
+                aria-label="Synthetic tests"
+              >
+                {filteredTests.map((test) => (
+                  <li
+                    key={test.id}
+                    className={styles.testRecord}
+                    data-targets-mobile-record
+                    data-test-id={test.id}
+                    data-test-name={test.name}
+                  >
+                    <div className={styles.testRecordHeader}>
+                      <strong>{test.name}</strong>
+                      <Badge tone="neutral">{testTypeLabel(test)}</Badge>
+                    </div>
+                    <dl className={styles.testRecordFacts}>
+                      <div>
+                        <dt>Target</dt>
+                        <dd>
+                          <code>{test.target || '—'}</code>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Interval</dt>
+                        <dd>{test.interval_seconds}s</dd>
+                      </div>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>
+                          <StatusDot
+                            tone={test.enabled ? 'success' : 'neutral'}
+                            label={test.enabled ? 'Enabled' : 'Disabled'}
+                          />
+                        </dd>
+                      </div>
+                    </dl>
+                    {testActions(test, true)}
+                  </li>
+                ))}
+                {filteredTests.length === 0 ? <li>{emptyInventory}</li> : null}
+              </ul>
               {!requestedTestID && hasNextPage ? (
                 <div className={styles.pagination}>
                   <span>{data?.length ?? 0} tests loaded</span>

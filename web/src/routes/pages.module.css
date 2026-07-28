@@ -79,6 +79,15 @@
   min-width: 0;
 }
 
+.testsMobile {
+  display: none;
+}
+
+.testTableActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .exactTestFilter {
   display: flex;
   align-items: center;
@@ -253,6 +262,88 @@
   .exactTestFilter {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .testsDesktop {
+    display: none;
+  }
+
+  .testsMobile {
+    display: grid;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    gap: var(--space-3);
+    list-style: none;
+  }
+
+  .testRecord {
+    display: grid;
+    min-width: 0;
+    padding: var(--space-3);
+    border: var(--border-width-thin) solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+    gap: var(--space-3);
+  }
+
+  .testRecordHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .testRecordFacts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    margin: 0;
+    gap: var(--space-3);
+  }
+
+  .testRecordFacts > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-1);
+  }
+
+  .testRecordFacts dt {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .testRecordFacts dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .testRecordFacts code {
+    overflow-wrap: anywhere;
+  }
+
+  .testRecordActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    padding-block-start: var(--space-3);
+    border-block-start: var(--border-width-thin) solid var(--color-border);
+    gap: var(--space-2);
+  }
+
+  .testRecordActions button {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .testRecordActions button:first-child {
+    grid-column: 1 / -1;
   }
 
   .coverageDesktop {

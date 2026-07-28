@@ -503,7 +503,27 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     renderApp('/targets')
-    await screen.findByText('edge-dns')
+    const testTable = await screen.findByRole('table', { name: 'Synthetic tests' })
+    expect(within(testTable).getByText('edge-dns')).toBeInTheDocument()
+    const mobileInventory = document.querySelector<HTMLElement>('[data-targets-mobile-list]')
+    const mobileTest = document.querySelector<HTMLElement>(
+      '[data-targets-mobile-record][data-test-id="t1"]',
+    )
+    expect(mobileInventory).not.toBeNull()
+    expect(mobileTest).not.toBeNull()
+    expect(mobileTest).toHaveTextContent('edge-dns')
+    expect(mobileTest).toHaveTextContent('1.1.1.1')
+    expect(mobileTest).toHaveTextContent('30s')
+    expect(mobileTest).toHaveTextContent('Enabled')
+    expect(
+      within(mobileTest!).getByRole('button', { name: 'Results for edge-dns', hidden: true }),
+    ).toBeInTheDocument()
+    expect(
+      within(mobileTest!).getByRole('button', { name: 'View YAML for edge-dns', hidden: true }),
+    ).toBeInTheDocument()
+    expect(
+      within(mobileTest!).getByRole('button', { name: 'Delete edge-dns', hidden: true }),
+    ).toBeInTheDocument()
     const testsHeading = screen.getByRole('heading', { name: /^tests$/i })
     const authoringHeading = screen.getByRole('heading', { name: /author with ai/i })
     expect(
@@ -529,7 +549,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
 
     // The new row appears (list invalidated + refetched). Assert via its delete
     // action, which is unique to the row (the success toast also says "my-test").
-    await screen.findByRole('button', { name: /delete my-test/i })
+    await within(testTable).findByRole('button', { name: /delete my-test/i })
 
     const postCall = fetchMock.mock.calls.find(
       ([url, init]) => pathOf(url) === '/v1/tests' && init?.method === 'POST',
@@ -548,9 +568,11 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
       'assert_status',
     ])
 
-    await user.click(screen.getByRole('button', { name: /delete my-test/i }))
+    await user.click(within(testTable).getByRole('button', { name: /delete my-test/i }))
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: /delete my-test/i })).not.toBeInTheDocument(),
+      expect(
+        within(testTable).queryByRole('button', { name: /delete my-test/i }),
+      ).not.toBeInTheDocument(),
     )
   })
 
@@ -604,12 +626,13 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     renderApp('/targets')
-    await screen.findByText('first-page')
-    expect(screen.queryByText('second-page')).toBeNull()
+    const testTable = await screen.findByRole('table', { name: 'Synthetic tests' })
+    expect(within(testTable).getByText('first-page')).toBeInTheDocument()
+    expect(within(testTable).queryByText('second-page')).toBeNull()
 
     await user.click(screen.getByRole('button', { name: /load more tests/i }))
 
-    expect(await screen.findByText('second-page')).toBeInTheDocument()
+    await waitFor(() => expect(within(testTable).getByText('second-page')).toBeInTheDocument())
     expect(
       fetchMock.mock.calls.some(([input]) => {
         const url = new URL(String(input), 'http://t.invalid')

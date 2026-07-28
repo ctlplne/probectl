@@ -1443,6 +1443,7 @@ async function targetsHierarchyCheck(page, viewportName) {
     }
 
     if (currentViewport === "targets-laptop") {
+      const mobileList = inventory.querySelector("[data-targets-mobile-list]");
       const header = inventory.querySelector("[data-card-header]");
       const tableHead = inventory.querySelector("thead");
       const firstRow = inventory.querySelector("tbody tr");
@@ -1454,6 +1455,9 @@ async function targetsHierarchyCheck(page, viewportName) {
         problems.push("populated Tests inventory has no table header");
       if (!firstRow) {
         problems.push("populated Tests inventory has no rendered row");
+      }
+      if (mobileList?.getClientRects().length) {
+        problems.push("mobile Tests list remains visible at desktop width");
       }
       if (header && toolbar) {
         const headerRect = header.getBoundingClientRect();
@@ -1490,6 +1494,63 @@ async function targetsHierarchyCheck(page, viewportName) {
     }
 
     if (currentViewport === "mobile" && toolbar) {
+      const desktopList = inventory.querySelector(
+        "[data-targets-desktop-list]",
+      );
+      const mobileList = inventory.querySelector("[data-targets-mobile-list]");
+      const mobileTests = Array.from(
+        mobileList?.querySelectorAll("[data-targets-mobile-record]") ?? [],
+      );
+      if (desktopList?.getClientRects().length) {
+        problems.push("desktop Tests table remains visible at 390px");
+      }
+      if (!mobileList?.getClientRects().length) {
+        problems.push("mobile Tests list is not visible at 390px");
+      }
+      if (mobileTests.length < 2) {
+        problems.push(
+          "mobile Tests inventory needs at least two records to prove row association",
+        );
+      }
+      for (const [index, record] of mobileTests.entries()) {
+        const testName = record.getAttribute("data-test-name") ?? "";
+        const recordBox = record.getBoundingClientRect();
+        const controls = Array.from(
+          record.querySelectorAll("button:not([disabled])"),
+        );
+        const labels = controls.map(
+          (control) => control.getAttribute("aria-label") ?? "",
+        );
+        const expected = [
+          `Results for ${testName}`,
+          `View YAML for ${testName}`,
+          `Delete ${testName}`,
+        ];
+        if (!testName || expected.some((label) => !labels.includes(label))) {
+          problems.push(
+            `mobile Tests record ${index + 1} does not expose all row actions`,
+          );
+        }
+        for (const control of controls) {
+          const box = control.getBoundingClientRect();
+          if (
+            box.left < recordBox.left - 1 ||
+            box.right > recordBox.right + 1 ||
+            box.left < -1 ||
+            box.right > window.innerWidth + 1
+          ) {
+            problems.push(
+              `mobile Tests action "${control.textContent?.trim() || control.tagName.toLowerCase()}" is clipped`,
+            );
+          }
+        }
+        if (record.scrollWidth - record.clientWidth > 1) {
+          problems.push(
+            `mobile Tests record ${index + 1} requires horizontal scrolling`,
+          );
+        }
+      }
+
       const form = toolbar.querySelector("form");
       if (!form) {
         problems.push("missing Targets filter form");
@@ -2545,6 +2606,12 @@ async function selfCheck(browser, axeSource) {
   await page.setContent(`
     <section data-targets-inventory>
       <div data-targets-filter-toolbar><form><label>Find<input></label></form></div>
+      <div data-targets-desktop-list><table><tbody><tr><td>Desktop test</td></tr></tbody></table></div>
+      <ul data-targets-mobile-list>
+        <li data-targets-mobile-record data-test-id="test-1" data-test-name="edge-one">
+          edge-one
+        </li>
+      </ul>
     </section>
     <section data-targets-coverage>
       <table><tbody><tr><td>Planted desktop table</td></tr></tbody></table>
@@ -2576,6 +2643,9 @@ async function selfCheck(browser, axeSource) {
   `);
   const targetsMobileReceipt = await targetsHierarchyCheck(page, "mobile");
   if (
+    !targetsMobileReceipt.some((problem) =>
+      problem.includes("does not expose all row actions"),
+    ) ||
     !targetsMobileReceipt.some((problem) =>
       problem.includes("desktop coverage table remains visible"),
     ) ||

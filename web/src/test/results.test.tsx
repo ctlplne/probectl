@@ -256,8 +256,11 @@ function resultsBackend(items: LatestResult[]) {
 }
 
 async function openResults(name: string) {
-  await screen.findByText(name)
-  const row = screen.getAllByRole('row').find((r) => within(r).queryByText(name))
+  const table = await screen.findByRole('table', { name: 'Synthetic tests' })
+  await within(table).findByText(name)
+  const row = within(table)
+    .getAllByRole('row')
+    .find((candidate) => within(candidate).queryByText(name))
   await userEvent.click(within(row!).getByRole('button', { name: `Results for ${name}` }))
   return screen.findByRole('dialog')
 }
