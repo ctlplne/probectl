@@ -516,7 +516,7 @@ export function PathPage() {
                     : t('path.fidelity.unknownDetail')}
                 </span>
               </div>
-              <div>
+              <div className={styles.triageDecision}>
                 <span className={styles.triageLabel}>Worst hop</span>
                 <strong>
                   {worst ? `Hop ${worst.ttl} · ${worst.branchLabel}` : 'No responder'}
@@ -527,7 +527,7 @@ export function PathPage() {
                     : 'No hop evidence'}
                 </span>
               </div>
-              <div>
+              <div className={styles.triageDecision}>
                 <span className={styles.triageLabel}>Next action</span>
                 <div className={styles.nextActions}>
                   {worst ? (

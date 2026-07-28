@@ -28,6 +28,20 @@
   font-size: var(--font-size-sm);
 }
 
+@media (min-width: 1100px) {
+  .triage {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .triage > div {
+    grid-column: span 2;
+  }
+
+  .triage > .triageDecision {
+    grid-column: span 3;
+  }
+}
+
 .triage strong {
   overflow-wrap: anywhere;
   color: var(--color-text);
