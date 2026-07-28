@@ -75,15 +75,22 @@ export function SavedViews({
           ...(saved.data?.items ?? []).map((v) => ({ value: v.id, label: v.name })),
         ]}
       />
-      <Field
-        label="View name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder={placeholder}
-      />
-      <Button type="button" onClick={save} disabled={create.isPending}>
-        Save view
-      </Button>
+      <div
+        className={styles.savedViewComposer}
+        role="group"
+        aria-label="Create saved view"
+        data-saved-view-composer
+      >
+        <Field
+          label="View name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={placeholder}
+        />
+        <Button type="button" onClick={save} disabled={create.isPending}>
+          Save view
+        </Button>
+      </div>
     </>
   )
 }

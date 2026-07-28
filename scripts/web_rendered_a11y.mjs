@@ -1447,6 +1447,7 @@ async function targetsHierarchyCheck(page, viewportName) {
       const header = inventory.querySelector("[data-card-header]");
       const tableHead = inventory.querySelector("thead");
       const firstRow = inventory.querySelector("tbody tr");
+      const composer = inventory.querySelector("[data-saved-view-composer]");
       if (inventoryRect.top >= window.innerHeight) {
         problems.push("Tests inventory begins below the 1280x720 viewport");
       }
@@ -1484,6 +1485,43 @@ async function targetsHierarchyCheck(page, viewportName) {
         problems.push(
           "first populated Tests row falls below the 1280x720 fold",
         );
+      }
+      if (!composer) {
+        problems.push("Targets is missing the saved-view composer group");
+      } else if (toolbar) {
+        const nameInput = composer.querySelector("input");
+        const saveButton = Array.from(composer.querySelectorAll("button")).find(
+          (button) => button.textContent?.trim() === "Save view",
+        );
+        if (!nameInput || !saveButton) {
+          problems.push(
+            "saved-view composer is missing its name or action",
+          );
+        } else {
+          const composerRect = composer.getBoundingClientRect();
+          const inputRect = nameInput.getBoundingClientRect();
+          const buttonRect = saveButton.getBoundingClientRect();
+          const verticalOverlap =
+            Math.min(inputRect.bottom, buttonRect.bottom) -
+            Math.max(inputRect.top, buttonRect.top);
+          if (
+            verticalOverlap <= 0 ||
+            buttonRect.left < inputRect.right - 1
+          ) {
+            problems.push(
+              "saved-view input and action detach from their shared row",
+            );
+          }
+          if (
+            inputRect.left < composerRect.left - 1 ||
+            buttonRect.right > composerRect.right + 1 ||
+            composer.scrollWidth - composer.clientWidth > 1
+          ) {
+            problems.push(
+              "saved-view input or action escapes its semantic composer",
+            );
+          }
+        }
       }
       const coverageTable = document.querySelector(
         "[data-targets-coverage] table",
@@ -2580,6 +2618,15 @@ async function selfCheck(browser, axeSource) {
   await page.setContent(`
     <section data-targets-authoring>Author with AI</section>
     <section data-targets-inventory style="margin-top:1000px">
+      <div data-targets-filter-toolbar>
+        <form>
+          <input aria-label="Find">
+          <div data-saved-view-composer style="width:300px">
+            <input aria-label="View name">
+            <button style="transform:translate(-300px, 60px)">Save view</button>
+          </div>
+        </form>
+      </div>
       <table><tbody><tr><td>Planted test</td></tr></tbody></table>
     </section>
   `);
@@ -2596,6 +2643,9 @@ async function selfCheck(browser, axeSource) {
     ) ||
     !targetsHierarchy.some((problem) =>
       problem.includes("first populated Tests row falls below"),
+    ) ||
+    !targetsHierarchy.some((problem) =>
+      problem.includes("saved-view input and action detach"),
     )
   ) {
     throw new Error(

@@ -6,8 +6,22 @@
   min-width: min(100%, 860px);
 }
 
+.savedViewComposer {
+  display: grid;
+  grid-column: span 2;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  min-width: 0;
+}
+
 @media (max-width: 720px) {
   .filterBar {
+    grid-template-columns: 1fr;
+  }
+
+  .savedViewComposer {
+    grid-column: auto;
     grid-template-columns: 1fr;
   }
 }

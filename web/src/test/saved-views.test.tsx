@@ -68,6 +68,9 @@ describe('saved list views', () => {
     const inventory = await screen.findByRole('table', { name: 'Synthetic tests' })
     expect(within(inventory).getByText('edge-dns')).toBeDefined()
     expect(within(inventory).queryByText('api-gw')).toBeNull()
+    const composer = screen.getByRole('group', { name: 'Create saved view' })
+    expect(within(composer).getByLabelText('View name')).toBeDefined()
+    expect(within(composer).getByRole('button', { name: 'Save view' })).toBeDefined()
 
     await userEvent.type(screen.getByLabelText('View name'), 'DNS edge')
     await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
