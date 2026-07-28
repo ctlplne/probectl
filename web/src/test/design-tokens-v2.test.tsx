@@ -186,6 +186,25 @@ describe('expert design-token contract', () => {
     expect(failures).toEqual([])
   })
 
+  test('Audit action links consume the shared weight, density, border, and focus tokens', () => {
+    const audit = readFileSync(join(process.cwd(), 'src/routes/audit.module.css'), 'utf8')
+    const target = declarationBlock(audit, '.auditTargetLink')
+    const targetFocus = declarationBlock(audit, '.auditTargetLink:focus-visible')
+    const button = declarationBlock(audit, '.linkButton')
+    const buttonFocus = declarationBlock(audit, '.linkButton:focus-visible')
+
+    expect(target).toContain('font-weight: var(--font-weight-bold)')
+    expect(targetFocus).toContain('outline: var(--focus-ring-width) solid var(--color-focus)')
+    expect(targetFocus).toContain('outline-offset: var(--focus-ring-offset)')
+    expect(button).toContain('min-height: var(--density-control-block)')
+    expect(button).toContain(
+      'border: var(--border-width-thin) solid var(--color-border-strong)',
+    )
+    expect(button).toContain('font-weight: var(--font-weight-bold)')
+    expect(buttonFocus).toContain('outline: var(--focus-ring-width) solid var(--color-focus)')
+    expect(buttonFocus).toContain('outline-offset: var(--focus-ring-offset)')
+  })
+
   test('density and theme selectors stay deployment-level, never tenant-addressed', () => {
     expect(tokens).not.toMatch(/data-tenant|tenant[_-]id|tenant[_-]slug/i)
   })
