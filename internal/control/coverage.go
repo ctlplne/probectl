@@ -319,15 +319,6 @@ func buildExecutionCadence(
 		var lastBeforeWindow *ResultView
 		for i := range agentResults {
 			result := agentResults[i]
-			reported, err := strconv.ParseFloat(result.Attributes[otel.AttrTestInterval], 64)
-			if err != nil || reported <= 0 {
-				missingScheduleMetadata = true
-				continue
-			}
-			if math.Abs(reported-float64(intervalSeconds)) > 0.001 {
-				intervalMismatch = true
-				continue
-			}
 			key := result.ResultID
 			if key == "" {
 				key = agentID + "\x00" + result.ObservedAt.UTC().Format(time.RFC3339Nano)
@@ -344,6 +335,26 @@ func buildExecutionCadence(
 				continue
 			}
 			inWindow = append(inWindow, result)
+		}
+
+		// Only the requested window plus its nearest preceding exact row can
+		// describe this receipt. Older retained rows belong to earlier windows;
+		// stale interval metadata there must not poison current cadence truth.
+		relevant := inWindow
+		if lastBeforeWindow != nil {
+			relevant = make([]ResultView, 0, len(inWindow)+1)
+			relevant = append(relevant, *lastBeforeWindow)
+			relevant = append(relevant, inWindow...)
+		}
+		for _, result := range relevant {
+			reported, err := strconv.ParseFloat(result.Attributes[otel.AttrTestInterval], 64)
+			if err != nil || reported <= 0 {
+				missingScheduleMetadata = true
+				continue
+			}
+			if math.Abs(reported-float64(intervalSeconds)) > 0.001 {
+				intervalMismatch = true
+			}
 		}
 
 		receipt.ObservedRounds += len(inWindow)

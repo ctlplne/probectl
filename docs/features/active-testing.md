@@ -106,7 +106,9 @@ local YAML; the control plane neither reads nor pushes that file. This feature
 does not schedule, assign, rebalance, update, disable, or retarget an agent.
 Expected rounds begin with each agent's first exact observation in the bounded
 window; probectl does not invent rounds before that point because it cannot know
-when the local YAML assignment began.
+when the local YAML assignment began. Interval validation uses every exact row
+inside that window plus only the nearest exact row before its cutoff. Older
+retained rows describe earlier windows and cannot poison current cadence truth.
 
 ## How it works
 

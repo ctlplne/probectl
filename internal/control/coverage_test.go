@@ -195,6 +195,60 @@ func TestExecutionCadenceReceiptHonestyStates(t *testing.T) {
 	}
 }
 
+func TestExecutionCadenceReceiptIgnoresOnlyObsoletePreWindowMetadata(t *testing.T) {
+	now := time.Date(2026, 7, 28, 7, 0, 0, 0, time.UTC)
+	agents := map[string]struct{}{"agent-a": {}}
+	result := func(id string, at time.Time, interval string) ResultView {
+		return ResultView{
+			ResultID: id, AgentID: "agent-a", Type: "dns", Target: "example.test",
+			ObservedAt: at,
+			Attributes: map[string]string{
+				"probectl.test.id":               "test-cadence",
+				"probectl.test.interval_seconds": interval,
+			},
+		}
+	}
+	window := 6 * time.Minute
+	healthyWindow := []ResultView{
+		result("obsolete-missing", now.Add(-30*time.Minute), ""),
+		result("obsolete-mismatch", now.Add(-20*time.Minute), "300"),
+		result("nearest-valid-boundary", now.Add(-window-30*time.Second), "60"),
+	}
+	for i, age := range []time.Duration{
+		5*time.Minute + 30*time.Second,
+		4*time.Minute + 30*time.Second,
+		3*time.Minute + 30*time.Second,
+		2*time.Minute + 30*time.Second,
+		time.Minute + 30*time.Second,
+		30 * time.Second,
+	} {
+		healthyWindow = append(healthyWindow, result(
+			"current-"+string(rune('a'+i)),
+			now.Add(-age),
+			"60",
+		))
+	}
+	got := buildExecutionCadence(
+		"test-cadence", "dns", "example.test", 60, agents,
+		healthyWindow, time.Time{}, true, now,
+	)
+	if got.State != "on_cadence" || got.Reason != "on_cadence" ||
+		got.ObservedRounds != 6 || got.MissedRounds != 0 {
+		t.Fatalf("obsolete metadata poisoned current window: %+v", got)
+	}
+
+	relevantMismatch := append([]ResultView(nil), healthyWindow[3:]...)
+	relevantMismatch = append(relevantMismatch,
+		result("nearest-mismatch-boundary", now.Add(-window-30*time.Second), "300"))
+	got = buildExecutionCadence(
+		"test-cadence", "dns", "example.test", 60, agents,
+		relevantMismatch, time.Time{}, true, now,
+	)
+	if got.State != "unknown" || got.Reason != "interval_mismatch" {
+		t.Fatalf("nearest boundary mismatch was ignored: %+v", got)
+	}
+}
+
 func timePointer(v time.Time) *time.Time { return &v }
 
 func TestCoverageRouteIsReadOnlyAndPermissioned(t *testing.T) {
