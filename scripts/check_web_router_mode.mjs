@@ -100,6 +100,7 @@ function inspect({ packageJSON, files }) {
 
   let browserRouterImport = false;
   let browserRouterElement = false;
+  let browserRouterUIBasename = false;
   for (const [name, contents] of files) {
     if (/(?:^|\/)entry\.rsc\.[cm]?[jt]sx?$/.test(name)) {
       violations.push(`${name}: RSC entrypoint`);
@@ -112,6 +113,11 @@ function inspect({ packageJSON, files }) {
       browserRouterImport = true;
     }
     if (/<BrowserRouter(?:\s|>)/.test(contents)) browserRouterElement = true;
+    if (
+      /<BrowserRouter\b[^>]*\bbasename\s*=\s*["']\/ui["'][^>]*>/.test(contents)
+    ) {
+      browserRouterUIBasename = true;
+    }
     for (const { label, pattern } of forbiddenSourcePatterns) {
       if (pattern.test(contents)) violations.push(`${name}: ${label}`);
     }
@@ -119,6 +125,11 @@ function inspect({ packageJSON, files }) {
   if (!browserRouterImport || !browserRouterElement) {
     violations.push(
       "web/src must remain an explicit client-only BrowserRouter SPA",
+    );
+  }
+  if (!browserRouterUIBasename) {
+    violations.push(
+      'web/src must keep the explicit <BrowserRouter basename="/ui"> seam',
     );
   }
   return violations;
@@ -146,7 +157,7 @@ function selftest() {
     files: [
       [
         "web/src/App.tsx",
-        'import { BrowserRouter } from "react-router-dom";\nexport const App = () => <BrowserRouter />;',
+        'import { BrowserRouter } from "react-router-dom";\nexport const App = () => <BrowserRouter basename="/ui" />;',
       ],
     ],
   };
@@ -181,6 +192,15 @@ function selftest() {
     throw new Error("selftest failed to reject a planted RSC dependency");
   }
 
+  const wrongBasename = structuredClone(safe);
+  wrongBasename.files[0][1] =
+    'import { BrowserRouter } from "react-router-dom";\nexport const App = () => <BrowserRouter basename="/" />;';
+  if (!inspect(wrongBasename).some((line) => line.includes('basename="/ui"'))) {
+    throw new Error(
+      "selftest failed to reject a changed BrowserRouter basename",
+    );
+  }
+
   console.log("web router mode selftest: OK (planted RSC paths rejected)");
 }
 
@@ -198,7 +218,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    "web router mode: OK (client-only BrowserRouter; no RSC/server-action path)",
+    "web router mode: OK (client-only BrowserRouter basename /ui; no RSC/server-action path)",
   );
 }
 

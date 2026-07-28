@@ -101,29 +101,51 @@ function advisoryID(via) {
   return "";
 }
 
-function advisoryIDs(vuln, audit, seen = new Set()) {
+function advisoryRecords(vuln, audit, seen = new Set()) {
   if (!vuln || typeof vuln !== "object") return [];
   const key = String(vuln.name || "");
   if (key && seen.has(key)) return [];
   const nextSeen = new Set(seen);
   if (key) nextSeen.add(key);
 
-  const ids = new Set();
+  const records = new Map();
   for (const via of Array.isArray(vuln.via) ? vuln.via : []) {
     if (typeof via === "string") {
-      for (const id of advisoryIDs(
+      for (const record of advisoryRecords(
         audit.vulnerabilities?.[via],
         audit,
         nextSeen,
       )) {
-        ids.add(id);
+        records.set(`${record.id}\u0000${record.range}`, record);
       }
       continue;
     }
     const id = rank(via.severity) >= rank("high") ? advisoryID(via) : "";
-    if (id) ids.add(id);
+    if (id) {
+      const range = String(via.range || "");
+      records.set(`${id}\u0000${range}`, { id, range });
+    }
   }
-  return [...ids].sort();
+  return [...records.values()].sort(
+    (left, right) =>
+      left.id.localeCompare(right.id) || left.range.localeCompare(right.range),
+  );
+}
+
+function advisoryIDs(vuln, audit) {
+  return [...new Set(advisoryRecords(vuln, audit).map(({ id }) => id))].sort();
+}
+
+function advisoryRanges(vuln, audit) {
+  const ranges = {};
+  for (const { id, range } of advisoryRecords(vuln, audit)) {
+    ranges[id] ||= [];
+    ranges[id].push(range);
+  }
+  for (const id of Object.keys(ranges)) {
+    ranges[id] = [...new Set(ranges[id])].sort();
+  }
+  return ranges;
 }
 
 function sameStrings(left, right) {
@@ -132,10 +154,44 @@ function sameStrings(left, right) {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+function sameStringMaps(left, right) {
+  const a = left && typeof left === "object" ? left : {};
+  const b = right && typeof right === "object" ? right : {};
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
+  return keys.every(
+    (key) =>
+      Object.hasOwn(a, key) &&
+      Object.hasOwn(b, key) &&
+      sameStrings(a[key], b[key]),
+  );
+}
+
+function normalizedAdvisoryRanges(value) {
+  const normalized = {};
+  for (const [id, ranges] of Object.entries(value || {})) {
+    const key = String(id).toUpperCase();
+    normalized[key] ||= [];
+    normalized[key].push(...(Array.isArray(ranges) ? ranges : []));
+  }
+  return normalized;
+}
+
+function installedVersions(vuln, lock) {
+  return [
+    ...new Set(
+      vulnerabilityNodes(vuln)
+        .map((node) => lock.packages?.[node]?.version)
+        .filter((version) => typeof version === "string" && version.length > 0),
+    ),
+  ].sort();
+}
+
 function matchingException({ vuln, workspace, lock, policy, audit, today }) {
   const name = vuln.name;
   const severity = String(vuln.severity || "").toLowerCase();
   const observedAdvisories = advisoryIDs(vuln, audit);
+  const observedRanges = advisoryRanges(vuln, audit);
+  const observedVersions = installedVersions(vuln, lock);
   const matches = (policy.exceptions || []).filter((ex) => {
     return ex.workspace === workspace && (ex.packages || []).includes(name);
   });
@@ -149,6 +205,20 @@ function matchingException({ vuln, workspace, lock, policy, audit, today }) {
         observedAdvisories,
         ex.advisories.map((id) => String(id).toUpperCase()),
       )
+    ) {
+      continue;
+    }
+    if (
+      !sameStringMaps(
+        observedRanges,
+        normalizedAdvisoryRanges(ex.advisory_ranges),
+      )
+    ) {
+      continue;
+    }
+    if (
+      !ex.versions ||
+      !sameStrings(observedVersions, ex.versions[name] || [])
     ) {
       continue;
     }
@@ -193,7 +263,7 @@ function evaluate({
   for (const ex of policy.exceptions || []) {
     if (ex.workspace !== workspace) continue;
     if (omitDev && ex.dev_only === true) continue;
-    if (isExpired(ex.expires_at, today)) {
+    if (isExpired(ex.expires_at, today) && ex.standing !== true) {
       failures.push(
         `${workspace}: policy exception ${ex.id} expired at ${ex.expires_at}`,
       );
@@ -201,6 +271,44 @@ function evaluate({
     if (!Array.isArray(ex.advisories) || ex.advisories.length === 0) {
       failures.push(
         `${workspace}: exception ${ex.id} requires exact advisories`,
+      );
+    }
+    if (
+      !sameStrings(
+        Object.keys(normalizedAdvisoryRanges(ex.advisory_ranges)),
+        (ex.advisories || []).map((id) => String(id).toUpperCase()),
+      ) ||
+      Object.values(ex.advisory_ranges || {}).some(
+        (ranges) =>
+          !Array.isArray(ranges) ||
+          ranges.length === 0 ||
+          ranges.some(
+            (range) => typeof range !== "string" || range.length === 0,
+          ),
+      )
+    ) {
+      failures.push(
+        `${workspace}: exception ${ex.id} requires exact ranges for every advisory`,
+      );
+    }
+    if (
+      !sameStrings(Object.keys(ex.versions || {}), ex.packages || []) ||
+      Object.values(ex.versions || {}).some(
+        (versions) =>
+          !Array.isArray(versions) ||
+          versions.length === 0 ||
+          versions.some(
+            (version) => typeof version !== "string" || version.length === 0,
+          ),
+      )
+    ) {
+      failures.push(
+        `${workspace}: exception ${ex.id} requires exact installed versions for every package`,
+      );
+    }
+    if (ex.standing === true && ex.dev_only !== true) {
+      failures.push(
+        `${workspace}: standing exception ${ex.id} must be dev-only`,
       );
     }
     if (
@@ -230,6 +338,11 @@ function evaluate({
       today,
     });
     if (match.expired) {
+      if (match.expired.standing === true) {
+        failures.push(
+          `${workspace}: standing exception ${match.expired.id} expired at ${match.expired.expires_at}`,
+        );
+      }
       continue;
     }
     if (!match.active) {
@@ -253,6 +366,7 @@ function evaluate({
       Array.isArray(ex.advisories) &&
       ex.advisories.length > 0 &&
       !isExpired(ex.expires_at, today) &&
+      ex.standing !== true &&
       !usedExceptions.has(ex.id)
     ) {
       failures.push(
@@ -268,6 +382,7 @@ function sampleAudit(
   severity,
   nodes = [`node_modules/${name}`],
   advisory = "GHSA-aaaa-bbbb-cccc",
+  advisoryRange = ">=1.0.0 <2.0.0",
 ) {
   return {
     vulnerabilities: {
@@ -280,6 +395,7 @@ function sampleAudit(
             name,
             severity,
             url: `https://github.com/advisories/${advisory}`,
+            range: advisoryRange,
           },
         ],
         nodes,
@@ -296,14 +412,24 @@ function selftest() {
         workspace: "web",
         packages: ["vite"],
         advisories: ["GHSA-aaaa-bbbb-cccc"],
+        advisory_ranges: {
+          "GHSA-aaaa-bbbb-cccc": [">=1.0.0 <2.0.0"],
+        },
+        versions: {
+          vite: ["1.2.3"],
+        },
         max_severity: "high",
         dev_only: true,
         expires_at: "2026-09-30",
       },
     ],
   };
-  const devLock = { packages: { "node_modules/vite": { dev: true } } };
-  const prodLock = { packages: { "node_modules/vite": {} } };
+  const devLock = {
+    packages: { "node_modules/vite": { dev: true, version: "1.2.3" } },
+  };
+  const prodLock = {
+    packages: { "node_modules/vite": { version: "1.2.3" } },
+  };
 
   const pass = evaluate({
     audit: sampleAudit("vite", "high"),
@@ -352,6 +478,7 @@ function selftest() {
     name: "react-router",
     url: "https://github.com/advisories/GHSA-qwww-vcr4-c8h2",
     severity: "high",
+    range: ">=7.12.0 <8.3.0",
   };
   const rscAudit = {
     vulnerabilities: {
@@ -376,6 +503,13 @@ function selftest() {
         workspace: "web",
         packages: ["react-router", "react-router-dom"],
         advisories: ["GHSA-qwww-vcr4-c8h2"],
+        advisory_ranges: {
+          "GHSA-qwww-vcr4-c8h2": [">=7.12.0 <8.3.0"],
+        },
+        versions: {
+          "react-router": ["7.18.1"],
+          "react-router-dom": ["7.18.1"],
+        },
         max_severity: "high",
         dev_only: false,
         expires_at: "2026-08-31",
@@ -385,8 +519,8 @@ function selftest() {
   };
   const rscLock = {
     packages: {
-      "node_modules/react-router": {},
-      "node_modules/react-router-dom": {},
+      "node_modules/react-router": { version: "7.18.1" },
+      "node_modules/react-router-dom": { version: "7.18.1" },
     },
   };
   const rscPass = evaluate({
@@ -408,6 +542,7 @@ function selftest() {
     name: "react-router",
     url: "https://github.com/advisories/GHSA-xxxx-yyyy-zzzz",
     severity: "high",
+    range: "<1.0.1",
   });
   const extraAdvisory = evaluate({
     audit: extraAdvisoryAudit,
@@ -419,6 +554,37 @@ function selftest() {
   if (!extraAdvisory.failures.some((f) => f.includes("no active exception"))) {
     throw new Error(
       "selftest failed to reject an additional high advisory on an excepted package",
+    );
+  }
+
+  const rangeDriftAudit = structuredClone(rscAudit);
+  rangeDriftAudit.vulnerabilities["react-router"].via[0].range =
+    ">=7.11.0 <8.3.0";
+  const rangeDrift = evaluate({
+    audit: rangeDriftAudit,
+    lock: rscLock,
+    policy: rscPolicy,
+    workspace: "web",
+    today: "2026-07-27",
+  });
+  if (!rangeDrift.failures.some((f) => f.includes("no active exception"))) {
+    throw new Error(
+      "selftest failed to reject affected-range drift on an excepted advisory",
+    );
+  }
+
+  const versionBumpLock = structuredClone(rscLock);
+  versionBumpLock.packages["node_modules/react-router"].version = "7.18.2";
+  const versionBump = evaluate({
+    audit: rscAudit,
+    lock: versionBumpLock,
+    policy: rscPolicy,
+    workspace: "web",
+    today: "2026-07-27",
+  });
+  if (!versionBump.failures.some((f) => f.includes("no active exception"))) {
+    throw new Error(
+      "selftest failed to reject an installed-version change on an excepted advisory",
     );
   }
 
@@ -449,6 +615,91 @@ function selftest() {
   ) {
     throw new Error(
       "selftest failed to reject an unused exact advisory exception",
+    );
+  }
+
+  const standingPolicy = {
+    exceptions: [
+      {
+        id: "brace-expansion-dev-only",
+        workspace: "web",
+        packages: ["brace-expansion"],
+        advisories: ["GHSA-mh99-v99m-4gvg"],
+        advisory_ranges: {
+          "GHSA-mh99-v99m-4gvg": ["<=5.0.7"],
+        },
+        versions: {
+          "brace-expansion": ["1.1.16"],
+        },
+        max_severity: "high",
+        dev_only: true,
+        standing: true,
+        expires_at: "2026-09-30",
+      },
+    ],
+  };
+  const patchedBraceLock = {
+    packages: {
+      "node_modules/brace-expansion": { dev: true, version: "5.0.8" },
+    },
+  };
+  const dormantStanding = evaluate({
+    audit: { vulnerabilities: {} },
+    lock: patchedBraceLock,
+    policy: standingPolicy,
+    workspace: "web",
+    today: "2026-07-27",
+  });
+  if (dormantStanding.failures.length !== 0) {
+    throw new Error(
+      `selftest rejected a dormant dev-only standing exception: ${JSON.stringify(dormantStanding)}`,
+    );
+  }
+
+  const affectedBraceAudit = sampleAudit(
+    "brace-expansion",
+    "high",
+    ["node_modules/brace-expansion"],
+    "GHSA-mh99-v99m-4gvg",
+    "<=5.0.7",
+  );
+  const affectedBraceLock = {
+    packages: {
+      "node_modules/brace-expansion": { dev: true, version: "1.1.16" },
+    },
+  };
+  const activeStanding = evaluate({
+    audit: affectedBraceAudit,
+    lock: affectedBraceLock,
+    policy: standingPolicy,
+    workspace: "web",
+    today: "2026-07-27",
+  });
+  if (
+    activeStanding.failures.length !== 0 ||
+    activeStanding.accepted.length !== 1
+  ) {
+    throw new Error(
+      `selftest rejected the exact active standing exception: ${JSON.stringify(activeStanding)}`,
+    );
+  }
+
+  const changedBraceLock = structuredClone(affectedBraceLock);
+  changedBraceLock.packages["node_modules/brace-expansion"].version = "1.1.17";
+  const changedStanding = evaluate({
+    audit: affectedBraceAudit,
+    lock: changedBraceLock,
+    policy: standingPolicy,
+    workspace: "web",
+    today: "2026-07-27",
+  });
+  if (
+    !changedStanding.failures.some((failure) =>
+      failure.includes("no active exception"),
+    )
+  ) {
+    throw new Error(
+      "selftest failed to reject an installed-version change on a standing exception",
     );
   }
 

@@ -90,20 +90,39 @@ bytes but the manifest still states upgrade intent.
 - **npm audit policy is explicit and expiring.** Critical npm advisories always
   fail. High advisories fail unless they are listed in
   [`docs/security/npm-audit-policy.json`](security/npm-audit-policy.json), and
-  still before their `expires_at` date. Every exception must match the **exact
-  complete High advisory set** for the named packages. The Vite/esbuild
-  exception is dev-only and expires on `2026-09-30`; a production exception
-  must additionally carry an offline applicability guard.
-  `GHSA-qwww-vcr4-c8h2` is temporarily accepted
-  for React Router through `2026-08-31` only while
+  still before its `expires_at` date when it is active. Every exception must
+  match the **exact complete High advisory set, advisory range, and installed
+  version** for every named package. A changed version or range therefore
+  becomes a fresh failure instead of inheriting an old risk decision. A
+  production exception must additionally carry an offline applicability guard.
+  A dev-only `standing` exception may remain dormant when its exact advisory is
+  absent; it cannot apply to production or suppress a stale active advisory
+  after expiry.
+
+  `GHSA-qwww-vcr4-c8h2` is accepted as documented risk for exactly React Router
+  `7.18.1` and official affected range `>=7.12.0 <8.3.0` through `2026-08-31`
+  only while
   [`scripts/check_web_router_mode.mjs`](../scripts/check_web_router_mode.mjs)
-  proves the shipped UI remains a client-only `BrowserRouter` SPA with no RSC
-  API, RSC build dependency, RSC entrypoint, or server-action directive. The
-  production `npm audit --omit=dev --json` report passes through the same
+  proves the shipped UI remains a client-only
+  `<BrowserRouter basename="/ui">` SPA with no RSC API, RSC build dependency,
+  RSC entrypoint, or server-action directive.
+
+  `GHSA-mh99-v99m-4gvg` has a dev-only standing entry for exactly historical
+  transitive `brace-expansion@1.1.16` and official affected range `<=5.0.7`.
+  That package was build/lint tooling only, never received untrusted product
+  input, and has no patched 1.x. The current glob chain already uses patched
+  `brace-expansion@5.0.8`, so the entry is dormant and accepts no present
+  finding. A recurrence at a different version, a different advisory or range,
+  or any production reachability fails as new work.
+
+  The production `npm audit --omit=dev --json` report passes through the same
   policy checker with `--omit-dev`, so the full report owns dev-only exception
   freshness while production remains independently gated. Critical, another
-  High, expiry, a missing/malformed report, RSC adoption, or an exception whose
-  advisory disappeared all fail closed.
+  High, expiry of an active exception, a missing/malformed report, RSC
+  adoption, version/range drift, or a non-standing exception whose advisory
+  disappeared all fail closed. No exception covers the current Vite dev-server
+  advisory.
+
 - **Tool pins** (the `Makefile` block) are bumped deliberately and committed
   *together with their effects* — e.g. a protobuf-plugin bump ships with the
   regenerated `internal/gen` tree in the same commit, because the `proto` job

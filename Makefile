@@ -326,7 +326,7 @@ secret-scan: ## Run gitleaks across the full git history, including deleted file
 lint: license-header-gate lint-go lint-python web-supply-policy-gate ## Run all linters (Go + Python) and offline web supply-policy guards.
 
 .PHONY: web-supply-policy-gate
-web-supply-policy-gate: ## Offline self-tests + client-only router proof for exact npm advisory exceptions.
+web-supply-policy-gate: ## Offline self-tests + applicability proof for exact advisory/range/version exceptions.
 	node scripts/check_npm_audit_policy.mjs --selftest
 	node scripts/check_web_router_mode.mjs --selftest
 	node scripts/check_web_router_mode.mjs --root .

@@ -1,16 +1,40 @@
 {
-  "version": 1,
+  "version": 2,
   "exceptions": [
     {
       "id": "SUPPLY-008-react-router-rsc-only",
       "workspace": "web",
       "packages": ["react-router", "react-router-dom"],
       "advisories": ["GHSA-qwww-vcr4-c8h2"],
+      "advisory_ranges": {
+        "GHSA-qwww-vcr4-c8h2": [">=7.12.0 <8.3.0"]
+      },
+      "versions": {
+        "react-router": ["7.18.1"],
+        "react-router-dom": ["7.18.1"]
+      },
       "max_severity": "high",
       "dev_only": false,
       "expires_at": "2026-08-31",
       "guard": "scripts/check_web_router_mode.mjs",
-      "reason": "The advisory affects only unstable React Server Component APIs. probectl is a client-only BrowserRouter SPA, and the named guard rejects RSC APIs, RSC build dependencies, RSC entrypoints, and server-action directives. No patched compatible stable release is published as of 2026-07-26. Remove this exception immediately when the audit clears or by the expiry date, whichever comes first."
+      "reason": "Accepted documented risk for SUPPLY-86eeb375. GHSA-qwww-vcr4-c8h2 affects only unstable React Server Component APIs. probectl ships a client-only BrowserRouter with basename /ui, and the named guard rejects RSC APIs, RSC build dependencies, RSC entrypoints, server-action directives, and any loss of that exact browser-router seam. No compatible patched react-router-dom release is published as of 2026-07-28. A new advisory, affected-range drift, installed-version change, RSC/server-action adoption, audit clearance, or expiry fails closed and reopens review."
+    },
+    {
+      "id": "SUPPLY-f205d4eb-brace-expansion-build-only",
+      "workspace": "web",
+      "packages": ["brace-expansion"],
+      "advisories": ["GHSA-mh99-v99m-4gvg"],
+      "advisory_ranges": {
+        "GHSA-mh99-v99m-4gvg": ["<=5.0.7"]
+      },
+      "versions": {
+        "brace-expansion": ["1.1.16"]
+      },
+      "max_severity": "high",
+      "dev_only": true,
+      "standing": true,
+      "expires_at": "2026-09-30",
+      "reason": "Accepted documented risk for SUPPLY-f205d4eb if the exact historical transitive node reappears: brace-expansion 1.1.16 was reachable only through local dev/build glob tooling, never shipped in the browser runtime, and received no untrusted product input; no patched 1.x exists. The current lock uses patched 5.0.8, so this standing exception is dormant and accepts nothing today. A new advisory, advisory-range drift, any installed-version change, production reachability, or expiry fails closed."
     }
   ]
 }
