@@ -2662,6 +2662,10 @@ async function deviceConfigDiffChecks(page, viewportName, axeSource) {
         issues.push("mobile config-version records remain visible on desktop");
       if (!desktop.querySelector("table"))
         issues.push("desktop config versions are not a semantic table");
+      if (desktop.scrollWidth > desktop.clientWidth + 1)
+        issues.push(
+          "desktop config-version evidence requires horizontal discovery",
+        );
     }
     return issues;
   }, viewportName);

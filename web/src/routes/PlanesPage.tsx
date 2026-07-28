@@ -873,6 +873,7 @@ function DevicePanel({
       <Button
         size="sm"
         variant="secondary"
+        className={styles.configVersionCompareButton}
         aria-haspopup="dialog"
         aria-expanded={configComparison?.current.id === config.id}
         aria-label={t('planes.device.config.compare.actionLabel', {

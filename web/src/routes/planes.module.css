@@ -112,6 +112,15 @@
   display: none;
 }
 
+.configVersionCompareButton {
+  height: auto;
+  min-height: var(--density-control-block-sm);
+  min-inline-size: calc(var(--space-8) + var(--space-8) + var(--space-2));
+  padding: var(--space-1);
+  text-align: start;
+  white-space: normal;
+}
+
 .configDiff {
   display: grid;
   min-width: 0;
