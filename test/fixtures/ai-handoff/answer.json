@@ -1,0 +1,138 @@
+{
+  "id": "ans/incident #42",
+  "tenant": "tenant-acme",
+  "question": "Why did checkout *slow* after [change]?",
+  "root_cause": "A BGP route change diverted checkout traffic through a congested transit.",
+  "root_cause_citations": [
+    {
+      "evidence_id": "E1"
+    }
+  ],
+  "root_cause_grounded": true,
+  "degraded": true,
+  "confidence": "high",
+  "investigation_plan": [
+    {
+      "step": 2,
+      "domain": "events",
+      "goal": "Check change and routing events near the selected window.",
+      "limit": 50,
+      "read_only": true,
+      "status": "blocked",
+      "reason": "RBAC denied this read."
+    },
+    {
+      "step": 1,
+      "domain": "entities",
+      "goal": "Check the exact incident and its correlated signals.",
+      "selector": {
+        "target": "checkout.example",
+        "incident_id": "inc-42"
+      },
+      "node_id": "service:checkout",
+      "window_start": "2026-07-28T08:00:00.000001Z",
+      "window_end": "2026-07-28T09:00:00Z",
+      "limit": 50,
+      "read_only": true,
+      "status": "queried",
+      "evidence_count": 2
+    },
+    {
+      "step": 3,
+      "domain": "metrics",
+      "goal": "Check bounded service metrics.",
+      "limit": 25,
+      "read_only": true,
+      "status": "skipped",
+      "reason": "The source is not configured.",
+      "truncated": true
+    }
+  ],
+  "findings": [
+    {
+      "statement": "The route changed before latency rose.",
+      "citations": [
+        {
+          "evidence_id": "E1"
+        },
+        {
+          "evidence_id": "E2"
+        }
+      ]
+    },
+    {
+      "statement": "Checkout latency crossed the warning threshold.",
+      "citations": [
+        {
+          "evidence_id": "E2"
+        }
+      ]
+    },
+    {
+      "statement": "This unresolved sentence must not be exported.",
+      "citations": [
+        {
+          "evidence_id": "E404"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "E2",
+      "domain": "metrics",
+      "plane": "metrics",
+      "severity": "warning",
+      "title": "Checkout p95 latency",
+      "summary": "p95 reached 940 ms & remained elevated.",
+      "ref": "metric://checkout/p95",
+      "occurred_at": "2026-07-28T08:17:30.123456789Z",
+      "fields": {
+        "value": 940,
+        "labels": {
+          "service": "checkout",
+          "site": "blr-1"
+        },
+        "unit": "ms"
+      }
+    },
+    {
+      "id": "E1",
+      "domain": "entities",
+      "plane": "bgp",
+      "severity": "critical",
+      "title": "Route changed for 192.0.2.0/24",
+      "summary": "AS64501 announced a more-specific route.",
+      "ref": "bgp://event/route-42",
+      "occurred_at": "2026-07-28T08:15:00Z",
+      "fields": {
+        "prefix": "192.0.2.0/24",
+        "origin_asn": 64501,
+        "as_path": [
+          64500,
+          64501
+        ]
+      }
+    },
+    {
+      "id": "E3",
+      "domain": "events",
+      "plane": "change",
+      "title": "Deployment completed",
+      "summary": "The application deployment completed without an error.",
+      "occurred_at": "2026-07-28T08:10:00Z",
+      "fields": {
+        "deployment": "checkout-2026-07-28.1",
+        "status": "succeeded"
+      }
+    }
+  ],
+  "model": "builtin",
+  "reasoning": {
+    "adapter": "builtin",
+    "execution": "builtin_fallback",
+    "egress_consent": "granted",
+    "attempted_adapter": "openai:operator-model"
+  },
+  "insufficient_evidence": false
+}

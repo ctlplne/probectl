@@ -85,6 +85,8 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		return cmdDashboard(cfg, rest[1:], stdin, stdout, stderr)
 	case "device":
 		return cmdDevice(cfg, rest[1:], stdout, stderr)
+	case "ai":
+		return cmdAI(cfg, rest[1:], stdout, stderr)
 	case "api":
 		return cmdAPI(cfg, rest[1:], stdout, stderr)
 	default:

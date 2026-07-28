@@ -629,6 +629,7 @@ const en = {
   'ask.propose.disabledTitle': 'RCA evidence is insufficient for a remediation proposal.',
   'ask.propose.pending': 'Proposing...',
   'ask.propose.action': 'Propose remediation',
+  'ask.handoff.download': 'Download investigation handoff',
   'ask.note.insufficient':
     'probectl did not find enough evidence to name a confident root cause - it will not guess.',
   'ask.note.ungrounded':
@@ -1867,6 +1868,7 @@ const es: Record<MessageKey, string> = {
     'La evidencia RCA es insuficiente para una propuesta de remediacion.',
   'ask.propose.pending': 'Proponiendo...',
   'ask.propose.action': 'Proponer remediacion',
+  'ask.handoff.download': 'Descargar entrega de investigación',
   'ask.note.insufficient':
     'probectl no encontro evidencia suficiente para nombrar una causa raiz confiable; no va a adivinar.',
   'ask.note.ungrounded':
@@ -3064,6 +3066,7 @@ const ar: Record<MessageKey, string> = {
   'ask.propose.disabledTitle': 'دليل RCA غير كاف لمقترح معالجة.',
   'ask.propose.pending': 'جار الاقتراح...',
   'ask.propose.action': 'اقتراح معالجة',
+  'ask.handoff.download': 'تنزيل تسليم التحقيق',
   'ask.note.insufficient': 'لم يجد probectl دليلا كافيا لتسمية سبب جذري موثوق؛ لن يخمن.',
   'ask.note.ungrounded':
     'ادعاء السبب الجذري غير موسوم كموثق، لذلك تعامل مع النتائج المذكورة كمصدر الحقيقة.',

@@ -20,10 +20,11 @@ export interface ResolvedClaims {
  * fixture, or future client bug from turning an unresolved claim into prose.
  */
 export function resolveClaims(answer: Answer): ResolvedClaims {
-  const evidenceIDs = new Set(answer.evidence.map((item) => item.id))
+  const evidenceIDs = new Map<string, number>()
+  answer.evidence.forEach((item) => evidenceIDs.set(item.id, (evidenceIDs.get(item.id) ?? 0) + 1))
   const citationsResolve = (citations: Citation[] | undefined) =>
     Boolean(citations?.length) &&
-    citations!.every((citation) => evidenceIDs.has(citation.evidence_id))
+    citations!.every((citation) => evidenceIDs.get(citation.evidence_id) === 1)
 
   const rootCitations = answer.root_cause_citations ?? []
   const rootResolved = answer.root_cause_grounded === true && citationsResolve(rootCitations)

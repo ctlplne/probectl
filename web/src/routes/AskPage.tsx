@@ -38,6 +38,7 @@ import { useIncident } from '../api/incidents'
 import { isApiStatus } from '../api/client'
 import { ReasoningBadge } from './ExplainView'
 import { resolveClaims } from './explanationGrounding'
+import { downloadHandoff } from '../ai/handoff'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -366,6 +367,9 @@ export function AnswerView({
               </Badge>
               {answer.degraded ? <Badge tone="warning">{t('ask.grounding.degraded')}</Badge> : null}
               <ReasoningBadge answer={answer} />
+              <Button variant="secondary" onClick={() => downloadHandoff(answer, locale)}>
+                {t('ask.handoff.download')}
+              </Button>
               {canPropose ? (
                 <Button
                   variant="secondary"

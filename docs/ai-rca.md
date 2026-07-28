@@ -314,6 +314,33 @@ not required or granted. The UI renders the sovereignty badge from this
 structured receipt only. It never guesses that a model is local by parsing a
 free-form model name or deployment configuration text.
 
+The answer card can download a **versioned Markdown investigation handoff**
+(`probectl-ai-handoff/v1`). This is a browser-native, local file operation over
+the answer already in memory: it does not re-query the API, create browser
+storage, persist a server artifact, invoke a connector, or add egress. The
+handoff repeats citation integrity at the export boundary and therefore carries
+only a root cause and findings whose citations resolve to evidence in that
+exact answer. It preserves the answer ID, question, confidence,
+insufficient/degraded state, server-authored reasoning and egress receipt,
+bounded read-only plan, and all evidence metadata grouped by plane, including
+occurrence, source, and "cited by" backlinks.
+
+The same operation is available in the CLI and makes exactly one
+`POST /v1/ai/ask` call:
+
+```sh
+probectl ai ask --handoff \
+  --body '{"question":"Why is WAN loss high?","subject":{"incident_id":"inc_123"}}' \
+  > probectl-ask-handoff.md
+```
+
+Set `PROBECTL_LOCALE=en`, `es`, or `ar` to select the handoff's static headings
+and limitation text. Every file is marked as point-in-time and
+non-authoritative: it is evidence for an operator handoff, not live state,
+remediation approval, or permission to act. Re-open probectl to re-authorize
+the cited sources before making a decision. Go and TypeScript both verify their
+renderers against the shared fixtures in `test/fixtures/ai-handoff/`.
+
 The inline **Explain this view** inspector applies citation integrity again at
 the display boundary. A causal headline or finding is rendered only when all
 of its citations resolve to evidence in that exact response. An unresolved
@@ -378,6 +405,10 @@ blocks or alters the answer.
   Swapping models cannot weaken either guarantee.
 - **It does not phone home by default.** The default engine is fully local; any
   remote model is opt-in and gated (`docs/ai-egress.md`).
+- **The downloaded handoff is not a live share or authority token.** It contains
+  no credential and grants no access. It is a point-in-time local copy whose
+  cited records can age, be deleted by retention, or become inaccessible after
+  an RBAC change.
 
 ## See also
 

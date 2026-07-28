@@ -42,12 +42,7 @@ export interface Link {
 export interface PathMeasurementFidelity {
   version: 1
   probe_transport: 'icmp' | 'tcp' | 'mixed'
-  acquisition_mode:
-    | 'raw_icmp'
-    | 'icmp_datagram'
-    | 'tcp_connect_raw_icmp'
-    | 'tcp_connect'
-    | 'mixed'
+  acquisition_mode: 'raw_icmp' | 'icmp_datagram' | 'tcp_connect_raw_icmp' | 'tcp_connect' | 'mixed'
   timing_source: 'application_monotonic' | 'mixed'
   hop_visibility: 'full' | 'destination_only' | 'mixed'
   kernel_timestamping: boolean

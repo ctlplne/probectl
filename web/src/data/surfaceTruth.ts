@@ -111,7 +111,7 @@ export const NATIVE_DATA_SURFACE_TRUTH: readonly NativeDataTruthContract[] = [
     'answer degraded/grounding and HTTP authority status',
     'answer receipt timestamp when reported',
     'grounding planes, citations, and adapter degradation',
-    'ask a grounded question or retry',
+    'ask, download the current cited handoff, or retry',
   ),
   contract(
     '/explore',

@@ -39,7 +39,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"delete": {Method: http.MethodDelete, Path: "/v1/abac/policies/{id}", ArgName: "id"},
 	}},
 	"ai": {Name: "ai", Summary: "AI/RCA and authoring", Ops: map[string]apiOp{
-		"ask":      {Method: http.MethodPost, Path: "/v1/ai/ask"},
+		"ask":      {Method: http.MethodPost, Path: "/v1/ai/ask", Description: "ask once; add --handoff for a deterministic local Markdown investigation receipt"},
 		"author":   {Method: http.MethodPost, Path: "/v1/ai/author"},
 		"discover": {Method: http.MethodPost, Path: "/v1/ai/discover"},
 		"feedback": {Method: http.MethodPost, Path: "/v1/ai/feedback"},

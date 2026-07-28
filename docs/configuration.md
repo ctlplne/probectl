@@ -1178,7 +1178,7 @@ Journey-critical parity is currently served by the CLI:
 | Incident triage, cited sharing, and tenant-local journal | `probectl incident list|get|changes|journal|journal-append|cis|share|shared` | `/v1/incidents*`, `/v1/incident-shares/*` |
 | Alert review and response | `probectl alert active|ack|silence` | `/v1/alerts*` |
 | Topology and path investigation | `probectl topology show|whatif` plus `probectl test path <id>` | `/v1/topology*`, `/v1/tests/{id}/path` |
-| Ask/RCA handoff | `probectl ai ask --body JSON` | `/v1/ai/ask` |
+| Ask/RCA answer and local Markdown handoff | `probectl ai ask --body JSON`; add `--handoff` for the versioned point-in-time artifact | `/v1/ai/ask` |
 | Human-gated remediation review | `probectl remediation list|get|create|approve|reject` | `/v1/remediation/proposals*` |
 | SLO and cost posture | `probectl slo list|export`, `probectl cost summary` | `/v1/slos*`, `/v1/cost/summary` |
 | Tenant lifecycle portability and erasure | `probectl lifecycle export --redact`, `probectl lifecycle erase --body JSON` | `/v1/lifecycle*` |
@@ -1195,6 +1195,7 @@ probectl incident journal-append <id> --body '{"kind":"note","body":"Operator hy
 probectl topology show
 probectl alert active
 probectl ai ask --body '{"question":"Why is WAN loss high?","subject":{"incident_id":"inc_123"}}'
+probectl ai ask --handoff --body '{"question":"Why is WAN loss high?","subject":{"incident_id":"inc_123"}}' > ask-handoff.md
 probectl remediation list
 probectl slo list
 probectl lifecycle export --redact > tenant-export.tar.gz

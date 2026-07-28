@@ -309,11 +309,18 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
-    capability: 'AI assistant (NL query + RCA with citations)',
+    capability: 'AI assistant (NL query + RCA with citations + offline handoff)',
     featureIds: ['F13'],
-    sprint: 'S24',
+    sprint: 'S24/I-04ad3b83',
     kind: 'native',
     route: '/ask',
+    evidence: [
+      'openapi:/v1/ai/ask',
+      'cli:probectl ai ask',
+      'file:web/src/ai/handoff.ts',
+      'file:test/fixtures/ai-handoff/answer.json',
+      'file:docs/ai-rca.md',
+    ],
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {

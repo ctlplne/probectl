@@ -6,11 +6,13 @@
 
 import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
+import { messages, type Locale } from '../i18n/messages'
 
 const answer = {
   id: 'ans_1',
@@ -166,6 +168,67 @@ describe('AI assistant surface', () => {
     // Raw signal detail is available for drill-down.
     expect(screen.getByText(/raw signal/i)).toBeTruthy()
   })
+
+  test('downloads the current answer locally from the keyboard without re-querying', async () => {
+    const calls = await askAndRender()
+    const createObjectURL = vi.fn((blob: Blob) => {
+      void blob
+      return 'blob:probectl-handoff'
+    })
+    const revokeObjectURL = vi.fn()
+    const NativeURL = URL
+    class DownloadURL extends NativeURL {}
+    Object.assign(DownloadURL, { createObjectURL, revokeObjectURL })
+    vi.stubGlobal('URL', DownloadURL)
+    let filename = ''
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function captureDownload(this: HTMLAnchorElement) {
+        filename = this.download
+      })
+
+    try {
+      const user = userEvent.setup()
+      const download = screen.getByRole('button', {
+        name: /download investigation handoff/i,
+      })
+      download.focus()
+      await user.keyboard('{Enter}')
+
+      expect(createObjectURL).toHaveBeenCalledTimes(1)
+      expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob)
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:probectl-handoff')
+      expect(filename).toBe('probectl-ask-handoff-ans_1.md')
+      expect(calls.filter((call) => call.url.endsWith('/v1/ai/ask'))).toHaveLength(1)
+    } finally {
+      anchorClick.mockRestore()
+    }
+  })
+
+  test.each([
+    ['es-MX', 'es'],
+    ['ar-EG', 'ar'],
+    ['en-XA', 'en-xa'],
+  ] as const)(
+    'localizes the handoff control for %s without a raw English fallback',
+    async (requestedLocale, catalogLocale) => {
+      stubAI()
+      renderApp('/ask', { locale: requestedLocale })
+      const localized = messages[catalogLocale as Locale]
+      await screen.findByRole('heading', { name: localized['ask.page.title'] })
+      fireEvent.change(screen.getByLabelText(localized['ask.question.label']), {
+        target: { value: 'what happened?' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: localized['ask.submit'] }))
+
+      expect(
+        await screen.findByRole('button', { name: localized['ask.handoff.download'] }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Download investigation handoff' }),
+      ).not.toBeInTheDocument()
+    },
+  )
 
   test('feedback carries an optional note', async () => {
     const calls = await askAndRender()
