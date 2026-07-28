@@ -115,13 +115,23 @@ bytes but the manifest still states upgrade intent.
   finding. A recurrence at a different version, a different advisory or range,
   or any production reachability fails as new work.
 
+  `GHSA-fx2h-pf6j-xcff` is accepted as documented risk for exactly direct
+  devDependency `vite@5.4.21` and official affected range `<=6.4.2` through
+  `2026-09-30`. It is a Windows-only alternate-path bypass in the Vite
+  `server.fs.deny` development server. Vite is build tooling, not part of the
+  shipped browser bundle or Go binaries, and the production-only audit remains
+  unaffected. The policy deliberately does not force an unplanned Vite 8 major
+  upgrade. A different advisory or range, any installed-version change,
+  production reachability, audit clearance, or expiry fails closed; therefore
+  production adoption or the next planned Vite bump automatically reopens the
+  decision.
+
   The production `npm audit --omit=dev --json` report passes through the same
   policy checker with `--omit-dev`, so the full report owns dev-only exception
   freshness while production remains independently gated. Critical, another
   High, expiry of an active exception, a missing/malformed report, RSC
   adoption, version/range drift, or a non-standing exception whose advisory
-  disappeared all fail closed. No exception covers the current Vite dev-server
-  advisory.
+  disappeared all fail closed.
 
 - **Tool pins** (the `Makefile` block) are bumped deliberately and committed
   *together with their effects* — e.g. a protobuf-plugin bump ships with the

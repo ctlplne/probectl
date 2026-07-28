@@ -20,6 +20,22 @@
       "reason": "Accepted documented risk for SUPPLY-86eeb375. GHSA-qwww-vcr4-c8h2 affects only unstable React Server Component APIs. probectl ships a client-only BrowserRouter with basename /ui, and the named guard rejects RSC APIs, RSC build dependencies, RSC entrypoints, server-action directives, and any loss of that exact browser-router seam. No compatible patched react-router-dom release is published as of 2026-07-28. A new advisory, affected-range drift, installed-version change, RSC/server-action adoption, audit clearance, or expiry fails closed and reopens review."
     },
     {
+      "id": "SUPPLY-1dbf9837-vite-windows-dev-server-only",
+      "workspace": "web",
+      "packages": ["vite"],
+      "advisories": ["GHSA-fx2h-pf6j-xcff"],
+      "advisory_ranges": {
+        "GHSA-fx2h-pf6j-xcff": ["<=6.4.2"]
+      },
+      "versions": {
+        "vite": ["5.4.21"]
+      },
+      "max_severity": "high",
+      "dev_only": true,
+      "expires_at": "2026-09-30",
+      "reason": "Accepted documented risk for SUPPLY-1dbf9837. GHSA-fx2h-pf6j-xcff is a Windows-only alternate-path bypass in Vite server.fs.deny. probectl pins Vite 5.4.21 only as local dev/build tooling; Vite is absent from the shipped browser bundle and Go binaries, and the production-only npm audit is unaffected. A disruptive Vite 8 major upgrade is deliberately deferred. A new advisory, affected-range drift, installed-version change (including a planned Vite bump), production reachability, audit clearance, or expiry fails closed and reopens review. Revisit on production reachability or the next planned Vite upgrade, whichever comes first."
+    },
+    {
       "id": "SUPPLY-f205d4eb-brace-expansion-build-only",
       "workspace": "web",
       "packages": ["brace-expansion"],
