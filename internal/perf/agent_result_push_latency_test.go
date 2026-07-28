@@ -28,6 +28,7 @@ import (
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 func TestAgentResultPushLatency(t *testing.T) {
@@ -155,6 +156,10 @@ func TestAgentResultPushLatency(t *testing.T) {
 	t.Logf("AGENT_RESULT_PUSH_LATENCY_RESULT id=%s streams=%d ack_latency=%s throughput=%.1f results/s stored_series=%d",
 		hp.ID, samples, stat, throughput, len(got))
 
+	if testsupport.RaceEnabled {
+		t.Log("race instrumentation active: mTLS result push, identity binding, and storage correctness exercised; the unchanged latency and throughput targets are enforced by make test-performance without -race")
+		return
+	}
 	if stat.P50 > hp.Targets.P50 || stat.P95 > hp.Targets.P95 || stat.P99 > hp.Targets.P99 {
 		t.Fatalf("%s exceeded targets: got p50=%s p95=%s p99=%s; want <= p50=%s p95=%s p99=%s",
 			hp.ID, stat.P50, stat.P95, stat.P99, hp.Targets.P50, hp.Targets.P95, hp.Targets.P99)

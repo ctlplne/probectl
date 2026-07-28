@@ -93,8 +93,19 @@ not here.
 ## Running it
 
 ```bash
+make test-performance    # service-free wall-clock budgets, isolated and without -race
 make perf-smoke          # ingest baseline (no services) + pooled (uses PROBECTL_DATABASE_URL)
 ```
+
+The normal `make test` sweep still runs every service-free workload with
+`-race`, preserving its completeness, tenant-isolation, identity-binding, and
+other correctness assertions. Race instrumentation changes the cost of every
+memory access, and concurrently tested packages compete for the same host, so
+those runs do not treat instrumented wall time as product latency. At the end
+of the sweep, `make test` invokes `make test-performance`: the same product
+floors and ceilings are enforced unchanged, once, without `-race` and without
+package contention. Pure planted-regression tests continue to prove that values
+outside each boundary are rejected.
 
 The ingest baseline needs no services. The pooled smoke uses
 `PROBECTL_DATABASE_URL` and **skips** when no database is reachable, so the

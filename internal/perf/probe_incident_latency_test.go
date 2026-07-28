@@ -18,6 +18,7 @@ import (
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 type timedIncidentStore struct {
@@ -100,7 +101,9 @@ func TestProbeResultToIncidentLatency(t *testing.T) {
 	t.Logf("PROBE_INCIDENT_LATENCY_RESULT id=%s ingest_e2e=%s correlation_read=%s incident_write=%s incidents=%d",
 		hp.ID, e2eStat, correlationStat, writeStat, store.inner.Len())
 
-	if e2eStat.P50 > hp.Targets.P50 || e2eStat.P95 > hp.Targets.P95 || e2eStat.P99 > hp.Targets.P99 {
+	if testsupport.RaceEnabled {
+		t.Log("race instrumentation active: incident correlation and write correctness exercised; the unchanged latency targets are enforced by make test-performance without -race")
+	} else if e2eStat.P50 > hp.Targets.P50 || e2eStat.P95 > hp.Targets.P95 || e2eStat.P99 > hp.Targets.P99 {
 		t.Fatalf("%s exceeded targets: got p50=%s p95=%s p99=%s; want <= p50=%s p95=%s p99=%s",
 			hp.ID, e2eStat.P50, e2eStat.P95, e2eStat.P99, hp.Targets.P50, hp.Targets.P95, hp.Targets.P99)
 	}

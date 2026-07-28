@@ -327,9 +327,10 @@ GET /v1/flows/ingest-quality?agent_id=&exporter=&protocol=&state=&limit=100
   reader, back-pressure only moves the drop into the kernel, where it's
   invisible. probectl drops
   visibly and keeps a counter instead.
-- Decode throughput is gated in CI (`TestHighVolumeDecode`, with a deliberately
-  conservative 50k records/s floor so slow runners stay green; real hardware is
-  far above it).
+- Decode throughput is gated in CI (`make test-performance` runs
+  `TestHighVolumeDecode` without race instrumentation or package contention,
+  with a deliberately conservative 50k records/s floor so slow runners stay
+  green; real hardware is far above it).
 
 ## Example
 

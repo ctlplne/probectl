@@ -66,6 +66,7 @@ reach for most:
 | `make build-cross`                 | Cross-compile every binary for linux amd64 + arm64 (smoke)                                                                      |
 | `make run`                         | Run `probectl-control` locally                                                                                                  |
 | `make test`                        | Unit tests across all workspace modules (`-race`)                                                                               |
+| `make test-performance`            | Isolated uninstrumented ingest, hot-path, flow-decode, eBPF-pipeline, and topology wall-clock smoke budgets                        |
 | `make test-isolation`              | Cross-tenant isolation gate (`-tags=isolation`)                                                                                 |
 | `make test-integration`            | Integration tests (`-tags=integration`; needs a DB / dev stack)                                                                 |
 | `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                                                                     |

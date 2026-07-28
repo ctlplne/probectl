@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 func TestTopologyRebuildTargets(t *testing.T) {
@@ -21,6 +23,16 @@ func TestTopologyRebuildTargets(t *testing.T) {
 		}
 		rep := driveTopologyRebuildCIGate(target)
 		t.Logf("TOPOLOGY_REBUILD_RESULT %s", rep)
+		if testsupport.RaceEnabled {
+			for sampleIdx, sample := range rep.Samples {
+				if len(sample.CorrectnessViolations) > 0 {
+					t.Fatalf("topology rebuild target %s sample %d correctness failed:\n%s",
+						tier, sampleIdx+1, strings.Join(sample.CorrectnessViolations, "\n"))
+				}
+			}
+			t.Log("race instrumentation active: every topology rebuild sample retained its tenant correctness checks; the unchanged timing targets are enforced by make test-performance without -race")
+			continue
+		}
 		if len(rep.Violations) > 0 {
 			t.Fatalf("topology rebuild target %s failed:\n%s", tier, strings.Join(rep.Violations, "\n"))
 		}

@@ -10,7 +10,25 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
+
+func indexedScaleWithinBudget(traverse, simulation time.Duration) bool {
+	return traverse <= 2*time.Second && simulation <= 10*time.Second
+}
+
+func TestIndexedStoreXLScaleBudget(t *testing.T) {
+	if indexedScaleWithinBudget(2*time.Second+time.Nanosecond, time.Second) {
+		t.Fatal("planted traversal regression crossed the two-second budget")
+	}
+	if indexedScaleWithinBudget(time.Second, 10*time.Second+time.Nanosecond) {
+		t.Fatal("planted simulation regression crossed the ten-second budget")
+	}
+	if !indexedScaleWithinBudget(2*time.Second, 10*time.Second) {
+		t.Fatal("documented boundary values must pass")
+	}
+}
 
 // Equivalence: the indexed engine answers every query identically to the
 // reference MemoryStore — the migration is transparent (the S43 contract).
@@ -127,8 +145,12 @@ func TestIndexedStoreXLScaleWhatIf(t *testing.T) {
 		}
 	}
 
-	// Interactivity budget (generous for CI hardware; locally ~10-100x faster).
-	if traverseDur > 2*time.Second || simDur > 10*time.Second {
+	// Race builds retain the XL correctness exercise, but their instrumented
+	// wall time is not product latency. make test-performance invokes this
+	// same test without -race and enforces the unchanged interactivity budget.
+	if testsupport.RaceEnabled {
+		t.Log("race instrumentation active: XL correctness exercised; the unchanged 2s/10s wall budgets are enforced by make test-performance without -race")
+	} else if !indexedScaleWithinBudget(traverseDur, simDur) {
 		t.Fatalf("XL latencies: traverse=%s whatif=%s", traverseDur, simDur)
 	}
 	t.Logf("XL scale: %d nodes / %d edges; traverse=%s whatif=%s",

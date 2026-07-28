@@ -136,6 +136,15 @@ test: ## Run unit tests across all workspace modules.
 		echo ">> go test ($$d)"; \
 		( cd $$d && $(GO) test -race -count=1 ./... ) || exit 1; \
 	done
+	@$(MAKE) --no-print-directory test-performance
+
+.PHONY: test-performance
+test-performance: ## Enforce wall-clock smoke budgets without race instrumentation or package contention.
+	@echo ">> go test (uninstrumented performance smoke)"
+	$(GO) test -count=1 ./internal/perf
+	$(GO) test -count=1 -run '^TestAgentOverheadReport$$' ./internal/ebpf
+	$(GO) test -count=1 -run '^TestHighVolumeDecode$$' ./internal/flow
+	$(GO) test -count=1 -run '^TestIndexedStoreXLScaleWhatIf$$' ./internal/topology
 
 .PHONY: test-isolation
 test-isolation: ## Run the cross-tenant isolation gate (CLAUDE.md §7 guardrail 1).

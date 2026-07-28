@@ -14,10 +14,11 @@ package ebpf
 // reference hosts with the same methodology (docs/agent-overhead.md); the
 // kernel-matrix CI job proves that path loads, this file prices the rest.
 //
-// TestAgentOverheadReport runs in every `make test` and FAILS below a
-// conservative throughput floor — a 20x pipeline regression cannot land
-// silently. The floor is deliberately loose (CI runners are shared and
-// -race runs ~10x slower); the real numbers go in docs/agent-overhead.md.
+// TestAgentOverheadReport runs in every `make test`. Race-instrumented runs
+// keep the full pipeline correctness exercise; make test then invokes the same
+// test once without instrumentation to enforce the conservative throughput
+// floor. This keeps a 20x regression from landing without treating race
+// overhead or concurrent-package load as product latency.
 
 import (
 	"context"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // trafficProfile is the defined synthetic shape: a host talking to a
@@ -56,6 +58,19 @@ func trafficProfile(i int) Flow {
 
 // drainEvery mirrors the agent's flush cadence at high rate.
 const drainEvery = 4096
+
+func meetsAgentOverheadFloor(eventsPerSecond float64) bool {
+	return eventsPerSecond >= 20_000
+}
+
+func TestAgentOverheadFloor(t *testing.T) {
+	if meetsAgentOverheadFloor(19_999) {
+		t.Fatal("planted throughput regression crossed the 20k floor")
+	}
+	if !meetsAgentOverheadFloor(20_000) {
+		t.Fatal("the documented 20k boundary must pass")
+	}
+}
 
 func BenchmarkAggregatorObserve(b *testing.B) {
 	a := NewAggregator()
@@ -145,11 +160,15 @@ func TestAgentOverheadReport(t *testing.T) {
 		float64(ms.HeapInuse)/(1<<20), float64(ms.Sys)/(1<<20), ruEnd.Maxrss)
 	t.Logf("at 1k flows/s this CPU cost is ~%.3f%% of one core", usPerEvent*1000/1e6*100)
 
-	// The tripwire: conservatively low (shared runners, -race in make test
-	// runs ~10x slower than plain builds). A healthy build does hundreds of
-	// thousands of events/s; falling under 20k/s means the pipeline got at
-	// least ~20x slower — that is a regression, not noise.
-	if eps < 20_000 {
+	if testsupport.RaceEnabled {
+		t.Log("race instrumentation active: pipeline correctness exercised; the unchanged 20k wall floor is enforced by make test-performance without -race")
+		return
+	}
+
+	// The tripwire: conservatively low for shared runners. A healthy plain
+	// build does hundreds of thousands of events/s; falling under 20k/s means
+	// the pipeline got at least ~20x slower — that is a regression, not noise.
+	if !meetsAgentOverheadFloor(eps) {
 		t.Fatalf("userspace pipeline throughput %.0f events/s is below the 20k floor — the 'lightweight' claim regressed (U-051)", eps)
 	}
 }

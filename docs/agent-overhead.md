@@ -46,17 +46,22 @@ scripts/bench/agent_overhead.sh results.txt   # host context + benches + report
 
 ## The regression tripwire (CI, every run)
 
-`TestAgentOverheadReport` runs inside `make test` and **fails the build** if the
-userspace pipeline throughput drops below **20,000 events/s**. That floor is
-deliberately loose — roughly 20–40× below the real numbers — because CI runners
-are shared and noisy and `-race` (Go's race detector, which instruments every
-memory access and is many times slower by design) runs many times slower than a
-plain build. The point isn't to measure performance precisely in CI; it's to
-catch a *regression*. The floor is a smoke alarm, not a thermometer: it says
-nothing about how warm the kitchen is, but it cannot sleep through a fire — if
-the pipeline suddenly does less than 20k/s, something got at least ~20× slower,
-and that's a real change, not noise. A commit that makes the agent meaningfully
-heavier cannot land unnoticed.
+`TestAgentOverheadReport` runs twice inside `make test`. The normal unit sweep
+runs it with Go's race detector, which preserves the full 200,000-event
+correctness exercise but does not treat instrumented wall time as product
+latency. After the concurrent package sweep finishes, `make test-performance`
+runs the same test alone without `-race` and **fails the build** if userspace
+pipeline throughput drops below **20,000 events/s**.
+
+That floor is deliberately loose — roughly 20–40× below the real numbers —
+because CI runners are shared and noisy. The separation is important: `-race`
+instruments every memory access and concurrent packages compete for the same
+host, so enforcing a wall clock there can reject an unchanged healthy tree. The
+point is not to measure performance precisely in CI; it is to catch a
+*regression*. The floor is a smoke alarm, not a thermometer: if the isolated
+plain pipeline suddenly does less than 20k/s, something got at least ~20×
+slower. A commit that makes the agent meaningfully heavier still cannot land
+unnoticed.
 
 ## Measured numbers
 
@@ -85,7 +90,7 @@ above these measured figures.
 | Date | Host | Profile | Pipeline events/s | CPU/event | Max RSS | Live ring-buffer events/s |
 |---|---|---|---|---|---|---|
 | 2026-06-07 | dev container, 4 vCPU arm64 | synthetic 50×8 | 881k | 1.75 µs | 29 MiB | n/a (no kernel) |
-| _continuous_ | CI runner (in `make test`, -race) | synthetic 50×8 | see job log (floor 20k) | see job log | see job log | n/a |
+| _continuous_ | CI runner (`make test-performance`, uninstrumented and isolated) | synthetic 50×8 | see job log (floor 20k) | see job log | see job log | n/a |
 | _pending_ | reference host (the [agent whitepaper](security/agent-whitepaper.md) numbers) | iperf3 + wrk defined mix | — | — | — | — |
 
 The reference-host row is intentionally left for a human to fill: run the script

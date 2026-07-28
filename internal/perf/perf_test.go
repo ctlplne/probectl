@@ -14,6 +14,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // ingestSmokeConfig is the CI-cheap single-deployment ingest scenario: a few
@@ -61,7 +62,9 @@ func TestIngestBaseline(t *testing.T) {
 		}
 	}
 
-	if v := M6Baseline().CheckIngest(rep); len(v) > 0 {
+	if testsupport.RaceEnabled {
+		t.Log("race instrumentation active: ingest completeness and tenant isolation exercised; the unchanged throughput floor is enforced by make test-performance without -race")
+	} else if v := M6Baseline().CheckIngest(rep); len(v) > 0 {
 		t.Errorf("ingest baseline violated: %v", v)
 	}
 }

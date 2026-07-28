@@ -9,7 +9,22 @@ package flow
 import (
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
+
+func meetsHighVolumeDecodeFloor(recordsPerSecond float64) bool {
+	return recordsPerSecond >= 50_000
+}
+
+func TestHighVolumeDecodeFloor(t *testing.T) {
+	if meetsHighVolumeDecodeFloor(49_999) {
+		t.Fatal("planted decode regression crossed the 50k floor")
+	}
+	if !meetsHighVolumeDecodeFloor(50_000) {
+		t.Fatal("the documented 50k boundary must pass")
+	}
+}
 
 // TestHighVolumeDecode is the S38 high-volume ingest floor: decoding mixed
 // v5/v9/sFlow traffic must sustain well above typical enterprise export rates.
@@ -51,7 +66,9 @@ func TestHighVolumeDecode(t *testing.T) {
 	}
 	perSec := float64(total) / elapsed.Seconds()
 	t.Logf("high-volume decode: %d records in %v (%.0f records/s)", total, elapsed, perSec)
-	if perSec < 50_000 {
+	if testsupport.RaceEnabled {
+		t.Log("race instrumentation active: all mixed-flow records decoded correctly; the unchanged 50k wall floor is enforced by make test-performance without -race")
+	} else if !meetsHighVolumeDecodeFloor(perSec) {
 		t.Fatalf("decode throughput %.0f records/s below the 50k floor", perSec)
 	}
 }
