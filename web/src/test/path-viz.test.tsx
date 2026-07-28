@@ -11,6 +11,7 @@ import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
 import { samplePath, stubPathFetch } from './pathFixture'
+import { messages } from '../i18n/messages'
 
 describe('path visualization', () => {
   test('shows ECMP evidence inline and synchronizes keyboard selection', async () => {
@@ -22,10 +23,10 @@ describe('path visualization', () => {
     const graph = await screen.findByRole('group', { name: /network path to 9\.9\.9\.9/i })
 
     expect(screen.getByText('Full-hop acquisition')).toBeInTheDocument()
-    expect(screen.getByText('raw icmp')).toBeInTheDocument()
+    expect(screen.getByText('Raw ICMP')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'application monotonic · kernel timestamps off · hardware timestamps off',
+        'Application monotonic clock · kernel timestamps off · hardware timestamps off',
       ),
     ).toBeInTheDocument()
 
@@ -87,6 +88,64 @@ describe('path visualization', () => {
       screen.getByText('Acquisition capabilities were not stored; no precision is inferred.'),
     ).toBeInTheDocument()
   })
+
+  test.each([
+    [
+      'es',
+      messages.es['path.fidelity.title'],
+      messages.es['path.fidelity.visibility.full'],
+      messages.es['path.fidelity.acquisition.rawIcmp'],
+      'Reloj monotónico de la aplicación · marcas de tiempo del kernel desactivadas · marcas de tiempo de hardware desactivadas',
+      'ltr',
+    ],
+    [
+      'ar-EG',
+      messages.ar['path.fidelity.title'],
+      messages.ar['path.fidelity.visibility.full'],
+      messages.ar['path.fidelity.acquisition.rawIcmp'],
+      'الساعة الرتيبة للتطبيق · طوابع النواة الزمنية معطّلة · طوابع العتاد الزمنية معطّلة',
+      'rtl',
+    ],
+    [
+      'en-XA',
+      messages['en-xa']['path.fidelity.title'],
+      messages['en-xa']['path.fidelity.visibility.full'],
+      messages['en-xa']['path.fidelity.acquisition.rawIcmp'],
+      messages['en-xa']['path.fidelity.timestamps']
+        .replace('{timing}', messages['en-xa']['path.fidelity.timing.applicationMonotonic'])
+        .replace('{kernel}', messages['en-xa']['path.fidelity.timestampState.off'])
+        .replace('{hardware}', messages['en-xa']['path.fidelity.timestampState.off']),
+      'ltr',
+    ],
+  ])(
+    'renders the measurement-fidelity receipt from the %s catalog',
+    async (locale, label, visibility, acquisition, timestamps, direction) => {
+      stubPathFetch()
+      renderApp('/path', { locale })
+
+      expect(await screen.findByText(label)).toBeInTheDocument()
+      expect(screen.getByText(visibility)).toBeInTheDocument()
+      expect(screen.getByText(acquisition)).toBeInTheDocument()
+      expect(screen.getByText(timestamps)).toBeInTheDocument()
+      expect(document.documentElement.dir).toBe(direction)
+    },
+  )
+
+  test.each(['es', 'ar-EG', 'en-XA'])(
+    'localizes the legacy fidelity caveat for %s',
+    async (locale) => {
+      const catalog =
+        locale === 'es' ? messages.es : locale === 'ar-EG' ? messages.ar : messages['en-xa']
+      stubPathFetch({ ...samplePath, measurement_fidelity: undefined })
+      renderApp('/path', { locale })
+
+      expect(
+        await screen.findByText(catalog['path.fidelity.visibility.unknown']),
+      ).toBeInTheDocument()
+      expect(screen.getByText(catalog['path.fidelity.acquisition.unavailable'])).toBeInTheDocument()
+      expect(screen.getByText(catalog['path.fidelity.unknownDetail'])).toBeInTheDocument()
+    },
+  )
 
   test('loads additional test pages into the path selector', async () => {
     const user = userEvent.setup()

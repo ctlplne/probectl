@@ -25,8 +25,16 @@ import {
   useToast,
 } from '../components'
 import { useTests } from '../api/tests'
-import { usePath, useDiscoverPath, usePathHistory, type PathSnapshot } from '../api/paths'
+import {
+  usePath,
+  useDiscoverPath,
+  usePathHistory,
+  type PathMeasurementFidelity,
+  type PathSnapshot,
+} from '../api/paths'
 import { severityTone, useChanges, useIncidents } from '../api/incidents'
+import type { MessageKey } from '../i18n/messages'
+import { useI18n } from '../i18n/useI18n'
 import { PathGraph } from '../viz/PathGraph'
 import { PathProfile } from '../viz/PathProfile'
 import { LossByHop } from '../viz/LossByHop'
@@ -41,6 +49,19 @@ import { layoutPath, worstPathNode, type VizNode } from '../viz/layout'
 import { parsePivotContext, pivotHref, replacePivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import { DateTime } from '../time/DateTime'
+
+const fidelityAcquisitionLabels: Record<PathMeasurementFidelity['acquisition_mode'], MessageKey> = {
+  raw_icmp: 'path.fidelity.acquisition.rawIcmp',
+  icmp_datagram: 'path.fidelity.acquisition.icmpDatagram',
+  tcp_connect_raw_icmp: 'path.fidelity.acquisition.tcpConnectRawIcmp',
+  tcp_connect: 'path.fidelity.acquisition.tcpConnect',
+  mixed: 'path.fidelity.acquisition.mixed',
+}
+
+const fidelityTimingLabels: Record<PathMeasurementFidelity['timing_source'], MessageKey> = {
+  application_monotonic: 'path.fidelity.timing.applicationMonotonic',
+  mixed: 'path.fidelity.timing.mixed',
+}
 
 function Legend() {
   return (
@@ -82,6 +103,7 @@ function overlapsTimeWindow(start: string, end: string, from?: string, to?: stri
 }
 
 export function PathPage() {
+  const { t } = useI18n()
   const tests = useTests()
   const [params, setParams] = useSearchParams()
   const parsedPivot = useMemo(() => parsePivotContext(params), [params])
@@ -445,15 +467,15 @@ export function PathPage() {
                 </span>
               </div>
               <div>
-                <span className={styles.triageLabel}>Measurement fidelity</span>
+                <span className={styles.triageLabel}>{t('path.fidelity.title')}</span>
                 <strong>
                   {displayedPath.measurement_fidelity?.hop_visibility === 'full'
-                    ? 'Full-hop acquisition'
+                    ? t('path.fidelity.visibility.full')
                     : displayedPath.measurement_fidelity?.hop_visibility === 'destination_only'
-                      ? 'Destination-only fallback'
+                      ? t('path.fidelity.visibility.destinationOnly')
                       : displayedPath.measurement_fidelity
-                        ? 'Mixed acquisition'
-                        : 'Unknown · legacy snapshot'}
+                        ? t('path.fidelity.visibility.mixed')
+                        : t('path.fidelity.visibility.unknown')}
                 </strong>
                 <span>
                   <Badge
@@ -465,14 +487,33 @@ export function PathPage() {
                           : 'neutral'
                     }
                   >
-                    {displayedPath.measurement_fidelity?.acquisition_mode.replace(/_/g, ' ') ??
-                      'receipt unavailable'}
+                    {displayedPath.measurement_fidelity
+                      ? t(
+                          fidelityAcquisitionLabels[
+                            displayedPath.measurement_fidelity.acquisition_mode
+                          ],
+                        )
+                      : t('path.fidelity.acquisition.unavailable')}
                   </Badge>
                 </span>
                 <span>
                   {displayedPath.measurement_fidelity
-                    ? `${displayedPath.measurement_fidelity.timing_source.replace(/_/g, ' ')} · kernel timestamps ${displayedPath.measurement_fidelity.kernel_timestamping ? 'on' : 'off'} · hardware timestamps ${displayedPath.measurement_fidelity.hardware_timestamping ? 'on' : 'off'}`
-                    : 'Acquisition capabilities were not stored; no precision is inferred.'}
+                    ? t('path.fidelity.timestamps', {
+                        timing: t(
+                          fidelityTimingLabels[displayedPath.measurement_fidelity.timing_source],
+                        ),
+                        kernel: t(
+                          displayedPath.measurement_fidelity.kernel_timestamping
+                            ? 'path.fidelity.timestampState.on'
+                            : 'path.fidelity.timestampState.off',
+                        ),
+                        hardware: t(
+                          displayedPath.measurement_fidelity.hardware_timestamping
+                            ? 'path.fidelity.timestampState.on'
+                            : 'path.fidelity.timestampState.off',
+                        ),
+                      })
+                    : t('path.fidelity.unknownDetail')}
                 </span>
               </div>
               <div>

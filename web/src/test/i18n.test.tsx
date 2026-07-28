@@ -285,6 +285,15 @@ describe('i18n catalog', () => {
       'Operator sign-in',
       'Authenticator code',
     ]
+    const pathFidelityBanned = [
+      'Measurement fidelity',
+      'Full-hop acquisition',
+      'Destination-only fallback',
+      'Mixed acquisition',
+      'Unknown · legacy snapshot',
+      'Receipt unavailable',
+      'Acquisition capabilities were not stored; no precision is inferred.',
+    ]
 
     for (const source of existingLocalizedSources) {
       const body = sourceForScan(source)
@@ -305,6 +314,11 @@ describe('i18n catalog', () => {
       for (const text of highUseBanned) {
         expect(body, `${source} must use the i18n catalog for ${text}`).not.toContain(text)
       }
+    }
+
+    const pathPage = sourceForScan(resolve(process.cwd(), 'src/routes/PathPage.tsx'))
+    for (const text of pathFidelityBanned) {
+      expect(pathPage, `PathPage must use the i18n catalog for ${text}`).not.toContain(text)
     }
   })
 
