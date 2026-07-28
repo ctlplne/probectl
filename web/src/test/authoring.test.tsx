@@ -14,16 +14,16 @@ const discover = {
   proposals: [
     {
       spec: {
-        name: 'payments.svc (HTTP)',
-        type: 'http',
-        target: 'https://payments.svc',
+        name: '203.0.113.10 (ICMP)',
+        type: 'icmp',
+        target: '203.0.113.10',
         interval_seconds: 60,
         timeout_seconds: 3,
         enabled: true,
       },
-      rationale: 'Observed 50× on the service plane with no monitoring test.',
-      score: 52,
-      source: 'service',
+      rationale: 'Observed 9× on the flow plane with no monitoring test; suggest icmp.',
+      score: 9,
+      source: 'flow',
     },
   ],
 }
@@ -71,7 +71,8 @@ describe('AI test authoring', () => {
     await screen.findByRole('heading', { name: /author with ai/i })
 
     // Auto-discovery proposes an observed-but-unmonitored target.
-    await screen.findByText(/payments\.svc/i)
+    await screen.findByText('203.0.113.10')
+    expect(screen.getByText(/observed 9× on the flow plane/i)).toBeInTheDocument()
 
     // Author from natural language → a proposal appears (nothing created yet).
     fireEvent.change(screen.getByLabelText(/describe a test/i), {
@@ -92,11 +93,30 @@ describe('AI test authoring', () => {
     )
   })
 
+  test('keeps a flow-derived suggestion propose-only until the operator presses Add', async () => {
+    const posts = stub()
+    renderApp('/targets')
+    await screen.findByText('203.0.113.10')
+    expect(screen.getByText(/observed 9× on the flow plane/i)).toBeInTheDocument()
+    expect(posts.some((p) => p.url.endsWith('/v1/tests'))).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await screen.findByText(/test created/i)
+    expect(
+      posts.some(
+        (p) =>
+          p.url.endsWith('/v1/tests') &&
+          p.body?.target === '203.0.113.10' &&
+          p.body?.type === 'icmp',
+      ),
+    ).toBe(true)
+  })
+
   test('the authoring surface has no a11y violations', async () => {
     stub()
     const { container } = renderApp('/targets')
     await screen.findByRole('heading', { name: /author with ai/i })
-    await screen.findByText(/payments\.svc/i)
+    await screen.findByText('203.0.113.10')
     expect(await axe(container)).toHaveNoViolations()
   })
 })

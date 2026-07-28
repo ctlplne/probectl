@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/ai/author"
@@ -19,6 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -79,13 +81,26 @@ func (s *Server) handleAIAuthor(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+const (
+	discoverFlowWindow   = time.Hour
+	discoverFlowLimit    = 20
+	discoverFlowMinCount = 2
+)
+
 // handleAIDiscover proposes monitorable targets mined from the tenant's observed
-// telemetry (incident targets today; the eBPF service map / flows / BGP / DNS plug
-// into the same Observation input as those sources are wired), ranked, thresholded
-// to avoid noise, and deduped against existing tests. Proposals only.
+// incidents and top flow destinations. Flow observations are a separately
+// permissioned, bounded read: test.write alone must never reveal flow metadata.
+// The eBPF service map / BGP / DNS plug into the same Observation input as those
+// sources are wired. Results are ranked, thresholded, deduped, schema-validated,
+// and returned as proposals only.
 func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error {
-	if auth.PrincipalFrom(r.Context()) == nil {
+	principal := auth.PrincipalFrom(r.Context())
+	if principal == nil {
 		return apierror.Unauthorized("authentication required")
+	}
+	tenantID := strings.TrimSpace(principal.TenantID)
+	if tenantID == "" {
+		return apierror.Unauthorized("tenant identity required")
 	}
 	var obs []author.Observation
 	var existing []string
@@ -120,8 +135,38 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 			return err
 		}
 	}
+	// Flow destinations are tenant-owned telemetry. Require the source-specific
+	// RBAC grant AND its ABAC deny-override even though the route's outer
+	// permission is test.write. A caller without flow.read can still receive
+	// incident-derived proposals, but learns nothing from the flow plane.
+	if principal.Has(permFlowRead) && !s.abacDenies(r.Context(), principal, permFlowRead, nil) {
+		rows, err := s.flowStore.TopTalkers(r.Context(), flowstore.TopQuery{
+			TenantID: tenantID,
+			By:       flowstore.ByDst,
+			Window:   discoverFlowWindow,
+			Limit:    discoverFlowLimit,
+		})
+		if err != nil {
+			return apierror.Unavailable("flow-derived discovery is temporarily unavailable").Wrap(err)
+		}
+		for _, row := range rows {
+			if row.Flows < discoverFlowMinCount {
+				continue
+			}
+			count := int(row.Flows)
+			if row.Flows > uint64(^uint(0)>>1) {
+				count = int(^uint(0) >> 1)
+			}
+			obs = append(obs, author.Observation{
+				Target: row.Key,
+				Kind:   "flow",
+				Count:  count,
+			})
+		}
+	}
 	// Incident targets are already correlated signals (low noise), so a single
-	// occurrence is worth proposing.
+	// occurrence is worth proposing. Flow observations were separately filtered
+	// to at least discoverFlowMinCount above.
 	proposals := author.Discover(obs, existing, author.DiscoverOptions{MinCount: 1})
 	writeJSON(w, http.StatusOK, map[string]any{"proposals": proposals})
 	return nil

@@ -127,6 +127,13 @@ rule-based parser that needs no model and makes no network call; a model handles
 open-ended requests only when you connect one, and its output is treated as untrusted
 input, validated exactly like everything else.
 
+Discovery currently merges correlated incident targets with a local, bounded read of
+the caller tenant's top flow destinations: one hour, at most 20 groups, at least two
+stored flows. Flow-derived suggestions additionally require `flow.read` after ABAC;
+`test.write` alone never reveals a flow target. A bare destination becomes a
+reachability proposal, not a claim about application health. Reading the evidence
+sends no packet—the separate Add action is still the only way to create a test.
+
 probectl never phones home: the default RCA and authoring engines are fully local,
 and any remote model is opt-in and gated. The model cannot touch the network or take
 actions — there is no agentic loop. Remediation is a separate, human-gated,
@@ -217,7 +224,10 @@ appear in the client and inherit exactly that user's view:
   answers. Both actions are written tenant-scoped to the tamper-evident audit log.
 - Authoring API: `POST /v1/ai/author` (body `{prompt}`) returns a proposal; you apply
   it with `POST /v1/tests`. Discovery: `POST /v1/ai/discover`. Both require the
-  `test.write` permission, checked after the tenant boundary, and are audited.
+  `test.write` permission, checked after the tenant boundary. Flow-derived discovery
+  also requires `flow.read` after its ABAC deny-override. Both actions are audited;
+  neither discovery nor authoring creates a test without the separate authenticated
+  create request.
 - MCP transports: local stdio (the client spawns the binary; token from
   `PROBECTL_MCP_TOKEN`) and network HTTP (TLS-only and bearer-authenticated —
   setting the address without TLS files fails configuration validation). Mint a token

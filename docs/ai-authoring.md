@@ -128,8 +128,10 @@ never the prompt's secrets) — proposing is a data-access action like any other
 **tenant** is one isolated customer space in probectl — discovery never reads
 outside the caller's) and proposes monitorable targets that currently have *no*
 test (`internal/ai/author/discovery.go`, handler in
-`internal/control/authoring.go`). Your network already shows you which rooms are
-in use; discovery points at the ones with no smoke detector. It:
+`internal/control/authoring.go`). Today that input is correlated incident
+targets plus authorized top flow destinations. Your network already shows you
+which rooms are in use; discovery points at the ones with no smoke detector.
+It:
 
 - **suggests a test type** from what it saw (port 443 → `http` over https, port
   80 → `http`, port 53 → `dns`, a bare IP → `icmp`, any other port → `tcp` — or
@@ -146,15 +148,38 @@ in use; discovery points at the ones with no smoke detector. It:
   surviving candidate has already passed the same `testspec.Clean` validation as
   everything else.
 
-Today the discovery input is **incident targets** — an **incident** is an
-already-correlated cluster of signals (probectl has decided several symptoms are
-one event), so the handler lowers the sighting threshold to one: even a single
-occurrence is worth proposing. The eBPF service map (who-talks-to-whom, observed
-at the kernel), flows, BGP-monitored prefixes, and DNS feed the *same*
-`Observation` input as those sources get wired, so discovery gets richer without
-changing the propose-only contract. (A bare **CIDR** — a whole address range
-like `10.0.0.0/8` — is deliberately *not* proposed as a synthetic test: a prefix
-is BGP-monitored, not pinged.)
+The two live inputs use deliberately different evidence rules:
+
+- An **incident** is an already-correlated cluster of signals (probectl has
+  decided several symptoms are one event), so even one occurrence is worth
+  proposing.
+- The **flow** input is an aggregate over the authenticated tenant's fixed
+  one-hour window. It asks the configured memory/ClickHouse store for at most
+  the top 20 destination addresses and requires at least two stored flow
+  records for a destination. A bare observed IP becomes an ICMP reachability
+  proposal; probectl does not infer an application protocol by joining it to an
+  unrelated port aggregate. The rationale states the observed count and
+  `source:"flow"`.
+
+Both inputs merge before the same ranking, schema validation, host-level dedup,
+and 20-proposal cap. A destination already covered by an HTTP, DNS, TCP, UDP, or
+ICMP target therefore does not reappear just because its spelling includes a
+scheme or port elsewhere.
+
+Flow destinations are tenant-owned telemetry, so the source has its own
+authorization check: the caller needs `test.write` for the route *and*
+`flow.read` for flow-derived proposals, with an ABAC deny overriding the RBAC
+grant. A caller without flow authority can still receive incident proposals but
+learns no flow target. The tenant comes only from the authenticated principal
+and is mandatory again at the flow-store query boundary. A flow-store failure
+returns an explicit unavailable response; it is not silently translated into
+“no suggestions.”
+
+The eBPF service map (who-talks-to-whom, observed at the kernel),
+BGP-monitored prefixes, and DNS can feed the *same* `Observation` input when
+those sources are wired. (A bare **CIDR** — a whole address range like
+`10.0.0.0/8` — is deliberately *not* proposed as a synthetic test: a prefix is
+BGP-monitored, not pinged.)
 
 ## Surface
 
@@ -164,6 +189,19 @@ Create) and a "Suggested to monitor" list (Add). **Nothing is created without
 your confirmation.** Both routes require the `test.write` permission — the same
 right you'd need to create a test by hand, checked after the tenant boundary —
 so someone who can't create tests can't generate proposals either.
+Flow-derived suggestions additionally require `flow.read` after its ABAC
+deny-override; test-authoring authority never silently becomes flow-reading
+authority.
+
+The same additive response is available to terminal workflows:
+
+```bash
+probectl ai discover
+```
+
+The CLI prints the ranked JSON proposal list, including `source`, `score`, and
+the evidence-count rationale. Like the native list, it does not create a test;
+creation remains a separate `probectl test create` or native Add action.
 
 ## What it deliberately does not do
 
@@ -171,6 +209,9 @@ so someone who can't create tests can't generate proposals either.
   proposal; creation is a separate, authenticated, human action. This is what
   keeps a prompt injection, a confused model, or an over-eager heuristic
   harmless: the worst outcome is a proposal you decline.
+- **It never scans from observations.** Reading a stored destination does not
+  send a packet. Only the separate Add → `POST /v1/tests` action can create a
+  scheduled test, after the user has reviewed its exact target and YAML.
 - **It never surfaces an invalid config.** Schema validation happens *before*
   display, on every path — there is no "approve now, fix later" state.
 - **It does not do remediation.** Creating monitoring is not the same as

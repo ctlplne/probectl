@@ -2099,7 +2099,7 @@ func (c *Client) AiAuthor(ctx context.Context, req AiAuthorRequest) (*TestPropos
 	return &out, nil
 }
 
-// Propose monitorable targets mined from observed telemetry (ranked, deduped; pending confirmation)
+// Propose monitorable targets from incidents and authorized top flow destinations (ranked, deduped; pending confirmation)
 type AiDiscoverRequest struct {
 }
 

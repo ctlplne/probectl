@@ -41,7 +41,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	"ai": {Name: "ai", Summary: "AI/RCA and authoring", Ops: map[string]apiOp{
 		"ask":      {Method: http.MethodPost, Path: "/v1/ai/ask", Description: "ask once; add --handoff for a deterministic local Markdown investigation receipt"},
 		"author":   {Method: http.MethodPost, Path: "/v1/ai/author"},
-		"discover": {Method: http.MethodPost, Path: "/v1/ai/discover"},
+		"discover": {Method: http.MethodPost, Path: "/v1/ai/discover", Description: "propose uncovered incident and authorized flow destinations; never creates tests"},
 		"feedback": {Method: http.MethodPost, Path: "/v1/ai/feedback"},
 	}},
 	"alert": {Name: "alert", Summary: "alert rules and active alerts", Ops: map[string]apiOp{

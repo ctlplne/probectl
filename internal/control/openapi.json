@@ -2083,7 +2083,8 @@
     "/v1/ai/discover": {
       "post": {
         "operationId": "aiDiscover",
-        "summary": "Propose monitorable targets mined from observed telemetry (ranked, deduped; pending confirmation)",
+        "summary": "Propose monitorable targets from incidents and authorized top flow destinations (ranked, deduped; pending confirmation)",
+        "description": "Merges the caller tenant's incident targets with a bounded one-hour, top-20 flow-destination read when the caller also has flow.read after ABAC. Flow destinations require at least two stored flow records and become reachability proposals; no test or packet is created until the caller separately confirms through POST /v1/tests. The authenticated principal supplies tenant scope; no tenant selector is accepted.",
         "tags": [
           "ai"
         ],
@@ -2094,11 +2095,21 @@
         ],
         "responses": {
           "200": {
-            "description": "Ranked discovery proposals \u2014 none are created.",
+            "description": "Ranked incident/authorized-flow discovery proposals \u2014 none are created.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DiscoverProposalList"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The authorized flow store is temporarily unavailable; no incomplete suggestion list is returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
