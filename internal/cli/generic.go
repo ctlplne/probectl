@@ -210,6 +210,15 @@ func printGenericItems(w io.Writer, items []any) {
 }
 
 func genericDisplayFields(m map[string]any) (id, name, status, summary string) {
+	// Flow aggregates expose observation multiplicity explicitly. It is a
+	// distinct count of tenant-local exporter identities, never a claim that
+	// packets or conversations were deduplicated.
+	if observation := flowExporterObservation(m); observation != "" {
+		id = firstString(m, "key")
+		name = strings.Join(nonEmptyStrings(id, firstString(m, "detail")), " -> ")
+		summary = observation
+		return id, name, status, summary
+	}
 	// Flow quality receipts use exporter + protocol as their tenant-local
 	// identity. Keep the allowlisted reason and safe action visible without
 	// inventing a synthetic ID or exposing any decoded flow field.
@@ -243,6 +252,35 @@ func genericDisplayFields(m map[string]any) (id, name, status, summary string) {
 	status = firstString(m, "status", "severity", "state", "confidence")
 	summary = firstString(m, "summary", "description", "root_cause", "model")
 	return id, name, status, summary
+}
+
+func flowExporterObservation(m map[string]any) string {
+	value, ok := m["exporter_count"]
+	if !ok {
+		return ""
+	}
+	var count uint64
+	switch n := value.(type) {
+	case float64:
+		if n < 0 {
+			return ""
+		}
+		count = uint64(n)
+	case int:
+		if n < 0 {
+			return ""
+		}
+		count = uint64(n)
+	case uint64:
+		count = n
+	default:
+		return ""
+	}
+	noun := "exporters"
+	if count == 1 {
+		noun = "exporter"
+	}
+	return fmt.Sprintf("observed by %d %s", count, noun)
 }
 
 func nonEmptyStrings(values ...string) []string {

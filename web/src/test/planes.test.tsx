@@ -41,6 +41,8 @@ describe('plane workspaces', () => {
     expect(within(flowQuality).queryByRole('table')).not.toBeInTheDocument()
     const topTalkers = await screen.findByRole('table', { name: /flow top talkers/i })
     expect(within(topTalkers).getByText('10.0.0.10')).toBeInTheDocument()
+    expect(within(topTalkers).getByText('Observed by 2 exporters')).toBeInTheDocument()
+    expect(within(topTalkers).getByText('Observed by 1 exporter')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Device' }))
     const deviceNodes = await screen.findByRole('table', { name: /topology device nodes/i })
@@ -191,6 +193,25 @@ describe('plane workspaces', () => {
     const table = screen.getByRole('table', { name: /flow top talkers/i })
     expect(within(table).getByText('10.0.0.10')).toBeInTheDocument()
     expect(within(table).getByText('checkout')).toBeInTheDocument()
+    expect(within(table).getByText('Observed by 2 exporters')).toBeInTheDocument()
+  })
+
+  test('localizes flow observation multiplicity without implying deduplication', async () => {
+    const spanish = renderApp('/planes/flow', { locale: 'es' })
+    const spanishTable = await screen.findByRole('table', {
+      name: 'Principales conversadores de flujo',
+    })
+    expect(within(spanishTable).getByText('Observado por 2 exportadores')).toBeInTheDocument()
+    expect(within(spanishTable).getByText('Observado por 1 exportador')).toBeInTheDocument()
+    expect(within(spanishTable).queryByText(/deduplic/i)).not.toBeInTheDocument()
+    spanish.unmount()
+
+    renderApp('/planes/flow', { locale: 'ar' })
+    const arabicTable = await screen.findByRole('table', {
+      name: 'أعلى متحدثي التدفق',
+    })
+    expect(within(arabicTable).getByText('شوهد بواسطة 2 مُصدّرين')).toBeInTheDocument()
+    expect(within(arabicTable).getByText('شوهد بواسطة مُصدّر واحد')).toBeInTheDocument()
   })
 
   test('pivots facets and narrows flows with removable filter chips', async () => {

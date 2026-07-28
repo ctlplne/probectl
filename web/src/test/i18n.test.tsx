@@ -246,6 +246,7 @@ describe('i18n catalog', () => {
       'Origin AS to prefix evidence folded into the tenant graph.',
       'BGP events appear here after the analyzer publishes tenant-scoped routing events.',
       'Top talkers',
+      'Observed by',
       'Sampling-corrected flow contributors from the tenant flow store.',
       'Flow top talkers',
       'Flow capacity anomalies',

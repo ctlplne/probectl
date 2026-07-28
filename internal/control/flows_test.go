@@ -112,6 +112,40 @@ func TestFlowTopTalkersAPI(t *testing.T) {
 	}
 }
 
+func TestFlowTopExporterCountCannotIncludeForeignTenant(t *testing.T) {
+	srv := testServer(fakePinger{})
+	now := time.Now().UTC().Truncate(time.Minute)
+	const tenant = "00000000-0000-0000-0000-000000000001"
+	rows := []flowstore.Row{
+		{TenantID: tenant, Exporter: "edge-a", Protocol: "ipfix", TS: now.Add(-2 * time.Minute), SrcAddr: "10.0.0.1", DstAddr: "203.0.113.9", BytesScaled: 100, PacketsScaled: 1},
+		{TenantID: tenant, Exporter: "edge-b", Protocol: "ipfix", TS: now.Add(-time.Minute), SrcAddr: "10.0.0.2", DstAddr: "203.0.113.9", BytesScaled: 200, PacketsScaled: 2},
+		{TenantID: "t-other", Exporter: "foreign-a", Protocol: "ipfix", TS: now.Add(-3 * time.Minute), SrcAddr: "192.0.2.1", DstAddr: "203.0.113.9", BytesScaled: 1_000, PacketsScaled: 10},
+		{TenantID: "t-other", Exporter: "foreign-b", Protocol: "ipfix", TS: now.Add(-2 * time.Minute), SrcAddr: "192.0.2.2", DstAddr: "203.0.113.9", BytesScaled: 2_000, PacketsScaled: 20},
+		{TenantID: "t-other", Exporter: "foreign-c", Protocol: "ipfix", TS: now.Add(-time.Minute), SrcAddr: "192.0.2.3", DstAddr: "203.0.113.9", BytesScaled: 3_000, PacketsScaled: 30},
+	}
+	if err := srv.flowStore.Insert(context.Background(), rows); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := do(srv, http.MethodGet, "/v1/flows/top?by=dst&window=1h&bucket=5m&limit=5")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Items  []flowstore.TopRow      `json:"items"`
+		Series []flowstore.SeriesPoint `json:"series"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Key != "203.0.113.9" || resp.Items[0].ExporterCount != 2 {
+		t.Fatalf("tenant aggregate counted a foreign exporter: %+v", resp.Items)
+	}
+	if len(resp.Series) != 1 || resp.Series[0].ExporterCount != 2 {
+		t.Fatalf("tenant series counted a foreign exporter: %+v", resp.Series)
+	}
+}
+
 // TestFlowCapacityAndAnomalyAPI: both routes answer 200 with items arrays; bad
 // params are 400s, not 500s.
 func TestFlowCapacityAndAnomalyAPI(t *testing.T) {

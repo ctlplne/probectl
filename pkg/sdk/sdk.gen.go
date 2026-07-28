@@ -1144,12 +1144,13 @@ type FlowIngestQualityResponse struct {
 type FlowIngestQualityState string
 
 type FlowSeriesPoint struct {
-	Bytes   int    `json:"bytes"`
-	Detail  string `json:"detail,omitempty"`
-	Flows   int    `json:"flows"`
-	Key     string `json:"key"`
-	Packets int    `json:"packets"`
-	Ts      string `json:"ts"`
+	Bytes         int    `json:"bytes"`
+	Detail        string `json:"detail,omitempty"`
+	ExporterCount int    `json:"exporter_count,omitempty"`
+	Flows         int    `json:"flows"`
+	Key           string `json:"key"`
+	Packets       int    `json:"packets"`
+	Ts            string `json:"ts"`
 }
 
 type FlowTopList struct {
@@ -1162,13 +1163,14 @@ type FlowTopList struct {
 	Window         string            `json:"window,omitempty"`
 }
 
-// One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name.
+// One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name. exporter_count describes tenant-scoped observation multiplicity, not packet or conversation deduplication.
 type FlowTopRow struct {
-	Bytes   int    `json:"bytes,omitempty"`
-	Detail  string `json:"detail,omitempty"`
-	Flows   int    `json:"flows,omitempty"`
-	Key     string `json:"key,omitempty"`
-	Packets int    `json:"packets,omitempty"`
+	Bytes         int    `json:"bytes,omitempty"`
+	Detail        string `json:"detail,omitempty"`
+	ExporterCount int    `json:"exporter_count,omitempty"`
+	Flows         int    `json:"flows,omitempty"`
+	Key           string `json:"key,omitempty"`
+	Packets       int    `json:"packets,omitempty"`
 }
 
 type Health struct {

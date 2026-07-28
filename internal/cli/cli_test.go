@@ -817,19 +817,22 @@ func TestCLIFlowTopPreservesStackedFilters(t *testing.T) {
 			t.Fatalf("by query = %q", got)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
-			{"key": "DE", "bytes": 8000, "packets": 8, "flows": 1},
+			{"key": "DE", "bytes": 8000, "packets": 8, "flows": 1, "exporter_count": 2},
 		}})
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	_, errs, code := run(t, srv,
+	out, errs, code := run(t, srv,
 		"flow", "top",
 		"--query", "by=dst_country",
 		"--query", "filter=src:10.0.0.1",
 		"--query", "filter=protocol:ipfix")
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "DE") || !strings.Contains(out, "observed by 2 exporters") {
+		t.Fatalf("flow top output missing observation multiplicity:\n%s", out)
 	}
 }
 

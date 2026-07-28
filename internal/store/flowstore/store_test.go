@@ -106,6 +106,58 @@ func TestMemoryTopTalkers(t *testing.T) {
 	}
 }
 
+// TestMemoryExporterCountIsTenantScoped plants the same destination for two
+// tenants, with the foreign tenant observed by more exporters. Neither the
+// ranked aggregate nor its aligned series may count a foreign exporter.
+func TestMemoryExporterCountIsTenantScoped(t *testing.T) {
+	m := NewMemory()
+	rows := []Row{
+		{TenantID: "t-a", Exporter: "edge-a", Protocol: "ipfix", TS: now.Add(-2 * time.Minute), SrcAddr: "10.0.0.1", DstAddr: "203.0.113.9", BytesScaled: 100, PacketsScaled: 1},
+		{TenantID: "t-a", Exporter: "edge-b", Protocol: "ipfix", TS: now.Add(-time.Minute), SrcAddr: "10.0.0.2", DstAddr: "203.0.113.9", BytesScaled: 200, PacketsScaled: 2},
+		{TenantID: "t-b", Exporter: "foreign-a", Protocol: "ipfix", TS: now.Add(-3 * time.Minute), SrcAddr: "192.0.2.1", DstAddr: "203.0.113.9", BytesScaled: 1_000, PacketsScaled: 10},
+		{TenantID: "t-b", Exporter: "foreign-b", Protocol: "ipfix", TS: now.Add(-2 * time.Minute), SrcAddr: "192.0.2.2", DstAddr: "203.0.113.9", BytesScaled: 2_000, PacketsScaled: 20},
+		{TenantID: "t-b", Exporter: "foreign-c", Protocol: "ipfix", TS: now.Add(-time.Minute), SrcAddr: "192.0.2.3", DstAddr: "203.0.113.9", BytesScaled: 3_000, PacketsScaled: 30},
+	}
+	if err := m.Insert(context.Background(), rows); err != nil {
+		t.Fatal(err)
+	}
+
+	q := TopQuery{
+		TenantID: "t-a",
+		By:       ByDst,
+		Window:   time.Hour,
+		Bucket:   5 * time.Minute,
+		Now:      now,
+	}
+	top, err := m.TopTalkers(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(top) != 1 || top[0].Key != "203.0.113.9" || top[0].ExporterCount != 2 {
+		t.Fatalf("tenant A observation multiplicity = %+v, want only its 2 exporters", top)
+	}
+	series, err := m.TopSeries(context.Background(), q, top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series) != 1 || series[0].ExporterCount != 2 {
+		t.Fatalf("tenant A series observation multiplicity = %+v, want only its 2 exporters", series)
+	}
+
+	foreign, err := m.TopTalkers(context.Background(), TopQuery{
+		TenantID: "t-b",
+		By:       ByDst,
+		Window:   time.Hour,
+		Now:      now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foreign) != 1 || foreign[0].ExporterCount != 3 {
+		t.Fatalf("planted foreign oracle is invalid: %+v", foreign)
+	}
+}
+
 func TestMemoryFlowFacetsFiltersAndSeries(t *testing.T) {
 	m := NewMemory()
 	seed(t, m)
@@ -409,6 +461,9 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	if !strings.Contains(sql, "GROUP BY k, d") || !strings.Contains(sql, "LIMIT 5") {
 		t.Fatalf("pair grouping/limit missing: %s", sql)
 	}
+	if !strings.Contains(sql, "uniqExact(exporter) AS e") {
+		t.Fatalf("top-talkers SQL must count distinct exporters inside the scoped aggregate: %s", sql)
+	}
 
 	cq := CapacityQuery{TenantID: "t-a", Exporter: "r1'; --", Direction: "out", Window: time.Hour, Bucket: 5 * time.Minute, Now: now}
 	if err := cq.normalize(); err != nil {
@@ -475,7 +530,8 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	})
 	if strings.Contains(seriesSQL, "tcp'") ||
 		!strings.Contains(seriesSQL, "WHERE tenant_id={tenant:String}") ||
-		!strings.Contains(seriesSQL, "INTERVAL 180 second") {
+		!strings.Contains(seriesSQL, "INTERVAL 180 second") ||
+		!strings.Contains(seriesSQL, "uniqExact(exporter) AS e") {
 		t.Fatalf("series SQL lost binding/scope/bucket contract: %s", seriesSQL)
 	}
 	if seriesParams["tenant"] != "t-a" || seriesParams["series_key_0"] != "tcp' OR 1=1 --" {

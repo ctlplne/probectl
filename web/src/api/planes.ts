@@ -33,6 +33,7 @@ export interface FlowTopRow {
   bytes: number
   packets: number
   flows: number
+  exporter_count?: number
 }
 
 export interface FlowTopResponse {
@@ -52,6 +53,7 @@ export interface FlowSeriesPoint {
   bytes: number
   packets: number
   flows: number
+  exporter_count?: number
 }
 
 export interface FlowCapacityPoint {

@@ -95,6 +95,57 @@ func TestClickHouseCrossTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestClickHouseExporterCountIsTenantScoped(t *testing.T) {
+	c := chFlow(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	ta := fmt.Sprintf("iso-exporters-a-%d", now.UnixNano())
+	tb := fmt.Sprintf("iso-exporters-b-%d", now.UnixNano())
+	defer func() {
+		_, _ = c.DeleteTenant(ctx, ta)
+		_, _ = c.DeleteTenant(ctx, tb)
+	}()
+
+	row := func(tenant, exporter, src string, offset time.Duration) Row {
+		r := flowRow(tenant, src, now.Add(offset))
+		r.Exporter = exporter
+		return r
+	}
+	if err := c.Insert(ctx, []Row{
+		row(ta, "edge-a", "198.51.100.1", -2*time.Minute),
+		row(ta, "edge-b", "198.51.100.2", -time.Minute),
+		row(tb, "foreign-a", "192.0.2.1", -3*time.Minute),
+		row(tb, "foreign-b", "192.0.2.2", -2*time.Minute),
+		row(tb, "foreign-c", "192.0.2.3", -time.Minute),
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	q := TopQuery{TenantID: ta, By: ByDst, Window: time.Hour, Bucket: 5 * time.Minute, Now: now}
+	top, err := c.TopTalkers(ctx, q)
+	if err != nil {
+		t.Fatalf("top talkers: %v", err)
+	}
+	if len(top) != 1 || top[0].Key != "203.0.113.9" || top[0].ExporterCount != 2 {
+		t.Fatalf("tenant A observation multiplicity = %+v, want only its 2 exporters", top)
+	}
+	series, err := c.TopSeries(ctx, q, top)
+	if err != nil {
+		t.Fatalf("top series: %v", err)
+	}
+	if len(series) != 1 || series[0].ExporterCount != 2 {
+		t.Fatalf("tenant A series observation multiplicity = %+v, want only its 2 exporters", series)
+	}
+
+	foreign, err := c.TopTalkers(ctx, TopQuery{TenantID: tb, By: ByDst, Window: time.Hour, Now: now})
+	if err != nil {
+		t.Fatalf("foreign oracle: %v", err)
+	}
+	if len(foreign) != 1 || foreign[0].ExporterCount != 3 {
+		t.Fatalf("planted foreign oracle is invalid: %+v", foreign)
+	}
+}
+
 func TestClickHouseSubjectEraseIsTenantScoped(t *testing.T) {
 	c := chFlow(t)
 	ctx := context.Background()

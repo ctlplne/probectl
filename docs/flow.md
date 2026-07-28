@@ -248,7 +248,9 @@ the flow store (`internal/store/flowstore/clickhouse.go`):
   keeps flows indefinitely, which the control plane warns about at boot;
 - hourly rollups (`probectl_flow_rollups_hour`) are materialized before raw rows
   age out. They keep tenant-scoped lower-resolution bytes/packets/flow counts
-  queryable for long-term cost and trend views. A controlled backfill path
+  queryable for long-term cost and trend views. Each rollup already retains its
+  contributing exporter identity, so observation multiplicity remains
+  derivable without a schema migration. A controlled backfill path
   rebuilds a tenant+window idempotently by deleting that rollup window first,
   then re-materializing duplicate-safe hourly facts from raw rows;
 - a `memory` store (the default) implements the same `Store` contract for the
@@ -280,6 +282,12 @@ GET /v1/flows/ingest-quality?agent_id=&exporter=&protocol=&state=&limit=100
   by the requested key and returns the highest contributors (`limit` defaults to
   10, capped at 1000), plus bucketed history for the first six rows so the web
   workspace can show the ranked table and time series from the same query.
+  Every ranked row and time bucket also returns `exporter_count`, the number of
+  distinct exporter identities that contributed after the tenant boundary and
+  exact-match filters were applied. The native UI and CLI describe this as
+  **observed by N exporters**. It is observation multiplicity only: multiple
+  exporters may see overlapping traffic along a path, so probectl does not
+  claim the byte, packet, flow, or conversation totals were deduplicated.
   `by` accepts `src`, `dst`, `pair`, `src_asn`, `dst_asn`, `as_name`,
   `src_country`, `dst_country`, `port`, `protocol`, and `exporter`.
   `by=pair` groups source→destination. `as_name` uses the destination AS
@@ -349,6 +357,7 @@ curl -s "https://localhost:8443/v1/flows/top?by=src_asn&window=15m&limit=5"
 probectl flow top --query by=dst_country \
   --query filter=protocol:ipfix \
   --query filter=port:443
+# Human output includes "observed by N exporters"; --json exposes exporter_count.
 
 # Inspect bounded, secret-free exporter health without a dashboard dependency.
 probectl flow quality --query state=degraded --query protocol=ipfix

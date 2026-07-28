@@ -21,6 +21,7 @@ import (
 func TestFlowRollupDDLAndBackfillAreTenantScoped(t *testing.T) {
 	ddl := createFlowRollupsDDL(sharedFlowRollupsTable)
 	for _, want := range []string{
+		"exporter String",
 		"PARTITION BY (tenant_id, toYYYYMMDD(bucket))",
 		"ORDER BY (tenant_id, bucket, protocol, exporter, src_addr, dst_addr, transport, row_id)",
 		"ENGINE = ReplacingMergeTree",
@@ -33,6 +34,7 @@ func TestFlowRollupDDLAndBackfillAreTenantScoped(t *testing.T) {
 	for _, want := range []string{
 		"CREATE MATERIALIZED VIEW IF NOT EXISTS probectl_flow_rollups_hour_mv",
 		"TO probectl_flow_rollups_hour",
+		"exporter,",
 		"FROM probectl_flows",
 		"WHERE row_id != ''",
 	} {
@@ -239,7 +241,7 @@ func TestFlowClickHouseCountersPreserveUInt64Precision(t *testing.T) {
 		case strings.Contains(q, "FROM probectl_flow_rollups_hour") && strings.Contains(q, "sum(bytes_scaled) AS bytes_scaled"):
 			_, _ = w.Write([]byte(`{"bucket":"2026-06-30 13:00:00","protocol":"netflow9","exporter":"r1","transport":"tcp","bytes_scaled":9007199254740993,"packets_scaled":"9007199254740995","flow_count":9007199254740997}` + "\n"))
 		case strings.Contains(q, "sum(bytes_scaled) AS b,"):
-			_, _ = w.Write([]byte(`{"k":"10.0.0.1","d":"","b":9007199254740993,"p":"9007199254740995","f":9007199254740997}` + "\n"))
+			_, _ = w.Write([]byte(`{"k":"10.0.0.1","d":"","b":9007199254740993,"p":"9007199254740995","f":9007199254740997,"e":2}` + "\n"))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -262,6 +264,9 @@ func TestFlowClickHouseCountersPreserveUInt64Precision(t *testing.T) {
 	}
 	if len(top) != 1 || top[0].Bytes != bytes || top[0].Packets != packets || top[0].Flows != flows {
 		t.Fatalf("top-talkers counters lost precision: %+v", top)
+	}
+	if top[0].ExporterCount != 2 {
+		t.Fatalf("top-talkers exporter count = %d, want 2", top[0].ExporterCount)
 	}
 	encoded, err := json.Marshal(top[0])
 	if err != nil {

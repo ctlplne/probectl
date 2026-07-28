@@ -1061,6 +1061,7 @@ export type FlowIngestQualityState = "healthy" | "degraded" | "stale"
 export interface FlowSeriesPoint {
   bytes: number
   detail?: string
+  exporter_count?: number
   flows: number
   key: string
   packets: number
@@ -1080,6 +1081,7 @@ export interface FlowTopList {
 export interface FlowTopRow {
   bytes?: number
   detail?: string
+  exporter_count?: number
   flows?: number
   key?: string
   packets?: number

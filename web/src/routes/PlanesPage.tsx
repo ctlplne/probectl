@@ -516,6 +516,20 @@ function FlowPanel({
       numeric: true,
       render: (r) => compact(r.flows, locale),
     },
+    {
+      key: 'observation',
+      header: t('planes.flow.column.observation'),
+      render: (r) => {
+        const count = r.exporter_count ?? 0
+        const label =
+          count === 0
+            ? t('planes.flow.observation.unavailable')
+            : count === 1
+              ? t('planes.flow.observation.one')
+              : t('planes.flow.observation.many', { count })
+        return <Badge tone={count > 1 ? 'info' : 'neutral'}>{label}</Badge>
+      },
+    },
   ]
   const anomalyColumns: Column<NonNullable<typeof anomalies.data>['items'][number]>[] = [
     {

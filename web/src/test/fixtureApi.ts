@@ -1433,6 +1433,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             bytes: 524_288_000,
             packets: 120_000,
             flows: 42,
+            exporter_count: 2,
           },
           {
             key: '10.0.0.20',
@@ -1440,6 +1441,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             bytes: 104_857_600,
             packets: 22_400,
             flows: 18,
+            exporter_count: 1,
           },
         ],
         series: [
@@ -1450,6 +1452,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             bytes: 314_572_800,
             packets: 70_000,
             flows: 24,
+            exporter_count: 2,
           },
           {
             ts: '2026-06-04T12:00:00Z',
@@ -1458,6 +1461,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             bytes: 209_715_200,
             packets: 50_000,
             flows: 18,
+            exporter_count: 1,
           },
           {
             ts: '2026-06-04T11:55:00Z',
@@ -1466,6 +1470,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             bytes: 62_914_560,
             packets: 13_400,
             flows: 10,
+            exporter_count: 1,
           },
           {
             ts: '2026-06-04T12:00:00Z',
@@ -1474,6 +1479,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             bytes: 41_943_040,
             packets: 9_000,
             flows: 8,
+            exporter_count: 1,
           },
         ],
         effective_limit: 8,

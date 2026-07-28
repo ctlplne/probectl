@@ -104,6 +104,7 @@ func (m *Memory) TopTalkers(_ context.Context, q TopQuery) ([]TopRow, error) {
 		detail      string
 		bytes, pkts uint64
 		flows       uint64
+		exporters   map[string]struct{}
 	}
 	groups := make(map[string]*agg)
 	for _, r := range m.inWindow(q.TenantID, q.Now.Add(-q.Window), q.Now) {
@@ -117,12 +118,13 @@ func (m *Memory) TopTalkers(_ context.Context, q TopQuery) ([]TopRow, error) {
 		gk := groupKey(key, detail)
 		g, ok := groups[gk]
 		if !ok {
-			g = &agg{detail: detail}
+			g = &agg{detail: detail, exporters: make(map[string]struct{})}
 			groups[gk] = g
 		}
 		g.bytes += r.BytesScaled
 		g.pkts += r.PacketsScaled
 		g.flows++
+		g.exporters[r.Exporter] = struct{}{}
 	}
 	out := make([]TopRow, 0, len(groups))
 	for gk, g := range groups {
@@ -130,7 +132,14 @@ func (m *Memory) TopTalkers(_ context.Context, q TopQuery) ([]TopRow, error) {
 		if i := indexByte(gk, 0); i >= 0 {
 			key = gk[:i]
 		}
-		out = append(out, TopRow{Key: key, Detail: g.detail, Bytes: g.bytes, Packets: g.pkts, Flows: g.flows})
+		out = append(out, TopRow{
+			Key:           key,
+			Detail:        g.detail,
+			Bytes:         g.bytes,
+			Packets:       g.pkts,
+			Flows:         g.flows,
+			ExporterCount: uint64(len(g.exporters)),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Bytes != out[j].Bytes {
@@ -164,7 +173,10 @@ func (m *Memory) TopSeries(_ context.Context, q TopQuery, top []TopRow) ([]Serie
 		key    string
 		detail string
 	}
-	type agg struct{ bytes, packets, flows uint64 }
+	type agg struct {
+		bytes, packets, flows uint64
+		exporters             map[string]struct{}
+	}
 	groups := make(map[seriesKey]*agg)
 	bucketSecs := int64(q.Bucket / time.Second)
 	for _, r := range m.inWindow(q.TenantID, q.Now.Add(-q.Window), q.Now) {
@@ -185,22 +197,24 @@ func (m *Memory) TopSeries(_ context.Context, q TopQuery, top []TopRow) ([]Serie
 		}
 		g := groups[k]
 		if g == nil {
-			g = &agg{}
+			g = &agg{exporters: make(map[string]struct{})}
 			groups[k] = g
 		}
 		g.bytes += r.BytesScaled
 		g.packets += r.PacketsScaled
 		g.flows++
+		g.exporters[r.Exporter] = struct{}{}
 	}
 	out := make([]SeriesPoint, 0, len(groups))
 	for k, g := range groups {
 		out = append(out, SeriesPoint{
-			TS:      time.Unix(k.bucket, 0).UTC(),
-			Key:     k.key,
-			Detail:  k.detail,
-			Bytes:   g.bytes,
-			Packets: g.packets,
-			Flows:   g.flows,
+			TS:            time.Unix(k.bucket, 0).UTC(),
+			Key:           k.key,
+			Detail:        k.detail,
+			Bytes:         g.bytes,
+			Packets:       g.packets,
+			Flows:         g.flows,
+			ExporterCount: uint64(len(g.exporters)),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

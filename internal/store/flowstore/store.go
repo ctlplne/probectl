@@ -127,25 +127,30 @@ type TopQuery struct {
 }
 
 // TopRow is one top-talkers result. Key is the group (address or ASN); Detail
-// carries the pair's destination or the AS organization name.
+// carries the pair's destination or the AS organization name. ExporterCount is
+// the number of distinct tenant-local exporter identities that contributed to
+// the aggregate. It describes observation multiplicity, not packet or
+// conversation deduplication.
 type TopRow struct {
-	Key     string `json:"key"`
-	Detail  string `json:"detail,omitempty"`
-	Bytes   uint64 `json:"bytes"`
-	Packets uint64 `json:"packets"`
-	Flows   uint64 `json:"flows"`
+	Key           string `json:"key"`
+	Detail        string `json:"detail,omitempty"`
+	Bytes         uint64 `json:"bytes"`
+	Packets       uint64 `json:"packets"`
+	Flows         uint64 `json:"flows"`
+	ExporterCount uint64 `json:"exporter_count"`
 }
 
 // SeriesPoint is one time bucket for one of the highest-ranked contributors.
 // The series is deliberately capped independently of the tabular top-N result
 // so a limit=1000 request cannot manufacture thousands of chart series.
 type SeriesPoint struct {
-	TS      time.Time `json:"ts"`
-	Key     string    `json:"key"`
-	Detail  string    `json:"detail,omitempty"`
-	Bytes   uint64    `json:"bytes"`
-	Packets uint64    `json:"packets"`
-	Flows   uint64    `json:"flows"`
+	TS            time.Time `json:"ts"`
+	Key           string    `json:"key"`
+	Detail        string    `json:"detail,omitempty"`
+	Bytes         uint64    `json:"bytes"`
+	Packets       uint64    `json:"packets"`
+	Flows         uint64    `json:"flows"`
+	ExporterCount uint64    `json:"exporter_count"`
 }
 
 // MarshalJSON additionally emits the counters as STRINGS (bytes_str, ...)

@@ -149,7 +149,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	}},
 	"flow": {Name: "flow", Summary: "flow analytics", Ops: map[string]apiOp{
 		"quality":   {Method: http.MethodGet, Path: "/v1/flows/ingest-quality", Description: "show bounded per-exporter ingest quality receipts"},
-		"top":       {Method: http.MethodGet, Path: "/v1/flows/top", Description: "pivot top contributors and bucketed history; repeat --query filter=field:value to narrow"},
+		"top":       {Method: http.MethodGet, Path: "/v1/flows/top", Description: "pivot top contributors with observed-by exporter counts and bucketed history; repeat --query filter=field:value to narrow"},
 		"capacity":  {Method: http.MethodGet, Path: "/v1/flows/capacity"},
 		"anomalies": {Method: http.MethodGet, Path: "/v1/flows/anomalies"},
 	}},
