@@ -39,6 +39,10 @@ func (f *fakeDiscoverer) run(_ context.Context, cfg path.Config) (*path.Path, er
 func samplePath(target string) *path.Path {
 	return &path.Path{
 		Target: target, TargetIP: target, Mode: "icmp", MaxHops: 30, TraceCount: 3, DestinationReached: true,
+		MeasurementFidelity: &path.MeasurementFidelity{
+			Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
+			TimingSource: "application_monotonic", HopVisibility: "full",
+		},
 		Hops: []path.Hop{
 			{TTL: 1, Nodes: []path.HopNode{{IP: "10.0.0.1", Sent: 3, Received: 3, RTTAvgMs: 1.0}}},
 			{TTL: 2, Nodes: []path.HopNode{
@@ -105,6 +109,11 @@ func TestPathAPI(t *testing.T) {
 	if len(p.Hops[1].Nodes) != 2 {
 		t.Errorf("ttl 2 should expose 2 ECMP nodes, got %d", len(p.Hops[1].Nodes))
 	}
+	if p.MeasurementFidelity == nil ||
+		p.MeasurementFidelity.AcquisitionMode != "raw_icmp" ||
+		p.MeasurementFidelity.HardwareTimestamping {
+		t.Errorf("discovery fidelity = %+v", p.MeasurementFidelity)
+	}
 	if disc.calls != 1 || disc.lastTarget != "9.9.9.9" {
 		t.Errorf("discoverer calls=%d target=%q", disc.calls, disc.lastTarget)
 	}
@@ -122,6 +131,10 @@ func TestPathAPI(t *testing.T) {
 	mustJSON(t, rec, &history)
 	if len(history.Items) != 1 || history.Items[0].ID == "" || history.Items[0].Path.Target != "9.9.9.9" {
 		t.Fatalf("history = %+v", history.Items)
+	}
+	if history.Items[0].Path.MeasurementFidelity == nil ||
+		history.Items[0].Path.MeasurementFidelity.TimingSource != "application_monotonic" {
+		t.Fatalf("history fidelity = %+v", history.Items[0].Path.MeasurementFidelity)
 	}
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?round_id="+history.Items[0].ID, "", nil); rec.Code != http.StatusOK {
 		t.Fatalf("stable history replay = %d: %s", rec.Code, rec.Body)
@@ -172,6 +185,10 @@ func TestPathAPITenantIsolation(t *testing.T) {
 	mustJSON(t, rec, &tenantBHistory)
 	if len(tenantBHistory.Items) != 1 {
 		t.Fatalf("tenant B history = %+v", tenantBHistory.Items)
+	}
+	if tenantBHistory.Items[0].Path.MeasurementFidelity == nil ||
+		tenantBHistory.Items[0].Path.MeasurementFidelity.AcquisitionMode != "raw_icmp" {
+		t.Fatalf("tenant B fidelity = %+v", tenantBHistory.Items[0].Path.MeasurementFidelity)
 	}
 	// ...the default tenant cannot even see the test (404).
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path", "", nil); rec.Code != http.StatusNotFound {

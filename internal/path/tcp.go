@@ -32,7 +32,18 @@ func (t *tcpTracer) traceFlow(ctx context.Context, cfg Config, targetIP string, 
 		defer c.Close()
 	}
 	addr := net.JoinHostPort(targetIP, strconv.Itoa(t.port))
-	ft := flowTrace{flowID: flowID}
+	fidelity := MeasurementFidelity{
+		Version:         1,
+		ProbeTransport:  "tcp",
+		AcquisitionMode: "tcp_connect",
+		TimingSource:    "application_monotonic",
+		HopVisibility:   "destination_only",
+	}
+	if icmpConn != nil {
+		fidelity.AcquisitionMode = "tcp_connect_raw_icmp"
+		fidelity.HopVisibility = "full"
+	}
+	ft := flowTrace{flowID: flowID, fidelity: fidelity}
 
 	for ttl := 1; ttl <= cfg.MaxHops; ttl++ {
 		if ctx.Err() != nil {

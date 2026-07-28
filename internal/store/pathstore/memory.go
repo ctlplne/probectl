@@ -121,6 +121,10 @@ func clonePath(in *path.Path) path.Path {
 		return path.Path{}
 	}
 	out := *in
+	if in.MeasurementFidelity != nil {
+		fidelity := *in.MeasurementFidelity
+		out.MeasurementFidelity = &fidelity
+	}
 	out.Hops = make([]path.Hop, len(in.Hops))
 	for i := range in.Hops {
 		out.Hops[i] = in.Hops[i]

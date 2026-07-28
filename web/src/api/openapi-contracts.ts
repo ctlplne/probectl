@@ -846,6 +846,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   lifecycleStatus: true,
   lifecycleRetentionInput: true,
   path: true,
+  pathMeasurementFidelity: true,
   pathSnapshot: true,
   hop: true,
   hopNode: true,
@@ -915,6 +916,10 @@ export const OPENAPI_TYPE_CONTRACTS = {
     Lifecycle.LifecycleRetentionInput
   >
   path: GeneratedHasViewKeys<SDK.Path, Paths.Path>
+  pathMeasurementFidelity: GeneratedHasViewKeys<
+    SDK.PathMeasurementFidelity,
+    Paths.PathMeasurementFidelity
+  >
   pathSnapshot: GeneratedHasViewKeys<SDK.PathSnapshot, Paths.PathSnapshot>
   hop: GeneratedHasViewKeys<SDK.Hop, Paths.Hop>
   hopNode: GeneratedHasViewKeys<SDK.HopNode, Paths.HopNode>

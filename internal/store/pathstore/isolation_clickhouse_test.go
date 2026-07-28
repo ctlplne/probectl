@@ -39,6 +39,10 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	mk := func(ip string) *path.Path {
 		return &path.Path{
 			Target: target, TargetIP: ip, Mode: "icmp", MaxHops: 8, TraceCount: 1, DestinationReached: true,
+			MeasurementFidelity: &path.MeasurementFidelity{
+				Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
+				TimingSource: "application_monotonic", HopVisibility: "full",
+			},
 			Hops: []path.Hop{{TTL: 1, Nodes: []path.HopNode{{IP: ip, Sent: 1, Received: 1, RTTAvgMs: 1.5}}}},
 		}
 	}
@@ -56,6 +60,9 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	}
 	if got.TargetIP != "198.51.100.10" {
 		t.Fatalf("CROSS-TENANT LEAK: tenant A read %q", got.TargetIP)
+	}
+	if got.MeasurementFidelity == nil || got.MeasurementFidelity.AcquisitionMode != "raw_icmp" {
+		t.Fatalf("tenant A fidelity missing or crossed: %+v", got.MeasurementFidelity)
 	}
 	roundsA, err := c.History(ctx, ta, target, HistoryQuery{})
 	if err != nil || len(roundsA) != 1 || roundsA[0].Path.TargetIP != "198.51.100.10" {

@@ -436,6 +436,17 @@ fallback still finds the destination but not every hop. The checksum trick, the
 MPLS parsing, and the multi-path merge are fixture-tested; a loopback trace is the
 live test.
 
+Every newly discovered `Path` also carries a versioned
+`measurement_fidelity` receipt. It records the probe transport, the acquisition
+mode actually used (`raw_icmp`, `icmp_datagram`, `tcp_connect_raw_icmp`, or
+`tcp_connect`), whether hop visibility was full or destination-only, and the
+timestamp capabilities. Current RTTs use Go's application monotonic clock;
+`kernel_timestamping` and `hardware_timestamping` are therefore both `false`.
+Those booleans are evidence, not aspirations: they change only when a future
+implementation actually obtains and tests those timestamps. Older stored rounds
+omit the receipt and the UI says **unknown — legacy snapshot**; it never guesses
+precision from `mode`.
+
 Path data is high-cardinality time-series, so it lives in **ClickHouse**
 (`internal/store/pathstore`): a `memory` store for the lightweight mode and tests,
 and a `clickhouse` adapter that reads/writes hop and link rows over ClickHouse's
@@ -480,9 +491,10 @@ highest-latency branches; a coverage note always states the represented and exac
 counts. The table retains every exact responder, searches before applying its
 200-row DOM safety bound, and states any truncation rather than silently clipping
 data. A compact summary before the graph keeps the path and tenant/time scope,
-worst branch, and observe-only next action visible at the 1440×900 desktop
-baseline. Layout remains linear in nodes + links and animation respects
-`prefers-reduced-motion`.
+measurement fidelity, worst branch, and observe-only next action visible at the
+1440×900 desktop baseline. A destination-only or mixed fallback is a warning;
+a legacy round remains neutral and explicitly unknown. Layout remains linear
+in nodes + links and animation respects `prefers-reduced-motion`.
 
 The same Path page owns the historical workflow. Its X3 clock bounds history,
 incident, and change reads; a range control scrubs selected rounds and a

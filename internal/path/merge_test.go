@@ -113,7 +113,13 @@ func (f *fakeTracer) traceFlow(_ context.Context, _ Config, _ string, flowID uin
 
 func TestDiscoverRunsTracesAndMerges(t *testing.T) {
 	cfg := Config{Target: "dest", Mode: "icmp", TraceCount: 3}
-	one := flowTrace{hops: []hopObservation{{ttl: 1, ip: "10.0.0.1", sent: 1, received: 1, rtts: []time.Duration{ms(1)}}}}
+	one := flowTrace{
+		hops: []hopObservation{{ttl: 1, ip: "10.0.0.1", sent: 1, received: 1, rtts: []time.Duration{ms(1)}}},
+		fidelity: MeasurementFidelity{
+			Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
+			TimingSource: "application_monotonic", HopVisibility: "full",
+		},
+	}
 	flows := map[uint16]flowTrace{}
 	for i := 0; i < 3; i++ {
 		flows[flowIDFor(i)] = one
@@ -127,5 +133,56 @@ func TestDiscoverRunsTracesAndMerges(t *testing.T) {
 	}
 	if len(p.Hops) != 1 || p.Hops[0].Nodes[0].Sent != 3 {
 		t.Errorf("3 traces should aggregate to sent=3: %+v", p.Hops)
+	}
+	if p.MeasurementFidelity == nil ||
+		p.MeasurementFidelity.AcquisitionMode != "raw_icmp" ||
+		p.MeasurementFidelity.TimingSource != "application_monotonic" ||
+		p.MeasurementFidelity.KernelTimestamping ||
+		p.MeasurementFidelity.HardwareTimestamping {
+		t.Errorf("measurement fidelity = %+v", p.MeasurementFidelity)
+	}
+}
+
+func TestMergeFidelityReportsMixedFallbackWithoutOverclaim(t *testing.T) {
+	traces := []flowTrace{
+		{fidelity: MeasurementFidelity{
+			Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
+			TimingSource: "application_monotonic", HopVisibility: "full",
+			KernelTimestamping: true, HardwareTimestamping: true,
+		}},
+		{fidelity: MeasurementFidelity{
+			Version: 1, ProbeTransport: "icmp", AcquisitionMode: "icmp_datagram",
+			TimingSource: "application_monotonic", HopVisibility: "destination_only",
+		}},
+	}
+	got := mergeFidelity(traces)
+	if got == nil {
+		t.Fatal("measurement fidelity is nil")
+	}
+	if got.AcquisitionMode != "mixed" || got.HopVisibility != "mixed" {
+		t.Errorf("mixed fallback not disclosed: %+v", got)
+	}
+	if got.KernelTimestamping || got.HardwareTimestamping {
+		t.Errorf("merged receipt overclaimed timestamp capability: %+v", got)
+	}
+}
+
+func TestMergeLegacyTraceLeavesFidelityUnknown(t *testing.T) {
+	valid := flowTrace{fidelity: MeasurementFidelity{
+		Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
+		TimingSource: "application_monotonic", HopVisibility: "full",
+	}}
+	for _, traces := range [][]flowTrace{
+		{{}},
+		{valid, {}},
+		{{fidelity: MeasurementFidelity{
+			Version: 2, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
+			TimingSource: "application_monotonic", HopVisibility: "full",
+		}}},
+	} {
+		p := mergeTraces(Config{Mode: "icmp"}, "192.0.2.1", traces)
+		if p.MeasurementFidelity != nil {
+			t.Errorf("unknown trace must not be backfilled or partially merged: %+v", p.MeasurementFidelity)
+		}
 	}
 }

@@ -68,7 +68,10 @@ func TestClickHouseHTTPStore(t *testing.T) {
 	if !strings.Contains(queries[hi], "JSONEachRow") {
 		t.Errorf("hops insert query = %q", queries[hi])
 	}
-	if !strings.Contains(bodies[hi], "tenant-x") || !strings.Contains(bodies[hi], "10.0.0.1") || !strings.Contains(bodies[hi], "16001") {
+	if !strings.Contains(bodies[hi], "tenant-x") || !strings.Contains(bodies[hi], "10.0.0.1") ||
+		!strings.Contains(bodies[hi], "16001") ||
+		!strings.Contains(bodies[hi], `"acquisition_mode":"raw_icmp"`) ||
+		!strings.Contains(bodies[hi], `"hardware_timestamping":0`) {
 		t.Errorf("hops body missing rows: %q", bodies[hi])
 	}
 	if !strings.Contains(bodies[li], `"from_ip":"10.0.0.1"`) || !strings.Contains(bodies[li], `"to_ip":"8.8.8.8"`) {

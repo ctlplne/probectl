@@ -131,6 +131,9 @@ function cliCommandsFromSurfaceSource(source: string): Set<string> {
       commands.add(`probectl ${commandGroup} ${op[1]}`)
     }
   }
+  for (const command of source.matchAll(/Command:\s*"(probectl [^"]+)"/g)) {
+    commands.add(command[1])
+  }
   return commands
 }
 

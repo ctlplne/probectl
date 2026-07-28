@@ -44,6 +44,16 @@ func fakeAPI(t *testing.T) *httptest.Server {
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "not_found", "message": "test not found"}})
 	})
+	mux.HandleFunc("GET /v1/tests/{id}/path", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"target": "1.1.1.1", "mode": "icmp", "hops": []any{}, "links": []any{},
+			"measurement_fidelity": map[string]any{
+				"version": 1, "probe_transport": "icmp", "acquisition_mode": "raw_icmp",
+				"timing_source": "application_monotonic", "hop_visibility": "full",
+				"kernel_timestamping": false, "hardware_timestamping": false,
+			},
+		})
+	})
 	mux.HandleFunc("GET /v1/agents", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
 			{"id": "33333333-3333-3333-3333-333333333333", "name": "agent-1", "hostname": "host-a", "status": "online", "capabilities": []string{"icmp", "tcp"}},
@@ -161,6 +171,29 @@ func TestCLITestListJSON(t *testing.T) {
 	}
 	if len(tests) != 1 || tests[0].Name != "edge-dns" {
 		t.Errorf("decoded = %+v", tests)
+	}
+}
+
+func TestCLITestPathPreservesMeasurementFidelityReceipt(t *testing.T) {
+	srv := fakeAPI(t)
+	out, errs, code := run(t, srv, "--json", "test", "path", "11111111-1111-1111-1111-111111111111")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	var got struct {
+		MeasurementFidelity struct {
+			AcquisitionMode      string `json:"acquisition_mode"`
+			TimingSource         string `json:"timing_source"`
+			HardwareTimestamping bool   `json:"hardware_timestamping"`
+		} `json:"measurement_fidelity"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("path output is not JSON: %v\n%s", err, out)
+	}
+	if got.MeasurementFidelity.AcquisitionMode != "raw_icmp" ||
+		got.MeasurementFidelity.TimingSource != "application_monotonic" ||
+		got.MeasurementFidelity.HardwareTimestamping {
+		t.Fatalf("measurement fidelity was not preserved: %+v", got.MeasurementFidelity)
 	}
 }
 

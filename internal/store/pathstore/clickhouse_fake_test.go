@@ -67,7 +67,7 @@ func (f *fakeCH) handler() http.HandlerFunc {
 			if qv.Get("param_path0") != "" && qv.Get("param_path0") != "p1" {
 				return
 			}
-			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","observed_at":"2026-07-14 12:05:00.000"}` + "\n"))
+			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0,"observed_at":"2026-07-14 12:05:00.000"}` + "\n"))
 		case strings.Contains(q, "SELECT path_id, ttl, from_ip"):
 			_, _ = w.Write([]byte(`{"path_id":"p1","ttl":1,"from_ip":"10.0.0.1","to_ip":"8.8.8.8"}` + "\n"))
 		case strings.Contains(q, "SELECT path_id, ttl"):
@@ -78,7 +78,7 @@ func (f *fakeCH) handler() http.HandlerFunc {
 			if strings.Contains(q, "'missing.example'") || qv.Get("param_target") == "missing.example" {
 				return // no rows -> not found
 			}
-			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp"}` + "\n"))
+			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0}` + "\n"))
 		case strings.Contains(q, "FROM probectl_path_hops") && strings.Contains(q, "path_id="):
 			_, _ = w.Write([]byte(
 				`{"ttl":1,"responder":"10.0.0.1","sent":3,"received":3,"loss_ratio":0,"rtt_min_ms":"1.1","rtt_avg_ms":1.5,"rtt_max_ms":2.0,"mpls_labels":[16001]}` + "\n" +
@@ -145,6 +145,12 @@ func TestClickHousePathHistoryScopesQueriesAndBindsCopiedID(t *testing.T) {
 	}
 	if rounds[0].ObservedAt.IsZero() || !rounds[0].Path.DestinationReached {
 		t.Fatalf("round metadata = %+v", rounds[0])
+	}
+	if rounds[0].Path.MeasurementFidelity == nil ||
+		rounds[0].Path.MeasurementFidelity.AcquisitionMode != "raw_icmp" ||
+		rounds[0].Path.MeasurementFidelity.KernelTimestamping ||
+		rounds[0].Path.MeasurementFidelity.HardwareTimestamping {
+		t.Fatalf("round measurement fidelity = %+v", rounds[0].Path.MeasurementFidelity)
 	}
 
 	f.mu.Lock()
@@ -244,6 +250,11 @@ func TestClickHouseLatestReconstructsPath(t *testing.T) {
 	}
 	if p.TargetIP != "8.8.8.8" || p.Mode != "icmp" || !p.DestinationReached || p.MaxHops != 2 {
 		t.Fatalf("path meta = %+v", p)
+	}
+	if p.MeasurementFidelity == nil ||
+		p.MeasurementFidelity.TimingSource != "application_monotonic" ||
+		p.MeasurementFidelity.HopVisibility != "full" {
+		t.Fatalf("path measurement fidelity = %+v", p.MeasurementFidelity)
 	}
 	if len(p.Hops) != 2 || p.Hops[0].TTL != 1 || p.Hops[1].TTL != 2 {
 		t.Fatalf("hops = %+v", p.Hops)

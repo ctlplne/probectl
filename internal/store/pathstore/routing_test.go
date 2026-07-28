@@ -232,12 +232,16 @@ func TestPathEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	var joined []string
-	var sawTenantV2Record bool
+	var sawTenantV2Record, sawTenantV4Record bool
 	for _, h := range hits {
 		joined = append(joined, h.query)
 		if strings.Contains(h.query, "INSERT INTO probectl_ch_migrations") &&
 			h.component == "pathstore:probectl_t_old" && h.version == "2" {
 			sawTenantV2Record = true
+		}
+		if strings.Contains(h.query, "INSERT INTO probectl_ch_migrations") &&
+			h.component == "pathstore:probectl_t_old" && h.version == "4" {
+			sawTenantV4Record = true
 		}
 	}
 	body := strings.Join(joined, "\n")
@@ -254,6 +258,8 @@ func TestPathEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 		"CREATE TABLE IF NOT EXISTS probectl_t_old.probectl_path_links2",
 		"DROP TABLE IF EXISTS probectl_t_old.probectl_path_hops",
 		"DROP TABLE IF EXISTS probectl_t_old.probectl_path_links",
+		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS fidelity_version",
+		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS hardware_timestamping",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("old tenant ledger did not apply pending v2 %q in:\n%s", want, body)
@@ -261,5 +267,8 @@ func TestPathEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 	}
 	if !sawTenantV2Record {
 		t.Fatalf("pending tenant v2 was not recorded under the tenant component key: %+v", hits)
+	}
+	if !sawTenantV4Record {
+		t.Fatalf("pending tenant v4 fidelity migration was not recorded under the tenant component key: %+v", hits)
 	}
 }

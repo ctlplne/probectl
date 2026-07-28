@@ -18,6 +18,10 @@ import (
 func samplePath() *path.Path {
 	return &path.Path{
 		Target: "8.8.8.8", TargetIP: "8.8.8.8", Mode: "icmp", MaxHops: 30, TraceCount: 2, DestinationReached: true,
+		MeasurementFidelity: &path.MeasurementFidelity{
+			Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
+			TimingSource: "application_monotonic", HopVisibility: "full",
+		},
 		Hops: []path.Hop{
 			{TTL: 1, Nodes: []path.HopNode{{IP: "10.0.0.1", Sent: 2, Received: 2, RTTAvgMs: 1.2, MPLS: []path.MPLSLabel{{Label: 16001, S: true, TTL: 1}}}}},
 			{TTL: 2, Nodes: []path.HopNode{{IP: "8.8.8.8", Sent: 2, Received: 2, RTTAvgMs: 9.5}}},
@@ -59,6 +63,9 @@ func TestMemoryLatest(t *testing.T) {
 	}
 	if p.TargetIP != "8.8.8.8-new" {
 		t.Errorf("latest should be the newest save, got %q", p.TargetIP)
+	}
+	if p.MeasurementFidelity == nil || p.MeasurementFidelity.AcquisitionMode != "raw_icmp" {
+		t.Errorf("latest measurement fidelity = %+v", p.MeasurementFidelity)
 	}
 	if _, ok, _ := m.Latest(ctx, "t1", "1.1.1.1"); ok {
 		t.Error("unknown target should not be found")
@@ -117,9 +124,13 @@ func TestMemoryPathHistoryTenantTargetAndCopiedIDIsolation(t *testing.T) {
 
 	// Returned rounds are deep copies. A caller cannot mutate stored evidence.
 	roundsA[0].Path.Hops[0].Nodes[0].IP = "mutated"
+	roundsA[0].Path.MeasurementFidelity.AcquisitionMode = "mutated"
 	again, err := m.History(ctx, "tenant-a", "8.8.8.8", HistoryQuery{})
 	if err != nil || again[0].Path.Hops[0].Nodes[0].IP == "mutated" {
 		t.Fatalf("history snapshot was not cloned: %+v err=%v", again, err)
+	}
+	if again[0].Path.MeasurementFidelity == nil || again[0].Path.MeasurementFidelity.AcquisitionMode != "raw_icmp" {
+		t.Fatalf("history fidelity was not cloned: %+v", again[0].Path.MeasurementFidelity)
 	}
 }
 
@@ -135,5 +146,14 @@ func TestNewModes(t *testing.T) {
 	}
 	if _, err := New("bogus", ""); err == nil {
 		t.Error("unknown mode should error")
+	}
+}
+
+func TestLegacyClickHouseRowLeavesMeasurementFidelityUnknown(t *testing.T) {
+	if got := fidelityFromRow(map[string]any{
+		"mode":             "icmp",
+		"fidelity_version": 0,
+	}); got != nil {
+		t.Fatalf("legacy row was backfilled from mode: %+v", got)
 	}
 }

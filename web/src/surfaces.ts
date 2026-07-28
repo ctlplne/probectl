@@ -246,6 +246,23 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
   },
   {
+    capability: 'Path measurement-fidelity receipt and legacy-safe acquisition limits',
+    featureIds: ['F3'],
+    sprint: 'I-8a4b2a1c',
+    kind: 'native',
+    route: '/path',
+    offNav: true,
+    evidence: [
+      'openapi:/v1/tests/{id}/path',
+      'openapi:/v1/tests/{id}/path/history',
+      'cli:probectl test path <id>',
+      'cli:probectl test path-history <id>',
+      'file:web/src/routes/PathPage.tsx',
+      'file:docs/architecture.md',
+    ],
+    liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
+  },
+  {
     capability: 'Incidents list + cross-plane timeline',
     featureIds: ['F9'],
     sprint: 'S17',

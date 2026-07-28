@@ -21,6 +21,7 @@ func mergeTraces(cfg Config, targetIP string, traces []flowTrace) *Path {
 		Target: cfg.Target, TargetIP: targetIP, Mode: cfg.Mode,
 		MaxHops: cfg.MaxHops, TraceCount: len(traces),
 	}
+	p.MeasurementFidelity = mergeFidelity(traces)
 
 	type agg struct {
 		sent, received int
@@ -103,6 +104,56 @@ func mergeTraces(cfg Config, targetIP string, traces []flowTrace) *Path {
 	})
 	p.Links = links
 	return p
+}
+
+func mergeFidelity(traces []flowTrace) *MeasurementFidelity {
+	if len(traces) == 0 {
+		return nil
+	}
+	receipts := make([]MeasurementFidelity, 0, len(traces))
+	for _, trace := range traces {
+		receipt := trace.fidelity
+		// A merged receipt describes every contributing trace. If any trace is
+		// legacy, incomplete, or from a schema version this binary does not
+		// understand, keep the aggregate unknown instead of guessing.
+		if receipt.Version != 1 ||
+			receipt.ProbeTransport == "" ||
+			receipt.AcquisitionMode == "" ||
+			receipt.TimingSource == "" ||
+			receipt.HopVisibility == "" {
+			return nil
+		}
+		receipts = append(receipts, receipt)
+	}
+	first := receipts[0]
+	out := &MeasurementFidelity{
+		Version:              first.Version,
+		ProbeTransport:       first.ProbeTransport,
+		AcquisitionMode:      first.AcquisitionMode,
+		TimingSource:         first.TimingSource,
+		HopVisibility:        first.HopVisibility,
+		KernelTimestamping:   first.KernelTimestamping,
+		HardwareTimestamping: first.HardwareTimestamping,
+	}
+	for _, receipt := range receipts[1:] {
+		if receipt.ProbeTransport != out.ProbeTransport {
+			out.ProbeTransport = "mixed"
+		}
+		if receipt.AcquisitionMode != out.AcquisitionMode {
+			out.AcquisitionMode = "mixed"
+		}
+		if receipt.TimingSource != out.TimingSource {
+			out.TimingSource = "mixed"
+		}
+		if receipt.HopVisibility != out.HopVisibility {
+			out.HopVisibility = "mixed"
+		}
+		// A merged receipt may claim a timestamp capability only when every
+		// contributing trace actually used it.
+		out.KernelTimestamping = out.KernelTimestamping && receipt.KernelTimestamping
+		out.HardwareTimestamping = out.HardwareTimestamping && receipt.HardwareTimestamping
+	}
+	return out
 }
 
 func sortedKeys[V any](m map[string]V) []string {

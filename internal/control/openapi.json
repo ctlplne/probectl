@@ -9554,6 +9554,65 @@
           }
         }
       },
+      "PathMeasurementFidelity": {
+        "type": "object",
+        "description": "Versioned acquisition receipt for one path snapshot. Legacy snapshots omit this object rather than inferring capabilities. Current RTTs use the application monotonic clock; kernel and hardware timestamp booleans are true only when actually used.",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1
+          },
+          "probe_transport": {
+            "type": "string",
+            "enum": [
+              "icmp",
+              "tcp",
+              "mixed"
+            ]
+          },
+          "acquisition_mode": {
+            "type": "string",
+            "enum": [
+              "raw_icmp",
+              "icmp_datagram",
+              "tcp_connect_raw_icmp",
+              "tcp_connect",
+              "mixed"
+            ]
+          },
+          "timing_source": {
+            "type": "string",
+            "enum": [
+              "application_monotonic",
+              "mixed"
+            ]
+          },
+          "hop_visibility": {
+            "type": "string",
+            "enum": [
+              "full",
+              "destination_only",
+              "mixed"
+            ]
+          },
+          "kernel_timestamping": {
+            "type": "boolean"
+          },
+          "hardware_timestamping": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "probe_transport",
+          "acquisition_mode",
+          "timing_source",
+          "hop_visibility",
+          "kernel_timestamping",
+          "hardware_timestamping"
+        ]
+      },
       "Path": {
         "type": "object",
         "description": "A merged, multi-path traceroute result.",
@@ -9575,6 +9634,13 @@
           },
           "destination_reached": {
             "type": "boolean"
+          },
+          "measurement_fidelity": {
+            "$ref": "#/components/schemas/PathMeasurementFidelity",
+            "type": [
+              "object",
+              "null"
+            ]
           },
           "hops": {
             "type": "array",

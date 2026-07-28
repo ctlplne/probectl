@@ -1526,18 +1526,30 @@ type OncallTestResponse struct {
 
 // A merged, multi-path traceroute result.
 type Path struct {
-	DestinationReached bool   `json:"destination_reached,omitempty"`
-	Hops               []Hop  `json:"hops"`
-	Links              []Link `json:"links"`
-	MaxHops            int    `json:"max_hops,omitempty"`
-	Mode               string `json:"mode"`
-	Target             string `json:"target"`
-	TargetIp           string `json:"target_ip,omitempty"`
-	TraceCount         int    `json:"trace_count,omitempty"`
+	DestinationReached  bool                     `json:"destination_reached,omitempty"`
+	Hops                []Hop                    `json:"hops"`
+	Links               []Link                   `json:"links"`
+	MaxHops             int                      `json:"max_hops,omitempty"`
+	MeasurementFidelity *PathMeasurementFidelity `json:"measurement_fidelity,omitempty"`
+	Mode                string                   `json:"mode"`
+	Target              string                   `json:"target"`
+	TargetIp            string                   `json:"target_ip,omitempty"`
+	TraceCount          int                      `json:"trace_count,omitempty"`
 }
 
 type PathHistory struct {
 	Items []PathSnapshot `json:"items"`
+}
+
+// Versioned acquisition receipt for one path snapshot. Legacy snapshots omit this object rather than inferring capabilities. Current RTTs use the application monotonic clock; kernel and hardware timestamp booleans are true only when actually used.
+type PathMeasurementFidelity struct {
+	AcquisitionMode      string `json:"acquisition_mode"`
+	HardwareTimestamping bool   `json:"hardware_timestamping"`
+	HopVisibility        string `json:"hop_visibility"`
+	KernelTimestamping   bool   `json:"kernel_timestamping"`
+	ProbeTransport       string `json:"probe_transport"`
+	TimingSource         string `json:"timing_source"`
+	Version              int    `json:"version"`
 }
 
 // One immutable path-discovery round. The opaque ID is always read under tenant_id and target scope.

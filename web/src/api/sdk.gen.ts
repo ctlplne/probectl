@@ -1440,6 +1440,7 @@ export interface Path {
   hops: Hop[]
   links: Link[]
   max_hops?: number
+  measurement_fidelity?: PathMeasurementFidelity | null
   mode: string
   target: string
   target_ip?: string
@@ -1448,6 +1449,16 @@ export interface Path {
 
 export interface PathHistory {
   items: PathSnapshot[]
+}
+
+export interface PathMeasurementFidelity {
+  acquisition_mode: "raw_icmp" | "icmp_datagram" | "tcp_connect_raw_icmp" | "tcp_connect" | "mixed"
+  hardware_timestamping: boolean
+  hop_visibility: "full" | "destination_only" | "mixed"
+  kernel_timestamping: boolean
+  probe_transport: "icmp" | "tcp" | "mixed"
+  timing_source: "application_monotonic" | "mixed"
+  version: number
 }
 
 export interface PathSnapshot {

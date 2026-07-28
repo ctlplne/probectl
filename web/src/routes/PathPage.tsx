@@ -445,6 +445,37 @@ export function PathPage() {
                 </span>
               </div>
               <div>
+                <span className={styles.triageLabel}>Measurement fidelity</span>
+                <strong>
+                  {displayedPath.measurement_fidelity?.hop_visibility === 'full'
+                    ? 'Full-hop acquisition'
+                    : displayedPath.measurement_fidelity?.hop_visibility === 'destination_only'
+                      ? 'Destination-only fallback'
+                      : displayedPath.measurement_fidelity
+                        ? 'Mixed acquisition'
+                        : 'Unknown · legacy snapshot'}
+                </strong>
+                <span>
+                  <Badge
+                    tone={
+                      displayedPath.measurement_fidelity?.hop_visibility === 'full'
+                        ? 'success'
+                        : displayedPath.measurement_fidelity
+                          ? 'warning'
+                          : 'neutral'
+                    }
+                  >
+                    {displayedPath.measurement_fidelity?.acquisition_mode.replace(/_/g, ' ') ??
+                      'receipt unavailable'}
+                  </Badge>
+                </span>
+                <span>
+                  {displayedPath.measurement_fidelity
+                    ? `${displayedPath.measurement_fidelity.timing_source.replace(/_/g, ' ')} · kernel timestamps ${displayedPath.measurement_fidelity.kernel_timestamping ? 'on' : 'off'} · hardware timestamps ${displayedPath.measurement_fidelity.hardware_timestamping ? 'on' : 'off'}`
+                    : 'Acquisition capabilities were not stored; no precision is inferred.'}
+                </span>
+              </div>
+              <div>
                 <span className={styles.triageLabel}>Worst hop</span>
                 <strong>
                   {worst ? `Hop ${worst.ttl} · ${worst.branchLabel}` : 'No responder'}

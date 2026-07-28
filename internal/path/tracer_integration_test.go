@@ -44,6 +44,14 @@ func TestRunLoopback(t *testing.T) {
 	if !p.DestinationReached {
 		t.Fatalf("loopback destination not reached: %+v", p)
 	}
+	if p.MeasurementFidelity == nil ||
+		p.MeasurementFidelity.AcquisitionMode != "icmp_datagram" ||
+		p.MeasurementFidelity.HopVisibility != "destination_only" ||
+		p.MeasurementFidelity.TimingSource != "application_monotonic" ||
+		p.MeasurementFidelity.KernelTimestamping ||
+		p.MeasurementFidelity.HardwareTimestamping {
+		t.Fatalf("unprivileged measurement fidelity = %+v", p.MeasurementFidelity)
+	}
 	found := false
 	for _, h := range p.Hops {
 		for _, n := range h.Nodes {
@@ -143,6 +151,13 @@ func runRawMultiHopChild(t *testing.T) {
 	}
 	if len(p.Links) < 2 {
 		t.Fatalf("expected multi-hop links, got %+v", p.Links)
+	}
+	if p.MeasurementFidelity == nil ||
+		p.MeasurementFidelity.AcquisitionMode != "raw_icmp" ||
+		p.MeasurementFidelity.HopVisibility != "full" ||
+		p.MeasurementFidelity.KernelTimestamping ||
+		p.MeasurementFidelity.HardwareTimestamping {
+		t.Fatalf("raw measurement fidelity = %+v", p.MeasurementFidelity)
 	}
 }
 

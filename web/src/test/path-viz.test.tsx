@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
-import { stubPathFetch } from './pathFixture'
+import { samplePath, stubPathFetch } from './pathFixture'
 
 describe('path visualization', () => {
   test('shows ECMP evidence inline and synchronizes keyboard selection', async () => {
@@ -20,6 +20,14 @@ describe('path visualization', () => {
 
     await screen.findByRole('heading', { name: /path & topology/i })
     const graph = await screen.findByRole('group', { name: /network path to 9\.9\.9\.9/i })
+
+    expect(screen.getByText('Full-hop acquisition')).toBeInTheDocument()
+    expect(screen.getByText('raw icmp')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'application monotonic · kernel timestamps off · hardware timestamps off',
+      ),
+    ).toBeInTheDocument()
 
     // Branch identity, loss, latency, and MPLS evidence are visible before drill-down.
     expect(within(graph).getByText(/Branch 1.*12 ms.*66% loss/i)).toBeInTheDocument()
@@ -69,6 +77,15 @@ describe('path visualization', () => {
     stubPathFetch(null)
     renderApp('/path')
     expect(await screen.findByText(/no path discovered yet/i)).toBeInTheDocument()
+  })
+
+  test('does not infer precision for a legacy path snapshot', async () => {
+    stubPathFetch({ ...samplePath, measurement_fidelity: undefined })
+    renderApp('/path')
+    expect(await screen.findByText('Unknown · legacy snapshot')).toBeInTheDocument()
+    expect(
+      screen.getByText('Acquisition capabilities were not stored; no precision is inferred.'),
+    ).toBeInTheDocument()
   })
 
   test('loads additional test pages into the path selector', async () => {

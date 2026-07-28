@@ -60,16 +60,32 @@ type Link struct {
 	To   string `json:"to"`
 }
 
+// MeasurementFidelity is a closed, versioned receipt describing how a path's
+// latency and hop evidence was acquired. It prevents precise-looking RTTs from
+// implying kernel or NIC timestamping that the current engine does not use.
+// Zero-value/absent receipts are legacy snapshots and must stay unknown rather
+// than being reconstructed from mode alone.
+type MeasurementFidelity struct {
+	Version              int    `json:"version"`
+	ProbeTransport       string `json:"probe_transport"`       // icmp | tcp | mixed
+	AcquisitionMode      string `json:"acquisition_mode"`      // raw_icmp | icmp_datagram | tcp_connect_raw_icmp | tcp_connect | mixed
+	TimingSource         string `json:"timing_source"`         // application_monotonic
+	HopVisibility        string `json:"hop_visibility"`        // full | destination_only | mixed
+	KernelTimestamping   bool   `json:"kernel_timestamping"`   // true only when actually enabled
+	HardwareTimestamping bool   `json:"hardware_timestamping"` // true only when actually enabled
+}
+
 // Path is the merged, multi-path result of a discovery.
 type Path struct {
-	Target             string `json:"target"`
-	TargetIP           string `json:"target_ip"`
-	Mode               string `json:"mode"`
-	MaxHops            int    `json:"max_hops"`
-	TraceCount         int    `json:"trace_count"`
-	DestinationReached bool   `json:"destination_reached"`
-	Hops               []Hop  `json:"hops"`
-	Links              []Link `json:"links"`
+	Target              string               `json:"target"`
+	TargetIP            string               `json:"target_ip"`
+	Mode                string               `json:"mode"`
+	MaxHops             int                  `json:"max_hops"`
+	TraceCount          int                  `json:"trace_count"`
+	DestinationReached  bool                 `json:"destination_reached"`
+	MeasurementFidelity *MeasurementFidelity `json:"measurement_fidelity,omitempty"`
+	Hops                []Hop                `json:"hops"`
+	Links               []Link               `json:"links"`
 }
 
 // Config is a path-test definition.
@@ -139,6 +155,7 @@ type hopObservation struct {
 // flowTrace is one single-flow traceroute: observations by ascending TTL, ending
 // at the destination or MaxHops.
 type flowTrace struct {
-	flowID uint16
-	hops   []hopObservation
+	flowID   uint16
+	hops     []hopObservation
+	fidelity MeasurementFidelity
 }

@@ -106,7 +106,19 @@ func (t *icmpTracer) traceFlow(ctx context.Context, cfg Config, targetIP string,
 	id := uint16(os.Getpid() & 0xffff)
 	const payloadLen = 40
 
-	ft := flowTrace{flowID: flowID}
+	fidelity := MeasurementFidelity{
+		Version:        1,
+		ProbeTransport: "icmp",
+		TimingSource:   "application_monotonic",
+	}
+	if raw {
+		fidelity.AcquisitionMode = "raw_icmp"
+		fidelity.HopVisibility = "full"
+	} else {
+		fidelity.AcquisitionMode = "icmp_datagram"
+		fidelity.HopVisibility = "destination_only"
+	}
+	ft := flowTrace{flowID: flowID, fidelity: fidelity}
 	for ttl := 1; ttl <= cfg.MaxHops; ttl++ {
 		if ctx.Err() != nil {
 			break

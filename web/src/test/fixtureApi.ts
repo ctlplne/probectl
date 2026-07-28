@@ -197,6 +197,15 @@ function samplePath(withSecondBranch: boolean) {
     max_hops: 30,
     trace_count: 12,
     destination_reached: true,
+    measurement_fidelity: {
+      version: 1,
+      probe_transport: 'icmp',
+      acquisition_mode: 'raw_icmp',
+      timing_source: 'application_monotonic',
+      hop_visibility: 'full',
+      kernel_timestamping: false,
+      hardware_timestamping: false,
+    },
     hops,
     links,
   }

@@ -731,6 +731,23 @@ never select a tenant: the authenticated session's `tenant_id` and the selected
 test's target are mandatory storage predicates, so a copied cross-tenant or
 cross-target ID returns an empty history.
 
+Each new round stores a closed `measurement_fidelity` receipt with the actual
+socket acquisition mode and hop-visibility capability. Today its
+`timing_source` is `application_monotonic`, with kernel and hardware
+timestamping explicitly false. A raw ICMP path reports full-hop acquisition;
+an unprivileged datagram fallback reports destination-only. The same receipt is
+returned by latest/history API calls and generic CLI JSON:
+
+```sh
+probectl test path <test-id>
+probectl test path-history <test-id>
+```
+
+Rounds written before this receipt existed omit it. The native Path surface
+labels those rounds `Unknown · legacy snapshot` and does not infer precision.
+No external service, packet-capture process, or hardware database participates
+in the receipt.
+
 ### BGP routing intelligence
 
 BGP is the protocol networks use to tell each other which IP blocks (prefixes)

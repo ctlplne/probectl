@@ -39,6 +39,21 @@ export interface Link {
   to: string
 }
 
+export interface PathMeasurementFidelity {
+  version: 1
+  probe_transport: 'icmp' | 'tcp' | 'mixed'
+  acquisition_mode:
+    | 'raw_icmp'
+    | 'icmp_datagram'
+    | 'tcp_connect_raw_icmp'
+    | 'tcp_connect'
+    | 'mixed'
+  timing_source: 'application_monotonic' | 'mixed'
+  hop_visibility: 'full' | 'destination_only' | 'mixed'
+  kernel_timestamping: boolean
+  hardware_timestamping: boolean
+}
+
 export interface Path {
   target: string
   target_ip: string
@@ -46,6 +61,8 @@ export interface Path {
   max_hops: number
   trace_count: number
   destination_reached: boolean
+  /** Absent only for snapshots written before the fidelity receipt shipped. */
+  measurement_fidelity?: PathMeasurementFidelity
   hops: Hop[]
   links: Link[]
 }
