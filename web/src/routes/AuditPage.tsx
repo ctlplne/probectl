@@ -5,6 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import styles from './audit.module.css'
 import { Page } from './RoutePage'
 import {
@@ -45,6 +46,55 @@ function dataPreview(ev: AuditEvent): string {
     .slice(0, 3)
     .map(([k, v]) => `${k}=${String(v)}`)
     .join(', ')
+}
+
+interface AuditTargetPivot {
+  href: string
+  label: string
+}
+
+function auditTargetPivot(ev: AuditEvent): AuditTargetPivot | null {
+  const target = ev.target ?? ''
+  if (
+    target === '' ||
+    target !== target.trim() ||
+    target === '[erased-subject]' ||
+    target === '[worm-redacted]'
+  ) {
+    return null
+  }
+
+  switch (ev.action) {
+    case 'test.create':
+    case 'test.update':
+    case 'test.delete':
+      return {
+        href: `/targets?test_id=${encodeURIComponent(target)}#tests`,
+        label: `Open test ${target}`,
+      }
+    case 'incident.resolve':
+      return {
+        href: `/incidents?incident=${encodeURIComponent(target)}`,
+        label: `Open incident ${target}`,
+      }
+    default:
+      return null
+  }
+}
+
+function auditTarget(ev: AuditEvent) {
+  const pivot = auditTargetPivot(ev)
+  if (!ev.target) return 'none'
+  return (
+    <span className={styles.auditTarget}>
+      <span className={styles.auditTargetEvidence}>{ev.target}</span>
+      {pivot ? (
+        <Link className={styles.auditTargetLink} to={pivot.href} aria-label={pivot.label}>
+          Open
+        </Link>
+      ) : null}
+    </span>
+  )
 }
 
 function appliedFilters(draft: AuditDraft, after?: number) {
@@ -102,7 +152,7 @@ export function AuditPage() {
     },
     { key: 'actor', header: 'Actor', render: (ev) => ev.actor },
     { key: 'action', header: 'Action', render: (ev) => <code>{ev.action}</code> },
-    { key: 'target', header: 'Target', render: (ev) => ev.target || 'none' },
+    { key: 'target', header: 'Target', render: auditTarget },
     { key: 'data', header: 'Data', render: dataPreview },
     { key: 'hash', header: 'Hash', render: (ev) => <code>{shortHash(ev.hash)}</code> },
   ]

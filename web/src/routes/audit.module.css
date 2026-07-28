@@ -34,6 +34,31 @@
   margin-top: var(--space-3);
 }
 
+.auditTarget {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+.auditTargetEvidence {
+  overflow-wrap: anywhere;
+}
+
+.auditTargetLink {
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-underline-offset: var(--space-1);
+}
+
+.auditTargetLink:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 .linkButton {
   min-height: 36px;
   display: inline-flex;

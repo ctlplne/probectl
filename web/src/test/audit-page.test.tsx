@@ -38,6 +38,42 @@ const auditEvents = [
     hash: '1111222233334444',
     created_at: '2026-06-30T10:02:00Z',
   },
+  {
+    seq: 4,
+    actor: 'bob@example.com',
+    action: 'incident.resolve',
+    target: 'incident/42',
+    data: {},
+    hash: '5555666677778888',
+    created_at: '2026-06-30T10:03:00Z',
+  },
+  {
+    seq: 5,
+    actor: 'alice@example.com',
+    action: 'test.create.extra',
+    target: 'test/lookalike',
+    data: {},
+    hash: '9999aaaabbbbcccc',
+    created_at: '2026-06-30T10:04:00Z',
+  },
+  {
+    seq: 6,
+    actor: 'alice@example.com',
+    action: 'test.update',
+    target: '[erased-subject]',
+    data: { _probectl_privacy: ['subject-erased'] },
+    hash: 'ddddeeeeffff3333',
+    created_at: '2026-06-30T10:05:00Z',
+  },
+  {
+    seq: 7,
+    actor: 'alice@example.com',
+    action: 'incident.share_create',
+    target: 'share/7',
+    data: {},
+    hash: '1111222233335555',
+    created_at: '2026-06-30T10:06:00Z',
+  },
 ]
 
 function urlOf(input: RequestInfo | URL): URL {
@@ -91,6 +127,28 @@ describe('native audit route', () => {
     const table = await screen.findByRole('table', { name: 'Audit events' })
     expect(within(table).getAllByText('alice@example.com').length).toBeGreaterThan(0)
     expect(within(table).getByText('alert.create')).toBeDefined()
+    expect(
+      within(table).getByRole('link', { name: 'Open test test/db' }).getAttribute('href'),
+    ).toBe('/targets?test_id=test%2Fdb#tests')
+    expect(
+      within(table).getByRole('link', { name: 'Open incident incident/42' }).getAttribute('href'),
+    ).toBe('/incidents?incident=incident%2F42')
+    expect(
+      requests.some(
+        (request) => request.startsWith('/v1/tests') || request.startsWith('/v1/incidents'),
+      ),
+    ).toBe(false)
+    for (const inertTarget of [
+      'alert/api',
+      'tenant/current',
+      'test/lookalike',
+      '[erased-subject]',
+      'share/7',
+    ]) {
+      const targetCell = within(table).getByText(inertTarget).closest('td')
+      expect(targetCell).not.toBeNull()
+      expect(within(targetCell as HTMLElement).queryByRole('link')).toBeNull()
+    }
 
     await userEvent.type(screen.getByLabelText('Actor'), 'alice')
     await userEvent.type(screen.getByLabelText('Action'), 'alert')

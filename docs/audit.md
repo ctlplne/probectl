@@ -63,8 +63,22 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
 
 The in-product route is `/audit`: it pages by sequence cursor, filters by actor,
 action, and target, verifies the tenant hash chain, and downloads the filtered
-JSON page. The CLI equivalents are `probectl audit list` (page through entries)
-and `probectl audit verify` (check the hash chain).
+JSON page. For exact `test.create`, `test.update`, `test.delete`, and
+`incident.resolve` actions, the Target cell also offers a same-app **Open**
+pivot. The original immutable target stays visible. Tests open the exact
+Targets inventory state; resolved incidents open the existing incident room.
+The destination performs its ordinary tenant and RBAC checks, and a deleted
+object produces that route's honest unavailable state.
+
+The allowlist is deliberately exact. Unknown actions, lookalike names, erased
+subjects, journal/share record IDs, authentication/security targets, and
+provider-stream targets remain inert text. The audit page does not prefetch the
+object, infer a route from arbitrary strings, or turn a link into authority to
+read or change anything.
+
+The CLI equivalents are `probectl audit list` (page through the same canonical
+`action` and `target` evidence) and `probectl audit verify` (check the hash
+chain). A terminal never needs UI-specific links to preserve evidence parity.
 
 Expected result — entries oldest-first (ascending by sequence), wrapped with a
 `next` cursor:
