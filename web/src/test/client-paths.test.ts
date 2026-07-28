@@ -4,9 +4,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { describe, expect, test, vi } from 'vitest'
-import { apiFetch, apiURL } from '../api/client'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { ApiError, apiFetch, apiURL } from '../api/client'
 import { assertNoDoublePrefix, pathOf } from './fetchStub'
+
+afterEach(() => vi.unstubAllGlobals())
 
 /**
  * UX-006 / RED-006: the API path conventions are enforced, not just hoped for.
@@ -33,7 +35,102 @@ describe('API path conventions', () => {
     vi.stubGlobal('fetch', stub)
     await apiFetch('/topology')
     expect(stub).toHaveBeenCalledWith('/v1/topology', expect.anything())
-    vi.unstubAllGlobals()
+  })
+
+  test('preserves JSON defaults and same-origin credentials beside caller headers', async () => {
+    const stub = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })))
+    vi.stubGlobal('fetch', stub)
+
+    await apiFetch('/alerts', {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+
+    const call = stub.mock.calls[0] as unknown as Parameters<typeof fetch>
+    const init = call[1] as RequestInit
+    const headers = new Headers(init.headers)
+    expect(init.credentials).toBe('same-origin')
+    expect(headers.get('Accept')).toBe('application/json')
+    expect(headers.get('Content-Type')).toBe('application/json')
+  })
+
+  test('merges Headers instances and preserves an explicit caller Accept value', async () => {
+    const stub = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })))
+    vi.stubGlobal('fetch', stub)
+
+    await apiFetch('/alerts', {
+      headers: new Headers({
+        Accept: 'application/problem+json',
+        'X-Request-Mode': 'operator',
+      }),
+    })
+
+    const call = stub.mock.calls[0] as unknown as Parameters<typeof fetch>
+    const init = call[1] as RequestInit
+    const headers = new Headers(init.headers)
+    expect(headers.get('Accept')).toBe('application/problem+json')
+    expect(headers.get('X-Request-Mode')).toBe('operator')
+  })
+
+  test('returns undefined for a successful no-content response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
+    )
+
+    await expect(apiFetch('/alerts', { method: 'DELETE' })).resolves.toBeUndefined()
+  })
+
+  test('uses a structured API error message when the server provides one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: { message: 'tenant scope unavailable' } }), {
+            status: 403,
+            statusText: 'Forbidden',
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        ),
+      ),
+    )
+
+    const error = await apiFetch('/topology').catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({
+      status: 403,
+      message: 'tenant scope unavailable',
+    })
+  })
+
+  test('falls back to status text for a non-JSON error body', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('upstream failed', { status: 502, statusText: 'Bad Gateway' }),
+        ),
+      ),
+    )
+
+    const error = await apiFetch('/topology').catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({
+      status: 502,
+      message: '502 Bad Gateway',
+    })
+  })
+
+  test('preserves network failures instead of disguising them as API responses', async () => {
+    const networkError = new TypeError('network unavailable')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(networkError)),
+    )
+
+    await expect(apiFetch('/topology')).rejects.toBe(networkError)
   })
 
   test('apiURL builds download paths without a double version prefix', () => {

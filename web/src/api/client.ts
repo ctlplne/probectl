@@ -55,10 +55,12 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (demoTransportIsolated && path !== '/me') {
     throw new ApiError(403, 'Live tenant APIs are disabled while demo mode is active.')
   }
+  const headers = new Headers(init?.headers)
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json')
   const res = await fetch(apiURL(path), {
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
     ...init,
+    credentials: 'same-origin',
+    headers,
   })
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
