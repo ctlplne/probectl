@@ -12,6 +12,7 @@ export type { Test } from './sdk.gen'
 export type TestInput = Omit<TestRequest, 'type'> & { type: string }
 
 const key = ['tests'] as const
+const discoveryKey = ['ai', 'discover'] as const
 const pageSize = 50
 
 export function useTests() {
@@ -49,7 +50,11 @@ export function useCreateTest() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: key }),
+        qc.invalidateQueries({ queryKey: discoveryKey }),
+      ]),
   })
 }
 

@@ -43,6 +43,7 @@ const proposal = {
 
 function stub() {
   const posts: Array<{ url: string; body: Record<string, unknown> | undefined }> = []
+  const createdTargets = new Set<string>()
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -52,11 +53,16 @@ function stub() {
         : undefined
       if (init?.method === 'POST') posts.push({ url, body })
       if (url.endsWith('/v1/tests') && init?.method === 'POST') {
+        if (typeof body?.target === 'string') createdTargets.add(body.target)
         return jsonResponse({ id: 't9', ...body, params: {}, created_at: '', updated_at: '' }, 201)
       }
       if (url.endsWith('/v1/tests')) return jsonResponse({ items: [] })
       if (url.endsWith('/v1/agents')) return jsonResponse({ items: [] })
-      if (url.endsWith('/v1/ai/discover')) return jsonResponse(discover)
+      if (url.endsWith('/v1/ai/discover')) {
+        return jsonResponse({
+          proposals: discover.proposals.filter((p) => !createdTargets.has(p.spec.target)),
+        })
+      }
       if (url.endsWith('/v1/ai/author')) return jsonResponse(proposal)
       return jsonResponse({ error: { code: 'x', message: 'no route' } }, 404)
     }),
@@ -110,6 +116,9 @@ describe('AI test authoring', () => {
           p.body?.type === 'icmp',
       ),
     ).toBe(true)
+    await screen.findByText(/no suggestions yet/i)
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument()
+    expect(posts.filter((p) => p.url.endsWith('/v1/ai/discover'))).toHaveLength(2)
   })
 
   test('the authoring surface has no a11y violations', async () => {
