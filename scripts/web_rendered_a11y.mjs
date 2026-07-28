@@ -245,6 +245,72 @@ function json(body, status = 200) {
   return { status, body };
 }
 
+const renderedPath = {
+  target: "1.1.1.1",
+  target_ip: "1.1.1.1",
+  mode: "icmp",
+  max_hops: 30,
+  trace_count: 3,
+  destination_reached: true,
+  measurement_fidelity: {
+    version: 1,
+    probe_transport: "icmp",
+    acquisition_mode: "raw_icmp",
+    timing_source: "application_monotonic",
+    hop_visibility: "full",
+    kernel_timestamping: false,
+    hardware_timestamping: false,
+  },
+  hops: [
+    {
+      ttl: 1,
+      nodes: [
+        {
+          ip: "10.0.0.1",
+          sent: 3,
+          received: 3,
+          loss_ratio: 0,
+          rtt_min_ms: 1,
+          rtt_avg_ms: 1.2,
+          rtt_max_ms: 2,
+        },
+      ],
+    },
+    {
+      ttl: 2,
+      nodes: [
+        {
+          ip: "10.0.0.2",
+          sent: 3,
+          received: 2,
+          loss_ratio: 0.33,
+          rtt_min_ms: 8,
+          rtt_avg_ms: 9,
+          rtt_max_ms: 10,
+        },
+      ],
+    },
+    {
+      ttl: 3,
+      nodes: [
+        {
+          ip: "1.1.1.1",
+          sent: 3,
+          received: 3,
+          loss_ratio: 0,
+          rtt_min_ms: 14,
+          rtt_avg_ms: 15,
+          rtt_max_ms: 16,
+        },
+      ],
+    },
+  ],
+  links: [
+    { ttl: 1, from: "10.0.0.1", to: "10.0.0.2" },
+    { ttl: 2, from: "10.0.0.2", to: "1.1.1.1" },
+  ],
+};
+
 function apiPayload(path, method, pagePath = "") {
   const operator = {
     id: "op_1",
@@ -276,8 +342,8 @@ function apiPayload(path, method, pagePath = "") {
   const sampleTests = [
     {
       id: "t1",
-      name: "edge-dns",
-      type: "dns",
+      name: "edge-icmp",
+      type: "icmp",
       target: "1.1.1.1",
       interval_seconds: 30,
       timeout_seconds: 3,
@@ -316,6 +382,17 @@ function apiPayload(path, method, pagePath = "") {
       ],
     });
   if (path === "/v1/tests") return json({ items: sampleTests });
+  if (path === "/v1/tests/t1/path") return json(renderedPath);
+  if (path === "/v1/tests/t1/path/history")
+    return json({
+      items: [
+        {
+          id: "round-rendered",
+          observed_at: "2026-07-28T06:30:00Z",
+          path: renderedPath,
+        },
+      ],
+    });
   if (path === "/v1/agents")
     return json({
       items: sampleAgents,
@@ -898,6 +975,7 @@ function fetchStubSource(theme) {
     const appBasePath = ${JSON.stringify(appBasePath)};
     const appRoute = ${appRoute.toString()};
     const explorerTemplates = ${JSON.stringify(explorerTemplates)};
+    const renderedPath = ${JSON.stringify(renderedPath)};
     localStorage.setItem('probectl.theme', theme);
     const json = (body, status = 200) => ({ status, body });
     const payloads = ${apiPayload.toString()};
@@ -1502,6 +1580,98 @@ async function topologyHierarchyCheck(page, viewportName) {
     }
     return problems;
   }, viewportName);
+}
+
+// Path's topology SVG deliberately keeps its full hop-by-hop width inside a
+// local viewport. This rendered check protects the mobile contract that DOM
+// tests cannot measure: real overflow, visible guidance, and focus-driven
+// scrolling that leaves both the first and destination hops fully visible.
+async function pathGraphMobileCheck(page, viewportName) {
+  if (viewportName !== "mobile") return [];
+  return page.evaluate(async () => {
+    const problems = [];
+    const viewport = document.querySelector("[data-path-graph-scroll]");
+    const graph = viewport?.querySelector("[data-path-graph]");
+    const hint = document.querySelector("[data-path-graph-scroll-hint]");
+    if (!viewport) problems.push("missing local path graph scroll viewport");
+    if (!graph) problems.push("missing rendered path graph");
+    if (!hint) problems.push("missing visible path graph scroll guidance");
+    if (!viewport || !graph || !hint) return problems;
+
+    const hintStyle = getComputedStyle(hint);
+    if (
+      !hint.textContent?.trim() ||
+      hintStyle.display === "none" ||
+      hintStyle.visibility === "hidden"
+    ) {
+      problems.push("path graph scroll guidance is not visibly rendered");
+    }
+
+    const declaredWidth = Number(graph.getAttribute("width"));
+    const renderedWidth = graph.getBoundingClientRect().width;
+    if (
+      !Number.isFinite(declaredWidth) ||
+      declaredWidth <= viewport.clientWidth ||
+      renderedWidth < declaredWidth - 1
+    ) {
+      problems.push(
+        `path graph lost its intrinsic width: declared ${declaredWidth}, rendered ${Math.round(renderedWidth)}, viewport ${viewport.clientWidth}`,
+      );
+    }
+    if (viewport.scrollWidth <= viewport.clientWidth + 1) {
+      problems.push("mobile path graph has no local horizontal overflow");
+    }
+
+    const hops = Array.from(graph.querySelectorAll('[role="button"]'));
+    const first = hops[0];
+    const destination =
+      hops.find((hop) =>
+        hop.getAttribute("aria-label")?.includes("(destination)"),
+      ) ?? hops.at(-1);
+    if (!first) problems.push("path graph has no focusable first hop");
+    if (!destination) problems.push("path graph has no focusable destination");
+    if (!first || !destination) return problems;
+
+    const fullyVisible = (hop) => {
+      const viewportRect = viewport.getBoundingClientRect();
+      const hopRect = hop.getBoundingClientRect();
+      return (
+        hopRect.left >= viewportRect.left - 1 &&
+        hopRect.right <= viewportRect.right + 1 &&
+        hopRect.top >= viewportRect.top - 1 &&
+        hopRect.bottom <= viewportRect.bottom + 1
+      );
+    };
+    const settle = () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      );
+
+    viewport.scrollTo({ left: 0, behavior: "auto" });
+    first.focus();
+    await settle();
+    if (document.activeElement !== first || !fullyVisible(first)) {
+      problems.push("keyboard focus does not reveal the first path hop");
+    }
+
+    const beforeDestination = viewport.scrollLeft;
+    destination.focus();
+    await settle();
+    if (document.activeElement !== destination || !fullyVisible(destination)) {
+      problems.push("keyboard focus does not reveal the destination path hop");
+    }
+    if (viewport.scrollLeft <= beforeDestination + 1) {
+      problems.push("destination focus does not advance the path viewport");
+    }
+    const focusStyle = getComputedStyle(destination);
+    if (
+      focusStyle.outlineStyle === "none" ||
+      Number.parseFloat(focusStyle.outlineWidth || "0") <= 0
+    ) {
+      problems.push("focused destination path hop has no visible outline");
+    }
+    return problems;
+  });
 }
 
 // Explorer's working query must lead its teaching chrome. On mobile, canonical
@@ -2235,6 +2405,32 @@ async function selfCheck(browser, axeSource) {
     );
   }
   await page.setContent(`
+    <p data-path-graph-scroll-hint style="display:none">Scroll horizontally</p>
+    <div data-path-graph-scroll style="width:300px;overflow:auto">
+      <svg data-path-graph width="100" height="80">
+        <g role="button" tabindex="0" aria-label="Hop 1">
+          <rect width="40" height="40"></rect>
+        </g>
+        <g role="button" tabindex="0" aria-label="Hop 2 (destination)" transform="translate(50 0)">
+          <rect width="40" height="40"></rect>
+        </g>
+      </svg>
+    </div>
+  `);
+  const pathGraph = await pathGraphMobileCheck(page, "mobile");
+  if (
+    !pathGraph.some((problem) =>
+      problem.includes("guidance is not visibly rendered"),
+    ) ||
+    !pathGraph.some((problem) =>
+      problem.includes("no local horizontal overflow"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: Path graph check did not catch planted collapsed-width guidance regression",
+    );
+  }
+  await page.setContent(`
     <section data-explorer-workspace>
       <header data-card-heading><h2>Query builder</h2></header>
       <div data-explorer-recipes style="display:flex;flex-wrap:wrap;width:350px">
@@ -2323,6 +2519,7 @@ async function main() {
             dashboard: [],
             targets: [],
             topology: [],
+            pathGraph: [],
             explorer: [],
             deviceReceipt: [],
             flowReceipt: [],
@@ -2465,6 +2662,17 @@ async function main() {
                 );
               }
             }
+            if (route === "/path") {
+              record.pathGraph = await pathGraphMobileCheck(
+                page,
+                viewport.name,
+              );
+              if (record.pathGraph.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: Path graph layout violations\n  ${record.pathGraph.join("\n  ")}`,
+                );
+              }
+            }
             if (route === "/explore") {
               record.explorer = await explorerHierarchyCheck(
                 page,
@@ -2497,6 +2705,7 @@ async function main() {
             record.dashboard.length === 0 &&
             record.targets.length === 0 &&
             record.topology.length === 0 &&
+            record.pathGraph.length === 0 &&
             record.explorer.length === 0 &&
             record.deviceReceipt.length === 0 &&
             record.flowReceipt.length === 0 &&

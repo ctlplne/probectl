@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useId, useMemo, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import styles from './PathGraph.module.css'
 import { layoutPath, lossTone, NODE_H, NODE_W, summarizePathForGraph, type VizNode } from './layout'
 import type { Path } from '../api/paths'
@@ -33,7 +33,8 @@ export function PathGraph({
   selectedId?: string
   onSelect: (node: VizNode) => void
 }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
+  const scrollHintID = useId()
   const summarized = useMemo(() => summarizePathForGraph(path, selectedId), [path, selectedId])
   const { nodes, edges, width, height } = useMemo(
     () => layoutPath(summarized.path, summarized.branchLabels),
@@ -58,13 +59,32 @@ export function PathGraph({
     }
   }
 
+  function revealFocusedNode(node: VizNode, event: FocusEvent<SVGGElement>) {
+    setActiveId(node.id)
+    event.currentTarget.scrollIntoView?.({
+      behavior: 'auto',
+      block: 'nearest',
+      inline: 'nearest',
+    })
+  }
+
   return (
     <div className={styles.wrap}>
-      <div className={styles.scroll}>
+      <p id={scrollHintID} className={styles.scrollHint} data-path-graph-scroll-hint>
+        {t('path.graph.scrollHint')}
+      </p>
+      <div
+        className={styles.scroll}
+        role="region"
+        aria-label={t('path.graph.scrollRegion')}
+        aria-describedby={scrollHintID}
+        data-path-graph-scroll
+      >
         <svg
           className={styles.svg}
           width={width}
           height={height}
+          data-path-graph
           role="group"
           aria-label={`Network path to ${path.target}: ${path.hops.length} hops, destination ${
             path.destination_reached ? 'reached' : 'not reached'
@@ -143,7 +163,7 @@ export function PathGraph({
                 aria-label={n.isSource ? undefined : ariaLabel}
                 onMouseEnter={() => setActiveId(n.id)}
                 onMouseLeave={() => setActiveId((id) => (id === n.id ? null : id))}
-                onFocus={() => setActiveId(n.id)}
+                onFocus={(event) => revealFocusedNode(n, event)}
                 onBlur={() => setActiveId((id) => (id === n.id ? null : id))}
                 onClick={() => !n.isSource && onSelect(n)}
                 onKeyDown={(e) => !n.isSource && activate(n, e)}

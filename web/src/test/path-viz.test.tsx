@@ -21,8 +21,12 @@ describe('path visualization', () => {
 
     await screen.findByRole('heading', { name: /path & topology/i })
     const graph = await screen.findByRole('group', { name: /network path to 9\.9\.9\.9/i })
+    const graphViewport = screen.getByRole('region', { name: /scrollable network path graph/i })
 
     expect(screen.getByText('Full-hop acquisition')).toBeInTheDocument()
+    expect(graphViewport).toHaveAccessibleDescription(
+      'Scroll horizontally to inspect every hop. Keyboard focus follows each hop.',
+    )
     expect(screen.getByText('Raw ICMP')).toBeInTheDocument()
     expect(
       screen.getByText(

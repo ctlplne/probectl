@@ -6,6 +6,7 @@
   position: relative;
   width: 100%;
   overflow: auto;
+  scroll-padding-inline: var(--space-2);
   border: var(--border-width-thin) solid var(--color-border);
   border-radius: var(--radius-lg);
   background:
@@ -16,6 +17,13 @@
 
 .svg {
   display: block;
+  max-width: none;
+}
+
+.scrollHint {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
 }
 
 /* Column structure (topology grammar): faint bands + TTL headers. */
@@ -108,10 +116,6 @@
   cursor: pointer;
   animation: fade var(--motion-normal) var(--easing-standard) both;
 }
-.node:focus {
-  outline: none;
-}
-
 .box {
   fill: var(--color-surface);
   stroke: var(--color-border-strong);
