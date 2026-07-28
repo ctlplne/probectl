@@ -1,0 +1,64 @@
+{
+  "id": "ans-unicode-json",
+  "tenant": "tenant-acme",
+  "question": "Is this portable across every local client?",
+  "root_cause": "",
+  "root_cause_citations": [],
+  "root_cause_grounded": false,
+  "degraded": false,
+  "confidence": "low",
+  "investigation_plan": [
+    {
+      "step": 1,
+      "domain": "events",
+      "goal": "ä goal",
+      "limit": 5,
+      "read_only": true,
+      "status": "planned"
+    },
+    {
+      "step": 1,
+      "domain": "events",
+      "goal": "z goal",
+      "limit": 5,
+      "read_only": true,
+      "status": "planned"
+    }
+  ],
+  "findings": [],
+  "evidence": [
+    {
+      "id": "umlaut-evidence",
+      "domain": "events",
+      "plane": "ä",
+      "title": "ä plane"
+    },
+    {
+      "id": "z-evidence",
+      "domain": "events",
+      "plane": "z",
+      "title": "z plane",
+      "fields": {
+        "html": "<tag>&value>",
+        "separators": "line\u2028paragraph\u2029end",
+        "controls": "quote\" backslash\\ newline\n tab\t",
+        "\ue000": {
+          "\ue000": "private-use",
+          "\ud83d\ude00": "emoji"
+        },
+        "\ud83d\ude00": [
+          true,
+          null,
+          42
+        ]
+      }
+    }
+  ],
+  "model": "builtin",
+  "reasoning": {
+    "adapter": "builtin",
+    "execution": "builtin_local",
+    "egress_consent": "not_required"
+  },
+  "insufficient_evidence": true
+}

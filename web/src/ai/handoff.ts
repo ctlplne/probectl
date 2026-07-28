@@ -422,15 +422,19 @@ function orderEvidence(
   otherPlane: string,
 ): { ordered: OrderedEvidence[]; anchors: Map<string, number> } {
   const sorted = [...evidence].sort((left, right) => {
-    const planeOrder = evidencePlane(left, otherPlane).localeCompare(
+    const planeOrder = compareCanonicalText(
+      evidencePlane(left, otherPlane),
       evidencePlane(right, otherPlane),
     )
     if (planeOrder !== 0) return planeOrder
-    const timeOrder = formatTime(right.occurred_at).localeCompare(formatTime(left.occurred_at))
+    const timeOrder = compareCanonicalText(
+      formatTime(right.occurred_at),
+      formatTime(left.occurred_at),
+    )
     if (timeOrder !== 0) return timeOrder
-    const idOrder = left.id.localeCompare(right.id)
+    const idOrder = compareCanonicalText(left.id, right.id)
     if (idOrder !== 0) return idOrder
-    return (left.title ?? '').localeCompare(right.title ?? '')
+    return compareCanonicalText(left.title ?? '', right.title ?? '')
   })
   const anchors = new Map<string, number>()
   const ordered = sorted.map((item, index) => {
@@ -472,8 +476,8 @@ function renderCitations(citations: Citation[], anchors: Map<string, number>): s
 function comparePlan(left: InvestigationStep, right: InvestigationStep): number {
   return (
     left.step - right.step ||
-    left.domain.localeCompare(right.domain) ||
-    left.goal.localeCompare(right.goal)
+    compareCanonicalText(left.domain, right.domain) ||
+    compareCanonicalText(left.goal, right.goal)
   )
 }
 
@@ -514,12 +518,37 @@ function localizedNumber(locale: HandoffLocale, value: number): string {
   return raw.replace(/[0-9]/g, (digit) => digits[digit] ?? digit)
 }
 
+/**
+ * Locale collation is deliberately forbidden in the portable artifact: its
+ * answer depends on the browser/OS locale and does not match Go string order.
+ * Comparing Unicode scalar values matches lexical valid-UTF-8 order in Go.
+ */
+function compareCanonicalText(left: string, right: string): number {
+  const leftScalars = Array.from(left)
+  const rightScalars = Array.from(right)
+  const length = Math.min(leftScalars.length, rightScalars.length)
+  for (let index = 0; index < length; index += 1) {
+    const delta = leftScalars[index].codePointAt(0)! - rightScalars[index].codePointAt(0)!
+    if (delta !== 0) return delta
+  }
+  return leftScalars.length - rightScalars.length
+}
+
+function canonicalJSONString(value: unknown): string {
+  const encoded = JSON.stringify(value) ?? 'null'
+  // encoding/json always protects the two JavaScript line-separator scalars,
+  // even with HTML escaping disabled. Normalize JSON.stringify to that rule.
+  return encoded.replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
+}
+
 function stableJSON(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (value === null || typeof value !== 'object') return canonicalJSONString(value)
   if (Array.isArray(value)) return `[${value.map(stableJSON).join(',')}]`
   return `{${Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJSON((value as Record<string, unknown>)[key])}`)
+    .sort(compareCanonicalText)
+    .map(
+      (key) => `${canonicalJSONString(key)}:${stableJSON((value as Record<string, unknown>)[key])}`,
+    )
     .join(',')}}`
 }
 

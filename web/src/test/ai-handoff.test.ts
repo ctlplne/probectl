@@ -12,6 +12,9 @@ import { handoffFilename, renderHandoff } from '../ai/handoff'
 
 const fixtureDir = resolve(process.cwd(), '../test/fixtures/ai-handoff')
 const answer = JSON.parse(readFileSync(resolve(fixtureDir, 'answer.json'), 'utf8')) as Answer
+const adversarialAnswer = JSON.parse(
+  readFileSync(resolve(fixtureDir, 'answer.adversarial.json'), 'utf8'),
+) as Answer
 
 describe('Ask investigation handoff contract', () => {
   test.each(['en', 'es', 'ar'])(
@@ -21,6 +24,11 @@ describe('Ask investigation handoff contract', () => {
       expect(renderHandoff(answer, locale)).toBe(want)
     },
   )
+
+  test('matches the shared adversarial Unicode and JSON canonical golden', () => {
+    const want = readFileSync(resolve(fixtureDir, 'handoff.adversarial.en.md'), 'utf8')
+    expect(renderHandoff(adversarialAnswer, 'en')).toBe(want)
+  })
 
   test('fails closed for insufficient and ambiguous causal claims', () => {
     const insufficient: Answer = {

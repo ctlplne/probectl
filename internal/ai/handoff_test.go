@@ -45,6 +45,33 @@ func TestRenderHandoffMatchesSharedGoldenContract(t *testing.T) {
 	}
 }
 
+func TestRenderHandoffMatchesSharedAdversarialCanonicalGolden(t *testing.T) {
+	fixtureDir := filepath.Join("..", "..", "test", "fixtures", "ai-handoff")
+	raw, err := os.ReadFile(filepath.Join(fixtureDir, "answer.adversarial.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answer Answer
+	if err := json.Unmarshal(raw, &answer); err != nil {
+		t.Fatal(err)
+	}
+
+	got := RenderHandoff(answer, "en")
+	goldenPath := filepath.Join(fixtureDir, "handoff.adversarial.en.md")
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Fatal("handoff drifted from shared adversarial canonical golden")
+	}
+}
+
 func TestRenderHandoffFailsClosedForInsufficientOrAmbiguousClaims(t *testing.T) {
 	answer := Answer{
 		ID:                   "ans-1",

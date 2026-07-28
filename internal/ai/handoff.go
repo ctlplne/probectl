@@ -7,6 +7,7 @@
 package ai
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -263,9 +264,9 @@ func RenderHandoff(answer Answer, locale string) string {
 			return plan[i].Step < plan[j].Step
 		}
 		if plan[i].Domain != plan[j].Domain {
-			return plan[i].Domain < plan[j].Domain
+			return handoffTextLess(string(plan[i].Domain), string(plan[j].Domain))
 		}
-		return plan[i].Goal < plan[j].Goal
+		return handoffTextLess(plan[i].Goal, plan[j].Goal)
 	})
 	if len(plan) == 0 {
 		fmt.Fprintf(&out, "%s\n", markdownText(text.noPlan))
@@ -411,17 +412,17 @@ func orderHandoffEvidence(evidence []Evidence, otherPlane string) ([]orderedHand
 		leftPlane := handoffPlane(ordered[i], otherPlane)
 		rightPlane := handoffPlane(ordered[j], otherPlane)
 		if leftPlane != rightPlane {
-			return leftPlane < rightPlane
+			return handoffTextLess(leftPlane, rightPlane)
 		}
 		leftTime := formatHandoffTime(ordered[i].OccurredAt)
 		rightTime := formatHandoffTime(ordered[j].OccurredAt)
 		if leftTime != rightTime {
-			return leftTime > rightTime
+			return handoffTextLess(rightTime, leftTime)
 		}
 		if ordered[i].ID != ordered[j].ID {
-			return ordered[i].ID < ordered[j].ID
+			return handoffTextLess(ordered[i].ID, ordered[j].ID)
 		}
-		return ordered[i].Title < ordered[j].Title
+		return handoffTextLess(ordered[i].Title, ordered[j].Title)
 	})
 	out := make([]orderedHandoffEvidence, 0, len(ordered))
 	anchors := make(map[string]int, len(ordered))
@@ -517,12 +518,25 @@ func handoffNumber(locale string, value int) string {
 	).Replace(raw)
 }
 
+// handoffTextLess defines the portable contract's text order. JSON decoding
+// produces valid UTF-8, whose bytewise lexical order preserves Unicode scalar
+// order. The TypeScript renderer implements that same scalar comparison
+// explicitly instead of using locale-sensitive collation.
+func handoffTextLess(left, right string) bool {
+	return left < right
+}
+
 func stableHandoffJSON(value any) string {
-	encoded, err := json.Marshal(value)
-	if err != nil {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	// The JSON is already protected by a Markdown code span. Disabling the
+	// encoder's HTML-only escapes matches JSON.stringify while encoding/json
+	// continues to canonicalize U+2028/U+2029 and control characters.
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
 		return "null"
 	}
-	return string(encoded)
+	return strings.TrimSuffix(out.String(), "\n")
 }
 
 func markdownText(value string) string {
