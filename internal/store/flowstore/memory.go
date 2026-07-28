@@ -124,7 +124,7 @@ func (m *Memory) TopTalkers(_ context.Context, q TopQuery) ([]TopRow, error) {
 		g.bytes += r.BytesScaled
 		g.pkts += r.PacketsScaled
 		g.flows++
-		g.exporters[r.Exporter] = struct{}{}
+		addExporterIdentity(g.exporters, r.Exporter)
 	}
 	out := make([]TopRow, 0, len(groups))
 	for gk, g := range groups {
@@ -203,7 +203,7 @@ func (m *Memory) TopSeries(_ context.Context, q TopQuery, top []TopRow) ([]Serie
 		g.bytes += r.BytesScaled
 		g.packets += r.PacketsScaled
 		g.flows++
-		g.exporters[r.Exporter] = struct{}{}
+		addExporterIdentity(g.exporters, r.Exporter)
 	}
 	out := make([]SeriesPoint, 0, len(groups))
 	for k, g := range groups {
@@ -227,6 +227,16 @@ func (m *Memory) TopSeries(_ context.Context, q TopQuery, top []TopRow) ([]Serie
 		return out[i].Detail < out[j].Detail
 	})
 	return out, nil
+}
+
+// addExporterIdentity preserves an aggregate when provenance is missing while
+// refusing to turn an empty or whitespace-only value into a real observer.
+// Trimming also makes the reference backend agree with ClickHouse for the
+// untrusted stored value " edge-a " versus "edge-a".
+func addExporterIdentity(exporters map[string]struct{}, raw string) {
+	if exporter := strings.TrimSpace(raw); exporter != "" {
+		exporters[exporter] = struct{}{}
+	}
 }
 
 func groupKey(key, detail string) string { return key + "\x00" + detail }

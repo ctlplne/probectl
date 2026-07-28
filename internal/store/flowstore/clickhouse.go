@@ -668,7 +668,7 @@ func topSQL(q TopQuery, table string) (string, chParams) {
 	// batch is not double-counted — matching the eBPF store. Without FINAL the
 	// pre-merge duplicates would each be summed.
 	sql := fmt.Sprintf(
-		`SELECT %s AS k, %s AS d, sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f, uniqExact(exporter) AS e `+
+		`SELECT %s AS k, %s AS d, sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f, uniqExactIf(trimBoth(exporter), notEmpty(trimBoth(exporter))) AS e `+
 			`FROM %s FINAL WHERE tenant_id={tenant:String} AND ts >= {since:DateTime64(3)} AND ts <= {until:DateTime64(3)}%s `+
 			`GROUP BY k, d ORDER BY b DESC, k ASC, d ASC LIMIT %d`,
 		key, detail, table, filters+extra, q.Limit)
@@ -734,7 +734,7 @@ func topSeriesSQL(q TopQuery, table string, top []TopRow) (string, chParams) {
 	secs := int64(q.Bucket / time.Second)
 	sql := fmt.Sprintf(
 		`SELECT toStartOfInterval(ts, INTERVAL %d second) AS t, %s AS k, %s AS d, `+
-			`sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f, uniqExact(exporter) AS e `+
+			`sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f, uniqExactIf(trimBoth(exporter), notEmpty(trimBoth(exporter))) AS e `+
 			`FROM %s FINAL WHERE tenant_id={tenant:String} AND ts >= {since:DateTime64(3)} AND ts <= {until:DateTime64(3)}%s%s%s `+
 			`GROUP BY t, k, d ORDER BY t ASC, k ASC, d ASC`,
 		secs, key, detail, table, filters, extra, selected.String())

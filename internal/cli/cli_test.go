@@ -836,6 +836,28 @@ func TestCLIFlowTopPreservesStackedFilters(t *testing.T) {
 	}
 }
 
+func TestCLIFlowTopDisclosesMissingExporterIdentity(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/flows/top", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"key": "DE", "bytes": 8000, "packets": 8, "flows": 1, "exporter_count": 0},
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "flow", "top", "--query", "by=dst_country")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "DE") || !strings.Contains(out, "exporter identity unavailable") {
+		t.Fatalf("flow top output fabricated missing provenance:\n%s", out)
+	}
+	if strings.Contains(out, "observed by 0 exporters") {
+		t.Fatalf("flow top output turned absence into an observation:\n%s", out)
+	}
+}
+
 func TestCLIFlowQualityShowsBoundedSafeReceipt(t *testing.T) {
 	op := surfaceCommands["flow"].Ops["quality"]
 	if op.Method != http.MethodGet || op.Path != "/v1/flows/ingest-quality" {

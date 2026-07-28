@@ -114,7 +114,10 @@ func TestFlowTopTalkersAPI(t *testing.T) {
 
 func TestFlowTopExporterCountCannotIncludeForeignTenant(t *testing.T) {
 	srv := testServer(fakePinger{})
-	now := time.Now().UTC().Truncate(time.Minute)
+	// Anchor inside the previous completed five-minute bucket so the two
+	// tenant rows can never split solely because the wall clock crossed a
+	// bucket boundary while this test ran.
+	now := time.Now().UTC().Truncate(5 * time.Minute).Add(-2 * time.Minute)
 	const tenant = "00000000-0000-0000-0000-000000000001"
 	rows := []flowstore.Row{
 		{TenantID: tenant, Exporter: "edge-a", Protocol: "ipfix", TS: now.Add(-2 * time.Minute), SrcAddr: "10.0.0.1", DstAddr: "203.0.113.9", BytesScaled: 100, PacketsScaled: 1},
@@ -143,6 +146,42 @@ func TestFlowTopExporterCountCannotIncludeForeignTenant(t *testing.T) {
 	}
 	if len(resp.Series) != 1 || resp.Series[0].ExporterCount != 2 {
 		t.Fatalf("tenant series counted a foreign exporter: %+v", resp.Series)
+	}
+}
+
+func TestFlowTopMissingExporterIdentityRemainsUnavailable(t *testing.T) {
+	srv := testServer(fakePinger{})
+	now := time.Now().UTC().Truncate(time.Minute)
+	const tenant = "00000000-0000-0000-0000-000000000001"
+	if err := srv.flowStore.Insert(context.Background(), []flowstore.Row{{
+		TenantID:      tenant,
+		Exporter:      "",
+		Protocol:      "ipfix",
+		TS:            now.Add(-time.Minute),
+		SrcAddr:       "10.0.0.1",
+		DstAddr:       "203.0.113.8",
+		BytesScaled:   100,
+		PacketsScaled: 1,
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := do(srv, http.MethodGet, "/v1/flows/top?by=dst&window=1h&bucket=5m&limit=5")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Items  []flowstore.TopRow      `json:"items"`
+		Series []flowstore.SeriesPoint `json:"series"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Flows != 1 || resp.Items[0].ExporterCount != 0 {
+		t.Fatalf("served aggregate fabricated exporter provenance: %+v", resp.Items)
+	}
+	if len(resp.Series) != 1 || resp.Series[0].ExporterCount != 0 {
+		t.Fatalf("served series fabricated exporter provenance: %+v", resp.Series)
 	}
 }
 

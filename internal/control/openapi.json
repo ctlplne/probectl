@@ -3259,7 +3259,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Top traffic contributors in the window, largest first, ASN/geo-enriched, with tenant-scoped observation multiplicity. exporter_count is the number of distinct stored exporter identities that contributed to an aggregate; it does not claim packet or conversation deduplication.",
+            "description": "Top traffic contributors in the window, largest first, ASN/geo-enriched, with tenant-scoped observation multiplicity. exporter_count is the number of distinct non-empty stored exporter identities that contributed to an aggregate; zero means exporter identity was unavailable. It does not claim packet or conversation deduplication.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13613,7 +13613,7 @@
       },
       "FlowTopRow": {
         "type": "object",
-        "description": "One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name. exporter_count describes tenant-scoped observation multiplicity, not packet or conversation deduplication.",
+        "description": "One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name. exporter_count counts distinct non-empty tenant-scoped exporter identities; zero means identity unavailable. It does not claim packet or conversation deduplication.",
         "properties": {
           "key": {
             "type": "string"
@@ -13633,7 +13633,7 @@
           "exporter_count": {
             "type": "integer",
             "minimum": 0,
-            "description": "Distinct exporter identities contributing to this tenant-scoped aggregate. Multiple exporters may observe overlapping traffic, so this is observation multiplicity, not a deduplicated packet or conversation count."
+            "description": "Distinct non-empty exporter identities contributing to this tenant-scoped aggregate. Zero means exporter identity unavailable. Multiple exporters may observe overlapping traffic, so this is observation multiplicity, not a deduplicated packet or conversation count."
           }
         }
       },
@@ -13727,7 +13727,7 @@
           "exporter_count": {
             "type": "integer",
             "minimum": 0,
-            "description": "Distinct exporter identities contributing to this tenant-scoped time bucket. This is observation multiplicity, not packet or conversation deduplication."
+            "description": "Distinct non-empty exporter identities contributing to this tenant-scoped time bucket. Zero means exporter identity unavailable. This is observation multiplicity, not packet or conversation deduplication."
           }
         },
         "required": [

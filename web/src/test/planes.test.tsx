@@ -214,6 +214,37 @@ describe('plane workspaces', () => {
     expect(within(arabicTable).getByText('شوهد بواسطة مُصدّر واحد')).toBeInTheDocument()
   })
 
+  test('renders missing exporter provenance as unavailable instead of one observer', async () => {
+    const fallback = defaultFetch()
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (pathOf(input) === '/v1/flows/top') {
+        return Promise.resolve(
+          jsonResponse({
+            items: [
+              {
+                key: '203.0.113.8',
+                bytes: 100,
+                packets: 1,
+                flows: 1,
+                exporter_count: 0,
+              },
+            ],
+            series: [],
+            effective_limit: 10,
+            series_limit: 6,
+            window: '1h',
+          }),
+        )
+      }
+      return fallback(input, init)
+    })
+
+    renderApp('/planes/flow')
+    const table = await screen.findByRole('table', { name: /flow top talkers/i })
+    expect(within(table).getByText('Exporter identity unavailable')).toBeInTheDocument()
+    expect(within(table).queryByText(/observed by 0 exporters/i)).not.toBeInTheDocument()
+  })
+
   test('pivots facets and narrows flows with removable filter chips', async () => {
     const calls: string[] = []
     const fallback = defaultFetch()

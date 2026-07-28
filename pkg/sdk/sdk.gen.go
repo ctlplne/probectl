@@ -1163,7 +1163,7 @@ type FlowTopList struct {
 	Window         string            `json:"window,omitempty"`
 }
 
-// One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name. exporter_count describes tenant-scoped observation multiplicity, not packet or conversation deduplication.
+// One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name. exporter_count counts distinct non-empty tenant-scoped exporter identities; zero means identity unavailable. It does not claim packet or conversation deduplication.
 type FlowTopRow struct {
 	Bytes         int    `json:"bytes,omitempty"`
 	Detail        string `json:"detail,omitempty"`

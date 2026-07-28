@@ -158,6 +158,47 @@ func TestMemoryExporterCountIsTenantScoped(t *testing.T) {
 	}
 }
 
+func TestMemoryExporterCountExcludesMissingIdentities(t *testing.T) {
+	m := NewMemory()
+	rows := []Row{
+		{TenantID: "t-a", Exporter: "", Protocol: "ipfix", TS: now.Add(-2 * time.Minute), SrcAddr: "10.0.0.1", DstAddr: "203.0.113.8", BytesScaled: 100, PacketsScaled: 1},
+		{TenantID: "t-a", Exporter: "   ", Protocol: "ipfix", TS: now.Add(-time.Minute), SrcAddr: "10.0.0.2", DstAddr: "203.0.113.8", BytesScaled: 200, PacketsScaled: 2},
+		{TenantID: "t-a", Exporter: "edge-a", Protocol: "ipfix", TS: now.Add(-2 * time.Minute), SrcAddr: "10.0.0.3", DstAddr: "203.0.113.9", BytesScaled: 300, PacketsScaled: 3},
+		{TenantID: "t-a", Exporter: " edge-a ", Protocol: "ipfix", TS: now.Add(-time.Minute), SrcAddr: "10.0.0.4", DstAddr: "203.0.113.9", BytesScaled: 400, PacketsScaled: 4},
+	}
+	if err := m.Insert(context.Background(), rows); err != nil {
+		t.Fatal(err)
+	}
+
+	q := TopQuery{
+		TenantID: "t-a",
+		By:       ByDst,
+		Window:   time.Hour,
+		Bucket:   5 * time.Minute,
+		Now:      now,
+	}
+	top, err := m.TopTalkers(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := make(map[string]uint64, len(top))
+	for _, row := range top {
+		counts[row.Key] = row.ExporterCount
+	}
+	if counts["203.0.113.8"] != 0 || counts["203.0.113.9"] != 1 {
+		t.Fatalf("missing/canonical exporter counts = %v, want unavailable=0 edge-a=1", counts)
+	}
+	series, err := m.TopSeries(context.Background(), q, top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, point := range series {
+		if point.ExporterCount != counts[point.Key] {
+			t.Fatalf("series/top exporter counts disagree: point=%+v top=%v", point, counts)
+		}
+	}
+}
+
 func TestMemoryFlowFacetsFiltersAndSeries(t *testing.T) {
 	m := NewMemory()
 	seed(t, m)
@@ -461,8 +502,9 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	if !strings.Contains(sql, "GROUP BY k, d") || !strings.Contains(sql, "LIMIT 5") {
 		t.Fatalf("pair grouping/limit missing: %s", sql)
 	}
-	if !strings.Contains(sql, "uniqExact(exporter) AS e") {
-		t.Fatalf("top-talkers SQL must count distinct exporters inside the scoped aggregate: %s", sql)
+	const exporterCountSQL = "uniqExactIf(trimBoth(exporter), notEmpty(trimBoth(exporter))) AS e"
+	if !strings.Contains(sql, exporterCountSQL) {
+		t.Fatalf("top-talkers SQL must count only non-empty distinct exporters inside the scoped aggregate: %s", sql)
 	}
 
 	cq := CapacityQuery{TenantID: "t-a", Exporter: "r1'; --", Direction: "out", Window: time.Hour, Bucket: 5 * time.Minute, Now: now}
@@ -531,7 +573,7 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	if strings.Contains(seriesSQL, "tcp'") ||
 		!strings.Contains(seriesSQL, "WHERE tenant_id={tenant:String}") ||
 		!strings.Contains(seriesSQL, "INTERVAL 180 second") ||
-		!strings.Contains(seriesSQL, "uniqExact(exporter) AS e") {
+		!strings.Contains(seriesSQL, exporterCountSQL) {
 		t.Fatalf("series SQL lost binding/scope/bucket contract: %s", seriesSQL)
 	}
 	if seriesParams["tenant"] != "t-a" || seriesParams["series_key_0"] != "tcp' OR 1=1 --" {

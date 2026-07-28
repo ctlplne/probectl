@@ -98,7 +98,9 @@ func TestClickHouseCrossTenantIsolation(t *testing.T) {
 func TestClickHouseExporterCountIsTenantScoped(t *testing.T) {
 	c := chFlow(t)
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	// Keep every planted row inside the previous completed five-minute bucket;
+	// wall-clock minute boundaries must not change the expected series shape.
+	now := time.Now().UTC().Truncate(5 * time.Minute).Add(-2 * time.Minute)
 	ta := fmt.Sprintf("iso-exporters-a-%d", now.UnixNano())
 	tb := fmt.Sprintf("iso-exporters-b-%d", now.UnixNano())
 	defer func() {
@@ -114,9 +116,11 @@ func TestClickHouseExporterCountIsTenantScoped(t *testing.T) {
 	if err := c.Insert(ctx, []Row{
 		row(ta, "edge-a", "198.51.100.1", -2*time.Minute),
 		row(ta, "edge-b", "198.51.100.2", -time.Minute),
+		row(ta, "", "198.51.100.3", -30*time.Second),
 		row(tb, "foreign-a", "192.0.2.1", -3*time.Minute),
 		row(tb, "foreign-b", "192.0.2.2", -2*time.Minute),
 		row(tb, "foreign-c", "192.0.2.3", -time.Minute),
+		row(tb, "   ", "192.0.2.4", -30*time.Second),
 	}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}

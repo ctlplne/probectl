@@ -276,6 +276,9 @@ func flowExporterObservation(m map[string]any) string {
 	default:
 		return ""
 	}
+	if count == 0 {
+		return "exporter identity unavailable"
+	}
 	noun := "exporters"
 	if count == 1 {
 		noun = "exporter"
