@@ -178,115 +178,120 @@ export function PlanesPage() {
       subtitle={t('planes.page.subtitle')}
       actions={<PlaneTabs active={active} onChange={setActive} />}
     >
-      <div className={styles.overview}>
-        <PlaneStat
-          title={t('planes.stat.bgp.title')}
-          value={routingEdges.length}
-          detail={t('planes.stat.bgp.detail', {
-            prefixes: compact(prefixNodes.length, locale),
-            ases: compact(asNodes.length, locale),
-          })}
-          tone={toneForCount(routingEdges.length)}
-          onOpen={() => setActive('bgp')}
-          locale={locale}
-        />
-        <PlaneStat
-          title={t('planes.stat.flow.title')}
-          value={topTalkers.data?.items.length ?? 0}
-          detail={t('planes.stat.flow.detail', { bytes: bytes(flowBytes, locale) })}
-          tone={toneForCount(topTalkers.data?.items.length ?? 0)}
-          onOpen={() => setActive('flow')}
-          locale={locale}
-        />
-        <PlaneStat
-          title={t('planes.stat.device.title')}
-          value={deviceNodes.length + endpointItems.length}
-          detail={t('planes.stat.device.detail', {
-            count: compact(impairedEndpoints, locale),
-          })}
-          tone={toneForCount(deviceNodes.length + endpointItems.length)}
-          onOpen={() => setActive('device')}
-          locale={locale}
-        />
-        <PlaneStat
-          title={t('planes.stat.ebpf.title')}
-          value={flowEdges.length}
-          detail={t('planes.stat.ebpf.detail', {
-            count: compact(serviceNodes.length, locale),
-          })}
-          tone={toneForCount(flowEdges.length)}
-          onOpen={() => setActive('ebpf')}
-          locale={locale}
-        />
-      </div>
-
-      {active === 'bgp' ? (
-        <BGPPanel
-          isLoading={topology.isLoading}
-          isError={topology.isError}
-          nodes={nodes}
-          routingEdges={routingEdges}
-          coverage={topology.data?.coverage?.routing_edges ?? 0}
-        />
-      ) : null}
-      {active === 'flow' ? (
-        <>
-          {capacity.isError ? (
-            <ErrorState description="Could not load flow capacity samples." />
-          ) : null}
-          <FlowPanel
-            flowBy={flowBy}
-            onFlowBy={setFlowBy}
-            filters={flowFilters}
-            onFilters={setFlowFilters}
-            topTalkers={topTalkers}
-            anomalies={anomalies}
-            latestCapacity={latestCapacity}
+      <div className={styles.planeContent}>
+        <div className={styles.overview} data-plane-overview>
+          <PlaneStat
+            title={t('planes.stat.bgp.title')}
+            value={routingEdges.length}
+            detail={t('planes.stat.bgp.detail', {
+              prefixes: compact(prefixNodes.length, locale),
+              ases: compact(asNodes.length, locale),
+            })}
+            tone={toneForCount(routingEdges.length)}
+            onOpen={() => setActive('bgp')}
+            locale={locale}
           />
-        </>
-      ) : null}
-      {active === 'device' ? (
-        <DevicePanel
-          isLoading={topology.isLoading || endpoints.isLoading}
-          isError={topology.isError || endpoints.isError}
-          nodes={nodes}
-          deviceEdges={deviceEdges}
-          physicalEdges={physicalEdges}
-          deviceNodes={deviceNodes}
-          endpoints={endpointItems}
-          collectorRunning={endpoints.data?.collector_running}
-          syslog={deviceSyslog.data?.items ?? []}
-          configs={deviceConfigs.data?.items ?? []}
-          neighbors={deviceNeighbors.data?.items ?? []}
-          neighborsRunning={deviceNeighbors.data?.collection_running}
-          neighborsTruncated={deviceNeighbors.data?.truncated}
-          neighborRetentionHours={deviceNeighbors.data?.retention.stale_retention_hours}
-          neighborsLoading={deviceNeighbors.isLoading}
-          neighborsError={deviceNeighbors.isError}
-          opsLoading={deviceSyslog.isLoading || deviceConfigs.isLoading}
-          opsError={deviceSyslog.isError || deviceConfigs.isError}
-        />
-      ) : null}
-      {active === 'ebpf' ? (
-        <EBPFPanel
-          isLoading={topology.isLoading}
-          isError={topology.isError}
-          nodes={nodes}
-          flowEdges={flowEdges}
-          serviceNodes={serviceNodes}
-        />
-      ) : null}
+          <PlaneStat
+            title={t('planes.stat.flow.title')}
+            value={topTalkers.data?.items.length ?? 0}
+            detail={t('planes.stat.flow.detail', { bytes: bytes(flowBytes, locale) })}
+            tone={toneForCount(topTalkers.data?.items.length ?? 0)}
+            onOpen={() => setActive('flow')}
+            locale={locale}
+          />
+          <PlaneStat
+            title={t('planes.stat.device.title')}
+            value={deviceNodes.length + endpointItems.length}
+            detail={t('planes.stat.device.detail', {
+              count: compact(impairedEndpoints, locale),
+            })}
+            tone={toneForCount(deviceNodes.length + endpointItems.length)}
+            onOpen={() => setActive('device')}
+            locale={locale}
+          />
+          <PlaneStat
+            title={t('planes.stat.ebpf.title')}
+            value={flowEdges.length}
+            detail={t('planes.stat.ebpf.detail', {
+              count: compact(serviceNodes.length, locale),
+            })}
+            tone={toneForCount(flowEdges.length)}
+            onOpen={() => setActive('ebpf')}
+            locale={locale}
+          />
+        </div>
 
-      <ExplainView
-        surface={`plane:${active}`}
-        question={`Explain the currently displayed ${active} plane using only exact evidence from the current entity, filters, and time window.`}
-        subject={{
-          plane: active,
-          node: pivotContext.selection?.kind === 'entity' ? pivotContext.selection.id : undefined,
-          type: active === 'bgp' ? 'routing' : active,
-        }}
-        pivotContext={pivotContext}
-      />
+        {active === 'bgp' ? (
+          <BGPPanel
+            isLoading={topology.isLoading}
+            isError={topology.isError}
+            nodes={nodes}
+            routingEdges={routingEdges}
+            coverage={topology.data?.coverage?.routing_edges ?? 0}
+          />
+        ) : null}
+        {active === 'flow' ? (
+          <>
+            {capacity.isError ? (
+              <ErrorState description="Could not load flow capacity samples." />
+            ) : null}
+            <FlowPanel
+              flowBy={flowBy}
+              onFlowBy={setFlowBy}
+              filters={flowFilters}
+              onFilters={setFlowFilters}
+              topTalkers={topTalkers}
+              anomalies={anomalies}
+              latestCapacity={latestCapacity}
+            />
+          </>
+        ) : null}
+        {active === 'device' ? (
+          <DevicePanel
+            isLoading={topology.isLoading || endpoints.isLoading}
+            isError={topology.isError || endpoints.isError}
+            nodes={nodes}
+            deviceEdges={deviceEdges}
+            physicalEdges={physicalEdges}
+            deviceNodes={deviceNodes}
+            endpoints={endpointItems}
+            collectorRunning={endpoints.data?.collector_running}
+            syslog={deviceSyslog.data?.items ?? []}
+            configs={deviceConfigs.data?.items ?? []}
+            neighbors={deviceNeighbors.data?.items ?? []}
+            neighborsRunning={deviceNeighbors.data?.collection_running}
+            neighborsTruncated={deviceNeighbors.data?.truncated}
+            neighborRetentionHours={deviceNeighbors.data?.retention.stale_retention_hours}
+            neighborsLoading={deviceNeighbors.isLoading}
+            neighborsError={deviceNeighbors.isError}
+            opsLoading={deviceSyslog.isLoading || deviceConfigs.isLoading}
+            opsError={deviceSyslog.isError || deviceConfigs.isError}
+          />
+        ) : null}
+        {active === 'ebpf' ? (
+          <EBPFPanel
+            isLoading={topology.isLoading}
+            isError={topology.isError}
+            nodes={nodes}
+            flowEdges={flowEdges}
+            serviceNodes={serviceNodes}
+          />
+        ) : null}
+
+        <div className={styles.explain}>
+          <ExplainView
+            surface={`plane:${active}`}
+            question={`Explain the currently displayed ${active} plane using only exact evidence from the current entity, filters, and time window.`}
+            subject={{
+              plane: active,
+              node:
+                pivotContext.selection?.kind === 'entity' ? pivotContext.selection.id : undefined,
+              type: active === 'bgp' ? 'routing' : active,
+            }}
+            pivotContext={pivotContext}
+          />
+        </div>
+      </div>
     </Page>
   )
 }

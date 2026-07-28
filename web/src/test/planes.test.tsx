@@ -7,10 +7,28 @@
 import { describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { coldFetch, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import { renderApp } from './renderApp'
 
 describe('plane workspaces', () => {
+  test('prioritizes the active workspace over redundant overview cards on mobile', async () => {
+    renderApp('/planes/flow')
+
+    expect(
+      await screen.findByRole('list', {
+        name: /per-exporter flow ingest quality receipts/i,
+      }),
+    ).toBeInTheDocument()
+    expect(document.querySelector('[data-plane-overview]')).toBeInTheDocument()
+
+    const css = readFileSync(resolve(process.cwd(), 'src/routes/planes.module.css'), 'utf8')
+    const mobile = css.slice(css.indexOf('@media (max-width: 40rem)'))
+    expect(mobile).toMatch(/\.overview\s*\{\s*order:\s*1;\s*\}/)
+    expect(mobile).toMatch(/\.explain\s*\{\s*order:\s*2;\s*\}/)
+  })
+
   test('renders native BGP, flow, device, and eBPF tabs', async () => {
     renderApp('/planes')
 

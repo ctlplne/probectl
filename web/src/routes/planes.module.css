@@ -5,6 +5,12 @@
   align-items: center;
 }
 
+.planeContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
 .overview {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -147,6 +153,14 @@
 }
 
 @media (max-width: 40rem) {
+  .overview {
+    order: 1;
+  }
+
+  .explain {
+    order: 2;
+  }
+
   .flowTalkersDesktop {
     display: none;
   }

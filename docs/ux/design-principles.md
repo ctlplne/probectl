@@ -105,6 +105,9 @@ Test: the 1440×900 reference screenshot exposes the journey's scope/time/key he
 action above the fold; the accessible table and visualization report the same fixture values;
 axe reports no serious/critical violations in both themes.
 
+On mobile, a selected tab leads directly to its workspace; overview cards follow the selected
+evidence instead of pushing it below redundant summaries.
+
 ## 7. Empty means truthful state—never “zero-ish”
 
 Every tenant-data empty state names one of six server-derived truths: ready but no data,
