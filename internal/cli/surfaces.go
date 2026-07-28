@@ -112,7 +112,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"summary": {Method: http.MethodGet, Path: "/v1/cost/summary"},
 	}},
 	"coverage": {Name: "coverage", Summary: "native tenant-local coverage", Ops: map[string]apiOp{
-		"vantages": {Method: http.MethodGet, Path: "/v1/coverage/vantages", Description: "show the bounded tenant coverage matrix"},
+		"vantages": {Method: http.MethodGet, Path: "/v1/coverage/vantages", Description: "show bounded tenant coverage and execution-cadence receipts"},
 		"debt":     {Method: http.MethodGet, Path: "/v1/coverage/debt", Description: "show bounded cross-plane coverage debt and exact local evidence"},
 	}},
 	"dashboard": {Name: "dashboard", Summary: "saved tenant dashboards", Ops: map[string]apiOp{

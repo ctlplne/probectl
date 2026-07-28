@@ -96,12 +96,14 @@ func TestFleetHealthTenantIsolation(t *testing.T) {
 
 func TestCoverageAPITenantIsolation(t *testing.T) {
 	latest := NewLatestResults(20)
+	latest.recentStartedAt = time.Now().Add(-cadenceMinimumWindow - time.Minute)
 	srv, db := setupAPIServerWithLatest(t, latest)
 	ctx := context.Background()
 
 	type fixture struct {
 		tenantID string
 		agentID  string
+		testID   string
 		target   string
 		region   string
 		site     string
@@ -120,13 +122,15 @@ func TestCoverageAPITenantIsolation(t *testing.T) {
 		}
 		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)), db.Pool(),
 			func(ctx context.Context, scope tenancy.Scope) error {
-				if _, err := (store.Tests{}).Create(ctx, scope, store.TestInput{
+				created, err := (store.Tests{}).Create(ctx, scope, store.TestInput{
 					Name: prefix + "-test", Type: "tcp", Target: f.target,
 					IntervalSeconds: 60, TimeoutSeconds: 5, Enabled: true,
-				}); err != nil {
+				})
+				if err != nil {
 					return err
 				}
-				_, err := (store.Agents{}).RegisterWithLabels(
+				f.testID = created.ID
+				_, err = (store.Agents{}).RegisterWithLabels(
 					ctx, scope, f.agentID, prefix+"-agent", prefix+"-host", "0.6.0",
 					"spiffe://probectl/tenant/"+tenant.ID+"/agent/"+f.agentID,
 					[]string{"tcp"}, map[string]string{"region": f.region, "site": f.site},
@@ -135,9 +139,20 @@ func TestCoverageAPITenantIsolation(t *testing.T) {
 			}); err != nil {
 			t.Fatal(err)
 		}
-		latest.Record(tenant.ID, ResultView{
-			AgentID: f.agentID, Type: "tcp", Target: f.target, ObservedAt: observedAt,
-		})
+		for i, at := range []time.Time{
+			observedAt.Add(-2 * time.Minute),
+			observedAt.Add(-time.Minute),
+			observedAt,
+		} {
+			latest.Record(tenant.ID, ResultView{
+				ResultID: fmt.Sprintf("%s-result-%d", prefix, i),
+				AgentID:  f.agentID, Type: "tcp", Target: f.target, ObservedAt: at,
+				Attributes: map[string]string{
+					"probectl.test.id":               f.testID,
+					"probectl.test.interval_seconds": "60",
+				},
+			})
+		}
 		return f
 	}
 
@@ -166,6 +181,10 @@ func TestCoverageAPITenantIsolation(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("coverage response missing tenant A evidence %q: %s", want, body)
 		}
+	}
+	if !strings.Contains(body, `"state":"on_cadence"`) ||
+		!strings.Contains(body, `"current_assignment_verified":false`) {
+		t.Fatalf("tenant A cadence receipt is not explicit: %s", body)
 	}
 	for _, denied := range []string{b.target, b.region, b.site, bTime.Format(time.RFC3339)} {
 		if strings.Contains(body, denied) {

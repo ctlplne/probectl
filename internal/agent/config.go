@@ -186,6 +186,7 @@ type BrowserWorkerConfig struct {
 
 // CanaryConfig configures one scheduled canary.
 type CanaryConfig struct {
+	TestID   string            `yaml:"test_id,omitempty"`
 	Type     string            `yaml:"type"`
 	Target   string            `yaml:"target"`
 	Interval Duration          `yaml:"interval"`
@@ -363,10 +364,28 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("config: browser.driver must be http or browser (got %q)", c.Browser.Driver)
 	}
+	testIDs := make(map[string]int, len(c.Canaries))
 	for i, cc := range c.Canaries {
 		if cc.Type == "" {
 			return fmt.Errorf("config: canaries[%d].type is required", i)
 		}
+		if cc.TestID == "" {
+			continue
+		}
+		if strings.TrimSpace(cc.TestID) != cc.TestID || len(cc.TestID) > 128 {
+			return fmt.Errorf("config: canaries[%d].test_id must be 1-128 unpadded characters", i)
+		}
+		for _, r := range cc.TestID {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+				(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' || r == ':' {
+				continue
+			}
+			return fmt.Errorf("config: canaries[%d].test_id contains unsupported character %q", i, r)
+		}
+		if previous, exists := testIDs[cc.TestID]; exists {
+			return fmt.Errorf("config: canaries[%d].test_id duplicates canaries[%d]", i, previous)
+		}
+		testIDs[cc.TestID] = i
 	}
 	return nil
 }

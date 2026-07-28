@@ -68,6 +68,7 @@ func TestResultsHistoryRingIsTenantScopedAndBounded(t *testing.T) {
 	s := NewLatestResults(10)
 	s.maxHist = 3
 	now := time.Now()
+	s.recentStartedAt = now.Add(-10 * time.Minute)
 
 	// Every accepted observation joins the ring — including ones the
 	// newest-wins latest slot rejects as stale.
@@ -106,6 +107,13 @@ func TestResultsHistoryRingIsTenantScopedAndBounded(t *testing.T) {
 	ring := s.History("t-a", time.Hour)
 	if len(ring) != 3 || ring[0].DurationMs != 90 {
 		t.Fatalf("ring after eviction = %+v, want 3 entries starting at the -4m point", ring)
+	}
+	snapshot, evictedThrough := s.RecentSnapshot("t-a")
+	if len(snapshot) != 3 || !evictedThrough.Equal(now.Add(-3*time.Minute)) {
+		t.Fatalf("recent snapshot = %+v evicted_through=%s", snapshot, evictedThrough)
+	}
+	if other, watermark := s.RecentSnapshot("t-b"); len(other) != 1 || !watermark.Equal(s.recentStartedAt) {
+		t.Fatalf("tenant B inherited tenant A eviction state: %+v watermark=%s", other, watermark)
 	}
 }
 
@@ -163,7 +171,7 @@ func TestLatestResultsEndToEnd(t *testing.T) {
 	}
 	publish(&resultv1.Result{
 		TenantId: def, AgentId: "a1", CanaryType: "dns", ServerAddress: "acme.example",
-		Success: true, StartTimeUnixNano: at.UnixNano(),
+		ResultId: "result-dns-1", Success: true, StartTimeUnixNano: at.UnixNano(),
 		Metrics:    map[string]float64{"dns.query.ms": 12.5, "dns.answers": 2, "dns.dnssec.secure": 1},
 		Attributes: map[string]string{"dns.rcode": "NOERROR", "dns.answer": "203.0.113.10, 203.0.113.11"},
 	})
@@ -186,7 +194,7 @@ func TestLatestResultsEndToEnd(t *testing.T) {
 		}
 		if len(resp.Items) == 1 {
 			v := resp.Items[0]
-			if !resp.CollectorRunning || v.Type != "dns" || v.Metrics["dns.query.ms"] != 12.5 ||
+			if !resp.CollectorRunning || v.ResultID != "result-dns-1" || v.Type != "dns" || v.Metrics["dns.query.ms"] != 12.5 ||
 				v.Attributes["dns.rcode"] != "NOERROR" {
 				t.Fatalf("view = %+v", v)
 			}

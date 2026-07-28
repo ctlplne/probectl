@@ -31,6 +31,8 @@ import {
   type CoverageDebtState,
   type CoverageMatrixItem,
   type CoverageStatus,
+  type ExecutionCadenceReason,
+  type ExecutionCadenceState,
 } from '../api/coverage'
 import { DateTime } from '../time/DateTime'
 import styles from './pages.module.css'
@@ -48,6 +50,42 @@ const statusTones: Record<CoverageStatus, BadgeTone> = {
   stale: 'warning',
   non_redundant: 'warning',
   covered: 'success',
+}
+
+const cadenceLabels: Record<ExecutionCadenceState, string> = {
+  on_cadence: 'On cadence',
+  gaps_observed: 'Gaps observed',
+  never_observed: 'Never observed',
+  unknown: 'Unknown',
+}
+
+const cadenceTones: Record<ExecutionCadenceState, BadgeTone> = {
+  on_cadence: 'success',
+  gaps_observed: 'danger',
+  never_observed: 'warning',
+  unknown: 'neutral',
+}
+
+const cadenceReasonLabels: Record<ExecutionCadenceReason, string> = {
+  on_cadence: 'No missed round found in complete local history',
+  missed_rounds: 'One or more configured rounds have no exact result',
+  no_exact_test_evidence: 'No result has carried this exact test ID',
+  evidence_unwired: 'Recent result evidence is not wired on this control plane',
+  legacy_or_unattributed_evidence: 'Matching legacy results have no exact test ID',
+  legacy_schedule_metadata: 'Result history does not carry the effective local interval',
+  interval_mismatch: 'The local interval differs from this server definition',
+  history_truncated: 'The bounded local history cannot prove the whole window',
+  insufficient_history: 'Fewer than three exact rounds are available',
+  future_evidence_timestamp: 'A result timestamp is ahead of the receipt clock',
+  definition_mismatch: 'The exact test ID reported a different probe or target',
+  invalid_configured_interval: 'The server definition interval is invalid',
+}
+
+function formatCadenceDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600 && seconds % 60 === 0) return `${seconds / 60}m`
+  if (seconds < 86400 && seconds % 3600 === 0) return `${seconds / 3600}h`
+  return `${seconds}s`
 }
 
 export function CoveragePanel() {
@@ -140,9 +178,36 @@ export function CoveragePanel() {
         </span>
       ),
     },
+    {
+      key: 'cadence',
+      header: 'Execution cadence',
+      render: (item) => {
+        const cadence = item.execution_cadence
+        return (
+          <span className={styles.fleetCell}>
+            <StatusDot tone={cadenceTones[cadence.state]} label={cadenceLabels[cadence.state]} />
+            <small>{cadenceReasonLabels[cadence.reason]}</small>
+            <small>
+              {cadence.observed_rounds}/{cadence.expected_rounds} rounds · {cadence.missed_rounds}{' '}
+              missed · largest gap {formatCadenceDuration(cadence.max_gap_seconds)}
+            </small>
+            <small>
+              {formatCadenceDuration(cadence.window_seconds)} window ·{' '}
+              {cadence.history_complete ? 'complete history' : 'incomplete history'} ·{' '}
+              {cadence.observed_agent_count}{' '}
+              {cadence.observed_agent_count === 1 ? 'observed agent' : 'observed agents'}
+            </small>
+            <small>Current local assignment is not verified by the control plane.</small>
+          </span>
+        )
+      },
+    },
   ]
 
   const gapCount = (data?.items ?? []).filter((item) => item.status !== 'covered').length
+  const cadenceGapCount = (data?.items ?? []).filter(
+    (item) => item.execution_cadence.state === 'gaps_observed',
+  ).length
   return (
     <>
       <Card data-targets-coverage>
@@ -154,6 +219,9 @@ export function CoveragePanel() {
               <span className={styles.fleetBadges}>
                 <Badge tone={gapCount > 0 ? 'warning' : 'success'}>
                   {gapCount} {gapCount === 1 ? 'gap' : 'gaps'}
+                </Badge>
+                <Badge tone={cadenceGapCount > 0 ? 'danger' : 'neutral'}>
+                  {cadenceGapCount} cadence {cadenceGapCount === 1 ? 'gap' : 'gaps'}
                 </Badge>
                 <Badge tone="neutral">{data.items.length} matrix rows</Badge>
               </span>

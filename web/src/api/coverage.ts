@@ -9,6 +9,35 @@ import { apiFetch } from './client'
 
 export type CoverageStatus = 'uncovered' | 'stale' | 'non_redundant' | 'covered'
 export type CoverageReadiness = 'ready' | 'degraded' | 'unavailable'
+export type ExecutionCadenceState = 'on_cadence' | 'gaps_observed' | 'never_observed' | 'unknown'
+export type ExecutionCadenceReason =
+  | 'on_cadence'
+  | 'missed_rounds'
+  | 'no_exact_test_evidence'
+  | 'evidence_unwired'
+  | 'legacy_or_unattributed_evidence'
+  | 'legacy_schedule_metadata'
+  | 'interval_mismatch'
+  | 'history_truncated'
+  | 'insufficient_history'
+  | 'future_evidence_timestamp'
+  | 'definition_mismatch'
+  | 'invalid_configured_interval'
+
+export interface ExecutionCadenceReceipt {
+  state: ExecutionCadenceState
+  reason: ExecutionCadenceReason
+  attribution: 'none' | 'exact_test_id'
+  configured_interval_seconds: number
+  window_seconds: number
+  expected_rounds: number
+  observed_rounds: number
+  missed_rounds: number
+  max_gap_seconds: number
+  observed_agent_count: number
+  history_complete: boolean
+  current_assignment_verified: boolean
+}
 
 export interface CoverageNextAction {
   kind: 'enroll_vantage' | 'author_test'
@@ -30,6 +59,7 @@ export interface CoverageMatrixItem {
   independent_vantage_count: number
   stale_after_seconds: number
   status: CoverageStatus
+  execution_cadence: ExecutionCadenceReceipt
   next_action?: CoverageNextAction
 }
 

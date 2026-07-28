@@ -44,6 +44,8 @@ The canary probe result — the active-testing signal. Mapping in
 | `tenant_id`             | resource: `probectl.tenant.id`   | outermost scope; `probectl.*` (no OTel tenancy key) |
 | `agent_id`              | resource: `probectl.agent.id`    | the producing agent; `probectl.*`                   |
 | `canary_type`           | `probectl.canary.type`           | icmp / tcp / udp / http / dns / … (`probectl.*`)     |
+| `attributes["probectl.test.id"]` | `probectl.test.id` | optional stable local/server definition join; not a TSDB label |
+| `attributes["probectl.test.interval_seconds"]` | `probectl.test.interval_seconds` | effective local agent interval used by the cadence receipt; not a TSDB label |
 | `server_address`        | `server.address`                 | the probed target                                  |
 | `server_port`           | `server.port`                    | omitted when 0                                     |
 | `network_transport`     | `network.transport`              | tcp / udp / icmp                                   |
@@ -77,7 +79,10 @@ plus one exact label combination, tracked over time):
 **Labels** (deliberately cardinality-bounded — **cardinality** is the number of
 distinct values a label takes, and every new value mints a whole new series):
 `tenant_id`, `agent_id`,
-`canary_type`, `server_address`. `tenant_id` is a label in pooled mode; siloed
+`canary_type`, `server_address`. Exact `test_id` and its interval deliberately
+remain result attributes rather than Prometheus labels: the bounded native
+cadence read model consumes them without multiplying time-series cardinality.
+`tenant_id` is a label in pooled mode; siloed
 mode uses per-tenant series, and query-time tenant scoping enforces isolation at
 the TSDB. High-cardinality per-hop / per-target detail belongs in ClickHouse,
 **not** as a metric label — unbounded label values are how a time-series store

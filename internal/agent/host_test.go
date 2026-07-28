@@ -27,7 +27,7 @@ func TestHostProbesIntoBuffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := &Host{
-		scheduled: []scheduled{{canary: noop, interval: 5 * time.Millisecond}},
+		scheduled: []scheduled{{canary: noop, interval: 5 * time.Millisecond, testID: "test-local-1"}},
 		buffer:    buf,
 		tenantID:  "tenant-1",
 		agentID:   "agent-1",
@@ -59,6 +59,10 @@ func TestHostProbesIntoBuffer(t *testing.T) {
 	if env.TenantID != "tenant-1" || env.AgentID != "agent-1" || env.Result.Type != "noop" || !env.Result.Success {
 		t.Errorf("buffered envelope = %+v", env)
 	}
+	if env.Result.Attributes["probectl.test.id"] != "test-local-1" ||
+		env.Result.Attributes["probectl.test.interval_seconds"] != "0.005" {
+		t.Errorf("schedule receipt = %#v", env.Result.Attributes)
+	}
 }
 
 type failedResultCanary struct{}
@@ -87,7 +91,7 @@ func TestHostProbeEnqueuesFailedResultEnvelope(t *testing.T) {
 		agentID:  "agent-a",
 		log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	h.probe(context.Background(), failedResultCanary{})
+	h.probe(context.Background(), scheduled{canary: failedResultCanary{}, interval: time.Second})
 
 	frames, err := buf.PeekAll()
 	if err != nil {

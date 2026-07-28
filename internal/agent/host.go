@@ -10,17 +10,20 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
 	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/otel"
 )
 
 type scheduled struct {
 	canary   canary.Canary
 	interval time.Duration
+	testID   string
 }
 
 const resultEnvelopeSchemaVersion uint32 = 1
@@ -78,7 +81,7 @@ func (h *Host) Run(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					h.probe(ctx, s.canary)
+					h.probe(ctx, s)
 				}
 			}
 		}(s)
@@ -86,7 +89,8 @@ func (h *Host) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-func (h *Host) probe(ctx context.Context, c canary.Canary) {
+func (h *Host) probe(ctx context.Context, s scheduled) {
+	c := s.canary
 	if h.metrics != nil {
 		h.metrics.Collection(1)
 	}
@@ -99,6 +103,16 @@ func (h *Host) probe(ctx context.Context, c canary.Canary) {
 			h.metrics.Error()
 		}
 		return
+	}
+	if s.testID != "" {
+		if res.Attributes == nil {
+			res.Attributes = make(map[string]string, 2)
+		}
+		// These are runtime authority, not plugin input. Stamp them after Run so
+		// a plugin cannot forge the local schedule identity used by cadence
+		// receipts.
+		res.Attributes[otel.AttrTestID] = s.testID
+		res.Attributes[otel.AttrTestInterval] = strconv.FormatFloat(s.interval.Seconds(), 'f', -1, 64)
 	}
 	payload, err := json.Marshal(resultEnvelope{
 		SchemaVersion: resultEnvelopeSchemaVersion,

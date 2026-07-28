@@ -73,7 +73,7 @@ func New(cfg *Config, reg *canary.Registry, log *slog.Logger) (*Agent, error) {
 		if err != nil {
 			return nil, err
 		}
-		sched = append(sched, scheduled{canary: c, interval: cc.Interval.Std()})
+		sched = append(sched, scheduled{canary: c, interval: cc.Interval.Std(), testID: cc.TestID})
 	}
 	host := &Host{scheduled: sched, buffer: buffer, tenantID: id.TenantID, agentID: id.AgentID, log: log}
 	a := &Agent{cfg: cfg, log: log, buffer: buffer, host: host, tenantID: id.TenantID, agentID: id.AgentID}

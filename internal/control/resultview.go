@@ -16,6 +16,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/otel"
 )
 
 // Synthetic latest-result read model (S-FE5 surface for S7/S8/S12/S13). The
@@ -23,13 +24,15 @@ import (
 // DETAIL (DNS rcode/answers, the HTTP waterfall phases, browser transaction
 // steps, latency families) lives in each result's metrics+attributes and was
 // rendered nowhere. This store retains the LATEST full result per (tenant,
-// type, target, agent) so the test screens can show every type's result shape
-// first-class.
+// optional exact test id, type, target, agent) so duplicate definitions do not
+// collapse after current agents begin stamping identity and the test screens can
+// show every type's result shape first-class.
 // Tenant-partitioned (cross-tenant impossible by construction, guardrail 1),
 // bounded per tenant (evict-stalest), newest-wins.
 
 // ResultView is one synthetic result, verbatim from the pipeline.
 type ResultView struct {
+	ResultID   string             `json:"result_id,omitempty"`
 	AgentID    string             `json:"agent_id"`
 	Type       string             `json:"type"`
 	Target     string             `json:"target,omitempty"`
@@ -50,15 +53,24 @@ const DefaultMaxResultsPerTenant = 5000
 // dashboard-scale trailing window without a store round trip.
 const DefaultMaxHistoryPerTenant = 2000
 
-// LatestResults retains the newest result per (tenant, type, target, agent)
-// plus a bounded per-tenant ring of recent observations for trend rendering.
+// LatestResults retains the newest result per (tenant, optional exact test id,
+// type, target, agent) plus a bounded per-tenant ring of recent observations
+// for trend rendering.
 type LatestResults struct {
 	mu      sync.Mutex
 	max     int
 	maxHist int
-	tenants map[string]map[string]ResultView // tenant -> type|target|agent -> latest
+	tenants map[string]map[string]ResultView // tenant -> test|type|target|agent -> latest
 	recent  map[string][]ResultView          // tenant -> bounded recent ring
 	evicted map[string]bool                  // tenant -> at least one latest series was evicted
+	// recentStartedAt is the process-local instant from which this store could
+	// observe results. A window crossing it is incomplete after restart even
+	// when the bounded ring has not evicted anything.
+	recentStartedAt time.Time
+	// recentEvictedThrough is the newest event timestamp evicted from each
+	// tenant's history ring. A cadence window whose cutoff is not newer than
+	// this timestamp is incomplete and must never be called healthy.
+	recentEvictedThrough map[string]time.Time
 }
 
 // NewLatestResults builds a store; maxPerTenant <= 0 takes the default.
@@ -67,11 +79,13 @@ func NewLatestResults(maxPerTenant int) *LatestResults {
 		maxPerTenant = DefaultMaxResultsPerTenant
 	}
 	return &LatestResults{
-		max:     maxPerTenant,
-		maxHist: DefaultMaxHistoryPerTenant,
-		tenants: map[string]map[string]ResultView{},
-		recent:  map[string][]ResultView{},
-		evicted: map[string]bool{},
+		max:                  maxPerTenant,
+		maxHist:              DefaultMaxHistoryPerTenant,
+		tenants:              map[string]map[string]ResultView{},
+		recent:               map[string][]ResultView{},
+		evicted:              map[string]bool{},
+		recentStartedAt:      time.Now().UTC(),
+		recentEvictedThrough: map[string]time.Time{},
 	}
 }
 
@@ -81,13 +95,19 @@ func (s *LatestResults) Record(tenant string, rv ResultView) {
 	if tenant == "" || rv.Type == "" {
 		return
 	}
-	key := rv.Type + "\x00" + rv.Target + "\x00" + rv.AgentID
+	key := rv.Attributes[otel.AttrTestID] + "\x00" + rv.Type + "\x00" + rv.Target + "\x00" + rv.AgentID
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Every accepted observation joins the trend ring (evict-oldest), even
 	// when a newer result already owns the latest slot for its series.
 	s.recent[tenant] = append(s.recent[tenant], rv)
 	if len(s.recent[tenant]) > s.maxHist {
+		evicted := s.recent[tenant][:len(s.recent[tenant])-s.maxHist]
+		for _, item := range evicted {
+			if item.ObservedAt.After(s.recentEvictedThrough[tenant]) {
+				s.recentEvictedThrough[tenant] = item.ObservedAt
+			}
+		}
 		s.recent[tenant] = s.recent[tenant][len(s.recent[tenant])-s.maxHist:]
 	}
 	part, ok := s.tenants[tenant]
@@ -170,6 +190,34 @@ func (s *LatestResults) History(tenant string, window time.Duration) []ResultVie
 	return out
 }
 
+// RecentSnapshot returns one tenant's entire bounded recent ring, oldest event
+// first, plus the newest instant through which its process-local history is
+// incomplete. The watermark includes process startup and only that tenant's
+// eviction state, so callers cannot call a restart-crossing or evicted window
+// healthy and no row or tenant-owned watermark crosses partitions.
+func (s *LatestResults) RecentSnapshot(tenant string) ([]ResultView, time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := append([]ResultView(nil), s.recent[tenant]...)
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].ObservedAt.Equal(out[j].ObservedAt) {
+			return out[i].ObservedAt.Before(out[j].ObservedAt)
+		}
+		if out[i].Type != out[j].Type {
+			return out[i].Type < out[j].Type
+		}
+		if out[i].Target != out[j].Target {
+			return out[i].Target < out[j].Target
+		}
+		return out[i].AgentID < out[j].AgentID
+	})
+	incompleteThrough := s.recentStartedAt
+	if s.recentEvictedThrough[tenant].After(incompleteThrough) {
+		incompleteThrough = s.recentEvictedThrough[tenant]
+	}
+	return out, incompleteThrough
+}
+
 // Len reports one tenant's partition size.
 func (s *LatestResults) Len(tenant string) int {
 	s.mu.Lock()
@@ -213,6 +261,7 @@ func (cs *ResultViewConsumer) Run(ctx context.Context) error {
 // SinkResult records one DECODED result (shared immutable — never mutated).
 func (cs *ResultViewConsumer) SinkResult(_ context.Context, r *resultv1.Result) error {
 	cs.store.Record(r.GetTenantId(), ResultView{
+		ResultID:   r.GetResultId(),
 		AgentID:    r.GetAgentId(),
 		Type:       r.GetCanaryType(),
 		Target:     r.GetServerAddress(),

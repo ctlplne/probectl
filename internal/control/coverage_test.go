@@ -35,7 +35,15 @@ func TestBuildCoverageMatrixStatesAndTenantResultPartition(t *testing.T) {
 	// Building from tenant-a's partition must never observe it.
 	latest.Record("tenant-b", ResultView{AgentID: "a1", Type: "tcp", Target: "single.example:443", ObservedAt: now.Add(time.Hour)})
 
-	items := buildCoverageMatrix(candidates, latest.List("tenant-a"), now)
+	recent, evictedThrough := latest.RecentSnapshot("tenant-a")
+	items := buildCoverageMatrix(
+		candidates,
+		latest.List("tenant-a"),
+		recent,
+		evictedThrough,
+		true,
+		now,
+	)
 	byID := map[string]coverageMatrixItem{}
 	for _, item := range items {
 		byID[item.TestID] = item
@@ -54,6 +62,140 @@ func TestBuildCoverageMatrixStatesAndTenantResultPartition(t *testing.T) {
 		t.Fatalf("covered = %+v", got)
 	}
 }
+
+func TestExecutionCadenceReceiptIsExactDeduplicatedAndTwoTenantScoped(t *testing.T) {
+	now := time.Date(2026, 7, 28, 6, 0, 0, 0, time.UTC)
+	candidates := []store.CoverageCandidate{{
+		TestID: "test-cadence", TestName: "edge-dns", ProbeFamily: "dns",
+		Target: "example.test", IntervalSeconds: 30, AgentID: "agent-a",
+		Region: "eu", Site: "dub", AgentStatus: "online",
+		LastSeenAt: timePointer(now.Add(-time.Minute)),
+	}}
+	attributes := map[string]string{
+		"probectl.test.id":               "test-cadence",
+		"probectl.test.interval_seconds": "30",
+	}
+	latest := NewLatestResults(20)
+	latest.recentStartedAt = now.Add(-cadenceMinimumWindow - time.Second)
+	for i, age := range []time.Duration{90 * time.Second, 60 * time.Second, 30 * time.Second, 0} {
+		latest.Record("tenant-a", ResultView{
+			ResultID: "result-" + string(rune('a'+i)), AgentID: "agent-a",
+			Type: "dns", Target: "example.test", Attributes: attributes,
+			ObservedAt: now.Add(-age),
+		})
+	}
+	// At-least-once redelivery must not manufacture an extra observed round.
+	latest.Record("tenant-a", ResultView{
+		ResultID: "result-d", AgentID: "agent-a", Type: "dns", Target: "example.test",
+		Attributes: attributes, ObservedAt: now,
+	})
+	// Same exact test id in another tenant has a future timestamp and interval
+	// mismatch. Neither fact may influence tenant A's receipt.
+	latest.Record("tenant-b", ResultView{
+		ResultID: "secret", AgentID: "agent-a", Type: "dns", Target: "example.test",
+		Attributes: map[string]string{
+			"probectl.test.id":               "test-cadence",
+			"probectl.test.interval_seconds": "300",
+		},
+		ObservedAt: now.Add(time.Hour),
+	})
+
+	recent, evictedThrough := latest.RecentSnapshot("tenant-a")
+	items := buildCoverageMatrix(
+		candidates, latest.List("tenant-a"), recent, evictedThrough, true, now,
+	)
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	got := items[0].ExecutionCadence
+	if got.State != "on_cadence" || got.Reason != "on_cadence" ||
+		got.Attribution != "exact_test_id" || got.ObservedRounds != 4 ||
+		got.ExpectedRounds != 4 || got.MissedRounds != 0 ||
+		got.ObservedAgentCount != 1 || !got.HistoryComplete ||
+		got.CurrentAssignmentVerified {
+		t.Fatalf("tenant A cadence = %+v", got)
+	}
+}
+
+func TestExecutionCadenceReceiptHonestyStates(t *testing.T) {
+	now := time.Date(2026, 7, 28, 6, 0, 0, 0, time.UTC)
+	agents := map[string]struct{}{"agent-a": {}}
+	result := func(id string, at time.Time, interval string) ResultView {
+		return ResultView{
+			ResultID: id, AgentID: "agent-a", Type: "dns", Target: "example.test",
+			ObservedAt: at,
+			Attributes: map[string]string{
+				"probectl.test.id":               "test-cadence",
+				"probectl.test.interval_seconds": interval,
+			},
+		}
+	}
+	for name, tc := range map[string]struct {
+		recent  []ResultView
+		evicted time.Time
+		running bool
+		state   string
+		reason  string
+		missed  int
+	}{
+		"unwired": {
+			running: false, state: "unknown", reason: "evidence_unwired",
+		},
+		"never observed": {
+			running: true, state: "never_observed", reason: "no_exact_test_evidence",
+		},
+		"restart window incomplete": {
+			running: true, evicted: now,
+			state: "unknown", reason: "history_truncated",
+		},
+		"legacy attribution": {
+			running: true,
+			recent: []ResultView{{
+				AgentID: "agent-a", Type: "dns", Target: "example.test",
+				ObservedAt: now.Add(-time.Minute),
+			}},
+			state: "unknown", reason: "legacy_or_unattributed_evidence",
+		},
+		"interval mismatch": {
+			running: true,
+			recent:  []ResultView{result("mismatch", now.Add(-time.Minute), "60")},
+			state:   "unknown", reason: "interval_mismatch",
+		},
+		"incomplete ring": {
+			running: true,
+			recent: []ResultView{
+				result("one", now.Add(-30*time.Second), "30"),
+				result("two", now, "30"),
+			},
+			evicted: now.Add(-time.Minute),
+			state:   "unknown", reason: "history_truncated",
+		},
+		"positive gap evidence": {
+			running: true,
+			recent: []ResultView{
+				result("one", now.Add(-90*time.Second), "30"),
+				result("two", now.Add(-30*time.Second), "30"),
+				result("three", now, "30"),
+			},
+			state: "gaps_observed", reason: "missed_rounds", missed: 1,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := buildExecutionCadence(
+				"test-cadence", "dns", "example.test", 30, agents,
+				tc.recent, tc.evicted, tc.running, now,
+			)
+			if got.State != tc.state || got.Reason != tc.reason || got.MissedRounds != tc.missed {
+				t.Fatalf("receipt = %+v, want state=%s reason=%s missed=%d", got, tc.state, tc.reason, tc.missed)
+			}
+			if got.CurrentAssignmentVerified {
+				t.Fatal("local YAML assignment must never be claimed as currently verified")
+			}
+		})
+	}
+}
+
+func timePointer(v time.Time) *time.Time { return &v }
 
 func TestCoverageRouteIsReadOnlyAndPermissioned(t *testing.T) {
 	for _, route := range testServer(fakePinger{}).apiRoutes() {

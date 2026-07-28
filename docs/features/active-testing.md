@@ -83,6 +83,31 @@ lookup and adds no dashboard runtime or service dependency. The relational
 agent/test and producer reads carry an explicit tenant predicate under RLS;
 the topology read is obtained only from a tenant-bound store handle.
 
+The owned-vantage matrix also shows an **Execution cadence** receipt. “Fresh”
+only says the newest result is recent; cadence asks the stricter question:
+“did the configured rounds actually keep arriving?” For each exact `test_id`,
+the receipt compares the server definition interval with the effective interval
+stamped by the local agent, deduplicates retries, and reports observed,
+expected, and missed rounds plus the largest gap in a bounded window.
+
+The states are intentionally closed and cautious:
+
+- `on_cadence` — at least three exact rounds, matching intervals, no observed
+  gap, and complete bounded local history;
+- `gaps_observed` — positive evidence shows one or more expected rounds missing;
+- `never_observed` — complete local history contains no exact result for this
+  definition;
+- `unknown` — evidence is unwired, legacy/unattributed, interval-mismatched,
+  insufficient, future-dated, definition-mismatched, truncated, or the bounded
+  window crosses the current control-plane process start.
+
+Every receipt says the **current local assignment is unverified**. Agents load
+local YAML; the control plane neither reads nor pushes that file. This feature
+does not schedule, assign, rebalance, update, disable, or retarget an agent.
+Expected rounds begin with each agent's first exact observation in the bounded
+window; probectl does not invent rounds before that point because it cannot know
+when the local YAML assignment began.
+
 ## How it works
 
 The control plane never goes out and measures the network itself; it
@@ -165,6 +190,8 @@ agent:
 
 canaries:
   - type: http
+    # Optional exact attribution: copy the id from `probectl test list`.
+    test_id: "018f2d5e-7b3a-7aa2-8b8a-9c21b0c6d991"
     target: "https://app.example/health"
     interval: 30s
     timeout: 10s

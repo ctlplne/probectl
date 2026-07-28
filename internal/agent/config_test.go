@@ -108,6 +108,57 @@ agent:
 	}
 }
 
+func TestConfigAcceptsUniqueTestIDsAndRejectsAmbiguity(t *testing.T) {
+	valid := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+canaries:
+  - test_id: 018f2d5e-7b3a-7aa2-8b8a-9c21b0c6d991
+    type: dns
+    target: example.test
+`)
+	cfg, err := Load(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Canaries[0].TestID; got != "018f2d5e-7b3a-7aa2-8b8a-9c21b0c6d991" {
+		t.Fatalf("test_id = %q", got)
+	}
+
+	for name, body := range map[string]string{
+		"duplicate": `
+canaries:
+  - test_id: same
+    type: dns
+  - test_id: same
+    type: http
+`,
+		"unsupported": `
+canaries:
+  - test_id: "not a stable id"
+    type: dns
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+`+body)
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "test_id") {
+				t.Fatalf("invalid test_id should fail closed, got %v", err)
+			}
+		})
+	}
+}
+
 func TestShippedAgentConfigsLoadStrictly(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join("..", "..", "deploy", "agent", "probectl-agent.example.yml"),

@@ -459,20 +459,21 @@ type CoverageDebtResponse struct {
 }
 
 type CoverageMatrixItem struct {
-	AgentCount              int                `json:"agent_count"`
-	AgentReadiness          string             `json:"agent_readiness"`
-	IndependentVantageCount int                `json:"independent_vantage_count"`
-	LastEvidenceAt          string             `json:"last_evidence_at,omitempty"`
-	NextAction              CoverageNextAction `json:"next_action,omitempty"`
-	ProbeFamily             string             `json:"probe_family"`
-	ReadyAgentCount         int                `json:"ready_agent_count"`
-	Region                  string             `json:"region"`
-	Site                    string             `json:"site"`
-	StaleAfterSeconds       int                `json:"stale_after_seconds"`
-	Status                  string             `json:"status"`
-	Target                  string             `json:"target"`
-	TestId                  string             `json:"test_id"`
-	TestName                string             `json:"test_name"`
+	AgentCount              int                     `json:"agent_count"`
+	AgentReadiness          string                  `json:"agent_readiness"`
+	ExecutionCadence        ExecutionCadenceReceipt `json:"execution_cadence"`
+	IndependentVantageCount int                     `json:"independent_vantage_count"`
+	LastEvidenceAt          string                  `json:"last_evidence_at,omitempty"`
+	NextAction              CoverageNextAction      `json:"next_action,omitempty"`
+	ProbeFamily             string                  `json:"probe_family"`
+	ReadyAgentCount         int                     `json:"ready_agent_count"`
+	Region                  string                  `json:"region"`
+	Site                    string                  `json:"site"`
+	StaleAfterSeconds       int                     `json:"stale_after_seconds"`
+	Status                  string                  `json:"status"`
+	Target                  string                  `json:"target"`
+	TestId                  string                  `json:"test_id"`
+	TestName                string                  `json:"test_name"`
 }
 
 type CoverageMatrixResponse struct {
@@ -879,6 +880,22 @@ type ErrorDetail struct {
 	Code      ErrorCode `json:"code"`
 	Message   string    `json:"message"`
 	RequestId string    `json:"request_id,omitempty"`
+}
+
+// Bounded, read-only evidence about scheduled synthetic execution. current_assignment_verified is false because agents load local YAML and the control plane does not own or inspect that current assignment.
+type ExecutionCadenceReceipt struct {
+	Attribution               string `json:"attribution"`
+	ConfiguredIntervalSeconds int    `json:"configured_interval_seconds"`
+	CurrentAssignmentVerified bool   `json:"current_assignment_verified"`
+	ExpectedRounds            int    `json:"expected_rounds"`
+	HistoryComplete           bool   `json:"history_complete"`
+	MaxGapSeconds             int    `json:"max_gap_seconds"`
+	MissedRounds              int    `json:"missed_rounds"`
+	ObservedAgentCount        int    `json:"observed_agent_count"`
+	ObservedRounds            int    `json:"observed_rounds"`
+	Reason                    string `json:"reason"`
+	State                     string `json:"state"`
+	WindowSeconds             int    `json:"window_seconds"`
 }
 
 type ExplorerAlignmentExecutionReceipt struct {

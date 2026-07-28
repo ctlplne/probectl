@@ -68,6 +68,10 @@ canaries:
   # ICMP echo: loss / latency / jitter. Uses unprivileged datagram ICMP by
   # default (no CAP_NET_RAW); see docs/configuration.md for the privilege notes.
   - type: icmp
+    # Optional: copy the server definition id from `probectl test list` so the
+    # native coverage receipt can attribute cadence exactly. This does not let
+    # the control plane push or change local agent configuration.
+    # test_id: "018f2d5e-7b3a-7aa2-8b8a-9c21b0c6d991"
     target: "1.1.1.1"
     interval: 30s
     timeout: 3s

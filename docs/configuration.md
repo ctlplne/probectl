@@ -371,6 +371,32 @@ bounded FIFO prefix, streams that prefix, removes only the accepted prefix, logs
 backlog records/bytes plus oldest result age, then jitters the next catch-up
 chunk so a fleet does not stampede the control plane in lockstep.
 
+### Scheduled canary identity and cadence evidence
+
+Every entry under `canaries:` accepts these common fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `type` | yes | Compiled-in probe family such as `icmp`, `dns`, or `http` |
+| `target` | by probe | Address, name, or URL the probe measures |
+| `interval` | no | Local execution interval; defaults to `30s` |
+| `timeout` | no | Per-execution timeout |
+| `params` | no | Probe-specific string parameters |
+| `test_id` | no | Stable server definition ID copied from `probectl test list`; 1–128 characters from letters, digits, `.`, `_`, `:`, and `-`, unique inside this agent file |
+
+`test_id` is evidence attribution, not remote control. When present, the agent
+stamps `probectl.test.id` and its effective
+`probectl.test.interval_seconds` onto every result after the probe returns. The
+control plane can then compare exact observed rounds with the server definition
+on Targets → Owned-vantage coverage. Duplicate or malformed IDs fail agent
+startup; an absent ID remains valid for older/local-only configurations but its
+cadence receipt stays `unknown` rather than guessing from a shared type/target.
+
+The control plane does not read, push, rebalance, or verify the current local
+YAML. Even after an exact result, the receipt therefore says current assignment
+is unverified. Server-driven config remains deliberately unimplemented under
+[`adr/config-push.md`](adr/config-push.md).
+
 ### Result pipeline
 
 This is the path every measurement takes from an agent to a queryable metric, and

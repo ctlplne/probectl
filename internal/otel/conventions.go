@@ -38,6 +38,8 @@ const (
 	AttrTenantID         = "probectl.tenant.id"
 	AttrAgentID          = "probectl.agent.id"
 	AttrCanaryType       = "probectl.canary.type"
+	AttrTestID           = "probectl.test.id"
+	AttrTestInterval     = "probectl.test.interval_seconds"
 	AttrServerAddress    = "server.address"
 	AttrServerPort       = "server.port"
 	AttrNetworkTransport = "network.transport"
@@ -53,9 +55,11 @@ const (
 // with no OTel equivalent live under the probectl.* namespace (ARCH-001).
 var KnownAttributes = map[string]bool{
 	// Core identity (probectl namespace — no OTel standard for tenancy).
-	AttrTenantID:   true,
-	AttrAgentID:    true,
-	AttrCanaryType: true,
+	AttrTenantID:     true,
+	AttrAgentID:      true,
+	AttrCanaryType:   true,
+	AttrTestID:       true,
+	AttrTestInterval: true,
 	// OTel network semantic conventions (semconv 1.27.0).
 	AttrServerAddress:    true,
 	AttrServerPort:       true,

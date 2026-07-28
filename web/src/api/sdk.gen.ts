@@ -388,6 +388,7 @@ export interface CoverageDebtResponse {
 export interface CoverageMatrixItem {
   agent_count: number
   agent_readiness: "ready" | "degraded" | "unavailable"
+  execution_cadence: ExecutionCadenceReceipt
   independent_vantage_count: number
   last_evidence_at?: string
   next_action?: CoverageNextAction
@@ -801,6 +802,21 @@ export interface ErrorDetail {
   code: ErrorCode
   message: string
   request_id?: string
+}
+
+export interface ExecutionCadenceReceipt {
+  attribution: "none" | "exact_test_id"
+  configured_interval_seconds: number
+  current_assignment_verified: boolean
+  expected_rounds: number
+  history_complete: boolean
+  max_gap_seconds: number
+  missed_rounds: number
+  observed_agent_count: number
+  observed_rounds: number
+  reason: "on_cadence" | "missed_rounds" | "no_exact_test_evidence" | "evidence_unwired" | "legacy_or_unattributed_evidence" | "legacy_schedule_metadata" | "interval_mismatch" | "history_truncated" | "insufficient_history" | "future_evidence_timestamp" | "definition_mismatch" | "invalid_configured_interval"
+  state: "on_cadence" | "gaps_observed" | "never_observed" | "unknown"
+  window_seconds: number
 }
 
 export interface ExplorerAlignmentExecutionReceipt {

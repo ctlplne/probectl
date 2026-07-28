@@ -4542,7 +4542,7 @@
       "get": {
         "operationId": "listVantageCoverage",
         "summary": "List the tenant's owned-vantage coverage matrix",
-        "description": "Returns a read-only matrix derived only from authenticated agent placement labels, enabled test definitions, and the caller tenant's bounded latest-result partition. Region and site are operator declarations; the server performs no IP geolocation or network lookup. No evidence is uncovered, old evidence is stale, and one independent vantage is non_redundant. The endpoint never enrolls an agent or creates a test.",
+        "description": "Returns a read-only matrix derived only from authenticated agent placement labels, enabled test definitions, and the caller tenant's bounded latest and recent result partitions. Region and site are operator declarations; the server performs no IP geolocation or network lookup. No evidence is uncovered, old evidence is stale, and one independent vantage is non_redundant. execution_cadence separately reports exact test-id round gaps and history completeness while current_assignment_verified remains false because the control plane does not read or push local agent YAML. The endpoint never enrolls an agent, creates a test, assigns work, or rebalances an agent.",
         "tags": [
           "tests",
           "agents"
@@ -4566,7 +4566,7 @@
         ],
         "responses": {
           "200": {
-            "description": "A bounded tenant-scoped coverage snapshot.",
+            "description": "A bounded tenant-scoped coverage and execution-cadence snapshot.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14360,6 +14360,100 @@
           "href"
         ]
       },
+      "ExecutionCadenceReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Bounded, read-only evidence about scheduled synthetic execution. current_assignment_verified is false because agents load local YAML and the control plane does not own or inspect that current assignment.",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "on_cadence",
+              "gaps_observed",
+              "never_observed",
+              "unknown"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "on_cadence",
+              "missed_rounds",
+              "no_exact_test_evidence",
+              "evidence_unwired",
+              "legacy_or_unattributed_evidence",
+              "legacy_schedule_metadata",
+              "interval_mismatch",
+              "history_truncated",
+              "insufficient_history",
+              "future_evidence_timestamp",
+              "definition_mismatch",
+              "invalid_configured_interval"
+            ]
+          },
+          "attribution": {
+            "type": "string",
+            "enum": [
+              "none",
+              "exact_test_id"
+            ]
+          },
+          "configured_interval_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "window_seconds": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 86400,
+            "description": "Requested evidence horizon. history_complete is false when this horizon crosses process startup or tenant-local ring eviction."
+          },
+          "expected_rounds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct observed rounds plus deterministic misses after each observed agent's first exact result; never infers rounds before local assignment is evidenced."
+          },
+          "observed_rounds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct exact-test result deliveries in the bounded window after deduplication."
+          },
+          "missed_rounds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Configured interval slots absent between exact observations and as_of, with the documented scheduling grace."
+          },
+          "max_gap_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observed_agent_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "history_complete": {
+            "type": "boolean"
+          },
+          "current_assignment_verified": {
+            "type": "boolean",
+            "description": "Always false until a separately approved signed local-assignment verification design exists."
+          }
+        },
+        "required": [
+          "state",
+          "reason",
+          "attribution",
+          "configured_interval_seconds",
+          "window_seconds",
+          "expected_rounds",
+          "observed_rounds",
+          "missed_rounds",
+          "max_gap_seconds",
+          "observed_agent_count",
+          "history_complete",
+          "current_assignment_verified"
+        ]
+      },
       "CoverageMatrixItem": {
         "type": "object",
         "additionalProperties": false,
@@ -14420,6 +14514,9 @@
               "covered"
             ]
           },
+          "execution_cadence": {
+            "$ref": "#/components/schemas/ExecutionCadenceReceipt"
+          },
           "next_action": {
             "$ref": "#/components/schemas/CoverageNextAction"
           }
@@ -14436,7 +14533,8 @@
           "target",
           "independent_vantage_count",
           "stale_after_seconds",
-          "status"
+          "status",
+          "execution_cadence"
         ]
       },
       "CoverageMatrixResponse": {

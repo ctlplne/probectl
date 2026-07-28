@@ -71,6 +71,7 @@ questions:
 1. Which regions and sites have at least one enrolled canary agent?
 2. Which probe packs run from each site?
 3. Which important targets have at least two independent vantages?
+4. Did the exact locally identified test keep producing its configured rounds?
 
 Targets → **Cross-plane coverage debt** adds the local signal-plane view through
 `GET /v1/coverage/debt` or `probectl coverage debt --json`. It emits a bounded
@@ -86,6 +87,20 @@ one fresh independent agent, and `covered` for two or more. Agent readiness is a
 separate field, so an online agent cannot make missing result evidence look
 green. Filters are keyboard-accessible and every next action only opens the
 existing enrollment or test-authoring flow; it never mutates the fleet.
+
+Each row's `execution_cadence` is a separate proof, not another coverage color.
+Add the server definition ID as optional `test_id` in the matching local agent
+canary. Exact result IDs and effective local intervals then produce
+`on_cadence`, `gaps_observed`, `never_observed`, or `unknown`, with counts,
+largest gap, window, and history completeness. At-least-once redeliveries are
+deduplicated. Legacy evidence, an interval mismatch, insufficient history, or a
+ring eviction stays unknown. A control-plane restart also makes every window
+that crosses process startup incomplete rather than manufacturing a healthy
+absence.
+
+The receipt always sets `current_assignment_verified:false`: probectl does not
+inspect or push the agent's local YAML. It proves what ran, not what a remote
+scheduler claims should be installed, and it never assigns or rebalances work.
 
 Use this exported shape in runbooks and buyer reviews:
 

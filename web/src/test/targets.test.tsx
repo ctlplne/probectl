@@ -97,6 +97,20 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
         independent_vantage_count: 1,
         stale_after_seconds: 300,
         status: 'non_redundant',
+        execution_cadence: {
+          state: 'gaps_observed',
+          reason: 'missed_rounds',
+          attribution: 'exact_test_id',
+          configured_interval_seconds: 60,
+          window_seconds: 360,
+          expected_rounds: 6,
+          observed_rounds: 4,
+          missed_rounds: 2,
+          max_gap_seconds: 180,
+          observed_agent_count: 1,
+          history_complete: true,
+          current_assignment_verified: false,
+        },
         next_action: {
           kind: 'author_test',
           label: 'Author another test',
@@ -116,6 +130,20 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
         independent_vantage_count: 0,
         stale_after_seconds: 300,
         status: 'uncovered',
+        execution_cadence: {
+          state: 'never_observed',
+          reason: 'no_exact_test_evidence',
+          attribution: 'none',
+          configured_interval_seconds: 60,
+          window_seconds: 360,
+          expected_rounds: 0,
+          observed_rounds: 0,
+          missed_rounds: 0,
+          max_gap_seconds: 0,
+          observed_agent_count: 0,
+          history_complete: true,
+          current_assignment_verified: false,
+        },
         next_action: {
           kind: 'enroll_vantage',
           label: 'Enroll or restore a vantage',
@@ -146,6 +174,10 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     expect(within(matrix).getByText('Non-redundant')).toBeInTheDocument()
     expect(within(matrix).getByText('Uncovered')).toBeInTheDocument()
     expect(within(matrix).getByText('Never')).toBeInTheDocument()
+    expect(within(matrix).getByText('Gaps observed')).toBeInTheDocument()
+    expect(within(matrix).getByText('Never observed')).toBeInTheDocument()
+    expect(within(matrix).getAllByText(/Current local assignment is not verified/)).toHaveLength(2)
+    expect(screen.getByText('1 cadence gap')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Coverage state'), 'uncovered')
     expect(within(matrix).getByText('apac-api')).toBeInTheDocument()
