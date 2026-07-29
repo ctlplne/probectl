@@ -11,9 +11,11 @@ import { defaultFetch, jsonResponse } from './fetchStub'
 import {
   applyBrand,
   DEFAULT_BRAND,
+  fetchBrand,
   sanitizeTokenOverrides,
   tokenOverridesPassContrast,
 } from '../api/brand'
+import { MAX_RESPONSE_BODY_BYTES } from '../api/response'
 
 function brandingStub(response: unknown) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -73,6 +75,30 @@ describe('deployment-level probectl theming', () => {
     )
     expect(screen.queryByText('OtherProduct')).not.toBeInTheDocument()
     expect(document.title).toBe('probectl')
+  })
+
+  test('falls back without buffering an oversized branding response', async () => {
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{}'))
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return new Response(stream, {
+          status: 200,
+          headers: { 'Content-Length': String(MAX_RESPONSE_BODY_BYTES + 1) },
+        })
+      }),
+    )
+
+    await expect(fetchBrand()).resolves.toEqual(DEFAULT_BRAND)
+    expect(cancelled).toBe(true)
   })
 
   test.each([

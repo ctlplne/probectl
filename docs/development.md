@@ -88,6 +88,12 @@ reach for most:
 | `make tools`                       | Install pinned dev tools (golangci-lint)                                                                                        |
 | `make ci`                          | `lint` + `test` + `test-isolation` (the core gates locally)                                                                     |
 
+The central browser API client and generated TypeScript SDK buffer JSON only
+through `web/src/api/response.ts`: successful responses are capped at 32 MiB
+and error envelopes at 1 MiB, with the stream cancelled on the first byte past
+the limit. Branding and the API-docs JSON/executor use the same reader.
+Intentional artifact downloads remain streaming and do not use this helper.
+
 > `make ci` runs the **core** gates fast and locally. It is _not_ the full CI
 > suite — the integration, isolation-against-real-DBs, eBPF-kernel-matrix,
 > coverage, and supply-chain gates run in GitHub Actions (next section). Most

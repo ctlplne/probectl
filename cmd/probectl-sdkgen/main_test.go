@@ -58,3 +58,20 @@ func TestGoSDKResponseBodyLimitGenerated(t *testing.T) {
 		t.Fatal("generated SDK retained an unbounded response-body read")
 	}
 }
+
+func TestGeneratedTypeScriptResponseBodyLimits(t *testing.T) {
+	g := generator{doc: &document{Components: components{Schemas: map[string]*schema{}}}}
+	source := string(g.tsSDK(nil))
+	for _, want := range []string{
+		"readResponseJSON, ResponseBodyTooLargeError, responseBodyLimit",
+		"return readResponseJSON<T>(response, responseBodyLimit(response))",
+		"if (err instanceof ResponseBodyTooLargeError) throw err",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("generated TypeScript SDK missing bounded response code %q", want)
+		}
+	}
+	if strings.Contains(source, "response.json()") {
+		t.Fatal("generated TypeScript SDK retained an unbounded response-body read")
+	}
+}

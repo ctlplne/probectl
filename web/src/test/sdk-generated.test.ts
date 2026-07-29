@@ -6,6 +6,11 @@
 
 import { describe, expect, test, vi } from 'vitest'
 import { ProbectlSDKClient, type ListTestsResponse } from '../api/sdk.gen'
+import {
+  MAX_ERROR_RESPONSE_BODY_BYTES,
+  MAX_RESPONSE_BODY_BYTES,
+  ResponseBodyTooLargeError,
+} from '../api/response'
 
 describe('generated OpenAPI SDK', () => {
   test('listTests builds a typed tenant-scoped request', async () => {
@@ -95,5 +100,26 @@ describe('generated OpenAPI SDK', () => {
       '/v1/flows/ingest-quality?agent_id=flow-agent-a&protocol=ipfix&state=degraded&limit=25',
       expect.objectContaining({ method: 'GET' }),
     )
+  })
+
+  test.each([
+    [200, MAX_RESPONSE_BODY_BYTES],
+    [502, MAX_ERROR_RESPONSE_BODY_BYTES],
+  ])('rejects a status %i response declared one byte over its cap', async (status, limit) => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response('{}', {
+          status,
+          statusText: status === 200 ? 'OK' : 'Bad Gateway',
+          headers: { 'Content-Length': String(limit + 1) },
+        }),
+    )
+    const client = new ProbectlSDKClient({
+      baseUrl: '',
+      tenant: 'tenant-a',
+      fetch: fetcher as unknown as typeof fetch,
+    })
+
+    await expect(client.listTests()).rejects.toBeInstanceOf(ResponseBodyTooLargeError)
   })
 })

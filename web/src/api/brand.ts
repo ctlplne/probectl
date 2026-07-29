@@ -14,6 +14,7 @@
  * (the single off-/v1 convention, UX-006) rather than a bare fetch().
  */
 import { publicFetch } from './client'
+import { readResponseJSON, responseBodyLimit } from './response'
 
 export interface Brand {
   product_name: string
@@ -125,7 +126,7 @@ export async function fetchBrand(): Promise<Brand> {
   try {
     const res = await publicFetch('/branding')
     if (!res.ok) return DEFAULT_BRAND
-    const b = (await res.json()) as Brand
+    const b = await readResponseJSON<Brand>(res, responseBodyLimit(res))
     if (!b || b.product_name !== 'probectl') return DEFAULT_BRAND
     return b
   } catch {

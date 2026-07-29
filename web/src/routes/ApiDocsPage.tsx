@@ -23,6 +23,7 @@ import {
   type BadgeTone,
   type Column,
 } from '../components'
+import { readResponseJSON, readResponseText, responseBodyLimit } from '../api/response'
 
 type HTTPMethod = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
@@ -79,7 +80,7 @@ async function fetchOpenAPI(): Promise<OpenAPIDoc> {
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) throw new Error(`OpenAPI load failed: ${res.status}`)
-  return (await res.json()) as OpenAPIDoc
+  return readResponseJSON<OpenAPIDoc>(res, responseBodyLimit(res))
 }
 
 function operationsOf(doc?: OpenAPIDoc): OperationRow[] {
@@ -336,7 +337,7 @@ function OperationDetail({ row, doc }: { row: OperationRow | null; doc?: OpenAPI
           : { Accept: 'application/json' },
         body,
       })
-      const text = await res.text()
+      const text = await readResponseText(res, responseBodyLimit(res))
       setResult({
         ok: res.ok,
         status: res.status,

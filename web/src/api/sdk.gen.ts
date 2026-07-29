@@ -3,6 +3,8 @@
 
 /* eslint-disable */
 
+import { readResponseJSON, ResponseBodyTooLargeError, responseBodyLimit } from './response'
+
 export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[]
 export interface JsonObject { [key: string]: JsonValue }
 
@@ -3882,7 +3884,7 @@ export class ProbectlSDKClient {
   private async requestJSON<T>(method: string, path: string, query: URLSearchParams, body: unknown | undefined): Promise<T> {
     const response = await this.request(method, path, query, body)
     if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    return readResponseJSON<T>(response, responseBodyLimit(response))
   }
 
   private async request(method: string, path: string, query: URLSearchParams, body: unknown | undefined): Promise<Response> {
@@ -3917,10 +3919,11 @@ async function toSDKError(response: Response): Promise<SDKError> {
   let code: string | undefined
   let message = `${response.status} ${response.statusText}`
   try {
-    const body = (await response.json()) as { error?: { code?: string; message?: string } }
+    const body = await readResponseJSON<{ error?: { code?: string; message?: string } }>(response, responseBodyLimit(response))
     code = body.error?.code
     if (body.error?.message) message = body.error.message
-  } catch {
+  } catch (err) {
+    if (err instanceof ResponseBodyTooLargeError) throw err
     // Non-JSON error bodies keep the status text.
   }
   return new SDKError(response.status, code, message)

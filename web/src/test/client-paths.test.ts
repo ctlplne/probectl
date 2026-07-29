@@ -6,6 +6,11 @@
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ApiError, apiFetch, apiURL } from '../api/client'
+import {
+  MAX_ERROR_RESPONSE_BODY_BYTES,
+  MAX_RESPONSE_BODY_BYTES,
+  ResponseBodyTooLargeError,
+} from '../api/response'
 import { assertNoDoublePrefix, pathOf } from './fetchStub'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -131,6 +136,42 @@ describe('API path conventions', () => {
     )
 
     await expect(apiFetch('/topology')).rejects.toBe(networkError)
+  })
+
+  test('rejects an oversized successful response before JSON parsing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('{}', {
+            status: 200,
+            headers: { 'Content-Length': String(MAX_RESPONSE_BODY_BYTES + 1) },
+          }),
+        ),
+      ),
+    )
+
+    await expect(apiFetch('/topology')).rejects.toBeInstanceOf(ResponseBodyTooLargeError)
+  })
+
+  test('bounds an oversized structured error before JSON parsing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('{}', {
+            status: 502,
+            statusText: 'Bad Gateway',
+            headers: { 'Content-Length': String(MAX_ERROR_RESPONSE_BODY_BYTES + 1) },
+          }),
+        ),
+      ),
+    )
+
+    await expect(apiFetch('/topology')).rejects.toMatchObject({
+      status: 502,
+      message: `Response body exceeds the ${MAX_ERROR_RESPONSE_BODY_BYTES}-byte limit.`,
+    })
   })
 
   test('apiURL builds download paths without a double version prefix', () => {

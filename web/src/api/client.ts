@@ -11,6 +11,8 @@
  * browser), matching the backend's tenant-first boundary. Requests are
  * same-origin; the API is HTTPS-by-default at the ingress.
  */
+import { readResponseJSON, ResponseBodyTooLargeError, responseBodyLimit } from './response'
+
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/v1'
 
 let demoTransportIsolated = false
@@ -65,15 +67,19 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
     try {
-      const body = (await res.json()) as { error?: { message?: string } }
+      const body = await readResponseJSON<{ error?: { message?: string } }>(
+        res,
+        responseBodyLimit(res),
+      )
       if (body?.error?.message) message = body.error.message
-    } catch {
+    } catch (err) {
+      if (err instanceof ResponseBodyTooLargeError) message = err.message
       /* non-JSON error body */
     }
     throw new ApiError(res.status, message)
   }
   if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  return readResponseJSON<T>(res, responseBodyLimit(res))
 }
 
 /**
