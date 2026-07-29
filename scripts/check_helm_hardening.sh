@@ -18,7 +18,8 @@ SESSION_KEY="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 # Kubernetes resolves the actual Secret at install time.
 CONTROL_TLS_SECRET="probectl-control-tls"
 # Throwaway ingress-nginx proxy-ssl trust contract. The real Secret is
-# operator-managed and contains ca.crt; the name must match the serving cert.
+# operator-managed and contains tls.crt, tls.key, and ca.crt; the expected name
+# must match the serving certificate.
 BACKEND_TLS_SECRET="probectl-backend-ca"
 BACKEND_TLS_SERVER_NAME="probectl-control.probectl.svc"
 # Throwaway immutable digest for render-only tests.
@@ -153,6 +154,28 @@ need_file "ingress.backendTLS.serverName" "$CI_WORKFLOW" "CI kubeconform render 
 need_file "image.digest" "$CI_WORKFLOW" "CI kubeconform render must pass image.digest to Helm (SUPPLY-deb3c967)"
 need_file "secrets.sessionHMACKey" "$CI_WORKFLOW" "CI kubeconform render must pass secrets.sessionHMACKey to helm template (OPS-003)"
 need_file "database.url" "$CI_WORKFLOW" "CI kubeconform render must pass database.url to helm template (OPS-003)"
+
+# CONFIG-dc29d726: the annotation alone does not make verified backend TLS
+# deployable. Keep every operator surface aligned with ingress-nginx's complete
+# proxy-ssl-secret data contract, and retain one copy/pasteable creation example.
+for contract_file in \
+  deploy/helm/README.md \
+  deploy/helm/probectl/values.yaml \
+  deploy/gitops/argocd/application.yaml \
+  deploy/gitops/flux/helmrelease.yaml \
+  deploy/terraform/modules/probectl/variables.tf \
+  deploy/terraform/README.md \
+  docs/iac-gitops.md
+do
+  need_file "tls\\.crt.*tls\\.key.*ca\\.crt" "$contract_file" \
+    "$contract_file omits the complete ingress-nginx proxy-ssl Secret contract (CONFIG-dc29d726)"
+done
+need_file "--from-file=tls.crt=ingress-client.crt" deploy/helm/README.md \
+  "Helm README lacks the backend proxy-ssl client certificate creation step (CONFIG-dc29d726)"
+need_file "--from-file=tls.key=ingress-client.key" deploy/helm/README.md \
+  "Helm README lacks the backend proxy-ssl client key creation step (CONFIG-dc29d726)"
+need_file "--from-file=ca.crt=control-listener-ca.crt" deploy/helm/README.md \
+  "Helm README lacks the backend proxy-ssl CA creation step (CONFIG-dc29d726)"
 
 bash scripts/check_clickhouse_restore_contract.sh
 

@@ -68,7 +68,7 @@ variable "ingress_tls_secret" {
 }
 
 variable "ingress_backend_tls_trust_secret" {
-  description = "Name of the ingress-nginx proxy-ssl Secret in the release namespace; it must contain ca.crt for the control listener certificate issuer."
+  description = "Name of the ingress-nginx proxy-ssl Secret in the release namespace; it must contain tls.crt, tls.key, and ca.crt for the control listener certificate issuer."
   type        = string
   default     = "probectl-backend-ca"
 

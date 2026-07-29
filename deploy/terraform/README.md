@@ -64,7 +64,7 @@ catalogs which agent produces which data plane.
 | `release_name` | string | `probectl` | Helm release name |
 | `namespace` / `create_namespace` | string / bool | `probectl` / `true` | target namespace |
 | `ingress_tls_secret` | string | `probectl-tls` | TLS Secret reused by the ingress and HTTPS control listener |
-| `ingress_backend_tls_trust_secret` | string | `probectl-backend-ca` | pre-created ingress-nginx proxy-ssl Secret containing `ca.crt` for the control listener issuer |
+| `ingress_backend_tls_trust_secret` | string | `probectl-backend-ca` | pre-created ingress-nginx proxy-ssl Secret containing `tls.crt`, `tls.key`, and `ca.crt` for the control listener issuer |
 | `ingress_backend_tls_server_name` | string | `""` (derives `ingress_host`) | DNS SAN expected on the control listener certificate |
 | `image_repository` | string | `""` | optional approved-mirror repository override |
 | `image_digest` | string | `""` (fails precondition) | required signed control image digest, `sha256:<64 lowercase hex>` |

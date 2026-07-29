@@ -25,7 +25,7 @@ spec:
         - name: ingress.tlsSecretName
           value: probectl-tls
         # ingress-nginx proxy-ssl Secret in the destination namespace; include
-        # ca.crt for the issuer of the control listener certificate.
+        # tls.crt, tls.key, and ca.crt for the control listener's issuer.
         - name: ingress.backendTLS.trustSecret
           value: probectl-backend-ca
         - name: ingress.backendTLS.serverName

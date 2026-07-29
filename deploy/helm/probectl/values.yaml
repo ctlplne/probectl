@@ -180,7 +180,7 @@ ingress:
   tlsSecretName: probectl-tls
   # The ingress controller separately verifies the HTTPS control listener.
   # trustSecret is a Secret in this release namespace satisfying ingress-nginx's
-  # proxy-ssl Secret contract and containing ca.crt for the listener's issuer.
+  # proxy-ssl Secret contract: tls.crt, tls.key, and ca.crt for the listener's issuer.
   # serverName must be present in the control listener certificate's SANs.
   backendTLS:
     trustSecret: ""

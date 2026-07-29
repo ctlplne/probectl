@@ -27,9 +27,10 @@ terminates TLS, emits HSTS, and force-redirects HTTP → HTTPS. Supply an
 operator-managed Secret through `control.tls.existingSecret`; Helm refuses to
 render without it. The ingress controller authenticates that backend certificate
 with `ingress.backendTLS.trustSecret` (a same-namespace ingress-nginx proxy-ssl
-Secret containing `ca.crt`) and `ingress.backendTLS.serverName` (a DNS SAN on
-the control listener certificate); Helm also refuses to render if either is
-missing. `probectl/values-strict.yaml` keeps that transport posture and
+Secret containing `tls.crt`, `tls.key`, and `ca.crt`) and
+`ingress.backendTLS.serverName` (a DNS SAN on the control listener certificate);
+Helm also refuses to render if either is missing. `probectl/values-strict.yaml`
+keeps that transport posture and
 additionally closes the default egress hole. The database migration runs as an
 init container; the pod runs non-root with a read-only root filesystem.
 
@@ -52,13 +53,24 @@ helm install probectl deploy/helm/probectl \
   --set oidc.redirectUrl=https://probectl.example.com/auth/callback
 ```
 
-Provide TLS material via cert-manager (add the issuer annotation in
-`ingress.annotations`) or a pre-created Secret containing `tls.crt` and
-`tls.key`. Pre-create `probectl-backend-ca` with the `ca.crt` trust chain in the
-release namespace; the control certificate must include
-`probectl.example.com` in its SANs. The example deliberately reuses the public
-certificate for the pod listener while keeping the ingress controller's trust
-input explicit.
+Provide public/listener TLS material via cert-manager (add the issuer annotation
+in `ingress.annotations`) or a pre-created Secret containing `tls.crt` and
+`tls.key`. Separately, ingress-nginx's `proxy-ssl-secret` contract requires a
+client certificate/key plus the backend trust chain. Create it in the release
+namespace from reviewed PEM files:
+
+```sh
+kubectl -n probectl create secret generic probectl-backend-ca \
+  --from-file=tls.crt=ingress-client.crt \
+  --from-file=tls.key=ingress-client.key \
+  --from-file=ca.crt=control-listener-ca.crt
+```
+
+That Secret is ingress-nginx's outbound TLS identity and trust input; it is not
+the public ingress Secret or `control.tls.existingSecret`. The control
+certificate must include `probectl.example.com` in its SANs. The example
+deliberately reuses the public certificate for the pod listener while keeping
+the ingress controller's outbound credentials and trust explicit.
 Set `image.digest` to the signed `probectl-control` release digest (or the exact
 digest of an approved mirror); the chart rejects ordinary tags.
 

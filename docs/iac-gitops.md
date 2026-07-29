@@ -111,10 +111,12 @@ your overlay, point Terraform or Argo/Flux at it, and the cluster converges to i
 Secret for the sensitive config — so credentials never land in the ConfigMap or
 release values. It requires `image_digest`; the deprecated `image_tag` input is
 accepted only in `<version>@sha256:<digest>` form and discards the mutable tag.
-Pre-create the module's `ingress_backend_tls_trust_secret` with the control
-listener issuer in `ca.crt`; the module enables ingress-nginx certificate and
+Pre-create the module's `ingress_backend_tls_trust_secret` with the complete
+ingress-nginx proxy-ssl Secret contract: `tls.crt`, `tls.key`, and the control
+listener issuer in `ca.crt`. The module enables ingress-nginx certificate and
 name verification and derives the expected name from `ingress_host` unless
-overridden.
+overridden. This is ingress-nginx's outbound identity/trust Secret, not the
+public ingress or control-listener TLS Secret.
 It's cloud-agnostic: point the providers at any kubeconfig. The
 module interface (inputs / outputs / secret handling) is documented in
 [deploy/terraform/README.md](../deploy/terraform/README.md). The native
@@ -137,8 +139,9 @@ forever, so a secret must never enter it. Manage that Secret
 with **Sealed Secrets** or the **External Secrets Operator** (both keep only an
 encrypted or referenced form in Git; a cluster-side controller materializes the
 real value). The examples also reference a `probectl-backend-ca` Secret; manage
-its `ca.crt` through the same controller so ingress-nginx can verify the HTTPS
-control listener. Replace each manifest's invalid `image.digest` placeholder with the
+its `tls.crt`, `tls.key`, and `ca.crt` through the same controller so
+ingress-nginx can authenticate and verify the HTTPS control listener. Replace
+each manifest's invalid `image.digest` placeholder with the
 signed release or approved-mirror digest before syncing; leaving it unchanged
 fails Helm validation. ArgoCD `automated`
 sync (`prune` deletes resources removed from Git; `selfHeal` re-applies the

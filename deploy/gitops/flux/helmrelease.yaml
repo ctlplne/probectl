@@ -38,7 +38,7 @@ spec:
       host: probectl.example.com
       tlsSecretName: probectl-tls
       backendTLS:
-        # Pre-create this Secret with ca.crt for the control cert's issuer.
+        # Pre-create this proxy-ssl Secret with tls.crt, tls.key, and ca.crt.
         trustSecret: probectl-backend-ca
         serverName: probectl.example.com
     control:
