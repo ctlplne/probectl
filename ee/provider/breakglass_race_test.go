@@ -103,7 +103,7 @@ func newBreakGlassRaceFixture(t *testing.T) *breakGlassRaceFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tenant, err := store.CreateTenant(ctx, "race-tenant", "Race Tenant", "pooled", "")
+	tenant, err := store.CreateTenant(ctx, "race-tenant", "Race Tenant", "pooled", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

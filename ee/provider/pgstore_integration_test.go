@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/ee/silo"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -114,6 +115,7 @@ func newPGBreakGlassRaceFixture(t *testing.T) *pgBreakGlassRaceFixture {
 		"Break-glass Race Tenant",
 		"pooled",
 		"",
+		0,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +225,226 @@ func TestPGBreakGlassAccessLosesExpiryRace(t *testing.T) {
 	f.assertDeniedWithoutUse(t, awaitBreakGlassRaceResult(t, result))
 }
 
+func TestPGSiloProvisionFailureIsNonRoutableAndResumable(t *testing.T) {
+	pool := pgPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	store := NewPGStore(pool)
+	router := silo.NewRouter(pool, nil, time.Hour)
+	siloOps := &fakeSilo{}
+	service, err := NewService(
+		store,
+		&providerAudit{pool: pool},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.WithSilo(siloOps, router.Invalidate)
+	stamp := time.Now().UTC().UnixNano()
+
+	published, err := service.Provision(
+		ctx,
+		"operator@msp.example",
+		fmt.Sprintf("pg-published-%d", stamp),
+		"Published Control",
+		"siloed",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	siloOps.mu.Lock()
+	siloOps.failNext = true
+	siloOps.mu.Unlock()
+	pendingSlug := fmt.Sprintf("pg-pending-%d", stamp)
+	if _, err := service.Provision(
+		ctx,
+		"operator@msp.example",
+		pendingSlug,
+		"Pending Control",
+		"siloed",
+		"",
+	); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first pending provision error = %v, want deadline exceeded", err)
+	}
+	pending, err := store.TenantBySlug(ctx, pendingSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Status != "provisioning" {
+		t.Fatalf("pending status = %q, want provisioning", pending.Status)
+	}
+
+	if targets, err := router.TargetsFor(ctx, published.ID); err != nil {
+		t.Fatalf("published tenant routing: %v", err)
+	} else if targets.Model != tenancy.IsolationSiloed {
+		t.Fatalf("published tenant targets = %+v", targets)
+	}
+	if _, err := router.TargetsFor(ctx, pending.ID); !errors.Is(err, silo.ErrUnknownTenant) {
+		t.Fatalf("pending tenant routing error = %v, want ErrUnknownTenant", err)
+	}
+	fleet, err := store.FleetSummary(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetIDs := map[string]bool{}
+	for _, tenant := range fleet {
+		fleetIDs[tenant.TenantID] = true
+	}
+	if !fleetIDs[published.ID] || fleetIDs[pending.ID] {
+		t.Fatalf("fleet publication published=%v pending=%v, want true/false", fleetIDs[published.ID], fleetIDs[pending.ID])
+	}
+	var registryRows, stagingRows int
+	if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		if err := q.QueryRow(ctx, `SELECT count(*) FROM tenants WHERE id = $1`, pending.ID).Scan(&registryRows); err != nil {
+			return err
+		}
+		return q.QueryRow(ctx,
+			`SELECT count(*) FROM tenant_provisioning WHERE id = $1`, pending.ID).Scan(&stagingRows)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if registryRows != 0 || stagingRows != 1 {
+		t.Fatalf("pending publication registry=%d staging=%d, want 0/1", registryRows, stagingRows)
+	}
+
+	completed, err := service.Provision(
+		ctx,
+		"operator@msp.example",
+		pendingSlug,
+		"Pending Control",
+		"siloed",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.ID != pending.ID || completed.Status != "active" {
+		t.Fatalf("completed tenant = %+v, want same id %q active", completed, pending.ID)
+	}
+	if targets, err := router.TargetsFor(ctx, pending.ID); err != nil {
+		t.Fatalf("completed tenant routing: %v", err)
+	} else if targets.Model != tenancy.IsolationSiloed {
+		t.Fatalf("completed tenant targets = %+v", targets)
+	}
+	fleet, err = store.FleetSummary(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetIDs = map[string]bool{}
+	for _, tenant := range fleet {
+		fleetIDs[tenant.TenantID] = true
+	}
+	if !fleetIDs[published.ID] || !fleetIDs[pending.ID] {
+		t.Fatalf("completed fleet publication published=%v resumed=%v, want true/true", fleetIDs[published.ID], fleetIDs[pending.ID])
+	}
+
+	registryRows, stagingRows = 0, 0
+	if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		if err := q.QueryRow(ctx, `SELECT count(*) FROM tenants WHERE id = $1`, pending.ID).Scan(&registryRows); err != nil {
+			return err
+		}
+		return q.QueryRow(ctx,
+			`SELECT count(*) FROM tenant_provisioning WHERE id = $1`, pending.ID).Scan(&stagingRows)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if registryRows != 1 || stagingRows != 0 {
+		t.Fatalf("completed publication registry=%d staging=%d, want 1/0", registryRows, stagingRows)
+	}
+}
+
+func TestPGSiloConcurrentCompletionHonorsTenantBand(t *testing.T) {
+	pool := pgPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	store := NewPGStore(pool)
+	baseline, err := store.CountActiveTenants(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrier := newBarrierSilo()
+	service, err := NewService(
+		store,
+		&providerAudit{pool: pool},
+		licenseManager(t, license.TierMSP, baseline+1, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.WithSilo(barrier, nil)
+	stamp := time.Now().UTC().UnixNano()
+	slugs := []string{
+		fmt.Sprintf("pg-band-a-%d", stamp),
+		fmt.Sprintf("pg-band-b-%d", stamp),
+	}
+
+	type result struct {
+		tenant Tenant
+		err    error
+	}
+	results := make(chan result, 2)
+	for _, slug := range slugs {
+		go func(slug string) {
+			tenant, err := service.Provision(ctx, "operator@msp.example", slug, slug, "siloed", "")
+			results <- result{tenant: tenant, err: err}
+		}(slug)
+	}
+	for range 2 {
+		select {
+		case <-barrier.entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for PostgreSQL band-race provisioning")
+		}
+	}
+	close(barrier.release)
+
+	successes, bandFailures := 0, 0
+	for range 2 {
+		select {
+		case got := <-results:
+			switch {
+			case got.err == nil:
+				successes++
+			case errors.Is(got.err, ErrBandExhausted):
+				bandFailures++
+			default:
+				t.Fatalf("PostgreSQL concurrent provision error = %v", got.err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for PostgreSQL band-race results")
+		}
+	}
+	if successes != 1 || bandFailures != 1 {
+		t.Fatalf("PostgreSQL concurrent results success=%d band_exhausted=%d, want 1/1", successes, bandFailures)
+	}
+	active, err := store.CountActiveTenants(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active != baseline+1 {
+		t.Fatalf("active tenant count = %d, want baseline+1 (%d)", active, baseline+1)
+	}
+	statuses := map[string]int{}
+	for _, slug := range slugs {
+		tenant, err := store.TenantBySlug(ctx, slug)
+		if err != nil {
+			t.Fatal(err)
+		}
+		statuses[tenant.Status]++
+	}
+	if statuses["active"] != 1 || statuses["provisioning"] != 1 {
+		t.Fatalf("PostgreSQL publication states = %v, want active=1 provisioning=1", statuses)
+	}
+}
+
 func TestPGProviderMutationAndAuditAreAtomic(t *testing.T) {
 	pool := pgPool(t)
 	defer pool.Close()
@@ -236,6 +458,7 @@ func TestPGProviderMutationAndAuditAreAtomic(t *testing.T) {
 		"Target Before",
 		"pooled",
 		"",
+		0,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -246,6 +469,7 @@ func TestPGProviderMutationAndAuditAreAtomic(t *testing.T) {
 		"Bystander Before",
 		"pooled",
 		"",
+		0,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -460,7 +684,7 @@ func TestPGStoreLifecycle(t *testing.T) {
 
 	// Tenant lifecycle.
 	slug := "it-" + time.Now().UTC().Format("150405")
-	tn, err := st.CreateTenant(ctx, slug, "Integration Tenant", "pooled", "")
+	tn, err := st.CreateTenant(ctx, slug, "Integration Tenant", "pooled", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,11 +771,11 @@ func TestCoreTenantAuthAuthorizationContextIsTenantScoped(t *testing.T) {
 	st := NewPGStore(pool)
 	stamp := time.Now().UTC().UnixNano()
 
-	tenantA, err := st.CreateTenant(ctx, fmt.Sprintf("bg-abac-a-%d", stamp), "Break-glass ABAC A", "pooled", "")
+	tenantA, err := st.CreateTenant(ctx, fmt.Sprintf("bg-abac-a-%d", stamp), "Break-glass ABAC A", "pooled", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tenantB, err := st.CreateTenant(ctx, fmt.Sprintf("bg-abac-b-%d", stamp), "Break-glass ABAC B", "pooled", "")
+	tenantB, err := st.CreateTenant(ctx, fmt.Sprintf("bg-abac-b-%d", stamp), "Break-glass ABAC B", "pooled", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

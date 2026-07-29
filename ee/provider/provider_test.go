@@ -70,6 +70,21 @@ func (a *memAudit) count(action string) int {
 	return n
 }
 
+func (a *memAudit) lastData(action string) map[string]any {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := len(a.events) - 1; i >= 0; i-- {
+		if a.events[i].Action == action {
+			out := make(map[string]any, len(a.events[i].Data))
+			for key, value := range a.events[i].Data {
+				out[key] = value
+			}
+			return out
+		}
+	}
+	return nil
+}
+
 // memFairnessStore is a DB-less provider/fairness seam: it behaves like the
 // PGStore methods the handler uses and like the PolicySource the gate uses.
 type memFairnessStore struct {
@@ -332,7 +347,7 @@ func TestBreakGlassUseRollsBackWhenAuditFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tenant, err := store.CreateTenant(ctx, "audit-rollback", "Audit Rollback", "pooled", "")
+	tenant, err := store.CreateTenant(ctx, "audit-rollback", "Audit Rollback", "pooled", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

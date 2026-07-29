@@ -414,41 +414,162 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 	} else if residency != "" {
 		return Tenant{}, validationError("provider: residency targeting requires a siloed or hybrid tenant")
 	}
-	if band := s.lic.TenantBand(); band > 0 {
+	tenantBand := s.lic.TenantBand()
+	if tenantBand > 0 {
 		n, err := s.store.CountActiveTenants(ctx)
 		if err != nil {
 			return Tenant{}, err
 		}
-		if n >= band {
-			return Tenant{}, fmt.Errorf("%w: %d of %d in use", ErrBandExhausted, n, band)
+		if n >= tenantBand {
+			return Tenant{}, fmt.Errorf("%w: %d of %d in use", ErrBandExhausted, n, tenantBand)
 		}
 	}
+	name = strings.TrimSpace(name)
+	if model == tenancy.IsolationPooled {
+		var t Tenant
+		err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+			var err error
+			t, err = store.CreateTenant(ctx, slug, name, isolationModel, residency, tenantBand)
+			if err != nil {
+				return err
+			}
+			return audit.Append(ctx, actor, "provider.tenant_provision", t.ID, tenantProvisionAuditData(t))
+		})
+		if err != nil {
+			return Tenant{}, err
+		}
+		s.invalidateRouter()
+		return t, nil
+	}
+
+	// Isolated provisioning crosses transactional stores. Stage the final
+	// tenant identity outside the routable registry, then publish it only after
+	// every idempotent silo leg has succeeded. A retry with the same slug and
+	// configuration reuses this UUID.
 	var t Tenant
-	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
-		var err error
-		t, err = store.CreateTenant(ctx, slug, strings.TrimSpace(name), isolationModel, residency)
+	existing, err := s.store.TenantBySlug(ctx, slug)
+	switch {
+	case err == nil:
+		if !sameTenantProvision(*existing, name, isolationModel, residency) {
+			return Tenant{}, fmt.Errorf("%w: slug is already active or belongs to a different provisioning request", ErrConflict)
+		}
+		t = *existing
+		if err := s.recordTenantProvisionEvent(ctx, actor, "provider.tenant_provision_attempt", t, nil); err != nil {
+			return Tenant{}, err
+		}
+	case errors.Is(err, ErrNotFound):
+		err = s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+			var err error
+			t, err = store.CreateTenantProvision(ctx, slug, name, isolationModel, residency)
+			if err != nil {
+				return err
+			}
+			return audit.Append(ctx, actor, "provider.tenant_provision_attempt", t.ID, tenantProvisionAuditData(t))
+		})
+		if errors.Is(err, ErrConflict) {
+			// A concurrent first attempt may have created the staging row after
+			// our lookup. Resume that exact request instead of making the caller
+			// discover and retry an avoidable 409.
+			existing, lookupErr := s.store.TenantBySlug(ctx, slug)
+			if lookupErr != nil {
+				return Tenant{}, err
+			}
+			if !sameTenantProvision(*existing, name, isolationModel, residency) {
+				return Tenant{}, err
+			}
+			t = *existing
+			if err := s.recordTenantProvisionEvent(ctx, actor, "provider.tenant_provision_attempt", t, nil); err != nil {
+				return Tenant{}, err
+			}
+		} else if err != nil {
+			return Tenant{}, err
+		}
+	default:
+		return Tenant{}, err
+	}
+
+	if err := s.silo.Provision(ctx, t.ID, residency, model); err != nil {
+		auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		auditErr := s.recordTenantProvisionEvent(auditCtx, actor, "provider.tenant_provision_failure", t, map[string]any{
+			"error_category": tenantProvisionFailureCategory(err),
+		})
+		provisionErr := fmt.Errorf("silo provisioning failed (re-run provision to complete): %w", err)
+		if auditErr != nil {
+			return Tenant{}, errors.Join(provisionErr, fmt.Errorf("record provisioning failure: %w", auditErr))
+		}
+		return Tenant{}, provisionErr
+	}
+
+	published := false
+	err = s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		completed, didPublish, err := store.CompleteTenantProvision(ctx, t.ID, tenantBand)
 		if err != nil {
 			return err
 		}
-		return audit.Append(ctx, actor, "provider.tenant_provision", t.ID, map[string]any{
-			"slug": slug, "name": name, "isolation_model": isolationModel, "residency": residency,
-		})
+		t, published = completed, didPublish
+		if !published {
+			return nil
+		}
+		return audit.Append(ctx, actor, "provider.tenant_provision", t.ID, tenantProvisionAuditData(t))
 	})
 	if err != nil {
+		auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		auditErr := s.recordTenantProvisionEvent(auditCtx, actor, "provider.tenant_provision_failure", t, map[string]any{
+			"error_category": tenantProvisionFailureCategory(err),
+		})
+		if auditErr != nil {
+			return Tenant{}, errors.Join(err, fmt.Errorf("record provisioning failure: %w", auditErr))
+		}
 		return Tenant{}, err
 	}
-	// External silo DDL stays outside the provider transaction. The committed
-	// tenant registry row already has its mandatory audit event, and Provision
-	// is idempotent so a failed external leg can be resumed safely.
-	if model != tenancy.IsolationPooled {
-		if err := s.silo.Provision(ctx, t.ID, residency, model); err != nil {
-			return Tenant{}, fmt.Errorf("silo provisioning failed (re-run provision to complete): %w", err)
-		}
+	if published {
+		s.invalidateRouter()
 	}
-	// Publish the committed routing change only after both the atomic registry
-	// write and any external silo provisioning have succeeded.
-	s.invalidateRouter()
 	return t, nil
+}
+
+func tenantProvisionAuditData(t Tenant) map[string]any {
+	return map[string]any{
+		"slug": t.Slug, "name": t.Name,
+		"isolation_model": t.IsolationModel, "residency": t.Residency,
+	}
+}
+
+func sameTenantProvision(t Tenant, name, isolationModel, residency string) bool {
+	return t.Status == "provisioning" &&
+		t.Name == name &&
+		t.IsolationModel == isolationModel &&
+		t.Residency == residency
+}
+
+func tenantProvisionFailureCategory(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, ErrBandExhausted):
+		return "tenant_band_exhausted"
+	default:
+		return "registry_publish_failed"
+	}
+}
+
+func (s *Service) recordTenantProvisionEvent(
+	ctx context.Context,
+	actor, action string,
+	t Tenant,
+	extra map[string]any,
+) error {
+	data := tenantProvisionAuditData(t)
+	for key, value := range extra {
+		data[key] = value
+	}
+	return s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, _ MutationStore, audit AuditSink) error {
+		return audit.Append(ctx, actor, action, t.ID, data)
+	})
 }
 
 // Configure renames a tenant.

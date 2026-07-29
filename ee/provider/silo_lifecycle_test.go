@@ -8,6 +8,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 // fakeSilo records provisioning/teardown calls (the S-T2 SiloOps seam).
 type fakeSilo struct {
 	mu          sync.Mutex
+	attempted   []string // includes failed idempotent attempts
 	provisioned []string // "tenantID|model|residency"
 	tornDown    []string
 	planes      []string
@@ -30,11 +32,13 @@ type fakeSilo struct {
 func (f *fakeSilo) Provision(_ context.Context, tenantID, residency string, model tenancy.IsolationModel) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	call := tenantID + "|" + string(model) + "|" + residency
+	f.attempted = append(f.attempted, call)
 	if f.failNext {
 		f.failNext = false
 		return context.DeadlineExceeded
 	}
-	f.provisioned = append(f.provisioned, tenantID+"|"+string(model)+"|"+residency)
+	f.provisioned = append(f.provisioned, call)
 	return nil
 }
 
@@ -59,10 +63,209 @@ func (f *fakeSilo) ValidResidency(name string) bool {
 
 func (f *fakeSilo) Planes() []string { return f.planes }
 
+type barrierSilo struct {
+	entered chan string
+	release chan struct{}
+}
+
+func newBarrierSilo() *barrierSilo {
+	return &barrierSilo{entered: make(chan string, 2), release: make(chan struct{})}
+}
+
+func (s *barrierSilo) Provision(
+	ctx context.Context,
+	tenantID, residency string,
+	model tenancy.IsolationModel,
+) error {
+	select {
+	case s.entered <- tenantID + "|" + string(model) + "|" + residency:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (*barrierSilo) Teardown(context.Context, string, string, tenancy.IsolationModel) error {
+	return nil
+}
+func (*barrierSilo) ValidResidency(string) bool { return true }
+func (*barrierSilo) Planes() []string           { return nil }
+
+func TestSiloConcurrentCompletionHonorsTenantBand(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 1, 90*24*time.Hour))
+	silo := newBarrierSilo()
+	invalidated := 0
+	f.svc.WithSilo(silo, func() { invalidated++ })
+
+	type result struct {
+		tenant Tenant
+		err    error
+	}
+	results := make(chan result, 2)
+	for _, slug := range []string{"band-race-a", "band-race-b"} {
+		go func(slug string) {
+			tenant, err := f.svc.Provision(
+				context.Background(), "operator@msp.example", slug, slug, "siloed", "",
+			)
+			results <- result{tenant: tenant, err: err}
+		}(slug)
+	}
+	for range 2 {
+		select {
+		case <-silo.entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for both isolated tenants to reach external provisioning")
+		}
+	}
+	close(silo.release)
+
+	successes, bandFailures := 0, 0
+	for range 2 {
+		select {
+		case got := <-results:
+			switch {
+			case got.err == nil:
+				successes++
+				if got.tenant.Status != "active" {
+					t.Fatalf("successful tenant = %+v, want active", got.tenant)
+				}
+			case errors.Is(got.err, ErrBandExhausted):
+				bandFailures++
+			default:
+				t.Fatalf("concurrent provision error = %v", got.err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for concurrent provisioning results")
+		}
+	}
+	if successes != 1 || bandFailures != 1 {
+		t.Fatalf("concurrent results: success=%d band_exhausted=%d, want 1/1", successes, bandFailures)
+	}
+	if active, err := f.store.CountActiveTenants(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if active != 1 {
+		t.Fatalf("active tenant band usage = %d, want 1", active)
+	}
+	tenants, err := f.store.ListTenants(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses := map[string]int{}
+	for _, tenant := range tenants {
+		statuses[tenant.Status]++
+	}
+	if statuses["active"] != 1 || statuses["provisioning"] != 1 {
+		t.Fatalf("tenant publication states = %v, want active=1 provisioning=1", statuses)
+	}
+	if invalidated != 1 {
+		t.Fatalf("router invalidations = %d, want only the published tenant", invalidated)
+	}
+	if f.audit.count("provider.tenant_provision_attempt") != 2 ||
+		f.audit.count("provider.tenant_provision_failure") != 1 ||
+		f.audit.count("provider.tenant_provision") != 1 {
+		t.Fatalf("concurrent provision audit transitions = %+v", f.audit.events)
+	}
+}
+
+func TestSiloProvisionFailureIsResumable(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 1, 90*24*time.Hour))
+	silo := &fakeSilo{planes: []string{"eu"}, failNext: true}
+	invalidated := 0
+	f.svc.WithSilo(silo, func() { invalidated++ })
+	token := f.bootstrapAndLoginFast(t)
+	body := map[string]string{
+		"slug": "resumable-co", "name": "Resumable Co",
+		"isolation_model": "siloed", "residency": "eu",
+	}
+
+	first := f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants", body)
+	if first.Code != http.StatusInternalServerError {
+		t.Fatalf("failed first provision = %d %s, want 500", first.Code, first.Body.String())
+	}
+	tenants, err := f.store.ListTenants(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tenants) != 1 || tenants[0].Status != "provisioning" {
+		t.Fatalf("failed provision inventory = %+v, want one provisioning tenant", tenants)
+	}
+	pendingID := tenants[0].ID
+	if active, err := f.store.CountActiveTenants(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if active != 0 {
+		t.Fatalf("active tenant band usage after failed provision = %d, want 0", active)
+	}
+	f.store.mu.Lock()
+	routable := len(f.store.tenants)
+	f.store.mu.Unlock()
+	if routable != 0 {
+		t.Fatalf("routable registry rows after failed provision = %d, want 0", routable)
+	}
+	if fleet, err := f.store.FleetSummary(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if len(fleet) != 0 {
+		t.Fatalf("published fleet rows after failed provision = %+v, want none", fleet)
+	}
+	if invalidated != 0 {
+		t.Fatalf("router invalidations after failed provision = %d, want 0", invalidated)
+	}
+	if f.audit.count("provider.tenant_provision_attempt") != 1 ||
+		f.audit.count("provider.tenant_provision_failure") != 1 ||
+		f.audit.count("provider.tenant_provision") != 0 {
+		t.Fatalf("failed provision audit transitions = %+v", f.audit.events)
+	}
+	failureData := f.audit.lastData("provider.tenant_provision_failure")
+	if failureData["error_category"] != "deadline_exceeded" {
+		t.Fatalf("failure audit category = %#v, want deadline_exceeded", failureData["error_category"])
+	}
+	if _, hasRawError := failureData["error"]; hasRawError {
+		t.Fatalf("failure audit leaked a raw external error: %+v", failureData)
+	}
+
+	// A retry cannot silently change the incomplete isolated tenant into a
+	// pooled tenant with the same slug.
+	fallback := f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants",
+		map[string]string{"slug": "resumable-co", "name": "Resumable Co"})
+	if fallback.Code != http.StatusConflict {
+		t.Fatalf("pooled fallback = %d %s, want 409", fallback.Code, fallback.Body.String())
+	}
+
+	retry := f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants", body)
+	if retry.Code != http.StatusCreated {
+		t.Fatalf("retry provision = %d %s, want 201", retry.Code, retry.Body.String())
+	}
+	var completed Tenant
+	mustDecode(t, retry, &completed)
+	if completed.ID != pendingID || completed.Status != "active" {
+		t.Fatalf("completed tenant = %+v, want same id %q active", completed, pendingID)
+	}
+	if len(silo.attempted) != 2 || silo.attempted[0] != silo.attempted[1] {
+		t.Fatalf("silo attempts = %v, want same tenant target twice", silo.attempted)
+	}
+	if active, err := f.store.CountActiveTenants(t.Context()); err != nil {
+		t.Fatal(err)
+	} else if active != 1 {
+		t.Fatalf("active tenant band usage after completion = %d, want 1", active)
+	}
+	if invalidated != 1 {
+		t.Fatalf("router invalidations after completion = %d, want 1", invalidated)
+	}
+	if f.audit.count("provider.tenant_provision_attempt") != 2 ||
+		f.audit.count("provider.tenant_provision_failure") != 1 ||
+		f.audit.count("provider.tenant_provision") != 1 {
+		t.Fatalf("completed provision audit transitions = %+v", f.audit.events)
+	}
+}
+
 // TestSiloedProvisioningLifecycle is the S-T2 lifecycle suite at the API:
 // pooled needs nothing; siloed/hybrid require the capability + a valid
 // residency, provision the silo BEFORE success, and offboard tears it down.
-func TestSiloedProvisioningLifecycle(t *testing.T) {
+func TestSiloLifecycle(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	silo := &fakeSilo{planes: []string{"eu"}}
 	invalidated := 0

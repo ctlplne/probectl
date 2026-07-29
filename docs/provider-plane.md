@@ -79,7 +79,7 @@ on the provider audit stream with the acting operator's identity.
 
 | Action | Effect |
 |---|---|
-| Provision | Creates the tenant (slug + name). The license's **tenant band** is enforced *here*: provisioning past the band fails loudly with `tenant_band_exhausted`, and existing tenants are never affected. (A suspended tenant still occupies a band slot; an offboarded one does not.) |
+| Provision | Creates the tenant (slug + name). Pooled tenants publish atomically. A siloed/hybrid tenant first appears in the provider inventory as **`provisioning`**, outside the routable tenant registry, while its isolated stores are created. A failed attempt stays non-routable and does not consume the tenant band; posting the same slug, name, model, and residency resumes the same tenant ID. Only the atomic `active` publication consumes the license's **tenant band**, and that final transition rechecks the band under a database lock. Provisioning past the band fails loudly with `tenant_band_exhausted`; a suspended tenant still occupies a slot and an offboarded one does not. Attempt, failure category, and completion are separately recorded on the provider audit stream. |
 | Configure | Rename the tenant. |
 | Suspend | The tenant's **users are rejected at the API** (`tenant_suspended`, via the core lifecycle gate in `requirePermission`). Data, agents, and ingestion are left untouched — suspend is a reversible billing/lifecycle state, never destruction. |
 | Resume | Reactivates a suspended tenant. |

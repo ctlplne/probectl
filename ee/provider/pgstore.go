@@ -206,6 +206,7 @@ func (s *PGStore) CountOperators(ctx context.Context) (int, error) {
 // --- tenants ---
 
 const tenantCols = `id::text, slug, name, status, isolation_model, residency, created_at`
+const tenantProvisionCols = `id::text, slug, name, 'provisioning'::text, isolation_model, residency, created_at`
 
 func scanTenant(row pgx.Row) (Tenant, error) {
 	var t Tenant
@@ -213,12 +214,57 @@ func scanTenant(row pgx.Row) (Tenant, error) {
 	return t, err
 }
 
-func (s *PGStore) CreateTenant(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error) {
+func lockTenantBand(ctx context.Context, q tenancy.Querier) error {
+	_, err := q.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('probectl:tenant-band', 0))`)
+	return err
+}
+
+func enforceTenantBand(ctx context.Context, q tenancy.Querier, tenantBand int) error {
+	if tenantBand <= 0 {
+		return nil
+	}
+	var active int
+	if err := q.QueryRow(ctx,
+		`SELECT count(*) FROM tenants WHERE status IN ('active','suspended')`).Scan(&active); err != nil {
+		return err
+	}
+	if active >= tenantBand {
+		return ErrBandExhausted
+	}
+	return nil
+}
+
+func (s *PGStore) CreateTenant(
+	ctx context.Context,
+	slug, name, isolationModel, residency string,
+	tenantBand int,
+) (Tenant, error) {
 	if isolationModel == "" {
 		isolationModel = "pooled"
 	}
+	if isolationModel != "pooled" {
+		return Tenant{}, errors.New("provider: isolated tenants must use resumable provisioning")
+	}
 	var out Tenant
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		if err := lockTenantBand(ctx, q); err != nil {
+			return err
+		}
+		if err := enforceTenantBand(ctx, q, tenantBand); err != nil {
+			return err
+		}
+		if _, err := q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, slug); err != nil {
+			return err
+		}
+		var pending bool
+		if err := q.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM tenant_provisioning WHERE slug = $1)`, slug).Scan(&pending); err != nil {
+			return err
+		}
+		if pending {
+			return ErrConflict
+		}
 		var e error
 		out, e = scanTenant(q.QueryRow(ctx,
 			`INSERT INTO tenants (slug, name, isolation_model, residency) VALUES ($1, $2, $3, $4) RETURNING `+tenantCols,
@@ -226,6 +272,87 @@ func (s *PGStore) CreateTenant(ctx context.Context, slug, name, isolationModel, 
 		return e
 	})
 	return out, mapPGErr(err)
+}
+
+func (s *PGStore) CreateTenantProvision(
+	ctx context.Context,
+	slug, name, isolationModel, residency string,
+) (Tenant, error) {
+	if isolationModel != "siloed" && isolationModel != "hybrid" {
+		return Tenant{}, errors.New("provider: resumable provisioning requires siloed or hybrid isolation")
+	}
+	var out Tenant
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		if _, err := q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, slug); err != nil {
+			return err
+		}
+		var exists bool
+		if err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tenants WHERE slug = $1)`, slug).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return ErrConflict
+		}
+		var err error
+		out, err = scanTenant(q.QueryRow(ctx,
+			`INSERT INTO tenant_provisioning (slug, name, isolation_model, residency)
+			 VALUES ($1, $2, $3, $4) RETURNING `+tenantProvisionCols,
+			slug, name, isolationModel, residency))
+		return err
+	})
+	return out, mapPGErr(err)
+}
+
+func (s *PGStore) CompleteTenantProvision(
+	ctx context.Context,
+	id string,
+	tenantBand int,
+) (Tenant, bool, error) {
+	var out Tenant
+	completed := false
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		if err := lockTenantBand(ctx, q); err != nil {
+			return err
+		}
+		pending, err := scanTenant(q.QueryRow(ctx,
+			`SELECT `+tenantProvisionCols+` FROM tenant_provisioning WHERE id = $1`, id))
+		if errors.Is(err, pgx.ErrNoRows) {
+			out, err = scanTenant(q.QueryRow(ctx, `SELECT `+tenantCols+` FROM tenants WHERE id = $1`, id))
+			if err == nil && out.Status != "active" {
+				return ErrConflict
+			}
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		if err := enforceTenantBand(ctx, q, tenantBand); err != nil {
+			return err
+		}
+		if _, err := q.Exec(ctx,
+			`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, pending.Slug); err != nil {
+			return err
+		}
+		out, err = scanTenant(q.QueryRow(ctx,
+			`INSERT INTO tenants (id, slug, name, status, isolation_model, residency, created_at, updated_at)
+			 VALUES ($1, $2, $3, 'active', $4, $5, $6, now())
+			 RETURNING `+tenantCols,
+			pending.ID, pending.Slug, pending.Name, pending.IsolationModel, pending.Residency, pending.CreatedAt))
+		if err != nil {
+			return err
+		}
+		if tag, err := q.Exec(ctx, `DELETE FROM tenant_provisioning WHERE id = $1`, id); err != nil {
+			return err
+		} else if tag.RowsAffected() != 1 {
+			return ErrConflict
+		}
+		completed = true
+		return nil
+	})
+	if err != nil {
+		return Tenant{}, false, mapPGErr(err)
+	}
+	return out, completed, nil
 }
 
 func (s *PGStore) RenameTenant(ctx context.Context, id, name string) (Tenant, error) {
@@ -253,7 +380,13 @@ func (s *PGStore) SetTenantStatus(ctx context.Context, id, status string) (Tenan
 func (s *PGStore) ListTenants(ctx context.Context) ([]Tenant, error) {
 	var out []Tenant
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
-		rows, err := q.Query(ctx, `SELECT `+tenantCols+` FROM tenants ORDER BY slug`)
+		rows, err := q.Query(ctx, `
+			SELECT id::text, slug, name, status, isolation_model, residency, created_at
+			  FROM tenants
+			UNION ALL
+			SELECT id::text, slug, name, 'provisioning', isolation_model, residency, created_at
+			  FROM tenant_provisioning
+			 ORDER BY slug`)
 		if err != nil {
 			return err
 		}
@@ -268,6 +401,23 @@ func (s *PGStore) ListTenants(ctx context.Context) ([]Tenant, error) {
 		return rows.Err()
 	})
 	return out, mapPGErr(err)
+}
+
+func (s *PGStore) TenantBySlug(ctx context.Context, slug string) (*Tenant, error) {
+	var out Tenant
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		var err error
+		out, err = scanTenant(q.QueryRow(ctx, `SELECT `+tenantCols+` FROM tenants WHERE slug = $1`, slug))
+		if errors.Is(err, pgx.ErrNoRows) {
+			out, err = scanTenant(q.QueryRow(ctx,
+				`SELECT `+tenantProvisionCols+` FROM tenant_provisioning WHERE slug = $1`, slug))
+		}
+		return err
+	})
+	if err != nil {
+		return nil, mapPGErr(err)
+	}
+	return &out, nil
 }
 
 func (s *PGStore) CountActiveTenants(ctx context.Context) (int, error) {

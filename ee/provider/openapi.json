@@ -115,7 +115,7 @@
         }
       },
       "post": {
-        "summary": "Provision a tenant (licensed tenant band enforced; isolation_model pooled|siloed|hybrid \u2014 siloed/hybrid require the siloed_isolation feature and provision the tenant's isolated stores; residency pins a configured data plane)",
+        "summary": "Provision a tenant (licensed tenant band enforced atomically at publication; isolation_model pooled|siloed|hybrid \u2014 failed siloed/hybrid setup remains non-routable in provisioning state and the identical request resumes the same tenant; residency pins a configured data plane)",
         "responses": {
           "200": {
             "description": "OK"

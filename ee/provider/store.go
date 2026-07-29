@@ -60,7 +60,7 @@ type Tenant struct {
 	ID             string    `json:"id"`
 	Slug           string    `json:"slug"`
 	Name           string    `json:"name"`
-	Status         string    `json:"status"` // active | suspended | offboarding | deleted
+	Status         string    `json:"status"` // provisioning | active | suspended | offboarding | deleted
 	IsolationModel string    `json:"isolation_model"`
 	Residency      string    `json:"residency,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -137,7 +137,9 @@ type MutationStore interface {
 	SetOperatorTOTP(ctx context.Context, id string, sealed crypto.Sealed) error
 	ActivateOperator(ctx context.Context, id, passwordHash string) error
 	SetOperatorStatus(ctx context.Context, id, status string) error
-	CreateTenant(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error)
+	CreateTenant(ctx context.Context, slug, name, isolationModel, residency string, tenantBand int) (Tenant, error)
+	CreateTenantProvision(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error)
+	CompleteTenantProvision(ctx context.Context, id string, tenantBand int) (Tenant, bool, error)
 	RenameTenant(ctx context.Context, id, name string) (Tenant, error)
 	SetTenantStatus(ctx context.Context, id, status string) (Tenant, error)
 	CreateGrant(ctx context.Context, g Grant) (Grant, error)
@@ -168,6 +170,7 @@ type Store interface {
 
 	// Tenant lifecycle.
 	ListTenants(ctx context.Context) ([]Tenant, error)
+	TenantBySlug(ctx context.Context, slug string) (*Tenant, error)
 	CountActiveTenants(ctx context.Context) (int, error)
 
 	// Fleet (counts/versions only — the storage role enforces this in the pg
@@ -196,12 +199,13 @@ func ValidSlug(s string) bool { return slugRe.MatchString(s) }
 
 // MemStore is a thread-safe in-memory Store.
 type MemStore struct {
-	mu        sync.Mutex
-	seq       int
-	operators map[string]*memOperator
-	tenants   map[string]*Tenant
-	grants    map[string]*Grant
-	fleet     map[string]TenantFleet // keyed by tenant ID; set by tests
+	mu         sync.Mutex
+	seq        int
+	operators  map[string]*memOperator
+	tenants    map[string]*Tenant
+	provisions map[string]*Tenant
+	grants     map[string]*Grant
+	fleet      map[string]TenantFleet // keyed by tenant ID; set by tests
 }
 
 type memOperator struct {
@@ -213,10 +217,11 @@ type memOperator struct {
 // NewMemStore returns an empty in-memory store.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		operators: map[string]*memOperator{},
-		tenants:   map[string]*Tenant{},
-		grants:    map[string]*Grant{},
-		fleet:     map[string]TenantFleet{},
+		operators:  map[string]*memOperator{},
+		tenants:    map[string]*Tenant{},
+		provisions: map[string]*Tenant{},
+		grants:     map[string]*Grant{},
+		fleet:      map[string]TenantFleet{},
 	}
 }
 
@@ -234,6 +239,7 @@ func (m *MemStore) WithAuditedMutation(ctx context.Context, sink AuditSink, fn A
 	m.seq = staged.seq
 	m.operators = staged.operators
 	m.tenants = staged.tenants
+	m.provisions = staged.provisions
 	m.grants = staged.grants
 	m.fleet = staged.fleet
 	return nil
@@ -255,6 +261,10 @@ func (m *MemStore) cloneLocked() *MemStore {
 	for id, tenant := range m.tenants {
 		cp := *tenant
 		staged.tenants[id] = &cp
+	}
+	for id, tenant := range m.provisions {
+		cp := *tenant
+		staged.provisions[id] = &cp
 	}
 	for id, grant := range m.grants {
 		cp := *grant
@@ -378,10 +388,22 @@ func (m *MemStore) CountOperators(_ context.Context) (int, error) {
 	return len(m.operators), nil
 }
 
-func (m *MemStore) CreateTenant(_ context.Context, slug, name, isolationModel, residency string) (Tenant, error) {
+func (m *MemStore) CreateTenant(
+	_ context.Context,
+	slug, name, isolationModel, residency string,
+	tenantBand int,
+) (Tenant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if tenantBand > 0 && m.activeTenantCountLocked() >= tenantBand {
+		return Tenant{}, ErrBandExhausted
+	}
 	for _, t := range m.tenants {
+		if t.Slug == slug {
+			return Tenant{}, ErrConflict
+		}
+	}
+	for _, t := range m.provisions {
 		if t.Slug == slug {
 			return Tenant{}, ErrConflict
 		}
@@ -389,10 +411,59 @@ func (m *MemStore) CreateTenant(_ context.Context, slug, name, isolationModel, r
 	if isolationModel == "" {
 		isolationModel = "pooled"
 	}
+	if isolationModel != "pooled" {
+		return Tenant{}, errors.New("provider: isolated tenants must use resumable provisioning")
+	}
 	t := Tenant{ID: m.nextID("tn"), Slug: slug, Name: name, Status: "active",
 		IsolationModel: isolationModel, Residency: residency, CreatedAt: time.Now().UTC()}
 	m.tenants[t.ID] = &t
 	return t, nil
+}
+
+func (m *MemStore) CreateTenantProvision(
+	_ context.Context,
+	slug, name, isolationModel, residency string,
+) (Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if isolationModel != "siloed" && isolationModel != "hybrid" {
+		return Tenant{}, errors.New("provider: resumable provisioning requires siloed or hybrid isolation")
+	}
+	for _, tenants := range []map[string]*Tenant{m.tenants, m.provisions} {
+		for _, t := range tenants {
+			if t.Slug == slug {
+				return Tenant{}, ErrConflict
+			}
+		}
+	}
+	t := Tenant{
+		ID: m.nextID("tn"), Slug: slug, Name: name, Status: "provisioning",
+		IsolationModel: isolationModel, Residency: residency, CreatedAt: time.Now().UTC(),
+	}
+	m.provisions[t.ID] = &t
+	return t, nil
+}
+
+func (m *MemStore) CompleteTenantProvision(
+	_ context.Context,
+	id string,
+	tenantBand int,
+) (Tenant, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.provisions[id]; ok {
+		if tenantBand > 0 && m.activeTenantCountLocked() >= tenantBand {
+			return Tenant{}, false, ErrBandExhausted
+		}
+		delete(m.provisions, id)
+		t.Status = "active"
+		m.tenants[id] = t
+		return *t, true, nil
+	}
+	if t, ok := m.tenants[id]; ok && t.Status == "active" {
+		return *t, false, nil
+	}
+	return Tenant{}, false, ErrNotFound
 }
 
 func (m *MemStore) RenameTenant(_ context.Context, id, name string) (Tenant, error) {
@@ -420,24 +491,45 @@ func (m *MemStore) SetTenantStatus(_ context.Context, id, status string) (Tenant
 func (m *MemStore) ListTenants(_ context.Context) ([]Tenant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]Tenant, 0, len(m.tenants))
+	out := make([]Tenant, 0, len(m.tenants)+len(m.provisions))
 	for _, t := range m.tenants {
+		out = append(out, *t)
+	}
+	for _, t := range m.provisions {
 		out = append(out, *t)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
 	return out, nil
 }
 
+func (m *MemStore) TenantBySlug(_ context.Context, slug string) (*Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, tenants := range []map[string]*Tenant{m.tenants, m.provisions} {
+		for _, t := range tenants {
+			if t.Slug == slug {
+				cp := *t
+				return &cp, nil
+			}
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (m *MemStore) CountActiveTenants(_ context.Context) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.activeTenantCountLocked(), nil
+}
+
+func (m *MemStore) activeTenantCountLocked() int {
 	n := 0
 	for _, t := range m.tenants {
 		if t.Status == "active" || t.Status == "suspended" {
 			n++ // suspended tenants still occupy a band slot; offboarded do not
 		}
 	}
-	return n, nil
+	return n
 }
 
 // SetFleet seeds fleet rows (tests).

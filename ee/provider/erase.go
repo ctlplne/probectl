@@ -56,6 +56,12 @@ func (h *Handler) handleTenantErase(w http.ResponseWriter, r *http.Request, op O
 	slug := ""
 	for _, t := range tenants {
 		if t.ID == tenantID {
+			if t.Status == "provisioning" {
+				// No tenant registry row exists yet. The safe operation is to
+				// retry provisioning, not run the destructive lifecycle engine
+				// against a half-created external silo.
+				return ErrConflict
+			}
 			slug = t.Slug
 		}
 	}
