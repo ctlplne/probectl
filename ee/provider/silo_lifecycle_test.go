@@ -9,6 +9,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ type fakeSilo struct {
 	tornDown    []string
 	planes      []string
 	failNext    bool
+	failErr     error
 }
 
 func (f *fakeSilo) Provision(_ context.Context, tenantID, residency string, model tenancy.IsolationModel) error {
@@ -36,6 +38,9 @@ func (f *fakeSilo) Provision(_ context.Context, tenantID, residency string, mode
 	f.attempted = append(f.attempted, call)
 	if f.failNext {
 		f.failNext = false
+		if f.failErr != nil {
+			return f.failErr
+		}
 		return context.DeadlineExceeded
 	}
 	f.provisioned = append(f.provisioned, call)
@@ -95,6 +100,34 @@ func (*barrierSilo) Teardown(context.Context, string, string, tenancy.IsolationM
 }
 func (*barrierSilo) ValidResidency(string) bool { return true }
 func (*barrierSilo) Planes() []string           { return nil }
+
+type completeProvisionFailureStore struct {
+	Store
+	err error
+}
+
+func (s completeProvisionFailureStore) WithAuditedMutation(
+	ctx context.Context,
+	sink AuditSink,
+	fn AuditedMutation,
+) error {
+	return s.Store.WithAuditedMutation(ctx, sink, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		return fn(ctx, completeProvisionFailureMutation{MutationStore: store, err: s.err}, audit)
+	})
+}
+
+type completeProvisionFailureMutation struct {
+	MutationStore
+	err error
+}
+
+func (m completeProvisionFailureMutation) CompleteTenantProvision(
+	context.Context,
+	string,
+	int,
+) (Tenant, bool, error) {
+	return Tenant{}, false, m.err
+}
 
 func TestSiloConcurrentCompletionHonorsTenantBand(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierMSP, 1, 90*24*time.Hour))
@@ -169,6 +202,66 @@ func TestSiloConcurrentCompletionHonorsTenantBand(t *testing.T) {
 		f.audit.count("provider.tenant_provision_failure") != 1 ||
 		f.audit.count("provider.tenant_provision") != 1 {
 		t.Fatalf("concurrent provision audit transitions = %+v", f.audit.events)
+	}
+	if got := f.audit.lastData("provider.tenant_provision_failure")["error_category"]; got != "tenant_band_exhausted" {
+		t.Fatalf("tenant-band failure category = %#v, want tenant_band_exhausted", got)
+	}
+}
+
+func TestTenantProvisionFailureAuditCategoryMatchesPhase(t *testing.T) {
+	const backendDetail = "backend DDL failed for secret-db.internal"
+	for _, tc := range []struct {
+		name string
+		want string
+		wire func(*fixture)
+	}{
+		{
+			name: "silo provisioning",
+			want: "silo_provision_failed",
+			wire: func(f *fixture) {
+				f.svc.WithSilo(&fakeSilo{
+					failNext: true,
+					failErr:  errors.New(backendDetail),
+				}, nil)
+			},
+		},
+		{
+			name: "registry publication",
+			want: "registry_publish_failed",
+			wire: func(f *fixture) {
+				f.svc.WithSilo(&fakeSilo{}, nil)
+				f.svc.store = completeProvisionFailureStore{
+					Store: f.store,
+					err:   errors.New(backendDetail),
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
+			tc.wire(f)
+
+			if _, err := f.svc.Provision(
+				t.Context(),
+				"operator@msp.example",
+				"phase-"+strings.ReplaceAll(tc.name, " ", "-"),
+				"Phase Correct",
+				"siloed",
+				"",
+			); err == nil {
+				t.Fatal("injected provisioning failure returned nil")
+			}
+			data := f.audit.lastData("provider.tenant_provision_failure")
+			if got := data["error_category"]; got != tc.want {
+				t.Fatalf("failure category = %#v, want %q", got, tc.want)
+			}
+			if _, ok := data["error"]; ok {
+				t.Fatalf("failure audit contains raw error field: %+v", data)
+			}
+			if strings.Contains(strings.ToLower(fmt.Sprint(data)), "secret-db") {
+				t.Fatalf("failure audit leaked backend detail: %+v", data)
+			}
+		})
 	}
 }
 

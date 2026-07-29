@@ -85,6 +85,13 @@ on the provider audit stream with the acting operator's identity.
 | Resume | Reactivates a suspended tenant. |
 | Offboard | Marks the tenant `offboarding`: API access stops and the band slot frees. Offboarding **never silently destroys data** — the actual data export and verifiable deletion is a separate compliance flow (deliberately core/free). |
 
+Provisioning failure audit data is deliberately bounded and phase-aware:
+`silo_provision_failed` means an isolated datastore leg failed before registry
+publication; `registry_publish_failed` means the final atomic publication failed.
+Cancellation, deadline, and tenant-band failures use `canceled`,
+`deadline_exceeded`, and `tenant_band_exhausted`. Raw backend error text is never
+copied into the provider audit stream.
+
 ## Break-glass: the only path to tenant telemetry
 
 Since operators have no standing access to tenant data, "break-glass" is the one,

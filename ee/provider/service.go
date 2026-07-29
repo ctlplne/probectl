@@ -492,7 +492,7 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 		auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		auditErr := s.recordTenantProvisionEvent(auditCtx, actor, "provider.tenant_provision_failure", t, map[string]any{
-			"error_category": tenantProvisionFailureCategory(err),
+			"error_category": tenantProvisionFailureCategory(tenantProvisionSiloPhase, err),
 		})
 		provisionErr := fmt.Errorf("silo provisioning failed (re-run provision to complete): %w", err)
 		if auditErr != nil {
@@ -517,7 +517,7 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 		auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		auditErr := s.recordTenantProvisionEvent(auditCtx, actor, "provider.tenant_provision_failure", t, map[string]any{
-			"error_category": tenantProvisionFailureCategory(err),
+			"error_category": tenantProvisionFailureCategory(tenantProvisionRegistryPhase, err),
 		})
 		if auditErr != nil {
 			return Tenant{}, errors.Join(err, fmt.Errorf("record provisioning failure: %w", auditErr))
@@ -544,16 +544,27 @@ func sameTenantProvision(t Tenant, name, isolationModel, residency string) bool 
 		t.Residency == residency
 }
 
-func tenantProvisionFailureCategory(err error) string {
+type tenantProvisionFailurePhase uint8
+
+const (
+	tenantProvisionSiloPhase tenantProvisionFailurePhase = iota + 1
+	tenantProvisionRegistryPhase
+)
+
+func tenantProvisionFailureCategory(phase tenantProvisionFailurePhase, err error) string {
 	switch {
 	case errors.Is(err, context.Canceled):
 		return "canceled"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "deadline_exceeded"
-	case errors.Is(err, ErrBandExhausted):
+	case phase == tenantProvisionRegistryPhase && errors.Is(err, ErrBandExhausted):
 		return "tenant_band_exhausted"
-	default:
+	case phase == tenantProvisionSiloPhase:
+		return "silo_provision_failed"
+	case phase == tenantProvisionRegistryPhase:
 		return "registry_publish_failed"
+	default:
+		return "provision_failed"
 	}
 }
 
