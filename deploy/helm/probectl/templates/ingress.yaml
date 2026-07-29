@@ -1,6 +1,26 @@
 {{- if .Values.ingress.enabled }}
+{{- $ingressAnnotations := .Values.ingress.annotations | default dict -}}
+{{- range $annotation := list
+  "nginx.ingress.kubernetes.io/ssl-redirect"
+  "nginx.ingress.kubernetes.io/force-ssl-redirect"
+  "nginx.ingress.kubernetes.io/backend-protocol"
+  "nginx.ingress.kubernetes.io/proxy-ssl-verify"
+  "nginx.ingress.kubernetes.io/proxy-ssl-secret"
+  "nginx.ingress.kubernetes.io/proxy-ssl-server-name"
+  "nginx.ingress.kubernetes.io/proxy-ssl-name"
+-}}
+{{- if hasKey $ingressAnnotations $annotation }}
+{{- fail (printf "ingress.annotations[%s] is reserved by the chart's verified TLS contract" $annotation) }}
+{{- end }}
+{{- end }}
 {{- if not .Values.ingress.tlsSecretName }}
 {{- fail "ingress.tlsSecretName is required (HTTPS-by-default): provide a TLS secret or use cert-manager" }}
+{{- end }}
+{{- $backendTrustSecret := "" -}}
+{{- $backendServerName := "" -}}
+{{- if .Values.control.tls.enabled }}
+{{- $backendTrustSecret = required "ingress.backendTLS.trustSecret is required when ingress and control TLS are enabled" .Values.ingress.backendTLS.trustSecret -}}
+{{- $backendServerName = required "ingress.backendTLS.serverName is required when ingress and control TLS are enabled" .Values.ingress.backendTLS.serverName -}}
 {{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -22,8 +42,14 @@ metadata:
     # vanish. The app path is on-by-default and ingress-controller-agnostic.
     {{- if .Values.control.tls.enabled }}
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    # CRYPTO-bced5da5: encrypting the backend hop is insufficient unless the
+    # ingress controller also verifies the control listener's chain and name.
+    nginx.ingress.kubernetes.io/proxy-ssl-verify: "on"
+    nginx.ingress.kubernetes.io/proxy-ssl-secret: {{ printf "%s/%s" .Release.Namespace $backendTrustSecret | quote }}
+    nginx.ingress.kubernetes.io/proxy-ssl-server-name: "on"
+    nginx.ingress.kubernetes.io/proxy-ssl-name: {{ $backendServerName | quote }}
     {{- end }}
-    {{- with .Values.ingress.annotations }}
+    {{- with $ingressAnnotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:

@@ -25,11 +25,13 @@ process terminates TLS directly; the Service, probes, ingress backend, and
 optional ServiceMonitor all target that HTTPS listener. The public ingress also
 terminates TLS, emits HSTS, and force-redirects HTTP → HTTPS. Supply an
 operator-managed Secret through `control.tls.existingSecret`; Helm refuses to
-render without it. The same `kubernetes.io/tls` Secret may be used for the
-ingress and control listener. `probectl/values-strict.yaml` keeps that transport
-posture and additionally closes the default egress hole. The database migration
-runs as an init container; the pod runs non-root with a read-only root
-filesystem.
+render without it. The ingress controller authenticates that backend certificate
+with `ingress.backendTLS.trustSecret` (a same-namespace ingress-nginx proxy-ssl
+Secret containing `ca.crt`) and `ingress.backendTLS.serverName` (a DNS SAN on
+the control listener certificate); Helm also refuses to render if either is
+missing. `probectl/values-strict.yaml` keeps that transport posture and
+additionally closes the default egress hole. The database migration runs as an
+init container; the pod runs non-root with a read-only root filesystem.
 
 ## Install (single-tenant / sovereign)
 
@@ -38,6 +40,8 @@ helm install probectl deploy/helm/probectl \
   --namespace probectl --create-namespace \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+  --set ingress.backendTLS.serverName=probectl.example.com \
   --set control.tls.existingSecret=probectl-tls \
   --set-string image.digest='sha256:<release-digest>' \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
@@ -50,7 +54,11 @@ helm install probectl deploy/helm/probectl \
 
 Provide TLS material via cert-manager (add the issuer annotation in
 `ingress.annotations`) or a pre-created Secret containing `tls.crt` and
-`tls.key`. The example deliberately reuses it for ingress and pod TLS.
+`tls.key`. Pre-create `probectl-backend-ca` with the `ca.crt` trust chain in the
+release namespace; the control certificate must include
+`probectl.example.com` in its SANs. The example deliberately reuses the public
+certificate for the pod listener while keeping the ingress controller's trust
+input explicit.
 Set `image.digest` to the signed `probectl-control` release digest (or the exact
 digest of an approved mirror); the chart rejects ordinary tags.
 
@@ -75,6 +83,8 @@ helm install probectl deploy/helm/probectl \
   -f deploy/helm/probectl/values-multitenant.yaml \
   --set ingress.host=probectl.msp.example.com \
   --set ingress.tlsSecretName=probectl-msp-tls \
+  --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+  --set ingress.backendTLS.serverName=probectl.msp.example.com \
   --set control.tls.existingSecret=probectl-msp-tls \
   --set-string image.digest='sha256:<release-digest>' \
   --set database.url=... --set secrets.envelopeKey="$(openssl rand -base64 32)" \

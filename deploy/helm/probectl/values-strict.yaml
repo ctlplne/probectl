@@ -8,6 +8,8 @@
 # Nothing else is reachable unless it is named here.
 #
 #   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-strict.yaml \
+#     --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+#     --set ingress.backendTLS.serverName=probectl.example.com \
 #     --set-string image.digest='sha256:<release-digest>' \
 #     --set 'networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=ingress-nginx'
 #

@@ -43,6 +43,8 @@ func renderHelmConfigMap(t *testing.T, extra ...string) ([]byte, error) {
 		"--show-only", "templates/configmap.yaml",
 		"--set", "ingress.host=h.example.com",
 		"--set", "ingress.tlsSecretName=probectl-tls",
+		"--set", "ingress.backendTLS.trustSecret=probectl-backend-ca",
+		"--set", "ingress.backendTLS.serverName=probectl-control.probectl.svc",
 		"--set", "control.tls.existingSecret=probectl-control-tls",
 		"--set", "image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000",
 		"--set", "secrets.envelopeKey=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",

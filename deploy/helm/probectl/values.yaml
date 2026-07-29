@@ -178,13 +178,18 @@ ingress:
   # TLS secret holding the cert for `host`. Use cert-manager (annotations below)
   # or pre-create the secret. HTTPS-by-default requires this to be set.
   tlsSecretName: probectl-tls
+  # The ingress controller separately verifies the HTTPS control listener.
+  # trustSecret is a Secret in this release namespace satisfying ingress-nginx's
+  # proxy-ssl Secret contract and containing ca.crt for the listener's issuer.
+  # serverName must be present in the control listener certificate's SANs.
+  backendTLS:
+    trustSecret: ""
+    serverName: ""
   # Integer seconds. The template renders this explicitly as a Go duration
   # (31536000s); 0 is preserved as 0s so operators can deliberately clear HSTS.
   hstsMaxAge: 31536000
-  # Extra annotations merged into the Ingress. The TLS-redirect + HSTS
-  # annotations are HARDCODED in the template (secure-by-default) — do not
-  # repeat them here: duplicate map keys are invalid YAML and the
-  # kubeconform gate rejects the render.
+  # Extra annotations merged into the Ingress. Chart-owned redirect and backend
+  # TLS annotations are rejected here so they cannot be duplicated or weakened.
   annotations: {}
     # cert-manager.io/cluster-issuer: letsencrypt-prod
 

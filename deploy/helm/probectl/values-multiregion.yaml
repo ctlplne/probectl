@@ -6,6 +6,8 @@
 #   helm install probectl-us-east deploy/helm/probectl \
 #     -f deploy/helm/probectl/values-multiregion.yaml \
 #     --set ingress.host=us-east.probectl.example \
+#     --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+#     --set ingress.backendTLS.serverName=us-east.probectl.example \
 #     --set control.tls.existingSecret=probectl-us-east-tls \
 #     --set-string image.digest='sha256:<release-digest>' \
 #     --set database.url='postgres://…@pg-writer.global.example:5432/probectl?sslmode=require' \

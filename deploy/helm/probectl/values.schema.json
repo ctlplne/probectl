@@ -347,8 +347,31 @@
         "className": { "type": "string" },
         "host": { "type": "string" },
         "tlsSecretName": { "type": "string" },
+        "backendTLS": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trustSecret": { "type": "string", "maxLength": 253 },
+            "serverName": { "type": "string", "maxLength": 253 }
+          }
+        },
         "hstsMaxAge": { "type": "integer", "minimum": 0 },
-        "annotations": { "type": "object" }
+        "annotations": {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "nginx.ingress.kubernetes.io/ssl-redirect",
+                "nginx.ingress.kubernetes.io/force-ssl-redirect",
+                "nginx.ingress.kubernetes.io/backend-protocol",
+                "nginx.ingress.kubernetes.io/proxy-ssl-verify",
+                "nginx.ingress.kubernetes.io/proxy-ssl-secret",
+                "nginx.ingress.kubernetes.io/proxy-ssl-server-name",
+                "nginx.ingress.kubernetes.io/proxy-ssl-name"
+              ]
+            }
+          }
+        }
       }
     },
     "resources": { "type": "object" },
@@ -396,5 +419,43 @@
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "affinity": { "type": "object" }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ingress": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          },
+          "control": {
+            "properties": {
+              "tls": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["tls"]
+          }
+        },
+        "required": ["ingress", "control"]
+      },
+      "then": {
+        "properties": {
+          "ingress": {
+            "properties": {
+              "backendTLS": {
+                "properties": {
+                  "trustSecret": { "type": "string", "minLength": 1, "maxLength": 253 },
+                  "serverName": { "type": "string", "minLength": 1, "maxLength": 253 }
+                },
+                "required": ["trustSecret", "serverName"]
+              }
+            },
+            "required": ["backendTLS"]
+          }
+        }
+      }
+    }
+  ]
 }

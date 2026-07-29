@@ -24,6 +24,12 @@ spec:
           value: probectl.example.com
         - name: ingress.tlsSecretName
           value: probectl-tls
+        # ingress-nginx proxy-ssl Secret in the destination namespace; include
+        # ca.crt for the issuer of the control listener certificate.
+        - name: ingress.backendTLS.trustSecret
+          value: probectl-backend-ca
+        - name: ingress.backendTLS.serverName
+          value: probectl.example.com
         # Operator-managed kubernetes.io/tls Secret; reused for pod-listener TLS.
         - name: control.tls.existingSecret
           value: probectl-tls

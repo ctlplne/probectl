@@ -504,6 +504,8 @@ jobs:
             | /tmp/kubeconform -strict -summary
           helm template probectl deploy/helm/probectl \
             --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+            --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+            --set ingress.backendTLS.serverName=probectl-control.probectl.svc \
             --set control.tls.existingSecret=probectl-tls \
             --set image.digest="${PROBECTL_HELM_TEST_IMAGE_DIGEST}" \
             --set secrets.envelopeKey="${PROBECTL_HELM_TEST_ENVELOPE_KEY}" \
@@ -515,6 +517,8 @@ jobs:
           helm template probectl deploy/helm/probectl \
             -f deploy/helm/probectl/values-strict.yaml \
             --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+            --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+            --set ingress.backendTLS.serverName=probectl-control.probectl.svc \
             --set control.tls.existingSecret=probectl-tls \
             --set image.digest="${PROBECTL_HELM_TEST_IMAGE_DIGEST}" \
             --set secrets.envelopeKey="${PROBECTL_HELM_TEST_ENVELOPE_KEY}" \

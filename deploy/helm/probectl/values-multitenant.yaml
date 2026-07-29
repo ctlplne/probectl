@@ -3,6 +3,8 @@
 #   helm install probectl deploy/helm/probectl \
 #     -f deploy/helm/probectl/values-multitenant.yaml \
 #     --set ingress.host=probectl.msp.example \
+#     --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+#     --set ingress.backendTLS.serverName=probectl.msp.example \
 #     --set control.tls.existingSecret=probectl-msp-tls \
 #     --set-string image.digest='sha256:<release-digest>' \
 #     --set database.url=...

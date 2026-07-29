@@ -67,6 +67,23 @@ variable "ingress_tls_secret" {
   default     = "probectl-tls"
 }
 
+variable "ingress_backend_tls_trust_secret" {
+  description = "Name of the ingress-nginx proxy-ssl Secret in the release namespace; it must contain ca.crt for the control listener certificate issuer."
+  type        = string
+  default     = "probectl-backend-ca"
+
+  validation {
+    condition     = trimspace(var.ingress_backend_tls_trust_secret) != ""
+    error_message = "ingress_backend_tls_trust_secret must name a non-empty Secret."
+  }
+}
+
+variable "ingress_backend_tls_server_name" {
+  description = "Expected DNS identity in the HTTPS control listener certificate; empty derives the external ingress_host."
+  type        = string
+  default     = ""
+}
+
 variable "image_repository" {
   description = "Override the control-plane image repository (empty = chart default)."
   type        = string

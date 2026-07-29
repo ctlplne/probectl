@@ -10,7 +10,12 @@ locals {
   values_files = concat(local.size_values, [for f in var.values_files : file(f)])
   # image_tag is a deprecated compatibility input. It accepts only the historic
   # <version>@sha256:<digest> form, then discards the mutable display tag.
-  image_digest = var.image_digest != "" ? var.image_digest : try(split("@", var.image_tag)[1], "")
+  image_digest            = var.image_digest != "" ? var.image_digest : try(split("@", var.image_tag)[1], "")
+  backend_tls_server_name = (
+    var.ingress_backend_tls_server_name != ""
+    ? var.ingress_backend_tls_server_name
+    : var.ingress_host
+  )
 
   # secrets.existingSecret keys mirror the chart's Secret template.
   secret_data = merge(
@@ -25,11 +30,13 @@ locals {
   # Non-sensitive Helm overrides.
   base_set = merge(
     {
-      "ingress.host"               = var.ingress_host
-      "ingress.tlsSecretName"      = var.ingress_tls_secret
-      "control.tls.existingSecret" = var.ingress_tls_secret
-      "image.digest"               = local.image_digest
-      "secrets.existingSecret"     = kubernetes_secret.probectl.metadata[0].name
+      "ingress.host"                   = var.ingress_host
+      "ingress.tlsSecretName"          = var.ingress_tls_secret
+      "ingress.backendTLS.trustSecret" = var.ingress_backend_tls_trust_secret
+      "ingress.backendTLS.serverName"  = local.backend_tls_server_name
+      "control.tls.existingSecret"     = var.ingress_tls_secret
+      "image.digest"                   = local.image_digest
+      "secrets.existingSecret"         = kubernetes_secret.probectl.metadata[0].name
     },
     var.image_repository == "" ? {} : { "image.repository" = var.image_repository },
     var.oidc_issuer == "" ? {} : {

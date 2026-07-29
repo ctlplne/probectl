@@ -17,6 +17,10 @@ SESSION_KEY="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 # Throwaway name only: Helm checks that an operator-owned TLS Secret is named;
 # Kubernetes resolves the actual Secret at install time.
 CONTROL_TLS_SECRET="probectl-control-tls"
+# Throwaway ingress-nginx proxy-ssl trust contract. The real Secret is
+# operator-managed and contains ca.crt; the name must match the serving cert.
+BACKEND_TLS_SECRET="probectl-backend-ca"
+BACKEND_TLS_SERVER_NAME="probectl-control.probectl.svc"
 # Throwaway immutable digest for render-only tests.
 CONTROL_IMAGE_DIGEST="sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -26,9 +30,11 @@ fail() {
 }
 
 render() {
-  helm template probectl "$CHART" "$@" \
+  helm template probectl "$CHART" \
     --set ingress.host=h.example.com \
     --set ingress.tlsSecretName=probectl-tls \
+    --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+    --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
     --set image.digest="$CONTROL_IMAGE_DIGEST" \
     --set secrets.envelopeKey="$KEY" \
@@ -37,7 +43,8 @@ render() {
     --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="/var/lib/probectl/audit-worm" \
     --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="/var/lib/probectl/audit-worm/worm-ed25519.pem" \
     --set-string control.extraEnv.PROBECTL_SIEM_ENABLED="true" \
-    --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT="https://siem.example/ingest"
+    --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT="https://siem.example/ingest" \
+    "$@"
 }
 
 render_agent() {
@@ -141,6 +148,8 @@ need_file "PROBECTL_HELM_TEST_SESSION_HMAC_KEY" "$CI_WORKFLOW" "CI kubeconform r
 need_file "PROBECTL_HELM_TEST_DATABASE_URL" "$CI_WORKFLOW" "CI kubeconform render must set the dummy database URL (OPS-003)"
 need_file "PROBECTL_HELM_TEST_IMAGE_DIGEST" "$CI_WORKFLOW" "CI kubeconform render must set the immutable control image digest (SUPPLY-deb3c967)"
 need_file "control.tls.existingSecret" "$CI_WORKFLOW" "CI kubeconform render must name the required control-listener TLS Secret (CONFIG-aa08042e)"
+need_file "ingress.backendTLS.trustSecret" "$CI_WORKFLOW" "CI kubeconform render must name the backend CA Secret (CRYPTO-bced5da5)"
+need_file "ingress.backendTLS.serverName" "$CI_WORKFLOW" "CI kubeconform render must name the expected backend certificate identity (CRYPTO-bced5da5)"
 need_file "image.digest" "$CI_WORKFLOW" "CI kubeconform render must pass image.digest to Helm (SUPPLY-deb3c967)"
 need_file "secrets.sessionHMACKey" "$CI_WORKFLOW" "CI kubeconform render must pass secrets.sessionHMACKey to helm template (OPS-003)"
 need_file "database.url" "$CI_WORKFLOW" "CI kubeconform render must pass database.url to helm template (OPS-003)"
@@ -210,6 +219,8 @@ need_file "apiVersion: probectl.io/ebpf-agent/v1" "test/e2e/e2e_test.go" "e2e fi
 #    existingSecret) must FAIL closed.
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" >/dev/null 2>&1; then
   fail "chart rendered with no secrets.envelopeKey — that would be a default credential"
@@ -221,6 +232,8 @@ fi
 #     start or expose a plaintext fallback.
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
   --set secrets.sessionHMACKey="$SESSION_KEY" \
@@ -234,6 +247,8 @@ fi
 #     known password into a Kubernetes Secret.
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" >/dev/null 2>&1; then
@@ -241,6 +256,8 @@ if helm template probectl "$CHART" \
 fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
@@ -249,6 +266,8 @@ if helm template probectl "$CHART" \
 fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
@@ -258,6 +277,8 @@ if helm template probectl "$CHART" \
 fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
@@ -301,7 +322,42 @@ need "PROBECTL_TLS_CERT_FILE" "$base_cm" "default ConfigMap lacks the TLS certif
 need "PROBECTL_TLS_KEY_FILE" "$base_cm" "default ConfigMap lacks the TLS key path (CONFIG-aa08042e)"
 need_fixed "secretName: \"$CONTROL_TLS_SECRET\"" "$base_dep" "default Deployment does not mount the required TLS Secret (CONFIG-aa08042e)"
 need_fixed 'nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"' "$base_ing" "default ingress backend is not HTTPS (CONFIG-aa08042e)"
+need_fixed 'nginx.ingress.kubernetes.io/proxy-ssl-verify: "on"' "$base_ing" "default ingress does not verify the backend certificate (CRYPTO-bced5da5)"
+need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-secret: \"default/$BACKEND_TLS_SECRET\"" "$base_ing" "default ingress does not use the backend CA Secret (CRYPTO-bced5da5)"
+need_fixed 'nginx.ingress.kubernetes.io/proxy-ssl-server-name: "on"' "$base_ing" "default ingress does not send SNI to the verified backend (CRYPTO-bced5da5)"
+need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-name: \"$BACKEND_TLS_SERVER_NAME\"" "$base_ing" "default ingress does not verify the expected backend name (CRYPTO-bced5da5)"
 need "name: https" "$base_ing" "default ingress does not route to the https Service port (CONFIG-aa08042e)"
+# CRYPTO-bced5da5: HTTPS without CA/name verification is not an authenticated
+# channel. Both trust inputs are mandatory, and generic annotations cannot turn
+# the chart-owned verification controls off.
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart rendered an HTTPS backend without ingress.backendTLS trust/name (CRYPTO-bced5da5)"
+fi
+if render --set ingress.backendTLS.trustSecret= >/dev/null 2>&1; then
+  fail "chart rendered an HTTPS backend without a CA Secret (CRYPTO-bced5da5)"
+fi
+if render --set ingress.backendTLS.serverName= >/dev/null 2>&1; then
+  fail "chart rendered an HTTPS backend without an expected certificate name (CRYPTO-bced5da5)"
+fi
+for reserved_annotation in \
+  nginx.ingress.kubernetes.io/ssl-redirect \
+  nginx.ingress.kubernetes.io/force-ssl-redirect \
+  nginx.ingress.kubernetes.io/backend-protocol \
+  nginx.ingress.kubernetes.io/proxy-ssl-verify \
+  nginx.ingress.kubernetes.io/proxy-ssl-secret \
+  nginx.ingress.kubernetes.io/proxy-ssl-server-name \
+  nginx.ingress.kubernetes.io/proxy-ssl-name; do
+  escaped_annotation="${reserved_annotation//./\\.}"
+  if render --set-string "ingress.annotations.${escaped_annotation}=planted-override" >/dev/null 2>&1; then
+    fail "chart accepted reserved ingress annotation $reserved_annotation (CRYPTO-bced5da5)"
+  fi
+done
 # CONFIG-11b3ac1d: generic extraEnv remains useful for optional subsystems, but
 # it must never replace a key whose authoritative value comes from a typed chart
 # value or the chart Secret.
@@ -336,6 +392,8 @@ need_fixed 'PROBECTL_REGION: "local"' "$ordinary_cm" "second ordinary control.ex
 need_digest_pinned_control_images "default chart" "$base" 2
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set-string image.tag=0.6.0 \
   --set secrets.envelopeKey="$KEY" \
@@ -345,6 +403,8 @@ if helm template probectl "$CHART" \
 fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set-string image.tag=0.6.0 \
@@ -355,6 +415,8 @@ if helm template probectl "$CHART" \
 fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest=sha256:1234 \
   --set secrets.envelopeKey="$KEY" \
@@ -378,6 +440,8 @@ need "ingress-nginx"                   "$base_np" "default profile NetworkPolicy
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
@@ -440,6 +504,9 @@ if grep -qE '^[[:space:]]*scheme:[[:space:]]*http[[:space:]]*$' <<<"$strict_sm";
   fail "strict/regulated ServiceMonitor rendered scheme=http (WIRE-003)"
 fi
 need_fixed 'nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"' "$strict_ing" "strict ingress does not use HTTPS to the backend Service (RUNOPS-004)"
+need_fixed 'nginx.ingress.kubernetes.io/proxy-ssl-verify: "on"' "$strict_ing" "strict ingress does not verify the backend certificate (CRYPTO-bced5da5)"
+need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-secret: \"default/$BACKEND_TLS_SECRET\"" "$strict_ing" "strict ingress does not use the backend CA Secret (CRYPTO-bced5da5)"
+need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-name: \"$BACKEND_TLS_SERVER_NAME\"" "$strict_ing" "strict ingress does not verify the backend name (CRYPTO-bced5da5)"
 need "name: https" "$strict_ing" "strict ingress backend does not route to the https Service port (RUNOPS-004)"
 if render -f "$CHART/values-strict.yaml" --set control.tls.enabled=false >/dev/null 2>&1; then
   fail "strict ServiceMonitor rendered an HTTPS scrape without an HTTPS control listener (RUNOPS-004)"
@@ -553,6 +620,8 @@ done
 if helm template probectl "$CHART" -f "$CHART/values-multitenant.yaml" \
   --set ingress.host=h.example.com \
   --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
@@ -586,6 +655,8 @@ need_fixed 'PROBECTL_DATAPLANES: "us=https://clickhouse-us:8443"' "$multitenant_
 for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
   helm lint "$CHART" -f "$CHART/$f" \
     --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+    --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+    --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
     --set image.digest="$CONTROL_IMAGE_DIGEST" \
     --set secrets.envelopeKey="$KEY" \

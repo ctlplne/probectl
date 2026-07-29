@@ -39,6 +39,8 @@ func TestHelmRenderedHSTSConfigLoads(t *testing.T) {
 		"--show-only", "templates/configmap.yaml",
 		"--set", "ingress.host=h.example.com",
 		"--set", "ingress.tlsSecretName=probectl-tls",
+		"--set", "ingress.backendTLS.trustSecret=probectl-backend-ca",
+		"--set", "ingress.backendTLS.serverName=probectl-control.probectl.svc",
 		"--set", "control.tls.existingSecret=probectl-control-tls",
 		"--set", "image.digest=" + digest,
 		"--set", "secrets.envelopeKey=" + envelope,

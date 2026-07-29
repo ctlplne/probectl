@@ -37,6 +37,10 @@ spec:
     ingress:
       host: probectl.example.com
       tlsSecretName: probectl-tls
+      backendTLS:
+        # Pre-create this Secret with ca.crt for the control cert's issuer.
+        trustSecret: probectl-backend-ca
+        serverName: probectl.example.com
     control:
       tls:
         existingSecret: probectl-tls
