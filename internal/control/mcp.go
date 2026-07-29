@@ -154,6 +154,12 @@ type mcpBackend struct {
 	remediation remediation.Service // S-EE5 propose-only; nil = feature unlicensed
 }
 
+// mcpMaxListedTests is a hard per-call row ceiling. MCP has no streaming
+// pagination in this catalog revision, so list_tests returns a bounded prefix
+// plus an explicit truncated receipt instead of materializing the tenant's
+// complete catalog.
+const mcpMaxListedTests = store.DefaultTestPageSize
+
 // beginQuery applies the per-tenant query-cost guard to the expensive MCP
 // tools (the deployment-wide MCP rate limit still applies first). The
 // returned release is never nil.
@@ -169,15 +175,31 @@ func (b mcpBackend) scope(ctx context.Context, p *auth.Principal, fn func(contex
 }
 
 func (b mcpBackend) ListTests(ctx context.Context, p *auth.Principal) (any, error) {
+	release, err := b.beginQuery(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	var tests []store.Test
 	if err := b.scope(ctx, p, func(ctx context.Context, sc tenancy.Scope) error {
-		t, e := store.Tests{}.ListAll(ctx, sc, 0)
+		// Read one sentinel row past the public ceiling so truncation is exact,
+		// while RLS still makes tenant scope the outermost boundary.
+		t, e := store.Tests{}.ListPage(ctx, sc, "", mcpMaxListedTests+1)
 		tests = t
 		return e
 	}); err != nil {
 		return nil, err
 	}
-	return map[string]any{"tests": tests}, nil
+	truncated := len(tests) > mcpMaxListedTests
+	if truncated {
+		tests = tests[:mcpMaxListedTests]
+	}
+	return map[string]any{
+		"tests":     tests,
+		"limit":     mcpMaxListedTests,
+		"truncated": truncated,
+	}, nil
 }
 
 func (b mcpBackend) GetPath(ctx context.Context, p *auth.Principal, target string) (any, error) {

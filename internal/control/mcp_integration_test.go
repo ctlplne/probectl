@@ -279,6 +279,102 @@ func TestMCPABACDenyOverridesRBACTwoTenant(t *testing.T) {
 	}
 }
 
+func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
+	_, db := setupAPI(t)
+	ctx := context.Background()
+	tenants := store.NewTenants(db.Pool())
+	tenantA, err := tenants.Create(ctx, fmt.Sprintf("mcplimita-%d", time.Now().UnixNano()), "MCP Limit A")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tenantB, err := tenants.Create(ctx, fmt.Sprintf("mcplimitb-%d", time.Now().UnixNano()), "MCP Limit B")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+
+	seedTests := func(tenantID string, count int) {
+		t.Helper()
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			for i := 0; i < count; i++ {
+				if _, err := (store.Tests{}).Create(ctx, sc, store.TestInput{
+					Name:            fmt.Sprintf("bounded-%03d", i),
+					Type:            "tcp",
+					Target:          fmt.Sprintf("192.0.2.%d:443", i%250+1),
+					IntervalSeconds: 60,
+					TimeoutSeconds:  5,
+					Enabled:         true,
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("seed %s tests: %v", tenantID, err)
+		}
+	}
+	seedTests(tenantA.ID, mcpMaxListedTests+1)
+	seedTests(tenantB.ID, 1)
+
+	allowEgress := ai.NewEgressGate(
+		func(context.Context, string) (bool, error) { return true, nil },
+		nil,
+		ai.RedactionPolicy{},
+	)
+	srv := NewMCPServer(
+		&config.Config{},
+		quietLog(),
+		db.Pool(),
+		pathstore.NewMemory(),
+		120,
+		allowEgress,
+		nil,
+		nil,
+	)
+	call := func(id int, tenantID string) map[string]any {
+		t.Helper()
+		p := &auth.Principal{TenantID: tenantID, Permissions: map[string]bool{"test.read": true}}
+		result := mcpToolResult(t, srv, p, id, "list_tests", nil)
+		if result["isError"] == true {
+			t.Fatalf("tenant %s list_tests returned an error: %v", tenantID, result)
+		}
+		structured, ok := result["structuredContent"].(map[string]any)
+		if !ok {
+			t.Fatalf("tenant %s structuredContent = %T, want object", tenantID, result["structuredContent"])
+		}
+		return structured
+	}
+
+	assertTenantRows := func(structured map[string]any, tenantID string, want int, truncated bool) {
+		t.Helper()
+		rows, ok := structured["tests"].([]any)
+		if !ok {
+			t.Fatalf("tenant %s tests = %T, want array", tenantID, structured["tests"])
+		}
+		if len(rows) != want {
+			t.Fatalf("tenant %s tests = %d, want %d", tenantID, len(rows), want)
+		}
+		if got, _ := structured["truncated"].(bool); got != truncated {
+			t.Fatalf("tenant %s truncated = %v, want %v", tenantID, got, truncated)
+		}
+		if got, _ := structured["limit"].(float64); int(got) != mcpMaxListedTests {
+			t.Fatalf("tenant %s limit = %v, want %d", tenantID, structured["limit"], mcpMaxListedTests)
+		}
+		for _, row := range rows {
+			testRow, ok := row.(map[string]any)
+			if !ok {
+				t.Fatalf("tenant %s test row = %T, want object", tenantID, row)
+			}
+			if got := testRow["tenant_id"]; got != tenantID {
+				t.Fatalf("tenant %s received row scoped to %v", tenantID, got)
+			}
+		}
+	}
+
+	assertTenantRows(call(1, tenantA.ID), tenantA.ID, mcpMaxListedTests, true)
+	assertTenantRows(call(2, tenantB.ID), tenantB.ID, 1, false)
+}
+
 func TestMCPAuthenticatorLoadsTenantAttributes(t *testing.T) {
 	_, db := setupAPI(t)
 	ctx := context.Background()

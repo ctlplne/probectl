@@ -31,9 +31,10 @@ func testGate() *ai.EgressGate {
 
 // fakeBackend records the tenant it was called with and returns canned data.
 type fakeBackend struct {
-	mu      sync.Mutex
-	calls   []string
-	tenants []string
+	mu              sync.Mutex
+	calls           []string
+	tenants         []string
+	listTestsResult any
 }
 
 func (f *fakeBackend) rec(method string, p *auth.Principal) {
@@ -54,6 +55,9 @@ func (f *fakeBackend) seenTenants() []string {
 }
 func (f *fakeBackend) ListTests(_ context.Context, p *auth.Principal) (any, error) {
 	f.rec("ListTests", p)
+	if f.listTestsResult != nil {
+		return f.listTestsResult, nil
+	}
 	return map[string]any{"tests": []any{}}, nil
 }
 func (f *fakeBackend) GetPath(_ context.Context, p *auth.Principal, target string) (any, error) {
@@ -447,6 +451,43 @@ func TestParseError(t *testing.T) {
 	_ = json.Unmarshal(s.Handle(context.Background(), principal("t"), []byte("{bad")), &resp)
 	if code, _ := errCode(resp); code != codeParse {
 		t.Errorf("malformed JSON: code = %d, want %d", code, codeParse)
+	}
+}
+
+func TestToolResultEncodingExactLimitAndOnePast(t *testing.T) {
+	// json.Encoder appends one newline. A JSON string adds two quote bytes, so
+	// this payload makes the bounded writer accept exactly max bytes.
+	exact := strings.Repeat("x", maxMCPToolResultBytes-3)
+	got, err := marshalBoundedJSON(exact, maxMCPToolResultBytes, false)
+	if err != nil {
+		t.Fatalf("exact byte limit rejected: %v", err)
+	}
+	if len(got) != maxMCPToolResultBytes-1 {
+		t.Fatalf("encoded exact-bound result = %d bytes after newline removal, want %d", len(got), maxMCPToolResultBytes-1)
+	}
+
+	onePast := strings.Repeat("x", maxMCPToolResultBytes-2)
+	if _, err := marshalBoundedJSON(onePast, maxMCPToolResultBytes, false); !errors.Is(err, errToolResultTooLarge) {
+		t.Fatalf("one-past byte limit error = %v, want %v", err, errToolResultTooLarge)
+	}
+}
+
+func TestOversizedToolResultFailsClosedWithBoundedResponse(t *testing.T) {
+	fb := &fakeBackend{listTestsResult: map[string]any{
+		"tests": []any{strings.Repeat("x", maxMCPToolResultBytes)},
+	}}
+	s := New(fb, testGate())
+	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
+	out := s.Handle(context.Background(), principal("tenant-a", permTestRead), raw)
+	if len(out) > maxMCPToolResultBytes {
+		t.Fatalf("oversized tool response = %d bytes, limit %d", len(out), maxMCPToolResultBytes)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("bounded response is not valid JSON: %v", err)
+	}
+	if code, ok := errCode(resp); !ok || code != codeInternal {
+		t.Fatalf("oversized tool response = %v, want internal error", resp)
 	}
 }
 

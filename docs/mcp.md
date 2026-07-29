@@ -66,9 +66,10 @@ which one. Every call enforces the boundary at the MCP layer
    from `tools/list` and refused by `tools/call`. If policies cannot be loaded and
    there is no previously loaded, known-good cache entry, authorization fails
    closed with a temporary-unavailable error rather than silently using RBAC alone.
-4. **Then rate-limit.** Tool calls are rate-limited per tenant (default
-   `120`/minute, `PROBECTL_MCP_RATE_PER_MIN`), so one tenant can't exhaust the
-   server.
+4. **Then rate-limit and fairness-admit.** Tool calls are rate-limited per
+   tenant (default `120`/minute, `PROBECTL_MCP_RATE_PER_MIN`), and query tools
+   enter the shared per-tenant fairness gate before touching a store, so one
+   tenant can't exhaust the server.
 5. **Then the egress gate.** Returning tool output to an external AI client *is*
    tenant data leaving the platform, so each `tools/call` passes the shared egress
    gate — per-tenant consent, redaction, audit (its own section below).
@@ -90,7 +91,7 @@ must hold. The catalog is deliberately small and legible: eight tools.
 
 | Tool                  | Permission             | Description                                                              |
 | --------------------- | ---------------------- | ------------------------------------------------------------------------ |
-| `list_tests`          | `test.read`            | List the tenant's synthetic tests/canaries.                              |
+| `list_tests`          | `test.read`            | List at most 200 tenant tests, with `limit` + `truncated` metadata.       |
 | `get_path`            | `test.read`            | Most recently discovered path to a target (hops, per-hop loss/latency).  |
 | `get_bgp_events`      | `events.read`          | Recent BGP/routing events for a prefix or origin AS.                     |
 | `query_flows`         | `events.read`          | Network flow / service-map records (eBPF).                               |
@@ -106,6 +107,13 @@ exactly what shape to produce and the server can reject anything else. Tools
 whose backing store isn't wired in a deployment (e.g. flows/BGP without
 ClickHouse) return an empty result with a note rather than failing — so a client
 gets a clean "nothing here" instead of an error.
+
+Every tool result is encoded through a 1 MiB ceiling after redaction, including
+the MCP text and `structuredContent` representations together. Oversized
+results fail closed instead of being materialized on the wire. `list_tests`
+also uses the shared query-fairness gate and fetches only one 201-row sentinel
+page so its 200-row truncation receipt is exact without loading the full tenant
+catalog.
 
 **About `propose_remediation`.** This is the one tool that writes anything, and it
 is built so it *cannot* be dangerous. It only ever creates a `state=proposed`

@@ -43,7 +43,7 @@ func buildTools(b Backend) []Tool {
 		{
 			Name:        "list_tests",
 			Permission:  permTestRead,
-			Description: "List the synthetic tests/canaries configured in the caller's tenant.",
+			Description: "List a bounded prefix of synthetic tests/canaries configured in the caller's tenant, with limit and truncated metadata.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 			Invoke: func(ctx context.Context, p *auth.Principal, _ json.RawMessage) (any, error) {
 				return b.ListTests(ctx, p)

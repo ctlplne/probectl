@@ -7,8 +7,10 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
@@ -18,6 +20,14 @@ import (
 
 // protocolVersion is the MCP revision this server speaks.
 const protocolVersion = "2024-11-05"
+
+// maxMCPToolResultBytes bounds the complete JSON-RPC response after redaction.
+// The same ceiling is applied while constructing a tool result so the text and
+// structuredContent copies required by MCP clients cannot amplify without a
+// fixed limit.
+const maxMCPToolResultBytes = 1 << 20
+
+var errToolResultTooLarge = errors.New("mcp: tool result exceeds byte limit")
 
 // ServerInfo identifies the server in the initialize handshake.
 type ServerInfo struct {
@@ -122,7 +132,14 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 	if notification || resp == nil {
 		return nil
 	}
-	return marshal(resp)
+	encoded := marshal(resp)
+	if len(encoded) > maxMCPToolResultBytes {
+		// Do not echo the caller-controlled request ID on this exceptional path:
+		// HTTP already bounds requests, but the stdio transport may receive a
+		// large ID and the fail-closed response must itself remain bounded.
+		return marshal(errorResponse(nil, codeInternal, "tool result exceeds response size limit"))
+	}
+	return encoded
 }
 
 func (s *Server) dispatch(ctx context.Context, p *auth.Principal, req rpcRequest) *rpcResponse {
@@ -275,15 +292,53 @@ func (s *Server) loadPolicies(ctx context.Context, tenantID string) ([]auth.Poli
 // the wire. Masking happens on the JSON encoding; tenant-scoped deterministic
 // tokens keep the JSON valid and values correlatable only inside the tenant.
 func (s *Server) redactedResult(tenantID string, out any) (map[string]any, error) {
-	b, err := json.MarshalIndent(out, "", "  ")
+	b, err := marshalBoundedJSON(out, maxMCPToolResultBytes, true)
 	if err != nil {
 		return nil, err
 	}
 	red := s.gate.RedactForTenant(string(b), tenantID)
-	return map[string]any{
+	if len(red) > maxMCPToolResultBytes {
+		return nil, errToolResultTooLarge
+	}
+	result := map[string]any{
 		"content":           []map[string]any{{"type": "text", "text": red}},
 		"structuredContent": json.RawMessage(red),
-	}, nil
+	}
+	// The MCP result intentionally carries two representations. Bound their
+	// combined serialized form too, not only the source object.
+	if _, err := marshalBoundedJSON(result, maxMCPToolResultBytes, false); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+type boundedJSONBuffer struct {
+	bytes.Buffer
+	max int
+}
+
+func (b *boundedJSONBuffer) Write(p []byte) (int, error) {
+	if len(p) > b.max-b.Len() {
+		return 0, errToolResultTooLarge
+	}
+	return b.Buffer.Write(p)
+}
+
+func marshalBoundedJSON(v any, maxBytes int, indent bool) ([]byte, error) {
+	dst := &boundedJSONBuffer{max: maxBytes}
+	enc := json.NewEncoder(dst)
+	if indent {
+		enc.SetIndent("", "  ")
+	}
+	if err := enc.Encode(v); err != nil {
+		if errors.Is(err, errToolResultTooLarge) {
+			return nil, errToolResultTooLarge
+		}
+		return nil, err
+	}
+	// Encoder terminates a value with one newline; the existing wire format did
+	// not, so remove only that framing byte after it participated in the bound.
+	return bytes.TrimSuffix(dst.Bytes(), []byte{'\n'}), nil
 }
 
 // toolResult builds an MCP tool result. On success it carries both a text

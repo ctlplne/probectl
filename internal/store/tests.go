@@ -173,9 +173,9 @@ func (Tests) ListPage(ctx context.Context, s tenancy.Scope, afterID string, limi
 // ListAll materializes every test for the tenant by paging through ListPage in
 // bounded chunks (SCALE-002). Internal call sites that genuinely need the whole
 // set (the signed test-sync bundle, AI authoring's existing-target dedup, the
-// MCP test list) use this instead of an unbounded SELECT *: the wire query stays
-// LIMIT-bounded even though the result is the full set. maxRows is a safety
-// ceiling (0 = no extra ceiling beyond paging).
+// tenant export) use this instead of an unbounded SELECT *: the wire query
+// stays LIMIT-bounded even though the result is the full set. maxRows is a
+// safety ceiling (0 = no extra ceiling beyond paging).
 func (t Tests) ListAll(ctx context.Context, s tenancy.Scope, maxRows int) ([]Test, error) {
 	var out []Test
 	cursor := ""
