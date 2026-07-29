@@ -40,6 +40,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -116,6 +117,12 @@ type PathRetentionPruner interface {
 	PruneTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) (deleted int, err error)
 }
 
+// SessionRetentionPruner removes inactive tenant-owned session detail while
+// preserving the global hash-only replay tombstones.
+type SessionRetentionPruner interface {
+	PruneInactive(ctx context.Context, tenantID string, replayHorizon time.Duration) (deleted int64, err error)
+}
+
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
 	pool               *pgxpool.Pool
@@ -129,6 +136,8 @@ type Engine struct {
 	endpointEvents     endpointstore.Store
 	otel               OtelDeleter // optional (WithOtel) — OTLP trace/log store
 	ebpf               EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
+	sessions           SessionRetentionPruner
+	sessionReplayTTL   time.Duration
 	audit              AuditSink
 	log                *slog.Logger
 	now                func() time.Time
@@ -224,6 +233,18 @@ func (e *Engine) WithDerivedIdentityRetentionDays(days int) *Engine {
 		days = 0
 	}
 	e.derivedIdentityRetentionDays = days
+	return e
+}
+
+// WithSessionRetention attaches the bounded cleanup owner for session identity
+// detail. replayHorizon is the configured SessionTTL; zero follows the same
+// safe default as session issuance.
+func (e *Engine) WithSessionRetention(p SessionRetentionPruner, replayHorizon time.Duration) *Engine {
+	if replayHorizon <= 0 {
+		replayHorizon = auth.DefaultSessionTTL
+	}
+	e.sessions = p
+	e.sessionReplayTTL = replayHorizon
 	return e
 }
 
@@ -827,7 +848,12 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var sessionErrors []error
 	for _, p := range policies {
+		if err := e.sweepSessionRetention(ctx, p); err != nil {
+			e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "sessions", "error", err.Error())
+			sessionErrors = append(sessionErrors, fmt.Errorf("tenant %s session retention: %w", p.tenant, err))
+		}
 		e.sweepFlowRetention(ctx, p)
 		e.sweepOtelRetention(ctx, p)
 		e.sweepEBPFRetention(ctx, p)
@@ -839,7 +865,31 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 			e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "error", err.Error())
 		}
 	}
-	return nil
+	return errors.Join(sessionErrors...)
+}
+
+func (e *Engine) sweepSessionRetention(ctx context.Context, p retentionSweepPolicy) error {
+	if e.sessions == nil {
+		return nil
+	}
+	deleted, err := e.sessions.PruneInactive(ctx, p.tenant, e.sessionReplayTTL)
+	if err != nil {
+		return err
+	}
+	if e.audit == nil {
+		return nil
+	}
+	cutoff := e.now().Add(-e.sessionReplayTTL)
+	data := map[string]any{
+		"store":                  "sessions",
+		"deleted":                deleted,
+		"cutoff":                 cutoff.UTC().Format(time.RFC3339Nano),
+		"source":                 "session_ttl",
+		"status":                 "enforced",
+		"replay_horizon":         e.sessionReplayTTL.String(),
+		"replay_horizon_seconds": int64(e.sessionReplayTTL / time.Second),
+	}
+	return e.audit(ctx, "probectl-retention", "lifecycle.retention_sweep", p.tenant, data)
 }
 
 func (p *retentionSweepPolicy) setDays(name string, days sql.NullInt64) {

@@ -148,6 +148,14 @@ The server additionally applies a 12-hour absolute lifetime and a configurable
 role grant or revoke replaces it on the next request before changed permissions
 are used.
 
+Session identity detail has a bounded cleanup owner. The cluster-wide daily
+lifecycle leader deletes absolutely expired detail under its tenant's database
+scope and removes replaced predecessor detail after one configured session TTL.
+The small global locator keeps only a keyed token hash, IDs, and state
+timestamps and is deliberately retained as the callback lock: even if cleanup
+races two authenticated callbacks after the detailed row is gone, exactly one
+successor can commit. No separate retention knob or outbound service is used.
+
 Those variables are the deployment fallback. A tenant admin can bring a
 different IdP in **Admin & Settings → Identity administration**, or call `PUT
 /v1/identity/settings` with the issuer, client id, write-only client secret,

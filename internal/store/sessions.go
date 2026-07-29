@@ -232,6 +232,54 @@ func normalizeSessionTimes(sess auth.Session) auth.Session {
 	return sess
 }
 
+// PruneInactive removes tenant-owned session detail that can no longer
+// authenticate: absolutely-expired rows immediately, and consumed predecessor
+// detail after one replay-protection horizon. The global credential_locators
+// rows are deliberately untouched. Their hash-only tombstones remain the
+// cross-silo lock that prevents cleanup racing with authenticated callbacks
+// from minting multiple successors.
+//
+// replayHorizon is derived from the configured session TTL by the caller. A
+// non-positive value uses the same safe default as auth.Manager.
+func (s Sessions) PruneInactive(
+	ctx context.Context,
+	tenantID string,
+	replayHorizon time.Duration,
+) (int64, error) {
+	if replayHorizon <= 0 {
+		replayHorizon = auth.DefaultSessionTTL
+	}
+	var deleted int64
+	err := tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		s.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			expired, err := sc.Q.Exec(ctx,
+				`DELETE FROM sessions
+				  WHERE tenant_id = $1
+				    AND expires_at <= now()`,
+				tenantID,
+			)
+			if err != nil {
+				return err
+			}
+			replaced, err := sc.Q.Exec(ctx,
+				`DELETE FROM sessions
+				  WHERE tenant_id = $1
+				    AND replaced_at IS NOT NULL
+				    AND replaced_at <= now() - $2::interval`,
+				tenantID, replayHorizon.String(),
+			)
+			if err != nil {
+				return err
+			}
+			deleted = expired.RowsAffected() + replaced.RowsAffected()
+			return nil
+		},
+	)
+	return deleted, err
+}
+
 // DeleteByHash revokes a session (logout).
 func (s Sessions) DeleteByHash(ctx context.Context, tokenHash []byte) error {
 	tenantID, err := resolveCredential(ctx, s.pool, credentialSession, tokenHash)

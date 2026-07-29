@@ -157,7 +157,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_INCIDENT_WINDOW`          | `10m`                                                            | time window within which related signals correlate into one incident |
 | `PROBECTL_AUTH_MODE`                | `session`                                                          | identity mode: `session` (real OIDC SSO + session cookies) \| `dev` (LOCAL EVALUATION ONLY — exists only in `-tags devauth` builds; release binaries refuse it at boot) |
 | `PROBECTL_DEV_AUTH_ACK`             | (none)                                                             | must be `i-understand` to start in dev auth mode (tagged builds only, loopback bind required) |
-| `PROBECTL_SESSION_TTL`              | `12h`                                                            | server-side session lifetime                               |
+| `PROBECTL_SESSION_TTL`              | `12h`                                                            | server-side absolute session lifetime and the minimum authenticated-callback replay/detail-retention horizon. The daily tenant lifecycle leader deletes expired session identity detail and predecessor detail older than this horizon; the hash-only locator tombstone remains so cleanup cannot reopen a multiple-successor race |
 | `PROBECTL_SESSION_IDLE_TIMEOUT`     | `30m`                                                            | default-on inactivity limit for tenant and provider sessions; `0` keeps the safe 30m default rather than disabling it |
 | `PROBECTL_AUTH_RATE_MAX_FAILURES`   | `5`         | auth brute-force guard: failures per window before lockout |
 | `PROBECTL_AUTH_RATE_WINDOW`         | `1m`        | failure-counting window for the auth throttle |
@@ -1063,6 +1063,21 @@ the old token, sets a newly random cookie, and only then serves the request.
 Two racing requests cannot create two successors. The session table also has a
 composite `(tenant_id, user_id)` foreign key, so the database rejects a session
 that pairs one tenant with another tenant's user.
+
+The cluster-wide daily lifecycle leader is the cleanup owner for session
+identity detail. Under each tenant's storage scope it deletes absolutely
+expired rows on the next sweep and deletes replaced predecessor detail after
+one `PROBECTL_SESSION_TTL` replay horizon (there is no separate retention
+setting). The global `credential_locators` row contains only the keyed token
+hash, credential UUID, tenant UUID, and state timestamps; that hash-only
+tombstone is intentionally retained after detail cleanup. It remains the
+database lock for authenticated callbacks, so a cleanup/callback race still
+commits at most one successor. In practice, identity detail therefore ages out
+within the session TTL plus the daily sweep interval. Tenant erasure removes
+the locator by its tenant key; subject erasure removes one while its detail row
+still supplies the credential ID. Once detail cleanup has intentionally
+unlinked that hash-only tombstone from a subject, it remains only as
+replay-protection metadata until tenant erasure.
 
 **Per-tenant IdP.** Providers are resolved per tenant through a provider factory.
 The environment configuration (`PROBECTL_OIDC_*`) is the deployment fallback;

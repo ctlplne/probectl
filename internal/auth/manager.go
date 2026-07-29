@@ -19,11 +19,19 @@ import (
 // SessionCookie is the name of the session cookie.
 const SessionCookie = "probectl_session"
 
-// DefaultSessionIdleTimeout is the fail-closed inactivity window used when no
-// deployment override is supplied. It is deliberately shorter than the 12h
-// absolute lifetime: activity may keep a session busy, but can never extend its
-// absolute expiry.
-const DefaultSessionIdleTimeout = 30 * time.Minute
+const (
+	// DefaultSessionTTL is the absolute session lifetime used when no positive
+	// deployment override is supplied. Maintenance uses the same value as its
+	// replay-protection/detail-retention horizon, so a zero configuration cannot
+	// make issuance and cleanup disagree.
+	DefaultSessionTTL = 12 * time.Hour
+
+	// DefaultSessionIdleTimeout is the fail-closed inactivity window used when no
+	// deployment override is supplied. It is deliberately shorter than the 12h
+	// absolute lifetime: activity may keep a session busy, but can never extend its
+	// absolute expiry.
+	DefaultSessionIdleTimeout = 30 * time.Minute
+)
 
 // ErrSessionNotFound means a strict token rotation lost its source session or
 // an authenticated-login predecessor was already consumed. This is expected
@@ -46,7 +54,7 @@ type Manager struct {
 // and explicit dev paths; production session auth supplies a key.
 func NewManager(store SessionStore, ttl time.Duration, secure bool, hmacKey []byte) *Manager {
 	if ttl <= 0 {
-		ttl = 12 * time.Hour
+		ttl = DefaultSessionTTL
 	}
 	return &Manager{
 		store: store, ttl: ttl, idle: DefaultSessionIdleTimeout,

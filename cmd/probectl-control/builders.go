@@ -763,6 +763,7 @@ func startHAAndTenantLifecycle(
 		lifeEngine.WithTopology(td)
 	}
 	lifeEngine.WithDerivedIdentityRetentionDays(cfg.DerivedIdentityRetentionDays)
+	lifeEngine.WithSessionRetention(store.NewSessions(db.Pool()), cfg.SessionTTL)
 	if od, ok := otelStore.(tenantlife.OtelDeleter); ok {
 		lifeEngine.WithOtel(od)
 	}
