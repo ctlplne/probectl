@@ -45,20 +45,31 @@ query. Picture a wristband at a venue: the transaction is banded with one
 tenant at the door, and the database hands out only rows wearing the matching
 band — no matter how broad the question asked upstairs was.
 
-Session, MCP, SCIM, and agent-enrollment authentication must first turn an
-unguessable token hash into a tenant. That does **not** make their tables
-globally readable: direct `probectl_app` access still matches zero rows without
-the tenant GUC. Each exact hash lookup/consume/rotation goes through a narrowly
-shaped `SECURITY DEFINER` function owned by the non-login,
+Session, MCP, SCIM, OTLP, and agent-enrollment authentication must first turn
+an unguessable token hash into a tenant. Siloed tenants make this a two-step
+operation: a forced-RLS `public.credential_locators` row holds only the
+credential kind, detailed-row UUID, opaque hash, tenant UUID, and inactive
+timestamps; after that exact hash resolves, `tenancy.InTenant` selects the
+tenant's physical schema and reads or touches the detailed row there. Email,
+display name, MFA, preferences, user identity, and credential labels never move
+to the global locator. Pooled tenants use the identical path, with their detail
+table in `public`.
+
+Direct `probectl_app` access still matches zero locator or detail rows without
+the tenant GUC. Locator register/resolve/consume/rotation goes through narrowly
+shaped `SECURITY DEFINER` functions owned by the non-login,
 `NOBYPASSRLS` `probectl_pretenant_auth` role. The role has no general runtime
 entry point, and the application receives only `EXECUTE` on those functions.
-Session rotation updates only the opaque hash, activity stamp, and authorization
-fingerprint; identity, MFA, preferences, and absolute expiry are copied from
-the database-authoritative source row rather than accepted from the caller.
-Deployment-wide enrollment cancellation and the certificate deny-list are
-separate provider operations: their functions are executable only after
-`tenancy.InProvider` assumes `probectl_provider`; `probectl_app` receives no
-execute grant.
+An authenticated-login replacement locks and tombstones the predecessor's
+global locator, so concurrent callbacks still produce at most one successor
+even when predecessor and successor detail rows live in different silos.
+
+Deployment-wide certificate denial uses the same split:
+`agent_identity_revocations` contains only the serial/SPIFFE revocation metadata
+needed before a tenant transaction exists; full issuance history remains in the
+tenant schema. Existing silos are backfilled by migration 0073 and by silo
+CatchUp. Deployment-wide deny-list reads remain a separate provider operation,
+executable only after `tenancy.InProvider` assumes `probectl_provider`.
 
 **Why it actually holds — the three things that make RLS more than a suggestion:**
 

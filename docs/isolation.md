@@ -176,6 +176,14 @@ tenant to a stale schema. Per-tenant **drift** — the gap between a silo's sche
 and the current `public` shape — is computable (`DriftFor`) so the lag is always
 *visible*, never silent.
 
+Catch-up also rebuilds the deliberately small global pre-tenant indexes from
+existing silo rows: hash-only credential locators and agent-certificate
+revocation metadata. This lets a bearer hash choose the silo before any
+detailed row is read. Session identity/MFA/preferences, token labels/users, and
+full certificate issuance history remain only in the tenant schema. The
+backfill is idempotent and conflict-safe: it never redirects an existing hash
+to another tenant.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -199,3 +207,7 @@ separation** (a siloed tenant's rows exist only in its schema — zero in `publi
 and vice versa); pooled↔siloed **parity** of the same tenant-scoped operation;
 in-silo RLS defense-in-depth; router correctness; **catch-up** after a simulated
 later migration; and **teardown** (gone, idempotent, pooled data untouched).
+`TestPreTenantCredentialsRouteIntoSilos` adds pooled-A/silo-B coverage for
+sessions (including concurrent authenticated replacement), MCP, SCIM, OTLP,
+agent enrollment, hot revocation, certificate deny-list refresh, and restored
+silo locator/revocation catch-up.

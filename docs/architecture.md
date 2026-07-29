@@ -734,14 +734,17 @@ flowchart TD
 ```
 
 **Sessions.** A session token is high-entropy random, and only its **hash** is
-persisted in the tenant-owned `sessions` table. Direct application-role access
-without a tenant context returns no rows. The one lookup that must establish the
-tenant first is an exact-hash, `SECURITY DEFINER` database function owned by a
-non-login pre-tenant role; the same narrow boundary handles atomic rotation and
-logout. Rotation changes only the token hash, activity stamp, and authorization
-fingerprint; Postgres preserves the source row's identity, MFA claim,
-preferences, and absolute lifetime. The cookie is **HttpOnly + SameSite=Lax**,
-and **Secure** on HTTPS.
+persisted in the tenant-owned `sessions` table. A shared, forced-RLS locator
+stores only the hash, session-row UUID, tenant UUID, and inactive timestamps so
+the tenant can be resolved before a silo schema is selected; it contains no
+email, display name, MFA, preference, or user field. Exact-hash locator
+functions are `SECURITY DEFINER` boundaries owned by a non-login pre-tenant
+role, then every detail read/update runs through `tenancy.InTenant` in the
+resolved schema. Rotation changes only the token hash, activity stamp, and
+authorization fingerprint; Postgres preserves the source row's identity, MFA
+claim, preferences, and absolute lifetime. Authenticated replacement locks the
+predecessor locator, preserving one-successor concurrency across physical
+silos. The cookie is **HttpOnly + SameSite=Lax**, and **Secure** on HTTPS.
 Postgres enforces both absolute and idle expiry during lookup. Successful login
 and effective-permission changes rotate the opaque ID; a composite
 `(tenant_id, user_id)` foreign key prevents cross-tenant user/session pairing at

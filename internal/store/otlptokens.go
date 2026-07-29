@@ -20,9 +20,9 @@ import (
 // OTLPTokens persists OTLP bearer tokens (WIRE-008). Like MCP and SCIM tokens,
 // the auth lookup is PRE-TENANT — a token determines its own tenant — and only
 // the hash is stored (never the plaintext). Normal admin reads/writes run inside
-// tenant-scoped RLS transactions; the pre-tenant hash lookup goes through the
-// narrow otlp_authenticate_token() SECURITY DEFINER function from migration
-// 0048, so an unset tenant GUC fails closed for direct table access.
+// tenant-scoped RLS transactions; the pre-tenant hash lookup uses migration
+// 0073's hash-only global locator and then touches the detailed token row under
+// tenancy.InTenant. An unset tenant GUC fails closed for direct table access.
 //
 // The token hash is computed by the caller via internal/crypto (FIPS guardrail
 // 3); this store is hash-only.
@@ -67,14 +67,38 @@ func (o OTLPTokens) CreateScoped(ctx context.Context, s tenancy.Scope, name stri
 		s.Tenant.String(), name, tokenHash).Scan(&id); err != nil {
 		return "", mapWriteErr("otlp_token", err)
 	}
+	if err := registerCredential(ctx, s, credentialOTLP, id, tokenHash); err != nil {
+		return "", err
+	}
 	return id, nil
 }
 
 // Authenticate resolves a token hash to its tenant, rejecting revoked tokens,
 // and stamps last_used_at. Pre-tenant: the token selects the tenant.
 func (o OTLPTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantID string, err error) {
-	err = o.pool.QueryRow(ctx,
-		`SELECT tenant_id::text FROM otlp_authenticate_token($1)`, tokenHash).Scan(&tenantID)
+	tenantID, err = resolveCredential(ctx, o.pool, credentialOTLP, tokenHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidOTLPToken
+	}
+	if err != nil {
+		return "", err
+	}
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		o.pool,
+		func(ctx context.Context, s tenancy.Scope) error {
+			var resolved string
+			return s.Q.QueryRow(ctx,
+				`UPDATE otlp_tokens
+				    SET last_used_at = now()
+				  WHERE token_hash = $1
+				    AND tenant_id = $2
+				    AND revoked_at IS NULL
+				 RETURNING tenant_id::text`,
+				tokenHash, tenantID,
+			).Scan(&resolved)
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrInvalidOTLPToken
 	}
@@ -124,15 +148,21 @@ func (o OTLPTokens) Revoke(ctx context.Context, tenantID, id string) error {
 // RevokeScoped marks a tenant's OTLP token revoked inside the caller's tenant
 // transaction. Use this when the revocation and audit row must be atomic.
 func (o OTLPTokens) RevokeScoped(ctx context.Context, s tenancy.Scope, id string) error {
-	tag, err := s.Q.Exec(ctx,
+	var tokenHash []byte
+	err := s.Q.QueryRow(ctx,
 		`UPDATE otlp_tokens SET revoked_at = now()
-		 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL`,
-		s.Tenant.String(), id)
+		 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL
+		 RETURNING token_hash`,
+		s.Tenant.String(), id,
+	).Scan(&tokenHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidOTLPToken
+	}
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrInvalidOTLPToken
+	if err := revokeCredential(ctx, s, credentialOTLP, tokenHash); err != nil {
+		return invalidCredential(err, ErrInvalidOTLPToken)
 	}
 	return nil
 }

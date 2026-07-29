@@ -33,10 +33,14 @@ var ErrInvalidToken = errors.New("store: invalid or revoked mcp token")
 func (m MCPTokens) Create(ctx context.Context, tenantID, userID, name string, tokenHash []byte) (string, error) {
 	var id string
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), m.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx,
+		if err := sc.Q.QueryRow(ctx,
 			`INSERT INTO mcp_tokens (tenant_id, user_id, name, token_hash)
 			 VALUES ($1, $2, $3, $4) RETURNING id::text`,
-			tenantID, userID, name, tokenHash).Scan(&id)
+			tenantID, userID, name, tokenHash,
+		).Scan(&id); err != nil {
+			return err
+		}
+		return registerCredential(ctx, sc, credentialMCP, id, tokenHash)
 	})
 	if err != nil {
 		return "", mapWriteErr("mcp_token", err)
@@ -48,10 +52,35 @@ func (m MCPTokens) Create(ctx context.Context, tenantID, userID, name string, to
 // deprovision (S31), alongside session revocation.
 func (m MCPTokens) RevokeForUser(ctx context.Context, tenantID, userID string) error {
 	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), m.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx,
+		rows, err := sc.Q.Query(ctx,
 			`UPDATE mcp_tokens SET revoked_at = now()
-			 WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL`, tenantID, userID)
-		return err
+			 WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL
+			 RETURNING token_hash`,
+			tenantID, userID,
+		)
+		if err != nil {
+			return err
+		}
+		var hashes [][]byte
+		for rows.Next() {
+			var hash []byte
+			if err := rows.Scan(&hash); err != nil {
+				rows.Close()
+				return err
+			}
+			hashes = append(hashes, hash)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, hash := range hashes {
+			if err := revokeCredential(ctx, sc, credentialMCP, hash); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
@@ -59,10 +88,28 @@ func (m MCPTokens) RevokeForUser(ctx context.Context, tenantID, userID string) e
 // tokens, and stamps last_used_at. It is pre-tenant: the token is the tenant
 // selector, and the row holds only tenant_id + user_id (no secret).
 func (m MCPTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantID, userID string, err error) {
-	err = m.pool.QueryRow(ctx,
-		`SELECT tenant_id::text, user_id::text
-		   FROM pretenant_authenticate_mcp_token($1)`,
-		tokenHash).Scan(&tenantID, &userID)
+	tenantID, err = resolveCredential(ctx, m.pool, credentialMCP, tokenHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", ErrInvalidToken
+	}
+	if err != nil {
+		return "", "", err
+	}
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		m.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx,
+				`UPDATE mcp_tokens
+				    SET last_used_at = now()
+				  WHERE token_hash = $1
+				    AND tenant_id = $2
+				    AND revoked_at IS NULL
+				 RETURNING user_id::text`,
+				tokenHash, tenantID,
+			).Scan(&userID)
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrInvalidToken
 	}

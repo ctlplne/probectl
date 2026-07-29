@@ -36,7 +36,13 @@ var providerOwnedTables = map[string]providerOwnedKind{
 	"tenant_keys":       providerTenantTable,
 	"tenant_fairness":   providerTenantTable,
 	"tenant_governance": providerTenantTable,
-	"cluster_state":     providerGlobalTable,
+	// Hash-only credential routing and certificate deny-list metadata must
+	// stay deployment-global: they are what resolves a tenant before that
+	// tenant's physical schema can be selected. Detailed credential/session
+	// rows remain tenant-owned and are copied into silos.
+	"credential_locators":        providerTenantTable,
+	"agent_identity_revocations": providerTenantTable,
+	"cluster_state":              providerGlobalTable,
 }
 
 // ProviderOwnedTable reports whether a tenant_id-bearing table is

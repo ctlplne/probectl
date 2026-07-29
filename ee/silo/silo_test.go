@@ -50,7 +50,10 @@ func TestParseDataPlanes(t *testing.T) {
 // top of physical separation) + DML grants — and the provider-owned deny
 // list excluded.
 func TestProvisionPlan(t *testing.T) {
-	plan := ProvisionPlan("t_abc", []string{"tests", "agents", "break_glass_grants", "tenant_retention"})
+	plan := ProvisionPlan("t_abc", []string{
+		"tests", "agents", "break_glass_grants", "tenant_retention",
+		"credential_locators", "agent_identity_revocations",
+	})
 	joined := strings.Join(plan, "\n")
 
 	for _, want := range []string{
@@ -67,7 +70,10 @@ func TestProvisionPlan(t *testing.T) {
 			t.Errorf("plan missing %q", want)
 		}
 	}
-	for _, providerOwned := range []string{"break_glass_grants", "tenant_retention"} {
+	for _, providerOwned := range []string{
+		"break_glass_grants", "tenant_retention",
+		"credential_locators", "agent_identity_revocations",
+	} {
 		if strings.Contains(joined, providerOwned) {
 			t.Errorf("provider-owned table %s must never enter a tenant silo", providerOwned)
 		}

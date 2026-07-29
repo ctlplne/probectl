@@ -379,21 +379,22 @@ func TestAuthenticatedLoginSessionReplacement(t *testing.T) {
 			got.CreatedAt, freshCreated, got.ExpiresAt, freshExpires)
 	}
 
-	// The tombstone is visible only inside its original tenant. This couples
-	// the new pre-tenant function to an explicit two-tenant RLS regression.
-	inTenant(ctx, t, pool, oldTenant.ID, func(ctx context.Context, scope tenancy.Scope) error {
-		var replaced bool
-		if err := scope.Q.QueryRow(ctx,
-			`SELECT replaced_at IS NOT NULL FROM sessions WHERE token_hash = $1`,
-			oldHash,
-		).Scan(&replaced); err != nil {
-			return err
-		}
-		if !replaced {
-			t.Fatal("predecessor row was not retained as an inactive tombstone")
-		}
-		return nil
-	})
+	// The global hash-only locator is the inactive concurrency tombstone. The
+	// old session's detailed identity stays private in tenant A; moving or
+	// editing it from tenant B's replacement transaction would cross the
+	// physical-silo boundary.
+	var replaced bool
+	if err := pool.QueryRow(ctx,
+		`SELECT replaced_at IS NOT NULL
+		   FROM credential_locators
+		  WHERE credential_kind = 'session' AND token_hash = $1`,
+		oldHash,
+	).Scan(&replaced); err != nil {
+		t.Fatalf("read predecessor locator tombstone: %v", err)
+	}
+	if !replaced {
+		t.Fatal("predecessor locator was not retained as an inactive tombstone")
+	}
 	inTenant(ctx, t, pool, newTenant.ID, func(ctx context.Context, scope tenancy.Scope) error {
 		var count int
 		if err := scope.Q.QueryRow(ctx,

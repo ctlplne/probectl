@@ -20,9 +20,10 @@ import (
 
 // Agent enrollment storage (Sprint 11; ADR docs/adr/agent-enrollment.md).
 // The CONSUME path is PRE-TENANT because the token hash selects its tenant, but
-// it reaches the table only through a narrow SECURITY DEFINER function. Every
-// direct table operation with a known tenant runs under tenancy.InTenant; an
-// application-role statement with no tenant GUC sees no rows.
+// the narrow SECURITY DEFINER locator exposes only that tenant id; the detailed
+// row is then consumed under tenancy.InTenant in the routed schema. Every direct
+// table operation with a known tenant is RLS-scoped, and an application-role
+// statement with no tenant GUC sees no rows.
 
 // ErrEnrollTokenInvalid is the single, deliberately uninformative refusal for
 // every bad-token shape: unknown, replayed, expired, revoked, wrong tenant.
@@ -49,14 +50,18 @@ func (e EnrollTokens) CreatedScoped(ctx context.Context, s tenancy.Scope) (bool,
 func (e EnrollTokens) Create(ctx context.Context, tenantID, agentID, name, createdBy string, tokenHash []byte, ttl time.Duration) (string, error) {
 	// TENANT-009: the caller's tenant is known here, so run UNDER InTenant — RLS
 	// confines the write to this tenant (defense in depth above the explicit
-	// tenant_id). The pre-tenant token-hash Consume path uses only its dedicated
-	// database function.
+	// tenant_id). The pre-tenant Consume path uses its hash-only locator and
+	// then this same tenant-scoped table.
 	var id string
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx,
+		if err := sc.Q.QueryRow(ctx,
 			`INSERT INTO agent_enroll_tokens (tenant_id, agent_id, name, token_hash, created_by, expires_at)
 			 VALUES ($1, NULLIF($2,''), $3, $4, $5, now() + $6) RETURNING id::text`,
-			tenantID, agentID, name, tokenHash, createdBy, ttl).Scan(&id)
+			tenantID, agentID, name, tokenHash, createdBy, ttl,
+		).Scan(&id); err != nil {
+			return err
+		}
+		return registerCredential(ctx, sc, credentialAgentEnroll, id, tokenHash)
 	})
 	if err != nil {
 		return "", mapWriteErr("agent_enroll_token", err)
@@ -69,11 +74,37 @@ func (e EnrollTokens) Create(ctx context.Context, tenantID, agentID, name, creat
 // is indistinguishable to the caller. Returns the token's tenant and any
 // pinned agent id.
 func (e EnrollTokens) Consume(ctx context.Context, tokenHash []byte, usedByAgent string) (tenantID, pinnedAgentID string, err error) {
-	err = e.pool.QueryRow(ctx,
-		`SELECT tenant_id::text, agent_id
-		   FROM pretenant_consume_agent_enroll_token($1, $2)`,
-		tokenHash, usedByAgent).Scan(&tenantID, &pinnedAgentID)
+	tenantID, err = resolveCredential(ctx, e.pool, credentialAgentEnroll, tokenHash)
 	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", ErrEnrollTokenInvalid
+	}
+	if err != nil {
+		return "", "", err
+	}
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		e.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			if err := sc.Q.QueryRow(ctx,
+				`UPDATE agent_enroll_tokens
+				    SET used_at = now(), used_by_agent = $2
+				  WHERE token_hash = $1
+				    AND tenant_id = $3
+				    AND used_at IS NULL
+				    AND revoked_at IS NULL
+				    AND expires_at > now()
+				 RETURNING COALESCE(agent_id, '')`,
+				tokenHash, usedByAgent, tenantID,
+			).Scan(&pinnedAgentID); err != nil {
+				return err
+			}
+			return consumeCredential(
+				ctx, sc, credentialAgentEnroll, tokenHash,
+			)
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) ||
+		errors.Is(err, errCredentialStateChanged) {
 		return "", "", ErrEnrollTokenInvalid
 	}
 	if err != nil {
@@ -89,7 +120,7 @@ func (e EnrollTokens) Consume(ctx context.Context, tokenHash []byte, usedByAgent
 // ErrEnrollTokenInvalid and is not consumed.
 func (e EnrollTokens) ConsumeForTenant(ctx context.Context, tenantID string, tokenHash []byte, usedByAgent string) (pinnedAgentID string, err error) {
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx,
+		if err := sc.Q.QueryRow(ctx,
 			`UPDATE agent_enroll_tokens
 			    SET used_at = now(), used_by_agent = $3
 			  WHERE token_hash = $1
@@ -98,9 +129,14 @@ func (e EnrollTokens) ConsumeForTenant(ctx context.Context, tenantID string, tok
 			    AND revoked_at IS NULL
 			    AND expires_at > now()
 			 RETURNING COALESCE(agent_id, '')`,
-			tokenHash, tenantID, usedByAgent).Scan(&pinnedAgentID)
+			tokenHash, tenantID, usedByAgent,
+		).Scan(&pinnedAgentID); err != nil {
+			return err
+		}
+		return consumeCredential(ctx, sc, credentialAgentEnroll, tokenHash)
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) ||
+		errors.Is(err, errCredentialStateChanged) {
 		return "", ErrEnrollTokenInvalid
 	}
 	if err != nil {
@@ -114,11 +150,46 @@ func (e EnrollTokens) ConsumeForTenant(ctx context.Context, tenantID string, tok
 // id — already redeemed, already revoked, or never existed — so the CLI can
 // tell the operator the truth instead of a blind "ok".
 func (e EnrollTokens) Revoke(ctx context.Context, id string) (bool, error) {
+	tenantID, err := resolveCredentialID(
+		ctx, e.pool, credentialAgentEnroll, id,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
 	var revoked bool
-	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
-		return q.QueryRow(ctx,
-			`SELECT provider_revoke_agent_enroll_token($1::uuid)`, id).Scan(&revoked)
-	})
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		e.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			var tokenHash []byte
+			if err := sc.Q.QueryRow(ctx,
+				`UPDATE agent_enroll_tokens
+				    SET revoked_at = now()
+				  WHERE id = $1::uuid
+				    AND tenant_id = $2
+				    AND used_at IS NULL
+				    AND revoked_at IS NULL
+				 RETURNING token_hash`,
+				id, tenantID,
+			).Scan(&tokenHash); err != nil {
+				return err
+			}
+			if err := revokeCredential(
+				ctx, sc, credentialAgentEnroll, tokenHash,
+			); err != nil {
+				return err
+			}
+			revoked = true
+			return nil
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) ||
+		errors.Is(err, errCredentialStateChanged) {
+		return false, nil
+	}
 	return revoked, err
 }
 
@@ -213,35 +284,57 @@ func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, rev
 			return err
 		}
 		rows, err := sc.Q.Query(ctx,
-			`SELECT serial, spiffe_id FROM agent_identities
-			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL AND not_after > now()`,
+			`SELECT serial, spiffe_id, not_after, revoked_at, revoked_by
+			   FROM agent_identities
+			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL`,
 			tenantID, agentID)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		type revokedIdentity struct {
+			serial, spiffe, revokedBy string
+			notAfter, revokedAt       time.Time
+		}
+		var revoked []revokedIdentity
 		for rows.Next() {
-			var s, sp string
-			if err := rows.Scan(&s, &sp); err != nil {
+			var item revokedIdentity
+			if err := rows.Scan(
+				&item.serial, &item.spiffe, &item.notAfter,
+				&item.revokedAt, &item.revokedBy,
+			); err != nil {
+				rows.Close()
 				return err
 			}
-			serials = append(serials, s)
-			spiffeID = sp
+			revoked = append(revoked, item)
 		}
 		if err := rows.Err(); err != nil {
+			rows.Close()
 			return err
 		}
-		if spiffeID == "" {
-			// No live rows (all expired or none issued): still revoke the IDENTITY
-			// so re-enrollment under the same id is refused.
-			var count int
+		rows.Close()
+		if len(revoked) == 0 {
+			return fmt.Errorf(
+				"store: agent %s has no issued identities in tenant %s",
+				agentID, tenantID,
+			)
+		}
+		for _, item := range revoked {
+			var synced bool
 			if err := sc.Q.QueryRow(ctx,
-				`SELECT count(*) FROM agent_identities WHERE tenant_id=$1 AND agent_id=$2`,
-				tenantID, agentID).Scan(&count); err != nil {
+				`SELECT pretenant_sync_agent_revocation(
+					$1::uuid, $2, $3, $4, $5, $6, $7
+				 )`,
+				tenantID, agentID, item.spiffe, item.serial,
+				item.notAfter, item.revokedAt, item.revokedBy,
+			).Scan(&synced); err != nil {
 				return err
 			}
-			if count == 0 {
-				return fmt.Errorf("store: agent %s has no issued identities in tenant %s", agentID, tenantID)
+			if !synced {
+				return tenancy.ErrNoTenant
+			}
+			spiffeID = item.spiffe
+			if item.notAfter.After(time.Now()) {
+				serials = append(serials, item.serial)
 			}
 		}
 		return nil

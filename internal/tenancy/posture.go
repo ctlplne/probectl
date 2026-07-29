@@ -131,6 +131,8 @@ var strictPreTenantPolicyTables = []string{
 	"scim_tokens",
 	"agent_enroll_tokens",
 	"agent_identities",
+	"credential_locators",
+	"agent_identity_revocations",
 	"break_glass_grants",
 }
 

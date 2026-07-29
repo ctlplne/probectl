@@ -209,3 +209,46 @@ func TestAuthenticatedLoginReplacementMigrationContract(t *testing.T) {
 		}
 	}
 }
+
+func TestSiloPreTenantLocatorMigrationContract(t *testing.T) {
+	raw, err := migrations.FS.ReadFile("0073_silo_pretenant_credential_locators.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS credential_locators",
+		"credential_kind text",
+		"credential_id   uuid",
+		"token_hash      bytea",
+		"tenant_id       uuid",
+		"CREATE TABLE IF NOT EXISTS agent_identity_revocations",
+		"CREATE POLICY tenant_isolation ON credential_locators",
+		"CREATE POLICY tenant_isolation ON agent_identity_revocations",
+		"pretenant_resolve_credential",
+		"pretenant_replace_session_locator",
+		"pretenant_sync_agent_revocation",
+		"provider_list_revoked_agent_identities",
+		"ON CONFLICT DO NOTHING",
+		"to_jsonb(s)->>''replaced_at''",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("silo pre-tenant migration missing %q", want)
+		}
+	}
+
+	start := strings.Index(sql, "CREATE TABLE IF NOT EXISTS credential_locators")
+	end := strings.Index(sql[start:], ");")
+	if start < 0 || end < 0 {
+		t.Fatal("credential locator table definition missing")
+	}
+	locator := sql[start : start+end]
+	for _, pii := range []string{
+		"email", "display_name", "mfa_satisfied", "time_zone", "locale",
+		"user_id", "agent_id", "spiffe_id", "name",
+	} {
+		if strings.Contains(locator, pii) {
+			t.Errorf("global credential locator stores detailed identity field %q", pii)
+		}
+	}
+}

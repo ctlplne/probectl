@@ -54,16 +54,38 @@ func (s ScimTokens) CreateScoped(ctx context.Context, sc tenancy.Scope, name str
 		sc.Tenant.String(), name, tokenHash).Scan(&id); err != nil {
 		return "", mapWriteErr("scim_token", err)
 	}
+	if err := registerCredential(ctx, sc, credentialSCIM, id, tokenHash); err != nil {
+		return "", err
+	}
 	return id, nil
 }
 
 // Authenticate resolves a token hash to its tenant, rejecting revoked tokens, and
 // stamps last_used_at. Pre-tenant: the token is the tenant selector.
 func (s ScimTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantID string, err error) {
-	err = s.pool.QueryRow(ctx,
-		`SELECT tenant_id::text
-		   FROM pretenant_authenticate_scim_token($1)`,
-		tokenHash).Scan(&tenantID)
+	tenantID, err = resolveCredential(ctx, s.pool, credentialSCIM, tokenHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidScimToken
+	}
+	if err != nil {
+		return "", err
+	}
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		s.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			var resolved string
+			return sc.Q.QueryRow(ctx,
+				`UPDATE scim_tokens
+				    SET last_used_at = now()
+				  WHERE token_hash = $1
+				    AND tenant_id = $2
+				    AND revoked_at IS NULL
+				 RETURNING tenant_id::text`,
+				tokenHash, tenantID,
+			).Scan(&resolved)
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrInvalidScimToken
 	}
@@ -121,15 +143,21 @@ func (s ScimTokens) Revoke(ctx context.Context, tenantID, id string) error {
 // RevokeScoped marks a tenant's SCIM token revoked inside the caller's tenant
 // transaction. Use this when the revocation and audit row must be atomic.
 func (s ScimTokens) RevokeScoped(ctx context.Context, sc tenancy.Scope, id string) error {
-	tag, err := sc.Q.Exec(ctx,
+	var tokenHash []byte
+	err := sc.Q.QueryRow(ctx,
 		`UPDATE scim_tokens SET revoked_at = now()
-		 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL`,
-		sc.Tenant.String(), id)
+		 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL
+		 RETURNING token_hash`,
+		sc.Tenant.String(), id,
+	).Scan(&tokenHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidScimToken
+	}
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrInvalidScimToken
+	if err := revokeCredential(ctx, sc, credentialSCIM, tokenHash); err != nil {
+		return invalidCredential(err, ErrInvalidScimToken)
 	}
 	return nil
 }

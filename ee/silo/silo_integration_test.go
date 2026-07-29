@@ -14,11 +14,15 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
@@ -245,4 +249,391 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 	if n := countIn(t, pool, "public.tests", pooledID); n != 1 {
 		t.Fatalf("teardown must not touch pooled data: %d", n)
 	}
+}
+
+// TestPreTenantCredentialsRouteIntoSilos is the bounded real-Postgres
+// regression for the awkward edge where a bearer hash has to identify its
+// tenant before InTenant can select that tenant's physical schema. Tenant A is
+// pooled and tenant B is siloed. The same production stores must authenticate,
+// rotate/replace, consume, and revoke both tenants without copying detailed
+// identity/session rows back into public.
+func TestPreTenantCredentialsRouteIntoSilos(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+
+	pooledID := mkTenant(t, pool, "pretenant-pool-"+stamp, "pooled", "")
+	siloedID := mkTenant(t, pool, "pretenant-silo-"+stamp, "siloed", "")
+	prov := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
+	if err := prov.Provision(ctx, siloedID, "", tenancy.IsolationSiloed); err != nil {
+		t.Fatalf("provision silo: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := prov.Teardown(ctx, siloedID, "", tenancy.IsolationSiloed); err != nil {
+			t.Errorf("cleanup silo: %v", err)
+		}
+	})
+	schema := SchemaName(siloedID)
+
+	router := NewRouter(pool, nil, time.Second)
+	tenancy.SetRouter(router)
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+
+	createUser := func(tenantID, label string) string {
+		t.Helper()
+		var userID string
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				user, err := (store.Users{}).Create(
+					ctx, sc, label+"-"+stamp+"@example.com", label,
+				)
+				if err == nil {
+					userID = user.ID
+				}
+				return err
+			},
+		)
+		if err != nil {
+			t.Fatalf("create %s user: %v", label, err)
+		}
+		return userID
+	}
+	pooledUser := createUser(pooledID, "pooled")
+	siloedUser := createUser(siloedID, "siloed")
+	tokenHash := func(kind, tenant string) []byte {
+		return crypto.Hash([]byte(kind + "-" + tenant + "-" + stamp))
+	}
+
+	sessions := store.NewSessions(pool)
+	sessionHashes := map[string][]byte{
+		pooledID: tokenHash("session", pooledID),
+		siloedID: tokenHash("session", siloedID),
+	}
+	for tenantID, userID := range map[string]string{pooledID: pooledUser, siloedID: siloedUser} {
+		if err := sessions.Create(ctx, sessionHashes[tenantID], auth.Session{
+			TenantID: tenantID, UserID: userID,
+			Email:     tenantID + "@example.com",
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("create session for %s: %v", tenantID, err)
+		}
+		got, err := sessions.LookupByHash(ctx, sessionHashes[tenantID], time.Hour)
+		if err != nil || got == nil || got.TenantID != tenantID || got.UserID != userID {
+			t.Errorf("lookup session for %s = (%+v, %v)", tenantID, got, err)
+		}
+	}
+
+	rotatedHash := tokenHash("session-rotated", siloedID)
+	siloedSession, err := sessions.LookupByHash(ctx, sessionHashes[siloedID], time.Hour)
+	if err != nil || siloedSession == nil {
+		t.Fatalf("load silo session for rotation: session=%+v err=%v", siloedSession, err)
+	}
+	if rotated, err := sessions.RotateByHash(
+		ctx, sessionHashes[siloedID], rotatedHash, *siloedSession,
+	); err != nil || !rotated {
+		t.Errorf("rotate silo session: rotated=%t err=%v", rotated, err)
+	}
+	if old, err := sessions.LookupByHash(ctx, sessionHashes[siloedID], time.Hour); err != nil || old != nil {
+		t.Errorf("old silo session after rotation = (%+v, %v)", old, err)
+	}
+	if got, err := sessions.LookupByHash(ctx, rotatedHash, time.Hour); err != nil || got == nil || got.TenantID != siloedID {
+		t.Errorf("rotated silo session = (%+v, %v)", got, err)
+	}
+
+	// A fresh IdP authentication may race in two callback handlers. Exactly one
+	// successor may survive, and its detailed row must stay in the silo.
+	predecessorHash := tokenHash("session-predecessor", siloedID)
+	if err := sessions.Create(ctx, predecessorHash, auth.Session{
+		TenantID: siloedID, UserID: siloedUser,
+		Email:     "siloed-" + stamp + "@example.com",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("create replacement predecessor: %v", err)
+	}
+	successorHashes := [][]byte{
+		tokenHash("session-successor-a", siloedID),
+		tokenHash("session-successor-b", siloedID),
+	}
+	type replaceResult struct {
+		created bool
+		err     error
+	}
+	results := make([]replaceResult, len(successorHashes))
+	var wg sync.WaitGroup
+	for i := range successorHashes {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i].created, results[i].err = sessions.ReplaceAuthenticatedByHash(
+				ctx, predecessorHash, nil, successorHashes[i],
+				auth.Session{
+					TenantID: siloedID, UserID: siloedUser,
+					Email:     "fresh-siloed-" + stamp + "@example.com",
+					ExpiresAt: time.Now().Add(2 * time.Hour),
+				},
+			)
+		}(i)
+	}
+	wg.Wait()
+	winners := 0
+	for i, result := range results {
+		if result.err != nil {
+			t.Errorf("replace contender %d: %v", i, result.err)
+		}
+		if result.created {
+			winners++
+		}
+	}
+	if winners != 1 {
+		t.Errorf("authenticated replacement winners = %d, want 1", winners)
+	}
+	if got, err := sessions.LookupByHash(ctx, predecessorHash, time.Hour); err != nil || got != nil {
+		t.Errorf("replaced silo predecessor = (%+v, %v), want inactive", got, err)
+	}
+	resolvedSuccessors := 0
+	for _, hash := range successorHashes {
+		if got, err := sessions.LookupByHash(ctx, hash, time.Hour); err != nil {
+			t.Errorf("lookup replacement successor: %v", err)
+		} else if got != nil {
+			resolvedSuccessors++
+		}
+	}
+	if resolvedSuccessors != 1 {
+		t.Errorf("resolvable authenticated successors = %d, want 1", resolvedSuccessors)
+	}
+
+	mcp := store.NewMCPTokens(pool)
+	mcpHashes := map[string][]byte{
+		pooledID: tokenHash("mcp", pooledID),
+		siloedID: tokenHash("mcp", siloedID),
+	}
+	mcpIDs := map[string]string{}
+	for tenantID, userID := range map[string]string{pooledID: pooledUser, siloedID: siloedUser} {
+		id, err := mcp.Create(ctx, tenantID, userID, "integration", mcpHashes[tenantID])
+		if err != nil {
+			t.Fatalf("create MCP token for %s: %v", tenantID, err)
+		}
+		mcpIDs[tenantID] = id
+		gotTenant, gotUser, err := mcp.Authenticate(ctx, mcpHashes[tenantID])
+		if err != nil || gotTenant != tenantID || gotUser != userID {
+			t.Errorf("authenticate MCP for %s = (%s, %s, %v)", tenantID, gotTenant, gotUser, err)
+		}
+	}
+	if err := mcp.RevokeForUser(ctx, siloedID, siloedUser); err != nil {
+		t.Errorf("revoke silo MCP token: %v", err)
+	}
+	if _, _, err := mcp.Authenticate(ctx, mcpHashes[siloedID]); !errors.Is(err, store.ErrInvalidToken) {
+		t.Errorf("revoked silo MCP token = %v, want ErrInvalidToken", err)
+	}
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(siloedID)),
+		pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			deleted, err := store.DeleteSubjectCredentialLocatorsScoped(
+				ctx, sc, nil,
+				[]string{mcpIDs[siloedID], mcpIDs[pooledID]},
+			)
+			if err != nil {
+				return err
+			}
+			if deleted != 1 {
+				t.Errorf("tenant-B locator erasure deleted %d rows, want 1", deleted)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("tenant-scoped locator erasure: %v", err)
+	}
+	if gotTenant, gotUser, err := mcp.Authenticate(ctx, mcpHashes[pooledID]); err != nil ||
+		gotTenant != pooledID || gotUser != pooledUser {
+		t.Errorf(
+			"tenant-B locator erasure touched pooled decoy = (%s, %s, %v)",
+			gotTenant, gotUser, err,
+		)
+	}
+
+	scim := store.NewScimTokens(pool)
+	scimHashes := map[string][]byte{
+		pooledID: tokenHash("scim", pooledID),
+		siloedID: tokenHash("scim", siloedID),
+	}
+	var siloScimID string
+	for tenantID, hash := range scimHashes {
+		id, err := scim.Create(ctx, tenantID, "integration", hash)
+		if err != nil {
+			t.Fatalf("create SCIM token for %s: %v", tenantID, err)
+		}
+		if tenantID == siloedID {
+			siloScimID = id
+		}
+		if got, err := scim.Authenticate(ctx, hash); err != nil || got != tenantID {
+			t.Errorf("authenticate SCIM for %s = (%s, %v)", tenantID, got, err)
+		}
+	}
+	if err := scim.Revoke(ctx, siloedID, siloScimID); err != nil {
+		t.Errorf("revoke silo SCIM token: %v", err)
+	}
+	if _, err := scim.Authenticate(ctx, scimHashes[siloedID]); !errors.Is(err, store.ErrInvalidScimToken) {
+		t.Errorf("revoked silo SCIM token = %v, want ErrInvalidScimToken", err)
+	}
+
+	otlp := store.NewOTLPTokens(pool)
+	otlpHashes := map[string][]byte{
+		pooledID: tokenHash("otlp", pooledID),
+		siloedID: tokenHash("otlp", siloedID),
+	}
+	var siloOTLPID string
+	for tenantID, hash := range otlpHashes {
+		id, err := otlp.Create(ctx, tenantID, "integration", hash)
+		if err != nil {
+			t.Fatalf("create OTLP token for %s: %v", tenantID, err)
+		}
+		if tenantID == siloedID {
+			siloOTLPID = id
+		}
+		if got, err := otlp.Authenticate(ctx, hash); err != nil || got != tenantID {
+			t.Errorf("authenticate OTLP for %s = (%s, %v)", tenantID, got, err)
+		}
+	}
+	if err := otlp.Revoke(ctx, siloedID, siloOTLPID); err != nil {
+		t.Errorf("revoke silo OTLP token: %v", err)
+	}
+	if _, err := otlp.Authenticate(ctx, otlpHashes[siloedID]); !errors.Is(err, store.ErrInvalidOTLPToken) {
+		t.Errorf("revoked silo OTLP token = %v, want ErrInvalidOTLPToken", err)
+	}
+
+	enroll := store.NewEnrollTokens(pool)
+	for tenantID := range map[string]bool{pooledID: true, siloedID: true} {
+		hash := tokenHash("enroll-consume", tenantID)
+		if _, err := enroll.Create(ctx, tenantID, "", "integration", "test", hash, time.Hour); err != nil {
+			t.Fatalf("create enroll token for %s: %v", tenantID, err)
+		}
+		if got, _, err := enroll.Consume(ctx, hash, "agent-"+stamp); err != nil || got != tenantID {
+			t.Errorf("consume enroll token for %s = (%s, %v)", tenantID, got, err)
+		}
+	}
+	revokedEnrollHash := tokenHash("enroll-revoked", siloedID)
+	revokedEnrollID, err := enroll.Create(
+		ctx, siloedID, "", "revoke", "test", revokedEnrollHash, time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("create revocable silo enroll token: %v", err)
+	}
+	if revoked, err := enroll.Revoke(ctx, revokedEnrollID); err != nil || !revoked {
+		t.Errorf("revoke silo enroll token: revoked=%t err=%v", revoked, err)
+	}
+	if _, _, err := enroll.Consume(ctx, revokedEnrollHash, "agent-"+stamp); !errors.Is(err, store.ErrEnrollTokenInvalid) {
+		t.Errorf("consume revoked silo enroll token = %v, want ErrEnrollTokenInvalid", err)
+	}
+
+	identities := store.NewAgentIdentities(pool)
+	pooledSerial := "pooled-" + stamp
+	siloedSerial := "siloed-" + stamp
+	pooledSPIFFE := "spiffe://probectl/tenant/" + pooledID + "/agent/pooled"
+	siloedSPIFFE := "spiffe://probectl/tenant/" + siloedID + "/agent/siloed"
+	if err := identities.Record(ctx, pooledID, "pooled", pooledSPIFFE, pooledSerial, time.Now().Add(time.Hour), ""); err != nil {
+		t.Fatalf("record pooled identity: %v", err)
+	}
+	if err := identities.Record(ctx, siloedID, "siloed", siloedSPIFFE, siloedSerial, time.Now().Add(time.Hour), ""); err != nil {
+		t.Fatalf("record silo identity: %v", err)
+	}
+	if _, _, err := identities.RevokeAgent(ctx, siloedID, "siloed", "integration"); err != nil {
+		t.Errorf("revoke silo identity: %v", err)
+	}
+	serials, spiffes, err := identities.ListRevoked(ctx)
+	if err != nil {
+		t.Errorf("list revoked identities: %v", err)
+	}
+	if !containsString(serials, siloedSerial) || !containsString(spiffes, siloedSPIFFE) {
+		t.Errorf("silo revocation absent from deployment deny-list: serials=%v spiffes=%v", serials, spiffes)
+	}
+	if containsString(serials, pooledSerial) || containsString(spiffes, pooledSPIFFE) {
+		t.Errorf("unrevoked pooled decoy entered deny-list: serials=%v spiffes=%v", serials, spiffes)
+	}
+
+	// Simulate an existing silo restored from an older backup whose detailed
+	// rows survived but whose newer global locator/revocation metadata did not.
+	// CatchUp must rebuild only the opaque shared metadata from the silo.
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM credential_locators
+		  WHERE credential_kind = 'session' AND token_hash = $1`,
+		rotatedHash,
+	); err != nil {
+		t.Fatalf("remove locator for catch-up rehearsal: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM agent_identity_revocations
+		  WHERE tenant_id = $1 AND serial = $2`,
+		siloedID, siloedSerial,
+	); err != nil {
+		t.Fatalf("remove revocation for catch-up rehearsal: %v", err)
+	}
+	if got, err := sessions.LookupByHash(ctx, rotatedHash, time.Hour); err != nil || got != nil {
+		t.Fatalf("removed locator still resolved: session=%+v err=%v", got, err)
+	}
+	if err := prov.CatchUp(ctx, siloedID); err != nil {
+		t.Fatalf("catch up pre-tenant metadata: %v", err)
+	}
+	if got, err := sessions.LookupByHash(ctx, rotatedHash, time.Hour); err != nil || got == nil || got.TenantID != siloedID {
+		t.Errorf("catch-up did not restore silo session locator: session=%+v err=%v", got, err)
+	}
+	serials, spiffes, err = identities.ListRevoked(ctx)
+	if err != nil {
+		t.Errorf("list catch-up revocations: %v", err)
+	}
+	if !containsString(serials, siloedSerial) || !containsString(spiffes, siloedSPIFFE) {
+		t.Errorf("catch-up did not restore silo revocation: serials=%v spiffes=%v", serials, spiffes)
+	}
+
+	// The credential details remain physically tenant-owned. The shared public
+	// schema has tenant A's rows and zero tenant-B rows; tenant B's schema has
+	// its own rows and RLS still hides them from tenant A.
+	for _, table := range []string{
+		"sessions", "mcp_tokens", "scim_tokens", "otlp_tokens",
+		"agent_enroll_tokens", "agent_identities",
+	} {
+		if n := countIn(t, pool, "public."+table, siloedID); n != 0 {
+			t.Errorf("silo credential details leaked into public.%s: %d", table, n)
+		}
+		if n := countIn(t, pool, schema+"."+table, siloedID); n == 0 {
+			t.Errorf("silo credential details missing from %s.%s", schema, table)
+		}
+		if n := countIn(t, pool, "public."+table, pooledID); n == 0 {
+			t.Errorf("pooled decoy credential missing from public.%s", table)
+		}
+	}
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(pooledID)),
+		pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			var n int
+			if err := sc.Q.QueryRow(ctx,
+				`SELECT count(*) FROM sessions WHERE tenant_id = $1`, siloedID,
+			).Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				t.Errorf("pooled tenant observed silo session rows: %d", n)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("two-tenant RLS check: %v", err)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

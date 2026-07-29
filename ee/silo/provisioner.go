@@ -305,11 +305,83 @@ func (p *Provisioner) CatchUp(ctx context.Context, tenantID string) error {
 		return err
 	}
 	plan := CatchUpPlan(schema, cat)
-	if len(plan) == 0 {
-		return nil
+	if len(plan) > 0 {
+		p.log.Info("silo catch-up", "tenant", tenantID, "statements", len(plan))
+		if err := p.execPlan(ctx, plan); err != nil {
+			return err
+		}
 	}
-	p.log.Info("silo catch-up", "tenant", tenantID, "statements", len(plan))
-	return p.execPlan(ctx, plan)
+	// A restored/pre-0073 silo can have current detailed rows but no public
+	// hash locator or certificate-revocation metadata. Rebuild only those
+	// opaque fields after the schema columns are current; credential/session
+	// PII never leaves the silo.
+	return p.backfillPreTenantMetadata(ctx, tenantID, schema)
+}
+
+func (p *Provisioner) backfillPreTenantMetadata(
+	ctx context.Context,
+	tenantID, schema string,
+) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("silo: begin pre-tenant metadata backfill: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	q := quoteIdent(schema)
+	statements := []string{
+		`INSERT INTO public.credential_locators
+		     (credential_kind, credential_id, token_hash, tenant_id, replaced_at)
+		 SELECT 'session', id, token_hash, tenant_id, replaced_at
+		   FROM ` + q + `.sessions
+		  WHERE tenant_id = $1
+		 ON CONFLICT DO NOTHING`,
+		`INSERT INTO public.credential_locators
+		     (credential_kind, credential_id, token_hash, tenant_id, revoked_at)
+		 SELECT 'mcp', id, token_hash, tenant_id, revoked_at
+		   FROM ` + q + `.mcp_tokens
+		  WHERE tenant_id = $1
+		 ON CONFLICT DO NOTHING`,
+		`INSERT INTO public.credential_locators
+		     (credential_kind, credential_id, token_hash, tenant_id, revoked_at)
+		 SELECT 'scim', id, token_hash, tenant_id, revoked_at
+		   FROM ` + q + `.scim_tokens
+		  WHERE tenant_id = $1
+		 ON CONFLICT DO NOTHING`,
+		`INSERT INTO public.credential_locators
+		     (credential_kind, credential_id, token_hash, tenant_id, revoked_at)
+		 SELECT 'otlp', id, token_hash, tenant_id, revoked_at
+		   FROM ` + q + `.otlp_tokens
+		  WHERE tenant_id = $1
+		 ON CONFLICT DO NOTHING`,
+		`INSERT INTO public.credential_locators
+		     (credential_kind, credential_id, token_hash, tenant_id,
+		      revoked_at, consumed_at)
+		 SELECT 'agent_enroll', id, token_hash, tenant_id, revoked_at, used_at
+		   FROM ` + q + `.agent_enroll_tokens
+		  WHERE tenant_id = $1
+		 ON CONFLICT DO NOTHING`,
+		`INSERT INTO public.agent_identity_revocations
+		     (tenant_id, agent_id, spiffe_id, serial, not_after,
+		      revoked_at, revoked_by)
+		 SELECT tenant_id, agent_id, spiffe_id, serial, not_after,
+		        revoked_at, revoked_by
+		   FROM ` + q + `.agent_identities
+		  WHERE tenant_id = $1 AND revoked_at IS NOT NULL
+		 ON CONFLICT DO NOTHING`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(ctx, stmt, tenantID); err != nil {
+			return fmt.Errorf(
+				"silo: backfill pre-tenant metadata from %s: %w",
+				schema, err,
+			)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("silo: commit pre-tenant metadata backfill: %w", err)
+	}
+	return nil
 }
 
 // DriftFor reports a siloed tenant's catch-up debt (console honesty).
