@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -42,7 +43,7 @@ func TestApplyNoTxConcurrentIndex(t *testing.T) {
 	}
 	defer pool.Close()
 	if err := pool.Ping(ctx); err != nil {
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 
 	suffix := time.Now().UnixNano()
@@ -87,7 +88,7 @@ func TestApplyIsIdempotent(t *testing.T) {
 	}
 	defer pool.Close()
 	if err := pool.Ping(ctx); err != nil {
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 
 	runner := migrate.New(migrations.FS, nil)
@@ -174,7 +175,7 @@ func isolatedMigrationPool(ctx context.Context, t *testing.T) *pgxpool.Pool {
 	}
 	if err := adminPool.Ping(ctx); err != nil {
 		adminPool.Close()
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	t.Cleanup(adminPool.Close)
 

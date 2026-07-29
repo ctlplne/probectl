@@ -18,6 +18,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // U-057: integration coverage for the store paths the first pass still skipped —
@@ -44,11 +45,11 @@ func TestStoreOpenPingPool(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, dsn(), 5, 1, 5*time.Second)
 	if err != nil {
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	defer db.Close()
 	if err := db.Ping(ctx); err != nil {
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	if db.Pool() == nil {
 		t.Fatal("Pool() is nil")

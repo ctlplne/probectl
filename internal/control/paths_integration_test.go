@@ -22,6 +22,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -67,7 +68,7 @@ func setupPathAPI(t *testing.T) (http.Handler, *store.DB, *fakeDiscoverer) {
 	}
 	if err := db.Ping(ctx); err != nil {
 		db.Close()
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, db.Pool()); err != nil {
 		db.Close()

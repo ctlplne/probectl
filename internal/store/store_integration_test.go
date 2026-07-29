@@ -19,6 +19,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -37,7 +38,7 @@ func setup(ctx context.Context, t *testing.T) *pgxpool.Pool {
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, pool); err != nil {
 		pool.Close()

@@ -20,6 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 func integrationDSN() string {
@@ -41,7 +42,7 @@ func TestReadyzAgainstRealDatabase(t *testing.T) {
 	}
 	defer db.Close()
 	if err := db.Ping(ctx); err != nil {
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour}

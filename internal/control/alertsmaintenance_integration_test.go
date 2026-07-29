@@ -25,6 +25,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -37,7 +38,7 @@ func setupMaintenanceAPI(t *testing.T) (*Server, *store.DB) {
 	}
 	if err := db.Ping(ctx); err != nil {
 		db.Close()
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, db.Pool()); err != nil {
 		db.Close()
