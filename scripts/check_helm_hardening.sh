@@ -24,6 +24,11 @@ BACKEND_TLS_SECRET="probectl-backend-ca"
 BACKEND_TLS_SERVER_NAME="probectl-control.probectl.svc"
 # Throwaway immutable digest for render-only tests.
 CONTROL_IMAGE_DIGEST="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+# Throwaway names for operator-created shared runtime state. Kubernetes resolves
+# the actual Secret/PVC at install time; render tests assert the references.
+RUNTIME_SECRET="probectl-provider-runtime"
+OBJECTSTORE_CLAIM="probectl-provider-objects-rwx"
+OBJECTSTORE_MOUNT="/var/lib/probectl/objects"
 
 fail() {
   echo "helm hardening gate: FAIL — $*" >&2
@@ -38,11 +43,12 @@ render() {
     --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
     --set image.digest="$CONTROL_IMAGE_DIGEST" \
-    --set secrets.envelopeKey="$KEY" \
-    --set secrets.sessionHMACKey="$SESSION_KEY" \
+    --set secrets.existingSecret="$RUNTIME_SECRET" \
     --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
-    --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="/var/lib/probectl/audit-worm" \
-    --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="/var/lib/probectl/audit-worm/worm-ed25519.pem" \
+    --set objectStore.enabled=true \
+    --set-string objectStore.mountPath="$OBJECTSTORE_MOUNT" \
+    --set-string objectStore.existingClaim="$OBJECTSTORE_CLAIM" \
+    --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="$OBJECTSTORE_MOUNT/audit-worm" \
     --set-string control.extraEnv.PROBECTL_SIEM_ENABLED="true" \
     --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT="https://siem.example/ingest" \
     "$@"
@@ -393,7 +399,7 @@ for reserved_env in \
   PROBECTL_SECURITY_CONTACT PROBECTL_OBJECTSTORE_DIR \
   PROBECTL_OIDC_ISSUER PROBECTL_OIDC_CLIENT_ID PROBECTL_OIDC_REDIRECT_URL \
   PROBECTL_ENVELOPE_KEY PROBECTL_SESSION_HMAC_KEY PROBECTL_DATABASE_URL \
-  PROBECTL_OIDC_CLIENT_SECRET; do
+  PROBECTL_OIDC_CLIENT_SECRET PROBECTL_WORM_SIGNING_KEY; do
   if render --show-only templates/configmap.yaml \
     --set-string "control.extraEnv.${reserved_env}=planted-override" >/dev/null 2>&1; then
     fail "chart accepted reserved control.extraEnv.${reserved_env} (CONFIG-11b3ac1d)"
@@ -618,6 +624,58 @@ if [ "$(grep -F -c 'args: ["stage-binary", "/tools/probectl-control"]' <<<"$rest
   fail "ClickHouse restore must stage /tools/probectl-control"
 fi
 
+# 3c. CONFIG-09e06212: enabling WORM export always means one persistent claim
+# mounted at a canonical path. HA additionally means one externally managed
+# signing key shared through the runtime Secret; a per-pod key file is invalid.
+if render --set objectStore.enabled=false >/dev/null 2>&1; then
+  fail "chart rendered PROBECTL_AUDIT_WORM_DIR without objectStore.enabled=true (CONFIG-09e06212)"
+fi
+if render --set objectStore.enabled=true --set-string objectStore.existingClaim= >/dev/null 2>&1; then
+  fail "chart rendered WORM export onto objectStore emptyDir (CONFIG-09e06212)"
+fi
+if render --set replicaCount=3 \
+    --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="$OBJECTSTORE_MOUNT/audit-worm/worm-ed25519.pem" \
+    >/dev/null 2>&1; then
+  fail "chart rendered multi-replica WORM with a pod-local signing-key file (CONFIG-09e06212)"
+fi
+if render --set replicaCount=1 --set autoscaling.enabled=true \
+    --set autoscaling.minReplicas=1 --set autoscaling.maxReplicas=3 \
+    --set-string secrets.existingSecret= \
+    --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="$OBJECTSTORE_MOUNT/audit-worm/worm-ed25519.pem" \
+    >/dev/null 2>&1; then
+  fail "chart rendered autoscaled WORM with no shared Secret and a pod-local signing-key file (CONFIG-09e06212)"
+fi
+if render --set replicaCount=3 --set-string secrets.existingSecret= >/dev/null 2>&1; then
+  fail "chart rendered multi-replica WORM without secrets.existingSecret (CONFIG-09e06212)"
+fi
+if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm >/dev/null 2>&1; then
+  fail "chart rendered WORM directory outside objectStore.mountPath (CONFIG-09e06212)"
+fi
+if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="$OBJECTSTORE_MOUNT/../escape" >/dev/null 2>&1; then
+  fail "chart rendered a traversal-bearing WORM directory (CONFIG-09e06212)"
+fi
+if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=audit-worm >/dev/null 2>&1; then
+  fail "chart rendered a relative WORM directory (CONFIG-09e06212)"
+fi
+
+ha_worm="$(render --set replicaCount=3)"
+ha_worm_dep="$(awk '/kind: Deployment$/,/^---/' <<<"$ha_worm")"
+ha_worm_cm="$(awk '/kind: ConfigMap$/,/^---/' <<<"$ha_worm")"
+need_fixed "name: $RUNTIME_SECRET" "$ha_worm_dep" "HA WORM Deployment did not read the shared runtime Secret (CONFIG-09e06212)"
+need_fixed "mountPath: \"$OBJECTSTORE_MOUNT\"" "$ha_worm_dep" "HA WORM Deployment did not mount objectStore.mountPath (CONFIG-09e06212)"
+need_fixed "claimName: \"$OBJECTSTORE_CLAIM\"" "$ha_worm_dep" "HA WORM Deployment did not mount objectStore.existingClaim (CONFIG-09e06212)"
+need_fixed "PROBECTL_AUDIT_WORM_DIR: \"$OBJECTSTORE_MOUNT/audit-worm\"" "$ha_worm_cm" "HA WORM ConfigMap path escaped the shared claim (CONFIG-09e06212)"
+if grep -q "PROBECTL_WORM_SIGNING_KEY_FILE" <<<"$ha_worm_cm"; then
+  fail "HA WORM ConfigMap still contains a per-pod signing-key file (CONFIG-09e06212)"
+fi
+
+# A sovereign single replica may still generate/reuse a stable key file, but
+# only while the WORM directory itself is on the required persistent claim.
+single_worm_keyfile="$(render --set replicaCount=1 --set-string secrets.existingSecret= \
+  --set secrets.envelopeKey="$KEY" --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="$OBJECTSTORE_MOUNT/audit-worm/worm-ed25519.pem")"
+need_fixed "PROBECTL_WORM_SIGNING_KEY_FILE: \"$OBJECTSTORE_MOUNT/audit-worm/worm-ed25519.pem\"" "$single_worm_keyfile" "single-replica persistent signing-key file support regressed (CONFIG-09e06212)"
+
 # 4. Medium + multi-tenant profiles ship a PodDisruptionBudget (zero-downtime, S34).
 for f in values-medium.yaml values-multitenant.yaml; do
   need "kind: PodDisruptionBudget" "$(render -f "$CHART/$f")" "$f missing PodDisruptionBudget"
@@ -632,9 +690,14 @@ need_fixed 'PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"' "$multitenant" "multi-t
 for env in PROBECTL_PATHSTORE_READER_USER PROBECTL_FLOWSTORE_READER_USER PROBECTL_OTELSTORE_READER_USER PROBECTL_EBPFSTORE_READER_USER; do
   need_fixed "$env: \"probectl_reader\"" "$multitenant" "multi-tenant profile did not render $env scoped reader user (TENANT-002)"
 done
-for env in PROBECTL_AUDIT_WORM_DIR PROBECTL_WORM_SIGNING_KEY_FILE PROBECTL_SIEM_ENABLED PROBECTL_SIEM_ENDPOINT; do
+for env in PROBECTL_AUDIT_WORM_DIR PROBECTL_SIEM_ENABLED PROBECTL_SIEM_ENDPOINT; do
   need_fixed "$env:" "$multitenant" "multi-tenant profile did not render $env audit-retention watermark config (PRIVACY-001)"
 done
+need_fixed "name: $RUNTIME_SECRET" "$multitenant" "multi-tenant profile did not reference the shared runtime Secret (CONFIG-09e06212)"
+need_fixed "claimName: \"$OBJECTSTORE_CLAIM\"" "$multitenant" "multi-tenant profile did not mount the shared WORM claim (CONFIG-09e06212)"
+if grep -q "PROBECTL_WORM_SIGNING_KEY_FILE" <<<"$multitenant"; then
+  fail "multi-tenant profile rendered a per-pod WORM signing-key file (CONFIG-09e06212)"
+fi
 
 # 4b. WIRE-001: production-like profiles fail closed on plaintext datastore
 #     transport. The config loader enforces this at boot; the chart catches the
@@ -682,9 +745,14 @@ for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
     --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
     --set image.digest="$CONTROL_IMAGE_DIGEST" \
-    --set secrets.envelopeKey="$KEY" \
-    --set secrets.sessionHMACKey="$SESSION_KEY" \
+    --set secrets.existingSecret="$RUNTIME_SECRET" \
     --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
+    --set objectStore.enabled=true \
+    --set-string objectStore.mountPath="$OBJECTSTORE_MOUNT" \
+    --set-string objectStore.existingClaim="$OBJECTSTORE_CLAIM" \
+    --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="$OBJECTSTORE_MOUNT/audit-worm" \
+    --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
+    --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest \
     >/dev/null || fail "$f failed helm lint"
 done
 

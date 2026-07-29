@@ -18,6 +18,21 @@
 
 replicaCount: 3
 
+# CONFIG-09e06212: all provider replicas share one runtime Secret. It MUST
+# contain PROBECTL_ENVELOPE_KEY, PROBECTL_SESSION_HMAC_KEY,
+# PROBECTL_DATABASE_URL, and one base64-encoded PROBECTL_WORM_SIGNING_KEY.
+# The chart rejects a pod-local PROBECTL_WORM_SIGNING_KEY_FILE in HA.
+secrets:
+  existingSecret: probectl-provider-runtime
+
+# Signed WORM segments are shared state, not pod scratch space. Pre-create this
+# ReadWriteMany claim on an encrypted object-lock-backed CSI/storage class; the
+# chart deliberately will not fall back to emptyDir while WORM export is on.
+objectStore:
+  enabled: true
+  mountPath: /var/lib/probectl/objects
+  existingClaim: probectl-provider-objects-rwx
+
 control:
   authMode: session      # provider deployments always use real SSO
   # AIRCA-003: in a multi-tenant/MSP deployment, mask hostnames before any
@@ -32,9 +47,9 @@ control:
     PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"
     # PRIVACY-001: provider profiles default audit retention to 8760h and fail
     # closed unless raw in-DB audit rows have durable export watermarks before
-    # pruning. Set these at install time to your object-lock/WORM mount and SIEM:
-    # PROBECTL_AUDIT_WORM_DIR: "/var/lib/probectl/audit-worm"
-    # PROBECTL_WORM_SIGNING_KEY_FILE: "/var/lib/probectl/audit-worm/worm-ed25519.pem"
+    # pruning. The WORM directory is a child of the shared objectStore mount.
+    # The signing key comes only from secrets.existingSecret in this HA profile.
+    PROBECTL_AUDIT_WORM_DIR: "/var/lib/probectl/objects/audit-worm"
     # PROBECTL_SIEM_ENABLED: "true"
     # PROBECTL_SIEM_ENDPOINT: "https://siem.example/ingest"
     # RED-001: every ClickHouse-backed lane needs the scoped reader user whose

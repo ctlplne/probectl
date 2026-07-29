@@ -149,11 +149,15 @@ is omitted. `image.digest` is also required: use the `probectl-control` digest
 whose keyless signature verifies for the release workflow, or the corresponding
 digest in your approved internal mirror. A mutable tag is rejected before any
 workload renders. For the MSP / provider reference sizing, add
-`-f deploy/helm/probectl/values-multitenant.yaml` plus
-the audit WORM/SIEM watermark env vars shown in
-[`deploy/helm/README.md`](../deploy/helm/README.md); provider profiles fail
-closed without them so raw audit rows cannot silently keep forever. Then
-verify:
+`-f deploy/helm/probectl/values-multitenant.yaml`, pre-create the referenced
+`probectl-provider-objects-rwx` shared PVC and
+`probectl-provider-runtime` Secret, and set the SIEM watermark values shown in
+[`deploy/helm/README.md`](../deploy/helm/README.md). The PVC must be
+`ReadWriteMany` and backed by object-lock/compliance-mode storage. The Secret
+must carry one shared `PROBECTL_WORM_SIGNING_KEY` plus the normal runtime
+credentials. Provider profiles reject pod-local `emptyDir` WORM storage and
+per-replica key files, so raw audit rows cannot silently prune against missing
+or split-brain evidence. Then verify:
 
 ```sh
 curl https://probectl.example.com/readyz

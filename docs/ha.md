@@ -63,6 +63,13 @@ ingest, but retries the non-blocking lock acquisition once per
 the next holder normally starts within one retry interval. PostgreSQL also
 releases the session lock if its connection dies.
 
+The lease makes WORM export single-writer, but failover still means every pod
+must see the same durable files and signing identity. The provider Helm profile
+therefore mounts one pre-created `ReadWriteMany`, object-lock-backed claim on
+all replicas and reads one `PROBECTL_WORM_SIGNING_KEY` from an external runtime
+Secret. The chart rejects `emptyDir`, paths outside that claim, and signing-key
+files whenever `replicaCount > 1` or autoscaling can exceed one.
+
 Migration `0054_cluster_singleton_leases.sql` adds the global
 `cluster_singleton_leases` fencing ledger. This is deliberately not a
 tenant-owned data table: it contains only cluster coordination metadata, never

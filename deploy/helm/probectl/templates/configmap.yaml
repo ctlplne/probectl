@@ -20,10 +20,43 @@
   "PROBECTL_SESSION_HMAC_KEY"
   "PROBECTL_DATABASE_URL"
   "PROBECTL_OIDC_CLIENT_SECRET"
+  "PROBECTL_WORM_SIGNING_KEY"
 -}}
 {{- range $envName := $reservedControlEnv -}}
 {{- if hasKey $extraEnv $envName -}}
 {{- fail (printf "control.extraEnv.%s is reserved; configure it through the chart's typed value or Secret" $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- $wormDirValue := get $extraEnv "PROBECTL_AUDIT_WORM_DIR" -}}
+{{- if $wormDirValue -}}
+{{- $wormDir := printf "%v" $wormDirValue -}}
+{{- $objectStoreMount := printf "%v" .Values.objectStore.mountPath -}}
+{{- if not .Values.objectStore.enabled -}}
+{{- fail "PROBECTL_AUDIT_WORM_DIR requires objectStore.enabled=true so signed audit segments have a mounted durable store (CONFIG-09e06212)" -}}
+{{- end -}}
+{{- if not (trim .Values.objectStore.existingClaim) -}}
+{{- fail "PROBECTL_AUDIT_WORM_DIR requires a non-empty objectStore.existingClaim; emptyDir is never durable WORM storage (CONFIG-09e06212)" -}}
+{{- end -}}
+{{- if or (not (isAbs $wormDir)) (ne (clean $wormDir) $wormDir) -}}
+{{- fail "PROBECTL_AUDIT_WORM_DIR must be an absolute, canonical, traversal-free path (CONFIG-09e06212)" -}}
+{{- end -}}
+{{- if or (not (isAbs $objectStoreMount)) (ne (clean $objectStoreMount) $objectStoreMount) -}}
+{{- fail "objectStore.mountPath must be an absolute, canonical, traversal-free path when WORM export is enabled (CONFIG-09e06212)" -}}
+{{- end -}}
+{{- if and (ne $wormDir $objectStoreMount) (not (hasPrefix (printf "%s/" $objectStoreMount) $wormDir)) -}}
+{{- fail "PROBECTL_AUDIT_WORM_DIR must equal objectStore.mountPath or be contained beneath it (CONFIG-09e06212)" -}}
+{{- end -}}
+{{- $haWorm := gt (int .Values.replicaCount) 1 -}}
+{{- if and .Values.autoscaling.enabled (gt (int .Values.autoscaling.maxReplicas) 1) -}}
+{{- $haWorm = true -}}
+{{- end -}}
+{{- if $haWorm -}}
+{{- if not (trim .Values.secrets.existingSecret) -}}
+{{- fail "multi-replica WORM export requires secrets.existingSecret with a shared PROBECTL_WORM_SIGNING_KEY (CONFIG-09e06212)" -}}
+{{- end -}}
+{{- if get $extraEnv "PROBECTL_WORM_SIGNING_KEY_FILE" -}}
+{{- fail "multi-replica WORM export forbids PROBECTL_WORM_SIGNING_KEY_FILE; inject one shared PROBECTL_WORM_SIGNING_KEY through secrets.existingSecret (CONFIG-09e06212)" -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- $profile := default "single" (get $extraEnv "PROBECTL_DEPLOYMENT_PROFILE") -}}

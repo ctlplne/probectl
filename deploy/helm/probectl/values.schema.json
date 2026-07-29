@@ -322,7 +322,7 @@
       "properties": {
         "existingSecret": { "type": "string" },
         "envelopeKey": { "type": "string" },
-        "sessionHMACKey": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+        "sessionHMACKey": { "type": "string", "pattern": "^(|[0-9a-fA-F]{64})$" }
       }
     },
     "database": {

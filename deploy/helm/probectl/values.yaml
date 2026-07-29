@@ -112,10 +112,14 @@ oidc:
   redirectUrl: ""
 
 # Secret material. Prefer existingSecret in production (managed externally).
+# Multi-replica WORM export requires it: every replica must receive the same
+# PROBECTL_WORM_SIGNING_KEY from this Secret; a per-pod signing-key file is
+# rejected because it cannot preserve one signing identity across replicas.
 secrets:
   # Name of a pre-created Secret holding PROBECTL_ENVELOPE_KEY,
   # PROBECTL_SESSION_HMAC_KEY, PROBECTL_DATABASE_URL, and optionally
-  # PROBECTL_OIDC_CLIENT_SECRET. When set, the chart does NOT create its own.
+  # PROBECTL_OIDC_CLIENT_SECRET and PROBECTL_WORM_SIGNING_KEY. When set, the
+  # chart does NOT create its own.
   existingSecret: ""
   # base64-encoded 32-byte envelope KEK (openssl rand -base64 32). Required.
   envelopeKey: ""
@@ -132,11 +136,13 @@ requireAtRestEncryption: true
 # Tenant object artifacts (browser screenshots/waterfalls, future blobs). Enable
 # only with operator-owned encrypted storage. When enabled, the same mounted path
 # is wired to PROBECTL_OBJECTSTORE_DIR and tenant lifecycle export/erase covers
-# the tenant-prefixed object namespace.
+# the tenant-prefixed object namespace. Setting PROBECTL_AUDIT_WORM_DIR makes
+# enabled=true and a non-empty existingClaim mandatory; WORM never uses emptyDir.
+# The WORM directory must be this exact mountPath or a canonical child of it.
 objectStore:
   enabled: false
   mountPath: /var/lib/probectl/objects
-  existingClaim: "" # recommended for production; empty uses ephemeral emptyDir
+  existingClaim: "" # empty uses ephemeral emptyDir only when WORM is disabled
 
 # SEC-009/WIRE-002: both the public ingress and the in-cluster control listener
 # serve TLS, so session/OAuth cookies remain protected on every hop.

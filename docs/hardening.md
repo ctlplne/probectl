@@ -76,15 +76,26 @@ existed, while leaving the person's name out of the write-once copy. Raw-row
 recomputation remains an in-database/legal-hold operation; object-locked exports
 are safe to retain for the long evidence window.
 
-The signing key is **persisted, not ephemeral**: set
-`PROBECTL_WORM_SIGNING_KEY_FILE` to a PEM path (generated and persisted `0600` on
-first boot, reused thereafter) or inject `PROBECTL_WORM_SIGNING_KEY` (base64 PEM)
-from your secret manager. **Back this key up like the envelope key** — it is the
-identity the whole exported history is signed under; lose it and you forfeit
-cross-restart verification of every segment signed before the loss. Enabling WORM
-export with no key configured **fails closed**: the control plane refuses to start
-rather than mint a fresh key each boot (which would silently invalidate every
-prior segment's signature).
+The signing key is **persisted, not ephemeral**. For a single control-plane
+replica, set `PROBECTL_WORM_SIGNING_KEY_FILE` to a PEM path on the same persistent
+claim (generated and persisted `0600` on first boot, reused thereafter), or
+inject `PROBECTL_WORM_SIGNING_KEY` (base64 PEM) from your secret manager. **Back
+this key up like the envelope key** — it is the identity the whole exported
+history is signed under; lose it and you forfeit cross-restart verification of
+every segment signed before the loss. Enabling WORM export with no key configured
+**fails closed**: the control plane refuses to start rather than mint a fresh key
+each boot (which would silently invalidate every prior segment's signature).
+
+For Helm HA, the contract is stricter. Pre-create one encrypted `ReadWriteMany`
+PVC backed by object-lock/compliance-mode storage and set it as
+`objectStore.existingClaim`; set `PROBECTL_AUDIT_WORM_DIR` to an absolute,
+canonical directory at or below `objectStore.mountPath`. Pre-create
+`secrets.existingSecret` with one shared `PROBECTL_WORM_SIGNING_KEY` for every
+replica. The chart rejects WORM on `emptyDir`, a path outside the mounted claim,
+any `.`/`..` traversal spelling, or `PROBECTL_WORM_SIGNING_KEY_FILE` when
+`replicaCount > 1` or the HPA can scale above one. ELI5: the pods may take turns
+exporting, but they must all write the same locked filing cabinet and sign with
+the same pen.
 
 ## 0c. At-rest encryption — who encrypts what
 

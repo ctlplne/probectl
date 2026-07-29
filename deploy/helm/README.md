@@ -99,6 +99,22 @@ supplies a digest.
 
 ## Install (multi-tenant / provider, MSP)
 
+Before installing, pre-create two shared resources:
+
+- `probectl-provider-objects-rwx`: a `ReadWriteMany` PVC backed by encrypted,
+  shared storage whose WORM prefix is protected by S3 Object Lock, MinIO
+  compliance mode, or an equivalent retention policy. A PVC/CSI mount provides
+  the shared filesystem; the backing object store provides immutability.
+- `probectl-provider-runtime`: an externally managed Secret containing
+  `PROBECTL_ENVELOPE_KEY`, `PROBECTL_SESSION_HMAC_KEY`,
+  `PROBECTL_DATABASE_URL`, `PROBECTL_OIDC_CLIENT_SECRET` when OIDC needs one,
+  and `PROBECTL_WORM_SIGNING_KEY`. The last value is the base64-encoded PKCS#8
+  PEM signing key. Every replica must receive the same value.
+
+The names are the reference defaults below; override
+`objectStore.existingClaim` and `secrets.existingSecret` when your operators
+create different names.
+
 ```sh
 helm install probectl deploy/helm/probectl \
   -f deploy/helm/probectl/values-multitenant.yaml \
@@ -108,10 +124,11 @@ helm install probectl deploy/helm/probectl \
   --set ingress.backendTLS.serverName=probectl.msp.example.com \
   --set control.tls.existingSecret=probectl-msp-tls \
   --set-string image.digest='sha256:<release-digest>' \
-  --set database.url=... --set secrets.envelopeKey="$(openssl rand -base64 32)" \
-  --set oidc.issuer=... --set oidc.clientId=... --set oidc.clientSecret=... \
-  --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm \
-  --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE=/var/lib/probectl/audit-worm/worm-ed25519.pem \
+  --set secrets.existingSecret=probectl-provider-runtime \
+  --set objectStore.existingClaim=probectl-provider-objects-rwx \
+  --set database.url='postgres://declaration-only@db:5432/probectl?sslmode=verify-full' \
+  --set oidc.issuer=... --set oidc.clientId=... \
+  --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/objects/audit-worm \
   --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
   --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest
 ```
@@ -121,6 +138,21 @@ of deployment shape; the multi-tenant values only size the runtime and spread
 replicas. Provider profiles also need audit-retention watermarks at install time:
 tenant audit rows prune only below the SIEM cursor, and provider/break-glass rows
 prune only below the signed WORM segment watermark.
+
+`database.url` remains a render-time TLS-posture declaration for the
+multi-tenant profile; the actual credential is read from
+`PROBECTL_DATABASE_URL` in `secrets.existingSecret`. Keep their endpoint and
+`sslmode` consistent. Helm cannot inspect an already-created Secret, and the
+control process independently fails closed if the runtime DSN violates the
+production TLS policy.
+
+The chart rejects a WORM directory unless it is an absolute, canonical path at
+or below `objectStore.mountPath`, and that mount uses a non-empty
+`objectStore.existingClaim`. It also rejects
+`PROBECTL_WORM_SIGNING_KEY_FILE` whenever more than one replica can run: a file
+generated independently by each pod would create competing signing identities.
+For a one-replica sovereign install, a stable key file remains supported when
+both the WORM directory and key file live on the persistent claim.
 
 `control.extraEnv` is only for settings without a typed chart value. The chart
 rejects names it already owns—including listener TLS, authentication, HSTS,
