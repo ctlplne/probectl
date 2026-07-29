@@ -407,6 +407,21 @@ func TestAuthenticatedLoginSessionReplacement(t *testing.T) {
 		}
 		return nil
 	})
+	// A stale tab may send logout after the winning callback. That must not
+	// erase the consumed-token marker and reopen a second-successor race.
+	if err := sessions.DeleteByHash(ctx, oldHash); err != nil {
+		t.Fatalf("logout obsolete predecessor: %v", err)
+	}
+	obsoleteRetryHash := crypto.Hash([]byte("authenticated-obsolete-retry-" + suffix))
+	if created, err := sessions.ReplaceAuthenticatedByHash(
+		ctx, oldHash, nil, obsoleteRetryHash,
+		auth.Session{
+			TenantID: newTenant.ID, UserID: newUserID,
+			ExpiresAt: time.Now().Add(time.Hour),
+		},
+	); err != nil || created {
+		t.Fatalf("obsolete-token retry after logout: created=%t err=%v, want false/nil", created, err)
+	}
 
 	concurrentOldHash := crypto.Hash([]byte("authenticated-concurrent-old-" + suffix))
 	if err := sessions.Create(ctx, concurrentOldHash, auth.Session{
