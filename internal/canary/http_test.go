@@ -30,8 +30,8 @@ func TestNewHTTPDefaults(t *testing.T) {
 	if h.method != http.MethodGet {
 		t.Errorf("method = %q, want GET", h.method)
 	}
-	if !h.follow || h.insecure {
-		t.Errorf("follow=%v insecure=%v, want true/false", h.follow, h.insecure)
+	if !h.follow {
+		t.Errorf("follow=%v, want true", h.follow)
 	}
 	if h.timeout != 10*time.Second {
 		t.Errorf("timeout = %s, want 10s", h.timeout)
@@ -109,17 +109,15 @@ func TestHTTPCanaryRunBypassesAmbientProxy(t *testing.T) {
 
 func TestNewHTTPParams(t *testing.T) {
 	c, err := NewHTTP(Config{
-		Target:                  "http://svc.internal:8080/ping",
-		Timeout:                 3 * time.Second,
-		AllowInsecureSkipVerify: true, // WIRE-004: opt-in so insecure_skip_verify is honored
+		Target:  "http://svc.internal:8080/ping",
+		Timeout: 3 * time.Second,
 		Params: map[string]string{
-			"method":               "post",
-			"expect_status":        "200,201",
-			"follow_redirects":     "false",
-			"insecure_skip_verify": "true",
-			"max_body_bytes":       "2048",
-			"ca_file":              "/etc/probectl/ca.pem",
-			"body":                 "ping",
+			"method":           "post",
+			"expect_status":    "200,201",
+			"follow_redirects": "false",
+			"max_body_bytes":   "2048",
+			"ca_file":          "/etc/probectl/ca.pem",
+			"body":             "ping",
 		},
 	})
 	if err != nil {
@@ -132,8 +130,8 @@ func TestNewHTTPParams(t *testing.T) {
 	if h.method != "POST" {
 		t.Errorf("method = %q, want POST", h.method)
 	}
-	if h.follow || !h.insecure {
-		t.Errorf("follow=%v insecure=%v", h.follow, h.insecure)
+	if h.follow {
+		t.Errorf("follow=%v, want false", h.follow)
 	}
 	if h.maxBody != 2048 || h.caFile != "/etc/probectl/ca.pem" || h.body != "ping" {
 		t.Errorf("maxBody=%d caFile=%q body=%q", h.maxBody, h.caFile, h.body)
@@ -156,8 +154,11 @@ func TestNewHTTPErrors(t *testing.T) {
 		{"no host", Config{Target: "http://"}},
 		{"bad max_body", Config{Target: "http://x.test", Params: map[string]string{"max_body_bytes": "-5"}}},
 		{"bad expect", Config{Target: "http://x.test", Params: map[string]string{"expect_status": "wat"}}},
-		// WIRE-004: insecure_skip_verify=true is refused unless the agent opts in.
-		{"insecure not allowed", Config{Target: "https://x.test", Params: map[string]string{"insecure_skip_verify": "true"}}},
+		{"insecure verification disabled", Config{
+			Target:                  "https://x.test",
+			Params:                  map[string]string{"insecure_skip_verify": "true"},
+			AllowInsecureSkipVerify: true, // A legacy opt-in must not relax the invariant.
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

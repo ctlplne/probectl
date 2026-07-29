@@ -65,13 +65,11 @@ type Config struct {
 	Security      SecurityConfig      `yaml:"security"`
 }
 
-// SecurityConfig holds agent-level safety toggles. They default to the secure
-// stance; an operator must opt in to relax them.
+// SecurityConfig retains legacy safety-key decoding so old configurations fail
+// with an actionable validation error instead of an unknown-field parse error.
 type SecurityConfig struct {
-	// AllowInsecureSkipVerify gates the per-probe http insecure_skip_verify
-	// parameter (WIRE-004). OFF by default: a probe spec requesting
-	// insecure_skip_verify=true is REFUSED unless the operator turns this on.
-	// When enabled, an insecure probe still runs but is stamped + logged.
+	// AllowInsecureSkipVerify is prohibited. It remains in the schema solely to
+	// reject historical attempts to relax outbound certificate verification.
 	AllowInsecureSkipVerify bool `yaml:"allow_insecure_skip_verify"`
 }
 
@@ -311,6 +309,9 @@ func (c *Config) applyDefaults() {
 }
 
 func (c *Config) validate() error {
+	if c.Security.AllowInsecureSkipVerify {
+		return fmt.Errorf("config: security.allow_insecure_skip_verify is no longer supported; outbound certificate verification cannot be disabled")
+	}
 	if c.ControlPlane.GRPCAddr == "" {
 		return fmt.Errorf("config: control_plane.grpc_addr is required")
 	}

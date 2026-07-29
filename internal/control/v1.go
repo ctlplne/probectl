@@ -373,19 +373,21 @@ func (s *Server) handleUpdateTest(w http.ResponseWriter, r *http.Request) error 
 }
 
 // privilegedTestParams maps deny-by-default test params to the admin-seeded
-// permission required to set them. Both are tenant-scoped by construction
-// (the test row is RLS-scoped) and recorded explicitly in the audit entry by
-// the callers: allow_private_targets (U-002, SSRF-guard override) and
-// insecure_skip_verify (U-040, disables canary TLS verification).
+// permission required to set them. Each is tenant-scoped by construction (the
+// test row is RLS-scoped) and recorded explicitly in the audit entry by the
+// callers. Certificate verification is not represented here because it cannot
+// be disabled, even by a privileged operator.
 var privilegedTestParams = map[string]string{
 	canary.AllowPrivateParam: permTestAllowPrivate,
-	"insecure_skip_verify":   permTestInsecureTLS,
 }
 
 // guardAllowPrivate enforces the privileged-param permissions (deny by
 // default: no principal, missing RBAC, tenant ABAC deny, or a policy-load
 // failure is refused).
 func (s *Server) guardAllowPrivate(r *http.Request, params map[string]string) error {
+	if params["insecure_skip_verify"] == "true" {
+		return apierror.Validation("insecure_skip_verify=true is forbidden; certificate verification cannot be disabled; use ca_file for private trust")
+	}
 	p := auth.PrincipalFrom(r.Context())
 	for param, perm := range privilegedTestParams {
 		if params[param] != "true" {

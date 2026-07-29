@@ -32,6 +32,23 @@ identity:
 	}
 }
 
+func TestConfigRejectsLegacyInsecureTLSOptIn(t *testing.T) {
+	path := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+security:
+  allow_insecure_skip_verify: true
+`)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "outbound certificate verification cannot be disabled") {
+		t.Fatalf("legacy insecure TLS opt-in should be refused at config load, got %v", err)
+	}
+}
+
 func TestConfigRequiresVersionAndRejectsUnknownKeys(t *testing.T) {
 	missingVersion := filepath.Join(t.TempDir(), "agent.yml")
 	if err := os.WriteFile(missingVersion, []byte(`

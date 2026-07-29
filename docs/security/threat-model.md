@@ -119,7 +119,7 @@ trying to reach another tenant's data. The full storage-layer mechanism is in
 | Threat | Mitigation — evidence |
 |---|---|
 | Silent operator read of tenant telemetry | **no implicit read access**; break-glass (emergency access that must be explicitly granted, expires on a clock, and is recorded apart from normal activity) is explicit, time-bounded, tenant-consented, and lands in a *separate* tamper-evident provider audit stream (proven by the `ee/provider` no-implicit-access test suite) |
-| Operator-side credential abuse | auth fails closed by default; rate-limit + lockout + audit on auth; any `insecure_skip_verify` is admin-permission-gated and audited |
+| Operator-side credential abuse | auth fails closed by default; rate-limit + lockout + audit on auth; outbound certificate verification cannot be disabled, even with the historical `test.insecure_tls` permission |
 | Disgruntled-insider erasure | WORM export survives a DB purge (see B4); offboarding erasure is attested store-by-store |
 
 ### B6 — AI / MCP

@@ -66,9 +66,6 @@ func New(cfg *Config, reg *canary.Registry, log *slog.Logger) (*Agent, error) {
 		c, err := reg.New(canary.Config{
 			Type: cc.Type, Target: cc.Target, Interval: cc.Interval.Std(), Timeout: cc.Timeout.Std(), Params: cc.Params,
 			TenantID: id.TenantID,
-			// WIRE-004: per-probe insecure_skip_verify only takes effect when the
-			// agent has opted in at the security level.
-			AllowInsecureSkipVerify: cfg.Security.AllowInsecureSkipVerify,
 		})
 		if err != nil {
 			return nil, err

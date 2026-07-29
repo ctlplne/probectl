@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,10 +56,7 @@ func runHTTP(t *testing.T, target string, params map[string]string) canary.Resul
 		params = map[string]string{}
 	}
 	params["allow_private_targets"] = "true" // loopback test servers (U-002 override, audited in prod)
-	// WIRE-004: when a test opts a probe into insecure_skip_verify, mirror the
-	// agent-level opt-in the runtime would require.
-	allowInsecure := params["insecure_skip_verify"] == "true"
-	c, err := canary.NewHTTP(canary.Config{Type: "http", Target: target, Timeout: 5 * time.Second, Params: params, AllowInsecureSkipVerify: allowInsecure})
+	c, err := canary.NewHTTP(canary.Config{Type: "http", Target: target, Timeout: 5 * time.Second, Params: params})
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
@@ -209,20 +207,15 @@ func TestHTTPExpiredCertCapturedAndFailed(t *testing.T) {
 	}
 }
 
-func TestHTTPInsecureSkipVerifyCaptures(t *testing.T) {
-	ca, _ := crypto.GenerateCA("probectl-test-ca", time.Hour)
-	certPEM, keyPEM, _ := ca.IssueServerCert("localhost", []string{"127.0.0.1"}, time.Hour)
-	srv, _ := tlsServer(t, certPEM, keyPEM, ca.CertPEM(), http.HandlerFunc(okHandler))
-
-	// No ca_file: the cert is untrusted, but insecure_skip_verify lets the probe
-	// succeed while still capturing the handshake details.
-	res := runHTTP(t, srv.URL, map[string]string{"insecure_skip_verify": "true"})
-
-	if !res.Success {
-		t.Fatalf("insecure probe should succeed: %q", res.Error)
-	}
-	if res.Attributes["tls.cipher.suite"] == "" {
-		t.Error("TLS details should be captured even in insecure mode")
+func TestHTTPInsecureSkipVerifyRejected(t *testing.T) {
+	_, err := canary.NewHTTP(canary.Config{
+		Target: "https://example.test",
+		Params: map[string]string{"insecure_skip_verify": "true"},
+		// A legacy caller-side opt-in must not weaken the hard transport rule.
+		AllowInsecureSkipVerify: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "certificate verification cannot be disabled") {
+		t.Fatalf("insecure_skip_verify error = %v, want unconditional rejection", err)
 	}
 }
 

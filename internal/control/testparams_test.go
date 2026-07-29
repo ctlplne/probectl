@@ -15,9 +15,9 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
-// U-002/U-040: the privileged test params are deny-by-default — a principal
-// without the matching admin-seeded permission is refused, one holding it
-// passes, and unprivileged params never consult the gate.
+// U-002: private-target overrides remain deny-by-default. CRYPTO-c46e93d2:
+// certificate verification cannot be disabled by any principal, including one
+// holding the historical test.insecure_tls permission.
 func TestGuardPrivilegedTestParams(t *testing.T) {
 	s := &Server{}
 	withPerms := func(perms ...string) *http.Request {
@@ -32,35 +32,35 @@ func TestGuardPrivilegedTestParams(t *testing.T) {
 	anon := httptest.NewRequest(http.MethodPost, "/v1/tests", nil)
 
 	cases := []struct {
-		name   string
-		r      *http.Request
-		params map[string]string
-		deny   bool
+		name     string
+		r        *http.Request
+		params   map[string]string
+		wantKind apierror.Kind
 	}{
-		{"insecure_skip_verify denied without permission (U-040)",
-			withPerms(permTestWrite), map[string]string{"insecure_skip_verify": "true"}, true},
+		{"insecure_skip_verify rejected without permission",
+			withPerms(permTestWrite), map[string]string{"insecure_skip_verify": "true"}, apierror.KindValidation},
 		{"insecure_skip_verify denied for anonymous",
-			anon, map[string]string{"insecure_skip_verify": "true"}, true},
-		{"insecure_skip_verify allowed with test.insecure_tls",
-			withPerms(permTestWrite, permTestInsecureTLS), map[string]string{"insecure_skip_verify": "true"}, false},
+			anon, map[string]string{"insecure_skip_verify": "true"}, apierror.KindValidation},
+		{"insecure_skip_verify rejected with historical test.insecure_tls",
+			withPerms(permTestWrite, permTestInsecureTLS), map[string]string{"insecure_skip_verify": "true"}, apierror.KindValidation},
 		{"allow_private_targets denied without permission (U-002)",
-			withPerms(permTestWrite), map[string]string{"allow_private_targets": "true"}, true},
+			withPerms(permTestWrite), map[string]string{"allow_private_targets": "true"}, apierror.KindForbidden},
 		{"allow_private_targets allowed with test.allow_private",
-			withPerms(permTestAllowPrivate), map[string]string{"allow_private_targets": "true"}, false},
-		{"both params need both permissions",
-			withPerms(permTestAllowPrivate), map[string]string{"allow_private_targets": "true", "insecure_skip_verify": "true"}, true},
+			withPerms(permTestAllowPrivate), map[string]string{"allow_private_targets": "true"}, 0},
+		{"forbidden TLS param cannot be combined with a permitted private target",
+			withPerms(permTestAllowPrivate, permTestInsecureTLS), map[string]string{"allow_private_targets": "true", "insecure_skip_verify": "true"}, apierror.KindValidation},
 		{"unprivileged params never gate",
-			anon, map[string]string{"method": "POST", "insecure_skip_verify": "false"}, false},
+			anon, map[string]string{"method": "POST", "insecure_skip_verify": "false"}, 0},
 		{"no params never gate",
-			anon, nil, false},
+			anon, nil, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := s.guardAllowPrivate(tc.r, tc.params)
-			if tc.deny {
+			if tc.wantKind != 0 {
 				de, ok := apierror.As(err)
-				if !ok || de.Kind != apierror.KindForbidden {
-					t.Fatalf("want 403, got %v", err)
+				if !ok || de.Kind != tc.wantKind {
+					t.Fatalf("want error kind %v, got %v", tc.wantKind, err)
 				}
 				return
 			}

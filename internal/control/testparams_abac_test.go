@@ -28,7 +28,6 @@ func TestGuardPrivilegedTestParamsEnforcesABAC(t *testing.T) {
 		permission string
 	}{
 		{name: "private target override", param: "allow_private_targets", permission: permTestAllowPrivate},
-		{name: "insecure TLS override", param: "insecure_skip_verify", permission: permTestInsecureTLS},
 	}
 	handlers := []struct {
 		name    string
@@ -80,6 +79,24 @@ func TestGuardPrivilegedTestParamsEnforcesABAC(t *testing.T) {
 						t.Fatalf("%s ABAC deny status = %d, want 403: %s", endpoint.name, rec.Code, rec.Body.String())
 					}
 				})
+			}
+		})
+	}
+
+	for _, tenantID := range []string{deniedTenant, allowedTenant} {
+		t.Run("insecure TLS remains forbidden for tenant "+tenantID, func(t *testing.T) {
+			cache := newClosedABACCache(t)
+			cache.data[tenantID] = abacEntry{expiry: time.Now().Add(time.Hour)}
+			s := &Server{abac: cache, pool: cache.pool}
+			req := privilegedTestParamRequest(
+				http.MethodPost,
+				"/v1/tests",
+				tenantID,
+				permTestInsecureTLS,
+				"insecure_skip_verify",
+			)
+			if err := s.guardAllowPrivate(req, map[string]string{"insecure_skip_verify": "true"}); errKind(t, err) != apierror.KindValidation {
+				t.Fatalf("tenant %s insecure TLS override = %v, want validation rejection", tenantID, err)
 			}
 		})
 	}

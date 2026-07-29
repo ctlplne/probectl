@@ -556,7 +556,7 @@ breakdown** and captures **TLS handshake details** for the TLS-posture plane (se
 | `method` | `GET`, `HEAD`, `POST`, … | `GET` | request method |
 | `expect_status` | codes / classes / ranges | `2xx,3xx` | which statuses count as available |
 | `follow_redirects` | `true` \| `false` | `true` | follow 3xx redirects |
-| `insecure_skip_verify` | `true` \| `false` | `false` | capture TLS but don't fail on an invalid cert. **Deny-by-default:** requires the admin-only `test.insecure_tls` permission, remains subject to tenant ABAC deny policies, and is flagged in the `test.create`/`test.update` audit entry |
+| `insecure_skip_verify` | `false` only | `false` | legacy compatibility key. `true` is always rejected: outbound certificate verification cannot be disabled. Use `ca_file` for a private trust anchor |
 | `ca_file` | path to a PEM bundle | — | extra trust anchor (private/internal CA); must live under `PROBECTL_AGENT_CANARY_CA_DIR` |
 | `body` | string | — | request body (e.g. for `POST`) |
 | `max_body_bytes` | integer | `10485760` | cap bytes read per probe (10 MiB) |
@@ -595,14 +595,15 @@ the result to path/traceroute data** for the same destination.
 (negative once expired). It verifies the chain itself (hostname + trust, honoring
 `ca_file`) **after** capturing the certificate, so the handshake details are
 recorded **even when the certificate is invalid or expired** — an invalid cert
-fails the probe but its details are still attached. Set `insecure_skip_verify:
-"true"` to capture posture without failing the availability check. **WIRE-004:**
-at the agent, `insecure_skip_verify=true` is *refused* unless the agent config
-sets `security.allow_insecure_skip_verify: true` (default false); when permitted,
-the probe runs but its result carries `tls.verification_disabled="true"` so every
-verification-disabled probe is auditable. probectl performs no TLS *posture
-analysis* here (issuer trust, weak-cipher/expiry policy, CT) — that is the *TLS /
-certificate observability* feature below, which consumes these captured fields.
+fails the probe but its details are still attached. This means operators do not
+need an insecure mode to observe certificate failures. The historical
+`insecure_skip_verify=true` probe parameter is always rejected, including for
+callers holding the legacy `test.insecure_tls` permission; likewise,
+`security.allow_insecure_skip_verify: true` is rejected when an agent
+configuration loads. Use `ca_file` when the endpoint is valid under a private
+CA. probectl performs no TLS *posture analysis* here (issuer trust,
+weak-cipher/expiry policy, CT) — that is the *TLS / certificate observability*
+feature below, which consumes these captured fields.
 
 ### Browser / transaction tests
 

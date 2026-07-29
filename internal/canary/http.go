@@ -36,25 +36,25 @@ const defaultMaxBody = 10 << 20 // 10 MiB
 // plane. The crypto stays in crypto/tls + crypto/x509 (FIPS-swappable; CLAUDE.md
 // §7 guardrail 3).
 type httpCanary struct {
-	guard    *TargetGuard
-	url      string
-	method   string
-	scheme   string
-	host     string
-	port     string
-	body     string
-	expect   []statusRange
-	follow   bool
-	insecure bool
-	caFile   string
-	maxBody  int64
-	timeout  time.Duration
+	guard   *TargetGuard
+	url     string
+	method  string
+	scheme  string
+	host    string
+	port    string
+	body    string
+	expect  []statusRange
+	follow  bool
+	caFile  string
+	maxBody int64
+	timeout time.Duration
 }
 
 // NewHTTP builds an HTTP canary. Target is the URL. Params: method (GET),
 // expect_status ("2xx,3xx" | "200" | "200-204"), follow_redirects (true),
-// insecure_skip_verify (false), ca_file (extra trust anchor), body,
-// max_body_bytes.
+// ca_file (extra trust anchor), body, max_body_bytes. The historical
+// insecure_skip_verify option is always rejected: certificate verification is
+// a transport invariant, not an operator-tunable probe behavior.
 func NewHTTP(cfg Config) (Canary, error) {
 	raw := strings.TrimSpace(cfg.Target)
 	if raw == "" {
@@ -102,15 +102,7 @@ func NewHTTP(cfg Config) (Canary, error) {
 		c.follow = false
 	}
 	if p["insecure_skip_verify"] == "true" {
-		// WIRE-004: TLS verification may be disabled only when the agent has
-		// explicitly opted in (Config.AllowInsecureSkipVerify). Otherwise the
-		// probe spec is REFUSED — a probe cannot silently turn off cert
-		// verification. When allowed, the probe still runs but Run() stamps an
-		// attribute so every insecure probe is auditable.
-		if !cfg.AllowInsecureSkipVerify {
-			return nil, errors.New("http: insecure_skip_verify=true is refused — the agent must set security.allow_insecure_skip_verify to permit it (WIRE-004)")
-		}
-		c.insecure = true
+		return nil, errors.New("http: insecure_skip_verify=true is refused — certificate verification cannot be disabled; configure ca_file for private trust")
 	}
 	if err := c.guard.CheckHost(c.host); err != nil {
 		return nil, fmt.Errorf("http: %w", err)
@@ -146,12 +138,6 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		"url.full":              c.url,
 		"http.request.method":   c.method,
 	}}
-	if c.insecure {
-		// WIRE-004: make every verification-disabled probe auditable on the
-		// result itself (the agent already gated this behind an explicit opt-in).
-		res.Attributes["probectl.tls.verification_disabled"] = "true"
-	}
-
 	roots, err := c.trustRoots()
 	if err != nil {
 		return res, err // configuration fault (bad ca_file) → internal error
@@ -247,9 +233,6 @@ func (c *httpCanary) transport(roots *x509.CertPool, tlsState **tls.ConnectionSt
 			VerifyConnection: func(cs tls.ConnectionState) error {
 				snapshot := cs
 				*tlsState = &snapshot
-				if c.insecure {
-					return nil
-				}
 				err := verifyPeer(cs, c.host, roots)
 				ok := err == nil
 				*tlsVerified = &ok

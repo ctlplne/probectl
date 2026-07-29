@@ -45,9 +45,10 @@ type Config struct {
 	// such as object-store artifact prefixes. Result identity is still stamped
 	// by the runtime when records are buffered/emitted.
 	TenantID string `json:"tenant_id,omitempty"`
-	// AllowInsecureSkipVerify is the agent-level opt-in that lets a probe set
-	// the http insecure_skip_verify=true parameter (WIRE-004). Default false:
-	// NewHTTP REFUSES an insecure probe unless this is set.
+	// AllowInsecureSkipVerify is retained only so older in-process callers
+	// continue to compile. NewHTTP ignores this legacy opt-in and always rejects
+	// insecure_skip_verify=true; certificate verification cannot be disabled.
+	// Remove this field at the next public Config schema break.
 	AllowInsecureSkipVerify bool `json:"allow_insecure_skip_verify,omitempty"`
 }
 
