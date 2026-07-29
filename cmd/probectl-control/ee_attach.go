@@ -33,7 +33,6 @@ import (
 	eeremediation "github.com/imfeelingtheagi/probectl/ee/remediation"
 	"github.com/imfeelingtheagi/probectl/ee/silo"
 	"github.com/imfeelingtheagi/probectl/ee/tenantkeys"
-	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -212,16 +211,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	// and the full propose→approve→reject trail is written to the tenant's
 	// tamper-evident audit stream. Unlicensed: the whole surface 404s.
 	if lic.Has(license.FeatureRemediation) {
-		// auditFn bridges the ee Service to the core tenant audit chain inside
-		// each tenant's own RLS scope (never cross-tenant).
-		auditFn := func(ctx context.Context, tenantID, actor, action, target string, data map[string]any) error {
-			return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
-				_, err := audit.TenantAppend(ctx, sc, actor, action, target, data)
-				return err
-			})
-		}
 		estimator := eeremediation.NewTopologyEstimator(topoStore, nil) // SLO impact optional
-		remed := eeremediation.New(eeremediation.NewPGStore(pool), estimator, auditFn, eeremediation.Config{
+		remed := eeremediation.New(eeremediation.NewPGStore(pool), estimator, eeremediation.NewTenantAudit(pool), eeremediation.Config{
 			ApprovalsEnabled: cfg.RemediationApprovalsEnabled,
 			MaxBlastRadius:   cfg.RemediationMaxBlastRadius,
 		})

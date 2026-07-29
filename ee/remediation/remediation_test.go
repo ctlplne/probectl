@@ -17,7 +17,10 @@ import (
 	rem "github.com/imfeelingtheagi/probectl/internal/remediation"
 )
 
-const testTenant = "00000000-0000-0000-0000-000000000001"
+const (
+	testTenant  = "00000000-0000-0000-0000-000000000001"
+	testTenantB = "00000000-0000-0000-0000-000000000002"
+)
 
 type proposalRow struct {
 	dryRun []byte
@@ -270,6 +273,111 @@ func TestReject_Audits(t *testing.T) {
 	// A rejected proposal cannot then be approved.
 	if _, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrNotProposed) {
 		t.Fatalf("approve after reject: err=%v, want ErrNotProposed", err)
+	}
+}
+
+// TestMandatoryAuditFailureRollsBackMutation is the guardrail-7/8 regression:
+// a remediation proposal or decision and its tenant audit event are one
+// all-or-nothing unit. A broken mandatory audit stream must fail the request
+// and must not publish the staged mutation for either the caller's tenant or
+// an unrelated tenant.
+func TestMandatoryAuditFailureRollsBackMutation(t *testing.T) {
+	auditFailure := errors.New("injected mandatory remediation audit failure")
+	failingAudit := Audit(func(context.Context, string, string, string, string, map[string]any) error {
+		return auditFailure
+	})
+	goodAudit := (&recAudit{}).fn()
+	est := &fakeEstimator{dry: rem.DryRun{BlastRadius: 2}}
+
+	t.Run("propose", func(t *testing.T) {
+		store := NewMemStore()
+		svc := New(store, est, failingAudit, Config{ApprovalsEnabled: true, MaxBlastRadius: 50}).
+			withNow(func() time.Time { return fixedNow })
+
+		tenantB := rem.Proposal{
+			Kind: rem.KindOpenTicket, Title: "tenant B baseline",
+			DryRun: rem.DryRun{BlastRadius: 1}, State: rem.StateProposed,
+			ProposedBy: "user:b@example.com", CreatedAt: fixedNow,
+		}
+		if _, err := store.Insert(context.Background(), testTenantB, tenantB); err != nil {
+			t.Fatalf("seed tenant B: %v", err)
+		}
+
+		if _, err := svc.Propose(context.Background(), testTenant, "user:a@example.com", rem.ProposeInput{
+			Kind: rem.KindOpenTicket, Title: "tenant A proposal",
+		}); !errors.Is(err, auditFailure) {
+			t.Fatalf("Propose with failed mandatory audit = %v, want %v", err, auditFailure)
+		}
+		assertTenantProposalCounts(t, store, 0, 1)
+	})
+
+	for _, tc := range []struct {
+		name   string
+		decide func(*Service, string) (rem.Proposal, error)
+	}{
+		{
+			name: "approve",
+			decide: func(svc *Service, id string) (rem.Proposal, error) {
+				return svc.Approve(context.Background(), testTenant, "user:admin@example.com", id, "approved")
+			},
+		},
+		{
+			name: "reject",
+			decide: func(svc *Service, id string) (rem.Proposal, error) {
+				return svc.Reject(context.Background(), testTenant, "user:admin@example.com", id, "rejected")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMemStore()
+			svc := New(store, est, goodAudit, Config{ApprovalsEnabled: true, MaxBlastRadius: 50}).
+				withNow(func() time.Time { return fixedNow })
+			proposalA, err := svc.Propose(context.Background(), testTenant, "ai:propose_remediation", rem.ProposeInput{
+				Kind: rem.KindOpenTicket, Title: "tenant A baseline",
+			})
+			if err != nil {
+				t.Fatalf("seed tenant A: %v", err)
+			}
+			if _, err := svc.Propose(context.Background(), testTenantB, "ai:propose_remediation", rem.ProposeInput{
+				Kind: rem.KindOpenTicket, Title: "tenant B baseline",
+			}); err != nil {
+				t.Fatalf("seed tenant B: %v", err)
+			}
+			svc.audit = failingAudit
+
+			if _, err := tc.decide(svc, proposalA.ID); !errors.Is(err, auditFailure) {
+				t.Fatalf("%s with failed mandatory audit = %v, want %v", tc.name, err, auditFailure)
+			}
+			gotA, err := store.Get(context.Background(), testTenant, proposalA.ID)
+			if err != nil {
+				t.Fatalf("get tenant A: %v", err)
+			}
+			if gotA.State != rem.StateProposed {
+				t.Fatalf("%s audit failure published tenant A state %q, want proposed", tc.name, gotA.State)
+			}
+			gotB, err := store.List(context.Background(), testTenantB)
+			if err != nil {
+				t.Fatalf("list tenant B: %v", err)
+			}
+			if len(gotB) != 1 || gotB[0].State != rem.StateProposed {
+				t.Fatalf("tenant A %s audit failure changed tenant B: %+v", tc.name, gotB)
+			}
+		})
+	}
+}
+
+func assertTenantProposalCounts(t *testing.T, store Store, wantA, wantB int) {
+	t.Helper()
+	gotA, err := store.List(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("list tenant A: %v", err)
+	}
+	gotB, err := store.List(context.Background(), testTenantB)
+	if err != nil {
+		t.Fatalf("list tenant B: %v", err)
+	}
+	if len(gotA) != wantA || len(gotB) != wantB {
+		t.Fatalf("tenant proposal counts = A:%d B:%d, want A:%d B:%d", len(gotA), len(gotB), wantA, wantB)
 	}
 }
 

@@ -10,6 +10,8 @@ package remediation
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -54,15 +56,6 @@ func itTenant(t *testing.T, pool *pgxpool.Pool, slug string) string {
 		t.Fatal(err)
 	}
 	return id
-}
-
-func auditFn(pool *pgxpool.Pool) Audit {
-	return func(ctx context.Context, tenantID, actor, action, target string, data map[string]any) error {
-		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
-			_, err := audit.TenantAppend(ctx, sc, actor, action, target, data)
-			return err
-		})
-	}
 }
 
 func TestRemediationStoreRoundTripPG(t *testing.T) {
@@ -129,7 +122,7 @@ func TestRemediationServiceAuditTrailPG(t *testing.T) {
 	tn := itTenant(t, pool, "it-rem-audit")
 
 	est := &fakeEstimator{dry: rem.DryRun{BlastRadius: 3}}
-	svc := New(NewPGStore(pool), est, auditFn(pool), Config{ApprovalsEnabled: true, MaxBlastRadius: 50})
+	svc := New(NewPGStore(pool), est, NewTenantAudit(pool), Config{ApprovalsEnabled: true, MaxBlastRadius: 50})
 
 	p, err := svc.Propose(ctx, tn, "ai:propose_remediation", rem.ProposeInput{
 		Kind: rem.KindRerouteSuggestion, Title: "reroute", Target: "hop:10.0.0.2",
@@ -164,5 +157,73 @@ func TestRemediationServiceAuditTrailPG(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("audit verify: %v", err)
+	}
+}
+
+type failingScopedAudit struct{ err error }
+
+func (f failingScopedAudit) Append(context.Context, string, string, string, string, map[string]any) error {
+	return f.err
+}
+
+func (f failingScopedAudit) appendScoped(context.Context, tenancy.Scope, string, string, string, map[string]any) error {
+	return f.err
+}
+
+func TestRemediationMutationAndAuditAreAtomicPG(t *testing.T) {
+	pool := itPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+	tnA := itTenant(t, pool, "it-rem-atomic-a-"+suffix)
+	tnB := itTenant(t, pool, "it-rem-atomic-b-"+suffix)
+	store := NewPGStore(pool)
+	est := &fakeEstimator{dry: rem.DryRun{BlastRadius: 3}}
+	good := New(store, est, NewTenantAudit(pool), Config{ApprovalsEnabled: true, MaxBlastRadius: 50})
+
+	pA, err := good.Propose(ctx, tnA, "ai:propose_remediation", rem.ProposeInput{
+		Kind: rem.KindOpenTicket, Title: "tenant A baseline",
+	})
+	if err != nil {
+		t.Fatalf("seed tenant A: %v", err)
+	}
+	pB, err := good.Propose(ctx, tnB, "ai:propose_remediation", rem.ProposeInput{
+		Kind: rem.KindOpenTicket, Title: "tenant B baseline",
+	})
+	if err != nil {
+		t.Fatalf("seed tenant B: %v", err)
+	}
+
+	auditFailure := errors.New("injected scoped audit failure")
+	failing := New(store, est, failingScopedAudit{err: auditFailure}, Config{ApprovalsEnabled: true, MaxBlastRadius: 50})
+	if _, err := failing.Approve(ctx, tnA, "user:admin@example.com", pA.ID, "go"); !errors.Is(err, auditFailure) {
+		t.Fatalf("approve with failed audit = %v, want %v", err, auditFailure)
+	}
+	if _, err := failing.Propose(ctx, tnA, "user:a@example.com", rem.ProposeInput{
+		Kind: rem.KindOpenTicket, Title: "must roll back",
+	}); !errors.Is(err, auditFailure) {
+		t.Fatalf("propose with failed audit = %v, want %v", err, auditFailure)
+	}
+
+	gotA, err := store.Get(ctx, tnA, pA.ID)
+	if err != nil {
+		t.Fatalf("get tenant A: %v", err)
+	}
+	if gotA.State != rem.StateProposed {
+		t.Fatalf("failed audit published tenant A decision: %+v", gotA)
+	}
+	listA, err := store.List(ctx, tnA)
+	if err != nil {
+		t.Fatalf("list tenant A: %v", err)
+	}
+	if len(listA) != 1 {
+		t.Fatalf("failed audit published tenant A proposal: got %d rows, want 1", len(listA))
+	}
+	gotB, err := store.Get(ctx, tnB, pB.ID)
+	if err != nil {
+		t.Fatalf("get tenant B: %v", err)
+	}
+	if gotB.State != rem.StateProposed {
+		t.Fatalf("tenant A audit failure changed tenant B: %+v", gotB)
 	}
 }
