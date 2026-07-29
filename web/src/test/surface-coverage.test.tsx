@@ -679,14 +679,18 @@ describe('frontend-coverage gate (S-FE6)', () => {
     }
   })
 
-  test('a11y: every native surface passes the WCAG 2.2 AA bar (axe)', async () => {
-    for (const route of uniqueRoutes('native')) {
-      const { container, findAllByRole, unmount } = renderApp(route)
-      await findAllByRole('heading')
-      await new Promise((r) => setTimeout(r, 50)) // settle queries/empty states
-      const results = await axe(container)
-      expect(results, `${route} fails the a11y bar`).toHaveNoViolations()
-      unmount()
-    }
-  }, 60_000)
+  test.each(uniqueRoutes('native'))(
+    'a11y: native surface %s passes the WCAG 2.2 AA bar',
+    async (route) => {
+      const view = renderApp(route)
+      try {
+        await view.findAllByRole('heading')
+        await new Promise((resolve) => setTimeout(resolve, 50)) // settle queries/empty states
+        const results = await axe(view.container)
+        expect(results, `${route} fails the a11y bar`).toHaveNoViolations()
+      } finally {
+        view.unmount()
+      }
+    },
+  )
 })
