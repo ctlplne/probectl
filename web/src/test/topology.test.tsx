@@ -231,11 +231,18 @@ describe('topology + what-if (S43)', () => {
     expect(within(graph).queryByRole('button', { name: 'service zz-hidden-target' })).toBeNull()
 
     const table = screen.getByRole('table', { name: /topology nodes/i })
-    expect(within(table).getByRole('button', { name: 'zz-hidden-target' })).toBeInTheDocument()
+    expect(within(table).getByText(/showing 200 of 500/i)).toBeInTheDocument()
+    expect(within(table).queryByRole('button', { name: 'zz-hidden-target' })).toBeNull()
 
-    await userEvent.type(screen.getByLabelText(/search topology/i), 'zz-hidden-target')
+    await userEvent.click(screen.getByText(/history & filters/i))
+    fireEvent.change(screen.getByLabelText(/search topology/i), {
+      target: { value: 'zz-hidden-target' },
+    })
     expect(
       await within(graph).findByRole('button', { name: 'service zz-hidden-target' }),
+    ).toBeInTheDocument()
+    expect(
+      await within(table).findByRole('button', { name: 'zz-hidden-target' }),
     ).toBeInTheDocument()
   }, 20_000)
 
@@ -245,13 +252,21 @@ describe('topology + what-if (S43)', () => {
     renderApp('/topology')
     await screen.findByRole('group', { name: /topology graph/i })
 
+    await userEvent.click(screen.getByText(/history & filters/i))
     const input = screen.getByLabelText(/as of/i)
-    await userEvent.type(input, '2026-06-04T11:00')
+    const selectedTime = '2026-06-04T11:00'
+    const expectedAt = new Date(selectedTime).toISOString()
+    fireEvent.change(input, { target: { value: selectedTime } })
     await waitFor(() => {
       const urls = (
         fetcher as unknown as { mock: { calls: [RequestInfo | URL][] } }
       ).mock.calls.map((c) => String(c[0]))
-      expect(urls.some((u) => u.includes('/v1/topology?at='))).toBe(true)
+      expect(
+        urls.some((u) => {
+          const request = new URL(u, 'https://probectl.test')
+          return request.pathname === '/v1/topology' && request.searchParams.get('at') === expectedAt
+        }),
+      ).toBe(true)
     })
   })
 })

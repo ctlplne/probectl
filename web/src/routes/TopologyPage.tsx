@@ -937,7 +937,6 @@ function TopologyListCard({
           columns={columns}
           rows={nodes}
           rowKey={(node) => node.id}
-          maxRows={nodes.length}
           empty={<EmptyState title="No matching nodes" description="Adjust search or filters." />}
         />
       </CardBody>
