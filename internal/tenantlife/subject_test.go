@@ -217,7 +217,7 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	}
 }
 
-func TestSubjectErasureNotCapablePlanesFailClosed(t *testing.T) {
+func TestSubjectErasureNotCapablePlanesIncomplete(t *testing.T) {
 	engine := New(nil, nil, nil, subjectEraseIncapableTSDB{}, nil, "backups expire by policy", nil).
 		WithTopology(subjectEraseIncapableTopology{}).
 		WithEBPF(subjectEraseIncapableEBPF{}).
