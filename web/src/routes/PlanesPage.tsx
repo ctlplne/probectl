@@ -115,6 +115,8 @@ export function PlanesPage() {
   const [params, setParams] = useSearchParams()
   const parsedPivot = useMemo(() => parsePivotContext(params), [params])
   const pivotContext = parsedPivot.context
+  const requestedConfigID = params.get('config') ?? undefined
+  const requestedPreviousConfigID = params.get('previous_config') ?? undefined
   const { locale, t } = useI18n()
   const active: PlaneID = isPlaneID(plane) ? plane : 'bgp'
   const [flowBy, setFlowBy] = useState<FlowGroupBy>('src')
@@ -126,6 +128,7 @@ export function PlanesPage() {
   const anomalies = useFlowAnomalies('1h', '5m')
   const deviceSyslog = useDeviceSyslog(5)
   const deviceConfigs = useDeviceConfigs(5)
+  const devicePivotConfigs = useDeviceConfigs(500, Boolean(requestedConfigID))
   const deviceNeighbors = useDeviceNeighbors(100)
 
   const nodes = topology.data?.nodes ?? EMPTY_TOPO_NODES
@@ -144,8 +147,6 @@ export function PlanesPage() {
     b.ts.localeCompare(a.ts),
   )[0]
   const impairedEndpoints = endpointItems.filter((e) => e.slow).length
-  const requestedConfigID = params.get('config') ?? undefined
-  const requestedPreviousConfigID = params.get('previous_config') ?? undefined
   const requestConfigComparison = useCallback(
     (currentID: string, previousID: string) => {
       const next = new URLSearchParams(params)
@@ -169,8 +170,8 @@ export function PlanesPage() {
     const selectionUnavailable = Boolean(
       pivotContext.selection &&
       !topology.isLoading &&
-      (pivotContext.selection.kind === 'evidence' ||
-        !nodes.some((node) => node.id === pivotContext.selection?.id)),
+      pivotContext.selection.kind === 'entity' &&
+      !nodes.some((node) => node.id === pivotContext.selection?.id),
     )
     if (selectionUnavailable || (parsedPivot.hasContract && !parsedPivot.referencesValid)) {
       setParams(replacePivotContext(params, { ...pivotContext, selection: undefined }), {
@@ -277,6 +278,7 @@ export function PlanesPage() {
             collectorRunning={endpoints.data?.collector_running}
             syslog={deviceSyslog.data?.items ?? []}
             configs={deviceConfigs.data?.items ?? []}
+            comparisonConfigs={devicePivotConfigs.data?.items ?? []}
             neighbors={deviceNeighbors.data?.items ?? []}
             neighborsRunning={deviceNeighbors.data?.collection_running}
             neighborsTruncated={deviceNeighbors.data?.truncated}
@@ -285,6 +287,8 @@ export function PlanesPage() {
             neighborsError={deviceNeighbors.isError}
             opsLoading={deviceSyslog.isLoading || deviceConfigs.isLoading}
             opsError={deviceSyslog.isError || deviceConfigs.isError}
+            comparisonLoading={devicePivotConfigs.isLoading}
+            comparisonError={devicePivotConfigs.isError}
             requestedConfigID={requestedConfigID}
             requestedPreviousConfigID={requestedPreviousConfigID}
             onRequestConfig={requestConfigComparison}
@@ -847,6 +851,7 @@ function DevicePanel({
   collectorRunning,
   syslog,
   configs,
+  comparisonConfigs,
   neighbors,
   neighborsRunning,
   neighborsTruncated,
@@ -855,6 +860,8 @@ function DevicePanel({
   neighborsError,
   opsLoading,
   opsError,
+  comparisonLoading,
+  comparisonError,
   requestedConfigID,
   requestedPreviousConfigID,
   onRequestConfig,
@@ -871,6 +878,7 @@ function DevicePanel({
   collectorRunning?: boolean
   syslog: DeviceSyslogEvent[]
   configs: DeviceConfigVersion[]
+  comparisonConfigs: DeviceConfigVersion[]
   neighbors: DeviceNeighborEvidence[]
   neighborsRunning?: boolean
   neighborsTruncated?: boolean
@@ -879,6 +887,8 @@ function DevicePanel({
   neighborsError: boolean
   opsLoading: boolean
   opsError: boolean
+  comparisonLoading: boolean
+  comparisonError: boolean
   requestedConfigID?: string
   requestedPreviousConfigID?: string
   onRequestConfig: (currentID: string, previousID: string) => void
@@ -887,16 +897,16 @@ function DevicePanel({
 }) {
   const { locale, t } = useI18n()
   const configComparison = useMemo<ConfigComparison | null>(() => {
-    const current = configs.find((config) => config.id === requestedConfigID)
+    const current = comparisonConfigs.find((config) => config.id === requestedConfigID)
     if (!current) return null
-    const previous = findPreviousConfig(configs, current)
+    const previous = findPreviousConfig(comparisonConfigs, current)
     if (requestedPreviousConfigID && previous?.id !== requestedPreviousConfigID) return null
     return previous ? { current, previous } : null
-  }, [configs, requestedConfigID, requestedPreviousConfigID])
+  }, [comparisonConfigs, requestedConfigID, requestedPreviousConfigID])
   useEffect(() => {
-    if (!requestedConfigID || opsLoading || configComparison) return
+    if (!requestedConfigID || comparisonLoading || comparisonError || configComparison) return
     onCloseConfig()
-  }, [configComparison, onCloseConfig, opsLoading, requestedConfigID])
+  }, [comparisonError, comparisonLoading, configComparison, onCloseConfig, requestedConfigID])
   const configComparisonControl = (config: DeviceConfigVersion) => {
     const previous = findPreviousConfig(configs, config)
     if (!config.drifted) {
@@ -1253,7 +1263,11 @@ function DevicePanel({
                 }
               />
             )}
-            {configComparison ? (
+            {requestedConfigID && comparisonLoading ? (
+              <LoadingState label={t('planes.device.config.loading')} />
+            ) : requestedConfigID && comparisonError ? (
+              <ErrorState description={t('planes.device.config.error')} />
+            ) : configComparison ? (
               <ConfigDiffDialog
                 comparison={configComparison}
                 onClose={onCloseConfig}

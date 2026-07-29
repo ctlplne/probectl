@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { coldFetch, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import { renderApp } from './renderApp'
+import { pivotHref } from '../routes/pivotContext'
 
 describe('plane workspaces', () => {
   test('prioritizes the active workspace over redundant overview cards on mobile', async () => {
@@ -261,14 +262,101 @@ describe('plane workspaces', () => {
     expect(arabicDialog.querySelector('[dir="ltr"][tabindex="0"]')).toBeInTheDocument()
   })
 
+  test('opens an exact incident config pair outside the ordinary five-row archive', async () => {
+    const fallback = defaultFetch()
+    const newer = Array.from({ length: 5 }, (_, index) => ({
+      id: `newer-${index}`,
+      device: `other-${index}`,
+      version: 1,
+      content: `hostname other-${index}`,
+      content_hash: `newer-hash-${index}`,
+      drifted: false,
+      archived_at: `2026-06-04T12:0${index}:00Z`,
+    }))
+    const exactPair = [
+      {
+        id: 'config-2',
+        device: 'edge-r1',
+        version: 2,
+        content: 'hostname edge-r1\nno shutdown',
+        content_hash: 'hash-current',
+        previous_hash: 'hash-previous',
+        drifted: true,
+        archived_at: '2026-06-04T11:00:00Z',
+      },
+      {
+        id: 'config-1',
+        device: 'edge-r1',
+        version: 1,
+        content: 'hostname edge-r1\nshutdown',
+        content_hash: 'hash-previous',
+        drifted: false,
+        archived_at: '2026-06-04T10:00:00Z',
+      },
+    ]
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (pathOf(input) !== '/v1/device/configs') return fallback(input, init)
+      const raw =
+        typeof input === 'string' ? input : input instanceof URL ? input.href : String(input)
+      const limit = new URL(raw, 'http://probectl.invalid').searchParams.get('limit')
+      return Promise.resolve(
+        jsonResponse({
+          items: limit === '500' ? [...newer, ...exactPair] : newer,
+          archive_running: true,
+        }),
+      )
+    })
+    vi.stubGlobal('fetch', fetcher)
+    const href = pivotHref(
+      '/planes/device',
+      {
+        incidentId: 'incident-1',
+        from: '2026-06-04T10:00:00Z',
+        to: '2026-06-04T13:00:00Z',
+        filters: { severity: 'warning' },
+        selection: { kind: 'evidence', id: 'device-config:config-2' },
+        returnTo: '/incidents?incident=incident-1',
+        expiresAt: '2099-01-01T00:00:00Z',
+      },
+      { config: 'config-2', previous_config: 'config-1' },
+    )
+    renderApp(href)
+
+    const versions = await screen.findByRole('table', { name: /device config versions/i })
+    expect(within(versions).queryByText('edge-r1')).not.toBeInTheDocument()
+    const dialog = await screen.findByRole('dialog', { name: 'edge-r1: version 1 → 2' })
+    expect(within(dialog).getByText('no shutdown')).toBeInTheDocument()
+    expect(
+      fetcher.mock.calls
+        .filter(([input]) => pathOf(input) === '/v1/device/configs')
+        .map(([input]) => {
+          const raw =
+            typeof input === 'string' ? input : input instanceof URL ? input.href : String(input)
+          return new URL(raw, 'http://probectl.invalid').searchParams.get('limit')
+        }),
+    ).toEqual(expect.arrayContaining(['5', '500']))
+  })
+
   test('fails closed when a config pivot does not name the exact predecessor', async () => {
-    renderApp('/planes/device?config=config-2&previous_config=config-does-not-match')
+    const href = pivotHref(
+      '/planes/device',
+      {
+        incidentId: 'incident-1',
+        from: '2026-06-04T10:00:00Z',
+        to: '2026-06-04T13:00:00Z',
+        filters: { severity: 'warning' },
+        selection: { kind: 'evidence', id: 'device-config:config-2' },
+        returnTo: '/incidents?incident=incident-1',
+        expiresAt: '2099-01-01T00:00:00Z',
+      },
+      { config: 'config-2', previous_config: 'config-does-not-match' },
+    )
+    renderApp(href)
 
     await screen.findByRole('table', { name: /device config versions/i })
     await waitFor(() => {
+      expect(screen.queryByText('Loading config archive...')).not.toBeInTheDocument()
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-      expect(window.location.search).not.toContain('config=')
-      expect(window.location.search).not.toContain('previous_config=')
     })
   })
 

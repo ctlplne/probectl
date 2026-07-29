@@ -315,9 +315,10 @@ export function useDeviceSyslog(limit = 5) {
   })
 }
 
-export function useDeviceConfigs(limit = 5) {
+export function useDeviceConfigs(limit = 5, enabled = true) {
   return useQuery({
     queryKey: ['device', 'configs', limit],
+    enabled,
     queryFn: () => apiFetch<DeviceConfigResponse>(`/device/configs?limit=${limit}`),
   })
 }
