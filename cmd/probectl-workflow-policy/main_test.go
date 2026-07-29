@@ -161,7 +161,7 @@ jobs:
 	if code := run([]string{"permissions", path}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
-	if got, want := stdout.String(), "workflow\t-\tread\njob\tquoted-write\twrite\n"; got != want {
+	if got, want := stdout.String(), "workflow\t-\tread\tnone\njob\tquoted-write\twrite\tnone\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }

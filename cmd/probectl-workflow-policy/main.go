@@ -32,9 +32,10 @@ const (
 )
 
 type permissionRecord struct {
-	scope string
-	job   string
-	write bool
+	scope      string
+	job        string
+	write      bool
+	usesAction bool
 }
 
 func main() {
@@ -59,6 +60,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		return runImages(args[1:], stdout, stderr)
+	case "actions":
+		if len(args) < 2 {
+			printUsage(stderr)
+			return 2
+		}
+		return runActions(args[1:], stdout, stderr)
 	default:
 		printUsage(stderr)
 		return 2
@@ -81,7 +88,11 @@ func runPermissions(path string, stdout, stderr io.Writer) int {
 		if record.write {
 			level = "write"
 		}
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", record.scope, record.job, level)
+		actionUse := "none"
+		if record.usesAction {
+			actionUse = "action"
+		}
+		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", record.scope, record.job, level, actionUse)
 	}
 	return 0
 }
@@ -90,6 +101,7 @@ func printUsage(stderr io.Writer) {
 	fmt.Fprintln(stderr, "usage:")
 	fmt.Fprintln(stderr, "  probectl-workflow-policy permissions WORKFLOW")
 	fmt.Fprintln(stderr, "  probectl-workflow-policy images WORKFLOW_OR_DIRECTORY [...]")
+	fmt.Fprintln(stderr, "  probectl-workflow-policy actions WORKFLOW_OR_DIRECTORY [...]")
 }
 
 func loadWorkflow(path string) (*yaml.Node, error) {
@@ -226,7 +238,14 @@ func permissionRecords(root *yaml.Node) ([]permissionRecord, error) {
 				return nil, err
 			}
 		}
-		records = append(records, permissionRecord{scope: "job", job: key.Value, write: write})
+		var actions []actionRecord
+		walkWorkflowActions(job, key.Value, &actions)
+		records = append(records, permissionRecord{
+			scope:      "job",
+			job:        key.Value,
+			write:      write,
+			usesAction: len(actions) > 0,
+		})
 	}
 	return records, nil
 }

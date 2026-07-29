@@ -89,13 +89,14 @@ check_workflow() {
   local scope
   local subject
   local level
+  local action_use
 
   if ! semantic_permissions="$(go run ./cmd/probectl-workflow-policy permissions "$workflow" 2>&1)"; then
     echo "workflow-permissions: semantic YAML inspection failed closed for ${workflow}:" >&2
     printf '%s\n' "$semantic_permissions" >&2
     return 1
   fi
-  while IFS=$'\t' read -r scope subject level; do
+  while IFS=$'\t' read -r scope subject level action_use; do
     [[ -z "$scope" ]] && continue
     if [[ "$scope" == "workflow" && "$level" == "write" ]]; then
       echo "workflow-permissions: workflow-level write authority is forbidden in ${workflow}" >&2
@@ -103,6 +104,10 @@ check_workflow() {
     fi
     if [[ "$scope" == "job" && "$level" == "write" && "$subject" != "coverage-comment" ]]; then
       echo "workflow-permissions: unclassified job ${subject} has write authority" >&2
+      failed=1
+    fi
+    if [[ "$scope" == "job" && "$subject" == "coverage-comment" && "$action_use" != "none" ]]; then
+      echo "workflow-permissions: coverage-comment must not run actions from a repository" >&2
       failed=1
     fi
   done <<<"$semantic_permissions"
@@ -165,15 +170,6 @@ check_workflow() {
     { echo "workflow-permissions: coverage-comment must remain a PR-only always() follow-up" >&2; failed=1; }
   grep -Eq '^    continue-on-error: true[[:space:]]*$' <<<"$commenter" ||
     { echo "workflow-permissions: coverage-comment must remain best-effort" >&2; failed=1; }
-  if grep -q 'actions/checkout@' <<<"$commenter"; then
-    echo "workflow-permissions: coverage-comment must never checkout repository code" >&2
-    failed=1
-  fi
-  if grep -Eq '^[[:space:]]+uses:' <<<"$commenter"; then
-    echo "workflow-permissions: coverage-comment must not run actions from a repository" >&2
-    failed=1
-  fi
-
   commands="$(printf '%s\n' "$commenter" | job_run_commands)"
   while IFS= read -r command; do
     [[ -z "$command" || "$command" == \#* ]] && continue
@@ -253,6 +249,19 @@ YAML
     echo "workflow-permissions SELFTEST: checkout in the write-capable job was accepted" >&2
     exit 1
   fi
+
+  for planted_action in \
+    '      - "uses": actions/github-script@v7' \
+    '      - {uses: actions/github-script@v7}'; do
+    awk -v planted_action="$planted_action" '
+      $0 == "      - name: Download" { print planted_action }
+      { print }
+    ' "$fixture" >"$bad"
+    if check_workflow "$bad" >/dev/null 2>&1; then
+      echo "workflow-permissions SELFTEST: semantic action in the write-capable job was accepted: ${planted_action}" >&2
+      exit 1
+    fi
+  done
 
   sed '/test -s coverage-pr-summary/a\
           make test' "$fixture" >"$bad"
