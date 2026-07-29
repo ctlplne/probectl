@@ -37,5 +37,8 @@ spec:
     ingress:
       host: probectl.example.com
       tlsSecretName: probectl-tls
+    control:
+      tls:
+        existingSecret: probectl-tls
     secrets:
       existingSecret: probectl-secrets

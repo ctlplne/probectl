@@ -62,7 +62,7 @@ variable "ingress_host" {
 }
 
 variable "ingress_tls_secret" {
-  description = "Name of the TLS Secret holding the ingress cert for ingress_host."
+  description = "Name of the TLS Secret holding the ingress_host certificate; the module also mounts it on the HTTPS control listener."
   type        = string
   default     = "probectl-tls"
 }

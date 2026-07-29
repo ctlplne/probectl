@@ -191,8 +191,8 @@ Verification you ran, not verification you described.
 
 - **helm-gate** — the Helm charts lint for every reference profile and uphold
   the secure-by-default invariants (non-root/read-only pod,
-  NetworkPolicy/PDB/HPA, drain probe, HSTS — the response header that pins
-  browsers to HTTPS — and no default credentials); the rendered manifests are
+  NetworkPolicy/PDB/HPA, HTTPS Service/probes/ingress backend, required serving
+  certificate Secret, HSTS, and no default credentials); the manifests are
   schema-validated with `kubeconform`, the GitOps (ArgoCD/Flux) manifests are
   checked, and the shipped compose file must pass `docker compose config`.
 - **terraform-gate** — the Terraform module is `fmt`-clean and `terraform

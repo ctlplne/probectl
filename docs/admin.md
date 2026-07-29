@@ -272,7 +272,8 @@ halt-on-error, and the explicit resume-with-a-note step — is in
 
 ## Transport posture
 
-The shipped deployments are HTTPS-by-default (TLS + HSTS, no plaintext API). The
-agent transport is mTLS with a SPIFFE-style, tenant-bound identity. Put the
-control plane behind your TLS-terminating ingress (Helm) or use the bundled TLS
-listener (compose); see [install.md](install.md).
+The shipped deployments serve HTTPS at the application listener and public
+edge, with HSTS and no plaintext API hop. The agent transport is mTLS with a
+SPIFFE-style, tenant-bound identity. Helm mounts an operator-managed serving
+certificate behind its HTTPS ingress; Compose generates its local certificate.
+See [install.md](install.md).

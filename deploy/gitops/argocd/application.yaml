@@ -24,6 +24,9 @@ spec:
           value: probectl.example.com
         - name: ingress.tlsSecretName
           value: probectl-tls
+        # Operator-managed kubernetes.io/tls Secret; reused for pod-listener TLS.
+        - name: control.tls.existingSecret
+          value: probectl-tls
         # A Secret you manage out-of-band (envelope key, session HMAC key, DB DSN, OIDC secret).
         - name: secrets.existingSecret
           value: probectl-secrets

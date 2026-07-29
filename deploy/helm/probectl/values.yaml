@@ -1,12 +1,10 @@
 # Default values for probectl — SINGLE-TENANT (sovereign) reference.
 #
-# HTTPS-by-default at the public edge: the ingress terminates TLS and sets HSTS;
-# the Service is ClusterIP (no plaintext API is exposed externally), and the
-# default NetworkPolicy allows the plaintext in-cluster API hop only from the
-# named ingress-controller namespace. This is the ingress-termination
-# compatibility profile. Regulated installs that require TLS on the pod listener
-# too use values-strict.yaml, where the control process serves HTTPS directly
-# and ServiceMonitor/probes/ingress target that HTTPS backend. See
+# HTTPS on every hop by default: the control process serves TLS directly, while
+# the ingress also terminates public TLS and sets HSTS. Service, probes, ingress,
+# and ServiceMonitor all target the same HTTPS pod listener. Operators must
+# provide control.tls.existingSecret; rendering fails closed when it is absent.
+# See values-strict.yaml for the closed-egress regulated profile and
 # values-multitenant.yaml for the MSP / provider reference.
 
 image:
@@ -90,12 +88,12 @@ control:
   logLevel: info
   # RFC 9116 disclosure contact served at /.well-known/security.txt.
   securityContact: "mailto:security@your-org.example"
-  # Direct HTTPS listener for regulated profiles. When enabled, the same control
-  # process serves TLS on service.port; Service, probes, ingress backend, and
-  # ServiceMonitor all switch to the named "https" target. Provide a Secret with
-  # tls.crt/tls.key or override certKey/keyKey to match your Secret.
+  # The control process serves TLS directly on service.port. Service, probes,
+  # ingress backend, and ServiceMonitor all use the named "https" target.
+  # existingSecret is required and must contain tls.crt/tls.key, unless certKey
+  # and keyKey are overridden to match the operator-managed Secret.
   tls:
-    enabled: false
+    enabled: true
     existingSecret: ""
     certKey: tls.crt
     keyKey: tls.key
@@ -137,18 +135,13 @@ objectStore:
   mountPath: /var/lib/probectl/objects
   existingClaim: "" # recommended for production; empty uses ephemeral emptyDir
 
-# SEC-009/WIRE-002: the deployment edge (ingress) serves TLS, so session/OAuth
-# cookies carry the Secure attribute even though the in-cluster listener is
-# plaintext behind it. NetworkPolicy restricts that plaintext pod hop to the
-# ingress controller by default. Only set false for a cluster-internal eval with
-# no TLS anywhere.
+# SEC-009/WIRE-002: both the public ingress and the in-cluster control listener
+# serve TLS, so session/OAuth cookies remain protected on every hop.
 publicTLS: true
 
-# WIRE-004/WIRE-002: the chart's in-cluster listener is plaintext behind the
-# ingress; the binary refuses non-loopback plaintext without this explicit
-# opt-in, and the chart refuses an enabled NetworkPolicy with no ingress source
-# selector.
-allowPlaintextHTTP: true
+# WIRE-004: plaintext is disabled. Keeping this explicit value also makes a
+# future accidental control.tls.enabled=false fail closed at process startup.
+allowPlaintextHTTP: false
 
 # Kafka bus tls policy (optional; PROBECTL_BUS_MODE=kafka): production runs the
 # broker hop over TLS — plaintext kafka is refused by the control plane unless
@@ -170,11 +163,11 @@ database:
   url: ""
 
 service:
-  type: ClusterIP        # never NodePort/LoadBalancer with a plaintext port
+  type: ClusterIP
   port: 8080
 
-# HTTPS-by-default ingress. TLS is terminated here; HSTS is set; HTTP is
-# redirected to HTTPS. No plaintext API is exposed.
+# HTTPS-by-default ingress. Public TLS terminates here, HSTS is set, HTTP is
+# redirected to HTTPS, and the ingress uses HTTPS to the control pod too.
 ingress:
   enabled: true
   className: nginx
@@ -242,9 +235,9 @@ autoscaling:
   # targetMemoryUtilizationPercentage: 80
 
 # NetworkPolicy: default-deny ingress + egress, with explicit allows. ON by
-# default (U-086/WIRE-002). The policy below closes the plaintext API pod hop by
-# allowing ingress only from the named ingress-controller namespace. It still
-# carries one DOCUMENTED HOLE until you tighten egress per deployment:
+# default (U-086/WIRE-002). The policy allows the HTTPS API only from the named
+# ingress-controller namespace. It still carries one DOCUMENTED HOLE until you
+# tighten egress per deployment:
 #   HOLE: egressTo EMPTY ⇒ all egress is allowed (plus DNS, always allowed).
 #           Set the datastore/bus/IdP/feed allow-list to close it —
 #           values-large.yaml ships a filled reference list.
@@ -285,9 +278,8 @@ metrics:
     # object would not apply); regulated profiles enable it.
     enabled: false
     interval: 30s
-    # Must match the rendered Service target: http by default, https when
-    # control.tls.enabled=true.
-    scheme: http
+    # Must match the rendered HTTPS Service target.
+    scheme: https
     labels: {}
     tlsConfig: {}
   prometheusRule:

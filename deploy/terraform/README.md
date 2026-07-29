@@ -63,7 +63,7 @@ catalogs which agent produces which data plane.
 | `chart_version` | string | `""` | pin a chart version (repo/OCI charts) |
 | `release_name` | string | `probectl` | Helm release name |
 | `namespace` / `create_namespace` | string / bool | `probectl` / `true` | target namespace |
-| `ingress_tls_secret` | string | `probectl-tls` | TLS Secret for the ingress cert |
+| `ingress_tls_secret` | string | `probectl-tls` | TLS Secret reused by the ingress and HTTPS control listener |
 | `image_repository` / `image_tag` | string | `""` | image overrides |
 | `oidc_issuer` / `oidc_client_id` / `oidc_client_secret` / `oidc_redirect_url` | string | `""` | SSO config (secret goes to the Secret, not the ConfigMap) |
 | `values_files` | list(string) | `[]` | extra values files applied after the size preset |
@@ -93,8 +93,8 @@ and encryption as the secrets themselves.
 
 ### Security posture
 
-The deployed release inherits the chart's hardening: HTTPS-by-default
-(TLS-terminating ingress + HSTS, no plaintext API exposure), a non-root,
+The deployed release inherits the chart's hardening: HTTPS on the control
+listener and ingress, HSTS, no plaintext API hop, a non-root,
 read-only-root-FS, all-caps-dropped pod, and a NetworkPolicy that is **on in
 every profile** (with two documented holes you tighten per deployment — the
 `large` profile ships the filled egress allow-list). `medium` and above add a

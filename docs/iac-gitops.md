@@ -93,6 +93,7 @@ regulated/hardened profile the gate renders) and `values-multiregion.yaml`
 ```bash
 helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-medium.yaml \
   --set ingress.host=probectl.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set control.tls.existingSecret=probectl-tls \
   --set secrets.envelopeKey="$(openssl rand -base64 32)"
 ```
 

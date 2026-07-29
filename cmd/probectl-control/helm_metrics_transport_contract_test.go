@@ -98,10 +98,11 @@ func TestHelmMetricsTransportMatchesRenderedControlListener(t *testing.T) {
 			name: "values.yaml",
 			body: values,
 			want: []string{
-				"tls:\n    enabled: false",
+				"tls:\n    enabled: true",
 				"existingSecret: \"\"",
 				"mountPath: /etc/probectl/http-tls",
-				"scheme: http",
+				"allowPlaintextHTTP: false",
+				"scheme: https",
 			},
 		},
 		{
@@ -130,11 +131,15 @@ func TestHelmMetricsTransportMatchesRenderedControlListener(t *testing.T) {
 			body: hardening,
 			want: []string{
 				"RUNOPS-004",
+				"CONFIG-aa08042e",
+				"base_svc",
+				"base_dep",
 				"strict_svc",
 				"strict_sm",
 				`PROBECTL_ALLOW_PLAINTEXT_HTTP: \"false\"`,
+				"chart rendered without control.tls.existingSecret",
 				"strict ServiceMonitor rendered an HTTPS scrape without an HTTPS control listener",
-				"chart rendered https ServiceMonitor scheme while control.tls.enabled=false",
+				"chart rendered an HTTP ServiceMonitor against the default HTTPS listener",
 			},
 		},
 	}
@@ -147,6 +152,43 @@ func TestHelmMetricsTransportMatchesRenderedControlListener(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHelmDefaultHasNoPlaintextListener(t *testing.T) {
+	values := readArtifact(t, "deploy/helm/probectl/values.yaml")
+	schema := readArtifact(t, "deploy/helm/probectl/values.schema.json")
+	hardening := readArtifact(t, "scripts/check_helm_hardening.sh")
+
+	for _, forbidden := range []string{
+		"tls:\n    enabled: false",
+		"allowPlaintextHTTP: true",
+		"scheme: http\n",
+	} {
+		if strings.Contains(values, forbidden) {
+			t.Errorf("values.yaml retains plaintext default %q", forbidden)
+		}
+	}
+
+	for _, want := range []string{
+		`"existingSecret": { "type": "string", "minLength": 1 }`,
+		`"required": ["enabled", "existingSecret", "certKey", "keyKey", "mountPath"]`,
+	} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("values schema missing fail-closed TLS contract %q", want)
+		}
+	}
+	for _, want := range []string{
+		`need "name: https" "$base_svc"`,
+		`need "scheme: HTTPS" "$base_dep"`,
+		`PROBECTL_ALLOW_PLAINTEXT_HTTP: \"false\"`,
+		`nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"`,
+		`chart rendered without control.tls.existingSecret`,
+		`default ServiceMonitor must scrape the HTTPS control listener`,
+	} {
+		if !strings.Contains(hardening, want) {
+			t.Errorf("Helm hardening gate missing default-listener assertion %q", want)
+		}
 	}
 }
 

@@ -116,10 +116,10 @@ also drop the database and certs).
 
 ## Option B — Kubernetes (Helm)
 
-The chart in [`deploy/helm/probectl`](../deploy/helm/probectl) terminates TLS at
-the ingress, force-redirects HTTP → HTTPS, and emits HSTS; the Service is
-`ClusterIP` (a cluster-internal-only address), so nothing plaintext is
-reachable from outside the cluster.
+The chart in [`deploy/helm/probectl`](../deploy/helm/probectl) serves TLS on the
+control pod and at the ingress, force-redirects HTTP → HTTPS, and emits HSTS.
+The Service, probes, ingress backend, and optional ServiceMonitor all target the
+same HTTPS listener, so the ingress-to-pod hop is not plaintext.
 Migrations run as an init container (a one-shot container Kubernetes runs to
 completion before the main one starts — so the schema is always in place before
 the server boots), and the pod runs non-root with a read-only
@@ -130,6 +130,7 @@ helm install probectl deploy/helm/probectl \
   --namespace probectl --create-namespace \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
+  --set control.tls.existingSecret=probectl-tls \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
   --set secrets.envelopeKey="$(openssl rand -base64 32)" \
   --set control.authMode=session \
@@ -139,9 +140,12 @@ helm install probectl deploy/helm/probectl \
   --set oidc.redirectUrl=https://probectl.example.com/auth/callback
 ```
 
-Provide the TLS secret via cert-manager (add the issuer to `ingress.annotations`)
-or pre-create the secret named by `ingress.tlsSecretName`. For the MSP / provider
-reference sizing, add `-f deploy/helm/probectl/values-multitenant.yaml` plus
+Provide the TLS Secret via cert-manager (add the issuer to `ingress.annotations`)
+or create it first. It must contain `tls.crt` and `tls.key`; the example reuses
+the same host certificate for `ingress.tlsSecretName` and
+`control.tls.existingSecret`. Helm fails closed when the control-listener Secret
+is omitted. For the MSP / provider reference sizing, add
+`-f deploy/helm/probectl/values-multitenant.yaml` plus
 the audit WORM/SIEM watermark env vars shown in
 [`deploy/helm/README.md`](../deploy/helm/README.md); provider profiles fail
 closed without them so raw audit rows cannot silently keep forever. Then

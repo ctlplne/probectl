@@ -79,10 +79,9 @@ A note on the defaults: the listen address is `:8080`, but the database DSN —
 the *data source name*, the one connection string carrying host, user, password,
 database, and TLS mode — is required and has no default credential. Production
 DSNs should use **`sslmode=require`** or stronger. HSTS — the response header
-that tells browsers to only ever reach this host over HTTPS — is on. These
-defaults assume you front the process with a TLS-terminating ingress (the shipped
-Helm/compose posture); set the TLS cert/key pair below to have the process serve
-HTTPS itself instead.
+that tells browsers to only ever reach this host over HTTPS — is on. Shipped
+Helm and Compose deployments set the TLS cert/key pair below so the process
+serves HTTPS directly, including behind an ingress.
 
 | Variable                          | Default                                                              | Description                                  |
 | --------------------------------- | ------------------------------------------------------------------- | -------------------------------------------- |
@@ -104,8 +103,8 @@ HTTPS itself instead.
 | `PROBECTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
 | `PROBECTL_TLS_CERT_FILE`            | (none)                                                            | PEM server certificate; the process serves HTTPS directly when set together with the key |
 | `PROBECTL_TLS_KEY_FILE`             | (none)                                                            | PEM server private key (set together with the cert)        |
-| `PROBECTL_PUBLIC_TLS`               | `false`                                                          | tells the app that TLS terminates at the edge (an ingress in front) even though the app itself serves plaintext. Browsers only see the edge, so this is what flips cookies to `Secure` when you run behind a TLS ingress |
-| `PROBECTL_ALLOW_PLAINTEXT_HTTP`     | `false`                                                          | explicit, loud opt-in for a **non-loopback** plaintext control listener — only valid behind a TLS-terminating ingress (the Helm chart sets it). Without it, plaintext + a non-loopback bind = refuse to start (fail closed) |
+| `PROBECTL_PUBLIC_TLS`               | `false`                                                          | tells the app its public origin is TLS so browser cookies are `Secure`. Shipped Helm and Compose paths also serve TLS on the application listener |
+| `PROBECTL_ALLOW_PLAINTEXT_HTTP`     | `false`                                                          | explicit, loud compatibility opt-in for a **non-loopback** plaintext control listener. Shipped Helm and Compose paths leave it false; without TLS files, plaintext + a non-loopback bind refuses to start |
 | `PROBECTL_SECURITY_CONTACT`         | (none)                                                          | your vulnerability-disclosure mailbox; published in the served `/.well-known/security.txt` (left as a template comment when unset) |
 | `PROBECTL_ENVELOPE_KEY`             | (none)                                                            | base64-encoded 32-byte key-encryption key (KEK) for at-rest envelope encryption. The single root secret behind sealed credentials and backups — **back it up** |
 | `PROBECTL_ENVELOPE_KEY_FILE`        | (none)                                                            | path to the KEK file — loaded, or GENERATED+persisted (0600) on first boot if absent; an explicit `PROBECTL_ENVELOPE_KEY` wins over it. Shipped compose mounts it on the `controldata` volume |
@@ -226,17 +225,16 @@ OpenAPI `ErrorCode` enum is the authoritative list.
 
 ### Transport security
 
-probectl never wants a plaintext channel exposed to the network. There are two
-*correct* ways to get TLS in front of the API, and the config lets you pick:
-
-The API listens over TLS in two interchangeable ways:
+probectl never wants a plaintext channel exposed to the network. The shipped
+deployment path uses app-terminated TLS:
 
 - **App-terminated TLS** — set `PROBECTL_TLS_CERT_FILE` + `PROBECTL_TLS_KEY_FILE`, and
   the control plane serves **HTTPS only** (TLS 1.2+, prefer 1.3; plaintext is
   refused).
-- **Ingress-terminated TLS** — leave them unset and serve HTTP behind a
-  TLS-terminating ingress (the shipped Helm/compose default). HSTS is set either
-  way, so the posture is correct end to end.
+- **Ingress compatibility mode** — a legacy/operator-owned deployment can leave
+  them unset only with the explicit `PROBECTL_ALLOW_PLAINTEXT_HTTP=true`
+  acknowledgement behind its TLS ingress. Shipped Helm and Compose do not use
+  this mode because it leaves the ingress-to-process hop unencrypted.
 
 All TLS and crypto policy lives in `internal/crypto`; a CI guard
 (`scripts/check_crypto_imports.sh`) forbids crypto-primitive imports elsewhere so

@@ -2,7 +2,9 @@
 #
 #   helm install probectl deploy/helm/probectl \
 #     -f deploy/helm/probectl/values-multitenant.yaml \
-#     --set ingress.host=probectl.msp.example --set database.url=...
+#     --set ingress.host=probectl.msp.example \
+#     --set control.tls.existingSecret=probectl-msp-tls \
+#     --set database.url=...
 #
 # Same HTTPS-by-default posture as single-tenant; the difference is scale +
 # provider operation. Postgres-resident tenant data is isolated by always-on

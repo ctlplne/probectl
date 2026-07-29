@@ -305,9 +305,8 @@ where noted "operator action".
 - [x] Every listener serves **TLS 1.2+** (1.3 preferred); AEAD-only suites.
 - [x] Agent ↔ control-plane is **mTLS** with SPIFFE-style tenant-bound
       identity; no plaintext agent transport.
-- [x] REST API, web UI, OTLP, MCP are **HTTPS**; shipped compose + Helm are
-      **HTTPS-by-default** (TLS-terminating ingress, HSTS — the response header
-      telling browsers to never retry plain HTTP).
+- [x] REST API, web UI, OTLP, MCP are **HTTPS**; shipped Compose + Helm serve TLS
+      on the application listener and public edge, with HSTS.
 - [x] UI sets a **CSP** (Content-Security-Policy — the page's allowlist of what
       may load or execute) and **Secure + HttpOnly + SameSite** session cookies.
 - [x] Inbound webhooks verify the sender's **HMAC signature** (a keyed hash
@@ -447,10 +446,10 @@ selectors and CIDRs to your cluster before applying.** A wrong selector fails
 **closed** (the API becomes unreachable), which is the safe failure direction.
 The strict profile also turns on the ServiceMonitor (the Prometheus operator's
 scrape-config object), the PrometheusRule self-alert pack, and the backup
-CronJobs. It also sets `control.tls.enabled=true`, which mounts the
-operator-provided `control.tls.existingSecret` into the control pod so the
-process serves HTTPS directly; the Service, probes, ingress backend, and
-ServiceMonitor all target that same named `https` listener.
+CronJobs. All profiles now mount the operator-provided
+`control.tls.existingSecret` so the process serves HTTPS directly; the Service,
+probes, ingress backend, and ServiceMonitor target that same named `https`
+listener. The strict overlay supplies the regulated monitoring CA reference.
 
 Other day-2 surfaces, all chart-managed:
 
@@ -463,9 +462,7 @@ Other day-2 surfaces, all chart-managed:
   silently dead pod.
 - **/metrics:** the control plane serves Prometheus self-metrics (process and
   aggregate only — no tenant data) at `/metrics`, scraped by the ServiceMonitor
-  (`metrics.serviceMonitor.enabled`). The ServiceMonitor scheme must match the
-  rendered control listener: `http` in the default in-cluster profile, `https`
-  when `control.tls.enabled=true`.
+  (`metrics.serviceMonitor.enabled`) over the same HTTPS listener.
 - **Self-alerts:** the PrometheusRule pack (`metrics.prometheusRule.enabled`)
   watches scrape presence, process pressure, write fencing, and replica lag with
   runbook annotations.

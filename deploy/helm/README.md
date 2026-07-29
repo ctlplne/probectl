@@ -8,9 +8,9 @@ charts the security hardening is welded into the templates and the values
 choose size and wiring — the way trim levels configure the same car without
 touching its safety cage. Two charts ship here:
 
-- [`probectl/`](probectl/) — the **control plane**: the API/UI Deployment (the
-  controller that keeps N identical pods running), the
-  TLS-terminating ingress (the HTTPS front door object), the migration init
+- [`probectl/`](probectl/) — the **control plane**: the TLS-serving API/UI
+  Deployment (the controller that keeps N identical pods running), the HTTPS
+  ingress (the public front door object), the migration init
   container (a container that must run to completion before the app starts),
   NetworkPolicy (a pod-level firewall object) / PDB (PodDisruptionBudget — a
   floor on how many replicas voluntary disruptions may take down) /
@@ -20,18 +20,14 @@ touching its safety cage. Two charts ship here:
   (the controller that runs exactly one copy per node — right for a per-host
   capture agent; see [its section](#the-agent-chart-probectl-agent)).
 
-The control-plane chart is **HTTPS-by-default at the public edge**: the API is
-exposed only through a TLS-terminating ingress that emits HSTS (the header
-telling browsers to refuse plaintext HTTP for this host from then on) and
-force-redirects HTTP → HTTPS; the Service is `ClusterIP` (a cluster-internal
-virtual IP, unreachable from outside), so no plaintext API is reachable from
-outside the cluster. The in-cluster API pod hop is plaintext behind that ingress,
-so the default NetworkPolicy allows it only from the named ingress-controller
-namespace and fails closed if that source list is empty. Treat that backend as
-the ingress-termination compatibility profile. For regulated installs that
-require TLS on the pod listener too, use `probectl/values-strict.yaml`: the
-control process serves HTTPS directly, and the Service, probes, ingress backend,
-and ServiceMonitor all target that same HTTPS listener. The database migration
+The control-plane chart serves **HTTPS on every hop by default**. The control
+process terminates TLS directly; the Service, probes, ingress backend, and
+optional ServiceMonitor all target that HTTPS listener. The public ingress also
+terminates TLS, emits HSTS, and force-redirects HTTP → HTTPS. Supply an
+operator-managed Secret through `control.tls.existingSecret`; Helm refuses to
+render without it. The same `kubernetes.io/tls` Secret may be used for the
+ingress and control listener. `probectl/values-strict.yaml` keeps that transport
+posture and additionally closes the default egress hole. The database migration
 runs as an init container; the pod runs non-root with a read-only root
 filesystem.
 
@@ -42,6 +38,7 @@ helm install probectl deploy/helm/probectl \
   --namespace probectl --create-namespace \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
+  --set control.tls.existingSecret=probectl-tls \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
   --set secrets.envelopeKey="$(openssl rand -base64 32)" \
   --set control.authMode=session \
@@ -50,8 +47,9 @@ helm install probectl deploy/helm/probectl \
   --set oidc.redirectUrl=https://probectl.example.com/auth/callback
 ```
 
-Provide the TLS material via cert-manager (add the issuer annotation in
-`ingress.annotations`) or a pre-created secret named by `ingress.tlsSecretName`.
+Provide TLS material via cert-manager (add the issuer annotation in
+`ingress.annotations`) or a pre-created Secret containing `tls.crt` and
+`tls.key`. The example deliberately reuses it for ingress and pod TLS.
 
 > A green `/readyz` is not "done" — **data on screen is**. A control plane with
 > no agents shows empty dashboards. Continue with
@@ -67,6 +65,7 @@ helm install probectl deploy/helm/probectl \
   -f deploy/helm/probectl/values-multitenant.yaml \
   --set ingress.host=probectl.msp.example.com \
   --set ingress.tlsSecretName=probectl-msp-tls \
+  --set control.tls.existingSecret=probectl-msp-tls \
   --set database.url=... --set secrets.envelopeKey="$(openssl rand -base64 32)" \
   --set oidc.issuer=... --set oidc.clientId=... --set oidc.clientSecret=... \
   --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm \
@@ -216,18 +215,19 @@ Pick a sizing profile and layer your overrides on top:
 | large | [`probectl/values-large.yaml`](probectl/values-large.yaml) | HPA 4–12 + PDB + filled NetworkPolicy egress allow-list |
 | provider (MSP) | [`probectl/values-multitenant.yaml`](probectl/values-multitenant.yaml) | 3 replicas + anti-affinity + PDB |
 | multi-region | [`probectl/values-multiregion.yaml`](probectl/values-multiregion.yaml) | active-active HA, one release per region ([`docs/multi-region.md`](../../docs/multi-region.md)) |
-| strict | [`probectl/values-strict.yaml`](probectl/values-strict.yaml) | regulated/air-gapped: app-terminated HTTPS listener, egress hole closed, ServiceMonitor, PrometheusRule self-alerts, backup CronJobs |
+| strict | [`probectl/values-strict.yaml`](probectl/values-strict.yaml) | regulated/air-gapped: egress hole closed, monitored HTTPS listener, PrometheusRule self-alerts, backup CronJobs |
 
 `values.schema.json` types every key (Helm validates it). The security defaults
 (non-root pinned uid, read-only root FS, drop-ALL caps, NetworkPolicy/PDB/HPA,
-`/readyz` drain probe, HSTS, no default credentials — the chart refuses to
-render without envelope and session-HMAC keys) are enforced by `make helm-gate`, which runs
+`/readyz` drain probe, HTTPS listener, HSTS, no default credentials — the chart
+refuses to render without a TLS Secret, envelope key, and session-HMAC key) are
+enforced by `make helm-gate`, which runs
 [`scripts/check_helm_hardening.sh`](../../scripts/check_helm_hardening.sh):
 hardening assertions against the rendered default / medium / large /
 multitenant / strict profiles, `helm lint` across every values file, **and** the
 agent chart's privilege contract + image-integrity admission policy + lint. The
-strict render check also proves the ServiceMonitor HTTPS endpoint resolves to an
-actual HTTPS Service target and container listener, with the control TLS Secret
+default and strict render checks prove the HTTPS endpoints resolve to an actual
+HTTPS Service target and container listener, with the control TLS Secret
 mounted into the pod. CI's
 `helm-gate` job runs the same gate plus kubeconform (a schema validator
 proving the rendered YAML is well-formed Kubernetes) on the rendered
@@ -242,15 +242,13 @@ streams it directly into `.tar.pbk`; the chart carries no object-store
 credentials;
 `metrics.serviceMonitor.enabled=true` renders a Prometheus-Operator
 ServiceMonitor; `metrics.prometheusRule.enabled=true` renders the
-PrometheusRule self-alert pack with runbook annotations. In the default profile,
-that ServiceMonitor scrapes the in-cluster `http` Service port behind
-NetworkPolicy; in the strict profile, `control.tls.enabled=true` makes the
-control process serve HTTPS directly, and the ServiceMonitor, probes, Service,
-and ingress backend all switch to the named `https` target.
+PrometheusRule self-alert pack with runbook annotations. Every profile targets
+the control process's named `https` listener. The strict profile additionally
+supplies a reference Prometheus CA configuration.
 
 **NetworkPolicy is ON by default** in every profile. API ingress is already
-restricted to the named ingress-controller namespace, so ordinary in-cluster
-pods cannot bypass the TLS ingress and hit the plaintext API listener. Adjust
+restricted to the named ingress-controller namespace, and that path uses TLS
+to the pod listener too. Adjust
 `networkPolicy.ingressFrom` to your ingress controller's labels. The remaining
 deliberate hole is egress: empty `egressTo` allows all non-DNS egress until you
 name your datastore, bus, IdP, and feed destinations.

@@ -5,8 +5,8 @@ metadata:
   labels:
     {{- include "probectl.labels" . | nindent 4 }}
 spec:
-  # ClusterIP by default: the API is reachable externally ONLY through the
-  # TLS-terminating ingress (no plaintext NodePort/LoadBalancer).
+  # ClusterIP by default: the API is reachable externally only through the
+  # TLS ingress, and this Service targets the pod's HTTPS listener.
   type: {{ .Values.service.type }}
   selector:
     {{- include "probectl.selectorLabels" . | nindent 4 }}

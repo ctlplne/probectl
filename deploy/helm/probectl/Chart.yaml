@@ -2,12 +2,12 @@ apiVersion: v2
 name: probectl
 description: >-
   Self-hosted, multi-tenant, OpenTelemetry-native network observability control
-  plane. HTTPS-by-default (TLS-terminating ingress + HSTS; no plaintext API
-  exposure). Ships single-tenant and multi-tenant/provider reference values.
+  plane. HTTPS-by-default on the control listener and ingress, with HSTS and no
+  plaintext API hop. Ships single-tenant and multi-tenant/provider references.
 type: application
 # Chart version (independent of the app). Bump on chart changes.
 version: 0.6.0
-# The default probectl version this chart targets; override image.tag to pin.
+# The probectl version this chart targets; release metadata uses this appVersion.
 # OPS-008: this MUST equal the repo-root VERSION file (the single source of
 # version truth) and the compose image pin — enforced by the version-consistency
 # gate (cmd/probectl-control/version_consistency_test.go + scripts/check_version_consistency.sh).

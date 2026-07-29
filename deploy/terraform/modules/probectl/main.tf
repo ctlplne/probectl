@@ -22,9 +22,10 @@ locals {
   # Non-sensitive Helm overrides.
   base_set = merge(
     {
-      "ingress.host"           = var.ingress_host
-      "ingress.tlsSecretName"  = var.ingress_tls_secret
-      "secrets.existingSecret" = kubernetes_secret.probectl.metadata[0].name
+      "ingress.host"                  = var.ingress_host
+      "ingress.tlsSecretName"         = var.ingress_tls_secret
+      "control.tls.existingSecret" = var.ingress_tls_secret
+      "secrets.existingSecret"        = kubernetes_secret.probectl.metadata[0].name
     },
     var.image_repository == "" ? {} : { "image.repository" = var.image_repository },
     var.image_tag == "" ? {} : { "image.tag" = var.image_tag },

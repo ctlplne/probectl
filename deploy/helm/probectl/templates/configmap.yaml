@@ -50,18 +50,15 @@ metadata:
 data:
   # Fail closed (TENANT-106/SEC-002): never silently write plaintext at rest.
   PROBECTL_REQUIRE_AT_REST_ENCRYPTION: {{ .Values.requireAtRestEncryption | quote }}
-  # SEC-009: the chart fronts the app with a TLS-terminating ingress, so the
-  # browser-facing edge is HTTPS — cookies carry Secure even though the app
-  # listener behind the ingress is plaintext.
+  # SEC-009: both the public ingress and the app listener serve TLS, so cookies
+  # remain protected on the ingress-to-pod hop too.
   PROBECTL_PUBLIC_TLS: {{ .Values.publicTLS | quote }}
-  # WIRE-004: the in-cluster listener is plaintext BEHIND the TLS-terminating
-  # ingress unless control.tls.enabled makes the process serve HTTPS directly.
+  # WIRE-004: plaintext stays disabled when the required TLS listener is active.
   PROBECTL_ALLOW_PLAINTEXT_HTTP: {{ and (not .Values.control.tls.enabled) .Values.allowPlaintextHTTP | quote }}
   PROBECTL_HTTP_ADDR: ":8080"
   {{- if .Values.control.tls.enabled }}
-  # RUNOPS-004: strict/regulatory profiles terminate TLS in the control process,
-  # so ServiceMonitor, probes, Service, and ingress all target the same HTTPS
-  # listener instead of a documented-but-missing sidecar.
+  # RUNOPS-004: the control process terminates TLS, so ServiceMonitor, probes,
+  # Service, and ingress all target the same HTTPS listener.
   PROBECTL_TLS_CERT_FILE: "{{ .Values.control.tls.mountPath }}/tls.crt"
   PROBECTL_TLS_KEY_FILE: "{{ .Values.control.tls.mountPath }}/tls.key"
   {{- end }}
