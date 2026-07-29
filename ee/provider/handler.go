@@ -626,10 +626,12 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 			code, status = "bad_request", http.StatusBadRequest
 		}
 	}
+	message := err.Error()
 	if status >= 500 {
 		h.log.Error("provider request failed", "error", err)
+		message = "internal error"
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": code, "message": err.Error()}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": code, "message": message}})
 }

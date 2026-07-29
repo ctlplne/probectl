@@ -118,7 +118,9 @@ func TestSiloedProvisioningLifecycle(t *testing.T) {
 	silo.failNext = true
 	rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants",
 		map[string]string{"slug": "retry-co", "name": "x", "isolation_model": "hybrid"})
-	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "re-run provision") {
+	if rec.Code != http.StatusInternalServerError ||
+		!strings.Contains(rec.Body.String(), `"message":"internal error"`) ||
+		strings.Contains(rec.Body.String(), "re-run provision") {
 		t.Fatalf("failed silo provision: %d %s", rec.Code, rec.Body.String())
 	}
 
