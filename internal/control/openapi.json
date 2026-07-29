@@ -1204,7 +1204,7 @@
       "post": {
         "operationId": "createIncidentShare",
         "summary": "Create an expiring redacted cited-incident snapshot",
-        "description": "Creates a stable same-tenant share artifact after re-authorizing the incident and gathering a fresh cited RCA. The artifact is privacy-redacted, audited, and expires no later than the tenant object-retention policy. It is not a public bearer link.",
+        "description": "Creates a stable same-tenant share artifact after re-authorizing the incident and gathering a fresh cited RCA. In addition to incident.read, the secondary ai.query permission must pass RBAC and the tenant ABAC deny-override before evidence access. The artifact is privacy-redacted, audited, and expires no later than the tenant object-retention policy. It is not a public bearer link.",
         "tags": [
           "incidents"
         ],
@@ -1245,6 +1245,9 @@
             }
           },
           "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
             "$ref": "#/components/responses/ErrorResponse"
           },
           "404": {
@@ -1899,7 +1902,7 @@
         "tags": [
           "ai"
         ],
-        "description": "Resolves tenant scope from authentication before source RBAC, then runs the same bounded source dispatch for the current and previous windows. Numeric measures are aligned by the requested groupings with explicit missing-current, missing-previous, and zero-baseline states. Only sources with exact historical-window reads are accepted; current-state-only sources fail closed. The response includes sanitized logical execution receipts for both windows and alignment; it never exposes SQL, physical plans, tenant identity, or literal filter values.",
+        "description": "Resolves tenant scope from authentication before source RBAC and the tenant ABAC deny-override, then runs the same bounded source dispatch for the current and previous windows. Numeric measures are aligned by the requested groupings with explicit missing-current, missing-previous, and zero-baseline states. Only sources with exact historical-window reads are accepted; current-state-only sources fail closed. The response includes sanitized logical execution receipts for both windows and alignment; it never exposes SQL, physical plans, tenant identity, or literal filter values.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -1929,6 +1932,9 @@
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "503": {
             "$ref": "#/components/responses/ErrorResponse"
           }
@@ -1947,7 +1953,7 @@
         "tags": [
           "ai"
         ],
-        "description": "Resolves tenant scope from authentication first, checks source-specific RBAC second, and then queries the existing tenant-bound flow, change, path, topology, endpoint, TLS, cost, or SLO store. Tenant selectors are rejected. Value suggestions are derived only from the authorized result rows. The response includes a sanitized logical execution receipt with enforced bounds and stage timings; it never exposes SQL, physical plans, tenant identity, or literal filter values.",
+        "description": "Resolves tenant scope from authentication first, checks source-specific RBAC and the tenant ABAC deny-override second, and then queries the existing tenant-bound flow, change, path, topology, endpoint, TLS, cost, or SLO store. Tenant selectors are rejected. Value suggestions are derived only from the authorized result rows. The response includes a sanitized logical execution receipt with enforced bounds and stage timings; it never exposes SQL, physical plans, tenant identity, or literal filter values.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -1975,6 +1981,12 @@
             }
           },
           "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
             "$ref": "#/components/responses/ErrorResponse"
           }
         },

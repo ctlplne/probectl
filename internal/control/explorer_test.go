@@ -368,6 +368,86 @@ func TestExplorerTenantBoundaryPrecedesSourceRBAC(t *testing.T) {
 	}
 }
 
+func TestExplorerABAC(t *testing.T) {
+	const tenantID = "00000000-0000-0000-0000-0000000000e1"
+	srv := testServer(fakePinger{})
+	cache := newClosedABACCache(t)
+	cache.data[tenantID] = abacEntry{
+		policies: []auth.Policy{{
+			Name:       "deny contractor flow",
+			Effect:     auth.PolicyDeny,
+			Permission: permFlowRead,
+			Subject:    map[string]string{"department": "contractor"},
+			Priority:   100,
+			Enabled:    true,
+		}},
+		expiry: time.Now().Add(time.Hour),
+	}
+	srv.abac = cache
+	principal := &auth.Principal{
+		TenantID: tenantID,
+		UserID:   "explorer-contractor",
+		Permissions: map[string]bool{
+			permAIQuery:  true,
+			permFlowRead: true,
+		},
+		Attributes: map[string]string{"department": "contractor"},
+	}
+
+	tests := []struct {
+		name string
+		path string
+		body string
+		call apiHandler
+	}{
+		{
+			name: "query",
+			path: "/v1/explorer/query",
+			body: `{"question":"top talkers","source":"flow"}`,
+			call: srv.handleExplorerQuery,
+		},
+		{
+			name: "comparison",
+			path: "/v1/explorer/compare",
+			body: `{
+				"query":{
+					"question":"top talkers","source":"flow",
+					"from":"2026-07-14T12:00:00Z","to":"2026-07-14T13:00:00Z",
+					"measures":["bps"]
+				},
+				"previous_from":"2026-07-14T10:00:00Z",
+				"previous_to":"2026-07-14T11:00:00Z"
+			}`,
+			call: srv.handleExplorerComparison,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+			rec := httptest.NewRecorder()
+			apiHandler(tt.call).ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("ABAC-denied Explorer %s = %d %s, want 403 before source dispatch",
+					tt.name, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	t.Run("policy load failure fails closed", func(t *testing.T) {
+		faultSrv := testServer(fakePinger{})
+		faultSrv.abac = newClosedABACCache(t)
+		req := httptest.NewRequest(http.MethodPost, "/v1/explorer/query",
+			strings.NewReader(`{"question":"top talkers","source":"flow"}`))
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rec := httptest.NewRecorder()
+		apiHandler(faultSrv.handleExplorerQuery).ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("Explorer policy-load failure = %d %s, want 503", rec.Code, rec.Body.String())
+		}
+	})
+}
+
 func TestExplorerSavedViewTenantIsolation(t *testing.T) {
 	srv := testServer(fakePinger{})
 	body := []byte(`{"surface":"explorer","name":"Cross-AZ cost","filters":{"template":"cross-az-cost","source":"cost"}}`)

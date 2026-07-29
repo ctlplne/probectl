@@ -6,8 +6,9 @@
 
 package ai
 
-// Permission keys gating each query domain (RBAC — enforced AFTER the tenant
-// boundary). A caller must hold the domain's permission or the query fails closed.
+// Permission keys gating each query domain after the tenant boundary. A caller
+// must hold the RBAC permission and pass the configured ABAC deny-override or
+// the query fails closed.
 const (
 	PermMetricsRead  = "metrics.read"
 	PermEventsRead   = "events.read"

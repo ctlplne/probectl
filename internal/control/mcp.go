@@ -91,8 +91,8 @@ func newMCPServer(
 	src := firstAISources(sources)
 	backend := mcpBackend{
 		pool:        pool,
-		engine:      buildEngine(cfg, pool, src),
-		analyzer:    buildAnalyzerWithGate(cfg, log, pool, aiGate, src),
+		engine:      buildEngineWithPolicyLoader(cfg, pool, policyLoader, src),
+		analyzer:    buildAnalyzerWithPolicyLoader(cfg, log, pool, aiGate, policyLoader, src),
 		pathStore:   pathStore,
 		gate:        gate,
 		remediation: remed,
@@ -231,8 +231,9 @@ func (b mcpBackend) QueryFlows(ctx context.Context, p *auth.Principal, service, 
 	return b.queryEvents(ctx, p, map[string]string{"type": "flow", "service": service, "src": src, "dst": dst}, limit)
 }
 
-// queryEvents goes through the S23 engine (events domain) — RBAC-checked again —
-// and degrades gracefully when the events store is not wired in this deployment.
+// queryEvents goes through the S23 engine (events domain) — source RBAC+ABAC is
+// checked again — and degrades gracefully when the events store is not wired in
+// this deployment.
 func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[string]string, limit int) (any, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100

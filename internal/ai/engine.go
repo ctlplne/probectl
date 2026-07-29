@@ -9,6 +9,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/auth"
@@ -25,29 +26,43 @@ var (
 	ErrNoSource      = errors.New("ai: no source configured for domain")
 )
 
-// Engine is probectl's unified semantic query layer — THE tenant-then-RBAC security
-// boundary for the API, the AI/RCA layer (S24), and the MCP server (S25). It takes
-// the tenant from the authenticated principal (never the query), enforces RBAC,
-// applies cost/timeout guards, and dispatches to the store sources, returning a
-// normalized envelope with provenance.
+// Engine is probectl's unified semantic query layer — THE tenant-then-RBAC/ABAC
+// security boundary for the API, the AI/RCA layer (S24), and the MCP server
+// (S25). It takes the tenant from the authenticated principal (never the query),
+// enforces each source permission, applies cost/timeout guards, and dispatches
+// to the store sources, returning a normalized envelope with provenance.
 type Engine struct {
 	metrics  MetricsSource
 	events   EventsSource
 	entities EntitiesSource
 	topology TopologySource
 
-	maxRows int
-	timeout time.Duration
+	maxRows             int
+	timeout             time.Duration
+	permissionAuthorize PermissionAuthorizer
 }
 
 // Option configures an Engine.
 type Option func(*Engine)
+
+// PermissionAuthorizer applies the deployment's policy layer after the engine
+// has established a non-empty tenant and an RBAC grant. Returning an error
+// means policy state could not be loaded and the evidence read must fail closed.
+type PermissionAuthorizer func(context.Context, *auth.Principal, string) (bool, error)
 
 // WithMetrics / WithEvents / WithEntities / WithTopology register store sources.
 func WithMetrics(s MetricsSource) Option   { return func(e *Engine) { e.metrics = s } }
 func WithEvents(s EventsSource) Option     { return func(e *Engine) { e.events = s } }
 func WithEntities(s EntitiesSource) Option { return func(e *Engine) { e.entities = s } }
 func WithTopology(s TopologySource) Option { return func(e *Engine) { e.topology = s } }
+
+// WithPermissionAuthorizer adds the tenant ABAC deny-override used by shipping
+// API and MCP engines. A nil authorizer leaves the engine's existing
+// tenant-first + RBAC behavior for isolated/offline callers with no policy
+// store.
+func WithPermissionAuthorizer(authorize PermissionAuthorizer) Option {
+	return func(e *Engine) { e.permissionAuthorize = authorize }
+}
 
 // WithMaxRows / WithTimeout set the cost guards.
 func WithMaxRows(n int) Option {
@@ -75,9 +90,9 @@ func NewEngine(opts ...Option) *Engine {
 	return e
 }
 
-// Query runs a single-domain query under the principal's tenant and RBAC. The
-// tenant boundary is enforced FIRST (from the principal, never the query), then
-// RBAC; both fail closed.
+// Query runs a single-domain query under the principal's tenant and permission
+// policy. The tenant boundary is enforced FIRST (from the principal, never the
+// query), then RBAC, then the configured ABAC deny-override; all fail closed.
 func (e *Engine) Query(ctx context.Context, p *auth.Principal, q Query) (Result, error) {
 	if p == nil || p.TenantID == "" {
 		return Result{}, ErrNoTenant
@@ -86,7 +101,11 @@ func (e *Engine) Query(ctx context.Context, p *auth.Principal, q Query) (Result,
 	if perm == "" {
 		return Result{}, ErrUnknownDomain
 	}
-	if !p.Has(perm) {
+	allowed, err := e.authorized(ctx, p, perm)
+	if err != nil {
+		return Result{}, fmt.Errorf("ai: authorize %s: %w", perm, err)
+	}
+	if !allowed {
 		return Result{}, ErrForbidden
 	}
 
@@ -107,10 +126,10 @@ func (e *Engine) Query(ctx context.Context, p *auth.Principal, q Query) (Result,
 	return res, nil
 }
 
-// Correlate fans a subject across every domain the principal may read and returns
-// one envelope with per-domain provenance — the cross-store join. Domains the
-// caller cannot read are silently skipped, so a correlation never leaks
-// out-of-scope data.
+// Correlate fans a subject across every domain the principal may read after
+// RBAC+ABAC and returns one envelope with per-domain provenance — the cross-store
+// join. Domains the caller cannot read are silently skipped, so a correlation
+// never leaks out-of-scope data.
 func (e *Engine) Correlate(ctx context.Context, p *auth.Principal, subject map[string]string, r TimeRange) (Result, error) {
 	if p == nil || p.TenantID == "" {
 		return Result{}, ErrNoTenant
@@ -121,8 +140,13 @@ func (e *Engine) Correlate(ctx context.Context, p *auth.Principal, subject map[s
 	start := time.Now()
 	res := Result{Tenant: p.TenantID}
 	for _, d := range allDomains {
-		if !p.Has(permissionFor(d)) {
-			continue // RBAC: skip domains the caller cannot read
+		permission := permissionFor(d)
+		allowed, err := e.authorized(ctx, p, permission)
+		if err != nil {
+			return Result{}, fmt.Errorf("ai: authorize %s: %w", permission, err)
+		}
+		if !allowed {
+			continue // RBAC or ABAC: skip domains the caller cannot read
 		}
 		rows, err := e.dispatch(ctx, p.TenantID, Query{Domain: d, Selector: subject, Range: r, Limit: e.maxRows}, e.maxRows)
 		if err != nil {
@@ -145,6 +169,16 @@ func (e *Engine) Correlate(ctx context.Context, p *auth.Principal, subject map[s
 	}
 	res.Elapsed = time.Since(start)
 	return res, nil
+}
+
+func (e *Engine) authorized(ctx context.Context, p *auth.Principal, permission string) (bool, error) {
+	if !p.Has(permission) {
+		return false, nil
+	}
+	if e.permissionAuthorize == nil {
+		return true, nil
+	}
+	return e.permissionAuthorize(ctx, p, permission)
 }
 
 func (e *Engine) dispatch(ctx context.Context, tenant string, q Query, limit int) ([]Row, error) {

@@ -15,7 +15,7 @@ import (
 // Evidence is one normalized, citable signal gathered for a question — the unit
 // of grounding. ID is stable within an answer ("E1", "E2", …) so a Finding can
 // cite it and a reader can trace the claim back to the underlying signal. Fields
-// is the row from the tenant-and-RBAC-scoped query layer, reduced to the
+// is the row from the tenant-and-RBAC/ABAC-scoped query layer, reduced to the
 // per-domain allow-list before the answer is serialized (U-092); Ref is a
 // stable pointer back to the source signal for the UI to link.
 type Evidence struct {

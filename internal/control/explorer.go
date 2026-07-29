@@ -171,6 +171,14 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 	if permission == "" || !p.Has(permission) {
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
+	resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
+	denied, err := s.abacDenies(r.Context(), p, permission, resource)
+	if err != nil {
+		return err
+	}
+	if denied {
+		return apierror.Forbidden("an attribute policy denies the selected Explorer source")
+	}
 
 	filtered, execution, err := s.executeExplorerBounded(r.Context(), p.TenantID, query)
 	if err != nil {
@@ -230,6 +238,14 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 	permission := explorerPermission(current.Source)
 	if permission == "" || !p.Has(permission) {
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
+	}
+	resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
+	denied, err := s.abacDenies(r.Context(), p, permission, resource)
+	if err != nil {
+		return err
+	}
+	if denied {
+		return apierror.Forbidden("an attribute policy denies the selected Explorer source")
 	}
 
 	comparisonStarted := time.Now()

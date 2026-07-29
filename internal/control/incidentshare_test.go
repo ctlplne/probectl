@@ -9,11 +9,15 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 )
@@ -87,6 +91,62 @@ func TestIncidentShareSelectionRequiresAuthorizedArtifactEvidence(t *testing.T) 
 	if got := authorizedShareSelection(&incidentShareSelection{Kind: "evidence", ID: "inc-1:0"}, inc, answer); got == nil {
 		t.Fatal("authorized incident signal selection was removed")
 	}
+}
+
+func TestIncidentShareABAC(t *testing.T) {
+	const tenantID = "00000000-0000-0000-0000-0000000000f1"
+	principal := &auth.Principal{
+		TenantID: tenantID,
+		UserID:   "share-contractor",
+		Permissions: map[string]bool{
+			permIncidentRead: true,
+			permAIQuery:      true,
+		},
+		Attributes: map[string]string{"department": "contractor"},
+	}
+	request := func() *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/v1/incidents/inc-1/shares",
+			strings.NewReader(`{"context":{}}`))
+		req.SetPathValue("id", "inc-1")
+		return req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	}
+
+	t.Run("deny overrides RBAC before evidence access", func(t *testing.T) {
+		cache := newClosedABACCache(t)
+		cache.data[tenantID] = abacEntry{
+			policies: []auth.Policy{{
+				Name:       "deny contractor AI evidence",
+				Effect:     auth.PolicyDeny,
+				Permission: permAIQuery,
+				Subject:    map[string]string{"department": "contractor"},
+				Priority:   100,
+				Enabled:    true,
+			}},
+			expiry: time.Now().Add(time.Hour),
+		}
+		srv := testServer(nil)
+		srv.pool = cache.pool // non-nil; an authorized path would attempt storage.
+		srv.abac = cache
+
+		err := srv.handleCreateIncidentShare(httptest.NewRecorder(), request())
+		domainErr, ok := apierror.As(err)
+		if !ok || domainErr.Kind != apierror.KindForbidden {
+			t.Fatalf("ABAC-denied incident share = %v, want forbidden before storage", err)
+		}
+	})
+
+	t.Run("policy load failure fails closed", func(t *testing.T) {
+		cache := newClosedABACCache(t)
+		srv := testServer(nil)
+		srv.pool = cache.pool
+		srv.abac = cache
+
+		err := srv.handleCreateIncidentShare(httptest.NewRecorder(), request())
+		domainErr, ok := apierror.As(err)
+		if !ok || domainErr.Kind != apierror.KindUnavailable {
+			t.Fatalf("incident-share policy load failure = %v, want unavailable", err)
+		}
+	})
 }
 
 func TestIncidentShareExpiryHonorsObjectRetention(t *testing.T) {

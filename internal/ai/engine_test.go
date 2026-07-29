@@ -92,6 +92,99 @@ func TestQueryRBACDeniesFailClosed(t *testing.T) {
 	}
 }
 
+func TestQuerySecondaryPermissionABAC(t *testing.T) {
+	src := newRecordingSource(map[string][]Row{"tenant-a": {{"metric": "secret"}}})
+	policyErr := errors.New("policy store unavailable")
+	tests := []struct {
+		name      string
+		authorize PermissionAuthorizer
+		wantErr   error
+	}{
+		{
+			name: "deny overrides RBAC",
+			authorize: func(_ context.Context, p *auth.Principal, permission string) (bool, error) {
+				if p.TenantID != "tenant-a" || permission != PermMetricsRead {
+					t.Fatalf("authorization scope = %q/%q", p.TenantID, permission)
+				}
+				return false, nil
+			},
+			wantErr: ErrForbidden,
+		},
+		{
+			name: "policy failure fails closed",
+			authorize: func(context.Context, *auth.Principal, string) (bool, error) {
+				return false, policyErr
+			},
+			wantErr: policyErr,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := len(src.seen())
+			engine := NewEngine(WithMetrics(src), WithPermissionAuthorizer(tt.authorize))
+			_, err := engine.Query(context.Background(),
+				principal("tenant-a", PermMetricsRead), Query{Domain: DomainMetrics})
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("secondary permission error = %v, want %v", err, tt.wantErr)
+			}
+			if got := len(src.seen()); got != before {
+				t.Fatalf("ABAC-refused query reached the metrics source: before=%d after=%d", before, got)
+			}
+		})
+	}
+}
+
+func TestCorrelateSecondaryPermissionABAC(t *testing.T) {
+	metrics := newRecordingSource(map[string][]Row{"tenant-a": {{"metric": "secret"}}})
+	topology := newRecordingSource(map[string][]Row{"tenant-a": {{"node": "allowed"}}})
+	engine := NewEngine(
+		WithMetrics(metrics),
+		WithTopology(topology),
+		WithPermissionAuthorizer(func(_ context.Context, _ *auth.Principal, permission string) (bool, error) {
+			return permission != PermMetricsRead, nil
+		}),
+	)
+	result, err := engine.Correlate(context.Background(),
+		principal("tenant-a", PermMetricsRead, PermTopologyRead), nil, TimeRange{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics.seen()) != 0 {
+		t.Fatal("ABAC-denied metrics source was queried during correlation")
+	}
+	if len(topology.seen()) != 1 || len(result.Domains) != 1 || result.Domains[0] != DomainTopology {
+		t.Fatalf("correlation provenance = %+v; topology reads=%v", result.Domains, topology.seen())
+	}
+}
+
+func TestSecondaryPermissionABACTenantIsolation(t *testing.T) {
+	src := newRecordingSource(map[string][]Row{
+		"tenant-a": {{"metric": "tenant-a-secret"}},
+		"tenant-b": {{"metric": "tenant-b-visible"}},
+	})
+	engine := NewEngine(
+		WithMetrics(src),
+		WithPermissionAuthorizer(func(_ context.Context, p *auth.Principal, _ string) (bool, error) {
+			return p.TenantID != "tenant-a", nil
+		}),
+	)
+	if _, err := engine.Query(context.Background(),
+		principal("tenant-a", PermMetricsRead), Query{Domain: DomainMetrics}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("tenant A policy decision = %v, want forbidden", err)
+	}
+	result, err := engine.Query(context.Background(),
+		principal("tenant-b", PermMetricsRead), Query{Domain: DomainMetrics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0]["metric"] != "tenant-b-visible" {
+		t.Fatalf("tenant B result = %+v", result.Rows)
+	}
+	if seen := src.seen(); len(seen) != 1 || seen[0] != "tenant-b" {
+		t.Fatalf("source tenant dispatch = %v, want tenant B only", seen)
+	}
+}
+
 func TestQueryNoTenantFailsClosed(t *testing.T) {
 	src := newRecordingSource(map[string][]Row{"tenant-a": {{"k": "v"}}})
 	e := NewEngine(WithMetrics(src))

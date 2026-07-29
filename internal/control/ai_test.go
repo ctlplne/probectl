@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
 )
 
 func aiTestReq(method, path string, body any) *http.Request {
@@ -60,6 +62,44 @@ func TestHandleAIAskValidationAndAirGappedDefault(t *testing.T) {
 	}
 	if !ans.InsufficientEvidence || ans.ID == "" {
 		t.Errorf("no-evidence answer should be insufficient with an id, got %+v", ans)
+	}
+}
+
+func TestBuildEngineSecondaryPermissionABAC(t *testing.T) {
+	const tenantID = "00000000-0000-0000-0000-0000000000a1"
+	principal := &auth.Principal{
+		TenantID:    tenantID,
+		Permissions: map[string]bool{ai.PermMetricsRead: true},
+		Attributes:  map[string]string{"department": "contractor"},
+	}
+	engine := buildEngineWithPolicyLoader(
+		&config.Config{AIMaxEvidence: 10},
+		nil,
+		func(_ context.Context, loadedTenant string) ([]auth.Policy, error) {
+			if loadedTenant != tenantID {
+				t.Fatalf("policy tenant = %q, want %q", loadedTenant, tenantID)
+			}
+			return []auth.Policy{{
+				Effect:     auth.PolicyDeny,
+				Permission: ai.PermMetricsRead,
+				Subject:    map[string]string{"department": "contractor"},
+				Priority:   100,
+				Enabled:    true,
+			}}, nil
+		},
+	)
+	if _, err := engine.Query(context.Background(), principal, ai.Query{Domain: ai.DomainMetrics}); !errors.Is(err, ai.ErrForbidden) {
+		t.Fatalf("ABAC-denied production engine query = %v, want ErrForbidden", err)
+	}
+
+	policyErr := errors.New("policy store unavailable")
+	engine = buildEngineWithPolicyLoader(
+		&config.Config{AIMaxEvidence: 10},
+		nil,
+		func(context.Context, string) ([]auth.Policy, error) { return nil, policyErr },
+	)
+	if _, err := engine.Query(context.Background(), principal, ai.Query{Domain: ai.DomainMetrics}); !errors.Is(err, policyErr) {
+		t.Fatalf("policy-load failure = %v, want fail-closed error", err)
 	}
 }
 

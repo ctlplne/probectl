@@ -82,6 +82,14 @@ func (s *Server) handleCreateIncidentShare(w http.ResponseWriter, r *http.Reques
 	if !p.Has(permAIQuery) {
 		return apierror.Forbidden("AI query permission is required to share cited incident evidence")
 	}
+	resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
+	denied, err := s.abacDenies(r.Context(), p, permAIQuery, resource)
+	if err != nil {
+		return err
+	}
+	if denied {
+		return apierror.Forbidden("an attribute policy denies AI evidence access")
+	}
 
 	var req createIncidentShareRequest
 	if err := decodeJSON(r, &req); err != nil {

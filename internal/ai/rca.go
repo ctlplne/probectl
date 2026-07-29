@@ -23,7 +23,7 @@ import (
 // calls (U-048) — a backstop that holds even with no fairness gate configured.
 const DefaultMaxConcurrent = 8
 
-// Answer is the result of an RCA: a cited, RBAC-scoped root cause. ID ties an
+// Answer is the result of an RCA: a cited, RBAC+ABAC-scoped root cause. ID ties an
 // answer to any feedback the user later gives. InsufficientEvidence is set when
 // nothing grounded supports a conclusion — probectl prefers saying so over guessing.
 type Answer struct {
@@ -70,7 +70,7 @@ const (
 )
 
 // Analyzer runs the RCA pipeline: plan (deterministic) → gather (via the S23
-// engine, tenant-first then RBAC) → synthesize (a model with no tools) →
+// engine, tenant-first then RBAC+ABAC) → synthesize (a model with no tools) →
 // citation-integrity. It is the AI assistant's brain; the model is swappable and
 // never sees data outside the caller's tenant + permissions.
 type Analyzer struct {
@@ -170,7 +170,7 @@ func markInvestigationBlocked(plan []InvestigationStep, idx int, reason string) 
 	plan[idx].Reason = reason
 }
 
-// Analyze answers a natural-language question with a cited, RBAC-scoped root
+// Analyze answers a natural-language question with a cited, RBAC+ABAC-scoped root
 // cause. The tenant boundary is enforced first (fail closed on a tenantless
 // principal); every plane is gathered through the S23 engine, so a caller only
 // ever sees evidence from domains they may read.
@@ -207,7 +207,7 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		res, err := a.engine.Query(ctx, p, query)
 		if err != nil {
 			if errors.Is(err, ErrForbidden) {
-				markInvestigationBlocked(investigationPlan, i, "RBAC denied this read")
+				markInvestigationBlocked(investigationPlan, i, "permission policy denied this read")
 				continue
 			}
 			if errors.Is(err, ErrNoSource) || errors.Is(err, ErrUnknownDomain) {

@@ -131,7 +131,7 @@ func buildTools(b Backend) []Tool {
 		{
 			Name:        "explain_degradation",
 			Permission:  permAIQuery,
-			Description: "Run root-cause analysis on a natural-language question (\"why is X slow for Y?\"), returning a cited, RBAC-scoped root cause.",
+			Description: "Run root-cause analysis on a natural-language question (\"why is X slow for Y?\"), returning a cited, RBAC+ABAC-scoped root cause.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"subject":{"type":"object","additionalProperties":{"type":"string"},"description":"optional subject pins: target, prefix, node"}},"required":["question"],"additionalProperties":false}`),
 			Invoke: func(ctx context.Context, p *auth.Principal, args json.RawMessage) (any, error) {
 				var a struct {

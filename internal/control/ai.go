@@ -54,11 +54,30 @@ func firstAISources(sources []AISources) AISources {
 	return sources[0]
 }
 
-// buildEngine wires the S23 query engine: the cost guard plus the tenant-scoped
-// direct sources used by the RCA analyzer (S24) and MCP backend (S25).
-func buildEngine(cfg *config.Config, pool *pgxpool.Pool, sources ...AISources) *ai.Engine {
+// buildEngineWithPolicyLoader wires the policy store into every secondary
+// telemetry permission checked inside composite AI reads. The outer HTTP/MCP
+// permission is not enough: each metrics/events/entities/topology source gets
+// its own tenant-first RBAC+ABAC decision immediately before dispatch.
+func buildEngineWithPolicyLoader(
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	policyLoader func(context.Context, string) ([]auth.Policy, error),
+	sources ...AISources,
+) *ai.Engine {
 	src := firstAISources(sources)
 	opts := []ai.Option{ai.WithMaxRows(cfg.AIMaxEvidence)}
+	if policyLoader != nil {
+		opts = append(opts, ai.WithPermissionAuthorizer(
+			func(ctx context.Context, principal *auth.Principal, permission string) (bool, error) {
+				policies, err := policyLoader(ctx, principal.TenantID)
+				if err != nil {
+					return false, err
+				}
+				resource := map[string]string{auth.ResourceTenantKey: principal.TenantID}
+				return auth.Authorize(principal, permission, policies, resource), nil
+			},
+		))
+	}
 	if src.Metrics != nil {
 		opts = append(opts, ai.WithMetrics(metricsEvidenceSource{writer: src.Metrics}))
 	}
@@ -86,7 +105,15 @@ func (s *Server) rebuildAnalyzer() {
 	if s.egressGate == nil {
 		return
 	}
-	s.analyzer = buildAnalyzerWithGate(s.cfg, s.log, s.pool, s.egressGate, s.aiSources())
+	s.analyzer = buildAnalyzerWithPolicyLoader(
+		s.cfg, s.log, s.pool, s.egressGate, s.aiPolicyLoader(), s.aiSources())
+}
+
+func (s *Server) aiPolicyLoader() func(context.Context, string) ([]auth.Policy, error) {
+	if s == nil || s.abac == nil {
+		return nil
+	}
+	return s.abac.policies
 }
 
 // NewAIEgressGate constructs THE external-AI egress gate (AIRCA-001/005):
@@ -116,11 +143,17 @@ func redactionPolicy(cfg *config.Config) ai.RedactionPolicy {
 	}
 }
 
-// buildAnalyzerWithGate wires the RCA Analyzer (S24) over the S23 query engine,
-// so RCA is grounded in real, RLS-scoped signals; the server composes ONE
-// gate and shares it across the analyzer, MCP, and authoring surfaces.
-func buildAnalyzerWithGate(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, gate *ai.EgressGate, sources ...AISources) *ai.Analyzer {
-	return ai.NewAnalyzer(buildEngine(cfg, pool, sources...),
+// buildAnalyzerWithPolicyLoader wires RCA over the tenant-scoped query engine
+// and the same ABAC cache used by the calling API or MCP surface.
+func buildAnalyzerWithPolicyLoader(
+	cfg *config.Config,
+	log *slog.Logger,
+	pool *pgxpool.Pool,
+	gate *ai.EgressGate,
+	policyLoader func(context.Context, string) ([]auth.Policy, error),
+	sources ...AISources,
+) *ai.Analyzer {
+	return ai.NewAnalyzer(buildEngineWithPolicyLoader(cfg, pool, policyLoader, sources...),
 		ai.WithModel(buildModel(cfg, log)),
 		ai.WithMaxEvidence(cfg.AIMaxEvidence),
 		// U-048: process-wide concurrency backstop (fail-fast 429), effective

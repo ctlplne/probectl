@@ -20,7 +20,7 @@ const (
 
 // Citation links a finding to one piece of gathered evidence by its stable ID.
 // Every claim the assistant makes MUST carry at least one citation to a real,
-// tenant-and-RBAC-scoped signal — the pipeline drops any finding whose citations
+// tenant-and-RBAC/ABAC-scoped signal — the pipeline drops any finding whose citations
 // do not resolve, so a hallucinated reference can never reach the user
 // (ground every claim; prefer "insufficient evidence" over guessing — S24).
 type Citation struct {
@@ -34,7 +34,7 @@ type Finding struct {
 }
 
 // SynthesisInput is the read-only material handed to a ModelAdapter: the user's
-// question and the already-gathered evidence (tenant-and-RBAC-scoped by the S23
+// question and the already-gathered evidence (tenant-and-RBAC/ABAC-scoped by the S23
 // engine before it ever reaches a model). A model has NO tools and cannot issue
 // queries or actions — it only synthesizes prose over this evidence, so even
 // hostile evidence content (prompt injection) can never drive behavior: the
