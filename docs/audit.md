@@ -51,6 +51,17 @@ What probectl guarantees you:
   correlation — probectl is the source of truth, not a replacement for your security
   tooling.
 
+Rejected agent and collector enrollment attempts use the fixed
+`security.enrollment_rejected` action. If a tenant was resolved from an
+authenticated caller, consumed tenant-bound token, or deployment-verified
+certificate, the event goes to that tenant's chain. Otherwise it goes to the
+deployment/provider chain; probectl never guesses a tenant from an unverified
+token, CSR, certificate, or proof. The event contains only the bounded
+`failure_class`, `surface`, and `outcome: denied` fields. Aggregate, label-free
+`probectl_enrollment_failures_<class>_total` counters expose the same fixed
+classes at `/metrics`; neither surface records credential material or tenant
+identifiers as metric labels.
+
 ## Use it
 
 Read the audit trail for a tenant (results are already tenant-scoped); page with a

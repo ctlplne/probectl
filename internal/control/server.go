@@ -34,7 +34,6 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
-	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/flow"
 	"github.com/imfeelingtheagi/probectl/internal/inventory"
@@ -85,7 +84,11 @@ type Server struct {
 	// authLimiter throttles the auth endpoints per IP + per account (U-024).
 	authLimiter *auth.Limiter
 	// enrollSvc issues agent SVIDs (Sprint 11); nil = enrollment unconfigured.
-	enrollSvc *enroll.Service
+	enrollSvc enrollmentService
+	// enrollmentFailureAudit receives an already-redacted, bounded failure
+	// event. New wires the tamper-evident tenant/provider audit implementation;
+	// the seam keeps rejection behavior unit-testable without a database.
+	enrollmentFailureAudit func(context.Context, enrollmentFailureEvent) error
 	// revokePush feeds the live handshake deny-list (Sprint 12, WIRE-003).
 	revokePush func(serials, spiffeIDs []string)
 
@@ -413,6 +416,8 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		scimLimiter: newKeyLimiter(scimDefaultRatePerMin), scimMaxUsers: scimDefaultMaxUsersPerTenant,
 		scimMaxGroups: scimDefaultMaxGroupsPerTenant}
 	s.registerAuditRetentionMetrics()
+	s.registerEnrollmentFailureMetrics()
+	s.enrollmentFailureAudit = s.persistEnrollmentFailure
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).

@@ -60,6 +60,7 @@ var (
 	ErrInvalidToken  = errors.New("enroll: invalid enrollment token")
 	ErrBadCSR        = errors.New("enroll: invalid CSR")
 	ErrNotOurs       = errors.New("enroll: certificate was not issued by this deployment (fail closed)")
+	ErrInvalidProof  = errors.New("enroll: rotation proof invalid")
 	ErrIdentityFixed = errors.New("enroll: rotation cannot change identity")
 	// ErrInvalidCollectorPlane refuses ambiguous bus-collector registrations.
 	ErrInvalidCollectorPlane = errors.New("enroll: invalid collector plane")
@@ -67,6 +68,33 @@ var (
 	// (Sprint 12, WIRE-003): no resurrection by re-enrollment or rotation.
 	ErrRevoked = errors.New("enroll: agent identity is revoked")
 )
+
+// tenantRefusal preserves a tenant identity only after the service has resolved
+// it from a consumed tenant-bound token or a certificate that verified against
+// this deployment's CA. Error deliberately returns only the refusal cause: the
+// tenant must never become part of an API error string.
+type tenantRefusal struct {
+	tenantID string
+	cause    error
+}
+
+func (e *tenantRefusal) Error() string { return e.cause.Error() }
+func (e *tenantRefusal) Unwrap() error { return e.cause }
+
+func refuseTenant(tenantID string, cause error) error {
+	return &tenantRefusal{tenantID: tenantID, cause: cause}
+}
+
+// RefusalTenant returns the safely resolved tenant carried by a refusal. False
+// means the caller must treat the attempt as deployment-scoped; it must never
+// infer a tenant from unverified request material.
+func RefusalTenant(err error) (string, bool) {
+	var refusal *tenantRefusal
+	if !errors.As(err, &refusal) || strings.TrimSpace(refusal.tenantID) == "" {
+		return "", false
+	}
+	return refusal.tenantID, true
+}
 
 // Service issues and rotates agent SVIDs.
 type Service struct {
@@ -269,7 +297,7 @@ func (s *Service) Enroll(ctx context.Context, req Request) (*Identity, error) {
 	} else if revoked, rerr := store.NewAgentIdentities(s.pool).IsAgentRevoked(ctx, tenantID, agentID); rerr != nil {
 		return nil, rerr
 	} else if revoked {
-		return nil, ErrRevoked // a revoked identity cannot be re-enrolled (WIRE-003)
+		return nil, refuseTenant(tenantID, ErrRevoked) // a revoked identity cannot be re-enrolled (WIRE-003)
 	}
 	return s.issue(ctx, tenantID, agentID, hostname, req.Version, req.CSRPEM, "" /* first issuance */)
 }
@@ -360,7 +388,7 @@ func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostn
 	} else if revoked, rerr := store.NewAgentIdentities(s.pool).IsAgentRevoked(ctx, tenantID, agentID); rerr != nil {
 		return nil, rerr
 	} else if revoked {
-		return nil, ErrRevoked
+		return nil, refuseTenant(tenantID, ErrRevoked)
 	}
 	spiffe := crypto.AgentSPIFFEID(tenantID, agentID)
 	name := hostname
@@ -434,13 +462,13 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 	// Possession: the CSR for the NEW key is signed by the CURRENT key.
 	proof, err := hex.DecodeString(req.ProofHex)
 	if err != nil || crypto.ECDSAVerifyCert(cert, []byte(req.CSRPEM), proof) != nil {
-		return nil, fmt.Errorf("enroll: rotation proof invalid (fail closed)")
+		return nil, refuseTenant(id.TenantID, ErrInvalidProof)
 	}
 	// Revocation (Sprint 12): a revoked identity cannot rotate its way back.
 	if revoked, rerr := store.NewAgentIdentities(s.pool).IsAgentRevoked(ctx, id.TenantID, id.AgentID); rerr != nil {
 		return nil, rerr
 	} else if revoked {
-		return nil, ErrRevoked
+		return nil, refuseTenant(id.TenantID, ErrRevoked)
 	}
 	// Provenance: the serial must be one WE issued for this identity.
 	oldSerial := cert.SerialNumber.Text(16)
@@ -457,7 +485,7 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 		})
 	if err != nil {
 		if errors.Is(err, ErrNotOurs) {
-			return nil, ErrNotOurs
+			return nil, refuseTenant(id.TenantID, ErrNotOurs)
 		}
 		return nil, err
 	}
@@ -470,7 +498,7 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 	spiffe := crypto.AgentSPIFFEID(tenantID, agentID)
 	leafPEM, serial, err := s.ca.SignCSR([]byte(csrPEM), spiffe, s.leafTTL)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadCSR, err)
+		return nil, refuseTenant(tenantID, fmt.Errorf("%w: %v", ErrBadCSR, err))
 	}
 	serialHex := serial.Text(16)
 	notAfter := s.now().Add(s.leafTTL)

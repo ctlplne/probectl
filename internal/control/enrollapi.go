@@ -27,9 +27,23 @@ import (
 // unauthenticated caller can only burn its own rate budget; no signing
 // happens before the token/proof check.
 
+type enrollmentService interface {
+	Enroll(context.Context, enroll.Request) (*enroll.Identity, error)
+	MintToken(context.Context, string, string, string, string, time.Duration) (string, string, error)
+	RegisterCollectorForTenant(context.Context, string, string, string, string) (*enroll.CollectorIdentity, error)
+	Rotate(context.Context, enroll.RotateRequest) (*enroll.Identity, error)
+	Revoke(context.Context, string, string, string) ([]string, string, error)
+}
+
 // SetEnrollService installs the issuance service (nil = enrollment not
 // configured; the routes answer 503 with the init instruction).
-func (s *Server) SetEnrollService(svc *enroll.Service) { s.enrollSvc = svc }
+func (s *Server) SetEnrollService(svc *enroll.Service) {
+	if svc == nil {
+		s.enrollSvc = nil
+		return
+	}
+	s.enrollSvc = svc
+}
 
 // SetAgentRevocationPush installs the LIVE deny-list hook (Sprint 12,
 // WIRE-003): main wires it to the agent transport's RevocationList so an API
@@ -83,14 +97,21 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) error
 	}
 	id, err := s.enrollSvc.Enroll(r.Context(), req)
 	if err != nil {
+		tenantID, _ := enroll.RefusalTenant(err)
 		switch {
 		case errors.Is(err, enroll.ErrInvalidToken):
 			// Count the failure against the caller's IP dimension and refuse
 			// uninformatively (replay / expiry / unknown look identical).
 			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidToken, enrollmentSurfaceAgent, tenantID)
 			return apierror.Unauthorized("invalid enrollment token")
 		case errors.Is(err, enroll.ErrBadCSR):
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceAgent, tenantID)
 			return apierror.BadRequest("invalid CSR")
+		case errors.Is(err, enroll.ErrRevoked):
+			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceAgent, tenantID)
+			return apierror.Unauthorized("enrollment refused")
 		}
 		s.log.Error("agent enrollment failed", "error", err.Error())
 		return apierror.Internal("enrollment failed")
@@ -188,7 +209,9 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 		return apierror.BadRequest(err.Error())
 	}
 	var out collectorRegistrationResponse
+	var tenantID string
 	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		tenantID = sc.Tenant.String()
 		id, err := s.enrollSvc.RegisterCollectorForTenant(ctx, sc.Tenant.String(), req.Token, hostname, req.Plane)
 		if err != nil {
 			return err
@@ -209,9 +232,15 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 		switch {
 		case errors.Is(err, enroll.ErrInvalidToken):
 			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidToken, enrollmentSurfaceCollector, tenantID)
 			return apierror.Unauthorized("invalid enrollment token")
 		case errors.Is(err, enroll.ErrInvalidCollectorPlane):
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCollectorPlane, enrollmentSurfaceCollector, tenantID)
 			return apierror.BadRequest("collector plane must be one of: bgp, flow, device, ebpf, endpoint")
+		case errors.Is(err, enroll.ErrRevoked):
+			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceCollector, tenantID)
+			return apierror.Unauthorized("collector registration refused")
 		}
 		s.log.Error("collector registration failed", "error", err.Error())
 		return apierror.Internal("collector registration failed")
@@ -292,8 +321,23 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) error
 	}
 	id, err := s.enrollSvc.Rotate(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, enroll.ErrNotOurs) || errors.Is(err, enroll.ErrBadCSR) {
+		tenantID, _ := enroll.RefusalTenant(err)
+		switch {
+		case errors.Is(err, enroll.ErrInvalidProof):
 			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidRotationProof, enrollmentSurfaceRotation, tenantID)
+			return apierror.Unauthorized("rotation refused")
+		case errors.Is(err, enroll.ErrNotOurs), errors.Is(err, enroll.ErrIdentityFixed):
+			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidRotationIdentity, enrollmentSurfaceRotation, tenantID)
+			return apierror.Unauthorized("rotation refused")
+		case errors.Is(err, enroll.ErrBadCSR):
+			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceRotation, tenantID)
+			return apierror.Unauthorized("rotation refused")
+		case errors.Is(err, enroll.ErrRevoked):
+			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceRotation, tenantID)
 			return apierror.Unauthorized("rotation refused")
 		}
 		s.log.Error("agent rotation failed", "error", err.Error())

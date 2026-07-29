@@ -21,6 +21,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
@@ -52,6 +53,125 @@ func collectorEnrollService(t *testing.T, db *store.DB) *enroll.Service {
 		t.Fatalf("load enrollment service: %v", err)
 	}
 	return svc
+}
+
+func tenantEnrollmentFailureEvents(t *testing.T, db *store.DB, tenantID string) []audit.Event {
+	t.Helper()
+	var events []audit.Event
+	err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(tenantID)), db.Pool(),
+		func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			events, err = audit.ListFiltered(ctx, sc, 0, 20, audit.Filter{Action: enrollmentRejectedAuditAction})
+			return err
+		})
+	if err != nil {
+		t.Fatalf("list tenant enrollment failure audit: %v", err)
+	}
+	return events
+}
+
+func TestEnrollmentFailureAuditIsolationAndRedaction(t *testing.T) {
+	const (
+		secretToken = "pjt_DO_NOT_PERSIST_ENROLLMENT_TOKEN"
+		secretCSR   = "DO_NOT_PERSIST_ENROLLMENT_CSR"
+	)
+	db := changeDB(t)
+	svc := collectorEnrollService(t, db)
+	tenantA := freshTenant(t, db, "enroll-audit-a")
+	tenantB := freshTenant(t, db, "enroll-audit-b")
+	srv := New(&config.Config{AuthMode: "dev"}, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
+	srv.SetEnrollService(svc)
+	h := srv.Handler()
+
+	providerHead, err := audit.ProviderHeadSeq(context.Background(), db.Pool())
+	if err != nil {
+		t.Fatalf("provider audit head: %v", err)
+	}
+	invalidAgent := apiReq(t, h, http.MethodPost, "/enroll/agent", tenantA, map[string]any{
+		"token": secretToken, "csr_pem": secretCSR,
+	})
+	if invalidAgent.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid agent token = %d %s, want 401", invalidAgent.Code, invalidAgent.Body)
+	}
+	providerEvents, err := audit.ListProvider(context.Background(), db.Pool(), providerHead, 20)
+	if err != nil {
+		t.Fatalf("list deployment audit: %v", err)
+	}
+	var deploymentFailure *audit.Event
+	for i := range providerEvents {
+		if providerEvents[i].Action == enrollmentRejectedAuditAction &&
+			providerEvents[i].Target == string(enrollmentSurfaceAgent) {
+			deploymentFailure = &providerEvents[i]
+		}
+	}
+	if deploymentFailure == nil {
+		t.Fatalf("unresolved rejection missing from deployment audit: %+v", providerEvents)
+	}
+	if deploymentFailure.Data["failure_class"] != string(enrollmentFailureInvalidToken) {
+		t.Fatalf("deployment failure class = %#v", deploymentFailure.Data)
+	}
+	if deploymentFailure.Data["outcome"] != "denied" {
+		t.Fatalf("deployment failure outcome = %#v", deploymentFailure.Data)
+	}
+	if tenantAEvents := tenantEnrollmentFailureEvents(t, db, tenantA); len(tenantAEvents) != 0 {
+		t.Fatalf("unresolved rejection trusted the request's tenant header: %+v", tenantAEvents)
+	}
+
+	badCSRToken, _, err := svc.MintToken(context.Background(), tenantA, "", "bad-csr-agent", "test", time.Hour)
+	if err != nil {
+		t.Fatalf("mint bad-CSR token: %v", err)
+	}
+	badCSR := apiReq(t, h, http.MethodPost, "/enroll/agent", tenantB, map[string]any{
+		"token": badCSRToken, "csr_pem": secretCSR,
+	})
+	if badCSR.Code != http.StatusBadRequest {
+		t.Fatalf("bad CSR enrollment = %d %s, want 400", badCSR.Code, badCSR.Body)
+	}
+	tenantAEvents := tenantEnrollmentFailureEvents(t, db, tenantA)
+	if len(tenantAEvents) != 1 ||
+		tenantAEvents[0].Target != string(enrollmentSurfaceAgent) ||
+		tenantAEvents[0].Data["failure_class"] != string(enrollmentFailureInvalidCSR) ||
+		tenantAEvents[0].Actor != "anonymous" {
+		t.Fatalf("token-resolved tenant audit = %+v, want one typed CSR rejection", tenantAEvents)
+	}
+
+	tokenA, _, err := svc.MintToken(context.Background(), tenantA, "", "collector-a", "test", time.Hour)
+	if err != nil {
+		t.Fatalf("mint tenant A collector token: %v", err)
+	}
+	invalidCollector := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenantB, map[string]any{
+		"token": tokenA, "plane": "flow", "hostname": "collector-b",
+	})
+	if invalidCollector.Code != http.StatusUnauthorized {
+		t.Fatalf("cross-tenant collector token = %d %s, want 401", invalidCollector.Code, invalidCollector.Body)
+	}
+
+	tenantBEvents := tenantEnrollmentFailureEvents(t, db, tenantB)
+	if len(tenantBEvents) != 1 ||
+		tenantBEvents[0].Target != string(enrollmentSurfaceCollector) ||
+		tenantBEvents[0].Data["failure_class"] != string(enrollmentFailureInvalidToken) ||
+		tenantBEvents[0].Data["outcome"] != "denied" {
+		t.Fatalf("caller-tenant audit = %+v, want one typed collector rejection", tenantBEvents)
+	}
+	if tenantAEvents = tenantEnrollmentFailureEvents(t, db, tenantA); len(tenantAEvents) != 1 {
+		t.Fatalf("collector rejection leaked into token owner's tenant audit: %+v", tenantAEvents)
+	}
+
+	evidence, err := json.Marshal(append(append(providerEvents, tenantAEvents...), tenantBEvents...))
+	if err != nil {
+		t.Fatalf("marshal audit evidence: %v", err)
+	}
+	for _, secret := range []string{secretToken, secretCSR, badCSRToken, tokenA} {
+		if strings.Contains(string(evidence), secret) {
+			t.Fatalf("secret %q persisted in enrollment audit", secret)
+		}
+	}
+	if got := srv.Metrics().Counter(enrollmentFailureMetricName(enrollmentFailureInvalidToken), "").Value(); got != 2 {
+		t.Fatalf("invalid-token failure counter = %d, want 2", got)
+	}
+	if got := srv.Metrics().Counter(enrollmentFailureMetricName(enrollmentFailureInvalidCSR), "").Value(); got != 1 {
+		t.Fatalf("invalid-CSR failure counter = %d, want 1", got)
+	}
 }
 
 func TestDeviceCollectorProfileRegistrationIsTenantScopedAndPublishBound(t *testing.T) {
