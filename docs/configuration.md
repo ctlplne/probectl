@@ -221,7 +221,7 @@ join a user-facing failure to server logs.
 | Unavailable   | `unavailable`  | 503  |
 
 Specialized stable codes include `writer_unavailable`, `quota_exceeded`,
-`tenant_suspended`, `tenant_offboarded`, `approvals_disabled`,
+`tenant_suspended`, `tenant_offboarded`, `license_read_only`, `approvals_disabled`,
 `blast_radius_exceeded`, `blast_radius_unknown`, and `not_proposed`; the
 OpenAPI `ErrorCode` enum is the authoritative list.
 

@@ -11,12 +11,20 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 )
 
@@ -756,6 +764,94 @@ func TestManagerAdapter(t *testing.T) {
 	// byok without a ref is rejected.
 	if _, err := m.RotateKey(ctx, "tnA", "alice@example.test", ModeBYOK, ""); err == nil {
 		t.Fatal("byok without ref must be rejected")
+	}
+}
+
+func TestLicenseReadOnlyKeyMutationRESTPreservesDecryptClockAdvanced(t *testing.T) {
+	const (
+		tenantA = "00000000-0000-0000-0000-000000000011"
+		tenantB = "00000000-0000-0000-0000-000000000012"
+	)
+	readOnlyAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	now := readOnlyAt.Add(-time.Second)
+	ring, store := newRing(t, nil)
+	ctx := context.Background()
+	aad := []byte("existing-sensitive-value")
+	blobs := map[string]string{}
+	for _, tenantID := range []string{tenantA, tenantB} {
+		blob, err := ring.Seal(ctx, tenantID, []byte("secret-"+tenantID), aad)
+		if err != nil {
+			t.Fatalf("seed %s: %v", tenantID, err)
+		}
+		blobs[tenantID] = blob
+	}
+
+	manager := tenantcrypto.GateKeyManagerWrites(
+		NewManager(ring),
+		license.WriteCapability(func() bool { return now.Before(readOnlyAt) }),
+	)
+	cfg := &config.Config{
+		HTTPAddr:    ":0",
+		HSTSEnabled: true,
+		HSTSMaxAge:  time.Hour,
+		AuthMode:    "session",
+	}
+	srv := control.New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil).
+		WithKeyManager(manager)
+	request := func(tenantID, method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		principal := &auth.Principal{
+			TenantID: tenantID,
+			UserID:   "admin-" + tenantID,
+			Email:    tenantID + "@example.test",
+			Permissions: map[string]bool{
+				"security.keys": true,
+			},
+		}
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	for _, tenantID := range []string{tenantA, tenantB} {
+		rec := request(tenantID, http.MethodPost, "/v1/security/keys/rotate", `{"mode":"managed"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("active rotate for %s: status=%d body=%s", tenantID, rec.Code, rec.Body.String())
+		}
+	}
+	auditCount := len(store.committedRotationAudits)
+
+	now = readOnlyAt
+	for _, tenantID := range []string{tenantA, tenantB} {
+		if rec := request(tenantID, http.MethodGet, "/v1/security/keys", ""); rec.Code != http.StatusOK {
+			t.Fatalf("read-only key status for %s: status=%d body=%s", tenantID, rec.Code, rec.Body.String())
+		}
+		for _, body := range []string{
+			`{"mode":"managed"}`,
+			`{"mode":"byok","byok_ref":"vault:kv/` + tenantID + `#key"}`,
+		} {
+			rec := request(tenantID, http.MethodPost, "/v1/security/keys/rotate", body)
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "license_read_only") {
+				t.Fatalf("read-only rotate for %s with %s: status=%d body=%s", tenantID, body, rec.Code, rec.Body.String())
+			}
+		}
+		plain, err := ring.Open(ctx, tenantID, blobs[tenantID], aad)
+		if err != nil || string(plain) != "secret-"+tenantID {
+			t.Fatalf("read-only decrypt for %s = %q, %v", tenantID, plain, err)
+		}
+		continued, err := ring.Seal(ctx, tenantID, []byte("continued-"+tenantID), aad)
+		if err != nil {
+			t.Fatalf("read-only continuity seal for %s: %v", tenantID, err)
+		}
+		if plain, err := ring.Open(ctx, tenantID, continued, aad); err != nil || string(plain) != "continued-"+tenantID {
+			t.Fatalf("read-only continuity open for %s = %q, %v", tenantID, plain, err)
+		}
+	}
+	if got := len(store.committedRotationAudits); got != auditCount {
+		t.Fatalf("read-only rotations reached key delegate: audits before=%d after=%d", auditCount, got)
 	}
 }
 

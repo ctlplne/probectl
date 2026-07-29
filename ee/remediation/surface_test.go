@@ -22,6 +22,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
+	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	rem "github.com/imfeelingtheagi/probectl/internal/remediation"
 )
@@ -113,6 +114,163 @@ func TestMandatoryAuditFailureReachesRESTAndMCP(t *testing.T) {
 		assertTenantProposalCounts(t, store, 0, 0)
 	})
 }
+
+func TestLicenseReadOnlyRemediationMutationRESTAndMCPClockAdvanced(t *testing.T) {
+	readOnlyAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	now := readOnlyAt.Add(-time.Second)
+	delegate := &surfaceRemediationDelegateSpy{}
+	gated := rem.GateServiceWrites(delegate, license.WriteCapability(func() bool {
+		return now.Before(readOnlyAt)
+	}))
+	cfg := &config.Config{
+		HTTPAddr:    ":0",
+		HSTSEnabled: true,
+		HSTSMaxAge:  time.Hour,
+		AuthMode:    "session",
+	}
+	srv := control.New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil).
+		WithRemediation(gated)
+
+	request := func(tenantID, method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		principal := &auth.Principal{
+			TenantID: tenantID,
+			UserID:   "admin-" + tenantID,
+			Email:    tenantID + "@example.test",
+			Permissions: map[string]bool{
+				remediationProposePermission: true,
+				"remediation.approve":        true,
+			},
+		}
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Active: every mutation reaches the delegate.
+	for _, tc := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodPost, "/v1/remediation/proposals", `{"kind":"open_ticket","title":"active"}`, http.StatusCreated},
+		{http.MethodPost, "/v1/remediation/proposals/p-active/approve", `{"note":"go"}`, http.StatusOK},
+		{http.MethodPost, "/v1/remediation/proposals/p-active/reject", `{"note":"stop"}`, http.StatusOK},
+	} {
+		if rec := request(testTenant, tc.method, tc.path, tc.body); rec.Code != tc.want {
+			t.Fatalf("active %s %s: status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+
+	gate := ai.NewEgressGate(
+		func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context, ai.EgressEvent) error { return nil },
+		ai.RedactionPolicy{},
+	)
+	mcpServer := mcp.New(
+		remediationMCPBackend{svc: gated},
+		gate,
+		mcp.WithCallAudit(func(context.Context, mcp.CallEvent) error { return nil }),
+	)
+	mcpCall := func(tenantID string) []byte {
+		t.Helper()
+		principal := &auth.Principal{
+			TenantID: tenantID,
+			UserID:   "mcp-" + tenantID,
+			Permissions: map[string]bool{
+				remediationProposePermission: true,
+			},
+		}
+		raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"propose_remediation","arguments":{"kind":"open_ticket","title":"mcp proposal"}}}`)
+		return mcpServer.Handle(context.Background(), principal, raw)
+	}
+	if raw := mcpCall(testTenant); strings.Contains(string(raw), `"isError":true`) {
+		t.Fatalf("active MCP proposal denied: %s", raw)
+	}
+	activeCounts := delegate.counts()
+
+	// The already-wired REST and MCP surfaces observe read-only without a
+	// restart. Reads still reach the delegate for two tenants; no write does.
+	now = readOnlyAt
+	for _, tenantID := range []string{testTenant, testTenantB} {
+		for _, path := range []string{
+			"/v1/remediation/proposals",
+			"/v1/remediation/proposals/p-" + tenantID,
+		} {
+			if rec := request(tenantID, http.MethodGet, path, ""); rec.Code != http.StatusOK {
+				t.Fatalf("read-only GET %s for %s: status=%d body=%s", path, tenantID, rec.Code, rec.Body.String())
+			}
+		}
+		for _, tc := range []struct {
+			path, body string
+		}{
+			{"/v1/remediation/proposals", `{"kind":"open_ticket","title":"blocked"}`},
+			{"/v1/remediation/proposals/p-" + tenantID + "/approve", `{"note":"blocked"}`},
+			{"/v1/remediation/proposals/p-" + tenantID + "/reject", `{"note":"blocked"}`},
+		} {
+			rec := request(tenantID, http.MethodPost, tc.path, tc.body)
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "license_read_only") {
+				t.Fatalf("read-only POST %s for %s: status=%d body=%s", tc.path, tenantID, rec.Code, rec.Body.String())
+			}
+		}
+		raw := mcpCall(tenantID)
+		if !strings.Contains(string(raw), `"isError":true`) {
+			t.Fatalf("read-only MCP proposal for %s = %s", tenantID, raw)
+		}
+	}
+	if got := delegate.counts(); got != activeCounts {
+		t.Fatalf("read-only mutation reached delegate: before=%+v after=%+v", activeCounts, got)
+	}
+	if len(delegate.listTenants) != 2 || len(delegate.getTenants) != 2 {
+		t.Fatalf("read-only review did not reach delegate for both tenants: list=%v get=%v",
+			delegate.listTenants, delegate.getTenants)
+	}
+}
+
+type surfaceRemediationCounts struct {
+	propose int
+	approve int
+	reject  int
+}
+
+type surfaceRemediationDelegateSpy struct {
+	surfaceRemediationCounts
+	listTenants []string
+	getTenants  []string
+}
+
+func (s *surfaceRemediationDelegateSpy) counts() surfaceRemediationCounts {
+	return s.surfaceRemediationCounts
+}
+
+func (s *surfaceRemediationDelegateSpy) Propose(_ context.Context, tenantID, _ string, in rem.ProposeInput) (rem.Proposal, error) {
+	s.propose++
+	return rem.Proposal{ID: "p-" + tenantID, TenantID: tenantID, Kind: in.Kind, State: rem.StateProposed}, nil
+}
+
+func (s *surfaceRemediationDelegateSpy) List(_ context.Context, tenantID string) ([]rem.Proposal, error) {
+	s.listTenants = append(s.listTenants, tenantID)
+	return []rem.Proposal{{ID: "p-" + tenantID, TenantID: tenantID, State: rem.StateProposed}}, nil
+}
+
+func (s *surfaceRemediationDelegateSpy) Get(_ context.Context, tenantID, id string) (rem.Proposal, error) {
+	s.getTenants = append(s.getTenants, tenantID)
+	return rem.Proposal{ID: id, TenantID: tenantID, State: rem.StateProposed}, nil
+}
+
+func (s *surfaceRemediationDelegateSpy) Approve(_ context.Context, tenantID, _, id, _ string) (rem.Proposal, error) {
+	s.approve++
+	return rem.Proposal{ID: id, TenantID: tenantID, State: rem.StateApproved}, nil
+}
+
+func (s *surfaceRemediationDelegateSpy) Reject(_ context.Context, tenantID, _, id, _ string) (rem.Proposal, error) {
+	s.reject++
+	return rem.Proposal{ID: id, TenantID: tenantID, State: rem.StateRejected}, nil
+}
+
+func (*surfaceRemediationDelegateSpy) ApprovalsEnabled() bool { return true }
 
 type remediationMCPBackend struct{ svc rem.Service }
 

@@ -186,6 +186,43 @@ func TestStateLadderAndDegrade(t *testing.T) {
 	}
 }
 
+func TestLicenseReadOnlyMutationCapabilityTransitionsWithoutRestart(t *testing.T) {
+	expires := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
+	now := expires.Add(-time.Hour)
+	claims := testClaims(TierEnterprise, expires)
+	m := &Manager{claims: &claims, clock: func() time.Time { return now }}
+
+	// Capture the capability once, exactly as the ee attach seam does. Moving
+	// the clock must change the answer without rebuilding that capability.
+	writes := m.WriteCapability()
+	if !writes.Enabled() {
+		t.Fatal("active license must permit attached commercial writes")
+	}
+	now = expires.Add(GracePeriod - time.Second)
+	if !writes.Enabled() {
+		t.Fatal("grace license must continue permitting attached commercial writes")
+	}
+
+	now = expires.Add(GracePeriod)
+	if writes.Enabled() {
+		t.Fatal("read-only license must deny attached commercial writes")
+	}
+	for _, feature := range []Feature{FeatureBYOK, FeatureRemediation} {
+		if !m.Has(feature) || m.Mode(feature) != ModeReadOnly {
+			t.Fatalf("%s must stay attached/readable in read-only mode: has=%v mode=%s",
+				feature, m.Has(feature), m.Mode(feature))
+		}
+	}
+
+	if Community().WriteCapability().Enabled() {
+		t.Fatal("community manager must fail closed for commercial writes")
+	}
+	var nilCapability WriteCapability
+	if nilCapability.Enabled() {
+		t.Fatal("nil write capability must fail closed")
+	}
+}
+
 // --- tier mapping + inheritance ---
 
 func TestTierTableAndExtras(t *testing.T) {

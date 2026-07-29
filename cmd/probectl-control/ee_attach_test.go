@@ -58,3 +58,22 @@ func TestEEAttachRunsSiloCatchUpBeforeRouterPublication(t *testing.T) {
 		t.Fatal("silo catch-up must not run in a warning-only goroutine before startup readiness")
 	}
 }
+
+func TestLicenseReadOnlyMutationCapabilityInstalledOnceAtEEAttach(t *testing.T) {
+	src, err := os.ReadFile("ee_attach.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	if got := strings.Count(text, "lic.WriteCapability()"); got != 1 {
+		t.Fatalf("dynamic write capability constructors in ee_attach.go = %d, want exactly one", got)
+	}
+	for _, wiring := range []string{
+		"tenantcrypto.GateKeyManagerWrites(tenantkeys.NewManager(ring), writeCapability)",
+		"remediation.GateServiceWrites(remed, writeCapability)",
+	} {
+		if !strings.Contains(text, wiring) {
+			t.Fatalf("ee attach seam is missing shared read-only mutation wiring %q", wiring)
+		}
+	}
+}

@@ -29,6 +29,7 @@ package license
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -187,6 +188,20 @@ const (
 	ModeReadOnly Mode = "read_only"
 	ModeOff      Mode = "off"
 )
+
+// ErrReadOnly is returned by commercial mutation adapters after an entitled
+// license has aged past its grace period. Read/decrypt paths and telemetry do
+// not use this error and remain available.
+var ErrReadOnly = errors.New("license: commercial features are read-only after expiry; existing reads and telemetry continue")
+
+// WriteCapability is the one dynamic commercial-write decision installed at
+// the ee Build/attach seam. Enabled evaluates the license clock on every call,
+// so a running process transitions from active/grace to read-only without a
+// restart. A nil capability fails closed.
+type WriteCapability func() bool
+
+// Enabled reports whether a commercial mutation may proceed.
+func (c WriteCapability) Enabled() bool { return c != nil && c() }
 
 // Manager answers tier/feature questions for one loaded license (or the
 // Core default). It is immutable after construction.
@@ -372,6 +387,22 @@ func (m *Manager) Mode(f Feature) Mode {
 // for write-path enforcement; use Has at the Build* seams so a read-only
 // feature still constructs and serves its read paths.
 func (m *Manager) Has(f Feature) bool { return m.Mode(f) != ModeOff }
+
+// WriteCapability returns the dynamic commercial-write decision for the ee
+// attach seam. Feature entitlement remains decided by the seam's Has checks;
+// this capability only applies the shared lifecycle rule to features that were
+// attached. Active and grace permit writes, while community and read-only fail
+// closed.
+func (m *Manager) WriteCapability() WriteCapability {
+	return func() bool {
+		switch m.State() {
+		case StateActive, StateGrace:
+			return true
+		default:
+			return false
+		}
+	}
+}
 
 // TenantBand returns the licensed tenant band (0 = unlimited / n-a).
 func (m *Manager) TenantBand() int {

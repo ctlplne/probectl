@@ -63,6 +63,7 @@ const (
 	CodeQuotaExceeded       Code = "quota_exceeded"
 	CodeTenantSuspended     Code = "tenant_suspended"
 	CodeTenantOffboarded    Code = "tenant_offboarded"
+	CodeLicenseReadOnly     Code = "license_read_only"
 	CodeApprovalsDisabled   Code = "approvals_disabled"
 	CodeBlastRadiusExceeded Code = "blast_radius_exceeded"
 	CodeBlastRadiusUnknown  Code = "blast_radius_unknown"
@@ -84,6 +85,7 @@ var registeredCodes = []Code{
 	CodeQuotaExceeded,
 	CodeTenantSuspended,
 	CodeTenantOffboarded,
+	CodeLicenseReadOnly,
 	CodeApprovalsDisabled,
 	CodeBlastRadiusExceeded,
 	CodeBlastRadiusUnknown,

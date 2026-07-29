@@ -4101,7 +4101,7 @@ func (c *Client) GetV1RemediationProposals(ctx context.Context, req GetV1Remedia
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
 }
 
-// File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed — probectl never executes; a human must approve
+// File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed — probectl never executes; a human must approve. A license that transitions past grace denies the mutation with license_read_only while proposal review remains available
 type PostV1RemediationProposalsRequest struct {
 }
 
@@ -4121,7 +4121,7 @@ func (c *Client) GetV1RemediationProposalsId(ctx context.Context, req GetV1Remed
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
 }
 
-// Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING — operators carry it out
+// Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING — operators carry it out. Read-only license mode denies the mutation with license_read_only
 type PostV1RemediationProposalsIdApproveRequest struct {
 }
 
@@ -4131,7 +4131,7 @@ func (c *Client) PostV1RemediationProposalsIdApprove(ctx context.Context, req Po
 	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
 }
 
-// Record a human's rejection of a remediation proposal (audited)
+// Record a human's rejection of a remediation proposal (audited). Read-only license mode denies the mutation with license_read_only
 type PostV1RemediationProposalsIdRejectRequest struct {
 }
 
@@ -4341,7 +4341,7 @@ func (c *Client) GetV1SecurityKeys(ctx context.Context, req GetV1SecurityKeysReq
 	return &out, nil
 }
 
-// Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation — the lockout guard); retired versions stay decrypt-only (no downtime)
+// Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation — the lockout guard); retired versions stay decrypt-only (no downtime). A license that transitions past grace denies rotation with license_read_only while status and decrypt remain available
 type PostV1SecurityKeysRotateRequest struct {
 }
 

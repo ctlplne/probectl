@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 )
 
@@ -83,6 +84,9 @@ func (s *Server) handleKeysRotate(w http.ResponseWriter, r *http.Request) error 
 	}
 	kv, err := m.RotateKey(r.Context(), tid, auditActor(r), in.Mode, in.BYOKRef)
 	if err != nil {
+		if errors.Is(err, license.ErrReadOnly) {
+			return apierror.Forbidden(err.Error()).WithCode(string(apierror.CodeLicenseReadOnly))
+		}
 		if errors.Is(err, tenantcrypto.ErrKeyRotationUnavailable) {
 			return apierror.Internal("key rotation failed").Wrap(err)
 		}

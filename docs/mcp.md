@@ -134,6 +134,12 @@ result instead of acting. That inertness is wiring, not policy — the stdio pro
 is simply never handed a remediation backend to call, so there is nothing a clever
 prompt could switch back on.
 
+If an attached license dynamically ages past its grace period, the HTTP
+`propose_remediation` tool returns an error result before its proposal delegate
+runs. Existing proposal review remains available over REST; MCP exposes no
+review or decision tool. This shares the same attach-seam write capability as
+REST, so a long-running process cannot retain an MCP-only write path.
+
 ## Transports and auth
 
 **Tokens.** A **bearer token** is a secret string that *is* the authentication:

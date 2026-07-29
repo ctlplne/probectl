@@ -39,6 +39,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/imfeelingtheagi/probectl/internal/remediation"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
@@ -61,6 +62,12 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	life *tenantlife.Engine,
 	resolveSecret func(context.Context, string) ([]byte, func(), error),
 	fairGate *fairness.Gate, topoStore topology.Store) error {
+	// One dynamic lifecycle capability is shared by every attached commercial
+	// mutation adapter. Entitlement stays in the Has checks below; this method
+	// value re-evaluates the license clock on every write, so active/grace can
+	// become read-only without rebuilding or restarting the server.
+	writeCapability := lic.WriteCapability()
+
 	// Siloed/hybrid isolation (S-T2). Attached BEFORE the provider plane so
 	// tenant provisioning can create isolated stores from the first call.
 	var siloOps provider.SiloOps
@@ -187,7 +194,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			return err
 		}
 		tenantcrypto.SetPrimary(ring) // dv1 opener stays registered (main)
-		srv.WithKeyManager(tenantkeys.NewManager(ring))
+		srv.WithKeyManager(tenantcrypto.GateKeyManagerWrites(tenantkeys.NewManager(ring), writeCapability))
 		log.Info("per-tenant key isolation attached (S-T6)", "scheme", "tk1", "modes", "managed|byok")
 	}
 
@@ -216,7 +223,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			ApprovalsEnabled: cfg.RemediationApprovalsEnabled,
 			MaxBlastRadius:   cfg.RemediationMaxBlastRadius,
 		})
-		srv.WithRemediation(remed)
+		srv.WithRemediation(remediation.GateServiceWrites(remed, writeCapability))
 		log.Info("guarded remediation attached (S-EE5)",
 			"approvals_enabled", cfg.RemediationApprovalsEnabled,
 			"max_blast_radius", cfg.RemediationMaxBlastRadius)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/remediation"
 )
 
@@ -165,6 +166,9 @@ func (s *Server) decideRemediation(w http.ResponseWriter, r *http.Request, appro
 // approval errors (disabled / over-limit / unknown radius) are 409 Conflict —
 // the request was well-formed but the state/policy forbids it.
 func mapRemediationErr(err error) error {
+	if errors.Is(err, license.ErrReadOnly) {
+		return apierror.Forbidden(err.Error()).WithCode(string(apierror.CodeLicenseReadOnly))
+	}
 	var re remediation.Error
 	if errors.As(err, &re) {
 		switch re.Code {

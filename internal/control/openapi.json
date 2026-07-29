@@ -6991,10 +6991,13 @@
     },
     "/v1/security/keys/rotate": {
       "post": {
-        "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation \u2014 the lockout guard); retired versions stay decrypt-only (no downtime)",
+        "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation \u2014 the lockout guard); retired versions stay decrypt-only (no downtime). A license that transitions past grace denies rotation with license_read_only while status and decrypt remain available",
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -7051,10 +7054,13 @@
         }
       },
       "post": {
-        "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed \u2014 probectl never executes; a human must approve",
+        "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed \u2014 probectl never executes; a human must approve. A license that transitions past grace denies the mutation with license_read_only while proposal review remains available",
         "responses": {
           "201": {
             "description": "Created"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -7071,20 +7077,26 @@
     },
     "/v1/remediation/proposals/{id}/approve": {
       "post": {
-        "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING \u2014 operators carry it out",
+        "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING \u2014 operators carry it out. Read-only license mode denies the mutation with license_read_only",
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
     },
     "/v1/remediation/proposals/{id}/reject": {
       "post": {
-        "summary": "Record a human's rejection of a remediation proposal (audited)",
+        "summary": "Record a human's rejection of a remediation proposal (audited). Read-only license mode denies the mutation with license_read_only",
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -8756,6 +8768,7 @@
           "quota_exceeded",
           "tenant_suspended",
           "tenant_offboarded",
+          "license_read_only",
           "approvals_disabled",
           "blast_radius_exceeded",
           "blast_radius_unknown",

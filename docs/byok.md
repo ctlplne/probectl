@@ -134,6 +134,10 @@ cannot silently get a fresh v1 by writing new data.
 - Tenant **Admin → Encryption keys** card: chain state, managed rotation, BYOK
   activation. Hidden entirely when unlicensed.
 - Rotations are audited (`security.key_rotate`, in the tenant audit stream).
+- When a running license ages past its 30-day grace period, the status card and
+  `GET` remain readable and existing/newly sealed values keep using the active
+  tenant key for encrypt/decrypt continuity. New managed rotations and BYOK
+  activations return `403 license_read_only` before the key manager is called.
 
 ## Configuration
 

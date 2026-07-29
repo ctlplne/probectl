@@ -147,6 +147,11 @@ Fail-closed approval errors map to `409 Conflict` with a machine code:
 `approvals_disabled`, `blast_radius_exceeded`, `blast_radius_unknown`,
 `not_proposed`.
 
+After a running commercial license ages past grace, proposal `GET`/list review
+continues, but propose/approve/reject return `403 license_read_only` before the
+workflow service is called. The same dynamic gate covers the HTTP MCP proposal
+tool, so expiry needs no process restart and cannot leave MCP as a write bypass.
+
 ## MCP tool
 
 `propose_remediation` (permission `remediation.propose`) lets the assistant file a
