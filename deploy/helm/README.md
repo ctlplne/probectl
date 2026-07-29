@@ -25,14 +25,23 @@ process terminates TLS directly; the Service, probes, ingress backend, and
 optional ServiceMonitor all target that HTTPS listener. The public ingress also
 terminates TLS, emits HSTS, and force-redirects HTTP → HTTPS. Supply an
 operator-managed Secret through `control.tls.existingSecret`; Helm refuses to
-render without it. The ingress controller authenticates that backend certificate
-with `ingress.backendTLS.trustSecret` (a same-namespace ingress-nginx proxy-ssl
-Secret containing `tls.crt`, `tls.key`, and `ca.crt`) and
+render without it. The built-in Ingress supports only ingress-nginx:
+`ingress.className` must be `nginx`, and blank or unsupported classes fail
+rendering. This restriction keeps the controller and its security controls on
+one contract—the ingress controller authenticates the backend certificate with
+`ingress.backendTLS.trustSecret` (a same-namespace ingress-nginx proxy-ssl Secret
+containing `tls.crt`, `tls.key`, and `ca.crt`) and
 `ingress.backendTLS.serverName` (a DNS SAN on the control listener certificate);
 Helm also refuses to render if either is missing. `probectl/values-strict.yaml`
 keeps that transport posture and
 additionally closes the default egress hole. The database migration runs as an
 init container; the pod runs non-root with a read-only root filesystem.
+
+For another ingress controller, set `ingress.enabled=false` and provide an
+operator-owned Ingress that independently enforces HTTPS redirect plus complete
+backend certificate chain and hostname verification. The chart does not guess
+controller-specific annotations because a guessed control can silently do
+nothing.
 
 ## Install (single-tenant / sovereign)
 

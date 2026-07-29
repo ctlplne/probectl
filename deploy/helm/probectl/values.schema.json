@@ -344,7 +344,11 @@
       "additionalProperties": true,
       "properties": {
         "enabled": { "type": "boolean" },
-        "className": { "type": "string" },
+        "className": {
+          "type": "string",
+          "enum": ["nginx"],
+          "description": "The built-in Ingress supports ingress-nginx only because backend certificate verification is enforced with ingress-nginx proxy-ssl annotations."
+        },
         "host": { "type": "string" },
         "tlsSecretName": { "type": "string" },
         "backendTLS": {

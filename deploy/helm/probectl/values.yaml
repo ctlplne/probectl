@@ -173,6 +173,9 @@ service:
 # redirected to HTTPS, and the ingress uses HTTPS to the control pod too.
 ingress:
   enabled: true
+  # The built-in Ingress supports ingress-nginx only. Its controller-specific
+  # proxy-ssl annotations enforce backend certificate chain + name verification.
+  # Disable this Ingress and supply an equivalently verified one for other controllers.
   className: nginx
   host: probectl.example.com
   # TLS secret holding the cert for `host`. Use cert-manager (annotations below)

@@ -1,4 +1,8 @@
 {{- if .Values.ingress.enabled }}
+{{- $ingressClassName := required "ingress.className is required and must be nginx when ingress is enabled" .Values.ingress.className -}}
+{{- if ne $ingressClassName "nginx" }}
+{{- fail (printf "ingress.className %q is unsupported: the chart's verified backend TLS contract requires nginx" $ingressClassName) }}
+{{- end }}
 {{- $ingressAnnotations := .Values.ingress.annotations | default dict -}}
 {{- range $annotation := list
   "nginx.ingress.kubernetes.io/ssl-redirect"
@@ -53,7 +57,7 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
-  ingressClassName: {{ .Values.ingress.className }}
+  ingressClassName: {{ $ingressClassName | quote }}
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}

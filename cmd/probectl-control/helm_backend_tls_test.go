@@ -82,6 +82,56 @@ func TestHelmIngressRequiresVerifiedBackendTLS(t *testing.T) {
 	}
 }
 
+func TestHelmIngressClassIsVerifiedNginx(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+
+	verifiedBackend := []string{
+		"--set", "ingress.backendTLS.trustSecret=probectl-backend-ca",
+		"--set", "ingress.backendTLS.serverName=probectl-control.probectl.svc",
+	}
+	for _, tc := range []struct {
+		name      string
+		className string
+		wantOK    bool
+	}{
+		{name: "nginx", className: "nginx", wantOK: true},
+		{name: "blank", className: "", wantOK: false},
+		{name: "unsupported", className: "traefik", wantOK: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			extra := append([]string{}, verifiedBackend...)
+			extra = append(extra, "--set-string", "ingress.className="+tc.className)
+			out, err := renderHelmIngress(t, extra...)
+			if !tc.wantOK {
+				if err == nil {
+					t.Fatalf("chart accepted ingress class %q without a verified backend contract:\n%s", tc.className, out)
+				}
+				if !strings.Contains(string(out), "className") || !strings.Contains(string(out), "nginx") {
+					t.Fatalf("ingress class %q failed for the wrong reason:\n%s", tc.className, out)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("verified nginx ingress render failed: %v\n%s", err, out)
+			}
+			for _, want := range []string{
+				`ingressClassName: "nginx"`,
+				`nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"`,
+				`nginx.ingress.kubernetes.io/proxy-ssl-verify: "on"`,
+				`nginx.ingress.kubernetes.io/proxy-ssl-secret: "probectl/probectl-backend-ca"`,
+				`nginx.ingress.kubernetes.io/proxy-ssl-server-name: "on"`,
+				`nginx.ingress.kubernetes.io/proxy-ssl-name: "probectl-control.probectl.svc"`,
+			} {
+				if !strings.Contains(string(out), want) {
+					t.Errorf("verified nginx ingress missing %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
 func TestHelmIngressRejectsOwnedAnnotationOverrides(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm is not installed")
