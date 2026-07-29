@@ -14,10 +14,39 @@ cd "$(dirname "$0")/.."
 
 fail=0
 
+go_install_record_is_unpinned() {
+  local record="$1"
+  local code
+
+  # grep -nH records are path:line:source. Inspect source only, and remove the
+  # comment tail before deciding whether the record contains an install.
+  code="${record#*:}"
+  code="${code#*:}"
+  code="${code%%#*}"
+  [[ "$code" == *"go install "* ]] || return 1
+
+  ! echo "$code" | grep -qE '@v[0-9]+\.[0-9]+\.[0-9]+'
+}
+
 if [[ "${1:-}" == "SELFTEST" ]]; then
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   echo 'image: ghcr.io/x/y:latest' > "$tmp/bad.yml"
   grep -q ':latest' "$tmp/bad.yml" || { echo "SELFTEST broken"; exit 1; }
+  cat > "$tmp/go-installs.yml" <<'YAML'
+jobs:
+  tools:
+    steps:
+      - run: go install example.com/unpinned/tool
+      - run: go install example.com/pinned/tool@v1.2.3
+      # go install example.com/comment-only/tool
+YAML
+  bad_go_installs=0
+  while IFS= read -r line; do
+    if go_install_record_is_unpinned "$line"; then
+      bad_go_installs=$((bad_go_installs + 1))
+    fi
+  done < <(grep -nH 'go install ' "$tmp/go-installs.yml" || true)
+  if [[ "$bad_go_installs" -eq 1 ]]; then :; else echo "SELFTEST broken (go install pin)"; exit 1; fi
   echo 'pip install ruff' > "$tmp/bad.sh"
   if grep -E 'pip install' "$tmp/bad.sh" | grep -vqE '(==|--require-hashes|--no-deps|-r [^ ]+\.lock)'; then :; else echo "SELFTEST broken"; exit 1; fi
   cat > "$tmp/package.json" <<'JSON'
@@ -93,11 +122,11 @@ done < <(grep -rn '\${PROBECTL_IMAGE:-' deploy/compose/probectl.yml || true)
 
 # 2) go install without an exact version in workflows/Makefile.
 while IFS= read -r line; do
-  echo "$line" | grep -qE '@v[0-9]+\.[0-9]+\.[0-9]+' && continue
+  go_install_record_is_unpinned "$line" || continue
   echo "UNPINNED go install (want @vX.Y.Z):"
   echo "  $line"
   fail=1
-done < <(grep -rn 'go install ' .github/workflows Makefile | grep -v '^\s*#' | grep '@' || true)
+done < <(grep -rnH 'go install ' .github/workflows Makefile || true)
 
 # 3) pip install without exact pins / hashes / no-deps / a lockfile.
 while IFS= read -r line; do
