@@ -43,6 +43,9 @@ func runStoreSuite(t *testing.T, s Store) {
 	if _, err := s.Get(ctx, key); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("get missing should be ErrNotFound, got %v", err)
 	}
+	if _, err := s.GetLimited(ctx, key, 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("limited get missing should be ErrNotFound, got %v", err)
+	}
 
 	data := []byte("\x89PNG fake screenshot bytes")
 	if err := s.Put(ctx, key, "image/png", data); err != nil {
@@ -54,6 +57,16 @@ func runStoreSuite(t *testing.T, s Store) {
 	}
 	if string(o.Data) != string(data) || o.ContentType != "image/png" || o.Size != int64(len(data)) {
 		t.Fatalf("round-trip mismatch: %+v", o)
+	}
+	o, err = s.GetLimited(ctx, key, int64(len(data)))
+	if err != nil || string(o.Data) != string(data) || o.ContentType != "image/png" {
+		t.Fatalf("exact-limit get mismatch: %+v err=%v", o, err)
+	}
+	if _, err := s.GetLimited(ctx, key, int64(len(data)-1)); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("one-past limited get error = %v, want ErrTooLarge", err)
+	}
+	if _, err := s.GetLimited(ctx, key, -1); err == nil {
+		t.Fatal("negative limited get ceiling must be rejected")
 	}
 	if size, exists, err := s.Stat(ctx, key); err != nil || !exists || size != int64(len(data)) {
 		t.Fatalf("stat: size=%d exists=%v err=%v", size, exists, err)
@@ -121,6 +134,9 @@ func runTenantStoreSuite(t *testing.T, s Store) {
 	got, err := ta.Get(ctx, "browser/a.png")
 	if err != nil || string(got.Data) != "a" {
 		t.Fatalf("tenant A get own object: %q err=%v", got.Data, err)
+	}
+	if _, err := ta.GetLimited(ctx, "browser/a.png", 0); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("tenant A limited get must preserve the body ceiling: %v", err)
 	}
 	if _, err := ta.Get(ctx, "browser/b.png"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("tenant A must not read tenant B relative path: %v", err)

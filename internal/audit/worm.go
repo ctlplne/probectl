@@ -39,8 +39,18 @@ import (
 // signature, the hash chain ACROSS segments, and seq continuity — a purge or
 // gap surfaces as a loud error (the alert hook).
 
-// wormPrefix is the object-key namespace for provider-stream segments.
-const wormPrefix = "worm/audit/provider/"
+const (
+	// wormPrefix is the object-key namespace for provider-stream segments.
+	wormPrefix = "worm/audit/provider/"
+
+	// Stored WORM objects are durable but still untrusted input during restart,
+	// retention, and explicit verification. These ceilings are enforced while
+	// reading, before signature verification or JSON decoding can allocate from
+	// an attacker-controlled object size.
+	maxWORMPublicKeyBytes int64 = 4 << 10
+	maxWORMSegmentBytes   int64 = 4 << 20
+	maxWORMSignatureBytes int64 = crypto.Ed25519SignatureSize
+)
 
 // WormSegment is one exported, signed slice of the provider audit chain.
 type WormSegment struct {
@@ -86,6 +96,9 @@ func NewWormExporter(source WormSource, objects objectstore.Store, privPEM, pubP
 	if len(privPEM) == 0 || len(pubPEM) == 0 {
 		return nil, fmt.Errorf("audit: worm export requires a persisted Ed25519 signing key " +
 			"(resolve it via ResolveWormSigningKey; refusing to mint an ephemeral per-boot key — KEYS-004)")
+	}
+	if int64(len(pubPEM)) > maxWORMPublicKeyBytes {
+		return nil, fmt.Errorf("audit: WORM signing public key exceeds %d-byte limit", maxWORMPublicKeyBytes)
 	}
 	if log == nil {
 		log = slog.Default()
@@ -237,6 +250,9 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	if len(events) == 0 {
 		return 0, nil
 	}
+	if len(events) > MaxExportPageSize {
+		return 0, fmt.Errorf("audit: WORM source returned %d events, exceeds %d-event limit", len(events), MaxExportPageSize)
+	}
 	seg := WormSegment{
 		FormatVersion: 1, Stream: "provider",
 		FromSeq: events[0].Seq, ToSeq: events[len(events)-1].Seq,
@@ -245,6 +261,9 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	raw, err := json.Marshal(seg)
 	if err != nil {
 		return 0, err
+	}
+	if int64(len(raw)) > maxWORMSegmentBytes {
+		return 0, fmt.Errorf("audit: WORM segment exceeds %d-byte limit", maxWORMSegmentBytes)
 	}
 	sig, err := crypto.SignEd25519(w.privPEM, raw)
 	if err != nil {
@@ -263,7 +282,7 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 
 func (w *WormExporter) ensurePublicKey(ctx context.Context) error {
 	const key = wormPrefix + "signing.pub"
-	pub, err := w.objects.Get(ctx, key)
+	pub, err := w.objects.GetLimited(ctx, key, maxWORMPublicKeyBytes)
 	switch {
 	case err == nil:
 		if !bytes.Equal(pub.Data, w.pubPEM) {
@@ -318,7 +337,7 @@ func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bo
 	}
 	sort.Strings(segKeys) // zero-padded seqs sort chronologically
 
-	pub, err := w.objects.Get(ctx, wormPrefix+"signing.pub")
+	pub, err := w.objects.GetLimited(ctx, wormPrefix+"signing.pub", maxWORMPublicKeyBytes)
 	if err != nil {
 		if !allowIncompleteTail || !errors.Is(err, objectstore.ErrNotFound) {
 			return 0, fmt.Errorf("audit WORM signing public key unreadable: %w", err)
@@ -341,11 +360,11 @@ func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bo
 			return 0, fmt.Errorf("invalid audit WORM segment key %q", key)
 		}
 
-		obj, err := w.objects.Get(ctx, key)
+		obj, err := w.objects.GetLimited(ctx, key, maxWORMSegmentBytes)
 		if err != nil {
 			return 0, fmt.Errorf("segment %s unreadable: %w", key, err)
 		}
-		sig, err := w.objects.Get(ctx, key+".sig")
+		sig, err := w.objects.GetLimited(ctx, key+".sig", maxWORMSignatureBytes)
 		if err != nil {
 			if allowIncompleteTail && i == len(segKeys)-1 && errors.Is(err, objectstore.ErrNotFound) {
 				return last, nil
@@ -363,6 +382,9 @@ func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bo
 		}
 		if seg.FormatVersion != 1 || seg.Stream != "provider" {
 			return 0, fmt.Errorf("segment %s has invalid format or stream", key)
+		}
+		if len(seg.Events) > MaxExportPageSize {
+			return 0, fmt.Errorf("segment %s exceeds %d-event limit", key, MaxExportPageSize)
 		}
 		if len(seg.Events) == 0 || seg.FromSeq != keyFrom || seg.ToSeq != keyTo ||
 			seg.Events[0].Seq != seg.FromSeq || seg.Events[len(seg.Events)-1].Seq != seg.ToSeq {

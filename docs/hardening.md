@@ -57,6 +57,14 @@ A purge or gap logs an unmissable error. Because the public key is published nex
 to the segments, any third party can verify the export with nothing but that
 key — no access to probectl required.
 
+Verification treats those durable objects as untrusted input: the public-key
+object is capped at 4 KiB, the detached Ed25519 signature at its exact 64-byte
+size, and each segment at 4 MiB / 1,000 events. The filesystem and memory object
+adapters enforce the byte ceiling while reading or copying, so a one-byte-oversize
+object fails closed before its full body is buffered. Export applies the same
+segment ceiling, preventing probectl from writing an object it cannot later
+verify.
+
 The segment is a **privacy projection**, not a raw table dump. It preserves
 `seq`, `action`, `prev_hash`, and `hash` so sequence and chain continuity still
 verify, but minimizes raw `actor`, `target`, and `data` before the object is

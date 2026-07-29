@@ -10,7 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -81,11 +83,58 @@ func (s *FSStore) Get(_ context.Context, key string) (Object, error) {
 	if err != nil {
 		return Object{}, err
 	}
-	ct := "application/octet-stream"
-	if meta, err := os.ReadFile(p + ".meta"); err == nil {
-		ct = strings.TrimSpace(string(meta))
+	return Object{Data: data, ContentType: readContentType(p), Size: int64(len(data))}, nil
+}
+
+func (s *FSStore) GetLimited(ctx context.Context, key string, maxBytes int64) (Object, error) {
+	if maxBytes < 0 || maxBytes == math.MaxInt64 {
+		return Object{}, errors.New("objectstore: maxBytes must be non-negative and below MaxInt64")
 	}
-	return Object{Data: data, ContentType: ct, Size: int64(len(data))}, nil
+	p, err := s.path(key)
+	if err != nil {
+		return Object{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Object{}, err
+	}
+	f, err := os.Open(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Object{}, ErrNotFound
+	}
+	if err != nil {
+		return Object{}, err
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return Object{}, err
+	}
+	if int64(len(data)) > maxBytes {
+		return Object{}, ErrTooLarge
+	}
+	if err := ctx.Err(); err != nil {
+		return Object{}, err
+	}
+	return Object{Data: data, ContentType: readContentType(p), Size: int64(len(data))}, nil
+}
+
+func readContentType(path string) string {
+	const maxContentTypeBytes = 1024
+
+	f, err := os.Open(path + ".meta")
+	if err != nil {
+		return "application/octet-stream"
+	}
+	defer f.Close()
+	meta, err := io.ReadAll(io.LimitReader(f, maxContentTypeBytes+1))
+	if err != nil || len(meta) > maxContentTypeBytes {
+		return "application/octet-stream"
+	}
+	if contentType := strings.TrimSpace(string(meta)); contentType != "" {
+		return contentType
+	}
+	return "application/octet-stream"
 }
 
 func (s *FSStore) Stat(_ context.Context, key string) (int64, bool, error) {

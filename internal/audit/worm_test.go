@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -85,6 +86,182 @@ func (s *failingPutStore) Put(ctx context.Context, key, contentType string, data
 		return errors.New("injected WORM object put failure")
 	}
 	return s.Store.Put(ctx, key, contentType, data)
+}
+
+type countingGetStore struct {
+	objectstore.Store
+	gets map[string]int
+}
+
+func (s *countingGetStore) Get(ctx context.Context, key string) (objectstore.Object, error) {
+	s.gets[key]++
+	return s.Store.Get(ctx, key)
+}
+
+func TestWORMObjectSizeBounds(t *testing.T) {
+	const segmentKey = wormPrefix + "segment-000000000001-000000000001.json"
+	for _, tc := range []struct {
+		name        string
+		key         string
+		contentType string
+		limit       int64
+	}{
+		{name: "public-key", key: wormPrefix + "signing.pub", contentType: "application/x-pem-file", limit: maxWORMPublicKeyBytes},
+		{name: "segment", key: segmentKey, contentType: "application/json", limit: maxWORMSegmentBytes},
+		{name: "signature", key: segmentKey + ".sig", contentType: "application/octet-stream", limit: maxWORMSignatureBytes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			base := objectstore.NewMemory()
+			exporter, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(1)), base, testLog())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := exporter.ExportOnce(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := base.Put(ctx, tc.key, tc.contentType, bytes.Repeat([]byte("x"), int(tc.limit)+1)); err != nil {
+				t.Fatal(err)
+			}
+			counted := &countingGetStore{Store: base, gets: map[string]int{}}
+			exporter.objects = counted
+
+			err = exporter.VerifyWORMChain(ctx)
+			if !errors.Is(err, objectstore.ErrTooLarge) {
+				t.Fatalf("one-past %s error = %v, want ErrTooLarge", tc.name, err)
+			}
+			if counted.gets[tc.key] != 0 {
+				t.Fatalf("oversized WORM %s used whole-object Get %d time(s), want bounded refusal before buffering", tc.name, counted.gets[tc.key])
+			}
+		})
+	}
+}
+
+func TestWORMObjectExactSizeBounds(t *testing.T) {
+	ctx := context.Background()
+	priv, pub, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(pub)) >= maxWORMPublicKeyBytes {
+		t.Fatalf("generated public key unexpectedly exceeds test ceiling: %d", len(pub))
+	}
+	pub = append(pub, bytes.Repeat([]byte("\n"), int(maxWORMPublicKeyBytes)-len(pub))...)
+
+	store := objectstore.NewMemory()
+	exporter, err := NewWormExporter(sourceOf(chainedEvents(1)), store, priv, pub, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exporter.ExportOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	const segmentKey = wormPrefix + "segment-000000000001-000000000001.json"
+	obj, err := store.Get(ctx, segmentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(obj.Data)) >= maxWORMSegmentBytes {
+		t.Fatalf("generated segment unexpectedly exceeds test ceiling: %d", len(obj.Data))
+	}
+	exactSegment := append(obj.Data, bytes.Repeat([]byte(" "), int(maxWORMSegmentBytes)-len(obj.Data))...)
+	sig, err := crypto.SignEd25519(priv, exactSegment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(sig)) != maxWORMSignatureBytes {
+		t.Fatalf("signature size = %d, want exact ceiling %d", len(sig), maxWORMSignatureBytes)
+	}
+	if err := store.Put(ctx, segmentKey, "application/json", exactSegment); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(ctx, segmentKey+".sig", "application/octet-stream", sig); err != nil {
+		t.Fatal(err)
+	}
+	if err := exporter.VerifyWORMChain(ctx); err != nil {
+		t.Fatalf("exact-limit public key, segment, and signature must verify: %v", err)
+	}
+}
+
+func TestWORMEventCardinalityBounds(t *testing.T) {
+	t.Run("exact", func(t *testing.T) {
+		store := objectstore.NewMemory()
+		exporter, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(MaxExportPageSize)), store, testLog())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := exporter.ExportOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if err := exporter.VerifyWORMChain(context.Background()); err != nil {
+			t.Fatalf("exact event limit must verify: %v", err)
+		}
+	})
+
+	t.Run("export-one-past", func(t *testing.T) {
+		ctx := context.Background()
+		store := objectstore.NewMemory()
+		exporter, err := NewWormExporterEphemeralForTest(
+			func(context.Context, int64, int) ([]Event, error) {
+				return chainedEvents(MaxExportPageSize + 1), nil
+			},
+			store,
+			testLog(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := exporter.ExportOnce(ctx); err == nil || !strings.Contains(err.Error(), "event limit") {
+			t.Fatalf("one-past source cardinality error = %v, want explicit limit rejection", err)
+		}
+		if keys, err := store.List(ctx, wormPrefix+"segment-"); err != nil {
+			t.Fatal(err)
+		} else if len(keys) != 0 {
+			t.Fatalf("one-past source wrote WORM segment objects: %v", keys)
+		}
+	})
+
+	t.Run("one-past", func(t *testing.T) {
+		ctx := context.Background()
+		store := objectstore.NewMemory()
+		exporter, err := NewWormExporterEphemeralForTest(sourceOf(nil), store, testLog())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := exporter.ensurePublicKey(ctx); err != nil {
+			t.Fatal(err)
+		}
+		events := chainedEvents(MaxExportPageSize + 1)
+		seg := WormSegment{
+			FormatVersion: 1,
+			Stream:        "provider",
+			FromSeq:       1,
+			ToSeq:         int64(len(events)),
+			ExportedAt:    time.Now().UTC(),
+			Events:        events,
+		}
+		raw, err := json.Marshal(seg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int64(len(raw)) > maxWORMSegmentBytes {
+			t.Fatalf("cardinality fixture exceeds byte ceiling: %d", len(raw))
+		}
+		sig, err := crypto.SignEd25519(exporter.privPEM, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := wormPrefix + "segment-000000000001-000000001001.json"
+		if err := store.Put(ctx, key, "application/json", raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Put(ctx, key+".sig", "application/octet-stream", sig); err != nil {
+			t.Fatal(err)
+		}
+		if err := exporter.VerifyWORMChain(ctx); err == nil || !strings.Contains(err.Error(), "event limit") {
+			t.Fatalf("one-past event cardinality error = %v, want explicit limit rejection", err)
+		}
+	})
 }
 
 type providerEventRow struct {

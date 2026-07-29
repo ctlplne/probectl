@@ -23,6 +23,11 @@ import (
 // enforces this repo-wide); a FIPS provider swaps the implementation behind
 // the same functions, not the callers.
 
+// Ed25519SignatureSize is the exact detached-signature size exposed through the
+// crypto abstraction so callers can bound untrusted signature objects without
+// importing the primitive package themselves.
+const Ed25519SignatureSize = ed25519.SignatureSize
+
 // GenerateEd25519KeyPEM generates an Ed25519 keypair and returns both halves
 // PEM-encoded (PKCS#8 "PRIVATE KEY", PKIX "PUBLIC KEY").
 func GenerateEd25519KeyPEM() (privPEM, pubPEM []byte, err error) {

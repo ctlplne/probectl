@@ -6,11 +6,12 @@
 
 // Package objectstore is probectl's pluggable blob store for large, out-of-band
 // artifacts — starting with S36 browser-synthetic screenshots/waterfalls. It is a
-// small Put/Get/Stat interface with a filesystem implementation (the default) and
-// an in-memory one (tests); an S3/MinIO implementation slots in behind the same
-// interface (PRD §5: object store pluggable). Tenant-owned callers should use a
-// TenantStore from ForTenant/ForTenantPrefix, so tenant namespaces are prepended
-// by the storage adapter rather than remembered by every handler.
+// small Put/Get/GetLimited/Stat interface with a filesystem implementation (the
+// default) and an in-memory one (tests); an S3/MinIO implementation slots in
+// behind the same interface (PRD §5: object store pluggable). Tenant-owned
+// callers should use a TenantStore from ForTenant/ForTenantPrefix, so tenant
+// namespaces are prepended by the storage adapter rather than remembered by
+// every handler.
 package objectstore
 
 import (
@@ -19,8 +20,13 @@ import (
 	"strings"
 )
 
-// ErrNotFound is returned when a key does not exist.
-var ErrNotFound = errors.New("objectstore: not found")
+var (
+	// ErrNotFound is returned when a key does not exist.
+	ErrNotFound = errors.New("objectstore: not found")
+	// ErrTooLarge is returned by GetLimited before an object larger than the
+	// caller's ceiling is fully buffered.
+	ErrTooLarge = errors.New("objectstore: object exceeds byte limit")
+)
 
 // Object is a stored blob plus its content type.
 type Object struct {
@@ -36,6 +42,10 @@ type Store interface {
 	Put(ctx context.Context, key, contentType string, data []byte) error
 	// Get returns the object at key, or ErrNotFound.
 	Get(ctx context.Context, key string) (Object, error)
+	// GetLimited returns the object only when its body is at most maxBytes.
+	// Implementations must enforce the ceiling while reading/copying, not after
+	// a whole untrusted object has already been allocated.
+	GetLimited(ctx context.Context, key string, maxBytes int64) (Object, error)
 	// Stat returns the size and existence of key without reading the body.
 	Stat(ctx context.Context, key string) (size int64, exists bool, err error)
 	// List returns the keys under a prefix (S-T5 export manifests).
@@ -50,6 +60,7 @@ type Store interface {
 type TenantStore interface {
 	Put(ctx context.Context, path, contentType string, data []byte) error
 	Get(ctx context.Context, path string) (Object, error)
+	GetLimited(ctx context.Context, path string, maxBytes int64) (Object, error)
 	Stat(ctx context.Context, path string) (size int64, exists bool, err error)
 	List(ctx context.Context, prefix string) ([]string, error)
 	DeletePrefix(ctx context.Context, prefix string) (int, error)
@@ -131,6 +142,14 @@ func (t tenantStore) Get(ctx context.Context, path string) (Object, error) {
 		return Object{}, err
 	}
 	return t.store.Get(ctx, key)
+}
+
+func (t tenantStore) GetLimited(ctx context.Context, path string, maxBytes int64) (Object, error) {
+	key, err := t.fullKey(path, false)
+	if err != nil {
+		return Object{}, err
+	}
+	return t.store.GetLimited(ctx, key, maxBytes)
 }
 
 func (t tenantStore) Stat(ctx context.Context, path string) (int64, bool, error) {

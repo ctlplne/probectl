@@ -7,6 +7,7 @@
 package objectstore
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -46,6 +47,24 @@ func (m *MemStore) Get(_ context.Context, key string) (Object, error) {
 	o, ok := m.objects[key]
 	if !ok {
 		return Object{}, ErrNotFound
+	}
+	cp := make([]byte, len(o.Data))
+	copy(cp, o.Data)
+	return Object{Data: cp, ContentType: o.ContentType, Size: o.Size}, nil
+}
+
+func (m *MemStore) GetLimited(_ context.Context, key string, maxBytes int64) (Object, error) {
+	if maxBytes < 0 {
+		return Object{}, errors.New("objectstore: maxBytes must be non-negative")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	o, ok := m.objects[key]
+	if !ok {
+		return Object{}, ErrNotFound
+	}
+	if int64(len(o.Data)) > maxBytes {
+		return Object{}, ErrTooLarge
 	}
 	cp := make([]byte, len(o.Data))
 	copy(cp, o.Data)
