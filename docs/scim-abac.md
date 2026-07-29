@@ -172,11 +172,16 @@ policy CRUD invalidating that tenant's cache
 because deprovision deletes sessions directly, a deprovisioned user is locked
 out at once regardless of any cached policy. The worst a stale cache can do is
 apply a 30-second-old *policy* to a still-valid user; it can never resurrect a
-revoked one. In a multi-replica control plane, CRUD invalidates the local
+revoked one. Local invalidation advances a per-tenant cache generation after
+the policy mutation commits. A store read that began under an older generation
+is discarded instead of receiving a fresh TTL; the cache retries once against
+the committed generation, then returns **503 unavailable** (MCP:
+`authorization policy is temporarily unavailable`) if policy churn invalidates
+that retry too. In a multi-replica control plane, CRUD invalidates the local
 replica immediately and other replicas refresh no later than that TTL. Once an
-entry expires, a failed database refresh returns **503 unavailable** and the
-protected handler does not run; an expired empty or allow policy set is never
-treated as authority.
+entry expires, a failed database refresh also returns **503 unavailable** and
+the protected handler does not run; an expired empty or allow policy set is
+never treated as authority.
 
 ## Directory connectors
 

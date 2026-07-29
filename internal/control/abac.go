@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -27,10 +28,12 @@ import (
 // cache (it deletes sessions directly), so a deprovisioned user is locked out at
 // once regardless of the TTL.
 type abacCache struct {
-	mu   sync.Mutex
-	pool *pgxpool.Pool
-	ttl  time.Duration
-	data map[string]abacEntry
+	mu          sync.Mutex
+	pool        *pgxpool.Pool
+	ttl         time.Duration
+	data        map[string]abacEntry
+	generations map[string]uint64
+	load        func(context.Context, string) ([]auth.Policy, error)
 }
 
 type abacEntry struct {
@@ -39,47 +42,95 @@ type abacEntry struct {
 }
 
 func newABACCache(pool *pgxpool.Pool) *abacCache {
-	return &abacCache{pool: pool, ttl: 30 * time.Second, data: map[string]abacEntry{}}
+	cache := &abacCache{
+		pool:        pool,
+		ttl:         30 * time.Second,
+		data:        map[string]abacEntry{},
+		generations: map[string]uint64{},
+	}
+	cache.load = cache.loadFromStore
+	return cache
 }
+
+const abacLoadAttempts = 2
+
+var errABACInvalidatedDuringLoad = errors.New("ABAC policy cache invalidated during refresh")
 
 // policies returns a tenant's ABAC policies, loading + caching on a miss. Any
 // load failure is returned to the authorization caller so it can fail closed.
 // An entry is authoritative only until its expiry; serving it after a failed
-// refresh could preserve an allow after another replica installed a deny.
+// refresh could preserve an allow after another replica installed a deny. Each
+// fill is also generation-bound: invalidation increments the tenant generation,
+// so a load begun before a committed policy change can never publish afterward.
 func (c *abacCache) policies(ctx context.Context, tenantID string) ([]auth.Policy, error) {
-	if c == nil || c.pool == nil {
+	if c == nil {
 		return nil, nil
 	}
-	c.mu.Lock()
-	e, ok := c.data[tenantID]
-	c.mu.Unlock()
-	if ok && time.Now().Before(e.expiry) {
-		return e.policies, nil
+	load := c.load
+	if load == nil {
+		if c.pool == nil {
+			return nil, nil
+		}
+		load = c.loadFromStore
+	}
+
+	for attempt := 0; attempt < abacLoadAttempts; attempt++ {
+		c.mu.Lock()
+		e, ok := c.data[tenantID]
+		generation := c.generations[tenantID]
+		c.mu.Unlock()
+		if ok && time.Now().Before(e.expiry) {
+			return e.policies, nil
+		}
+
+		pols, loadErr := load(ctx, tenantID)
+		if loadErr != nil {
+			// CODE-002: a transient scope-setup/query fault must NOT be cached as
+			// "no policies" — that would poison the cache for the whole TTL and
+			// silently widen access (an empty policy set). An expired entry is not a
+			// safe fallback either: another replica may have installed a new deny
+			// since it was loaded. Surface every refresh failure so authorization
+			// refuses the request. tenancy.InTenant sets the scope BEFORE running fn,
+			// so a setup failure cannot leak another tenant's rows (fail closed).
+			logging.FromContext(ctx).Warn("ABAC policy refresh failed; refusing expired policy state",
+				"tenant_id", tenantID, "error", loadErr.Error())
+			return nil, loadErr
+		}
+
+		c.mu.Lock()
+		if c.generations[tenantID] != generation {
+			// A committed mutation invalidated this tenant while the store read
+			// was in flight. Discard the obsolete snapshot and retry from the new
+			// generation; it must never receive a fresh authoritative TTL.
+			c.mu.Unlock()
+			continue
+		}
+		if c.data == nil {
+			c.data = map[string]abacEntry{}
+		}
+		c.data[tenantID] = abacEntry{policies: pols, expiry: time.Now().Add(c.ttl)}
+		c.mu.Unlock()
+		return pols, nil
+	}
+
+	// Repeated policy churn won both bounded publication attempts. Authorization
+	// must fail closed instead of spinning indefinitely or accepting any snapshot.
+	return nil, errABACInvalidatedDuringLoad
+}
+
+func (c *abacCache) loadFromStore(ctx context.Context, tenantID string) ([]auth.Policy, error) {
+	if c.pool == nil {
+		return nil, nil
 	}
 	var pols []auth.Policy
-	loadErr := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), c.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), c.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		p, err := store.ABACPolicies{}.List(ctx, sc)
 		if err == nil {
 			pols = p
 		}
 		return err
 	})
-	if loadErr != nil {
-		// CODE-002: a transient scope-setup/query fault must NOT be cached as
-		// "no policies" — that would poison the cache for the whole TTL and
-		// silently widen access (an empty policy set). An expired entry is not a
-		// safe fallback either: another replica may have installed a new deny
-		// since it was loaded. Surface every refresh failure so authorization
-		// refuses the request. tenancy.InTenant sets the scope BEFORE running fn,
-		// so a setup failure cannot leak another tenant's rows (fail closed).
-		logging.FromContext(ctx).Warn("ABAC policy refresh failed; refusing expired policy state",
-			"tenant_id", tenantID, "error", loadErr.Error())
-		return nil, loadErr
-	}
-	c.mu.Lock()
-	c.data[tenantID] = abacEntry{policies: pols, expiry: time.Now().Add(c.ttl)}
-	c.mu.Unlock()
-	return pols, nil
+	return pols, err
 }
 
 func (c *abacCache) invalidate(tenantID string) {
@@ -87,6 +138,10 @@ func (c *abacCache) invalidate(tenantID string) {
 		return
 	}
 	c.mu.Lock()
+	if c.generations == nil {
+		c.generations = map[string]uint64{}
+	}
+	c.generations[tenantID]++
 	delete(c.data, tenantID)
 	c.mu.Unlock()
 }
