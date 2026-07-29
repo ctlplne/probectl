@@ -190,7 +190,7 @@ func tenantEgressPolicy(pool *pgxpool.Pool) ai.EgressPolicy {
 // egressAuditor appends ai.remote_egress to the tenant's tamper-evident audit
 // stream: endpoint, model, and the DATA CATEGORIES that left (never content).
 func egressAuditor(pool *pgxpool.Pool, log *slog.Logger) ai.EgressAudit {
-	return func(ctx context.Context, ev ai.EgressEvent) {
+	return func(ctx context.Context, ev ai.EgressEvent) error {
 		action := "ai.remote_egress"
 		message := "ai remote egress"
 		if ev.Denied {
@@ -201,16 +201,19 @@ func egressAuditor(pool *pgxpool.Pool, log *slog.Logger) ai.EgressAudit {
 			"model", ev.Model, "surface", ev.Surface, "evidence", ev.EvidenceCount,
 			"planes", ev.Planes, "denied", ev.Denied, "denial_reason", ev.DenialReason)
 		if pool == nil {
-			return
+			log.Warn("failed to persist ai.remote_egress audit record", "tenant_id", ev.TenantID, "error", "audit store unavailable")
+			return ai.ErrEgressAuditUnavailable
 		}
 		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := audit.TenantAppend(ctx, sc, "system", action, ev.Endpoint, aiRemoteEgressAuditData(ev))
 			return err
 		}); err != nil {
 			// CODE-002: never silently drop the egress audit record on a transient
-			// fault — surface it (the egress itself already happened).
+			// fault. The caller refuses the external dispatch/output.
 			log.Warn("failed to persist ai.remote_egress audit record", "tenant_id", ev.TenantID, "error", err.Error())
+			return ai.ErrEgressAuditUnavailable
 		}
+		return nil
 	}
 }
 

@@ -9,6 +9,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -19,7 +20,9 @@ import (
 func consentGate(allowed map[string]bool, redact ai.RedactionPolicy) *ai.EgressGate {
 	return ai.NewEgressGate(func(_ context.Context, tenant string) (bool, error) {
 		return allowed[tenant], nil
-	}, nil, redact)
+	}, func(context.Context, ai.EgressEvent) error {
+		return nil
+	}, redact)
 }
 
 func callRPC(t *testing.T, s *Server, p *auth.Principal, tool string) map[string]any {
@@ -46,7 +49,10 @@ func TestMCPEgressConsentDeniedAndAudited(t *testing.T) {
 	fb := &fakeBackend{}
 	var events []CallEvent
 	s := New(fb, consentGate(map[string]bool{"t-consented": true}, ai.RedactionPolicy{}),
-		WithCallAudit(func(_ context.Context, ev CallEvent) { events = append(events, ev) }))
+		WithCallAudit(func(_ context.Context, ev CallEvent) error {
+			events = append(events, ev)
+			return nil
+		}))
 
 	deny := &auth.Principal{TenantID: "t-locked", UserID: "u1", Permissions: map[string]bool{"test.read": true}}
 	res := callRPC(t, s, deny, "list_tests")
@@ -78,10 +84,11 @@ func TestMCPEgressEmitsSurfaceForTenantAudit(t *testing.T) {
 	var egress []ai.EgressEvent
 	gate := ai.NewEgressGate(func(_ context.Context, tenant string) (bool, error) {
 		return tenant == "t1", nil
-	}, func(_ context.Context, ev ai.EgressEvent) {
+	}, func(_ context.Context, ev ai.EgressEvent) error {
 		egress = append(egress, ev)
+		return nil
 	}, ai.RedactionPolicy{})
-	s := New(fb, gate)
+	s := newTestServer(fb, gate)
 
 	p := &auth.Principal{TenantID: "t1", UserID: "u1", Permissions: map[string]bool{"test.read": true}}
 	res := callRPC(t, s, p, "list_tests")
@@ -97,13 +104,110 @@ func TestMCPEgressEmitsSurfaceForTenantAudit(t *testing.T) {
 	}
 }
 
+func TestMCPRequiresDurableCallAuditBeforeToolInvocation(t *testing.T) {
+	fb := &fakeBackend{}
+	gate := ai.NewEgressGate(
+		func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context, ai.EgressEvent) error { return nil },
+		ai.RedactionPolicy{},
+	)
+	s := New(fb, gate)
+	p := &auth.Principal{TenantID: "t1", UserID: "u1", Permissions: map[string]bool{"test.read": true}}
+	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
+	out := s.Handle(context.Background(), p, raw)
+	var resp struct {
+		Error *rpcError `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error == nil || resp.Error.Code != codeUnavailable {
+		t.Fatalf("missing call-audit response = %s, want unavailable", out)
+	}
+	if got := fb.seen(); len(got) != 0 {
+		t.Fatalf("tool ran before its durable call audit: %v", got)
+	}
+}
+
+func TestMCPRequiresDurableEgressAuditBeforeOutput(t *testing.T) {
+	fb := &fakeBackend{}
+	gate := ai.NewEgressGate(
+		func(context.Context, string) (bool, error) { return true, nil },
+		nil,
+		ai.RedactionPolicy{},
+	)
+	s := New(fb, gate, WithCallAudit(func(context.Context, CallEvent) error { return nil }))
+	p := &auth.Principal{TenantID: "t1", UserID: "u1", Permissions: map[string]bool{"test.read": true}}
+	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
+	out := s.Handle(context.Background(), p, raw)
+	var resp struct {
+		Error *rpcError `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error == nil || resp.Error.Code != codeUnavailable {
+		t.Fatalf("missing egress-audit response = %s, want unavailable", out)
+	}
+}
+
+func TestMCPAuditWriteFailuresBlockInvocationAndOutput(t *testing.T) {
+	auditErr := errors.New("immutable store unavailable")
+	p := &auth.Principal{TenantID: "t1", UserID: "u1", Permissions: map[string]bool{"test.read": true}}
+	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
+	assertUnavailable := func(t *testing.T, out []byte) {
+		t.Helper()
+		var resp struct {
+			Error  *rpcError      `json:"error"`
+			Result map[string]any `json:"result"`
+		}
+		if err := json.Unmarshal(out, &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Error == nil || resp.Error.Code != codeUnavailable || resp.Result != nil {
+			t.Fatalf("audit-failure response = %s, want unavailable and no result", out)
+		}
+	}
+
+	t.Run("call audit", func(t *testing.T) {
+		fb := &fakeBackend{}
+		gate := ai.NewEgressGate(
+			func(context.Context, string) (bool, error) { return true, nil },
+			func(context.Context, ai.EgressEvent) error { return nil },
+			ai.RedactionPolicy{},
+		)
+		s := New(fb, gate, WithCallAudit(func(context.Context, CallEvent) error { return auditErr }))
+		assertUnavailable(t, s.Handle(context.Background(), p, raw))
+		if got := fb.seen(); len(got) != 0 {
+			t.Fatalf("tool ran after call-audit write failure: %v", got)
+		}
+	})
+
+	t.Run("egress audit", func(t *testing.T) {
+		fb := &fakeBackend{}
+		gate := ai.NewEgressGate(
+			func(context.Context, string) (bool, error) { return true, nil },
+			func(context.Context, ai.EgressEvent) error { return auditErr },
+			ai.RedactionPolicy{},
+		)
+		s := New(fb, gate, WithCallAudit(func(context.Context, CallEvent) error { return nil }))
+		assertUnavailable(t, s.Handle(context.Background(), p, raw))
+		if got := fb.seen(); len(got) != 1 {
+			t.Fatalf("tool invocation count = %v, want one bounded/redacted result blocked before output", got)
+		}
+	})
+}
+
 // Every OUTCOME audits — permission and rate denials included (AIRCA-003).
 func TestMCPAuditCoversEveryOutcome(t *testing.T) {
 	fb := &fakeBackend{}
 	var events []CallEvent
 	s := New(fb, consentGate(map[string]bool{"t1": true}, ai.RedactionPolicy{}),
 		WithRateLimit(1),
-		WithCallAudit(func(_ context.Context, ev CallEvent) { events = append(events, ev) }))
+		WithCallAudit(func(_ context.Context, ev CallEvent) error {
+			events = append(events, ev)
+			return nil
+		}))
 
 	noPerm := &auth.Principal{TenantID: "t1", UserID: "u3", Permissions: map[string]bool{}}
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
@@ -134,7 +238,7 @@ func (b *piiBackend) ListTests(_ context.Context, _ *auth.Principal) (any, error
 // policy before they reach the external AI client — text AND structured.
 func TestMCPToolResultsRedacted(t *testing.T) {
 	fb := &piiBackend{fakeBackend: &fakeBackend{}}
-	s := New(fb, consentGate(map[string]bool{"t1": true}, ai.DefaultRedaction))
+	s := newTestServer(fb, consentGate(map[string]bool{"t1": true}, ai.DefaultRedaction))
 	p := &auth.Principal{TenantID: "t1", Permissions: map[string]bool{"test.read": true}}
 	res := callRPC(t, s, p, "list_tests")
 

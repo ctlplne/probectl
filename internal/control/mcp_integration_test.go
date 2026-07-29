@@ -201,7 +201,9 @@ func TestMCPABACDenyOverridesRBACTwoTenant(t *testing.T) {
 	log := quietLog()
 	egress := ai.NewEgressGate(func(context.Context, string) (bool, error) {
 		return true, nil
-	}, nil, ai.RedactionPolicy{})
+	}, func(context.Context, ai.EgressEvent) error {
+		return nil
+	}, ai.RedactionPolicy{})
 	srv := NewMCPServer(
 		&config.Config{AIMaxEvidence: 10},
 		log,
@@ -318,7 +320,7 @@ func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
 
 	allowEgress := ai.NewEgressGate(
 		func(context.Context, string) (bool, error) { return true, nil },
-		nil,
+		func(context.Context, ai.EgressEvent) error { return nil },
 		ai.RedactionPolicy{},
 	)
 	srv := NewMCPServer(

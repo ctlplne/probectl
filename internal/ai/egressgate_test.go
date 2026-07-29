@@ -54,8 +54,9 @@ func (l *localFake) Complete(_ context.Context, _, _ string) (string, error) {
 // egress — no consent, no call; consent, call + audit with surface=author.
 func TestGatedCompleterConsentGate(t *testing.T) {
 	var audited []EgressEvent
-	gate := NewEgressGate(allowTenants("t-yes"), func(_ context.Context, ev EgressEvent) {
+	gate := NewEgressGate(allowTenants("t-yes"), func(_ context.Context, ev EgressEvent) error {
 		audited = append(audited, ev)
+		return nil
 	}, DefaultRedaction)
 
 	inner := &remoteFake{reply: "{}"}
@@ -104,8 +105,9 @@ func TestGatedCompleterConsentGate(t *testing.T) {
 // provider fails, because the prompt may already have crossed the boundary.
 func TestGatedCompleterAuditsFailedRemoteAuthoringAttempt(t *testing.T) {
 	var audited []EgressEvent
-	gate := NewEgressGate(allowTenants("t-yes"), func(_ context.Context, ev EgressEvent) {
+	gate := NewEgressGate(allowTenants("t-yes"), func(_ context.Context, ev EgressEvent) error {
 		audited = append(audited, ev)
+		return nil
 	}, DefaultRedaction)
 
 	inner := &remoteFake{err: errors.New("provider down")}
@@ -126,6 +128,40 @@ func TestGatedCompleterAuditsFailedRemoteAuthoringAttempt(t *testing.T) {
 	ev := audited[0]
 	if ev.Surface != "author" || ev.TenantID != "t-yes" || ev.Endpoint != "https://api.example/v1" || ev.Model != "fake:remote" {
 		t.Fatalf("unexpected failed-attempt audit event: %+v", ev)
+	}
+}
+
+func TestGatedCompleterRequiresDurableAuditBeforeDispatch(t *testing.T) {
+	gate := NewEgressGate(allowTenants("t-yes"), nil, DefaultRedaction)
+	inner := &remoteFake{reply: "{}"}
+	c := NewGatedCompleter(inner, gate)
+	ctx := auth.WithPrincipal(context.Background(), &auth.Principal{TenantID: "t-yes"})
+
+	if _, err := c.Complete(ctx, "sys", "tenant evidence"); err == nil {
+		t.Fatal("remote authoring proceeded without a durable audit sink")
+	}
+	if inner.gotUser != "" {
+		t.Fatalf("remote model received %q despite unavailable audit", inner.gotUser)
+	}
+}
+
+func TestGatedCompleterAuditWriteFailurePreventsDispatch(t *testing.T) {
+	writeErr := errors.New("immutable store unavailable")
+	gate := NewEgressGate(
+		allowTenants("t-yes"),
+		func(context.Context, EgressEvent) error { return writeErr },
+		DefaultRedaction,
+	)
+	inner := &remoteFake{reply: "{}"}
+	c := NewGatedCompleter(inner, gate)
+	ctx := auth.WithPrincipal(context.Background(), &auth.Principal{TenantID: "t-yes"})
+
+	_, err := c.Complete(ctx, "sys", "tenant evidence")
+	if !errors.Is(err, ErrEgressAuditUnavailable) || !errors.Is(err, writeErr) {
+		t.Fatalf("Complete error = %v, want durable audit failure", err)
+	}
+	if inner.gotUser != "" {
+		t.Fatalf("remote model received %q after audit write failure", inner.gotUser)
 	}
 }
 

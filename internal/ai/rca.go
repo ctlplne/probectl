@@ -242,8 +242,10 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	// Audit the authorized transmission attempt before dispatch. Once
 	// Synthesize starts, tenant evidence may have crossed the boundary even
 	// when the adapter later returns an error.
-	if egress != nil && a.egressAudit != nil {
-		a.egressAudit(ctx, *egress)
+	if egress != nil {
+		if err := emitEgressAudit(ctx, a.egressAudit, *egress); err != nil {
+			return Answer{}, err
+		}
 	}
 	syn, err := a.model.Synthesize(synCtx, in)
 	if err != nil {

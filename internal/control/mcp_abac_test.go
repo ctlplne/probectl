@@ -40,12 +40,24 @@ func TestMCPServerColdABACLoadFailureFailsClosed(t *testing.T) {
 		Permissions: map[string]bool{"test.read": true},
 	}
 
-	for id, request := range [][]byte{
-		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`),
-		[]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_tests"}}`),
+	for id, tc := range []struct {
+		request []byte
+		message string
+	}{
+		{
+			request: []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`),
+			message: "authorization policy is temporarily unavailable",
+		},
+		{
+			request: []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_tests"}}`),
+			// The closed pool also prevents the mandatory mcp.tool_call append.
+			// For invocation, audit unavailability is the outer fail-closed
+			// reason and the tool still never runs.
+			message: "durable audit is temporarily unavailable",
+		},
 	} {
 		var response map[string]any
-		if err := json.Unmarshal(srv.Handle(context.Background(), principal, request), &response); err != nil {
+		if err := json.Unmarshal(srv.Handle(context.Background(), principal, tc.request), &response); err != nil {
 			t.Fatalf("request %d response: %v", id+1, err)
 		}
 		rpcErr, ok := response["error"].(map[string]any)
@@ -55,7 +67,7 @@ func TestMCPServerColdABACLoadFailureFailsClosed(t *testing.T) {
 		if code, _ := rpcErr["code"].(float64); int(code) != -32004 {
 			t.Fatalf("request %d error code = %v, want -32004 unavailable", id+1, rpcErr["code"])
 		}
-		if message, _ := rpcErr["message"].(string); message != "authorization policy is temporarily unavailable" {
+		if message, _ := rpcErr["message"].(string); message != tc.message {
 			t.Fatalf("request %d exposed an unstable policy error: %q", id+1, message)
 		}
 	}

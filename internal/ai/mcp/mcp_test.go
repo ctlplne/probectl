@@ -24,10 +24,22 @@ import (
 )
 
 // testGate is a permissive egress gate for mechanics tests: consent allowed
-// for every tenant, no audit sink, no optional masking (secrets are still
-// always masked by design). Consent/redaction behavior has its own tests.
+// for every tenant, a successful durable-audit seam, and no optional masking
+// (secrets are still always masked by design). Consent/redaction and audit
+// failure behavior have their own tests.
 func testGate() *ai.EgressGate {
-	return ai.NewEgressGate(func(context.Context, string) (bool, error) { return true, nil }, nil, ai.RedactionPolicy{})
+	return ai.NewEgressGate(
+		func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context, ai.EgressEvent) error { return nil },
+		ai.RedactionPolicy{},
+	)
+}
+
+func newTestServer(backend Backend, gate *ai.EgressGate, opts ...Option) *Server {
+	all := append([]Option{
+		WithCallAudit(func(context.Context, CallEvent) error { return nil }),
+	}, opts...)
+	return New(backend, gate, all...)
 }
 
 // fakeBackend records the tenant it was called with and returns canned data.
@@ -154,7 +166,7 @@ func resultOf(t *testing.T, resp map[string]any) map[string]any {
 }
 
 func TestInitializeAndPing(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	init := resultOf(t, handle(t, s, principal("t"), 1, "initialize", nil))
 	if init["protocolVersion"] != protocolVersion {
 		t.Errorf("protocolVersion = %v", init["protocolVersion"])
@@ -168,7 +180,7 @@ func TestInitializeAndPing(t *testing.T) {
 }
 
 func TestToolsListFilteredByRBAC(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	// A caller holding only test.read sees only the test.read tools.
 	resp := handle(t, s, principal("t", permTestRead), 3, "tools/list", nil)
 	tools, _ := resultOf(t, resp)["tools"].([]any)
@@ -195,7 +207,7 @@ func TestMCPABACDenyOverridesRBAC(t *testing.T) {
 		Subject:    map[string]string{"department": "contractor"},
 		Enabled:    true,
 	}
-	s := New(fb, testGate(), WithPolicyLoader(func(_ context.Context, tenantID string) ([]auth.Policy, error) {
+	s := newTestServer(fb, testGate(), WithPolicyLoader(func(_ context.Context, tenantID string) ([]auth.Policy, error) {
 		if tenantID == "tenant-a" {
 			return []auth.Policy{denyContractorRead}, nil
 		}
@@ -243,11 +255,12 @@ func TestMCPABACPolicyLoadFailureFailsClosed(t *testing.T) {
 	fb := &fakeBackend{}
 	loads := 0
 	var events []CallEvent
-	s := New(fb, testGate(), WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) {
+	s := newTestServer(fb, testGate(), WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) {
 		loads++
 		return nil, errors.New("policy store unavailable")
-	}), WithCallAudit(func(_ context.Context, event CallEvent) {
+	}), WithCallAudit(func(_ context.Context, event CallEvent) error {
 		events = append(events, event)
+		return nil
 	}))
 	granted := principal("tenant-a", permTestRead)
 
@@ -300,7 +313,7 @@ func listedToolNames(t *testing.T, resp map[string]any) map[string]bool {
 
 func TestToolsCallTenantScopedAndForbidden(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb, testGate())
+	s := newTestServer(fb, testGate())
 
 	// Authorized call: the backend is invoked with the principal's tenant.
 	resp := handle(t, s, principal("tenant-a", permTestRead), 4, "tools/call",
@@ -316,7 +329,7 @@ func TestToolsCallTenantScopedAndForbidden(t *testing.T) {
 	// Out-of-scope caller gets nothing: a test.read-only caller cannot call
 	// get_incident, and the backend is never reached.
 	fb2 := &fakeBackend{}
-	s2 := New(fb2, testGate())
+	s2 := newTestServer(fb2, testGate())
 	resp = handle(t, s2, principal("tenant-a", permTestRead), 5, "tools/call",
 		map[string]any{"name": "get_incident", "arguments": map[string]any{"id": "i1"}})
 	if code, _ := errCode(resp); code != codeForbidden {
@@ -335,7 +348,7 @@ func TestToolsCallRequiresTenantBeforeRBAC(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			fb := &fakeBackend{}
-			s := New(fb, testGate())
+			s := newTestServer(fb, testGate())
 			resp := handle(t, s, p, 6, "tools/call", map[string]any{"name": "list_tests"})
 			if code, _ := errCode(resp); code != codeUnauthorized {
 				t.Fatalf("tenantless caller: code = %d, want %d", code, codeUnauthorized)
@@ -349,7 +362,7 @@ func TestToolsCallRequiresTenantBeforeRBAC(t *testing.T) {
 
 func TestAllToolsReachBackend(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb, testGate())
+	s := newTestServer(fb, testGate())
 	p := principal("t", allPerms()...)
 	calls := []struct {
 		name string
@@ -392,7 +405,7 @@ func TestAllToolsReachBackend(t *testing.T) {
 // — so ingested data routed through the AI can never approve or execute.
 func TestProposeRemediationToolIsProposalOnly(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb, testGate())
+	s := newTestServer(fb, testGate())
 
 	// A caller holding remediation.propose can file a proposal.
 	res := resultOf(t, handle(t, s, principal("tenant-a", permRemediationPropose), 30, "tools/call",
@@ -408,7 +421,7 @@ func TestProposeRemediationToolIsProposalOnly(t *testing.T) {
 
 	// A caller WITHOUT the permission is forbidden and never reaches the backend.
 	fb2 := &fakeBackend{}
-	s2 := New(fb2, testGate())
+	s2 := newTestServer(fb2, testGate())
 	resp := handle(t, s2, principal("tenant-a", permTestRead), 31, "tools/call",
 		map[string]any{"name": "propose_remediation", "arguments": map[string]any{
 			"kind": "reroute_suggestion", "title": "x",
@@ -432,14 +445,14 @@ func TestProposeRemediationToolIsProposalOnly(t *testing.T) {
 }
 
 func TestNoTenantFailsClosed(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	if code, _ := errCode(handle(t, s, principal(""), 6, "tools/list", nil)); code != codeUnauthorized {
 		t.Errorf("tenantless principal: code = %d, want %d", code, codeUnauthorized)
 	}
 }
 
 func TestToolArgValidationIsError(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	// get_path with no target → an isError tool result (not a transport error).
 	res := resultOf(t, handle(t, s, principal("t", permTestRead), 7, "tools/call",
 		map[string]any{"name": "get_path", "arguments": map[string]any{}}))
@@ -450,7 +463,7 @@ func TestToolArgValidationIsError(t *testing.T) {
 
 func TestRateLimit(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb, testGate(), WithRateLimit(1))
+	s := newTestServer(fb, testGate(), WithRateLimit(1))
 	p := principal("t", permTestRead)
 	if _, isErr := errCode(handle(t, s, p, 8, "tools/call", map[string]any{"name": "list_tests"})); isErr {
 		t.Fatal("first call should be allowed")
@@ -461,7 +474,7 @@ func TestRateLimit(t *testing.T) {
 }
 
 func TestParseError(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	var resp map[string]any
 	_ = json.Unmarshal(s.Handle(context.Background(), principal("t"), []byte("{bad")), &resp)
 	if code, _ := errCode(resp); code != codeParse {
@@ -513,7 +526,7 @@ func TestMCPBackendErrorsUseBoundedPublicMessage(t *testing.T) {
 	const sentinel = "backend-schema-host-secret-sentinel"
 	fb := &fakeBackend{listTestsErr: errors.New(strings.Repeat(sentinel, 256))}
 	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
-	s := New(fb, testGate(), WithLogger(discard))
+	s := newTestServer(fb, testGate(), WithLogger(discard))
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
 	out := s.Handle(context.Background(), principal("tenant-a", permTestRead), raw)
 	if len(out) > maxMCPToolResultBytes {
@@ -535,7 +548,7 @@ func TestMCPBackendErrorsUseBoundedPublicMessage(t *testing.T) {
 }
 
 func TestRPCRequestIDBoundsAcrossTransports(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	exactID := `"` + strings.Repeat("i", maxMCPRequestIDBytes-2) + `"`
 	onePastID := `"` + strings.Repeat("i", maxMCPRequestIDBytes-1) + `"`
 	request := func(id string) []byte {
@@ -617,7 +630,7 @@ func TestListTestsSerializedPayloadLimit(t *testing.T) {
 	fb := &fakeBackend{listTestsResult: map[string]any{
 		"tests": []any{strings.Repeat("x", maxMCPToolResultBytes+1)},
 	}}
-	s := New(fb, testGate())
+	s := newTestServer(fb, testGate())
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
 	assertInternal := func(t *testing.T, payload []byte) {
 		t.Helper()
@@ -664,7 +677,7 @@ func TestListTestsSerializedPayloadLimit(t *testing.T) {
 }
 
 func TestServeStdioRoundTrip(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n" +
 			`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n" + // notification: no reply
@@ -692,7 +705,7 @@ type fakeAuthn struct {
 func (f fakeAuthn) Authenticate(context.Context, string) (*auth.Principal, error) { return f.p, f.err }
 
 func TestHTTPHandler(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	h := s.HTTPHandler(fakeAuthn{p: principal("t", permTestRead)})
 	srv := httptest.NewServer(h)
 	defer srv.Close()
@@ -737,7 +750,7 @@ func TestHTTPHandler(t *testing.T) {
 }
 
 func TestHTTPHandlerRejectsBadToken(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	h := s.HTTPHandler(fakeAuthn{err: io.EOF})
 	srv := httptest.NewServer(h)
 	defer srv.Close()
@@ -753,7 +766,7 @@ func TestHTTPHandlerRejectsBadToken(t *testing.T) {
 }
 
 func TestHTTPHandlerRejectsOversizedBody(t *testing.T) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	h := s.HTTPHandler(fakeAuthn{p: principal("t", permTestRead)})
 	srv := httptest.NewServer(h)
 	defer srv.Close()

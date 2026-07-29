@@ -54,7 +54,7 @@ func FuzzMCPHandle(f *testing.F) {
 		var req rpcRequest
 		reqOK := json.Unmarshal(raw, &req) == nil
 		backend := &mcpFuzzBackend{}
-		server := New(backend, testGate(), WithRateLimit(0))
+		server := newTestServer(backend, testGate(), WithRateLimit(0))
 		principal := mcpFuzzPrincipal(principalMode)
 
 		resp := server.Handle(context.Background(), principal, raw)

@@ -11,12 +11,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/ai/mcp"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 )
@@ -26,6 +29,24 @@ func aiTestReq(method, path string, body any) *http.Request {
 	r := httptest.NewRequest(method, path, bytes.NewReader(b))
 	r.Header.Set("Content-Type", "application/json")
 	return r
+}
+
+func TestRemoteAuditorsFailClosedWithoutStore(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := egressAuditor(nil, log)(t.Context(), ai.EgressEvent{
+		TenantID: "tenant-a",
+		Surface:  "rca",
+	}); !errors.Is(err, ai.ErrEgressAuditUnavailable) {
+		t.Fatalf("egress auditor error = %v, want %v", err, ai.ErrEgressAuditUnavailable)
+	}
+	if err := mcpCallAuditor(nil, log)(t.Context(), mcp.CallEvent{
+		TenantID: "tenant-a",
+		UserID:   "user-a",
+		Tool:     "list_tests",
+		Allowed:  true,
+	}); !errors.Is(err, errMCPCallAuditUnavailable) {
+		t.Fatalf("MCP call auditor error = %v, want %v", err, errMCPCallAuditUnavailable)
+	}
 }
 
 // With no datastore the assistant still answers (the built-in air-gapped model)
@@ -118,7 +139,11 @@ func (m *aiTestRemoteModel) Synthesize(context.Context, ai.SynthesisInput) (ai.S
 func TestAIAskRemoteEgressDeniedReturnsForbidden(t *testing.T) {
 	srv := testServer(nil)
 	model := &aiTestRemoteModel{}
-	srv.analyzer = ai.NewAnalyzer(ai.NewEngine(), ai.WithModel(model))
+	srv.analyzer = ai.NewAnalyzer(
+		ai.NewEngine(),
+		ai.WithModel(model),
+		ai.WithEgressAudit(func(context.Context, ai.EgressEvent) error { return nil }),
+	)
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()

@@ -98,12 +98,13 @@ func (g *EgressGate) AuditHook() EgressAudit {
 	return g.audit
 }
 
-// Emit records one egress event (no-op without a sink).
-func (g *EgressGate) Emit(ctx context.Context, ev EgressEvent) {
-	if g == nil || g.audit == nil {
-		return
+// Emit durably records one egress event. Missing or failed storage is a
+// fail-closed error that callers must handle before dispatch/output.
+func (g *EgressGate) Emit(ctx context.Context, ev EgressEvent) error {
+	if g == nil {
+		return ErrEgressAuditUnavailable
 	}
-	g.audit(ctx, ev)
+	return emitEgressAudit(ctx, g.audit, ev)
 }
 
 // WithEgressGate wires the Analyzer's consent + audit from the shared gate —
@@ -156,12 +157,14 @@ func (c *GatedCompleter) Complete(ctx context.Context, system, user string) (str
 	if err := c.gate.Authorize(ctx, p.TenantID); err != nil {
 		return "", err
 	}
-	c.gate.Emit(ctx, EgressEvent{
+	if err := c.gate.Emit(ctx, EgressEvent{
 		TenantID: p.TenantID,
 		Endpoint: rm.Endpoint(),
 		Model:    c.inner.Name(),
 		Surface:  "author",
-	})
+	}); err != nil {
+		return "", err
+	}
 	// The adapter redacts again on its own remote path (defense in depth);
 	// masking is stable so double application cannot leak or churn tokens.
 	out, err := c.inner.Complete(ctx, system, c.gate.RedactForTenant(user, p.TenantID))

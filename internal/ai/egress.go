@@ -52,9 +52,10 @@ type EgressEvent struct {
 // model. The control plane backs it with tenant_governance.ai_remote_egress.
 type EgressPolicy func(ctx context.Context, tenantID string) (bool, error)
 
-// EgressAudit observes every remote-model call (the control plane appends it
-// to the tenant's tamper-evident audit stream as "ai.remote_egress").
-type EgressAudit func(ctx context.Context, ev EgressEvent)
+// EgressAudit durably records every remote-model call in the tenant's
+// tamper-evident audit stream. Returning an error blocks the external dispatch:
+// an audit log line is not a substitute for the immutable tenant record.
+type EgressAudit func(ctx context.Context, ev EgressEvent) error
 
 // WithEgressPolicy sets the per-tenant remote-egress gate.
 func WithEgressPolicy(p EgressPolicy) AnalyzerOption {
@@ -71,6 +72,20 @@ func WithEgressAudit(h EgressAudit) AnalyzerOption {
 var ErrEgressDenied = errors.New(
 	"ai: this tenant has not consented to sending data to a remote model (tenant_governance.ai_remote_egress; ask an operator) — " +
 		"the air-gapped builtin and loopback local models need no consent")
+
+// ErrEgressAuditUnavailable means an external-AI attempt could not be recorded
+// durably. Callers must fail closed before any tenant data crosses the boundary.
+var ErrEgressAuditUnavailable = errors.New("ai: durable egress audit is unavailable")
+
+func emitEgressAudit(ctx context.Context, audit EgressAudit, ev EgressEvent) error {
+	if audit == nil {
+		return ErrEgressAuditUnavailable
+	}
+	if err := audit(ctx, ev); err != nil {
+		return errors.Join(ErrEgressAuditUnavailable, err)
+	}
+	return nil
+}
 
 // checkEgress gates a remote model behind the tenant policy (fail closed:
 // remote + no policy wired = denied) and returns the audit event to emit on
@@ -100,8 +115,8 @@ func (a *Analyzer) checkEgress(ctx context.Context, tenantID string, in Synthesi
 	deny := func(reason string) (*EgressEvent, error) {
 		event.Denied = true
 		event.DenialReason = reason
-		if a.egressAudit != nil {
-			a.egressAudit(ctx, *event)
+		if err := emitEgressAudit(ctx, a.egressAudit, *event); err != nil {
+			return nil, err
 		}
 		return nil, ErrEgressDenied
 	}

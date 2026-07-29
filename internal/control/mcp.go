@@ -116,15 +116,18 @@ func (s *Server) MCPPolicyLoader() mcp.PolicyLoader {
 	return s.abac.policies
 }
 
+var errMCPCallAuditUnavailable = errors.New("mcp call audit store unavailable")
+
 // mcpCallAuditor appends mcp.tool_call to the tenant's tamper-evident audit
-// stream: who called which tool and the outcome (AIRCA-003). Best-effort —
-// the log line always lands; the DB append never blocks the call path.
+// stream: who called which tool and the outcome (AIRCA-003). The immutable
+// append is authoritative: a log line alone never permits the call to proceed.
 func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
-	return func(ctx context.Context, ev mcp.CallEvent) {
+	return func(ctx context.Context, ev mcp.CallEvent) error {
 		log.Info("mcp tool call", "tenant_id", ev.TenantID, "user_id", ev.UserID,
 			"tool", ev.Tool, "allowed", ev.Allowed, "denial", ev.Denial)
 		if pool == nil {
-			return
+			log.Warn("failed to persist mcp.tool_call audit record", "tenant_id", ev.TenantID, "tool", ev.Tool, "error", "audit store unavailable")
+			return errMCPCallAuditUnavailable
 		}
 		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			actor := ev.UserID
@@ -136,9 +139,12 @@ func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
 			})
 			return err
 		}); err != nil {
-			// CODE-002: surface a failed MCP-call audit write (the call already happened).
+			// CODE-002: surface a failed MCP-call audit write. The server blocks
+			// tool invocation/output when this hook returns an error.
 			log.Warn("failed to persist mcp.tool_call audit record", "tenant_id", ev.TenantID, "tool", ev.Tool, "error", err.Error())
+			return errMCPCallAuditUnavailable
 		}
+		return nil
 	}
 }
 

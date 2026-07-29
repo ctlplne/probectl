@@ -299,7 +299,8 @@ func TestAnalyzeDegradedAnswerIsGroundedAndFlagged(t *testing.T) {
 	// The wrapper forwards RemoteEgress, so the U-013 consent gate still
 	// runs FIRST — this tenant has consented; the provider then fails.
 	a := NewAnalyzer(engineWith(fs), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }))
+		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+		WithEgressAudit(func(context.Context, EgressEvent) error { return nil }))
 
 	ans, err := a.Analyze(context.Background(), principal("t", PermEntitiesRead), Question{Text: "why is core-rtr-1 slow?"})
 	if err != nil {

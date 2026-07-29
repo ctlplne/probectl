@@ -160,7 +160,12 @@ closed** — on any error, doubt, or missing piece the result is "deny", never
    appends `ai.remote_egress_denied` with `allowed=false` and one bounded reason
    (`policy_unavailable`, `policy_error`, or `consent_missing`). The attempted
    model receives zero calls and the audit never copies the policy error or
-   telemetry content.
+   telemetry content. The append is part of the gate, not best-effort
+   bookkeeping: if the immutable audit store is missing or rejects the write,
+   probectl returns a temporary-unavailable error and does **not** dispatch to
+   the remote RCA/authoring adapter or release an MCP result. A local log warning
+   makes the storage fault diagnosable, but it can never substitute for the
+   tenant's durable record.
 
 ## Turning it on
 

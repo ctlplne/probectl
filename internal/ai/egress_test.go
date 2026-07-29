@@ -61,7 +61,10 @@ func egressEngine() *Engine {
 func TestRemoteModelEgressDeniedWithoutConsent(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
 	var events []EgressEvent
-	audit := WithEgressAudit(func(_ context.Context, ev EgressEvent) { events = append(events, ev) })
+	audit := WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
+		events = append(events, ev)
+		return nil
+	})
 
 	// No policy wired at all: fail closed.
 	a := NewAnalyzer(egressEngine(), WithModel(m), audit)
@@ -91,7 +94,10 @@ func TestRemoteModelEgressPolicyErrorFailsClosedAndIsAudited(t *testing.T) {
 	var events []EgressEvent
 	a := NewAnalyzer(egressEngine(), WithModel(m),
 		WithEgressPolicy(func(context.Context, string) (bool, error) { return false, errors.New("database unavailable") }),
-		WithEgressAudit(func(_ context.Context, ev EgressEvent) { events = append(events, ev) }),
+		WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
+			events = append(events, ev)
+			return nil
+		}),
 	)
 	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); !errors.Is(err, ErrEgressDenied) {
 		t.Fatalf("policy error must fail closed as ErrEgressDenied, got %v", err)
@@ -109,8 +115,9 @@ func TestRemoteRCAFailedAttemptIsAudited(t *testing.T) {
 		WithEgressPolicy(func(_ context.Context, tid string) (bool, error) {
 			return tid == "t1", nil
 		}),
-		WithEgressAudit(func(_ context.Context, ev EgressEvent) {
+		WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
 			events = append(events, ev)
+			return nil
 		}),
 	)
 
@@ -144,7 +151,10 @@ func TestRemoteModelEgressAllowedIsAudited(t *testing.T) {
 			}
 			return true, nil
 		}),
-		WithEgressAudit(func(_ context.Context, ev EgressEvent) { events = append(events, ev) }),
+		WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
+			events = append(events, ev)
+			return nil
+		}),
 	)
 	ans, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "did a config change or route change cause this?"})
 	if err != nil {
@@ -171,6 +181,37 @@ func TestRemoteModelEgressAllowedIsAudited(t *testing.T) {
 	}
 }
 
+func TestRemoteRCARequiresDurableAuditBeforeDispatch(t *testing.T) {
+	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
+	a := NewAnalyzer(egressEngine(), WithModel(m),
+		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+	)
+
+	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); err == nil {
+		t.Fatal("remote RCA proceeded without a durable audit sink")
+	}
+	if m.calls != 0 {
+		t.Fatalf("remote model calls = %d, want 0 when audit is unavailable", m.calls)
+	}
+}
+
+func TestRemoteRCAAuditWriteFailurePreventsDispatch(t *testing.T) {
+	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
+	writeErr := errors.New("immutable store unavailable")
+	a := NewAnalyzer(egressEngine(), WithModel(m),
+		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+		WithEgressAudit(func(context.Context, EgressEvent) error { return writeErr }),
+	)
+
+	_, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"})
+	if !errors.Is(err, ErrEgressAuditUnavailable) || !errors.Is(err, writeErr) {
+		t.Fatalf("Analyze error = %v, want durable audit failure", err)
+	}
+	if m.calls != 0 {
+		t.Fatalf("remote model calls = %d, want 0 after audit write failure", m.calls)
+	}
+}
+
 // The air-gapped builtin path never consults the policy and never audits —
 // the local default is untouched (U-013 regression guard).
 func TestBuiltinModelNeverConsultsEgress(t *testing.T) {
@@ -179,8 +220,9 @@ func TestBuiltinModelNeverConsultsEgress(t *testing.T) {
 			t.Fatal("egress policy consulted for the builtin model")
 			return false, nil
 		}),
-		WithEgressAudit(func(context.Context, EgressEvent) {
+		WithEgressAudit(func(context.Context, EgressEvent) error {
 			t.Fatal("egress audit fired for the builtin model")
+			return nil
 		}),
 	)
 	ans, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"})

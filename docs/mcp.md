@@ -292,7 +292,11 @@ three checks, every time:
 - **Audit.** Every call — allowed or denied, and *why* — lands in the tenant's
   tamper-evident audit stream as `mcp.tool_call` (actor, tool, outcome), plus an
   `ai.remote_egress` event (`surface = mcp`) on each allowed call that returns
-  data.
+  data. Both appends are fail-closed. The call audit must commit before the tool
+  runs; the egress audit must commit before the bounded, redacted result is
+  returned. A missing or failed audit sink yields JSON-RPC `-32004` with no tool
+  result, so a database outage cannot silently turn an audited egress path into
+  an unaudited one.
 
 Crucially, the egress gate is a **required constructor argument** of `mcp.New` —
 there is no gate-less constructor, and a nil gate denies every tool call (fail

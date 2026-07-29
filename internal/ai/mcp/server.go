@@ -37,7 +37,10 @@ const (
 	maxMCPToolResultNodes = 64 << 10
 )
 
-var errToolResultTooLarge = errors.New("mcp: tool result exceeds byte limit")
+var (
+	errToolResultTooLarge   = errors.New("mcp: tool result exceeds byte limit")
+	errCallAuditUnavailable = errors.New("mcp: durable call audit is unavailable")
+)
 
 // ServerInfo identifies the server in the initialize handshake.
 type ServerInfo struct {
@@ -68,9 +71,9 @@ type CallEvent struct {
 	Denial   string // "" when allowed; "consent"|"permission"|"policy"|"rate" otherwise
 }
 
-// CallAudit observes every MCP tool call (the control plane appends it to
-// the tenant's tamper-evident audit stream as "mcp.tool_call").
-type CallAudit func(ctx context.Context, ev CallEvent)
+// CallAudit durably records every MCP tool call in the tenant's tamper-evident
+// audit stream. Returning an error blocks tool invocation/output.
+type CallAudit func(ctx context.Context, ev CallEvent) error
 
 // PolicyLoader returns the caller tenant's ABAC policy set. Implementations
 // must use tenantID as the storage/query scope and return load failures
@@ -238,30 +241,46 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		return errorResponse(req.ID, codeMethodNotFound, "unknown tool: "+params.Name)
 	}
 	// Every outcome below is audited (AIRCA-003): who, tenant, tool, result.
-	emit := func(allowed bool, denial string) {
-		if s.audit != nil {
-			s.audit(ctx, CallEvent{TenantID: p.TenantID, UserID: p.UserID, Tool: params.Name, Allowed: allowed, Denial: denial})
+	emit := func(allowed bool, denial string) error {
+		if s.audit == nil {
+			return errCallAuditUnavailable
 		}
+		if err := s.audit(ctx, CallEvent{TenantID: p.TenantID, UserID: p.UserID, Tool: params.Name, Allowed: allowed, Denial: denial}); err != nil {
+			s.log.Warn("mcp durable call audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+			return errCallAuditUnavailable
+		}
+		return nil
+	}
+	auditUnavailable := func() *rpcResponse {
+		return errorResponse(req.ID, codeUnavailable, "durable audit is temporarily unavailable")
 	}
 	// Tenant boundary FIRST (in dispatch), then RBAC, then the tenant's ABAC
 	// deny-override policies. A caller without the RBAC baseline never triggers a
 	// policy lookup, and a policy-load failure never degrades to RBAC-only access.
 	if !p.Has(t.Permission) {
-		emit(false, "permission")
+		if err := emit(false, "permission"); err != nil {
+			return auditUnavailable()
+		}
 		return errorResponse(req.ID, codeForbidden, "missing permission: "+t.Permission)
 	}
 	policies, err := s.loadPolicies(ctx, p.TenantID)
 	if err != nil {
 		s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
-		emit(false, "policy")
+		if err := emit(false, "policy"); err != nil {
+			return auditUnavailable()
+		}
 		return errorResponse(req.ID, codeUnavailable, "authorization policy is temporarily unavailable")
 	}
 	if !auth.Authorize(p, t.Permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
-		emit(false, "permission")
+		if err := emit(false, "permission"); err != nil {
+			return auditUnavailable()
+		}
 		return errorResponse(req.ID, codeForbidden, "denied by an attribute policy: "+t.Permission)
 	}
 	if !s.limiter.allow(p.TenantID) {
-		emit(false, "rate")
+		if err := emit(false, "rate"); err != nil {
+			return auditUnavailable()
+		}
 		return errorResponse(req.ID, codeRateLimited, "rate limit exceeded for tenant")
 	}
 	// AIRCA-001: the MCP caller is an EXTERNAL AI CLIENT — returning tool
@@ -269,23 +288,38 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	// consent that gates the remote RCA model gates this (default deny), and
 	// the gate's redaction policy is applied to everything returned.
 	if err := s.gate.Authorize(ctx, p.TenantID); err != nil {
-		emit(false, "consent")
+		if auditErr := emit(false, "consent"); auditErr != nil {
+			return auditUnavailable()
+		}
 		return resultResponse(req.ID, toolResult(err.Error(), nil, true))
+	}
+	// Record the authorized call before invoking a tool. A failed immutable
+	// append must never allow a read (or an RCA tool's nested remote dispatch).
+	if err := emit(true, ""); err != nil {
+		return auditUnavailable()
 	}
 	out, err := t.Invoke(ctx, p, params.Arguments)
 	if err != nil {
-		emit(true, "")
 		// A tool error is returned as an isError tool result (MCP idiom) so the
 		// model can react, but dependency error text is server-only: it can
 		// contain DSNs, hostnames, schemas, or an attacker-sized response body.
 		s.log.Warn("mcp tool invocation failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
 		return resultResponse(req.ID, toolResult("tool execution failed", nil, true))
 	}
-	emit(true, "")
-	s.gate.Emit(ctx, ai.EgressEvent{TenantID: p.TenantID, Endpoint: "mcp-client", Model: "mcp", Surface: "mcp"})
 	res, rerr := s.redactedResult(p.TenantID, out)
 	if rerr != nil {
 		return errorResponse(req.ID, codeInternal, "tool result encoding failed")
+	}
+	// The result is now bounded and redacted but has not left the process.
+	// Persist the external-egress receipt before returning it to either wire.
+	if err := s.gate.Emit(ctx, ai.EgressEvent{
+		TenantID: p.TenantID,
+		Endpoint: "mcp-client",
+		Model:    "mcp",
+		Surface:  "mcp",
+	}); err != nil {
+		s.log.Warn("mcp durable egress audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		return auditUnavailable()
 	}
 	return resultResponse(req.ID, res)
 }

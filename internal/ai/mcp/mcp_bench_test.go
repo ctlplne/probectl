@@ -12,7 +12,7 @@ import (
 )
 
 func BenchmarkHandlePing(b *testing.B) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	p := principal("tenant-a")
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)
 	ctx := context.Background()
@@ -26,7 +26,7 @@ func BenchmarkHandlePing(b *testing.B) {
 }
 
 func BenchmarkHandleToolCallListTests(b *testing.B) {
-	s := New(&fakeBackend{}, testGate())
+	s := newTestServer(&fakeBackend{}, testGate())
 	p := principal("tenant-a", permTestRead)
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
 	ctx := context.Background()
