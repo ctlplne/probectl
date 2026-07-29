@@ -195,11 +195,19 @@ func (s *Service) CreateOperator(ctx context.Context, actor, email, name, role s
 	if err != nil {
 		return Operator{}, "", err
 	}
-	op, err := s.store.CreateOperator(ctx, Operator{Email: email, Name: name, Role: role, Status: "disabled"}, crypto.Hash([]byte(token)))
+	var op Operator
+	err = s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		op, err = store.CreateOperator(ctx,
+			Operator{Email: email, Name: name, Role: role, Status: "disabled"},
+			crypto.Hash([]byte(token)),
+		)
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, actor, "provider.operator_create", op.ID, map[string]any{"email": email, "role": role})
+	})
 	if err != nil {
-		return Operator{}, "", err
-	}
-	if err := s.audit.Append(ctx, actor, "provider.operator_create", op.ID, map[string]any{"email": email, "role": role}); err != nil {
 		return Operator{}, "", err
 	}
 	return op, token, nil
@@ -225,11 +233,19 @@ func (s *Service) Bootstrap(ctx context.Context, configuredToken, presentedToken
 	if err != nil {
 		return Operator{}, "", err
 	}
-	op, err := s.store.CreateOperator(ctx, Operator{Email: strings.ToLower(email), Name: name, Role: RoleAdmin, Status: "disabled"}, crypto.Hash([]byte(token)))
+	var op Operator
+	err = s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		op, err = store.CreateOperator(ctx,
+			Operator{Email: strings.ToLower(email), Name: name, Role: RoleAdmin, Status: "disabled"},
+			crypto.Hash([]byte(token)),
+		)
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, "bootstrap", "provider.bootstrap", op.ID, map[string]any{"email": op.Email})
+	})
 	if err != nil {
-		return Operator{}, "", err
-	}
-	if err := s.audit.Append(ctx, "bootstrap", "provider.bootstrap", op.ID, map[string]any{"email": op.Email}); err != nil {
 		return Operator{}, "", err
 	}
 	return op, token, nil
@@ -282,10 +298,12 @@ func (s *Service) EnrollComplete(ctx context.Context, enrollToken, password, tot
 	if err != nil {
 		return Operator{}, err
 	}
-	if err := s.store.ActivateOperator(ctx, op.ID, hash); err != nil {
-		return Operator{}, err
-	}
-	if err := s.audit.Append(ctx, op.Email, "provider.operator_enrolled", op.ID, nil); err != nil {
+	if err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		if err := store.ActivateOperator(ctx, op.ID, hash); err != nil {
+			return err
+		}
+		return audit.Append(ctx, op.Email, "provider.operator_enrolled", op.ID, nil)
+	}); err != nil {
 		return Operator{}, err
 	}
 	op.Enrolled, op.Status = true, "active"
@@ -345,10 +363,12 @@ func (s *Service) SetOperatorStatus(ctx context.Context, actor, id, status strin
 	if status != "active" && status != "disabled" {
 		return validationError("provider: status must be active or disabled")
 	}
-	if err := s.store.SetOperatorStatus(ctx, id, status); err != nil {
-		return err
-	}
-	return s.audit.Append(ctx, actor, "provider.operator_status", id, map[string]any{"status": status})
+	return s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		if err := store.SetOperatorStatus(ctx, id, status); err != nil {
+			return err
+		}
+		return audit.Append(ctx, actor, "provider.operator_status", id, map[string]any{"status": status})
+	})
 }
 
 // ListOperators returns the operator roster.
@@ -396,23 +416,31 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 			return Tenant{}, fmt.Errorf("%w: %d of %d in use", ErrBandExhausted, n, band)
 		}
 	}
-	t, err := s.store.CreateTenant(ctx, slug, strings.TrimSpace(name), isolationModel, residency)
+	var t Tenant
+	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		t, err = store.CreateTenant(ctx, slug, strings.TrimSpace(name), isolationModel, residency)
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, actor, "provider.tenant_provision", t.ID, map[string]any{
+			"slug": slug, "name": name, "isolation_model": isolationModel, "residency": residency,
+		})
+	})
 	if err != nil {
 		return Tenant{}, err
 	}
-	// Create the isolated stores BEFORE announcing success: a siloed tenant
-	// must never exist without its silo (the pooled fall-through hazard).
+	// External silo DDL stays outside the provider transaction. The committed
+	// tenant registry row already has its mandatory audit event, and Provision
+	// is idempotent so a failed external leg can be resumed safely.
 	if model != tenancy.IsolationPooled {
 		if err := s.silo.Provision(ctx, t.ID, residency, model); err != nil {
 			return Tenant{}, fmt.Errorf("silo provisioning failed (re-run provision to complete): %w", err)
 		}
 	}
+	// Publish the committed routing change only after both the atomic registry
+	// write and any external silo provisioning have succeeded.
 	s.invalidateRouter()
-	if err := s.audit.Append(ctx, actor, "provider.tenant_provision", t.ID, map[string]any{
-		"slug": slug, "name": name, "isolation_model": isolationModel, "residency": residency,
-	}); err != nil {
-		return Tenant{}, err
-	}
 	return t, nil
 }
 
@@ -421,11 +449,16 @@ func (s *Service) Configure(ctx context.Context, actor, id, name string) (Tenant
 	if err := s.writable(); err != nil {
 		return Tenant{}, err
 	}
-	t, err := s.store.RenameTenant(ctx, id, strings.TrimSpace(name))
+	var t Tenant
+	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		t, err = store.RenameTenant(ctx, id, strings.TrimSpace(name))
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, actor, "provider.tenant_configure", id, map[string]any{"name": name})
+	})
 	if err != nil {
-		return Tenant{}, err
-	}
-	if err := s.audit.Append(ctx, actor, "provider.tenant_configure", id, map[string]any{"name": name}); err != nil {
 		return Tenant{}, err
 	}
 	return t, nil
@@ -474,14 +507,19 @@ func (s *Service) setStatus(ctx context.Context, actor, id, status, action strin
 	if err := s.writable(); err != nil {
 		return Tenant{}, err
 	}
-	t, err := s.store.SetTenantStatus(ctx, id, status)
+	var t Tenant
+	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		t, err = store.SetTenantStatus(ctx, id, status)
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, actor, action, id, map[string]any{"slug": t.Slug})
+	})
 	if err != nil {
 		return Tenant{}, err
 	}
 	s.invalidateRouter()
-	if err := s.audit.Append(ctx, actor, action, id, map[string]any{"slug": t.Slug}); err != nil {
-		return Tenant{}, err
-	}
 	return t, nil
 }
 
@@ -507,17 +545,22 @@ func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, 
 		return Grant{}, validationError(fmt.Sprintf("provider: ttl must be within (0, %s]", s.maxGrantTTL))
 	}
 	now := s.now()
-	g, err := s.store.CreateGrant(ctx, Grant{
-		OperatorID: op.ID, OperatorEmail: op.Email, TenantID: tenantID,
-		Reason: reason, Scope: "read", GrantedBy: op.Email,
-		GrantedAt: now, ExpiresAt: now.Add(ttl),
+	var g Grant
+	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		g, err = store.CreateGrant(ctx, Grant{
+			OperatorID: op.ID, OperatorEmail: op.Email, TenantID: tenantID,
+			Reason: reason, Scope: "read", GrantedBy: op.Email,
+			GrantedAt: now, ExpiresAt: now.Add(ttl),
+		})
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, op.Email, "provider.breakglass_request", g.ID, map[string]any{
+			"tenant": tenantID, "reason": reason, "expires_at": g.ExpiresAt.UTC().Format(time.RFC3339),
+		})
 	})
 	if err != nil {
-		return Grant{}, err
-	}
-	if err := s.audit.Append(ctx, op.Email, "provider.breakglass_request", g.ID, map[string]any{
-		"tenant": tenantID, "reason": reason, "expires_at": g.ExpiresAt.UTC().Format(time.RFC3339),
-	}); err != nil {
 		return Grant{}, err
 	}
 	return g, nil
@@ -539,16 +582,20 @@ func (s *Service) Consent(ctx context.Context, tenantID, grantID, by string, app
 	}
 	var out *Grant
 	action := "provider.breakglass_consent"
-	if approve {
-		out, err = s.store.ConsentGrant(ctx, grantID, by, s.now())
-	} else {
-		action = "provider.breakglass_deny"
-		out, err = s.store.DenyGrant(ctx, grantID, by, s.now())
-	}
+	err = s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		if approve {
+			out, err = store.ConsentGrant(ctx, grantID, by, s.now())
+		} else {
+			action = "provider.breakglass_deny"
+			out, err = store.DenyGrant(ctx, grantID, by, s.now())
+		}
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, by, action, grantID, map[string]any{"tenant": tenantID})
+	})
 	if err != nil {
-		return Grant{}, err
-	}
-	if err := s.audit.Append(ctx, by, action, grantID, map[string]any{"tenant": tenantID}); err != nil {
 		return Grant{}, err
 	}
 	return *out, nil
@@ -556,11 +603,16 @@ func (s *Service) Consent(ctx context.Context, tenantID, grantID, by string, app
 
 // Revoke ends a grant early (operator-side; also reachable to admins).
 func (s *Service) Revoke(ctx context.Context, actor, grantID string) (Grant, error) {
-	g, err := s.store.RevokeGrant(ctx, grantID, actor, s.now())
+	var g *Grant
+	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		g, err = store.RevokeGrant(ctx, grantID, actor, s.now())
+		if err != nil {
+			return err
+		}
+		return audit.Append(ctx, actor, "provider.breakglass_revoke", grantID, map[string]any{"tenant": g.TenantID})
+	})
 	if err != nil {
-		return Grant{}, err
-	}
-	if err := s.audit.Append(ctx, actor, "provider.breakglass_revoke", grantID, map[string]any{"tenant": g.TenantID}); err != nil {
 		return Grant{}, err
 	}
 	return *g, nil
@@ -601,12 +653,15 @@ func (s *Service) BreakGlassResults(ctx context.Context, op Operator, grantID st
 	if !g.Usable(s.now()) {
 		return nil, fmt.Errorf("%w (state: %s)", ErrNotConsented, g.State(s.now()))
 	}
-	if err := s.store.IncrementGrantUse(ctx, grantID); err != nil {
-		return nil, err
-	}
-	// Audit BEFORE returning data; an unauditable access is no access.
-	if err := s.audit.Append(ctx, op.Email, "provider.breakglass_access", grantID, map[string]any{
-		"tenant": g.TenantID, "surface": "results.latest", "use": g.UseCount + 1,
+	// Increment and audit commit together before telemetry is read. An
+	// unauditable access is no access, and it does not consume a grant use.
+	if err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		if err := store.IncrementGrantUse(ctx, grantID); err != nil {
+			return err
+		}
+		return audit.Append(ctx, op.Email, "provider.breakglass_access", grantID, map[string]any{
+			"tenant": g.TenantID, "surface": "results.latest", "use": g.UseCount + 1,
+		})
 	}); err != nil {
 		return nil, err
 	}

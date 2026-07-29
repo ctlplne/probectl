@@ -129,22 +129,44 @@ func (g Grant) State(t time.Time) string {
 // Usable reports whether the grant authorizes a break-glass read at t.
 func (g Grant) Usable(t time.Time) bool { return g.State(t) == GrantActive }
 
+// MutationStore is the write surface available inside an audited provider
+// transaction. Reads remain on Store so callers cannot accidentally stretch a
+// write transaction across unrelated work.
+type MutationStore interface {
+	CreateOperator(ctx context.Context, op Operator, enrollTokenHash []byte) (Operator, error)
+	ActivateOperator(ctx context.Context, id, passwordHash string) error
+	SetOperatorStatus(ctx context.Context, id, status string) error
+	CreateTenant(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error)
+	RenameTenant(ctx context.Context, id, name string) (Tenant, error)
+	SetTenantStatus(ctx context.Context, id, status string) (Tenant, error)
+	CreateGrant(ctx context.Context, g Grant) (Grant, error)
+	ConsentGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
+	DenyGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
+	RevokeGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
+	IncrementGrantUse(ctx context.Context, id string) error
+}
+
+// AuditedMutation runs a provider write and its mandatory audit append as one
+// unit. Production executes it in one provider-scoped PostgreSQL transaction;
+// MemStore stages its copy and publishes it only after the audit succeeds.
+type AuditedMutation func(context.Context, MutationStore, AuditSink) error
+
 // Store is the provider plane's persistence surface.
 type Store interface {
+	MutationStore
+
+	// WithAuditedMutation must commit the mutation and provider audit event
+	// together or leave both unchanged.
+	WithAuditedMutation(ctx context.Context, sink AuditSink, fn AuditedMutation) error
+
 	// Operators.
-	CreateOperator(ctx context.Context, op Operator, enrollTokenHash []byte) (Operator, error)
 	OperatorByEmail(ctx context.Context, email string) (*Operator, *Credential, error)
 	OperatorByEnrollHash(ctx context.Context, hash []byte) (*Operator, error)
 	SetOperatorTOTP(ctx context.Context, id string, sealed crypto.Sealed) error
-	ActivateOperator(ctx context.Context, id, passwordHash string) error
-	SetOperatorStatus(ctx context.Context, id, status string) error
 	ListOperators(ctx context.Context) ([]Operator, error)
 	CountOperators(ctx context.Context) (int, error)
 
 	// Tenant lifecycle.
-	CreateTenant(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error)
-	RenameTenant(ctx context.Context, id, name string) (Tenant, error)
-	SetTenantStatus(ctx context.Context, id, status string) (Tenant, error)
 	ListTenants(ctx context.Context) ([]Tenant, error)
 	CountActiveTenants(ctx context.Context) (int, error)
 
@@ -153,14 +175,9 @@ type Store interface {
 	FleetSummary(ctx context.Context) ([]TenantFleet, error)
 
 	// Break-glass grants.
-	CreateGrant(ctx context.Context, g Grant) (Grant, error)
 	GetGrant(ctx context.Context, id string) (*Grant, error)
 	ListGrants(ctx context.Context) ([]Grant, error)
 	ListGrantsForTenant(ctx context.Context, tenantID string) ([]Grant, error)
-	ConsentGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
-	DenyGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
-	RevokeGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
-	IncrementGrantUse(ctx context.Context, id string) error
 }
 
 // ErrNotFound is the store's uniform missing-row error.
@@ -201,6 +218,68 @@ func NewMemStore() *MemStore {
 		grants:    map[string]*Grant{},
 		fleet:     map[string]TenantFleet{},
 	}
+}
+
+// WithAuditedMutation stages changes in an isolated copy. The live maps are
+// swapped only after the audit sink succeeds, which gives unit tests the same
+// all-or-nothing contract as the PostgreSQL implementation.
+func (m *MemStore) WithAuditedMutation(ctx context.Context, sink AuditSink, fn AuditedMutation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	staged := m.cloneLocked()
+	if err := fn(ctx, staged, sink); err != nil {
+		return err
+	}
+	m.seq = staged.seq
+	m.operators = staged.operators
+	m.tenants = staged.tenants
+	m.grants = staged.grants
+	m.fleet = staged.fleet
+	return nil
+}
+
+func (m *MemStore) cloneLocked() *MemStore {
+	staged := NewMemStore()
+	staged.seq = m.seq
+	for id, x := range m.operators {
+		cp := &memOperator{
+			op:     x.op,
+			cred:   x.cred,
+			enroll: append([]byte(nil), x.enroll...),
+		}
+		cp.cred.TOTP.WrappedDEK = append([]byte(nil), x.cred.TOTP.WrappedDEK...)
+		cp.cred.TOTP.Ciphertext = append([]byte(nil), x.cred.TOTP.Ciphertext...)
+		staged.operators[id] = cp
+	}
+	for id, tenant := range m.tenants {
+		cp := *tenant
+		staged.tenants[id] = &cp
+	}
+	for id, grant := range m.grants {
+		cp := *grant
+		cp.ConsentedAt = cloneTime(grant.ConsentedAt)
+		cp.DeniedAt = cloneTime(grant.DeniedAt)
+		cp.RevokedAt = cloneTime(grant.RevokedAt)
+		staged.grants[id] = &cp
+	}
+	for id, fleet := range m.fleet {
+		cp := fleet
+		cp.Versions = make(map[string]int, len(fleet.Versions))
+		for version, count := range fleet.Versions {
+			cp.Versions[version] = count
+		}
+		staged.fleet[id] = cp
+	}
+	return staged
+}
+
+func cloneTime(in *time.Time) *time.Time {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func (m *MemStore) nextID(prefix string) string {

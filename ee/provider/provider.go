@@ -130,6 +130,11 @@ func (a *providerAudit) Append(ctx context.Context, actor, action, target string
 	return err
 }
 
+func (a *providerAudit) AppendTx(ctx context.Context, q tenancy.Querier, actor, action, target string, data map[string]any) error {
+	_, err := audit.ProviderAppendTx(ctx, q, actor, action, target, data)
+	return err
+}
+
 // latestResultsReader adapts the core latest-results read model.
 type latestResultsReader struct{ lr *control.LatestResults }
 

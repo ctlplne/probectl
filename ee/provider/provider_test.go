@@ -38,6 +38,14 @@ type memAudit struct {
 	events []auditEvent
 }
 
+var errAuditUnavailable = errors.New("provider audit unavailable")
+
+type failingAudit struct{}
+
+func (failingAudit) Append(context.Context, string, string, string, map[string]any) error {
+	return errAuditUnavailable
+}
+
 type auditEvent struct {
 	Actor, Action, Target string
 	Data                  map[string]any
@@ -218,6 +226,106 @@ func newFixture(t *testing.T, lic *license.Manager) *fixture {
 
 func newTestHandler(t *testing.T) *Handler {
 	return newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour)).h
+}
+
+func TestProviderMutationRollsBackWhenAuditFails(t *testing.T) {
+	store := NewMemStore()
+	svc, err := NewService(
+		store,
+		failingAudit{},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := svc.CreateOperator(
+		context.Background(),
+		"admin@msp.example",
+		"new-operator@msp.example",
+		"New Operator",
+		RoleOperator,
+	); !errors.Is(err, errAuditUnavailable) {
+		t.Fatalf("CreateOperator error = %v, want %v", err, errAuditUnavailable)
+	}
+	if got, err := store.CountOperators(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if got != 0 {
+		t.Fatalf("operators after failed audit = %d, want 0", got)
+	}
+}
+
+type countingTelemetry struct {
+	calls int
+}
+
+func (f *countingTelemetry) LatestResults(string) any {
+	f.calls++
+	return []string{"must-not-be-returned"}
+}
+
+func TestBreakGlassUseRollsBackWhenAuditFails(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	telemetry := &countingTelemetry{}
+	now := time.Now().UTC()
+	svc, err := NewService(
+		store,
+		failingAudit{},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		telemetry,
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.WithClock(func() time.Time { return now })
+
+	op, err := store.CreateOperator(ctx, Operator{
+		Email: "operator@msp.example",
+		Name:  "Operator",
+		Role:  RoleOperator,
+	}, crypto.Hash([]byte("enrollment-token")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant, err := store.CreateTenant(ctx, "audit-rollback", "Audit Rollback", "pooled", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consentedAt := now.Add(-time.Minute)
+	grant, err := store.CreateGrant(ctx, Grant{
+		OperatorID:  op.ID,
+		TenantID:    tenant.ID,
+		Reason:      "incident response",
+		Scope:       "read",
+		GrantedBy:   op.Email,
+		GrantedAt:   now.Add(-2 * time.Minute),
+		ExpiresAt:   now.Add(time.Hour),
+		ConsentedBy: "tenant-admin@example.test",
+		ConsentedAt: &consentedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.BreakGlassResults(ctx, op, grant.ID); !errors.Is(err, errAuditUnavailable) {
+		t.Fatalf("BreakGlassResults error = %v, want %v", err, errAuditUnavailable)
+	}
+	got, err := store.GetGrant(ctx, grant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UseCount != 0 {
+		t.Fatalf("use_count after failed audit = %d, want 0", got.UseCount)
+	}
+	if telemetry.calls != 0 {
+		t.Fatalf("telemetry reads after failed audit = %d, want 0", telemetry.calls)
+	}
 }
 
 func newReq(method, path string, body any) *http.Request {

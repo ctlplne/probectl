@@ -10,20 +10,46 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
+
+type failingPGAudit struct{}
+
+func (failingPGAudit) Append(context.Context, string, string, string, map[string]any) error {
+	return errAuditUnavailable
+}
+
+func (failingPGAudit) AppendTx(
+	ctx context.Context,
+	q tenancy.Querier,
+	actor, action, target string,
+	_ map[string]any,
+) error {
+	// Exercise the real transaction-bound audit implementation, but force a
+	// deterministic serialization failure before its insert.
+	_, err := audit.ProviderAppendTx(ctx, q, actor, action, target, map[string]any{
+		"unencodable": make(chan struct{}),
+	})
+	if err == nil {
+		return errors.New("provider audit failure injection unexpectedly succeeded")
+	}
+	return fmt.Errorf("%w: %v", errAuditUnavailable, err)
+}
 
 // The PG-backed provider store against the real test stack (Kafka-less: only
 // Postgres is needed). Proves: the 0024 schema works end-to-end, the
@@ -43,6 +69,119 @@ func pgPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("migrate: %v", err)
 	}
 	return pool
+}
+
+func TestPGProviderMutationAndAuditAreAtomic(t *testing.T) {
+	pool := pgPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	store := NewPGStore(pool)
+	stamp := time.Now().UTC().UnixNano()
+
+	target, err := store.CreateTenant(
+		ctx,
+		fmt.Sprintf("audit-target-%d", stamp),
+		"Target Before",
+		"pooled",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bystander, err := store.CreateTenant(
+		ctx,
+		fmt.Sprintf("audit-bystander-%d", stamp),
+		"Bystander Before",
+		"pooled",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc, err := NewService(
+		store,
+		failingPGAudit{},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Configure(ctx, "admin@msp.example", target.ID, "Target Changed"); !errors.Is(err, errAuditUnavailable) {
+		t.Fatalf("Configure error = %v, want %v", err, errAuditUnavailable)
+	}
+
+	tenants, err := store.ListTenants(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make(map[string]string, len(tenants))
+	for _, tenant := range tenants {
+		names[tenant.ID] = tenant.Name
+	}
+	if got := names[target.ID]; got != "Target Before" {
+		t.Fatalf("target name after failed audit = %q, want %q", got, "Target Before")
+	}
+	if got := names[bystander.ID]; got != "Bystander Before" {
+		t.Fatalf("bystander name after target rollback = %q, want %q", got, "Bystander Before")
+	}
+
+	var auditRows int
+	if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT count(*) FROM provider_audit_events WHERE action = $1 AND target = $2`,
+			"provider.tenant_configure", target.ID,
+		).Scan(&auditRows)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if auditRows != 0 {
+		t.Fatalf("audit rows for rolled-back mutation = %d, want 0", auditRows)
+	}
+
+	productionService, err := NewService(
+		store,
+		&providerAudit{pool: pool},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := productionService.Configure(ctx, "admin@msp.example", target.ID, "Target After"); err != nil {
+		t.Fatalf("production Configure: %v", err)
+	}
+
+	tenants, err = store.ListTenants(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names = make(map[string]string, len(tenants))
+	for _, tenant := range tenants {
+		names[tenant.ID] = tenant.Name
+	}
+	if got := names[target.ID]; got != "Target After" {
+		t.Fatalf("target name after successful audited mutation = %q, want %q", got, "Target After")
+	}
+	if got := names[bystander.ID]; got != "Bystander Before" {
+		t.Fatalf("bystander name after successful target mutation = %q, want %q", got, "Bystander Before")
+	}
+	if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT count(*) FROM provider_audit_events WHERE action = $1 AND target = $2`,
+			"provider.tenant_configure", target.ID,
+		).Scan(&auditRows)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("audit rows for committed mutation = %d, want 1", auditRows)
+	}
 }
 
 func TestPGStoreLifecycle(t *testing.T) {

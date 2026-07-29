@@ -27,13 +27,45 @@ import (
 // tables, the provider audit chain, and SELECT over agents via the explicit
 // fleet policy. It cannot read tests, results, or any telemetry table even
 // if this code were buggy (defense-in-depth, guardrail 1).
-type PGStore struct{ pool *pgxpool.Pool }
+type PGStore struct {
+	pool *pgxpool.Pool
+	q    tenancy.Querier // set only on the transaction-bound mutation facade
+}
 
 // NewPGStore wraps a pool.
 func NewPGStore(pool *pgxpool.Pool) *PGStore { return &PGStore{pool: pool} }
 
 func (s *PGStore) in(ctx context.Context, fn func(context.Context, tenancy.Querier) error) error {
+	if s.q != nil {
+		return fn(ctx, s.q)
+	}
 	return tenancy.InProvider(ctx, s.pool, fn)
+}
+
+type transactionalAuditSink interface {
+	AppendTx(context.Context, tenancy.Querier, string, string, string, map[string]any) error
+}
+
+type boundProviderAudit struct {
+	q    tenancy.Querier
+	sink transactionalAuditSink
+}
+
+func (a boundProviderAudit) Append(ctx context.Context, actor, action, target string, data map[string]any) error {
+	return a.sink.AppendTx(ctx, a.q, actor, action, target, data)
+}
+
+// WithAuditedMutation runs the provider write and audit-chain append inside the
+// same provider-scoped transaction. The callback receives a facade bound to the
+// current pgx transaction, so its Store methods cannot commit independently.
+func (s *PGStore) WithAuditedMutation(ctx context.Context, sink AuditSink, fn AuditedMutation) error {
+	txSink, ok := sink.(transactionalAuditSink)
+	if !ok {
+		return errors.New("provider: audit sink cannot join provider transaction")
+	}
+	return s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		return fn(ctx, &PGStore{q: q}, boundProviderAudit{q: q, sink: txSink})
+	})
 }
 
 func mapPGErr(err error) error {
