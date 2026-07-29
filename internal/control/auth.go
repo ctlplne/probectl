@@ -326,14 +326,26 @@ func (s *Server) resolvePrincipalAndRotate(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) resolvePrincipalSession(w http.ResponseWriter, r *http.Request) *auth.Principal {
+	return s.resolvePrincipalSessionWith(w, r, s.resolveBearerPrincipal, s.loadSubjectAttributes)
+}
+
+// resolvePrincipalSessionWith keeps the bearer and subject-attribute lookups
+// injectable for the bounded HTTP-edge regression test. Shipping callers always
+// enter through resolvePrincipalSession, which supplies the real tenant-scoped
+// token and user lookups.
+func (s *Server) resolvePrincipalSessionWith(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolveBearer func(*http.Request, string) (*auth.Principal, error),
+	loadAttributes func(context.Context, *auth.Principal) error,
+) *auth.Principal {
 	if token, ok := bearerTokenFromRequest(r); ok {
-		p, err := s.resolveBearerPrincipal(r, token)
+		p, err := resolveBearer(r, token)
 		if err != nil {
 			s.log.Warn("bearer token resolve failed", "error", err)
 			return nil
 		}
-		s.loadSubjectAttributes(r.Context(), p)
-		return p
+		return s.principalWithSubjectAttributes(r.Context(), p, loadAttributes)
 	}
 	if s.authn == nil {
 		return nil
@@ -355,8 +367,7 @@ func (s *Server) resolvePrincipalSession(w http.ResponseWriter, r *http.Request)
 	if replacement != "" {
 		s.sessions.SetCookie(w, replacement)
 	}
-	s.loadSubjectAttributes(r.Context(), p)
-	return p
+	return s.principalWithSubjectAttributes(r.Context(), p, loadAttributes)
 }
 
 func bearerTokenFromRequest(r *http.Request) (string, bool) {
@@ -404,28 +415,56 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 	return p, nil
 }
 
+// principalWithSubjectAttributes attaches the complete subject attribute set or
+// refuses the incomplete principal. Returning nil makes both bearer and session
+// authentication fail closed before route RBAC can run.
+func (s *Server) principalWithSubjectAttributes(
+	ctx context.Context,
+	p *auth.Principal,
+	loadAttributes func(context.Context, *auth.Principal) error,
+) *auth.Principal {
+	if p == nil {
+		return nil
+	}
+	if err := loadAttributes(ctx, p); err != nil {
+		s.log.Warn("subject attribute load failed; authentication refused",
+			"tenant_id", p.TenantID, "user_id", p.UserID, "error", err)
+		return nil
+	}
+	return p
+}
+
 // loadSubjectAttributes attaches the principal's ABAC subject attributes (S31):
 // the user's SCIM-provisioned attributes plus the derived "mfa" flag. They are
 // read tenant-scoped (RLS), so a request can only carry its own tenant's data.
-func (s *Server) loadSubjectAttributes(ctx context.Context, p *auth.Principal) {
+func (s *Server) loadSubjectAttributes(ctx context.Context, p *auth.Principal) error {
 	if p == nil || s.pool == nil {
-		return
+		return nil
 	}
+	return loadSubjectAttributesWith(ctx, p, s.inTenantID, (store.Users{}).Get)
+}
+
+func loadSubjectAttributesWith(
+	ctx context.Context,
+	p *auth.Principal,
+	inTenant func(context.Context, string, func(context.Context, tenancy.Scope) error) error,
+	getUser func(context.Context, tenancy.Scope, string) (*store.User, error),
+) error {
 	attrs := map[string]string{"mfa": boolStr(p.MFASatisfied)}
-	if err := s.inTenantID(ctx, p.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		if u, err := (store.Users{}).Get(ctx, sc, p.UserID); err == nil {
-			for k, v := range u.Attributes {
-				attrs[k] = v
-			}
+	if err := inTenant(ctx, p.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		u, err := getUser(ctx, sc, p.UserID)
+		if err != nil {
+			return err
+		}
+		for k, v := range u.Attributes {
+			attrs[k] = v
 		}
 		return nil
 	}); err != nil {
-		// CODE-002: a scope-setup fault means we couldn't load subject ABAC
-		// attributes — log it (a transient fault should not silently evaluate
-		// ABAC against an empty attribute set).
-		s.log.Warn("loadSubjectAttributes: tenant scope failed", "tenant_id", p.TenantID, "user_id", p.UserID, "error", err.Error())
+		return err
 	}
 	p.Attributes = attrs
+	return nil
 }
 
 func boolStr(b bool) string {
