@@ -74,6 +74,19 @@ func sourceOf(events []Event) WormSource {
 
 func testLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+type failingPutStore struct {
+	objectstore.Store
+	failSuffix string
+	failing    bool
+}
+
+func (s *failingPutStore) Put(ctx context.Context, key, contentType string, data []byte) error {
+	if s.failing && strings.HasSuffix(key, s.failSuffix) {
+		return errors.New("injected WORM object put failure")
+	}
+	return s.Store.Put(ctx, key, contentType, data)
+}
+
 type providerEventRow struct {
 	data []byte
 }
@@ -133,6 +146,113 @@ func TestWormExportAndChainVerify(t *testing.T) {
 	}
 }
 
+func TestWormExportedWatermarkRejectsPartialSegment(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		failSuffix string
+	}{
+		{name: "missing_signature", failSuffix: ".sig"},
+		{name: "missing_public_key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			base := objectstore.NewMemory()
+			objects := &failingPutStore{Store: base, failSuffix: tc.failSuffix, failing: true}
+			w, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(3)), objects, testLog())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if tc.failSuffix == "" {
+				objects.failing = false
+				if n, err := w.ExportOnce(ctx); err != nil || n != 3 {
+					t.Fatalf("seed signed segment = (%d, %v), want (3, nil)", n, err)
+				}
+				if deleted, err := base.DeletePrefix(ctx, wormPrefix+"signing.pub"); err != nil || deleted != 1 {
+					t.Fatalf("remove public-key companion = (%d, %v), want (1, nil)", deleted, err)
+				}
+			} else if n, err := w.ExportOnce(ctx); err == nil || n != 0 {
+				t.Fatalf("partial export = (%d, %v), want (0, injected error)", n, err)
+			}
+			keys, err := base.List(ctx, wormPrefix+"segment-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasUnsignedCandidate := false
+			for _, key := range keys {
+				if strings.HasSuffix(key, ".json") {
+					hasUnsignedCandidate = true
+				}
+			}
+			if !hasUnsignedCandidate {
+				t.Fatalf("failure did not leave the partial segment needed by this regression: %v", keys)
+			}
+
+			if watermark, err := w.ExportedWatermark(ctx); err == nil {
+				t.Fatalf("partial WORM watermark = %d, want fail-closed error", watermark)
+			}
+
+			runner := NewRetentionRunnerPG(
+				nil,
+				RetentionPolicy{Window: time.Hour},
+				w.ExportedWatermark,
+				testLog(),
+			)
+			summary, err := runner.Tick(ctx)
+			if err == nil {
+				t.Fatal("retention accepted a partial WORM watermark")
+			}
+			if summary.ProviderPruned != 0 {
+				t.Fatalf("provider rows pruned from partial WORM watermark = %d, want 0", summary.ProviderPruned)
+			}
+		})
+	}
+}
+
+func TestWormExportRetriesMissingSignatureAndPublicKey(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		failSuffix string
+	}{
+		{name: "signature", failSuffix: ".sig"},
+		{name: "public_key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			base := objectstore.NewMemory()
+			objects := &failingPutStore{Store: base, failSuffix: tc.failSuffix, failing: true}
+			w, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(3)), objects, testLog())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			wantRetry := 3
+			if tc.failSuffix == "" {
+				objects.failing = false
+				if n, err := w.ExportOnce(ctx); err != nil || n != 3 {
+					t.Fatalf("seed signed segment = (%d, %v), want (3, nil)", n, err)
+				}
+				if deleted, err := base.DeletePrefix(ctx, wormPrefix+"signing.pub"); err != nil || deleted != 1 {
+					t.Fatalf("remove public-key companion = (%d, %v), want (1, nil)", deleted, err)
+				}
+				wantRetry = 0
+			} else if n, err := w.ExportOnce(ctx); err == nil || n != 0 {
+				t.Fatalf("partial export = (%d, %v), want (0, injected error)", n, err)
+			}
+			objects.failing = false
+			if n, err := w.ExportOnce(ctx); err != nil || n != wantRetry {
+				t.Fatalf("retry export = (%d, %v), want (%d, nil)", n, err, wantRetry)
+			}
+			if watermark, err := w.ExportedWatermark(ctx); err != nil || watermark != 3 {
+				t.Fatalf("watermark after retry = (%d, %v), want (3, nil)", watermark, err)
+			}
+			if err := w.VerifyWORMChain(ctx); err != nil {
+				t.Fatalf("chain after retry: %v", err)
+			}
+		})
+	}
+}
+
 func TestWormExporterMetricsRecordSuccessAndFailures(t *testing.T) {
 	reg := metrics.New("test", "abc")
 	w, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(1)), objectstore.NewMemory(), testLog())
@@ -185,6 +305,9 @@ func TestWormTamperedSegmentFailsVerification(t *testing.T) {
 	err := w.VerifyWORMChain(ctx)
 	if err == nil || !strings.Contains(err.Error(), "signature INVALID") {
 		t.Fatalf("tampered segment passed: %v", err)
+	}
+	if watermark, err := w.ExportedWatermark(ctx); err == nil {
+		t.Fatalf("tampered segment advanced watermark to %d", watermark)
 	}
 }
 
@@ -318,5 +441,8 @@ func TestWormDetectsPurgeGap(t *testing.T) {
 	err := w.VerifyWORMChain(ctx)
 	if err == nil || !strings.Contains(err.Error(), "GAP") {
 		t.Fatalf("purged events not detected: %v", err)
+	}
+	if watermark, err := w.ExportedWatermark(ctx); err == nil {
+		t.Fatalf("gapped segment advanced watermark to %d", watermark)
 	}
 }

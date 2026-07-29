@@ -7,9 +7,11 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -221,6 +223,13 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Make the verification key durable before writing another segment. A
+	// vulnerable older export may already have a valid segment + signature but
+	// no key object; lastExportedSeq verifies that segment with the configured
+	// key, then this repairs only the missing companion object.
+	if err := w.ensurePublicKey(ctx); err != nil {
+		return 0, err
+	}
 	events, err := w.source(ctx, last, MaxExportPageSize)
 	if err != nil {
 		return 0, err
@@ -248,12 +257,27 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	if err := w.objects.Put(ctx, key+".sig", "application/octet-stream", sig); err != nil {
 		return 0, fmt.Errorf("audit: put signature: %w", err)
 	}
-	// Publish the verification key once (idempotent overwrite is fine).
-	if err := w.objects.Put(ctx, wormPrefix+"signing.pub", "application/x-pem-file", w.pubPEM); err != nil {
-		return 0, fmt.Errorf("audit: put public key: %w", err)
-	}
 	w.log.Info("audit worm segment exported", "from_seq", seg.FromSeq, "to_seq", seg.ToSeq, "events", len(events))
 	return len(events), nil
+}
+
+func (w *WormExporter) ensurePublicKey(ctx context.Context) error {
+	const key = wormPrefix + "signing.pub"
+	pub, err := w.objects.Get(ctx, key)
+	switch {
+	case err == nil:
+		if !bytes.Equal(pub.Data, w.pubPEM) {
+			return errors.New("audit WORM signing public key does not match configured key")
+		}
+		return nil
+	case !errors.Is(err, objectstore.ErrNotFound):
+		return fmt.Errorf("audit WORM signing public key unreadable: %w", err)
+	default:
+		if err := w.objects.Put(ctx, key, "application/x-pem-file", w.pubPEM); err != nil {
+			return fmt.Errorf("audit: put public key: %w", err)
+		}
+		return nil
+	}
 }
 
 // ExportedWatermark returns the highest provider-audit seq already present in
@@ -263,25 +287,97 @@ func (w *WormExporter) ExportedWatermark(ctx context.Context) (int64, error) {
 	if w == nil {
 		return 0, nil
 	}
-	return w.lastExportedSeq(ctx)
+	return w.scanWORMChain(ctx, false)
 }
 
-// lastExportedSeq derives the cursor from the existing segment keys (no
-// mutable state object — the segments themselves are the ledger).
+// lastExportedSeq derives the export cursor from the verified segment prefix.
+// An incomplete tail is excluded so retry can safely rewrite its segment and
+// missing companion objects; any other verification failure remains fatal.
 func (w *WormExporter) lastExportedSeq(ctx context.Context) (int64, error) {
+	return w.scanWORMChain(ctx, true)
+}
+
+// scanWORMChain verifies every segment from sequence one and returns the last
+// sequence whose segment, signature, key, and hash-chain links are durable.
+// allowIncompleteTail is used only by ExportOnce so a failed companion-object
+// write can be retried from the last complete prefix. Retention and explicit
+// verification reject that same partial tail.
+func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bool) (int64, error) {
 	keys, err := w.objects.List(ctx, wormPrefix+"segment-")
 	if err != nil {
 		return 0, err
 	}
-	var last int64
+	var segKeys []string
 	for _, k := range keys {
-		if strings.HasSuffix(k, ".sig") {
-			continue
+		if !strings.HasSuffix(k, ".sig") {
+			segKeys = append(segKeys, k)
 		}
-		var from, to int64
-		base := strings.TrimSuffix(strings.TrimPrefix(k, wormPrefix), ".json")
-		if _, err := fmt.Sscanf(base, "segment-%d-%d", &from, &to); err == nil && to > last {
-			last = to
+	}
+	if len(segKeys) == 0 {
+		return 0, nil
+	}
+	sort.Strings(segKeys) // zero-padded seqs sort chronologically
+
+	pub, err := w.objects.Get(ctx, wormPrefix+"signing.pub")
+	if err != nil {
+		if !allowIncompleteTail || !errors.Is(err, objectstore.ErrNotFound) {
+			return 0, fmt.Errorf("audit WORM signing public key unreadable: %w", err)
+		}
+		// Export recovery may inspect a legacy partial state with no public-key
+		// object, but every existing signature is still verified below with the
+		// configured durable key before ensurePublicKey repairs that object.
+	} else if !bytes.Equal(pub.Data, w.pubPEM) {
+		return 0, fmt.Errorf("audit WORM signing public key does not match configured key")
+	}
+
+	wantSeq := int64(1)
+	prevHash := genesis // the chain root (audit.go)
+	var last int64
+	for i, key := range segKeys {
+		var keyFrom, keyTo int64
+		base := strings.TrimSuffix(strings.TrimPrefix(key, wormPrefix), ".json")
+		if n, err := fmt.Sscanf(base, "segment-%d-%d", &keyFrom, &keyTo); err != nil || n != 2 ||
+			key != fmt.Sprintf("%ssegment-%012d-%012d.json", wormPrefix, keyFrom, keyTo) {
+			return 0, fmt.Errorf("invalid audit WORM segment key %q", key)
+		}
+
+		obj, err := w.objects.Get(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("segment %s unreadable: %w", key, err)
+		}
+		sig, err := w.objects.Get(ctx, key+".sig")
+		if err != nil {
+			if allowIncompleteTail && i == len(segKeys)-1 && errors.Is(err, objectstore.ErrNotFound) {
+				return last, nil
+			}
+			return 0, fmt.Errorf("segment %s signature missing: %w", key, err)
+		}
+		ok, err := crypto.VerifyEd25519(w.pubPEM, obj.Data, sig.Data)
+		if err != nil || !ok {
+			return 0, fmt.Errorf("segment %s signature INVALID (tampered?): %v", key, err)
+		}
+
+		var seg WormSegment
+		if err := json.Unmarshal(obj.Data, &seg); err != nil {
+			return 0, fmt.Errorf("segment %s undecodable: %w", key, err)
+		}
+		if seg.FormatVersion != 1 || seg.Stream != "provider" {
+			return 0, fmt.Errorf("segment %s has invalid format or stream", key)
+		}
+		if len(seg.Events) == 0 || seg.FromSeq != keyFrom || seg.ToSeq != keyTo ||
+			seg.Events[0].Seq != seg.FromSeq || seg.Events[len(seg.Events)-1].Seq != seg.ToSeq {
+			return 0, fmt.Errorf("segment %s sequence metadata INVALID", key)
+		}
+		for _, ev := range seg.Events {
+			if ev.Seq != wantSeq {
+				return 0, fmt.Errorf("seq GAP at %s: want %d, got %d (events purged?)", key, wantSeq, ev.Seq)
+			}
+			if ev.PrevHash != prevHash {
+				return 0, fmt.Errorf("hash chain BROKEN at seq %d in %s", ev.Seq, key)
+			}
+			prevHash = ev.Hash
+			last = ev.Seq
+			wantSeq++
 		}
 	}
 	return last, nil
@@ -291,48 +387,8 @@ func (w *WormExporter) lastExportedSeq(ctx context.Context) (int64, error) {
 // segment's signature, seq continuity from 1 with no gaps or overlaps, and
 // the hash chain across segment boundaries. Any failure is a loud error.
 func (w *WormExporter) VerifyWORMChain(ctx context.Context) error {
-	keys, err := w.objects.List(ctx, wormPrefix+"segment-")
-	if err != nil {
-		return err
-	}
-	var segKeys []string
-	for _, k := range keys {
-		if !strings.HasSuffix(k, ".sig") {
-			segKeys = append(segKeys, k)
-		}
-	}
-	sort.Strings(segKeys) // zero-padded seqs sort chronologically
-	wantSeq := int64(1)
-	prevHash := genesis // the chain root (audit.go)
-	for _, key := range segKeys {
-		obj, err := w.objects.Get(ctx, key)
-		if err != nil {
-			return fmt.Errorf("segment %s unreadable: %w", key, err)
-		}
-		sig, err := w.objects.Get(ctx, key+".sig")
-		if err != nil {
-			return fmt.Errorf("segment %s signature missing: %w", key, err)
-		}
-		ok, err := crypto.VerifyEd25519(w.pubPEM, obj.Data, sig.Data)
-		if err != nil || !ok {
-			return fmt.Errorf("segment %s signature INVALID (tampered?): %v", key, err)
-		}
-		var seg WormSegment
-		if err := json.Unmarshal(obj.Data, &seg); err != nil {
-			return fmt.Errorf("segment %s undecodable: %w", key, err)
-		}
-		for _, ev := range seg.Events {
-			if ev.Seq != wantSeq {
-				return fmt.Errorf("seq GAP at %s: want %d, got %d (events purged?)", key, wantSeq, ev.Seq)
-			}
-			if ev.PrevHash != prevHash {
-				return fmt.Errorf("hash chain BROKEN at seq %d in %s", ev.Seq, key)
-			}
-			prevHash = ev.Hash
-			wantSeq++
-		}
-	}
-	return nil
+	_, err := w.scanWORMChain(ctx, false)
+	return err
 }
 
 // ListProvider returns provider-stream events with seq greater than afterSeq
