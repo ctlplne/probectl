@@ -26,6 +26,9 @@ var (
 	// ErrTooLarge is returned by GetLimited before an object larger than the
 	// caller's ceiling is fully buffered.
 	ErrTooLarge = errors.New("objectstore: object exceeds byte limit")
+	// ErrTooMany is returned by ListLimited as soon as the matching key count
+	// exceeds the caller's ceiling.
+	ErrTooMany = errors.New("objectstore: listing exceeds key limit")
 )
 
 // Object is a stored blob plus its content type.
@@ -50,6 +53,10 @@ type Store interface {
 	Stat(ctx context.Context, key string) (size int64, exists bool, err error)
 	// List returns the keys under a prefix (S-T5 export manifests).
 	List(ctx context.Context, prefix string) ([]string, error)
+	// ListLimited returns at most maxKeys sorted keys under prefix. It fails with
+	// ErrTooMany as soon as a one-past match is observed, so callers processing
+	// untrusted or append-only namespaces never materialize an unbounded list.
+	ListLimited(ctx context.Context, prefix string, maxKeys int) ([]string, error)
 	// DeletePrefix removes every object under a prefix and returns the count
 	// (S-T5 verifiable deletion). Deleting an empty prefix is a no-op.
 	DeletePrefix(ctx context.Context, prefix string) (int, error)
@@ -63,6 +70,7 @@ type TenantStore interface {
 	GetLimited(ctx context.Context, path string, maxBytes int64) (Object, error)
 	Stat(ctx context.Context, path string) (size int64, exists bool, err error)
 	List(ctx context.Context, prefix string) ([]string, error)
+	ListLimited(ctx context.Context, prefix string, maxKeys int) ([]string, error)
 	DeletePrefix(ctx context.Context, prefix string) (int, error)
 	Key(path string) string
 }
@@ -169,6 +177,22 @@ func (t tenantStore) List(ctx context.Context, prefix string) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
+	return t.relativeKeys(keys), nil
+}
+
+func (t tenantStore) ListLimited(ctx context.Context, prefix string, maxKeys int) ([]string, error) {
+	keyPrefix, err := t.fullKey(prefix, true)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := t.store.ListLimited(ctx, keyPrefix, maxKeys)
+	if err != nil {
+		return nil, err
+	}
+	return t.relativeKeys(keys), nil
+}
+
+func (t tenantStore) relativeKeys(keys []string) []string {
 	rootPrefix := t.root + "/"
 	rel := keys[:0]
 	for _, key := range keys {
@@ -176,7 +200,7 @@ func (t tenantStore) List(ctx context.Context, prefix string) ([]string, error) 
 			rel = append(rel, strings.TrimPrefix(key, rootPrefix))
 		}
 	}
-	return rel, nil
+	return rel
 }
 
 func (t tenantStore) DeletePrefix(ctx context.Context, prefix string) (int, error) {
@@ -213,6 +237,13 @@ func validKey(key string) error {
 		return errors.New("objectstore: key must not contain NUL")
 	}
 	return nil
+}
+
+func validListPrefix(prefix string) error {
+	if prefix == "" {
+		return nil
+	}
+	return validKey(strings.TrimSuffix(prefix, "/"))
 }
 
 // TenantKey builds a tenant-namespaced key: "tenant/<tenantID>/<parts...>". The

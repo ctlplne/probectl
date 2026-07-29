@@ -50,6 +50,13 @@ const (
 	maxWORMPublicKeyBytes int64 = 4 << 10
 	maxWORMSegmentBytes   int64 = 4 << 20
 	maxWORMSignatureBytes int64 = crypto.Ed25519SignatureSize
+
+	// One complete segment consumes two artifacts (.json + .sig). This ceiling
+	// therefore retains up to 100,000 signed segments / 100 million events while
+	// preventing a hostile or accidentally shared object directory from forcing
+	// unbounded key allocation. Exceeding it fails verification and retention
+	// closed; operators can archive/rotate the WORM destination deliberately.
+	maxWORMSegmentArtifacts = 200_000
 )
 
 // WormSegment is one exported, signed slice of the provider audit chain.
@@ -367,8 +374,15 @@ func (w *WormExporter) lastExportedHead(ctx context.Context) (int64, string, err
 // write can be retried from the last complete prefix. Retention and explicit
 // verification reject that same partial tail.
 func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bool) (int64, string, error) {
-	keys, err := w.objects.List(ctx, wormPrefix+"segment-")
+	keys, err := w.objects.ListLimited(ctx, wormPrefix+"segment-", maxWORMSegmentArtifacts)
 	if err != nil {
+		if errors.Is(err, objectstore.ErrTooMany) {
+			return 0, "", fmt.Errorf(
+				"audit WORM aggregate segment artifact limit %d exceeded: %w",
+				maxWORMSegmentArtifacts,
+				err,
+			)
+		}
 		return 0, "", err
 	}
 	var segKeys []string

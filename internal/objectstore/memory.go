@@ -82,12 +82,36 @@ func (m *MemStore) Stat(_ context.Context, key string) (int64, bool, error) {
 }
 
 // List returns the keys under prefix, sorted.
-func (m *MemStore) List(_ context.Context, prefix string) ([]string, error) {
+func (m *MemStore) List(ctx context.Context, prefix string) ([]string, error) {
+	return m.list(ctx, prefix, -1)
+}
+
+// ListLimited returns a context-aware, aggregate-bounded prefix listing.
+func (m *MemStore) ListLimited(ctx context.Context, prefix string, maxKeys int) ([]string, error) {
+	if maxKeys < 0 {
+		return nil, errors.New("objectstore: maxKeys must be non-negative")
+	}
+	return m.list(ctx, prefix, maxKeys)
+}
+
+func (m *MemStore) list(ctx context.Context, prefix string, maxKeys int) ([]string, error) {
+	if err := validListPrefix(prefix); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var keys []string
 	for k := range m.objects {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if strings.HasPrefix(k, prefix) {
+			if maxKeys >= 0 && len(keys) >= maxKeys {
+				return nil, ErrTooMany
+			}
 			keys = append(keys, k)
 		}
 	}

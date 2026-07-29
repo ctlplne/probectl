@@ -153,11 +153,39 @@ func (s *FSStore) Stat(_ context.Context, key string) (int64, bool, error) {
 }
 
 // List returns the keys under prefix, sorted (".meta" siblings excluded).
-func (s *FSStore) List(_ context.Context, prefix string) ([]string, error) {
+func (s *FSStore) List(ctx context.Context, prefix string) ([]string, error) {
+	return s.list(ctx, prefix, -1)
+}
+
+// ListLimited returns a context-aware, aggregate-bounded prefix listing.
+func (s *FSStore) ListLimited(ctx context.Context, prefix string, maxKeys int) ([]string, error) {
+	if maxKeys < 0 {
+		return nil, errors.New("objectstore: maxKeys must be non-negative")
+	}
+	return s.list(ctx, prefix, maxKeys)
+}
+
+func (s *FSStore) list(ctx context.Context, prefix string, maxKeys int) ([]string, error) {
+	if err := validListPrefix(prefix); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	root, err := s.listRoot(prefix)
+	if err != nil {
+		return nil, err
+	}
 	var keys []string
-	err := filepath.WalkDir(s.root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || strings.HasSuffix(p, ".meta") {
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
 			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if d.IsDir() || strings.HasSuffix(p, ".meta") {
+			return nil
 		}
 		rel, rerr := filepath.Rel(s.root, p)
 		if rerr != nil {
@@ -165,6 +193,9 @@ func (s *FSStore) List(_ context.Context, prefix string) ([]string, error) {
 		}
 		key := filepath.ToSlash(rel)
 		if strings.HasPrefix(key, prefix) {
+			if maxKeys >= 0 && len(keys) >= maxKeys {
+				return ErrTooMany
+			}
 			keys = append(keys, key)
 		}
 		return nil
@@ -174,6 +205,23 @@ func (s *FSStore) List(_ context.Context, prefix string) ([]string, error) {
 	}
 	sort.Strings(keys)
 	return keys, err
+}
+
+// listRoot confines traversal to the deepest directory implied by prefix.
+// "tenant/t1/" walks only that tenant directory; a filename prefix such as
+// "worm/.../segment-" walks only its parent directory.
+func (s *FSStore) listRoot(prefix string) (string, error) {
+	if prefix == "" {
+		return s.root, nil
+	}
+	if strings.HasSuffix(prefix, "/") {
+		return s.path(strings.TrimSuffix(prefix, "/"))
+	}
+	slash := strings.LastIndex(prefix, "/")
+	if slash < 0 {
+		return s.root, nil
+	}
+	return s.path(prefix[:slash])
 }
 
 // DeletePrefix removes every object under prefix and returns the count

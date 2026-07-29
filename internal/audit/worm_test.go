@@ -113,6 +113,35 @@ func (s *countingGetStore) Get(ctx context.Context, key string) (objectstore.Obj
 	return s.Store.Get(ctx, key)
 }
 
+type refusingLimitedListStore struct {
+	objectstore.Store
+	prefix string
+	limit  int
+}
+
+func (s *refusingLimitedListStore) ListLimited(_ context.Context, prefix string, limit int) ([]string, error) {
+	s.prefix, s.limit = prefix, limit
+	return nil, objectstore.ErrTooMany
+}
+
+func TestWORMFailsClosedOnAggregateSegmentArtifactLimit(t *testing.T) {
+	base := objectstore.NewMemory()
+	objects := &refusingLimitedListStore{Store: base}
+	w, err := NewWormExporterEphemeralForTest(sourceOf(nil), objects, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.VerifyWORMChain(context.Background()); !errors.Is(err, objectstore.ErrTooMany) ||
+		!strings.Contains(err.Error(), "aggregate") {
+		t.Fatalf("aggregate segment artifact error = %v, want bounded fail-closed refusal", err)
+	}
+	if objects.prefix != wormPrefix+"segment-" || objects.limit != maxWORMSegmentArtifacts {
+		t.Fatalf("limited list call = (%q, %d), want (%q, %d)",
+			objects.prefix, objects.limit, wormPrefix+"segment-", maxWORMSegmentArtifacts)
+	}
+}
+
 func TestWORMObjectSizeBounds(t *testing.T) {
 	const segmentKey = wormPrefix + "segment-000000000001-000000000001.json"
 	for _, tc := range []struct {

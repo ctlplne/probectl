@@ -112,6 +112,72 @@ func TestFSStorePersistsAcrossInstances(t *testing.T) {
 	}
 }
 
+func runLimitedListSuite(t *testing.T, s Store) {
+	t.Helper()
+	ctx := context.Background()
+	for _, key := range []string{
+		"tenant/tnA/browser/a1.png",
+		"tenant/tnA/browser/a2.png",
+		"tenant/tnB/browser/b1.png",
+	} {
+		if err := s.Put(ctx, key, "image/png", []byte(key)); err != nil {
+			t.Fatalf("seed %s: %v", key, err)
+		}
+	}
+
+	keys, err := s.ListLimited(ctx, "tenant/tnA/", 2)
+	if err != nil {
+		t.Fatalf("exact-limit list: %v", err)
+	}
+	if len(keys) != 2 ||
+		keys[0] != "tenant/tnA/browser/a1.png" ||
+		keys[1] != "tenant/tnA/browser/a2.png" {
+		t.Fatalf("exact-limit prefix list = %v", keys)
+	}
+	if _, err := s.ListLimited(ctx, "tenant/tnA/", 1); !errors.Is(err, ErrTooMany) {
+		t.Fatalf("one-past list error = %v, want ErrTooMany", err)
+	}
+	if _, err := s.ListLimited(ctx, "../tnB/", 2); err == nil {
+		t.Fatal("limited list accepted a traversal prefix")
+	}
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := s.ListLimited(canceled, "tenant/tnA/", 2); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled limited list error = %v, want context.Canceled", err)
+	}
+
+	ta, err := ForTenant(s, "tnA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb, err := ForTenant(s, "tnB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err = ta.ListLimited(ctx, "", 2)
+	if err != nil || len(keys) != 2 || keys[0] != "browser/a1.png" || keys[1] != "browser/a2.png" {
+		t.Fatalf("tenant A limited list = %v, %v", keys, err)
+	}
+	if _, err := ta.ListLimited(ctx, "", 1); !errors.Is(err, ErrTooMany) {
+		t.Fatalf("tenant A one-past error = %v, want ErrTooMany", err)
+	}
+	keys, err = tb.ListLimited(ctx, "", 2)
+	if err != nil || len(keys) != 1 || keys[0] != "browser/b1.png" {
+		t.Fatalf("tenant B limited list = %v, %v", keys, err)
+	}
+}
+
+func TestMemStoreLimitedList(t *testing.T) { runLimitedListSuite(t, NewMemory()) }
+
+func TestFSStoreLimitedList(t *testing.T) {
+	s, err := NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runLimitedListSuite(t, s)
+}
+
 func runTenantStoreSuite(t *testing.T, s Store) {
 	t.Helper()
 	ctx := context.Background()
