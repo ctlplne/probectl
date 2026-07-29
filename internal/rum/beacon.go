@@ -21,11 +21,13 @@
 package rum
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 )
 
 // SchemaVersion is the beacon wire-schema version (the S47b contract).
@@ -93,10 +95,8 @@ const (
 // gate is here: no consent → rejected; unknown fields → rejected; URL
 // redaction is applied server-side regardless of what the SDK sent.
 func ParseBeacon(raw []byte) (Beacon, RejectReason, error) {
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.DisallowUnknownFields()
 	var b Beacon
-	if err := dec.Decode(&b); err != nil {
+	if err := httpbody.DecodeJSONStrict(bytes.NewReader(raw), MaxBeaconBytes, &b); err != nil {
 		return Beacon{}, RejectMalformed, fmt.Errorf("rum: malformed beacon: %w", err)
 	}
 	if !b.Consent {

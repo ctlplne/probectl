@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 )
 
 // The provider HTTP surface, mounted by core at /provider/ (an opaque
@@ -567,9 +568,7 @@ var (
 )
 
 func decode(r *http.Request, v any) error {
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
+	if err := httpbody.DecodeHTTPJSONStrict(nil, r, 1<<20, v); err != nil {
 		return errBadJSON{err}
 	}
 	return nil

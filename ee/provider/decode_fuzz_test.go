@@ -112,6 +112,7 @@ func providerDecodeSeeds() []struct {
 		{"quota", []byte(`{"max_agents":10,"max_tests":50}`)},
 		{"fairness", []byte(`{"results_per_sec":100,"flow_events_per_sec":200,"query_concurrency":4,"weight":1}`)},
 		{"login", []byte(`{"email":"ops@example.com","extra":true}`)},
+		{"login", []byte(`{"email":"ops@example.com","password":"pw","totp":"123456"} {}`)},
 		{"quota", []byte(`not json`)},
 	}
 }

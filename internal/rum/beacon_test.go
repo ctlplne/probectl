@@ -86,6 +86,32 @@ func TestParseBeaconPrivacyFailClosed(t *testing.T) {
 	}
 }
 
+func TestParseBeaconRejectsTrailingJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		suffix string
+	}{
+		{name: "object", suffix: ` {}`},
+		{name: "array", suffix: ` []`},
+		{name: "scalar", suffix: ` true`},
+		{name: "garbage", suffix: ` not-json`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, reason, err := ParseBeacon([]byte(validBeacon() + tc.suffix)); err == nil {
+				t.Fatal("beacon with a trailing top-level value must be rejected")
+			} else if reason != RejectMalformed {
+				t.Fatalf("reason = %s, want %s", reason, RejectMalformed)
+			}
+		})
+	}
+}
+
+func TestParseBeaconAcceptsTrailingWhitespace(t *testing.T) {
+	if _, reason, err := ParseBeacon([]byte(validBeacon() + " \n\t\r ")); err != nil {
+		t.Fatalf("trailing whitespace should be accepted: %v (%s)", err, reason)
+	}
+}
+
 func TestRedactPath(t *testing.T) {
 	tests := map[string]string{
 		"/checkout?token=abc":                     "/checkout",
