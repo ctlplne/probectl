@@ -33,19 +33,38 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 2 || args[0] != "permissions" {
-		fmt.Fprintln(stderr, "usage: probectl-workflow-policy permissions WORKFLOW")
+	if len(args) == 0 {
+		printUsage(stderr)
 		return 2
 	}
+	switch args[0] {
+	case "permissions":
+		if len(args) != 2 {
+			printUsage(stderr)
+			return 2
+		}
+		return runPermissions(args[1], stdout, stderr)
+	case "images":
+		if len(args) < 2 {
+			printUsage(stderr)
+			return 2
+		}
+		return runImages(args[1:], stdout, stderr)
+	default:
+		printUsage(stderr)
+		return 2
+	}
+}
 
-	root, err := loadWorkflow(args[1])
+func runPermissions(path string, stdout, stderr io.Writer) int {
+	root, err := loadWorkflow(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "workflow-policy: %v\n", err)
 		return 1
 	}
 	records, err := permissionRecords(root)
 	if err != nil {
-		fmt.Fprintf(stderr, "workflow-policy: %s: %v\n", args[1], err)
+		fmt.Fprintf(stderr, "workflow-policy: %s: %v\n", path, err)
 		return 1
 	}
 	for _, record := range records {
@@ -56,6 +75,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s\t%s\t%s\n", record.scope, record.job, level)
 	}
 	return 0
+}
+
+func printUsage(stderr io.Writer) {
+	fmt.Fprintln(stderr, "usage:")
+	fmt.Fprintln(stderr, "  probectl-workflow-policy permissions WORKFLOW")
+	fmt.Fprintln(stderr, "  probectl-workflow-policy images WORKFLOW_OR_DIRECTORY [...]")
 }
 
 func loadWorkflow(path string) (*yaml.Node, error) {

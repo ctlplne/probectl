@@ -84,39 +84,8 @@ helm_control_image_contract_is_mutable() {
   return 1
 }
 
-workflow_image_records() {
-  local root="$1"
-
-  grep -rnE '^[[:space:]]*(-[[:space:]]+)?(container|image):[[:space:]]*[^[:space:]]' \
-    "$root" --include='*.yml' --include='*.yaml' || true
-}
-
-workflow_image_record_is_mutable() {
-  local record="$1"
-  local code
-  local val
-
-  code="${record#*:}"
-  code="${code#*:}"
-  code="${code#"${code%%[![:space:]]*}"}"
-  if [[ "$code" == -* ]]; then
-    code="${code#-}"
-    code="${code#"${code%%[![:space:]]*}"}"
-  fi
-  case "$code" in
-    container:*) val="${code#container:}" ;;
-    image:*) val="${code#image:}" ;;
-    *) return 1 ;;
-  esac
-  val="${val%%#*}"
-  val="$(echo "$val" | tr -d '[:space:]"'\''')"
-
-  [[ -z "$val" ]] && return 1
-  echo "$val" | grep -Eq '@sha256:[0-9a-fA-F]{64}$' && return 1
-  # Expressions and aliases are deliberately rejected. Without a YAML data-flow
-  # parser the gate cannot prove their eventual value is immutable, so it fails
-  # closed and asks the workflow author to place the digest at the execution site.
-  return 0
+workflow_images_are_immutable() {
+  go run ./cmd/probectl-workflow-policy images "$@"
 }
 
 if [[ "${1:-}" == "SELFTEST" ]]; then
@@ -203,13 +172,8 @@ jobs:
           - image: registry.example/kernel:6.6
     container: ${{ matrix.image }}
 YAML
-  mutable_workflow_images=0
-  while IFS= read -r record; do
-    workflow_image_record_is_mutable "$record" &&
-      mutable_workflow_images=$((mutable_workflow_images + 1))
-  done < <(workflow_image_records "$tmp/workflow-images.yml")
-  if [[ "$mutable_workflow_images" -ne 5 ]]; then
-    echo "SELFTEST broken (scalar/nested/service/matrix/indirect workflow images escaped: caught ${mutable_workflow_images}, want 5)"
+  if workflow_images_are_immutable "$tmp/workflow-images.yml" >/dev/null 2>&1; then
+    echo "SELFTEST broken (scalar/nested/service/matrix/indirect workflow images escaped)"
     exit 1
   fi
   cat > "$tmp/workflow-images-pinned.yml" <<'YAML'
@@ -229,12 +193,93 @@ jobs:
         include:
           - image: registry.example/kernel@sha256:3333333333333333333333333333333333333333333333333333333333333333
 YAML
-  while IFS= read -r record; do
-    if workflow_image_record_is_mutable "$record"; then
-      echo "SELFTEST broken (digest-pinned workflow image rejected: ${record})"
+  workflow_images_are_immutable "$tmp/workflow-images-pinned.yml" >/dev/null ||
+    { echo "SELFTEST broken (digest-pinned workflow image rejected)"; exit 1; }
+  cat >"$tmp/workflow-images-semantic-good.yml" <<YAML
+jobs: {
+  quoted: {
+    "container": "registry.example/quoted@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    services: {
+      database: {"image": "registry.example/database@sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+    },
+    steps: []
+  }
+}
+YAML
+  workflow_images_are_immutable "$tmp/workflow-images-semantic-good.yml" >/dev/null ||
+    { echo "SELFTEST broken (quoted/flow digest images rejected)"; exit 1; }
+  bad="$tmp/workflow-images-semantic-bad.yml"
+  for semantic_shape in quoted flow alias expression multiline merge non-string; do
+    case "$semantic_shape" in
+      quoted)
+        cat >"$bad" <<'YAML'
+jobs:
+  test:
+    services:
+      database:
+        "image": postgres:16
+    steps: []
+YAML
+        ;;
+      flow)
+        cat >"$bad" <<'YAML'
+jobs: {test: {container: {image: "registry.example/test:v1"}, steps: []}}
+YAML
+        ;;
+      alias)
+        cat >"$bad" <<'YAML'
+image: &image registry.example/test@sha256:0000000000000000000000000000000000000000000000000000000000000000
+jobs:
+  test:
+    container: *image
+    steps: []
+YAML
+        ;;
+      expression)
+        cat >"$bad" <<'YAML'
+jobs:
+  test:
+    container: ${{ matrix.image }}
+    steps: []
+YAML
+        ;;
+      multiline)
+        cat >"$bad" <<'YAML'
+jobs:
+  test:
+    services:
+      database:
+        image: >-
+          postgres:16
+    steps: []
+YAML
+        ;;
+      merge)
+        cat >"$bad" <<'YAML'
+defaults: &defaults {image: "postgres:16"}
+jobs:
+  test:
+    services:
+      database: {<<: *defaults}
+    steps: []
+YAML
+        ;;
+      non-string)
+        cat >"$bad" <<'YAML'
+jobs:
+  test:
+    services:
+      database:
+        image: {repository: postgres, tag: 16}
+    steps: []
+YAML
+        ;;
+    esac
+    if workflow_images_are_immutable "$bad" >/dev/null 2>&1; then
+      echo "SELFTEST broken (${semantic_shape} workflow image escaped semantic inspection)"
       exit 1
     fi
-  done < <(workflow_image_records "$tmp/workflow-images-pinned.yml")
+  done
   # SUPPLY-001: a production Compose PROBECTL_IMAGE default that is tag-only is
   # still mutable even when it is not :latest.
   cat > "$tmp/probectl.yml" <<'YAML'
@@ -490,12 +535,9 @@ done < <(grep -rnE '[A-Za-z]+Image:' deploy/helm --include='*.yaml' --include='*
 #    service images, and matrix image values all execute registry content outside
 #    the deploy/ scan. Require a literal digest for every scalar `container:` and
 #    every concrete `image:` value. Unresolved expressions fail closed.
-while IFS= read -r line; do
-  workflow_image_record_is_mutable "$line" || continue
-  echo "MUTABLE workflow container/service/matrix image (use a literal @sha256 digest; SUPPLY-002):"
-  echo "  $line"
+if ! workflow_images_are_immutable .github/workflows; then
   fail=1
-done < <(workflow_image_records .github/workflows)
+fi
 
 if [[ $fail -ne 0 ]]; then
   echo
