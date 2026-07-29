@@ -26,6 +26,79 @@ extract_job() {
   ' "$workflow"
 }
 
+list_jobs() {
+  local workflow="$1"
+
+  awk '
+    /^jobs:[[:space:]]*$/ { in_jobs=1; next }
+    in_jobs && /^[^[:space:]]/ { exit }
+    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      line=$0
+      sub(/^  /, "", line)
+      sub(/:[[:space:]]*$/, "", line)
+      print line
+    }
+  ' "$workflow"
+}
+
+workflow_has_write_permissions() {
+  local workflow="$1"
+
+  awk '
+    /^permissions:[[:space:]]*/ {
+      line=$0
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/"/, "", line)
+      gsub(sprintf("%c", 39), "", line)
+      if (line ~ /write-all/ || line ~ /(^|[{: ,])write([}, ]|$)/) {
+        write=1
+      }
+      in_permissions=(line ~ /^permissions:[[:space:]]*$/)
+      next
+    }
+    in_permissions && /^  [A-Za-z0-9_-]+:[[:space:]]*/ {
+      line=$0
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/"/, "", line)
+      gsub(sprintf("%c", 39), "", line)
+      if (line ~ /:[[:space:]]*write[[:space:]]*$/) {
+        write=1
+      }
+      next
+    }
+    in_permissions { in_permissions=0 }
+    END { exit write ? 0 : 1 }
+  ' "$workflow"
+}
+
+job_has_write_permissions() {
+  awk '
+    /^    permissions:[[:space:]]*/ {
+      line=$0
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/"/, "", line)
+      gsub(sprintf("%c", 39), "", line)
+      if (line ~ /write-all/ || line ~ /(^|[{: ,])write([}, ]|$)/) {
+        write=1
+      }
+      in_permissions=(line ~ /^    permissions:[[:space:]]*$/)
+      next
+    }
+    in_permissions && /^      [A-Za-z0-9_-]+:[[:space:]]*/ {
+      line=$0
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/"/, "", line)
+      gsub(sprintf("%c", 39), "", line)
+      if (line ~ /:[[:space:]]*write[[:space:]]*$/) {
+        write=1
+      }
+      next
+    }
+    in_permissions { in_permissions=0 }
+    END { exit write ? 0 : 1 }
+  '
+}
+
 job_permissions() {
   awk '
     /^    permissions:[[:space:]]*$/ { in_permissions=1; next }
@@ -85,6 +158,26 @@ check_workflow() {
   local permissions
   local upload_step
   local commands
+  local job
+  local job_block
+
+  if workflow_has_write_permissions "$workflow"; then
+    echo "workflow-permissions: workflow-level write authority is forbidden in ${workflow}" >&2
+    failed=1
+  fi
+
+  while IFS= read -r job; do
+    [[ -z "$job" ]] && continue
+    if ! job_block="$(extract_job "$workflow" "$job")"; then
+      echo "workflow-permissions: could not inspect job ${job} in ${workflow}" >&2
+      failed=1
+      continue
+    fi
+    if printf '%s\n' "$job_block" | job_has_write_permissions && [[ "$job" != "coverage-comment" ]]; then
+      echo "workflow-permissions: unclassified job ${job} has write authority" >&2
+      failed=1
+    fi
+  done < <(list_jobs "$workflow")
 
   if ! coverage="$(extract_job "$workflow" coverage)"; then
     echo "workflow-permissions: missing coverage job in ${workflow}" >&2
@@ -240,7 +333,27 @@ YAML
     exit 1
   fi
 
-  echo "workflow-permissions SELFTEST: OK (privilege co-location + commenter code execution rejected)"
+  for planted_step in \
+    '      - uses: actions/checkout@0000000000000000000000000000000000000000' \
+    '      - uses: example/untrusted-action@0000000000000000000000000000000000000000' \
+    '      - run: make test'; do
+    awk -v planted_step="$planted_step" '
+      { print }
+      END {
+        print "  planted-write:"
+        print "    permissions:"
+        print "      contents: write"
+        print "    steps:"
+        print planted_step
+      }
+    ' "$fixture" >"$bad"
+    if check_workflow "$bad" >/dev/null 2>&1; then
+      echo "workflow-permissions SELFTEST: unclassified write-capable job was accepted: ${planted_step}" >&2
+      exit 1
+    fi
+  done
+
+  echo "workflow-permissions SELFTEST: OK (all write-capable jobs classified; privilege co-location + commenter code execution rejected)"
 }
 
 if [[ "${1:-}" == "SELFTEST" ]]; then

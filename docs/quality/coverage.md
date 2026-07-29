@@ -29,7 +29,8 @@ numbers without downloading anything. That split is a security boundary:
 `coverage` checks out and executes PR code with `contents: read` only;
 `coverage-comment` may write to the pull request but does not checkout or
 execute repository code. The self-testing `workflow-permissions-gate` rejects
-any future re-combination of those powers.
+any future re-combination of those powers and enumerates every CI job so an
+unclassified write-capable job cannot bypass that separation.
 
 The scheduled workflows leave receipts too: `nightly.yml` uploads the
 `ingest-bench` results, and `security-scan.yml` uploads every scanner's raw
