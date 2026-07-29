@@ -49,6 +49,29 @@ func TestRemoteAuditorsFailClosedWithoutStore(t *testing.T) {
 	}
 }
 
+func TestRemoteEgressLogSanitizesEndpointProvenance(t *testing.T) {
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	err := egressAuditor(nil, log)(t.Context(), ai.EgressEvent{
+		TenantID: "tenant-a",
+		Endpoint: "https://log-user:log-secret@api.example/v1?api_key=query-secret#fragment-secret",
+		Model:    "openai:test",
+		Surface:  "rca",
+	})
+	if !errors.Is(err, ai.ErrEgressAuditUnavailable) {
+		t.Fatalf("egress auditor error = %v, want unavailable store", err)
+	}
+	got := logs.String()
+	if !strings.Contains(got, "https://api.example/v1") {
+		t.Fatalf("log omitted sanitized endpoint provenance: %s", got)
+	}
+	for _, secret := range []string{"log-user", "log-secret", "query-secret", "fragment-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("egress log disclosed endpoint credential %q: %s", secret, got)
+		}
+	}
+}
+
 func TestAuthorEgressPolicyStoreFailureIsDistinctFromMissingConsent(t *testing.T) {
 	allowed, err := tenantEgressPolicy(nil)(t.Context(), "tenant-a")
 	if allowed || !errors.Is(err, errTenantEgressPolicyUnavailable) {

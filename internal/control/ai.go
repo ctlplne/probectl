@@ -196,6 +196,9 @@ func tenantEgressPolicy(pool *pgxpool.Pool) ai.EgressPolicy {
 // stream: endpoint, model, and the DATA CATEGORIES that left (never content).
 func egressAuditor(pool *pgxpool.Pool, log *slog.Logger) ai.EgressAudit {
 	return func(ctx context.Context, ev ai.EgressEvent) error {
+		// Treat adapter-provided provenance as untrusted even though the shared
+		// gate already sanitizes it. This is the final log/audit sink.
+		ev.Endpoint = ai.SanitizeEndpointProvenance(ev.Endpoint)
 		action := "ai.remote_egress"
 		message := "ai remote egress"
 		if ev.Denied {

@@ -181,6 +181,34 @@ func TestRemoteModelEgressAllowedIsAudited(t *testing.T) {
 	}
 }
 
+func TestRemoteModelAuditSanitizesEndpointProvenance(t *testing.T) {
+	const rawEndpoint = "https://audit-user:audit-secret@api.example/v1?api_key=query-secret#fragment-secret"
+	m := &fakeRemoteModel{endpoint: rawEndpoint}
+	var events []EgressEvent
+	a := NewAnalyzer(egressEngine(), WithModel(m),
+		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+		WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
+			events = append(events, ev)
+			return nil
+		}),
+	)
+
+	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(events))
+	}
+	if got := events[0].Endpoint; got != "https://api.example/v1" {
+		t.Fatalf("sanitized audit endpoint = %q, want credential-free provenance", got)
+	}
+	for _, secret := range []string{"audit-user", "audit-secret", "query-secret", "fragment-secret"} {
+		if strings.Contains(events[0].Endpoint, secret) {
+			t.Fatalf("audit endpoint disclosed %q: %q", secret, events[0].Endpoint)
+		}
+	}
+}
+
 func TestRemoteRCARequiresDurableAuditBeforeDispatch(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
 	a := NewAnalyzer(egressEngine(), WithModel(m),

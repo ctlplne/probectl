@@ -1121,8 +1121,8 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 	}
 	if cfg.AIModelEnabled() && cfg.AIModelEndpoint != "" {
 		u, err := url.Parse(strings.TrimSpace(cfg.AIModelEndpoint))
-		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
-			l.errf("PROBECTL_AI_MODEL_ENDPOINT must be an http(s) URL with a host (remote endpoints must be https; loopback may be http for a local model)")
+		if err != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			l.errf("PROBECTL_AI_MODEL_ENDPOINT must be an http(s) URL with a host and no embedded credentials (remote endpoints must be https; loopback may be http for a local model)")
 		} else if u.Scheme != "https" && !isLoopbackHostname(u.Hostname()) {
 			l.errf("PROBECTL_AI_MODEL_ENDPOINT must be https:// for a remote AI model endpoint; plaintext http:// is allowed only for loopback local models")
 		}

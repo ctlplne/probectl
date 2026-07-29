@@ -9,7 +9,9 @@ package ai
 import (
 	"context"
 	"errors"
+	"net/url"
 	"sort"
+	"strings"
 )
 
 // Remote-model egress controls (U-013). A REMOTE model means tenant telemetry
@@ -77,10 +79,31 @@ var ErrEgressDenied = errors.New(
 // durably. Callers must fail closed before any tenant data crosses the boundary.
 var ErrEgressAuditUnavailable = errors.New("ai: durable egress audit is unavailable")
 
+// SanitizeEndpointProvenance returns the bounded endpoint identity that may be
+// written to logs or immutable audit records. Request URLs can carry userinfo,
+// query credentials, or fragments; provenance needs none of those values.
+func SanitizeEndpointProvenance(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "mcp-client" {
+		return endpoint
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "redacted-endpoint"
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	u.RawFragment = ""
+	return strings.TrimRight(u.String(), "/")
+}
+
 func emitEgressAudit(ctx context.Context, audit EgressAudit, ev EgressEvent) error {
 	if audit == nil {
 		return ErrEgressAuditUnavailable
 	}
+	ev.Endpoint = SanitizeEndpointProvenance(ev.Endpoint)
 	if err := audit(ctx, ev); err != nil {
 		return errors.Join(ErrEgressAuditUnavailable, err)
 	}

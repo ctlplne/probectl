@@ -70,11 +70,11 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 		return nil, fmt.Errorf("ai: model kind is required")
 	}
 	u, err := url.Parse(strings.TrimSpace(cfg.Endpoint))
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return nil, fmt.Errorf("ai: invalid model endpoint %q", cfg.Endpoint)
+	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return nil, fmt.Errorf("ai: invalid model endpoint")
 	}
 	if u.Scheme != "https" && !isLoopbackHost(u.Hostname()) {
-		return nil, fmt.Errorf("ai: model endpoint must be https for non-loopback host %q (refusing plaintext)", u.Hostname())
+		return nil, fmt.Errorf("ai: model endpoint must use https for non-loopback hosts")
 	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -99,8 +99,8 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 // any non-loopback endpoint, false for a co-located Ollama/vLLM.
 func (m *HTTPModel) RemoteEgress() bool { return m.remote }
 
-// Endpoint returns the configured model endpoint (egress audit provenance).
-func (m *HTTPModel) Endpoint() string { return m.endpoint }
+// Endpoint returns credential-free model endpoint provenance for egress audit.
+func (m *HTTPModel) Endpoint() string { return SanitizeEndpointProvenance(m.endpoint) }
 
 // Name identifies the adapter + model for provenance.
 func (m *HTTPModel) Name() string {

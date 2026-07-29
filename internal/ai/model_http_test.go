@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -104,6 +105,25 @@ func TestHTTPModelTLSPolicy(t *testing.T) {
 	}
 	if _, err := NewHTTPModel(HTTPModelConfig{Endpoint: "https://x"}); err == nil {
 		t.Error("missing kind should error")
+	}
+}
+
+func TestHTTPModelRejectsCredentialBearingEndpointWithoutDisclosure(t *testing.T) {
+	for name, endpoint := range map[string]string{
+		"remote":   "https://model-user:model-secret@api.example.com/v1",
+		"loopback": "http://local-user:local-secret@127.0.0.1:11434",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewHTTPModel(HTTPModelConfig{Kind: KindOpenAI, Endpoint: endpoint})
+			if err == nil {
+				t.Fatal("credential-bearing model endpoint should fail closed")
+			}
+			for _, secret := range []string{"model-user", "model-secret", "local-user", "local-secret", endpoint} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("model validation error disclosed endpoint credential %q: %v", secret, err)
+				}
+			}
+		})
 	}
 }
 

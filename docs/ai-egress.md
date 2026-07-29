@@ -15,6 +15,13 @@ endpoint — `openai`, `anthropic`, or an `ollama` pointed at a non-loopback
 host — the sovereignty story changes: to answer a question, some data leaves
 your network and lands on a computer someone else operates.
 
+The endpoint must be an `http(s)` URL with a host. URL userinfo such as
+`https://user:password@model.example` is rejected at both configuration and
+adapter construction; credentials belong in the dedicated secret-backed model
+token setting, never in the URL. Validation errors do not echo the rejected
+endpoint. Endpoint provenance written to logs or the immutable egress audit is
+sanitized again at the sink: userinfo, query strings, and fragments are removed.
+
 This page is the **disclosure** of exactly what leaves, and the three
 independent controls that stand in front of it — two locks (nothing leaves
 until *both* the operator and the tenant have said yes) and a camera (every

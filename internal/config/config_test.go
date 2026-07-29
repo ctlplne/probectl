@@ -1008,6 +1008,30 @@ func TestAIConfig(t *testing.T) {
 		t.Error("remote https provider should enable an external model")
 	}
 
+	// URL userinfo is an embedded credential. Reject it at config load without
+	// copying either the username, password, or full endpoint into the error.
+	for name, endpoint := range map[string]string{
+		"remote":   "https://config-user:config-secret@model.example.com/v1",
+		"loopback": "http://local-user:local-secret@localhost:11434",
+	} {
+		t.Run("credential-bearing endpoint "+name, func(t *testing.T) {
+			_, err := Load(envFunc(map[string]string{
+				"PROBECTL_AI_MODEL_PROVIDER": "openai",
+				"PROBECTL_AI_MODEL_ENDPOINT": endpoint,
+				"PROBECTL_AI_MODEL_NAME":     "gpt-test",
+				"PROBECTL_AI_EGRESS_ACK":     AIEgressAckPhrase,
+			}))
+			if err == nil {
+				t.Fatal("credential-bearing AI endpoint should fail closed")
+			}
+			for _, secret := range []string{"config-user", "config-secret", "local-user", "local-secret", endpoint} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("config error disclosed endpoint credential %q: %v", secret, err)
+				}
+			}
+		})
+	}
+
 	// The egress ack is not a plaintext exemption: remote endpoints must be HTTPS.
 	if _, err := Load(envFunc(map[string]string{
 		"PROBECTL_AI_MODEL_PROVIDER": "openai",
