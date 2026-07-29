@@ -239,7 +239,12 @@ func TestBridgeDeliversOverMemoryBus(t *testing.T) {
 			return nil
 		})
 	}()
-	time.Sleep(25 * time.Millisecond) // let the subscriber register (live pub/sub)
+	waitCtx, stopWaiting := context.WithTimeout(ctx, 2*time.Second)
+	if !b.WaitForSubscribers(waitCtx, bus.BGPEventsTopic, 1) {
+		stopWaiting()
+		t.Fatal("BGP subscriber did not register before the readiness deadline")
+	}
+	stopWaiting()
 
 	br := NewBridge(b, discardLogger())
 	if _, err := br.Ingest(ctx, strings.NewReader(originChange+"\n")); err != nil {

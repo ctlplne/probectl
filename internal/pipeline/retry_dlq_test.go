@@ -98,7 +98,12 @@ func TestStoreWriteExhaustionDeadLetters(t *testing.T) {
 			return nil
 		})
 	}()
-	time.Sleep(20 * time.Millisecond) // let the memory-bus subscription attach
+	waitCtx, stopWaiting := context.WithTimeout(ctx, 2*time.Second)
+	if !b.WaitForSubscribers(waitCtx, bus.DeadLetterResultsTopic, 1) {
+		stopWaiting()
+		t.Fatal("dead-letter subscriber did not register before the readiness deadline")
+	}
+	stopWaiting()
 
 	msg, want := testResult(t)
 	if err := c.handle(context.Background(), msg); err != nil {

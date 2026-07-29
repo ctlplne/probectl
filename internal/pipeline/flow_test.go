@@ -39,7 +39,12 @@ func TestFlowConsumerEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = c.Run(ctx) }()
-	time.Sleep(20 * time.Millisecond) // let the subscription attach
+	waitCtx, stopWaiting := context.WithTimeout(ctx, 2*time.Second)
+	if !b.WaitForSubscribers(waitCtx, bus.FlowEventsTopic, 1) {
+		stopWaiting()
+		t.Fatal("flow consumer did not subscribe before the readiness deadline")
+	}
+	stopWaiting()
 
 	end := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{
@@ -108,7 +113,12 @@ func TestFlowConsumerNilEnricher(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = c.Run(ctx) }()
-	time.Sleep(20 * time.Millisecond)
+	waitCtx, stopWaiting := context.WithTimeout(ctx, 2*time.Second)
+	if !b.WaitForSubscribers(waitCtx, bus.FlowEventsTopic, 1) {
+		stopWaiting()
+		t.Fatal("flow consumer did not subscribe before the readiness deadline")
+	}
+	stopWaiting()
 
 	end := time.Now().UTC()
 	value, _ := proto.Marshal(&flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{

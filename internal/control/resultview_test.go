@@ -156,7 +156,12 @@ func TestLatestResultsEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = consumer.Run(ctx) }()
-	time.Sleep(20 * time.Millisecond)
+	waitCtx, stopWaiting := context.WithTimeout(ctx, 2*time.Second)
+	if !b.WaitForSubscribers(waitCtx, bus.NetworkResultsTopic, 1) {
+		stopWaiting()
+		t.Fatal("result-view consumer did not subscribe before the readiness deadline")
+	}
+	stopWaiting()
 
 	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	def := tenancy.DefaultTenantID.String()
