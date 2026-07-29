@@ -63,8 +63,9 @@ type Target struct {
 	Database string
 }
 
-// TargetRouter resolves tenant storage. Errors fail the operation closed.
-type TargetRouter func(tenantID string) (Target, error)
+// TargetRouter resolves tenant storage using the operation context. Errors fail
+// the operation closed.
+type TargetRouter func(ctx context.Context, tenantID string) (Target, error)
 
 var (
 	chIdentRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
@@ -109,14 +110,14 @@ func (c *ClickHouse) WithRouter(router TargetRouter) *ClickHouse { c.router = ro
 // WithTenantScoping enables the custom-setting used by the reader row policy.
 func (c *ClickHouse) WithTenantScoping(enabled bool) *ClickHouse { c.tenantScoped = enabled; return c }
 
-func (c *ClickHouse) route(tenantID string) (Target, error) {
+func (c *ClickHouse) route(ctx context.Context, tenantID string) (Target, error) {
 	if tenantID == "" {
 		return Target{}, ErrNoTenant
 	}
 	if c.router == nil {
 		return Target{}, nil
 	}
-	return c.router(tenantID)
+	return c.router(ctx, tenantID)
 }
 
 // EnsureTenantDatabase provisions the endpoint table in a siloed database.
@@ -182,7 +183,7 @@ func (c *ClickHouse) Insert(ctx context.Context, events []Event) error {
 	}
 	groups := map[Target][]Event{}
 	for _, event := range events {
-		target, err := c.route(event.TenantID)
+		target, err := c.route(ctx, event.TenantID)
 		if err != nil {
 			return fmt.Errorf("endpointstore: route tenant %s: %w", event.TenantID, err)
 		}
@@ -224,7 +225,7 @@ func eventID(event Event) string {
 
 // Latest returns only one tenant's newest event per endpoint signal identity.
 func (c *ClickHouse) Latest(ctx context.Context, tenantID string) ([]Event, error) {
-	target, err := c.route(tenantID)
+	target, err := c.route(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +299,7 @@ func parseCHTime(raw string) (time.Time, error) {
 
 // PruneTenantBefore enforces a tenant-specific tighter retention window.
 func (c *ClickHouse) PruneTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) (int, error) {
-	target, err := c.route(tenantID)
+	target, err := c.route(ctx, tenantID)
 	if err != nil {
 		return 0, err
 	}
@@ -322,7 +323,7 @@ func (c *ClickHouse) PruneTenantBefore(ctx context.Context, tenantID string, cut
 // DeleteTenant erases a pooled tenant's rows or drops its routed database, then
 // verifies zero remaining rows.
 func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, error) {
-	target, err := c.route(tenantID)
+	target, err := c.route(ctx, tenantID)
 	if err != nil {
 		return -1, err
 	}
@@ -345,7 +346,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 
 // ExportTenant streams one tenant's event history as JSONL.
 func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Writer) (int64, error) {
-	target, err := c.route(tenantID)
+	target, err := c.route(ctx, tenantID)
 	if err != nil {
 		return 0, err
 	}

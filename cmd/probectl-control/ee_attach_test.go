@@ -77,3 +77,17 @@ func TestLicenseReadOnlyMutationCapabilityInstalledOnceAtEEAttach(t *testing.T) 
 		}
 	}
 }
+
+func TestEERoutedStoresPropagateOperationContext(t *testing.T) {
+	src, err := os.ReadFile("ee_attach.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	if strings.Contains(text, "router.TargetsFor(context.Background(), tenantID)") {
+		t.Fatal("EE target routing discards the caller's operation context")
+	}
+	if got := strings.Count(text, "router.TargetsFor(ctx, tenantID)"); got != 5 {
+		t.Fatalf("context-aware EE target adapters = %d, want all five stores", got)
+	}
+}

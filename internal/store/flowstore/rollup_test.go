@@ -200,7 +200,7 @@ func TestFlowRollupBackfillControlIsRoutedAndBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		if tenant == "siloed" {
 			return Target{Database: "probectl_t_roll"}, nil
 		}

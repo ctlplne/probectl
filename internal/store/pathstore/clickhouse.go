@@ -135,10 +135,10 @@ type Target struct {
 	Database string
 }
 
-// TargetRouter resolves a tenant's path-store target. FAIL CLOSED: a routing
-// error fails the operation rather than landing a siloed tenant's rows in the
-// pooled tables.
-type TargetRouter func(tenantID string) (Target, error)
+// TargetRouter resolves a tenant's path-store target using the operation
+// context. FAIL CLOSED: a routing error fails the operation rather than landing
+// a siloed tenant's rows in the pooled tables.
+type TargetRouter func(ctx context.Context, tenantID string) (Target, error)
 
 // qualify renders <database>.<table> for a routed target ("" db = pooled).
 func qualify(t Target, table string) (string, error) {
@@ -168,11 +168,11 @@ type ClickHouse struct {
 // main.go attach seam). nil keeps everything pooled.
 func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse { c.router = r; return c }
 
-func (c *ClickHouse) route(tenantID string) (Target, error) {
+func (c *ClickHouse) route(ctx context.Context, tenantID string) (Target, error) {
 	if c.router == nil {
 		return Target{}, nil
 	}
-	return c.router(tenantID)
+	return c.router(ctx, tenantID)
 }
 
 func (c *ClickHouse) baseFor(base string) string {
@@ -452,7 +452,7 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 		if it.TenantID == "" {
 			return ErrNoTenant
 		}
-		t, err := c.route(it.TenantID)
+		t, err := c.route(ctx, it.TenantID)
 		if err != nil {
 			return fmt.Errorf("pathstore: route tenant %s: %w", it.TenantID, err)
 		}
@@ -530,7 +530,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 	if tenantID == "" {
 		return 0, 0, ErrNoTenant
 	}
-	t, rerr := c.route(tenantID)
+	t, rerr := c.route(ctx, tenantID)
 	if rerr != nil {
 		return 0, -1, rerr
 	}
@@ -565,7 +565,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	if tenantID == "" {
 		return nil, false, ErrNoTenant
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -655,7 +655,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 	if tenantID == "" {
 		return nil, ErrNoTenant
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}

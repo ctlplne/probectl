@@ -64,10 +64,10 @@ type Target struct {
 	Database string
 }
 
-// TargetRouter resolves a tenant's otel-store target. FAIL CLOSED: a routing
-// error fails the operation rather than landing a siloed tenant's PII in the
-// pooled tables.
-type TargetRouter func(tenantID string) (Target, error)
+// TargetRouter resolves a tenant's otel-store target using the operation
+// context. FAIL CLOSED: a routing error fails the operation rather than landing
+// a siloed tenant's PII in the pooled tables.
+type TargetRouter func(ctx context.Context, tenantID string) (Target, error)
 
 // qualify renders <database>.<table> for a routed target ("" db = pooled).
 func qualify(t Target, table string) (string, error) {
@@ -260,11 +260,11 @@ func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = 
 func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse { c.router = r; return c }
 
 // route resolves one tenant's target (pooled when no router is installed).
-func (c *ClickHouse) route(tenantID string) (Target, error) {
+func (c *ClickHouse) route(ctx context.Context, tenantID string) (Target, error) {
 	if c.router == nil {
 		return Target{}, nil
 	}
-	return c.router(tenantID)
+	return c.router(ctx, tenantID)
 }
 
 func (c *ClickHouse) baseFor(base string) string {
@@ -378,7 +378,7 @@ func (c *ClickHouse) WriteSpans(ctx context.Context, spans []Span) error {
 		if spans[i].TenantID == "" {
 			continue // never store an unowned row
 		}
-		t, err := c.route(spans[i].TenantID)
+		t, err := c.route(ctx, spans[i].TenantID)
 		if err != nil {
 			return fmt.Errorf("otelstore: route tenant %s: %w", spans[i].TenantID, err)
 		}
@@ -494,7 +494,7 @@ func (c *ClickHouse) WriteLogs(ctx context.Context, recs []LogRecord) error {
 		if recs[i].TenantID == "" {
 			continue
 		}
-		t, err := c.route(recs[i].TenantID)
+		t, err := c.route(ctx, recs[i].TenantID)
 		if err != nil {
 			return fmt.Errorf("otelstore: route tenant %s: %w", recs[i].TenantID, err)
 		}
@@ -554,7 +554,7 @@ func (c *ClickHouse) QuerySpans(ctx context.Context, tenant string, q SpanQuery)
 	if tenant == "" {
 		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
 	}
-	t, err := c.route(tenant)
+	t, err := c.route(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -608,7 +608,7 @@ func (c *ClickHouse) QueryLogs(ctx context.Context, tenant string, q LogQuery) (
 	if tenant == "" {
 		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
 	}
-	t, err := c.route(tenant)
+	t, err := c.route(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -664,7 +664,7 @@ func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, r
 	if tenant == "" {
 		return 0, -1, ErrNoTenant // TENANT-003: never mutate across all tenants
 	}
-	t, err := c.route(tenant)
+	t, err := c.route(ctx, tenant)
 	if err != nil {
 		return 0, -1, err
 	}
@@ -707,7 +707,7 @@ func (c *ClickHouse) EraseSubject(ctx context.Context, tenant, subject string) (
 	if subject == "" {
 		return 0, -1, nil
 	}
-	t, err := c.route(tenant)
+	t, err := c.route(ctx, tenant)
 	if err != nil {
 		return 0, -1, err
 	}
@@ -749,7 +749,7 @@ func (c *ClickHouse) ExportSubject(ctx context.Context, tenant, subject string, 
 	if subject == "" {
 		return 0, 0, nil
 	}
-	t, err := c.route(tenant)
+	t, err := c.route(ctx, tenant)
 	if err != nil {
 		return 0, 0, err
 	}

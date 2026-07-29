@@ -45,10 +45,10 @@ type Target struct {
 	Database string
 }
 
-// TargetRouter resolves a tenant's eBPF-store target. It must FAIL CLOSED: a
-// routing error fails the operation rather than silently landing a siloed
-// tenant's rows in the pooled table.
-type TargetRouter func(tenantID string) (Target, error)
+// TargetRouter resolves a tenant's eBPF-store target using the operation
+// context. It must FAIL CLOSED: a routing error fails the operation rather than
+// silently landing a siloed tenant's rows in the pooled table.
+type TargetRouter func(ctx context.Context, tenantID string) (Target, error)
 
 func tableFor(t Target) (string, error) {
 	if t.Database == "" {
@@ -83,11 +83,11 @@ func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = 
 func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse { c.router = r; return c }
 
 // route resolves one tenant's target (pooled when no router is installed).
-func (c *ClickHouse) route(tenantID string) (Target, error) {
+func (c *ClickHouse) route(ctx context.Context, tenantID string) (Target, error) {
 	if c.router == nil {
 		return Target{}, nil
 	}
-	return c.router(tenantID)
+	return c.router(ctx, tenantID)
 }
 
 func (c *ClickHouse) baseFor(base string) string {
@@ -221,7 +221,7 @@ func (c *ClickHouse) Insert(ctx context.Context, edges []Edge) error {
 		if edges[i].TenantID == "" {
 			continue // unscoped rows are dropped fail-closed
 		}
-		t, err := c.route(edges[i].TenantID)
+		t, err := c.route(ctx, edges[i].TenantID)
 		if err != nil {
 			return fmt.Errorf("ebpfstore: route tenant %s: %w", edges[i].TenantID, err)
 		}
@@ -254,7 +254,7 @@ func (c *ClickHouse) TopEdges(ctx context.Context, tenantID string, q EdgeQuery)
 	if tenantID == "" {
 		return nil, ErrNoTenant
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 	if tenantID == "" {
 		return 0, ErrNoTenant
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return -1, err
 	}

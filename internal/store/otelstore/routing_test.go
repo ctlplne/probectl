@@ -23,6 +23,23 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
 
+func TestOTelTargetRouterReceivesOperationContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	c := (&ClickHouse{}).WithRouter(func(got context.Context, tenantID string) (Target, error) {
+		called = true
+		if tenantID != "tenant-a" {
+			t.Fatalf("router tenant = %q, want tenant-a", tenantID)
+		}
+		return Target{}, got.Err()
+	})
+	_, err := c.QuerySpans(ctx, "tenant-a", SpanQuery{})
+	if !called || !errors.Is(err, context.Canceled) {
+		t.Fatalf("operation context did not reach OTel router: called=%v err=%v", called, err)
+	}
+}
+
 // TENANT-001: a siloed tenant's spans/logs (highest PII) must route to its
 // per-tenant database (and residency data plane), not the shared pooled tables.
 func TestOtelWriteRoutesPerTarget(t *testing.T) {
@@ -45,7 +62,7 @@ func TestOtelWriteRoutesPerTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		switch tenant {
 		case "siloed":
 			return Target{Database: "probectl_t_abc"}, nil
@@ -229,7 +246,7 @@ func TestOtelQueryRoutesToTenantStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		if tenant == "siloed" {
 			return Target{Database: "probectl_t_x"}, nil
 		}

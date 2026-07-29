@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,5 +108,128 @@ func TestRouterUnknownTenantFailsClosed(t *testing.T) {
 
 	if _, err := r.TargetsFor(context.Background(), "missing"); !errors.Is(err, ErrUnknownTenant) {
 		t.Fatalf("unknown tenant must fail closed with ErrUnknownTenant, got %v", err)
+	}
+}
+
+func TestRouterCanceledOrExpiredRefreshNeverServesStale(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		context func(t *testing.T) context.Context
+		wantErr error
+	}{
+		{
+			name: "canceled",
+			context: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			wantErr: context.Canceled,
+		},
+		{
+			name: "deadline",
+			context: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			wantErr: context.DeadlineExceeded,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ttl := time.Minute
+			r := NewRouter(nil, nil, ttl)
+			now := time.Unix(1_750_000_000, 0)
+			r.now = func() time.Time { return now }
+			r.fetch = func(context.Context) (map[string]registryRow, error) {
+				return map[string]registryRow{
+					"tenant-a": {slug: "a", status: "active", model: tenancy.IsolationSiloed},
+				}, nil
+			}
+			if _, err := r.TargetsFor(context.Background(), "tenant-a"); err != nil {
+				t.Fatalf("seed snapshot: %v", err)
+			}
+
+			now = now.Add(ttl + time.Second) // stale, but still within stale grace.
+			r.fetch = func(ctx context.Context) (map[string]registryRow, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			if _, err := r.TargetsFor(tc.context(t), "tenant-a"); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("refresh error = %v, want %v rather than stale fallback", err, tc.wantErr)
+			}
+			if stats := r.Stats(); stats.StaleServes != 0 {
+				t.Fatalf("canceled refresh counted as stale success: %+v", stats)
+			}
+		})
+	}
+}
+
+func TestRouterBlockedRefreshDoesNotBlockSecondTenantOrOverwriteNewerSnapshot(t *testing.T) {
+	r := NewRouter(nil, nil, time.Minute)
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var fetches atomic.Int32
+	r.fetch = func(context.Context) (map[string]registryRow, error) {
+		switch fetches.Add(1) {
+		case 1:
+			close(firstStarted)
+			<-releaseFirst
+			// This older snapshot must not overwrite the newer second fetch.
+			return map[string]registryRow{
+				"tenant-a": {slug: "a", status: "active", model: tenancy.IsolationSiloed},
+			}, nil
+		default:
+			return map[string]registryRow{
+				"tenant-a": {slug: "a", status: "active", model: tenancy.IsolationSiloed},
+				"tenant-b": {slug: "b", status: "active", model: tenancy.IsolationPooled},
+			}, nil
+		}
+	}
+
+	type result struct {
+		targets tenancy.Targets
+		err     error
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		targets, err := r.TargetsFor(context.Background(), "tenant-a")
+		firstDone <- result{targets: targets, err: err}
+	}()
+	<-firstStarted
+
+	secondDone := make(chan result, 1)
+	go func() {
+		targets, err := r.TargetsFor(context.Background(), "tenant-b")
+		secondDone <- result{targets: targets, err: err}
+	}()
+
+	var second result
+	select {
+	case second = <-secondDone:
+	case <-time.After(200 * time.Millisecond):
+		close(releaseFirst)
+		<-firstDone
+		<-secondDone
+		t.Fatal("tenant-b routing blocked behind tenant-a's unbounded registry refresh")
+	}
+	if second.err != nil || second.targets.Model != tenancy.IsolationPooled {
+		close(releaseFirst)
+		<-firstDone
+		t.Fatalf("tenant-b route = %+v, %v", second.targets, second.err)
+	}
+
+	close(releaseFirst)
+	first := <-firstDone
+	if first.err != nil || first.targets.Model != tenancy.IsolationSiloed {
+		t.Fatalf("tenant-a route = %+v, %v", first.targets, first.err)
+	}
+	if fetches.Load() < 2 {
+		t.Fatalf("blocked refresh serialized all tenants: fetches=%d", fetches.Load())
+	}
+	if targets, err := r.TargetsFor(context.Background(), "tenant-b"); err != nil || targets.Model != tenancy.IsolationPooled {
+		t.Fatalf("older refresh overwrote newer tenant-b snapshot: targets=%+v err=%v", targets, err)
 	}
 }

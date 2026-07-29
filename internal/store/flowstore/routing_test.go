@@ -32,6 +32,25 @@ func TestTableForRouting(t *testing.T) {
 	}
 }
 
+func TestFlowTargetRouterReceivesOperationContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	c := (&ClickHouse{}).WithRouter(func(got context.Context, tenantID string) (Target, error) {
+		called = true
+		if tenantID != "tenant-a" {
+			t.Fatalf("router tenant = %q, want tenant-a", tenantID)
+		}
+		return Target{}, got.Err()
+	})
+	_, err := c.TopTalkers(ctx, TopQuery{
+		TenantID: "tenant-a", By: BySrc, Limit: 1, Window: time.Minute, Now: time.Now(),
+	})
+	if !called || !errors.Is(err, context.Canceled) {
+		t.Fatalf("operation context did not reach flow router: called=%v err=%v", called, err)
+	}
+}
+
 // TestInsertRoutesPerTarget proves the S-T2 separation property at the store:
 // one mixed batch splits into per-target INSERTs — a siloed tenant's rows go
 // to its database (on its data plane), pooled rows to the shared table, and a
@@ -55,7 +74,7 @@ func TestInsertRoutesPerTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		switch tenant {
 		case "siloed-tenant":
 			return Target{Database: "probectl_t_abc"}, nil
@@ -165,7 +184,7 @@ func TestQueryRoutesToTenantStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		if tenant == "siloed" {
 			return Target{Database: "probectl_t_x"}, nil
 		}

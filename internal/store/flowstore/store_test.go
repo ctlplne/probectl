@@ -457,7 +457,7 @@ func TestInsertRejectsTenantlessRowsBeforeWriteOrRoute(t *testing.T) {
 	}
 
 	routed := false
-	c := (&ClickHouse{}).WithRouter(func(string) (Target, error) {
+	c := (&ClickHouse{}).WithRouter(func(context.Context, string) (Target, error) {
 		routed = true
 		return Target{}, nil
 	})

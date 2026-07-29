@@ -7,6 +7,8 @@
 package endpointstore
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -27,5 +29,22 @@ func TestEndpointDurableMigrationTenantLedAndIdempotent(t *testing.T) {
 		if !strings.Contains(ddl, required) {
 			t.Fatalf("endpoint v1 migration missing %q:\n%s", required, ddl)
 		}
+	}
+}
+
+func TestEndpointTargetRouterReceivesOperationContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	c := (&ClickHouse{}).WithRouter(func(got context.Context, tenantID string) (Target, error) {
+		called = true
+		if tenantID != "tenant-a" {
+			t.Fatalf("router tenant = %q, want tenant-a", tenantID)
+		}
+		return Target{}, got.Err()
+	})
+	_, err := c.Latest(ctx, "tenant-a")
+	if !called || !errors.Is(err, context.Canceled) {
+		t.Fatalf("operation context did not reach endpoint router: called=%v err=%v", called, err)
 	}
 }

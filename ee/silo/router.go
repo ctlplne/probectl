@@ -39,6 +39,7 @@ type Router struct {
 	mu          sync.Mutex
 	byID        map[string]registryRow
 	fetched     time.Time
+	generation  uint64
 	staleServes uint64
 	lastErr     string
 }
@@ -87,6 +88,7 @@ func NewRouter(pool *pgxpool.Pool, planes map[string]DataPlane, ttl time.Duratio
 func (r *Router) Invalidate() {
 	r.mu.Lock()
 	r.fetched = time.Time{}
+	r.generation++
 	r.mu.Unlock()
 }
 
@@ -96,27 +98,75 @@ func (r *Router) Invalidate() {
 // Beyond that the router refuses to answer (fail closed) rather than route
 // on ancient state: a siloed tenant must never ride an outdated registry.
 func (r *Router) load(ctx context.Context) (map[string]registryRow, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.now().Sub(r.fetched) < r.ttl {
-		return r.byID, nil
-	}
-	fresh, err := r.fetch(ctx)
-	if err != nil {
-		age := r.now().Sub(r.fetched)
-		r.lastErr = err.Error()
-		if !r.fetched.IsZero() && age < 2*r.ttl {
-			// Brief registry blip: serve the known snapshot, but say so.
-			r.staleServes++
-			slog.Warn("silo: tenant registry unavailable — serving STALE snapshot (U-090)",
-				"age", age, "stale_cap", 2*r.ttl, "error", err)
-			return r.byID, nil
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("silo: tenant registry refresh canceled: %w", err)
 		}
-		return nil, fmt.Errorf("silo: tenant registry unavailable and the cached snapshot is too old to trust (age %s > stale cap %s): %w",
-			age, 2*r.ttl, err)
+
+		// Snapshot the cache state, then release the global router mutex BEFORE
+		// the registry query. Each caller may refresh independently: one slow
+		// data-plane operation must not convoy unrelated tenants behind it.
+		r.mu.Lock()
+		now := r.now()
+		if now.Sub(r.fetched) < r.ttl {
+			snapshot := r.byID
+			r.mu.Unlock()
+			return snapshot, nil
+		}
+		generation := r.generation
+		r.mu.Unlock()
+
+		fresh, fetchErr := r.fetch(ctx)
+		if err := ctx.Err(); err != nil {
+			// A caller cancellation/deadline is not registry degradation and
+			// must never be converted into a successful stale-cache response.
+			return nil, fmt.Errorf("silo: tenant registry refresh canceled: %w", err)
+		}
+		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("silo: tenant registry refresh canceled: %w", fetchErr)
+		}
+
+		r.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			r.mu.Unlock()
+			return nil, fmt.Errorf("silo: tenant registry refresh canceled: %w", err)
+		}
+		if generation != r.generation {
+			// Invalidate happened while this query was in flight. Its result
+			// predates the lifecycle change, so discard it and fetch again.
+			r.mu.Unlock()
+			continue
+		}
+
+		now = r.now()
+		if now.Sub(r.fetched) < r.ttl {
+			// Another caller published a fresh snapshot while this fetch was
+			// running. Keep the first completed snapshot rather than letting a
+			// slower, potentially older query overwrite it.
+			snapshot := r.byID
+			r.mu.Unlock()
+			return snapshot, nil
+		}
+		if fetchErr != nil {
+			age := now.Sub(r.fetched)
+			r.lastErr = fetchErr.Error()
+			if !r.fetched.IsZero() && age < 2*r.ttl {
+				// Brief registry blip: serve the known snapshot, but say so.
+				r.staleServes++
+				snapshot := r.byID
+				r.mu.Unlock()
+				slog.Warn("silo: tenant registry unavailable — serving STALE snapshot (U-090)",
+					"age", age, "stale_cap", 2*r.ttl, "error", fetchErr)
+				return snapshot, nil
+			}
+			r.mu.Unlock()
+			return nil, fmt.Errorf("silo: tenant registry unavailable and the cached snapshot is too old to trust (age %s > stale cap %s): %w",
+				age, 2*r.ttl, fetchErr)
+		}
+		r.byID, r.fetched, r.lastErr = fresh, now, ""
+		r.mu.Unlock()
+		return fresh, nil
 	}
-	r.byID, r.fetched, r.lastErr = fresh, r.now(), ""
-	return r.byID, nil
 }
 
 // fetchRegistry reads the tenant registry as the least-privilege provider role.

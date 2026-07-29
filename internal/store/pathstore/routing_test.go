@@ -26,6 +26,23 @@ func mkPath() *path.Path {
 		Links: []path.Link{{TTL: 1, From: "a", To: "b"}}}
 }
 
+func TestPathTargetRouterReceivesOperationContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	c := (&ClickHouse{}).WithRouter(func(got context.Context, tenantID string) (Target, error) {
+		called = true
+		if tenantID != "tenant-a" {
+			t.Fatalf("router tenant = %q, want tenant-a", tenantID)
+		}
+		return Target{}, got.Err()
+	})
+	_, _, err := c.Latest(ctx, "tenant-a", "example.test")
+	if !called || !errors.Is(err, context.Canceled) {
+		t.Fatalf("operation context did not reach path router: called=%v err=%v", called, err)
+	}
+}
+
 // TENANT-001: a siloed tenant's path hops/links must route to its per-tenant
 // database (and residency data plane), not the shared pooled tables.
 func TestPathSaveRoutesPerTarget(t *testing.T) {
@@ -48,7 +65,7 @@ func TestPathSaveRoutesPerTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		switch tenant {
 		case "siloed":
 			return Target{Database: "probectl_t_abc"}, nil
@@ -108,7 +125,7 @@ func TestPathQueryRoutesToTenantStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		if tenant == "siloed" {
 			return Target{Database: "probectl_t_x"}, nil
 		}

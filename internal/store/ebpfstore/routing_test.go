@@ -50,6 +50,23 @@ func TestNewClickHouseReadsPopulatedMigrationLedgerAsJSONEachRow(t *testing.T) {
 	}
 }
 
+func TestEBPFTargetRouterReceivesOperationContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	c := (&ClickHouse{}).WithRouter(func(got context.Context, tenantID string) (Target, error) {
+		called = true
+		if tenantID != "tenant-a" {
+			t.Fatalf("router tenant = %q, want tenant-a", tenantID)
+		}
+		return Target{}, got.Err()
+	})
+	_, err := c.TopEdges(ctx, "tenant-a", EdgeQuery{Limit: 1})
+	if !called || !errors.Is(err, context.Canceled) {
+		t.Fatalf("operation context did not reach eBPF router: called=%v err=%v", called, err)
+	}
+}
+
 // TENANT-001: a siloed tenant's eBPF edges must route to its per-tenant
 // database (and residency data plane), not the shared pooled table.
 func TestEBPFInsertRoutesPerTarget(t *testing.T) {
@@ -72,7 +89,7 @@ func TestEBPFInsertRoutesPerTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		switch tenant {
 		case "siloed":
 			return Target{Database: "probectl_t_abc"}, nil
@@ -137,7 +154,7 @@ func TestEBPFQueryRoutesToTenantStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.WithRouter(func(tenant string) (Target, error) {
+	c.WithRouter(func(_ context.Context, tenant string) (Target, error) {
 		if tenant == "siloed" {
 			return Target{Database: "probectl_t_x"}, nil
 		}

@@ -90,8 +90,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		var endpointCH *endpointstore.ClickHouse
 		if c, ok := flowStore.(*flowstore.ClickHouse); ok {
 			flowCH, ch.Flows = c, c
-			c.WithRouter(func(tenantID string) (flowstore.Target, error) {
-				t, err := router.TargetsFor(context.Background(), tenantID)
+			c.WithRouter(func(ctx context.Context, tenantID string) (flowstore.Target, error) {
+				t, err := router.TargetsFor(ctx, tenantID)
 				if err != nil {
 					return flowstore.Target{}, err
 				}
@@ -100,8 +100,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		}
 		if pathCH != nil {
 			ch.Paths = pathCH
-			pathCH.WithRouter(func(tenantID string) (pathstore.Target, error) {
-				t, err := router.TargetsFor(context.Background(), tenantID)
+			pathCH.WithRouter(func(ctx context.Context, tenantID string) (pathstore.Target, error) {
+				t, err := router.TargetsFor(ctx, tenantID)
 				if err != nil {
 					return pathstore.Target{}, err
 				}
@@ -110,8 +110,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		}
 		if c, ok := ebpfStore.(*ebpfstore.ClickHouse); ok {
 			ebpfCH, ch.EBPF = c, c
-			c.WithRouter(func(tenantID string) (ebpfstore.Target, error) {
-				t, err := router.TargetsFor(context.Background(), tenantID)
+			c.WithRouter(func(ctx context.Context, tenantID string) (ebpfstore.Target, error) {
+				t, err := router.TargetsFor(ctx, tenantID)
 				if err != nil {
 					return ebpfstore.Target{}, err
 				}
@@ -120,8 +120,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		}
 		if c, ok := otelStore.(*otelstore.ClickHouse); ok {
 			otelCH, ch.Otel = c, c
-			c.WithRouter(func(tenantID string) (otelstore.Target, error) {
-				t, err := router.TargetsFor(context.Background(), tenantID)
+			c.WithRouter(func(ctx context.Context, tenantID string) (otelstore.Target, error) {
+				t, err := router.TargetsFor(ctx, tenantID)
 				if err != nil {
 					return otelstore.Target{}, err
 				}
@@ -130,8 +130,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		}
 		if c, ok := endpointStore.(*endpointstore.ClickHouse); ok {
 			endpointCH, ch.Endpoint = c, c
-			c.WithRouter(func(tenantID string) (endpointstore.Target, error) {
-				t, err := router.TargetsFor(context.Background(), tenantID)
+			c.WithRouter(func(ctx context.Context, tenantID string) (endpointstore.Target, error) {
+				t, err := router.TargetsFor(ctx, tenantID)
 				if err != nil {
 					return endpointstore.Target{}, err
 				}

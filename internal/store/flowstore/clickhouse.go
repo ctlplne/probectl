@@ -254,10 +254,11 @@ type Target struct {
 	Database string
 }
 
-// TargetRouter resolves a tenant's flow-store target. It must FAIL CLOSED: a
-// routing error fails the operation rather than silently landing a siloed
-// tenant's rows in the pooled table (the S-T2 watch-out).
-type TargetRouter func(tenantID string) (Target, error)
+// TargetRouter resolves a tenant's flow-store target using the operation
+// context. It must FAIL CLOSED: a routing error fails the operation rather than
+// silently landing a siloed tenant's rows in the pooled table (the S-T2
+// watch-out).
+type TargetRouter func(ctx context.Context, tenantID string) (Target, error)
 
 var chIdentRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
@@ -410,11 +411,11 @@ func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse {
 }
 
 // route resolves one tenant's target (pooled when no router is installed).
-func (c *ClickHouse) route(tenantID string) (Target, error) {
+func (c *ClickHouse) route(ctx context.Context, tenantID string) (Target, error) {
 	if c.router == nil {
 		return Target{}, nil
 	}
-	return c.router(tenantID)
+	return c.router(ctx, tenantID)
 }
 
 // EnsureTenantDatabase creates/migrates a tenant's isolated database + flow
@@ -475,7 +476,7 @@ func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 	}
 	groups := map[Target][]Row{}
 	for i := range rows {
-		t, err := c.route(rows[i].TenantID)
+		t, err := c.route(ctx, rows[i].TenantID)
 		if err != nil {
 			return fmt.Errorf("flowstore: route tenant %s: %w", rows[i].TenantID, err)
 		}
@@ -692,7 +693,7 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 	if err := q.normalize(); err != nil {
 		return nil, err
 	}
-	t, err := c.route(q.TenantID)
+	t, err := c.route(ctx, q.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -763,7 +764,7 @@ func (c *ClickHouse) TopSeries(ctx context.Context, q TopQuery, top []TopRow) ([
 	if seriesKeyLimit(top) == 0 {
 		return []SeriesPoint{}, nil
 	}
-	t, err := c.route(q.TenantID)
+	t, err := c.route(ctx, q.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -811,7 +812,7 @@ func (c *ClickHouse) BackfillRollups(ctx context.Context, tenantID string, from,
 	if !to.After(from) {
 		return errors.New("flowstore: rollup backfill requires to > from")
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return err
 	}
@@ -875,7 +876,7 @@ func (c *ClickHouse) HourlyRollups(ctx context.Context, tenantID string, from, t
 	if !to.After(from) {
 		return nil, errors.New("flowstore: rollup query requires to > from")
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -980,7 +981,7 @@ func (c *ClickHouse) Capacity(ctx context.Context, q CapacityQuery) ([]CapacityP
 	if err := q.normalize(); err != nil {
 		return nil, err
 	}
-	t, err := c.route(q.TenantID)
+	t, err := c.route(ctx, q.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -1014,7 +1015,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 	if tenantID == "" {
 		return 0, ErrNoTenant
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return -1, err
 	}
@@ -1058,7 +1059,7 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 	if subject == "" {
 		return 0, -1, nil
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return 0, -1, err
 	}
@@ -1094,7 +1095,7 @@ func (c *ClickHouse) DeleteTenantBefore(ctx context.Context, tenantID string, cu
 	if tenantID == "" {
 		return ErrNoTenant
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return err
 	}
@@ -1113,7 +1114,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if tenantID == "" {
 		return 0, ErrNoTenant
 	}
-	t, err := c.route(tenantID)
+	t, err := c.route(ctx, tenantID)
 	if err != nil {
 		return 0, err
 	}
