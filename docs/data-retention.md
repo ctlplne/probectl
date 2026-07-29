@@ -9,11 +9,11 @@ This page is a governance/control map, not a new retention engine. Today,
 retention is still enforced by the owning stores and lifecycle paths:
 ClickHouse TTLs plus ClickHouse hourly rollups, the in-memory TSDB window,
 derived identity-cache pruning, audit pruning after durable export, AI-answer
-pruning on write, and tenant/subject erasure. The audit-retention runner wakes hourly when
-`PROBECTL_AUDIT_RETENTION` is positive. The `single` deployment profile defaults
-to `0` (keep forever); `multi-tenant` and `regulated` default to a finite
-`8760h` (365-day) local audit window and require WORM/SIEM watermark
-configuration before startup.
+pruning on write, and tenant/subject erasure. The audit-retention runner wakes
+hourly when `PROBECTL_AUDIT_RETENTION` is positive. The `single` deployment
+profile defaults to `0` (keep forever); `multi-tenant` and `regulated` default
+to a finite `8760h` (365-day) local audit window and require WORM/SIEM
+watermark configuration before startup.
 `/v1/lifecycle/retention` lets a tenant set stricter per-plane clocks for
 flow, OTLP, eBPF, path, audit, persisted AI answers, object artifacts, and
 derived identity caches; `NULL` means the deployment default remains in force.
@@ -42,6 +42,17 @@ semantics. Current inventory IDs: `audit-evidence`, `ai-artifacts`,
 - **Lifecycle deletion is wider than age retention.** Tenant erase and subject
   erase are the privacy "big brooms": they remove or project data across live
   stores even when a store has no age TTL.
+- **Engine-owned prunes are audit-gated.** Before the lifecycle engine deletes
+  session detail, flow/OTLP/eBPF/path rows, persisted AI answers, endpoint
+  history, or derived topology/endpoint cache entries, a bounded provider-audit
+  intent must commit. Its non-secret `attempt_id` pairs it with an
+  `enforced`/`failed` count-only terminal receipt. Failed intent means no prune;
+  failed terminal append is returned to the scheduler instead of being hidden
+  in a warning.
+- **Delegated clocks are receipts, not triggers.** The tenant `objects` and
+  `audit` clocks describe external object-lifecycle and dedicated
+  audit-retention runners. The lifecycle engine emits one `delegated` receipt
+  and does not claim an intent or deletion for work it did not invoke.
 - **Copies keep their own clock.** Backups, WORM exports, and customer SIEM
   destinations are not live stores. probectl records the configured backup
   window and export cursor, but the destination system owns its own retention.

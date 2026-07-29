@@ -22,6 +22,7 @@ type sessionRetentionRecorder struct {
 	horizon time.Duration
 	deleted int64
 	err     error
+	calls   int
 }
 
 func (r *sessionRetentionRecorder) PruneInactive(
@@ -29,6 +30,7 @@ func (r *sessionRetentionRecorder) PruneInactive(
 	tenantID string,
 	replayHorizon time.Duration,
 ) (int64, error) {
+	r.calls++
 	r.tenant = tenantID
 	r.horizon = replayHorizon
 	return r.deleted, r.err
@@ -39,10 +41,11 @@ func TestSessionRetentionUsesConfiguredTTLAndRecordsReceipt(t *testing.T) {
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	pruner := &sessionRetentionRecorder{deleted: 3}
 	var action, target string
-	var receipt map[string]any
+	var receipts []map[string]any
 	engine := New(nil, nil, nil, nil,
 		func(_ context.Context, _, gotAction, gotTarget string, data map[string]any) error {
-			action, target, receipt = gotAction, gotTarget, data
+			action, target = gotAction, gotTarget
+			receipts = append(receipts, data)
 			return nil
 		},
 		"", slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -61,6 +64,10 @@ func TestSessionRetentionUsesConfiguredTTLAndRecordsReceipt(t *testing.T) {
 	if action != "lifecycle.retention_sweep" || target != tenant {
 		t.Fatalf("receipt action=%q target=%q", action, target)
 	}
+	if len(receipts) != 2 || receipts[0]["status"] != "intent" || receipts[1]["status"] != "enforced" {
+		t.Fatalf("session retention audit protocol = %#v", receipts)
+	}
+	receipt := receipts[1]
 	if receipt["store"] != "sessions" || receipt["deleted"] != int64(3) ||
 		receipt["replay_horizon"] != "2h0m0s" ||
 		receipt["cutoff"] != now.Add(-2*time.Hour).Format(time.RFC3339Nano) {
@@ -71,7 +78,14 @@ func TestSessionRetentionUsesConfiguredTTLAndRecordsReceipt(t *testing.T) {
 func TestSessionRetentionDefaultsWithIssuerAndPropagatesPruneFailure(t *testing.T) {
 	wantErr := errors.New("database unavailable")
 	pruner := &sessionRetentionRecorder{err: wantErr}
-	engine := New(nil, nil, nil, nil, nil, "", nil).
+	var statuses []any
+	engine := New(nil, nil, nil, nil,
+		func(_ context.Context, _, _, _ string, data map[string]any) error {
+			statuses = append(statuses, data["status"])
+			return nil
+		},
+		"", nil,
+	).
 		WithSessionRetention(pruner, 0)
 
 	err := engine.sweepSessionRetention(
@@ -84,9 +98,12 @@ func TestSessionRetentionDefaultsWithIssuerAndPropagatesPruneFailure(t *testing.
 	if pruner.horizon != auth.DefaultSessionTTL {
 		t.Fatalf("default cleanup horizon = %s, want issuer default %s", pruner.horizon, auth.DefaultSessionTTL)
 	}
+	if len(statuses) != 2 || statuses[0] != "intent" || statuses[1] != "failed" {
+		t.Fatalf("prune failure audit statuses = %v, want intent/failed", statuses)
+	}
 }
 
-func TestSessionRetentionPropagatesReceiptFailure(t *testing.T) {
+func TestSessionRetentionAuditIntentFailurePreventsPrune(t *testing.T) {
 	wantErr := errors.New("audit unavailable")
 	pruner := &sessionRetentionRecorder{deleted: 1}
 	engine := New(nil, nil, nil, nil,
@@ -101,6 +118,36 @@ func TestSessionRetentionPropagatesReceiptFailure(t *testing.T) {
 		retentionSweepPolicy{tenant: "00000000-0000-0000-0000-0000000000cc"},
 	)
 	if !errors.Is(err, wantErr) {
-		t.Fatalf("receipt error = %v, want %v", err, wantErr)
+		t.Fatalf("intent error = %v, want %v", err, wantErr)
+	}
+	if pruner.calls != 0 {
+		t.Fatalf("session prune ran %d times after failed audit intent", pruner.calls)
+	}
+}
+
+func TestSessionRetentionAuditCompletionFailurePropagatesAfterPrune(t *testing.T) {
+	wantErr := errors.New("audit completion unavailable")
+	pruner := &sessionRetentionRecorder{deleted: 1}
+	auditCalls := 0
+	engine := New(nil, nil, nil, nil,
+		func(context.Context, string, string, string, map[string]any) error {
+			auditCalls++
+			if auditCalls == 2 {
+				return wantErr
+			}
+			return nil
+		},
+		"", nil,
+	).WithSessionRetention(pruner, time.Hour)
+
+	err := engine.sweepSessionRetention(
+		context.Background(),
+		retentionSweepPolicy{tenant: "00000000-0000-0000-0000-0000000000dd"},
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("completion error = %v, want %v", err, wantErr)
+	}
+	if pruner.calls != 1 || auditCalls != 2 {
+		t.Fatalf("session protocol calls = prune %d audit %d, want 1/2", pruner.calls, auditCalls)
 	}
 }

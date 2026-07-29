@@ -300,7 +300,11 @@ func TestEndpointDurableRetentionLifecycle(t *testing.T) {
 	if rows, _ := events.Latest(ctx, "tnB"); len(rows) != 1 {
 		t.Fatalf("neighbor endpoint retention rows damaged: %+v", rows)
 	}
-	if len(audit.events) != 1 || audit.data[0]["store"] != "endpoint_events" || audit.data[0]["deleted"] != int64(1) {
+	if len(audit.events) != 2 ||
+		audit.data[0]["store"] != "endpoint_events" ||
+		audit.data[0]["status"] != "intent" ||
+		audit.data[1]["status"] != "enforced" ||
+		audit.data[1]["deleted"] != int64(1) {
 		t.Fatalf("endpoint retention receipt = events %v data %+v", audit.events, audit.data)
 	}
 }
@@ -421,11 +425,14 @@ func TestRetentionSweepPrunesDerivedIdentityCachesAndReceipts(t *testing.T) {
 	if len(endpoints.calls) != 1 || endpoints.calls[0].tenant != "tnA" || !endpoints.calls[0].cutoff.Equal(wantCutoff) {
 		t.Fatalf("endpoint prune call = %+v, want tenant tnA cutoff %s", endpoints.calls, wantCutoff)
 	}
-	if len(audit.events) != 2 || audit.events[0] != "lifecycle.retention_sweep" || audit.events[1] != "lifecycle.retention_sweep" {
+	if len(audit.events) != 4 {
 		t.Fatalf("derived retention receipts missing: %v", audit.events)
 	}
 	stores := map[string]int{}
 	for _, data := range audit.data {
+		if data["status"] == "intent" {
+			continue
+		}
 		stores[data["store"].(string)] = int(data["deleted"].(int64))
 		if data["source"] != "derived_identity_cache" || data["retention_days"] != 14 {
 			t.Fatalf("receipt data = %+v", data)
@@ -473,10 +480,18 @@ func TestRetentionSweepPerPlanePoliciesPruneAndReceipt(t *testing.T) {
 		"objects": 7,
 	}}
 
-	e.sweepOtelRetention(ctx, p)
-	e.sweepEBPFRetention(ctx, p)
-	e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner")
-	e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle")
+	if err := e.sweepOtelRetention(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.sweepEBPFRetention(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle"); err != nil {
+		t.Fatal(err)
+	}
 
 	if spans, logs := otel.Len("tnA"); spans != 1 || logs != 1 {
 		t.Fatalf("otel retention counts = spans %d logs %d, want 1/1", spans, logs)

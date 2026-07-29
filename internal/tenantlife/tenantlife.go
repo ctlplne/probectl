@@ -64,6 +64,10 @@ type TSDBTenantDeleter interface {
 // chain that survives the tenant's own audit data being erased.
 type AuditSink func(ctx context.Context, actor, action, target string, data map[string]any) error
 
+const retentionAuditTimeout = 5 * time.Second
+
+var errRetentionAuditUnavailable = errors.New("tenantlife: retention audit sink is unavailable")
+
 // PathDeleter is the pathstore erasure seam (memory + ClickHouse implement it).
 type PathDeleter interface {
 	DeleteTenant(ctx context.Context, tenantID string) (deleted, remaining int, err error)
@@ -125,19 +129,23 @@ type SessionRetentionPruner interface {
 
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
-	pool               *pgxpool.Pool
-	flows              flowstore.Store
-	objects            objectstore.Store
-	tsdbW              tsdb.Writer
-	paths              PathDeleter // optional (WithPaths)
-	topo               TopologyDeleter
-	topoRetention      TopologyRetentionPruner
-	endpointRetention  EndpointRetentionPruner
-	endpointEvents     endpointstore.Store
-	otel               OtelDeleter // optional (WithOtel) — OTLP trace/log store
-	ebpf               EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
-	sessions           SessionRetentionPruner
-	sessionReplayTTL   time.Duration
+	pool              *pgxpool.Pool
+	flows             flowstore.Store
+	objects           objectstore.Store
+	tsdbW             tsdb.Writer
+	paths             PathDeleter // optional (WithPaths)
+	topo              TopologyDeleter
+	topoRetention     TopologyRetentionPruner
+	endpointRetention EndpointRetentionPruner
+	endpointEvents    endpointstore.Store
+	otel              OtelDeleter // optional (WithOtel) — OTLP trace/log store
+	ebpf              EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
+	sessions          SessionRetentionPruner
+	sessionReplayTTL  time.Duration
+	// aiAnswerRetention is the same tenant-scoped prune seam as the Postgres
+	// implementation below. Tests inject it to prove audit ordering without
+	// requiring a database; production leaves it nil and uses InTenant.
+	aiAnswerRetention  func(context.Context, string, time.Duration) (int64, error)
 	audit              AuditSink
 	log                *slog.Logger
 	now                func() time.Time
@@ -807,7 +815,8 @@ type retentionSweepPolicy struct {
 // SweepRetention applies every tenant's retention policy once. Store-level
 // TTLs handle high-volume defaults; this enforces per-tenant flow tightening
 // and the deployment-owned age clock for derived topology/endpoint identity
-// caches. Per-tenant failures are logged and skipped.
+// caches. Per-tenant failures are returned after later tenants have had their
+// independently scoped sweeps attempted.
 func (e *Engine) SweepRetention(ctx context.Context) error {
 	if e.pool == nil {
 		return nil
@@ -848,48 +857,51 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var sessionErrors []error
+	return e.sweepRetentionPolicies(ctx, policies)
+}
+
+func (e *Engine) sweepRetentionPolicies(ctx context.Context, policies []retentionSweepPolicy) error {
+	var sweepErrors []error
 	for _, p := range policies {
-		if err := e.sweepSessionRetention(ctx, p); err != nil {
-			e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "sessions", "error", err.Error())
-			sessionErrors = append(sessionErrors, fmt.Errorf("tenant %s session retention: %w", p.tenant, err))
-		}
-		e.sweepFlowRetention(ctx, p)
-		e.sweepOtelRetention(ctx, p)
-		e.sweepEBPFRetention(ctx, p)
-		e.sweepPathRetention(ctx, p)
-		e.sweepAIAnswerRetention(ctx, p)
-		e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner")
-		e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle")
-		if err := e.pruneDerivedIdentityCaches(ctx, p); err != nil {
+		err := errors.Join(
+			e.sweepSessionRetention(ctx, p),
+			e.sweepFlowRetention(ctx, p),
+			e.sweepOtelRetention(ctx, p),
+			e.sweepEBPFRetention(ctx, p),
+			e.sweepPathRetention(ctx, p),
+			e.sweepAIAnswerRetention(ctx, p),
+			e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner"),
+			e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle"),
+			e.pruneDerivedIdentityCaches(ctx, p),
+		)
+		if err != nil {
 			e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "error", err.Error())
+			sweepErrors = append(sweepErrors, fmt.Errorf("tenant %s retention: %w", p.tenant, err))
 		}
 	}
-	return errors.Join(sessionErrors...)
+	return errors.Join(sweepErrors...)
 }
 
 func (e *Engine) sweepSessionRetention(ctx context.Context, p retentionSweepPolicy) error {
 	if e.sessions == nil {
 		return nil
 	}
-	deleted, err := e.sessions.PruneInactive(ctx, p.tenant, e.sessionReplayTTL)
-	if err != nil {
-		return err
-	}
-	if e.audit == nil {
-		return nil
-	}
 	cutoff := e.now().Add(-e.sessionReplayTTL)
-	data := map[string]any{
-		"store":                  "sessions",
-		"deleted":                deleted,
-		"cutoff":                 cutoff.UTC().Format(time.RFC3339Nano),
-		"source":                 "session_ttl",
-		"status":                 "enforced",
-		"replay_horizon":         e.sessionReplayTTL.String(),
-		"replay_horizon_seconds": int64(e.sessionReplayTTL / time.Second),
-	}
-	return e.audit(ctx, "probectl-retention", "lifecycle.retention_sweep", p.tenant, data)
+	return e.runRetentionPrune(
+		ctx,
+		p.tenant,
+		"sessions",
+		cutoff,
+		0,
+		"session_ttl",
+		map[string]any{
+			"replay_horizon":         e.sessionReplayTTL.String(),
+			"replay_horizon_seconds": int64(e.sessionReplayTTL / time.Second),
+		},
+		func() (int64, error) {
+			return e.sessions.PruneInactive(ctx, p.tenant, e.sessionReplayTTL)
+		},
+	)
 }
 
 func (p *retentionSweepPolicy) setDays(name string, days sql.NullInt64) {
@@ -917,123 +929,113 @@ func (e *Engine) derivedIdentityDays(p retentionSweepPolicy) int {
 	return days
 }
 
-func (e *Engine) sweepFlowRetention(ctx context.Context, p retentionSweepPolicy) {
+func (e *Engine) sweepFlowRetention(ctx context.Context, p retentionSweepPolicy) error {
 	days, ok := p.has("flows")
 	if !ok {
-		return
+		return nil
 	}
 	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
 	if e.flows == nil {
-		e.recordRetentionAttempt(ctx, p.tenant, "flows", 0, cutoff, days, "tenant_policy", "not_deployed")
-		return
+		return e.recordRetentionAttempt(ctx, p.tenant, "flows", 0, cutoff, days, "tenant_policy", "not_deployed")
 	}
-	if err := e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff); err != nil {
-		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "flows", "error", err.Error())
-		return
-	}
-	e.recordRetentionAttempt(ctx, p.tenant, "flows", 0, cutoff, days, "tenant_policy", "enforced")
+	return e.runRetentionPrune(ctx, p.tenant, "flows", cutoff, days, "tenant_policy", nil,
+		func() (int64, error) {
+			return 0, e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff)
+		})
 }
 
-func (e *Engine) sweepOtelRetention(ctx context.Context, p retentionSweepPolicy) {
+func (e *Engine) sweepOtelRetention(ctx context.Context, p retentionSweepPolicy) error {
 	days, ok := p.has("otel")
 	if !ok {
-		return
+		return nil
 	}
 	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
 	pruner, capable := e.otel.(OtelRetentionPruner)
 	if e.otel == nil {
-		e.recordRetentionAttempt(ctx, p.tenant, "otel", 0, cutoff, days, "tenant_policy", "not_deployed")
-		return
+		return e.recordRetentionAttempt(ctx, p.tenant, "otel", 0, cutoff, days, "tenant_policy", "not_deployed")
 	}
 	if !capable {
-		e.recordRetentionAttempt(ctx, p.tenant, "otel", 0, cutoff, days, "tenant_policy", "not_capable")
-		return
+		return e.recordRetentionAttempt(ctx, p.tenant, "otel", 0, cutoff, days, "tenant_policy", "not_capable")
 	}
-	deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
-	if err != nil {
-		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "otel", "error", err.Error())
-		return
-	}
-	e.recordRetentionAttempt(ctx, p.tenant, "otel", int64(deleted), cutoff, days, "tenant_policy", "enforced")
+	return e.runRetentionPrune(ctx, p.tenant, "otel", cutoff, days, "tenant_policy", nil,
+		func() (int64, error) {
+			deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
+			return int64(deleted), err
+		})
 }
 
-func (e *Engine) sweepEBPFRetention(ctx context.Context, p retentionSweepPolicy) {
+func (e *Engine) sweepEBPFRetention(ctx context.Context, p retentionSweepPolicy) error {
 	days, ok := p.has("ebpf")
 	if !ok {
-		return
+		return nil
 	}
 	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
 	pruner, capable := e.ebpf.(EBPFRetentionPruner)
 	if e.ebpf == nil {
-		e.recordRetentionAttempt(ctx, p.tenant, "ebpf", 0, cutoff, days, "tenant_policy", "not_deployed")
-		return
+		return e.recordRetentionAttempt(ctx, p.tenant, "ebpf", 0, cutoff, days, "tenant_policy", "not_deployed")
 	}
 	if !capable {
-		e.recordRetentionAttempt(ctx, p.tenant, "ebpf", 0, cutoff, days, "tenant_policy", "not_capable")
-		return
+		return e.recordRetentionAttempt(ctx, p.tenant, "ebpf", 0, cutoff, days, "tenant_policy", "not_capable")
 	}
-	deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
-	if err != nil {
-		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "ebpf", "error", err.Error())
-		return
-	}
-	e.recordRetentionAttempt(ctx, p.tenant, "ebpf", int64(deleted), cutoff, days, "tenant_policy", "enforced")
+	return e.runRetentionPrune(ctx, p.tenant, "ebpf", cutoff, days, "tenant_policy", nil,
+		func() (int64, error) {
+			deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
+			return int64(deleted), err
+		})
 }
 
-func (e *Engine) sweepPathRetention(ctx context.Context, p retentionSweepPolicy) {
+func (e *Engine) sweepPathRetention(ctx context.Context, p retentionSweepPolicy) error {
 	days, ok := p.has("path")
 	if !ok {
-		return
+		return nil
 	}
 	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
 	pruner, capable := e.paths.(PathRetentionPruner)
 	if e.paths == nil {
-		e.recordRetentionAttempt(ctx, p.tenant, "path", 0, cutoff, days, "tenant_policy", "not_deployed")
-		return
+		return e.recordRetentionAttempt(ctx, p.tenant, "path", 0, cutoff, days, "tenant_policy", "not_deployed")
 	}
 	if !capable {
-		e.recordRetentionAttempt(ctx, p.tenant, "path", 0, cutoff, days, "tenant_policy", "not_capable")
-		return
+		return e.recordRetentionAttempt(ctx, p.tenant, "path", 0, cutoff, days, "tenant_policy", "not_capable")
 	}
-	deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
-	if err != nil {
-		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "path", "error", err.Error())
-		return
-	}
-	e.recordRetentionAttempt(ctx, p.tenant, "path", int64(deleted), cutoff, days, "tenant_policy", "enforced")
+	return e.runRetentionPrune(ctx, p.tenant, "path", cutoff, days, "tenant_policy", nil,
+		func() (int64, error) {
+			deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
+			return int64(deleted), err
+		})
 }
 
-func (e *Engine) sweepAIAnswerRetention(ctx context.Context, p retentionSweepPolicy) {
+func (e *Engine) sweepAIAnswerRetention(ctx context.Context, p retentionSweepPolicy) error {
 	days, ok := p.has("ai_answers")
 	if !ok {
-		return
+		return nil
 	}
 	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
-	if e.pool == nil {
-		e.recordRetentionAttempt(ctx, p.tenant, "ai_answers", 0, cutoff, days, "tenant_policy", "not_deployed")
-		return
+	if e.pool == nil && e.aiAnswerRetention == nil {
+		return e.recordRetentionAttempt(ctx, p.tenant, "ai_answers", 0, cutoff, days, "tenant_policy", "not_deployed")
 	}
-	tctx := tenancy.WithTenant(ctx, tenancy.ID(p.tenant))
-	var deleted int64
-	err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		deleted, err = (store.AIAnswers{}).PruneOlderThan(ctx, sc, time.Duration(days)*24*time.Hour)
-		return err
-	})
-	if err != nil {
-		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "ai_answers", "error", err.Error())
-		return
-	}
-	e.recordRetentionAttempt(ctx, p.tenant, "ai_answers", deleted, cutoff, days, "tenant_policy", "enforced")
+	return e.runRetentionPrune(ctx, p.tenant, "ai_answers", cutoff, days, "tenant_policy", nil,
+		func() (int64, error) {
+			if e.aiAnswerRetention != nil {
+				return e.aiAnswerRetention(ctx, p.tenant, time.Duration(days)*24*time.Hour)
+			}
+			tctx := tenancy.WithTenant(ctx, tenancy.ID(p.tenant))
+			var deleted int64
+			err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				var err error
+				deleted, err = (store.AIAnswers{}).PruneOlderThan(ctx, sc, time.Duration(days)*24*time.Hour)
+				return err
+			})
+			return deleted, err
+		})
 }
 
-func (e *Engine) receiptDelegatedRetention(ctx context.Context, p retentionSweepPolicy, store, source string) {
+func (e *Engine) receiptDelegatedRetention(ctx context.Context, p retentionSweepPolicy, store, source string) error {
 	days, ok := p.has(store)
 	if !ok {
-		return
+		return nil
 	}
 	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
-	e.recordRetentionAttempt(ctx, p.tenant, store, 0, cutoff, days, source, "delegated")
+	return e.recordRetentionAttempt(ctx, p.tenant, store, 0, cutoff, days, source, "delegated")
 }
 
 func (e *Engine) pruneDerivedIdentityCaches(ctx context.Context, p retentionSweepPolicy) error {
@@ -1042,44 +1044,132 @@ func (e *Engine) pruneDerivedIdentityCaches(ctx context.Context, p retentionSwee
 		return nil
 	}
 	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	var pruneErrors []error
 	if e.topoRetention != nil {
-		e.recordRetentionReceipt(ctx, p.tenant, "topology", e.topoRetention.PruneTenantBefore(p.tenant, cutoff), cutoff, days)
+		pruneErrors = append(pruneErrors, e.runRetentionPrune(
+			ctx, p.tenant, "topology", cutoff, days, "derived_identity_cache", nil,
+			func() (int64, error) {
+				return int64(e.topoRetention.PruneTenantBefore(p.tenant, cutoff)), nil
+			},
+		))
 	}
 	if e.endpointRetention != nil {
-		e.recordRetentionReceipt(ctx, p.tenant, "endpoint", e.endpointRetention.PruneTenantBefore(p.tenant, cutoff), cutoff, days)
+		pruneErrors = append(pruneErrors, e.runRetentionPrune(
+			ctx, p.tenant, "endpoint", cutoff, days, "derived_identity_cache", nil,
+			func() (int64, error) {
+				return int64(e.endpointRetention.PruneTenantBefore(p.tenant, cutoff)), nil
+			},
+		))
 	}
 	if e.endpointEvents != nil {
-		deleted, err := e.endpointEvents.PruneTenantBefore(ctx, p.tenant, cutoff)
-		if err != nil {
-			return fmt.Errorf("endpoint event retention: %w", err)
+		pruneErrors = append(pruneErrors, e.runRetentionPrune(
+			ctx, p.tenant, "endpoint_events", cutoff, days, "tenant_policy", nil,
+			func() (int64, error) {
+				deleted, err := e.endpointEvents.PruneTenantBefore(ctx, p.tenant, cutoff)
+				return int64(deleted), err
+			},
+		))
+	}
+	return errors.Join(pruneErrors...)
+}
+
+func (e *Engine) runRetentionPrune(
+	ctx context.Context,
+	tenant, store string,
+	cutoff time.Time,
+	days int,
+	source string,
+	extra map[string]any,
+	prune func() (int64, error),
+) error {
+	attemptID, err := crypto.UUIDv4()
+	if err != nil {
+		return fmt.Errorf("tenantlife: mint %s retention attempt id: %w", store, err)
+	}
+	if err := e.recordRetentionEvent(
+		ctx, false, tenant, store, attemptID, cutoff, days, source, "intent", nil, extra,
+	); err != nil {
+		return err
+	}
+
+	deleted, pruneErr := prune()
+	if pruneErr != nil {
+		failureExtra := make(map[string]any, len(extra)+2)
+		for key, value := range extra {
+			failureExtra[key] = value
 		}
-		e.recordRetentionAttempt(ctx, p.tenant, "endpoint_events", int64(deleted), cutoff, days, "tenant_policy", "enforced")
+		failureExtra["failure"] = "store_prune_failed"
+		failureExtra["deleted_count_known"] = false
+		auditErr := e.recordRetentionEvent(
+			ctx, true, tenant, store, attemptID, cutoff, days, source, "failed", nil, failureExtra,
+		)
+		return errors.Join(
+			fmt.Errorf("tenantlife: %s retention prune: %w", store, pruneErr),
+			auditErr,
+		)
 	}
-	return nil
+
+	return e.recordRetentionEvent(
+		ctx, true, tenant, store, attemptID, cutoff, days, source, "enforced", &deleted, extra,
+	)
 }
 
-func (e *Engine) recordRetentionReceipt(ctx context.Context, tenant, store string, deleted int, cutoff time.Time, days int) {
-	if deleted <= 0 || e.audit == nil {
-		return
-	}
-	e.recordRetentionAttempt(ctx, tenant, store, int64(deleted), cutoff, days, "derived_identity_cache", "enforced")
+func (e *Engine) recordRetentionAttempt(
+	ctx context.Context,
+	tenant, store string,
+	deleted int64,
+	cutoff time.Time,
+	days int,
+	source, status string,
+) error {
+	return e.recordRetentionEvent(ctx, true, tenant, store, "", cutoff, days, source, status, &deleted, nil)
 }
 
-func (e *Engine) recordRetentionAttempt(ctx context.Context, tenant, store string, deleted int64, cutoff time.Time, days int, source, status string) {
+func (e *Engine) recordRetentionEvent(
+	ctx context.Context,
+	terminal bool,
+	tenant, store, attemptID string,
+	cutoff time.Time,
+	days int,
+	source, status string,
+	deleted *int64,
+	extra map[string]any,
+) error {
 	if e.audit == nil {
-		return
+		return errRetentionAuditUnavailable
 	}
 	data := map[string]any{
-		"store":          store,
-		"deleted":        deleted,
-		"cutoff":         cutoff.UTC().Format(time.RFC3339Nano),
-		"source":         source,
-		"status":         status,
-		"retention_days": days,
+		"store":  store,
+		"cutoff": cutoff.UTC().Format(time.RFC3339Nano),
+		"source": source,
+		"status": status,
 	}
-	if err := e.audit(ctx, "probectl-retention", "lifecycle.retention_sweep", tenant, data); err != nil {
-		e.log.Warn("retention receipt append failed", "tenant", tenant, "store", store, "error", err.Error())
+	if attemptID != "" {
+		data["attempt_id"] = attemptID
 	}
+	if days > 0 {
+		data["retention_days"] = days
+	}
+	if deleted != nil {
+		data["deleted"] = *deleted
+	}
+	for key, value := range extra {
+		data[key] = value
+	}
+
+	auditParent := ctx
+	if terminal {
+		// A prune may consume or cancel the request context. Its outcome still
+		// needs a bounded durable receipt, so preserve values while giving the
+		// append its own finite forensic window.
+		auditParent = context.WithoutCancel(ctx)
+	}
+	auditCtx, cancel := context.WithTimeout(auditParent, retentionAuditTimeout)
+	defer cancel()
+	if err := e.audit(auditCtx, "probectl-retention", "lifecycle.retention_sweep", tenant, data); err != nil {
+		return fmt.Errorf("tenantlife: %s retention %s audit: %w", store, status, err)
+	}
+	return nil
 }
 
 // RunRetention sweeps on the interval until ctx ends.
