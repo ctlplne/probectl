@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -78,6 +79,99 @@ func TestSubjectErasureTableDiscoveryErrorFailsClosed(t *testing.T) {
 	}
 	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, bystander, subject); got != 1 {
 		t.Fatalf("bystander row must remain untouched: %d", got)
+	}
+}
+
+func TestSubjectErasureNotCapableProductionStoreFailsClosedAndIsolated(t *testing.T) {
+	pool := itPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	subject := "not-capable-" + stamp + "@example.com"
+	victim := mkTenant(t, pool, "it-subject-not-capable-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-subject-not-capable-b-"+stamp)
+
+	for _, tenantID := range []string{victim, bystander} {
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := sc.Q.Exec(ctx,
+					`INSERT INTO users (tenant_id, email, display_name, status, user_name, attributes)
+					 VALUES ($1,$2,'Not Capable Subject','active',$2,'{}'::jsonb)`,
+					tenantID, subject)
+				return err
+			})
+		if err != nil {
+			t.Fatalf("seed %s: %v", tenantID, err)
+		}
+	}
+
+	// Prometheus is the shipping production TSDB writer. It supports
+	// whole-tenant admin deletion but cannot delete one subject locally, so
+	// EraseSubject must return an honest incomplete receipt without contacting
+	// the configured endpoint.
+	prometheus := tsdb.NewPrometheus("https://prometheus.invalid")
+	t.Cleanup(func() {
+		if err := prometheus.Close(); err != nil {
+			t.Errorf("close Prometheus writer: %v", err)
+		}
+	})
+	sink := func(ctx context.Context, actor, action, target string, data map[string]any) error {
+		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+		return err
+	}
+	providerHead, err := audit.ProviderHeadSeq(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(pool, nil, nil, prometheus, sink, "backups expire after 14 days (it)", nil)
+
+	report, err := engine.EraseSubject(ctx, victim, subject, "privacy-admin", "dsar")
+	if err != nil {
+		t.Fatalf("subject erase: %v", err)
+	}
+	if report.Complete || report.ReportSHA256 == "" {
+		t.Fatalf("production not-capable TSDB receipt must be incomplete and hashed: %+v", report)
+	}
+	planes := subjectPlanesByName(report.Planes)
+	for _, plane := range []string{"tsdb_metrics", "rum"} {
+		if got := planes[plane]; got.Status != SubjectStatusNotCapable {
+			t.Fatalf("%s receipt = %+v, want status %q", plane, got, SubjectStatusNotCapable)
+		}
+	}
+
+	if got := countRows(t, pool,
+		`SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`,
+		victim, subject); got != 0 {
+		t.Fatalf("victim subject survived PostgreSQL erasure: %d", got)
+	}
+	if got := countRows(t, pool,
+		`SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`,
+		bystander, subject); got != 1 {
+		t.Fatalf("bystander subject must remain untouched: %d", got)
+	}
+
+	if err := audit.ProviderVerifyFrom(ctx, pool, providerHead); err != nil {
+		t.Fatalf("provider audit suffix must verify: %v", err)
+	}
+	events, err := audit.ListProvider(ctx, pool, providerHead, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receiptAudit *audit.Event
+	for i := range events {
+		if events[i].Action == "privacy.subject_erase" && events[i].Target == victim {
+			receiptAudit = &events[i]
+			break
+		}
+	}
+	if receiptAudit == nil {
+		t.Fatalf("provider audit missing subject-erasure receipt after seq %d: %+v", providerHead, events)
+	}
+	if complete, ok := receiptAudit.Data["complete"].(bool); !ok || complete {
+		t.Fatalf("provider audit complete = %#v, want false", receiptAudit.Data["complete"])
+	}
+	if got, _ := receiptAudit.Data["report_sha256"].(string); got != report.ReportSHA256 {
+		t.Fatalf("provider audit report hash = %q, want %q", got, report.ReportSHA256)
 	}
 }
 

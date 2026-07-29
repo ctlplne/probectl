@@ -217,6 +217,56 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	}
 }
 
+func TestSubjectErasureNotCapablePlanesFailClosed(t *testing.T) {
+	engine := New(nil, nil, nil, subjectEraseIncapableTSDB{}, nil, "backups expire by policy", nil).
+		WithTopology(subjectEraseIncapableTopology{}).
+		WithEBPF(subjectEraseIncapableEBPF{}).
+		WithEndpointRetention(subjectEraseIncapableEndpoint{})
+
+	report, err := engine.EraseSubject(
+		context.Background(),
+		"tenant-a",
+		"alice@example.com",
+		"privacy-admin",
+		"dsar",
+	)
+	if err != nil {
+		t.Fatalf("subject erase: %v", err)
+	}
+	if report.Complete {
+		t.Fatalf("deployed not-capable planes produced complete receipt: %+v", report)
+	}
+	if report.ReportSHA256 == "" {
+		t.Fatal("incomplete subject-erasure receipt must still be hashed")
+	}
+
+	planes := subjectPlanesByName(report.Planes)
+	for _, plane := range []string{"tsdb_metrics", "rum", "topology", "device", "ebpf", "endpoint"} {
+		if got := planes[plane]; got.Status != SubjectStatusNotCapable {
+			t.Errorf("%s receipt = %+v, want status %q", plane, got, SubjectStatusNotCapable)
+		}
+	}
+}
+
+type subjectEraseIncapableTSDB struct{}
+
+func (subjectEraseIncapableTSDB) Write(context.Context, []tsdb.Series) error { return nil }
+func (subjectEraseIncapableTSDB) Close() error                               { return nil }
+
+type subjectEraseIncapableTopology struct{}
+
+func (subjectEraseIncapableTopology) DeleteTenant(string) int { return 0 }
+
+type subjectEraseIncapableEBPF struct{}
+
+func (subjectEraseIncapableEBPF) DeleteTenant(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
+type subjectEraseIncapableEndpoint struct{}
+
+func (subjectEraseIncapableEndpoint) PruneTenantBefore(string, time.Time) int { return 0 }
+
 func TestLiteralILikeContainsPatternEscapesMetacharacters(t *testing.T) {
 	tests := []struct {
 		name  string

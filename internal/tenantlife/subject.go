@@ -59,8 +59,10 @@ type SubjectManifest struct {
 
 // SubjectErasureReport is the receipt returned by EraseSubject. It is not a
 // tenant deletion attestation: immutable audit rows are projected, and backup
-// copies age out under the tenant backup policy. The report is still hashed and
-// audited so the request has a durable proof.
+// copies age out under the tenant backup policy. Complete is true only when
+// every deployed plane was erased or count-verified clean; a deployed
+// not-capable plane keeps the receipt incomplete. The report is still hashed
+// and audited so the request has a durable proof.
 type SubjectErasureReport struct {
 	FormatVersion int                  `json:"format_version"`
 	TenantID      string               `json:"tenant_id"`
@@ -555,6 +557,11 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusNotCapable, Notes: "endpoint latest-view backend is deployed but not subject-erase capable; age-out follows derived identity retention"})
 	}
 
+	// Derive completeness from the final plane receipts instead of relying on
+	// every branch to remember a side effect. This is fail closed for deployed
+	// backends that honestly report not_capable and for any future unknown
+	// erasure status.
+	rep.Complete = subjectErasurePlanesComplete(rep.Planes)
 	rep.FinishedAt = e.now().UTC()
 	rep.ReportSHA256 = rep.hash()
 	if e.audit != nil {
@@ -566,6 +573,28 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		}
 	}
 	return rep, nil
+}
+
+func subjectErasurePlanesComplete(planes []SubjectPlaneResult) bool {
+	if len(planes) == 0 {
+		return false
+	}
+	for _, plane := range planes {
+		if plane.Remaining != 0 {
+			return false
+		}
+		switch plane.Status {
+		case SubjectStatusDeleted,
+			SubjectStatusCoveredByPlane,
+			SubjectStatusProjected,
+			SubjectStatusNotDeployed:
+			// These statuses either prove the subject is gone from a deployed
+			// plane or state that no such plane exists in this deployment.
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Engine) eraseSubjectPostgres(ctx context.Context, tenantID, subject string) ([]SubjectPlaneResult, error) {
