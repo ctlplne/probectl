@@ -99,9 +99,12 @@ tenant-consented, operator-bound, and audited on every single access**:
    The grant starts in state `pending`.
 2. **The tenant decides — not the operator.** A tenant admin (holding the
    `directory.write` permission) approves or denies it via the consent endpoints,
-   authenticated by the **tenant** session, not an operator session. A tenant can
-   only ever see and decide its *own* grants. This is the consent that makes the
-   whole mechanism legitimate.
+   authenticated by the **tenant** session, not an operator session. The consent
+   check resolves the tenant first, then requires that RBAC permission, then
+   applies the tenant's ABAC deny policies to the user's current subject
+   attributes. A policy/attribute-store failure denies the decision rather than
+   treating it as an empty policy set. A tenant can only ever see and decide its
+   *own* grants. This is the consent that makes the whole mechanism legitimate.
 3. **Only an `active` grant unlocks the read** — meaning consented, unexpired, and
    unrevoked — and only for the operator who requested it. The surface today is
    the latest-results read model (`GET /provider/v1/breakglass/{id}/results`).

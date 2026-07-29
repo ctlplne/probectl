@@ -10,12 +10,15 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
@@ -141,5 +144,101 @@ func TestProviderRoleCannotReadTelemetry(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("the fleet policy read must work: %v", err)
+	}
+}
+
+type integrationPermissionLoader struct{}
+
+func (integrationPermissionLoader) ForUser(context.Context, string, string) ([]string, error) {
+	return []string{consentPermission}, nil
+}
+
+// TestCoreTenantAuthAuthorizationContextIsTenantScoped exercises the production
+// consent adapter against real FORCE-RLS stores. Tenant A's subject and deny
+// policy must be returned only for tenant A; tenant B remains authorized, and a
+// tenant-A session cannot load tenant B's user by ID.
+func TestCoreTenantAuthAuthorizationContextIsTenantScoped(t *testing.T) {
+	pool := pgPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	st := NewPGStore(pool)
+	stamp := time.Now().UTC().UnixNano()
+
+	tenantA, err := st.CreateTenant(ctx, fmt.Sprintf("bg-abac-a-%d", stamp), "Break-glass ABAC A", "pooled", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantB, err := st.CreateTenant(ctx, fmt.Sprintf("bg-abac-b-%d", stamp), "Break-glass ABAC B", "pooled", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seed := func(t *testing.T, tenantID, department, policyName string) *store.User {
+		t.Helper()
+		var user *store.User
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			user, err = (store.Users{}).CreateSCIM(ctx, sc, store.User{
+				Email:      fmt.Sprintf("%s-%d@example.test", department, stamp),
+				UserName:   fmt.Sprintf("%s-%d", department, stamp),
+				Attributes: map[string]string{"department": department},
+			})
+			if err != nil {
+				return err
+			}
+			_, err = (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{
+				Name:       policyName,
+				Effect:     auth.PolicyDeny,
+				Permission: consentPermission,
+				Subject:    map[string]string{"department": "contractor"},
+				Priority:   100,
+				Enabled:    true,
+			})
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return user
+	}
+
+	userA := seed(t, tenantA.ID, "contractor", "tenant-a-contractor-deny")
+	userB := seed(t, tenantB.ID, "employee", "tenant-b-contractor-deny")
+	adapter := coreTenantAuth{perms: integrationPermissionLoader{}, pool: pool}
+
+	principalA, policiesA, err := adapter.AuthorizationContext(ctx, &auth.Session{
+		TenantID: tenantA.ID, UserID: userA.ID, Email: userA.Email, MFASatisfied: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if principalA.TenantID != tenantA.ID || principalA.Attributes["department"] != "contractor" ||
+		len(policiesA) != 1 || policiesA[0].Name != "tenant-a-contractor-deny" {
+		t.Fatalf("tenant A authorization context crossed scope: principal=%+v policies=%+v", principalA, policiesA)
+	}
+	if auth.Authorize(principalA, consentPermission, policiesA,
+		map[string]string{auth.ResourceTenantKey: tenantA.ID}) {
+		t.Fatal("tenant A contractor deny policy did not override directory.write")
+	}
+
+	principalB, policiesB, err := adapter.AuthorizationContext(ctx, &auth.Session{
+		TenantID: tenantB.ID, UserID: userB.ID, Email: userB.Email, MFASatisfied: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if principalB.TenantID != tenantB.ID || principalB.Attributes["department"] != "employee" ||
+		len(policiesB) != 1 || policiesB[0].Name != "tenant-b-contractor-deny" {
+		t.Fatalf("tenant B authorization context crossed scope: principal=%+v policies=%+v", principalB, policiesB)
+	}
+	if !auth.Authorize(principalB, consentPermission, policiesB,
+		map[string]string{auth.ResourceTenantKey: tenantB.ID}) {
+		t.Fatal("tenant A's matching subject/policy state affected tenant B")
+	}
+
+	if _, _, err := adapter.AuthorizationContext(ctx, &auth.Session{
+		TenantID: tenantA.ID, UserID: userB.ID, Email: userB.Email,
+	}); err == nil {
+		t.Fatal("tenant A scope loaded tenant B's subject by ID")
 	}
 }

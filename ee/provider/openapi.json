@@ -217,16 +217,28 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "403": {
+            "description": "Forbidden by tenant RBAC or ABAC"
+          },
+          "503": {
+            "description": "Tenant authorization policy is unavailable"
           }
         }
       }
     },
     "/provider/v1/consent/{id}": {
       "post": {
-        "summary": "Approve or deny a grant (tenant admin session; directory.write)",
+        "summary": "Approve or deny a grant (tenant session; tenant-first directory.write RBAC plus ABAC)",
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "403": {
+            "description": "Forbidden by tenant RBAC or ABAC"
+          },
+          "503": {
+            "description": "Tenant authorization policy is unavailable"
           }
         }
       }

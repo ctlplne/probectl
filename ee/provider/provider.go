@@ -42,6 +42,8 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Deps are the core seams the provider plane builds on. Everything here is a
@@ -108,7 +110,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 
 	var tenantAuth TenantAuth
 	if d.Sessions != nil && d.Perms != nil {
-		tenantAuth = coreTenantAuth{sessions: d.Sessions, perms: d.Perms}
+		tenantAuth = coreTenantAuth{sessions: d.Sessions, perms: d.Perms, pool: d.Pool}
 	}
 	log := d.Log
 	if log == nil {
@@ -133,16 +135,77 @@ type latestResultsReader struct{ lr *control.LatestResults }
 
 func (r latestResultsReader) LatestResults(tenantID string) any { return r.lr.List(tenantID) }
 
-// coreTenantAuth adapts the core session manager + RBAC loader for consent.
+// coreTenantAuth adapts the core session manager and tenant-scoped identity
+// stores for break-glass consent. Consent is intentionally a fresh read rather
+// than a cache hit: it is a rare, high-impact decision, and a policy or subject
+// load failure must deny rather than silently becoming an empty policy set.
 type coreTenantAuth struct {
 	sessions *auth.Manager
 	perms    auth.PermissionLoader
+	pool     *pgxpool.Pool
 }
 
 func (c coreTenantAuth) ResolveSession(ctx context.Context, token string) (*auth.Session, error) {
 	return c.sessions.Resolve(ctx, token)
 }
 
-func (c coreTenantAuth) Permissions(ctx context.Context, tenantID, userID string) ([]string, error) {
-	return c.perms.ForUser(ctx, tenantID, userID)
+func (c coreTenantAuth) AuthorizationContext(ctx context.Context, sess *auth.Session) (*auth.Principal, []auth.Policy, error) {
+	if sess == nil || c.perms == nil || c.pool == nil {
+		return nil, nil, errors.New("provider: incomplete tenant authorization dependencies")
+	}
+
+	keys, err := c.perms.ForUser(ctx, sess.TenantID, sess.UserID)
+	if err != nil {
+		return nil, nil, err
+	}
+	permissions := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		permissions[key] = true
+	}
+
+	principal := &auth.Principal{
+		TenantID:       sess.TenantID,
+		UserID:         sess.UserID,
+		Email:          sess.Email,
+		DisplayName:    sess.DisplayName,
+		MFASatisfied:   sess.MFASatisfied,
+		TimeZone:       sess.TimeZone,
+		Locale:         sess.Locale,
+		TenantTimeZone: sess.TenantTimeZone,
+		TenantLocale:   sess.TenantLocale,
+		Permissions:    permissions,
+	}
+	var policies []auth.Policy
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(sess.TenantID)), c.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		user, err := (store.Users{}).Get(ctx, sc, sess.UserID)
+		if err != nil {
+			return err
+		}
+		// RLS is the primary boundary. Keep an explicit equality check as a
+		// second lock so a misconfigured store can never hand another tenant's
+		// subject attributes to this consent decision.
+		if user.TenantID != sess.TenantID {
+			return errors.New("provider: tenant authorization subject mismatch")
+		}
+		principal.Email = user.Email
+		principal.DisplayName = user.DisplayName
+		principal.Attributes = make(map[string]string, len(user.Attributes)+1)
+		for key, value := range user.Attributes {
+			principal.Attributes[key] = value
+		}
+		// MFA is derived from the authenticated session, never trusted from a
+		// mutable SCIM subject attribute.
+		if sess.MFASatisfied {
+			principal.Attributes["mfa"] = "true"
+		} else {
+			principal.Attributes["mfa"] = "false"
+		}
+
+		policies, err = (store.ABACPolicies{}).List(ctx, sc)
+		return err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return principal, policies, nil
 }

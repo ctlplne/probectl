@@ -30,11 +30,13 @@ import (
 // exception: the consent endpoints, which authenticate the TENANT session —
 // consent belongs to the tenant, not to operators.
 
-// TenantAuth resolves a tenant session + its permissions (the consent leg).
-// The production adapter wraps auth.Manager + the RBAC PermissionLoader.
+// TenantAuth resolves a tenant session plus the complete tenant authorization
+// context needed by the consent leg. AuthorizationContext must return the
+// session user's RBAC permissions, subject attributes, and policies loaded
+// inside that tenant's storage scope; any incomplete load returns an error.
 type TenantAuth interface {
 	ResolveSession(ctx context.Context, token string) (*auth.Session, error)
-	Permissions(ctx context.Context, tenantID, userID string) ([]string, error)
+	AuthorizationContext(ctx context.Context, session *auth.Session) (*auth.Principal, []auth.Policy, error)
 }
 
 // consentPermission is the tenant-side permission that authorizes deciding a
@@ -232,9 +234,10 @@ func (h *Handler) asOperator(role string, fn func(w http.ResponseWriter, r *http
 	}
 }
 
-// asTenantAdmin authenticates the TENANT session (core auth) and requires the
-// consent permission within that tenant. The resolved tenant is authoritative
-// for every downstream check — a request can never name another tenant.
+// asTenantAdmin authenticates the TENANT session and applies the complete
+// tenant-first, RBAC-then-ABAC decision to the consent permission. The resolved
+// session tenant is authoritative for every downstream check — a request can
+// never name another tenant. Authorization dependency failures fail closed.
 func (h *Handler) asTenantAdmin(fn func(w http.ResponseWriter, r *http.Request, tenantID, userEmail string) error) providerHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		if h.tenantAuth == nil {
@@ -248,21 +251,23 @@ func (h *Handler) asTenantAdmin(fn func(w http.ResponseWriter, r *http.Request, 
 		if err != nil || sess == nil {
 			return errUnauthorized
 		}
-		perms, err := h.tenantAuth.Permissions(r.Context(), sess.TenantID, sess.UserID)
+		principal, policies, err := h.tenantAuth.AuthorizationContext(r.Context(), sess)
 		if err != nil {
-			return errUnauthorized
+			h.log.Warn("provider tenant authorization load failed",
+				"tenant_id", sess.TenantID, "error", err.Error())
+			return errConsentAuthorizationUnavailable
 		}
-		allowed := false
-		for _, p := range perms {
-			if p == consentPermission {
-				allowed = true
-				break
-			}
+		// Treat the session identity as authoritative and reject a malformed or
+		// cross-tenant adapter result before RBAC/ABAC. This is defense in depth
+		// above the adapter's tenant-scoped database transaction.
+		if principal == nil || principal.TenantID != sess.TenantID || principal.UserID != sess.UserID {
+			return errConsentAuthorizationUnavailable
 		}
-		if !allowed {
+		resource := map[string]string{auth.ResourceTenantKey: sess.TenantID}
+		if !auth.Authorize(principal, consentPermission, policies, resource) {
 			return errForbiddenRole
 		}
-		return fn(w, r, sess.TenantID, sess.Email)
+		return fn(w, r, sess.TenantID, principal.Email)
 	}
 }
 
@@ -564,7 +569,11 @@ var (
 	errRateLimited          = errors.New("provider: too many login attempts (locked, backing off)")
 	errForbiddenRole        = errors.New("provider: insufficient role")
 	errConsentNotConfigured = errors.New("provider: tenant-session auth is not configured on this deployment")
-	errBadDecision          = errors.New("provider: decision must be approve or deny")
+	// Policy/subject/RBAC load failures are operational failures, not missing
+	// permissions. They still deny the request, but answer 503 so operators can
+	// distinguish an unavailable policy store from an intentional ABAC deny.
+	errConsentAuthorizationUnavailable = errors.New("provider: tenant authorization is temporarily unavailable")
+	errBadDecision                     = errors.New("provider: decision must be approve or deny")
 )
 
 func decode(r *http.Request, v any) error {
@@ -619,6 +628,8 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "conflict", http.StatusConflict
 	case errors.Is(err, errConsentNotConfigured):
 		code, status = "not_configured", http.StatusServiceUnavailable
+	case errors.Is(err, errConsentAuthorizationUnavailable):
+		code, status = "authorization_unavailable", http.StatusServiceUnavailable
 	default:
 		var bad errBadJSON
 		if errors.As(err, &bad) || strings.HasPrefix(err.Error(), "provider: ") {

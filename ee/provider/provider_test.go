@@ -12,6 +12,7 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -100,16 +101,38 @@ func (f fakeTelemetry) LatestResults(tenantID string) any { return f.byTenant[te
 
 // fakeTenantAuth resolves fixed tenant sessions: token -> (tenant, user, perms).
 type fakeTenantAuth struct {
-	sessions map[string]*auth.Session
-	perms    map[string][]string // userID -> permission keys
+	sessions   map[string]*auth.Session
+	perms      map[string][]string // userID -> permission keys
+	attributes map[string]map[string]string
+	policies   map[string][]auth.Policy
+	policyErr  map[string]error
 }
 
 func (f fakeTenantAuth) ResolveSession(_ context.Context, token string) (*auth.Session, error) {
 	return f.sessions[token], nil
 }
 
-func (f fakeTenantAuth) Permissions(_ context.Context, _, userID string) ([]string, error) {
-	return f.perms[userID], nil
+func (f fakeTenantAuth) AuthorizationContext(_ context.Context, sess *auth.Session) (*auth.Principal, []auth.Policy, error) {
+	if err := f.policyErr[sess.TenantID]; err != nil {
+		return nil, nil, err
+	}
+	permissions := make(map[string]bool, len(f.perms[sess.UserID]))
+	for _, key := range f.perms[sess.UserID] {
+		permissions[key] = true
+	}
+	attributes := make(map[string]string, len(f.attributes[sess.UserID]))
+	for key, value := range f.attributes[sess.UserID] {
+		attributes[key] = value
+	}
+	principal := &auth.Principal{
+		TenantID:    sess.TenantID,
+		UserID:      sess.UserID,
+		Email:       sess.Email,
+		DisplayName: sess.DisplayName,
+		Permissions: permissions,
+		Attributes:  attributes,
+	}
+	return principal, append([]auth.Policy(nil), f.policies[sess.TenantID]...), nil
 }
 
 // licenseManager signs and loads a real license so the tests exercise the
@@ -150,11 +173,12 @@ func testEnvelope(t *testing.T) *crypto.Envelope {
 }
 
 type fixture struct {
-	h     *Handler
-	store *MemStore
-	svc   *Service
-	audit *memAudit
-	now   *time.Time // movable clock
+	h          *Handler
+	store      *MemStore
+	svc        *Service
+	audit      *memAudit
+	tenantAuth *fakeTenantAuth
+	now        *time.Time // movable clock
 }
 
 const bootToken = "boot-secret-0123456789"
@@ -171,7 +195,7 @@ func newFixture(t *testing.T, lic *license.Manager) *fixture {
 	}
 	f := &fixture{store: store, svc: svc, audit: sink, now: &now}
 	svc.WithClock(func() time.Time { return *f.now })
-	ta := fakeTenantAuth{
+	ta := &fakeTenantAuth{
 		sessions: map[string]*auth.Session{
 			"tenant-admin-A": {ID: "s1", TenantID: "tnA", UserID: "uA", Email: "admin@a.example"},
 			"tenant-user-A":  {ID: "s2", TenantID: "tnA", UserID: "uA2", Email: "user@a.example"},
@@ -183,7 +207,11 @@ func newFixture(t *testing.T, lic *license.Manager) *fixture {
 			// uA2 deliberately lacks directory.write.
 			"uA2": {"directory.read"},
 		},
+		attributes: map[string]map[string]string{},
+		policies:   map[string][]auth.Policy{},
+		policyErr:  map[string]error{},
 	}
+	f.tenantAuth = ta
 	f.h = NewHandler(svc, NewSessions(nil), ta, slog.New(slog.NewTextHandler(io.Discard, nil)), bootToken, false)
 	return f
 }
@@ -466,6 +494,87 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 	}
 	if rec = f.doAuthed(t, token, http.MethodGet, "/provider/v1/breakglass/"+g2.ID+"/results", nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("denied grant must not grant access: %d", rec.Code)
+	}
+}
+
+// TestBreakGlassConsentEnforcesTenantABAC proves the tenant consent leg applies
+// the same tenant-first, RBAC-then-ABAC decision as the core API. A deny policy
+// must beat directory.write for both approval and denial, policy-store faults
+// must fail closed, and tenant A's policy must never affect tenant B.
+func TestBreakGlassConsentEnforcesTenantABAC(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
+	operatorToken := f.bootstrapAndLoginFast(t)
+	f.tenantAuth.attributes["uA"] = map[string]string{"department": "contractor", "mfa": "true"}
+	f.tenantAuth.attributes["uB"] = map[string]string{"department": "contractor", "mfa": "true"}
+	f.tenantAuth.policies["tnA"] = []auth.Policy{{
+		Name:       "contractors cannot decide break-glass",
+		Effect:     auth.PolicyDeny,
+		Permission: consentPermission,
+		Subject:    map[string]string{"department": "contractor"},
+		Priority:   100,
+		Enabled:    true,
+	}}
+
+	requestGrant := func(t *testing.T, tenantID string) Grant {
+		t.Helper()
+		rec := f.doAuthed(t, operatorToken, http.MethodPost, "/provider/v1/breakglass",
+			map[string]any{"tenant_id": tenantID, "reason": "tenant ABAC regression", "ttl_minutes": 30})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("request %s grant: %d %s", tenantID, rec.Code, rec.Body.String())
+		}
+		var g Grant
+		mustDecode(t, rec, &g)
+		return g
+	}
+	decide := func(t *testing.T, token, grantID, decision string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := newReq(http.MethodPost, "/provider/v1/consent/"+grantID, map[string]string{"decision": decision})
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: token})
+		return doReq(f.h, req)
+	}
+
+	for _, decision := range []string{"approve", "deny"} {
+		g := requestGrant(t, "tnA")
+		rec := decide(t, "tenant-admin-A", g.ID, decision)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("ABAC-denied tenant A %s = %d %s, want 403", decision, rec.Code, rec.Body.String())
+		}
+		stored, err := f.store.GetGrant(t.Context(), g.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state := stored.State(*f.now); state != GrantPending {
+			t.Fatalf("ABAC-denied %s mutated grant to %q, want pending", decision, state)
+		}
+	}
+
+	delete(f.tenantAuth.policies, "tnA")
+	f.tenantAuth.policyErr["tnA"] = errors.New("simulated tenant policy store outage")
+	gFault := requestGrant(t, "tnA")
+	rec := decide(t, "tenant-admin-A", gFault.ID, "approve")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("policy-load failure = %d %s, want 503", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"authorization_unavailable"`) ||
+		strings.Contains(body, "simulated tenant policy store outage") {
+		t.Fatalf("policy-load response must be actionable but non-revealing: %s", body)
+	}
+	if stored, err := f.store.GetGrant(t.Context(), gFault.ID); err != nil || stored.State(*f.now) != GrantPending {
+		t.Fatalf("policy-load failure mutated grant: grant=%+v err=%v", stored, err)
+	}
+
+	delete(f.tenantAuth.policyErr, "tnA")
+	gB := requestGrant(t, "tnB")
+	rec = decide(t, "tenant-admin-B", gB.ID, "approve")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant A policy crossed into tenant B: %d %s", rec.Code, rec.Body.String())
+	}
+	storedB, err := f.store.GetGrant(t.Context(), gB.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state := storedB.State(*f.now); state != GrantActive {
+		t.Fatalf("tenant B grant state = %q, want active", state)
 	}
 }
 
