@@ -2794,8 +2794,19 @@ async function configCorrelationPivotChecks(page, axeSource) {
     name: "Review redacted change",
     exact: true,
   });
-  if ((await pivot.count()) !== 1) {
+  // React Router updates the address bar before React commits the selected
+  // evidence inspector. Locator.count() does not auto-wait, so checking it
+  // immediately races that commit (most visibly in the mobile viewport).
+  try {
+    await pivot.first().waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
     return ["incident config-drift pivot is missing"];
+  }
+  const pivotCount = await pivot.count();
+  if (pivotCount !== 1) {
+    return [
+      `incident config-drift pivot is not unique: expected 1, found ${pivotCount}`,
+    ];
   }
   const href = await pivot.getAttribute("href");
   const target = href ? new URL(href, page.url()) : undefined;
@@ -2845,16 +2856,24 @@ async function configCorrelationPivotChecks(page, axeSource) {
       url.searchParams.get("incident") === "inc-dashboard"
     );
   });
-  if (
-    (await page
-      .getByRole("region", {
-        name: "Unified five-plane incident room",
-        exact: true,
-      })
-      .count()) !== 1
-  ) {
+  const incidentRoom = page.getByRole("region", {
+    name: "Unified five-plane incident room",
+    exact: true,
+  });
+  // A URL transition completes before the destination query and route commit.
+  // Wait for the user-visible room, then still reject duplicates explicitly.
+  try {
+    await incidentRoom.first().waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
     problems.push(
       "config comparison did not return to the originating incident",
+    );
+    return problems;
+  }
+  const incidentRoomCount = await incidentRoom.count();
+  if (incidentRoomCount !== 1) {
+    problems.push(
+      `originating incident room is not unique: expected 1, found ${incidentRoomCount}`,
     );
   }
   return problems;
