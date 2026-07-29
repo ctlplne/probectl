@@ -5,6 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { Badge, Button, Modal } from '../components'
 import type { DeviceConfigVersion } from '../api/planes'
 import { useI18n } from '../i18n/useI18n'
@@ -19,9 +20,11 @@ export interface ConfigComparison {
 export function ConfigDiffDialog({
   comparison,
   onClose,
+  returnHref,
 }: {
   comparison: ConfigComparison
   onClose: () => void
+  returnHref?: string
 }) {
   const { current, previous } = comparison
   const { t } = useI18n()
@@ -40,9 +43,14 @@ export function ConfigDiffDialog({
         after: current.version,
       })}
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          {t('planes.device.config.compare.close')}
-        </Button>
+        <>
+          {returnHref ? (
+            <Link to={returnHref}>{t('planes.device.config.compare.returnToIncident')}</Link>
+          ) : null}
+          <Button variant="secondary" onClick={onClose}>
+            {t('planes.device.config.compare.close')}
+          </Button>
+        </>
       }
     >
       <div className={styles.configDiff}>

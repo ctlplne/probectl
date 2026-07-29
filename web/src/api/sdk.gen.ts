@@ -296,6 +296,7 @@ export interface ChangeCandidateList {
 
 export interface ChangeEvent {
   actor?: string
+  config?: ConfigChangeReference
   id?: string
   kind?: string
   occurred_at?: string
@@ -339,6 +340,15 @@ export interface CollectorRegistration {
   hostname?: string
   plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
   tenant_id: string
+}
+
+export interface ConfigChangeReference {
+  current_hash: string
+  current_id: string
+  current_version: number
+  previous_hash: string
+  previous_id: string
+  previous_version: number
 }
 
 export interface CoverageDebtAction {

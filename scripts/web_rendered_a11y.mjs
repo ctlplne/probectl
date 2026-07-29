@@ -556,7 +556,32 @@ function apiPayload(path, method, pagePath = "") {
       signals: [],
     });
   if (path === "/v1/incidents/inc-dashboard/changes")
-    return json({ items: [] });
+    return json({
+      items: [
+        {
+          event: {
+            id: "device-config:config-2",
+            source: "probectl-device-config",
+            kind: "config",
+            title: "Config drift detected on edge-r1",
+            summary: "Redacted device config changed from version 1 to 2.",
+            target: "edge-r1",
+            ref: "config-2",
+            config: {
+              current_id: "config-2",
+              current_version: 2,
+              current_hash: "0123456789abcdef",
+              previous_id: "config-1",
+              previous_version: 1,
+              previous_hash: "abcdef0123456789",
+            },
+            occurred_at: "2026-06-04T11:59:00Z",
+          },
+          score: 0.98,
+          reason: "same target edge-r1",
+        },
+      ],
+    });
   if (path === "/v1/incidents/inc-dashboard/journal")
     return json({ items: [], truncated: false, limit: 200 });
   if (path === "/v1/alerts") return json({ items: [] });
@@ -2752,6 +2777,89 @@ async function deviceConfigDiffChecks(page, viewportName, axeSource) {
   return problems;
 }
 
+async function configCorrelationPivotChecks(page, axeSource) {
+  const problems = [];
+  const change = page
+    .getByRole("button", {
+      name: "Config drift detected on edge-r1",
+      exact: true,
+    })
+    .last();
+  if ((await change.count()) !== 1) {
+    return ["incident config-drift candidate is missing"];
+  }
+  await change.click();
+
+  const pivot = page.getByRole("link", {
+    name: "Review redacted change",
+    exact: true,
+  });
+  if ((await pivot.count()) !== 1) {
+    return ["incident config-drift pivot is missing"];
+  }
+  const href = await pivot.getAttribute("href");
+  const target = href ? new URL(href, page.url()) : undefined;
+  if (
+    !target ||
+    !target.pathname.endsWith("/planes/device") ||
+    target.searchParams.get("config") !== "config-2" ||
+    target.searchParams.get("previous_config") !== "config-1" ||
+    target.searchParams.get("ctx_incident") !== "inc-dashboard"
+  ) {
+    problems.push(`incident config-drift pivot lost exact context: ${href}`);
+  }
+
+  await pivot.click();
+  const dialog = page.getByRole("dialog", {
+    name: "edge-r1: version 1 → 2",
+    exact: true,
+  });
+  await dialog.waitFor({ state: "visible" });
+  for (const expected of [
+    "description checkout uplink",
+    "description payments uplink",
+  ]) {
+    if ((await dialog.getByText(expected, { exact: true }).count()) !== 1) {
+      problems.push(`incident config pivot omits exact diff line: ${expected}`);
+    }
+  }
+  const dialogAxe = blockingAxeResults(await runAxe(page, axeSource));
+  for (const violation of dialogAxe) {
+    problems.push(
+      `incident config pivot axe ${violation.id}: ${violation.help}`,
+    );
+  }
+
+  const back = dialog.getByRole("link", {
+    name: "Return to incident",
+    exact: true,
+  });
+  if ((await back.count()) !== 1) {
+    problems.push("config comparison omits incident return action");
+    return problems;
+  }
+  await back.click();
+  await page.waitForURL((url) => {
+    return (
+      url.pathname.endsWith("/incidents") &&
+      url.searchParams.get("incident") === "inc-dashboard"
+    );
+  });
+  if (
+    (await page
+      .getByRole("region", {
+        name: "Unified five-plane incident room",
+        exact: true,
+      })
+      .count()) !== 1
+  ) {
+    problems.push(
+      "config comparison did not return to the originating incident",
+    );
+  }
+  return problems;
+}
+
 async function selfCheck(browser, axeSource) {
   const page = await browser.newPage({ viewport: viewports[0] });
   await page.setContent(`
@@ -3212,6 +3320,7 @@ async function main() {
             flowReceipt: [],
             flowTopTalkers: [],
             deviceConfigDiff: [],
+            configCorrelationPivot: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -3342,6 +3451,15 @@ async function main() {
                 );
               }
             }
+            if (route === "/incidents") {
+              record.configCorrelationPivot =
+                await configCorrelationPivotChecks(page, axeSource);
+              if (record.configCorrelationPivot.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: config correlation pivot violations\n  ${record.configCorrelationPivot.join("\n  ")}`,
+                );
+              }
+            }
             if (route === "/targets") {
               if (viewport.name === "desktop") {
                 await page.setViewportSize(targetsLaptopViewport);
@@ -3423,6 +3541,7 @@ async function main() {
             record.flowReceipt.length === 0 &&
             record.flowTopTalkers.length === 0 &&
             record.deviceConfigDiff.length === 0 &&
+            record.configCorrelationPivot.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";

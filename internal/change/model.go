@@ -30,9 +30,22 @@ const (
 	KindOther   Kind = "other"
 )
 
-// Event is the canonical, normalized change record — the single model every
-// source (GitHub/GitLab/CI/IaC) is mapped onto. TenantID is always stamped from
-// the verified webhook credential at ingest, NEVER taken from the (untrusted)
+// ConfigReference points from a projected change event back to the exact pair
+// of already-redacted device config snapshots that produced it. It deliberately
+// contains hashes and identifiers only; config content remains available solely
+// through the separately-authorized device archive API.
+type ConfigReference struct {
+	CurrentID       string `json:"current_id"`
+	CurrentVersion  int    `json:"current_version"`
+	CurrentHash     string `json:"current_hash"`
+	PreviousID      string `json:"previous_id"`
+	PreviousVersion int    `json:"previous_version"`
+	PreviousHash    string `json:"previous_hash"`
+}
+
+// Event is the canonical, normalized change record — signed webhook inputs and
+// safe read-time projections share this model. For ingested events, TenantID is
+// always stamped from the verified credential, NEVER taken from the (untrusted)
 // payload. Target/Prefix anchor time+topology correlation to incidents.
 type Event struct {
 	ID         string            `json:"id,omitempty"`
@@ -47,6 +60,7 @@ type Event struct {
 	Ref        string            `json:"ref,omitempty"`    // commit SHA / deploy id / tag
 	URL        string            `json:"url,omitempty"`    // deep-link back to the source
 	Attributes map[string]string `json:"attributes,omitempty"`
+	Config     *ConfigReference  `json:"config,omitempty"` // read-time device archive projection; never persisted
 	OccurredAt time.Time         `json:"occurred_at"`
 	ReceivedAt time.Time         `json:"received_at,omitempty"`
 }

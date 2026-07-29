@@ -53,6 +53,14 @@ export interface ChangeEvent {
   actor?: string
   ref?: string
   url?: string
+  config?: {
+    current_id: string
+    current_version: number
+    current_hash: string
+    previous_id: string
+    previous_version: number
+    previous_hash: string
+  }
   occurred_at: string
 }
 

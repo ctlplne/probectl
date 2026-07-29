@@ -351,6 +351,7 @@ func (s *Server) WithOTelStore(st otelstore.Store) *Server {
 func (s *Server) WithDeviceOps(st device.OpsStore) *Server {
 	if st != nil {
 		s.deviceOps = st
+		s.rebuildAnalyzer()
 	}
 	return s
 }

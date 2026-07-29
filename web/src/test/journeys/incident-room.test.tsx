@@ -111,6 +111,14 @@ describe('J2 unified incident room', () => {
                   title: 'edge export policy changed',
                   summary: 'Deployment changed the transit-b export policy.',
                   target: 'edge-r1',
+                  config: {
+                    current_id: 'config-2',
+                    current_version: 2,
+                    current_hash: '0123456789abcdef',
+                    previous_id: 'config-1',
+                    previous_version: 1,
+                    previous_hash: 'abcdef0123456789',
+                  },
                   occurred_at: '2026-07-14T11:59:30Z',
                 },
                 score: 0.94,
@@ -214,6 +222,31 @@ describe('J2 unified incident room', () => {
     const clock = within(room).getByRole('list', { name: /one time axis/i })
     const selectedClockMarker = within(clock).getByText('bgp').closest('button')
     expect(selectedClockMarker).toHaveAttribute('aria-pressed', 'true')
+
+    const changeControls = within(room).getAllByRole('button', {
+      name: /edge export policy changed/i,
+    })
+    await user.click(changeControls[changeControls.length - 1])
+    const configPivot = within(inspector).getByRole('link', {
+      name: /review redacted change/i,
+    })
+    expect(configPivot).toHaveAttribute('href', expect.stringContaining('config=config-2'))
+    expect(configPivot).toHaveAttribute('href', expect.stringContaining('previous_config=config-1'))
+    expect(configPivot).toHaveAttribute('href', expect.stringContaining('ctx_incident=inc-room'))
+    await user.click(configPivot)
+
+    const configDialog = await screen.findByRole('dialog', {
+      name: 'edge-r1: version 1 → 2',
+    })
+    expect(within(configDialog).getByText('description checkout uplink')).toBeInTheDocument()
+    const returnLink = within(configDialog).getByRole('link', { name: /return to incident/i })
+    expect(returnLink).toHaveAttribute('href', '/incidents?incident=inc-room')
+    await user.click(returnLink)
+    expect(
+      await screen.findByRole('region', {
+        name: /unified five-plane incident room/i,
+      }),
+    ).toBeInTheDocument()
 
     assertRequestsUseSessionTenant(requests)
     const measurement = new JourneyRecorder('J2', 'incident to cited RCA to share')

@@ -285,6 +285,25 @@ export function IncidentRoom({
           { preview: 'blast' },
         )
       : undefined
+  const configHref =
+    selectedChange?.event.config && selectedSourceID
+      ? pivotHref(
+          '/planes/device',
+          {
+            ...pivotContext,
+            incidentId: roomIncident.id,
+            from: roomIncident.started_at,
+            to: roomIncident.last_seen_at,
+            selection: { kind: 'evidence', id: selectedSourceID },
+            returnTo:
+              pivotContext.returnTo ?? `/incidents?incident=${encodeURIComponent(roomIncident.id)}`,
+          },
+          {
+            config: selectedChange.event.config.current_id,
+            previous_config: selectedChange.event.config.previous_id,
+          },
+        )
+      : undefined
   const checkpointEvidence =
     lastShare?.answer.evidence.find((evidence) => evidence.fields?.id === selectedSourceID) ??
     lastShare?.answer.evidence[0]
@@ -577,6 +596,7 @@ export function IncidentRoom({
             change={selectedChange}
             topologyHref={topologyHref}
             topologyEntity={topologyEntity}
+            configHref={configHref}
             t={t}
           />
 
@@ -785,12 +805,14 @@ function EvidenceInspector({
   change,
   topologyHref,
   topologyEntity,
+  configHref,
   t,
 }: {
   signal?: Signal
   change?: ChangeCandidate
   topologyHref?: string
   topologyEntity?: string
+  configHref?: string
   t: (key: MessageKey, vars?: Record<string, string | number>) => string
 }) {
   return (
@@ -858,6 +880,12 @@ function EvidenceInspector({
               Observe-only dry-run; incident, evidence, absolute time, filters, and return context
               travel with this pivot.
             </span>
+          </div>
+        ) : null}
+        {configHref ? (
+          <div className={styles.topologyPivot}>
+            <Link to={configHref}>{t('incidents.room.changes.reviewConfig')}</Link>
+            <span>{t('incidents.room.changes.reviewConfigDescription')}</span>
           </div>
         ) : null}
       </CardBody>

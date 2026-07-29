@@ -459,6 +459,7 @@ const en = {
   'planes.device.config.compare.noChange': 'No change to compare',
   'planes.device.config.compare.title': '{device}: version {before} → {after}',
   'planes.device.config.compare.close': 'Close comparison',
+  'planes.device.config.compare.returnToIncident': 'Return to incident',
   'planes.device.config.compare.description':
     'Compared deterministically from content redacted before archival. No device was contacted and no configuration can be changed here.',
   'planes.device.config.compare.before': 'Previous',
@@ -957,6 +958,9 @@ const en = {
   'incidents.room.changes.empty':
     'No correlated changes were returned. This is a coverage gap, not proof that nothing changed.',
   'incidents.room.changes.score': 'cause score {score}',
+  'incidents.room.changes.reviewConfig': 'Review redacted change',
+  'incidents.room.changes.reviewConfigDescription':
+    'Opens the exact archived predecessor comparison; no device is contacted and nothing can be changed.',
   'incidents.room.entities.title': 'Affected entities',
   'incidents.room.entities.empty':
     'No affected entity was attached. Entity coverage is unknown, not healthy.',
@@ -1742,6 +1746,7 @@ const es: Record<MessageKey, string> = {
   'planes.device.config.compare.noChange': 'No hay cambios que comparar',
   'planes.device.config.compare.title': '{device}: versión {before} → {after}',
   'planes.device.config.compare.close': 'Cerrar comparación',
+  'planes.device.config.compare.returnToIncident': 'Volver al incidente',
   'planes.device.config.compare.description':
     'Comparación determinista del contenido censurado antes de archivarse. No se contactó al dispositivo ni se puede cambiar su configuración aquí.',
   'planes.device.config.compare.before': 'Anterior',
@@ -2247,6 +2252,9 @@ const es: Record<MessageKey, string> = {
   'incidents.room.changes.empty':
     'No se devolvieron cambios correlacionados. Es una brecha, no prueba de que nada cambio.',
   'incidents.room.changes.score': 'puntaje causal {score}',
+  'incidents.room.changes.reviewConfig': 'Revisar cambio censurado',
+  'incidents.room.changes.reviewConfigDescription':
+    'Abre la comparación exacta con el archivo anterior; no contacta al dispositivo ni permite cambios.',
   'incidents.room.entities.title': 'Entidades afectadas',
   'incidents.room.entities.empty':
     'No se adjunto una entidad afectada. La cobertura es desconocida, no saludable.',
@@ -2992,6 +3000,7 @@ const ar: Record<MessageKey, string> = {
   'planes.device.config.compare.noChange': 'لا يوجد تغيير للمقارنة',
   'planes.device.config.compare.title': '{device}: الإصدار {before} ← {after}',
   'planes.device.config.compare.close': 'أغلق المقارنة',
+  'planes.device.config.compare.returnToIncident': 'العودة إلى الحادث',
   'planes.device.config.compare.description':
     'مقارنة حتمية للمحتوى المنقح قبل الأرشفة. لم يُتصل بالجهاز ولا يمكن تغيير إعداداته من هنا.',
   'planes.device.config.compare.before': 'السابق',
@@ -3479,6 +3488,9 @@ const ar: Record<MessageKey, string> = {
   'incidents.room.changes.empty':
     'لم تعد تغييرات مترابطة. هذه فجوة تغطية وليست دليلا على عدم حدوث تغيير.',
   'incidents.room.changes.score': 'درجة السببية {score}',
+  'incidents.room.changes.reviewConfig': 'راجع التغيير المنقح',
+  'incidents.room.changes.reviewConfigDescription':
+    'يفتح المقارنة الدقيقة مع النسخة المؤرشفة السابقة؛ لا يتصل بالجهاز ولا يغير شيئا.',
   'incidents.room.entities.title': 'الكيانات المتأثرة',
   'incidents.room.entities.empty': 'لم يرفق كيان متأثر. تغطية الكيانات غير معروفة وليست سليمة.',
   'incidents.room.inspector.aria': 'فاحص أدلة الحادث',

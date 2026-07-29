@@ -26,6 +26,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
@@ -40,9 +41,10 @@ import (
 // flow store, or topology engine; missing sources degrade to "no evidence from
 // that plane" rather than widening or failing the query.
 type AISources struct {
-	Metrics  tsdb.Writer
-	Flow     flowstore.Store
-	Topology topology.Store
+	Metrics   tsdb.Writer
+	Flow      flowstore.Store
+	Topology  topology.Store
+	DeviceOps device.OpsStore
 }
 
 func firstAISources(sources []AISources) AISources {
@@ -68,16 +70,16 @@ func buildEngine(cfg *config.Config, pool *pgxpool.Pool, sources ...AISources) *
 			ai.WithEntities(incidentEntitiesSource{pool: pool}),
 		)
 	}
-	if pool != nil || src.Flow != nil {
+	if pool != nil || src.Flow != nil || src.DeviceOps != nil {
 		// The events domain is the high-cardinality event drawer: change
 		// timeline rows plus flow summaries when a flow store is attached.
-		opts = append(opts, ai.WithEvents(changeEventsSource{pool: pool, flow: src.Flow}))
+		opts = append(opts, ai.WithEvents(changeEventsSource{pool: pool, flow: src.Flow, configs: src.DeviceOps}))
 	}
 	return ai.NewEngine(opts...)
 }
 
 func (s *Server) aiSources() AISources {
-	return AISources{Metrics: s.tsdbWriter, Flow: s.flowStore, Topology: s.topo}
+	return AISources{Metrics: s.tsdbWriter, Flow: s.flowStore, Topology: s.topo, DeviceOps: s.deviceOps}
 }
 
 func (s *Server) rebuildAnalyzer() {

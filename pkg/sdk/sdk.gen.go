@@ -366,19 +366,20 @@ type ChangeCandidateList struct {
 	Items []ChangeCandidate `json:"items,omitempty"`
 }
 
-// A normalized change event ingested from a signed webhook (S29).
+// A normalized tenant-scoped change event from a signed webhook or a content-free read-time projection.
 type ChangeEvent struct {
-	Actor      string `json:"actor,omitempty"`
-	Id         string `json:"id,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	OccurredAt string `json:"occurred_at,omitempty"`
-	Prefix     string `json:"prefix,omitempty"`
-	Ref        string `json:"ref,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Summary    string `json:"summary,omitempty"`
-	Target     string `json:"target,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Url        string `json:"url,omitempty"`
+	Actor      string                `json:"actor,omitempty"`
+	Config     ConfigChangeReference `json:"config,omitempty"`
+	Id         string                `json:"id,omitempty"`
+	Kind       string                `json:"kind,omitempty"`
+	OccurredAt string                `json:"occurred_at,omitempty"`
+	Prefix     string                `json:"prefix,omitempty"`
+	Ref        string                `json:"ref,omitempty"`
+	Source     string                `json:"source,omitempty"`
+	Summary    string                `json:"summary,omitempty"`
+	Target     string                `json:"target,omitempty"`
+	Title      string                `json:"title,omitempty"`
+	Url        string                `json:"url,omitempty"`
 }
 
 type ChangeEventList struct {
@@ -412,6 +413,16 @@ type CollectorRegistration struct {
 	Hostname     string              `json:"hostname,omitempty"`
 	Plane        string              `json:"plane"`
 	TenantId     string              `json:"tenant_id"`
+}
+
+// Content-free reference to the exact redacted device config snapshots behind a projected drift event.
+type ConfigChangeReference struct {
+	CurrentHash     string `json:"current_hash"`
+	CurrentId       string `json:"current_id"`
+	CurrentVersion  int    `json:"current_version"`
+	PreviousHash    string `json:"previous_hash"`
+	PreviousId      string `json:"previous_id"`
+	PreviousVersion int    `json:"previous_version"`
 }
 
 type CoverageDebtAction struct {

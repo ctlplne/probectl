@@ -12116,7 +12116,7 @@
       },
       "ChangeEvent": {
         "type": "object",
-        "description": "A normalized change event ingested from a signed webhook (S29).",
+        "description": "A normalized tenant-scoped change event from a signed webhook or a content-free read-time projection.",
         "properties": {
           "id": {
             "type": "string"
@@ -12148,9 +12148,44 @@
           "url": {
             "type": "string"
           },
+          "config": {
+            "$ref": "#/components/schemas/ConfigChangeReference"
+          },
           "occurred_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ConfigChangeReference": {
+        "type": "object",
+        "description": "Content-free reference to the exact redacted device config snapshots behind a projected drift event.",
+        "required": [
+          "current_id",
+          "current_version",
+          "current_hash",
+          "previous_id",
+          "previous_version",
+          "previous_hash"
+        ],
+        "properties": {
+          "current_id": {
+            "type": "string"
+          },
+          "current_version": {
+            "type": "integer"
+          },
+          "current_hash": {
+            "type": "string"
+          },
+          "previous_id": {
+            "type": "string"
+          },
+          "previous_version": {
+            "type": "integer"
+          },
+          "previous_hash": {
+            "type": "string"
           }
         }
       },

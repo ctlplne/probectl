@@ -24,6 +24,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/change"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -309,6 +310,86 @@ func TestIncidentChangesCorrelation(t *testing.T) {
 	}
 	if strings.Contains(body, "deploy db") {
 		t.Errorf("an unrelated change must not correlate: %s", body)
+	}
+}
+
+// The redacted device archive is projected into both change surfaces at read
+// time. The projection stays tenant-bound, exposes only identifiers/hashes, and
+// correlates to an incident only when target and time match.
+func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
+	db := changeDB(t)
+	tenantA := freshTenant(t, db, "cfgchangeA")
+	tenantB := freshTenant(t, db, "cfgchangeB")
+	now := time.Now().UTC().Truncate(time.Second)
+	ops := device.NewMemoryOpsStore()
+	for _, tenant := range []string{tenantA, tenantB} {
+		for i, content := range []string{
+			"hostname edge-r1\nsnmp-server community private",
+			"hostname edge-r1\nsnmp-server community public",
+		} {
+			if _, err := ops.ArchiveConfig(context.Background(), device.ConfigVersion{
+				TenantID: tenant,
+				Device:   "edge-r1",
+				Content:  content,
+				Source:   "integration",
+				ObservedAt: now.Add(
+					time.Duration(i-1) * time.Minute,
+				),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	cfg := &config.Config{
+		HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev",
+		ChangeCorrelationWindow: 24 * time.Hour, AIMaxEvidence: 50,
+	}
+	server := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
+		WithDeviceOps(ops)
+	h := server.Handler()
+
+	timelineA := apiReq(t, h, http.MethodGet, "/v1/changes", tenantA, nil)
+	if timelineA.Code != http.StatusOK {
+		t.Fatalf("tenant A timeline: %d %s", timelineA.Code, timelineA.Body)
+	}
+	bodyA := timelineA.Body.String()
+	if !strings.Contains(bodyA, `"id":"device-config:config-2"`) ||
+		!strings.Contains(bodyA, `"current_id":"config-2"`) ||
+		!strings.Contains(bodyA, `"previous_id":"config-1"`) {
+		t.Fatalf("tenant A timeline lacks exact config projection: %s", bodyA)
+	}
+	if strings.Contains(bodyA, "community private") || strings.Contains(bodyA, "community public") {
+		t.Fatalf("timeline leaked config content: %s", bodyA)
+	}
+
+	timelineB := apiReq(t, h, http.MethodGet, "/v1/changes", tenantB, nil)
+	if timelineB.Code != http.StatusOK {
+		t.Fatalf("tenant B timeline: %d %s", timelineB.Code, timelineB.Body)
+	}
+	if strings.Contains(timelineB.Body.String(), `"current_id":"config-2"`) {
+		t.Fatalf("tenant B received tenant A's config reference: %s", timelineB.Body)
+	}
+	if !strings.Contains(timelineB.Body.String(), `"current_id":"config-4"`) {
+		t.Fatalf("tenant B did not receive its own projected config: %s", timelineB.Body)
+	}
+
+	correlator := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	inc, err := correlator.Ingest(context.Background(), incident.Signal{
+		TenantID: tenantA, Plane: "device", Kind: "device.config_drift",
+		Severity: incident.SeverityWarning, Title: "edge config drift",
+		Target: "edge-r1", OccurredAt: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := apiReq(t, h, http.MethodGet, "/v1/incidents/"+inc.ID+"/changes", tenantA, nil)
+	if candidates.Code != http.StatusOK ||
+		!strings.Contains(candidates.Body.String(), `"id":"device-config:config-2"`) {
+		t.Fatalf("incident did not receive its same-target config candidate: %d %s", candidates.Code, candidates.Body)
+	}
+	if strings.Contains(candidates.Body.String(), "config-4") {
+		t.Fatalf("incident received a foreign-tenant config candidate: %s", candidates.Body)
 	}
 }
 

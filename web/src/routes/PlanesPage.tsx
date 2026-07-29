@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styles from './planes.module.css'
 import { Page } from './RoutePage'
@@ -144,6 +144,23 @@ export function PlanesPage() {
     b.ts.localeCompare(a.ts),
   )[0]
   const impairedEndpoints = endpointItems.filter((e) => e.slow).length
+  const requestedConfigID = params.get('config') ?? undefined
+  const requestedPreviousConfigID = params.get('previous_config') ?? undefined
+  const requestConfigComparison = useCallback(
+    (currentID: string, previousID: string) => {
+      const next = new URLSearchParams(params)
+      next.set('config', currentID)
+      next.set('previous_config', previousID)
+      setParams(next)
+    },
+    [params, setParams],
+  )
+  const closeConfigComparison = useCallback(() => {
+    const next = new URLSearchParams(params)
+    next.delete('config')
+    next.delete('previous_config')
+    setParams(next, { replace: true })
+  }, [params, setParams])
   const setActive = (next: PlaneID) => {
     void navigate(planePivotHref(next, pivotContext))
   }
@@ -268,6 +285,11 @@ export function PlanesPage() {
             neighborsError={deviceNeighbors.isError}
             opsLoading={deviceSyslog.isLoading || deviceConfigs.isLoading}
             opsError={deviceSyslog.isError || deviceConfigs.isError}
+            requestedConfigID={requestedConfigID}
+            requestedPreviousConfigID={requestedPreviousConfigID}
+            onRequestConfig={requestConfigComparison}
+            onCloseConfig={closeConfigComparison}
+            returnHref={pivotContext.returnTo}
           />
         ) : null}
         {active === 'ebpf' ? (
@@ -833,6 +855,11 @@ function DevicePanel({
   neighborsError,
   opsLoading,
   opsError,
+  requestedConfigID,
+  requestedPreviousConfigID,
+  onRequestConfig,
+  onCloseConfig,
+  returnHref,
 }: {
   isLoading: boolean
   isError: boolean
@@ -852,15 +879,24 @@ function DevicePanel({
   neighborsError: boolean
   opsLoading: boolean
   opsError: boolean
+  requestedConfigID?: string
+  requestedPreviousConfigID?: string
+  onRequestConfig: (currentID: string, previousID: string) => void
+  onCloseConfig: () => void
+  returnHref?: string
 }) {
   const { locale, t } = useI18n()
-  const [selectedConfigID, setSelectedConfigID] = useState<string | null>(null)
   const configComparison = useMemo<ConfigComparison | null>(() => {
-    const current = configs.find((config) => config.id === selectedConfigID)
+    const current = configs.find((config) => config.id === requestedConfigID)
     if (!current) return null
     const previous = findPreviousConfig(configs, current)
+    if (requestedPreviousConfigID && previous?.id !== requestedPreviousConfigID) return null
     return previous ? { current, previous } : null
-  }, [configs, selectedConfigID])
+  }, [configs, requestedConfigID, requestedPreviousConfigID])
+  useEffect(() => {
+    if (!requestedConfigID || opsLoading || configComparison) return
+    onCloseConfig()
+  }, [configComparison, onCloseConfig, opsLoading, requestedConfigID])
   const configComparisonControl = (config: DeviceConfigVersion) => {
     const previous = findPreviousConfig(configs, config)
     if (!config.drifted) {
@@ -881,7 +917,7 @@ function DevicePanel({
           before: previous.version,
           after: config.version,
         })}
-        onClick={() => setSelectedConfigID(config.id)}
+        onClick={() => onRequestConfig(config.id, previous.id)}
       >
         {t('planes.device.config.compare.action')}
       </Button>
@@ -1220,7 +1256,8 @@ function DevicePanel({
             {configComparison ? (
               <ConfigDiffDialog
                 comparison={configComparison}
-                onClose={() => setSelectedConfigID(null)}
+                onClose={onCloseConfig}
+                returnHref={returnHref}
               />
             ) : null}
           </CardBody>

@@ -565,7 +565,7 @@ func (s *Server) executeExplorer(ctx context.Context, tenant string, query ai.Ex
 		if query.Template == "asn-before-incident" {
 			selector["type"] = "bgp"
 		}
-		rows, err := (changeEventsSource{pool: s.pool, flow: nil}).QueryEvents(ctx, tenant, selector, ai.TimeRange{Start: query.From, End: query.To}, query.Limit+1)
+		rows, err := (changeEventsSource{pool: s.pool, flow: nil, configs: s.deviceOps}).QueryEvents(ctx, tenant, selector, ai.TimeRange{Start: query.From, End: query.To}, query.Limit+1)
 		if query.Template == "deployments-before-incident" {
 			rows = filterExplorerRows(rows, map[string]string{"kind": "deploy"})
 		}

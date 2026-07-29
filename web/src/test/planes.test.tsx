@@ -261,6 +261,17 @@ describe('plane workspaces', () => {
     expect(arabicDialog.querySelector('[dir="ltr"][tabindex="0"]')).toBeInTheDocument()
   })
 
+  test('fails closed when a config pivot does not name the exact predecessor', async () => {
+    renderApp('/planes/device?config=config-2&previous_config=config-does-not-match')
+
+    await screen.findByRole('table', { name: /device config versions/i })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(window.location.search).not.toContain('config=')
+      expect(window.location.search).not.toContain('previous_config=')
+    })
+  })
+
   test('cold flow ingest remains honestly empty', async () => {
     vi.stubGlobal('fetch', coldFetch())
     renderApp('/planes/flow')

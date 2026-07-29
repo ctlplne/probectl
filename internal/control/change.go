@@ -20,6 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/change"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
@@ -118,9 +119,16 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error {
 	var evs []change.Event
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		x, e := store.ChangeEvents{}.List(ctx, sc, 200)
-		evs = x
-		return e
+		stored, err := store.ChangeEvents{}.List(ctx, sc, 200)
+		if err != nil {
+			return err
+		}
+		projected, err := projectedConfigChanges(ctx, s.deviceOps, sc.Tenant.String())
+		if err != nil {
+			return err
+		}
+		evs = mergeChangeEvents(200, stored, projected)
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -147,7 +155,15 @@ func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) e
 		if e != nil {
 			return e
 		}
+		projected, e := projectedConfigChanges(ctx, s.deviceOps, sc.Tenant.String())
+		if e != nil {
+			return e
+		}
+		evs = mergeChangeEvents(len(evs)+len(projected), evs, projected)
 		cands = change.Candidates(evs, inc.Target, inc.Prefix, inc.StartedAt, window)
+		if len(cands) > 500 {
+			cands = cands[:500]
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -161,42 +177,62 @@ func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) e
 // attached. It opens tenant-scoped (RLS) Postgres reads and passes the engine's
 // tenant into the flow store; callers never provide tenant scope.
 type changeEventsSource struct {
-	pool *pgxpool.Pool
-	flow flowstore.Store
+	pool    *pgxpool.Pool
+	flow    flowstore.Store
+	configs device.OpsStore
 }
 
 func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel map[string]string, r ai.TimeRange, limit int) ([]ai.Row, error) {
 	var rows []ai.Row
 	typ := strings.ToLower(sel["type"])
 	if typ == "" || typ == "change" || typ == "bgp" || typ == "routing" {
+		start, end := changeEvidenceWindow(r)
+		var evs []change.Event
 		if s.pool != nil {
 			if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				start, end := changeEvidenceWindow(r)
-				evs, err := (store.ChangeEvents{}).Between(ctx, sc, start, end, limit)
+				stored, err := (store.ChangeEvents{}).Between(ctx, sc, start, end, limit)
 				if err != nil {
 					return err
 				}
-				target, prefix, eventID := sel["target"], sel["prefix"], sel["id"]
-				for i := range evs {
-					ev := evs[i]
-					if (eventID != "" && ev.ID != eventID) ||
-						!changeMatches(ev, target, prefix) || !eventTypeMatches(ev, typ) {
-						continue
-					}
-					plane := eventPlane(ev)
-					rows = append(rows, ai.Row{
-						"id": ev.ID, "kind": eventKind(ev, plane), "plane": plane, "source": ev.Source,
-						"change_kind": string(ev.Kind), "title": ev.Title, "summary": ev.Summary,
-						"target": ev.Target, "prefix": ev.Prefix, "actor": ev.Actor, "ref": ev.Ref,
-						"occurred_at": ev.OccurredAt,
-					})
-					if len(rows) >= limit {
-						break
-					}
-				}
+				evs = stored
 				return nil
 			}); err != nil {
 				return nil, err
+			}
+		}
+		if (typ == "" || typ == "change") && s.configs != nil {
+			projected, err := projectedConfigChanges(ctx, s.configs, tenant)
+			if err != nil {
+				return nil, err
+			}
+			inWindow := changesBetween(projected, start, end)
+			evs = mergeChangeEvents(len(evs)+len(inWindow), evs, inWindow)
+		}
+		target, prefix, eventID := sel["target"], sel["prefix"], sel["id"]
+		for i := range evs {
+			ev := evs[i]
+			if (eventID != "" && ev.ID != eventID) ||
+				!changeMatches(ev, target, prefix) || !eventTypeMatches(ev, typ) {
+				continue
+			}
+			plane := eventPlane(ev)
+			row := ai.Row{
+				"id": ev.ID, "kind": eventKind(ev, plane), "plane": plane, "source": ev.Source,
+				"change_kind": string(ev.Kind), "title": ev.Title, "summary": ev.Summary,
+				"target": ev.Target, "prefix": ev.Prefix, "actor": ev.Actor, "ref": ev.Ref,
+				"occurred_at": ev.OccurredAt,
+			}
+			if ev.Config != nil {
+				row["config_current_id"] = ev.Config.CurrentID
+				row["config_current_version"] = ev.Config.CurrentVersion
+				row["config_current_hash"] = ev.Config.CurrentHash
+				row["config_previous_id"] = ev.Config.PreviousID
+				row["config_previous_version"] = ev.Config.PreviousVersion
+				row["config_previous_hash"] = ev.Config.PreviousHash
+			}
+			rows = append(rows, row)
+			if len(rows) >= limit {
+				break
 			}
 		}
 	}
