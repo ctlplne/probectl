@@ -16,7 +16,8 @@ fail=0
 
 go_install_record_is_unpinned() {
   local record="$1"
-  local code
+  local code rest segment boundary token target_seen
+  local -a tokens
 
   # grep -nH records are path:line:source. Inspect source only, and remove the
   # comment tail before deciding whether the record contains an install.
@@ -25,7 +26,36 @@ go_install_record_is_unpinned() {
   code="${code%%#*}"
   [[ "$code" == *"go install "* ]] || return 1
 
-  ! echo "$code" | grep -qE '@v[0-9]+\.[0-9]+\.[0-9]+'
+  # A version elsewhere on the YAML/shell record proves nothing about the
+  # installed package. Isolate each go-install command, then require every
+  # target token in that command to carry its own exact suffix. This parser is
+  # deliberately conservative: an empty or ambiguous command fails closed.
+  rest="$code"
+  while [[ "$rest" == *"go install "* ]]; do
+    rest="${rest#*go install }"
+    segment="$rest"
+    for boundary in '&&' '||' ';' '|'; do
+      if [[ "$segment" == *"$boundary"* ]]; then
+        segment="${segment%%"$boundary"*}"
+      fi
+    done
+
+    read -r -a tokens <<< "$segment"
+    target_seen=0
+    for token in "${tokens[@]}"; do
+      # Build flags are not install targets. Require flags with values to use
+      # -flag=value; a separate value is intentionally treated as an ambiguous
+      # target and rejected rather than guessed around.
+      [[ "$token" == -* ]] && continue
+      [[ "$token" == *'>'* || "$token" == *'<'* ]] && break
+      token="${token#\"}"; token="${token%\"}"
+      token="${token#\'}"; token="${token%\'}"
+      target_seen=1
+      [[ "$token" =~ ^[^@[:space:]]+@v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+    done
+    [[ "$target_seen" -eq 1 ]] || return 0
+  done
+  return 1
 }
 
 if [[ "${1:-}" == "SELFTEST" ]]; then
@@ -38,6 +68,8 @@ jobs:
     steps:
       - run: go install example.com/unpinned/tool
       - run: go install example.com/pinned/tool@v1.2.3
+      - run: echo example.com/unrelated@v9.9.9 && go install example.com/unpinned/before
+      - run: go install example.com/unpinned/after && echo example.com/unrelated@v9.9.9
       # go install example.com/comment-only/tool
 YAML
   bad_go_installs=0
@@ -46,7 +78,15 @@ YAML
       bad_go_installs=$((bad_go_installs + 1))
     fi
   done < <(grep -nH 'go install ' "$tmp/go-installs.yml" || true)
-  if [[ "$bad_go_installs" -eq 1 ]]; then :; else echo "SELFTEST broken (go install pin)"; exit 1; fi
+  if [[ "$bad_go_installs" -eq 3 ]]; then :; else echo "SELFTEST broken (go install pin)"; exit 1; fi
+  go_install_record_is_unpinned 'fixture.yml:1:echo example.com/unrelated@v9.9.9 && go install example.com/unpinned/before' \
+    || { echo "SELFTEST broken (unrelated version before go install)"; exit 1; }
+  go_install_record_is_unpinned 'fixture.yml:2:go install example.com/unpinned/after && echo example.com/unrelated@v9.9.9' \
+    || { echo "SELFTEST broken (unrelated version after go install)"; exit 1; }
+  if go_install_record_is_unpinned 'fixture.yml:3:go install example.com/pinned/tool@v1.2.3'; then
+    echo "SELFTEST broken (exact go install target rejected)"
+    exit 1
+  fi
   echo 'pip install ruff' > "$tmp/bad.sh"
   if grep -E 'pip install' "$tmp/bad.sh" | grep -vqE '(==|--require-hashes|--no-deps|-r [^ ]+\.lock)'; then :; else echo "SELFTEST broken"; exit 1; fi
   cat > "$tmp/package.json" <<'JSON'
