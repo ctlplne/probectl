@@ -302,6 +302,35 @@ need "PROBECTL_TLS_KEY_FILE" "$base_cm" "default ConfigMap lacks the TLS key pat
 need_fixed "secretName: \"$CONTROL_TLS_SECRET\"" "$base_dep" "default Deployment does not mount the required TLS Secret (CONFIG-aa08042e)"
 need_fixed 'nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"' "$base_ing" "default ingress backend is not HTTPS (CONFIG-aa08042e)"
 need "name: https" "$base_ing" "default ingress does not route to the https Service port (CONFIG-aa08042e)"
+# CONFIG-11b3ac1d: generic extraEnv remains useful for optional subsystems, but
+# it must never replace a key whose authoritative value comes from a typed chart
+# value or the chart Secret.
+for reserved_env in \
+  PROBECTL_REQUIRE_AT_REST_ENCRYPTION PROBECTL_PUBLIC_TLS \
+  PROBECTL_ALLOW_PLAINTEXT_HTTP PROBECTL_HTTP_ADDR \
+  PROBECTL_TLS_CERT_FILE PROBECTL_TLS_KEY_FILE \
+  PROBECTL_HSTS_ENABLED PROBECTL_HSTS_MAX_AGE \
+  PROBECTL_LOG_FORMAT PROBECTL_LOG_LEVEL PROBECTL_AUTH_MODE \
+  PROBECTL_SECURITY_CONTACT PROBECTL_OBJECTSTORE_DIR \
+  PROBECTL_OIDC_ISSUER PROBECTL_OIDC_CLIENT_ID PROBECTL_OIDC_REDIRECT_URL \
+  PROBECTL_ENVELOPE_KEY PROBECTL_SESSION_HMAC_KEY PROBECTL_DATABASE_URL \
+  PROBECTL_OIDC_CLIENT_SECRET; do
+  if render --show-only templates/configmap.yaml \
+    --set-string "control.extraEnv.${reserved_env}=planted-override" >/dev/null 2>&1; then
+    fail "chart accepted reserved control.extraEnv.${reserved_env} (CONFIG-11b3ac1d)"
+  fi
+done
+ordinary_cm="$(render --show-only templates/configmap.yaml \
+  --set-string control.extraEnv.PROBECTL_BUS_MODE=memory \
+  --set-string control.extraEnv.PROBECTL_REGION=local)"
+duplicate_env="$(
+  awk '/^  PROBECTL_[A-Z0-9_]+:/ { key=$1; sub(/:$/, "", key); count[key]++ }
+       END { for (key in count) if (count[key] != 1) print key }' <<<"$ordinary_cm"
+)"
+[ -z "$duplicate_env" ] \
+  || fail "ConfigMap rendered duplicate environment keys: $duplicate_env (CONFIG-11b3ac1d)"
+need_fixed 'PROBECTL_BUS_MODE: "memory"' "$ordinary_cm" "ordinary control.extraEnv key was not preserved (CONFIG-11b3ac1d)"
+need_fixed 'PROBECTL_REGION: "local"' "$ordinary_cm" "second ordinary control.extraEnv key was not preserved (CONFIG-11b3ac1d)"
 # SUPPLY-deb3c967: migration and server must resolve to the signed digest, while
 # the old tag-only input and malformed digests must fail before rendering.
 need_digest_pinned_control_images "default chart" "$base" 2

@@ -91,6 +91,12 @@ replicas. Provider profiles also need audit-retention watermarks at install time
 tenant audit rows prune only below the SIEM cursor, and provider/break-glass rows
 prune only below the signed WORM segment watermark.
 
+`control.extraEnv` is only for settings without a typed chart value. The chart
+rejects names it already owns—including listener TLS, authentication, HSTS,
+at-rest encryption, database, OIDC, and chart-Secret keys—so a generic map
+cannot create duplicate ConfigMap entries or move credentials into that map.
+Configure those settings through their documented typed value or Secret.
+
 ## Optional public-feed BGP analyzer
 
 `bgpAnalyzer.enabled=true` adds one listener-free Deployment containing the

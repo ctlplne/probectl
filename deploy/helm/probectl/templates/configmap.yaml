@@ -1,4 +1,31 @@
 {{- $extraEnv := .Values.control.extraEnv | default dict -}}
+{{- $reservedControlEnv := list
+  "PROBECTL_REQUIRE_AT_REST_ENCRYPTION"
+  "PROBECTL_PUBLIC_TLS"
+  "PROBECTL_ALLOW_PLAINTEXT_HTTP"
+  "PROBECTL_HTTP_ADDR"
+  "PROBECTL_TLS_CERT_FILE"
+  "PROBECTL_TLS_KEY_FILE"
+  "PROBECTL_HSTS_ENABLED"
+  "PROBECTL_HSTS_MAX_AGE"
+  "PROBECTL_LOG_FORMAT"
+  "PROBECTL_LOG_LEVEL"
+  "PROBECTL_AUTH_MODE"
+  "PROBECTL_SECURITY_CONTACT"
+  "PROBECTL_OBJECTSTORE_DIR"
+  "PROBECTL_OIDC_ISSUER"
+  "PROBECTL_OIDC_CLIENT_ID"
+  "PROBECTL_OIDC_REDIRECT_URL"
+  "PROBECTL_ENVELOPE_KEY"
+  "PROBECTL_SESSION_HMAC_KEY"
+  "PROBECTL_DATABASE_URL"
+  "PROBECTL_OIDC_CLIENT_SECRET"
+-}}
+{{- range $envName := $reservedControlEnv -}}
+{{- if hasKey $extraEnv $envName -}}
+{{- fail (printf "control.extraEnv.%s is reserved; configure it through the chart's typed value or Secret" $envName) -}}
+{{- end -}}
+{{- end -}}
 {{- $profile := default "single" (get $extraEnv "PROBECTL_DEPLOYMENT_PROFILE") -}}
 {{- if or (eq $profile "multi-tenant") (eq $profile "regulated") -}}
 {{- $databaseURL := default "" .Values.database.url -}}

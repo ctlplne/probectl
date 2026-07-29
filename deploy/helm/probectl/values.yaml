@@ -99,7 +99,9 @@ control:
     certKey: tls.crt
     keyKey: tls.key
     mountPath: /etc/probectl/http-tls
-  # Extra PROBECTL_* env vars, as a map of name: value.
+  # Extra PROBECTL_* env vars, as a map of name: value. Names owned by typed
+  # chart values or the chart Secret are rejected so this map cannot override
+  # TLS, authentication, encryption, HSTS, listener, or credential settings.
   extraEnv: {}
 
 oidc:
