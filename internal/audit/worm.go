@@ -232,26 +232,35 @@ func (w *WormExporter) recordVerifyFailure(err error) uint64 {
 // as one signed segment (no-op when nothing is new). Returns the number of
 // events exported.
 func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
-	last, err := w.lastExportedSeq(ctx)
+	last, anchorHash, err := w.lastExportedHead(ctx)
 	if err != nil {
-		return 0, err
-	}
-	// Make the verification key durable before writing another segment. A
-	// vulnerable older export may already have a valid segment + signature but
-	// no key object; lastExportedSeq verifies that segment with the configured
-	// key, then this repairs only the missing companion object.
-	if err := w.ensurePublicKey(ctx); err != nil {
 		return 0, err
 	}
 	events, err := w.source(ctx, last, MaxExportPageSize)
 	if err != nil {
 		return 0, err
 	}
-	if len(events) == 0 {
-		return 0, nil
-	}
 	if len(events) > MaxExportPageSize {
 		return 0, fmt.Errorf("audit: WORM source returned %d events, exceeds %d-event limit", len(events), MaxExportPageSize)
+	}
+	// The source is still mutable PostgreSQL state. Prove its canonical hash
+	// chain against the last SIGNED WORM event before projecting personal fields
+	// away or writing any object. Otherwise a database owner could alter an
+	// unexported action, retain its stale hash, and have that inconsistency signed
+	// as durable evidence.
+	if err := validateProviderSource(events, last, anchorHash); err != nil {
+		return 0, err
+	}
+	// Make the verification key durable only after source validation. A
+	// vulnerable older export may already have a valid segment + signature but
+	// no key object; lastExportedHead verifies that segment with the configured
+	// key, then this repairs only the missing companion object. Invalid source
+	// data must not create even this companion object.
+	if err := w.ensurePublicKey(ctx); err != nil {
+		return 0, err
+	}
+	if len(events) == 0 {
+		return 0, nil
 	}
 	seg := WormSegment{
 		FormatVersion: 1, Stream: "provider",
@@ -280,6 +289,40 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	return len(events), nil
 }
 
+func validateProviderSource(events []Event, lastSeq int64, anchorHash string) error {
+	wantSeq := lastSeq + 1
+	prevHash := anchorHash
+	for i, ev := range events {
+		if ev.Seq != wantSeq {
+			return fmt.Errorf(
+				"audit: WORM source sequence invalid at page index %d: want %d, got %d",
+				i, wantSeq, ev.Seq,
+			)
+		}
+		if ev.PrevHash != prevHash {
+			return fmt.Errorf("audit: WORM source previous hash invalid at seq %d", ev.Seq)
+		}
+		wantHash, err := computeHash(
+			providerStream,
+			ev.Seq,
+			ev.Actor,
+			ev.Action,
+			ev.Target,
+			ev.Data,
+			ev.PrevHash,
+		)
+		if err != nil {
+			return fmt.Errorf("audit: canonicalize WORM source event %d: %w", ev.Seq, err)
+		}
+		if ev.Hash != wantHash {
+			return fmt.Errorf("audit: WORM source canonical hash invalid at seq %d", ev.Seq)
+		}
+		prevHash = ev.Hash
+		wantSeq++
+	}
+	return nil
+}
+
 func (w *WormExporter) ensurePublicKey(ctx context.Context) error {
 	const key = wormPrefix + "signing.pub"
 	pub, err := w.objects.GetLimited(ctx, key, maxWORMPublicKeyBytes)
@@ -306,13 +349,15 @@ func (w *WormExporter) ExportedWatermark(ctx context.Context) (int64, error) {
 	if w == nil {
 		return 0, nil
 	}
-	return w.scanWORMChain(ctx, false)
+	last, _, err := w.scanWORMChain(ctx, false)
+	return last, err
 }
 
-// lastExportedSeq derives the export cursor from the verified segment prefix.
-// An incomplete tail is excluded so retry can safely rewrite its segment and
-// missing companion objects; any other verification failure remains fatal.
-func (w *WormExporter) lastExportedSeq(ctx context.Context) (int64, error) {
+// lastExportedHead derives the export cursor and canonical hash anchor from the
+// verified segment prefix. An incomplete tail is excluded so retry can safely
+// rewrite its segment and missing companion objects; any other verification
+// failure remains fatal.
+func (w *WormExporter) lastExportedHead(ctx context.Context) (int64, string, error) {
 	return w.scanWORMChain(ctx, true)
 }
 
@@ -321,10 +366,10 @@ func (w *WormExporter) lastExportedSeq(ctx context.Context) (int64, error) {
 // allowIncompleteTail is used only by ExportOnce so a failed companion-object
 // write can be retried from the last complete prefix. Retention and explicit
 // verification reject that same partial tail.
-func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bool) (int64, error) {
+func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bool) (int64, string, error) {
 	keys, err := w.objects.List(ctx, wormPrefix+"segment-")
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	var segKeys []string
 	for _, k := range keys {
@@ -333,20 +378,20 @@ func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bo
 		}
 	}
 	if len(segKeys) == 0 {
-		return 0, nil
+		return 0, genesis, nil
 	}
 	sort.Strings(segKeys) // zero-padded seqs sort chronologically
 
 	pub, err := w.objects.GetLimited(ctx, wormPrefix+"signing.pub", maxWORMPublicKeyBytes)
 	if err != nil {
 		if !allowIncompleteTail || !errors.Is(err, objectstore.ErrNotFound) {
-			return 0, fmt.Errorf("audit WORM signing public key unreadable: %w", err)
+			return 0, "", fmt.Errorf("audit WORM signing public key unreadable: %w", err)
 		}
 		// Export recovery may inspect a legacy partial state with no public-key
 		// object, but every existing signature is still verified below with the
 		// configured durable key before ensurePublicKey repairs that object.
 	} else if !bytes.Equal(pub.Data, w.pubPEM) {
-		return 0, fmt.Errorf("audit WORM signing public key does not match configured key")
+		return 0, "", fmt.Errorf("audit WORM signing public key does not match configured key")
 	}
 
 	wantSeq := int64(1)
@@ -357,59 +402,59 @@ func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bo
 		base := strings.TrimSuffix(strings.TrimPrefix(key, wormPrefix), ".json")
 		if n, err := fmt.Sscanf(base, "segment-%d-%d", &keyFrom, &keyTo); err != nil || n != 2 ||
 			key != fmt.Sprintf("%ssegment-%012d-%012d.json", wormPrefix, keyFrom, keyTo) {
-			return 0, fmt.Errorf("invalid audit WORM segment key %q", key)
+			return 0, "", fmt.Errorf("invalid audit WORM segment key %q", key)
 		}
 
 		obj, err := w.objects.GetLimited(ctx, key, maxWORMSegmentBytes)
 		if err != nil {
-			return 0, fmt.Errorf("segment %s unreadable: %w", key, err)
+			return 0, "", fmt.Errorf("segment %s unreadable: %w", key, err)
 		}
 		sig, err := w.objects.GetLimited(ctx, key+".sig", maxWORMSignatureBytes)
 		if err != nil {
 			if allowIncompleteTail && i == len(segKeys)-1 && errors.Is(err, objectstore.ErrNotFound) {
-				return last, nil
+				return last, prevHash, nil
 			}
-			return 0, fmt.Errorf("segment %s signature missing: %w", key, err)
+			return 0, "", fmt.Errorf("segment %s signature missing: %w", key, err)
 		}
 		ok, err := crypto.VerifyEd25519(w.pubPEM, obj.Data, sig.Data)
 		if err != nil || !ok {
-			return 0, fmt.Errorf("segment %s signature INVALID (tampered?): %v", key, err)
+			return 0, "", fmt.Errorf("segment %s signature INVALID (tampered?): %v", key, err)
 		}
 
 		var seg WormSegment
 		if err := json.Unmarshal(obj.Data, &seg); err != nil {
-			return 0, fmt.Errorf("segment %s undecodable: %w", key, err)
+			return 0, "", fmt.Errorf("segment %s undecodable: %w", key, err)
 		}
 		if seg.FormatVersion != 1 || seg.Stream != "provider" {
-			return 0, fmt.Errorf("segment %s has invalid format or stream", key)
+			return 0, "", fmt.Errorf("segment %s has invalid format or stream", key)
 		}
 		if len(seg.Events) > MaxExportPageSize {
-			return 0, fmt.Errorf("segment %s exceeds %d-event limit", key, MaxExportPageSize)
+			return 0, "", fmt.Errorf("segment %s exceeds %d-event limit", key, MaxExportPageSize)
 		}
 		if len(seg.Events) == 0 || seg.FromSeq != keyFrom || seg.ToSeq != keyTo ||
 			seg.Events[0].Seq != seg.FromSeq || seg.Events[len(seg.Events)-1].Seq != seg.ToSeq {
-			return 0, fmt.Errorf("segment %s sequence metadata INVALID", key)
+			return 0, "", fmt.Errorf("segment %s sequence metadata INVALID", key)
 		}
 		for _, ev := range seg.Events {
 			if ev.Seq != wantSeq {
-				return 0, fmt.Errorf("seq GAP at %s: want %d, got %d (events purged?)", key, wantSeq, ev.Seq)
+				return 0, "", fmt.Errorf("seq GAP at %s: want %d, got %d (events purged?)", key, wantSeq, ev.Seq)
 			}
 			if ev.PrevHash != prevHash {
-				return 0, fmt.Errorf("hash chain BROKEN at seq %d in %s", ev.Seq, key)
+				return 0, "", fmt.Errorf("hash chain BROKEN at seq %d in %s", ev.Seq, key)
 			}
 			prevHash = ev.Hash
 			last = ev.Seq
 			wantSeq++
 		}
 	}
-	return last, nil
+	return last, prevHash, nil
 }
 
 // VerifyWORMChain re-verifies the exported history end to end: every
 // segment's signature, seq continuity from 1 with no gaps or overlaps, and
 // the hash chain across segment boundaries. Any failure is a loud error.
 func (w *WormExporter) VerifyWORMChain(ctx context.Context) error {
-	_, err := w.scanWORMChain(ctx, false)
+	_, _, err := w.scanWORMChain(ctx, false)
 	return err
 }
 

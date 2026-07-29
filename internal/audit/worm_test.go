@@ -54,9 +54,24 @@ func chainedEvents(n int) []Event {
 	out := make([]Event, n)
 	prev := genesis
 	for i := range out {
-		h := "h" + string(rune('0'+i%10)) + "-" + strings.Repeat("x", i%3+1)
-		out[i] = Event{Seq: int64(i + 1), Actor: "op", Action: "a", PrevHash: prev, Hash: h}
-		prev = h
+		out[i] = Event{
+			Seq: int64(i + 1), Actor: "op", Action: "a",
+			Data: map[string]any{"index": i}, PrevHash: prev,
+		}
+		hash, err := computeHash(
+			providerStream,
+			out[i].Seq,
+			out[i].Actor,
+			out[i].Action,
+			out[i].Target,
+			out[i].Data,
+			out[i].PrevHash,
+		)
+		if err != nil {
+			panic(err)
+		}
+		out[i].Hash = hash
+		prev = hash
 	}
 	return out
 }
@@ -323,6 +338,103 @@ func TestWormExportAndChainVerify(t *testing.T) {
 	}
 }
 
+func TestWormExportRejectsInvalidRawSourceBeforeWriting(t *testing.T) {
+	valid := chainedEvents(2)
+	for _, tc := range []struct {
+		name   string
+		events func() []Event
+		want   string
+	}{
+		{
+			name: "sequence gap",
+			events: func() []Event {
+				return append([]Event(nil), valid[1:]...)
+			},
+			want: "sequence",
+		},
+		{
+			name: "broken link",
+			events: func() []Event {
+				out := append([]Event(nil), valid[:1]...)
+				out[0].PrevHash = "forged-anchor"
+				out[0].Hash, _ = computeHash(
+					providerStream,
+					out[0].Seq,
+					out[0].Actor,
+					out[0].Action,
+					out[0].Target,
+					out[0].Data,
+					out[0].PrevHash,
+				)
+				return out
+			},
+			want: "previous hash",
+		},
+		{
+			name: "canonical hash mismatch",
+			events: func() []Event {
+				out := append([]Event(nil), valid[:1]...)
+				out[0].Action = "provider.tampered"
+				return out
+			},
+			want: "canonical hash",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := objectstore.NewMemory()
+			w, err := NewWormExporterEphemeralForTest(sourceOf(tc.events()), store, testLog())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if n, err := w.ExportOnce(ctx); err == nil || n != 0 || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("invalid source export = (%d, %v), want (0, error containing %q)", n, err, tc.want)
+			}
+			if store.Len() != 0 {
+				keys, _ := store.List(ctx, wormPrefix)
+				t.Fatalf("invalid source wrote WORM objects before validation: %v", keys)
+			}
+		})
+	}
+}
+
+func TestWormExportRejectsRawSourceDivergingFromSignedAnchor(t *testing.T) {
+	ctx := context.Background()
+	all := chainedEvents(3)
+	store := objectstore.NewMemory()
+	w, err := NewWormExporterEphemeralForTest(sourceOf(all[:2]), store, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := w.ExportOnce(ctx); err != nil || n != 2 {
+		t.Fatalf("seed export = (%d, %v), want (2, nil)", n, err)
+	}
+	before := store.Len()
+
+	diverged := append([]Event(nil), all...)
+	diverged[2].PrevHash = genesis
+	diverged[2].Hash, _ = computeHash(
+		providerStream,
+		diverged[2].Seq,
+		diverged[2].Actor,
+		diverged[2].Action,
+		diverged[2].Target,
+		diverged[2].Data,
+		diverged[2].PrevHash,
+	)
+	w.source = sourceOf(diverged)
+	if n, err := w.ExportOnce(ctx); err == nil || n != 0 || !strings.Contains(err.Error(), "previous hash") {
+		t.Fatalf("divergent source export = (%d, %v), want signed-anchor rejection", n, err)
+	}
+	if got := store.Len(); got != before {
+		t.Fatalf("divergent source changed object count from %d to %d", before, got)
+	}
+	if watermark, err := w.ExportedWatermark(ctx); err != nil || watermark != 2 {
+		t.Fatalf("watermark after divergent source = (%d, %v), want (2, nil)", watermark, err)
+	}
+}
+
 func TestWormExportedWatermarkRejectsPartialSegment(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -498,8 +610,16 @@ func TestWormExportMinimizesRawPersonalFields(t *testing.T) {
 		Target:   "tenant:alice@example.com",
 		Data:     map[string]any{"email": "alice@example.com", "reason": "support"},
 		PrevHash: genesis,
-		Hash:     "h1",
 	}}
+	events[0].Hash, _ = computeHash(
+		providerStream,
+		events[0].Seq,
+		events[0].Actor,
+		events[0].Action,
+		events[0].Target,
+		events[0].Data,
+		events[0].PrevHash,
+	)
 	w, _ := NewWormExporterEphemeralForTest(sourceOf(events), store, testLog())
 	if _, err := w.ExportOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -612,14 +732,10 @@ func TestWormDetectsPurgeGap(t *testing.T) {
 	purged := append(append([]Event{}, all[:2]...), all[4:]...) // 3 and 4 are gone
 
 	w, _ := NewWormExporterEphemeralForTest(sourceOf(purged), store, testLog())
-	if _, err := w.ExportOnce(ctx); err != nil {
-		t.Fatal(err)
+	if n, err := w.ExportOnce(ctx); err == nil || n != 0 || !strings.Contains(err.Error(), "sequence") {
+		t.Fatalf("purged source export = (%d, %v), want pre-write sequence rejection", n, err)
 	}
-	err := w.VerifyWORMChain(ctx)
-	if err == nil || !strings.Contains(err.Error(), "GAP") {
-		t.Fatalf("purged events not detected: %v", err)
-	}
-	if watermark, err := w.ExportedWatermark(ctx); err == nil {
-		t.Fatalf("gapped segment advanced watermark to %d", watermark)
+	if store.Len() != 0 {
+		t.Fatalf("purged source wrote %d WORM objects, want 0", store.Len())
 	}
 }
