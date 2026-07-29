@@ -16,7 +16,17 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 )
+
+// MaxResponseBodyBytes is the largest successful response buffered by one SDK call.
+const MaxResponseBodyBytes int64 = httpbody.MaxClientResponseBodyBytes
+
+// MaxErrorResponseBodyBytes is the largest error envelope buffered for decoding.
+const MaxErrorResponseBodyBytes int64 = httpbody.MaxClientErrorResponseBodyBytes
+
+// ErrResponseBodyTooLarge reports a response that exceeded its documented cap.
+var ErrResponseBodyTooLarge = httpbody.ErrTooLarge
 
 type SDKError struct {
 	StatusCode int
@@ -4683,9 +4693,24 @@ func (c *Client) doRaw(ctx context.Context, method, path string, query url.Value
 		return nil, err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := readResponseBody(resp)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode/100 != 2 {
 		return nil, decodeError(resp.StatusCode, data)
+	}
+	return data, nil
+}
+
+func readResponseBody(resp *http.Response) ([]byte, error) {
+	limit := MaxResponseBodyBytes
+	if resp.StatusCode/100 != 2 {
+		limit = MaxErrorResponseBodyBytes
+	}
+	data, err := httpbody.ReadLimited(resp.Body, limit)
+	if err != nil {
+		return nil, fmt.Errorf("probectl SDK: read response body (limit %d bytes): %w", limit, err)
 	}
 	return data, nil
 }

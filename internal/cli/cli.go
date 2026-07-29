@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/i18n"
 )
 
@@ -111,6 +112,11 @@ type client struct {
 	hc  *http.Client
 }
 
+const (
+	maxBufferedResponseBody      = httpbody.MaxClientResponseBodyBytes
+	maxBufferedErrorResponseBody = httpbody.MaxClientErrorResponseBodyBytes
+)
+
 func newClient(cfg Config) *client {
 	return &client{cfg: cfg, hc: &http.Client{Timeout: 15 * time.Second}}
 }
@@ -145,7 +151,10 @@ func (c *client) do(method, path string, body any, out any) error {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := readBufferedResponse(resp)
+	if err != nil {
+		return err
+	}
 
 	if resp.StatusCode/100 != 2 {
 		if ok, err := formatAPIError(data, c.cfg.Locale); ok {
@@ -188,7 +197,10 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		data, _ := io.ReadAll(resp.Body)
+		data, err := readBufferedResponse(resp)
+		if err != nil {
+			return err
+		}
 		if ok, err := formatAPIError(data, c.cfg.Locale); ok {
 			return err
 		}
@@ -196,6 +208,18 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
+}
+
+func readBufferedResponse(resp *http.Response) ([]byte, error) {
+	limit := maxBufferedResponseBody
+	if resp.StatusCode/100 != 2 {
+		limit = maxBufferedErrorResponseBody
+	}
+	data, err := httpbody.ReadLimited(resp.Body, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read API response body (limit %d bytes): %w", limit, err)
+	}
+	return data, nil
 }
 
 func formatAPIError(data []byte, locale string) (bool, error) {

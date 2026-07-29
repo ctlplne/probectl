@@ -6,7 +6,10 @@
 
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNullableScalarTypes(t *testing.T) {
 	g := generator{}
@@ -32,5 +35,26 @@ func TestTSEnumArrayParenthesizesItemUnion(t *testing.T) {
 
 	if got := g.tsType(s); got != `("flow" | "changes")[]` {
 		t.Fatalf("tsType(enum array) = %q, want parenthesized item union", got)
+	}
+}
+
+func TestGoSDKResponseBodyLimitGenerated(t *testing.T) {
+	g := generator{doc: &document{Components: components{Schemas: map[string]*schema{}}}}
+	generated, err := g.goSDK(nil)
+	if err != nil {
+		t.Fatalf("generate Go SDK: %v", err)
+	}
+	source := string(generated)
+	for _, want := range []string{
+		"const MaxResponseBodyBytes int64 = httpbody.MaxClientResponseBodyBytes",
+		"const MaxErrorResponseBodyBytes int64 = httpbody.MaxClientErrorResponseBodyBytes",
+		"data, err := httpbody.ReadLimited(resp.Body, limit)",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("generated SDK missing bounded response code %q", want)
+		}
+	}
+	if strings.Contains(source, "io.ReadAll(resp.Body)") {
+		t.Fatal("generated SDK retained an unbounded response-body read")
 	}
 }

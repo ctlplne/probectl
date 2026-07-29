@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-// Package httpbody provides shared fail-closed HTTP request body readers.
+// Package httpbody provides shared fail-closed HTTP body readers.
 package httpbody
 
 import (
@@ -16,9 +16,18 @@ import (
 	"net/http"
 )
 
+const (
+	// MaxClientResponseBodyBytes is the shared cap for successful HTTP responses
+	// that a probectl CLI or SDK call buffers in memory.
+	MaxClientResponseBodyBytes int64 = 32 << 20
+	// MaxClientErrorResponseBodyBytes is the tighter shared cap for error
+	// envelopes buffered only to decode a bounded diagnostic.
+	MaxClientErrorResponseBodyBytes int64 = 1 << 20
+)
+
 var (
-	// ErrTooLarge means the request body exceeded the configured cap.
-	ErrTooLarge = errors.New("httpbody: request body too large")
+	// ErrTooLarge means an HTTP body exceeded the configured cap.
+	ErrTooLarge = errors.New("httpbody: body too large")
 	// ErrTrailingJSON means a JSON body contained more than one top-level value.
 	ErrTrailingJSON = errors.New("httpbody: trailing JSON value")
 )
