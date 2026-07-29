@@ -45,16 +45,14 @@ devices:
     transport: snmpv3
     credential: edge-v3
 
-  # gNMI/OpenConfig streaming. TLS with certificate verification — system
-  # roots, or pin a private CA with ca_file. There is NO skip-verify option;
-  # plaintext is an explicit lab-only opt-in and is loudly logged.
+  # gNMI/OpenConfig streaming. Verified TLS is mandatory — use system roots,
+  # or pin a private CA with ca_file. There is no plaintext/skip-verify mode.
   - address: "192.0.2.3"
     transport: gnmi
     credential: core-gnmi # USERNAME/PASSWORD ride gRPC metadata
     # port: 9339
     gnmi:
       # ca_file: /etc/probectl/device-ca.pem
-      # plaintext: false
     # collection_overrides:
     #   gnmi_sample_interval: 45s
     #   gnmi_paths:

@@ -39,7 +39,8 @@ type GNMIConfig struct {
 	// roots are used when empty. Verification is never disabled (CLAUDE.md §7
 	// guardrail 12).
 	CAFile string `yaml:"ca_file"`
-	// Plaintext dials without TLS — an explicit lab-only opt-in, loudly logged.
+	// Plaintext is retained only so legacy YAML fails with a precise validation
+	// error. It is never honored: every gNMI channel requires verified TLS.
 	Plaintext bool `yaml:"plaintext"`
 }
 
@@ -335,6 +336,9 @@ func (c *Config) Validate() error {
 		case TransportGNMI:
 			if d.Neighbors {
 				return fmt.Errorf("device: devices[%d] (%s): neighbors requires an SNMP transport", i, d.Address)
+			}
+			if d.GNMI.Plaintext {
+				return fmt.Errorf("device: devices[%d] (%s): gnmi.plaintext is forbidden; verified TLS is required", i, d.Address)
 			}
 			if d.Port == 0 {
 				d.Port = 9339

@@ -19,7 +19,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
 	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
@@ -158,12 +157,11 @@ func (c *gnmiCollector) recvMsgSize() int {
 }
 
 // transport builds the gRPC transport credentials: TLS with certificate
-// verification by default (system roots or ca_file) — never skip-verify
-// (CLAUDE.md §7 guardrail 12). Plaintext is an explicit lab opt-in.
+// verification (system roots or ca_file) — never plaintext or skip-verify
+// (CLAUDE.md §7 guardrail 12).
 func (c *gnmiCollector) transport() ([]grpc.DialOption, error) {
 	if c.dev.GNMI.Plaintext {
-		c.log.Warn("gnmi dialing PLAINTEXT (explicit lab opt-in; prefer TLS)", "device", c.dev.Address)
-		return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, nil
+		return nil, fmt.Errorf("gnmi %s: plaintext transport is forbidden; verified TLS is required", c.dev.Address)
 	}
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if c.dev.GNMI.CAFile != "" {

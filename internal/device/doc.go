@@ -31,7 +31,6 @@
 //     the same seam. Credentials are never logged (redacted Stringers).
 //   - MIB coverage varies wildly between vendors: every table walk degrades
 //     gracefully (a missing table skips its metrics, never fails the poll).
-//   - gNMI dials TLS with certificate verification by default (custom CA via
-//     ca_file); verification is never disabled (guardrail 12). Plaintext is
-//     an explicit per-device opt-in for lab gear and is loudly logged.
+//   - gNMI always dials TLS with certificate verification (custom CA via
+//     ca_file); plaintext and skip-verify modes are rejected (guardrail 12).
 package device

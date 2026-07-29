@@ -1543,9 +1543,10 @@ For SNMPv3 trap sources, `USERNAME` and `AUTH_PASS` are required; NoAuthNoPriv
 traps are rejected. Accepted rows store the source name / v3 username and never
 store the community or passphrase.
 
-gNMI connections are **TLS with certificate verification** (system roots or a
-per-device `ca_file`); there is no skip-verify option. `plaintext: true` is an
-explicit lab-only YAML opt-in and is loudly logged — never a silent plaintext default.
+gNMI connections always use **TLS with certificate verification** (system roots
+or a per-device `ca_file`); there is no skip-verify or plaintext mode. A legacy
+`plaintext: true` value is rejected during validation before credentials or a
+dial attempt can occur.
 
 #### Discovery jobs
 

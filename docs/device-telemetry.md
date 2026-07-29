@@ -411,12 +411,11 @@ FIPS-approved, so prefer SHA-2 + AES, or use gNMI over TLS.
 
 ## gNMI transport security
 
-gNMI dials **TLS with certificate verification on by default** — using the system
-root store, or a private CA via `ca_file`. Verification is **never disabled** in
-a normal path (a core guardrail: every outbound channel validates certs). A
-`plaintext: true` knob exists strictly as a lab-only opt-in, and when set it is
-**loudly logged** so it can never hide in production. When a credential sets a
-username/password, it rides gRPC metadata per the gNMI convention.
+gNMI always dials **TLS with certificate verification** — using the system root
+store, or a private CA via `ca_file`. Verification is never disabled, and
+plaintext configuration is rejected before dialing (a core guardrail: every
+outbound channel validates certificates). When a credential sets a
+username/password, it rides gRPC metadata only over that verified channel.
 
 Each gNMI Subscribe response is capped at 4 MiB by an explicit client
 `MaxCallRecvMsgSize`, matching the agent and OTLP gRPC safety ceiling. Hostile

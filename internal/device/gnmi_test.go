@@ -8,10 +8,12 @@ package device
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"math"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,9 +21,11 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
+	probectlcrypto "github.com/imfeelingtheagi/probectl/internal/crypto"
 	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
 )
 
@@ -30,6 +34,55 @@ func getenvDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func TestGNMIPlaintextRejected(t *testing.T) {
+	dev := Target{
+		Address: "192.0.2.50", Transport: TransportGNMI, Credential: "device-login",
+		GNMI: GNMIConfig{Plaintext: true},
+	}
+	t.Run("configuration", func(t *testing.T) {
+		cfg := &Config{TenantID: "tenant-a", Devices: []Target{dev}}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "plaintext") {
+			t.Fatalf("plaintext gNMI configuration error = %v, want explicit rejection", err)
+		}
+	})
+	t.Run("transport", func(t *testing.T) {
+		collector := &gnmiCollector{dev: dev, log: slog.Default()}
+		if _, err := collector.transport(); err == nil || !strings.Contains(err.Error(), "plaintext") {
+			t.Fatalf("plaintext gNMI transport error = %v, want rejection before dial", err)
+		}
+	})
+}
+
+func startTLSGNMITarget(t *testing.T, service gnmipb.GNMIServer) (*bufconn.Listener, string) {
+	t.Helper()
+	ca, err := probectlcrypto.GenerateCA("gnmi-test-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM, err := ca.IssueServerCert("bufnet", []string{"bufnet"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caFile, ca.CertPEM(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lis := bufconn.Listen(1 << 20)
+	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{cert},
+	})))
+	gnmipb.RegisterGNMIServer(srv, service)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	return lis, caFile
 }
 
 // captureEmitter collects emitted metrics across goroutines.
@@ -143,15 +196,12 @@ func (oversizedGNMI) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	}})
 }
 
-// TestGNMICollectorAgainstMockTarget runs the full client path — dial,
-// subscribe, normalize, emit — against the in-process target over bufconn.
-func TestGNMICollectorAgainstMockTarget(t *testing.T) {
-	lis := bufconn.Listen(1 << 20)
-	srv := grpc.NewServer()
+// TestGNMITLSCollectorAgainstMockTarget runs the full verified-TLS client path
+// — dial, subscribe, normalize, emit — against the in-process target over
+// bufconn.
+func TestGNMITLSCollectorAgainstMockTarget(t *testing.T) {
 	mock := &mockGNMI{gotSubs: make(chan *gnmipb.SubscriptionList, 1)}
-	gnmipb.RegisterGNMIServer(srv, mock)
-	go func() { _ = srv.Serve(lis) }()
-	defer srv.Stop()
+	lis, caFile := startTLSGNMITarget(t, mock)
 
 	em := &captureEmitter{}
 	dev := Target{
@@ -159,7 +209,7 @@ func TestGNMICollectorAgainstMockTarget(t *testing.T) {
 		GNMI: GNMIConfig{
 			Paths:          []string{"/interfaces/interface/state/counters", "/interfaces/interface/state/oper-status"},
 			SampleInterval: time.Second,
-			Plaintext:      true, // bufconn carries no TLS; production defaults to verified TLS
+			CAFile:         caFile,
 		},
 	}
 	c := &gnmiCollector{
@@ -227,18 +277,14 @@ func TestGNMICollectorAgainstMockTarget(t *testing.T) {
 }
 
 func TestGNMICollectorRejectsOversizedResponse(t *testing.T) {
-	lis := bufconn.Listen(1 << 20)
-	srv := grpc.NewServer()
-	gnmipb.RegisterGNMIServer(srv, oversizedGNMI{})
-	go func() { _ = srv.Serve(lis) }()
-	defer srv.Stop()
+	lis, caFile := startTLSGNMITarget(t, oversizedGNMI{})
 
 	dev := Target{
 		Address: "192.0.2.51", Port: 9339, Transport: TransportGNMI,
 		GNMI: GNMIConfig{
 			Paths:          []string{"/interfaces/interface/state/counters"},
 			SampleInterval: time.Second,
-			Plaintext:      true,
+			CAFile:         caFile,
 		},
 	}
 	c := &gnmiCollector{

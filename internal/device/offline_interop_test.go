@@ -34,5 +34,5 @@ func TestOfflineInteropGNMIcReplayNormalizesMetrics(t *testing.T) {
 	if _, err := os.ReadFile("../../test/interop/fixtures/device-telemetry.json"); err != nil {
 		t.Fatal(err)
 	}
-	TestGNMICollectorAgainstMockTarget(t)
+	TestGNMITLSCollectorAgainstMockTarget(t)
 }
