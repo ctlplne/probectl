@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	probectlc "github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -37,6 +38,12 @@ const (
 	bgpPathAttrAS4Path    = 17
 	bgpPathAttrExtended   = 0x10
 	defaultBMPCollectorID = "bmp"
+
+	// Safe process-wide defaults for the unauthenticated handshake, each
+	// authenticated BMP frame read, and concurrent admitted peer sessions.
+	DefaultBMPHandshakeTimeout = 10 * time.Second
+	DefaultBMPReadTimeout      = 2 * time.Minute
+	DefaultBMPMaxSessions      = 256
 )
 
 var errPlaintextBMP = errors.New("bgp bmp: plaintext connections are refused")
@@ -44,12 +51,26 @@ var errPlaintextBMP = errors.New("bgp bmp: plaintext connections are refused")
 // BMPListener accepts direct router BMP sessions over tenant-bound mTLS and
 // publishes route-monitoring observations as tenant-keyed BGP events.
 type BMPListener struct {
-	ln        net.Listener
-	pub       Publisher
-	log       *slog.Logger
-	collector string
-	now       func() time.Time
-	inventory *BMPPeerInventory
+	ln               net.Listener
+	pub              Publisher
+	log              *slog.Logger
+	collector        string
+	now              func() time.Time
+	inventory        *BMPPeerInventory
+	handshakeTimeout time.Duration
+	readTimeout      time.Duration
+	maxSessions      int
+	sessionSlots     chan struct{}
+	sessionMetrics   BMPSessionMetrics
+	activeSessions   atomic.Int64
+}
+
+// BMPSessionMetrics receives process-aggregate session health without tenant
+// or peer labels. The shared agent metrics runtime implements this interface.
+type BMPSessionMetrics interface {
+	SessionTimeout()
+	SessionAdmissionRejected()
+	SetActiveSessions(int)
 }
 
 // BMPOption customizes a BMPListener.
@@ -74,6 +95,39 @@ func WithBMPPeerInventory(inv *BMPPeerInventory) BMPOption {
 	}
 }
 
+// WithBMPHandshakeTimeout bounds unauthenticated mTLS handshakes.
+func WithBMPHandshakeTimeout(timeout time.Duration) BMPOption {
+	return func(l *BMPListener) {
+		if timeout > 0 {
+			l.handshakeTimeout = timeout
+		}
+	}
+}
+
+// WithBMPReadTimeout bounds each authenticated BMP header and payload read.
+func WithBMPReadTimeout(timeout time.Duration) BMPOption {
+	return func(l *BMPListener) {
+		if timeout > 0 {
+			l.readTimeout = timeout
+		}
+	}
+}
+
+// WithBMPMaxSessions bounds process-wide concurrent BMP sessions.
+func WithBMPMaxSessions(maxSessions int) BMPOption {
+	return func(l *BMPListener) {
+		if maxSessions > 0 {
+			l.maxSessions = maxSessions
+		}
+	}
+}
+
+// WithBMPSessionMetrics exposes aggregate timeout, rejection, and active
+// session state on the listener process's metrics surface.
+func WithBMPSessionMetrics(m BMPSessionMetrics) BMPOption {
+	return func(l *BMPListener) { l.sessionMetrics = m }
+}
+
 // NewBMPListener constructs a BMP listener around an already-created TLS
 // listener. The caller owns TLS policy; production callers should use
 // internal/crypto.ServerMTLSConfig so the tenant comes from the verified SPIFFE
@@ -86,12 +140,15 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 		log = slog.Default()
 	}
 	l := &BMPListener{
-		ln:        ln,
-		pub:       pub,
-		log:       log,
-		collector: collector,
-		now:       time.Now,
-		inventory: NewBMPPeerInventory(),
+		ln:               ln,
+		pub:              pub,
+		log:              log,
+		collector:        collector,
+		now:              time.Now,
+		inventory:        NewBMPPeerInventory(),
+		handshakeTimeout: DefaultBMPHandshakeTimeout,
+		readTimeout:      DefaultBMPReadTimeout,
+		maxSessions:      DefaultBMPMaxSessions,
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -99,6 +156,7 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 	if l.inventory == nil {
 		l.inventory = NewBMPPeerInventory()
 	}
+	l.sessionSlots = make(chan struct{}, l.maxSessions)
 	return l
 }
 
@@ -122,9 +180,19 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 			}
 			return fmt.Errorf("bgp bmp: accept: %w", err)
 		}
+		if !l.acquireSession() {
+			l.log.Warn("bmp peer session rejected",
+				"remote", bmpRemoteAddr(conn),
+				"reason", "session_limit",
+				"max_sessions", l.maxSessions,
+			)
+			_ = conn.Close()
+			continue
+		}
 		go func() {
-			if err := l.handleConn(ctx, conn); err != nil {
-				l.log.Warn("bmp peer session closed", "remote", conn.RemoteAddr().String(), "error", err)
+			defer l.releaseSession()
+			if err := l.handleConn(ctx, conn); err != nil && ctx.Err() == nil {
+				l.log.Warn("bmp peer session closed", "remote", bmpRemoteAddr(conn), "error", err)
 			}
 		}()
 	}
@@ -133,20 +201,72 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 // Inventory returns the listener's in-process BMP peer inventory.
 func (l *BMPListener) Inventory() *BMPPeerInventory { return l.inventory }
 
+func (l *BMPListener) acquireSession() bool {
+	select {
+	case l.sessionSlots <- struct{}{}:
+		active := int(l.activeSessions.Add(1))
+		if l.sessionMetrics != nil {
+			l.sessionMetrics.SetActiveSessions(active)
+		}
+		return true
+	default:
+		if l.sessionMetrics != nil {
+			l.sessionMetrics.SessionAdmissionRejected()
+		}
+		return false
+	}
+}
+
+func (l *BMPListener) releaseSession() {
+	<-l.sessionSlots
+	active := int(l.activeSessions.Add(-1))
+	if l.sessionMetrics != nil {
+		l.sessionMetrics.SetActiveSessions(active)
+	}
+}
+
 type bmpIdentity struct {
 	TenantID string
 	AgentID  string
 }
 
-func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) error {
-	defer func() { _ = conn.Close() }()
+func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr error) {
+	defer func() {
+		// A TLS close_notify write must not let an already-timed-out peer keep
+		// the session goroutine alive. Hard-close the underlying connection on
+		// timeout/cancellation; graceful TLS Close may wait up to five seconds.
+		if tlsConn, ok := conn.(*tls.Conn); ok && (ctx.Err() != nil || retErr != nil) {
+			_ = tlsConn.NetConn().Close()
+			return
+		}
+		// Non-timeout exits still get a bounded graceful close.
+		expired := time.Now().Add(-time.Second)
+		_ = conn.SetReadDeadline(expired)
+		_ = conn.SetWriteDeadline(expired)
+		_ = conn.Close()
+	}()
+	defer func() {
+		if retErr != nil && ctx.Err() == nil && isBMPTimeout(retErr) && l.sessionMetrics != nil {
+			l.sessionMetrics.SessionTimeout()
+		}
+	}()
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
 
-	id, err := bmpPeerIdentity(ctx, conn)
+	if err := conn.SetDeadline(time.Now().Add(l.handshakeTimeout)); err != nil {
+		return fmt.Errorf("bgp bmp: set mtls handshake deadline: %w", err)
+	}
+	handshakeCtx, cancel := context.WithTimeout(ctx, l.handshakeTimeout)
+	id, err := bmpPeerIdentity(handshakeCtx, conn)
+	cancel()
 	if err != nil {
 		return err
 	}
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("bgp bmp: clear mtls handshake deadline: %w", err)
+	}
 	for {
-		msgType, payload, err := readBMPMessage(conn)
+		msgType, payload, err := readBMPMessageWithDeadline(conn, l.readTimeout)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -206,6 +326,21 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) error {
 	}
 }
 
+func bmpRemoteAddr(conn net.Conn) string {
+	if conn == nil || conn.RemoteAddr() == nil {
+		return "unknown"
+	}
+	return conn.RemoteAddr().String()
+}
+
+func isBMPTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
 func (l *BMPListener) collectorFor(agentID string) string {
 	if agentID == "" {
 		return l.collector
@@ -236,25 +371,57 @@ func bmpPeerIdentity(ctx context.Context, conn net.Conn) (bmpIdentity, error) {
 }
 
 func readBMPMessage(r io.Reader) (uint8, []byte, error) {
-	var header [bmpCommonHeaderLen]byte
-	if _, err := io.ReadFull(r, header[:]); err != nil {
+	msgType, payloadLen, err := readBMPHeader(r)
+	if err != nil {
 		return 0, nil, err
 	}
-	if header[0] != bmpVersion {
-		return 0, nil, fmt.Errorf("bgp bmp: unsupported version %d", header[0])
-	}
-	msgLen := int(binary.BigEndian.Uint32(header[1:5]))
-	if msgLen < bmpCommonHeaderLen {
-		return 0, nil, fmt.Errorf("bgp bmp: invalid message length %d", msgLen)
-	}
-	if msgLen > bmpMaxMessageBytes {
-		return 0, nil, fmt.Errorf("bgp bmp: message length %d exceeds limit %d", msgLen, bmpMaxMessageBytes)
-	}
-	payload := make([]byte, msgLen-bmpCommonHeaderLen)
+	payload := make([]byte, payloadLen)
 	if _, err := io.ReadFull(r, payload); err != nil {
 		return 0, nil, err
 	}
-	return header[5], payload, nil
+	return msgType, payload, nil
+}
+
+func readBMPMessageWithDeadline(conn net.Conn, timeout time.Duration) (uint8, []byte, error) {
+	if timeout <= 0 {
+		return 0, nil, errors.New("bgp bmp: read timeout must be positive")
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return 0, nil, fmt.Errorf("bgp bmp: set header read deadline: %w", err)
+	}
+	msgType, payloadLen, err := readBMPHeader(conn)
+	if err != nil {
+		return 0, nil, err
+	}
+	payload := make([]byte, payloadLen)
+	if payloadLen == 0 {
+		return msgType, payload, nil
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return 0, nil, fmt.Errorf("bgp bmp: set payload read deadline: %w", err)
+	}
+	if _, err := io.ReadFull(conn, payload); err != nil {
+		return 0, nil, err
+	}
+	return msgType, payload, nil
+}
+
+func readBMPHeader(r io.Reader) (uint8, int, error) {
+	var header [bmpCommonHeaderLen]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		return 0, 0, err
+	}
+	if header[0] != bmpVersion {
+		return 0, 0, fmt.Errorf("bgp bmp: unsupported version %d", header[0])
+	}
+	msgLen := int(binary.BigEndian.Uint32(header[1:5]))
+	if msgLen < bmpCommonHeaderLen {
+		return 0, 0, fmt.Errorf("bgp bmp: invalid message length %d", msgLen)
+	}
+	if msgLen > bmpMaxMessageBytes {
+		return 0, 0, fmt.Errorf("bgp bmp: message length %d exceeds limit %d", msgLen, bmpMaxMessageBytes)
+	}
+	return header[5], msgLen - bmpCommonHeaderLen, nil
 }
 
 type bmpRouteMonitoringObservation struct {

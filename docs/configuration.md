@@ -871,6 +871,9 @@ startup command `probectl-bmp-listener`.
 | `PROBECTL_BMP_TLS_KEY_FILE` | (none) | server private key PEM; required |
 | `PROBECTL_BMP_TLS_CA_FILE` | (none) | CA bundle that signs router/client certificates; required |
 | `PROBECTL_BMP_COLLECTOR` | `bmp` | collector label written on published BGP events |
+| `PROBECTL_BMP_HANDSHAKE_TIMEOUT` | `10s` | maximum time for an unauthenticated mTLS handshake; must be positive |
+| `PROBECTL_BMP_READ_TIMEOUT` | `2m` | rolling maximum for each authenticated BMP header and payload read; must be positive |
+| `PROBECTL_BMP_MAX_SESSIONS` | `256` | process-wide concurrent BMP session limit; excess sockets are refused |
 | `PROBECTL_BMP_BUS_MODE` | `memory` | `memory` \| `kafka` |
 | `PROBECTL_BMP_BUS_BROKERS` | (none) | comma-separated Kafka brokers (required for kafka mode) |
 | `PROBECTL_BMP_BUS_TLS_ENABLED` | `false` | TLS to Kafka brokers; required in kafka mode unless the explicit dev-only plaintext flag is set |

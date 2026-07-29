@@ -80,8 +80,11 @@ type Runtime struct {
 	collections *basemetrics.Counter
 	published   *basemetrics.Counter
 	errors      *basemetrics.Counter
+	timeouts    *basemetrics.Counter
+	rejections  *basemetrics.Counter
 
 	bufferDepth atomic.Int64
+	active      atomic.Int64
 	latencyBits atomic.Uint64
 
 	ready     chan struct{}
@@ -105,6 +108,8 @@ func New(component, version, commit string, cfg Config) (*Runtime, error) {
 		collections: reg.Counter("probectl_agent_collections_total", "Probe or collector batches attempted by this agent process."),
 		published:   reg.Counter("probectl_agent_published_total", "Results or batches accepted by this agent process's output transport."),
 		errors:      reg.Counter("probectl_agent_errors_total", "Probe, collection, buffer, or publish errors observed by this agent process."),
+		timeouts:    reg.Counter("probectl_agent_session_timeouts_total", "Inbound collector sessions closed after a bounded handshake or read timeout."),
+		rejections:  reg.Counter("probectl_agent_session_rejections_total", "Inbound collector sessions rejected by the process-wide concurrency bound."),
 		ready:       make(chan struct{}),
 	}
 	reg.Gauge("probectl_agent_buffer_depth", "Results currently waiting in this agent process's local buffer or queue.", func() float64 {
@@ -112,6 +117,9 @@ func New(component, version, commit string, cfg Config) (*Runtime, error) {
 	})
 	reg.Gauge("probectl_agent_publish_latency_seconds", "Wall-clock seconds used by the most recently completed publish attempt.", func() float64 {
 		return math.Float64frombits(r.latencyBits.Load())
+	})
+	reg.Gauge("probectl_agent_active_sessions", "Inbound collector sessions currently admitted by this process.", func() float64 {
+		return float64(r.active.Load())
 	})
 	reg.Gauge("probectl_agent_metrics_tls", "Whether this agent metrics listener uses TLS (1 yes, 0 loopback-only HTTP).", func() float64 {
 		if r.usesTLS() {
@@ -216,6 +224,34 @@ func (r *Runtime) SetBufferDepth(depth int) {
 		depth = 0
 	}
 	r.bufferDepth.Store(int64(depth))
+}
+
+// SessionTimeout records one inbound collector session closed by its bounded
+// handshake or rolling read deadline.
+func (r *Runtime) SessionTimeout() {
+	if r != nil {
+		r.timeouts.Inc()
+	}
+}
+
+// SessionAdmissionRejected records one inbound session refused because the
+// process-wide concurrency bound was already full.
+func (r *Runtime) SessionAdmissionRejected() {
+	if r != nil {
+		r.rejections.Inc()
+	}
+}
+
+// SetActiveSessions updates the aggregate number of admitted inbound sessions.
+// It deliberately carries no tenant or peer labels.
+func (r *Runtime) SetActiveSessions(active int) {
+	if r == nil {
+		return
+	}
+	if active < 0 {
+		active = 0
+	}
+	r.active.Store(int64(active))
 }
 
 // Serve opens the configured listener and blocks until it fails or ctx is

@@ -32,6 +32,9 @@ func TestMetricsEveryAgentComponentExposesCoreSeries(t *testing.T) {
 			r.Publish(1, 25*time.Millisecond, nil)
 			r.Error()
 			r.SetBufferDepth(3)
+			r.SessionTimeout()
+			r.SessionAdmissionRejected()
+			r.SetActiveSessions(2)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			errCh := make(chan error, 1)
@@ -50,6 +53,9 @@ func TestMetricsEveryAgentComponentExposesCoreSeries(t *testing.T) {
 				"probectl_agent_errors_total 1",
 				"probectl_agent_buffer_depth 3",
 				"probectl_agent_publish_latency_seconds 0.025",
+				"probectl_agent_session_timeouts_total 1",
+				"probectl_agent_session_rejections_total 1",
+				"probectl_agent_active_sessions 2",
 				"probectl_agent_metrics_tls 0",
 			} {
 				if !strings.Contains(string(body), want) {

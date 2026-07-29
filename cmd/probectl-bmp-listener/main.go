@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/bgp"
@@ -50,7 +52,22 @@ func run() error {
 	collector := fs.String("collector", envOr("PROBECTL_BMP_COLLECTOR", "bmp"), "collector id written on BGP events")
 	busMode := fs.String("bus-mode", envOr("PROBECTL_BMP_BUS_MODE", "memory"), "result bus mode: memory|kafka")
 	busBrokers := fs.String("bus-brokers", os.Getenv("PROBECTL_BMP_BUS_BROKERS"), "comma-separated Kafka brokers")
+	handshakeTimeoutRaw := fs.String("handshake-timeout", envOr("PROBECTL_BMP_HANDSHAKE_TIMEOUT", bgp.DefaultBMPHandshakeTimeout.String()), "maximum unauthenticated mTLS handshake time")
+	readTimeoutRaw := fs.String("read-timeout", envOr("PROBECTL_BMP_READ_TIMEOUT", bgp.DefaultBMPReadTimeout.String()), "maximum time for each authenticated BMP header or payload read")
+	maxSessionsRaw := fs.String("max-sessions", envOr("PROBECTL_BMP_MAX_SESSIONS", strconv.Itoa(bgp.DefaultBMPMaxSessions)), "maximum concurrent BMP sessions")
 	if err := fs.Parse(os.Args[1:]); err != nil {
+		return err
+	}
+	handshakeTimeout, err := parsePositiveBMPDuration("handshake timeout", *handshakeTimeoutRaw)
+	if err != nil {
+		return err
+	}
+	readTimeout, err := parsePositiveBMPDuration("read timeout", *readTimeoutRaw)
+	if err != nil {
+		return err
+	}
+	maxSessions, err := parsePositiveBMPInt("max sessions", *maxSessionsRaw)
+	if err != nil {
 		return err
 	}
 	if *listenAddr == "" {
@@ -90,10 +107,44 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	log.Info("bmp listener starting", "addr", ln.Addr().String(), "collector", *collector, "bus_mode", *busMode)
+	log.Info("bmp listener starting",
+		"addr", ln.Addr().String(),
+		"collector", *collector,
+		"bus_mode", *busMode,
+		"handshake_timeout", handshakeTimeout,
+		"read_timeout", readTimeout,
+		"max_sessions", maxSessions,
+	)
 	return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
-		return bgp.NewBMPListener(ln, b, *collector, log).Serve(ctx)
+		return bgp.NewBMPListener(ln, b, *collector, log,
+			bgp.WithBMPHandshakeTimeout(handshakeTimeout),
+			bgp.WithBMPReadTimeout(readTimeout),
+			bgp.WithBMPMaxSessions(maxSessions),
+			bgp.WithBMPSessionMetrics(metricsRuntime),
+		).Serve(ctx)
 	})
+}
+
+func parsePositiveBMPDuration(label, raw string) (time.Duration, error) {
+	value, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("BMP %s %q is invalid: %w", label, raw, err)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("BMP %s must be positive", label)
+	}
+	return value, nil
+}
+
+func parsePositiveBMPInt(label, raw string) (int, error) {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("BMP %s %q is invalid: %w", label, raw, err)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("BMP %s must be positive", label)
+	}
+	return value, nil
 }
 
 func envOr(key, def string) string {

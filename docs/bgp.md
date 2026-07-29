@@ -155,6 +155,16 @@ probectl agents: `spiffe://probectl/tenant/<tenant>/agent/<router-id>`. The
 listener records a per-tenant peer inventory in memory and emits `BGPEvent`
 records keyed by that tenant.
 
+The listener bounds peer-controlled resources by default: an mTLS handshake has
+10 seconds, each complete BMP header and payload has 2 minutes, and at most 256
+sessions are admitted concurrently. Override these limits with
+`PROBECTL_BMP_HANDSHAKE_TIMEOUT`, `PROBECTL_BMP_READ_TIMEOUT`, and
+`PROBECTL_BMP_MAX_SESSIONS` (or the matching command-line flags). Values must be
+positive. A full listener refuses excess sockets immediately and exports
+`probectl_agent_active_sessions`,
+`probectl_agent_session_timeouts_total`, and
+`probectl_agent_session_rejections_total` without tenant or peer labels.
+
 ## Performance and freshness
 
 Live BMP/router events are treated like an alarm bell, not like a nightly
