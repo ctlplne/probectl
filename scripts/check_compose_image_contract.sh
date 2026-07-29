@@ -3,13 +3,14 @@
 #
 # The shipped all-in-one compose file points certgen + control at one immutable
 # release image, or fails closed until the operator supplies one. This gate keeps
-# three things true:
+# five things true:
 #   1. both services use the same digest-pinned image contract,
 #   2. install docs wire the hard preflight before compose up,
 #   3. install docs explain GHCR auth / PROBECTL_IMAGE override when anonymous
 #      pull is unavailable,
 #   4. an optional anonymous-pull smoke uses the exact compose image and a clean
-#      Docker credential directory.
+#      Docker credential directory,
+#   5. certgen invokes the distroless control binary directly, without /bin/sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,7 +29,7 @@ extract_default_images() {
 
 run_checks() {
   local root="$1"
-  local images image_count required_refs version expected_prefix expected_placeholder
+  local images image_count required_refs version expected_prefix expected_placeholder certgen
 
   local image=""
   if [ ! -f "$root/VERSION" ]; then
@@ -100,6 +101,18 @@ run_checks() {
   [ -f "$root/scripts/compose_image_preflight.sh" ] \
     || err "scripts/compose_image_preflight.sh must exist"
 
+  certgen="$(sed -n '/^  certgen:[[:space:]]*$/,/^  control:[[:space:]]*$/p' "$root/deploy/compose/probectl.yml")"
+  if [ -z "$certgen" ]; then
+    err "deploy/compose/probectl.yml must contain the certgen service"
+  else
+    grep -Fq '/bin/sh' <<<"$certgen" \
+      && err "certgen uses the distroless control image and must not invoke /bin/sh"
+    grep -qE '^[[:space:]]+entrypoint:' <<<"$certgen" \
+      && err "certgen must keep the distroless image entrypoint (/usr/local/bin/app)"
+    grep -Fq 'command: ["gen-cert", "--if-missing", "/certs"]' <<<"$certgen" \
+      || err "certgen must directly invoke gen-cert --if-missing /certs"
+  fi
+
   if [ "${PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL:-0}" = "1" ]; then
     if [ -z "$image" ]; then
       err "anonymous pull smoke requested, but production Compose has no default image; set PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL only for digest-default releases"
@@ -149,6 +162,7 @@ YAML
 services:
   certgen:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    command: ["gen-cert", "--if-missing", "/certs"]
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
 YAML
@@ -183,6 +197,26 @@ MAKE
       exit 1
     fi
   }
+
+  cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
+services:
+  certgen:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["test -f /certs/tls.crt || /usr/local/bin/app gen-cert /certs"]
+  control:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+YAML
+  expect_fixture_failure "distroless-shell"
+
+  cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
+services:
+  certgen:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    command: ["gen-cert", "--if-missing", "/certs"]
+  control:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+YAML
 
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
 # PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.6@sha256:<release-digest>

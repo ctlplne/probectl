@@ -56,10 +56,14 @@ sections that follow add more.
 
 Subcommands: `probectl-control [serve]` (default), `probectl-control migrate` (apply
 database migrations and exit), `probectl-control version`, and
-`probectl-control gen-cert [dir]` — a convenience that writes a self-signed
-`tls.crt`/`tls.key`/`ca.crt` for an HTTPS quickstart (`PROBECTL_CERT_HOSTS`, default
-`localhost,127.0.0.1`, sets the certificate's host names; production brings its own
-CA-issued cert). The other subcommands are covered with their features:
+`probectl-control gen-cert [--if-missing] [dir]` — a convenience that writes a
+self-signed `tls.crt`/`tls.key`/`ca.crt` for an HTTPS quickstart
+(`PROBECTL_CERT_HOSTS`, default `localhost,127.0.0.1`, sets the certificate's host
+names; `--if-missing` preserves a complete existing bundle and rejects a partial
+one rather than rotating it; production brings its own CA-issued cert).
+`probectl-control stage-binary <destination>` is the internal, shell-free
+distroless init-container helper used by the Helm backup/restore Jobs. The other
+subcommands are covered with their features:
 `agent-ca init|export`, `enroll-token`, and `revoke-agent` (agent transport and
 enrollment — [`agent/enrollment.md`](agent/enrollment.md)), `scim-token`
 (SCIM, below), `mcp-stdio` and `mcp-token` (MCP server, below), `preflight`

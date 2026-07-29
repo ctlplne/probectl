@@ -31,7 +31,8 @@ spec:
           # The control-plane image installs its single static binary at
           # /usr/local/bin/app (deploy/docker/Dockerfile); stage it under a
           # stable name the restore container invokes.
-          command: ["/bin/sh", "-c", "cp /usr/local/bin/app /shared/probectl-control"]
+          command: ["/usr/local/bin/app"]
+          args: ["stage-binary", "/shared/probectl-control"]
           volumeMounts:
             - { name: shared, mountPath: /shared }
       containers:
@@ -115,7 +116,8 @@ spec:
       initContainers:
         - name: stage-probectl
           image: {{ include "probectl.image" . }}
-          command: ["/bin/sh", "-ec", "cp /usr/local/bin/app /tools/probectl-control"]
+          command: ["/usr/local/bin/app"]
+          args: ["stage-binary", "/tools/probectl-control"]
           volumeMounts:
             - { name: tools, mountPath: /tools }
       {{- end }}

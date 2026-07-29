@@ -7,6 +7,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,13 +23,33 @@ import (
 // getting an HTTPS listener up immediately; production operators bring their own
 // CA-issued certificate.
 //
-//	probectl-control gen-cert [dir]      # default dir: the current directory
-//	PROBECTL_CERT_HOSTS=host1,host2 ...  # SANs (default: localhost,127.0.0.1)
+//	probectl-control gen-cert [--if-missing] [dir] # default dir: current directory
+//	PROBECTL_CERT_HOSTS=host1,host2 ...             # SANs (default: localhost,127.0.0.1)
 func genCert(args []string) error {
+	ifMissing := false
+	if len(args) > 0 && args[0] == "--if-missing" {
+		ifMissing = true
+		args = args[1:]
+	}
+	if len(args) > 1 || (len(args) == 1 && strings.HasPrefix(args[0], "-")) {
+		return fmt.Errorf("usage: probectl-control gen-cert [--if-missing] [dir]")
+	}
+
 	dir := "."
 	if len(args) > 0 && args[0] != "" {
 		dir = args[0]
 	}
+	if ifMissing {
+		complete, err := certBundleComplete(dir)
+		if err != nil {
+			return err
+		}
+		if complete {
+			fmt.Fprintf(os.Stdout, "kept existing tls.crt, tls.key, ca.crt in %s\n", dir)
+			return nil
+		}
+	}
+
 	hosts := []string{"localhost", "127.0.0.1"}
 	if env := strings.TrimSpace(os.Getenv("PROBECTL_CERT_HOSTS")); env != "" {
 		hosts = splitTrim(env)
@@ -61,8 +82,36 @@ func genCert(args []string) error {
 			return fmt.Errorf("write %s: %w", f.name, err)
 		}
 	}
-	fmt.Printf("wrote tls.crt, tls.key, ca.crt to %s (SANs: %s; valid 365d)\n", dir, strings.Join(hosts, ","))
+	fmt.Fprintf(os.Stdout, "wrote tls.crt, tls.key, ca.crt to %s (SANs: %s; valid 365d)\n", dir, strings.Join(hosts, ","))
 	return nil
+}
+
+func certBundleComplete(dir string) (bool, error) {
+	names := []string{"tls.crt", "tls.key", "ca.crt"}
+	present := 0
+	for _, name := range names {
+		path := filepath.Join(dir, name)
+		info, err := os.Lstat(path)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		case err != nil:
+			return false, fmt.Errorf("inspect existing certificate bundle %s: %w", path, err)
+		case !info.Mode().IsRegular():
+			return false, fmt.Errorf("incomplete certificate bundle in %s: %s is not a regular file; refusing to replace any existing certificate material", dir, name)
+		case info.Size() == 0:
+			return false, fmt.Errorf("incomplete certificate bundle in %s: %s is empty; refusing to replace any existing certificate material", dir, name)
+		default:
+			present++
+		}
+	}
+	if present == len(names) {
+		return true, nil
+	}
+	if present != 0 {
+		return false, fmt.Errorf("incomplete certificate bundle in %s: found %d of %d required files; repair it or remove all three before retrying", dir, present, len(names))
+	}
+	return false, nil
 }
 
 func splitTrim(s string) []string {

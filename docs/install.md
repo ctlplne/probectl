@@ -53,8 +53,9 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
 
 [`deploy/compose/probectl.yml`](../deploy/compose/probectl.yml) runs the control
 plane behind TLS with a bundled Postgres. On first boot a one-shot `certgen`
-service generates a **self-signed certificate** (`probectl-control gen-cert`) so
-you can start immediately; you swap in a real CA-issued cert for production.
+service generates a **self-signed certificate** (`probectl-control gen-cert
+--if-missing`) so you can start immediately; later boots preserve the complete
+bundle, and you swap in a real CA-issued cert for production.
 Self-signed means the server vouches for itself rather than a certificate
 authority (CA — a trusted issuer your clients already know): traffic is fully
 encrypted either way, but your client must be *told* to trust this server —

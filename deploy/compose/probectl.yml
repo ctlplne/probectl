@@ -58,9 +58,7 @@ services:
     # ghcr.io/imfeelingtheagi/probectl-control:v0.6.0@sha256:<release-digest>.
     # Tag-only local/mirror refs require PROBECTL_ALLOW_TAG_IMAGE.
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - 'test -f /certs/tls.crt || /usr/local/bin/app gen-cert /certs'
+    command: ["gen-cert", "--if-missing", "/certs"]
     environment:
       PROBECTL_CERT_HOSTS: ${PROBECTL_TLS_HOSTS:-localhost,127.0.0.1}
     volumes:

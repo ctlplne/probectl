@@ -377,8 +377,8 @@ func installCHReaderPolicy(
 }
 
 // dispatchEarlyCommand handles the subcommands that need NO database or config
-// (version/gen-cert/support-bundle/preflight/backup-*/bgp-analyzer) plus the unknown-command
-// error. It returns handled=false for `serve` and the
+// (version/gen-cert/stage-binary/support-bundle/preflight/backup-*/bgp-analyzer)
+// plus the unknown-command error. It returns handled=false for `serve` and the
 // DB-backed subcommands so run() falls through to the configured path.
 // Extracted verbatim from run()'s leading switch (CODE-001) — behavior is
 // identical, including the exact usage string.
@@ -390,6 +390,9 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 	case "gen-cert":
 		// Self-signed TLS cert for the HTTPS-by-default quickstart; no DB needed.
 		return true, genCert(os.Args[2:])
+	case "stage-binary":
+		// Shell-free distroless init-container helper for backup/restore Jobs.
+		return true, stageBinary(os.Args[2:])
 	case "support-bundle":
 		// S-EE4: offline, secret-stripped diagnostics bundle.
 		return true, supportBundle(os.Args[2:])
@@ -414,7 +417,7 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
 	}
 }
 

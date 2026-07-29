@@ -44,6 +44,51 @@ need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
 need_fixed() { grep -Fq -- "$1" <<<"$2" || fail "$3"; }
 need_file() { grep -q -- "$1" "$2" || fail "$3"; }
 
+control_stager_blocks() {
+  awk '
+    function leading_spaces(line, trimmed) {
+      trimmed = line
+      sub(/^ */, "", trimmed)
+      return length(line) - length(trimmed)
+    }
+    {
+      trimmed = $0
+      sub(/^[[:space:]]*/, "", trimmed)
+      if (capturing && trimmed != "" && trimmed !~ /^#/ && leading_spaces($0) <= base_indent) {
+        capturing = 0
+      }
+      if (!capturing && trimmed == "- name: stage-probectl") {
+        capturing = 1
+        base_indent = leading_spaces($0)
+      }
+      if (capturing) {
+        print
+      }
+    }
+  '
+}
+
+need_shellless_control_stagers() {
+  local label="$1"
+  local body="$2"
+  local expected="$3"
+  local blocks stage_count command_count args_count
+
+  blocks="$(control_stager_blocks <<<"$body")"
+  stage_count="$(grep -F -c -- '- name: stage-probectl' <<<"$blocks" || true)"
+  command_count="$(grep -F -c -- 'command: ["/usr/local/bin/app"]' <<<"$blocks" || true)"
+  args_count="$(grep -F -c -- 'args: ["stage-binary", ' <<<"$blocks" || true)"
+  [ "$stage_count" -eq "$expected" ] \
+    || fail "$label rendered $stage_count stage-probectl init containers; expected $expected"
+  [ "$command_count" -eq "$expected" ] \
+    || fail "$label stage-probectl containers must directly execute /usr/local/bin/app"
+  [ "$args_count" -eq "$expected" ] \
+    || fail "$label stage-probectl containers must use the app-native stage-binary helper"
+  if grep -Fq '/bin/sh' <<<"$blocks"; then
+    fail "$label stage-probectl invokes /bin/sh from the shell-free distroless control image (CONFIG-03870cbe)"
+  fi
+}
+
 # OPS-005: the Ansible role's final health proof must not regress to local
 # systemd-only liveness. It must fail closed unless the operator supplies the
 # tenant-scoped control-plane API endpoint, an agent.read token, and the expected
@@ -300,6 +345,10 @@ need "kind: CronJob" "$backup_render" "backup.enabled=true must render the backu
 if [ "$(grep -c '^kind: CronJob$' <<<"$backup_render")" -ne 3 ]; then
   fail "backup.enabled=true must render exactly three backup CronJobs (Postgres + ClickHouse + object store, H8)"
 fi
+need_shellless_control_stagers "backup CronJobs" "$backup_render" 3
+if [ "$(grep -F -c 'args: ["stage-binary", "/tools/probectl-control"]' <<<"$backup_render" || true)" -ne 3 ]; then
+  fail "all three backup stage-probectl containers must stage /tools/probectl-control"
+fi
 need ".dump.pbk" "$backup_render" "default Postgres backup must render sealed .dump.pbk artifact (RUNOPS-002)"
 need "backup-seal" "$backup_render" "default Postgres backup must stream through backup-seal (RUNOPS-002)"
 need "backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target" "$backup_render" "ClickHouse backup render must carry exact encrypted-target ack (RED-004)"
@@ -333,6 +382,22 @@ if render --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor
 fi
 need "alert: ProbectlHighGoroutines" "$(render --set metrics.prometheusRule.enabled=true)" "metrics.prometheusRule.enabled=true must render self-alert rules (OPS-004)"
 need "alert: ProbectlWORMExportGap" "$(render --set metrics.prometheusRule.enabled=true)" "metrics.prometheusRule.enabled=true must render RUNOPS WORM alert (RUNOPS-003)"
+
+# CONFIG-03870cbe: restore Jobs use the same shell-free distroless control image
+# for staging. Render both restore paths so this opt-in surface cannot hide a
+# /bin/sh dependency behind its values gates.
+restore_render="$(render \
+  --set restore.enabled=true \
+  --set restore.backupFile=postgres-probectl-test.dump.pbk \
+  --set restore.clickhouse.enabled=true \
+  --set restore.clickhouse.backupFile=clickhouse-probectl-test.zip.pbk)"
+need_shellless_control_stagers "restore Jobs" "$restore_render" 2
+if [ "$(grep -F -c 'args: ["stage-binary", "/shared/probectl-control"]' <<<"$restore_render" || true)" -ne 1 ]; then
+  fail "Postgres restore must stage /shared/probectl-control"
+fi
+if [ "$(grep -F -c 'args: ["stage-binary", "/tools/probectl-control"]' <<<"$restore_render" || true)" -ne 1 ]; then
+  fail "ClickHouse restore must stage /tools/probectl-control"
+fi
 
 # 4. Medium + multi-tenant profiles ship a PodDisruptionBudget (zero-downtime, S34).
 for f in values-medium.yaml values-multitenant.yaml; do

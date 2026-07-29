@@ -10,7 +10,8 @@
 //
 //	probectl-control [serve]              run the stateless HTTP API server (default)
 //	probectl-control migrate              apply database migrations and exit
-//	probectl-control gen-cert             write a self-signed TLS cert (HTTPS quickstart)
+//	probectl-control gen-cert             write/preserve a self-signed TLS cert (HTTPS quickstart)
+//	probectl-control stage-binary         copy this binary into a shared deployment volume
 //	probectl-control agent-ca             init/export the agent-enrollment CA
 //	probectl-control enroll-token         mint a one-time agent join token
 //	probectl-control revoke-enroll-token  void an unredeemed join token early
@@ -73,8 +74,8 @@ func run(cmd string) error {
 			return err
 		}
 	}
-	// CODE-001: the no-DB subcommands (version/gen-cert/support-bundle/preflight/
-	// backup-*) dispatch first; serve + the configured-path subcommands fall
+	// CODE-001: the no-DB subcommands (version/gen-cert/stage-binary/
+	// support-bundle/preflight/backup-*) dispatch first; serve + the configured-path subcommands fall
 	// through to the wiring below. Behavior is identical — this is mechanical
 	// extraction of the leading dispatch switch off run()'s spine.
 	if handled, err := dispatchEarlyCommand(cmd); handled {

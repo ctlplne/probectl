@@ -36,7 +36,8 @@ deliberately — the shipped deploys never expose an unencrypted API. A
 **self-signed** certificate (one the server signs for itself: traffic is
 encrypted, but clients must be told to trust it — which is what `--cacert
 ca.crt` does below) is generated on first boot (`probectl-control gen-cert`)
-for an immediate quickstart — production replaces it with a CA-issued cert.
+with `--if-missing` so later boots preserve the complete bundle — production
+replaces it with a CA-issued cert.
 
 ```sh
 cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD + envelope/session-HMAC keys

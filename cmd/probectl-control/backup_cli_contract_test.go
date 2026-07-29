@@ -49,6 +49,70 @@ func readArtifact(t *testing.T, rel string) string {
 	return string(b)
 }
 
+func namedYAMLBlocks(body, name string) []string {
+	lines := strings.Split(body, "\n")
+	marker := "- name: " + name
+	var blocks []string
+	for i, line := range lines {
+		if strings.TrimSpace(line) != marker {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		end := i + 1
+		for end < len(lines) {
+			next := lines[end]
+			trimmed := strings.TrimSpace(next)
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				nextIndent := len(next) - len(strings.TrimLeft(next, " "))
+				if nextIndent <= indent {
+					break
+				}
+			}
+			end++
+		}
+		blocks = append(blocks, strings.Join(lines[i:end], "\n"))
+	}
+	return blocks
+}
+
+func TestDistrolessControlImageCommandsNeedNoShell(t *testing.T) {
+	compose := readArtifact(t, "deploy/compose/probectl.yml")
+	certgenStart := strings.Index(compose, "\n  certgen:\n")
+	controlStart := strings.Index(compose, "\n  control:\n")
+	if certgenStart < 0 || controlStart <= certgenStart {
+		t.Fatal("deploy/compose/probectl.yml must contain certgen followed by control")
+	}
+	certgen := compose[certgenStart:controlStart]
+	if strings.Contains(certgen, "/bin/sh") || strings.Contains(certgen, "entrypoint:") {
+		t.Fatal("Compose certgen uses the distroless control image, so it cannot override the image entrypoint with a shell")
+	}
+	if !strings.Contains(certgen, `command: ["gen-cert", "--if-missing", "/certs"]`) {
+		t.Fatal("Compose certgen must invoke the control binary's idempotent gen-cert mode directly")
+	}
+
+	for _, tc := range []struct {
+		path  string
+		count int
+	}{
+		{"deploy/helm/probectl/templates/backup-cronjobs.yaml", 3},
+		{"deploy/helm/probectl/templates/restore-job.yaml", 2},
+	} {
+		blocks := namedYAMLBlocks(readArtifact(t, tc.path), "stage-probectl")
+		if len(blocks) != tc.count {
+			t.Fatalf("%s: found %d stage-probectl blocks, want %d", tc.path, len(blocks), tc.count)
+		}
+		for i, block := range blocks {
+			if strings.Contains(block, "/bin/sh") {
+				t.Errorf("%s stage-probectl block %d invokes /bin/sh, but the distroless control image has no shell", tc.path, i+1)
+			}
+			if !strings.Contains(block, `command: ["/usr/local/bin/app"]`) ||
+				!strings.Contains(block, `args: ["stage-binary", `) {
+				t.Errorf("%s stage-probectl block %d must invoke the app-native stage-binary helper directly:\n%s", tc.path, i+1, block)
+			}
+		}
+	}
+}
+
 // backupBadFlags are the flags backup.go does NOT define. Their appearance next
 // to a backup-seal/backup-open invocation is the OPS-001/003 defect.
 var backupBadFlags = []string{"--in ", "--in=", "--out ", "--out=", "--in %p", "--out %p", "--in -", "--out -"}

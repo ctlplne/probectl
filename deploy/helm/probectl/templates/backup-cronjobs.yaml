@@ -54,7 +54,8 @@ spec:
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
-              command: ["/bin/sh", "-ec", "cp /usr/local/bin/app /tools/probectl-control"]
+              command: ["/usr/local/bin/app"]
+              args: ["stage-binary", "/tools/probectl-control"]
               volumeMounts:
                 - { name: tools, mountPath: /tools }
           {{- end }}
@@ -129,7 +130,8 @@ spec:
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
-              command: ["/bin/sh", "-ec", "cp /usr/local/bin/app /tools/probectl-control"]
+              command: ["/usr/local/bin/app"]
+              args: ["stage-binary", "/tools/probectl-control"]
               volumeMounts:
                 - { name: tools, mountPath: /tools }
           {{- end }}
@@ -222,7 +224,8 @@ spec:
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
-              command: ["/bin/sh", "-ec", "cp /usr/local/bin/app /tools/probectl-control"]
+              command: ["/usr/local/bin/app"]
+              args: ["stage-binary", "/tools/probectl-control"]
               volumeMounts:
                 - { name: tools, mountPath: /tools }
           {{- end }}
