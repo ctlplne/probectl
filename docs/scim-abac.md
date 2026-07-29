@@ -170,7 +170,11 @@ policy CRUD invalidating that tenant's cache
 because deprovision deletes sessions directly, a deprovisioned user is locked
 out at once regardless of any cached policy. The worst a stale cache can do is
 apply a 30-second-old *policy* to a still-valid user; it can never resurrect a
-revoked one.
+revoked one. In a multi-replica control plane, CRUD invalidates the local
+replica immediately and other replicas refresh no later than that TTL. Once an
+entry expires, a failed database refresh returns **503 unavailable** and the
+protected handler does not run; an expired empty or allow policy set is never
+treated as authority.
 
 ## Directory connectors
 

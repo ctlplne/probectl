@@ -42,9 +42,10 @@ func newABACCache(pool *pgxpool.Pool) *abacCache {
 	return &abacCache{pool: pool, ttl: 30 * time.Second, data: map[string]abacEntry{}}
 }
 
-// policies returns a tenant's ABAC policies, loading + caching on a miss. A
-// cold load failure is returned to the authorization caller so it can fail
-// closed; an expired, previously loaded entry remains a known-good fallback.
+// policies returns a tenant's ABAC policies, loading + caching on a miss. Any
+// load failure is returned to the authorization caller so it can fail closed.
+// An entry is authoritative only until its expiry; serving it after a failed
+// refresh could preserve an allow after another replica installed a deny.
 func (c *abacCache) policies(ctx context.Context, tenantID string) ([]auth.Policy, error) {
 	if c == nil || c.pool == nil {
 		return nil, nil
@@ -66,16 +67,13 @@ func (c *abacCache) policies(ctx context.Context, tenantID string) ([]auth.Polic
 	if loadErr != nil {
 		// CODE-002: a transient scope-setup/query fault must NOT be cached as
 		// "no policies" — that would poison the cache for the whole TTL and
-		// silently widen access (an empty policy set). Log it with tenant_id and
-		// return the PRIOR cached entry if we have one (stale-but-correct). With
-		// no known-good entry, surface the failure so authorization can refuse
-		// the request. tenancy.InTenant sets the scope BEFORE running fn, so a
-		// setup failure cannot leak another tenant's rows (fail closed).
-		logging.FromContext(ctx).Warn("ABAC policy load failed; not caching empty result",
+		// silently widen access (an empty policy set). An expired entry is not a
+		// safe fallback either: another replica may have installed a new deny
+		// since it was loaded. Surface every refresh failure so authorization
+		// refuses the request. tenancy.InTenant sets the scope BEFORE running fn,
+		// so a setup failure cannot leak another tenant's rows (fail closed).
+		logging.FromContext(ctx).Warn("ABAC policy refresh failed; refusing expired policy state",
 			"tenant_id", tenantID, "error", loadErr.Error())
-		if ok {
-			return e.policies, nil // serve the previous (expired) entry rather than nothing
-		}
 		return nil, loadErr
 	}
 	c.mu.Lock()
