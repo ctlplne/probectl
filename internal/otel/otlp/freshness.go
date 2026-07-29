@@ -35,6 +35,8 @@ const (
 
 	// DefaultFreshnessWindow is the accepted timestamp skew and replay horizon.
 	DefaultFreshnessWindow = 5 * time.Minute
+	// MaxFreshnessNonceBytes bounds canonical input and replay-cache memory per nonce.
+	MaxFreshnessNonceBytes = 128
 	noncesPerTenant        = 4096
 )
 
@@ -126,8 +128,12 @@ func firstMetadata(md metadata.MD, key string) string {
 }
 
 func parseFreshnessEnvelope(sentAt, nonce, signature string) (time.Time, string, []byte, error) {
-	if strings.TrimSpace(sentAt) == "" || strings.TrimSpace(nonce) == "" || strings.TrimSpace(signature) == "" {
+	trimmedNonce := strings.TrimSpace(nonce)
+	if strings.TrimSpace(sentAt) == "" || trimmedNonce == "" || strings.TrimSpace(signature) == "" {
 		return time.Time{}, "", nil, fmt.Errorf("missing OTLP freshness envelope")
+	}
+	if len(trimmedNonce) > MaxFreshnessNonceBytes {
+		return time.Time{}, "", nil, fmt.Errorf("invalid OTLP freshness nonce: exceeds %d bytes", MaxFreshnessNonceBytes)
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, sentAt)
 	if err != nil {
@@ -138,7 +144,7 @@ func parseFreshnessEnvelope(sentAt, nonce, signature string) (time.Time, string,
 	if err != nil || len(sig) == 0 {
 		return time.Time{}, "", nil, fmt.Errorf("invalid OTLP freshness signature")
 	}
-	return parsed, strings.TrimSpace(nonce), sig, nil
+	return parsed, trimmedNonce, sig, nil
 }
 
 func canonicalFreshnessData(surface, operation string, sentAt time.Time, nonce string, body []byte) []byte {

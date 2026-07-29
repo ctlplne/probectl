@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
+
+const testedFreshnessNonceLimit = 128
 
 func TestFreshnessVerifierHTTPRejectsMissingReplayStaleAndTamperedEnvelopes(t *testing.T) {
 	key := bytes.Repeat([]byte{0x42}, crypto.KeySize)
@@ -113,5 +116,110 @@ func TestFreshnessVerifierGRPCUsesMethodBodyAndNonce(t *testing.T) {
 	ctx = metadata.NewIncomingContext(context.Background(), md)
 	if err := freshness.VerifyGRPC(ctx, method+"Typo", "tenant-a", req); err == nil {
 		t.Fatal("method-tampered grpc envelope accepted")
+	}
+}
+
+func TestFreshnessNonceByteBoundHTTPAndGRPC(t *testing.T) {
+	key := bytes.Repeat([]byte{0x31}, crypto.KeySize)
+	now := time.Date(2026, 6, 19, 13, 0, 0, 0, time.UTC)
+	method := "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export"
+	grpcRequest := MetricsRequest()
+	httpBody := []byte("bounded OTLP body")
+
+	for _, tc := range []struct {
+		name    string
+		nonce   string
+		wantErr bool
+	}{
+		{name: "exact_max", nonce: strings.Repeat("n", testedFreshnessNonceLimit)},
+		{name: "one_past", nonce: strings.Repeat("n", testedFreshnessNonceLimit+1), wantErr: true},
+	} {
+		t.Run(tc.name+"/http", func(t *testing.T) {
+			freshness := NewFreshnessVerifier(key, time.Minute)
+			freshness.now = func() time.Time { return now }
+			req := httptest.NewRequest(http.MethodPost, "/v1/metrics", nil)
+			req.Header = FreshnessHTTPHeaders(key, now, tc.nonce, http.MethodPost, req.URL.Path, httpBody)
+
+			err := freshness.VerifyHTTP(req, "tenant-a", httpBody)
+			if tc.wantErr && err == nil {
+				t.Fatal("oversized HTTP freshness nonce accepted")
+			}
+			if tc.wantErr && !strings.Contains(err.Error(), "exceeds 128 bytes") {
+				t.Fatalf("oversized HTTP freshness nonce error = %q, want byte-limit error", err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("maximum-size HTTP freshness nonce refused: %v", err)
+			}
+		})
+
+		t.Run(tc.name+"/grpc", func(t *testing.T) {
+			freshness := NewFreshnessVerifier(key, time.Minute)
+			freshness.now = func() time.Time { return now }
+			md, err := FreshnessGRPCMetadata(key, now, tc.nonce, method, grpcRequest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := metadata.NewIncomingContext(context.Background(), md)
+
+			err = freshness.VerifyGRPC(ctx, method, "tenant-a", grpcRequest)
+			if tc.wantErr && err == nil {
+				t.Fatal("oversized gRPC freshness nonce accepted")
+			}
+			if tc.wantErr && !strings.Contains(err.Error(), "exceeds 128 bytes") {
+				t.Fatalf("oversized gRPC freshness nonce error = %q, want byte-limit error", err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("maximum-size gRPC freshness nonce refused: %v", err)
+			}
+		})
+	}
+}
+
+func TestFreshnessOversizedNonceDoesNotEnterReplayCache(t *testing.T) {
+	key := bytes.Repeat([]byte{0x53}, crypto.KeySize)
+	now := time.Date(2026, 6, 19, 13, 30, 0, 0, time.UTC)
+	body := []byte("replay retention body")
+	freshness := NewFreshnessVerifier(key, time.Minute)
+	freshness.now = func() time.Time { return now }
+
+	verify := func(nonce string) error {
+		req := httptest.NewRequest(http.MethodPost, "/v1/metrics", nil)
+		req.Header = FreshnessHTTPHeaders(key, now, nonce, http.MethodPost, req.URL.Path, body)
+		return freshness.VerifyHTTP(req, "tenant-a", body)
+	}
+
+	oversized := strings.Repeat("o", testedFreshnessNonceLimit+1)
+	if err := verify(oversized); err == nil {
+		t.Error("oversized freshness nonce accepted")
+	} else if !strings.Contains(err.Error(), "exceeds 128 bytes") {
+		t.Errorf("oversized freshness nonce error = %q, want byte-limit error", err)
+	}
+
+	freshness.mu.Lock()
+	retainedAfterOversized := len(freshness.seen)
+	freshness.mu.Unlock()
+	if retainedAfterOversized != 0 {
+		t.Errorf("replay scopes after oversized nonce = %d, want 0", retainedAfterOversized)
+	}
+
+	maximum := strings.Repeat("m", testedFreshnessNonceLimit)
+	if err := verify(maximum); err != nil {
+		t.Fatalf("maximum-size freshness nonce refused: %v", err)
+	}
+
+	freshness.mu.Lock()
+	tenantSeen := freshness.seen["tenant-a"]
+	_, retainedMaximum := tenantSeen[maximum]
+	_, retainedOversized := tenantSeen[oversized]
+	retainedCount := len(tenantSeen)
+	freshness.mu.Unlock()
+	if !retainedMaximum {
+		t.Error("accepted maximum-size freshness nonce was not retained")
+	}
+	if retainedOversized {
+		t.Error("rejected oversized freshness nonce was retained")
+	}
+	if retainedCount != 1 {
+		t.Errorf("retained freshness nonces = %d, want 1", retainedCount)
 	}
 }

@@ -107,7 +107,9 @@ missing makes it **fail closed**.
   `X-Probectl-OTLP-Signature: sha256=<hex>` (gRPC uses the same lowercase
   metadata keys). The signature covers protocol, method/path, timestamp, nonce,
   and payload hash. Stale timestamps, repeated nonces, missing headers, or bad
-  signatures fail closed.
+  signatures fail closed. Nonces are limited to 128 bytes after surrounding
+  whitespace is removed; an oversized nonce is rejected before canonicalization
+  or replay-cache retention.
 - **Tenant scoping.** The authenticated tenant *is* the scope — the token works
   like a hotel keycard: whatever floor a guest claims, the card only ever opens
   their own. A resource that
