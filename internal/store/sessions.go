@@ -97,6 +97,39 @@ func (s Sessions) RotateByHash(ctx context.Context, oldHash, newHash []byte, ses
 	return rotated, err
 }
 
+// ReplaceAuthenticatedByHash atomically consumes a browser's current (or
+// pre-HMAC legacy) predecessor and inserts the session established by a fresh
+// IdP authentication. All fields in sess are authoritative here; that is the
+// deliberate inverse of permission-only RotateByHash.
+//
+// The database retains the predecessor as an inactive tombstone. That tiny bit
+// of memory is what lets a concurrent loser distinguish "already consumed"
+// from "unknown cookie" without a check-then-create race.
+func (s Sessions) ReplaceAuthenticatedByHash(
+	ctx context.Context,
+	oldHash, legacyOldHash, newHash []byte,
+	sess auth.Session,
+) (bool, error) {
+	sess = normalizeSessionTimes(sess)
+	var created bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT pretenant_replace_authenticated_session(
+			$1, $2, $3,
+			$4::uuid, $5::uuid, $6, $7, $8,
+			$9, $10, $11, $12,
+			$13, $14, $15, $16
+		 )`,
+		oldHash, legacyOldHash, newHash,
+		sess.TenantID, sess.UserID, sess.Email, sess.DisplayName, sess.MFASatisfied,
+		sess.TimeZone, sess.Locale, sess.TenantTimeZone, sess.TenantLocale,
+		sess.ExpiresAt, sess.CreatedAt, sess.LastActivityAt, sess.AuthorizationHash).
+		Scan(&created)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return created, err
+}
+
 func normalizeSessionTimes(sess auth.Session) auth.Session {
 	now := time.Now()
 	if sess.CreatedAt.IsZero() {

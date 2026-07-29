@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -277,6 +278,212 @@ func TestSessionStoreCrossTenantIsolation(t *testing.T) {
 	}
 	if n, err := sess.DeleteAllForUser(ctx, tn.ID, userID); err != nil || n < 1 {
 		t.Fatalf("deleteAllForUser: %v / %d", err, n)
+	}
+}
+
+// TestAuthenticatedLoginSessionReplacement exercises the login-only session
+// path against real PostgreSQL. It proves three properties together:
+//
+//   - a predecessor from tenant A is invalidated at the storage boundary while
+//     the fresh, independently authenticated tenant-B identity is adopted;
+//   - stale identity/MFA/lifetime fields never survive the new login;
+//   - two concurrent replacements of one predecessor create exactly one live
+//     successor.
+func TestAuthenticatedLoginSessionReplacement(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	oldTenant, err := NewTenants(pool).Create(ctx, "login-old-"+suffix, "Old Login Tenant")
+	if err != nil {
+		t.Fatalf("old tenant: %v", err)
+	}
+	newTenant, err := NewTenants(pool).Create(ctx, "login-new-"+suffix, "New Login Tenant")
+	if err != nil {
+		t.Fatalf("new tenant: %v", err)
+	}
+	var oldUserID, newUserID string
+	inTenant(ctx, t, pool, oldTenant.ID, func(ctx context.Context, scope tenancy.Scope) error {
+		user, err := (Users{}).Create(ctx, scope, "old-login-"+suffix+"@example.com", "Old Login")
+		if err == nil {
+			oldUserID = user.ID
+		}
+		return err
+	})
+	inTenant(ctx, t, pool, newTenant.ID, func(ctx context.Context, scope tenancy.Scope) error {
+		user, err := (Users{}).Create(ctx, scope, "new-login-"+suffix+"@example.com", "Fresh Login")
+		if err == nil {
+			newUserID = user.ID
+		}
+		return err
+	})
+
+	sessions := NewSessions(pool)
+	oldHash := crypto.Hash([]byte("authenticated-old-" + suffix))
+	if err := sessions.Create(ctx, oldHash, auth.Session{
+		TenantID:       oldTenant.ID,
+		UserID:         oldUserID,
+		Email:          "old-login-" + suffix + "@example.com",
+		DisplayName:    "Old Login",
+		MFASatisfied:   true,
+		TimeZone:       "Asia/Kolkata",
+		Locale:         "en-IN",
+		TenantTimeZone: "UTC",
+		TenantLocale:   "en",
+		CreatedAt:      time.Now().Add(-4 * time.Hour),
+		ExpiresAt:      time.Now().Add(15 * time.Minute),
+	}); err != nil {
+		t.Fatalf("create predecessor: %v", err)
+	}
+
+	freshCreated := time.Now()
+	freshExpires := freshCreated.Add(2 * time.Hour)
+	freshHash := crypto.Hash([]byte("authenticated-fresh-" + suffix))
+	freshAuthorization := crypto.Hash([]byte("fresh-permissions-" + suffix))
+	created, err := sessions.ReplaceAuthenticatedByHash(ctx, oldHash, nil, freshHash, auth.Session{
+		TenantID:          newTenant.ID,
+		UserID:            newUserID,
+		Email:             "new-login-" + suffix + "@example.com",
+		DisplayName:       "Fresh Login",
+		MFASatisfied:      false,
+		TimeZone:          "America/New_York",
+		Locale:            "es",
+		TenantTimeZone:    "Europe/Paris",
+		TenantLocale:      "fr",
+		CreatedAt:         freshCreated,
+		LastActivityAt:    freshCreated,
+		ExpiresAt:         freshExpires,
+		AuthorizationHash: freshAuthorization,
+	})
+	if err != nil || !created {
+		t.Fatalf("replace authenticated session: created=%t err=%v", created, err)
+	}
+	if got, err := sessions.LookupByHash(ctx, oldHash, time.Hour); err != nil || got != nil {
+		t.Fatalf("tenant-A predecessor survived replacement: session=%+v err=%v", got, err)
+	}
+	got, err := sessions.LookupByHash(ctx, freshHash, time.Hour)
+	if err != nil || got == nil {
+		t.Fatalf("fresh tenant-B session did not resolve: session=%+v err=%v", got, err)
+	}
+	if got.TenantID != newTenant.ID || got.UserID != newUserID ||
+		got.Email != "new-login-"+suffix+"@example.com" || got.DisplayName != "Fresh Login" ||
+		got.MFASatisfied ||
+		got.TimeZone != "America/New_York" || got.Locale != "es" ||
+		got.TenantTimeZone != "Europe/Paris" || got.TenantLocale != "fr" {
+		t.Fatalf("fresh authenticated authority was not adopted: %+v", got)
+	}
+	if got.CreatedAt.Sub(freshCreated).Abs() > time.Millisecond ||
+		got.ExpiresAt.Sub(freshExpires).Abs() > time.Millisecond {
+		t.Fatalf("fresh lifetime changed: created=%v want=%v expires=%v want=%v",
+			got.CreatedAt, freshCreated, got.ExpiresAt, freshExpires)
+	}
+
+	// The tombstone is visible only inside its original tenant. This couples
+	// the new pre-tenant function to an explicit two-tenant RLS regression.
+	inTenant(ctx, t, pool, oldTenant.ID, func(ctx context.Context, scope tenancy.Scope) error {
+		var replaced bool
+		if err := scope.Q.QueryRow(ctx,
+			`SELECT replaced_at IS NOT NULL FROM sessions WHERE token_hash = $1`,
+			oldHash,
+		).Scan(&replaced); err != nil {
+			return err
+		}
+		if !replaced {
+			t.Fatal("predecessor row was not retained as an inactive tombstone")
+		}
+		return nil
+	})
+	inTenant(ctx, t, pool, newTenant.ID, func(ctx context.Context, scope tenancy.Scope) error {
+		var count int
+		if err := scope.Q.QueryRow(ctx,
+			`SELECT count(*) FROM sessions WHERE token_hash = $1`,
+			oldHash,
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Fatalf("tenant B observed tenant A's predecessor tombstone: count=%d", count)
+		}
+		return nil
+	})
+
+	concurrentOldHash := crypto.Hash([]byte("authenticated-concurrent-old-" + suffix))
+	if err := sessions.Create(ctx, concurrentOldHash, auth.Session{
+		TenantID: oldTenant.ID, UserID: oldUserID,
+		Email:        "old-login-" + suffix + "@example.com",
+		MFASatisfied: true, ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("create concurrent predecessor: %v", err)
+	}
+	concurrentHashes := [][]byte{
+		crypto.Hash([]byte("authenticated-concurrent-a-" + suffix)),
+		crypto.Hash([]byte("authenticated-concurrent-b-" + suffix)),
+	}
+	type replacementResult struct {
+		created bool
+		err     error
+	}
+	results := make(chan replacementResult, len(concurrentHashes))
+	start := make(chan struct{})
+	var callers sync.WaitGroup
+	for _, nextHash := range concurrentHashes {
+		nextHash := nextHash
+		callers.Add(1)
+		go func() {
+			defer callers.Done()
+			<-start
+			created, err := sessions.ReplaceAuthenticatedByHash(
+				ctx, concurrentOldHash, nil, nextHash,
+				auth.Session{
+					TenantID: newTenant.ID, UserID: newUserID,
+					Email:        "new-login-" + suffix + "@example.com",
+					MFASatisfied: false, ExpiresAt: time.Now().Add(time.Hour),
+				},
+			)
+			results <- replacementResult{created: created, err: err}
+		}()
+	}
+	close(start)
+	callers.Wait()
+	close(results)
+
+	var winners, losers int
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("concurrent replacement: %v", result.err)
+		}
+		if result.created {
+			winners++
+		} else {
+			losers++
+		}
+	}
+	if winners != 1 || losers != 1 {
+		t.Fatalf("concurrent replacement outcomes: winners=%d losers=%d, want 1/1", winners, losers)
+	}
+	var liveSuccessors int
+	for _, nextHash := range concurrentHashes {
+		got, err := sessions.LookupByHash(ctx, nextHash, time.Hour)
+		if err != nil {
+			t.Fatalf("lookup concurrent successor: %v", err)
+		}
+		if got != nil {
+			liveSuccessors++
+		}
+	}
+	if liveSuccessors != 1 {
+		t.Fatalf("live concurrent successors = %d, want exactly 1", liveSuccessors)
+	}
+	retryHash := crypto.Hash([]byte("authenticated-concurrent-retry-" + suffix))
+	if created, err := sessions.ReplaceAuthenticatedByHash(
+		ctx, concurrentOldHash, nil, retryHash,
+		auth.Session{
+			TenantID: newTenant.ID, UserID: newUserID,
+			ExpiresAt: time.Now().Add(time.Hour),
+		},
+	); err != nil || created {
+		t.Fatalf("consumed predecessor retry: created=%t err=%v, want false/nil", created, err)
 	}
 }
 

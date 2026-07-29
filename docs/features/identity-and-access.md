@@ -207,6 +207,13 @@ give. Among matching policies the highest priority wins, and a deny wins ties.
 - **A new SSO user has no access on purpose.** Login does not grant roles. If a
   freshly logged-in user "can't see anything," that is the secure default — grant
   a role via SCIM group sync or explicitly as an admin.
+- **A completed SSO login starts fresh authentication state.** The callback
+  consumes the browser's previous session ID and adopts the newly verified IdP
+  identity, MFA assertion, preferences, and absolute lifetime. This is separate
+  from an in-session permission refresh, which changes only the token ID and
+  permission fingerprint. Concurrent callbacks for one previous session produce
+  at most one live successor; a stale or unknown cookie can never donate its old
+  MFA state or lifetime to the new login.
 - **Group claims on the login token are ignored — by design.** Permissions come
   from SCIM (the directory now) or an explicit grant, not from a `groups` claim
   (a stale snapshot). Wire roles through SCIM push, not OIDC claims.

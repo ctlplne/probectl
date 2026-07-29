@@ -100,6 +100,12 @@ type SessionStore interface {
 	// prevents two concurrent requests from leaving two valid post-elevation
 	// sessions behind.
 	RotateByHash(ctx context.Context, oldHash, newHash []byte, s Session) (bool, error)
+	// ReplaceAuthenticatedByHash is the login-only replacement seam. Unlike a
+	// permission refresh, a completed IdP login makes s authoritative for
+	// identity, MFA, preferences, and lifetime. The store atomically consumes
+	// an existing current/legacy predecessor and creates at most one successor.
+	// A false result means that predecessor was already consumed concurrently.
+	ReplaceAuthenticatedByHash(ctx context.Context, oldHash, legacyOldHash, newHash []byte, s Session) (bool, error)
 	DeleteByHash(ctx context.Context, tokenHash []byte) error
 }
 

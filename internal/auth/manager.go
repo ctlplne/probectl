@@ -25,10 +25,10 @@ const SessionCookie = "probectl_session"
 // absolute expiry.
 const DefaultSessionIdleTimeout = 30 * time.Minute
 
-// ErrSessionNotFound means a strict token rotation lost its source session.
-// This is expected when another concurrent request already rotated the token;
-// callers must not mint another replacement because that would leave two valid
-// post-elevation sessions.
+// ErrSessionNotFound means a strict token rotation lost its source session or
+// an authenticated-login predecessor was already consumed. This is expected
+// when another concurrent request won; callers must not mint another
+// replacement because that would leave two valid successor sessions.
 var ErrSessionNotFound = errors.New("auth: session no longer exists")
 
 // Manager issues, resolves, and revokes sessions, and manages the session cookie.
@@ -109,6 +109,55 @@ func (m *Manager) Rotate(ctx context.Context, oldToken string, sess Session) (st
 		}
 	}
 	return "", ErrSessionNotFound
+}
+
+// ReplaceAuthenticated rotates the browser's session after a successful IdP
+// login. This is intentionally separate from Rotate:
+//
+//   - Rotate is a permission refresh, so the existing database row owns
+//     identity, MFA, preferences, and absolute lifetime.
+//   - ReplaceAuthenticated is a new proof of identity, so the freshly verified
+//     IdP result owns those fields and receives a fresh absolute lifetime.
+//
+// A non-empty predecessor is consumed by one storage statement. The store also
+// remembers consumed predecessors until their row is cleaned up, so concurrent
+// callbacks cannot reinterpret the losing request as an unknown cookie and
+// mint a second successor.
+func (m *Manager) ReplaceAuthenticated(ctx context.Context, oldToken string, sess Session) (string, error) {
+	// Authentication starts a new lifetime. Discard any timestamps accidentally
+	// copied from an earlier session before prepare stamps the fresh window.
+	sess.CreatedAt = time.Time{}
+	sess.ExpiresAt = time.Time{}
+	sess.LastActivityAt = time.Time{}
+	token, tokenHash, sess, err := m.prepare(sess)
+	if err != nil {
+		return "", err
+	}
+	if oldToken == "" {
+		if err := m.store.Create(ctx, tokenHash, sess); err != nil {
+			return "", err
+		}
+		return token, nil
+	}
+
+	var legacyOldHash []byte
+	if m.keyedHashing() {
+		legacyOldHash = legacyHashToken(oldToken)
+	}
+	created, err := m.store.ReplaceAuthenticatedByHash(
+		ctx,
+		m.hashToken(oldToken),
+		legacyOldHash,
+		tokenHash,
+		sess,
+	)
+	if err != nil {
+		return "", err
+	}
+	if !created {
+		return "", ErrSessionNotFound
+	}
+	return token, nil
 }
 
 func (m *Manager) prepare(sess Session) (string, []byte, Session, error) {

@@ -67,6 +67,12 @@ func (f fakeFactory) For(context.Context, string) (auth.Provider, error) { retur
 
 func setupSessionAPI(t *testing.T, ident auth.Identity) (*Server, *store.DB) {
 	t.Helper()
+	srv, db, _ := setupSessionAPIWithProvider(t, ident)
+	return srv, db
+}
+
+func setupSessionAPIWithProvider(t *testing.T, ident auth.Identity) (*Server, *store.DB, *fakeProvider) {
+	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, integrationDSN(), 5, 0, 5*time.Second)
 	if err != nil {
@@ -83,8 +89,9 @@ func setupSessionAPI(t *testing.T, ident auth.Identity) (*Server, *store.DB) {
 	t.Cleanup(db.Close)
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "session", SessionTTL: time.Hour}
 	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
-	srv.SetSSOProviderFactory(fakeFactory{p: &fakeProvider{ident: ident}})
-	return srv, db
+	provider := &fakeProvider{ident: ident}
+	srv.SetSSOProviderFactory(fakeFactory{p: provider})
+	return srv, db, provider
 }
 
 func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
@@ -140,7 +147,7 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 		TimeZone:    "Asia/Tokyo",
 		Locale:      "ar-EG",
 	}
-	srv, db := setupSessionAPI(t, ident)
+	srv, db, provider := setupSessionAPIWithProvider(t, ident)
 	h := srv.Handler()
 
 	// 1. Begin login → 302 + transient state/tenant cookies.
@@ -186,6 +193,13 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 		t.Fatalf("callback did not expire one-time PKCE verifier: %+v", clearedPKCE)
 	}
 
+	// The second IdP proof changes MFA and user preferences. Login replacement
+	// must adopt these fresh assertions; ordinary permission rotation would
+	// intentionally preserve the old session values.
+	provider.ident.MFASatisfied = true
+	provider.ident.TimeZone = "America/New_York"
+	provider.ident.Locale = "fr"
+
 	// A second successful login in the same browser must consume the first
 	// session ID and return a distinct token (session-fixation defense).
 	login2Req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
@@ -223,14 +237,18 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 		Locale         string   `json:"locale"`
 		TenantTimeZone string   `json:"tenant_time_zone"`
 		TenantLocale   string   `json:"tenant_locale"`
+		MFASatisfied   bool     `json:"mfa_satisfied"`
 		Permissions    []string `json:"permissions"`
 	}
 	mustDecode(t, me, &meBody)
 	if meBody.Email != ident.Email {
 		t.Fatalf("me email = %s", meBody.Email)
 	}
-	if meBody.TimeZone != "Asia/Tokyo" || meBody.Locale != "ar-EG" {
+	if meBody.TimeZone != "America/New_York" || meBody.Locale != "fr" {
 		t.Fatalf("me user prefs = timezone:%q locale:%q", meBody.TimeZone, meBody.Locale)
+	}
+	if !meBody.MFASatisfied {
+		t.Fatal("repeat login did not adopt the fresh IdP MFA assertion")
 	}
 	if meBody.TenantTimeZone != "UTC" || meBody.TenantLocale != "en" {
 		t.Fatalf("me tenant prefs = timezone:%q locale:%q", meBody.TenantTimeZone, meBody.TenantLocale)

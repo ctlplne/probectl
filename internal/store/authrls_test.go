@@ -148,3 +148,64 @@ func TestPreTenantSessionRotationPreservesSourceAuthority(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthenticatedLoginReplacementMigrationContract(t *testing.T) {
+	raw, err := migrations.FS.ReadFile("0072_authenticated_login_session_replacement.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+
+	for _, want := range []string{
+		"ADD COLUMN IF NOT EXISTS replaced_at timestamptz",
+		"CREATE OR REPLACE FUNCTION pretenant_replace_authenticated_session",
+		"p_old_hash bytea",
+		"p_legacy_old_hash bytea",
+		"p_new_hash bytea",
+		"FOR UPDATE",
+		"SET replaced_at = COALESCE(s.replaced_at, now())",
+		"IF already_consumed THEN",
+		"INSERT INTO public.sessions",
+		"p_tenant_id",
+		"p_user_id",
+		"p_email",
+		"p_display_name",
+		"p_mfa_satisfied",
+		"p_time_zone",
+		"p_locale",
+		"p_tenant_time_zone",
+		"p_tenant_locale",
+		"p_expires_at",
+		"p_created_at",
+		"p_last_activity_at",
+		"p_authorization_hash",
+		"GRANT INSERT ON sessions TO probectl_pretenant_auth",
+		"REVOKE ALL ON FUNCTION pretenant_replace_authenticated_session",
+		"GRANT EXECUTE ON FUNCTION pretenant_replace_authenticated_session",
+		"REVOKE CREATE ON SCHEMA public FROM probectl_pretenant_auth",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("authenticated-login replacement migration missing %q", want)
+		}
+	}
+	if got := strings.Count(sql, "AND s.replaced_at IS NULL"); got != 3 {
+		t.Errorf("inactive-predecessor filters = %d, want lookup + permission rotation + logout", got)
+	}
+	start := strings.Index(sql, "CREATE OR REPLACE FUNCTION pretenant_replace_authenticated_session")
+	if start < 0 {
+		t.Fatal("authenticated-login replacement function definition missing")
+	}
+	end := strings.Index(sql[start:], "ALTER FUNCTION pretenant_replace_authenticated_session")
+	if end < 0 {
+		t.Fatal("authenticated-login replacement ownership boundary missing")
+	}
+	replacement := sql[start : start+end]
+	for _, forbidden := range []string{
+		"s.tenant_id = p_tenant_id",
+		"s.user_id = p_user_id",
+	} {
+		if strings.Contains(replacement, forbidden) {
+			t.Errorf("authenticated login incorrectly preserves predecessor authority via %q", forbidden)
+		}
+	}
+}

@@ -9,8 +9,10 @@ package auth
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,12 +21,21 @@ import (
 
 // fakeStore is an in-memory SessionStore for unit tests.
 type fakeStore struct {
-	byHash map[string]Session
+	mu       sync.Mutex
+	byHash   map[string]Session
+	consumed map[string]bool
 }
 
-func newFakeStore() *fakeStore { return &fakeStore{byHash: map[string]Session{}} }
+func newFakeStore() *fakeStore {
+	return &fakeStore{
+		byHash:   map[string]Session{},
+		consumed: map[string]bool{},
+	}
+}
 
 func (f *fakeStore) Create(_ context.Context, h []byte, s Session) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if s.CreatedAt.IsZero() {
 		s.CreatedAt = time.Now()
 	}
@@ -36,6 +47,8 @@ func (f *fakeStore) Create(_ context.Context, h []byte, s Session) error {
 }
 
 func (f *fakeStore) LookupByHash(_ context.Context, h []byte, idle time.Duration) (*Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	s, ok := f.byHash[string(h)]
 	now := time.Now()
 	if !ok || s.ExpiresAt.Before(now) || !s.LastActivityAt.After(now.Add(-idle)) {
@@ -47,6 +60,8 @@ func (f *fakeStore) LookupByHash(_ context.Context, h []byte, idle time.Duration
 }
 
 func (f *fakeStore) RotateByHash(_ context.Context, oldHash, newHash []byte, s Session) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	old, ok := f.byHash[string(oldHash)]
 	if !ok || old.TenantID != s.TenantID || old.UserID != s.UserID {
 		return false, nil
@@ -58,7 +73,36 @@ func (f *fakeStore) RotateByHash(_ context.Context, oldHash, newHash []byte, s S
 	return true, nil
 }
 
+func (f *fakeStore) ReplaceAuthenticatedByHash(
+	_ context.Context,
+	oldHash, legacyOldHash, newHash []byte,
+	s Session,
+) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	candidates := []string{string(oldHash)}
+	if len(legacyOldHash) > 0 {
+		candidates = append(candidates, string(legacyOldHash))
+	}
+	for _, candidate := range candidates {
+		if f.consumed[candidate] {
+			return false, nil
+		}
+	}
+	for _, candidate := range candidates {
+		if _, ok := f.byHash[candidate]; ok {
+			delete(f.byHash, candidate)
+			f.consumed[candidate] = true
+		}
+	}
+	f.byHash[string(newHash)] = s
+	return true, nil
+}
+
 func (f *fakeStore) DeleteByHash(_ context.Context, h []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	delete(f.byHash, string(h))
 	return nil
 }
@@ -242,6 +286,213 @@ func TestManagerRotatePreservesDatabaseAuthority(t *testing.T) {
 	}
 	if !bytes.Equal(rotated.AuthorizationHash, nextAuthorization) {
 		t.Fatalf("authorization fingerprint = %x, want %x", rotated.AuthorizationHash, nextAuthorization)
+	}
+}
+
+func TestManagerReplaceAuthenticatedAdoptsFreshIdentity(t *testing.T) {
+	st := newFakeStore()
+	const ttl = 2 * time.Hour
+	m := NewManager(st, ttl, false, nil)
+	ctx := context.Background()
+
+	oldToken, err := m.Issue(ctx, Session{
+		TenantID:       "tenant-old",
+		UserID:         "user-old",
+		Email:          "old@example.com",
+		DisplayName:    "Old Identity",
+		MFASatisfied:   true,
+		TimeZone:       "Asia/Kolkata",
+		Locale:         "en-IN",
+		TenantTimeZone: "UTC",
+		TenantLocale:   "en",
+		CreatedAt:      time.Now().Add(-time.Hour),
+		ExpiresAt:      time.Now().Add(15 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nextAuthorization := PermissionFingerprint([]string{"test.read"})
+	before := time.Now()
+	newToken, err := m.ReplaceAuthenticated(ctx, oldToken, Session{
+		TenantID:          "tenant-new",
+		UserID:            "user-new",
+		Email:             "new@example.com",
+		DisplayName:       "Fresh IdP Identity",
+		MFASatisfied:      false,
+		TimeZone:          "America/New_York",
+		Locale:            "es",
+		TenantTimeZone:    "Europe/Paris",
+		TenantLocale:      "fr",
+		AuthorizationHash: nextAuthorization,
+		// A login replacement owns its lifetime. Caller-supplied stale times
+		// must not leak in from a predecessor or accidentally shorten/extend it.
+		CreatedAt: time.Unix(1, 0),
+		ExpiresAt: time.Unix(2, 0),
+	})
+	after := time.Now()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newToken == "" || newToken == oldToken {
+		t.Fatalf("authenticated replacement token = %q, old = %q", newToken, oldToken)
+	}
+	if got, err := m.Resolve(ctx, oldToken); err != nil || got != nil {
+		t.Fatalf("live predecessor survived authenticated replacement: session=%+v err=%v", got, err)
+	}
+	got, err := m.Resolve(ctx, newToken)
+	if err != nil || got == nil {
+		t.Fatalf("resolve authenticated replacement: session=%+v err=%v", got, err)
+	}
+	if got.TenantID != "tenant-new" || got.UserID != "user-new" ||
+		got.Email != "new@example.com" || got.DisplayName != "Fresh IdP Identity" ||
+		got.MFASatisfied ||
+		got.TimeZone != "America/New_York" || got.Locale != "es" ||
+		got.TenantTimeZone != "Europe/Paris" || got.TenantLocale != "fr" {
+		t.Fatalf("replacement did not adopt fresh IdP authority: %+v", got)
+	}
+	if !bytes.Equal(got.AuthorizationHash, nextAuthorization) {
+		t.Fatalf("replacement authorization fingerprint = %x, want %x", got.AuthorizationHash, nextAuthorization)
+	}
+	if got.CreatedAt.Before(before) || got.CreatedAt.After(after) {
+		t.Fatalf("replacement created_at = %v, want fresh time in [%v, %v]", got.CreatedAt, before, after)
+	}
+	if got.ExpiresAt.Before(before.Add(ttl)) || got.ExpiresAt.After(after.Add(ttl)) {
+		t.Fatalf("replacement expires_at = %v, want fresh TTL in [%v, %v]", got.ExpiresAt, before.Add(ttl), after.Add(ttl))
+	}
+}
+
+func TestManagerReplaceAuthenticatedMissingAndStalePredecessorsMintFresh(t *testing.T) {
+	tests := []struct {
+		name string
+		seed func(*fakeStore, *Manager, string)
+	}{
+		{name: "missing"},
+		{
+			name: "absolute_expired",
+			seed: func(st *fakeStore, m *Manager, token string) {
+				_ = st.Create(context.Background(), m.hashToken(token), Session{
+					TenantID: "tenant-old", UserID: "user-old",
+					ExpiresAt: time.Now().Add(-time.Minute),
+				})
+			},
+		},
+		{
+			name: "idle_expired_with_old_mfa",
+			seed: func(st *fakeStore, m *Manager, token string) {
+				_ = st.Create(context.Background(), m.hashToken(token), Session{
+					TenantID: "tenant-old", UserID: "user-old", MFASatisfied: true,
+					ExpiresAt: time.Now().Add(time.Hour), LastActivityAt: time.Now().Add(-time.Hour),
+				})
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := newFakeStore()
+			m := NewManager(st, time.Hour, false, nil).WithIdleTimeout(5 * time.Minute)
+			const oldToken = "stale-or-unknown-token"
+			if tt.seed != nil {
+				tt.seed(st, m, oldToken)
+			}
+
+			newToken, err := m.ReplaceAuthenticated(context.Background(), oldToken, Session{
+				TenantID: "tenant-new", UserID: "user-new",
+				Email: "fresh@example.com", MFASatisfied: false,
+			})
+			if err != nil {
+				t.Fatalf("replace authenticated: %v", err)
+			}
+			got, err := m.Resolve(context.Background(), newToken)
+			if err != nil || got == nil {
+				t.Fatalf("fresh login session did not resolve: session=%+v err=%v", got, err)
+			}
+			if got.TenantID != "tenant-new" || got.UserID != "user-new" || got.MFASatisfied {
+				t.Fatalf("stale predecessor authority leaked into fresh login: %+v", got)
+			}
+		})
+	}
+}
+
+func TestManagerReplaceAuthenticatedConcurrentSingleSuccessor(t *testing.T) {
+	st := newFakeStore()
+	m := NewManager(st, time.Hour, false, nil)
+	ctx := context.Background()
+	oldToken, err := m.Issue(ctx, Session{
+		TenantID: "tenant-old", UserID: "user-old", MFASatisfied: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	type result struct {
+		token string
+		err   error
+	}
+	results := make(chan result, 2)
+	var callers sync.WaitGroup
+	callers.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer callers.Done()
+			<-start
+			token, err := m.ReplaceAuthenticated(ctx, oldToken, Session{
+				TenantID: "tenant-new", UserID: "user-new", MFASatisfied: false,
+			})
+			results <- result{token: token, err: err}
+		}()
+	}
+	close(start)
+	callers.Wait()
+	close(results)
+
+	var succeeded, lost int
+	for result := range results {
+		switch {
+		case result.err == nil:
+			succeeded++
+			got, err := m.Resolve(ctx, result.token)
+			if err != nil || got == nil {
+				t.Fatalf("winning successor did not resolve: session=%+v err=%v", got, err)
+			}
+		case errors.Is(result.err, ErrSessionNotFound):
+			lost++
+			if result.token != "" {
+				t.Fatalf("losing replacement returned a token: %q", result.token)
+			}
+		default:
+			t.Fatalf("unexpected replacement error: %v", result.err)
+		}
+	}
+	if succeeded != 1 || lost != 1 {
+		t.Fatalf("concurrent replacements: succeeded=%d lost=%d, want 1/1", succeeded, lost)
+	}
+}
+
+func TestManagerReplaceAuthenticatedConsumesLegacyHash(t *testing.T) {
+	st := newFakeStore()
+	key := bytes.Repeat([]byte{0x5a}, crypto.KeySize)
+	m := NewManager(st, time.Hour, false, key)
+	const oldToken = "legacy-session-token"
+	if err := st.Create(context.Background(), legacyHashToken(oldToken), Session{
+		TenantID: "tenant-old", UserID: "user-old",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	newToken, err := m.ReplaceAuthenticated(context.Background(), oldToken, Session{
+		TenantID: "tenant-new", UserID: "user-new",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := m.Resolve(context.Background(), oldToken); err != nil || got != nil {
+		t.Fatalf("legacy predecessor survived login replacement: session=%+v err=%v", got, err)
+	}
+	if got, err := m.Resolve(context.Background(), newToken); err != nil || got == nil {
+		t.Fatalf("keyed successor did not resolve: session=%+v err=%v", got, err)
 	}
 }
 

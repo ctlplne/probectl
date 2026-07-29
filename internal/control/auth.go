@@ -672,18 +672,12 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		TenantLocale:      "en",
 		AuthorizationHash: auth.PermissionFingerprint(keys),
 	}
-	oldToken := auth.TokenFromRequest(r)
-	var token string
-	if oldToken == "" {
-		token, err = s.sessions.Issue(r.Context(), newSession)
-	} else {
-		// A successful login always changes the session ID. An unknown/expired
-		// cookie has no server-side authority to preserve, so mint normally;
-		// a live cookie is consumed atomically by Rotate.
-		token, err = s.sessions.Rotate(r.Context(), oldToken, newSession)
-		if errors.Is(err, auth.ErrSessionNotFound) {
-			token, err = s.sessions.Issue(r.Context(), newSession)
-		}
+	// A completed IdP login is fresh authentication authority, not a permission
+	// refresh. It atomically consumes any predecessor while adopting the new
+	// identity/MFA/lifetime; a concurrent loser must not mint a second session.
+	token, err := s.sessions.ReplaceAuthenticated(r.Context(), auth.TokenFromRequest(r), newSession)
+	if errors.Is(err, auth.ErrSessionNotFound) {
+		return apierror.Unauthorized("session was already replaced by a concurrent login")
 	}
 	if err != nil {
 		return err

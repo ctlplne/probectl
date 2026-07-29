@@ -53,6 +53,14 @@ func (s *subjectAttributeSessionStore) RotateByHash(_ context.Context, _, _ []by
 	return true, nil
 }
 
+func (s *subjectAttributeSessionStore) ReplaceAuthenticatedByHash(
+	_ context.Context, _, _, _ []byte, session auth.Session,
+) (bool, error) {
+	clone := session
+	s.session = &clone
+	return true, nil
+}
+
 func (s *subjectAttributeSessionStore) DeleteByHash(context.Context, []byte) error {
 	s.session = nil
 	return nil
