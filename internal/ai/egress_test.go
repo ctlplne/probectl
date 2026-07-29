@@ -20,6 +20,7 @@ type fakeRemoteModel struct {
 	synth    Synthesis
 	calls    int
 	endpoint string
+	err      error
 }
 
 func (f *fakeRemoteModel) Name() string       { return "fake:remote" }
@@ -27,6 +28,9 @@ func (f *fakeRemoteModel) RemoteEgress() bool { return true }
 func (f *fakeRemoteModel) Endpoint() string   { return f.endpoint }
 func (f *fakeRemoteModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis, error) {
 	f.calls++
+	if f.err != nil {
+		return Synthesis{}, f.err
+	}
 	if len(in.Evidence) > 0 {
 		return Synthesis{
 			RootCause:  "x",
@@ -94,6 +98,37 @@ func TestRemoteModelEgressPolicyErrorFailsClosedAndIsAudited(t *testing.T) {
 	}
 	if m.calls != 0 || len(events) != 1 || !events[0].Denied || events[0].DenialReason != "policy_error" {
 		t.Fatalf("policy-error receipt = %+v, model calls = %d", events, m.calls)
+	}
+}
+
+func TestRemoteRCAFailedAttemptIsAudited(t *testing.T) {
+	adapterErr := errors.New("remote adapter unavailable")
+	m := &fakeRemoteModel{endpoint: "https://api.example/v1", err: adapterErr}
+	var events []EgressEvent
+	a := NewAnalyzer(egressEngine(), WithModel(m),
+		WithEgressPolicy(func(_ context.Context, tid string) (bool, error) {
+			return tid == "t1", nil
+		}),
+		WithEgressAudit(func(_ context.Context, ev EgressEvent) {
+			events = append(events, ev)
+		}),
+	)
+
+	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); !errors.Is(err, adapterErr) {
+		t.Fatalf("Analyze error = %v, want %v", err, adapterErr)
+	}
+	if m.calls != 1 {
+		t.Fatalf("model calls = %d, want 1", m.calls)
+	}
+	if len(events) != 1 {
+		t.Fatalf("failed remote RCA attempt audit events = %d, want 1: %+v", len(events), events)
+	}
+	ev := events[0]
+	if ev.Surface != "rca" || ev.TenantID != "t1" || ev.Endpoint != "https://api.example/v1" || ev.Model != "fake:remote" {
+		t.Fatalf("unexpected failed-attempt event: %+v", ev)
+	}
+	if ev.Denied || ev.EvidenceCount == 0 || len(ev.Planes) == 0 {
+		t.Fatalf("authorized event must contain bounded categories without being marked denied: %+v", ev)
 	}
 }
 

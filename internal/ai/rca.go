@@ -239,12 +239,15 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	// resilient model derives the cache key from — defense-in-depth so two
 	// tenants' identical questions can never share a cache entry.
 	synCtx := tenancy.WithTenant(ctx, tenancy.ID(p.TenantID))
+	// Audit the authorized transmission attempt before dispatch. Once
+	// Synthesize starts, tenant evidence may have crossed the boundary even
+	// when the adapter later returns an error.
+	if egress != nil && a.egressAudit != nil {
+		a.egressAudit(ctx, *egress)
+	}
 	syn, err := a.model.Synthesize(synCtx, in)
 	if err != nil {
 		return Answer{}, err
-	}
-	if egress != nil && a.egressAudit != nil {
-		a.egressAudit(ctx, *egress)
 	}
 
 	// 4. Citation integrity: drop any finding citing evidence that doesn't exist,
