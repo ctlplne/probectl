@@ -8,12 +8,9 @@ package device
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"math"
-	"os"
 	"strings"
 	"time"
 
@@ -21,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 
+	probectlcrypto "github.com/imfeelingtheagi/probectl/internal/crypto"
 	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
 )
 
@@ -163,17 +161,9 @@ func (c *gnmiCollector) transport() ([]grpc.DialOption, error) {
 	if c.dev.GNMI.Plaintext {
 		return nil, fmt.Errorf("gnmi %s: plaintext transport is forbidden; verified TLS is required", c.dev.Address)
 	}
-	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	if c.dev.GNMI.CAFile != "" {
-		pem, err := os.ReadFile(c.dev.GNMI.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("gnmi %s: read ca_file: %w", c.dev.Address, err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("gnmi %s: ca_file contains no certificates", c.dev.Address)
-		}
-		cfg.RootCAs = pool
+	cfg, err := probectlcrypto.HardenedClientTLSConfigWithCAFile(c.dev.GNMI.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("gnmi %s: build verified TLS transport: %w", c.dev.Address, err)
 	}
 	return []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cfg))}, nil
 }

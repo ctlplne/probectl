@@ -12,12 +12,11 @@
 # monitoring targets; each keeps cert validation on and a 1.2 floor):
 #   internal/canary/http.go   — operator-monitored HTTPS targets
 #   internal/canary/dns.go    — DoT/DoH resolvers
-#   internal/device/gnmi.go   — network devices (gNMI)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-allow='^internal/crypto/|^internal/canary/http\.go|^internal/canary/dns\.go|^internal/device/gnmi\.go'
+allow='^internal/crypto/|^internal/canary/http\.go|^internal/canary/dns\.go'
 
 violations="$(grep -rn 'tls\.Config{' --include='*.go' internal/ cmd/ ee/ 2>/dev/null \
   | grep -v '_test\.go:' \

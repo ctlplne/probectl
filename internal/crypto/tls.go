@@ -8,10 +8,12 @@ package crypto
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -84,6 +86,28 @@ func ConfigureServerTLS(srv *http.Server, certFile, keyFile string) error {
 // on — InsecureSkipVerify is never set (CLAUDE.md §7 guardrail 12). Used for
 // remote model endpoints and any other outbound fetch that needs the policy.
 func HardenedClientTLSConfig() *tls.Config { return hardenedTLS() }
+
+// HardenedClientTLSConfigWithCAFile returns the shared outbound-client policy
+// with an operator-supplied PEM trust bundle. A non-empty file replaces the
+// system roots, matching the usual "ca_file" contract for managed appliances.
+// Keeping both policy and trust-store construction here prevents gNMI and other
+// third-party integrations from drifting outside the FIPS-swappable seam.
+func HardenedClientTLSConfigWithCAFile(caFile string) (*tls.Config, error) {
+	cfg := hardenedTLS()
+	if strings.TrimSpace(caFile) == "" {
+		return cfg, nil
+	}
+	pemBytes, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("crypto: read client CA file: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, fmt.Errorf("crypto: client CA file contains no certificates")
+	}
+	cfg.RootCAs = pool
+	return cfg, nil
+}
 
 // InternalClientTLSConfig is the client policy for probectl↔probectl calls
 // (the enrollment/rotation client): TLS 1.3 floor — the server is ours

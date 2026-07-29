@@ -9,6 +9,8 @@ package crypto
 import (
 	"crypto/tls"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +23,38 @@ func TestHardenedClientTLSConfig(t *testing.T) {
 	}
 	if cfg.InsecureSkipVerify {
 		t.Error("outbound client TLS must validate certificates (InsecureSkipVerify must be false)")
+	}
+}
+
+func TestHardenedClientTLSConfigWithCAFile(t *testing.T) {
+	ca, err := GenerateCA("client-root", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caFile, ca.CertPEM(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := HardenedClientTLSConfigWithCAFile(caFile)
+	if err != nil {
+		t.Fatalf("custom root: %v", err)
+	}
+	if cfg.RootCAs == nil {
+		t.Fatal("custom CA file did not install a root pool")
+	}
+	if cfg.MinVersion != tls.VersionTLS12 || cfg.InsecureSkipVerify {
+		t.Fatalf("custom roots changed hardened policy: min=%x insecure=%t", cfg.MinVersion, cfg.InsecureSkipVerify)
+	}
+	if len(cfg.CipherSuites) == 0 || len(cfg.CurvePreferences) == 0 {
+		t.Fatal("custom roots lost central cipher or curve policy")
+	}
+
+	badFile := filepath.Join(t.TempDir(), "bad.pem")
+	if err := os.WriteFile(badFile, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := HardenedClientTLSConfigWithCAFile(badFile); err == nil {
+		t.Fatal("invalid custom CA file must fail closed")
 	}
 }
 
