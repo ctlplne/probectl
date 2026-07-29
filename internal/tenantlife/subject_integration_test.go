@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,64 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
+
+func TestSubjectErasureTableDiscoveryErrorFailsClosed(t *testing.T) {
+	pool := itPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	subject := "discovery-error-" + stamp + "@example.com"
+	victim := mkTenant(t, pool, "it-subject-discovery-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-subject-discovery-b-"+stamp)
+
+	seed := func(tenantID string) {
+		t.Helper()
+		tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+		if err := tenancy.InTenant(tctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx,
+				`INSERT INTO users (tenant_id, email, display_name, status, user_name, attributes)
+				 VALUES ($1,$2,'Discovery Error Subject','active',$2,'{}'::jsonb)`,
+				tenantID, subject)
+			return err
+		}); err != nil {
+			t.Fatalf("seed %s: %v", tenantID, err)
+		}
+	}
+	seed(victim)
+	seed(bystander)
+
+	sink := func(ctx context.Context, actor, action, target string, data map[string]any) error {
+		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+		return err
+	}
+	engine := New(pool, nil, nil, nil, sink, "backups expire after 14 days (it)", nil)
+	discoveryErr := errors.New("injected table discovery failure")
+	realTableExists := engine.subjectTableExists
+	engine.subjectTableExists = func(ctx context.Context, sc tenancy.Scope, table string) (bool, error) {
+		if sc.Tenant.String() == victim && table == "users" {
+			return false, discoveryErr
+		}
+		return realTableExists(ctx, sc, table)
+	}
+
+	report, err := engine.EraseSubject(ctx, victim, subject, "privacy-admin", "dsar")
+	if err != nil {
+		t.Fatalf("subject erase should return its incomplete receipt: %v", err)
+	}
+	if report.Complete {
+		t.Fatalf("table discovery failure produced a complete receipt: %+v", report)
+	}
+	postgres := subjectPlanesByName(report.Planes)["postgres"]
+	if postgres.Status != SubjectStatusFailed || !strings.Contains(postgres.Notes, discoveryErr.Error()) {
+		t.Fatalf("postgres failure receipt = %+v", postgres)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, victim, subject); got != 1 {
+		t.Fatalf("victim row changed despite rolled-back discovery failure: %d", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, bystander, subject); got != 1 {
+		t.Fatalf("bystander row must remain untouched: %d", got)
+	}
+}
 
 func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	pool := itPool(t)

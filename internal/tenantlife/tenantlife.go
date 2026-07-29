@@ -118,20 +118,21 @@ type PathRetentionPruner interface {
 
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
-	pool              *pgxpool.Pool
-	flows             flowstore.Store
-	objects           objectstore.Store
-	tsdbW             tsdb.Writer
-	paths             PathDeleter // optional (WithPaths)
-	topo              TopologyDeleter
-	topoRetention     TopologyRetentionPruner
-	endpointRetention EndpointRetentionPruner
-	endpointEvents    endpointstore.Store
-	otel              OtelDeleter // optional (WithOtel) — OTLP trace/log store
-	ebpf              EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
-	audit             AuditSink
-	log               *slog.Logger
-	now               func() time.Time
+	pool               *pgxpool.Pool
+	flows              flowstore.Store
+	objects            objectstore.Store
+	tsdbW              tsdb.Writer
+	paths              PathDeleter // optional (WithPaths)
+	topo               TopologyDeleter
+	topoRetention      TopologyRetentionPruner
+	endpointRetention  EndpointRetentionPruner
+	endpointEvents     endpointstore.Store
+	otel               OtelDeleter // optional (WithOtel) — OTLP trace/log store
+	ebpf               EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
+	audit              AuditSink
+	log                *slog.Logger
+	now                func() time.Time
+	subjectTableExists func(context.Context, tenancy.Scope, string) (bool, error)
 
 	// BackupNote is the operator's backup-retention statement, included
 	// verbatim in every attestation (the explicit backup-TTL story).
@@ -172,7 +173,7 @@ func newEngine(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.St
 	}
 	return &Engine{pool: pool, flows: flows, objects: objects, tsdbW: w,
 		audit: audit, backupNote: backupNote, backupRetentionDays: retentionDays,
-		log: log, now: time.Now}
+		log: log, now: time.Now, subjectTableExists: tableExists}
 }
 
 func tenantObjectStores(objects objectstore.Store, tenantID string) ([]objectstore.TenantStore, error) {

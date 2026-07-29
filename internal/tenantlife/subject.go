@@ -573,7 +573,11 @@ func (e *Engine) eraseSubjectPostgres(ctx context.Context, tenantID, subject str
 	var out []SubjectPlaneResult
 	like := "%" + subject + "%"
 	err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		if tableExists(ctx, sc, "users") {
+		exists, err := e.subjectTableExists(ctx, sc, "users")
+		if err != nil {
+			return fmt.Errorf("discover users table: %w", err)
+		}
+		if exists {
 			tag, err := sc.Q.Exec(ctx, `
 DELETE FROM users
  WHERE email ILIKE $1 OR display_name ILIKE $1 OR user_name ILIKE $1
@@ -583,7 +587,11 @@ DELETE FROM users
 			}
 			out = append(out, SubjectPlaneResult{Plane: "identity", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
 		}
-		if tableExists(ctx, sc, "ai_answers") {
+		exists, err = e.subjectTableExists(ctx, sc, "ai_answers")
+		if err != nil {
+			return fmt.Errorf("discover ai_answers table: %w", err)
+		}
+		if exists {
 			tag, err := sc.Q.Exec(ctx, `
 DELETE FROM ai_answers
  WHERE question ILIKE $1 OR root_cause ILIKE $1 OR payload::text ILIKE $1`, like)
@@ -592,7 +600,11 @@ DELETE FROM ai_answers
 			}
 			out = append(out, SubjectPlaneResult{Plane: "ai_answers", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
 		}
-		if tableExists(ctx, sc, "incident_journal_entries") {
+		exists, err = e.subjectTableExists(ctx, sc, "incident_journal_entries")
+		if err != nil {
+			return fmt.Errorf("discover incident_journal_entries table: %w", err)
+		}
+		if exists {
 			tag, err := sc.Q.Exec(ctx, `
 DELETE FROM incident_journal_entries
  WHERE created_by ILIKE $1 OR body ILIKE $1`, like)
@@ -606,10 +618,12 @@ DELETE FROM incident_journal_entries
 	return out, err
 }
 
-func tableExists(ctx context.Context, sc tenancy.Scope, table string) bool {
+func tableExists(ctx context.Context, sc tenancy.Scope, table string) (bool, error) {
 	var ok bool
-	_ = sc.Q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, table).Scan(&ok)
-	return ok
+	if err := sc.Q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, table).Scan(&ok); err != nil {
+		return false, err
+	}
+	return ok, nil
 }
 
 func (r SubjectErasureReport) hash() string {
