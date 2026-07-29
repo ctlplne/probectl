@@ -165,6 +165,14 @@ positive. A full listener refuses excess sockets immediately and exports
 `probectl_agent_session_timeouts_total`, and
 `probectl_agent_session_rejections_total` without tenant or peer labels.
 
+Each embedded BGP UPDATE also has fixed, non-configurable parser safety limits:
+at most 512 AS-path entries, 4,096 announced prefixes, and 262,144 aggregate
+AS-path-entry × announcement work units. The listener checks these limits before
+constructing route announcements and shares one immutable decoded AS path across
+the update instead of copying it for every prefix. An UPDATE over any limit is
+logged and skipped without publishing or adding it to peer inventory; the
+authenticated session can continue with its next valid BMP frame.
+
 ## Performance and freshness
 
 Live BMP/router events are treated like an alarm bell, not like a nightly

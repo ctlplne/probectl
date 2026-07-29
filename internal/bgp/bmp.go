@@ -39,6 +39,14 @@ const (
 	bgpPathAttrExtended   = 0x10
 	defaultBMPCollectorID = "bmp"
 
+	// A single embedded UPDATE is capped independently from the outer BMP
+	// frame. These fixed safety ceilings are deliberately not configurable:
+	// an authenticated but faulty or compromised router must not turn one
+	// syntactically valid UPDATE into unbounded parser or publication work.
+	maxBMPASPathEntries      = 512
+	maxBMPRouteAnnouncements = 4096
+	maxBMPRoutePathEntries   = 1 << 18
+
 	// Safe process-wide defaults for the unauthenticated handshake, each
 	// authenticated BMP frame read, and concurrent admitted peer sessions.
 	DefaultBMPHandshakeTimeout = 10 * time.Second
@@ -46,7 +54,12 @@ const (
 	DefaultBMPMaxSessions      = 256
 )
 
-var errPlaintextBMP = errors.New("bgp bmp: plaintext connections are refused")
+var (
+	errPlaintextBMP          = errors.New("bgp bmp: plaintext connections are refused")
+	errBMPASPathLimit        = errors.New("bgp bmp: AS_PATH entry limit exceeded")
+	errBMPAnnouncementLimit  = errors.New("bgp bmp: announcement limit exceeded")
+	errBMPRoutePathWorkLimit = errors.New("bgp bmp: route/path work limit exceeded")
+)
 
 // BMPListener accepts direct router BMP sessions over tenant-bound mTLS and
 // publishes route-monitoring observations as tenant-keyed BGP events.
@@ -436,7 +449,10 @@ type bmpPeer struct {
 }
 
 type bmpRouteAnnouncement struct {
-	Prefix    string
+	Prefix string
+	// ASPath is the immutable, parse-owned path shared by every announcement
+	// in one UPDATE. PublishEvent marshals it synchronously and never mutates
+	// it, so sharing avoids route_count × path_length heap amplification.
 	ASPath    []uint32
 	OriginASN uint32
 }
@@ -526,20 +542,48 @@ func parseBGPUpdateRoutes(raw []byte) ([]bmpRouteAnnouncement, error) {
 	if len(asPath) == 0 {
 		return nil, errors.New("bgp bmp: empty AS_PATH")
 	}
-	prefixes, err := parseIPv4NLRI(nlri)
+	prefixCount, err := countIPv4NLRI(nlri)
 	if err != nil {
 		return nil, err
 	}
+	if err := validateBMPUpdateCardinality(len(asPath), prefixCount); err != nil {
+		return nil, err
+	}
+	// Decode prefix strings only after all cardinality and aggregate-work
+	// checks pass. This keeps rejected one-past input allocation-light.
+	prefixes := decodeIPv4NLRI(nlri, prefixCount)
 	routes := make([]bmpRouteAnnouncement, 0, len(prefixes))
 	origin := asPath[len(asPath)-1]
 	for _, prefix := range prefixes {
 		routes = append(routes, bmpRouteAnnouncement{
 			Prefix:    prefix,
-			ASPath:    append([]uint32(nil), asPath...),
+			ASPath:    asPath,
 			OriginASN: origin,
 		})
 	}
 	return routes, nil
+}
+
+// validateBMPUpdateCardinality bounds both independent dimensions and their
+// aggregate publication work. Division is used before multiplication so
+// attacker-controlled counts cannot overflow int while being checked.
+func validateBMPUpdateCardinality(asPathEntries, announcements int) error {
+	if asPathEntries < 0 || asPathEntries > maxBMPASPathEntries {
+		return fmt.Errorf("%w: %d > %d", errBMPASPathLimit, asPathEntries, maxBMPASPathEntries)
+	}
+	if announcements < 0 || announcements > maxBMPRouteAnnouncements {
+		return fmt.Errorf("%w: %d > %d", errBMPAnnouncementLimit, announcements, maxBMPRouteAnnouncements)
+	}
+	if asPathEntries != 0 && announcements > maxBMPRoutePathEntries/asPathEntries {
+		return fmt.Errorf(
+			"%w: %d AS_PATH entries across %d announcements exceeds %d",
+			errBMPRoutePathWorkLimit,
+			asPathEntries,
+			announcements,
+			maxBMPRoutePathEntries,
+		)
+	}
+	return nil
 }
 
 func parseBGPASPath(attrs []byte) ([]uint32, error) {
@@ -580,30 +624,35 @@ func parseBGPASPath(attrs []byte) ([]uint32, error) {
 }
 
 func parseBGPASPathValue(value []byte) ([]uint32, error) {
-	if path, ok := parseBGPASPathValueWidth(value, 4); ok {
+	if path, ok, err := parseBGPASPathValueWidth(value, 4); ok {
+		if err != nil {
+			return nil, err
+		}
 		return path, nil
 	}
-	if path, ok := parseBGPASPathValueWidth(value, 2); ok {
+	if path, ok, err := parseBGPASPathValueWidth(value, 2); ok {
+		if err != nil {
+			return nil, err
+		}
 		return path, nil
 	}
 	return nil, errors.New("bgp bmp: malformed AS_PATH")
 }
 
-func parseBGPASPathValueWidth(value []byte, width int) ([]uint32, bool) {
-	var path []uint32
+func parseBGPASPathValueWidth(value []byte, width int) ([]uint32, bool, error) {
+	entryCount, ok := countBGPASPathEntries(value, width)
+	if !ok {
+		return nil, false, nil
+	}
+	if entryCount > maxBMPASPathEntries {
+		return nil, true, fmt.Errorf("%w: %d > %d", errBMPASPathLimit, entryCount, maxBMPASPathEntries)
+	}
+
+	path := make([]uint32, 0, entryCount)
 	for len(value) > 0 {
-		if len(value) < 2 {
-			return nil, false
-		}
-		segType, count := value[0], int(value[1])
-		if segType < 1 || segType > 4 {
-			return nil, false
-		}
+		count := int(value[1])
 		value = value[2:]
 		need := count * width
-		if len(value) < need {
-			return nil, false
-		}
 		for i := 0; i < count; i++ {
 			if width == 4 {
 				path = append(path, binary.BigEndian.Uint32(value[i*4:i*4+4]))
@@ -613,27 +662,74 @@ func parseBGPASPathValueWidth(value []byte, width int) ([]uint32, bool) {
 		}
 		value = value[need:]
 	}
-	return path, true
+	return path, true, nil
 }
 
-func parseIPv4NLRI(raw []byte) ([]string, error) {
-	var prefixes []string
+// countBGPASPathEntries validates the segment framing without allocating the
+// decoded path. The caller applies the entry ceiling before the second pass.
+func countBGPASPathEntries(value []byte, width int) (int, bool) {
+	if width <= 0 {
+		return 0, false
+	}
+	entries := 0
+	for len(value) > 0 {
+		if len(value) < 2 {
+			return 0, false
+		}
+		segType, count := value[0], int(value[1])
+		if segType < 1 || segType > 4 {
+			return 0, false
+		}
+		value = value[2:]
+		if count > len(value)/width {
+			return 0, false
+		}
+		need := count * width
+		entries += count
+		value = value[need:]
+	}
+	return entries, true
+}
+
+// countIPv4NLRI validates and counts announced prefixes without allocating
+// strings. It rejects one-past before route or prefix construction.
+func countIPv4NLRI(raw []byte) (int, error) {
+	count := 0
 	for len(raw) > 0 {
 		bits := int(raw[0])
 		if bits > 32 {
-			return nil, fmt.Errorf("bgp bmp: invalid ipv4 prefix length %d", bits)
+			return 0, fmt.Errorf("bgp bmp: invalid ipv4 prefix length %d", bits)
 		}
 		n := (bits + 7) / 8
 		if len(raw) < 1+n {
-			return nil, errors.New("bgp bmp: truncated ipv4 nlri")
+			return 0, errors.New("bgp bmp: truncated ipv4 nlri")
 		}
+		if count == maxBMPRouteAnnouncements {
+			return 0, fmt.Errorf(
+				"%w: at least %d > %d",
+				errBMPAnnouncementLimit,
+				count+1,
+				maxBMPRouteAnnouncements,
+			)
+		}
+		count++
+		raw = raw[1+n:]
+	}
+	return count, nil
+}
+
+func decodeIPv4NLRI(raw []byte, count int) []string {
+	prefixes := make([]string, 0, count)
+	for len(raw) > 0 {
+		bits := int(raw[0])
+		n := (bits + 7) / 8
 		var octets [4]byte
 		copy(octets[:], raw[1:1+n])
 		prefix := netip.PrefixFrom(netip.AddrFrom4(octets), bits).Masked()
 		prefixes = append(prefixes, prefix.String())
 		raw = raw[1+n:]
 	}
-	return prefixes, nil
+	return prefixes
 }
 
 // BMPPeerRecord is one tenant-scoped router peer observed by the BMP listener.
