@@ -86,7 +86,11 @@ func TestGatedCompleterConsentGate(t *testing.T) {
 			t.Fatalf("unredacted value %q reached the remote model: %q", leak, inner.gotUser)
 		}
 	}
-	if len(audited) != 1 || audited[0].Surface != "author" || audited[0].TenantID != "t-yes" {
+	if len(audited) != 2 ||
+		audited[0].Surface != "author" || audited[0].TenantID != "t-no" ||
+		!audited[0].Denied || audited[0].DenialReason != "consent_missing" ||
+		audited[1].Surface != "author" || audited[1].TenantID != "t-yes" ||
+		audited[1].Denied {
 		t.Fatalf("authoring egress must audit surface=author: %+v", audited)
 	}
 
@@ -96,8 +100,78 @@ func TestGatedCompleterConsentGate(t *testing.T) {
 	if _, err := lc.Complete(context.Background(), "sys", "anything"); err != nil || !lf.called {
 		t.Fatalf("local model must pass through ungated: %v", err)
 	}
-	if len(audited) != 1 {
+	if len(audited) != 2 {
 		t.Fatal("local model must not emit egress audit")
+	}
+}
+
+func TestAuthorEgressDenialsAreDurablyAudited(t *testing.T) {
+	policySecret := "database unavailable: tenant-policy-secret"
+	cases := []struct {
+		name       string
+		policy     EgressPolicy
+		wantReason string
+	}{
+		{name: "policy unavailable", policy: nil, wantReason: "policy_unavailable"},
+		{name: "consent missing", policy: func(context.Context, string) (bool, error) {
+			return false, nil
+		}, wantReason: "consent_missing"},
+		{name: "policy error", policy: func(context.Context, string) (bool, error) {
+			return false, errors.New(policySecret)
+		}, wantReason: "policy_error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var audited []EgressEvent
+			gate := NewEgressGate(tc.policy, func(_ context.Context, ev EgressEvent) error {
+				audited = append(audited, ev)
+				return nil
+			}, DefaultRedaction)
+			inner := &remoteFake{reply: "{}"}
+			completer := NewGatedCompleter(inner, gate)
+			ctx := auth.WithPrincipal(context.Background(), &auth.Principal{TenantID: "tenant-a"})
+
+			_, err := completer.Complete(ctx, "system", "tenant prompt must not enter denial audit")
+			if !errors.Is(err, ErrEgressDenied) {
+				t.Fatalf("Complete error = %v, want ErrEgressDenied", err)
+			}
+			if inner.gotUser != "" {
+				t.Fatalf("denied authoring attempt reached the model: %q", inner.gotUser)
+			}
+			if len(audited) != 1 {
+				t.Fatalf("denied authoring audit events = %d, want 1: %+v", len(audited), audited)
+			}
+			ev := audited[0]
+			if !ev.Denied || ev.DenialReason != tc.wantReason ||
+				ev.TenantID != "tenant-a" || ev.Surface != "author" ||
+				ev.Endpoint != "https://api.example/v1" || ev.Model != "fake:remote" {
+				t.Fatalf("bounded denied authoring receipt = %+v", ev)
+			}
+			if strings.Contains(ev.DenialReason, policySecret) ||
+				strings.Contains(ev.DenialReason, "tenant prompt") {
+				t.Fatalf("denial audit copied sensitive content: %+v", ev)
+			}
+		})
+	}
+}
+
+func TestAuthorEgressDeniedAuditFailurePreventsReturn(t *testing.T) {
+	writeErr := errors.New("immutable audit unavailable")
+	gate := NewEgressGate(
+		func(context.Context, string) (bool, error) { return false, nil },
+		func(context.Context, EgressEvent) error { return writeErr },
+		DefaultRedaction,
+	)
+	inner := &remoteFake{reply: "{}"}
+	completer := NewGatedCompleter(inner, gate)
+	ctx := auth.WithPrincipal(context.Background(), &auth.Principal{TenantID: "tenant-a"})
+
+	_, err := completer.Complete(ctx, "system", "tenant prompt")
+	if !errors.Is(err, ErrEgressAuditUnavailable) || !errors.Is(err, writeErr) {
+		t.Fatalf("Complete error = %v, want durable denial-audit failure", err)
+	}
+	if inner.gotUser != "" {
+		t.Fatalf("model received %q after denial-audit failure", inner.gotUser)
 	}
 }
 

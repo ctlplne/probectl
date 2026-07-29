@@ -49,6 +49,35 @@ func TestRemoteAuditorsFailClosedWithoutStore(t *testing.T) {
 	}
 }
 
+func TestAuthorEgressPolicyStoreFailureIsDistinctFromMissingConsent(t *testing.T) {
+	allowed, err := tenantEgressPolicy(nil)(t.Context(), "tenant-a")
+	if allowed || !errors.Is(err, errTenantEgressPolicyUnavailable) {
+		t.Fatalf("policy without store = (%t, %v), want unavailable error", allowed, err)
+	}
+
+	var events []ai.EgressEvent
+	gate := ai.NewEgressGate(
+		tenantEgressPolicy(nil),
+		func(_ context.Context, ev ai.EgressEvent) error {
+			events = append(events, ev)
+			return nil
+		},
+		ai.DefaultRedaction,
+	)
+	err = gate.AuthorizeAttempt(t.Context(), ai.EgressEvent{
+		TenantID: "tenant-a",
+		Endpoint: "https://ai.example.test/v1",
+		Model:    "test-remote",
+		Surface:  "author",
+	})
+	if !errors.Is(err, ai.ErrEgressDenied) {
+		t.Fatalf("policy-store fault gate error = %v, want denied after audit", err)
+	}
+	if len(events) != 1 || !events[0].Denied || events[0].DenialReason != "policy_error" {
+		t.Fatalf("policy-store fault receipt = %+v, want bounded policy_error", events)
+	}
+}
+
 // With no datastore the assistant still answers (the built-in air-gapped model)
 // and, finding no evidence, returns an honest insufficient-evidence answer rather
 // than a fabricated cause.

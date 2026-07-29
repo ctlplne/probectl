@@ -158,9 +158,12 @@ closed** — on any error, doubt, or missing piece the result is "deny", never
    surface there's also an `mcp.tool_call` audit line per call, recording
    allow/deny and the reason.) A remote RCA attempt refused before egress
    appends `ai.remote_egress_denied` with `allowed=false` and one bounded reason
-   (`policy_unavailable`, `policy_error`, or `consent_missing`). The attempted
-   model receives zero calls and the audit never copies the policy error or
-   telemetry content. The append is part of the gate, not best-effort
+   (`policy_unavailable`, `policy_error`, or `consent_missing`). This applies to
+   both RCA and remote test-authoring attempts; authoring cannot return from a
+   known-tenant consent or policy denial before that durable receipt exists.
+   The attempted model receives zero calls and the audit never copies the
+   policy error, policy text, prompt, or telemetry content. The append is part
+   of the gate, not best-effort
    bookkeeping: if the immutable audit store is missing or rejects the write,
    probectl returns a temporary-unavailable error and does **not** dispatch to
    the remote RCA/authoring adapter or release an MCP result. A local log warning

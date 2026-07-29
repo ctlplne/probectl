@@ -37,23 +37,58 @@ func NewEgressGate(policy EgressPolicy, audit EgressAudit, redact RedactionPolic
 	return &EgressGate{policy: policy, audit: audit, redact: redact}
 }
 
-// Authorize checks the tenant's egress consent. Fail closed: no policy
-// wired, a policy error, or no consent — all deny.
-func (g *EgressGate) Authorize(ctx context.Context, tenantID string) error {
-	if g == nil || g.policy == nil {
-		return ErrEgressDenied
-	}
+// denialReason checks the tenant's egress consent and returns a bounded audit
+// category. It deliberately discards policy error text so datastore details and
+// policy content can never enter an immutable egress record.
+func (g *EgressGate) denialReason(ctx context.Context, tenantID string) (string, error) {
 	if tenantID == "" {
-		return ErrNoTenant
+		return "", ErrNoTenant
+	}
+	if g == nil || g.policy == nil {
+		return "policy_unavailable", nil
 	}
 	allowed, err := g.policy(ctx, tenantID)
 	if err != nil {
-		return ErrEgressDenied
+		return "policy_error", nil
 	}
 	if !allowed {
+		return "consent_missing", nil
+	}
+	return "", nil
+}
+
+// Authorize checks the tenant's egress consent. Fail closed: no policy wired,
+// a policy error, or no consent all deny. Surfaces that represent a remote
+// attempt should use AuthorizeAttempt so denials are durably recorded.
+func (g *EgressGate) Authorize(ctx context.Context, tenantID string) error {
+	reason, err := g.denialReason(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
 		return ErrEgressDenied
 	}
 	return nil
+}
+
+// AuthorizeAttempt checks consent for a known-tenant remote attempt and durably
+// records any denial before returning it. A failed/missing audit sink supersedes
+// the policy denial with ErrEgressAuditUnavailable, ensuring callers never
+// mistake an unrecorded decision for a completed gate.
+func (g *EgressGate) AuthorizeAttempt(ctx context.Context, ev EgressEvent) error {
+	reason, err := g.denialReason(ctx, ev.TenantID)
+	if err != nil {
+		return err
+	}
+	if reason == "" {
+		return nil
+	}
+	ev.Denied = true
+	ev.DenialReason = reason
+	if err := g.Emit(ctx, ev); err != nil {
+		return err
+	}
+	return ErrEgressDenied
 }
 
 // Redact applies the gate's redaction policy to one string (secrets always;
@@ -154,15 +189,16 @@ func (c *GatedCompleter) Complete(ctx context.Context, system, user string) (str
 	if p == nil || p.TenantID == "" {
 		return "", fmt.Errorf("ai: authoring egress without an authenticated tenant: %w", ErrNoTenant)
 	}
-	if err := c.gate.Authorize(ctx, p.TenantID); err != nil {
-		return "", err
-	}
-	if err := c.gate.Emit(ctx, EgressEvent{
+	ev := EgressEvent{
 		TenantID: p.TenantID,
 		Endpoint: rm.Endpoint(),
 		Model:    c.inner.Name(),
 		Surface:  "author",
-	}); err != nil {
+	}
+	if err := c.gate.AuthorizeAttempt(ctx, ev); err != nil {
+		return "", err
+	}
+	if err := c.gate.Emit(ctx, ev); err != nil {
 		return "", err
 	}
 	// The adapter redacts again on its own remote path (defense in depth);

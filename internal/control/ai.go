@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
@@ -165,23 +166,27 @@ func buildAnalyzerWithPolicyLoader(
 	)
 }
 
-// tenantEgressPolicy reads tenant_governance.ai_remote_egress (default-deny:
-// no row, no pool, or any error = no egress).
+var errTenantEgressPolicyUnavailable = errors.New("tenant AI egress policy store unavailable")
+
+// tenantEgressPolicy reads tenant_governance.ai_remote_egress. No row is a
+// normal consent_missing decision; a missing store or query/transaction fault
+// remains an error so the shared gate can durably classify it as policy_error.
+// Both paths fail closed, but their bounded audit reasons stay truthful.
 func tenantEgressPolicy(pool *pgxpool.Pool) ai.EgressPolicy {
 	return func(ctx context.Context, tenantID string) (bool, error) {
 		if pool == nil {
-			return false, nil
+			return false, errTenantEgressPolicyUnavailable
 		}
 		allowed := false
 		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			row := sc.Q.QueryRow(ctx, `SELECT ai_remote_egress FROM tenant_governance WHERE tenant_id = $1`, tenantID)
-			if err := row.Scan(&allowed); err != nil {
-				allowed = false // no policy row = no consent
-			}
-			return nil
+			return row.Scan(&allowed)
 		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil // no policy row = no consent
+		}
 		if err != nil {
-			return false, nil // fail closed, never fail open
+			return false, fmt.Errorf("read tenant AI egress policy: %w", err)
 		}
 		return allowed, nil
 	}
