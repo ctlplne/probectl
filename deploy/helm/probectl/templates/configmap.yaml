@@ -67,7 +67,7 @@ data:
   # ingress-nginx disables by default. The max-age tracks the chart's
   # ingress.hstsMaxAge so operators tune one value.
   PROBECTL_HSTS_ENABLED: "true"
-  PROBECTL_HSTS_MAX_AGE: "{{ .Values.ingress.hstsMaxAge | default 31536000 }}s"
+  PROBECTL_HSTS_MAX_AGE: {{ printf "%ds" (int64 .Values.ingress.hstsMaxAge) | quote }}
   PROBECTL_LOG_FORMAT: {{ .Values.control.logFormat | quote }}
   PROBECTL_LOG_LEVEL: {{ .Values.control.logLevel | quote }}
   PROBECTL_AUTH_MODE: {{ .Values.control.authMode | quote }}
