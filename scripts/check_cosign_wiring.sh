@@ -13,6 +13,7 @@
 #   - release images are not signed by immutable digest,
 #   - the shipped privileged-agent admission policy no longer verifies digest
 #     and keyless release-workflow signatures.
+#   - a shipped default identity regex trusts a same-named repository fork.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,6 +23,20 @@ TASKS=deploy/ansible/roles/probectl_agents/tasks/main.yml
 AIRGAP=scripts/airgap-bundle.sh
 RELEASE=.github/workflows/release.yml
 ADMISSION=deploy/admission/probectl-agent-image-integrity.kyverno.yaml
+
+check_identity_regexp() {
+  local regexp="$1"
+  local label="${2:-cosign identity}"
+  local official="https://github.com/imfeelingtheagi/probectl/.github/workflows/release.yml@refs/tags/v1.2.3"
+  local fork="https://github.com/attacker/probectl/.github/workflows/release.yml@refs/tags/v1.2.3"
+
+  [[ "$official" =~ $regexp ]] ||
+    { echo "${label}: official release workflow identity was rejected" >&2; return 1; }
+  if [[ "$fork" =~ $regexp ]]; then
+    echo "${label}: same-named repository fork was trusted" >&2
+    return 1
+  fi
+}
 
 check_package_binary_verification() {
   local section="$1"
@@ -63,6 +78,17 @@ check_package_binary_verification() {
 }
 
 if [[ "${1:-}" == "SELFTEST" ]]; then
+  if ! check_identity_regexp \
+    '^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/' \
+    "cosign-wiring SELFTEST official identity"; then
+    exit 1
+  fi
+  if check_identity_regexp \
+    '^https://github.com/[^/]+/probectl/\.github/workflows/release\.yml@refs/tags/' \
+    "cosign-wiring SELFTEST planted wildcard" >/dev/null 2>&1; then
+    echo "cosign-wiring SELFTEST: wildcard-owner identity was accepted" >&2
+    exit 1
+  fi
   read -r -d '' valid_packages_fixture <<'YAML' || true
       - uses: sigstore/cosign-installer@0000000000000000000000000000000000000000
       - name: Fetch release binaries
@@ -116,6 +142,13 @@ grep -q -- '--no-verify' "$INSTALL"         || { echo "install.sh: missing expli
 grep -q 'VERIFY="${PROBECTL_VERIFY_COSIGN:-1}"' "$INSTALL" || { echo "install.sh: cosign verification is not default-on"; fail=1; }
 grep -q 'PROBECTL_UNVERIFIED_INSTALL_ACK' "$INSTALL" || { echo "install.sh: missing unverified-install acknowledgement"; fail=1; }
 grep -q 'cosign verify-blob' "$INSTALL"     || grep -q 'cosign \\' "$INSTALL" || { echo "install.sh: missing cosign verify-blob"; fail=1; }
+for identity_source in "$INSTALL" "$AIRGAP" deploy/ansible/roles/probectl_agents/defaults/main.yml; do
+  if grep -Fq '[^/]+/probectl' "$identity_source"; then
+    echo "${identity_source}: default cosign identity trusts an arbitrary repository owner"; fail=1
+  fi
+  grep -Fq 'github.com/imfeelingtheagi/probectl/' "$identity_source" ||
+    { echo "${identity_source}: default cosign identity is not pinned to the official repository"; fail=1; }
+done
 grep -q "install_method == 'package_url'" "$TASKS" || { echo "ansible: package_url task block missing"; fail=1; }
 grep -q 'cosign' "$TASKS"                   || { echo "ansible: no cosign step in the role"; fail=1; }
 grep -q 'verify-blob' "$TASKS"              || { echo "ansible: no cosign verify-blob in the role"; fail=1; }
