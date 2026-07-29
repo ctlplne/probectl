@@ -74,11 +74,24 @@ func (s *Server) handleOnboardingProgress(w http.ResponseWriter, r *http.Request
 		return apierror.Unauthorized("authentication required")
 	}
 	permissionDecisions := map[string]bool{}
+	var authorizationErr error
 	allowed := func(permission string) bool {
+		if authorizationErr != nil {
+			return false
+		}
 		if decision, ok := permissionDecisions[permission]; ok {
 			return decision
 		}
-		decision := principal.Has(permission) && !s.abacDenies(r.Context(), principal, permission, nil)
+		if !principal.Has(permission) {
+			permissionDecisions[permission] = false
+			return false
+		}
+		denied, err := s.abacDenies(r.Context(), principal, permission, nil)
+		if err != nil {
+			authorizationErr = err
+			return false
+		}
+		decision := !denied
 		permissionDecisions[permission] = decision
 		return decision
 	}
@@ -116,7 +129,10 @@ func (s *Server) handleOnboardingProgress(w http.ResponseWriter, r *http.Request
 		}
 		applyOnboardingResults(&out, results)
 		out.Engines, err = s.onboardingEngineReadiness(ctx, sc, results, allowed)
-		return err
+		if err != nil {
+			return err
+		}
+		return authorizationErr
 	})
 	if err != nil {
 		return err

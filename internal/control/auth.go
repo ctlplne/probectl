@@ -475,7 +475,11 @@ func (s *Server) requirePermission(perm string, h apiHandler) apiHandler {
 			}
 			// ABAC over RBAC (S31): a tenant attribute policy may DENY a permission an
 			// RBAC role grants (e.g. contractors can't write, step-up MFA required).
-			if s.abacDenies(r.Context(), p, perm, nil) {
+			denied, err := s.abacDenies(r.Context(), p, perm, nil)
+			if err != nil {
+				return err
+			}
+			if denied {
 				return apierror.Forbidden("denied by an attribute policy: " + perm)
 			}
 		}

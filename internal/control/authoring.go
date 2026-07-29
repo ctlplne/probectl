@@ -139,29 +139,35 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 	// RBAC grant AND its ABAC deny-override even though the route's outer
 	// permission is test.write. A caller without flow.read can still receive
 	// incident-derived proposals, but learns nothing from the flow plane.
-	if principal.Has(permFlowRead) && !s.abacDenies(r.Context(), principal, permFlowRead, nil) {
-		rows, err := s.flowStore.TopTalkers(r.Context(), flowstore.TopQuery{
-			TenantID: tenantID,
-			By:       flowstore.ByDst,
-			Window:   discoverFlowWindow,
-			Limit:    discoverFlowLimit,
-		})
+	if principal.Has(permFlowRead) {
+		denied, err := s.abacDenies(r.Context(), principal, permFlowRead, nil)
 		if err != nil {
-			return apierror.Unavailable("flow-derived discovery is temporarily unavailable").Wrap(err)
+			return err
 		}
-		for _, row := range rows {
-			if row.Flows < discoverFlowMinCount {
-				continue
-			}
-			count := int(row.Flows)
-			if row.Flows > uint64(^uint(0)>>1) {
-				count = int(^uint(0) >> 1)
-			}
-			obs = append(obs, author.Observation{
-				Target: row.Key,
-				Kind:   "flow",
-				Count:  count,
+		if !denied {
+			rows, err := s.flowStore.TopTalkers(r.Context(), flowstore.TopQuery{
+				TenantID: tenantID,
+				By:       flowstore.ByDst,
+				Window:   discoverFlowWindow,
+				Limit:    discoverFlowLimit,
 			})
+			if err != nil {
+				return apierror.Unavailable("flow-derived discovery is temporarily unavailable").Wrap(err)
+			}
+			for _, row := range rows {
+				if row.Flows < discoverFlowMinCount {
+					continue
+				}
+				count := int(row.Flows)
+				if row.Flows > uint64(^uint(0)>>1) {
+					count = int(^uint(0) >> 1)
+				}
+				obs = append(obs, author.Observation{
+					Target: row.Key,
+					Kind:   "flow",
+					Count:  count,
+				})
+			}
 		}
 	}
 	// Incident targets are already correlated signals (low noise), so a single

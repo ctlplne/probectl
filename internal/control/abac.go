@@ -42,16 +42,18 @@ func newABACCache(pool *pgxpool.Pool) *abacCache {
 	return &abacCache{pool: pool, ttl: 30 * time.Second, data: map[string]abacEntry{}}
 }
 
-// policies returns a tenant's ABAC policies, loading + caching on a miss.
-func (c *abacCache) policies(ctx context.Context, tenantID string) []auth.Policy {
+// policies returns a tenant's ABAC policies, loading + caching on a miss. A
+// cold load failure is returned to the authorization caller so it can fail
+// closed; an expired, previously loaded entry remains a known-good fallback.
+func (c *abacCache) policies(ctx context.Context, tenantID string) ([]auth.Policy, error) {
 	if c == nil || c.pool == nil {
-		return nil
+		return nil, nil
 	}
 	c.mu.Lock()
 	e, ok := c.data[tenantID]
 	c.mu.Unlock()
 	if ok && time.Now().Before(e.expiry) {
-		return e.policies
+		return e.policies, nil
 	}
 	var pols []auth.Policy
 	loadErr := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), c.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -65,21 +67,21 @@ func (c *abacCache) policies(ctx context.Context, tenantID string) []auth.Policy
 		// CODE-002: a transient scope-setup/query fault must NOT be cached as
 		// "no policies" — that would poison the cache for the whole TTL and
 		// silently widen access (an empty policy set). Log it with tenant_id and
-		// return the PRIOR cached entry if we have one (stale-but-correct), else
-		// nothing for THIS call without caching the empty result. tenancy.InTenant
-		// sets the scope BEFORE running fn, so a setup failure cannot leak another
-		// tenant's rows (fail closed).
+		// return the PRIOR cached entry if we have one (stale-but-correct). With
+		// no known-good entry, surface the failure so authorization can refuse
+		// the request. tenancy.InTenant sets the scope BEFORE running fn, so a
+		// setup failure cannot leak another tenant's rows (fail closed).
 		logging.FromContext(ctx).Warn("ABAC policy load failed; not caching empty result",
 			"tenant_id", tenantID, "error", loadErr.Error())
 		if ok {
-			return e.policies // serve the previous (expired) entry rather than nothing
+			return e.policies, nil // serve the previous (expired) entry rather than nothing
 		}
-		return nil
+		return nil, loadErr
 	}
 	c.mu.Lock()
 	c.data[tenantID] = abacEntry{policies: pols, expiry: time.Now().Add(c.ttl)}
 	c.mu.Unlock()
-	return pols
+	return pols, nil
 }
 
 func (c *abacCache) invalidate(tenantID string) {
@@ -94,11 +96,15 @@ func (c *abacCache) invalidate(tenantID string) {
 // abacDenies reports whether a tenant's ABAC policies deny a permission for the
 // principal (after RBAC has already permitted it). resource is nil for routes
 // that carry no resource attributes.
-func (s *Server) abacDenies(ctx context.Context, p *auth.Principal, perm string, resource map[string]string) bool {
+func (s *Server) abacDenies(ctx context.Context, p *auth.Principal, perm string, resource map[string]string) (bool, error) {
 	if s.abac == nil {
-		return false
+		return false, nil
 	}
-	return auth.Evaluate(s.abac.policies(ctx, p.TenantID), perm, p.Attributes, resource) == auth.PolicyDeny
+	policies, err := s.abac.policies(ctx, p.TenantID)
+	if err != nil {
+		return false, apierror.Unavailable("authorization policy is temporarily unavailable").Wrap(err)
+	}
+	return auth.Evaluate(policies, perm, p.Attributes, resource) == auth.PolicyDeny, nil
 }
 
 // --- /v1/abac/policies admin (the ABAC policy model contract) ---
