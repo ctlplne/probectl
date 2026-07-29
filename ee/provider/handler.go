@@ -573,7 +573,7 @@ var (
 	// permissions. They still deny the request, but answer 503 so operators can
 	// distinguish an unavailable policy store from an intentional ABAC deny.
 	errConsentAuthorizationUnavailable = errors.New("provider: tenant authorization is temporarily unavailable")
-	errBadDecision                     = errors.New("provider: decision must be approve or deny")
+	errBadDecision                     = validationError("provider: decision must be approve or deny")
 )
 
 func decode(r *http.Request, v any) error {
@@ -586,6 +586,17 @@ func decode(r *http.Request, v any) error {
 type errBadJSON struct{ err error }
 
 func (e errBadJSON) Error() string { return "provider: invalid request body: " + e.err.Error() }
+
+// errValidation is the explicit public 400 class. A message prefix is never an
+// authorization to expose an error: only construction as this package-private
+// domain type (or errBadJSON above) lets validation detail cross the HTTP
+// boundary. Storage, crypto, audit, and other wrapped dependency failures remain
+// unknown errors and are therefore redacted 500s.
+type errValidation struct{ message string }
+
+func (e errValidation) Error() string { return e.message }
+
+func validationError(message string) error { return errValidation{message: message} }
 
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -632,7 +643,8 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "authorization_unavailable", http.StatusServiceUnavailable
 	default:
 		var bad errBadJSON
-		if errors.As(err, &bad) || strings.HasPrefix(err.Error(), "provider: ") {
+		var validation errValidation
+		if errors.As(err, &bad) || errors.As(err, &validation) {
 			code, status = "bad_request", http.StatusBadRequest
 		}
 	}

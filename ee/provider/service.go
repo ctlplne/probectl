@@ -185,11 +185,11 @@ func (s *Service) CreateOperator(ctx context.Context, actor, email, name, role s
 		return Operator{}, "", err
 	}
 	if role != RoleAdmin && role != RoleOperator {
-		return Operator{}, "", fmt.Errorf("provider: role must be %q or %q", RoleAdmin, RoleOperator)
+		return Operator{}, "", validationError(fmt.Sprintf("provider: role must be %q or %q", RoleAdmin, RoleOperator))
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || !strings.Contains(email, "@") {
-		return Operator{}, "", errors.New("provider: a valid operator email is required")
+		return Operator{}, "", validationError("provider: a valid operator email is required")
 	}
 	token, err := randomToken()
 	if err != nil {
@@ -219,7 +219,7 @@ func (s *Service) Bootstrap(ctx context.Context, configuredToken, presentedToken
 		return Operator{}, "", err
 	}
 	if n > 0 {
-		return Operator{}, "", errors.New("provider: bootstrap is single-use — operators already exist")
+		return Operator{}, "", validationError("provider: bootstrap is single-use — operators already exist")
 	}
 	token, err := randomToken()
 	if err != nil {
@@ -265,7 +265,7 @@ func (s *Service) EnrollComplete(ctx context.Context, enrollToken, password, tot
 		return Operator{}, ErrForbidden
 	}
 	if len(password) < 12 {
-		return Operator{}, errors.New("provider: operator passwords must be at least 12 characters")
+		return Operator{}, validationError("provider: operator passwords must be at least 12 characters")
 	}
 	_, cred, err := s.store.OperatorByEmail(ctx, op.Email)
 	if err != nil {
@@ -343,7 +343,7 @@ func (s *Service) SetOperatorStatus(ctx context.Context, actor, id, status strin
 		return err
 	}
 	if status != "active" && status != "disabled" {
-		return errors.New("provider: status must be active or disabled")
+		return validationError("provider: status must be active or disabled")
 	}
 	if err := s.store.SetOperatorStatus(ctx, id, status); err != nil {
 		return err
@@ -368,13 +368,13 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 		return Tenant{}, err
 	}
 	if !ValidSlug(slug) {
-		return Tenant{}, errors.New("provider: slug must be lowercase alphanumeric/hyphen, 2-63 chars")
+		return Tenant{}, validationError("provider: slug must be lowercase alphanumeric/hyphen, 2-63 chars")
 	}
 	if isolationModel == "" {
 		isolationModel = string(tenancy.IsolationPooled)
 	}
 	if !tenancy.ValidIsolationModel(isolationModel) {
-		return Tenant{}, errors.New("provider: isolation_model must be pooled, siloed, or hybrid")
+		return Tenant{}, validationError("provider: isolation_model must be pooled, siloed, or hybrid")
 	}
 	model := tenancy.IsolationModel(isolationModel)
 	if model != tenancy.IsolationPooled {
@@ -382,10 +382,10 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 			return Tenant{}, fmt.Errorf("%w: siloed/hybrid isolation requires the siloed_isolation license feature", ErrForbidden)
 		}
 		if !s.silo.ValidResidency(residency) {
-			return Tenant{}, fmt.Errorf("provider: unknown residency %q (configured: %s)", residency, strings.Join(s.silo.Planes(), ", "))
+			return Tenant{}, validationError(fmt.Sprintf("provider: unknown residency %q (configured: %s)", residency, strings.Join(s.silo.Planes(), ", ")))
 		}
 	} else if residency != "" {
-		return Tenant{}, errors.New("provider: residency targeting requires a siloed or hybrid tenant")
+		return Tenant{}, validationError("provider: residency targeting requires a siloed or hybrid tenant")
 	}
 	if band := s.lic.TenantBand(); band > 0 {
 		n, err := s.store.CountActiveTenants(ctx)
@@ -501,10 +501,10 @@ func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, 
 		return Grant{}, err
 	}
 	if strings.TrimSpace(reason) == "" {
-		return Grant{}, errors.New("provider: break-glass requires a reason")
+		return Grant{}, validationError("provider: break-glass requires a reason")
 	}
 	if ttl <= 0 || ttl > s.maxGrantTTL {
-		return Grant{}, fmt.Errorf("provider: ttl must be within (0, %s]", s.maxGrantTTL)
+		return Grant{}, validationError(fmt.Sprintf("provider: ttl must be within (0, %s]", s.maxGrantTTL))
 	}
 	now := s.now()
 	g, err := s.store.CreateGrant(ctx, Grant{
@@ -535,7 +535,7 @@ func (s *Service) Consent(ctx context.Context, tenantID, grantID, by string, app
 		return Grant{}, ErrForbidden // never confirm another tenant's grant exists
 	}
 	if g.State(s.now()) != GrantPending {
-		return Grant{}, fmt.Errorf("provider: grant is %s, not pending", g.State(s.now()))
+		return Grant{}, validationError(fmt.Sprintf("provider: grant is %s, not pending", g.State(s.now())))
 	}
 	var out *Grant
 	action := "provider.breakglass_consent"
