@@ -23,6 +23,93 @@ AIRGAP=scripts/airgap-bundle.sh
 RELEASE=.github/workflows/release.yml
 ADMISSION=deploy/admission/probectl-agent-image-integrity.kyverno.yaml
 
+check_package_binary_verification() {
+  local section="$1"
+  local label="${2:-release packages job}"
+  local section_failed=0
+  local installer_line
+  local fetch_line
+  local verify_line
+  local nfpm_line
+
+  grep -Fq -- '--pattern "${binary}"' <<<"$section" ||
+    { echo "${label}: release binary is not downloaded by exact asset name" >&2; section_failed=1; }
+  grep -Fq -- '--pattern "${binary}.sig"' <<<"$section" ||
+    { echo "${label}: release binary signature is not downloaded" >&2; section_failed=1; }
+  grep -Fq -- '--pattern "${binary}.pem"' <<<"$section" ||
+    { echo "${label}: release binary certificate is not downloaded" >&2; section_failed=1; }
+  grep -Fq 'cosign verify-blob' <<<"$section" ||
+    { echo "${label}: downloaded release binary is not verified" >&2; section_failed=1; }
+  grep -Fq -- '--certificate "${binary}.pem"' <<<"$section" ||
+    { echo "${label}: verification does not bind the downloaded certificate" >&2; section_failed=1; }
+  grep -Fq -- '--signature "${binary}.sig"' <<<"$section" ||
+    { echo "${label}: verification does not bind the downloaded signature" >&2; section_failed=1; }
+  grep -Fq -- '--certificate-oidc-issuer "https://token.actions.githubusercontent.com"' <<<"$section" ||
+    { echo "${label}: verification does not pin the GitHub OIDC issuer" >&2; section_failed=1; }
+  grep -Fq -- '--certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/"' <<<"$section" ||
+    { echo "${label}: verification does not pin this repository release workflow" >&2; section_failed=1; }
+
+  installer_line="$(grep -nF 'sigstore/cosign-installer@' <<<"$section" | head -n1 | cut -d: -f1 || true)"
+  fetch_line="$(grep -nF 'name: Fetch release binaries' <<<"$section" | head -n1 | cut -d: -f1 || true)"
+  verify_line="$(grep -nF 'name: Verify release binary package input' <<<"$section" | head -n1 | cut -d: -f1 || true)"
+  nfpm_line="$(grep -nF 'name: Install nfpm' <<<"$section" | head -n1 | cut -d: -f1 || true)"
+  if [[ -z "$installer_line" || -z "$fetch_line" || -z "$verify_line" || -z "$nfpm_line" ]] ||
+     (( installer_line >= verify_line || fetch_line >= verify_line || verify_line >= nfpm_line )); then
+    echo "${label}: cosign install and binary fetch/verify must all precede nfpm installation" >&2
+    section_failed=1
+  fi
+
+  [[ "$section_failed" -eq 0 ]]
+}
+
+if [[ "${1:-}" == "SELFTEST" ]]; then
+  read -r -d '' valid_packages_fixture <<'YAML' || true
+      - uses: sigstore/cosign-installer@0000000000000000000000000000000000000000
+      - name: Fetch release binaries
+        run: |
+          binary="probectl-agent_v0.0.0_linux_amd64"
+          gh release download v0.0.0 \
+            --pattern "${binary}" \
+            --pattern "${binary}.sig" \
+            --pattern "${binary}.pem"
+      - name: Verify release binary package input
+        run: |
+          binary="dist/probectl-agent_v0.0.0_linux_amd64"
+          cosign verify-blob \
+            --certificate "${binary}.pem" \
+            --signature "${binary}.sig" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+            "${binary}"
+      - name: Install nfpm
+        run: go install example.invalid/nfpm
+      - name: Build packages
+        run: nfpm package
+YAML
+  if ! check_package_binary_verification "$valid_packages_fixture" "cosign-wiring SELFTEST fixture"; then
+    echo "cosign-wiring SELFTEST: valid verify-before-nfpm fixture was rejected" >&2
+    exit 1
+  fi
+  planted_packages_fixture="${valid_packages_fixture/cosign verify-blob/cosign skipped-blob}"
+  if check_package_binary_verification "$planted_packages_fixture" "cosign-wiring SELFTEST planted regression" >/dev/null 2>&1; then
+    echo "cosign-wiring SELFTEST: package input without cosign verify-blob was accepted" >&2
+    exit 1
+  fi
+  planted_order_fixture="$(awk '
+    /- name: Verify release binary package input/ {
+      print "      - name: Install nfpm"
+      print "        run: go install example.invalid/nfpm"
+    }
+    { print }
+  ' <<<"$valid_packages_fixture")"
+  if check_package_binary_verification "$planted_order_fixture" "cosign-wiring SELFTEST planted order regression" >/dev/null 2>&1; then
+    echo "cosign-wiring SELFTEST: package input verification after nfpm installation was accepted" >&2
+    exit 1
+  fi
+  echo "cosign-wiring SELFTEST: OK"
+  exit 0
+fi
+
 # 1) static: the verification code exists (not a dead variable / false claim).
 grep -q -- '--verify' "$INSTALL"            || { echo "install.sh: missing --verify path"; fail=1; }
 grep -q -- '--no-verify' "$INSTALL"         || { echo "install.sh: missing explicit --no-verify break-glass"; fail=1; }
@@ -68,11 +155,14 @@ grep -q 'cosign verify-blob' "$RELEASE" || { echo "release: chart package self-v
 grep -q 'chart_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts/probectl@${chart_digest}"' "$RELEASE" || { echo "release: chart OCI digest reference is not immutable"; fail=1; }
 grep -q 'cosign sign --yes "$chart_ref"' "$RELEASE" || { echo "release: chart OCI digest signing is missing"; fail=1; }
 grep -Fq 'probectl-*.chart-digest.txt' "$RELEASE" || { echo "release: chart digest evidence is not attached to the GitHub release"; fail=1; }
-packages_release_section="$(awk '/^  packages:/{in_pkg=1} in_pkg{print}' "$RELEASE")"
+packages_release_section="$(awk '/^  packages:/{in_pkg=1} /^  airgap-bundle:/{in_pkg=0} in_pkg{print}' "$RELEASE")"
 grep -q 'id-token: write' <<<"$packages_release_section" || { echo "release: package job lacks id-token: write for keyless cosign"; fail=1; }
 grep -q 'sigstore/cosign-installer@' <<<"$packages_release_section" || { echo "release: package job signs with cosign but never installs it"; fail=1; }
 grep -q 'cosign sign-blob --yes' <<<"$packages_release_section" || { echo "release: package sign-blob step is missing"; fail=1; }
 grep -q 'all packages verify' <<<"$packages_release_section" || { echo "release: package signature self-verify gate is missing"; fail=1; }
+if ! check_package_binary_verification "$packages_release_section"; then
+  fail=1
+fi
 
 airgap_release_section="$(awk '/^  airgap-bundle:/{in_airgap=1} in_airgap{print}' "$RELEASE")"
 grep -Fq 'needs: [images, binaries, publish-chart, packages]' <<<"$airgap_release_section" || { echo "release: air-gap job does not wait for every signed constituent"; fail=1; }
