@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 )
 
 // ModelKind identifies a remote model's wire protocol.
@@ -335,6 +336,8 @@ func modelProviderCategory(kind ModelKind) string {
 	}
 }
 
+const maxModelResponseBodyBytes int64 = 1 << 20
+
 // post sends a JSON request over the hardened (cert-validating) client and
 // decodes a JSON response. Non-2xx response bodies are untrusted provider
 // content: drain a bounded amount for connection hygiene, but never propagate
@@ -358,12 +361,12 @@ func (m *HTTPModel) post(ctx context.Context, endpoint string, headers map[strin
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxModelResponseBodyBytes))
 		return fmt.Errorf("ai: %s model provider returned HTTP status %d", modelProviderCategory(m.kind), resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	data, err := httpbody.ReadLimited(resp.Body, maxModelResponseBodyBytes)
 	if err != nil {
-		return err
+		return fmt.Errorf("ai: read bounded model response: %w", err)
 	}
 	return json.Unmarshal(data, out)
 }

@@ -9,12 +9,15 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 )
 
 // A local Ollama server (loopback, plaintext) — the air-gapped path. Proves the
@@ -142,6 +145,58 @@ func TestHTTPModelErrorsOnNon2xx(t *testing.T) {
 		t.Fatalf("non-2xx error disclosed the untrusted provider body: %q", got)
 	} else if !strings.Contains(got, "ollama") || !strings.Contains(got, "429") {
 		t.Fatalf("non-2xx error lost bounded provider/status context: %q", got)
+	}
+}
+
+type fixedModelResponseTransport struct {
+	body string
+}
+
+func (t fixedModelResponseTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(t.body)),
+	}, nil
+}
+
+func modelResponseAtSize(t *testing.T, size int) string {
+	t.Helper()
+	const prefix = `{"message":{"content":"`
+	const suffix = `"}}`
+	if size < len(prefix)+len(suffix) {
+		t.Fatalf("response size %d is too small for fixture", size)
+	}
+	return prefix + strings.Repeat("x", size-len(prefix)-len(suffix)) + suffix
+}
+
+func TestHTTPModelResponseExactLimitAndOnePast(t *testing.T) {
+	const limit = 1 << 20
+	var out struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+	model := &HTTPModel{
+		client: &http.Client{Transport: fixedModelResponseTransport{
+			body: modelResponseAtSize(t, limit),
+		}},
+	}
+	if err := model.post(context.Background(), "https://model.example.test", nil, map[string]string{"prompt": "x"}, &out); err != nil {
+		t.Fatalf("exact-limit response must pass: %v", err)
+	}
+	if out.Message.Content == "" {
+		t.Fatal("exact-limit response was not decoded")
+	}
+
+	model.client.Transport = fixedModelResponseTransport{body: modelResponseAtSize(t, limit+1)}
+	out.Message.Content = ""
+	err := model.post(context.Background(), "https://model.example.test", nil, map[string]string{"prompt": "x"}, &out)
+	if !errors.Is(err, httpbody.ErrTooLarge) {
+		t.Fatalf("one-past response = %v, want ErrTooLarge before JSON decoding", err)
+	}
+	if out.Message.Content != "" {
+		t.Fatal("one-past response partially decoded into output")
 	}
 }
 
