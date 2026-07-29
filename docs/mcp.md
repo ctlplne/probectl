@@ -12,9 +12,9 @@ to any compliant server without bespoke integration code.
 probectl ships an MCP server so AI clients — Claude Desktop, an agent framework,
 your own tool-using app — can query probectl directly, in the client's own "call
 a tool" idiom: *your* AI asking *your* self-hosted platform about *your* network.
-It exposes a small catalog of **read-and-propose**, **tenant- and RBAC-scoped**
-tools over two transports (a **transport** is simply the channel the messages
-travel over):
+It exposes a small catalog of **read-and-propose** tools scoped by **tenant,
+RBAC, and ABAC** over two transports (a **transport** is simply the channel the
+messages travel over):
 
 - **stdio** — local; the client spawns the probectl binary and talks over
   stdin/stdout (how Claude Desktop runs it).
@@ -27,13 +27,13 @@ MCP builds on: each message is a small JSON document naming a `method` and its
 format. The tools are mostly read-only; the one write-ish tool is
 **proposal-only** and can never act on its own (details below).
 
-## Security model: tenant first, then RBAC
+## Security model: tenant first, then RBAC, then ABAC
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   C["MCP client"] -->|stdio or HTTPS| T["Transport<br/>(authenticate → principal)"]
-  T --> S["MCP server<br/>tenant FIRST, then RBAC, then rate-limit, then egress gate"]
+  T --> S["MCP server<br/>tenant FIRST, then RBAC, then ABAC,<br/>then rate-limit, then egress gate"]
   S -->|"tools/list"| L["only the tools the<br/>caller may use"]
   S -->|"tools/call"| B["Backend (tenant-scoped)<br/>stores + query engine + RCA"]
   B --> S
@@ -43,10 +43,12 @@ Two words of vocabulary first. A **tenant** is one organization's hard-isolated
 slice of a probectl deployment — its agents, telemetry, incidents, and users;
 cross-tenant leakage is the platform's highest-severity failure. **RBAC**
 (role-based access control) is the permission system *inside* a tenant: which of
-that tenant's users may read tests, read incidents, run AI queries. The order in
-the heading is the point — as with building security, "may you enter this
-building at all?" is settled before "which rooms does your badge open?", never
-the other way around.
+that tenant's users may read tests, read incidents, or run AI queries. **ABAC**
+(attribute-based access control) is the final deny-override: a tenant policy may
+narrow an RBAC grant using subject attributes such as department. The order in
+the heading is the point — the tenant selects the building, RBAC decides which
+rooms the badge normally opens, and ABAC may mark a room off-limits for that
+particular badge holder.
 
 An MCP caller is **bound to a single tenant** — the token it presents determines
 which one. Every call enforces the boundary at the MCP layer
@@ -59,13 +61,18 @@ which one. Every call enforces the boundary at the MCP layer
    allow — an out-of-scope caller doesn't even *see* a tool it can't use.
    `tools/call` re-checks the tool's permission (out of scope → `forbidden`, never
    data).
-3. **Then rate-limit.** Tool calls are rate-limited per tenant (default
+3. **Then ABAC.** The server loads policies within that same tenant and applies
+   their deny overrides to both discovery and invocation. A denied tool is hidden
+   from `tools/list` and refused by `tools/call`. If policies cannot be loaded and
+   there is no previously loaded, known-good cache entry, authorization fails
+   closed with a temporary-unavailable error rather than silently using RBAC alone.
+4. **Then rate-limit.** Tool calls are rate-limited per tenant (default
    `120`/minute, `PROBECTL_MCP_RATE_PER_MIN`), so one tenant can't exhaust the
    server.
-4. **Then the egress gate.** Returning tool output to an external AI client *is*
+5. **Then the egress gate.** Returning tool output to an external AI client *is*
    tenant data leaving the platform, so each `tools/call` passes the shared egress
    gate — per-tenant consent, redaction, audit (its own section below).
-5. **Then the backend** runs through the **tenant-scoped stores + the semantic
+6. **Then the backend** runs through the **tenant-scoped stores + the semantic
    query engine**, which enforce tenant → RBAC *again*. That's defense in depth: a
    tool can't return another tenant's data even if a layer above had a bug.
 
@@ -126,10 +133,10 @@ whoever presents ("bears") it on a request is treated as its owner, with no
 further challenge. Treat one like a visitor badge that grants exactly one
 employee's access — it opens the doors that person's badge opens, in that
 person's building, and nothing else. In probectl, a control-plane bearer token
-(table `mcp_tokens`) maps to a tenant plus the owning user's effective RBAC. As
-with sessions, only the token's **hash** is stored (never the token itself), so a
-database leak yields no usable badges — and the lookup happens before tenant
-scoping is applied. Mint one with:
+(table `mcp_tokens`) maps to a tenant plus the owning user's effective RBAC and
+tenant-scoped ABAC subject attributes. As with sessions, only the token's
+**hash** is stored (never the token itself), so a database leak yields no usable
+badges — and the lookup happens before tenant scoping is applied. Mint one with:
 
 ```sh
 probectl-control mcp-token --user <user-uuid> [--tenant <id>] [--name laptop]
@@ -239,7 +246,10 @@ and gets, no reply. A tool result carries both a text rendering and
 matters to a model: a **tool-level** failure comes back as an `isError` result
 (so the model can read the message and recover — say, retry with a valid
 argument), while **protocol/auth** failures are JSON-RPC errors (the conversation
-itself is malformed or unauthorized).
+itself is malformed or unauthorized). A tenant-policy dependency failure is the
+server-defined JSON-RPC error `-32004` with the stable message `authorization
+policy is temporarily unavailable`; clients may retry, but the server does not
+run or advertise protected tools until it has a safely loaded policy set.
 
 ## External-AI egress: consent, redaction, audit
 

@@ -28,13 +28,14 @@ type ServerInfo struct {
 // Server is probectl's MCP server: a transport-agnostic JSON-RPC handler over the
 // read-only tool catalog. Handle is the single entry point both transports use.
 type Server struct {
-	tools   map[string]Tool
-	order   []string
-	limiter *rateLimiter
-	info    ServerInfo
-	log     *slog.Logger
-	gate    *ai.EgressGate
-	audit   CallAudit
+	tools        map[string]Tool
+	order        []string
+	limiter      *rateLimiter
+	info         ServerInfo
+	log          *slog.Logger
+	gate         *ai.EgressGate
+	audit        CallAudit
+	policyLoader PolicyLoader
 }
 
 // CallEvent records one MCP tool call for the audit trail (AIRCA-003): WHO
@@ -44,12 +45,17 @@ type CallEvent struct {
 	UserID   string
 	Tool     string
 	Allowed  bool
-	Denial   string // "" when allowed; "consent"|"permission"|"rate" otherwise
+	Denial   string // "" when allowed; "consent"|"permission"|"policy"|"rate" otherwise
 }
 
 // CallAudit observes every MCP tool call (the control plane appends it to
 // the tenant's tamper-evident audit stream as "mcp.tool_call").
 type CallAudit func(ctx context.Context, ev CallEvent)
+
+// PolicyLoader returns the caller tenant's ABAC policy set. Implementations
+// must use tenantID as the storage/query scope and return load failures
+// separately from an empty, successfully loaded policy set.
+type PolicyLoader func(ctx context.Context, tenantID string) ([]auth.Policy, error)
 
 // Option configures a Server.
 type Option func(*Server)
@@ -71,6 +77,12 @@ func WithLogger(l *slog.Logger) Option {
 // WithCallAudit sets the per-call audit hook (AIRCA-003).
 func WithCallAudit(h CallAudit) Option {
 	return func(s *Server) { s.audit = h }
+}
+
+// WithPolicyLoader adds tenant-scoped ABAC deny-override enforcement to MCP
+// tool discovery and invocation. A loader error refuses the request.
+func WithPolicyLoader(load PolicyLoader) Option {
+	return func(s *Server) { s.policyLoader = load }
 }
 
 // New builds a Server over the backend with the S25 tool catalog.
@@ -129,7 +141,12 @@ func (s *Server) dispatch(ctx context.Context, p *auth.Principal, req rpcRequest
 	case "ping":
 		return resultResponse(req.ID, struct{}{})
 	case "tools/list":
-		return resultResponse(req.ID, s.listTools(p))
+		result, err := s.listTools(ctx, p)
+		if err != nil {
+			s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "error", err)
+			return errorResponse(req.ID, codeUnavailable, "authorization policy is temporarily unavailable")
+		}
+		return resultResponse(req.ID, result)
 	case "tools/call":
 		return s.callTool(ctx, p, req)
 	default:
@@ -156,16 +173,30 @@ type toolDescriptor struct {
 
 // listTools returns only the tools the caller is permitted to use — an
 // out-of-scope caller does not even see a tool it cannot call.
-func (s *Server) listTools(p *auth.Principal) map[string]any {
-	tools := make([]toolDescriptor, 0, len(s.order))
+func (s *Server) listTools(ctx context.Context, p *auth.Principal) (map[string]any, error) {
+	rbacTools := make([]Tool, 0, len(s.order))
 	for _, name := range s.order {
 		t := s.tools[name]
 		if !p.Has(t.Permission) {
 			continue
 		}
+		rbacTools = append(rbacTools, t)
+	}
+	if len(rbacTools) == 0 {
+		return map[string]any{"tools": []toolDescriptor{}}, nil
+	}
+	policies, err := s.loadPolicies(ctx, p.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	tools := make([]toolDescriptor, 0, len(rbacTools))
+	for _, t := range rbacTools {
+		if !auth.Authorize(p, t.Permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
+			continue
+		}
 		tools = append(tools, toolDescriptor{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
 	}
-	return map[string]any{"tools": tools}
+	return map[string]any{"tools": tools}, nil
 }
 
 func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest) *rpcResponse {
@@ -186,14 +217,22 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 			s.audit(ctx, CallEvent{TenantID: p.TenantID, UserID: p.UserID, Tool: params.Name, Allowed: allowed, Denial: denial})
 		}
 	}
-	// Tenant boundary FIRST, then RBAC (the documented MCP order) — routed through
-	// the single auth.Authorize decision. The tool acts within the caller's own
-	// tenant, so the resource is tagged with it; a future cross-tenant resource
-	// would fail closed at the boundary before RBAC is even consulted. An
-	// out-of-scope caller gets nothing.
-	if !auth.Authorize(p, t.Permission, nil, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
+	// Tenant boundary FIRST (in dispatch), then RBAC, then the tenant's ABAC
+	// deny-override policies. A caller without the RBAC baseline never triggers a
+	// policy lookup, and a policy-load failure never degrades to RBAC-only access.
+	if !p.Has(t.Permission) {
 		emit(false, "permission")
 		return errorResponse(req.ID, codeForbidden, "missing permission: "+t.Permission)
+	}
+	policies, err := s.loadPolicies(ctx, p.TenantID)
+	if err != nil {
+		s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		emit(false, "policy")
+		return errorResponse(req.ID, codeUnavailable, "authorization policy is temporarily unavailable")
+	}
+	if !auth.Authorize(p, t.Permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
+		emit(false, "permission")
+		return errorResponse(req.ID, codeForbidden, "denied by an attribute policy: "+t.Permission)
 	}
 	if !s.limiter.allow(p.TenantID) {
 		emit(false, "rate")
@@ -221,6 +260,13 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		return errorResponse(req.ID, codeInternal, "tool result encoding failed")
 	}
 	return resultResponse(req.ID, res)
+}
+
+func (s *Server) loadPolicies(ctx context.Context, tenantID string) ([]auth.Policy, error) {
+	if s.policyLoader == nil {
+		return nil, nil
+	}
+	return s.policyLoader(ctx, tenantID)
 }
 
 // redactedResult renders a tool's output ONCE through the gate's redaction

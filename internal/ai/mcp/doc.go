@@ -10,11 +10,12 @@
 // bearer-authenticated).
 //
 // It is a thin, dependency-free JSON-RPC 2.0 server. Every call enforces the
-// two-level security boundary: the TENANT first (an MCP caller is bound to a
-// single tenant), then the caller's RBAC. tools/list returns only the tools the
-// caller may use, and tools/call re-checks the tool's permission and then runs
-// through the tenant-scoped backend (the S23 query layer + stores) — so a tool
-// can never return another tenant's data or data outside the caller's scope.
+// security boundary in order: the TENANT first (an MCP caller is bound to a
+// single tenant), then the caller's RBAC, then tenant-scoped ABAC deny policies.
+// tools/list returns only the tools the caller may use, and tools/call re-checks
+// the same decision before running through the tenant-scoped backend (the S23
+// query layer + stores) — so a tool can never return another tenant's data or
+// data outside the caller's scope.
 //
 // The tools here are READ-ONLY (CLAUDE.md §7 guardrail 8 — no action tools);
 // write/remediation tools are deferred to S-EE5 as proposal-only. Tool calls are

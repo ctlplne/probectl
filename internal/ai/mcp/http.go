@@ -16,9 +16,9 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 )
 
-// Authenticator resolves a bearer token to a principal (tenant + RBAC). The
-// control-plane implementation maps a control-plane token to its tenant + the
-// owning user's effective permissions.
+// Authenticator resolves a bearer token to a principal (tenant + RBAC + ABAC
+// subject attributes). The control-plane implementation maps a control-plane
+// token to its tenant and the owning user's effective authorization state.
 type Authenticator interface {
 	Authenticate(ctx context.Context, bearer string) (*auth.Principal, error)
 }

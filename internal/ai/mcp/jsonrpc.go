@@ -42,6 +42,7 @@ const (
 	codeUnauthorized   = -32001
 	codeForbidden      = -32002
 	codeRateLimited    = -32003
+	codeUnavailable    = -32004
 )
 
 func resultResponse(id json.RawMessage, result any) *rpcResponse {

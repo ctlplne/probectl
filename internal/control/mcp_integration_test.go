@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -182,5 +183,158 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 	}
 	if _, err := NewMCPAuthenticator(db.Pool()).Authenticate(ctx, "bogus-token"); err == nil {
 		t.Error("an invalid token must fail authentication")
+	}
+}
+
+func TestMCPABACDenyOverridesRBACTwoTenant(t *testing.T) {
+	_, db := setupAPIServerWithLatest(t, nil)
+	ctx := context.Background()
+	stamp := time.Now().UnixNano()
+	tenantA, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("mcp-abac-a-%d", stamp), "MCP ABAC A")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tenantB, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("mcp-abac-b-%d", stamp), "MCP ABAC B")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+	log := quietLog()
+	egress := ai.NewEgressGate(func(context.Context, string) (bool, error) {
+		return true, nil
+	}, nil, ai.RedactionPolicy{})
+	srv := NewMCPServer(
+		&config.Config{AIMaxEvidence: 10},
+		log,
+		db.Pool(),
+		pathstore.NewMemory(),
+		120,
+		egress,
+		nil,
+		nil,
+	)
+	authenticate := func(t *testing.T, tenantID, userID string) *auth.Principal {
+		t.Helper()
+		token, err := auth.RandomToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.NewMCPTokens(db.Pool()).Create(ctx, tenantID, userID, "abac", crypto.Hash([]byte(token))); err != nil {
+			t.Fatalf("create MCP token: %v", err)
+		}
+		principal, err := NewMCPAuthenticator(db.Pool()).Authenticate(ctx, token)
+		if err != nil {
+			t.Fatalf("authenticate MCP token: %v", err)
+		}
+		return principal
+	}
+	userA := createUserWithPerm(t, db, tenantA.ID, fmt.Sprintf("mcp-a-%d@example.com", stamp),
+		map[string]string{"department": "contractor"}, "test.read")
+	userB := createUserWithPerm(t, db, tenantB.ID, fmt.Sprintf("mcp-b-%d@example.com", stamp),
+		map[string]string{"department": "contractor"}, "test.read")
+	tenantAPrincipal := authenticate(t, tenantA.ID, userA)
+	tenantBPrincipal := authenticate(t, tenantB.ID, userB)
+
+	toolNames := func(t *testing.T, principal *auth.Principal, id int) map[string]bool {
+		t.Helper()
+		result, ok := mcpCall(t, srv, principal, id, "tools/list", nil)["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("tools/list returned no result")
+		}
+		tools, _ := result["tools"].([]any)
+		names := make(map[string]bool, len(tools))
+		for _, raw := range tools {
+			tool, _ := raw.(map[string]any)
+			name, _ := tool["name"].(string)
+			names[name] = true
+		}
+		return names
+	}
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantA.ID)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{
+			Name:       "deny-contractor-test-read",
+			Effect:     auth.PolicyDeny,
+			Permission: "test.read",
+			Subject:    map[string]string{"department": "contractor"},
+			Enabled:    true,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("create tenant A policy: %v", err)
+	}
+
+	if names := toolNames(t, tenantAPrincipal, 19); names["list_tests"] || names["get_path"] {
+		t.Fatalf("tenant A discovered ABAC-denied tools: %v", names)
+	}
+	if names := toolNames(t, tenantBPrincipal, 20); !names["list_tests"] || !names["get_path"] {
+		t.Fatalf("tenant B inherited tenant A's deny policy: %v", names)
+	}
+
+	denied := mcpCall(t, srv, tenantAPrincipal, 21, "tools/call", map[string]any{"name": "list_tests"})
+	rpcErr, _ := denied["error"].(map[string]any)
+	if code, _ := rpcErr["code"].(float64); int(code) != -32002 {
+		t.Fatalf("tenant A ABAC-denied call code = %v, want -32002", rpcErr["code"])
+	}
+	if result := mcpToolResult(t, srv, tenantBPrincipal, 22, "list_tests", nil); result["isError"] == true {
+		t.Fatalf("tenant B's policy-isolated call failed: %v", result)
+	}
+}
+
+func TestMCPAuthenticatorLoadsTenantAttributes(t *testing.T) {
+	_, db := setupAPI(t)
+	ctx := context.Background()
+	stamp := time.Now().UnixNano()
+	tenantA, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("mcp-auth-attrs-a-%d", stamp), "MCP Attr A")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tenantB, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("mcp-auth-attrs-b-%d", stamp), "MCP Attr B")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+
+	createPrincipal := func(t *testing.T, tenantID, department string) *auth.Principal {
+		t.Helper()
+		var userID string
+		email := fmt.Sprintf("mcp-attrs-%s-%d@example.com", department, stamp)
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			user, err := (store.Users{}).CreateSCIM(ctx, sc, store.User{
+				Email: email, UserName: email, DisplayName: "MCP Attr User",
+				Attributes: map[string]string{"department": department},
+			})
+			if err == nil {
+				userID = user.ID
+			}
+			return err
+		}); err != nil {
+			t.Fatalf("create %s user: %v", department, err)
+		}
+		token, err := auth.RandomToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.NewMCPTokens(db.Pool()).Create(ctx, tenantID, userID, "attrs", crypto.Hash([]byte(token))); err != nil {
+			t.Fatalf("create %s token: %v", department, err)
+		}
+		principal, err := NewMCPAuthenticator(db.Pool()).Authenticate(ctx, token)
+		if err != nil {
+			t.Fatalf("authenticate %s token: %v", department, err)
+		}
+		return principal
+	}
+
+	principalA := createPrincipal(t, tenantA.ID, "contractor")
+	principalB := createPrincipal(t, tenantB.ID, "sre")
+	if principalA.TenantID != tenantA.ID ||
+		principalA.Attributes["department"] != "contractor" ||
+		principalA.Attributes["mfa"] != "false" {
+		t.Fatalf("tenant A principal attributes = tenant %q attrs %v", principalA.TenantID, principalA.Attributes)
+	}
+	if principalB.TenantID != tenantB.ID ||
+		principalB.Attributes["department"] != "sre" ||
+		principalB.Attributes["mfa"] != "false" {
+		t.Fatalf("tenant B principal attributes = tenant %q attrs %v", principalB.TenantID, principalB.Attributes)
+	}
+	if principalA.Attributes["department"] == principalB.Attributes["department"] {
+		t.Fatalf("MCP subject attributes crossed tenants: A=%v B=%v", principalA.Attributes, principalB.Attributes)
 	}
 }

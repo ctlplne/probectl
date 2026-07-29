@@ -712,8 +712,9 @@ func (rt *serveRuntime) startEdgeTransports() error {
 	if err != nil {
 		return fmt.Errorf("mcp tls: %w", err)
 	}
-	mcpSrv := control.NewMCPServer(rt.cfg, rt.log, rt.db.Pool(), rt.pathStore, rt.cfg.MCPRatePerMin,
+	mcpSrv := control.NewMCPServerWithPolicyLoader(rt.cfg, rt.log, rt.db.Pool(), rt.pathStore, rt.cfg.MCPRatePerMin,
 		rt.srv.AIEgressGate(), rt.fairGate, rt.srv.RemediationService(),
+		rt.srv.MCPPolicyLoader(),
 		control.AISources{Metrics: rt.tsdbWriter, Flow: rt.flowStore, Topology: rt.topoStore})
 	handler := mcpSrv.HTTPHandler(control.NewMCPAuthenticator(rt.db.Pool()))
 	rt.g.Go(func() error { return serveMCPHTTP(rt.gctx, rt.cfg.MCPHTTPAddr, tlsCfg, handler, rt.log) })

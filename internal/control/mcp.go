@@ -29,11 +29,64 @@ import (
 
 // NewMCPServer builds probectl's MCP server (S25) over the tenant-scoped stores,
 // the S23 query engine, and the S24 RCA analyzer. The tools are read-only; the
-// tenant boundary then RBAC are enforced at the MCP layer AND again at the
-// engine/stores (defense in depth).
-func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, aiGate *ai.EgressGate, gate *fairness.Gate, remed remediation.Service, sources ...AISources) *mcp.Server {
+// tenant boundary, RBAC, and tenant ABAC deny policies are enforced at the MCP
+// layer, with tenant + RBAC enforced again at the engine/stores (defense in
+// depth).
+func NewMCPServer(
+	cfg *config.Config,
+	log *slog.Logger,
+	pool *pgxpool.Pool,
+	pathStore pathstore.Store,
+	ratePerMin int,
+	aiGate *ai.EgressGate,
+	gate *fairness.Gate,
+	remed remediation.Service,
+	sources ...AISources,
+) *mcp.Server {
+	return newMCPServer(cfg, log, pool, pathStore, ratePerMin, aiGate, gate, remed, nil, sources...)
+}
+
+// NewMCPServerWithPolicyLoader builds the colocated HTTP MCP transport with the
+// control server's shared ABAC cache. Keeping this separate preserves the
+// ordinary constructor while making production cache sharing explicit.
+func NewMCPServerWithPolicyLoader(
+	cfg *config.Config,
+	log *slog.Logger,
+	pool *pgxpool.Pool,
+	pathStore pathstore.Store,
+	ratePerMin int,
+	aiGate *ai.EgressGate,
+	gate *fairness.Gate,
+	remed remediation.Service,
+	policyLoader mcp.PolicyLoader,
+	sources ...AISources,
+) *mcp.Server {
+	return newMCPServer(cfg, log, pool, pathStore, ratePerMin, aiGate, gate, remed, policyLoader, sources...)
+}
+
+func newMCPServer(
+	cfg *config.Config,
+	log *slog.Logger,
+	pool *pgxpool.Pool,
+	pathStore pathstore.Store,
+	ratePerMin int,
+	aiGate *ai.EgressGate,
+	gate *fairness.Gate,
+	remed remediation.Service,
+	policyLoader mcp.PolicyLoader,
+	sources ...AISources,
+) *mcp.Server {
 	if aiGate == nil {
 		panic("control.NewMCPServer requires the shared AI egress gate")
+	}
+	if policyLoader == nil {
+		if pool == nil {
+			policyLoader = func(context.Context, string) ([]auth.Policy, error) {
+				return nil, errors.New("MCP ABAC policy store is unavailable")
+			}
+		} else {
+			policyLoader = newABACCache(pool).policies
+		}
 	}
 	src := firstAISources(sources)
 	backend := mcpBackend{
@@ -49,7 +102,18 @@ func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, path
 	// denials. In the HTTP server this is the same pointer RCA and authoring use.
 	return mcp.New(backend, aiGate,
 		mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log),
+		mcp.WithPolicyLoader(policyLoader),
 		mcp.WithCallAudit(mcpCallAuditor(pool, log)))
+}
+
+// MCPPolicyLoader exposes the HTTP control plane's ABAC cache to the colocated
+// MCP transport. Policy CRUD invalidation therefore takes effect on both
+// surfaces immediately; standalone MCP builds their own cache in NewMCPServer.
+func (s *Server) MCPPolicyLoader() mcp.PolicyLoader {
+	if s == nil || s.abac == nil {
+		return nil
+	}
+	return s.abac.policies
 }
 
 // mcpCallAuditor appends mcp.tool_call to the tenant's tamper-evident audit
@@ -199,8 +263,9 @@ func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, q
 }
 
 // NewMCPAuthenticator resolves a control-plane bearer token to a principal: the
-// token's tenant + the owning user's effective permissions (RLS-scoped). The
-// token lookup is pre-tenant (the token determines the tenant), like sessions.
+// token's tenant plus the owning user's effective permissions and ABAC subject
+// attributes (RLS-scoped). The token lookup is pre-tenant (the token determines
+// the tenant), like sessions.
 func NewMCPAuthenticator(pool *pgxpool.Pool) mcp.Authenticator { return mcpAuthenticator{pool: pool} }
 
 type mcpAuthenticator struct{ pool *pgxpool.Pool }
@@ -218,7 +283,24 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 	for _, k := range perms {
 		m[k] = true
 	}
-	return &auth.Principal{TenantID: tenantID, UserID: userID, Permissions: m}, nil
+	p := &auth.Principal{TenantID: tenantID, UserID: userID, Permissions: m}
+	attrs := map[string]string{"mfa": boolStr(p.MFASatisfied)}
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		u, err := (store.Users{}).Get(ctx, sc, userID)
+		if err != nil {
+			return err
+		}
+		p.Email = u.Email
+		p.DisplayName = u.DisplayName
+		for k, v := range u.Attributes {
+			attrs[k] = v
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	p.Attributes = attrs
+	return p, nil
 }
 
 // ProposeRemediation implements the proposal-only MCP tool (S-EE5). It

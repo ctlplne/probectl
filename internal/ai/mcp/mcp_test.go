@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,11 @@ func (f *fakeBackend) seen() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
+}
+func (f *fakeBackend) seenTenants() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.tenants...)
 }
 func (f *fakeBackend) ListTests(_ context.Context, p *auth.Principal) (any, error) {
 	f.rec("ListTests", p)
@@ -159,6 +165,118 @@ func TestToolsListFilteredByRBAC(t *testing.T) {
 			t.Errorf("tool %q must be hidden from a test.read-only caller", hidden)
 		}
 	}
+}
+
+func TestMCPABACDenyOverridesRBAC(t *testing.T) {
+	fb := &fakeBackend{}
+	denyContractorRead := auth.Policy{
+		ID:         "tenant-a-deny",
+		Effect:     auth.PolicyDeny,
+		Permission: permTestRead,
+		Subject:    map[string]string{"department": "contractor"},
+		Enabled:    true,
+	}
+	s := New(fb, testGate(), WithPolicyLoader(func(_ context.Context, tenantID string) ([]auth.Policy, error) {
+		if tenantID == "tenant-a" {
+			return []auth.Policy{denyContractorRead}, nil
+		}
+		return nil, nil
+	}))
+	tenantA := principal("tenant-a", permTestRead)
+	tenantA.Attributes = map[string]string{"department": "contractor"}
+	tenantB := principal("tenant-b", permTestRead)
+	tenantB.Attributes = map[string]string{"department": "contractor"}
+
+	// Tenant A's ABAC deny hides both test.read tools despite the RBAC grant.
+	tenantATools := listedToolNames(t, handle(t, s, tenantA, 40, "tools/list", nil))
+	for _, denied := range []string{"list_tests", "get_path"} {
+		if tenantATools[denied] {
+			t.Fatalf("tenant A discovered ABAC-denied tool %q: %v", denied, tenantATools)
+		}
+	}
+
+	// The same RBAC + subject attributes in tenant B are unaffected by tenant
+	// A's policy, proving the loader is keyed by the principal's tenant.
+	tenantBTools := listedToolNames(t, handle(t, s, tenantB, 41, "tools/list", nil))
+	for _, allowed := range []string{"list_tests", "get_path"} {
+		if !tenantBTools[allowed] {
+			t.Fatalf("tenant B lost tool %q to tenant A's policy: %v", allowed, tenantBTools)
+		}
+	}
+
+	resp := handle(t, s, tenantA, 42, "tools/call", map[string]any{"name": "list_tests"})
+	if code, _ := errCode(resp); code != codeForbidden {
+		t.Fatalf("tenant A ABAC-denied call: code = %d, want %d", code, codeForbidden)
+	}
+	if got := fb.seen(); len(got) != 0 {
+		t.Fatalf("tenant A ABAC-denied call reached backend: %v", got)
+	}
+
+	if resultOf(t, handle(t, s, tenantB, 43, "tools/call", map[string]any{"name": "list_tests"}))["isError"] == true {
+		t.Fatal("tenant B's policy-isolated call was denied")
+	}
+	if got := fb.seenTenants(); len(got) != 1 || got[0] != "tenant-b" {
+		t.Fatalf("backend tenants = %v, want only tenant-b", got)
+	}
+}
+
+func TestMCPABACPolicyLoadFailureFailsClosed(t *testing.T) {
+	fb := &fakeBackend{}
+	loads := 0
+	var events []CallEvent
+	s := New(fb, testGate(), WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) {
+		loads++
+		return nil, errors.New("policy store unavailable")
+	}), WithCallAudit(func(_ context.Context, event CallEvent) {
+		events = append(events, event)
+	}))
+	granted := principal("tenant-a", permTestRead)
+
+	if code, _ := errCode(handle(t, s, granted, 44, "tools/list", nil)); code != codeUnavailable {
+		t.Fatalf("tools/list policy-load failure: code = %d, want %d", code, codeUnavailable)
+	}
+	if code, _ := errCode(handle(t, s, granted, 45, "tools/call",
+		map[string]any{"name": "list_tests"})); code != codeUnavailable {
+		t.Fatalf("tools/call policy-load failure: code = %d, want %d", code, codeUnavailable)
+	}
+	if got := fb.seen(); len(got) != 0 {
+		t.Fatalf("policy-load failure reached backend: %v", got)
+	}
+	if len(events) != 1 || events[0].Allowed || events[0].Denial != "policy" {
+		t.Fatalf("tools/call policy-load denial audit = %+v", events)
+	}
+
+	// RBAC still precedes ABAC: a caller with no matching RBAC grants gets an
+	// empty catalog/forbidden call without consulting the policy store.
+	ungranted := principal("tenant-a")
+	if got := listedToolNames(t, handle(t, s, ungranted, 46, "tools/list", nil)); len(got) != 0 {
+		t.Fatalf("RBAC-empty catalog = %v, want no tools", got)
+	}
+	if code, _ := errCode(handle(t, s, ungranted, 47, "tools/call",
+		map[string]any{"name": "list_tests"})); code != codeForbidden {
+		t.Fatalf("RBAC-denied call: code = %d, want %d", code, codeForbidden)
+	}
+	if loads != 2 {
+		t.Fatalf("policy loader called %d times, want only the two RBAC-granted requests", loads)
+	}
+}
+
+func listedToolNames(t *testing.T, resp map[string]any) map[string]bool {
+	t.Helper()
+	tools, ok := resultOf(t, resp)["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools/list result has no tools array: %v", resp)
+	}
+	names := make(map[string]bool, len(tools))
+	for _, raw := range tools {
+		tool, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("invalid tool descriptor: %v", raw)
+		}
+		name, _ := tool["name"].(string)
+		names[name] = true
+	}
+	return names
 }
 
 func TestToolsCallTenantScopedAndForbidden(t *testing.T) {
