@@ -209,6 +209,106 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	}
 }
 
+func TestSubjectErasureEscapesSQLWildcards(t *testing.T) {
+	pool := itPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	victim := mkTenant(t, pool, "it-subject-wildcard-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-subject-wildcard-b-"+stamp)
+	subject := "account%_owner-" + stamp + "@example.test"
+	nearMatch := "account-expandedXowner-" + stamp + "@example.test"
+
+	type seededRows struct {
+		answerID  string
+		journalID string
+	}
+	seed := func(tenantID, value, label string) seededRows {
+		t.Helper()
+		rows := seededRows{
+			answerID:  "wildcard-answer-" + label + "-" + stamp,
+			journalID: "wildcard-journal-" + label + "-" + stamp,
+		}
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				if _, err := sc.Q.Exec(ctx,
+					`INSERT INTO users (tenant_id, email, display_name, status, user_name, attributes)
+					 VALUES ($1, $2, 'Wildcard Subject', 'active', $2, jsonb_build_object('subject', $2::text))`,
+					tenantID, value); err != nil {
+					return err
+				}
+				if _, err := sc.Q.Exec(ctx,
+					`INSERT INTO ai_answers (tenant_id, answer_id, question, root_cause, payload)
+					 VALUES ($1, $2, 'subject lookup', $3, jsonb_build_object('subject', $3::text))`,
+					tenantID, rows.answerID, value); err != nil {
+					return err
+				}
+				var incidentID string
+				if err := sc.Q.QueryRow(ctx,
+					`INSERT INTO incidents (tenant_id, title)
+					 VALUES ($1, 'wildcard subject lifecycle incident') RETURNING id::text`,
+					tenantID).Scan(&incidentID); err != nil {
+					return err
+				}
+				_, err := sc.Q.Exec(ctx,
+					`INSERT INTO incident_journal_entries
+					       (tenant_id, id, incident_id, entry_kind, body, created_by, expires_at)
+					 VALUES ($1, $2, $3, 'note', $4, $4, clock_timestamp() + interval '30 days')`,
+					tenantID, rows.journalID, incidentID, value)
+				return err
+			})
+		if err != nil {
+			t.Fatalf("seed %s/%s: %v", tenantID, label, err)
+		}
+		return rows
+	}
+
+	literal := seed(victim, subject, "literal")
+	near := seed(victim, nearMatch, "near")
+	foreign := seed(bystander, subject, "foreign")
+
+	engine := New(pool, nil, nil, nil, nil, "", nil)
+	results, err := engine.eraseSubjectPostgres(ctx, victim, subject)
+	if err != nil {
+		t.Fatalf("erase subject containing SQL wildcards: %v", err)
+	}
+	for _, result := range results {
+		if result.Deleted != 1 {
+			t.Errorf("%s deleted %d rows, want exactly the literal match", result.Plane, result.Deleted)
+		}
+	}
+
+	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, victim, subject); got != 0 {
+		t.Fatalf("literal user survived subject erasure: %d", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM ai_answers WHERE tenant_id = $1 AND answer_id = $2`, victim, literal.answerID); got != 0 {
+		t.Fatalf("literal AI answer survived subject erasure: %d", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM incident_journal_entries WHERE tenant_id = $1 AND id = $2`, victim, literal.journalID); got != 0 {
+		t.Fatalf("literal journal entry survived subject erasure: %d", got)
+	}
+
+	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, victim, nearMatch); got != 1 {
+		t.Fatalf("same-tenant wildcard near-match was erased: %d rows remain", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM ai_answers WHERE tenant_id = $1 AND answer_id = $2`, victim, near.answerID); got != 1 {
+		t.Fatalf("same-tenant AI wildcard near-match was erased: %d rows remain", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM incident_journal_entries WHERE tenant_id = $1 AND id = $2`, victim, near.journalID); got != 1 {
+		t.Fatalf("same-tenant journal wildcard near-match was erased: %d rows remain", got)
+	}
+
+	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, bystander, subject); got != 1 {
+		t.Fatalf("foreign-tenant literal user was erased: %d rows remain", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM ai_answers WHERE tenant_id = $1 AND answer_id = $2`, bystander, foreign.answerID); got != 1 {
+		t.Fatalf("foreign-tenant literal AI answer was erased: %d rows remain", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM incident_journal_entries WHERE tenant_id = $1 AND id = $2`, bystander, foreign.journalID); got != 1 {
+		t.Fatalf("foreign-tenant literal journal entry was erased: %d rows remain", got)
+	}
+}
+
 func countRows(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) int64 {
 	t.Helper()
 	var n int64

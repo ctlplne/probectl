@@ -217,6 +217,25 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	}
 }
 
+func TestLiteralILikeContainsPatternEscapesMetacharacters(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "plain", value: "alice@example.test", want: "%alice@example.test%"},
+		{name: "percent and underscore", value: "account%_owner", want: "%account!%!_owner%"},
+		{name: "escape character", value: "bang!%_", want: "%bang!!!%!_%"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := literalILikeContainsPattern(tt.value); got != tt.want {
+				t.Fatalf("literalILikeContainsPattern(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
 func subjectPlanesByName(planes []SubjectPlaneResult) map[string]SubjectPlaneResult {
 	out := map[string]SubjectPlaneResult{}
 	for _, p := range planes {

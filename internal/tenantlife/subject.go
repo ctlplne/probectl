@@ -571,7 +571,7 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 func (e *Engine) eraseSubjectPostgres(ctx context.Context, tenantID, subject string) ([]SubjectPlaneResult, error) {
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
 	var out []SubjectPlaneResult
-	like := "%" + subject + "%"
+	like := literalILikeContainsPattern(subject)
 	err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		exists, err := e.subjectTableExists(ctx, sc, "users")
 		if err != nil {
@@ -580,8 +580,9 @@ func (e *Engine) eraseSubjectPostgres(ctx context.Context, tenantID, subject str
 		if exists {
 			tag, err := sc.Q.Exec(ctx, `
 DELETE FROM users
- WHERE email ILIKE $1 OR display_name ILIKE $1 OR user_name ILIKE $1
-    OR external_id ILIKE $1 OR attributes::text ILIKE $1`, like)
+ WHERE email ILIKE $1 ESCAPE '!' OR display_name ILIKE $1 ESCAPE '!'
+    OR user_name ILIKE $1 ESCAPE '!' OR external_id ILIKE $1 ESCAPE '!'
+    OR attributes::text ILIKE $1 ESCAPE '!'`, like)
 			if err != nil {
 				return err
 			}
@@ -594,7 +595,8 @@ DELETE FROM users
 		if exists {
 			tag, err := sc.Q.Exec(ctx, `
 DELETE FROM ai_answers
- WHERE question ILIKE $1 OR root_cause ILIKE $1 OR payload::text ILIKE $1`, like)
+ WHERE question ILIKE $1 ESCAPE '!' OR root_cause ILIKE $1 ESCAPE '!'
+    OR payload::text ILIKE $1 ESCAPE '!'`, like)
 			if err != nil {
 				return err
 			}
@@ -607,7 +609,7 @@ DELETE FROM ai_answers
 		if exists {
 			tag, err := sc.Q.Exec(ctx, `
 DELETE FROM incident_journal_entries
- WHERE created_by ILIKE $1 OR body ILIKE $1`, like)
+ WHERE created_by ILIKE $1 ESCAPE '!' OR body ILIKE $1 ESCAPE '!'`, like)
 			if err != nil {
 				return err
 			}
@@ -616,6 +618,14 @@ DELETE FROM incident_journal_entries
 		return nil
 	})
 	return out, err
+}
+
+// literalILikeContainsPattern builds a case-insensitive substring pattern while
+// keeping caller-controlled LIKE metacharacters literal. The SQL comparisons
+// declare "!" as their ESCAPE character, so escape it before "%" and "_".
+func literalILikeContainsPattern(value string) string {
+	escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(value)
+	return "%" + escaped + "%"
 }
 
 func tableExists(ctx context.Context, sc tenancy.Scope, table string) (bool, error) {
