@@ -65,7 +65,7 @@ func TestMCPEgressConsentDeniedAndAudited(t *testing.T) {
 	if len(fb.seen()) != 0 {
 		t.Fatal("the tool must NOT run for a non-consented tenant — telemetry never even gathered")
 	}
-	if len(events) != 1 || events[0].Allowed || events[0].Denial != "consent" || events[0].Tool != "list_tests" || events[0].TenantID != "t-locked" {
+	if len(events) != 1 || events[0].Phase != CallPhaseTerminal || events[0].Allowed || events[0].Denial != "consent" || events[0].Tool != "list_tests" || events[0].TenantID != "t-locked" {
 		t.Fatalf("denial must be audited (who/tool/why): %+v", events)
 	}
 
@@ -74,8 +74,10 @@ func TestMCPEgressConsentDeniedAndAudited(t *testing.T) {
 	if res["isError"] == true {
 		t.Fatalf("consented call must pass: %v", res)
 	}
-	if len(events) != 2 || !events[1].Allowed || events[1].UserID != "u2" {
-		t.Fatalf("allowed call must be audited too (AIRCA-003): %+v", events)
+	if len(events) != 3 ||
+		events[1].Phase != CallPhaseAdmission || !events[1].Allowed || events[1].UserID != "u2" ||
+		events[2].Phase != CallPhaseTerminal || !events[2].Allowed || events[2].UserID != "u2" {
+		t.Fatalf("allowed call must have admission and terminal audit receipts (AIRCA-003): %+v", events)
 	}
 }
 
@@ -212,14 +214,17 @@ func TestMCPAuditCoversEveryOutcome(t *testing.T) {
 	noPerm := &auth.Principal{TenantID: "t1", UserID: "u3", Permissions: map[string]bool{}}
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
 	_ = s.Handle(context.Background(), noPerm, raw)
-	if len(events) != 1 || events[0].Denial != "permission" {
+	if len(events) != 1 || events[0].Phase != CallPhaseTerminal || events[0].Denial != "permission" {
 		t.Fatalf("permission denial must audit: %+v", events)
 	}
 
 	ok := &auth.Principal{TenantID: "t1", UserID: "u4", Permissions: map[string]bool{"test.read": true}}
 	_ = s.Handle(context.Background(), ok, raw)
 	_ = s.Handle(context.Background(), ok, raw) // second call trips the 1/min limiter
-	if len(events) != 3 || events[2].Denial != "rate" {
+	if len(events) != 4 ||
+		events[1].Phase != CallPhaseAdmission || !events[1].Allowed ||
+		events[2].Phase != CallPhaseTerminal || !events[2].Allowed ||
+		events[3].Phase != CallPhaseTerminal || events[3].Denial != "rate" {
 		t.Fatalf("rate denial must audit: %+v", events)
 	}
 }

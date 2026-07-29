@@ -17,6 +17,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
@@ -61,14 +62,24 @@ type Server struct {
 	policyLoader PolicyLoader
 }
 
-// CallEvent records one MCP tool call for the audit trail (AIRCA-003): WHO
-// (tenant + user), WHAT (tool), and the OUTCOME — including consent denials.
+const (
+	// CallPhaseAdmission is the mandatory pre-read authorization receipt.
+	CallPhaseAdmission = "admission"
+	// CallPhaseTerminal is the final outcome receipt written before any result
+	// leaves the process.
+	CallPhaseTerminal = "terminal"
+)
+
+// CallEvent records one MCP tool-call transition for the audit trail
+// (AIRCA-003): WHO (tenant + user), WHAT (tool), and whether this is the
+// pre-read admission or terminal outcome.
 type CallEvent struct {
 	TenantID string
 	UserID   string
 	Tool     string
+	Phase    string
 	Allowed  bool
-	Denial   string // "" when allowed; "consent"|"permission"|"policy"|"rate" otherwise
+	Denial   string // bounded reason; empty for an admitted/successful transition
 }
 
 // CallAudit durably records every MCP tool call in the tenant's tamper-evident
@@ -241,11 +252,18 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		return errorResponse(req.ID, codeMethodNotFound, "unknown tool: "+params.Name)
 	}
 	// Every outcome below is audited (AIRCA-003): who, tenant, tool, result.
-	emit := func(allowed bool, denial string) error {
+	emit := func(phase string, allowed bool, denial string) error {
 		if s.audit == nil {
 			return errCallAuditUnavailable
 		}
-		if err := s.audit(ctx, CallEvent{TenantID: p.TenantID, UserID: p.UserID, Tool: params.Name, Allowed: allowed, Denial: denial}); err != nil {
+		if err := s.audit(ctx, CallEvent{
+			TenantID: p.TenantID,
+			UserID:   p.UserID,
+			Tool:     params.Name,
+			Phase:    phase,
+			Allowed:  allowed,
+			Denial:   denial,
+		}); err != nil {
 			s.log.Warn("mcp durable call audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
 			return errCallAuditUnavailable
 		}
@@ -258,7 +276,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	// deny-override policies. A caller without the RBAC baseline never triggers a
 	// policy lookup, and a policy-load failure never degrades to RBAC-only access.
 	if !p.Has(t.Permission) {
-		if err := emit(false, "permission"); err != nil {
+		if err := emit(CallPhaseTerminal, false, "permission"); err != nil {
 			return auditUnavailable()
 		}
 		return errorResponse(req.ID, codeForbidden, "missing permission: "+t.Permission)
@@ -266,19 +284,19 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	policies, err := s.loadPolicies(ctx, p.TenantID)
 	if err != nil {
 		s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
-		if err := emit(false, "policy"); err != nil {
+		if err := emit(CallPhaseTerminal, false, "policy"); err != nil {
 			return auditUnavailable()
 		}
 		return errorResponse(req.ID, codeUnavailable, "authorization policy is temporarily unavailable")
 	}
 	if !auth.Authorize(p, t.Permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
-		if err := emit(false, "permission"); err != nil {
+		if err := emit(CallPhaseTerminal, false, "permission"); err != nil {
 			return auditUnavailable()
 		}
 		return errorResponse(req.ID, codeForbidden, "denied by an attribute policy: "+t.Permission)
 	}
 	if !s.limiter.allow(p.TenantID) {
-		if err := emit(false, "rate"); err != nil {
+		if err := emit(CallPhaseTerminal, false, "rate"); err != nil {
 			return auditUnavailable()
 		}
 		return errorResponse(req.ID, codeRateLimited, "rate limit exceeded for tenant")
@@ -288,14 +306,14 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	// consent that gates the remote RCA model gates this (default deny), and
 	// the gate's redaction policy is applied to everything returned.
 	if err := s.gate.Authorize(ctx, p.TenantID); err != nil {
-		if auditErr := emit(false, "consent"); auditErr != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "consent"); auditErr != nil {
 			return auditUnavailable()
 		}
 		return resultResponse(req.ID, toolResult(err.Error(), nil, true))
 	}
 	// Record the authorized call before invoking a tool. A failed immutable
 	// append must never allow a read (or an RCA tool's nested remote dispatch).
-	if err := emit(true, ""); err != nil {
+	if err := emit(CallPhaseAdmission, true, ""); err != nil {
 		return auditUnavailable()
 	}
 	out, err := t.Invoke(ctx, p, params.Arguments)
@@ -304,10 +322,16 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		// model can react, but dependency error text is server-only: it can
 		// contain DSNs, hostnames, schemas, or an attacker-sized response body.
 		s.log.Warn("mcp tool invocation failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		if auditErr := emit(CallPhaseTerminal, false, terminalToolDenial(err)); auditErr != nil {
+			return auditUnavailable()
+		}
 		return resultResponse(req.ID, toolResult("tool execution failed", nil, true))
 	}
 	res, rerr := s.redactedResult(p.TenantID, out)
 	if rerr != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "result_encoding"); auditErr != nil {
+			return auditUnavailable()
+		}
 		return errorResponse(req.ID, codeInternal, "tool result encoding failed")
 	}
 	// The result is now bounded and redacted but has not left the process.
@@ -319,9 +343,26 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		Surface:  "mcp",
 	}); err != nil {
 		s.log.Warn("mcp durable egress audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		if auditErr := emit(CallPhaseTerminal, false, "egress_audit"); auditErr != nil {
+			return auditUnavailable()
+		}
+		return auditUnavailable()
+	}
+	if err := emit(CallPhaseTerminal, true, ""); err != nil {
 		return auditUnavailable()
 	}
 	return resultResponse(req.ID, res)
+}
+
+func terminalToolDenial(err error) string {
+	switch {
+	case errors.Is(err, fairness.ErrQueryConcurrency):
+		return "fairness_concurrency"
+	case errors.Is(err, fairness.ErrQueryBudget):
+		return "fairness_budget"
+	default:
+		return "execution"
+	}
 }
 
 func (s *Server) loadPolicies(ctx context.Context, tenantID string) ([]auth.Policy, error) {

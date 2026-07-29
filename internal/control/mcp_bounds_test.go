@@ -7,10 +7,14 @@
 package control
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/ai/mcp"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -129,5 +133,79 @@ func TestMCPReadToolsUsePerTenantFairness(t *testing.T) {
 	}
 	if got := gate.SnapshotTenant(t.Context(), "tenant-b").Queries.Allowed; got != 1 {
 		t.Fatalf("tenant B allowed queries = %d, want 1", got)
+	}
+}
+
+func TestMCPFairnessAuditIsTerminalAndTenantScoped(t *testing.T) {
+	gate := fairness.NewGate(fairness.Policy{QueryConcurrency: 1}, nil)
+	release, err := gate.BeginQuery(t.Context(), "tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	backend := mcpBackend{
+		gate:      gate,
+		pathStore: pathstore.NewMemory(),
+	}
+	egress := ai.NewEgressGate(
+		func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context, ai.EgressEvent) error { return nil },
+		ai.RedactionPolicy{},
+	)
+	var events []mcp.CallEvent
+	server := mcp.New(
+		backend,
+		egress,
+		mcp.WithRateLimit(0),
+		mcp.WithCallAudit(func(_ context.Context, event mcp.CallEvent) error {
+			events = append(events, event)
+			return nil
+		}),
+	)
+	call := func(t *testing.T, principal *auth.Principal, raw string) map[string]any {
+		t.Helper()
+		var response struct {
+			Result map[string]any `json:"result"`
+			Error  map[string]any `json:"error"`
+		}
+		if err := json.Unmarshal(server.Handle(t.Context(), principal, []byte(raw)), &response); err != nil {
+			t.Fatalf("decode MCP response: %v", err)
+		}
+		if response.Error != nil {
+			t.Fatalf("MCP transport error: %+v", response.Error)
+		}
+		return response.Result
+	}
+
+	tenantA := &auth.Principal{
+		TenantID:    "tenant-a",
+		UserID:      "user-a",
+		Permissions: map[string]bool{"test.read": true},
+	}
+	result := call(t, tenantA, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
+	if result["isError"] != true {
+		t.Fatalf("saturated tenant A returned tool data: %+v", result)
+	}
+	if len(events) != 2 ||
+		events[0].TenantID != "tenant-a" || events[0].Phase != mcp.CallPhaseAdmission || !events[0].Allowed ||
+		events[1].TenantID != "tenant-a" || events[1].Phase != mcp.CallPhaseTerminal || events[1].Allowed ||
+		events[1].Denial != "fairness_concurrency" {
+		t.Fatalf("tenant A fairness audit is not a closed admission/outcome pair: %+v", events)
+	}
+
+	tenantB := &auth.Principal{
+		TenantID:    "tenant-b",
+		UserID:      "user-b",
+		Permissions: map[string]bool{"test.read": true},
+	}
+	result = call(t, tenantB, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_path","arguments":{"target":"router.example"}}}`)
+	if result["isError"] == true {
+		t.Fatalf("independent tenant B was denied by tenant A saturation: %+v", result)
+	}
+	if len(events) != 4 ||
+		events[2].TenantID != "tenant-b" || events[2].Phase != mcp.CallPhaseAdmission || !events[2].Allowed ||
+		events[3].TenantID != "tenant-b" || events[3].Phase != mcp.CallPhaseTerminal || !events[3].Allowed {
+		t.Fatalf("tenant B success audit is not an independent closed pair: %+v", events)
 	}
 }

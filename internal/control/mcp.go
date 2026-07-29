@@ -124,7 +124,7 @@ var errMCPCallAuditUnavailable = errors.New("mcp call audit store unavailable")
 func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
 	return func(ctx context.Context, ev mcp.CallEvent) error {
 		log.Info("mcp tool call", "tenant_id", ev.TenantID, "user_id", ev.UserID,
-			"tool", ev.Tool, "allowed", ev.Allowed, "denial", ev.Denial)
+			"tool", ev.Tool, "phase", ev.Phase, "allowed", ev.Allowed, "denial", ev.Denial)
 		if pool == nil {
 			log.Warn("failed to persist mcp.tool_call audit record", "tenant_id", ev.TenantID, "tool", ev.Tool, "error", "audit store unavailable")
 			return errMCPCallAuditUnavailable
@@ -135,7 +135,7 @@ func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
 				actor = "mcp-client"
 			}
 			_, err := audit.TenantAppend(ctx, sc, actor, "mcp.tool_call", ev.Tool, map[string]any{
-				"allowed": ev.Allowed, "denial": ev.Denial,
+				"phase": ev.Phase, "allowed": ev.Allowed, "denial": ev.Denial,
 			})
 			return err
 		}); err != nil {

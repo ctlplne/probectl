@@ -21,6 +21,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 )
 
 // testGate is a permissive egress gate for mechanics tests: consent allowed
@@ -274,7 +275,7 @@ func TestMCPABACPolicyLoadFailureFailsClosed(t *testing.T) {
 	if got := fb.seen(); len(got) != 0 {
 		t.Fatalf("policy-load failure reached backend: %v", got)
 	}
-	if len(events) != 1 || events[0].Allowed || events[0].Denial != "policy" {
+	if len(events) != 1 || events[0].Phase != CallPhaseTerminal || events[0].Allowed || events[0].Denial != "policy" {
 		t.Fatalf("tools/call policy-load denial audit = %+v", events)
 	}
 
@@ -470,6 +471,28 @@ func TestRateLimit(t *testing.T) {
 	}
 	if code, _ := errCode(handle(t, s, p, 9, "tools/call", map[string]any{"name": "list_tests"})); code != codeRateLimited {
 		t.Errorf("second call: code = %d, want %d (rate limited)", code, codeRateLimited)
+	}
+}
+
+func TestMCPFairnessAuditRecordsTerminalDenial(t *testing.T) {
+	backend := &fakeBackend{listTestsErr: fairness.ErrQueryConcurrency}
+	var events []CallEvent
+	server := newTestServer(backend, testGate(), WithCallAudit(func(_ context.Context, event CallEvent) error {
+		events = append(events, event)
+		return nil
+	}))
+
+	result := resultOf(t, handle(t, server, principal("tenant-a", permTestRead), 91, "tools/call",
+		map[string]any{"name": "list_tests"}))
+	if result["isError"] != true {
+		t.Fatalf("fairness rejection must not return tool data: %v", result)
+	}
+	if len(events) != 2 {
+		t.Fatalf("fairness-rejected call audit events = %+v, want admission plus terminal denial", events)
+	}
+	if events[0].Phase != CallPhaseAdmission || !events[0].Allowed ||
+		events[1].Phase != CallPhaseTerminal || events[1].Allowed || events[1].Denial != "fairness_concurrency" {
+		t.Fatalf("fairness-rejected call has ambiguous durable outcome: %+v", events)
 	}
 }
 
