@@ -192,11 +192,67 @@ func strictTenantPolicyExpression(expr *string) bool {
 	if expr == nil {
 		return false
 	}
-	normalized := strings.ToLower(*expr)
-	return strings.Contains(normalized, "tenant_id") &&
-		strings.Contains(normalized, "probectl.tenant_id") &&
-		!strings.Contains(normalized, " is null") &&
-		!strings.Contains(normalized, " or ")
+	normalized, ok := normalizeTenantPolicyExpression(*expr)
+	if !ok {
+		return false
+	}
+
+	// pg_policies returns pg_get_expr's canonical form, which adds explicit
+	// ::text casts to string literals. Keep the migration-source form as a
+	// second exact shape for unit/fake catalog queriers. Parentheses and
+	// whitespace are deliberately ignored by the normalizer, but every
+	// identifier, literal, function, cast, comma, and operator must otherwise
+	// match. In particular, COALESCE(..., tenant_id), tautological AND clauses,
+	// or any future policy embellishment fail closed instead of trying to grow a
+	// keyword blacklist around SQL's many equivalent spellings.
+	for _, strict := range []string{
+		`(tenant_id = (NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text))::uuid)`,
+		`tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid`,
+	} {
+		want, valid := normalizeTenantPolicyExpression(strict)
+		if valid && normalized == want {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeTenantPolicyExpression removes only semantically irrelevant
+// whitespace and grouping parentheses from PostgreSQL's already-parsed policy
+// expression. Quoted literal bytes remain exact; identifier case is folded like
+// unquoted PostgreSQL identifiers. The result is compared against a closed
+// allowlist above, so retaining any extra SQL token causes rejection.
+func normalizeTenantPolicyExpression(expr string) (string, bool) {
+	var out strings.Builder
+	out.Grow(len(expr))
+	inLiteral := false
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+		if ch == '\'' {
+			out.WriteByte(ch)
+			if inLiteral && i+1 < len(expr) && expr[i+1] == '\'' {
+				out.WriteByte(expr[i+1])
+				i++
+				continue
+			}
+			inLiteral = !inLiteral
+			continue
+		}
+		if inLiteral {
+			out.WriteByte(ch)
+			continue
+		}
+		switch ch {
+		case ' ', '\t', '\r', '\n', '(', ')':
+			continue
+		default:
+			if ch >= 'A' && ch <= 'Z' {
+				ch += 'a' - 'A'
+			}
+			out.WriteByte(ch)
+		}
+	}
+	return out.String(), !inLiteral
 }
 
 // profileCountQuerier is the minimal surface AssertDeploymentProfilePosture

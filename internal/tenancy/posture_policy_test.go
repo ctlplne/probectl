@@ -9,16 +9,58 @@ package tenancy
 import "testing"
 
 func TestStrictTenantPolicyExpression(t *testing.T) {
-	strict := "(tenant_id = (NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text))::uuid)"
-	failOpen := "((NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text) IS NULL) OR (tenant_id = (NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text))::uuid))"
+	tests := []struct {
+		name string
+		expr *string
+		want bool
+	}{
+		{
+			name: "postgres canonical strict equality",
+			expr: policyExpr("(tenant_id = (NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text))::uuid)"),
+			want: true,
+		},
+		{
+			name: "migration source strict equality",
+			expr: policyExpr(" TENANT_ID = NULLIF(current_setting('probectl.tenant_id', true), '')::UUID "),
+			want: true,
+		},
+		{
+			name: "missing",
+			expr: nil,
+		},
+		{
+			name: "old unset GUC OR",
+			expr: policyExpr("((NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text) IS NULL) OR (tenant_id = (NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text))::uuid))"),
+		},
+		{
+			name: "coalesce unset GUC to row tenant",
+			expr: policyExpr("tenant_id = COALESCE(NULLIF(current_setting('probectl.tenant_id', true), '')::uuid, tenant_id)"),
+		},
+		{
+			name: "tautology whenever any tenant is set",
+			expr: policyExpr("tenant_id = tenant_id AND current_setting('probectl.tenant_id', true) IS NOT NULL"),
+		},
+		{
+			name: "extra conjunct",
+			expr: policyExpr("tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid AND true"),
+		},
+		{
+			name: "wrong setting",
+			expr: policyExpr("tenant_id = NULLIF(current_setting('probectl.other_tenant_id', true), '')::uuid"),
+		},
+		{
+			name: "unterminated literal",
+			expr: policyExpr("tenant_id = current_setting('probectl.tenant_id, true)::uuid"),
+		},
+	}
 
-	if !strictTenantPolicyExpression(&strict) {
-		t.Fatal("strict tenant equality was rejected")
-	}
-	if strictTenantPolicyExpression(&failOpen) {
-		t.Fatal("unset-GUC allow-all expression was accepted")
-	}
-	if strictTenantPolicyExpression(nil) {
-		t.Fatal("missing policy expression was accepted")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := strictTenantPolicyExpression(tc.expr); got != tc.want {
+				t.Fatalf("strictTenantPolicyExpression(%v) = %t, want %t", tc.expr, got, tc.want)
+			}
+		})
 	}
 }
+
+func policyExpr(expr string) *string { return &expr }

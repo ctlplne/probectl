@@ -133,3 +133,86 @@ func TestAssertIsolationPostureCoversSiloedSchema(t *testing.T) {
 		t.Fatalf("posture error must name the schema-qualified silo offender, got %v", err)
 	}
 }
+
+// TENANT-cff7c9e6: policy semantics are a storage boundary, not a keyword
+// convention. These two valid PostgreSQL policies evade a lexical "contains
+// tenant_id" check while exposing both tenant fixtures either when the GUC is
+// unset or whenever any tenant is selected. Each mutation lives in a rolled-back
+// transaction; the real boot posture must identify the policy and refuse start.
+func TestAssertIsolationPostureRejectsAlternateFailOpenPolicies(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	fixture := seedPreTenantAuthFixture(ctx, t, pool)
+
+	tests := []struct {
+		name       string
+		expression string
+		tenantGUC  string
+	}{
+		{
+			name:       "unset GUC coalesces to each row tenant",
+			expression: `tenant_id = COALESCE(NULLIF(current_setting('probectl.tenant_id', true), '')::uuid, tenant_id)`,
+		},
+		{
+			name:       "any set GUC enables row tautology",
+			expression: `tenant_id = tenant_id AND current_setting('probectl.tenant_id', true) IS NOT NULL`,
+			tenantGUC:  fixture.tenantA,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conn, err := pool.Acquire(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Release()
+
+			tx, err := conn.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+
+			if _, err := tx.Exec(ctx, `DROP POLICY tenant_isolation ON mcp_tokens`); err != nil {
+				t.Fatalf("drop strict policy: %v", err)
+			}
+			if _, err := tx.Exec(ctx,
+				`CREATE POLICY tenant_isolation ON mcp_tokens
+				   FOR ALL TO probectl_app
+				   USING (`+tc.expression+`)
+				   WITH CHECK (`+tc.expression+`)`); err != nil {
+				t.Fatalf("install unsafe policy fixture: %v", err)
+			}
+			if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+tenancy.AppRole); err != nil {
+				t.Fatalf("assume app role: %v", err)
+			}
+			if tc.tenantGUC != "" {
+				if _, err := tx.Exec(ctx,
+					`SELECT set_config('probectl.tenant_id', $1, true)`, tc.tenantGUC); err != nil {
+					t.Fatalf("set tenant GUC: %v", err)
+				}
+			}
+
+			// Prove this is not a cosmetic alternate spelling: the injected
+			// policy exposes both tenants' token rows to one app-role query.
+			var visible int
+			if err := tx.QueryRow(ctx,
+				`SELECT count(*) FROM mcp_tokens
+				  WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+				fixture.tenantA, fixture.tenantB).Scan(&visible); err != nil {
+				t.Fatalf("probe unsafe policy: %v", err)
+			}
+			if visible != 2 {
+				t.Fatalf("unsafe policy fixture exposed %d tenant rows, want 2 to prove regression reachability", visible)
+			}
+
+			err = tenancy.AssertPostureTx(ctx, tx)
+			if err == nil || !strings.Contains(err.Error(), "non-strict application policies") ||
+				!strings.Contains(err.Error(), "mcp_tokens.tenant_isolation") {
+				t.Fatalf("boot posture accepted fail-open two-tenant policy: %v", err)
+			}
+		})
+	}
+}
