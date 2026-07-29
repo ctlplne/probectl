@@ -57,7 +57,8 @@ Verification you ran, not verification you described.
 - **action-pins** — every GitHub Action is pinned to a commit SHA, not a moving
   tag, so a hijacked upstream action can't slip in; a second pass
   (`scripts/check_supply_pins.sh`) rejects `:latest` image tags and unpinned
-  tool installs anywhere in the workflows (supply-chain).
+  tool installs, and requires literal digests for scalar/nested job containers,
+  service images, and matrix image values in the workflows (supply-chain).
 - **secret-scan** — gitleaks, a scanner that pattern-matches every reachable
   git commit for anything _shaped_ like a credential (tokens, private keys,
   `key=value` passwords): nothing secret-shaped can be committed and then

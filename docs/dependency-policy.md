@@ -67,9 +67,10 @@ The supply-pins gate (`scripts/check_supply_pins.sh`, run by the `action-pins`
 job) is the backstop that mechanically fails the build on a floating reference:
 a `:latest` image ref anywhere under `deploy/`, a tag-only (non-digest) `image:`
 or camelCase `<name>Image:` value under `deploy/helm` (e.g. the privileged agent
-`installerImage:`), a tag-only `container:` job image in `.github/workflows`, a
-tag-only Dockerfile `# syntax=docker/dockerfile` frontend, a `go install` in CI
-or the `Makefile` without an exact `@vX.Y.Z`, or a
+`installerImage:`), a mutable scalar or nested job container, service, or matrix
+`image:` value in `.github/workflows` (unresolved image expressions fail closed),
+a tag-only Dockerfile `# syntax=docker/dockerfile` frontend, a `go install` in
+CI or the `Makefile` without an exact `@vX.Y.Z`, or a
 `pip install` without exact `==` pins, `--require-hashes`, or `--no-deps`. It
 also checks the direct npm manifests and the analyzer `pyproject.toml` for
 range syntax (`^`, `~`, `>=`, and friends), because a lockfile pins resolved

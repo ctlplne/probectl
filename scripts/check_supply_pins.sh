@@ -84,6 +84,41 @@ helm_control_image_contract_is_mutable() {
   return 1
 }
 
+workflow_image_records() {
+  local root="$1"
+
+  grep -rnE '^[[:space:]]*(-[[:space:]]+)?(container|image):[[:space:]]*[^[:space:]]' \
+    "$root" --include='*.yml' --include='*.yaml' || true
+}
+
+workflow_image_record_is_mutable() {
+  local record="$1"
+  local code
+  local val
+
+  code="${record#*:}"
+  code="${code#*:}"
+  code="${code#"${code%%[![:space:]]*}"}"
+  if [[ "$code" == -* ]]; then
+    code="${code#-}"
+    code="${code#"${code%%[![:space:]]*}"}"
+  fi
+  case "$code" in
+    container:*) val="${code#container:}" ;;
+    image:*) val="${code#image:}" ;;
+    *) return 1 ;;
+  esac
+  val="${val%%#*}"
+  val="$(echo "$val" | tr -d '[:space:]"'\''')"
+
+  [[ -z "$val" ]] && return 1
+  echo "$val" | grep -Eq '@sha256:[0-9a-fA-F]{64}$' && return 1
+  # Expressions and aliases are deliberately rejected. Without a YAML data-flow
+  # parser the gate cannot prove their eventual value is immutable, so it fails
+  # closed and asks the workflow author to place the digest at the execution site.
+  return 0
+}
+
 if [[ "${1:-}" == "SELFTEST" ]]; then
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   echo 'image: ghcr.io/x/y:latest' > "$tmp/bad.yml"
@@ -150,6 +185,56 @@ YAML
   line='container: mcr.microsoft.com/playwright:v1.55.1-noble'; val="${line#*container:}"; val="$(echo "$val" | tr -d '[:space:]')"
   if echo "$val" | grep -q '@sha256:'; then echo "SELFTEST broken (container extract)"; exit 1; fi
   echo "$val" | grep -q ':' || { echo "SELFTEST broken (container tag)"; exit 1; }
+  cat > "$tmp/workflow-images.yml" <<'YAML'
+jobs:
+  scalar:
+    container: registry.example/scalar:v1.2.3
+  nested:
+    container:
+      image: registry.example/nested:v1.2.3
+  service:
+    services:
+      postgres:
+        image: postgres:16
+  matrix:
+    strategy:
+      matrix:
+        include:
+          - image: registry.example/kernel:6.6
+    container: ${{ matrix.image }}
+YAML
+  mutable_workflow_images=0
+  while IFS= read -r record; do
+    workflow_image_record_is_mutable "$record" &&
+      mutable_workflow_images=$((mutable_workflow_images + 1))
+  done < <(workflow_image_records "$tmp/workflow-images.yml")
+  if [[ "$mutable_workflow_images" -ne 5 ]]; then
+    echo "SELFTEST broken (scalar/nested/service/matrix/indirect workflow images escaped: caught ${mutable_workflow_images}, want 5)"
+    exit 1
+  fi
+  cat > "$tmp/workflow-images-pinned.yml" <<'YAML'
+jobs:
+  scalar:
+    container: registry.example/scalar@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  nested:
+    container:
+      image: registry.example/nested@sha256:1111111111111111111111111111111111111111111111111111111111111111
+  service:
+    services:
+      postgres:
+        image: postgres@sha256:2222222222222222222222222222222222222222222222222222222222222222
+  matrix:
+    strategy:
+      matrix:
+        include:
+          - image: registry.example/kernel@sha256:3333333333333333333333333333333333333333333333333333333333333333
+YAML
+  while IFS= read -r record; do
+    if workflow_image_record_is_mutable "$record"; then
+      echo "SELFTEST broken (digest-pinned workflow image rejected: ${record})"
+      exit 1
+    fi
+  done < <(workflow_image_records "$tmp/workflow-images-pinned.yml")
   # SUPPLY-001: a production Compose PROBECTL_IMAGE default that is tag-only is
   # still mutable even when it is not :latest.
   cat > "$tmp/probectl.yml" <<'YAML'
@@ -401,27 +486,20 @@ while IFS= read -r line; do
   fail=1
 done < <(grep -rnE '[A-Za-z]+Image:' deploy/helm --include='*.yaml' --include='*.yml' | grep -v '^\s*#' || true)
 
-# 7) SUPPLY-002: CI `container:` job images run outside the deploy/ scan. A
-#    tag-only `container:` (e.g. the Playwright browser-worker) is a mutable
-#    input — a pin-gate blind-spot. Require a digest pin on every concrete
-#    `container:` image value in the workflows (string form; the nested mapping
-#    form `container:\n  image:` is left for a future deploy-style scan).
+# 7) SUPPLY-002: workflow job containers, nested container.image mappings,
+#    service images, and matrix image values all execute registry content outside
+#    the deploy/ scan. Require a literal digest for every scalar `container:` and
+#    every concrete `image:` value. Unresolved expressions fail closed.
 while IFS= read -r line; do
-  echo "$line" | grep -q 'tag-only-ok' && continue
-  val="${line#*container:}"; val="${val%%#*}"          # value after container:, drop comment
-  val="$(echo "$val" | tr -d '[:space:]"'\''')"        # strip ws + quotes
-  [[ -z "$val" ]] && continue                          # mapping form / empty — skip
-  echo "$val" | grep -q '{{' && continue               # ${{ }} expression
-  echo "$val" | grep -q '@sha256:' && continue         # digest-pinned — good
-  echo "$val" | grep -q ':' || continue                # no tag (rare); skip
-  echo "TAG-ONLY container: image in workflows (digest-pin it; SUPPLY-002):"
+  workflow_image_record_is_mutable "$line" || continue
+  echo "MUTABLE workflow container/service/matrix image (use a literal @sha256 digest; SUPPLY-002):"
   echo "  $line"
   fail=1
-done < <(grep -rnE '^[[:space:]]*container:[[:space:]]*[^[:space:]]' .github/workflows --include='*.yml' --include='*.yaml' | grep -v '^\s*#' || true)
+done < <(workflow_image_records .github/workflows)
 
 if [[ $fail -ne 0 ]]; then
   echo
   echo "supply-pins gate FAILED — pin the inputs above (docs/dependency-policy.md)."
   exit 1
 fi
-echo "supply-pins gate: OK (no :latest, no unpinned installs/manifests, immutable primary Helm control image, no tag-only helm/container/BuildKit frontend image)"
+echo "supply-pins gate: OK (no :latest, no unpinned installs/manifests, immutable Helm/workflow/BuildKit images)"
