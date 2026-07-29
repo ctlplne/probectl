@@ -1,6 +1,8 @@
 # LARGE reference values — autoscaled production / provider scale.
 #
-#   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-large.yaml ...
+#   helm install probectl deploy/helm/probectl \
+#     -f deploy/helm/probectl/values-large.yaml \
+#     --set-string image.digest='sha256:<release-digest>' ...
 #
 # HPA-driven scaling (4–12), a PDB, strict node spread, and NetworkPolicy ON
 # (default-deny with an allow-all-egress baseline — tighten egressTo to the exact

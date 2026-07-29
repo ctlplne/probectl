@@ -60,8 +60,10 @@ key and a session-HMAC key (no default credentials), and is HTTPS-by-default.
 kubectl apply -f deploy/gitops/argocd/application.yaml
 ```
 
-Edit `repoURL`, `valueFiles` (the size profile), and the `ingress.host` /
-`secrets.existingSecret` parameters. `syncPolicy.automated` with `prune`
+Edit `repoURL`, `valueFiles` (the size profile), `ingress.host`,
+`secrets.existingSecret`, and `image.digest`. Replace the deliberately invalid
+digest placeholder with the signed release or approved-mirror digest before
+syncing. `syncPolicy.automated` with `prune`
 (delete cluster objects whose manifests left Git) +
 `selfHeal` (revert out-of-band edits) makes the cluster self-correcting;
 `CreateNamespace=true` and
@@ -75,10 +77,11 @@ kubectl apply -f deploy/gitops/flux/helmrelease.yaml
 ```
 
 Edit the GitRepository `url` (Flux's pointer to the repo it watches) and the
-HelmRelease `values` (the declared chart install; or `valuesFrom` a
-ConfigMap holding a full size profile). `install.createNamespace` and the
-upgrade/install `remediation.retries` give automatic rollback on a failed
-reconcile.
+HelmRelease `values`, including replacing the deliberately invalid
+`image.digest` placeholder with the signed release or approved-mirror digest
+(or use `valuesFrom` with a ConfigMap holding a full size profile).
+`install.createNamespace` and the upgrade/install `remediation.retries` give
+automatic rollback on a failed reconcile.
 
 ## Stand-up
 

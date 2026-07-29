@@ -58,6 +58,32 @@ go_install_record_is_unpinned() {
   return 1
 }
 
+helm_control_image_contract_is_mutable() {
+  local helper="$1"
+  local values="$2"
+  local schema="$3"
+  local primary_values primary_schema
+
+  primary_values="$(awk '
+    /^image:$/ { capture=1; next }
+    capture && /^[^[:space:]]/ { exit }
+    capture { print }
+  ' "$values")"
+  primary_schema="$(sed -n '1,24p' "$schema")"
+
+  grep -Fq '.Values.image.tag' "$helper" && return 0
+  grep -Eq '^[[:space:]]*tag:' <<<"$primary_values" && return 0
+  grep -Fq '"tag"' <<<"$primary_schema" && return 0
+
+  grep -Fq '.Values.image.digest' "$helper" || return 0
+  grep -Fq 'required "image.digest is required' "$helper" || return 0
+  grep -Fq 'printf "%s@%s"' "$helper" || return 0
+  grep -Eq '^[[:space:]]*digest:' <<<"$primary_values" || return 0
+  grep -Fq '"digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }' <<<"$primary_schema" || return 0
+  grep -Fq '"required": ["repository", "digest", "pullPolicy"]' <<<"$primary_schema" || return 0
+  return 1
+}
+
 if [[ "${1:-}" == "SELFTEST" ]]; then
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   echo 'image: ghcr.io/x/y:latest' > "$tmp/bad.yml"
@@ -132,6 +158,50 @@ services:
     image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:v0.4.0}
 YAML
   if grep -oE '\$\{PROBECTL_IMAGE:-[^}]+' "$tmp/probectl.yml" | sed 's/.*:-//' | awk 'index($0,"@sha256:")==0 { bad=1 } END { exit bad ? 0 : 1 }'; then :; else echo "SELFTEST broken (compose tag default)"; exit 1; fi
+  cat > "$tmp/bad-helper.tpl" <<'TPL'
+{{- define "probectl.image" -}}
+{{- printf "%s:%s" .Values.image.repository .Values.image.tag -}}
+{{- end -}}
+TPL
+  cat > "$tmp/bad-values.yaml" <<'YAML'
+image:
+  repository: ghcr.io/example/control
+  tag: "1.2.3"
+  pullPolicy: IfNotPresent
+YAML
+  cat > "$tmp/bad-schema.json" <<'JSON'
+{"properties":{"image":{"properties":{"tag":{"type":"string"}}}}}
+JSON
+  helm_control_image_contract_is_mutable "$tmp/bad-helper.tpl" "$tmp/bad-values.yaml" "$tmp/bad-schema.json" \
+    || { echo "SELFTEST broken (tag-only primary Helm image accepted)"; exit 1; }
+  cat > "$tmp/good-helper.tpl" <<'TPL'
+{{- define "probectl.image" -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository $digest -}}
+{{- end -}}
+TPL
+  cat > "$tmp/good-values.yaml" <<'YAML'
+image:
+  repository: ghcr.io/example/control
+  digest: ""
+  pullPolicy: IfNotPresent
+YAML
+  cat > "$tmp/good-schema.json" <<'JSON'
+{
+  "properties": {
+    "image": {
+      "properties": {
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "required": ["repository", "digest", "pullPolicy"]
+    }
+  }
+}
+JSON
+  if helm_control_image_contract_is_mutable "$tmp/good-helper.tpl" "$tmp/good-values.yaml" "$tmp/good-schema.json"; then
+    echo "SELFTEST broken (digest-pinned primary Helm image rejected)"
+    exit 1
+  fi
   echo "supply-pins SELFTEST: OK"
   exit 0
 fi
@@ -301,6 +371,18 @@ while IFS= read -r line; do
   fail=1
 done < <(grep -rn 'image:' deploy/helm --include='*.yaml' --include='*.yml' | grep -v '^\s*#' || true)
 
+# 5b) The primary control image is templated, so the concrete-image scan above
+#     deliberately skips it. Validate its helper, values, and schema together:
+#     ordinary tags must not be an input, and the rendered form must be
+#     repository@sha256:digest.
+if helm_control_image_contract_is_mutable \
+  deploy/helm/probectl/templates/_helpers.tpl \
+  deploy/helm/probectl/values.yaml \
+  deploy/helm/probectl/values.schema.json; then
+  echo "MUTABLE primary Helm control image contract (require image.digest and render repository@sha256; SUPPLY-deb3c967)"
+  fail=1
+fi
+
 # 6) SUPPLY-003: camelCase image keys under deploy/helm — e.g. `installerImage:`
 #    (capital-I 'Image') — slip past the case-sensitive `image:` scan in (5).
 #    The agent seccomp-installer runs a PRIVILEGED initContainer on every node,
@@ -342,4 +424,4 @@ if [[ $fail -ne 0 ]]; then
   echo "supply-pins gate FAILED — pin the inputs above (docs/dependency-policy.md)."
   exit 1
 fi
-echo "supply-pins gate: OK (no :latest, no unpinned installs/manifests, no tag-only helm/container/BuildKit frontend image)"
+echo "supply-pins gate: OK (no :latest, no unpinned installs/manifests, immutable primary Helm control image, no tag-only helm/container/BuildKit frontend image)"

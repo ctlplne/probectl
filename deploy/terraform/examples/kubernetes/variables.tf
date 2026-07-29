@@ -21,6 +21,16 @@ variable "ingress_tls_secret" {
   default     = "probectl-tls"
 }
 
+variable "image_digest" {
+  description = "Signed probectl-control release digest: sha256 followed by 64 lowercase hex characters."
+  type        = string
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.image_digest))
+    error_message = "image_digest must be sha256 followed by exactly 64 lowercase hexadecimal characters."
+  }
+}
+
 variable "database_url" {
   description = "Postgres DSN (use sslmode=require)."
   type        = string

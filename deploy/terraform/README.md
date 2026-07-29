@@ -64,7 +64,9 @@ catalogs which agent produces which data plane.
 | `release_name` | string | `probectl` | Helm release name |
 | `namespace` / `create_namespace` | string / bool | `probectl` / `true` | target namespace |
 | `ingress_tls_secret` | string | `probectl-tls` | TLS Secret reused by the ingress and HTTPS control listener |
-| `image_repository` / `image_tag` | string | `""` | image overrides |
+| `image_repository` | string | `""` | optional approved-mirror repository override |
+| `image_digest` | string | `""` (fails precondition) | required signed control image digest, `sha256:<64 lowercase hex>` |
+| `image_tag` | string | `""` | deprecated compatibility input; accepts only `<version>@sha256:<digest>` and passes only the digest |
 | `oidc_issuer` / `oidc_client_id` / `oidc_client_secret` / `oidc_redirect_url` | string | `""` | SSO config (secret goes to the Secret, not the ConfigMap) |
 | `values_files` | list(string) | `[]` | extra values files applied after the size preset |
 | `set_values` | map(string) | `{}` | extra Helm `--set` overrides |

@@ -73,10 +73,26 @@ variable "image_repository" {
   default     = ""
 }
 
-variable "image_tag" {
-  description = "Override the control-plane image tag (empty = chart appVersion)."
+variable "image_digest" {
+  description = "Immutable sha256 digest for the signed control-plane release or approved mirror."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.image_digest == "" || can(regex("^sha256:[0-9a-f]{64}$", var.image_digest))
+    error_message = "image_digest must be empty or sha256 followed by exactly 64 lowercase hexadecimal characters."
+  }
+}
+
+variable "image_tag" {
+  description = "DEPRECATED compatibility input. When used, it must be <version>@sha256:<64 lowercase hex>; the module passes only the digest to Helm."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.image_tag == "" || can(regex("^[^@]+@sha256:[0-9a-f]{64}$", var.image_tag))
+    error_message = "image_tag is deprecated and accepts only <version>@sha256:<64 lowercase hex>; prefer image_digest."
+  }
 }
 
 variable "database_url" {

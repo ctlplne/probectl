@@ -32,10 +32,13 @@ app.kubernetes.io/name: {{ include "probectl.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{/* The image reference (tag falls back to appVersion). */}}
+{{/* The immutable control-plane image reference. */}}
 {{- define "probectl.image" -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
-{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- $digest := required "image.digest is required: use the sha256 digest from the signed release or approved mirror" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be sha256 followed by exactly 64 lowercase hexadecimal characters" -}}
+{{- end -}}
+{{- printf "%s@%s" .Values.image.repository $digest -}}
 {{- end -}}
 
 {{/* The Secret name to read sensitive env from. */}}

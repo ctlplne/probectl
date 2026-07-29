@@ -8,6 +8,9 @@ locals {
   # The size preset's values file (when chart is a local path) + any extra files.
   size_values  = var.size == "" ? [] : [file("${var.chart}/values-${var.size}.yaml")]
   values_files = concat(local.size_values, [for f in var.values_files : file(f)])
+  # image_tag is a deprecated compatibility input. It accepts only the historic
+  # <version>@sha256:<digest> form, then discards the mutable display tag.
+  image_digest = var.image_digest != "" ? var.image_digest : try(split("@", var.image_tag)[1], "")
 
   # secrets.existingSecret keys mirror the chart's Secret template.
   secret_data = merge(
@@ -22,13 +25,13 @@ locals {
   # Non-sensitive Helm overrides.
   base_set = merge(
     {
-      "ingress.host"                  = var.ingress_host
-      "ingress.tlsSecretName"         = var.ingress_tls_secret
+      "ingress.host"               = var.ingress_host
+      "ingress.tlsSecretName"      = var.ingress_tls_secret
       "control.tls.existingSecret" = var.ingress_tls_secret
-      "secrets.existingSecret"        = kubernetes_secret.probectl.metadata[0].name
+      "image.digest"               = local.image_digest
+      "secrets.existingSecret"     = kubernetes_secret.probectl.metadata[0].name
     },
     var.image_repository == "" ? {} : { "image.repository" = var.image_repository },
-    var.image_tag == "" ? {} : { "image.tag" = var.image_tag },
     var.oidc_issuer == "" ? {} : {
       "oidc.issuer"      = var.oidc_issuer
       "oidc.clientId"    = var.oidc_client_id
@@ -84,4 +87,11 @@ resource "helm_release" "probectl" {
   cleanup_on_fail = true
 
   depends_on = [kubernetes_secret.probectl]
+
+  lifecycle {
+    precondition {
+      condition     = local.image_digest != ""
+      error_message = "Set image_digest to the signed sha256 release digest (legacy image_tag is accepted only as <version>@sha256:<digest>)."
+    }
+  }
 }

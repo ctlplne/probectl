@@ -97,9 +97,9 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
 - An auto-generated **release notes** entry on the GitHub Release.
 
 Image tags follow `ghcr.io/imfeelingtheagi/probectl-control:<version>` (and
-`:latest`). **Pin the exact version in production deploys** — compose
-`PROBECTL_IMAGE`, Helm `image.tag` — and digest-pin for full immutability (see
-[`dependency-policy.md`](dependency-policy.md)).
+`:latest`) for discovery. Production deploys use immutable references: Compose
+requires digest-pinned `PROBECTL_IMAGE`, and Helm requires the signed digest in
+`image.digest` (see [`dependency-policy.md`](dependency-policy.md)).
 GHCR package visibility is an operator-facing install contract, not something
 Compose can repair at startup: if a release image is not public, the install docs
 must say to authenticate (`docker login ghcr.io` with `read:packages`) or use a

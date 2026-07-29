@@ -17,6 +17,8 @@ SESSION_KEY="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 # Throwaway name only: Helm checks that an operator-owned TLS Secret is named;
 # Kubernetes resolves the actual Secret at install time.
 CONTROL_TLS_SECRET="probectl-control-tls"
+# Throwaway immutable digest for render-only tests.
+CONTROL_IMAGE_DIGEST="sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 fail() {
   echo "helm hardening gate: FAIL — $*" >&2
@@ -28,6 +30,7 @@ render() {
     --set ingress.host=h.example.com \
     --set ingress.tlsSecretName=probectl-tls \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+    --set image.digest="$CONTROL_IMAGE_DIGEST" \
     --set secrets.envelopeKey="$KEY" \
     --set secrets.sessionHMACKey="$SESSION_KEY" \
     --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
@@ -47,6 +50,21 @@ render_agent() {
 need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
 need_fixed() { grep -Fq -- "$1" <<<"$2" || fail "$3"; }
 need_file() { grep -q -- "$1" "$2" || fail "$3"; }
+
+need_digest_pinned_control_images() {
+  local label="$1"
+  local body="$2"
+  local minimum="$3"
+  local refs count
+
+  refs="$(grep -E '^[[:space:]]*image: ghcr.io/imfeelingtheagi/probectl-control' <<<"$body" || true)"
+  count="$(grep -c . <<<"$refs" || true)"
+  [ "$count" -ge "$minimum" ] \
+    || fail "$label rendered $count primary control image references; expected at least $minimum"
+  if grep -vF "@$CONTROL_IMAGE_DIGEST" <<<"$refs" >/dev/null; then
+    fail "$label rendered a non-digest primary control image (SUPPLY-deb3c967)"
+  fi
+}
 
 control_stager_blocks() {
   awk '
@@ -121,7 +139,9 @@ fi
 need_file "PROBECTL_HELM_TEST_ENVELOPE_KEY" "$CI_WORKFLOW" "CI kubeconform render must set the dummy envelope key (OPS-003)"
 need_file "PROBECTL_HELM_TEST_SESSION_HMAC_KEY" "$CI_WORKFLOW" "CI kubeconform render must set the dummy session-HMAC key (OPS-003)"
 need_file "PROBECTL_HELM_TEST_DATABASE_URL" "$CI_WORKFLOW" "CI kubeconform render must set the dummy database URL (OPS-003)"
+need_file "PROBECTL_HELM_TEST_IMAGE_DIGEST" "$CI_WORKFLOW" "CI kubeconform render must set the immutable control image digest (SUPPLY-deb3c967)"
 need_file "control.tls.existingSecret" "$CI_WORKFLOW" "CI kubeconform render must name the required control-listener TLS Secret (CONFIG-aa08042e)"
+need_file "image.digest" "$CI_WORKFLOW" "CI kubeconform render must pass image.digest to Helm (SUPPLY-deb3c967)"
 need_file "secrets.sessionHMACKey" "$CI_WORKFLOW" "CI kubeconform render must pass secrets.sessionHMACKey to helm template (OPS-003)"
 need_file "database.url" "$CI_WORKFLOW" "CI kubeconform render must pass database.url to helm template (OPS-003)"
 
@@ -190,7 +210,8 @@ need_file "apiVersion: probectl.io/ebpf-agent/v1" "test/e2e/e2e_test.go" "e2e fi
 #    existingSecret) must FAIL closed.
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
-  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" >/dev/null 2>&1; then
+  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" >/dev/null 2>&1; then
   fail "chart rendered with no secrets.envelopeKey — that would be a default credential"
 fi
 
@@ -200,6 +221,7 @@ fi
 #     start or expose a plaintext fallback.
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
   --set secrets.sessionHMACKey="$SESSION_KEY" \
   --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
@@ -213,12 +235,14 @@ fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" >/dev/null 2>&1; then
   fail "chart rendered with no database.url — that would be a blank/default DB credential (OPS-001)"
 fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
   --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
   fail "chart rendered with no secrets.sessionHMACKey — production sessions would lose keyed hashing (KEYS-002/OPS-006)"
@@ -226,6 +250,7 @@ fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
   --set secrets.sessionHMACKey="not-a-32-byte-hex-key" \
   --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
@@ -234,6 +259,7 @@ fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
   --set secrets.sessionHMACKey="$SESSION_KEY" \
   --set database.url="postgres://probectl:probectl@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
@@ -276,6 +302,37 @@ need "PROBECTL_TLS_KEY_FILE" "$base_cm" "default ConfigMap lacks the TLS key pat
 need_fixed "secretName: \"$CONTROL_TLS_SECRET\"" "$base_dep" "default Deployment does not mount the required TLS Secret (CONFIG-aa08042e)"
 need_fixed 'nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"' "$base_ing" "default ingress backend is not HTTPS (CONFIG-aa08042e)"
 need "name: https" "$base_ing" "default ingress does not route to the https Service port (CONFIG-aa08042e)"
+# SUPPLY-deb3c967: migration and server must resolve to the signed digest, while
+# the old tag-only input and malformed digests must fail before rendering.
+need_digest_pinned_control_images "default chart" "$base" 2
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set-string image.tag=0.6.0 \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart rendered a tag-only primary control image (SUPPLY-deb3c967)"
+fi
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
+  --set-string image.tag=0.6.0 \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart accepted obsolete image.tag alongside image.digest; migrate values with --reset-values (SUPPLY-deb3c967)"
+fi
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest=sha256:1234 \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart rendered a malformed primary control image digest (SUPPLY-deb3c967)"
+fi
 # OPS-009: HSTS is delivered by the APPLICATION (PROBECTL_HSTS_ENABLED), not via
 # a configuration-snippet annotation that modern ingress-nginx disables by
 # default. Assert the app-HSTS env is rendered on; and that the ingress does NOT
@@ -293,6 +350,7 @@ grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
   --set secrets.sessionHMACKey="$SESSION_KEY" \
   --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
@@ -381,6 +439,7 @@ if render --set backup.enabled=true >/dev/null 2>&1; then
   fail "chart rendered ClickHouse backup without backup.clickhouse.encryptedTargetAck (RED-004)"
 fi
 backup_render="$(render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target)"
+need_digest_pinned_control_images "backup chart" "$backup_render" 5
 need "kind: CronJob" "$backup_render" "backup.enabled=true must render the backup CronJobs (OPS-009)"
 if [ "$(grep -c '^kind: CronJob$' <<<"$backup_render")" -ne 3 ]; then
   fail "backup.enabled=true must render exactly three backup CronJobs (Postgres + ClickHouse + object store, H8)"
@@ -431,6 +490,7 @@ restore_render="$(render \
   --set restore.backupFile=postgres-probectl-test.dump.pbk \
   --set restore.clickhouse.enabled=true \
   --set restore.clickhouse.backupFile=clickhouse-probectl-test.zip.pbk)"
+need_digest_pinned_control_images "restore chart" "$restore_render" 4
 need_shellless_control_stagers "restore Jobs" "$restore_render" 2
 if [ "$(grep -F -c 'args: ["stage-binary", "/shared/probectl-control"]' <<<"$restore_render" || true)" -ne 1 ]; then
   fail "Postgres restore must stage /shared/probectl-control"
@@ -465,6 +525,7 @@ if helm template probectl "$CHART" -f "$CHART/values-multitenant.yaml" \
   --set ingress.host=h.example.com \
   --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
   --set secrets.sessionHMACKey="$SESSION_KEY" \
   --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=disable" >/dev/null 2>&1; then
@@ -497,6 +558,7 @@ for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
   helm lint "$CHART" -f "$CHART/$f" \
     --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+    --set image.digest="$CONTROL_IMAGE_DIGEST" \
     --set secrets.envelopeKey="$KEY" \
     --set secrets.sessionHMACKey="$SESSION_KEY" \
     --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \

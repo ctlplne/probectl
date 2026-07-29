@@ -39,6 +39,7 @@ helm install probectl deploy/helm/probectl \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret=probectl-tls \
+  --set-string image.digest='sha256:<release-digest>' \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
   --set secrets.envelopeKey="$(openssl rand -base64 32)" \
   --set control.authMode=session \
@@ -50,6 +51,15 @@ helm install probectl deploy/helm/probectl \
 Provide TLS material via cert-manager (add the issuer annotation in
 `ingress.annotations`) or a pre-created Secret containing `tls.crt` and
 `tls.key`. The example deliberately reuses it for ingress and pod TLS.
+Set `image.digest` to the signed `probectl-control` release digest (or the exact
+digest of an approved mirror); the chart rejects ordinary tags.
+
+When upgrading from a chart that used `image.tag`, remove that key from the
+operator-owned values file and do not use `--reuse-values`: it would carry the
+obsolete key into schema validation. Use `helm upgrade --reset-values`, reapply
+the complete reviewed values/Secret references, and set the digest as shown
+above. A release that still supplies `image.tag` fails closed even when it also
+supplies a digest.
 
 > A green `/readyz` is not "done" — **data on screen is**. A control plane with
 > no agents shows empty dashboards. Continue with
@@ -66,6 +76,7 @@ helm install probectl deploy/helm/probectl \
   --set ingress.host=probectl.msp.example.com \
   --set ingress.tlsSecretName=probectl-msp-tls \
   --set control.tls.existingSecret=probectl-msp-tls \
+  --set-string image.digest='sha256:<release-digest>' \
   --set database.url=... --set secrets.envelopeKey="$(openssl rand -base64 32)" \
   --set oidc.issuer=... --set oidc.clientId=... --set oidc.clientSecret=... \
   --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm \
@@ -219,8 +230,9 @@ Pick a sizing profile and layer your overrides on top:
 
 `values.schema.json` types every key (Helm validates it). The security defaults
 (non-root pinned uid, read-only root FS, drop-ALL caps, NetworkPolicy/PDB/HPA,
-`/readyz` drain probe, HTTPS listener, HSTS, no default credentials — the chart
-refuses to render without a TLS Secret, envelope key, and session-HMAC key) are
+`/readyz` drain probe, HTTPS listener, HSTS, no default credentials, immutable
+control image — the chart refuses to render without a TLS Secret, image digest,
+envelope key, and session-HMAC key) are
 enforced by `make helm-gate`, which runs
 [`scripts/check_helm_hardening.sh`](../../scripts/check_helm_hardening.sh):
 hardening assertions against the rendered default / medium / large /

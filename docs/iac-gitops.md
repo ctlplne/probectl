@@ -94,6 +94,7 @@ regulated/hardened profile the gate renders) and `values-multiregion.yaml`
 helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-medium.yaml \
   --set ingress.host=probectl.example.com --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret=probectl-tls \
+  --set-string image.digest='sha256:<release-digest>' \
   --set secrets.envelopeKey="$(openssl rand -base64 32)"
 ```
 
@@ -108,7 +109,9 @@ your overlay, point Terraform or Argo/Flux at it, and the cluster converges to i
 
 `deploy/terraform/modules/probectl` deploys the chart **plus** a Kubernetes
 Secret for the sensitive config — so credentials never land in the ConfigMap or
-release values. It's cloud-agnostic: point the providers at any kubeconfig. The
+release values. It requires `image_digest`; the deprecated `image_tag` input is
+accepted only in `<version>@sha256:<digest>` form and discards the mutable tag.
+It's cloud-agnostic: point the providers at any kubeconfig. The
 module interface (inputs / outputs / secret handling) is documented in
 [deploy/terraform/README.md](../deploy/terraform/README.md). The native
 `terraform-provider-probectl` then manages tests, alert routes, Provider/MSP
@@ -129,7 +132,9 @@ Flux `GitRepository` + `HelmRelease` (`flux/`). Both reference
 forever, so a secret must never enter it. Manage that Secret
 with **Sealed Secrets** or the **External Secrets Operator** (both keep only an
 encrypted or referenced form in Git; a cluster-side controller materializes the
-real value). ArgoCD `automated`
+real value). Replace each manifest's invalid `image.digest` placeholder with the
+signed release or approved-mirror digest before syncing; leaving it unchanged
+fails Helm validation. ArgoCD `automated`
 sync (`prune` deletes resources removed from Git; `selfHeal` re-applies the
 desired state over hand-edits) and Flux's install/upgrade `remediation.retries`
 together give a self-correcting, auto-rolling-back deployment. See

@@ -4,6 +4,7 @@
 #     -f deploy/helm/probectl/values-multitenant.yaml \
 #     --set ingress.host=probectl.msp.example \
 #     --set control.tls.existingSecret=probectl-msp-tls \
+#     --set-string image.digest='sha256:<release-digest>' \
 #     --set database.url=...
 #
 # Same HTTPS-by-default posture as single-tenant; the difference is scale +

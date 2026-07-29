@@ -48,7 +48,7 @@ strong-copyleft or unknown runtime licenses in the generated inventory.
 | Go modules | exact versions in [`go.mod`](../go.mod), checksums in `go.sum` (verified against the Go checksum database on download) | `go build` fails on any checksum mismatch |
 | Dev / codegen tools (buf, protoc-gen-go / -go-grpc, golangci-lint, govulncheck) | exact versions at the top of the [`Makefile`](../Makefile); installed as Go modules (so they're checksum-verified) — never `@latest`, never a curl-pipe install | the `proto` job's generated-code drift check; the supply-pins gate |
 | GitHub Actions | full commit-SHA pins (not `@v3` tags) | `scripts/check_action_pins.sh` (the `action-pins` CI job) |
-| Container images and Dockerfile frontends (compose, Helm, CI services, `# syntax=`) | digest pins (`@sha256:...`) on infrastructure images and BuildKit frontends; release-tag pins on probectl's own. The optional analyzer runtime uses `python:3.12.10-slim-bookworm@sha256:fd95…88db`. | the supply-pins gate (no `:latest` under `deploy/`, no tag-only Helm/workflow images, no tag-only `docker/dockerfile` frontend) + review + the scheduled security scan |
+| Container images and Dockerfile frontends (compose, Helm, CI services, `# syntax=`) | digest pins (`@sha256:...`) on infrastructure images, probectl production workloads, and BuildKit frontends. The optional analyzer runtime uses `python:3.12.10-slim-bookworm@sha256:fd95…88db`. | the supply-pins gate (including the templated primary Helm image contract), Helm render gate, review, and the scheduled security scan |
 | npm (`web/`, `browser-worker/`) | exact direct versions in `package.json`, resolved integrity records in `package-lock.json`, installed with `npm ci` | the supply-pins gate rejects semver ranges in direct manifests; `npm audit` runs in the `web` and `security-scan` jobs |
 | Go toolchain | the `go` directive in `go.mod` (exact patch), a verified upstream release | see [`build/toolchain.md`](build/toolchain.md) |
 
@@ -213,9 +213,10 @@ discussion first (see [`../CONTRIBUTING.md`](../CONTRIBUTING.md)).
 
 The repo pins what *it* controls; operators should pin what *they* deploy:
 
-- **Images:** the shipped compose and Helm reference a pinned release tag, never
-  `:latest`, and Dockerfiles digest-pin their base images. For maximum
-  immutability, digest-pin the images you deploy:
+- **Images:** shipped production Compose and the primary control-plane Helm
+  chart require digest-pinned workload references; tag-only control images fail
+  closed. Dockerfiles also digest-pin their base images. Resolve the signed
+  release or approved-mirror digest before deployment:
 
   ```sh
   docker inspect --format='{{index .RepoDigests 0}}' <image>

@@ -27,6 +27,9 @@ spec:
         # Operator-managed kubernetes.io/tls Secret; reused for pod-listener TLS.
         - name: control.tls.existingSecret
           value: probectl-tls
+        # Resolve this from the signed release or approved internal mirror.
+        - name: image.digest
+          value: sha256:REPLACE_WITH_64_HEX_RELEASE_DIGEST
         # A Secret you manage out-of-band (envelope key, session HMAC key, DB DSN, OIDC secret).
         - name: secrets.existingSecret
           value: probectl-secrets

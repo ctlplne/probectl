@@ -3,6 +3,7 @@
 #   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-small.yaml \
 #     --set ingress.host=probectl.example.com --set ingress.tlsSecretName=probectl-tls \
 #     --set control.tls.existingSecret=probectl-tls \
+#     --set-string image.digest='sha256:<release-digest>' \
 #     --set secrets.envelopeKey=$(openssl rand -base64 32)
 #
 # One replica, modest resources. Same HTTPS-by-default + hardened pod posture as

@@ -37,6 +37,7 @@ module "probectl" {
   size               = var.size
   ingress_host       = var.ingress_host
   ingress_tls_secret = var.ingress_tls_secret
+  image_digest       = var.image_digest
 
   database_url     = var.database_url
   envelope_key     = var.envelope_key

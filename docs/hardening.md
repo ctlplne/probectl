@@ -386,7 +386,10 @@ where noted "operator action".
       The `multi-tenant`/`regulated` profiles fail closed unless Postgres DSNs
       use `sslmode=require`/`verify-ca`/`verify-full`, ClickHouse URLs are
       `https://`, and Kafka TLS is enabled.
-- [ ] **Operator action:** pin image digests; scan with your supply-chain tooling.
+- [x] Shipped production Compose and Helm control-plane paths require immutable
+      image digests; tag-only references fail before workload start/render.
+- [ ] **Operator action:** verify the release signature or approved mirror
+      provenance and scan the pinned digest with your supply-chain tooling.
 
 ---
 
@@ -436,7 +439,9 @@ lock itself out of an unknown ingress controller. For regulated or air-gapped
 deployments, apply the **strict profile**, which closes both holes:
 
 ```sh
-helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-strict.yaml
+helm install probectl deploy/helm/probectl \
+  -f deploy/helm/probectl/values-strict.yaml \
+  --set-string image.digest='sha256:<release-digest>'
 ```
 
 `values-strict.yaml` is full default-deny: a **named** ingress-controller

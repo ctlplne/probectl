@@ -36,7 +36,7 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
   ```sh
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
   # or:
-  PROBECTL_IMAGE=registry.internal/probectl-control:v0.6.0@sha256:<release-digest>
+  PROBECTL_IMAGE='registry.internal/probectl-control:v0.6.0@sha256:<release-digest>'
   # or build from this checkout:
   docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control -t probectl-control:local .
   PROBECTL_IMAGE=probectl-control:local
@@ -131,6 +131,7 @@ helm install probectl deploy/helm/probectl \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
   --set control.tls.existingSecret=probectl-tls \
+  --set-string image.digest='sha256:<release-digest>' \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
   --set secrets.envelopeKey="$(openssl rand -base64 32)" \
   --set control.authMode=session \
@@ -144,7 +145,10 @@ Provide the TLS Secret via cert-manager (add the issuer to `ingress.annotations`
 or create it first. It must contain `tls.crt` and `tls.key`; the example reuses
 the same host certificate for `ingress.tlsSecretName` and
 `control.tls.existingSecret`. Helm fails closed when the control-listener Secret
-is omitted. For the MSP / provider reference sizing, add
+is omitted. `image.digest` is also required: use the `probectl-control` digest
+whose keyless signature verifies for the release workflow, or the corresponding
+digest in your approved internal mirror. A mutable tag is rejected before any
+workload renders. For the MSP / provider reference sizing, add
 `-f deploy/helm/probectl/values-multitenant.yaml` plus
 the audit WORM/SIEM watermark env vars shown in
 [`deploy/helm/README.md`](../deploy/helm/README.md); provider profiles fail

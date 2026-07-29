@@ -1,6 +1,8 @@
 # MEDIUM reference values — production, fixed scale.
 #
-#   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-medium.yaml ...
+#   helm install probectl deploy/helm/probectl \
+#     -f deploy/helm/probectl/values-medium.yaml \
+#     --set-string image.digest='sha256:<release-digest>' ...
 #
 # A PodDisruptionBudget so node drains / the S34 rolling upgrade keep the control
 # plane available. NetworkPolicy is already enabled by the base chart with API

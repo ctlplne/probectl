@@ -9,7 +9,8 @@
 
 image:
   repository: ghcr.io/imfeelingtheagi/probectl-control
-  tag: ""                # defaults to .Chart.AppVersion when empty
+  # Required: immutable digest from the signed release or approved mirror.
+  digest: "" # sha256:<64 lowercase hex>
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

@@ -77,8 +77,12 @@ The bundle contains:
    repositories at your internal registry:
    ```
    helm install probectl charts/probectl-0.6.0.tgz \
-     -f your-values.yaml --set image.repository=registry.internal/probectl
+     -f your-values.yaml \
+     --set image.repository=registry.internal/probectl \
+     --set-string image.digest='sha256:<internal-mirror-digest>'
    ```
+   Use the digest produced by the internal registry after the verified image is
+   pushed. The chart rejects a tag-only or missing digest.
 4. **Install agents** from `packaging/` (deb/rpm via the Ansible role, or the
    binaries in `bin/`), then enroll them against the control plane. The Ansible
    `airgap` method verifies the local package's `.sig` and `.pem` before the

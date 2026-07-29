@@ -40,5 +40,8 @@ spec:
     control:
       tls:
         existingSecret: probectl-tls
+    image:
+      # Resolve this from the signed release or approved internal mirror.
+      digest: sha256:REPLACE_WITH_64_HEX_RELEASE_DIGEST
     secrets:
       existingSecret: probectl-secrets

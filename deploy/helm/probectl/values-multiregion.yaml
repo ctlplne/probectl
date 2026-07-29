@@ -7,6 +7,7 @@
 #     -f deploy/helm/probectl/values-multiregion.yaml \
 #     --set ingress.host=us-east.probectl.example \
 #     --set control.tls.existingSecret=probectl-us-east-tls \
+#     --set-string image.digest='sha256:<release-digest>' \
 #     --set database.url='postgres://…@pg-writer.global.example:5432/probectl?sslmode=require' \
 #     --set control.extraEnv.PROBECTL_REGION=us-east \
 #     --set control.extraEnv.PROBECTL_DATABASE_READ_URL='postgres://…@pg-replica.us-east.example:5432/probectl?sslmode=require'

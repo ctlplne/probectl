@@ -5,6 +5,7 @@ kubeconfig         = "~/.kube/config"
 size               = "medium"
 ingress_host       = "probectl.example.com"
 ingress_tls_secret = "probectl-tls"
+image_digest       = "sha256:REPLACE_WITH_64_HEX_RELEASE_DIGEST"
 
 # Point at your managed Postgres.
 database_url = "postgres://probectl:CHANGEME@db.internal:5432/probectl?sslmode=require"
