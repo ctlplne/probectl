@@ -144,8 +144,10 @@ person's building, and nothing else. In probectl, a control-plane bearer token
 (table `mcp_tokens`) maps to a tenant plus the owning user's effective RBAC and
 tenant-scoped ABAC subject attributes. As with sessions, only the token's
 **hash** is stored (never the token itself), so a database leak yields no usable
-badges — and the lookup happens before tenant scoping is applied. The reserved
-`mfa` subject attribute is always derived by the control plane after mutable
+badges. The lookup happens before the tenant is known, but only through an
+exact-hash `SECURITY DEFINER` function; direct application-role table access
+without a tenant GUC returns zero rows. The reserved `mfa` subject attribute is
+always derived by the control plane after mutable
 directory attributes are copied; an MCP bearer token carries no interactive MFA
 proof, so a SCIM-supplied `mfa=true` cannot turn it into one. Mint one with:
 

@@ -95,8 +95,10 @@ type SessionStore interface {
 	Create(ctx context.Context, tokenHash []byte, s Session) error
 	LookupByHash(ctx context.Context, tokenHash []byte, idleTimeout time.Duration) (*Session, error)
 	// RotateByHash atomically replaces oldHash with newHash and returns false
-	// when oldHash no longer exists. Atomic replacement prevents two concurrent
-	// requests from leaving two valid post-elevation sessions behind.
+	// when oldHash no longer exists. The source row remains authoritative for
+	// every field except activity and AuthorizationHash. Atomic replacement
+	// prevents two concurrent requests from leaving two valid post-elevation
+	// sessions behind.
 	RotateByHash(ctx context.Context, oldHash, newHash []byte, s Session) (bool, error)
 	DeleteByHash(ctx context.Context, tokenHash []byte) error
 }

@@ -52,9 +52,13 @@ shown once, **stored only as a hash** — the same pattern as session tokens,
 so the database can confirm a presented token but can never reproduce one.
 The agent presents it exactly once; the row is consumed atomically
 (`UPDATE ... WHERE used_at IS NULL`, so a replay finds no row and is refused).
-Tokens expire (default 1h), and the storage supports voiding an unused token
-before use (no operator command is wired to that yet — the short expiry is the
-working bound).
+That pre-tenant consume is exposed only through an exact-hash
+`SECURITY DEFINER` function. Direct application-role access with no tenant GUC
+sees and changes zero enrollment rows.
+Tokens expire (default 1h), and an operator can void an unused token before use
+with `probectl-control revoke-enroll-token`. Cancellation enters the separate
+provider role and invokes a provider-only database function; it does not reopen
+the token table to the application role.
 
 *Why not cloud-IID/OIDC attestation now:* **attestation** here means proving
 facts about the machine an agent runs on — e.g. presenting a cloud-signed
@@ -121,7 +125,9 @@ naturally.
 
 > **Token revocation:** a leaked-but-unredeemed join token can be voided early
 > with `probectl-control revoke-enroll-token -id <token-id>` (the id is printed
-> at mint time). Single-use semantics and the ~1h expiry remain the
+> at mint time). The command assumes `probectl_provider` and can execute only
+> the narrow unused-token cancellation function. Single-use semantics and the
+> ~1h expiry remain the
 > defense-in-depth behind it — even an unrevoked leak self-destructs on first
 > use or at expiry. Issued *certificates* are a separate surface, revoked via
 > `revoke-agent`.

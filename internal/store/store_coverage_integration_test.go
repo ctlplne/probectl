@@ -233,8 +233,8 @@ func TestSessionStoreCrossTenantIsolation(t *testing.T) {
 	}
 	if ok, err := sess.RotateByHash(ctx, h1, badHash, auth.Session{
 		TenantID: other.ID, UserID: userID, Email: "mismatch@x.com", ExpiresAt: time.Now().Add(time.Hour),
-	}); err == nil || ok {
-		t.Fatalf("cross-tenant rotation must fail: err=%v rotated=%t", err, ok)
+	}); err != nil || ok {
+		t.Fatalf("cross-tenant rotation must return not-rotated without changing the source: err=%v rotated=%t", err, ok)
 	}
 	if got, err := sess.LookupByHash(ctx, h1, time.Minute); err != nil || got == nil || got.TenantID != tn.ID {
 		t.Fatalf("failed cross-tenant rotation did not preserve original: %v / %+v", err, got)

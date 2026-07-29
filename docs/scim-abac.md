@@ -35,7 +35,9 @@ The IdP calls `/scim/v2/*` with a **per-tenant SCIM bearer token** (a bearer
 token is a secret string whose mere possession authenticates the request).
 Like sessions and MCP tokens, the lookup is **pre-tenant** — the token *selects
 its own tenant*, and only the token's hash is stored, so reading the database
-can never recover (or mint) a usable token. All provisioning is then
+can never recover (or mint) a usable token. Only an exact-hash
+`SECURITY DEFINER` function can perform that lookup; direct application-role
+access without a tenant GUC returns zero rows. All provisioning is then
 tenant-scoped by row-level security (**RLS** — the database itself refuses to
 return or write rows outside the current tenant, regardless of what the query
 asks for), so one tenant's IdP can never touch another tenant's directory.

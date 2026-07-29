@@ -61,9 +61,9 @@ func (s ScimTokens) CreateScoped(ctx context.Context, sc tenancy.Scope, name str
 // stamps last_used_at. Pre-tenant: the token is the tenant selector.
 func (s ScimTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantID string, err error) {
 	err = s.pool.QueryRow(ctx,
-		`UPDATE scim_tokens SET last_used_at = now()
-		 WHERE token_hash = $1 AND revoked_at IS NULL
-		 RETURNING tenant_id::text`, tokenHash).Scan(&tenantID)
+		`SELECT tenant_id::text
+		   FROM pretenant_authenticate_scim_token($1)`,
+		tokenHash).Scan(&tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrInvalidScimToken
 	}

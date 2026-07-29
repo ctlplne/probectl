@@ -19,13 +19,10 @@ import (
 )
 
 // Agent enrollment storage (Sprint 11; ADR docs/adr/agent-enrollment.md).
-// Like MCPTokens, the CONSUME path is PRE-TENANT: the token hash IS the
-// tenant selector, so that one lookup runs on the bare pool (the 0041 RLS
-// policy is permissive with no tenant context, tenant-confined with one —
-// U-091). TENANT-009: every KNOWN-TENANT operation (Create, Record,
-// KnownSerial, IsAgentRevoked, RevokeAgent) instead runs UNDER tenancy.InTenant
-// so RLS confines it — the permissive-on-null policy is reserved strictly for
-// the pre-tenant Consume/ListRevoked paths that have no tenant in hand.
+// The CONSUME path is PRE-TENANT because the token hash selects its tenant, but
+// it reaches the table only through a narrow SECURITY DEFINER function. Every
+// direct table operation with a known tenant runs under tenancy.InTenant; an
+// application-role statement with no tenant GUC sees no rows.
 
 // ErrEnrollTokenInvalid is the single, deliberately uninformative refusal for
 // every bad-token shape: unknown, replayed, expired, revoked, wrong tenant.
@@ -52,8 +49,8 @@ func (e EnrollTokens) CreatedScoped(ctx context.Context, s tenancy.Scope) (bool,
 func (e EnrollTokens) Create(ctx context.Context, tenantID, agentID, name, createdBy string, tokenHash []byte, ttl time.Duration) (string, error) {
 	// TENANT-009: the caller's tenant is known here, so run UNDER InTenant — RLS
 	// confines the write to this tenant (defense in depth above the explicit
-	// tenant_id). The permissive-on-null policy is reserved for the pre-tenant
-	// token-hash Consume path alone.
+	// tenant_id). The pre-tenant token-hash Consume path uses only its dedicated
+	// database function.
 	var id string
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		return sc.Q.QueryRow(ctx,
@@ -73,13 +70,8 @@ func (e EnrollTokens) Create(ctx context.Context, tenantID, agentID, name, creat
 // pinned agent id.
 func (e EnrollTokens) Consume(ctx context.Context, tokenHash []byte, usedByAgent string) (tenantID, pinnedAgentID string, err error) {
 	err = e.pool.QueryRow(ctx,
-		`UPDATE agent_enroll_tokens
-		    SET used_at = now(), used_by_agent = $2
-		  WHERE token_hash = $1
-		    AND used_at IS NULL
-		    AND revoked_at IS NULL
-		    AND expires_at > now()
-		 RETURNING tenant_id::text, COALESCE(agent_id, '')`,
+		`SELECT tenant_id::text, agent_id
+		   FROM pretenant_consume_agent_enroll_token($1, $2)`,
 		tokenHash, usedByAgent).Scan(&tenantID, &pinnedAgentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrEnrollTokenInvalid
@@ -122,12 +114,12 @@ func (e EnrollTokens) ConsumeForTenant(ctx context.Context, tenantID string, tok
 // id — already redeemed, already revoked, or never existed — so the CLI can
 // tell the operator the truth instead of a blind "ok".
 func (e EnrollTokens) Revoke(ctx context.Context, id string) (bool, error) {
-	tag, err := e.pool.Exec(ctx,
-		`UPDATE agent_enroll_tokens SET revoked_at = now() WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL`, id)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() > 0, nil
+	var revoked bool
+	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT provider_revoke_agent_enroll_token($1::uuid)`, id).Scan(&revoked)
+	})
+	return revoked, err
 }
 
 // AgentIdentities records every issued SVID — the issuance provenance behind
@@ -208,8 +200,8 @@ func (c AgentCA) Load(ctx context.Context, kind string) (certPEM, sealedKey stri
 // RevokeAgent stamps every identity row of (tenant, agent) revoked and
 // returns the live serials + the SPIFFE id to feed the handshake deny-list
 // (Sprint 12, WIRE-003). Idempotent: re-revoking returns the same material.
-// Pre-tenant by design — revocation is an operator action that must also work
-// from the CLI; RLS on agent_identities follows the consume-path pattern.
+// The operator supplies the tenant explicitly (including from the CLI), so the
+// whole revocation remains inside that tenant's RLS transaction.
 func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, revokedBy string) (serials []string, spiffeID string, err error) {
 	// TENANT-009: known tenant => run the whole operator revocation UNDER
 	// InTenant so RLS confines every statement to this tenant.
@@ -279,27 +271,30 @@ func (a AgentIdentities) IsAgentRevoked(ctx context.Context, tenantID, agentID s
 // revoked SPIFFE id (so a re-issued cert for a revoked identity is refused
 // even past its predecessors' expiry).
 func (a AgentIdentities) ListRevoked(ctx context.Context) (serials, spiffeIDs []string, err error) {
-	rows, err := a.pool.Query(ctx,
-		`SELECT serial, spiffe_id, not_after > now() AS live
-		   FROM agent_identities WHERE revoked_at IS NOT NULL`)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	seen := map[string]bool{}
-	for rows.Next() {
-		var s, sp string
-		var live bool
-		if err := rows.Scan(&s, &sp, &live); err != nil {
-			return nil, nil, err
+	err = tenancy.InProvider(ctx, a.pool, func(ctx context.Context, q tenancy.Querier) error {
+		rows, queryErr := q.Query(ctx,
+			`SELECT serial, spiffe_id, live
+			   FROM provider_list_revoked_agent_identities()`)
+		if queryErr != nil {
+			return queryErr
 		}
-		if live {
-			serials = append(serials, s)
+		defer rows.Close()
+		seen := map[string]bool{}
+		for rows.Next() {
+			var s, sp string
+			var live bool
+			if scanErr := rows.Scan(&s, &sp, &live); scanErr != nil {
+				return scanErr
+			}
+			if live {
+				serials = append(serials, s)
+			}
+			if !seen[sp] {
+				seen[sp] = true
+				spiffeIDs = append(spiffeIDs, sp)
+			}
 		}
-		if !seen[sp] {
-			seen[sp] = true
-			spiffeIDs = append(spiffeIDs, sp)
-		}
-	}
-	return serials, spiffeIDs, rows.Err()
+		return rows.Err()
+	})
+	return serials, spiffeIDs, err
 }

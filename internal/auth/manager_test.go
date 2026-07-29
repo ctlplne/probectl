@@ -47,11 +47,14 @@ func (f *fakeStore) LookupByHash(_ context.Context, h []byte, idle time.Duration
 }
 
 func (f *fakeStore) RotateByHash(_ context.Context, oldHash, newHash []byte, s Session) (bool, error) {
-	if _, ok := f.byHash[string(oldHash)]; !ok {
+	old, ok := f.byHash[string(oldHash)]
+	if !ok || old.TenantID != s.TenantID || old.UserID != s.UserID {
 		return false, nil
 	}
 	delete(f.byHash, string(oldHash))
-	f.byHash[string(newHash)] = s
+	old.LastActivityAt = time.Now()
+	old.AuthorizationHash = append([]byte(nil), s.AuthorizationHash...)
+	f.byHash[string(newHash)] = old
 	return true, nil
 }
 
@@ -179,6 +182,66 @@ func TestManagerRotatePreservesAbsoluteLifetime(t *testing.T) {
 	}
 	if !rotated.CreatedAt.Equal(oldSession.CreatedAt) || !rotated.ExpiresAt.Equal(oldSession.ExpiresAt) {
 		t.Fatalf("rotation extended absolute lifetime: before=%+v after=%+v", oldSession, rotated)
+	}
+}
+
+func TestManagerRotatePreservesDatabaseAuthority(t *testing.T) {
+	st := newFakeStore()
+	m := NewManager(st, time.Hour, false, nil)
+	ctx := context.Background()
+	oldToken, err := m.Issue(ctx, Session{
+		TenantID:       "t1",
+		UserID:         "u1",
+		Email:          "source@example.com",
+		DisplayName:    "Source",
+		MFASatisfied:   false,
+		TimeZone:       "Asia/Kolkata",
+		Locale:         "en-IN",
+		TenantTimeZone: "UTC",
+		TenantLocale:   "en",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := m.Resolve(ctx, oldToken)
+	if err != nil || source == nil {
+		t.Fatalf("resolve source: session=%+v err=%v", source, err)
+	}
+
+	nextAuthorization := PermissionFingerprint([]string{"test.read", "test.write"})
+	malicious := *source
+	malicious.Email = "attacker@example.com"
+	malicious.DisplayName = "Attacker"
+	malicious.MFASatisfied = true
+	malicious.TimeZone = "Pacific/Kiritimati"
+	malicious.Locale = "attacker"
+	malicious.TenantTimeZone = "Pacific/Kiritimati"
+	malicious.TenantLocale = "attacker"
+	malicious.CreatedAt = source.CreatedAt.Add(-365 * 24 * time.Hour)
+	malicious.ExpiresAt = source.ExpiresAt.Add(365 * 24 * time.Hour)
+	malicious.AuthorizationHash = nextAuthorization
+
+	newToken, err := m.Rotate(ctx, oldToken, malicious)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := m.Resolve(ctx, newToken)
+	if err != nil || rotated == nil {
+		t.Fatalf("resolve replacement: session=%+v err=%v", rotated, err)
+	}
+	if rotated.Email != source.Email ||
+		rotated.DisplayName != source.DisplayName ||
+		rotated.MFASatisfied != source.MFASatisfied ||
+		rotated.TimeZone != source.TimeZone ||
+		rotated.Locale != source.Locale ||
+		rotated.TenantTimeZone != source.TenantTimeZone ||
+		rotated.TenantLocale != source.TenantLocale ||
+		!rotated.CreatedAt.Equal(source.CreatedAt) ||
+		!rotated.ExpiresAt.Equal(source.ExpiresAt) {
+		t.Fatalf("rotation replaced authoritative session fields:\nsource=%+v\nrotated=%+v", source, rotated)
+	}
+	if !bytes.Equal(rotated.AuthorizationHash, nextAuthorization) {
+		t.Fatalf("authorization fingerprint = %x, want %x", rotated.AuthorizationHash, nextAuthorization)
 	}
 }
 

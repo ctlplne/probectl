@@ -45,6 +45,21 @@ query. Picture a wristband at a venue: the transaction is banded with one
 tenant at the door, and the database hands out only rows wearing the matching
 band — no matter how broad the question asked upstairs was.
 
+Session, MCP, SCIM, and agent-enrollment authentication must first turn an
+unguessable token hash into a tenant. That does **not** make their tables
+globally readable: direct `probectl_app` access still matches zero rows without
+the tenant GUC. Each exact hash lookup/consume/rotation goes through a narrowly
+shaped `SECURITY DEFINER` function owned by the non-login,
+`NOBYPASSRLS` `probectl_pretenant_auth` role. The role has no general runtime
+entry point, and the application receives only `EXECUTE` on those functions.
+Session rotation updates only the opaque hash, activity stamp, and authorization
+fingerprint; identity, MFA, preferences, and absolute expiry are copied from
+the database-authoritative source row rather than accepted from the caller.
+Deployment-wide enrollment cancellation and the certificate deny-list are
+separate provider operations: their functions are executable only after
+`tenancy.InProvider` assumes `probectl_provider`; `probectl_app` receives no
+execute grant.
+
 **Why it actually holds — the three things that make RLS more than a suggestion:**
 
 - **The app role cannot bypass it.** `probectl_app` is created
@@ -59,8 +74,10 @@ band — no matter how broad the question asked upstairs was.
   accepts traffic, `main` calls `tenancy.AssertIsolationPosture`
   (`internal/tenancy/posture.go`). Inside a real `probectl_app`-scoped
   transaction it checks that the effective role is non-super and non-bypass-RLS,
-  and that **every** table with a `tenant_id` column has `FORCE` row security. If
-  any check fails — RLS silently off, migrations not applied, the wrong role — it
+  that **every** table with a `tenant_id` column has `FORCE` row security, and
+  that the pre-tenant auth/provider tables have exactly one strict application
+  policy rather than an unset-GUC allowance. If any check fails — RLS silently
+  off, permissive policy semantics, migrations not applied, the wrong role — it
   is a fatal startup error. The control plane will not start. The
   `cross-tenant-isolation` CI job proves this check passes on a correctly
   migrated database *and* rejects a deliberately unforced table, so the check is
@@ -71,8 +88,10 @@ service provider, the team running the platform for many customer tenants) run
 as `probectl_provider` (also `NOBYPASSRLS`), granted only operational-metadata
 tables (fleet, lifecycle) and **never** telemetry — see `tenancy.InProvider`. It
 sets no tenant variable, so the per-tenant policies match nothing for it and only
-the explicit provider grants apply. An operator literally cannot `SELECT` a
-tenant's flows through this path.
+the explicit provider grants and role-specific policies apply. Break-glass grant
+metadata uses one such provider-only policy; it is never opened by an unset
+tenant GUC. An operator literally cannot `SELECT` a tenant's flows through this
+path.
 
 ## ClickHouse — high-volume telemetry (flow, path, endpoint, threat, change, cost)
 

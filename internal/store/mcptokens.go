@@ -12,6 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // MCPTokens persists MCP bearer tokens (S25, F14). Like sessions, the auth lookup
@@ -20,7 +22,8 @@ import (
 // never the token, so a database read cannot mint a valid token.
 type MCPTokens struct{ pool *pgxpool.Pool }
 
-// NewMCPTokens binds the repository to the pool (the pre-tenant auth path).
+// NewMCPTokens binds the repository to the pool. Direct table operations are
+// tenant-scoped; Authenticate uses a narrow pre-tenant database function.
 func NewMCPTokens(pool *pgxpool.Pool) MCPTokens { return MCPTokens{pool: pool} }
 
 // ErrInvalidToken is returned when a token hash does not resolve to a live token.
@@ -29,10 +32,13 @@ var ErrInvalidToken = errors.New("store: invalid or revoked mcp token")
 // Create stores a new token (by hash) for a user in a tenant and returns its id.
 func (m MCPTokens) Create(ctx context.Context, tenantID, userID, name string, tokenHash []byte) (string, error) {
 	var id string
-	if err := m.pool.QueryRow(ctx,
-		`INSERT INTO mcp_tokens (tenant_id, user_id, name, token_hash)
-		 VALUES ($1, $2, $3, $4) RETURNING id::text`,
-		tenantID, userID, name, tokenHash).Scan(&id); err != nil {
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), m.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx,
+			`INSERT INTO mcp_tokens (tenant_id, user_id, name, token_hash)
+			 VALUES ($1, $2, $3, $4) RETURNING id::text`,
+			tenantID, userID, name, tokenHash).Scan(&id)
+	})
+	if err != nil {
 		return "", mapWriteErr("mcp_token", err)
 	}
 	return id, nil
@@ -41,10 +47,12 @@ func (m MCPTokens) Create(ctx context.Context, tenantID, userID, name string, to
 // RevokeForUser revokes all of a user's MCP tokens in a tenant — part of the SCIM
 // deprovision (S31), alongside session revocation.
 func (m MCPTokens) RevokeForUser(ctx context.Context, tenantID, userID string) error {
-	_, err := m.pool.Exec(ctx,
-		`UPDATE mcp_tokens SET revoked_at = now()
-		 WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL`, tenantID, userID)
-	return err
+	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), m.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx,
+			`UPDATE mcp_tokens SET revoked_at = now()
+			 WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL`, tenantID, userID)
+		return err
+	})
 }
 
 // Authenticate resolves a token hash to its (tenant, user), rejecting revoked
@@ -52,9 +60,9 @@ func (m MCPTokens) RevokeForUser(ctx context.Context, tenantID, userID string) e
 // selector, and the row holds only tenant_id + user_id (no secret).
 func (m MCPTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantID, userID string, err error) {
 	err = m.pool.QueryRow(ctx,
-		`UPDATE mcp_tokens SET last_used_at = now()
-		 WHERE token_hash = $1 AND revoked_at IS NULL
-		 RETURNING tenant_id::text, user_id::text`, tokenHash).Scan(&tenantID, &userID)
+		`SELECT tenant_id::text, user_id::text
+		   FROM pretenant_authenticate_mcp_token($1)`,
+		tokenHash).Scan(&tenantID, &userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrInvalidToken
 	}

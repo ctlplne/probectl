@@ -122,7 +122,81 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 		return fmt.Errorf("isolation posture: %d tenant table(s) without FORCE ROW LEVEL SECURITY: %s (refusing to start)",
 			len(offenders), strings.Join(offenders, ", "))
 	}
+	return assertStrictPreTenantPolicies(ctx, q)
+}
+
+var strictPreTenantPolicyTables = []string{
+	"sessions",
+	"mcp_tokens",
+	"scim_tokens",
+	"agent_enroll_tokens",
+	"agent_identities",
+	"break_glass_grants",
+}
+
+// assertStrictPreTenantPolicies verifies the policy semantics that ENABLE/FORCE
+// alone cannot prove. These tables resolve authentication or provider metadata
+// before a tenant GUC exists, so a permissive "GUC unset => all rows" policy
+// would turn the storage boundary off while still passing the generic RLS check.
+func assertStrictPreTenantPolicies(ctx context.Context, q postureQuerier) error {
+	rows, err := q.Query(ctx, `
+		SELECT tablename, policyname, cmd, qual, with_check
+		  FROM pg_policies
+		 WHERE schemaname = current_schema()
+		   AND tablename = ANY($1::text[])
+		   AND EXISTS (
+		       SELECT 1
+		         FROM unnest(roles) AS applicable(policy_role)
+		        WHERE CASE
+		                  WHEN applicable.policy_role = 'public'::name THEN true
+		                  ELSE pg_has_role(current_user, applicable.policy_role, 'MEMBER')
+		              END
+		   )
+		 ORDER BY tablename, policyname`, strictPreTenantPolicyTables)
+	if err != nil {
+		return fmt.Errorf("isolation posture: enumerate pre-tenant app policies: %w", err)
+	}
+	defer rows.Close()
+
+	seen := make(map[string]int, len(strictPreTenantPolicyTables))
+	var unsafe []string
+	for rows.Next() {
+		var table, policy, command string
+		var usingExpr, checkExpr *string
+		if err := rows.Scan(&table, &policy, &command, &usingExpr, &checkExpr); err != nil {
+			return fmt.Errorf("isolation posture: scan pre-tenant app policy: %w", err)
+		}
+		seen[table]++
+		if policy != "tenant_isolation" || command != "ALL" ||
+			!strictTenantPolicyExpression(usingExpr) ||
+			!strictTenantPolicyExpression(checkExpr) {
+			unsafe = append(unsafe, table+"."+policy)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("isolation posture: iterate pre-tenant app policies: %w", err)
+	}
+	for _, table := range strictPreTenantPolicyTables {
+		if seen[table] != 1 {
+			unsafe = append(unsafe, fmt.Sprintf("%s(applicable_policies=%d)", table, seen[table]))
+		}
+	}
+	if len(unsafe) > 0 {
+		return fmt.Errorf("isolation posture: pre-tenant tables have non-strict application policies: %s (unset tenant context must match zero rows; refusing to start)",
+			strings.Join(unsafe, ", "))
+	}
 	return nil
+}
+
+func strictTenantPolicyExpression(expr *string) bool {
+	if expr == nil {
+		return false
+	}
+	normalized := strings.ToLower(*expr)
+	return strings.Contains(normalized, "tenant_id") &&
+		strings.Contains(normalized, "probectl.tenant_id") &&
+		!strings.Contains(normalized, " is null") &&
+		!strings.Contains(normalized, " or ")
 }
 
 // profileCountQuerier is the minimal surface AssertDeploymentProfilePosture

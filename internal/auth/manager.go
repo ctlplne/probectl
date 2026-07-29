@@ -77,10 +77,10 @@ func (m *Manager) Issue(ctx context.Context, sess Session) (string, error) {
 	return token, nil
 }
 
-// Rotate atomically replaces an existing opaque token. It preserves an
-// existing session's absolute CreatedAt/ExpiresAt values (role-change rotation
-// must not lengthen its lifetime), while a zero-valued fresh-login session gets
-// a new absolute lifetime. If the old token disappeared concurrently, rotation
+// Rotate atomically replaces an existing opaque token. The persistent store
+// treats the source row as authoritative for identity, MFA, preferences, and
+// absolute lifetime; only the token hash, activity timestamp, and authorization
+// fingerprint may change. If the old token disappeared concurrently, rotation
 // fails closed with ErrSessionNotFound instead of minting a second successor.
 func (m *Manager) Rotate(ctx context.Context, oldToken string, sess Session) (string, error) {
 	if oldToken == "" {

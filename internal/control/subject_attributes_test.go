@@ -45,8 +45,11 @@ func (s *subjectAttributeSessionStore) LookupByHash(context.Context, []byte, tim
 }
 
 func (s *subjectAttributeSessionStore) RotateByHash(_ context.Context, _, _ []byte, session auth.Session) (bool, error) {
-	clone := session
-	s.session = &clone
+	if s.session == nil || s.session.TenantID != session.TenantID || s.session.UserID != session.UserID {
+		return false, nil
+	}
+	s.session.LastActivityAt = time.Now()
+	s.session.AuthorizationHash = append([]byte(nil), session.AuthorizationHash...)
 	return true, nil
 }
 
