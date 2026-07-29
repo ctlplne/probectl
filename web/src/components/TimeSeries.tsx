@@ -73,6 +73,11 @@ function readVizTheme(): VizTheme {
 }
 
 function canvasAvailable(): boolean {
+  // jsdom exposes HTMLCanvasElement#getContext as a logging placeholder: even
+  // inside try/catch, calling it emits an "unimplemented" error. The context
+  // constructor is the browser capability we actually need, so reject that
+  // partial surface before invoking the method.
+  if (typeof CanvasRenderingContext2D === 'undefined') return false
   try {
     return Boolean(document.createElement('canvas').getContext('2d'))
   } catch {

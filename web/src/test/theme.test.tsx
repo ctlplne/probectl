@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '../theme/ThemeProvider'
@@ -30,6 +30,58 @@ function colorTokensFor(css: string, selector: string): Set<string> {
 }
 
 describe('deployment theming', () => {
+  test('reads and writes the browser-scoped theme preference', () => {
+    const getItem = vi.fn(() => 'ember')
+    const setItem = vi.fn()
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      enumerable: true,
+      value: { getItem, setItem },
+    })
+
+    try {
+      render(
+        <ThemeProvider initialTheme="dark">
+          <Probe />
+        </ThemeProvider>,
+      )
+
+      expect(screen.getByRole('button')).toHaveTextContent('theme:ember')
+      expect(getItem).toHaveBeenCalledWith('probectl.theme')
+      expect(setItem).toHaveBeenCalledWith('probectl.theme', 'ember')
+    } finally {
+      if (original) Object.defineProperty(window, 'localStorage', original)
+      else Reflect.deleteProperty(window, 'localStorage')
+    }
+  })
+
+  test('does not invoke a non-browser storage placeholder', () => {
+    const getStorage = vi.fn(() => {
+      throw new Error('placeholder must not be invoked')
+    })
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      enumerable: false,
+      get: getStorage,
+    })
+
+    try {
+      render(
+        <ThemeProvider initialTheme="dark">
+          <Probe />
+        </ThemeProvider>,
+      )
+
+      expect(screen.getByRole('button')).toHaveTextContent('theme:dark')
+      expect(getStorage).not.toHaveBeenCalled()
+    } finally {
+      if (original) Object.defineProperty(window, 'localStorage', original)
+      else Reflect.deleteProperty(window, 'localStorage')
+    }
+  })
+
   test('toggling theme swaps the active token set on <html>', async () => {
     const user = userEvent.setup()
     render(

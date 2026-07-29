@@ -25,9 +25,24 @@ function isTheme(v: unknown): v is ThemeName {
   return THEMES.includes(v as ThemeName)
 }
 
+function browserStorage(): Storage | undefined {
+  if (typeof window === 'undefined') return undefined
+  const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
+  // Node 26 exposes a non-enumerable experimental global with this name. In a
+  // jsdom fallback it can replace the browser Web Storage attribute, and merely
+  // invoking its getter emits a warning. Web-IDL Window attributes are
+  // enumerable, so reject the non-browser placeholder without touching it.
+  if (descriptor && descriptor.enumerable === false) return undefined
+  try {
+    return window.localStorage
+  } catch {
+    return undefined
+  }
+}
+
 function readInitial(fallback: ThemeName): ThemeName {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const stored = browserStorage()?.getItem(STORAGE_KEY)
     if (isTheme(stored)) return stored
   } catch {
     /* storage unavailable — fall back */
@@ -53,7 +68,7 @@ export function ThemeProvider({
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     try {
-      localStorage.setItem(STORAGE_KEY, theme)
+      browserStorage()?.setItem(STORAGE_KEY, theme)
     } catch {
       /* ignore */
     }

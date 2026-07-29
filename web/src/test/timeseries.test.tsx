@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { axe } from 'jest-axe'
 import { TimeSeries } from '../components/TimeSeries'
@@ -41,6 +41,19 @@ function renderSeries(count: number) {
 }
 
 describe('TimeSeries', () => {
+  test('does not invoke jsdom canvas placeholders on the fallback path', () => {
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+
+    try {
+      renderSeries(1)
+
+      expect(screen.getByRole('table', { name: 'Cost trend' })).toBeInTheDocument()
+      expect(getContext).not.toHaveBeenCalled()
+    } finally {
+      getContext.mockRestore()
+    }
+  })
+
   test('exposes an accessible sampled table twin when canvas is unavailable', () => {
     renderSeries(3)
     const table = screen.getByRole('table', { name: 'Cost trend' })
