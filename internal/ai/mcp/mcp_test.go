@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,6 +36,7 @@ type fakeBackend struct {
 	calls           []string
 	tenants         []string
 	listTestsResult any
+	listTestsErr    error
 }
 
 type sourceBudgetMarshalProbe struct {
@@ -65,6 +67,9 @@ func (f *fakeBackend) seenTenants() []string {
 }
 func (f *fakeBackend) ListTests(_ context.Context, p *auth.Principal) (any, error) {
 	f.rec("ListTests", p)
+	if f.listTestsErr != nil {
+		return nil, f.listTestsErr
+	}
 	if f.listTestsResult != nil {
 		return f.listTestsResult, nil
 	}
@@ -479,6 +484,111 @@ func TestToolResultEncodingExactLimitAndOnePast(t *testing.T) {
 	onePast := strings.Repeat("x", maxMCPToolResultBytes-2)
 	if _, err := marshalBoundedJSON(onePast, maxMCPToolResultBytes, false); !errors.Is(err, errToolResultTooLarge) {
 		t.Fatalf("one-past byte limit error = %v, want %v", err, errToolResultTooLarge)
+	}
+}
+
+func TestRPCResponseSourceBudgetRunsBeforeMarshal(t *testing.T) {
+	called := false
+	resp := resultResponse(nil, sourceBudgetMarshalProbe{
+		Nodes:  make([]struct{}, maxMCPToolResultNodes+1),
+		Called: &called,
+	})
+	out := marshal(resp)
+	if called {
+		t.Fatal("encoding/json ran before the outer RPC source budget rejected the response")
+	}
+	if len(out) > maxMCPToolResultBytes {
+		t.Fatalf("fallback response = %d bytes, limit %d", len(out), maxMCPToolResultBytes)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		t.Fatalf("bounded fallback is not JSON: %v", err)
+	}
+	if code, ok := errCode(decoded); !ok || code != codeInternal {
+		t.Fatalf("bounded fallback = %v, want internal error", decoded)
+	}
+}
+
+func TestMCPBackendErrorsUseBoundedPublicMessage(t *testing.T) {
+	const sentinel = "backend-schema-host-secret-sentinel"
+	fb := &fakeBackend{listTestsErr: errors.New(strings.Repeat(sentinel, 256))}
+	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
+	s := New(fb, testGate(), WithLogger(discard))
+	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
+	out := s.Handle(context.Background(), principal("tenant-a", permTestRead), raw)
+	if len(out) > maxMCPToolResultBytes {
+		t.Fatalf("backend-error response = %d bytes, limit %d", len(out), maxMCPToolResultBytes)
+	}
+	if bytes.Contains(out, []byte(sentinel)) {
+		t.Fatalf("backend error reached the MCP wire: %s", out)
+	}
+	var resp struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("backend-error response is not JSON: %v", err)
+	}
+	content, _ := resp.Result["content"].([]any)
+	if len(content) != 1 || content[0].(map[string]any)["text"] != "tool execution failed" {
+		t.Fatalf("public backend error = %v, want fixed bounded message", resp.Result)
+	}
+}
+
+func TestRPCRequestIDBoundsAcrossTransports(t *testing.T) {
+	s := New(&fakeBackend{}, testGate())
+	exactID := `"` + strings.Repeat("i", maxMCPRequestIDBytes-2) + `"`
+	onePastID := `"` + strings.Repeat("i", maxMCPRequestIDBytes-1) + `"`
+	request := func(id string) []byte {
+		return []byte(`{"jsonrpc":"2.0","id":` + id + `,"method":"ping"}`)
+	}
+	assert := func(t *testing.T, out []byte, wantID string, wantError bool) {
+		t.Helper()
+		if len(out) > maxMCPToolResultBytes {
+			t.Fatalf("response = %d bytes, limit %d", len(out), maxMCPToolResultBytes)
+		}
+		var resp rpcResponse
+		if err := json.Unmarshal(out, &resp); err != nil {
+			t.Fatalf("response is not JSON: %v", err)
+		}
+		if wantError {
+			if resp.Error == nil || resp.Error.Code != codeInvalidRequest || len(resp.ID) != 0 {
+				t.Fatalf("one-past ID response = %+v, want ID-less invalid request", resp)
+			}
+			return
+		}
+		if resp.Error != nil || string(resp.ID) != wantID {
+			t.Fatalf("exact ID response = %+v, want echoed bounded ID", resp)
+		}
+	}
+	transports := map[string]func(t *testing.T, raw []byte) []byte{
+		"direct": func(_ *testing.T, raw []byte) []byte {
+			return s.Handle(context.Background(), principal("tenant-a"), raw)
+		},
+		"http": func(t *testing.T, raw []byte) []byte {
+			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(raw))
+			req.Header.Set("Authorization", "Bearer token")
+			rec := httptest.NewRecorder()
+			s.HTTPHandler(fakeAuthn{p: principal("tenant-a")}).ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("HTTP status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+			}
+			return rec.Body.Bytes()
+		},
+		"stdio": func(t *testing.T, raw []byte) []byte {
+			var out bytes.Buffer
+			if err := s.ServeStdio(context.Background(), bytes.NewReader(append(raw, '\n')), &out, principal("tenant-a")); err != nil {
+				t.Fatal(err)
+			}
+			return bytes.TrimSuffix(out.Bytes(), []byte{'\n'})
+		},
+	}
+	for name, transport := range transports {
+		t.Run(name+"/exact", func(t *testing.T) {
+			assert(t, transport(t, request(exactID)), exactID, false)
+		})
+		t.Run(name+"/one-past", func(t *testing.T) {
+			assert(t, transport(t, request(onePastID)), "", true)
+		})
 	}
 }
 

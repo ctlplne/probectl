@@ -54,9 +54,16 @@ func errorResponse(id json.RawMessage, code int, msg string) *rpcResponse {
 }
 
 func marshal(v *rpcResponse) []byte {
-	b, err := json.Marshal(v)
+	b, err := marshalBoundedJSON(v, maxMCPToolResultBytes, false)
 	if err != nil {
-		b, _ = json.Marshal(errorResponse(nil, codeInternal, "marshal error"))
+		// Never echo a caller-controlled ID or source error on the exceptional
+		// path. This fixed response itself goes through the same source and
+		// writer budgets.
+		b, _ = marshalBoundedJSON(
+			errorResponse(nil, codeInternal, "tool result exceeds response size limit"),
+			maxMCPToolResultBytes,
+			false,
+		)
 	}
 	return b
 }

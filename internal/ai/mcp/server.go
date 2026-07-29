@@ -29,6 +29,9 @@ const protocolVersion = "2024-11-05"
 // fixed limit.
 const (
 	maxMCPToolResultBytes = 1 << 20
+	// maxMCPRequestIDBytes prevents a caller-controlled JSON-RPC ID from being
+	// amplified into every response. The limit includes JSON quotes/escaping.
+	maxMCPRequestIDBytes = 4 << 10
 	// maxMCPToolResultNodes bounds structural amplification before encoding.
 	// Source strings/bytes are separately capped at the wire-byte ceiling.
 	maxMCPToolResultNodes = 64 << 10
@@ -134,19 +137,18 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return marshal(errorResponse(nil, codeParse, "parse error"))
 	}
+	if len(req.ID) > maxMCPRequestIDBytes {
+		// The ID is caller-controlled and is echoed by JSON-RPC. Refuse it
+		// before dispatch and omit it from the error so every transport has the
+		// same fixed, bounded response.
+		return marshal(errorResponse(nil, codeInvalidRequest, "request id exceeds size limit"))
+	}
 	notification := len(req.ID) == 0
 	resp := s.dispatch(ctx, p, req)
 	if notification || resp == nil {
 		return nil
 	}
-	encoded := marshal(resp)
-	if len(encoded) > maxMCPToolResultBytes {
-		// Do not echo the caller-controlled request ID on this exceptional path:
-		// HTTP already bounds requests, but the stdio transport may receive a
-		// large ID and the fail-closed response must itself remain bounded.
-		return marshal(errorResponse(nil, codeInternal, "tool result exceeds response size limit"))
-	}
-	return encoded
+	return marshal(resp)
 }
 
 func (s *Server) dispatch(ctx context.Context, p *auth.Principal, req rpcRequest) *rpcResponse {
@@ -274,8 +276,10 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	if err != nil {
 		emit(true, "")
 		// A tool error is returned as an isError tool result (MCP idiom) so the
-		// model can read the message, not as a transport error.
-		return resultResponse(req.ID, toolResult(s.gate.RedactForTenant(err.Error(), p.TenantID), nil, true))
+		// model can react, but dependency error text is server-only: it can
+		// contain DSNs, hostnames, schemas, or an attacker-sized response body.
+		s.log.Warn("mcp tool invocation failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		return resultResponse(req.ID, toolResult("tool execution failed", nil, true))
 	}
 	emit(true, "")
 	s.gate.Emit(ctx, ai.EgressEvent{TenantID: p.TenantID, Endpoint: "mcp-client", Model: "mcp", Surface: "mcp"})
