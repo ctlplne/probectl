@@ -21,8 +21,15 @@ CI job (in `.github/workflows/ci.yml`) that creates it.
 | `sbom-cyclonedx` | `sbom` | a CycloneDX SBOM of the Go module graph (informational — not a merge gate; the *release* SBOM ships signed with the release artifacts) |
 | `verify-all-receipt` | `verify-all` | `verify-all-summary.json` — the gate→result map for the run, i.e. the receipt that every verification gate executed and what each concluded |
 
-On a pull request, the `coverage` job additionally posts a best-effort comment
-with the coverage summary, so you see the numbers without downloading anything.
+On a pull request, `coverage` also uploads a one-day `coverage-pr-summary`
+artifact containing only the bounded summary (at most 40 coverage-result lines,
+each capped at 240 characters, plus the Markdown wrapper). The dependent
+`coverage-comment` job posts that file as a best-effort comment, so you see the
+numbers without downloading anything. That split is a security boundary:
+`coverage` checks out and executes PR code with `contents: read` only;
+`coverage-comment` may write to the pull request but does not checkout or
+execute repository code. The self-testing `workflow-permissions-gate` rejects
+any future re-combination of those powers.
 
 The scheduled workflows leave receipts too: `nightly.yml` uploads the
 `ingest-bench` results, and `security-scan.yml` uploads every scanner's raw

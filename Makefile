@@ -330,9 +330,14 @@ fuzz-policy: ## Verify fuzz target discovery, PR smoke coverage, and nightly bud
 secret-scan: ## Run gitleaks across the full git history, including deleted files.
 	bash scripts/check_secret_scan_history.sh
 
+.PHONY: workflow-permissions-gate
+workflow-permissions-gate: ## Self-test + enforce least-privilege boundaries for write-capable CI jobs.
+	bash scripts/check_workflow_permissions.sh SELFTEST
+	bash scripts/check_workflow_permissions.sh
+
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
-lint: license-header-gate lint-go lint-python web-supply-policy-gate ## Run all linters (Go + Python) and offline web supply-policy guards.
+lint: license-header-gate lint-go lint-python web-supply-policy-gate workflow-permissions-gate ## Run all linters and offline policy guards.
 
 .PHONY: web-supply-policy-gate
 web-supply-policy-gate: ## Offline self-tests + applicability proof for exact advisory/range/version exceptions.

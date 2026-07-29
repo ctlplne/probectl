@@ -177,9 +177,10 @@ func TestBranchProtectionDocExists(t *testing.T) {
 // live-load job (EXC-GATE-02), the integration job that carries the cross-plane
 // e2e (EXC-GATE-05), live device/path probes, and rendered-browser a11y. A
 // gate that exists but is not in verify-all's needs is advisory; this test
-// makes that omission RED. PR-only commit-policy jobs stay outside the umbrella
-// because verify-all treats skipped needs as failure on push events; branch
-// protection and receipt export must require those explicitly.
+// makes that omission RED. Narrow, explicitly named PR-only jobs stay outside
+// the umbrella because verify-all treats skipped needs as failure on push
+// events. Commit-policy jobs are required separately by branch protection;
+// the best-effort coverage commenter is deliberately not a merge gate.
 func TestVerifyAllIsTheUmbrella(t *testing.T) {
 	ci := readWorkflow(t, "ci.yml")
 
@@ -211,8 +212,9 @@ func TestVerifyAllIsTheUmbrella(t *testing.T) {
 
 	jobs := jobNames(t, ci)
 	allowedOutsideUmbrella := map[string]string{
-		"commitlint": "PR-only; required explicitly by branch protection and receipt export",
-		"dco":        "PR-only; required explicitly by branch protection and receipt export",
+		"commitlint":       "PR-only; required explicitly by branch protection and receipt export",
+		"coverage-comment": "PR-only best-effort commenter; depends on coverage and executes no repository code",
+		"dco":              "PR-only; required explicitly by branch protection and receipt export",
 	}
 	var missing []string
 	for _, job := range jobs {

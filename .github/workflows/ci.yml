@@ -31,6 +31,8 @@ jobs:
         run: ./scripts/check_action_pins.sh
       - name: supply-pins gate (SUPPLY-001/002/006 — no :latest, no unpinned installs)
         run: ./scripts/check_supply_pins.sh SELFTEST && ./scripts/check_supply_pins.sh
+      - name: workflow permission boundary (write-capable jobs never run PR code)
+        run: make workflow-permissions-gate
       - name: cosign-wiring gate (SUPPLY-002 — installer signature verification is wired + fail-closed)
         run: ./scripts/check_cosign_wiring.sh
 
@@ -315,12 +317,12 @@ jobs:
     #
     # Sprint 1 (TEST-008, DATAROOM-005): coverage.out + a per-package summary
     # are retained as workflow artifacts on every run (the diligence receipt),
-    # and PRs get a best-effort summary comment. No bot ever pushes to main.
+    # then a separate no-checkout job posts the bounded PR summary best-effort.
+    # No bot ever pushes to main.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -332,7 +334,7 @@ jobs:
         if: always()
         run: |
           { echo "## Coverage summary ($(git rev-parse --short HEAD))"; echo; echo '```'; \
-            go tool cover -func=coverage.out | tail -40; echo '```'; } > coverage-summary.txt
+            go tool cover -func=coverage.out | tail -40 | cut -c1-240; echo '```'; } > coverage-summary.txt
           tail -3 coverage-summary.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -342,11 +344,35 @@ jobs:
             coverage.out
             coverage-summary.txt
           retention-days: 90
+      - name: Upload bounded PR coverage summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        with:
+          name: coverage-pr-summary
+          path: coverage-summary.txt
+          if-no-files-found: ignore
+          retention-days: 1
+
+  coverage-comment:
+    name: coverage-comment
+    needs: coverage
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download bounded coverage summary
+        run: gh run download "${{ github.run_id }}" --name coverage-pr-summary --dir coverage-pr-summary || true
       - name: PR comment (best-effort)
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr comment ${{ github.event.pull_request.number }} --body-file coverage-summary.txt || true
+        run: |
+          test -s coverage-pr-summary/coverage-summary.txt || exit 0
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file coverage-pr-summary/coverage-summary.txt || true
 
   test-python:
     name: test-python

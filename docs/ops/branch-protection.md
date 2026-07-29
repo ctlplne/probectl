@@ -67,9 +67,11 @@ _skipped_ as failure is deliberate fail-closed behavior: a gate that quietly
 didn't run looks exactly like a gate that passed unless something forces the
 distinction.
 
-Two jobs intentionally run outside the `verify-all` umbrella because they are
+Three jobs intentionally run outside the `verify-all` umbrella because they are
 PR-only: they are skipped on direct pushes to `main`, and `verify-all` would
-correctly treat that skip as red. Require them explicitly in branch protection:
+correctly treat that skip as red. Require the two commit-policy gates explicitly
+in branch protection; `coverage-comment` is a best-effort, no-checkout
+notification job rather than a merge gate:
 
 | Required check | Gate it enforces                                                 |
 | -------------- | ---------------------------------------------------------------- |
@@ -79,8 +81,8 @@ correctly treat that skip as red. Require them explicitly in branch protection:
 
 If your organization's policy instead requires listing every job by name (some
 auditors prefer the explicit list), the **complete** set of top-level `ci.yml`
-jobs is below — 39 specialist jobs plus the `verify-all` umbrella, for
-40 top-level jobs in the workflow. Keep the list in sync with the workflow —
+jobs is below — 40 specialist jobs plus the `verify-all` umbrella, for
+41 top-level jobs in the workflow. Keep the list in sync with the workflow —
 **a job you forget to list is advisory again**, so prefer the `verify-all` plus
 `commitlint`/`dco` approach unless you have a reason not to.
 
@@ -99,6 +101,7 @@ jobs is below — 39 specialist jobs plus the `verify-all` umbrella, for
 | `path-raw-live`          | live raw-socket path probe smoke                                                                                                                   |
 | `rca-eval`               | AI root-cause-analysis quality eval                                                                                                                |
 | `coverage`               | per-package coverage floor                                                                                                                         |
+| `coverage-comment`       | PR-only best-effort coverage comment; no checkout or repository-code execution                                                                    |
 | `test-python`            | BGP analyzer tests                                                                                                                                 |
 | `browser-worker`         | Playwright worker real-browser smoke                                                                                                               |
 | `openapi-gate`           | no undocumented `/v1` routes                                                                                                                       |
