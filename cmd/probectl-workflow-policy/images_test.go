@@ -135,3 +135,128 @@ jobs:
 		t.Fatalf("diagnostic did not preserve expression: %q", stdout.String())
 	}
 }
+
+func TestWorkflowDockerRunAndPullImagePins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		workflow   string
+		wantCode   int
+		wantValues []string
+	}{
+		{
+			name: "mutable operands fail",
+			workflow: `
+jobs:
+  planted:
+    steps:
+      - run: |
+          docker run -d --name planted -p 9090:9090 \
+            registry.example/x:v1 \
+            /bin/true
+          docker pull --platform linux/amd64 \
+            registry.example/y:v2
+`,
+			wantCode:   1,
+			wantValues: []string{"registry.example/x:v1", "registry.example/y:v2"},
+		},
+		{
+			name: "digest-pinned operands pass",
+			workflow: `
+jobs:
+  planted:
+    steps:
+      - run: |
+          docker run -d --name planted -p 9090:9090 \
+            registry.example/x@sha256:` + zeroDigest + ` \
+            /bin/true
+          docker pull --platform linux/amd64 \
+            registry.example/y@sha256:` + zeroDigest + `
+`,
+			wantCode: 0,
+		},
+		{
+			name: "dynamic subcommand fails closed",
+			workflow: `
+jobs:
+  planted:
+    steps:
+      - run: |
+          CMD=run docker "$CMD" \
+            registry.example/x@sha256:` + zeroDigest + `
+`,
+			wantCode:   1,
+			wantValues: []string{"$CMD"},
+		},
+		{
+			name: "dynamic container subcommand fails closed",
+			workflow: `
+jobs:
+  planted:
+    steps:
+      - run: |
+          CMD=run docker container "$CMD" \
+            registry.example/x@sha256:` + zeroDigest + `
+`,
+			wantCode:   1,
+			wantValues: []string{"$CMD"},
+		},
+		{
+			name: "dynamic image subcommand fails closed",
+			workflow: `
+jobs:
+  planted:
+    steps:
+      - run: |
+          CMD=pull docker image "$CMD" \
+            registry.example/x@sha256:` + zeroDigest + `
+`,
+			wantCode:   1,
+			wantValues: []string{"$CMD"},
+		},
+		{
+			name: "known static non-image subcommands pass",
+			workflow: `
+jobs:
+  planted:
+    steps:
+      - run: |
+          docker logs planted
+          docker version
+`,
+			wantCode: 0,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout, stderr strings.Builder
+			code := run(
+				[]string{"images", writeWorkflow(t, test.workflow)},
+				&stdout,
+				&stderr,
+			)
+			if code != test.wantCode {
+				t.Fatalf(
+					"run() = %d, want %d; stdout = %q; stderr = %q",
+					code,
+					test.wantCode,
+					stdout.String(),
+					stderr.String(),
+				)
+			}
+			for _, value := range test.wantValues {
+				if !strings.Contains(stdout.String(), value) {
+					t.Errorf("diagnostic %q does not contain mutable image %q", stdout.String(), value)
+				}
+			}
+			if test.wantCode == 0 && stdout.Len() != 0 {
+				t.Fatalf("digest-pinned workflow produced findings: %q", stdout.String())
+			}
+		})
+	}
+}
