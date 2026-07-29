@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestPermissionRecordsSeeSemanticYAMLShapes(t *testing.T) {
+	t.Parallel()
+
+	path := writeWorkflow(t, `
+permissions: {contents: read}
+jobs:
+  "quoted-read": {permissions: {contents: read}, steps: []}
+  "flow-write": {permissions: {pull-requests: write}, steps: []}
+  multiline-write:
+    permissions: >-
+      write-all
+    steps: []
+`)
+	root, err := loadWorkflow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := permissionRecords(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]bool, len(records))
+	for _, record := range records {
+		got[record.scope+":"+record.job] = record.write
+	}
+	for key, want := range map[string]bool{
+		"workflow:-":          false,
+		"job:quoted-read":     false,
+		"job:flow-write":      true,
+		"job:multiline-write": true,
+	} {
+		if got[key] != want {
+			t.Errorf("%s write = %v, want %v", key, got[key], want)
+		}
+	}
+}
+
+func TestPermissionRecordsFailClosedOnAliasesAndMerges(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"alias": `
+read-job: &read-job {permissions: {contents: read}, steps: []}
+jobs:
+  inherited: *read-job
+`,
+		"merge": `
+jobs:
+  inherited:
+    <<: {permissions: {contents: write}}
+    steps: []
+`,
+	}
+	for name, workflow := range tests {
+		name, workflow := name, workflow
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := loadWorkflow(writeWorkflow(t, workflow))
+			if err == nil {
+				t.Fatal("loadWorkflow accepted an ambiguous YAML data-flow shape")
+			}
+		})
+	}
+}
+
+func TestRunPermissionsPreservesQuotedJobIdentity(t *testing.T) {
+	t.Parallel()
+
+	path := writeWorkflow(t, `
+jobs:
+  "quoted-write":
+    permissions:
+      contents: write
+    steps: []
+`)
+	var stdout, stderr strings.Builder
+	if code := run([]string{"permissions", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
+	}
+	if got, want := stdout.String(), "workflow\t-\tread\njob\tquoted-write\twrite\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func writeWorkflow(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "workflow.yml")
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(contents)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}

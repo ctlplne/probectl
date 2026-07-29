@@ -26,79 +26,6 @@ extract_job() {
   ' "$workflow"
 }
 
-list_jobs() {
-  local workflow="$1"
-
-  awk '
-    /^jobs:[[:space:]]*$/ { in_jobs=1; next }
-    in_jobs && /^[^[:space:]]/ { exit }
-    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
-      line=$0
-      sub(/^  /, "", line)
-      sub(/:[[:space:]]*$/, "", line)
-      print line
-    }
-  ' "$workflow"
-}
-
-workflow_has_write_permissions() {
-  local workflow="$1"
-
-  awk '
-    /^permissions:[[:space:]]*/ {
-      line=$0
-      sub(/[[:space:]]*#.*/, "", line)
-      gsub(/"/, "", line)
-      gsub(sprintf("%c", 39), "", line)
-      if (line ~ /write-all/ || line ~ /(^|[{: ,])write([}, ]|$)/) {
-        write=1
-      }
-      in_permissions=(line ~ /^permissions:[[:space:]]*$/)
-      next
-    }
-    in_permissions && /^  [A-Za-z0-9_-]+:[[:space:]]*/ {
-      line=$0
-      sub(/[[:space:]]*#.*/, "", line)
-      gsub(/"/, "", line)
-      gsub(sprintf("%c", 39), "", line)
-      if (line ~ /:[[:space:]]*write[[:space:]]*$/) {
-        write=1
-      }
-      next
-    }
-    in_permissions { in_permissions=0 }
-    END { exit write ? 0 : 1 }
-  ' "$workflow"
-}
-
-job_has_write_permissions() {
-  awk '
-    /^    permissions:[[:space:]]*/ {
-      line=$0
-      sub(/[[:space:]]*#.*/, "", line)
-      gsub(/"/, "", line)
-      gsub(sprintf("%c", 39), "", line)
-      if (line ~ /write-all/ || line ~ /(^|[{: ,])write([}, ]|$)/) {
-        write=1
-      }
-      in_permissions=(line ~ /^    permissions:[[:space:]]*$/)
-      next
-    }
-    in_permissions && /^      [A-Za-z0-9_-]+:[[:space:]]*/ {
-      line=$0
-      sub(/[[:space:]]*#.*/, "", line)
-      gsub(/"/, "", line)
-      gsub(sprintf("%c", 39), "", line)
-      if (line ~ /:[[:space:]]*write[[:space:]]*$/) {
-        write=1
-      }
-      next
-    }
-    in_permissions { in_permissions=0 }
-    END { exit write ? 0 : 1 }
-  '
-}
-
 job_permissions() {
   awk '
     /^    permissions:[[:space:]]*$/ { in_permissions=1; next }
@@ -158,26 +85,27 @@ check_workflow() {
   local permissions
   local upload_step
   local commands
-  local job
-  local job_block
+  local semantic_permissions
+  local scope
+  local subject
+  local level
 
-  if workflow_has_write_permissions "$workflow"; then
-    echo "workflow-permissions: workflow-level write authority is forbidden in ${workflow}" >&2
-    failed=1
+  if ! semantic_permissions="$(go run ./cmd/probectl-workflow-policy permissions "$workflow" 2>&1)"; then
+    echo "workflow-permissions: semantic YAML inspection failed closed for ${workflow}:" >&2
+    printf '%s\n' "$semantic_permissions" >&2
+    return 1
   fi
-
-  while IFS= read -r job; do
-    [[ -z "$job" ]] && continue
-    if ! job_block="$(extract_job "$workflow" "$job")"; then
-      echo "workflow-permissions: could not inspect job ${job} in ${workflow}" >&2
-      failed=1
-      continue
-    fi
-    if printf '%s\n' "$job_block" | job_has_write_permissions && [[ "$job" != "coverage-comment" ]]; then
-      echo "workflow-permissions: unclassified job ${job} has write authority" >&2
+  while IFS=$'\t' read -r scope subject level; do
+    [[ -z "$scope" ]] && continue
+    if [[ "$scope" == "workflow" && "$level" == "write" ]]; then
+      echo "workflow-permissions: workflow-level write authority is forbidden in ${workflow}" >&2
       failed=1
     fi
-  done < <(list_jobs "$workflow")
+    if [[ "$scope" == "job" && "$level" == "write" && "$subject" != "coverage-comment" ]]; then
+      echo "workflow-permissions: unclassified job ${subject} has write authority" >&2
+      failed=1
+    fi
+  done <<<"$semantic_permissions"
 
   if ! coverage="$(extract_job "$workflow" coverage)"; then
     echo "workflow-permissions: missing coverage job in ${workflow}" >&2
@@ -353,7 +281,71 @@ YAML
     fi
   done
 
-  echo "workflow-permissions SELFTEST: OK (all write-capable jobs classified; privilege co-location + commenter code execution rejected)"
+  cat "$fixture" >"$bad"
+  cat >>"$bad" <<'YAML'
+  "quoted-read": {permissions: {contents: read}, steps: []}
+YAML
+  check_workflow "$bad" >/dev/null ||
+    { echo "workflow-permissions SELFTEST: safe quoted/flow job was rejected" >&2; exit 1; }
+
+  for semantic_bypass in quoted flow multiline; do
+    cat "$fixture" >"$bad"
+    case "$semantic_bypass" in
+      quoted)
+        cat >>"$bad" <<'YAML'
+  "planted-write":
+    permissions: {contents: write}
+    steps: [{run: "make test"}]
+YAML
+        ;;
+      flow)
+        cat >>"$bad" <<'YAML'
+  planted-flow: {permissions: {contents: write}, steps: [{run: "make test"}]}
+YAML
+        ;;
+      multiline)
+        cat >>"$bad" <<'YAML'
+  planted-multiline:
+    permissions: >-
+      write-all
+    steps: []
+YAML
+        ;;
+    esac
+    if check_workflow "$bad" >/dev/null 2>&1; then
+      echo "workflow-permissions SELFTEST: ${semantic_bypass} write authority escaped semantic inspection" >&2
+      exit 1
+    fi
+  done
+
+  cat >"$bad" <<'YAML'
+read-job: &read-job {permissions: {contents: read}, steps: []}
+jobs:
+  coverage:
+    permissions: {contents: read}
+    steps: []
+  coverage-comment:
+    permissions: {actions: read, pull-requests: write}
+    steps: []
+  inherited: *read-job
+YAML
+  if check_workflow "$bad" >/dev/null 2>&1; then
+    echo "workflow-permissions SELFTEST: YAML alias was accepted" >&2
+    exit 1
+  fi
+
+  cat "$fixture" >"$bad"
+  cat >>"$bad" <<'YAML'
+  planted-merge:
+    <<: {permissions: {contents: write}}
+    steps: []
+YAML
+  if check_workflow "$bad" >/dev/null 2>&1; then
+    echo "workflow-permissions SELFTEST: YAML merge hid write authority" >&2
+    exit 1
+  fi
+
+  echo "workflow-permissions SELFTEST: OK (semantic jobs/permissions inspected; quoted/flow/multiline writes + aliases/merges rejected)"
 }
 
 if [[ "${1:-}" == "SELFTEST" ]]; then
