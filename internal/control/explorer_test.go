@@ -426,7 +426,7 @@ func TestExplorerABAC(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
 			req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
 			rec := httptest.NewRecorder()
-			apiHandler(tt.call).ServeHTTP(rec, req)
+			tt.call.ServeHTTP(rec, req)
 			if rec.Code != http.StatusForbidden {
 				t.Fatalf("ABAC-denied Explorer %s = %d %s, want 403 before source dispatch",
 					tt.name, rec.Code, rec.Body.String())
