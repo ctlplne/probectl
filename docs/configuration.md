@@ -556,11 +556,11 @@ breakdown** and captures **TLS handshake details** for the TLS-posture plane (se
 | `method` | `GET`, `HEAD`, `POST`, … | `GET` | request method |
 | `expect_status` | codes / classes / ranges | `2xx,3xx` | which statuses count as available |
 | `follow_redirects` | `true` \| `false` | `true` | follow 3xx redirects |
-| `insecure_skip_verify` | `true` \| `false` | `false` | capture TLS but don't fail on an invalid cert. **Deny-by-default:** requires the admin-only `test.insecure_tls` permission and is flagged in the `test.create`/`test.update` audit entry |
+| `insecure_skip_verify` | `true` \| `false` | `false` | capture TLS but don't fail on an invalid cert. **Deny-by-default:** requires the admin-only `test.insecure_tls` permission, remains subject to tenant ABAC deny policies, and is flagged in the `test.create`/`test.update` audit entry |
 | `ca_file` | path to a PEM bundle | — | extra trust anchor (private/internal CA); must live under `PROBECTL_AGENT_CANARY_CA_DIR` |
 | `body` | string | — | request body (e.g. for `POST`) |
 | `max_body_bytes` | integer | `10485760` | cap bytes read per probe (10 MiB) |
-| `allow_private_targets` | `true` \| `false` | `false` | **SSRF-guard override.** Every canary (http/tcp/udp/icmp/dns/voice/browser) denies loopback, RFC1918/ULA, link-local (incl. `169.254.169.254` cloud metadata), CGNAT, multicast and numeric-encoding bypasses by default, enforcing the check on the **resolved** address at dial time (rebind-proof). Setting `true` lifts the guard for that one test — requires the admin-only `test.allow_private` permission and is written to the tenant audit trail |
+| `allow_private_targets` | `true` \| `false` | `false` | **SSRF-guard override.** Every canary (http/tcp/udp/icmp/dns/voice/browser) denies loopback, RFC1918/ULA, link-local (incl. `169.254.169.254` cloud metadata), CGNAT, multicast and numeric-encoding bypasses by default, enforcing the check on the **resolved** address at dial time (rebind-proof). Setting `true` lifts the guard for that one test — requires the admin-only `test.allow_private` permission, remains subject to tenant ABAC deny policies, and is written to the tenant audit trail |
 
 A word on the last row: **SSRF** (server-side request forgery) is the attack
 where someone defines a "test" that makes *your* agent fetch an internal-only

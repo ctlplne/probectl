@@ -383,7 +383,8 @@ var privilegedTestParams = map[string]string{
 }
 
 // guardAllowPrivate enforces the privileged-param permissions (deny by
-// default: no principal, or a principal without the permission, is refused).
+// default: no principal, missing RBAC, tenant ABAC deny, or a policy-load
+// failure is refused).
 func (s *Server) guardAllowPrivate(r *http.Request, params map[string]string) error {
 	p := auth.PrincipalFrom(r.Context())
 	for param, perm := range privilegedTestParams {
@@ -392,6 +393,14 @@ func (s *Server) guardAllowPrivate(r *http.Request, params map[string]string) er
 		}
 		if p == nil || !p.Has(perm) {
 			return apierror.Forbidden("setting " + param + " requires permission: " + perm)
+		}
+		resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
+		denied, err := s.abacDenies(r.Context(), p, perm, resource)
+		if err != nil {
+			return err
+		}
+		if denied {
+			return apierror.Forbidden("setting " + param + " denied by an attribute policy: " + perm)
 		}
 	}
 	return nil

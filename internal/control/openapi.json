@@ -291,11 +291,31 @@
               }
             }
           },
+          "403": {
+            "description": "The principal lacks the privileged override permission, or a tenant attribute policy denies it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "409": {
             "$ref": "#/components/responses/ErrorResponse"
           },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "description": "The tenant authorization policy store is temporarily unavailable; the privileged override fails closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -358,6 +378,16 @@
               }
             }
           },
+          "403": {
+            "description": "The principal lacks the privileged override permission, or a tenant attribute policy denies it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
           },
@@ -366,6 +396,16 @@
           },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "description": "The tenant authorization policy store is temporarily unavailable; the privileged override fails closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       },
