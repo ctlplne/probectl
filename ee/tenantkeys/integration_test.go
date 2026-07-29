@@ -13,12 +13,14 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
@@ -143,5 +145,118 @@ func TestKeyChainPersistencePG(t *testing.T) {
 	}
 	if withMaterial != 0 {
 		t.Fatalf("destroyed chain still holds material: %d rows", withMaterial)
+	}
+}
+
+// TestKeyRotationMutationAndAuditAtomicPG proves the production transaction,
+// not only the in-memory model: an audit failure rolls back both key mutations,
+// concurrent rotations receive unique sequential versions, and tenant B never
+// participates in tenant A's transaction.
+func TestKeyRotationMutationAndAuditAtomicPG(t *testing.T) {
+	pool := itPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	tnA := itTenant(t, pool, "it-keys-atomic-a")
+	tnB := itTenant(t, pool, "it-keys-atomic-b")
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM tenant_keys WHERE tenant_id IN ($1, $2)`, tnA, tnB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM audit_events WHERE tenant_id IN ($1, $2)`, tnA, tnB); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewPGStore(pool)
+	ring, err := NewKeyring(store, itMaster(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aad := []byte("atomic-pg")
+	blobA, err := ring.Seal(ctx, tnA, []byte("tenant-a-v1"), aad)
+	if err != nil {
+		t.Fatalf("seed tenant A: %v", err)
+	}
+	blobB, err := ring.Seal(ctx, tnB, []byte("tenant-b-v1"), aad)
+	if err != nil {
+		t.Fatalf("seed tenant B: %v", err)
+	}
+
+	store.audit = func(context.Context, tenancy.Scope, string, KeyVersion) error {
+		return errors.New("injected audit sink failure")
+	}
+	if _, err := ring.RotateAudited(ctx, tnA, "alice@example.test", ModeManaged, ""); err == nil {
+		t.Fatal("rotation must fail when the transaction-bound audit append fails")
+	}
+	assertPGKeyChain(t, pool, tnA, 1, 1)
+	assertPGKeyChain(t, pool, tnB, 1, 1)
+	var failedAuditRows int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM audit_events
+		 WHERE tenant_id = $1 AND action = 'security.key_rotate'`, tnA).Scan(&failedAuditRows); err != nil {
+		t.Fatal(err)
+	}
+	if failedAuditRows != 0 {
+		t.Fatalf("failed rotation committed %d audit rows", failedAuditRows)
+	}
+	fresh, err := NewKeyring(NewPGStore(pool), itMaster(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain, err := fresh.Open(ctx, tnA, blobA, aad); err != nil || string(plain) != "tenant-a-v1" {
+		t.Fatalf("tenant A predecessor after rollback: %q %v", plain, err)
+	}
+	if plain, err := fresh.Open(ctx, tnB, blobB, aad); err != nil || string(plain) != "tenant-b-v1" {
+		t.Fatalf("tenant B after tenant A rollback: %q %v", plain, err)
+	}
+
+	store.audit = appendRotationAudit
+	const rotations = 4
+	errs := make(chan error, rotations)
+	var wg sync.WaitGroup
+	for i := 0; i < rotations; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := ring.RotateAudited(ctx, tnA, "alice@example.test", ModeManaged, "")
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent PG rotation: %v", err)
+		}
+	}
+	assertPGKeyChain(t, pool, tnA, rotations+1, rotations+1)
+	assertPGKeyChain(t, pool, tnB, 1, 1)
+	var auditRows int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM audit_events
+		 WHERE tenant_id = $1
+		   AND actor = 'alice@example.test'
+		   AND action = 'security.key_rotate'`, tnA).Scan(&auditRows); err != nil {
+		t.Fatal(err)
+	}
+	if auditRows != rotations {
+		t.Fatalf("committed rotation audits = %d, want %d", auditRows, rotations)
+	}
+}
+
+func assertPGKeyChain(t *testing.T, pool *pgxpool.Pool, tenantID string, rows, activeVersion int) {
+	t.Helper()
+	var gotRows, activeCount, gotActiveVersion int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT count(*),
+		       count(*) FILTER (WHERE state = 'active'),
+		       coalesce(max(version) FILTER (WHERE state = 'active'), 0)
+		  FROM tenant_keys
+		 WHERE tenant_id = $1`, tenantID).Scan(&gotRows, &activeCount, &gotActiveVersion); err != nil {
+		t.Fatal(err)
+	}
+	if gotRows != rows || activeCount != 1 || gotActiveVersion != activeVersion {
+		t.Fatalf("tenant %s chain rows=%d active_count=%d active_version=%d; want rows=%d active_count=1 active_version=%d",
+			tenantID, gotRows, activeCount, gotActiveVersion, rows, activeVersion)
 	}
 }

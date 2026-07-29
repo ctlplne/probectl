@@ -22,6 +22,7 @@ package tenantcrypto
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -285,9 +286,15 @@ type KeyInfo struct {
 	DestroyedAt string `json:"destroyed_at,omitempty"`
 }
 
+// ErrKeyRotationUnavailable marks an infrastructure/audit transaction failure,
+// not caller validation. Transport surfaces must not expose its internal cause
+// or misclassify a failed mandatory audit append as a client error.
+var ErrKeyRotationUnavailable = errors.New("tenantcrypto: key rotation unavailable")
+
 // KeyManager manages a tenant's key chain (implemented by ee/tenantkeys;
-// installed at the attach seam; absent = the surface hides).
+// installed at the attach seam; absent = the surface hides). RotateKey must
+// commit its key mutation and mandatory tenant audit event atomically.
 type KeyManager interface {
 	KeyStatus(ctx context.Context, tenantID string) ([]KeyInfo, error)
-	RotateKey(ctx context.Context, tenantID, mode, byokRef string) (KeyInfo, error)
+	RotateKey(ctx context.Context, tenantID, actor, mode, byokRef string) (KeyInfo, error)
 }

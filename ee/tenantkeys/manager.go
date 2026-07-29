@@ -8,6 +8,8 @@ package tenantkeys
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
@@ -35,9 +37,12 @@ func (m *Manager) KeyStatus(ctx context.Context, tenantID string) ([]tenantcrypt
 }
 
 // RotateKey implements tenantcrypto.KeyManager.
-func (m *Manager) RotateKey(ctx context.Context, tenantID, mode, byokRef string) (tenantcrypto.KeyInfo, error) {
-	kv, err := m.ring.Rotate(ctx, tenantID, mode, byokRef)
+func (m *Manager) RotateKey(ctx context.Context, tenantID, actor, mode, byokRef string) (tenantcrypto.KeyInfo, error) {
+	kv, err := m.ring.RotateAudited(ctx, tenantID, actor, mode, byokRef)
 	if err != nil {
+		if errors.Is(err, ErrRotationCommit) {
+			return tenantcrypto.KeyInfo{}, fmt.Errorf("%w: %v", tenantcrypto.ErrKeyRotationUnavailable, err)
+		}
 		return tenantcrypto.KeyInfo{}, err
 	}
 	return toInfo(*kv), nil

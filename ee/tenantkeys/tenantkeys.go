@@ -62,6 +62,7 @@ var (
 	ErrKeyDestroyed   = errors.New("tenantkeys: the tenant's keys are destroyed (cryptographic offboarding) — ciphertexts are permanently unreadable")
 	ErrKeyUnavailable = errors.New("tenantkeys: tenant key unavailable — failing safe (no shared-key fallback)")
 	ErrNoActiveKey    = errors.New("tenantkeys: tenant has no active key")
+	ErrRotationCommit = errors.New("tenantkeys: atomic key rotation transaction failed")
 )
 
 // KeyVersion is one link of a tenant's key chain.
@@ -76,6 +77,12 @@ type KeyVersion struct {
 	RetiredAt   *time.Time `json:"retired_at,omitempty"`
 	DestroyedAt *time.Time `json:"destroyed_at,omitempty"`
 }
+
+// RotationBuilder builds the next active key after RotateAtomic has serialized
+// the tenant's chain and selected the next version. Implementations must not
+// publish the returned key unless predecessor retirement, successor insertion,
+// and the mandatory audit append can all commit.
+type RotationBuilder func(ctx context.Context, nextVersion int) (KeyVersion, error)
 
 // Store persists key chains.
 type Store interface {
@@ -93,6 +100,10 @@ type Store interface {
 	DestroyAll(ctx context.Context, tenantID, by string, at time.Time) (int, error)
 	// Chain lists every version, newest first (status surfaces).
 	Chain(ctx context.Context, tenantID string) ([]KeyVersion, error)
+	// RotateAtomic serializes one tenant's chain and commits predecessor
+	// retirement, successor insertion, and the mandatory audit event as one
+	// unit. Any failure leaves the previous active version unchanged.
+	RotateAtomic(ctx context.Context, tenantID, actor string, at time.Time, build RotationBuilder) (*KeyVersion, error)
 }
 
 // RefResolver resolves a BYOK secret reference to base64-encoded key material
@@ -399,58 +410,106 @@ func (k *Keyring) Open(ctx context.Context, tenantID string, stored string, aad 
 	return plain, nil
 }
 
-// Rotate activates a new key version for NEW seals; the outgoing version is
-// retired (decrypt-only) — no downtime, no re-encryption required. mode
-// "managed" mints a fresh KEK; "byok" binds the given secret reference
-// (validated resolvable FIRST — a dead reference must not become the active
-// key and lock the tenant out on the next write).
+// Rotate activates a new key version as the system actor. Interactive callers
+// use RotateAudited so the authenticated actor is preserved in the mandatory
+// audit event.
 func (k *Keyring) Rotate(ctx context.Context, tenantID, mode, byokRef string) (*KeyVersion, error) {
+	return k.RotateAudited(ctx, tenantID, "system", mode, byokRef)
+}
+
+// RotateAudited activates a new key version for NEW seals; the outgoing
+// version is retired (decrypt-only) — no downtime, no re-encryption required.
+// Predecessor retirement, successor insertion, and the audit append are one
+// store transaction. Mode "managed" mints a fresh KEK; "byok" binds the given
+// secret reference, validated before the transaction so a dead reference can
+// never become active and lock the tenant out.
+func (k *Keyring) RotateAudited(ctx context.Context, tenantID, actor, mode, byokRef string) (*KeyVersion, error) {
 	if mode != ModeManaged && mode != ModeBYOK {
 		return nil, fmt.Errorf("tenantkeys: mode must be %q or %q", ModeManaged, ModeBYOK)
 	}
-	chain, err := k.store.Chain(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
+	if strings.TrimSpace(actor) == "" {
+		return nil, errors.New("tenantkeys: rotation audit actor is required")
 	}
-	next := 1
-	for _, v := range chain {
-		if v.State == StateDestroyed {
-			return nil, ErrKeyDestroyed
-		}
-		if v.Version >= next {
-			next = v.Version + 1
-		}
+	if mode == ModeBYOK && strings.TrimSpace(byokRef) == "" {
+		return nil, errors.New("tenantkeys: byok reference is required")
 	}
+
 	if mode == ModeBYOK {
-		if k.resolve == nil {
-			return nil, fmt.Errorf("%w: no secret-reference resolver configured for byok", ErrKeyUnavailable)
-		}
-		probe := KeyVersion{TenantID: tenantID, Version: next, Mode: ModeBYOK, BYOKRef: byokRef, State: StateActive}
-		lease, err := k.kekFor(ctx, &probe)
-		if err != nil {
+		if err := k.validateBYOKReference(ctx, byokRef); err != nil {
 			return nil, fmt.Errorf("tenantkeys: byok reference rejected before activation (lockout guard): %w", err)
 		}
-		lease.Close()
 	}
-	if err := k.store.Retire(ctx, tenantID, k.now().UTC()); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
-	}
-	var kv *KeyVersion
+
+	at := k.now().UTC()
+	var managedKEK []byte
+	var err error
 	if mode == ModeManaged {
-		kv, err = k.provisionManaged(ctx, tenantID, next)
+		managedKEK, err = crypto.Random(32)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		v := KeyVersion{TenantID: tenantID, Version: next, Mode: ModeBYOK, State: StateActive,
-			BYOKRef: byokRef, CreatedAt: k.now().UTC()}
-		if err := k.store.Insert(ctx, v); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
-		}
-		kv = &v
 	}
+	cached := false
+	defer func() {
+		if len(managedKEK) > 0 && !cached {
+			zeroize(managedKEK)
+		}
+	}()
+
+	kv, err := k.store.RotateAtomic(ctx, tenantID, actor, at, func(ctx context.Context, next int) (KeyVersion, error) {
+		v := KeyVersion{
+			TenantID: tenantID, Version: next, Mode: mode, State: StateActive,
+			BYOKRef: byokRef, CreatedAt: at,
+		}
+		if mode == ModeManaged {
+			sealed, err := k.master.Seal(ctx, managedKEK, []byte("tenant-kek:"+tenantID+":"+strconv.Itoa(next)))
+			if err != nil {
+				return KeyVersion{}, err
+			}
+			v.WrappedKEK = encodeSealed(sealed)
+			v.BYOKRef = ""
+		}
+		return v, nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrKeyDestroyed) {
+			return nil, ErrKeyDestroyed
+		}
+		return nil, fmt.Errorf("%w: %v", ErrRotationCommit, err)
+	}
+
+	// Do not expose a successor through the cache until its transaction is
+	// confirmed committed. Purging after commit also removes every retired
+	// version's raw bytes.
 	k.purgeTenant(tenantID)
+	if mode == ModeManaged {
+		cached = k.cachePut(tenantID, kv.Version, ModeManaged, managedKEK)
+	}
 	return kv, nil
+}
+
+// validateBYOKReference resolves and decodes a customer key without populating
+// the key cache. Rotation validation must be side-effect free: a transaction
+// failure cannot leave an uncommitted successor's raw bytes cached.
+func (k *Keyring) validateBYOKReference(ctx context.Context, ref string) error {
+	if k.resolve == nil {
+		return fmt.Errorf("%w: no secret-reference resolver configured for byok", ErrKeyUnavailable)
+	}
+	material, cleanup, err := k.resolve(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("%w: byok reference: %v", ErrKeyUnavailable, err)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	trimmed := bytes.TrimSpace(material)
+	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(trimmed)))
+	n, err := base64.StdEncoding.Decode(decoded, trimmed)
+	defer zeroize(decoded)
+	if err != nil || n != 32 {
+		return fmt.Errorf("%w: byok material must be base64 of exactly 32 bytes", ErrKeyUnavailable)
+	}
+	return nil
 }
 
 // DestroyKeys implements tenantcrypto.Destroyer: cryptographic offboarding.

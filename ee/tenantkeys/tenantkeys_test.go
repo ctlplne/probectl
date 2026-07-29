@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -145,6 +146,163 @@ func TestRotationNoDowntime(t *testing.T) {
 	}
 }
 
+// TestKeyRotateAtomicOnInsertFailure is the rotation atomicity regression:
+// building the successor, retiring the predecessor, inserting the successor,
+// and recording the mandatory audit event are one commit. A failed successor
+// insert must leave the previous active key usable, and must not touch another
+// tenant's independent chain.
+func TestKeyRotateAtomicOnInsertFailure(t *testing.T) {
+	store := NewMemStore()
+	k, err := NewKeyring(store, testMaster(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	aad := []byte("rotation-atomicity")
+	blobA, err := k.Seal(ctx, "tnA", []byte("tenant-a"), aad)
+	if err != nil {
+		t.Fatalf("seed tenant A: %v", err)
+	}
+	blobB, err := k.Seal(ctx, "tnB", []byte("tenant-b"), aad)
+	if err != nil {
+		t.Fatalf("seed tenant B: %v", err)
+	}
+
+	store.FailNextRotationInsert(errors.New("injected successor insert failure"))
+	if _, err := k.Rotate(ctx, "tnA", ModeManaged, ""); err == nil {
+		t.Fatal("rotation with an injected successor failure must fail")
+	}
+
+	activeA, err := store.ActiveVersion(ctx, "tnA")
+	if err != nil {
+		t.Fatalf("tenant A active version: %v", err)
+	}
+	if activeA == nil || activeA.Version != 1 || activeA.State != StateActive {
+		t.Fatalf("failed rotation retired tenant A's only active key: %+v", activeA)
+	}
+	activeB, err := store.ActiveVersion(ctx, "tnB")
+	if err != nil {
+		t.Fatalf("tenant B active version: %v", err)
+	}
+	if activeB == nil || activeB.Version != 1 || activeB.State != StateActive {
+		t.Fatalf("tenant A failure changed tenant B's chain: %+v", activeB)
+	}
+	if plain, err := k.Open(ctx, "tnA", blobA, aad); err != nil || string(plain) != "tenant-a" {
+		t.Fatalf("tenant A old ciphertext after failed rotation: %q %v", plain, err)
+	}
+	if plain, err := k.Open(ctx, "tnB", blobB, aad); err != nil || string(plain) != "tenant-b" {
+		t.Fatalf("tenant B ciphertext after tenant A failure: %q %v", plain, err)
+	}
+}
+
+func TestKeyRotateAtomicOnAuditFailure(t *testing.T) {
+	k, store := newRing(t, nil)
+	ctx := context.Background()
+	aad := []byte("rotation-audit-atomicity")
+	blobA, err := k.Seal(ctx, "tnA", []byte("tenant-a"), aad)
+	if err != nil {
+		t.Fatalf("seed tenant A: %v", err)
+	}
+	blobB, err := k.Seal(ctx, "tnB", []byte("tenant-b"), aad)
+	if err != nil {
+		t.Fatalf("seed tenant B: %v", err)
+	}
+
+	store.FailNextRotationAudit(errors.New("injected mandatory audit failure"))
+	if _, err := NewManager(k).RotateKey(ctx, "tnA", "alice@example.test", ModeManaged, ""); !errors.Is(err, tenantcrypto.ErrKeyRotationUnavailable) {
+		t.Fatalf("rotation whose mandatory audit append fails = %v, want unavailable", err)
+	}
+	chainA, err := store.Chain(ctx, "tnA")
+	if err != nil {
+		t.Fatalf("tenant A chain: %v", err)
+	}
+	if len(chainA) != 1 || chainA[0].Version != 1 || chainA[0].State != StateActive {
+		t.Fatalf("audit failure published tenant A's staged rotation: %+v", chainA)
+	}
+	chainB, err := store.Chain(ctx, "tnB")
+	if err != nil {
+		t.Fatalf("tenant B chain: %v", err)
+	}
+	if len(chainB) != 1 || chainB[0].Version != 1 || chainB[0].State != StateActive {
+		t.Fatalf("tenant A audit failure changed tenant B's chain: %+v", chainB)
+	}
+	if len(store.committedRotationAudits) != 0 {
+		t.Fatalf("failed transaction published an audit record: %+v", store.committedRotationAudits)
+	}
+	if plain, err := k.Open(ctx, "tnA", blobA, aad); err != nil || string(plain) != "tenant-a" {
+		t.Fatalf("tenant A old ciphertext after audit failure: %q %v", plain, err)
+	}
+	if plain, err := k.Open(ctx, "tnB", blobB, aad); err != nil || string(plain) != "tenant-b" {
+		t.Fatalf("tenant B ciphertext after tenant A audit failure: %q %v", plain, err)
+	}
+}
+
+func TestKeyRotateConcurrentSerializesVersions(t *testing.T) {
+	k, store := newRing(t, nil)
+	ctx := context.Background()
+	if _, err := k.Seal(ctx, "tnA", []byte("seed-a"), nil); err != nil {
+		t.Fatalf("seed tenant A: %v", err)
+	}
+	blobB, err := k.Seal(ctx, "tnB", []byte("seed-b"), nil)
+	if err != nil {
+		t.Fatalf("seed tenant B: %v", err)
+	}
+
+	const rotations = 8
+	errs := make(chan error, rotations)
+	var wg sync.WaitGroup
+	for i := 0; i < rotations; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := k.RotateAudited(ctx, "tnA", "rotator@example.test", ModeManaged, "")
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent rotation: %v", err)
+		}
+	}
+
+	chainA, err := store.Chain(ctx, "tnA")
+	if err != nil {
+		t.Fatalf("tenant A chain: %v", err)
+	}
+	if len(chainA) != rotations+1 {
+		t.Fatalf("tenant A chain length = %d, want %d: %+v", len(chainA), rotations+1, chainA)
+	}
+	seen := make(map[int]bool, len(chainA))
+	active := 0
+	for _, kv := range chainA {
+		if seen[kv.Version] {
+			t.Fatalf("duplicate serialized version %d: %+v", kv.Version, chainA)
+		}
+		seen[kv.Version] = true
+		if kv.State == StateActive {
+			active++
+		}
+	}
+	if active != 1 || chainA[0].Version != rotations+1 || chainA[0].State != StateActive {
+		t.Fatalf("serialized chain has %d active versions: %+v", active, chainA)
+	}
+	if len(store.committedRotationAudits) != rotations {
+		t.Fatalf("committed rotation audits = %d, want %d", len(store.committedRotationAudits), rotations)
+	}
+	chainB, err := store.Chain(ctx, "tnB")
+	if err != nil {
+		t.Fatalf("tenant B chain: %v", err)
+	}
+	if len(chainB) != 1 || chainB[0].State != StateActive {
+		t.Fatalf("tenant A rotations changed tenant B's chain: %+v", chainB)
+	}
+	if plain, err := k.Open(ctx, "tnB", blobB, nil); err != nil || string(plain) != "seed-b" {
+		t.Fatalf("tenant B ciphertext after tenant A rotations: %q %v", plain, err)
+	}
+}
+
 // TestCryptoOffboard is the named offboarding test: destroying the tenant's
 // keys renders every blob permanently unreadable, sealing refuses to
 // silently re-key, key material is wiped from the store, and the other
@@ -172,6 +330,9 @@ func TestCryptoOffboard(t *testing.T) {
 	// Sealing after destruction refuses to re-key.
 	if _, err := k.Seal(ctx, "tnA", []byte("new"), aad); !errors.Is(err, ErrKeyDestroyed) {
 		t.Fatalf("post-destroy seal must fail destroyed: %v", err)
+	}
+	if _, err := k.Rotate(ctx, "tnA", ModeManaged, ""); !errors.Is(err, ErrKeyDestroyed) {
+		t.Fatalf("post-destroy rotation must fail destroyed: %v", err)
 	}
 	// Key material is wiped from the store.
 	chain, _ := store.Chain(ctx, "tnA")
@@ -558,16 +719,22 @@ func TestFailSafeOnStoreOutage(t *testing.T) {
 // TestManagerAdapter: the core KeyManager contract over the keyring — chain
 // state crosses as DTOs (never material), rotation maps modes/refs through.
 func TestManagerAdapter(t *testing.T) {
-	k, _ := newRing(t, nil)
+	k, store := newRing(t, nil)
 	m := NewManager(k)
 	ctx := context.Background()
 
 	if _, err := k.Seal(ctx, "tnA", []byte("x"), nil); err != nil {
 		t.Fatal(err)
 	}
-	info, err := m.RotateKey(ctx, "tnA", ModeManaged, "")
+	info, err := m.RotateKey(ctx, "tnA", "alice@example.test", ModeManaged, "")
 	if err != nil || info.Version != 2 || info.Mode != ModeManaged || info.State != StateActive {
 		t.Fatalf("rotate via manager: %+v %v", info, err)
+	}
+	if len(store.committedRotationAudits) != 1 ||
+		store.committedRotationAudits[0].Actor != "alice@example.test" ||
+		store.committedRotationAudits[0].TenantID != "tnA" {
+		t.Fatalf("manager did not bind authenticated actor and tenant into atomic audit: %+v",
+			store.committedRotationAudits)
 	}
 	chain, err := m.KeyStatus(ctx, "tnA")
 	if err != nil || len(chain) != 2 {
@@ -583,11 +750,11 @@ func TestManagerAdapter(t *testing.T) {
 		t.Fatal("created_at must serialize")
 	}
 	// Invalid mode is rejected before touching the chain.
-	if _, err := m.RotateKey(ctx, "tnA", "weird", ""); err == nil {
+	if _, err := m.RotateKey(ctx, "tnA", "alice@example.test", "weird", ""); err == nil {
 		t.Fatal("invalid mode must be rejected")
 	}
 	// byok without a ref is rejected.
-	if _, err := m.RotateKey(ctx, "tnA", ModeBYOK, ""); err == nil {
+	if _, err := m.RotateKey(ctx, "tnA", "alice@example.test", ModeBYOK, ""); err == nil {
 		t.Fatal("byok without ref must be rejected")
 	}
 }

@@ -7,11 +7,10 @@
 package control
 
 import (
-	"context"
+	"errors"
 	"net/http"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 )
 
@@ -82,18 +81,14 @@ func (s *Server) handleKeysRotate(w http.ResponseWriter, r *http.Request) error 
 	if in.Mode == "byok" && in.BYOKRef == "" {
 		return apierror.Validation("byok requires byok_ref (an S41 secret reference, e.g. vault:kv/path#key)")
 	}
-	kv, err := m.RotateKey(r.Context(), tid, in.Mode, in.BYOKRef)
+	kv, err := m.RotateKey(r.Context(), tid, auditActor(r), in.Mode, in.BYOKRef)
 	if err != nil {
+		if errors.Is(err, tenantcrypto.ErrKeyRotationUnavailable) {
+			return apierror.Internal("key rotation failed").Wrap(err)
+		}
 		// Rotation failures are actionable client problems more often than
 		// server faults (dead BYOK refs are rejected by the lockout guard).
 		return apierror.Validation(err.Error())
-	}
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		return s.recordAudit(ctx, sc, r, "security.key_rotate", tid, map[string]any{
-			"version": kv.Version, "mode": kv.Mode,
-		})
-	}); err != nil {
-		return err
 	}
 	writeJSON(w, http.StatusOK, kv)
 	return nil
