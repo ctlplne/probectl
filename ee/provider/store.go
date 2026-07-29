@@ -134,6 +134,9 @@ func (g Grant) Usable(t time.Time) bool { return g.State(t) == GrantActive }
 // write transaction across unrelated work.
 type MutationStore interface {
 	CreateOperator(ctx context.Context, op Operator, enrollTokenHash []byte) (Operator, error)
+	// BootstrapOperator inserts only when the provider roster is empty. The
+	// production implementation serializes that predicate at the database.
+	BootstrapOperator(ctx context.Context, op Operator, enrollTokenHash []byte) (Operator, error)
 	SetOperatorTOTP(ctx context.Context, id string, sealed crypto.Sealed) error
 	ActivateOperator(ctx context.Context, id, passwordHash string) error
 	SetOperatorStatus(ctx context.Context, id, status string) error
@@ -300,6 +303,19 @@ func (m *MemStore) nextID(prefix string) string {
 func (m *MemStore) CreateOperator(_ context.Context, op Operator, enrollTokenHash []byte) (Operator, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.createOperatorLocked(op, enrollTokenHash)
+}
+
+func (m *MemStore) BootstrapOperator(_ context.Context, op Operator, enrollTokenHash []byte) (Operator, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.operators) != 0 {
+		return Operator{}, ErrConflict
+	}
+	return m.createOperatorLocked(op, enrollTokenHash)
+}
+
+func (m *MemStore) createOperatorLocked(op Operator, enrollTokenHash []byte) (Operator, error) {
 	for _, x := range m.operators {
 		if strings.EqualFold(x.op.Email, op.Email) {
 			return Operator{}, ErrConflict

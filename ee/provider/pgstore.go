@@ -90,15 +90,52 @@ func scanOperator(row pgx.Row) (Operator, error) {
 	return op, err
 }
 
+func insertOperator(
+	ctx context.Context,
+	q tenancy.Querier,
+	op Operator,
+	enrollTokenHash []byte,
+) (Operator, error) {
+	return scanOperator(q.QueryRow(ctx,
+		`INSERT INTO provider_operators (email, name, role, status, enroll_token_hash)
+		 VALUES ($1, $2, $3, 'disabled', $4) RETURNING `+operatorCols,
+		op.Email, op.Name, op.Role, enrollTokenHash))
+}
+
 func (s *PGStore) CreateOperator(ctx context.Context, op Operator, enrollTokenHash []byte) (Operator, error) {
 	var out Operator
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
 		var e error
-		out, e = scanOperator(q.QueryRow(ctx,
-			`INSERT INTO provider_operators (email, name, role, status, enroll_token_hash)
-			 VALUES ($1, $2, $3, 'disabled', $4) RETURNING `+operatorCols,
-			op.Email, op.Name, op.Role, enrollTokenHash))
+		out, e = insertOperator(ctx, q, op, enrollTokenHash)
 		return e
+	})
+	return out, mapPGErr(err)
+}
+
+func (s *PGStore) BootstrapOperator(
+	ctx context.Context,
+	op Operator,
+	enrollTokenHash []byte,
+) (Operator, error) {
+	var out Operator
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		// The provider operator roster is deployment-global, so one transaction
+		// lock serializes the empty-roster predicate with the first insert.
+		if _, err := q.Exec(ctx,
+			`SELECT pg_advisory_xact_lock(hashtextextended('probectl:provider-bootstrap', 0))`); err != nil {
+			return err
+		}
+		var exists bool
+		if err := q.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM provider_operators)`).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return ErrConflict
+		}
+		var err error
+		out, err = insertOperator(ctx, q, op, enrollTokenHash)
+		return err
 	})
 	return out, mapPGErr(err)
 }

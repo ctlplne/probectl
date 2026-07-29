@@ -11,8 +11,11 @@
       "post": {
         "summary": "Create the first admin from the deployment bootstrap token (single-use)",
         "responses": {
-          "200": {
-            "description": "OK"
+          "201": {
+            "description": "The first provider admin was created and its one-time enrollment token returned"
+          },
+          "409": {
+            "description": "Bootstrap was already consumed because a provider operator exists"
           }
         }
       }

@@ -222,13 +222,6 @@ func (s *Service) Bootstrap(ctx context.Context, configuredToken, presentedToken
 	if !crypto.ConstantTimeEqual([]byte(configuredToken), []byte(presentedToken)) {
 		return Operator{}, "", ErrForbidden
 	}
-	n, err := s.store.CountOperators(ctx)
-	if err != nil {
-		return Operator{}, "", err
-	}
-	if n > 0 {
-		return Operator{}, "", validationError("provider: bootstrap is single-use — operators already exist")
-	}
 	token, err := randomToken()
 	if err != nil {
 		return Operator{}, "", err
@@ -236,7 +229,7 @@ func (s *Service) Bootstrap(ctx context.Context, configuredToken, presentedToken
 	var op Operator
 	err = s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
 		var err error
-		op, err = store.CreateOperator(ctx,
+		op, err = store.BootstrapOperator(ctx,
 			Operator{Email: strings.ToLower(email), Name: name, Role: RoleAdmin, Status: "disabled"},
 			crypto.Hash([]byte(token)),
 		)

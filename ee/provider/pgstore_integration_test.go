@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/ee/silo"
@@ -70,6 +71,218 @@ func pgPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("migrate: %v", err)
 	}
 	return pool
+}
+
+func isolatedBootstrapPGPool(t *testing.T) (*pgxpool.Pool, string, string) {
+	t.Helper()
+	ctx := context.Background()
+	admin := pgPool(t)
+	t.Cleanup(admin.Close)
+
+	stamp := time.Now().UTC().UnixNano()
+	schema := fmt.Sprintf("provider_bootstrap_%d", stamp)
+	quotedSchema := pgx.Identifier{schema}.Sanitize()
+	for _, statement := range []string{
+		`CREATE SCHEMA ` + quotedSchema,
+		`CREATE TABLE ` + quotedSchema + `.provider_operators
+			(LIKE public.provider_operators INCLUDING ALL)`,
+		`CREATE TABLE ` + quotedSchema + `.provider_audit_events
+			(LIKE public.provider_audit_events INCLUDING ALL)`,
+		`GRANT USAGE ON SCHEMA ` + quotedSchema + ` TO probectl_provider`,
+		`GRANT SELECT, INSERT, UPDATE ON ` + quotedSchema + `.provider_operators TO probectl_provider`,
+		`GRANT SELECT, INSERT ON ` + quotedSchema + `.provider_audit_events TO probectl_provider`,
+	} {
+		if _, err := admin.Exec(ctx, statement); err != nil {
+			t.Fatalf("prepare isolated provider bootstrap schema: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), `DROP SCHEMA `+quotedSchema+` CASCADE`); err != nil {
+			t.Errorf("drop isolated provider bootstrap schema: %v", err)
+		}
+	})
+
+	cfg, err := pgxpool.ParseConfig(testsupport.PostgresDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationName := fmt.Sprintf("provider-bootstrap-%d", stamp)
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+	cfg.ConnConfig.RuntimeParams["application_name"] = applicationName
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return pool, schema, applicationName
+}
+
+func bootstrapLockWaiters(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	schema, applicationName string,
+) (int, int) {
+	t.Helper()
+	var relationWaiters, advisoryWaiters int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT count(*) FILTER (
+			WHERE l.locktype = 'relation'
+			  AND l.relation = to_regclass($2)
+		),
+		count(*) FILTER (WHERE l.locktype = 'advisory')
+		  FROM pg_locks l
+		  JOIN pg_stat_activity a USING (pid)
+		 WHERE NOT l.granted
+		   AND a.application_name = $1`,
+		applicationName, schema+".provider_operators",
+	).Scan(&relationWaiters, &advisoryWaiters); err != nil {
+		t.Fatal(err)
+	}
+	return relationWaiters, advisoryWaiters
+}
+
+func awaitBootstrapLockShape(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	schema, applicationName string,
+	want func(relationWaiters, advisoryWaiters int) bool,
+) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		relationWaiters, advisoryWaiters := bootstrapLockWaiters(t, pool, schema, applicationName)
+		if want(relationWaiters, advisoryWaiters) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf(
+				"timed out waiting for bootstrap lock shape: relation_waiters=%d advisory_waiters=%d",
+				relationWaiters,
+				advisoryWaiters,
+			)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestPGBootstrapConcurrentRequestsSerializeInitialOperatorAndRetry(t *testing.T) {
+	ctx := context.Background()
+	pool, schema, applicationName := isolatedBootstrapPGPool(t)
+	store := NewPGStore(pool)
+	sink := &providerAudit{pool: pool}
+	svc, err := NewService(
+		store,
+		sink,
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A SHARE table lock lets both vulnerable transactions observe an empty
+	// roster before either INSERT can land. With the bootstrap advisory lock,
+	// only the winner reaches INSERT; the loser waits at the deployment-global
+	// decision lock and then observes the committed operator.
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = blocker.Rollback(ctx) }()
+	if _, err := blocker.Exec(ctx, `LOCK TABLE provider_operators IN SHARE MODE`); err != nil {
+		t.Fatal(err)
+	}
+
+	start := func(email string) <-chan bootstrapResult {
+		out := make(chan bootstrapResult, 1)
+		go func() {
+			op, token, err := svc.Bootstrap(ctx, bootToken, bootToken, email, "PG Bootstrap Race")
+			out <- bootstrapResult{email: email, op: op, token: token, err: err}
+		}()
+		return out
+	}
+	await := func(result <-chan bootstrapResult) bootstrapResult {
+		t.Helper()
+		select {
+		case got := <-result:
+			return got
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for PostgreSQL bootstrap result")
+			return bootstrapResult{}
+		}
+	}
+
+	first := start("pg-bootstrap-first@msp.example")
+	awaitBootstrapLockShape(t, pool, schema, applicationName, func(relationWaiters, _ int) bool {
+		return relationWaiters == 1
+	})
+	second := start("pg-bootstrap-second@msp.example")
+	awaitBootstrapLockShape(t, pool, schema, applicationName, func(relationWaiters, advisoryWaiters int) bool {
+		return relationWaiters == 1 && advisoryWaiters == 1
+	})
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	results := []bootstrapResult{await(first), await(second)}
+	successes, conflicts := 0, 0
+	loserEmail := ""
+	for _, got := range results {
+		switch {
+		case got.err == nil:
+			successes++
+			if got.op.Email != got.email || got.token == "" {
+				t.Fatalf("successful PostgreSQL bootstrap = %+v token_empty=%t", got.op, got.token == "")
+			}
+		case errors.Is(got.err, ErrConflict):
+			conflicts++
+			loserEmail = got.email
+			if got.op.ID != "" || got.token != "" {
+				t.Fatalf("conflicting PostgreSQL bootstrap leaked success material: op=%+v token=%q", got.op, got.token)
+			}
+		default:
+			t.Fatalf("PostgreSQL bootstrap %q error = %v, want success or %v", got.email, got.err, ErrConflict)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("PostgreSQL bootstrap successes/conflicts = %d/%d, want 1/1", successes, conflicts)
+	}
+	if got, err := store.CountOperators(ctx); err != nil {
+		t.Fatal(err)
+	} else if got != 1 {
+		t.Fatalf("PostgreSQL operators after concurrent bootstrap = %d, want 1", got)
+	}
+
+	countAudits := func() int {
+		var count int
+		if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+			return q.QueryRow(ctx,
+				`SELECT count(*) FROM provider_audit_events WHERE action = 'provider.bootstrap'`,
+			).Scan(&count)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	if got := countAudits(); got != 1 {
+		t.Fatalf("PostgreSQL bootstrap success audits = %d, want 1", got)
+	}
+
+	op, token, err := svc.Bootstrap(ctx, bootToken, bootToken, loserEmail, "PG Bootstrap Retry")
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("PostgreSQL bootstrap retry error = %v, want %v", err, ErrConflict)
+	}
+	if op.ID != "" || token != "" {
+		t.Fatalf("PostgreSQL bootstrap retry leaked success material: op=%+v token=%q", op, token)
+	}
+	if got := countAudits(); got != 1 {
+		t.Fatalf("PostgreSQL bootstrap success audits after retry = %d, want 1", got)
+	}
 }
 
 type pgBreakGlassRaceFixture struct {

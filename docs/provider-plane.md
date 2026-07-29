@@ -61,7 +61,11 @@ every operator after that enrolls:
 1. **Bootstrap the first admin.** Set `PROBECTL_PROVIDER_BOOTSTRAP_TOKEN` on the
    deployment, then `POST /provider/v1/auth/bootstrap` with that token to create
    the first admin. It is single-use — the moment *any* operator exists, the
-   bootstrap path goes inert, so the token cannot be replayed.
+   bootstrap path goes inert, so the token cannot be replayed. The database
+   serializes the zero-operator check, first insert, and mandatory
+   `provider.bootstrap` audit append in one provider-scoped transaction.
+   Concurrent attempts and later retries lose with the same `409 conflict`;
+   they create neither an operator nor a success audit.
 2. **Enroll.** Creating an operator (whether via bootstrap or by an existing
    admin) returns a **one-time enrollment token** — only its hash is stored. The
    operator exchanges it in two steps: `enroll/start` binds the authenticator (the

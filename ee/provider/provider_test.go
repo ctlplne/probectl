@@ -273,6 +273,132 @@ func TestProviderMutationRollsBackWhenAuditFails(t *testing.T) {
 	}
 }
 
+type bootstrapResult struct {
+	email string
+	op    Operator
+	token string
+	err   error
+}
+
+func TestBootstrapConcurrentRequestsSerializeInitialOperatorAndRetry(t *testing.T) {
+	store := NewMemStore()
+	sink := &memAudit{}
+	assertBootstrapSerializesInitialOperatorAndRetry(t, store, sink, func() int {
+		return sink.count("provider.bootstrap")
+	})
+}
+
+func assertBootstrapSerializesInitialOperatorAndRetry(
+	t *testing.T,
+	store Store,
+	sink AuditSink,
+	successAuditCount func() int,
+) {
+	t.Helper()
+	pausing := newPauseFirstMutationStore(store)
+	t.Cleanup(func() {
+		select {
+		case <-pausing.resume:
+		default:
+			close(pausing.resume)
+		}
+	})
+	svc, err := NewService(
+		pausing,
+		sink,
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := func(email string) <-chan bootstrapResult {
+		out := make(chan bootstrapResult, 1)
+		go func() {
+			op, token, err := svc.Bootstrap(
+				context.Background(),
+				bootToken,
+				bootToken,
+				email,
+				"Bootstrap Race",
+			)
+			out <- bootstrapResult{email: email, op: op, token: token, err: err}
+		}()
+		return out
+	}
+	await := func(result <-chan bootstrapResult) bootstrapResult {
+		t.Helper()
+		select {
+		case got := <-result:
+			return got
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for provider bootstrap result")
+			return bootstrapResult{}
+		}
+	}
+
+	first := start("bootstrap-first@msp.example")
+	select {
+	case <-pausing.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first bootstrap to reach the audited mutation")
+	}
+	second := await(start("bootstrap-second@msp.example"))
+	close(pausing.resume)
+	results := []bootstrapResult{await(first), second}
+
+	successes, conflicts := 0, 0
+	loserEmail := ""
+	for _, got := range results {
+		switch {
+		case got.err == nil:
+			successes++
+			if got.op.Email != got.email || got.token == "" {
+				t.Fatalf("successful bootstrap = %+v token_empty=%t", got.op, got.token == "")
+			}
+		case errors.Is(got.err, ErrConflict):
+			conflicts++
+			loserEmail = got.email
+			if got.op.ID != "" || got.token != "" {
+				t.Fatalf("conflicting bootstrap leaked success material: op=%+v token=%q", got.op, got.token)
+			}
+		default:
+			t.Fatalf("bootstrap %q error = %v, want success or %v", got.email, got.err, ErrConflict)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("concurrent bootstrap successes/conflicts = %d/%d, want 1/1", successes, conflicts)
+	}
+	if got, err := store.CountOperators(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if got != 1 {
+		t.Fatalf("operators after concurrent bootstrap = %d, want 1", got)
+	}
+	if got := successAuditCount(); got != 1 {
+		t.Fatalf("bootstrap success audits = %d, want 1", got)
+	}
+
+	op, token, err := svc.Bootstrap(
+		context.Background(),
+		bootToken,
+		bootToken,
+		loserEmail,
+		"Bootstrap Retry",
+	)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("bootstrap retry error = %v, want %v", err, ErrConflict)
+	}
+	if op.ID != "" || token != "" {
+		t.Fatalf("bootstrap retry leaked success material: op=%+v token=%q", op, token)
+	}
+	if got := successAuditCount(); got != 1 {
+		t.Fatalf("bootstrap success audits after retry = %d, want 1", got)
+	}
+}
+
 func TestEnrollStartRollsBackTOTPWhenAuditFails(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemStore()
@@ -948,7 +1074,7 @@ func TestAuthHardening(t *testing.T) {
 	// Bootstrap is single-use: inert once operators exist, even with the right token.
 	rec = doReq(f.h, newReq(http.MethodPost, "/provider/v1/auth/bootstrap",
 		map[string]string{"token": bootToken, "email": "again@msp.example", "name": "Again"}))
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"conflict"`) {
 		t.Fatalf("bootstrap reuse: %d %s", rec.Code, rec.Body.String())
 	}
 
