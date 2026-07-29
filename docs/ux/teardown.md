@@ -341,3 +341,46 @@ Primary research:
 [Grafana alert monitoring](https://grafana.com/docs/grafana/latest/alerting/monitor-status/),
 and
 [Netdata SNMP topology](https://learn.netdata.cloud/docs/network-performance-monitoring/device-metrics/integrations/snmp-devices).
+
+## Generation-4 competitive delta — 2026-07-27
+
+The next comparison did not identify an external dashboard product to adopt.
+It identified two smaller context gaps to close inside the existing native
+product:
+
+1. Device evidence needs a per-target collection outcome. A current empty
+   LLDP/CDP result cannot yet distinguish a healthy target with zero neighbors
+   from an unsupported MIB, a neighbor-only timeout, or a target that has never
+   completed that collection.
+2. Dashboard evidence needs an operator-controlled clock. The native dashboard
+   displays a fixed one-hour absolute range, but does not yet let the operator
+   change or replay the coordinated time scope across participating panels.
+
+The native direction is:
+
+- persist bounded, non-secret device/protocol outcome receipts—last attempt,
+  last success, normalized state/reason, and a safe local next action—through
+  the existing tenant-tagged agent, bus, and forced-RLS storage path; and
+- add a typed, URL-replayable dashboard scope controller over the existing
+  APIs and server-side saved views, while labeling panels that are latest-state
+  rather than time-windowed.
+
+A later device collection-profile vocabulary is useful only after collection
+outcomes are observable. Broad subnet discovery, credential probing, automatic
+topology rewriting, vendor MIB catalogs, and default cloud feedback remain
+rejected.
+
+Grafana remains a benchmark for coordinated time/filter interaction only.
+probectl does not ship, embed, require, rebrand, or silently install Grafana,
+Perses, Akvorado, Netdata, or another dashboard/control-plane runtime. The
+features above add no external dependency, browser storage, phone-home path, or
+new authority outside probectl.
+
+Primary research:
+[Kentik dashboards](https://kb.kentik.com/docs/dashboards),
+[Kentik June 2026](https://kb.kentik.com/docs/june-2026),
+[ThousandEyes dashboard filters](https://docs.thousandeyes.com/product-documentation/dashboards/dashboard-filters),
+[Datadog device topology](https://docs.datadoghq.com/network_monitoring/devices/topology/),
+[Auvik July 2026](https://support.auvik.com/hc/en-us/articles/51078309590420-2026-W27-Release-July-6th),
+and
+[Grafana dashboard variables](https://grafana.com/docs/grafana/latest/visualizations/dashboards/variables/).
