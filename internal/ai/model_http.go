@@ -322,8 +322,23 @@ func (m *HTTPModel) anthropicChat(ctx context.Context, system, user string) (str
 	return "", fmt.Errorf("ai: model returned no text content")
 }
 
+func modelProviderCategory(kind ModelKind) string {
+	switch kind {
+	case KindOllama:
+		return "ollama"
+	case KindOpenAI:
+		return "openai"
+	case KindAnthropic:
+		return "anthropic"
+	default:
+		return "unknown"
+	}
+}
+
 // post sends a JSON request over the hardened (cert-validating) client and
-// decodes a JSON response. Non-2xx is an error; the model never gets to act.
+// decodes a JSON response. Non-2xx response bodies are untrusted provider
+// content: drain a bounded amount for connection hygiene, but never propagate
+// that content through errors, logs, or API wrappers.
 func (m *HTTPModel) post(ctx context.Context, endpoint string, headers map[string]string, reqBody, out any) error {
 	raw, err := json.Marshal(reqBody)
 	if err != nil {
@@ -342,12 +357,13 @@ func (m *HTTPModel) post(ctx context.Context, endpoint string, headers map[strin
 		return fmt.Errorf("ai: model request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		return fmt.Errorf("ai: %s model provider returned HTTP status %d", modelProviderCategory(m.kind), resp.StatusCode)
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("ai: model endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	return json.Unmarshal(data, out)
 }

@@ -128,13 +128,20 @@ func TestHTTPModelRejectsCredentialBearingEndpointWithoutDisclosure(t *testing.T
 }
 
 func TestHTTPModelErrorsOnNon2xx(t *testing.T) {
+	const hostileBody = "provider-secret-body customer=alice@example.com token=remote-secret"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "boom", http.StatusInternalServerError)
+		http.Error(w, hostileBody, http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
 	m, _ := NewHTTPModel(HTTPModelConfig{Kind: KindOllama, Endpoint: srv.URL, Model: "m"})
-	if _, err := m.Synthesize(context.Background(), SynthesisInput{Question: "q"}); err == nil {
+	_, err := m.Synthesize(context.Background(), SynthesisInput{Question: "q"})
+	if err == nil {
 		t.Error("non-2xx should error")
+	}
+	if got := err.Error(); strings.Contains(got, hostileBody) || strings.Contains(got, "remote-secret") {
+		t.Fatalf("non-2xx error disclosed the untrusted provider body: %q", got)
+	} else if !strings.Contains(got, "ollama") || !strings.Contains(got, "429") {
+		t.Fatalf("non-2xx error lost bounded provider/status context: %q", got)
 	}
 }
 

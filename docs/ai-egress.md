@@ -231,6 +231,13 @@ slow or down provider must degrade RCA gracefully — never take it down. When a
 model is configured, its call path is wrapped by `ResilientModel`
 (`internal/ai/model_resilient.go`), which adds:
 
+- **bounded provider errors**: a non-2xx response body is untrusted external
+  content and may itself contain echoed prompts, credentials, or provider
+  diagnostics. The adapter drains at most 1 MiB and discards it; propagated
+  errors retain only the allowlisted provider category and numeric HTTP status.
+  Control-plane logs therefore remain useful (`openai`, `anthropic`, or
+  `ollama`, plus `429`/`500`/etc.) without copying the provider's body, while
+  API callers receive the existing generic unavailable response;
 - **a circuit breaker** (`internal/breaker`) — named for the electrical part:
   after repeated faults it cuts the circuit so the fault stops consuming
   everything behind it, then re-probes after a cool-down. Here, **3**

@@ -7,9 +7,11 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +20,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/ai/author"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 )
@@ -57,6 +61,45 @@ func TestHandleAIAuthor(t *testing.T) {
 	h.ServeHTTP(rec, aiTestReq(http.MethodPost, "/v1/ai/author", map[string]any{"prompt": "make everything good"}))
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("target-less prompt: status %d, want 422", rec.Code)
+	}
+}
+
+func TestHandleAIAuthorProviderFailureDoesNotDiscloseResponseBody(t *testing.T) {
+	const hostileBody = "provider-secret-body customer=alice@example.com token=remote-secret"
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, hostileBody, http.StatusBadGateway)
+	}))
+	defer provider.Close()
+
+	model, err := ai.NewHTTPModel(ai.HTTPModelConfig{
+		Kind:     ai.KindOllama,
+		Endpoint: provider.URL,
+		Model:    "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	srv := testServer(nil)
+	srv.log = log
+	srv.authorEngine = author.NewEngine(author.NewModelAuthor(model, model.Name()))
+	srv.http.Handler = srv.routes()
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, aiTestReq(http.MethodPost, "/v1/ai/author", map[string]any{
+		"prompt": "monitor api.example.com",
+	}))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("author status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); strings.Contains(got, hostileBody) || strings.Contains(got, "remote-secret") {
+		t.Fatalf("author API disclosed the untrusted provider body: %s", got)
+	}
+	if got := logs.String(); strings.Contains(got, hostileBody) || strings.Contains(got, "remote-secret") {
+		t.Fatalf("author logs disclosed the untrusted provider body: %s", got)
+	} else if !strings.Contains(got, "ollama") || !strings.Contains(got, "502") {
+		t.Fatalf("author logs lost bounded provider/status context: %s", got)
 	}
 }
 
