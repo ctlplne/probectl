@@ -78,9 +78,23 @@ func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 	}, "integration backups expire after 14 days", log).WithClock(func() time.Time { return now })
 
 	days := 1
-	if err := life.SetRetention(ctx, tenantlife.RetentionPolicy{
-		TenantID: tenantID, FlowRetentionDays: &days, UpdatedBy: "provider-it",
-	}); err != nil {
+	if err := life.SetRetentionAudited(
+		ctx,
+		tenantlife.RetentionPolicy{
+			TenantID: tenantID, FlowRetentionDays: &days, UpdatedBy: "provider-it",
+		},
+		func(ctx context.Context, sc tenancy.Scope, policy tenantlife.RetentionPolicy) error {
+			_, err := audit.TenantAppend(
+				ctx,
+				sc,
+				"provider-it",
+				"lifecycle.retention_set",
+				policy.TenantID,
+				map[string]any{"flow_retention_days": policy.FlowRetentionDays},
+			)
+			return err
+		},
+	); err != nil {
 		t.Fatalf("set retention through silo-routed tenant scope: %v", err)
 	}
 	assertPublicRetentionDays(t, pool, tenantID, 1)

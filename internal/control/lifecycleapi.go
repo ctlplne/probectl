@@ -27,7 +27,7 @@ type tenantLifecycleEngine interface {
 	ExportRedacted(context.Context, string, io.Writer, bool) (tenantlife.Manifest, error)
 	ExportSubject(context.Context, string, string, io.Writer, bool) (tenantlife.SubjectManifest, error)
 	RetentionFor(context.Context, string) (tenantlife.RetentionPolicy, error)
-	SetRetention(context.Context, tenantlife.RetentionPolicy) error
+	SetRetentionAudited(context.Context, tenantlife.RetentionPolicy, tenantlife.RetentionAudit) error
 	Erase(context.Context, string, string, string) (tenantlife.Attestation, error)
 	EraseSubject(context.Context, string, string, string, string) (tenantlife.SubjectErasureReport, error)
 }
@@ -49,19 +49,17 @@ func (s *Server) lifecycleEngine() (tenantLifecycleEngine, error) {
 	return s.tenantLife, nil
 }
 
-var recordLifecycleRetentionAudit = func(s *Server, r *http.Request, tid string, p tenantlife.RetentionPolicy) error {
-	return s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		return s.recordAudit(ctx, sc, r, "lifecycle.retention_set", tid, map[string]any{
-			"flow_retention_days":             p.FlowRetentionDays,
-			"otel_retention_days":             p.OtelRetentionDays,
-			"ebpf_retention_days":             p.EBPFRetentionDays,
-			"path_retention_days":             p.PathRetentionDays,
-			"audit_retention_days":            p.AuditRetentionDays,
-			"ai_answer_retention_days":        p.AIAnswerRetentionDays,
-			"object_retention_days":           p.ObjectRetentionDays,
-			"derived_identity_retention_days": p.DerivedIdentityRetentionDays,
-		})
-	})
+func lifecycleRetentionAuditData(p tenantlife.RetentionPolicy) map[string]any {
+	return map[string]any{
+		"flow_retention_days":             p.FlowRetentionDays,
+		"otel_retention_days":             p.OtelRetentionDays,
+		"ebpf_retention_days":             p.EBPFRetentionDays,
+		"path_retention_days":             p.PathRetentionDays,
+		"audit_retention_days":            p.AuditRetentionDays,
+		"ai_answer_retention_days":        p.AIAnswerRetentionDays,
+		"object_retention_days":           p.ObjectRetentionDays,
+		"derived_identity_retention_days": p.DerivedIdentityRetentionDays,
+	}
 }
 
 // tenantSlugAndMeta reads the caller's registry row (tenants has no RLS — it
@@ -210,11 +208,21 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 	if err := validateLifecycleRetentionPolicy(policy); err != nil {
 		return err
 	}
-	if err := e.SetRetention(r.Context(), policy); err != nil {
+	if err := e.SetRetentionAudited(
+		r.Context(),
+		policy,
+		func(ctx context.Context, sc tenancy.Scope, committed tenantlife.RetentionPolicy) error {
+			return s.recordAudit(
+				ctx,
+				sc,
+				r,
+				"lifecycle.retention_set",
+				committed.TenantID,
+				lifecycleRetentionAuditData(committed),
+			)
+		},
+	); err != nil {
 		return apierror.Internal("retention update failed").Wrap(err)
-	}
-	if err := recordLifecycleRetentionAudit(s, r, tid, policy); err != nil {
-		return err
 	}
 	status, err := s.lifecycleStatusForPolicy(r.Context(), tid, policy)
 	if err != nil {

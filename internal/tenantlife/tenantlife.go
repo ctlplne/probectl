@@ -734,6 +734,13 @@ type RetentionPolicy struct {
 	UpdatedBy                    string `json:"updated_by,omitempty"`
 }
 
+// RetentionAudit appends the mandatory tenant audit event for a retention
+// policy mutation through the exact transaction-bound Scope used by the
+// upsert. Returning an error rolls both writes back.
+type RetentionAudit func(context.Context, tenancy.Scope, RetentionPolicy) error
+
+var errRetentionAuditRequired = errors.New("tenantlife: retention policy audit callback is required")
+
 // RetentionFor reads a tenant's policy within its own scope (RLS).
 func (e *Engine) RetentionFor(ctx context.Context, tenantID string) (RetentionPolicy, error) {
 	p := RetentionPolicy{TenantID: tenantID}
@@ -758,14 +765,36 @@ SELECT flow_retention_days, otel_retention_days, ebpf_retention_days,
 	return p, err
 }
 
-// SetRetention upserts a tenant's policy within its own scope (RLS).
-func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy) error {
+// SetRetentionAudited upserts a tenant's policy and appends its mandatory
+// tamper-evident audit event in one RLS-enforced tenant transaction.
+func (e *Engine) SetRetentionAudited(ctx context.Context, p RetentionPolicy, appendAudit RetentionAudit) error {
 	if err := validateRetentionPolicy(p); err != nil {
 		return err
 	}
+	if appendAudit == nil {
+		return errRetentionAuditRequired
+	}
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(p.TenantID))
 	return tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `
+		if err := upsertRetentionPolicy(ctx, sc, p); err != nil {
+			return err
+		}
+		if err := appendAudit(ctx, sc, p); err != nil {
+			return fmt.Errorf("tenantlife: append retention policy audit: %w", err)
+		}
+		return nil
+	})
+}
+
+func upsertRetentionPolicy(ctx context.Context, sc tenancy.Scope, p RetentionPolicy) error {
+	if p.TenantID == "" || sc.Tenant.String() != p.TenantID {
+		return fmt.Errorf(
+			"tenantlife: retention policy tenant %q does not match transaction scope %q",
+			p.TenantID,
+			sc.Tenant,
+		)
+	}
+	_, err := sc.Q.Exec(ctx, `
 			INSERT INTO tenant_retention (
 			  tenant_id, flow_retention_days, otel_retention_days, ebpf_retention_days,
 			  path_retention_days, audit_retention_days, ai_answer_retention_days,
@@ -781,11 +810,10 @@ func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy) error {
 			  object_retention_days = EXCLUDED.object_retention_days,
 			  derived_identity_retention_days = EXCLUDED.derived_identity_retention_days,
 			  updated_by = EXCLUDED.updated_by, updated_at = now()`,
-			p.TenantID, p.FlowRetentionDays, p.OtelRetentionDays, p.EBPFRetentionDays,
-			p.PathRetentionDays, p.AuditRetentionDays, p.AIAnswerRetentionDays,
-			p.ObjectRetentionDays, p.DerivedIdentityRetentionDays, p.UpdatedBy)
-		return err
-	})
+		p.TenantID, p.FlowRetentionDays, p.OtelRetentionDays, p.EBPFRetentionDays,
+		p.PathRetentionDays, p.AuditRetentionDays, p.AIAnswerRetentionDays,
+		p.ObjectRetentionDays, p.DerivedIdentityRetentionDays, p.UpdatedBy)
+	return err
 }
 
 func validateRetentionPolicy(p RetentionPolicy) error {

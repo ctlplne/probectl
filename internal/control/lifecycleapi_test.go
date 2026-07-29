@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -23,8 +24,10 @@ import (
 )
 
 type fakeTenantLifecycle struct {
-	policy tenantlife.RetentionPolicy
-	set    tenantlife.RetentionPolicy
+	policy        tenantlife.RetentionPolicy
+	set           tenantlife.RetentionPolicy
+	setErr        error
+	auditProvided bool
 }
 
 func (f *fakeTenantLifecycle) ExportRedacted(context.Context, string, io.Writer, bool) (tenantlife.Manifest, error) {
@@ -41,9 +44,17 @@ func (f *fakeTenantLifecycle) RetentionFor(_ context.Context, tenantID string) (
 	return p, nil
 }
 
-func (f *fakeTenantLifecycle) SetRetention(_ context.Context, p tenantlife.RetentionPolicy) error {
-	f.policy = p
+func (f *fakeTenantLifecycle) SetRetentionAudited(
+	_ context.Context,
+	p tenantlife.RetentionPolicy,
+	appendAudit tenantlife.RetentionAudit,
+) error {
 	f.set = p
+	f.auditProvided = appendAudit != nil
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.policy = p
 	return nil
 }
 
@@ -107,16 +118,6 @@ func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	srv := testServer(fakePinger{})
 	srv.tenantLife = fake
 
-	var auditedTenant string
-	var auditedPolicy tenantlife.RetentionPolicy
-	prev := recordLifecycleRetentionAudit
-	recordLifecycleRetentionAudit = func(_ *Server, _ *http.Request, tid string, p tenantlife.RetentionPolicy) error {
-		auditedTenant = tid
-		auditedPolicy = p
-		return nil
-	}
-	t.Cleanup(func() { recordLifecycleRetentionAudit = prev })
-
 	getBody := decodeLifecycleJSON(t, lifecycleReq(t, srv, http.MethodGet, "/v1/lifecycle/retention", nil))
 	putBody := decodeLifecycleJSON(t, lifecycleReq(t, srv, http.MethodPut, "/v1/lifecycle/retention", map[string]any{
 		"flow_retention_days": 14,
@@ -139,7 +140,49 @@ func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	if fake.set.TenantID != tid || fake.set.UpdatedBy != "tenant:"+tid || fake.set.EBPFRetentionDays == nil || *fake.set.EBPFRetentionDays != 7 {
 		t.Fatalf("set policy = %+v, want tenant-bound policy", fake.set)
 	}
-	if auditedTenant != tid || auditedPolicy.FlowRetentionDays == nil || *auditedPolicy.FlowRetentionDays != 14 || auditedPolicy.OtelRetentionDays == nil || *auditedPolicy.OtelRetentionDays != 7 {
-		t.Fatalf("audit capture tenant=%q policy=%+v, want tenant policy", auditedTenant, auditedPolicy)
+	if !fake.auditProvided {
+		t.Fatal("PUT retention did not provide its mandatory transaction-bound audit callback")
+	}
+	auditData := lifecycleRetentionAuditData(fake.set)
+	if auditData["flow_retention_days"] != fake.set.FlowRetentionDays ||
+		auditData["otel_retention_days"] != fake.set.OtelRetentionDays {
+		t.Fatalf("retention audit data = %+v, want committed policy", auditData)
+	}
+	auditPolicy, found := auditPolicyFor(http.MethodPut, "/v1/lifecycle/retention")
+	if !found || auditPolicy.Mode != auditModeExplicit || auditPolicy.Action != "lifecycle.retention_set" {
+		t.Fatalf("retention route audit policy = %+v found=%t, want explicit lifecycle.retention_set", auditPolicy, found)
+	}
+}
+
+func TestLifecycleRetentionPolicyAuditFailureReturnsStableError(t *testing.T) {
+	const rawAuditError = "audit database password=do-not-return unavailable"
+	fake := &fakeTenantLifecycle{setErr: errors.New(rawAuditError)}
+	srv := testServer(fakePinger{})
+	srv.tenantLife = fake
+
+	rec := lifecycleReq(t, srv, http.MethodPut, "/v1/lifecycle/retention", map[string]any{
+		"flow_retention_days": 14,
+	})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body.String())
+	}
+	rawBody := rec.Body.String()
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(strings.NewReader(rawBody)).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Code != "internal" || body.Error.Message != "retention update failed" {
+		t.Fatalf("stable error = %+v", body.Error)
+	}
+	if strings.Contains(rawBody, rawAuditError) {
+		t.Fatalf("response leaked audit dependency detail: %s", rawBody)
+	}
+	if !fake.auditProvided {
+		t.Fatal("handler error path omitted mandatory transaction-bound audit callback")
 	}
 }

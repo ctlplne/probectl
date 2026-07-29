@@ -42,6 +42,10 @@ semantics. Current inventory IDs: `audit-evidence`, `ai-artifacts`,
 - **Lifecycle deletion is wider than age retention.** Tenant erase and subject
   erase are the privacy "big brooms": they remove or project data across live
   stores even when a store has no age TTL.
+- **Policy and proof commit together.** A tenant retention-policy update and
+  its explicit `lifecycle.retention_set` audit event use the same
+  tenant-scoped PostgreSQL transaction. If either write fails, neither becomes
+  visible.
 - **Engine-owned prunes are audit-gated.** Before the lifecycle engine deletes
   session detail, flow/OTLP/eBPF/path rows, persisted AI answers, endpoint
   history, or derived topology/endpoint cache entries, a bounded provider-audit
