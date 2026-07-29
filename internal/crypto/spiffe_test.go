@@ -31,6 +31,8 @@ func TestParseSPIFFEIDErrors(t *testing.T) {
 		"https://probectl/tenant/x/agent/y", // wrong scheme
 		"spiffe://probectl/org/x/agent/y",   // wrong segment label
 		"spiffe://probectl/tenant/x",        // too short
+		"spiffe://probectl/tenant//agent/y", // missing tenant identity
+		"spiffe://probectl/tenant/x/agent/", // missing agent identity
 	}
 	for _, b := range bad {
 		if _, err := ParseSPIFFEID(b); err == nil {

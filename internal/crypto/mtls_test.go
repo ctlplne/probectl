@@ -8,6 +8,8 @@ package crypto
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +21,11 @@ type mtlsFixture struct {
 }
 
 func mtlsMaterial(t *testing.T) mtlsFixture {
+	t.Helper()
+	return mtlsMaterialForSPIFFE(t, AgentSPIFFEID("tenant-123", "agent-abc"))
+}
+
+func mtlsMaterialForSPIFFE(t *testing.T, spiffe string) mtlsFixture {
 	t.Helper()
 	dir := t.TempDir()
 	write := func(name string, data []byte) string {
@@ -37,7 +44,6 @@ func mtlsMaterial(t *testing.T) mtlsFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spiffe := AgentSPIFFEID("tenant-123", "agent-abc")
 	cc, ck, err := ca.IssueClientCert("agent-abc", spiffe, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +56,47 @@ func mtlsMaterial(t *testing.T) mtlsFixture {
 		clientKey: write("client.key", ck),
 		spiffe:    spiffe,
 	}
+}
+
+func TestServerMTLSRejectsIncompleteSPIFFEIdentity(t *testing.T) {
+	for name, spiffe := range map[string]string{
+		"empty tenant": "spiffe://probectl/tenant//agent/a1",
+		"empty agent":  "spiffe://probectl/tenant/t1/agent/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := mtlsMaterialForSPIFFE(t, spiffe)
+			serverCfg, err := ServerMTLSConfig(f.serverCrt, f.serverKey, f.caFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			block, _ := pem.Decode(mustReadFile(t, f.clientCrt))
+			if block == nil {
+				t.Fatal("client certificate PEM did not decode")
+			}
+			leaf, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leaf.Verify(x509.VerifyOptions{
+				Roots:     serverCfg.ClientCAs,
+				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+			}); err != nil {
+				t.Fatalf("fixture must be CA-valid before identity policy runs: %v", err)
+			}
+			if err := serverCfg.VerifyPeerCertificate([][]byte{leaf.Raw}, nil); err == nil {
+				t.Fatalf("ServerMTLSConfig accepted incomplete identity %q", spiffe)
+			}
+		})
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 func TestMTLSHandshakeReadsSPIFFEID(t *testing.T) {

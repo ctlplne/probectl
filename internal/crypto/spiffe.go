@@ -58,7 +58,8 @@ func ParseSPIFFEID(uri string) (SPIFFEID, error) {
 		return SPIFFEID{}, fmt.Errorf("crypto: foreign spiffe trust domain %q (pinned to %q)", u.Host, TrustDomain)
 	}
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
-	if len(parts) != 4 || parts[0] != "tenant" || parts[2] != "agent" {
+	if len(parts) != 4 || parts[0] != "tenant" || parts[1] == "" ||
+		parts[2] != "agent" || parts[3] == "" {
 		return SPIFFEID{}, fmt.Errorf("crypto: malformed agent spiffe id: %q", uri)
 	}
 	return SPIFFEID{TrustDomain: u.Host, TenantID: parts[1], AgentID: parts[3]}, nil
