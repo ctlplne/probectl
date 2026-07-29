@@ -8,6 +8,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -725,15 +726,44 @@ func TestAuditRetentionProfileDefaultsAndWatermarkRequirements(t *testing.T) {
 }
 
 func TestLogValueRedactsPassword(t *testing.T) {
-	cfg := &Config{DatabaseURL: "postgres://probectl:supersecret@db:5432/probectl"}
+	cfg := &Config{DatabaseURL: "postgres://probectl:supersecret@db:5432/probectl?sslmode=require&password=writerquerysecret&sslpassword=writersslsecret&application_name=control"}
 	var buf bytes.Buffer
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("cfg", "config", cfg)
 	out := buf.String()
-	if strings.Contains(out, "supersecret") {
-		t.Errorf("password leaked into logs: %s", out)
+	for _, secret := range []string{"supersecret", "writerquerysecret", "writersslsecret"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("database credential leaked into logs: %s", out)
+		}
 	}
 	if !strings.Contains(out, "xxxxx") {
 		t.Errorf("expected redacted password marker; got: %s", out)
+	}
+	for _, metadata := range []string{"sslmode=require", "application_name=control"} {
+		if !strings.Contains(out, metadata) {
+			t.Errorf("non-secret database metadata %q was removed: %s", metadata, out)
+		}
+	}
+}
+
+func TestRedactedDatabaseURLsRedactQueryCredentials(t *testing.T) {
+	cfg := &Config{
+		DatabaseURL:     "postgres://writer@db:5432/probectl?sslmode=verify-full&password=writerquerysecret&application_name=control",
+		DatabaseReadURL: "postgres://reader@read-db:5432/probectl?sslmode=require&sslpassword=readersslsecret&password=readerquerysecret&application_name=read-replica",
+	}
+	raw, err := json.Marshal(cfg.Redacted())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	for _, secret := range []string{"writerquerysecret", "readersslsecret", "readerquerysecret"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("database credential leaked into redacted config: %s", out)
+		}
+	}
+	for _, metadata := range []string{"sslmode=verify-full", "sslmode=require", "application_name=control", "application_name=read-replica"} {
+		if !strings.Contains(out, metadata) {
+			t.Errorf("non-secret database metadata %q was removed: %s", metadata, out)
+		}
 	}
 }
 

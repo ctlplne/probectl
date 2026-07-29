@@ -145,20 +145,31 @@ func TestDeepHealthReportsAlertingInactive(t *testing.T) {
 	t.Fatalf("diagnostics omitted alert_evaluator check: %+v", h.Checks)
 }
 
-// TestSupportBundleEndpointNoSecrets: the bundle endpoint streams a tar.gz of
-// the right diagnostics, and the configured secrets never appear in it.
-func TestSupportBundleEndpointNoSecrets(t *testing.T) {
+// TestSupportBundleRedactsDatabaseQueryCredentials proves the bundle endpoint
+// strips every configured secret, including both PostgreSQL DSN query forms.
+func TestSupportBundleRedactsDatabaseQueryCredentials(t *testing.T) {
 	const envKey = "c2VjcmV0LWVudmVsb3BlLWtleS1tYXRlcmlhbC0zMmJ5dGVz"
 	const bootstrap = "prov_bootstrap_TOPSECRET_9988"
+	const writerQueryPassword = "writer_query_password_7654"
+	const writerSSLPassword = "writer_ssl_password_7654"
+	const readerQueryPassword = "reader_query_password_7654"
+	const readerSSLPassword = "reader_ssl_password_7654"
 	cfg := &config.Config{
 		HTTPAddr:               ":0",
 		AuthMode:               "dev",
-		DatabaseURL:            "postgres://probectl:dbpasshere@db:5432/probectl?sslmode=disable",
+		DatabaseURL:            "postgres://probectl:dbpasshere@db:5432/probectl?sslmode=require&password=" + writerQueryPassword + "&sslpassword=" + writerSSLPassword + "&application_name=control",
+		DatabaseReadURL:        "postgres://reader@read-db:5432/probectl?sslmode=verify-full&password=" + readerQueryPassword + "&sslpassword=" + readerSSLPassword + "&application_name=read-replica",
 		EnvelopeKey:            envKey,
 		ProviderBootstrapToken: bootstrap,
 		Region:                 "us-east",
 	}
 	srv := New(cfg, logging.New(io.Discard, "error", "json"), okPinger{}, nil, nil, nil)
+	knownSecrets := strings.Join(srv.knownSecrets(), "\n")
+	for _, secret := range []string{writerQueryPassword, writerSSLPassword, readerQueryPassword, readerSSLPassword} {
+		if !strings.Contains(knownSecrets, secret) {
+			t.Fatalf("database query credential missing from defense-in-depth scrub list")
+		}
+	}
 
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics/bundle", nil))
@@ -182,7 +193,10 @@ func TestSupportBundleEndpointNoSecrets(t *testing.T) {
 	for _, b := range files {
 		all.Write(b)
 	}
-	for _, secret := range []string{envKey, bootstrap, "dbpasshere"} {
+	for _, secret := range []string{
+		envKey, bootstrap, "dbpasshere",
+		writerQueryPassword, writerSSLPassword, readerQueryPassword, readerSSLPassword,
+	} {
 		if bytes.Contains(all.Bytes(), []byte(secret)) {
 			t.Fatalf("SECRET LEAKED into the support bundle: %q", secret)
 		}
@@ -190,8 +204,15 @@ func TestSupportBundleEndpointNoSecrets(t *testing.T) {
 	// The DSN survives, password-redacted; the envelope key is only a boolean.
 	var cfgMap map[string]any
 	_ = json.Unmarshal(files["config-redacted.json"], &cfgMap)
-	if dsn, _ := cfgMap["database_url"].(string); !bytes.Contains([]byte(dsn), []byte("xxxxx")) {
+	if dsn, _ := cfgMap["database_url"].(string); !strings.Contains(dsn, "xxxxx") {
 		t.Fatalf("DSN not redacted: %q", dsn)
+	} else if !strings.Contains(dsn, "sslmode=require") || !strings.Contains(dsn, "application_name=control") {
+		t.Fatalf("writer DSN lost non-secret metadata: %q", dsn)
+	}
+	if dsn, _ := cfgMap["database_read_url"].(string); !strings.Contains(dsn, "xxxxx") {
+		t.Fatalf("reader DSN not redacted: %q", dsn)
+	} else if !strings.Contains(dsn, "sslmode=verify-full") || !strings.Contains(dsn, "application_name=read-replica") {
+		t.Fatalf("reader DSN lost non-secret metadata: %q", dsn)
 	}
 	if cfgMap["envelope_key_configured"] != true {
 		t.Fatalf("envelope key must surface as a boolean: %v", cfgMap["envelope_key_configured"])

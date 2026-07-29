@@ -91,6 +91,7 @@ func supportBundle(args []string) error {
 func offlineSecrets(c *config.Config) []string {
 	cand := []string{c.EnvelopeKey, c.OIDCClientSecret, c.CMDBSecret, c.AIModelToken,
 		c.OutageRadarToken, c.ProviderBootstrapToken, c.SIEMToken}
+	cand = append(cand, c.DatabaseCredentialValues()...)
 	out := cand[:0]
 	for _, v := range cand {
 		if v != "" {

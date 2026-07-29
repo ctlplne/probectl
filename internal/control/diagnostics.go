@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -338,6 +337,7 @@ func (s *Server) knownSecrets() []string {
 		c.EnvelopeKey, c.EnvelopeOpenerKeys, c.OIDCClientSecret, c.CMDBSecret, c.AIModelToken,
 		c.OutageRadarToken, c.ProviderBootstrapToken, c.SIEMToken,
 	}
+	cand = append(cand, c.DatabaseCredentialValues()...)
 	if len(c.SessionHMACKey) > 0 {
 		cand = append(cand, hex.EncodeToString(c.SessionHMACKey))
 	}
@@ -350,9 +350,6 @@ func (s *Server) knownSecrets() []string {
 	for tok := range c.OTLPTokens {
 		cand = append(cand, tok)
 	}
-	if pw := dsnPassword(c.DatabaseURL); pw != "" {
-		cand = append(cand, pw)
-	}
 	out := cand[:0]
 	for _, v := range cand {
 		if v != "" {
@@ -360,13 +357,4 @@ func (s *Server) knownSecrets() []string {
 		}
 	}
 	return out
-}
-
-func dsnPassword(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
-		return ""
-	}
-	pw, _ := u.User.Password()
-	return pw
 }

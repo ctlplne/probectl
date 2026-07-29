@@ -1374,7 +1374,64 @@ func redactURL(raw string) string {
 			u.User = url.UserPassword(u.User.Username(), "xxxxx")
 		}
 	}
+	query := u.Query()
+	queryChanged := false
+	for key, values := range query {
+		if !isDatabaseCredentialQueryKey(key) {
+			continue
+		}
+		for i := range values {
+			values[i] = "xxxxx"
+		}
+		query[key] = values
+		queryChanged = true
+	}
+	if queryChanged {
+		u.RawQuery = query.Encode()
+	}
 	return u.String()
+}
+
+// DatabaseCredentialValues returns the database credentials that support
+// bundles must scrub as defense in depth. It covers writer and reader DSNs,
+// both URL userinfo and PostgreSQL's password/sslpassword query forms. Callers
+// must use the values only as in-memory scrub targets and must never log them.
+func (c *Config) DatabaseCredentialValues() []string {
+	if c == nil {
+		return nil
+	}
+	var out []string
+	for _, raw := range []string{c.DatabaseURL, c.DatabaseReadURL} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		if u.User != nil {
+			if password, ok := u.User.Password(); ok && password != "" {
+				out = append(out, password)
+			}
+		}
+		for key, values := range u.Query() {
+			if !isDatabaseCredentialQueryKey(key) {
+				continue
+			}
+			for _, value := range values {
+				if value != "" {
+					out = append(out, value)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func isDatabaseCredentialQueryKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "password", "sslpassword":
+		return true
+	default:
+		return false
+	}
 }
 
 // loader reads keys and accumulates validation errors.
