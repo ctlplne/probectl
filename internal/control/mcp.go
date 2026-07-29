@@ -203,6 +203,12 @@ func (b mcpBackend) ListTests(ctx context.Context, p *auth.Principal) (any, erro
 }
 
 func (b mcpBackend) GetPath(ctx context.Context, p *auth.Principal, target string) (any, error) {
+	release, err := b.beginQuery(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	pth, ok, err := b.pathStore.Latest(ctx, p.TenantID, target)
 	if err != nil {
 		return nil, err
@@ -214,6 +220,12 @@ func (b mcpBackend) GetPath(ctx context.Context, p *auth.Principal, target strin
 }
 
 func (b mcpBackend) GetIncident(ctx context.Context, p *auth.Principal, id string) (any, error) {
+	release, err := b.beginQuery(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	inc, err := b.incident(ctx, p, id)
 	if err != nil {
 		return nil, err
@@ -222,6 +234,12 @@ func (b mcpBackend) GetIncident(ctx context.Context, p *auth.Principal, id strin
 }
 
 func (b mcpBackend) CorrelateIncident(ctx context.Context, p *auth.Principal, id string) (any, error) {
+	release, err := b.beginQuery(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	inc, err := b.incident(ctx, p, id)
 	if err != nil {
 		return nil, err
@@ -282,6 +300,12 @@ func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[
 }
 
 func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, question string, subject map[string]string) (any, error) {
+	release, err := b.beginQuery(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	return b.analyzer.Analyze(ctx, p, ai.Question{Text: question, Subject: subject})
 }
 
