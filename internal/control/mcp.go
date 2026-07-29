@@ -285,7 +285,7 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 		m[k] = true
 	}
 	p := &auth.Principal{TenantID: tenantID, UserID: userID, Permissions: m}
-	attrs := map[string]string{"mfa": boolStr(p.MFASatisfied)}
+	var directoryAttributes map[string]string
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := (store.Users{}).Get(ctx, sc, userID)
 		if err != nil {
@@ -293,14 +293,12 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 		}
 		p.Email = u.Email
 		p.DisplayName = u.DisplayName
-		for k, v := range u.Attributes {
-			attrs[k] = v
-		}
+		directoryAttributes = u.Attributes
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	p.Attributes = attrs
+	p.Attributes = composeSubjectAttributes(directoryAttributes, p.MFASatisfied)
 	return p, nil
 }
 

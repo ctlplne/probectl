@@ -151,7 +151,10 @@ request's value. Among matching policies the highest `priority` decides, and a
 `deny` wins ties. Subject attributes come from the user's SCIM-provisioned
 `attributes` (e.g. `department`) plus a derived `mfa` flag — both attached to
 the principal at request time (`loadSubjectAttributes` in
-`internal/control/auth.go`). So policies can express things like:
+`internal/control/auth.go`). The `mfa` key is reserved: probectl assigns it
+from trusted authentication state after copying directory attributes, so a
+SCIM value can neither forge MFA nor downgrade a verified MFA session. So
+policies can express things like:
 
 - "contractors cannot write" — deny `test.write` when `department=contractor`;
 - "step-up MFA for incident changes" — deny `incident.write` when `mfa=false`;

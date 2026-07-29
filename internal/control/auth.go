@@ -450,21 +450,31 @@ func loadSubjectAttributesWith(
 	inTenant func(context.Context, string, func(context.Context, tenancy.Scope) error) error,
 	getUser func(context.Context, tenancy.Scope, string) (*store.User, error),
 ) error {
-	attrs := map[string]string{"mfa": boolStr(p.MFASatisfied)}
+	var directoryAttributes map[string]string
 	if err := inTenant(ctx, p.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := getUser(ctx, sc, p.UserID)
 		if err != nil {
 			return err
 		}
-		for k, v := range u.Attributes {
-			attrs[k] = v
-		}
+		directoryAttributes = u.Attributes
 		return nil
 	}); err != nil {
 		return err
 	}
-	p.Attributes = attrs
+	p.Attributes = composeSubjectAttributes(directoryAttributes, p.MFASatisfied)
 	return nil
+}
+
+// composeSubjectAttributes combines mutable directory attributes with
+// authentication-derived state. Reserved derived values are assigned last so
+// SCIM input can neither forge nor downgrade the server's MFA decision.
+func composeSubjectAttributes(directory map[string]string, mfaSatisfied bool) map[string]string {
+	attrs := make(map[string]string, len(directory)+1)
+	for k, v := range directory {
+		attrs[k] = v
+	}
+	attrs["mfa"] = boolStr(mfaSatisfied)
+	return attrs
 }
 
 func boolStr(b bool) string {
