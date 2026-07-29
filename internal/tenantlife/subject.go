@@ -15,12 +15,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/govern"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -118,6 +121,168 @@ type endpointSubjectExporter interface {
 
 type endpointSubjectDeleter interface {
 	DeleteSubject(tenantID, subject string) (deleted, remaining int64)
+}
+
+type subjectTableDisposition uint8
+
+const (
+	subjectTableDeleteMatches subjectTableDisposition = iota
+	subjectTableProjectMatches
+	subjectTableNoSubject
+)
+
+type subjectTablePolicy struct {
+	plane       string
+	disposition subjectTableDisposition
+	exact       []string
+	contains    []string
+}
+
+// subjectPostgresTablePolicies is the fail-closed privacy inventory for the
+// live tenant-owned PostgreSQL schema. subjectTenantOwnedTables derives the
+// other side of this comparison from pg_catalog before any row is changed. A
+// new tenant table therefore cannot silently inherit a "Complete" receipt: its
+// migration must make an explicit delete-vs-project decision here.
+//
+// Every policy deliberately names only columns whose product contract makes
+// them data-subject-bearing. Structured owner/actor identifiers compare exact
+// normalized aliases. Escaped substring matching is limited to documented
+// free-text/JSON evidence columns. Tables with no first-class subject fields
+// say so explicitly; they are never searched with a generic row scan.
+// audit_events is projected because mutating an old hash-chain row would
+// destroy the evidence.
+var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
+	"abac_policies": {plane: "postgres:abac_policies", disposition: subjectTableNoSubject},
+	"agent_enroll_tokens": {
+		plane: "postgres:agent_enroll_tokens", disposition: subjectTableDeleteMatches,
+		exact: []string{"id", "agent_id", "created_by", "used_by_agent"},
+	},
+	"agent_identities": {
+		plane: "postgres:agent_identities", disposition: subjectTableDeleteMatches,
+		exact: []string{"id", "agent_id", "spiffe_id", "revoked_by"},
+	},
+	"agents": {
+		plane: "postgres:agents", disposition: subjectTableDeleteMatches,
+		exact:    []string{"id", "name", "hostname", "spiffe_id"},
+		contains: []string{"labels"},
+	},
+	"ai_answers": {
+		plane: "ai_answers", disposition: subjectTableDeleteMatches,
+		contains: []string{"question", "root_cause", "payload"},
+	},
+	"ai_feedback": {
+		plane: "postgres:ai_feedback", disposition: subjectTableDeleteMatches,
+		exact:    []string{"user_id"},
+		contains: []string{"question", "comment"},
+	},
+	"alert_evaluation_receipts": {
+		plane: "postgres:alert_evaluation_receipts", disposition: subjectTableDeleteMatches,
+		contains: []string{"labels"},
+	},
+	"alert_maintenance_windows": {
+		plane: "postgres:alert_maintenance_windows", disposition: subjectTableDeleteMatches,
+		exact:    []string{"created_by"},
+		contains: []string{"match"},
+	},
+	"alert_ops": {
+		plane: "postgres:alert_ops", disposition: subjectTableDeleteMatches,
+		exact: []string{"acked_by"},
+	},
+	"alert_rules":  {plane: "postgres:alert_rules", disposition: subjectTableNoSubject},
+	"audit_events": {plane: "audit", disposition: subjectTableProjectMatches},
+	"change_events": {
+		plane: "postgres:change_events", disposition: subjectTableDeleteMatches,
+		exact:    []string{"actor", "target"},
+		contains: []string{"title", "summary", "attributes"},
+	},
+	"dashboard_report_artifacts": {
+		plane: "postgres:dashboard_report_artifacts", disposition: subjectTableDeleteMatches,
+		exact: []string{"generated_by"},
+	},
+	"dashboard_report_schedules": {
+		plane: "postgres:dashboard_report_schedules", disposition: subjectTableDeleteMatches,
+		exact: []string{"owner_id"},
+	},
+	"dashboard_views": {
+		plane: "postgres:dashboard_views", disposition: subjectTableDeleteMatches,
+		exact: []string{"owner_id"},
+	},
+	"device_collection_outcomes": {
+		plane: "postgres:device_collection_outcomes", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id", "configured_target"},
+	},
+	"device_neighbor_evidence": {
+		plane: "postgres:device_neighbor_evidence", disposition: subjectTableDeleteMatches,
+		exact: []string{
+			"agent_id", "local_device_address", "local_device_name", "local_port_id",
+			"remote_chassis_id", "remote_device_name", "remote_port_id",
+			"remote_management_address", "remote_platform",
+		},
+	},
+	"flow_ingest_quality_receipts": {
+		plane: "postgres:flow_ingest_quality_receipts", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id", "exporter_address"},
+	},
+	"incident_integrations": {plane: "postgres:incident_integrations", disposition: subjectTableNoSubject},
+	"incident_journal_entries": {
+		plane: "incident_journal", disposition: subjectTableDeleteMatches,
+		exact:    []string{"created_by"},
+		contains: []string{"body"},
+	},
+	"incident_share_artifacts": {
+		plane: "postgres:incident_share_artifacts", disposition: subjectTableDeleteMatches,
+		exact:    []string{"created_by"},
+		contains: []string{"payload"},
+	},
+	"incident_signals": {
+		plane: "postgres:incident_signals", disposition: subjectTableDeleteMatches,
+		exact:    []string{"target"},
+		contains: []string{"title", "summary", "attributes"},
+	},
+	"incidents": {
+		plane: "postgres:incidents", disposition: subjectTableDeleteMatches,
+		exact:    []string{"target", "prefix"},
+		contains: []string{"title"},
+	},
+	"mcp_tokens": {
+		plane: "postgres:mcp_tokens", disposition: subjectTableDeleteMatches,
+		exact: []string{"id", "user_id"},
+	},
+	"organizations": {plane: "postgres:organizations", disposition: subjectTableNoSubject},
+	"otlp_tokens":   {plane: "postgres:otlp_tokens", disposition: subjectTableNoSubject},
+	"projects":      {plane: "postgres:projects", disposition: subjectTableNoSubject},
+	"remediation_proposals": {
+		plane: "postgres:remediation_proposals", disposition: subjectTableDeleteMatches,
+		exact:    []string{"proposed_by", "decided_by", "target"},
+		contains: []string{"rationale", "decision_note", "dry_run"},
+	},
+	"results": {plane: "postgres:results", disposition: subjectTableNoSubject},
+	"role_bindings": {
+		plane: "postgres:role_bindings", disposition: subjectTableDeleteMatches,
+		exact: []string{"subject_id"},
+	},
+	"role_permissions": {plane: "postgres:role_permissions", disposition: subjectTableNoSubject},
+	"roles":            {plane: "postgres:roles", disposition: subjectTableNoSubject},
+	"rollout_events":   {plane: "postgres:rollout_events", disposition: subjectTableNoSubject},
+	"rollout_plans":    {plane: "postgres:rollout_plans", disposition: subjectTableNoSubject},
+	"scim_tokens":      {plane: "postgres:scim_tokens", disposition: subjectTableNoSubject},
+	"service_accounts": {
+		plane: "postgres:service_accounts", disposition: subjectTableDeleteMatches,
+		exact: []string{"id", "name"},
+	},
+	"sessions": {
+		plane: "postgres:sessions", disposition: subjectTableDeleteMatches,
+		exact: []string{"id", "user_id", "email"},
+	},
+	"siem_delivery": {plane: "postgres:siem_delivery", disposition: subjectTableNoSubject},
+	"teams":         {plane: "postgres:teams", disposition: subjectTableNoSubject},
+	"tenant_idp":    {plane: "postgres:tenant_idp", disposition: subjectTableNoSubject},
+	"tests":         {plane: "postgres:tests", disposition: subjectTableNoSubject},
+	"users": {
+		plane: "identity", disposition: subjectTableDeleteMatches,
+		exact: []string{"id", "email", "user_name", "external_id"},
+	},
+	"webhook_deliveries": {plane: "postgres:webhook_deliveries", disposition: subjectTableNoSubject},
 }
 
 // ExportSubject writes a subject-scoped portability bundle. Reads are tenant
@@ -409,10 +574,10 @@ func (e *Engine) exportSubjectEndpoint(x *subjectExportContext) error {
 	return nil
 }
 
-// EraseSubject runs the subject erasure workflow across identity, persisted AI,
-// audit projection, flow telemetry, and OTLP telemetry. It never rewrites audit
-// history; the append-only marker makes future audit reads/exports project the
-// subject while preserving prev_hash/hash.
+// EraseSubject runs the subject erasure workflow across every classified
+// tenant-owned PostgreSQL table plus the attached telemetry planes. It never
+// rewrites audit history; append-only markers make future audit reads/exports
+// project the subject and its stable aliases while preserving prev_hash/hash.
 func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, reason string) (SubjectErasureReport, error) {
 	subject = strings.TrimSpace(subject)
 	if subject == "" {
@@ -435,24 +600,52 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		rep.Complete = false
 	}
 
+	destructiveSubjectValidated := false
 	if e.pool != nil {
-		deleted, err := e.eraseSubjectPostgres(ctx, tenantID, subject)
+		deleted, aliases, err := e.eraseSubjectPostgres(ctx, tenantID, subject)
 		if err != nil {
 			fail("postgres", err.Error())
 		} else {
 			rep.Planes = append(rep.Planes, deleted...)
-		}
-		tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
-		if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-			_, err := audit.RecordSubjectErasure(ctx, sc, actor, subject, reason)
-			return err
-		}); err != nil {
-			fail("audit", "subject marker failed: "+err.Error())
-		} else {
-			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "audit", Status: SubjectStatusProjected, Projected: true, Notes: "append-only privacy.subject_erase marker recorded"})
+			destructiveSubjectValidated = true
+			if len(aliases) == 0 {
+				aliases = []string{subject}
+			}
+			tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+			if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				for _, alias := range aliases {
+					if _, err := audit.RecordSubjectErasure(ctx, sc, actor, alias, reason); err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
+				fail("audit", "subject marker failed: "+err.Error())
+			} else {
+				rep.Planes = append(rep.Planes, SubjectPlaneResult{
+					Plane: "audit", Status: SubjectStatusProjected, Projected: true,
+					Notes: fmt.Sprintf("append-only privacy.subject_erase markers recorded for %d stable subject aliases", len(aliases)),
+				})
+			}
 		}
 	} else {
 		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "postgres", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
+		if isSafeContainsIdentifier(subject) {
+			destructiveSubjectValidated = true
+		} else {
+			fail(
+				"subject_validation",
+				"subject does not resolve through a deployed directory and is not an unambiguous email, UUID, IP address, or URI",
+			)
+		}
+	}
+
+	// A failed directory/schema validation is an authorization failure for the
+	// destructive selector, not permission to try the same unsafe substring in
+	// less-structured telemetry stores. Preserve the failed request on the
+	// provider audit stream, but do not mutate any downstream plane.
+	if !destructiveSubjectValidated {
+		return e.finalizeSubjectErasureReport(ctx, actor, rep)
 	}
 
 	if fd, ok := e.flows.(flowSubjectDeleter); ok {
@@ -561,11 +754,19 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 	// every branch to remember a side effect. This is fail closed for deployed
 	// backends that honestly report not_capable and for any future unknown
 	// erasure status.
+	return e.finalizeSubjectErasureReport(ctx, actor, rep)
+}
+
+func (e *Engine) finalizeSubjectErasureReport(
+	ctx context.Context,
+	actor string,
+	rep SubjectErasureReport,
+) (SubjectErasureReport, error) {
 	rep.Complete = subjectErasurePlanesComplete(rep.Planes)
 	rep.FinishedAt = e.now().UTC()
 	rep.ReportSHA256 = rep.hash()
 	if e.audit != nil {
-		if err := e.audit(ctx, actor, "privacy.subject_erase", tenantID, map[string]any{
+		if err := e.audit(ctx, actor, "privacy.subject_erase", rep.TenantID, map[string]any{
 			"subject_hash": rep.SubjectHash, "complete": rep.Complete, "report_sha256": rep.ReportSHA256,
 			"planes": len(rep.Planes),
 		}); err != nil {
@@ -597,56 +798,532 @@ func subjectErasurePlanesComplete(planes []SubjectPlaneResult) bool {
 	return true
 }
 
-func (e *Engine) eraseSubjectPostgres(ctx context.Context, tenantID, subject string) ([]SubjectPlaneResult, error) {
+func (e *Engine) eraseSubjectPostgres(
+	ctx context.Context,
+	tenantID, subject string,
+) ([]SubjectPlaneResult, []string, error) {
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
-	var out []SubjectPlaneResult
-	like := literalILikeContainsPattern(subject)
+	var (
+		out     []SubjectPlaneResult
+		aliases = newSubjectAliasSet(subject)
+	)
 	err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		exists, err := e.subjectTableExists(ctx, sc, "users")
+		liveTables, err := subjectTenantOwnedTables(ctx, sc)
 		if err != nil {
-			return fmt.Errorf("discover users table: %w", err)
+			return fmt.Errorf("discover tenant-owned tables: %w", err)
 		}
-		if exists {
-			tag, err := sc.Q.Exec(ctx, `
-DELETE FROM users
- WHERE email ILIKE $1 ESCAPE '!' OR display_name ILIKE $1 ESCAPE '!'
-    OR user_name ILIKE $1 ESCAPE '!' OR external_id ILIKE $1 ESCAPE '!'
-    OR attributes::text ILIKE $1 ESCAPE '!'`, like)
-			if err != nil {
-				return err
-			}
-			out = append(out, SubjectPlaneResult{Plane: "identity", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
-		}
-		exists, err = e.subjectTableExists(ctx, sc, "ai_answers")
+		classified, err := classifySubjectPostgresTables(liveTables)
 		if err != nil {
-			return fmt.Errorf("discover ai_answers table: %w", err)
+			return err
 		}
-		if exists {
-			tag, err := sc.Q.Exec(ctx, `
-DELETE FROM ai_answers
- WHERE question ILIKE $1 ESCAPE '!' OR root_cause ILIKE $1 ESCAPE '!'
-    OR payload::text ILIKE $1 ESCAPE '!'`, like)
-			if err != nil {
-				return err
-			}
-			out = append(out, SubjectPlaneResult{Plane: "ai_answers", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
-		}
-		exists, err = e.subjectTableExists(ctx, sc, "incident_journal_entries")
+
+		captured, err := e.captureSubjectAliases(ctx, sc, subject)
 		if err != nil {
-			return fmt.Errorf("discover incident_journal_entries table: %w", err)
+			return err
 		}
-		if exists {
-			tag, err := sc.Q.Exec(ctx, `
-DELETE FROM incident_journal_entries
- WHERE created_by ILIKE $1 ESCAPE '!' OR body ILIKE $1 ESCAPE '!'`, like)
-			if err != nil {
-				return err
+		aliases = captured.aliases
+		exactAliases := aliases.normalizedValues()
+		containsPatterns := aliases.safeContainsPatterns()
+
+		locatorsDeleted, err := store.DeleteSubjectCredentialLocatorsScoped(
+			ctx, sc, captured.sessionIDs, captured.mcpTokenIDs,
+		)
+		if err != nil {
+			return fmt.Errorf("erase subject credential locators: %w", err)
+		}
+		out = append(out, SubjectPlaneResult{
+			Plane: "postgres:credential_locators", Status: SubjectStatusDeleted,
+			Deleted: locatorsDeleted, Remaining: 0,
+			Notes: "tenant-GUC-checked global session/MCP locators removed by captured credential UUID",
+		})
+
+		for _, table := range classified {
+			switch table.policy.disposition {
+			case subjectTableProjectMatches:
+				continue
+			case subjectTableNoSubject:
+				out = append(out, SubjectPlaneResult{
+					Plane: table.policy.plane, Status: SubjectStatusCoveredByPlane,
+					Notes: "live-schema policy declares no first-class data-subject field",
+				})
+				continue
 			}
-			out = append(out, SubjectPlaneResult{Plane: "incident_journal", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
+			ident := pgIdent(table.name)
+			predicate := subjectTableMatchPredicate(table.policy)
+			tag, err := sc.Q.Exec(ctx,
+				`DELETE FROM `+ident+` AS subject_row
+				  WHERE subject_row.tenant_id = $1
+				    AND `+predicate,
+				tenantID, exactAliases, containsPatterns)
+			if err != nil {
+				return fmt.Errorf("erase classified subject rows from %s: %w", table.name, err)
+			}
+			var remaining int64
+			if err := sc.Q.QueryRow(ctx,
+				`SELECT count(*) FROM `+ident+` AS subject_row
+				  WHERE subject_row.tenant_id = $1
+				    AND `+predicate,
+				tenantID, exactAliases, containsPatterns).Scan(&remaining); err != nil {
+				return fmt.Errorf("verify classified subject rows in %s: %w", table.name, err)
+			}
+			out = append(out, SubjectPlaneResult{
+				Plane: table.policy.plane, Status: SubjectStatusDeleted,
+				Deleted: tag.RowsAffected(), Remaining: remaining,
+				Notes: "explicit subject columns count-verified after deletion",
+			})
+			if remaining != 0 {
+				return fmt.Errorf("verify classified subject rows in %s: %d remain", table.name, remaining)
+			}
+		}
+
+		// Re-read the catalog before commit. PostgreSQL READ COMMITTED sees a
+		// table added by a concurrent migration; returning an error rolls every
+		// deletion back rather than certifying a stale schema snapshot.
+		afterTables, err := subjectTenantOwnedTables(ctx, sc)
+		if err != nil {
+			return fmt.Errorf("recheck tenant-owned tables: %w", err)
+		}
+		if !equalStringSets(liveTables, afterTables) {
+			return fmt.Errorf("tenantlife: tenant-owned table set changed during subject erasure")
 		}
 		return nil
 	})
-	return out, err
+	return out, aliases.values(), err
+}
+
+type classifiedSubjectTable struct {
+	name   string
+	policy subjectTablePolicy
+}
+
+func classifySubjectPostgresTables(tables []string) ([]classifiedSubjectTable, error) {
+	classified := make([]classifiedSubjectTable, 0, len(tables))
+	var unknown []string
+	for _, table := range tables {
+		policy, ok := subjectPostgresTablePolicies[table]
+		if !ok {
+			unknown = append(unknown, table)
+			continue
+		}
+		valid := true
+		switch policy.disposition {
+		case subjectTableDeleteMatches:
+			valid = len(policy.exact)+len(policy.contains) > 0
+		case subjectTableProjectMatches, subjectTableNoSubject:
+			valid = len(policy.exact) == 0 && len(policy.contains) == 0
+		default:
+			valid = false
+		}
+		if !valid || strings.TrimSpace(policy.plane) == "" {
+			unknown = append(unknown, table)
+			continue
+		}
+		classified = append(classified, classifiedSubjectTable{name: table, policy: policy})
+	}
+	if len(unknown) != 0 {
+		sort.Strings(unknown)
+		return nil, fmt.Errorf(
+			"tenantlife: subject erasure refuses unclassified tenant-owned tables: %s",
+			strings.Join(unknown, ", "),
+		)
+	}
+	sort.Slice(classified, func(i, j int) bool {
+		return subjectTableSortKey(classified[i].name) < subjectTableSortKey(classified[j].name)
+	})
+	return classified, nil
+}
+
+func subjectTableSortKey(table string) string {
+	// Delete a subject-owned dashboard view first so its CASCADE removes
+	// schedules/artifacts without tripping the artifact->schedule RESTRICT edge.
+	switch table {
+	case "dashboard_views":
+		return "dashboard_0_views"
+	case "dashboard_report_artifacts":
+		return "dashboard_1_report_artifacts"
+	case "dashboard_report_schedules":
+		return "dashboard_2_report_schedules"
+	default:
+		return table
+	}
+}
+
+func subjectTableMatchPredicate(policy subjectTablePolicy) string {
+	// Reference both arrays for every policy so the prepared statement has a
+	// stable three-argument shape even when this table uses only one match mode.
+	var parts []string
+	if len(policy.exact) == 0 {
+		parts = append(parts, `($2::text[] IS NULL AND FALSE)`)
+	}
+	if len(policy.contains) == 0 {
+		parts = append(parts, `($3::text[] IS NULL AND FALSE)`)
+	}
+	for _, column := range policy.exact {
+		parts = append(parts,
+			`lower(COALESCE(subject_row.`+pgIdent(column)+`::text, '')) = ANY($2::text[])`)
+	}
+	for _, column := range policy.contains {
+		parts = append(parts, `EXISTS (
+	SELECT 1
+	  FROM unnest($3::text[]) AS subject_pattern(value)
+	 WHERE COALESCE(subject_row.`+pgIdent(column)+`::text, '') ILIKE subject_pattern.value ESCAPE '!'
+)`)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+// subjectTenantOwnedTables uses pg_catalog rather than information_schema so
+// tables remain visible even when a migration accidentally omitted an app-role
+// grant. A silo must have the same filtered tenant-table set as the public
+// template: otherwise search_path could fall through to a pooled table while a
+// silo-only table escaped the inventory. Drift fails before any deletion.
+func subjectTenantOwnedTables(ctx context.Context, sc tenancy.Scope) ([]string, error) {
+	var activeSchema string
+	if err := sc.Q.QueryRow(ctx, `SELECT current_schema()`).Scan(&activeSchema); err != nil {
+		return nil, fmt.Errorf("resolve active tenant schema: %w", err)
+	}
+	if strings.TrimSpace(activeSchema) == "" {
+		return nil, fmt.Errorf("tenantlife: active tenant schema is empty")
+	}
+
+	active, err := subjectTenantOwnedTablesInSchema(ctx, sc, activeSchema)
+	if err != nil {
+		return nil, fmt.Errorf("inventory active tenant schema %q: %w", activeSchema, err)
+	}
+	if activeSchema == "public" {
+		return active, nil
+	}
+	publicTemplate, err := subjectTenantOwnedTablesInSchema(ctx, sc, "public")
+	if err != nil {
+		return nil, fmt.Errorf("inventory public tenant-table template: %w", err)
+	}
+	if !equalStringSets(active, publicTemplate) {
+		return nil, fmt.Errorf(
+			"tenantlife: active tenant schema %q drifts from public tenant-table template (missing=%s extra=%s)",
+			activeSchema,
+			strings.Join(stringSetDifference(publicTemplate, active), ","),
+			strings.Join(stringSetDifference(active, publicTemplate), ","),
+		)
+	}
+	return active, nil
+}
+
+func subjectTenantOwnedTablesInSchema(
+	ctx context.Context,
+	sc tenancy.Scope,
+	schema string,
+) ([]string, error) {
+	rows, err := sc.Q.Query(ctx, `
+		SELECT DISTINCT c.relname
+		  FROM pg_catalog.pg_class AS c
+		  JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+		  JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid
+		 WHERE n.nspname = $1
+		   AND c.relkind IN ('r', 'p')
+		   AND a.attname = 'tenant_id'
+		   AND NOT a.attisdropped
+		 ORDER BY c.relname`,
+		schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			return nil, err
+		}
+		tables = append(tables, table)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tenancy.FilterTenantOwned(tables), nil
+}
+
+func stringSetDifference(left, right []string) []string {
+	present := make(map[string]struct{}, len(right))
+	for _, value := range right {
+		present[value] = struct{}{}
+	}
+	var difference []string
+	for _, value := range left {
+		if _, ok := present[value]; !ok {
+			difference = append(difference, value)
+		}
+	}
+	sort.Strings(difference)
+	return difference
+}
+
+type subjectAliasSet struct {
+	valuesByNormalized map[string]string
+}
+
+func newSubjectAliasSet(subject string) subjectAliasSet {
+	aliases := subjectAliasSet{valuesByNormalized: map[string]string{}}
+	aliases.add(subject)
+	return aliases
+}
+
+func (a *subjectAliasSet) add(value string) {
+	value = strings.TrimSpace(value)
+	normalized := strings.ToLower(value)
+	if normalized == "" {
+		return
+	}
+	if _, exists := a.valuesByNormalized[normalized]; !exists {
+		a.valuesByNormalized[normalized] = value
+	}
+}
+
+func (a subjectAliasSet) values() []string {
+	normalized := make([]string, 0, len(a.valuesByNormalized))
+	for value := range a.valuesByNormalized {
+		normalized = append(normalized, value)
+	}
+	sort.Strings(normalized)
+	out := make([]string, 0, len(normalized))
+	for _, value := range normalized {
+		out = append(out, a.valuesByNormalized[value])
+	}
+	return out
+}
+
+func (a subjectAliasSet) normalizedValues() []string {
+	out := make([]string, 0, len(a.valuesByNormalized))
+	for value := range a.valuesByNormalized {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (a subjectAliasSet) safeContainsPatterns() []string {
+	values := a.values()
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if isSafeContainsIdentifier(value) {
+			out = append(out, literalILikeContainsPattern(value))
+		}
+	}
+	return out
+}
+
+type capturedSubjectAliases struct {
+	aliases     subjectAliasSet
+	sessionIDs  []string
+	mcpTokenIDs []string
+}
+
+type subjectIdentity struct {
+	kind       string
+	id         string
+	email      string
+	userName   string
+	externalID string
+	name       string
+}
+
+// captureSubjectAliases resolves a caller-supplied subject to stable directory
+// aliases before deleting the primary identity row. This is what lets feedback,
+// dashboards, shares, RBAC bindings, and other tables that store only the user
+// UUID get erased when the request was made with an email (and vice versa).
+func (e *Engine) captureSubjectAliases(
+	ctx context.Context,
+	sc tenancy.Scope,
+	subject string,
+) (capturedSubjectAliases, error) {
+	aliases := newSubjectAliasSet(subject)
+	captured := capturedSubjectAliases{aliases: aliases}
+	normalizedSubject := strings.ToLower(strings.TrimSpace(subject))
+	var identities []subjectIdentity
+
+	exists, err := e.subjectTableExists(ctx, sc, "users")
+	if err != nil {
+		return captured, fmt.Errorf("discover users table: %w", err)
+	}
+	if !exists {
+		return captured, fmt.Errorf("tenantlife: users table is missing from tenant schema")
+	}
+	rows, err := sc.Q.Query(ctx, `
+		SELECT id::text, email, COALESCE(user_name, ''), COALESCE(external_id, '')
+		  FROM users
+		 WHERE lower(id::text) = $1
+		    OR lower(email) = $1
+		    OR lower(COALESCE(user_name, '')) = $1
+		    OR lower(COALESCE(external_id, '')) = $1`,
+		normalizedSubject)
+	if err != nil {
+		return captured, fmt.Errorf("capture user subject aliases: %w", err)
+	}
+	for rows.Next() {
+		var id, email, userName, externalID string
+		if err := rows.Scan(&id, &email, &userName, &externalID); err != nil {
+			rows.Close()
+			return captured, err
+		}
+		identities = append(identities, subjectIdentity{
+			kind: "user", id: id, email: email, userName: userName, externalID: externalID,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return captured, err
+	}
+	rows.Close()
+
+	exists, err = e.subjectTableExists(ctx, sc, "service_accounts")
+	if err != nil {
+		return captured, fmt.Errorf("discover service_accounts table: %w", err)
+	}
+	if !exists {
+		return captured, fmt.Errorf("tenantlife: service_accounts table is missing from tenant schema")
+	}
+	rows, err = sc.Q.Query(ctx, `
+		SELECT id::text, name
+		  FROM service_accounts
+		 WHERE lower(id::text) = $1 OR lower(name) = $1`,
+		normalizedSubject)
+	if err != nil {
+		return captured, fmt.Errorf("capture service-account subject aliases: %w", err)
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return captured, err
+		}
+		identities = append(identities, subjectIdentity{kind: "service_account", id: id, name: name})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return captured, err
+	}
+	rows.Close()
+
+	if len(identities) > 1 {
+		return captured, fmt.Errorf(
+			"tenantlife: subject identifier is ambiguous across %d directory identities; use an exact UUID",
+			len(identities),
+		)
+	}
+	if len(identities) == 0 && !isSafeContainsIdentifier(subject) {
+		return captured, fmt.Errorf(
+			"tenantlife: subject does not resolve to one exact identity and is not an unambiguous email, UUID, IP address, or URI",
+		)
+	}
+	if len(identities) == 1 {
+		identity := identities[0]
+		aliases.add(identity.id)
+		if identity.kind == "user" {
+			aliases.add(identity.email)
+			aliases.add(identity.userName)
+			aliases.add(identity.externalID)
+		} else {
+			aliases.add(identity.name)
+		}
+	}
+
+	// Locator rows added for silo-safe pre-tenant authentication reference a
+	// credential UUID, not the owning user UUID. Capture those credential IDs
+	// while the detailed session/token rows still exist.
+	for _, credentialTable := range []struct {
+		name string
+		sql  string
+		dst  *[]string
+	}{
+		{
+			name: "sessions",
+			sql: `SELECT id::text FROM sessions
+			       WHERE lower(id::text) = ANY($1::text[])
+			          OR lower(user_id::text) = ANY($1::text[])
+			          OR lower(email) = ANY($1::text[])`,
+			dst: &captured.sessionIDs,
+		},
+		{
+			name: "mcp_tokens",
+			sql: `SELECT id::text FROM mcp_tokens
+			       WHERE lower(id::text) = ANY($1::text[])
+			          OR lower(user_id::text) = ANY($1::text[])`,
+			dst: &captured.mcpTokenIDs,
+		},
+	} {
+		exists, err = e.subjectTableExists(ctx, sc, credentialTable.name)
+		if err != nil {
+			return captured, fmt.Errorf("discover %s table: %w", credentialTable.name, err)
+		}
+		if !exists {
+			return captured, fmt.Errorf("tenantlife: %s table is missing from tenant schema", credentialTable.name)
+		}
+		rows, err = sc.Q.Query(ctx, credentialTable.sql, aliases.normalizedValues())
+		if err != nil {
+			return captured, fmt.Errorf("capture %s subject aliases: %w", credentialTable.name, err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return captured, err
+			}
+			*credentialTable.dst = append(*credentialTable.dst, id)
+			aliases.add(id)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return captured, err
+		}
+		rows.Close()
+	}
+	sort.Strings(captured.sessionIDs)
+	sort.Strings(captured.mcpTokenIDs)
+	captured.aliases = aliases
+	return captured, nil
+}
+
+func isSafeContainsIdentifier(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) < 8 || strings.IndexFunc(value, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	}) >= 0 {
+		return false
+	}
+	if _, err := netip.ParseAddr(value); err == nil {
+		return true
+	}
+	if isUUIDString(value) {
+		return true
+	}
+	if strings.Contains(value, "@") {
+		return true
+	}
+	return strings.Contains(value, "://")
+}
+
+func isUUIDString(value string) bool {
+	if len(value) != 36 ||
+		value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	_, err := hex.DecodeString(strings.ReplaceAll(value, "-", ""))
+	return err == nil
+}
+
+func equalStringSets(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	left := append([]string(nil), a...)
+	right := append([]string(nil), b...)
+	sort.Strings(left)
+	sort.Strings(right)
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // literalILikeContainsPattern builds a case-insensitive substring pattern while

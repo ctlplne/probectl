@@ -20,8 +20,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 func TestSubjectErasureTableDiscoveryErrorFailsClosed(t *testing.T) {
@@ -303,6 +307,512 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	}
 }
 
+func TestSubjectErasureCompleteCoversEveryTenantTableAndStaysTenantScoped(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	subject := "schema-complete-" + stamp + "@example.test"
+	victim := mkTenant(t, pool, "it-subject-schema-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-subject-schema-b-"+stamp)
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(),
+			`DELETE FROM tenants WHERE id = $1 OR id = $2`, victim, bystander); err != nil {
+			t.Errorf("cleanup subject-schema tenants: %v", err)
+		}
+	})
+
+	createUser := func(tenantID string) string {
+		t.Helper()
+		var userID string
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				return sc.Q.QueryRow(ctx,
+					`INSERT INTO users
+					       (tenant_id, email, display_name, status, user_name, external_id, attributes)
+					 VALUES ($1, $2, 'Schema Complete Subject', 'active', $2, $2,
+					         jsonb_build_object('subject', $2::text))
+					 RETURNING id::text`,
+					tenantID, subject).Scan(&userID)
+			})
+		if err != nil {
+			t.Fatalf("seed user for %s: %v", tenantID, err)
+		}
+		return userID
+	}
+	victimUserID := createUser(victim)
+	bystanderUserID := createUser(bystander)
+
+	sessions := store.NewSessions(pool)
+	mcpTokens := store.NewMCPTokens(pool)
+	sessionHashes := map[string][]byte{
+		victim:    []byte("subject-session-victim-" + stamp),
+		bystander: []byte("subject-session-bystander-" + stamp),
+	}
+	mcpHashes := map[string][]byte{
+		victim:    []byte("subject-mcp-victim-" + stamp),
+		bystander: []byte("subject-mcp-bystander-" + stamp),
+	}
+	for tenantID, userID := range map[string]string{
+		victim: victimUserID, bystander: bystanderUserID,
+	} {
+		now := time.Now().UTC()
+		if err := sessions.Create(ctx, sessionHashes[tenantID], auth.Session{
+			TenantID: tenantID, UserID: userID, Email: subject,
+			DisplayName: "Schema Complete Subject", ExpiresAt: now.Add(time.Hour),
+			CreatedAt: now, LastActivityAt: now,
+		}); err != nil {
+			t.Fatalf("seed session for %s: %v", tenantID, err)
+		}
+		if _, err := mcpTokens.Create(
+			ctx, tenantID, userID, "subject-schema-regression", mcpHashes[tenantID],
+		); err != nil {
+			t.Fatalf("seed MCP token for %s: %v", tenantID, err)
+		}
+	}
+
+	type seededRows struct {
+		feedbackID string
+		viewID     string
+		shareID    string
+	}
+	seedOmittedTables := func(tenantID, subjectAlias, label string) seededRows {
+		t.Helper()
+		rows := seededRows{
+			viewID:  "schema-view-" + label + "-" + stamp,
+			shareID: "schema-share-" + label + "-" + stamp,
+		}
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				if err := sc.Q.QueryRow(ctx,
+					`INSERT INTO ai_feedback
+					       (tenant_id, answer_id, question, rating, comment, user_id)
+					 VALUES ($1, $2, 'schema coverage', 'up', 'bounded regression', $3)
+					 RETURNING id::text`,
+					tenantID, "schema-feedback-"+label+"-"+stamp, subjectAlias).
+					Scan(&rows.feedbackID); err != nil {
+					return err
+				}
+				if _, err := sc.Q.Exec(ctx,
+					`INSERT INTO dashboard_views
+					       (tenant_id, id, owner_id, name, preset, shared, definition)
+					 VALUES ($1, $2, $3, 'Subject-owned view', 'operator', false,
+					         jsonb_build_object('owner', $3::text))`,
+					tenantID, rows.viewID, subjectAlias); err != nil {
+					return err
+				}
+				if _, err := sc.Q.Exec(ctx,
+					`INSERT INTO incident_share_artifacts
+					       (tenant_id, id, incident_id, payload, created_by, expires_at)
+					 VALUES ($1, $2, gen_random_uuid(),
+					         jsonb_build_object('created_by', $3::text), $3,
+					         clock_timestamp() + interval '1 day')`,
+					tenantID, rows.shareID, subjectAlias); err != nil {
+					return err
+				}
+				_, err := audit.TenantAppend(
+					ctx, sc, subjectAlias, "subject.schema_fixture", subjectAlias,
+					map[string]any{"owner_id": subjectAlias},
+				)
+				return err
+			})
+		if err != nil {
+			t.Fatalf("seed omitted subject tables for %s: %v", tenantID, err)
+		}
+		return rows
+	}
+	victimRows := seedOmittedTables(victim, victimUserID, "victim")
+	// Deliberately place tenant A's opaque user identifier in tenant B too. The
+	// eraser must use tenant scope before its subject predicate.
+	bystanderRows := seedOmittedTables(bystander, victimUserID, "bystander")
+
+	sink := func(ctx context.Context, actor, action, target string, data map[string]any) error {
+		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+		return err
+	}
+	report, err := New(pool, nil, nil, nil, sink, "backups expire after 14 days (it)", nil).
+		EraseSubject(ctx, victim, subject, "privacy-admin", "dsar")
+	if err != nil {
+		t.Fatalf("subject erase: %v", err)
+	}
+
+	countByID := func(tenantID, table, id string) int64 {
+		t.Helper()
+		return countRows(t, pool,
+			`SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id = $1 AND id = $2`,
+			tenantID, id)
+	}
+	remaining := map[string]int64{
+		"ai_feedback":              countByID(victim, "ai_feedback", victimRows.feedbackID),
+		"dashboard_views":          countByID(victim, "dashboard_views", victimRows.viewID),
+		"incident_share_artifacts": countByID(victim, "incident_share_artifacts", victimRows.shareID),
+	}
+	for table, n := range remaining {
+		if n != 0 {
+			t.Errorf("victim subject survived in %s: %d", table, n)
+		}
+	}
+	if t.Failed() && report.Complete {
+		t.Fatalf("subject erasure reported Complete=true while tenant tables retained subject aliases: %+v", remaining)
+	}
+	if !report.Complete {
+		t.Fatalf("schema-complete erasure receipt is incomplete: %+v", report)
+	}
+	receipts := subjectPlanesByName(report.Planes)
+	for table, plane := range map[string]string{
+		"ai_feedback":              "postgres:ai_feedback",
+		"dashboard_views":          "postgres:dashboard_views",
+		"incident_share_artifacts": "postgres:incident_share_artifacts",
+	} {
+		receipt := receipts[plane]
+		if receipt.Status != SubjectStatusDeleted || receipt.Deleted != 1 || receipt.Remaining != 0 {
+			t.Fatalf("%s count-verification receipt = %+v", table, receipt)
+		}
+	}
+	if receipt := receipts["postgres:credential_locators"]; receipt.Deleted != 2 || receipt.Remaining != 0 {
+		t.Fatalf("credential locator receipt = %+v, want two tenant-scoped locators removed", receipt)
+	}
+	if got, err := sessions.LookupByHash(ctx, sessionHashes[victim], time.Hour); err != nil || got != nil {
+		t.Fatalf("victim session locator/detail survived: session=%+v err=%v", got, err)
+	}
+	if _, _, err := mcpTokens.Authenticate(ctx, mcpHashes[victim]); !errors.Is(err, store.ErrInvalidToken) {
+		t.Fatalf("victim MCP locator/detail survived: %v", err)
+	}
+	if got, err := sessions.LookupByHash(ctx, sessionHashes[bystander], time.Hour); err != nil || got == nil {
+		t.Fatalf("bystander session changed: session=%+v err=%v", got, err)
+	}
+	if tenantID, userID, err := mcpTokens.Authenticate(ctx, mcpHashes[bystander]); err != nil ||
+		tenantID != bystander || userID != bystanderUserID {
+		t.Fatalf("bystander MCP token changed: tenant=%q user=%q err=%v", tenantID, userID, err)
+	}
+
+	if got := countByID(bystander, "ai_feedback", bystanderRows.feedbackID); got != 1 {
+		t.Fatalf("bystander ai_feedback row changed: %d", got)
+	}
+	if got := countByID(bystander, "dashboard_views", bystanderRows.viewID); got != 1 {
+		t.Fatalf("bystander dashboard view changed: %d", got)
+	}
+	if got := countByID(bystander, "incident_share_artifacts", bystanderRows.shareID); got != 1 {
+		t.Fatalf("bystander incident share changed: %d", got)
+	}
+	if got := countRows(t, pool,
+		`SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`,
+		bystander, subject); got != 1 {
+		t.Fatalf("bystander identity changed: %d", got)
+	}
+
+	auditJSON := func(tenantID string) string {
+		t.Helper()
+		var raw []byte
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				events, err := audit.List(ctx, sc, 0, 100)
+				if err != nil {
+					return err
+				}
+				raw, err = json.Marshal(events)
+				return err
+			})
+		if err != nil {
+			t.Fatalf("list %s audit: %v", tenantID, err)
+		}
+		return string(raw)
+	}
+	if raw := auditJSON(victim); strings.Contains(strings.ToLower(raw), strings.ToLower(victimUserID)) {
+		t.Fatalf("victim audit projection retained captured user UUID: %s", raw)
+	}
+	if raw := auditJSON(bystander); !strings.Contains(strings.ToLower(raw), strings.ToLower(victimUserID)) {
+		t.Fatalf("bystander audit must not inherit tenant A's subject projection: %s", raw)
+	}
+}
+
+func TestSubjectErasureSiloSchemaDriftFailsClosedBeforeMutation(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	subject := "silo-drift-" + stamp + "@example.test"
+	victim := mkTenant(t, pool, "it-subject-silo-"+stamp)
+	schema := "it_subject_silo_" + stamp
+	quotedSchema := pgIdent(schema)
+	quotedAppRole := pgIdent(tenancy.AppRole)
+
+	for _, statement := range []string{
+		`CREATE SCHEMA ` + quotedSchema,
+		`GRANT USAGE ON SCHEMA ` + quotedSchema + ` TO ` + quotedAppRole,
+		`CREATE TABLE ` + quotedSchema + `.users (LIKE public.users INCLUDING ALL)`,
+		`ALTER TABLE ` + quotedSchema + `.users ENABLE ROW LEVEL SECURITY`,
+		`ALTER TABLE ` + quotedSchema + `.users FORCE ROW LEVEL SECURITY`,
+		`CREATE POLICY tenant_isolation ON ` + quotedSchema + `.users
+		   USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+		   WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`,
+		`GRANT SELECT, INSERT, UPDATE, DELETE ON ` + quotedSchema + `.users TO ` + quotedAppRole,
+		`CREATE TABLE ` + quotedSchema + `.future_subject_records (
+		   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+		   tenant_id uuid NOT NULL,
+		   subject text NOT NULL
+		 )`,
+		`ALTER TABLE ` + quotedSchema + `.future_subject_records ENABLE ROW LEVEL SECURITY`,
+		`ALTER TABLE ` + quotedSchema + `.future_subject_records FORCE ROW LEVEL SECURITY`,
+		`CREATE POLICY tenant_isolation ON ` + quotedSchema + `.future_subject_records
+		   USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+		   WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`,
+		`GRANT SELECT, INSERT, UPDATE, DELETE ON ` + quotedSchema + `.future_subject_records TO ` + quotedAppRole,
+	} {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("prepare drifted subject-erasure silo: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DROP SCHEMA `+quotedSchema+` CASCADE`); err != nil {
+			t.Errorf("drop subject-erasure silo schema: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1`, victim); err != nil {
+			t.Errorf("delete subject-erasure silo tenant: %v", err)
+		}
+	})
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO `+quotedSchema+`.users
+		       (tenant_id, email, display_name, status, user_name, attributes)
+		 VALUES ($1, $2, 'Silo Drift Subject', 'active', $2, '{}'::jsonb)`,
+		victim, subject); err != nil {
+		t.Fatalf("seed silo user: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO `+quotedSchema+`.future_subject_records (tenant_id, subject)
+		 VALUES ($1, $2)`,
+		victim, subject); err != nil {
+		t.Fatalf("seed silo-only subject row: %v", err)
+	}
+
+	previousRouter := tenancy.CurrentRouter()
+	tenancy.SetRouter(subjectSiloTestRouter{
+		PooledRouter: tenancy.PooledRouter{},
+		tenantID:     victim,
+		schema:       schema,
+	})
+	t.Cleanup(func() { tenancy.SetRouter(previousRouter) })
+
+	report, err := New(pool, nil, nil, nil, nil, "", nil).
+		EraseSubject(ctx, victim, subject, "privacy-admin", "silo drift regression")
+	if err != nil {
+		t.Fatalf("subject erase should return its incomplete receipt: %v", err)
+	}
+	if report.Complete {
+		t.Fatalf("drifted silo schema produced Complete=true: %+v", report)
+	}
+	postgres := subjectPlanesByName(report.Planes)["postgres"]
+	if postgres.Status != SubjectStatusFailed ||
+		!strings.Contains(postgres.Notes, schema) ||
+		!strings.Contains(postgres.Notes, "extra=future_subject_records") {
+		t.Fatalf("silo drift receipt = %+v", postgres)
+	}
+	for table := range map[string]struct{}{
+		"users":                  {},
+		"future_subject_records": {},
+	} {
+		if got := countRows(t, pool,
+			`SELECT count(*) FROM `+quotedSchema+`.`+pgIdent(table)+`
+			  WHERE tenant_id = $1 AND `+map[string]string{
+				"users":                  "email",
+				"future_subject_records": "subject",
+			}[table]+` = $2`,
+			victim, subject); got != 1 {
+			t.Fatalf("silo %s changed despite schema-drift rollback: %d", table, got)
+		}
+	}
+	if got := countRows(t, pool,
+		`SELECT count(*) FROM public.audit_events
+		  WHERE tenant_id = $1 AND action = $2`,
+		victim, audit.SubjectErasureAction); got != 0 {
+		t.Fatalf("failed silo erasure wrote %d subject-projection markers", got)
+	}
+}
+
+func TestSubjectErasureAmbiguousFreeformFailsClosedWithoutOverDelete(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	victim := mkTenant(t, pool, "it-subject-freeform-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-subject-freeform-b-"+stamp)
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(),
+			`DELETE FROM tenants WHERE id = $1 OR id = $2`, victim, bystander); err != nil {
+			t.Errorf("cleanup freeform subject tenants: %v", err)
+		}
+	})
+
+	for label, tenantID := range map[string]string{"victim": victim, "bystander": bystander} {
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				if _, err := sc.Q.Exec(ctx,
+					`INSERT INTO roles (tenant_id, slug, name, description)
+					 VALUES ($1, $2, 'Read-only administrator', 'active admin role')`,
+					tenantID, "freeform-"+label+"-"+stamp); err != nil {
+					return err
+				}
+				_, err := sc.Q.Exec(ctx,
+					`INSERT INTO incidents (tenant_id, title, target)
+					 VALUES ($1, 'read path remains active', 'read')`,
+					tenantID)
+				return err
+			})
+		if err != nil {
+			t.Fatalf("seed %s freeform rows: %v", label, err)
+		}
+	}
+
+	sink := func(ctx context.Context, actor, action, target string, data map[string]any) error {
+		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+		return err
+	}
+	trackingFlows := &trackingSubjectFlowStore{Store: flowstore.NewMemory()}
+	t.Cleanup(func() {
+		if err := trackingFlows.Close(); err != nil {
+			t.Errorf("close tracking flow store: %v", err)
+		}
+	})
+	report, err := New(pool, trackingFlows, nil, nil, sink, "", nil).
+		EraseSubject(ctx, victim, "read", "privacy-admin", "ambiguous regression")
+	if err != nil {
+		t.Fatalf("subject erase should return its incomplete receipt: %v", err)
+	}
+	if report.Complete {
+		t.Fatalf("ambiguous freeform subject produced Complete=true: %+v", report)
+	}
+	postgres := subjectPlanesByName(report.Planes)["postgres"]
+	if postgres.Status != SubjectStatusFailed ||
+		!strings.Contains(postgres.Notes, "does not resolve to one exact identity") {
+		t.Fatalf("ambiguous subject PostgreSQL receipt = %+v", postgres)
+	}
+	if trackingFlows.deleteSubjectCalls != 0 {
+		t.Fatalf("ambiguous subject invoked downstream flow deletion %d time(s)", trackingFlows.deleteSubjectCalls)
+	}
+	if got := countRows(t, pool,
+		`SELECT count(*) FROM audit_events
+		  WHERE tenant_id = $1 AND action = $2`,
+		victim, audit.SubjectErasureAction); got != 0 {
+		t.Fatalf("ambiguous subject wrote %d overbroad audit-projection markers", got)
+	}
+	for label, tenantID := range map[string]string{"victim": victim, "bystander": bystander} {
+		if got := countRows(t, pool,
+			`SELECT count(*) FROM roles WHERE tenant_id = $1 AND name = 'Read-only administrator'`,
+			tenantID); got != 1 {
+			t.Fatalf("%s unrelated role changed: %d", label, got)
+		}
+		if got := countRows(t, pool,
+			`SELECT count(*) FROM incidents WHERE tenant_id = $1 AND target = 'read'`,
+			tenantID); got != 1 {
+			t.Fatalf("%s unrelated incident changed: %d", label, got)
+		}
+	}
+}
+
+type trackingSubjectFlowStore struct {
+	flowstore.Store
+	deleteSubjectCalls int
+}
+
+func (s *trackingSubjectFlowStore) DeleteSubject(
+	context.Context,
+	string,
+	string,
+) (int64, int64, error) {
+	s.deleteSubjectCalls++
+	return 0, 0, nil
+}
+
+type subjectSiloTestRouter struct {
+	tenancy.PooledRouter
+	tenantID string
+	schema   string
+}
+
+func (r subjectSiloTestRouter) TargetsFor(
+	_ context.Context,
+	tenantID string,
+) (tenancy.Targets, error) {
+	if tenantID == r.tenantID {
+		return tenancy.Targets{
+			Model:    tenancy.IsolationSiloed,
+			PGSchema: r.schema,
+		}, nil
+	}
+	return r.PooledRouter.TargetsFor(context.Background(), tenantID)
+}
+
+func TestSubjectErasureAmbiguousExactIdentityAliasRollsBack(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	subject := "ambiguous-" + stamp + "@example.test"
+	victim := mkTenant(t, pool, "it-subject-alias-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-subject-alias-b-"+stamp)
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(),
+			`DELETE FROM tenants WHERE id = $1 OR id = $2`, victim, bystander); err != nil {
+			t.Errorf("cleanup ambiguous-alias tenants: %v", err)
+		}
+	})
+
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(victim)), pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			if _, err := sc.Q.Exec(ctx,
+				`INSERT INTO users
+				       (tenant_id, email, display_name, status, user_name, attributes)
+				 VALUES ($1, $2, 'Email owner', 'active', $2, '{}'::jsonb)`,
+				victim, subject); err != nil {
+				return err
+			}
+			_, err := sc.Q.Exec(ctx,
+				`INSERT INTO users
+				       (tenant_id, email, display_name, status, user_name, external_id, attributes)
+				 VALUES ($1, $2, 'External-id owner', 'active', $2, $3, '{}'::jsonb)`,
+				victim, "other-"+stamp+"@example.test", subject)
+			return err
+		})
+	if err != nil {
+		t.Fatalf("seed ambiguous victim identities: %v", err)
+	}
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(bystander)), pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx,
+				`INSERT INTO users
+				       (tenant_id, email, display_name, status, user_name, attributes)
+				 VALUES ($1, $2, 'Bystander', 'active', $2, '{}'::jsonb)`,
+				bystander, subject)
+			return err
+		})
+	if err != nil {
+		t.Fatalf("seed bystander identity: %v", err)
+	}
+
+	report, err := New(pool, nil, nil, nil, nil, "", nil).
+		EraseSubject(ctx, victim, subject, "privacy-admin", "ambiguous alias")
+	if err != nil {
+		t.Fatalf("subject erase: %v", err)
+	}
+	if report.Complete {
+		t.Fatalf("ambiguous identity aliases produced Complete=true: %+v", report)
+	}
+	postgres := subjectPlanesByName(report.Planes)["postgres"]
+	if !strings.Contains(postgres.Notes, "ambiguous across 2 directory identities") {
+		t.Fatalf("ambiguous identity receipt = %+v", postgres)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1`, victim); got != 2 {
+		t.Fatalf("victim identities changed despite ambiguity rollback: %d", got)
+	}
+	if got := countRows(t, pool,
+		`SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`,
+		bystander, subject); got != 1 {
+		t.Fatalf("bystander identity changed: %d", got)
+	}
+}
+
 func TestSubjectErasureEscapesSQLWildcards(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()
@@ -362,13 +872,14 @@ func TestSubjectErasureEscapesSQLWildcards(t *testing.T) {
 	foreign := seed(bystander, subject, "foreign")
 
 	engine := New(pool, nil, nil, nil, nil, "", nil)
-	results, err := engine.eraseSubjectPostgres(ctx, victim, subject)
+	results, _, err := engine.eraseSubjectPostgres(ctx, victim, subject)
 	if err != nil {
 		t.Fatalf("erase subject containing SQL wildcards: %v", err)
 	}
-	for _, result := range results {
-		if result.Deleted != 1 {
-			t.Errorf("%s deleted %d rows, want exactly the literal match", result.Plane, result.Deleted)
+	byPlane := subjectPlanesByName(results)
+	for _, plane := range []string{"identity", "ai_answers", "incident_journal"} {
+		if result := byPlane[plane]; result.Deleted != 1 {
+			t.Errorf("%s deleted %d rows, want exactly the literal match", plane, result.Deleted)
 		}
 	}
 

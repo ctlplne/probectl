@@ -286,6 +286,56 @@ func TestLiteralILikeContainsPatternEscapesMetacharacters(t *testing.T) {
 	}
 }
 
+func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing.T) {
+	_, err := classifySubjectPostgresTables([]string{"users", "future_subject_records"})
+	if err == nil {
+		t.Fatal("unknown tenant-owned table was silently treated as subject-erasure complete")
+	}
+	if !strings.Contains(err.Error(), "future_subject_records") ||
+		!strings.Contains(err.Error(), "unclassified tenant-owned tables") {
+		t.Fatalf("classification error = %q", err)
+	}
+
+	classified, err := classifySubjectPostgresTables([]string{"users", "audit_events", "ai_feedback", "roles"})
+	if err != nil {
+		t.Fatalf("known subject table inventory: %v", err)
+	}
+	byName := make(map[string]subjectTableDisposition, len(classified))
+	for _, table := range classified {
+		byName[table.name] = table.policy.disposition
+	}
+	if byName["audit_events"] != subjectTableProjectMatches {
+		t.Fatalf("audit_events disposition = %d, want append-only projection", byName["audit_events"])
+	}
+	for _, table := range []string{"users", "ai_feedback"} {
+		if byName[table] != subjectTableDeleteMatches {
+			t.Fatalf("%s disposition = %d, want count-verified deletion", table, byName[table])
+		}
+	}
+	if byName["roles"] != subjectTableNoSubject {
+		t.Fatalf("roles disposition = %d, want explicit no-subject classification", byName["roles"])
+	}
+}
+
+func TestSafeContainsIdentifierRejectsGenericFreeform(t *testing.T) {
+	for _, value := range []string{"read", "active", "admin", "Read-only administrator"} {
+		if isSafeContainsIdentifier(value) {
+			t.Errorf("%q was accepted for substring subject matching", value)
+		}
+	}
+	for _, value := range []string{
+		"alice@example.test",
+		"00000000-0000-0000-0000-000000000123",
+		"192.0.2.10",
+		"2001:db8::10",
+		"spiffe://probectl/tenant/t/agent/a",
+	} {
+		if !isSafeContainsIdentifier(value) {
+			t.Errorf("%q was rejected as an unambiguous structured identifier", value)
+		}
+	}
+}
+
 func subjectPlanesByName(planes []SubjectPlaneResult) map[string]SubjectPlaneResult {
 	out := map[string]SubjectPlaneResult{}
 	for _, p := range planes {
