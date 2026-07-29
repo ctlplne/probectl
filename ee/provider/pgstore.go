@@ -11,6 +11,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -447,12 +448,45 @@ func (s *PGStore) RevokeGrant(ctx context.Context, id, by string, at time.Time) 
 		`UPDATE break_glass_grants SET revoked_by=$2, revoked_at=$3 WHERE id=$1`, id, by, at)
 }
 
-func (s *PGStore) IncrementGrantUse(ctx context.Context, id string) error {
-	return mapPGErr(s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
-		tag, err := q.Exec(ctx, `UPDATE break_glass_grants SET use_count = use_count + 1 WHERE id=$1`, id)
-		if err == nil && tag.RowsAffected() == 0 {
-			return ErrNotFound
+// UseGrant is the grant access linearization point. The row lock keeps revoke
+// and use mutually ordered, while the repeated UPDATE predicates make the
+// fail-closed contract explicit at the storage layer.
+func (s *PGStore) UseGrant(ctx context.Context, id, operatorID string, at time.Time) (*Grant, error) {
+	var g Grant
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		var err error
+		g, err = scanGrant(q.QueryRow(ctx,
+			`SELECT `+grantCols+grantFrom+`WHERE g.id = $1 FOR UPDATE OF g`, id))
+		if err != nil {
+			return err
 		}
-		return err
-	}))
+		if g.OperatorID != operatorID {
+			return ErrNotGrantee
+		}
+		if !g.Usable(at) {
+			return fmt.Errorf("%w (state: %s)", ErrNotConsented, g.State(at))
+		}
+		tag, err := q.Exec(ctx,
+			`UPDATE break_glass_grants
+			    SET use_count = use_count + 1
+			  WHERE id = $1
+			    AND operator_id = $2
+			    AND consented_at IS NOT NULL
+			    AND denied_at IS NULL
+			    AND revoked_at IS NULL
+			    AND expires_at > $3`,
+			id, operatorID, at)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotConsented
+		}
+		g.UseCount++
+		return nil
+	})
+	if err != nil {
+		return nil, mapPGErr(err)
+	}
+	return &g, nil
 }

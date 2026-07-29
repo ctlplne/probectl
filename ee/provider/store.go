@@ -144,7 +144,7 @@ type MutationStore interface {
 	ConsentGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
 	DenyGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
 	RevokeGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
-	IncrementGrantUse(ctx context.Context, id string) error
+	UseGrant(ctx context.Context, id, operatorID string, at time.Time) (*Grant, error)
 }
 
 // AuditedMutation runs a provider write and its mandatory audit append as one
@@ -543,10 +543,15 @@ func (m *MemStore) RevokeGrant(_ context.Context, id, by string, at time.Time) (
 	})
 }
 
-func (m *MemStore) IncrementGrantUse(_ context.Context, id string) error {
-	_, err := m.mutateGrant(id, func(g *Grant) error {
+func (m *MemStore) UseGrant(_ context.Context, id, operatorID string, at time.Time) (*Grant, error) {
+	return m.mutateGrant(id, func(g *Grant) error {
+		if g.OperatorID != operatorID {
+			return ErrNotGrantee
+		}
+		if !g.Usable(at) {
+			return fmt.Errorf("%w (state: %s)", ErrNotConsented, g.State(at))
+		}
 		g.UseCount++
 		return nil
 	})
-	return err
 }

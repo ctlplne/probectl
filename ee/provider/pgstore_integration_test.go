@@ -71,6 +71,158 @@ func pgPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+type pgBreakGlassRaceFixture struct {
+	pool      *pgxpool.Pool
+	store     *PGStore
+	pausing   *pauseFirstMutationStore
+	service   *Service
+	telemetry *countingTelemetry
+	operator  Operator
+	grant     Grant
+	now       *time.Time
+}
+
+func newPGBreakGlassRaceFixture(t *testing.T) *pgBreakGlassRaceFixture {
+	t.Helper()
+	pool := pgPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	store := NewPGStore(pool)
+	pausing := newPauseFirstMutationStore(store)
+	t.Cleanup(func() {
+		select {
+		case <-pausing.resume:
+		default:
+			close(pausing.resume)
+		}
+	})
+	telemetry := &countingTelemetry{}
+	now := time.Now().UTC()
+	stamp := now.UnixNano()
+
+	operator, err := store.CreateOperator(ctx, Operator{
+		Email: fmt.Sprintf("breakglass-race-%d@msp.example", stamp),
+		Name:  "Break-glass Race Operator",
+		Role:  RoleOperator,
+	}, crypto.Hash([]byte(fmt.Sprintf("race-enrollment-%d", stamp))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant, err := store.CreateTenant(
+		ctx,
+		fmt.Sprintf("breakglass-race-%d", stamp),
+		"Break-glass Race Tenant",
+		"pooled",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := store.CreateGrant(ctx, Grant{
+		OperatorID: operator.ID,
+		TenantID:   tenant.ID,
+		Reason:     "real PostgreSQL authorization-race regression",
+		Scope:      "read",
+		GrantedBy:  operator.Email,
+		GrantedAt:  now.Add(-time.Minute),
+		ExpiresAt:  now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ConsentGrant(ctx, grant.ID, "tenant-admin@example.test", now.Add(-30*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(
+		pausing,
+		&providerAudit{pool: pool},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		telemetry,
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.WithClock(func() time.Time { return now })
+
+	return &pgBreakGlassRaceFixture{
+		pool:      pool,
+		store:     store,
+		pausing:   pausing,
+		service:   service,
+		telemetry: telemetry,
+		operator:  operator,
+		grant:     grant,
+		now:       &now,
+	}
+}
+
+func (f *pgBreakGlassRaceFixture) startAccess() <-chan breakGlassRaceResult {
+	out := make(chan breakGlassRaceResult, 1)
+	go func() {
+		data, err := f.service.BreakGlassResults(context.Background(), f.operator, f.grant.ID)
+		out <- breakGlassRaceResult{data: data, err: err}
+	}()
+	return out
+}
+
+func (f *pgBreakGlassRaceFixture) assertDeniedWithoutUse(t *testing.T, result breakGlassRaceResult) {
+	t.Helper()
+	if !errors.Is(result.err, ErrNotConsented) {
+		t.Fatalf("BreakGlassResults error = %v, want %v", result.err, ErrNotConsented)
+	}
+	if result.data != nil {
+		t.Fatalf("BreakGlassResults data = %#v, want nil", result.data)
+	}
+	if f.telemetry.calls != 0 {
+		t.Fatalf("telemetry reads = %d, want 0", f.telemetry.calls)
+	}
+	stored, err := f.store.GetGrant(context.Background(), f.grant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.UseCount != 0 {
+		t.Fatalf("grant use_count = %d, want 0", stored.UseCount)
+	}
+	var accessAudits int
+	if err := tenancy.InProvider(context.Background(), f.pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT count(*) FROM provider_audit_events WHERE action = $1 AND target = $2`,
+			"provider.breakglass_access", f.grant.ID,
+		).Scan(&accessAudits)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if accessAudits != 0 {
+		t.Fatalf("break-glass access audits = %d, want 0", accessAudits)
+	}
+}
+
+func TestPGBreakGlassAccessLosesRevokeRace(t *testing.T) {
+	f := newPGBreakGlassRaceFixture(t)
+	result := f.startAccess()
+	awaitBreakGlassRaceSignal(t, f.pausing.entered)
+
+	if _, err := f.service.Revoke(context.Background(), "incident-commander@msp.example", f.grant.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(f.pausing.resume)
+
+	f.assertDeniedWithoutUse(t, awaitBreakGlassRaceResult(t, result))
+}
+
+func TestPGBreakGlassAccessLosesExpiryRace(t *testing.T) {
+	f := newPGBreakGlassRaceFixture(t)
+	result := f.startAccess()
+	awaitBreakGlassRaceSignal(t, f.pausing.entered)
+
+	*f.now = f.grant.ExpiresAt
+	close(f.pausing.resume)
+
+	f.assertDeniedWithoutUse(t, awaitBreakGlassRaceResult(t, result))
+}
+
 func TestPGProviderMutationAndAuditAreAtomic(t *testing.T) {
 	pool := pgPool(t)
 	defer pool.Close()
@@ -330,8 +482,12 @@ func TestPGStoreLifecycle(t *testing.T) {
 	if _, err := st.ConsentGrant(ctx, g.ID, "admin@tenant", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.IncrementGrantUse(ctx, g.ID); err != nil {
+	used, err := st.UseGrant(ctx, g.ID, op.ID, time.Now())
+	if err != nil {
 		t.Fatal(err)
+	}
+	if used.UseCount != 1 {
+		t.Fatalf("used grant count = %d, want 1", used.UseCount)
 	}
 	back, err := st.GetGrant(ctx, g.ID)
 	if err != nil || back.UseCount != 1 || back.ConsentedAt == nil {

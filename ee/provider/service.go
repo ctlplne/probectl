@@ -650,24 +650,19 @@ func (s *Service) PendingForTenant(ctx context.Context, tenantID string) ([]Gran
 // record for EVERY access before any data is returned (guardrail 1: explicit,
 // time-bounded, tenant-consented, separately audited).
 func (s *Service) BreakGlassResults(ctx context.Context, op Operator, grantID string) (any, error) {
-	g, err := s.store.GetGrant(ctx, grantID)
-	if err != nil {
-		return nil, err
-	}
-	if g.OperatorID != op.ID {
-		return nil, ErrNotGrantee
-	}
-	if !g.Usable(s.now()) {
-		return nil, fmt.Errorf("%w (state: %s)", ErrNotConsented, g.State(s.now()))
-	}
-	// Increment and audit commit together before telemetry is read. An
-	// unauditable access is no access, and it does not consume a grant use.
+	var g *Grant
+	// The authoritative grantee/consent/revoke/expiry check, use increment, and
+	// audit append share one transaction. A revoke racing this path therefore
+	// wins before access or follows a fully recorded access; stale snapshots
+	// cannot authorize tenant telemetry.
 	if err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
-		if err := store.IncrementGrantUse(ctx, grantID); err != nil {
+		var err error
+		g, err = store.UseGrant(ctx, grantID, op.ID, s.now())
+		if err != nil {
 			return err
 		}
 		return audit.Append(ctx, op.Email, "provider.breakglass_access", grantID, map[string]any{
-			"tenant": g.TenantID, "surface": "results.latest", "use": g.UseCount + 1,
+			"tenant": g.TenantID, "surface": "results.latest", "use": g.UseCount,
 		})
 	}); err != nil {
 		return nil, err
