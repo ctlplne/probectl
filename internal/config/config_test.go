@@ -133,6 +133,72 @@ func TestExplicitDevDatabaseURLRemainsSupported(t *testing.T) {
 	}
 }
 
+func TestKeywordDatabaseDSNRejected(t *testing.T) {
+	const (
+		writerSecret = "writer_keyword_secret_7654"
+		readerSecret = "reader keyword secret 7654"
+	)
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{
+			name: "writer",
+			env: map[string]string{
+				"PROBECTL_DATABASE_URL": "host=db user=writer password=" + writerSecret + " dbname=probectl sslmode=disable",
+			},
+		},
+		{
+			name: "reader",
+			env: map[string]string{
+				"PROBECTL_DATABASE_URL":      testDatabaseURL,
+				"PROBECTL_DATABASE_READ_URL": "host=read-db user=reader password='" + readerSecret + "' dbname=probectl sslmode=disable",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(envFunc(tt.env))
+			if err == nil {
+				t.Fatal("PostgreSQL keyword/value DSN was accepted; want a postgres:// or postgresql:// URL")
+			}
+			for _, secret := range []string{writerSecret, readerSecret} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("database validation error disclosed credential %q: %v", secret, err)
+				}
+			}
+		})
+	}
+}
+
+func TestKeywordDatabaseDSNRedactionFailsClosed(t *testing.T) {
+	const (
+		writerSecret    = "writer_keyword_secret_8765"
+		writerSSLSecret = "writer ssl keyword secret 8765"
+		readerSecret    = "reader_keyword_secret_8765"
+	)
+	cfg := &Config{
+		DatabaseURL: "host=db user=writer password=" + writerSecret +
+			" sslpassword='" + writerSSLSecret + "' dbname=probectl",
+		DatabaseReadURL: "host=read-db user=reader password=" + readerSecret +
+			" dbname=probectl",
+	}
+
+	var log bytes.Buffer
+	slog.New(slog.NewJSONHandler(&log, nil)).Info("cfg", "config", cfg)
+	snapshot, err := json.Marshal(cfg.Redacted())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := log.String() + string(snapshot)
+	for _, secret := range []string{writerSecret, writerSSLSecret, readerSecret} {
+		if strings.Contains(out, secret) {
+			t.Fatalf("keyword/value database credential leaked through config redaction: %s", out)
+		}
+	}
+}
+
 func TestSessionIdleTimeoutOverride(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{"PROBECTL_SESSION_IDLE_TIMEOUT": "45m"}))
 	if err != nil {

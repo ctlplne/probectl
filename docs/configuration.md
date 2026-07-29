@@ -75,10 +75,12 @@ enrollment — [`agent/enrollment.md`](agent/enrollment.md)), `scim-token`
 intelligence*, below), and `replay-deadletter`
 (re-ingest dead-lettered records — [`ops/dead-letter-replay.md`](ops/dead-letter-replay.md)).
 
-A note on the defaults: the listen address is `:8080`, but the database DSN —
-the *data source name*, the one connection string carrying host, user, password,
-database, and TLS mode — is required and has no default credential. Production
-DSNs should use **`sslmode=require`** or stronger. HSTS — the response header
+A note on the defaults: the listen address is `:8080`, but the database URL —
+the one `postgres://` or `postgresql://` connection string carrying host, user,
+password, database, and TLS mode — is required and has no default credential.
+PostgreSQL keyword/value strings are rejected so credentials can never bypass
+config-log and support-bundle redaction. Production URLs should use
+**`sslmode=require`** or stronger. HSTS — the response header
 that tells browsers to only ever reach this host over HTTPS — is on. Shipped
 Helm and Compose deployments set the TLS cert/key pair below so the process
 serves HTTPS directly, including behind an ingress.
@@ -91,7 +93,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_HTTP_WRITE_TIMEOUT`       | `15s`                                                              | HTTP write timeout                           |
 | `PROBECTL_HTTP_IDLE_TIMEOUT`        | `60s`                                                              | HTTP idle (keep-alive) timeout               |
 | `PROBECTL_SHUTDOWN_TIMEOUT`         | `15s`                                                              | graceful-shutdown drain timeout              |
-| `PROBECTL_DATABASE_URL`             | *(required; no default)*                                             | Full PostgreSQL DSN. Direct binary startup fails closed when it is absent; Compose and Helm supply it explicitly. Use `sslmode=require`, `verify-ca`, or `verify-full` in production; `multi-tenant`/`regulated` profiles enforce those modes on writer and read-replica DSNs. Explicit dev-only `sslmode=disable` remains accepted under the `single` profile |
+| `PROBECTL_DATABASE_URL`             | *(required; no default)*                                             | PostgreSQL URL (`postgres://` or `postgresql://`; keyword/value DSNs are rejected). Direct binary startup fails closed when it is absent; Compose and Helm supply it explicitly. Use `sslmode=require`, `verify-ca`, or `verify-full` in production; `multi-tenant`/`regulated` profiles enforce those modes on writer and read-replica URLs. Explicit dev-only `sslmode=disable` remains accepted under the `single` profile |
 | `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (2–1000). One session is reserved by the singleton advisory-lock lease, leaving at least one for work; per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
 | `PROBECTL_DATABASE_MIN_CONNS`       | `2`                                                                | min (warm) pool connections — keeps a couple of conns open so the first request after idle skips the connect+TLS cold start. Production profiles may raise this |
 | `PROBECTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
@@ -2249,8 +2251,8 @@ runbook: `docs/multi-region.md`,
 | --- | --- | --- |
 | `PROBECTL_REGION` | (empty) | this replica's region; empty = single-region (fence inert) |
 | `PROBECTL_REGIONS` | (empty) | comma list of all regions in the deployment |
-| `PROBECTL_DATABASE_URL` | … | the WRITER endpoint (DNS/proxy that resolves to the current primary) |
-| `PROBECTL_DATABASE_READ_URL` | (empty) | optional local read-replica endpoint; empty = reads use the writer. `multi-tenant`/`regulated` profiles require PostgreSQL TLS (`sslmode=require`, `verify-ca`, or `verify-full`) |
+| `PROBECTL_DATABASE_URL` | … | the writer `postgres://` or `postgresql://` endpoint (DNS/proxy that resolves to the current primary) |
+| `PROBECTL_DATABASE_READ_URL` | (empty) | optional local read-replica `postgres://` or `postgresql://` endpoint; keyword/value DSNs are rejected and empty means reads use the writer. `multi-tenant`/`regulated` profiles require PostgreSQL TLS (`sslmode=require`, `verify-ca`, or `verify-full`) |
 | `PROBECTL_REPLICATION_MODE` | `async` | `sync` (RPO 0) or `async` (RPO ≈ lag) — descriptive; configure Postgres to match |
 | `PROBECTL_RESIDENCY` | (empty) | default data-residency region (governance) |
 | `PROBECTL_RPO_SECONDS` | `0` | provisional RPO target (human sign-off) |

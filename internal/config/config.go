@@ -982,9 +982,14 @@ func validateConfig(l *loader, cfg *Config) {
 			cfg.DatabaseMinConns, cfg.DatabaseMaxConns)
 	}
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
-		l.errf("PROBECTL_DATABASE_URL is required (full PostgreSQL DSN); no default credential ships")
-	} else if _, err := url.Parse(cfg.DatabaseURL); err != nil {
-		l.errf("PROBECTL_DATABASE_URL: invalid URL: %v", err)
+		l.errf("PROBECTL_DATABASE_URL is required (postgres:// or postgresql:// URL); no default credential ships")
+	} else if _, err := parseDatabaseURL(cfg.DatabaseURL); err != nil {
+		l.errf("PROBECTL_DATABASE_URL must be a postgres:// or postgresql:// URL")
+	}
+	if strings.TrimSpace(cfg.DatabaseReadURL) != "" {
+		if _, err := parseDatabaseURL(cfg.DatabaseReadURL); err != nil {
+			l.errf("PROBECTL_DATABASE_READ_URL must be a postgres:// or postgresql:// URL")
+		}
 	}
 }
 
@@ -1367,9 +1372,12 @@ func (c *Config) Redacted() map[string]any {
 }
 
 func redactURL(raw string) string {
-	u, err := url.Parse(raw)
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	u, err := parseDatabaseURL(raw)
 	if err != nil {
-		return "invalid-url"
+		return "invalid-database-url"
 	}
 	if u.User != nil {
 		if _, hasPW := u.User.Password(); hasPW {
@@ -1404,7 +1412,7 @@ func (c *Config) DatabaseCredentialValues() []string {
 	}
 	var out []string
 	for _, raw := range []string{c.DatabaseURL, c.DatabaseReadURL} {
-		u, err := url.Parse(raw)
+		u, err := parseDatabaseURL(raw)
 		if err != nil {
 			continue
 		}
@@ -1425,6 +1433,21 @@ func (c *Config) DatabaseCredentialValues() []string {
 		}
 	}
 	return out
+}
+
+// parseDatabaseURL accepts the one PostgreSQL connection-string form that the
+// configuration redactor can safely decompose. pgx also understands libpq
+// keyword/value strings, but accepting those here would let password and
+// sslpassword fields bypass URL userinfo/query redaction.
+func parseDatabaseURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, err
+	}
+	if (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Opaque != "" {
+		return nil, errors.New("database connection string is not a PostgreSQL URL")
+	}
+	return u, nil
 }
 
 func isDatabaseCredentialQueryKey(key string) bool {

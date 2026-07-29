@@ -74,3 +74,34 @@ func TestOfflineSupportRedactsDatabaseQueryCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportBundleDatabaseCredentialsStayRedactedForInvalidKeywordDSN(t *testing.T) {
+	const (
+		writerPassword = "bundle_keyword_writer_secret_4321"
+		readerPassword = "bundle keyword reader secret 4321"
+	)
+	cfg := &config.Config{
+		DatabaseURL: "host=db user=writer password=" + writerPassword + " dbname=probectl",
+		DatabaseReadURL: "host=read-db user=reader password='" + readerPassword +
+			"' dbname=probectl",
+	}
+
+	var bundle bytes.Buffer
+	if _, err := support.Generate(&bundle, support.Sources{
+		ConfigRedacted: cfg.Redacted(),
+		RedactValues:   offlineSecrets(cfg),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	files, err := support.ReadBundle(bytes.NewReader(bundle.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range files {
+		for _, secret := range []string{writerPassword, readerPassword} {
+			if bytes.Contains(body, []byte(secret)) {
+				t.Fatalf("keyword/value database credential leaked into support file %s", name)
+			}
+		}
+	}
+}
