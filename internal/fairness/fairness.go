@@ -427,9 +427,17 @@ func (g *Gate) Invalidate(tenantID string) {
 	}
 }
 
-// take refills and charges a bucket; admission while tokens > 0 (deficit
-// semantics, see bucket). rate<=0 = unlimited.
+// take refills and charges a bucket only when the full requested cost is
+// available. Query budgets use unit costs and must never turn a fractional
+// refill into one extra whole query.
 func (g *Gate) take(st *tenantState, meter string, rate, capacity float64, n int64) bool {
+	return g.takeWithDeficit(st, meter, rate, capacity, n, false)
+}
+
+// takeWithDeficit preserves the ingest-only batch contract: a batch larger
+// than the remaining burst may enter once while tokens are positive, then its
+// deficit must refill before another batch enters. Queries never use this.
+func (g *Gate) takeWithDeficit(st *tenantState, meter string, rate, capacity float64, n int64, allowDeficit bool) bool {
 	if rate <= 0 {
 		return true
 	}
@@ -444,7 +452,7 @@ func (g *Gate) take(st *tenantState, meter string, rate, capacity float64, n int
 		b.tokens = capacity
 	}
 	b.last = now
-	if b.tokens <= 0 {
+	if (!allowDeficit && b.tokens < float64(n)) || (allowDeficit && b.tokens <= 0) {
 		return false
 	}
 	b.tokens -= float64(n)
@@ -472,7 +480,7 @@ func (g *Gate) AdmitN(ctx context.Context, tenantID, meter string, n int64) bool
 		c = &Counters{}
 		st.ingest[meter] = c
 	}
-	if g.take(st, meter, rate, rate*pol.BurstSeconds, n) {
+	if g.takeWithDeficit(st, meter, rate, rate*pol.BurstSeconds, n, true) {
 		c.AdmittedCalls++
 		c.AdmittedUnits += n
 		return true

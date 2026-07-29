@@ -37,6 +37,16 @@ type fakeBackend struct {
 	listTestsResult any
 }
 
+type sourceBudgetMarshalProbe struct {
+	Nodes  []struct{}
+	Called *bool
+}
+
+func (p sourceBudgetMarshalProbe) MarshalJSON() ([]byte, error) {
+	*p.Called = true
+	return []byte(`{"unexpected":"encoder reached"}`), nil
+}
+
 func (f *fakeBackend) rec(method string, p *auth.Principal) {
 	f.mu.Lock()
 	f.calls = append(f.calls, method)
@@ -472,23 +482,75 @@ func TestToolResultEncodingExactLimitAndOnePast(t *testing.T) {
 	}
 }
 
-func TestOversizedToolResultFailsClosedWithBoundedResponse(t *testing.T) {
+func TestListTestsSerializedPayloadLimit(t *testing.T) {
+	t.Run("source node budget runs before encoder", func(t *testing.T) {
+		called := false
+		probe := sourceBudgetMarshalProbe{
+			Nodes:  make([]struct{}, maxMCPToolResultNodes+1),
+			Called: &called,
+		}
+		if _, err := marshalBoundedJSON(probe, maxMCPToolResultBytes, false); !errors.Is(err, errToolResultTooLarge) {
+			t.Fatalf("node-heavy source error = %v, want %v", err, errToolResultTooLarge)
+		}
+		if called {
+			t.Fatal("encoding/json ran before the source-node budget rejected the value")
+		}
+	})
+
+	t.Run("source byte budget", func(t *testing.T) {
+		source := strings.Repeat("x", maxMCPToolResultBytes+1)
+		if _, err := marshalBoundedJSON(source, maxMCPToolResultBytes, false); !errors.Is(err, errToolResultTooLarge) {
+			t.Fatalf("byte-heavy source error = %v, want %v", err, errToolResultTooLarge)
+		}
+	})
+
 	fb := &fakeBackend{listTestsResult: map[string]any{
-		"tests": []any{strings.Repeat("x", maxMCPToolResultBytes)},
+		"tests": []any{strings.Repeat("x", maxMCPToolResultBytes+1)},
 	}}
 	s := New(fb, testGate())
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
-	out := s.Handle(context.Background(), principal("tenant-a", permTestRead), raw)
-	if len(out) > maxMCPToolResultBytes {
-		t.Fatalf("oversized tool response = %d bytes, limit %d", len(out), maxMCPToolResultBytes)
+	assertInternal := func(t *testing.T, payload []byte) {
+		t.Helper()
+		var resp map[string]any
+		if err := json.Unmarshal(payload, &resp); err != nil {
+			t.Fatalf("bounded response is not valid JSON: %v", err)
+		}
+		if code, ok := errCode(resp); !ok || code != codeInternal {
+			t.Fatalf("oversized tool response = %v, want internal error", resp)
+		}
 	}
-	var resp map[string]any
-	if err := json.Unmarshal(out, &resp); err != nil {
-		t.Fatalf("bounded response is not valid JSON: %v", err)
-	}
-	if code, ok := errCode(resp); !ok || code != codeInternal {
-		t.Fatalf("oversized tool response = %v, want internal error", resp)
-	}
+
+	t.Run("HTTP handler", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(raw))
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		s.HTTPHandler(fakeAuthn{p: principal("tenant-a", permTestRead)}).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("HTTP status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if rec.Body.Len() > maxMCPToolResultBytes {
+			t.Fatalf("HTTP oversized-result response = %d bytes, limit %d", rec.Body.Len(), maxMCPToolResultBytes)
+		}
+		if bytes.HasSuffix(rec.Body.Bytes(), []byte{'\n'}) {
+			t.Fatal("HTTP response unexpectedly contains stdio framing newline")
+		}
+		assertInternal(t, rec.Body.Bytes())
+	})
+
+	t.Run("stdio", func(t *testing.T) {
+		var out bytes.Buffer
+		in := bytes.NewReader(append(append([]byte(nil), raw...), '\n'))
+		if err := s.ServeStdio(context.Background(), in, &out, principal("tenant-a", permTestRead)); err != nil {
+			t.Fatal(err)
+		}
+		if out.Len() > maxMCPToolResultBytes+1 {
+			t.Fatalf("stdio oversized-result response = %d bytes, framed limit %d", out.Len(), maxMCPToolResultBytes+1)
+		}
+		if !bytes.HasSuffix(out.Bytes(), []byte{'\n'}) {
+			t.Fatal("stdio response is missing its one newline framing byte")
+		}
+		assertInternal(t, bytes.TrimSuffix(out.Bytes(), []byte{'\n'}))
+	})
 }
 
 func TestServeStdioRoundTrip(t *testing.T) {

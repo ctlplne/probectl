@@ -19,14 +19,34 @@ import (
 	"syscall"
 	"time"
 
+	aimcp "github.com/imfeelingtheagi/probectl/internal/ai/mcp"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
+
+type mcpStdioRuntime struct {
+	server   *aimcp.Server
+	fairGate *fairness.Gate
+}
+
+func newMCPStdioRuntime(
+	cfg *config.Config,
+	log *slog.Logger,
+	db *store.DB,
+	pathStore pathstore.Store,
+) mcpStdioRuntime {
+	gate := newFairnessGate(cfg, db.Pool())
+	return mcpStdioRuntime{
+		server:   control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, control.NewAIEgressGate(cfg, log, db.Pool()), gate, nil),
+		fairGate: gate,
+	}
+}
 
 // runMCPStdio runs the MCP server over stdio — the local transport (e.g. for
 // Claude Desktop). The token comes from PROBECTL_MCP_TOKEN. The caller has already
@@ -49,11 +69,11 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	// remediation is nil on the lightweight stdio transport: the propose tool
 	// is inert here (the full proposal workflow rides the HTTP transport wired
 	// through attachEE). A core file can never import ee/.
-	srv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, control.NewAIEgressGate(cfg, log, db.Pool()), nil, nil)
+	runtime := newMCPStdioRuntime(cfg, log, db, pathStore)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Info("mcp stdio session", "tenant", p.TenantID, "user", p.UserID)
-	return srv.ServeStdio(ctx, os.Stdin, os.Stdout, p)
+	return runtime.server.ServeStdio(ctx, os.Stdin, os.Stdout, p)
 }
 
 // runMCPToken mints an MCP bearer token for a user and prints it once to stdout.

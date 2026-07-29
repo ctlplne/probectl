@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"reflect"
+	"strings"
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
@@ -25,7 +27,12 @@ const protocolVersion = "2024-11-05"
 // The same ceiling is applied while constructing a tool result so the text and
 // structuredContent copies required by MCP clients cannot amplify without a
 // fixed limit.
-const maxMCPToolResultBytes = 1 << 20
+const (
+	maxMCPToolResultBytes = 1 << 20
+	// maxMCPToolResultNodes bounds structural amplification before encoding.
+	// Source strings/bytes are separately capped at the wire-byte ceiling.
+	maxMCPToolResultNodes = 64 << 10
+)
 
 var errToolResultTooLarge = errors.New("mcp: tool result exceeds byte limit")
 
@@ -324,7 +331,139 @@ func (b *boundedJSONBuffer) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 
+// validateJSONSourceBudget walks the source before encoding/json allocates its
+// internal encode buffer. It caps both tenant-controlled scalar bytes and
+// structural nodes. The walk itself is bounded: a wide container is refused
+// from Len before its children are queued, and pointer cycles consume nodes
+// until they hit the fixed ceiling.
+func validateJSONSourceBudget(v any, maxSourceBytes int) error {
+	if maxSourceBytes <= 0 {
+		return errToolResultTooLarge
+	}
+	stack := []reflect.Value{reflect.ValueOf(v)}
+	nodes, sourceBytes := 0, 0
+
+	addBytes := func(n int) bool {
+		if n < 0 || n > maxSourceBytes-sourceBytes {
+			return false
+		}
+		sourceBytes += n
+		return true
+	}
+	reserveChildren := func(n int) bool {
+		return n >= 0 && n <= maxMCPToolResultNodes-nodes-len(stack)
+	}
+
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		value := stack[last]
+		stack = stack[:last]
+		nodes++
+		if nodes > maxMCPToolResultNodes || !value.IsValid() {
+			if nodes > maxMCPToolResultNodes {
+				return errToolResultTooLarge
+			}
+			continue
+		}
+
+		switch value.Kind() {
+		case reflect.Interface, reflect.Pointer:
+			if !value.IsNil() {
+				if !reserveChildren(1) {
+					return errToolResultTooLarge
+				}
+				stack = append(stack, value.Elem())
+			}
+		case reflect.String:
+			if !addBytes(value.Len()) {
+				return errToolResultTooLarge
+			}
+		case reflect.Slice:
+			if value.IsNil() {
+				continue
+			}
+			// encoding/json treats []byte (including json.RawMessage's source
+			// representation) as one byte-bearing scalar, not N JSON nodes.
+			if value.Type().Elem().Kind() == reflect.Uint8 {
+				if !addBytes(value.Len()) {
+					return errToolResultTooLarge
+				}
+				continue
+			}
+			fallthrough
+		case reflect.Array:
+			if !reserveChildren(value.Len()) {
+				return errToolResultTooLarge
+			}
+			for i := value.Len() - 1; i >= 0; i-- {
+				stack = append(stack, value.Index(i))
+			}
+		case reflect.Map:
+			if value.IsNil() {
+				continue
+			}
+			// Each entry contributes at least one key node and one value node.
+			// Charge the keys now and reserve all values before MapRange can
+			// grow the traversal stack.
+			if !reserveChildren(2 * value.Len()) {
+				return errToolResultTooLarge
+			}
+			nodes += value.Len()
+			iter := value.MapRange()
+			for iter.Next() {
+				key := iter.Key()
+				switch key.Kind() {
+				case reflect.String:
+					if !addBytes(key.Len()) {
+						return errToolResultTooLarge
+					}
+				default:
+					// Integer and TextMarshaler map keys are bounded by node
+					// count; charge a conservative scalar rendering allowance.
+					if !addBytes(64) {
+						return errToolResultTooLarge
+					}
+				}
+				stack = append(stack, iter.Value())
+			}
+		case reflect.Struct:
+			typ := value.Type()
+			if !reserveChildren(typ.NumField()) {
+				return errToolResultTooLarge
+			}
+			fields := make([]int, 0, typ.NumField())
+			for i := 0; i < typ.NumField(); i++ {
+				field := typ.Field(i)
+				if field.PkgPath != "" && !field.Anonymous {
+					continue // ordinary unexported fields are not serialized
+				}
+				tagName, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+				if tagName == "-" {
+					continue
+				}
+				if tagName == "" {
+					tagName = field.Name
+				}
+				if !addBytes(len(tagName)) {
+					return errToolResultTooLarge
+				}
+				fields = append(fields, i)
+			}
+			if !reserveChildren(len(fields)) {
+				return errToolResultTooLarge
+			}
+			for i := len(fields) - 1; i >= 0; i-- {
+				stack = append(stack, value.Field(fields[i]))
+			}
+		}
+	}
+	return nil
+}
+
 func marshalBoundedJSON(v any, maxBytes int, indent bool) ([]byte, error) {
+	if err := validateJSONSourceBudget(v, maxBytes); err != nil {
+		return nil, err
+	}
 	dst := &boundedJSONBuffer{max: maxBytes}
 	enc := json.NewEncoder(dst)
 	if indent {

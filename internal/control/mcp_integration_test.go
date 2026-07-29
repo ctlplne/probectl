@@ -314,7 +314,7 @@ func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
 		}
 	}
 	seedTests(tenantA.ID, mcpMaxListedTests+1)
-	seedTests(tenantB.ID, 1)
+	seedTests(tenantB.ID, mcpMaxListedTests)
 
 	allowEgress := ai.NewEgressGate(
 		func(context.Context, string) (bool, error) { return true, nil },
@@ -372,7 +372,7 @@ func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
 	}
 
 	assertTenantRows(call(1, tenantA.ID), tenantA.ID, mcpMaxListedTests, true)
-	assertTenantRows(call(2, tenantB.ID), tenantB.ID, 1, false)
+	assertTenantRows(call(2, tenantB.ID), tenantB.ID, mcpMaxListedTests, false)
 }
 
 func TestMCPAuthenticatorLoadsTenantAttributes(t *testing.T) {

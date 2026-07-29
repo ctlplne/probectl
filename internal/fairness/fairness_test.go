@@ -260,6 +260,34 @@ func TestQueryCostGuard(t *testing.T) {
 	}
 }
 
+func TestQueryBudgetRequiresWholeTokenAfterFractionalRefill(t *testing.T) {
+	clk := newFakeClock()
+	g := NewGate(Policy{QueriesPerMin: 1}, nil).WithNow(clk.now)
+	ctx := context.Background()
+
+	release, err := g.BeginQuery(ctx, "tnA")
+	if err != nil {
+		t.Fatalf("initial query: %v", err)
+	}
+	release()
+
+	// Half of one query token is not permission to execute one whole query.
+	// Before this regression fix, take admitted here and drove tokens negative.
+	clk.advance(30 * time.Second)
+	if _, err := g.BeginQuery(ctx, "tnA"); !errors.Is(err, ErrQueryBudget) {
+		t.Fatalf("half-token query error = %v, want %v", err, ErrQueryBudget)
+	}
+
+	// The rejected attempt does not consume the half-token. Once the other
+	// half refills, exactly one full query is admitted again.
+	clk.advance(30 * time.Second)
+	release, err = g.BeginQuery(ctx, "tnA")
+	if err != nil {
+		t.Fatalf("fully-refilled query: %v", err)
+	}
+	release()
+}
+
 // TestBatchLargerThanBurstIsNotStarved: deficit semantics — a flow batch
 // bigger than the bucket capacity admits (going negative) instead of being
 // permanently rejected, then the tenant pays the deficit back in time.

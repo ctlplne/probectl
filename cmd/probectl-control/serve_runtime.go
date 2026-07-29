@@ -385,20 +385,7 @@ func (rt *serveRuntime) publishRUMEvent(ctx context.Context, tenant string, payl
 }
 
 func (rt *serveRuntime) configureFairness() {
-	var fairnessSource fairness.PolicySource
-	if rt.db.Pool() != nil {
-		fairnessSource = fairness.NewPGStore(rt.db.Pool())
-	}
-	rt.fairGate = fairness.NewGate(fairness.Policy{
-		ResultsPerSec:       rt.cfg.FairnessResultsPerSec,
-		FlowEventsPerSec:    rt.cfg.FairnessFlowEventsPerSec,
-		IngestBytesPerSec:   rt.cfg.FairnessIngestBytesPerSec,
-		DeviceMetricsPerSec: rt.cfg.FairnessDeviceMetricsPerSec,
-		OTLPSeriesPerSec:    rt.cfg.FairnessOTLPSeriesPerSec,
-		BurstSeconds:        rt.cfg.FairnessBurstSeconds,
-		QueryConcurrency:    rt.cfg.FairnessQueryConcurrency,
-		QueriesPerMin:       rt.cfg.FairnessQueriesPerMin,
-	}, fairnessSource).WithIdleTTL(rt.cfg.FairnessTenantIdleTTL)
+	rt.fairGate = newFairnessGate(rt.cfg, rt.db.Pool())
 	rt.srv.WithFairness(rt.fairGate)
 }
 
