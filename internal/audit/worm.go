@@ -57,6 +57,12 @@ const (
 	// unbounded key allocation. Exceeding it fails verification and retention
 	// closed; operators can archive/rotate the WORM destination deliberately.
 	maxWORMSegmentArtifacts = 200_000
+
+	// A cycle may catch up more than one page, but it must remain bounded so a
+	// continuously growing provider stream cannot monopolize the singleton.
+	// Eight full pages move 8,000 events per interval; a read-only ninth probe
+	// distinguishes exact-boundary completion from remaining lag.
+	maxWORMExportPagesPerCycle = 8
 )
 
 // WormSegment is one exported, signed slice of the provider audit chain.
@@ -82,6 +88,7 @@ type WormExporter struct {
 
 	gaps            atomic.Uint64 // chain-verification failures observed (never silent)
 	lastSuccessUnix atomic.Int64
+	lagging         atomic.Int64
 	metrics         wormExporterMetrics
 }
 
@@ -89,6 +96,8 @@ type wormExporterMetrics struct {
 	exportFailures    *selfmetrics.Counter
 	chainFailures     *selfmetrics.Counter
 	signatureFailures *selfmetrics.Counter
+	exportedEvents    *selfmetrics.Counter
+	laggedCycles      *selfmetrics.Counter
 }
 
 // NewWormExporter wires the exporter with an EXPLICIT, persisted signing key.
@@ -147,9 +156,16 @@ func (w *WormExporter) WithMetrics(reg *selfmetrics.Registry) *WormExporter {
 		"Audit WORM verification failures across signed provider-chain segments.")
 	w.metrics.signatureFailures = reg.Counter("probectl_audit_worm_signature_failures_total",
 		"Audit WORM segment signature verification failures.")
+	w.metrics.exportedEvents = reg.Counter("probectl_audit_worm_exported_events_total",
+		"Provider audit events durably exported and chain-verified in WORM cycles.")
+	w.metrics.laggedCycles = reg.Counter("probectl_audit_worm_lagged_cycles_total",
+		"Audit WORM cycles that reached the bounded catch-up limit with source events still pending.")
 	reg.Gauge("probectl_audit_worm_last_success_unix_seconds",
 		"Unix timestamp of the last successful audit WORM export+verify cycle; 0 until the first success.",
 		func() float64 { return float64(w.lastSuccessUnix.Load()) })
+	reg.Gauge("probectl_audit_worm_lagging",
+		"Whether the last verified audit WORM cycle left provider events pending after bounded catch-up (1=yes, 0=no).",
+		func() float64 { return float64(w.lagging.Load()) })
 	return w
 }
 
@@ -187,8 +203,9 @@ func ResolveWormSigningKey(envKeyB64, keyFile string, regulated bool) (privPEM, 
 	}
 }
 
-// Run exports on the interval and verifies the exported chain after each
-// export, until ctx is canceled.
+// Run performs one bounded multi-page catch-up and full-chain verification on
+// each interval, until ctx is canceled. A cycle with known remaining source lag
+// is signaled immediately and is never recorded as successful.
 func (w *WormExporter) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = time.Hour
@@ -196,16 +213,7 @@ func (w *WormExporter) Run(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
-		if _, err := w.ExportOnce(ctx); err != nil && ctx.Err() == nil {
-			w.recordExportFailure()
-			w.log.Error("audit worm export failed", "error", err.Error())
-		} else if err := w.VerifyWORMChain(ctx); err != nil && ctx.Err() == nil {
-			failures := w.recordVerifyFailure(err)
-			w.log.Error("AUDIT WORM CHAIN VERIFICATION FAILED — possible purge or tampering",
-				"error", err.Error(), "failures_total", failures)
-		} else if ctx.Err() == nil {
-			w.recordSuccess()
-		}
+		w.runCycle(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -214,8 +222,89 @@ func (w *WormExporter) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
+func (w *WormExporter) runCycle(ctx context.Context) {
+	exported, lagging, err := w.exportCatchUp(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			w.recordExportFailure()
+			w.log.Error("audit worm export failed", "error", err.Error())
+		}
+		return
+	}
+	// Surface known lag before the potentially long full-history verification.
+	// Verification still gates exported-event accounting and cycle success.
+	if lagging {
+		w.recordLag()
+	}
+	if err := w.VerifyWORMChain(ctx); err != nil {
+		if ctx.Err() == nil {
+			failures := w.recordVerifyFailure(err)
+			w.log.Error("AUDIT WORM CHAIN VERIFICATION FAILED — possible purge or tampering",
+				"error", err.Error(), "failures_total", failures)
+		}
+		return
+	}
+	if w.metrics.exportedEvents != nil && exported > 0 {
+		w.metrics.exportedEvents.Add(uint64(exported))
+	}
+	if lagging {
+		w.log.Error("AUDIT WORM EXPORT LAGGING — bounded catch-up left provider events pending",
+			"exported_events", exported,
+			"max_pages", maxWORMExportPagesPerCycle,
+			"page_size", MaxExportPageSize)
+		return
+	}
+	if ctx.Err() == nil {
+		w.recordSuccess()
+	}
+}
+
+// exportCatchUp writes at most maxWORMExportPagesPerCycle pages. When all data
+// pages were full, a final read-only one-event probe reports whether lag remains
+// without creating a ninth segment.
+func (w *WormExporter) exportCatchUp(ctx context.Context) (exported int, lagging bool, err error) {
+	for page := 0; page < maxWORMExportPagesPerCycle; page++ {
+		n, exportErr := w.ExportOnce(ctx)
+		exported += n
+		if exportErr != nil {
+			return exported, false, exportErr
+		}
+		if n == 0 {
+			return exported, false, nil
+		}
+	}
+	lagging, err = w.hasPendingSource(ctx)
+	return exported, lagging, err
+}
+
+func (w *WormExporter) hasPendingSource(ctx context.Context) (bool, error) {
+	last, anchorHash, err := w.lastExportedHead(ctx)
+	if err != nil {
+		return false, err
+	}
+	events, err := w.source(ctx, last, 1)
+	if err != nil {
+		return false, err
+	}
+	if len(events) > 1 {
+		return false, fmt.Errorf("audit: WORM source returned %d events to one-event lag probe", len(events))
+	}
+	if err := validateProviderSource(events, last, anchorHash); err != nil {
+		return false, err
+	}
+	return len(events) == 1, nil
+}
+
 func (w *WormExporter) recordSuccess() {
+	w.lagging.Store(0)
 	w.lastSuccessUnix.Store(time.Now().Unix())
+}
+
+func (w *WormExporter) recordLag() {
+	w.lagging.Store(1)
+	if w.metrics.laggedCycles != nil {
+		w.metrics.laggedCycles.Inc()
+	}
 }
 
 func (w *WormExporter) recordExportFailure() {

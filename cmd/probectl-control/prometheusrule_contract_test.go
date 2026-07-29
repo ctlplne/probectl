@@ -127,6 +127,9 @@ func TestRunOpsPrometheusRuleMetricsAreRegistered(t *testing.T) {
 		"probectl_audit_worm_last_success_unix_seconds",
 		"probectl_audit_worm_signature_failures_total",
 		"probectl_audit_worm_chain_failures_total",
+		"probectl_audit_worm_exported_events_total",
+		"probectl_audit_worm_lagged_cycles_total",
+		"probectl_audit_worm_lagging",
 	} {
 		if !strings.Contains(worm, want) {
 			t.Fatalf("worm.go does not register %s", want)

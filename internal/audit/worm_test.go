@@ -367,6 +367,70 @@ func TestWormExportAndChainVerify(t *testing.T) {
 	}
 }
 
+func TestWormCatchUpDrainsMultiplePages(t *testing.T) {
+	ctx := context.Background()
+	events := chainedEvents(2*MaxExportPageSize + 17)
+	store := objectstore.NewMemory()
+	w, err := NewWormExporterEphemeralForTest(sourceOf(events), store, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exported, lagging, err := w.exportCatchUp(ctx)
+	if err != nil || lagging || exported != len(events) {
+		t.Fatalf("multi-page catch-up = (%d, %v, %v), want (%d, false, nil)",
+			exported, lagging, err, len(events))
+	}
+	if err := w.VerifyWORMChain(ctx); err != nil {
+		t.Fatalf("multi-page chain verification: %v", err)
+	}
+	if watermark, err := w.ExportedWatermark(ctx); err != nil || watermark != int64(len(events)) {
+		t.Fatalf("multi-page watermark = (%d, %v), want (%d, nil)", watermark, err, len(events))
+	}
+}
+
+func TestWormRunCycleSignalsBoundedLagWithoutFalseSuccess(t *testing.T) {
+	ctx := context.Background()
+	events := chainedEvents(maxWORMExportPagesPerCycle*MaxExportPageSize + 1)
+	reg := metrics.New("test", "lag")
+	w, err := NewWormExporterEphemeralForTest(sourceOf(events), objectstore.NewMemory(), testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.WithMetrics(reg)
+
+	w.runCycle(ctx)
+	wantFirst := maxWORMExportPagesPerCycle * MaxExportPageSize
+	if got := w.lastSuccessUnix.Load(); got != 0 {
+		t.Fatalf("lagged cycle advanced last success to %d", got)
+	}
+	if got := w.lagging.Load(); got != 1 {
+		t.Fatalf("lag gauge state = %d, want 1 immediately", got)
+	}
+	if got := reg.Counter("probectl_audit_worm_lagged_cycles_total", "").Value(); got != 1 {
+		t.Fatalf("lagged cycles = %d, want 1", got)
+	}
+	if got := reg.Counter("probectl_audit_worm_exported_events_total", "").Value(); got != uint64(wantFirst) {
+		t.Fatalf("verified exported events after bounded cycle = %d, want %d", got, wantFirst)
+	}
+	if watermark, err := w.ExportedWatermark(ctx); err != nil || watermark != int64(wantFirst) {
+		t.Fatalf("lagged-cycle watermark = (%d, %v), want (%d, nil)", watermark, err, wantFirst)
+	}
+
+	// The next bounded cycle drains the one-event tail. Only this fully caught-up
+	// and verified cycle may clear lag and advance last_success.
+	w.runCycle(ctx)
+	if got := w.lagging.Load(); got != 0 {
+		t.Fatalf("drained lag gauge state = %d, want 0", got)
+	}
+	if got := w.lastSuccessUnix.Load(); got == 0 {
+		t.Fatal("drained and verified cycle did not advance last success")
+	}
+	if got := reg.Counter("probectl_audit_worm_exported_events_total", "").Value(); got != uint64(len(events)) {
+		t.Fatalf("verified exported events after drain = %d, want %d", got, len(events))
+	}
+}
+
 func TestWormExportRejectsInvalidRawSourceBeforeWriting(t *testing.T) {
 	valid := chainedEvents(2)
 	for _, tc := range []struct {

@@ -111,7 +111,11 @@ deployment size.
 The provider audit WORM exporter has not completed a successful export+verify
 cycle recently. Check object-store reachability, bucket retention/object-lock
 posture, `PROBECTL_AUDIT_WORM_INTERVAL`, and persisted signing-key access before
-pruning any in-database audit rows.
+pruning any in-database audit rows. `probectl_audit_worm_lagging=1` means the
+last cycle exported its bounded eight-page allowance but a read-only probe found
+more provider events; `probectl_audit_worm_lagged_cycles_total` counts those
+cycles. Do not mistake successfully written partial catch-up for a fully current
+off-database trail—the last-success timestamp intentionally remains unchanged.
 
 ### ProbectlWORMSignatureFailures
 

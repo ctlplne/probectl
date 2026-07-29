@@ -51,8 +51,11 @@ bucket** (S3 Object Lock or MinIO in compliance mode — the actual immutability
 guarantee lives in the bucket, not in probectl). The provider audit chain then
 exports hourly as Ed25519-signed segments (Ed25519 is a compact, fast signature
 algorithm; the files are `worm/audit/provider/segment-*.json` plus a `.sig` and
-the public key), and every cycle re-verifies signatures, sequence continuity,
-and the cross-segment hash chain (`internal/audit/worm.go`).
+the public key). Each cycle catches up as many as eight 1,000-event pages, uses
+a read-only probe to signal any remaining lag immediately, and re-verifies
+signatures, sequence continuity, and the cross-segment hash chain
+(`internal/audit/worm.go`). A lagged cycle never advances the successful-cycle
+timestamp.
 A purge or gap logs an unmissable error. Because the public key is published next
 to the segments, any third party can verify the export with nothing but that
 key — no access to probectl required.
