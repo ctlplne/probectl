@@ -291,10 +291,22 @@ func (s *Server) topologySummary(ctx context.Context, tenant string) support.Top
 	})
 }
 
+type topologySummaryErrorCode string
+
+const (
+	topologyErrorTenantTopology topologySummaryErrorCode = "tenant_topology"
+	topologyErrorAgentsCount    topologySummaryErrorCode = "agents_count"
+	topologyErrorTenantScope    topologySummaryErrorCode = "tenant_scope"
+)
+
 func topologySummaryFromTenant(ctx context.Context, sum support.TopologySummary, run func(context.Context, func(context.Context, tenancy.Scope) error) error) support.TopologySummary {
-	markPartial := func(label string, err error) {
+	markPartial := func(code topologySummaryErrorCode) {
 		sum.Partial = true
-		sum.Errors = append(sum.Errors, label+": "+err.Error())
+		// Support bundles are downloadable artifacts. Keep only this closed set
+		// of operational error classes; dependency errors may contain hosts,
+		// schemas, DSNs, or credentials that a known-value scrubber cannot
+		// reliably recognize.
+		sum.Errors = append(sum.Errors, string(code))
 	}
 	if err := run(ctx, func(ctx context.Context, scope tenancy.Scope) error {
 		var isolationModel string
@@ -304,7 +316,7 @@ func topologySummaryFromTenant(ctx context.Context, sum support.TopologySummary,
 			  WHERE tenant_id = $1`,
 			scope.Tenant.String(),
 		).Scan(&isolationModel); err != nil {
-			markPartial("tenant_topology", err)
+			markPartial(topologyErrorTenantTopology)
 		} else {
 			sum.Tenants = 1
 			sum.IsolationModels[isolationModel] = 1
@@ -315,11 +327,11 @@ func topologySummaryFromTenant(ctx context.Context, sum support.TopologySummary,
 			  WHERE tenant_id = $1`,
 			scope.Tenant.String(),
 		).Scan(&sum.Agents); err != nil {
-			markPartial("agents_count", err)
+			markPartial(topologyErrorAgentsCount)
 		}
 		return nil
 	}); err != nil {
-		markPartial("tenant_scope", err)
+		markPartial(topologyErrorTenantScope)
 	}
 	return sum
 }

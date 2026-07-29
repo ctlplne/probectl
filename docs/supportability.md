@@ -37,7 +37,7 @@ A `.tar.gz` of JSON files. The code lives in `internal/support/bundle.go`.
 | `config-redacted.json` | operational config — an **allowlist** (no secrets) |
 | `health.json` | the deep-health report (each component + the aggregate) |
 | `self-metrics.json` | goroutines, memory, uptime, GC, GOMAXPROCS |
-| `topology-summary.json` | **tenant-scoped, anonymized** shape (the authenticated tenant, its agents, its isolation model, region) — no tenant identifiers, no telemetry or other-tenant counts |
+| `topology-summary.json` | **tenant-scoped, anonymized** shape (the authenticated tenant, its agents, its isolation model, region); partial collection exposes only allowlisted error classes — no tenant identifiers, free-form dependency errors, telemetry, or other-tenant counts |
 | `device-collection.json` | bounded LLDP/CDP readiness receipts with bundle-local `agent-NNNN` / `target-NNNN` references; no raw tenant, agent, target, credential, varbind, or error text |
 | `flow-ingest-quality.json` | bounded flow-ingest receipts with bundle-local `agent-NNNN` / `exporter-NNNN` references; counters and allowlisted health only—no tenant, address, raw datagram, flow field, credential, or free-form error |
 | `runtime.json` | a runtime snapshot of the process |

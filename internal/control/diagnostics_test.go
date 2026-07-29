@@ -446,3 +446,43 @@ func TestTopologySummaryReportsPartialTenantErrors(t *testing.T) {
 		t.Fatalf("tenant-scope failure must be explicit partial metadata: %+v", sum)
 	}
 }
+
+func TestDiagnosticsBundleRedactsDependencyErrors(t *testing.T) {
+	const rawDependencyError = "dial tcp topology-db.internal:5432 password=not-a-config-secret schema=tenant_alpha"
+
+	sum := topologySummaryFromTenant(
+		context.Background(),
+		support.TopologySummary{IsolationModels: map[string]int{}},
+		func(ctx context.Context, fn func(context.Context, tenancy.Scope) error) error {
+			return fn(ctx, tenancy.Scope{
+				Tenant: "00000000-0000-0000-0000-0000000000aa",
+				Q:      errTopologyQuerier{err: errors.New(rawDependencyError)},
+			})
+		},
+	)
+
+	var archive bytes.Buffer
+	if _, err := support.Generate(&archive, support.Sources{Topology: sum}); err != nil {
+		t.Fatal(err)
+	}
+	files, err := support.ReadBundle(&archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	topology := files["topology-summary.json"]
+	for _, sentinel := range []string{"topology-db.internal", "not-a-config-secret", "tenant_alpha", rawDependencyError} {
+		if bytes.Contains(topology, []byte(sentinel)) {
+			t.Fatalf("free-form dependency error leaked into topology-summary.json: %q in %s", sentinel, topology)
+		}
+	}
+	var got support.TopologySummary
+	if err := json.Unmarshal(topology, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Partial || len(got.Errors) != 2 {
+		t.Fatalf("safe partial/error-count metadata was not preserved: %+v", got)
+	}
+	if got.Errors[0] != string(topologyErrorTenantTopology) || got.Errors[1] != string(topologyErrorAgentsCount) {
+		t.Fatalf("bundle error classes are not the stable allowlist: %+v", got.Errors)
+	}
+}

@@ -32,7 +32,9 @@ type TopologySummary struct {
 	Region          string         `json:"region,omitempty"`
 	IsolationModels map[string]int `json:"isolation_models,omitempty"`
 	Partial         bool           `json:"partial,omitempty"`
-	Errors          []string       `json:"errors,omitempty"`
+	// Errors contains only allowlisted operational error classes. Collectors
+	// must never place a dependency's free-form error text in this bundle field.
+	Errors []string `json:"errors,omitempty"`
 }
 
 // Runtime is the process's runtime snapshot.
