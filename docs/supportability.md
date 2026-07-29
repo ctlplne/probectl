@@ -37,7 +37,7 @@ A `.tar.gz` of JSON files. The code lives in `internal/support/bundle.go`.
 | `config-redacted.json` | operational config — an **allowlist** (no secrets) |
 | `health.json` | the deep-health report (each component + the aggregate) |
 | `self-metrics.json` | goroutines, memory, uptime, GC, GOMAXPROCS |
-| `topology-summary.json` | **anonymized** counts (tenants, agents, isolation models, region) — no tenant identifiers, no telemetry |
+| `topology-summary.json` | **tenant-scoped, anonymized** shape (the authenticated tenant, its agents, its isolation model, region) — no tenant identifiers, no telemetry or other-tenant counts |
 | `device-collection.json` | bounded LLDP/CDP readiness receipts with bundle-local `agent-NNNN` / `target-NNNN` references; no raw tenant, agent, target, credential, varbind, or error text |
 | `flow-ingest-quality.json` | bounded flow-ingest receipts with bundle-local `agent-NNNN` / `exporter-NNNN` references; counters and allowlisted health only—no tenant, address, raw datagram, flow field, credential, or free-form error |
 | `runtime.json` | a runtime snapshot of the process |
@@ -55,12 +55,14 @@ Three independent layers, so no single mistake leaks a secret:
    the boolean `envelope_key_configured` (true/false), never the key itself. The
    safety is structural: a secret field someone adds *later* can't leak,
    because it simply isn't on the allowlist.
-2. **Anonymized operational identity.** The deployment-shape file is counts
-   only. Device collection and flow-ingest receipts preserve stable,
-   allowlisted state/reason/counter evidence but replace agent, configured-target,
-   and exporter identities with bundle-local ordinal references. None carries a
+2. **Tenant-scoped, anonymized operational identity.** The topology-shape file
+   is reduced at the database layer to the authenticated tenant before it is
+   counted: one tenant, that tenant's agents, and that tenant's isolation model.
+   Device collection and flow-ingest receipts preserve stable, allowlisted
+   state/reason/counter evidence but replace agent, configured-target, and
+   exporter identities with bundle-local ordinal references. None carries a
    tenant ID, hostname, IP, credential, raw datagram/varbind, decoded flow field,
-   discovered neighbor, or free-form dependency error.
+   discovered neighbor, free-form dependency error, or another tenant's counts.
 3. **A final scrub.** Before the bundle is written, it's swept once more for the
    *specific* sensitive values this deployment actually holds — the envelope
    key, the OIDC / CMDB / SIEM / AI-model secrets, the provider-bootstrap and
@@ -123,12 +125,13 @@ doing **triage** (deciding what is broken and what to look at first) and for
 the support bundle.
 
 The endpoint is a tenant-authenticated, `diagnostics.read`-authorized sensitive
-read and is audited by the central route policy. Its current findings are
-deployment-wide and redacted: no tenant identifier, hostname, IP address,
-credential, or telemetry is returned. There is no remote advisor, cloud model,
-plugin catalog, phone-home, or outbound request in this path. If a future check
-uses tenant data, it must resolve tenant scope at the storage layer before
-RBAC, with a cross-tenant isolation test.
+read and is audited by the central route policy. Health findings are
+deployment-local and redacted; topology metadata is reduced to the caller's
+tenant at the storage layer before counting. No tenant identifier, hostname, IP
+address, credential, telemetry, or other-tenant count is returned. There is no
+remote advisor, cloud model, plugin catalog, phone-home, or outbound request in
+this path. Any future tenant-data section must preserve that storage-first
+scope before RBAC and add a cross-tenant isolation test.
 
 ## Self-monitoring (probectl observes probectl)
 

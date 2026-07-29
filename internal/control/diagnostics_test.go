@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -327,22 +328,121 @@ func (q errTopologyQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
 	return errTopologyRow(q)
 }
 
-func TestTopologySummaryReportsPartialProviderErrors(t *testing.T) {
+type topologyFixtureRow struct {
+	value any
+	err   error
+}
+
+func (r topologyFixtureRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if len(dest) != 1 {
+		return fmt.Errorf("topology fixture: got %d scan destinations, want 1", len(dest))
+	}
+	switch out := dest[0].(type) {
+	case *int:
+		value, ok := r.value.(int)
+		if !ok {
+			return fmt.Errorf("topology fixture: cannot scan %T into *int", r.value)
+		}
+		*out = value
+	case *string:
+		value, ok := r.value.(string)
+		if !ok {
+			return fmt.Errorf("topology fixture: cannot scan %T into *string", r.value)
+		}
+		*out = value
+	default:
+		return fmt.Errorf("topology fixture: unsupported scan destination %T", dest[0])
+	}
+	return nil
+}
+
+type topologyFixtureQuerier struct {
+	tenant string
+	agents int
+	model  string
+}
+
+func (q topologyFixtureQuerier) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("topology fixture: unexpected Exec")
+}
+
+func (q topologyFixtureQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("topology fixture: unexpected Query")
+}
+
+func (q topologyFixtureQuerier) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
+	if len(args) != 1 || args[0] != q.tenant {
+		return topologyFixtureRow{err: fmt.Errorf("topology query was not explicitly scoped to %q: args=%v", q.tenant, args)}
+	}
+	if !strings.Contains(query, "WHERE tenant_id = $1") {
+		return topologyFixtureRow{err: errors.New("topology query omitted the tenant predicate")}
+	}
+	switch {
+	case strings.Contains(query, "probectl_current_tenant_topology"):
+		return topologyFixtureRow{value: q.model}
+	case strings.Contains(query, "FROM agents"):
+		return topologyFixtureRow{value: q.agents}
+	default:
+		return topologyFixtureRow{err: fmt.Errorf("topology fixture: unexpected query %q", query)}
+	}
+}
+
+func TestSupportBundleTopologyTwoTenantIsolation(t *testing.T) {
+	for _, tc := range []struct {
+		tenant string
+		agents int
+		model  string
+	}{
+		{tenant: "00000000-0000-0000-0000-0000000000aa", agents: 1, model: "pooled"},
+		{tenant: "00000000-0000-0000-0000-0000000000bb", agents: 3, model: "hybrid"},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			sum := topologySummaryFromTenant(
+				context.Background(),
+				support.TopologySummary{IsolationModels: map[string]int{}},
+				func(ctx context.Context, fn func(context.Context, tenancy.Scope) error) error {
+					return fn(ctx, tenancy.Scope{
+						Tenant: tenancy.ID(tc.tenant),
+						Q: topologyFixtureQuerier{
+							tenant: tc.tenant,
+							agents: tc.agents,
+							model:  tc.model,
+						},
+					})
+				},
+			)
+			if sum.Partial || sum.Tenants != 1 || sum.Agents != tc.agents {
+				t.Fatalf("tenant topology summary = %+v, want one tenant and %d agents", sum, tc.agents)
+			}
+			if len(sum.IsolationModels) != 1 || sum.IsolationModels[tc.model] != 1 {
+				t.Fatalf("tenant isolation models = %#v, want only %q=1", sum.IsolationModels, tc.model)
+			}
+		})
+	}
+}
+
+func TestTopologySummaryReportsPartialTenantErrors(t *testing.T) {
 	sum := support.TopologySummary{Region: "us-east", IsolationModels: map[string]int{}}
-	sum = topologySummaryFromProvider(context.Background(), sum, func(ctx context.Context, fn func(context.Context, tenancy.Querier) error) error {
-		return fn(ctx, errTopologyQuerier{err: errors.New("metadata store unavailable")})
+	sum = topologySummaryFromTenant(context.Background(), sum, func(ctx context.Context, fn func(context.Context, tenancy.Scope) error) error {
+		return fn(ctx, tenancy.Scope{
+			Tenant: "00000000-0000-0000-0000-0000000000aa",
+			Q:      errTopologyQuerier{err: errors.New("metadata store unavailable")},
+		})
 	})
-	if !sum.Partial || len(sum.Errors) < 3 {
-		t.Fatalf("provider query failures must be explicit partial errors: %+v", sum)
+	if !sum.Partial || len(sum.Errors) < 2 {
+		t.Fatalf("tenant query failures must be explicit partial errors: %+v", sum)
 	}
 	if sum.Region != "us-east" {
 		t.Fatalf("region should remain available in partial summary: %+v", sum)
 	}
 
-	sum = topologySummaryFromProvider(context.Background(), support.TopologySummary{IsolationModels: map[string]int{}}, func(context.Context, func(context.Context, tenancy.Querier) error) error {
-		return errors.New("provider role unavailable")
+	sum = topologySummaryFromTenant(context.Background(), support.TopologySummary{IsolationModels: map[string]int{}}, func(context.Context, func(context.Context, tenancy.Scope) error) error {
+		return errors.New("tenant role unavailable")
 	})
 	if !sum.Partial || len(sum.Errors) != 1 {
-		t.Fatalf("provider-scope failure must be explicit partial metadata: %+v", sum)
+		t.Fatalf("tenant-scope failure must be explicit partial metadata: %+v", sum)
 	}
 }

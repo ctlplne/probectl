@@ -24,8 +24,8 @@ import (
 // are small; this caps an accidental blow-up). The whole bundle is gzip'd.
 const maxFileBytes = 4 << 20 // 4 MiB per file
 
-// TopologySummary is ANONYMIZED deployment shape — counts only, never tenant
-// identifiers or telemetry.
+// TopologySummary is the authenticated tenant's ANONYMIZED shape — counts only,
+// never tenant identifiers or telemetry.
 type TopologySummary struct {
 	Tenants         int            `json:"tenants"`
 	Agents          int            `json:"agents"`

@@ -188,15 +188,15 @@ func (s *Server) handleDiagnosticsBundle(w http.ResponseWriter, r *http.Request)
 
 // supportSources assembles the bundle inputs from the server. Everything here
 // is safe by construction: config.Redacted is an allowlist, the topology is
-// anonymized counts, and the known secrets are passed as RedactValues so they
-// are scrubbed from the assembled bytes (defense in depth).
+// tenant-scoped anonymized counts, and the known secrets are passed as
+// RedactValues so they are scrubbed from the assembled bytes (defense in depth).
 func (s *Server) supportSources(ctx context.Context, tenant string) support.Sources {
 	return support.Sources{
 		Version:          version.Get(),
 		ConfigRedacted:   s.cfg.Redacted(),
 		Health:           s.deepHealth(ctx),
 		SelfMetrics:      support.SelfSnapshot(s.startedAt),
-		Topology:         s.topologySummary(ctx),
+		Topology:         s.topologySummary(ctx, tenant),
 		DeviceCollection: s.supportDeviceCollection(ctx, tenant),
 		FlowQuality:      s.supportFlowQuality(ctx, tenant),
 		Runtime:          support.CollectRuntime(s.startedAt),
@@ -278,51 +278,48 @@ func (s *Server) supportDeviceCollection(ctx context.Context, tenant string) sup
 	return out
 }
 
-// topologySummary returns ANONYMIZED deployment counts (no tenant identifiers
-// or telemetry) via the provider role. Empty when there is no pool.
-func (s *Server) topologySummary(ctx context.Context) support.TopologySummary {
+// topologySummary returns ANONYMIZED counts for the authenticated tenant (no
+// identifiers or telemetry). Empty when there is no pool or tenant.
+func (s *Server) topologySummary(ctx context.Context, tenant string) support.TopologySummary {
 	sum := support.TopologySummary{Region: s.cfg.Region, IsolationModels: map[string]int{}}
-	if s.pool == nil {
+	if s.pool == nil || tenant == "" {
 		return sum
 	}
-	return topologySummaryFromProvider(ctx, sum, func(ctx context.Context, fn func(context.Context, tenancy.Querier) error) error {
-		return tenancy.InProvider(ctx, s.pool, fn)
+	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))
+	return topologySummaryFromTenant(ctx, sum, func(ctx context.Context, fn func(context.Context, tenancy.Scope) error) error {
+		return tenancy.InTenant(ctx, s.pool, fn)
 	})
 }
 
-func topologySummaryFromProvider(ctx context.Context, sum support.TopologySummary, run func(context.Context, func(context.Context, tenancy.Querier) error) error) support.TopologySummary {
+func topologySummaryFromTenant(ctx context.Context, sum support.TopologySummary, run func(context.Context, func(context.Context, tenancy.Scope) error) error) support.TopologySummary {
 	markPartial := func(label string, err error) {
 		sum.Partial = true
 		sum.Errors = append(sum.Errors, label+": "+err.Error())
 	}
-	if err := run(ctx, func(ctx context.Context, q tenancy.Querier) error {
-		if err := q.QueryRow(ctx, `SELECT count(*) FROM tenants`).Scan(&sum.Tenants); err != nil {
-			markPartial("tenants_count", err)
-		}
-		if err := q.QueryRow(ctx, `SELECT count(*) FROM agents`).Scan(&sum.Agents); err != nil {
-			markPartial("agents_count", err)
-		}
-		rows, err := q.Query(ctx, `SELECT coalesce(isolation_model,'pooled'), count(*) FROM tenants GROUP BY 1`)
-		if err != nil {
-			markPartial("isolation_models", err)
+	if err := run(ctx, func(ctx context.Context, scope tenancy.Scope) error {
+		var isolationModel string
+		if err := scope.Q.QueryRow(ctx,
+			`SELECT isolation_model
+			   FROM public.probectl_current_tenant_topology()
+			  WHERE tenant_id = $1`,
+			scope.Tenant.String(),
+		).Scan(&isolationModel); err != nil {
+			markPartial("tenant_topology", err)
 		} else {
-			defer rows.Close()
-			for rows.Next() {
-				var model string
-				var n int
-				if err := rows.Scan(&model, &n); err == nil {
-					sum.IsolationModels[model] = n
-				} else {
-					markPartial("isolation_models_scan", err)
-				}
-			}
-			if err := rows.Err(); err != nil {
-				markPartial("isolation_models_rows", err)
-			}
+			sum.Tenants = 1
+			sum.IsolationModels[isolationModel] = 1
+		}
+		if err := scope.Q.QueryRow(ctx,
+			`SELECT count(*)
+			   FROM agents
+			  WHERE tenant_id = $1`,
+			scope.Tenant.String(),
+		).Scan(&sum.Agents); err != nil {
+			markPartial("agents_count", err)
 		}
 		return nil
 	}); err != nil {
-		markPartial("provider_scope", err)
+		markPartial("tenant_scope", err)
 	}
 	return sum
 }
