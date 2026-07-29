@@ -184,6 +184,94 @@ func TestPGProviderMutationAndAuditAreAtomic(t *testing.T) {
 	}
 }
 
+func TestPGEnrollStartTOTPAndAuditAreAtomic(t *testing.T) {
+	pool := pgPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	store := NewPGStore(pool)
+	stamp := time.Now().UTC().UnixNano()
+	enrollToken := fmt.Sprintf("audit-atomic-enrollment-token-%d", stamp)
+	op, err := store.CreateOperator(ctx, Operator{
+		Email: fmt.Sprintf("enroll-audit-%d@msp.example", stamp),
+		Name:  "Enroll Audit",
+		Role:  RoleOperator,
+	}, crypto.Hash([]byte(enrollToken)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	failingService, err := NewService(
+		store,
+		failingPGAudit{},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := failingService.EnrollStart(ctx, enrollToken); !errors.Is(err, errAuditUnavailable) {
+		t.Fatalf("EnrollStart error = %v, want %v", err, errAuditUnavailable)
+	}
+	_, cred, err := store.OperatorByEmail(ctx, op.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.TOTP.KeyID != "" || len(cred.TOTP.WrappedDEK) != 0 || len(cred.TOTP.Ciphertext) != 0 {
+		t.Fatalf("TOTP credential survived failed audit: %+v", cred.TOTP)
+	}
+
+	const action = "provider.operator_totp_bound"
+	var auditRows int
+	if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT count(*) FROM provider_audit_events WHERE action = $1 AND target = $2`,
+			action, op.ID,
+		).Scan(&auditRows)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if auditRows != 0 {
+		t.Fatalf("audit rows for rolled-back TOTP mutation = %d, want 0", auditRows)
+	}
+
+	productionService, err := NewService(
+		store,
+		&providerAudit{pool: pool},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, secret, _, err := productionService.EnrollStart(ctx, enrollToken); err != nil {
+		t.Fatalf("production EnrollStart: %v", err)
+	} else if secret == "" {
+		t.Fatal("production EnrollStart returned an empty TOTP secret")
+	}
+	_, cred, err = store.OperatorByEmail(ctx, op.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.TOTP.KeyID == "" || len(cred.TOTP.WrappedDEK) == 0 || len(cred.TOTP.Ciphertext) == 0 {
+		t.Fatalf("committed TOTP credential is incomplete: %+v", cred.TOTP)
+	}
+	if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT count(*) FROM provider_audit_events WHERE action = $1 AND target = $2`,
+			action, op.ID,
+		).Scan(&auditRows)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("audit rows for committed TOTP mutation = %d, want 1", auditRows)
+	}
+}
+
 func TestPGStoreLifecycle(t *testing.T) {
 	pool := pgPool(t)
 	defer pool.Close()

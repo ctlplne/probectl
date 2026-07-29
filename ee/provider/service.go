@@ -267,7 +267,14 @@ func (s *Service) EnrollStart(ctx context.Context, enrollToken string) (Operator
 	if err != nil {
 		return Operator{}, "", "", err
 	}
-	if err := s.store.SetOperatorTOTP(ctx, op.ID, sealed); err != nil {
+	if err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		if err := store.SetOperatorTOTP(ctx, op.ID, sealed); err != nil {
+			return err
+		}
+		// The event proves the credential binding changed without recording the
+		// one-time TOTP secret or any sealed-key material.
+		return audit.Append(ctx, op.Email, "provider.operator_totp_bound", op.ID, nil)
+	}); err != nil {
 		return Operator{}, "", "", err
 	}
 	return *op, b32, crypto.TOTPURI("probectl provider", op.Email, b32), nil

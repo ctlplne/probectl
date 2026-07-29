@@ -258,6 +258,45 @@ func TestProviderMutationRollsBackWhenAuditFails(t *testing.T) {
 	}
 }
 
+func TestEnrollStartRollsBackTOTPWhenAuditFails(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	enrollToken := "audit-atomic-enrollment-token"
+	op, err := store.CreateOperator(ctx, Operator{
+		Email: "enroll-audit@msp.example",
+		Name:  "Enroll Audit",
+		Role:  RoleOperator,
+	}, crypto.Hash([]byte(enrollToken)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := NewService(
+		store,
+		failingAudit{},
+		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		fakeTelemetry{},
+		testEnvelope(t),
+		4*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, _, err := svc.EnrollStart(ctx, enrollToken); !errors.Is(err, errAuditUnavailable) {
+		t.Fatalf("EnrollStart error = %v, want %v", err, errAuditUnavailable)
+	}
+	got, cred, err := store.OperatorByEmail(ctx, op.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != op.ID {
+		t.Fatalf("operator after failed audit = %q, want %q", got.ID, op.ID)
+	}
+	if cred.TOTP.KeyID != "" || len(cred.TOTP.WrappedDEK) != 0 || len(cred.TOTP.Ciphertext) != 0 {
+		t.Fatalf("TOTP credential survived failed audit: %+v", cred.TOTP)
+	}
+}
+
 type countingTelemetry struct {
 	calls int
 }
@@ -488,7 +527,7 @@ func TestProviderLifecycle(t *testing.T) {
 
 	// Every lifecycle action is on the provider audit stream.
 	for _, action := range []string{
-		"provider.bootstrap", "provider.operator_enrolled", "provider.login",
+		"provider.bootstrap", "provider.operator_totp_bound", "provider.operator_enrolled", "provider.login",
 		"provider.tenant_provision", "provider.tenant_configure",
 		"provider.tenant_suspend", "provider.tenant_resume", "provider.tenant_offboard",
 	} {

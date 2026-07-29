@@ -134,6 +134,7 @@ func (g Grant) Usable(t time.Time) bool { return g.State(t) == GrantActive }
 // write transaction across unrelated work.
 type MutationStore interface {
 	CreateOperator(ctx context.Context, op Operator, enrollTokenHash []byte) (Operator, error)
+	SetOperatorTOTP(ctx context.Context, id string, sealed crypto.Sealed) error
 	ActivateOperator(ctx context.Context, id, passwordHash string) error
 	SetOperatorStatus(ctx context.Context, id, status string) error
 	CreateTenant(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error)
@@ -162,7 +163,6 @@ type Store interface {
 	// Operators.
 	OperatorByEmail(ctx context.Context, email string) (*Operator, *Credential, error)
 	OperatorByEnrollHash(ctx context.Context, hash []byte) (*Operator, error)
-	SetOperatorTOTP(ctx context.Context, id string, sealed crypto.Sealed) error
 	ListOperators(ctx context.Context) ([]Operator, error)
 	CountOperators(ctx context.Context) (int, error)
 
