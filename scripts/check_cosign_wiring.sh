@@ -176,4 +176,4 @@ if [[ $fail -ne 0 ]]; then
   echo "cosign-wiring gate FAILED (SUPPLY-001/002): cosign verification is not wired in / not fail-closed."
   exit 1
 fi
-echo "cosign-wiring gate: OK (install.sh, complete airgap release, Ansible package_url/airgap, image signing, and admission policy are fail-closed)"
+echo "cosign-wiring gate: OK (install.sh, airgap bundle, Ansible package_url/airgap, image signing, and admission policy are fail-closed)"
