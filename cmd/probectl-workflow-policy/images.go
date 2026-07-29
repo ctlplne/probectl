@@ -68,6 +68,17 @@ func runImages(paths []string, stdout, stderr io.Writer) int {
 func workflowFiles(paths []string) ([]string, error) {
 	seen := make(map[string]struct{})
 	var files []string
+	addFile := func(path string) error {
+		if _, ok := seen[path]; ok {
+			return nil
+		}
+		if len(files) >= maxWorkflowFiles {
+			return fmt.Errorf("workflow file count exceeds %d-file limit", maxWorkflowFiles)
+		}
+		seen[path] = struct{}{}
+		files = append(files, path)
+		return nil
+	}
 	for _, path := range paths {
 		info, err := os.Lstat(path)
 		if err != nil {
@@ -80,9 +91,8 @@ func workflowFiles(paths []string) ([]string, error) {
 			if !isWorkflowYAML(path) {
 				return nil, fmt.Errorf("%s: workflow path must end in .yml or .yaml", path)
 			}
-			if _, ok := seen[path]; !ok {
-				seen[path] = struct{}{}
-				files = append(files, path)
+			if err := addFile(path); err != nil {
+				return nil, err
 			}
 			continue
 		}
@@ -100,11 +110,7 @@ func workflowFiles(paths []string) ([]string, error) {
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("%s: workflow must be a regular file", candidate)
 			}
-			if _, ok := seen[candidate]; !ok {
-				seen[candidate] = struct{}{}
-				files = append(files, candidate)
-			}
-			return nil
+			return addFile(candidate)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("walk %s: %w", path, err)

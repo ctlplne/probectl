@@ -22,6 +22,15 @@ import (
 
 var jobIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+const (
+	// Workflow YAML is pull-request-controlled input to security-sensitive CI
+	// gates. Bound every amplification dimension before semantic inspection.
+	maxWorkflowFileBytes = 1 << 20
+	maxWorkflowDepth     = 128
+	maxWorkflowNodes     = 16 << 10
+	maxWorkflowFiles     = 256
+)
+
 type permissionRecord struct {
 	scope string
 	job   string
@@ -84,9 +93,17 @@ func printUsage(stderr io.Writer) {
 }
 
 func loadWorkflow(path string) (*yaml.Node, error) {
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxWorkflowFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	if len(raw) > maxWorkflowFileBytes {
+		return nil, fmt.Errorf("read %s: workflow exceeds %d-byte limit", path, maxWorkflowFileBytes)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	var document yaml.Node
@@ -114,6 +131,29 @@ func loadWorkflow(path string) (*yaml.Node, error) {
 }
 
 func validateSemanticShape(node *yaml.Node, path string) error {
+	budget := semanticShapeBudget{}
+	return validateSemanticShapeAt(node, path, 1, &budget)
+}
+
+type semanticShapeBudget struct {
+	nodes int
+}
+
+func (b *semanticShapeBudget) consume(path string, depth int) error {
+	if depth > maxWorkflowDepth {
+		return fmt.Errorf("%s: workflow exceeds %d-level depth limit", path, maxWorkflowDepth)
+	}
+	b.nodes++
+	if b.nodes > maxWorkflowNodes {
+		return fmt.Errorf("%s: workflow exceeds %d-node limit", path, maxWorkflowNodes)
+	}
+	return nil
+}
+
+func validateSemanticShapeAt(node *yaml.Node, path string, depth int, budget *semanticShapeBudget) error {
+	if err := budget.consume(path, depth); err != nil {
+		return err
+	}
 	if node.Kind == yaml.AliasNode {
 		return fmt.Errorf("%s: YAML aliases are not allowed in security-policy input", path)
 	}
@@ -135,14 +175,17 @@ func validateSemanticShape(node *yaml.Node, path string) error {
 			}
 			seen[key.Value] = struct{}{}
 			childPath := path + "." + key.Value
-			if err := validateSemanticShape(value, childPath); err != nil {
+			if err := budget.consume(childPath+"<key>", depth+1); err != nil {
+				return err
+			}
+			if err := validateSemanticShapeAt(value, childPath, depth+1, budget); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 	for index, child := range node.Content {
-		if err := validateSemanticShape(child, fmt.Sprintf("%s[%d]", path, index)); err != nil {
+		if err := validateSemanticShapeAt(child, fmt.Sprintf("%s[%d]", path, index), depth+1, budget); err != nil {
 			return err
 		}
 	}

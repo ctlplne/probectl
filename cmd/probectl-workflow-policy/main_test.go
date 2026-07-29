@@ -7,11 +7,80 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestWorkflowInputBudgetsExactAndOnePast(t *testing.T) {
+	t.Run("bytes", func(t *testing.T) {
+		base := "jobs: {}\n#"
+		exact := base + strings.Repeat("x", maxWorkflowFileBytes-len(base))
+		if _, err := loadWorkflow(writeWorkflowRaw(t, exact)); err != nil {
+			t.Fatalf("exact byte budget rejected: %v", err)
+		}
+		if _, err := loadWorkflow(writeWorkflowRaw(t, exact+"x")); err == nil {
+			t.Fatal("one-past byte budget was accepted")
+		}
+	})
+
+	t.Run("depth", func(t *testing.T) {
+		workflowAtDepth := func(depth int) string {
+			nestedSequences := depth - 2 // root mapping + final scalar
+			return "jobs: {}\npadding: " +
+				strings.Repeat("[", nestedSequences) + "x" +
+				strings.Repeat("]", nestedSequences) + "\n"
+		}
+		if _, err := loadWorkflow(writeWorkflowRaw(t, workflowAtDepth(maxWorkflowDepth))); err != nil {
+			t.Fatalf("exact depth budget rejected: %v", err)
+		}
+		if _, err := loadWorkflow(writeWorkflowRaw(t, workflowAtDepth(maxWorkflowDepth+1))); err == nil {
+			t.Fatal("one-past depth budget was accepted")
+		}
+	})
+
+	t.Run("nodes", func(t *testing.T) {
+		// The root/jobs/job/steps structure contributes seven YAML nodes. Each
+		// scalar step contributes one more.
+		workflowWithNodes := func(nodes int) string {
+			return "jobs:\n  node-budget:\n    steps:\n" +
+				strings.Repeat("      - x\n", nodes-7)
+		}
+		if _, err := loadWorkflow(writeWorkflowRaw(t, workflowWithNodes(maxWorkflowNodes))); err != nil {
+			t.Fatalf("exact node budget rejected: %v", err)
+		}
+		if _, err := loadWorkflow(writeWorkflowRaw(t, workflowWithNodes(maxWorkflowNodes+1))); err == nil {
+			t.Fatal("one-past node budget was accepted")
+		}
+	})
+
+	t.Run("files", func(t *testing.T) {
+		dir := t.TempDir()
+		for i := 0; i < maxWorkflowFiles; i++ {
+			path := filepath.Join(dir, fmt.Sprintf("%03d.yml", i))
+			if err := os.WriteFile(path, []byte("jobs: {}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if files, err := workflowFiles([]string{dir}); err != nil {
+			t.Fatalf("exact file budget rejected: %v", err)
+		} else if len(files) != maxWorkflowFiles {
+			t.Fatalf("exact file budget returned %d files, want %d", len(files), maxWorkflowFiles)
+		}
+		if err := os.WriteFile(
+			filepath.Join(dir, fmt.Sprintf("%03d.yml", maxWorkflowFiles)),
+			[]byte("jobs: {}\n"),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := workflowFiles([]string{dir}); err == nil {
+			t.Fatal("one-past file budget was accepted")
+		}
+	})
+}
 
 func TestPermissionRecordsSeeSemanticYAMLShapes(t *testing.T) {
 	t.Parallel()
@@ -99,8 +168,13 @@ jobs:
 
 func writeWorkflow(t *testing.T, contents string) string {
 	t.Helper()
+	return writeWorkflowRaw(t, strings.TrimSpace(contents)+"\n")
+}
+
+func writeWorkflowRaw(t *testing.T, contents string) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "workflow.yml")
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(contents)+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
