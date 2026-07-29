@@ -20,8 +20,9 @@ import (
 func TestBuildIngestWriterDefaultsBatchedForPrometheus(t *testing.T) {
 	cfg, err := config.Load(func(k string) string {
 		return map[string]string{
-			"PROBECTL_TSDB_MODE": "prometheus",
-			"PROBECTL_TSDB_URL":  "https://prom.example.com:9090",
+			"PROBECTL_DATABASE_URL": "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require",
+			"PROBECTL_TSDB_MODE":    "prometheus",
+			"PROBECTL_TSDB_URL":     "https://prom.example.com:9090",
 		}[k]
 	})
 	if err != nil {

@@ -22,7 +22,7 @@ import (
 // plane defaults to a finite 90-day TTL; `0` is an explicit keep-forever opt-out,
 // not the default.
 func TestFlowRetentionDefaultMatchesConfig(t *testing.T) {
-	cfg, err := config.Load(func(string) string { return "" })
+	cfg, err := config.Load(configurationDefaultsTestEnv)
 	if err != nil {
 		t.Fatalf("load config defaults: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestFlowRetentionDefaultMatchesConfig(t *testing.T) {
 }
 
 func TestFairnessQueryDefaultsMatchConfig(t *testing.T) {
-	cfg, err := config.Load(func(string) string { return "" })
+	cfg, err := config.Load(configurationDefaultsTestEnv)
 	if err != nil {
 		t.Fatalf("load config defaults: %v", err)
 	}
@@ -71,6 +71,13 @@ func TestFairnessQueryDefaultsMatchConfig(t *testing.T) {
 	}
 	check("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", fmt.Sprintf("%d", cfg.FairnessQueryConcurrency))
 	check("PROBECTL_FAIRNESS_QUERIES_PER_MIN", fmt.Sprintf("%.0f", cfg.FairnessQueriesPerMin))
+}
+
+func configurationDefaultsTestEnv(key string) string {
+	if key == "PROBECTL_DATABASE_URL" {
+		return "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require"
+	}
+	return ""
 }
 
 // TestControlPlaneEnvKeysHaveConfigurationRows keeps the page-level promise

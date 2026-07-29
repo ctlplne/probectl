@@ -18,9 +18,22 @@ import (
 )
 
 const testSessionHMACKeyHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+const testDatabaseURL = "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require"
 
 func envFunc(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
+	return func(k string) string {
+		if value, ok := m[k]; ok {
+			return value
+		}
+		// Database configuration is required in real loads. Most tests in this
+		// package exercise an unrelated default, so make their test-only DSN
+		// explicit while the dedicated empty-environment test below bypasses
+		// this helper and proves production loading fails closed.
+		if k == "PROBECTL_DATABASE_URL" {
+			return testDatabaseURL
+		}
+		return ""
+	}
 }
 
 func durableTenantProfileEnv(profile string) map[string]string {
@@ -96,6 +109,27 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.SessionIdleTimeout != 30*time.Minute {
 		t.Errorf("SessionIdleTimeout = %v, want 30m", cfg.SessionIdleTimeout)
+	}
+}
+
+func TestLoadRejectsMissingDatabaseURLByDefault(t *testing.T) {
+	_, err := Load(func(string) string { return "" })
+	if err == nil {
+		t.Fatal("empty-environment config load succeeded with no PostgreSQL credential")
+	}
+	if !strings.Contains(err.Error(), "PROBECTL_DATABASE_URL is required") {
+		t.Fatalf("empty-environment error = %q, want required PROBECTL_DATABASE_URL guidance", err)
+	}
+}
+
+func TestExplicitDevDatabaseURLRemainsSupported(t *testing.T) {
+	const explicit = "postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable"
+	cfg, err := Load(envFunc(map[string]string{"PROBECTL_DATABASE_URL": explicit}))
+	if err != nil {
+		t.Fatalf("explicit development DSN should remain supported: %v", err)
+	}
+	if cfg.DatabaseURL != explicit {
+		t.Fatalf("explicit development DSN = %q, want unchanged %q", cfg.DatabaseURL, explicit)
 	}
 }
 

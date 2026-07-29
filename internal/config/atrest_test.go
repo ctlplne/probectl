@@ -16,7 +16,7 @@ func TestRequireAtRestEncryptionConfig(t *testing.T) {
 		"PROBECTL_REQUIRE_AT_REST_ENCRYPTION": "false",
 		"PROBECTL_ALLOW_KEYLESS_DEV":          "true",
 	}
-	cfg, err := Load(func(k string) string { return env[k] })
+	cfg, err := Load(envFunc(env))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestRequireAtRestEncryptionConfig(t *testing.T) {
 		t.Fatal("PROBECTL_ALLOW_KEYLESS_DEV=true must enable the explicit dev escape hatch")
 	}
 
-	def, err := Load(func(string) string { return "" })
+	def, err := Load(envFunc(nil))
 	if err != nil {
 		t.Fatalf("load default: %v", err)
 	}
@@ -45,14 +45,14 @@ func TestFlowCHScopingConfig(t *testing.T) {
 		"PROBECTL_FLOWSTORE_TENANT_SCOPING": "true",
 		"PROBECTL_FLOWSTORE_READER_USER":    "probectl_reader",
 	}
-	cfg, err := Load(func(k string) string { return env[k] })
+	cfg, err := Load(envFunc(env))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if !cfg.FlowCHTenantScoping || cfg.FlowCHReaderUser != "probectl_reader" {
 		t.Fatalf("scoping knobs not parsed: %+v / %q", cfg.FlowCHTenantScoping, cfg.FlowCHReaderUser)
 	}
-	def, _ := Load(func(string) string { return "" })
+	def, _ := Load(envFunc(nil))
 	if def.FlowCHTenantScoping {
 		t.Fatal("CH tenant scoping must default off")
 	}

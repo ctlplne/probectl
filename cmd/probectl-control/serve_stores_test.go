@@ -24,6 +24,7 @@ func TestBuildServeStoresBuildsAndClosesCleanly(t *testing.T) {
 	cfg, err := config.Load(func(k string) string {
 		// All planes in memory mode → no external infra, deterministic in CI.
 		return map[string]string{
+			"PROBECTL_DATABASE_URL":       "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require",
 			"PROBECTL_BUS_MODE":           "memory",
 			"PROBECTL_TSDB_MODE":          "memory",
 			"PROBECTL_PATHSTORE_MODE":     "memory",
@@ -82,6 +83,7 @@ func TestBuildServeStoresWiresTenantObjectStore(t *testing.T) {
 	objectDir := t.TempDir()
 	cfg, err := config.Load(func(k string) string {
 		return map[string]string{
+			"PROBECTL_DATABASE_URL":       "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require",
 			"PROBECTL_BUS_MODE":           "memory",
 			"PROBECTL_TSDB_MODE":          "memory",
 			"PROBECTL_PATHSTORE_MODE":     "memory",

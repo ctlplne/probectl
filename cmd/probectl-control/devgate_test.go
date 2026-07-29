@@ -67,6 +67,7 @@ func TestRunRefusesUnavailableDevAuthBeforeEnvelopeSetup(t *testing.T) {
 	t.Setenv("PROBECTL_ENVELOPE_KEY", "")
 	t.Setenv("PROBECTL_ENVELOPE_KEY_FILE", "")
 	t.Setenv("PROBECTL_ALLOW_KEYLESS_DEV", "")
+	t.Setenv("PROBECTL_DATABASE_URL", "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require")
 
 	orig := devAuthAvailable
 	devAuthAvailable = func() bool { return false }

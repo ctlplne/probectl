@@ -12,7 +12,7 @@ import "testing"
 // lightweight in-memory bus defaults to backpressure, not lossy ACKs. Operators
 // can still explicitly select drop, but dropped publishes return an error.
 func TestBusMemoryOverflowDefaultsToBlock(t *testing.T) {
-	cfg, err := Load(func(string) string { return "" }) // empty env = all defaults
+	cfg, err := Load(envFunc(nil))
 	if err != nil {
 		t.Fatalf("Load defaults: %v", err)
 	}
@@ -21,12 +21,7 @@ func TestBusMemoryOverflowDefaultsToBlock(t *testing.T) {
 	}
 	// "drop" must still be selectable for operators who prefer stuck-subscriber
 	// isolation with retryable publish errors.
-	cfgDrop, err := Load(func(k string) string {
-		if k == "PROBECTL_BUS_MEMORY_OVERFLOW" {
-			return "drop"
-		}
-		return ""
-	})
+	cfgDrop, err := Load(envFunc(map[string]string{"PROBECTL_BUS_MEMORY_OVERFLOW": "drop"}))
 	if err != nil {
 		t.Fatalf("Load drop: %v", err)
 	}

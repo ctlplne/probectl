@@ -680,7 +680,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.WriteTimeout = l.dur("PROBECTL_HTTP_WRITE_TIMEOUT", 15*time.Second)
 	cfg.IdleTimeout = l.dur("PROBECTL_HTTP_IDLE_TIMEOUT", 60*time.Second)
 	cfg.ShutdownTimeout = l.dur("PROBECTL_SHUTDOWN_TIMEOUT", 15*time.Second)
-	cfg.DatabaseURL = l.str("PROBECTL_DATABASE_URL", "postgres://probectl:probectl@localhost:5432/probectl?sslmode=require")
+	cfg.DatabaseURL = strings.TrimSpace(l.getenv("PROBECTL_DATABASE_URL"))
 	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
 	cfg.HopGeoFile = l.str("PROBECTL_HOP_GEO_FILE", "")
 	// SCALE-009: warmer pool defaults for high fan-in API + consumers.
@@ -981,7 +981,9 @@ func validateConfig(l *loader, cfg *Config) {
 		l.errf("PROBECTL_DATABASE_MIN_CONNS (%d) must be <= PROBECTL_DATABASE_MAX_CONNS (%d)",
 			cfg.DatabaseMinConns, cfg.DatabaseMaxConns)
 	}
-	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
+	if strings.TrimSpace(cfg.DatabaseURL) == "" {
+		l.errf("PROBECTL_DATABASE_URL is required (full PostgreSQL DSN); no default credential ships")
+	} else if _, err := url.Parse(cfg.DatabaseURL); err != nil {
 		l.errf("PROBECTL_DATABASE_URL: invalid URL: %v", err)
 	}
 }

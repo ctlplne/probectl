@@ -219,7 +219,12 @@ func TestUnauthenticatedSessionModeIs401(t *testing.T) {
 // unauthenticated /v1 requests — fail closed out of the box. Dev mode exists
 // only as an explicit PROBECTL_AUTH_MODE=dev opt-in.
 func TestBootNoAuthModeRefusesUnauthenticated(t *testing.T) {
-	cfg, err := config.Load(func(string) string { return "" })
+	cfg, err := config.Load(func(key string) string {
+		if key == "PROBECTL_DATABASE_URL" {
+			return "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require"
+		}
+		return ""
+	})
 	if err != nil {
 		t.Fatalf("load default config: %v", err)
 	}

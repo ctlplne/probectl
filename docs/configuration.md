@@ -75,14 +75,14 @@ enrollment — [`agent/enrollment.md`](agent/enrollment.md)), `scim-token`
 intelligence*, below), and `replay-deadletter`
 (re-ingest dead-lettered records — [`ops/dead-letter-replay.md`](ops/dead-letter-replay.md)).
 
-A note on the defaults: the listen address is `:8080`, the database DSN — the
-*data source name*, the one connection string carrying host, user, password,
-database, and TLS mode — points at a local Postgres with **`sslmode=require`**
-(TLS to the database is the default, not an afterthought), and HSTS — the
-response header that tells browsers to only ever reach this host over HTTPS — is
-on. These defaults assume you front the process with a TLS-terminating ingress
-(the shipped Helm/compose posture); set the TLS cert/key pair below to have the
-process serve HTTPS itself instead.
+A note on the defaults: the listen address is `:8080`, but the database DSN —
+the *data source name*, the one connection string carrying host, user, password,
+database, and TLS mode — is required and has no default credential. Production
+DSNs should use **`sslmode=require`** or stronger. HSTS — the response header
+that tells browsers to only ever reach this host over HTTPS — is on. These
+defaults assume you front the process with a TLS-terminating ingress (the shipped
+Helm/compose posture); set the TLS cert/key pair below to have the process serve
+HTTPS itself instead.
 
 | Variable                          | Default                                                              | Description                                  |
 | --------------------------------- | ------------------------------------------------------------------- | -------------------------------------------- |
@@ -92,7 +92,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_HTTP_WRITE_TIMEOUT`       | `15s`                                                              | HTTP write timeout                           |
 | `PROBECTL_HTTP_IDLE_TIMEOUT`        | `60s`                                                              | HTTP idle (keep-alive) timeout               |
 | `PROBECTL_SHUTDOWN_TIMEOUT`         | `15s`                                                              | graceful-shutdown drain timeout              |
-| `PROBECTL_DATABASE_URL`             | `postgres://probectl:probectl@localhost:5432/probectl?sslmode=require`    | PostgreSQL DSN; `sslmode=require` is the default (TLS to the DB out of the box). `multi-tenant`/`regulated` profiles require `sslmode=require`, `verify-ca`, or `verify-full` on writer and read-replica DSNs; dev-only `sslmode=disable` is accepted only under the `single` profile |
+| `PROBECTL_DATABASE_URL`             | *(required; no default)*                                             | Full PostgreSQL DSN. Direct binary startup fails closed when it is absent; Compose and Helm supply it explicitly. Use `sslmode=require`, `verify-ca`, or `verify-full` in production; `multi-tenant`/`regulated` profiles enforce those modes on writer and read-replica DSNs. Explicit dev-only `sslmode=disable` remains accepted under the `single` profile |
 | `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (2–1000). One session is reserved by the singleton advisory-lock lease, leaving at least one for work; per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
 | `PROBECTL_DATABASE_MIN_CONNS`       | `2`                                                                | min (warm) pool connections — keeps a couple of conns open so the first request after idle skips the connect+TLS cold start. Production profiles may raise this |
 | `PROBECTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
