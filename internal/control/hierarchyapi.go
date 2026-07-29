@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -38,15 +39,30 @@ type hierarchyCreateRequest struct {
 	Name string `json:"name"`
 }
 
+func hierarchyRouteAcceptsScopedGrant(method, pattern string) bool {
+	switch method + " " + pattern {
+	case "GET /v1/hierarchy",
+		"POST /v1/hierarchy/orgs/{id}/teams",
+		"POST /v1/hierarchy/teams/{id}/projects":
+		return true
+	default:
+		return false
+	}
+}
+
 // handleGetHierarchy serves the caller tenant's org/team/project tree. Every
 // read goes through tenancy.InTenant, so Postgres RLS is the outer boundary.
 func (s *Server) handleGetHierarchy(w http.ResponseWriter, r *http.Request) error {
 	if s.pool == nil {
 		return apierror.Unavailable("hierarchy store is not configured")
 	}
+	principal := auth.PrincipalFrom(r.Context())
+	if principal == nil || !principal.HasAny(permOrgRead) {
+		return apierror.Forbidden("missing permission: " + permOrgRead)
+	}
 	var resp hierarchyResponse
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		tree, err := loadHierarchy(ctx, sc)
+		tree, err := loadHierarchy(ctx, sc, principal)
 		resp.Items = tree
 		return err
 	}); err != nil {
@@ -59,29 +75,42 @@ func (s *Server) handleGetHierarchy(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
-func loadHierarchy(ctx context.Context, sc tenancy.Scope) ([]hierarchyOrganization, error) {
+func loadHierarchy(ctx context.Context, sc tenancy.Scope, principal *auth.Principal) ([]hierarchyOrganization, error) {
 	orgs, err := store.Organizations{}.List(ctx, sc)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]hierarchyOrganization, 0, len(orgs))
 	for _, org := range orgs {
+		orgLineage := auth.ResourceLineage{OrganizationID: org.ID}
 		teams, err := store.Teams{}.ListByOrg(ctx, sc, org.ID)
 		if err != nil {
 			return nil, err
 		}
 		ho := hierarchyOrganization{Organization: org, Teams: make([]hierarchyTeam, 0, len(teams))}
 		for _, team := range teams {
+			teamLineage := auth.ResourceLineage{OrganizationID: org.ID, TeamID: team.ID}
 			projects, err := store.Projects{}.ListByTeam(ctx, sc, team.ID)
 			if err != nil {
 				return nil, err
 			}
-			if projects == nil {
-				projects = []store.Project{}
+			visibleProjects := make([]store.Project, 0, len(projects))
+			for _, project := range projects {
+				if principal.HasAt(permOrgRead, auth.ResourceLineage{
+					OrganizationID: org.ID,
+					TeamID:         team.ID,
+					ProjectID:      project.ID,
+				}) {
+					visibleProjects = append(visibleProjects, project)
+				}
 			}
-			ho.Teams = append(ho.Teams, hierarchyTeam{Team: team, Projects: projects})
+			if principal.HasAt(permOrgRead, teamLineage) || len(visibleProjects) > 0 {
+				ho.Teams = append(ho.Teams, hierarchyTeam{Team: team, Projects: visibleProjects})
+			}
 		}
-		out = append(out, ho)
+		if principal.HasAt(permOrgRead, orgLineage) || len(ho.Teams) > 0 {
+			out = append(out, ho)
+		}
 	}
 	return out, nil
 }
@@ -93,6 +122,10 @@ func (s *Server) handleCreateOrganization(w http.ResponseWriter, r *http.Request
 	in, err := decodeHierarchyCreate(r)
 	if err != nil {
 		return err
+	}
+	principal := auth.PrincipalFrom(r.Context())
+	if principal == nil || !principal.Has(permOrgWrite) {
+		return apierror.Forbidden("tenant-wide permission required: " + permOrgWrite)
 	}
 	var created *store.Organization
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
@@ -121,10 +154,14 @@ func (s *Server) handleCreateTeam(w http.ResponseWriter, r *http.Request) error 
 	}
 	var created *store.Team
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		if _, e := (store.Organizations{}).Get(ctx, sc, orgID); e != nil {
+		org, e := (store.Organizations{}).Get(ctx, sc, orgID)
+		if e != nil {
 			return e
 		}
-		var e error
+		principal := auth.PrincipalFrom(r.Context())
+		if principal == nil || !principal.HasAt(permOrgWrite, auth.ResourceLineage{OrganizationID: org.ID}) {
+			return apierror.Forbidden("permission does not cover organization")
+		}
 		created, e = store.Teams{}.Create(ctx, sc, orgID, in.Slug, in.Name)
 		if e != nil {
 			return mapHierarchyStoreError(e)
@@ -151,10 +188,17 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) err
 	}
 	var created *store.Project
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		if _, e := (store.Teams{}).Get(ctx, sc, teamID); e != nil {
+		team, e := (store.Teams{}).Get(ctx, sc, teamID)
+		if e != nil {
 			return e
 		}
-		var e error
+		principal := auth.PrincipalFrom(r.Context())
+		if principal == nil || !principal.HasAt(permOrgWrite, auth.ResourceLineage{
+			OrganizationID: team.OrgID,
+			TeamID:         team.ID,
+		}) {
+			return apierror.Forbidden("permission does not cover team")
+		}
 		created, e = store.Projects{}.Create(ctx, sc, teamID, in.Slug, in.Name)
 		if e != nil {
 			return mapHierarchyStoreError(e)

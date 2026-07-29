@@ -587,8 +587,8 @@ type fakePerms struct {
 	err  error
 }
 
-func (f fakePerms) ForUser(context.Context, string, string) ([]string, error) {
-	return f.keys, f.err
+func (f fakePerms) ForUser(context.Context, string, string) ([]PermissionGrant, error) {
+	return TenantPermissionGrants(f.keys), f.err
 }
 
 func TestAuthenticatorResolve(t *testing.T) {
@@ -619,8 +619,8 @@ func TestAuthenticatorResolve(t *testing.T) {
 
 type mutablePerms struct{ keys []string }
 
-func (m *mutablePerms) ForUser(context.Context, string, string) ([]string, error) {
-	return append([]string(nil), m.keys...), nil
+func (m *mutablePerms) ForUser(context.Context, string, string) ([]PermissionGrant, error) {
+	return TenantPermissionGrants(m.keys), nil
 }
 
 func TestAuthenticatorRotatesOnRoleElevation(t *testing.T) {

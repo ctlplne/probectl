@@ -756,8 +756,8 @@ func TestProviderRoleCannotReadTelemetry(t *testing.T) {
 
 type integrationPermissionLoader struct{}
 
-func (integrationPermissionLoader) ForUser(context.Context, string, string) ([]string, error) {
-	return []string{consentPermission}, nil
+func (integrationPermissionLoader) ForUser(context.Context, string, string) ([]auth.PermissionGrant, error) {
+	return auth.TenantPermissionGrants([]string{consentPermission}), nil
 }
 
 // TestCoreTenantAuthAuthorizationContextIsTenantScoped exercises the production

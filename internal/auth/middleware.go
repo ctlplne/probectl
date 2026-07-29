@@ -54,11 +54,11 @@ func (a *Authenticator) Resolve(r *http.Request) (*Principal, error) {
 	if sess == nil {
 		return nil, nil
 	}
-	keys, err := a.perms.ForUser(r.Context(), sess.TenantID, sess.UserID)
+	grants, err := a.perms.ForUser(r.Context(), sess.TenantID, sess.UserID)
 	if err != nil {
 		return nil, err
 	}
-	return principalFromSession(sess, keys), nil
+	return principalFromSession(sess, grants), nil
 }
 
 // ResolveAndRotate resolves a cookie session and atomically rotates its opaque
@@ -75,20 +75,20 @@ func (a *Authenticator) ResolveAndRotate(r *http.Request) (*Principal, string, e
 	if sess == nil {
 		return nil, "", nil
 	}
-	keys, err := a.perms.ForUser(r.Context(), sess.TenantID, sess.UserID)
+	grants, err := a.perms.ForUser(r.Context(), sess.TenantID, sess.UserID)
 	if err != nil {
 		return nil, "", err
 	}
-	fingerprint := PermissionFingerprint(keys)
+	fingerprint := PermissionGrantFingerprint(grants)
 	if bytes.Equal(sess.AuthorizationHash, fingerprint) {
-		return principalFromSession(sess, keys), "", nil
+		return principalFromSession(sess, grants), "", nil
 	}
 	sess.AuthorizationHash = fingerprint
 	replacement, err := a.mgr.Rotate(r.Context(), token, *sess)
 	if err != nil {
 		return nil, "", err
 	}
-	return principalFromSession(sess, keys), replacement, nil
+	return principalFromSession(sess, grants), replacement, nil
 }
 
 // PermissionFingerprint returns a deterministic, non-secret digest of the
@@ -100,13 +100,51 @@ func PermissionFingerprint(keys []string) []byte {
 	return crypto.Hash([]byte(strings.Join(canonical, "\x00")))
 }
 
-// principalFromSession builds a Principal from a session + its permission keys.
-func principalFromSession(sess *Session, keys []string) *Principal {
-	set := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		set[k] = true
+// PermissionGrantFingerprint returns a deterministic authorization digest that
+// includes resource scope. Tenant-wide grants keep the historical key-only
+// representation, avoiding needless session rotation for existing deployments.
+func PermissionGrantFingerprint(grants []PermissionGrant) []byte {
+	canonical := make([]string, 0, len(grants))
+	for _, grant := range grants {
+		if grant.ScopeType == ScopeTenant && grant.ScopeID == "" {
+			canonical = append(canonical, grant.Permission)
+			continue
+		}
+		canonical = append(canonical, grant.Permission+"\x1f"+string(grant.ScopeType)+"\x1f"+grant.ScopeID)
 	}
-	return &Principal{
+	sort.Strings(canonical)
+	return crypto.Hash([]byte(strings.Join(canonical, "\x00")))
+}
+
+// TenantPermissionGrants converts the legacy tenant-wide key representation to
+// scoped grants. It is useful at compatibility seams and in small test fakes.
+func TenantPermissionGrants(keys []string) []PermissionGrant {
+	grants := make([]PermissionGrant, 0, len(keys))
+	for _, key := range keys {
+		grants = append(grants, PermissionGrant{Permission: key, ScopeType: ScopeTenant})
+	}
+	return grants
+}
+
+// PrincipalWithPermissionGrants attaches grants to p while exposing only valid
+// tenant-wide grants through its compatibility Permissions map.
+func PrincipalWithPermissionGrants(p *Principal, grants []PermissionGrant) *Principal {
+	if p == nil {
+		return nil
+	}
+	p.Permissions = make(map[string]bool)
+	p.PermissionGrants = append([]PermissionGrant(nil), grants...)
+	for _, grant := range grants {
+		if validPermissionGrant(grant) && grant.ScopeType == ScopeTenant {
+			p.Permissions[grant.Permission] = true
+		}
+	}
+	return p
+}
+
+// principalFromSession builds a Principal from a session + its permission grants.
+func principalFromSession(sess *Session, grants []PermissionGrant) *Principal {
+	p := &Principal{
 		TenantID:       sess.TenantID,
 		UserID:         sess.UserID,
 		Email:          sess.Email,
@@ -116,6 +154,6 @@ func principalFromSession(sess *Session, keys []string) *Principal {
 		Locale:         sess.Locale,
 		TenantTimeZone: sess.TenantTimeZone,
 		TenantLocale:   sess.TenantLocale,
-		Permissions:    set,
 	}
+	return PrincipalWithPermissionGrants(p, grants)
 }

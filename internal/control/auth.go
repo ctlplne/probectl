@@ -103,14 +103,14 @@ const (
 // the tenant boundary (RLS) when computing a user's effective permissions.
 type permLoader struct{ pool *pgxpool.Pool }
 
-func (l permLoader) ForUser(ctx context.Context, tenantID, userID string) ([]string, error) {
-	var keys []string
+func (l permLoader) ForUser(ctx context.Context, tenantID, userID string) ([]auth.PermissionGrant, error) {
+	var grants []auth.PermissionGrant
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), l.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		k, err := store.Permissions{}.ForSubject(ctx, sc, "user", userID)
-		keys = k
+		g, err := store.Permissions{}.ForSubject(ctx, sc, "user", userID)
+		grants = g
 		return err
 	})
-	return keys, err
+	return grants, err
 }
 
 type tenantIDPSource interface {
@@ -394,15 +394,14 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 	if asserted := strings.TrimSpace(r.Header.Get("X-Probectl-Tenant")); asserted != "" && asserted != tenantID {
 		return nil, store.ErrInvalidToken
 	}
-	keys, err := permLoader{pool: s.pool}.ForUser(ctx, tenantID, userID)
+	grants, err := permLoader{pool: s.pool}.ForUser(ctx, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
-	perms := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		perms[k] = true
-	}
-	p := &auth.Principal{TenantID: tenantID, UserID: userID, Permissions: perms}
+	p := auth.PrincipalWithPermissionGrants(
+		&auth.Principal{TenantID: tenantID, UserID: userID},
+		grants,
+	)
 	_ = s.inTenantID(ctx, tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := (store.Users{}).Get(ctx, sc, userID)
 		if err != nil {
@@ -500,6 +499,17 @@ func (s *Server) principalTenant(r *http.Request) (string, error) {
 // the caller is authenticated. The tenant boundary is enforced first (the
 // principal already carries exactly one tenant).
 func (s *Server) requirePermission(perm string, h apiHandler) apiHandler {
+	return s.requirePermissionMode(perm, false, h)
+}
+
+// requireAnyPermission is the route-edge half of resource-scoped RBAC. It lets
+// a valid scoped grant reach a handler that will first resolve the concrete
+// resource through tenant RLS and then call Principal.HasAt on that lineage.
+func (s *Server) requireAnyPermission(perm string, h apiHandler) apiHandler {
+	return s.requirePermissionMode(perm, true, h)
+}
+
+func (s *Server) requirePermissionMode(perm string, allowScoped bool, h apiHandler) apiHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		p := auth.PrincipalFrom(r.Context())
 		if p == nil {
@@ -519,7 +529,11 @@ func (s *Server) requirePermission(perm string, h apiHandler) apiHandler {
 			return apierror.Forbidden("multi-factor authentication required")
 		}
 		if perm != "" {
-			if !p.Has(perm) {
+			allowed := p.Has(perm)
+			if allowScoped {
+				allowed = p.HasAny(perm)
+			}
+			if !allowed {
 				return apierror.Forbidden("missing permission: " + perm)
 			}
 			// ABAC over RBAC (S31): a tenant attribute policy may DENY a permission an
@@ -656,7 +670,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	keys, err := (permLoader{pool: s.pool}).ForUser(r.Context(), tid.String(), user.ID)
+	grants, err := (permLoader{pool: s.pool}).ForUser(r.Context(), tid.String(), user.ID)
 	if err != nil {
 		return err
 	}
@@ -670,7 +684,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		Locale:            prefOrDefault(ident.Locale, "en"),
 		TenantTimeZone:    "UTC",
 		TenantLocale:      "en",
-		AuthorizationHash: auth.PermissionFingerprint(keys),
+		AuthorizationHash: auth.PermissionGrantFingerprint(grants),
 	}
 	// A completed IdP login is fresh authentication authority, not a permission
 	// refresh. It atomically consumes any predecessor while adopting the new

@@ -159,16 +159,12 @@ func (c coreTenantAuth) AuthorizationContext(ctx context.Context, sess *auth.Ses
 		return nil, nil, errors.New("provider: incomplete tenant authorization dependencies")
 	}
 
-	keys, err := c.perms.ForUser(ctx, sess.TenantID, sess.UserID)
+	grants, err := c.perms.ForUser(ctx, sess.TenantID, sess.UserID)
 	if err != nil {
 		return nil, nil, err
 	}
-	permissions := make(map[string]bool, len(keys))
-	for _, key := range keys {
-		permissions[key] = true
-	}
 
-	principal := &auth.Principal{
+	principal := auth.PrincipalWithPermissionGrants(&auth.Principal{
 		TenantID:       sess.TenantID,
 		UserID:         sess.UserID,
 		Email:          sess.Email,
@@ -178,8 +174,7 @@ func (c coreTenantAuth) AuthorizationContext(ctx context.Context, sess *auth.Ses
 		Locale:         sess.Locale,
 		TenantTimeZone: sess.TenantTimeZone,
 		TenantLocale:   sess.TenantLocale,
-		Permissions:    permissions,
-	}
+	}, grants)
 	var policies []auth.Policy
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(sess.TenantID)), c.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		user, err := (store.Users{}).Get(ctx, sc, sess.UserID)

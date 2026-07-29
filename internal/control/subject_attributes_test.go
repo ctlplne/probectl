@@ -70,8 +70,8 @@ type subjectAttributePermissions struct {
 	keys []string
 }
 
-func (p subjectAttributePermissions) ForUser(context.Context, string, string) ([]string, error) {
-	return append([]string(nil), p.keys...), nil
+func (p subjectAttributePermissions) ForUser(context.Context, string, string) ([]auth.PermissionGrant, error) {
+	return auth.TenantPermissionGrants(p.keys), nil
 }
 
 func TestSubjectAttributeLoadFailureFailsClosed(t *testing.T) {

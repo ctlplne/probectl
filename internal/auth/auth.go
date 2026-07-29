@@ -51,10 +51,38 @@ type Session struct {
 	ExpiresAt      time.Time
 	CreatedAt      time.Time
 	LastActivityAt time.Time
-	// AuthorizationHash fingerprints the effective permission keys at the
-	// moment this opaque token was issued. A changed fingerprint causes an
-	// atomic token rotation before the request continues.
+	// AuthorizationHash fingerprints the effective permission grants (including
+	// resource scope) at the moment this opaque token was issued. A changed
+	// fingerprint causes an atomic token rotation before the request continues.
 	AuthorizationHash []byte
+}
+
+// PermissionScope is the hierarchy level at which a role binding applies.
+// Tenant is the compatibility/default scope: it authorizes the whole tenant.
+// The other scopes authorize only the matching resource and its descendants.
+type PermissionScope string
+
+const (
+	ScopeTenant       PermissionScope = "tenant"
+	ScopeOrganization PermissionScope = "org"
+	ScopeTeam         PermissionScope = "team"
+	ScopeProject      PermissionScope = "project"
+)
+
+// PermissionGrant preserves the resource scope from the role binding that
+// produced an effective permission. ScopeID is empty only for tenant scope.
+type PermissionGrant struct {
+	Permission string
+	ScopeType  PermissionScope
+	ScopeID    string
+}
+
+// ResourceLineage identifies a tenant-owned hierarchy resource after it has
+// been resolved through the tenant's RLS-confined store.
+type ResourceLineage struct {
+	OrganizationID string
+	TeamID         string
+	ProjectID      string
 }
 
 // Principal is the authenticated caller resolved for a request: its tenant, user,
@@ -70,15 +98,93 @@ type Principal struct {
 	Locale         string
 	TenantTimeZone string
 	TenantLocale   string
-	Permissions    map[string]bool
+	// Permissions contains tenant-wide grants only. It remains the compatibility
+	// representation used by existing callers that construct a tenant principal.
+	Permissions map[string]bool
+	// PermissionGrants retains every valid tenant/resource-scoped RBAC grant.
+	PermissionGrants []PermissionGrant
 	// Attributes are the subject's ABAC attributes (from the user's SCIM-provisioned
 	// attributes plus derived ones like "mfa"). nil when ABAC is not in use.
 	Attributes map[string]string
 }
 
-// Has reports whether the principal holds permission key.
+// Has reports whether the principal holds permission key tenant-wide. A
+// resource-scoped role binding must never make this method return true.
 func (p *Principal) Has(key string) bool {
-	return p != nil && p.Permissions[key]
+	if p == nil {
+		return false
+	}
+	if p.Permissions[key] {
+		return true
+	}
+	for _, grant := range p.PermissionGrants {
+		if grant.Permission == key && validPermissionGrant(grant) && grant.ScopeType == ScopeTenant {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAny reports whether the principal has any valid grant for key. Callers
+// must still use HasAt before reading or mutating a concrete resource.
+func (p *Principal) HasAny(key string) bool {
+	if p == nil {
+		return false
+	}
+	if p.Has(key) {
+		return true
+	}
+	for _, grant := range p.PermissionGrants {
+		if grant.Permission == key && validPermissionGrant(grant) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAt reports whether key applies to the already tenant-resolved lineage.
+// Unknown/malformed scopes and incomplete target lineage fail closed.
+func (p *Principal) HasAt(key string, lineage ResourceLineage) bool {
+	if p == nil {
+		return false
+	}
+	if p.Has(key) {
+		return true
+	}
+	for _, grant := range p.PermissionGrants {
+		if grant.Permission != key || !validPermissionGrant(grant) {
+			continue
+		}
+		switch grant.ScopeType {
+		case ScopeOrganization:
+			if lineage.OrganizationID != "" && grant.ScopeID == lineage.OrganizationID {
+				return true
+			}
+		case ScopeTeam:
+			if lineage.TeamID != "" && grant.ScopeID == lineage.TeamID {
+				return true
+			}
+		case ScopeProject:
+			if lineage.ProjectID != "" && grant.ScopeID == lineage.ProjectID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validPermissionGrant(grant PermissionGrant) bool {
+	if grant.Permission == "" {
+		return false
+	}
+	switch grant.ScopeType {
+	case ScopeTenant:
+		return grant.ScopeID == ""
+	case ScopeOrganization, ScopeTeam, ScopeProject:
+		return grant.ScopeID != ""
+	default:
+		return false
+	}
 }
 
 // Attr returns a subject attribute value (empty if absent).
@@ -109,11 +215,11 @@ type SessionStore interface {
 	DeleteByHash(ctx context.Context, tokenHash []byte) error
 }
 
-// PermissionLoader returns a user's effective permission keys within its tenant
-// (resolved through the RBAC role bindings). The implementation enforces the
-// tenant boundary (RLS) when reading.
+// PermissionLoader returns a user's effective permission grants within its
+// tenant, preserving each role binding's resource scope. The implementation
+// enforces the tenant boundary (RLS) when reading.
 type PermissionLoader interface {
-	ForUser(ctx context.Context, tenantID, userID string) ([]string, error)
+	ForUser(ctx context.Context, tenantID, userID string) ([]PermissionGrant, error)
 }
 
 // Provider is one tenant's SSO provider (OIDC). AuthCodeURL begins the login

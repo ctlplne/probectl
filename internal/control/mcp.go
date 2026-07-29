@@ -328,15 +328,14 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 	if err != nil {
 		return nil, err
 	}
-	perms, err := permLoader(a).ForUser(ctx, tenantID, userID)
+	grants, err := permLoader(a).ForUser(ctx, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[string]bool, len(perms))
-	for _, k := range perms {
-		m[k] = true
-	}
-	p := &auth.Principal{TenantID: tenantID, UserID: userID, Permissions: m}
+	p := auth.PrincipalWithPermissionGrants(
+		&auth.Principal{TenantID: tenantID, UserID: userID},
+		grants,
+	)
 	var directoryAttributes map[string]string
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := (store.Users{}).Get(ctx, sc, userID)

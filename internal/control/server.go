@@ -568,7 +568,11 @@ func (s *Server) routes() http.Handler {
 		if p, ok := auditPolicyFor(rt.Method, rt.Pattern); ok && p.Mode == auditModeWrapped {
 			h = s.auditRoute(rt, p, h)
 		}
-		h = s.requirePermission(rt.Permission, h)
+		if hierarchyRouteAcceptsScopedGrant(rt.Method, rt.Pattern) {
+			h = s.requireAnyPermission(rt.Permission, h)
+		} else {
+			h = s.requirePermission(rt.Permission, h)
+		}
 		if lifecycle, ok := apiLifecycleFor(rt.Method, rt.Pattern); ok {
 			h = lifecycle.wrap(h)
 		}
