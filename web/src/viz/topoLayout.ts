@@ -26,8 +26,8 @@ export const T_MARGIN = 30
 /** Vertical room above the node grid for the per-kind column headers. */
 export const T_HEADER = 30
 
-/** Render cap for dense graphs (PR1 legibility guard). */
-export const MAX_NODES = 400
+/** Render cap for dense graphs, aligned with the path graph's interactive-node bound. */
+export const MAX_NODES = 120
 
 const KIND_ORDER = ['agent', 'hop', 'device', 'host', 'service', 'as', 'prefix']
 

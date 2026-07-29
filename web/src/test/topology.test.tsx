@@ -225,9 +225,10 @@ describe('topology + what-if (S43)', () => {
       vi.fn(async () => jsonResponse(big)),
     )
     renderApp('/topology')
-    expect(await screen.findByText(/showing 400 of 500 nodes/i)).toBeInTheDocument()
+    expect(await screen.findByText(/showing 120 of 500 nodes/i)).toBeInTheDocument()
 
     const graph = screen.getByRole('group', { name: /topology graph/i })
+    expect(within(graph).getAllByRole('button')).toHaveLength(120)
     expect(within(graph).queryByRole('button', { name: 'service zz-hidden-target' })).toBeNull()
 
     const table = screen.getByRole('table', { name: /topology nodes/i })
