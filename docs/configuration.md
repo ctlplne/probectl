@@ -143,7 +143,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS` | `90` | age-retention clock for derived topology and endpoint identity labels (hop IP labels, device labels, SSIDs, gateway/session targets). The daily lifecycle sweeper prunes stale labels from tenant query surfaces and appends `lifecycle.retention_sweep` receipts; `0` disables this derived-cache TTL. A tenant's tighter `flow_retention_days` shortens this clock too |
 | `PROBECTL_AUDIT_WORM_DIR` | (none) | enable write-once audit export — the provider audit chain is exported as Ed25519-signed segments into this directory (mount an S3/MinIO **object-lock** bucket for true write-once-read-many) and chain-verified each cycle. Helm requires this to be an absolute canonical path at/below `objectStore.mountPath` on a non-empty `objectStore.existingClaim`; WORM never renders onto `emptyDir` |
 | `PROBECTL_AUDIT_WORM_INTERVAL` | `1h` | bounded catch-up + chain-verify cadence. Each cycle exports up to eight 1,000-event pages, then performs a read-only lag probe. A fully drained and verified cycle advances `probectl_audit_worm_last_success_unix_seconds`; remaining work sets `probectl_audit_worm_lagging=1` and increments `probectl_audit_worm_lagged_cycles_total` immediately instead of reporting a false success |
-| `PROBECTL_AUDIT_RETENTION` | `0` in `single`; `8760h` in `multi-tenant` / `regulated` | audit-log retention window. `0` keeps audit history indefinitely and is allowed only in the single profile. A positive duration starts the hourly audit-retention runner. Tenant rows prune only when older than the window and at or below the durable SIEM cursor; provider rows prune only when older than the window and at or below the signed WORM watermark. `multi-tenant` / `regulated` reject disabled retention and missing `PROBECTL_AUDIT_WORM_DIR`, WORM signing key, or SIEM endpoint so raw audit PII cannot silently keep forever. The runner deletes only a contiguous eligible prefix, appends `audit.retention_prune` receipts, keeps subject-erasure markers, and fails closed on un-exported or in-window evidence. `/readyz.audit_retention` and `probectl_audit_retention_*` metrics expose whether raw rows are aging out. Set per the org's SOC2 CC7 / ISO 27001 A.12.4 evidence-retention requirement |
+| `PROBECTL_AUDIT_RETENTION` | `0` in `single`; `8760h` in `multi-tenant` / `regulated` | deployment maximum for local audit-log retention. `0` keeps provider history indefinitely in the single profile; a tenant may still set a finite `audit_retention_days` tightening. With a positive deployment value, tenant settings above it are rejected and `NULL` inherits it. The hourly runner resolves each tenant's effective window, but tenant rows prune only at or below their durable SIEM cursor; provider rows always use this deployment window and prune only at or below the signed WORM watermark. `multi-tenant` / `regulated` reject disabled retention and missing `PROBECTL_AUDIT_WORM_DIR`, WORM signing key, or SIEM endpoint so raw audit PII cannot silently keep forever. The runner deletes only a contiguous eligible prefix, appends `audit.retention_prune` receipts carrying the effective window, keeps subject-erasure markers, and fails closed on un-exported or in-window evidence. `/readyz.audit_retention` and `probectl_audit_retention_*` metrics expose the deployment-level provider posture. Set per the org's SOC2 CC7 / ISO 27001 A.12.4 evidence-retention requirement |
 | `PROBECTL_WORM_SIGNING_KEY_FILE` | (none) | single-replica path to the Ed25519 audit-export signing key (PKCS#8 PEM) — loaded, or GENERATED+persisted (0600) on first boot, so the key is **stable across restarts** (an ephemeral per-boot key would break cross-restart chain verification). Keep it on the persistent WORM claim. Helm rejects this setting when `replicaCount > 1` or HPA can scale above one. **Back it up like the envelope key** |
 | `PROBECTL_WORM_SIGNING_KEY` | (none) | base64-encoded Ed25519 private-key PEM (KMS/secret-manager injection) — wins over `PROBECTL_WORM_SIGNING_KEY_FILE`. Enabling audit export with neither set **fails closed** (no silent ephemeral key). Multi-replica Helm installs require one shared value in `secrets.existingSecret` |
 | `PROBECTL_OBJECTSTORE_DIR` | (none) | operator-owned filesystem object store for tenant artifacts such as browser synthetic screenshots. When set, the control plane creates this directory, artifact writers store tenant-prefixed objects under it, and tenant lifecycle export/erase inventories/deletes the same namespace. Mount encrypted durable storage; this is local/self-hosted custody, not a managed probectl service |
@@ -2191,16 +2191,21 @@ forever-copy of personal actor/data values.
 | `PROBECTL_BACKUP_RETENTION_DAYS` | `0` | concrete backup TTL in days. When `> 0`, the tenant-erasure attestation quantifies a bounded backup-coverage window (`backup_erasure_deadline` = erased_at + this many days); `0` = note-only |
 | `PROBECTL_ENVELOPE_KEY` / `PROBECTL_ENVELOPE_KEY_FILE` | (none) | the at-rest KEK (see the control-plane table) — also used by `probectl-control backup-seal`/`backup-open` to encrypt/restore backups. The chart's Postgres backup CronJob mounts it to seal dumps in the pipeline |
 
-The daily retention sweeper enforces the tenant policy from
+The daily lifecycle sweeper enforces most tenant policy fields from
 `GET/PUT /v1/lifecycle/retention`: `flow_retention_days`,
 `otel_retention_days`, `ebpf_retention_days`, `path_retention_days`,
 `audit_retention_days`, `ai_answer_retention_days`,
 `object_retention_days`, and `derived_identity_retention_days`. `NULL` means
 the deployment default remains in force; a tenant value can only tighten the
-clock. Stores with a safe tenant+cutoff delete hook prune and append a
+clock. An `audit_retention_days` value above a positive
+`PROBECTL_AUDIT_RETENTION` maximum is rejected with HTTP 422 before the policy
+or its audit event is written. Stores with a safe tenant+cutoff delete hook prune and append a
 `lifecycle.retention_sweep` receipt. Aggregate or externally governed stores
-append delegated/not-capable receipts that name the owning clock (audit WORM/SIEM
-watermarks, object-store lifecycle, or backend TTL) instead of over-claiming.
+append delegated/not-capable receipts that name the owning clock (object-store
+lifecycle or backend TTL) instead of over-claiming. Audit is handled by its
+hourly runner, which emits the tamper-evident `audit.retention_prune` receipt
+only with an actual exported-prefix prune and records that tenant's effective
+window.
 Prometheus-mode TSDB series deletion remains a documented manual step.
 
 ### Per-tenant metering & quotas (ee/)

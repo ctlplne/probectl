@@ -32,6 +32,72 @@ func TestRetentionPolicyLogic(t *testing.T) {
 	}
 }
 
+func TestTenantAuditRetentionEffectiveBound(t *testing.T) {
+	const (
+		thirtyDays     = 30 * 24 * time.Hour
+		threeSixtyFive = 365 * 24 * time.Hour
+		sevenThirty    = 730 * 24 * time.Hour
+	)
+	for _, tc := range []struct {
+		name       string
+		deployment RetentionPolicy
+		requested  time.Duration
+		want       time.Duration
+	}{
+		{
+			name:       "tenant tightening",
+			deployment: RetentionPolicy{Window: threeSixtyFive},
+			requested:  thirtyDays,
+			want:       thirtyDays,
+		},
+		{
+			name:       "tenant default",
+			deployment: RetentionPolicy{Window: threeSixtyFive},
+			want:       threeSixtyFive,
+		},
+		{
+			name:       "stale looser tenant row is clamped",
+			deployment: RetentionPolicy{Window: threeSixtyFive},
+			requested:  sevenThirty,
+			want:       threeSixtyFive,
+		},
+		{
+			name:      "finite tenant tightens keep forever",
+			requested: thirtyDays,
+			want:      thirtyDays,
+		},
+		{name: "keep forever without tenant override"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := effectiveTenantRetentionPolicy(tc.deployment, tc.requested)
+			if got.Window != tc.want {
+				t.Fatalf("effective window = %v, want %v", got.Window, tc.want)
+			}
+		})
+	}
+}
+
+func TestTenantAuditRetentionEffectiveWithGlobalKeepForeverStillChecksOverrides(t *testing.T) {
+	runner := NewRetentionRunnerPG(nil, RetentionPolicy{}, nil, nil).
+		WithTenantRetentionWindow(func(context.Context, string) (time.Duration, error) {
+			return 30 * 24 * time.Hour, nil
+		}).
+		WithTenantIDsForTest(func(context.Context) ([]string, error) {
+			return []string{"tenant-a"}, nil
+		}).
+		WithTenantWatermarkForTest(func(context.Context, string) (int64, error) {
+			return 0, nil
+		})
+
+	sum, err := runner.Tick(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.TenantsChecked != 1 || sum.ProviderPruned != 0 || sum.TenantPruned != 0 {
+		t.Fatalf("keep-forever override summary = %+v, want one checked tenant and no unexported prune", sum)
+	}
+}
+
 // TestPruneFailsClosedWithoutDB asserts the guards that short-circuit BEFORE any
 // SQL runs — so a misconfiguration can never delete audit history. With a nil
 // pool these must return (0, nil) by hitting the guard, never panic on the pool.

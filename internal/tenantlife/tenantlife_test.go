@@ -476,7 +476,6 @@ func TestRetentionSweepPerPlanePoliciesPruneAndReceipt(t *testing.T) {
 	p := retentionSweepPolicy{tenant: "tnA", days: map[string]int{
 		"otel":    1,
 		"ebpf":    1,
-		"audit":   30,
 		"objects": 7,
 	}}
 
@@ -484,9 +483,6 @@ func TestRetentionSweepPerPlanePoliciesPruneAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := e.sweepEBPFRetention(ctx, p); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner"); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle"); err != nil {
@@ -512,10 +508,12 @@ func TestRetentionSweepPerPlanePoliciesPruneAndReceipt(t *testing.T) {
 			t.Fatalf("%s receipt = %+v", store, byStore[store])
 		}
 	}
-	for _, store := range []string{"audit", "objects"} {
-		if byStore[store]["status"] != "delegated" || byStore[store]["retention_days"] == nil {
-			t.Fatalf("%s delegated receipt = %+v", store, byStore[store])
-		}
+	if byStore["objects"]["status"] != "delegated" ||
+		byStore["objects"]["retention_days"] == nil {
+		t.Fatalf("object delegated receipt = %+v", byStore["objects"])
+	}
+	if _, found := byStore["audit"]; found {
+		t.Fatalf("lifecycle sweep emitted misleading delegated audit receipt: %+v", byStore["audit"])
 	}
 }
 

@@ -6934,7 +6934,7 @@
         }
       },
       "put": {
-        "summary": "Set the tenant's flow-retention days (null = deployment default; audited)",
+        "summary": "Set the tenant's per-plane retention policy (null = deployment default; audited atomically)",
         "requestBody": {
           "required": true,
           "content": {
@@ -6955,6 +6955,10 @@
                 }
               }
             }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse",
+            "description": "Validation failed, including audit_retention_days above the positive deployment maximum."
           }
         }
       }
@@ -13990,7 +13994,7 @@
           "audit_retention_days": {
             "type": ["integer", "null"],
             "minimum": 1,
-            "description": "Per-tenant audit retention target in days; pruning still requires durable WORM/SIEM watermarks."
+            "description": "Per-tenant local audit retention in days; null inherits the deployment window, and a finite value may only tighten a positive deployment maximum. Pruning still requires the tenant's durable SIEM watermark."
           },
           "ai_answer_retention_days": {
             "type": ["integer", "null"],
@@ -14037,7 +14041,8 @@
           },
           "audit_retention_days": {
             "type": ["integer", "null"],
-            "minimum": 1
+            "minimum": 1,
+            "description": "Stored per-tenant audit-retention tightening; null inherits the deployment window."
           },
           "ai_answer_retention_days": {
             "type": ["integer", "null"],

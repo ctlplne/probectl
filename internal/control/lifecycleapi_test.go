@@ -193,3 +193,32 @@ func TestLifecycleRetentionPolicyAuditFailureReturnsStableError(t *testing.T) {
 		)
 	}
 }
+
+func TestTenantAuditRetentionBoundReturnsClientValidationError(t *testing.T) {
+	fake := &fakeTenantLifecycle{setErr: tenantlife.ErrAuditRetentionExceedsMaximum}
+	srv := testServer(fakePinger{})
+	srv.tenantLife = fake
+
+	rec := lifecycleReq(t, srv, http.MethodPut, "/v1/lifecycle/retention", map[string]any{
+		"audit_retention_days": 366,
+	})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Code != "validation" ||
+		body.Error.Message != "audit_retention_days cannot exceed the deployment audit-retention maximum" {
+		t.Fatalf("client validation error = %+v", body.Error)
+	}
+	if fake.set.AuditRetentionDays == nil || *fake.set.AuditRetentionDays != 366 {
+		t.Fatalf("engine did not receive bounded tenant audit policy: %+v", fake.set)
+	}
+}

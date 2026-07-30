@@ -32,9 +32,12 @@ describe('tenant data lifecycle (S-T5)', () => {
     expect(screen.getByLabelText(/otlp days/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/audit days/i)).toBeInTheDocument()
     expect(
-      screen.getByText(/multi-tenant and regulated profiles default to 365 days/i),
+      screen.getByText(/tenant value can only shorten a positive deployment maximum/i),
     ).toBeInTheDocument()
-    expect(screen.getByText(/readyz reports if raw rows are not aging out/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/tenant pruning always waits for its SIEM export cursor/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/provider pruning always waits for WORM evidence/i)).toBeInTheDocument()
   })
 
   test('residency + isolation render for a siloed tenant', async () => {

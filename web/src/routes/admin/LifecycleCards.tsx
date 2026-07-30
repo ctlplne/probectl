@@ -126,9 +126,10 @@ export function LifecycleCard() {
               </a>
             </p>
             <p className={styles.editionsLede}>
-              Audit retention is deployment-level: single deployments can keep local rows forever;
-              multi-tenant and regulated profiles default to 365 days and require WORM/SIEM export
-              receipts before pruning. /readyz reports if raw rows are not aging out.
+              Audit retention defaults to the deployment window. A tenant value can only shorten a
+              positive deployment maximum; single deployments may keep provider rows forever while
+              still setting a finite tenant window. Tenant pruning always waits for its SIEM export
+              cursor, and provider pruning always waits for WORM evidence.
             </p>
             <form
               className={styles.actions}

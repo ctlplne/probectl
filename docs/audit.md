@@ -107,9 +107,13 @@ than silently continuing — that's the signal to investigate.
   bad action is the job of access control (see [scim-abac.md](scim-abac.md)), not the log.
 - **Retention is a setting with consequences.** The `single` profile defaults
   to keep-forever; `multi-tenant` and `regulated` default to a finite `8760h`
-  window and fail closed without WORM/SIEM export-watermark configuration. When
-  `PROBECTL_AUDIT_RETENTION` is positive, the hourly pruner removes only old
-  rows already covered by durable WORM/SIEM watermarks. A small, non-prunable
+  deployment maximum and fail closed without WORM/SIEM export-watermark
+  configuration. A tenant's `audit_retention_days` may tighten that maximum;
+  `NULL` inherits it, and a finite override still works when a single
+  deployment keeps provider rows forever. The hourly pruner removes only old
+  rows already covered by durable WORM/SIEM watermarks. Provider/break-glass
+  rows always use the deployment window; tenant prune receipts record the
+  tenant's actual effective window. A small, non-prunable
   per-stream metadata row preserves the highest-ever sequence/hash and the
   last-pruned sequence/hash, so even a full local prune cannot reset the chain
   behind an export cursor. Prefix deletion, prune-anchor advance, and the

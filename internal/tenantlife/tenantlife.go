@@ -39,6 +39,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
@@ -70,9 +71,17 @@ const (
 	retentionAuditTimeout       = 5 * time.Second
 	retentionPolicyAuditAction  = "lifecycle.retention_set"
 	maxRetentionAuditActorBytes = 256
+	auditRetentionDay           = 24 * time.Hour
+	maxAuditRetentionDays       = int64((1<<63 - 1) / int64(auditRetentionDay))
 )
 
 var errRetentionAuditUnavailable = errors.New("tenantlife: retention audit sink is unavailable")
+
+// ErrAuditRetentionExceedsMaximum means a tenant tried to retain local audit
+// rows longer than the deployment allows. HTTP surfaces map this domain error
+// to client validation; direct engine callers fail before either policy or
+// audit state is written.
+var ErrAuditRetentionExceedsMaximum = errors.New("tenantlife: audit retention exceeds deployment maximum")
 
 type retentionPolicyAuditAppender func(
 	context.Context,
@@ -181,6 +190,10 @@ type Engine struct {
 	// derivedIdentityRetentionDays bounds topology/endpoint identity labels
 	// that are rebuilt from higher-volume source stores. 0 disables age pruning.
 	derivedIdentityRetentionDays int
+	// auditRetentionMaximum is the deployment's local audit window. Positive
+	// values are a hard upper bound for tenant policy; zero is keep-forever
+	// and therefore permits any finite, representable tenant tightening.
+	auditRetentionMaximum time.Duration
 }
 
 // New wires the engine. flows/objects/tsdb may be nil (that store absent in
@@ -261,6 +274,14 @@ func (e *Engine) WithDerivedIdentityRetentionDays(days int) *Engine {
 		days = 0
 	}
 	e.derivedIdentityRetentionDays = days
+	return e
+}
+
+// WithAuditRetentionMaximum sets the deployment-level upper bound for tenant
+// audit retention. A non-positive maximum is the keep-forever default: finite
+// tenant values still tighten it and are enforced by the dedicated runner.
+func (e *Engine) WithAuditRetentionMaximum(window time.Duration) *Engine {
+	e.auditRetentionMaximum = window
 	return e
 }
 
@@ -778,6 +799,38 @@ SELECT flow_retention_days, otel_retention_days, ebpf_retention_days,
 	return p, err
 }
 
+// ProviderAuditRetentionWindowFor returns one tenant's requested finite audit
+// window from the provider-owned policy table. It is intentionally a provider
+// maintenance read rather than RetentionFor's caller-scoped read: the scheduler
+// enumerates tenants across the deployment, while the restricted provider role
+// remains unable to read any tenant telemetry or audit payloads.
+//
+// Zero means "inherit the deployment default". The audit runner applies the
+// deployment bound again at the deletion boundary, so stale rows written under
+// an older configuration cannot loosen a newly tightened maximum.
+func (e *Engine) ProviderAuditRetentionWindowFor(ctx context.Context, tenantID string) (time.Duration, error) {
+	var days *int
+	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(
+			ctx,
+			`SELECT audit_retention_days
+			   FROM public.tenant_retention
+			  WHERE tenant_id = $1`,
+			tenantID,
+		).Scan(&days)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if days == nil {
+		return 0, nil
+	}
+	return storedAuditRetentionWindow(*days, e.auditRetentionMaximum)
+}
+
 // SetRetention upserts a tenant's policy and appends exactly one engine-owned,
 // tamper-evident audit event in the same RLS-enforced tenant transaction. The
 // authoritative tenant must already be present in ctx; policy data can never
@@ -804,7 +857,7 @@ func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy, actor stri
 			maxRetentionAuditActorBytes,
 		)
 	}
-	if err := validateRetentionPolicy(p); err != nil {
+	if err := validateRetentionPolicy(p, e.auditRetentionMaximum); err != nil {
 		return err
 	}
 	if e.appendRetentionPolicyAudit == nil {
@@ -871,13 +924,26 @@ func upsertRetentionPolicy(ctx context.Context, sc tenancy.Scope, p RetentionPol
 	return err
 }
 
-func validateRetentionPolicy(p RetentionPolicy) error {
+func validateRetentionPolicy(p RetentionPolicy, auditMaximum time.Duration) error {
+	if p.AuditRetentionDays != nil {
+		requested, err := auditRetentionWindow(*p.AuditRetentionDays)
+		if err != nil {
+			return err
+		}
+		if auditMaximum > 0 && requested > auditMaximum {
+			return fmt.Errorf(
+				"%w: requested %d days, deployment maximum %s",
+				ErrAuditRetentionExceedsMaximum,
+				*p.AuditRetentionDays,
+				auditMaximum,
+			)
+		}
+	}
 	fields := map[string]*int{
 		"flow_retention_days":             p.FlowRetentionDays,
 		"otel_retention_days":             p.OtelRetentionDays,
 		"ebpf_retention_days":             p.EBPFRetentionDays,
 		"path_retention_days":             p.PathRetentionDays,
-		"audit_retention_days":            p.AuditRetentionDays,
 		"ai_answer_retention_days":        p.AIAnswerRetentionDays,
 		"object_retention_days":           p.ObjectRetentionDays,
 		"derived_identity_retention_days": p.DerivedIdentityRetentionDays,
@@ -888,6 +954,34 @@ func validateRetentionPolicy(p RetentionPolicy) error {
 		}
 	}
 	return nil
+}
+
+func auditRetentionWindow(days int) (time.Duration, error) {
+	if days < 1 {
+		return 0, errors.New("tenantlife: audit_retention_days must be >= 1 (null = deployment default)")
+	}
+	if int64(days) > maxAuditRetentionDays {
+		return 0, fmt.Errorf(
+			"%w: requested %d days exceeds the supported duration",
+			ErrAuditRetentionExceedsMaximum,
+			days,
+		)
+	}
+	return time.Duration(days) * auditRetentionDay, nil
+}
+
+func storedAuditRetentionWindow(days int, deploymentMaximum time.Duration) (time.Duration, error) {
+	// Existing rows can outlive a configuration change or predate the write
+	// bound. Legacy non-positive rows inherit; clamp oversized positive rows
+	// before multiplying so neither case can disable a finite deployment run.
+	if days <= 0 {
+		return 0, nil
+	}
+	if deploymentMaximum > 0 &&
+		int64(days) > int64(deploymentMaximum/auditRetentionDay) {
+		return deploymentMaximum, nil
+	}
+	return auditRetentionWindow(days)
 }
 
 type retentionSweepPolicy struct {
@@ -929,7 +1023,6 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 			p.setDays("otel", otel)
 			p.setDays("ebpf", ebpf)
 			p.setDays("path", path)
-			p.setDays("audit", auditDays)
 			p.setDays("ai_answers", ai)
 			p.setDays("objects", object)
 			p.setDays("derived_identity", derived)
@@ -953,7 +1046,6 @@ func (e *Engine) sweepRetentionPolicies(ctx context.Context, policies []retentio
 			e.sweepEBPFRetention(ctx, p),
 			e.sweepPathRetention(ctx, p),
 			e.sweepAIAnswerRetention(ctx, p),
-			e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner"),
 			e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle"),
 			e.pruneDerivedIdentityCaches(ctx, p),
 		)

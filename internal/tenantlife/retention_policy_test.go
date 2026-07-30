@@ -11,6 +11,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -45,5 +46,58 @@ func TestRetentionAuditMandatoryActorAndTenantScopeBeforeStorage(t *testing.T) {
 	if err := engine.SetRetention(ctxA, policyA, oversized); err == nil ||
 		!strings.Contains(err.Error(), "audit actor exceeds") {
 		t.Fatalf("oversized actor error = %v, want bounded audit identity", err)
+	}
+}
+
+func TestTenantAuditRetentionBoundRejectsLooserPolicyBeforeStorage(t *testing.T) {
+	const tenantID = "00000000-0000-0000-0000-0000000000a1"
+	maximum := 365 * 24 * time.Hour
+	tooLong := 366
+	engine := New(nil, nil, nil, nil, nil, "", nil).
+		WithAuditRetentionMaximum(maximum)
+
+	err := engine.SetRetention(
+		tenancy.WithTenant(context.Background(), tenancy.ID(tenantID)),
+		RetentionPolicy{TenantID: tenantID, AuditRetentionDays: &tooLong},
+		"actor",
+	)
+	if !errors.Is(err, ErrAuditRetentionExceedsMaximum) {
+		t.Fatalf("above-maximum audit retention error = %v, want %v", err, ErrAuditRetentionExceedsMaximum)
+	}
+
+	thirty := 30
+	if err := validateRetentionPolicy(
+		RetentionPolicy{TenantID: tenantID, AuditRetentionDays: &thirty},
+		maximum,
+	); err != nil {
+		t.Fatalf("30-day tenant tightening rejected under 365-day maximum: %v", err)
+	}
+	if err := validateRetentionPolicy(
+		RetentionPolicy{TenantID: tenantID, AuditRetentionDays: &thirty},
+		0,
+	); err != nil {
+		t.Fatalf("finite tenant tightening rejected under keep-forever deployment: %v", err)
+	}
+
+	staleOversized := int(maxAuditRetentionDays + 1)
+	got, err := storedAuditRetentionWindow(staleOversized, maximum)
+	if err != nil || got != maximum {
+		t.Fatalf(
+			"stale oversized stored window = (%v, %v), want deployment clamp (%v, nil)",
+			got,
+			err,
+			maximum,
+		)
+	}
+	for _, legacy := range []int{0, -1} {
+		got, err := storedAuditRetentionWindow(legacy, maximum)
+		if err != nil || got != 0 {
+			t.Fatalf(
+				"legacy stored window %d = (%v, %v), want inherited (0, nil)",
+				legacy,
+				got,
+				err,
+			)
+		}
 	}
 }

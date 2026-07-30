@@ -3843,7 +3843,7 @@ func (c *Client) GetV1LifecycleRetention(ctx context.Context, req GetV1Lifecycle
 	return &out, nil
 }
 
-// Set the tenant's flow-retention days (null = deployment default; audited)
+// Set the tenant's per-plane retention policy (null = deployment default; audited atomically)
 type PutV1LifecycleRetentionRequest struct {
 	Body *LifecycleRetentionInput `json:"-"`
 }

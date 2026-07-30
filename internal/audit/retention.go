@@ -68,6 +68,12 @@ type TenantWatermarkFunc func(context.Context, string) (int64, error)
 // TenantIDsFunc returns tenants whose audit streams should be considered.
 type TenantIDsFunc func(context.Context) ([]string, error)
 
+// TenantRetentionWindowFunc returns one tenant's requested local audit window.
+// A non-positive result inherits the deployment window. The runner applies the
+// deployment bound itself, so a stale or faulty resolver can never loosen a
+// positive deployment maximum.
+type TenantRetentionWindowFunc func(context.Context, string) (time.Duration, error)
+
 // RetentionSummary is the aggregate receipt for one runner tick.
 type RetentionSummary struct {
 	ProviderPruned int64
@@ -85,6 +91,7 @@ type RetentionRunner struct {
 	providerWatermark ProviderWatermarkFunc
 	tenantWatermark   TenantWatermarkFunc
 	tenantIDs         TenantIDsFunc
+	tenantWindow      TenantRetentionWindowFunc
 	log               *slog.Logger
 	now               func() time.Time
 }
@@ -124,6 +131,14 @@ func (r *RetentionRunner) WithTenantIDsForTest(fn TenantIDsFunc) *RetentionRunne
 	return r
 }
 
+// WithTenantRetentionWindow attaches the tenant policy owner. The callback
+// returns only a requested window; RetentionRunner remains the enforcement
+// boundary that defaults and clamps it against the deployment policy.
+func (r *RetentionRunner) WithTenantRetentionWindow(fn TenantRetentionWindowFunc) *RetentionRunner {
+	r.tenantWindow = fn
+	return r
+}
+
 // WithNowForTest replaces the clock.
 func (r *RetentionRunner) WithNowForTest(fn func() time.Time) *RetentionRunner {
 	r.now = fn
@@ -152,11 +167,11 @@ func (r *RetentionRunner) Run(ctx context.Context, interval time.Duration) {
 // Tick runs one prune pass. Disabled retention is a no-op.
 func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 	var sum RetentionSummary
-	if r == nil || !r.policy.Enabled() {
+	if r == nil || (!r.policy.Enabled() && r.tenantWindow == nil) {
 		return sum, nil
 	}
 	now := r.now()
-	if r.providerWatermark != nil {
+	if r.policy.Enabled() && r.providerWatermark != nil {
 		watermark, err := r.providerWatermark(ctx)
 		if err != nil {
 			return sum, fmt.Errorf("provider audit watermark: %w", err)
@@ -173,12 +188,24 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 	}
 	sum.TenantsChecked = len(tenants)
 	for _, tenantID := range tenants {
+		policy := r.policy
+		if r.tenantWindow != nil {
+			requested, err := r.tenantWindow(ctx, tenantID)
+			if err != nil {
+				r.log.Warn("tenant audit retention policy failed", "tenant", tenantID, "error", err)
+				continue
+			}
+			policy = effectiveTenantRetentionPolicy(r.policy, requested)
+		}
+		if !policy.Enabled() {
+			continue
+		}
 		watermark, err := r.tenantWatermark(ctx, tenantID)
 		if err != nil {
 			r.log.Warn("tenant audit watermark failed", "tenant", tenantID, "error", err)
 			continue
 		}
-		pruned, err := PruneTenant(ctx, r.pool, tenantID, r.policy, watermark, now)
+		pruned, err := PruneTenant(ctx, r.pool, tenantID, policy, watermark, now)
 		if err != nil {
 			r.log.Warn("tenant audit prune failed", "tenant", tenantID, "error", err)
 			continue
@@ -190,9 +217,19 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 			"provider_pruned", sum.ProviderPruned,
 			"tenant_pruned", sum.TenantPruned,
 			"tenants_checked", sum.TenantsChecked,
-			"retention", r.policy.Window.String())
+			"provider_retention", r.policy.Window.String())
 	}
 	return sum, nil
+}
+
+func effectiveTenantRetentionPolicy(deployment RetentionPolicy, requested time.Duration) RetentionPolicy {
+	if requested <= 0 {
+		return deployment
+	}
+	if !deployment.Enabled() || requested < deployment.Window {
+		return RetentionPolicy{Window: requested}
+	}
+	return deployment
 }
 
 func retentionReceiptData(stream, tenantID string, pruned, watermark int64, cutoff time.Time, window time.Duration) map[string]any {

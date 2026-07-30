@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -197,6 +198,9 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 	}
 	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(tid))
 	if err := e.SetRetention(ctx, policy, auditActor(r)); err != nil {
+		if errors.Is(err, tenantlife.ErrAuditRetentionExceedsMaximum) {
+			return apierror.Validation("audit_retention_days cannot exceed the deployment audit-retention maximum")
+		}
 		return apierror.Internal("retention update failed").Wrap(err)
 	}
 	status, err := s.lifecycleStatusForPolicy(r.Context(), tid, policy)

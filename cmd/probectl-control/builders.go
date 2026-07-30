@@ -755,7 +755,8 @@ func startHAAndTenantLifecycle(
 		func(ctx context.Context, actor, action, target string, data map[string]any) error {
 			_, err := audit.ProviderAppend(ctx, db.Pool(), actor, action, target, data)
 			return err
-		}, cfg.BackupRetentionNote, cfg.BackupRetentionDays, log)
+		}, cfg.BackupRetentionNote, cfg.BackupRetentionDays, log).
+		WithAuditRetentionMaximum(cfg.AuditRetention)
 	if pd, ok := pathStore.(tenantlife.PathDeleter); ok {
 		lifeEngine.WithPaths(pd)
 	}
@@ -794,19 +795,23 @@ func startHAAndTenantLifecycle(
 		}
 		log.Info("audit WORM export enabled", "dir", cfg.AuditWORMDir, "interval", cfg.AuditWORMInterval.String())
 	}
-	if cfg.AuditRetention > 0 {
-		retention := audit.NewRetentionRunnerPG(db.Pool(), audit.RetentionPolicy{Window: cfg.AuditRetention}, providerAuditWatermark, log)
-		if err := singletons.Register("audit-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
-			retention.Run(ctx, time.Hour)
-			return nil
-		}); err != nil {
-			return nil, err
-		}
-		log.Info("audit retention prune enabled",
-			"retention", cfg.AuditRetention.String(),
-			"interval", time.Hour.String(),
-			"provider_watermark", providerAuditWatermark != nil)
+	retention := audit.NewRetentionRunnerPG(
+		db.Pool(),
+		audit.RetentionPolicy{Window: cfg.AuditRetention},
+		providerAuditWatermark,
+		log,
+	).WithTenantRetentionWindow(lifeEngine.ProviderAuditRetentionWindowFor)
+	if err := singletons.Register("audit-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
+		retention.Run(ctx, time.Hour)
+		return nil
+	}); err != nil {
+		return nil, err
 	}
+	log.Info("audit retention runner enabled",
+		"provider_retention", cfg.AuditRetention.String(),
+		"tenant_overrides", true,
+		"interval", time.Hour.String(),
+		"provider_watermark", providerAuditWatermark != nil)
 
 	srv.WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
 	return lifeEngine, nil

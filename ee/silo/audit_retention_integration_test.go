@@ -21,6 +21,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
@@ -333,5 +334,184 @@ func TestAuditRetentionRoutesSiloAndPooledSequenceAnchors(t *testing.T) {
 	}
 	if got := countIn(t, pool, schema+".audit_events", pooledID); got != 0 {
 		t.Fatalf("pooled audit rows leaked into silo table: %d", got)
+	}
+}
+
+func TestTenantAuditRetentionEffectivePruneSiloIsolation(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := context.Background()
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	pooledID := mkTenant(t, pool, "audit-policy-pool-"+stamp, "pooled", "")
+	siloedID := mkTenant(t, pool, "audit-policy-silo-"+stamp, "siloed", "")
+	provisioner := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
+	if err := provisioner.Provision(ctx, siloedID, "", tenancy.IsolationSiloed); err != nil {
+		t.Fatalf("provision audit-policy silo: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := provisioner.Teardown(ctx, siloedID, "", tenancy.IsolationSiloed); err != nil {
+			t.Errorf("cleanup audit-policy silo: %v", err)
+		}
+	})
+	schema := SchemaName(siloedID)
+	quotedSchema := pgx.Identifier{schema}.Sanitize()
+
+	router := NewRouter(pool, nil, time.Second)
+	tenancy.SetRouter(router)
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+
+	for _, tenantID := range []string{siloedID, pooledID} {
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				if _, err := audit.TenantAppend(
+					ctx,
+					scope,
+					"audit-policy-test",
+					"retention.old.exported",
+					tenantID,
+					nil,
+				); err != nil {
+					return err
+				}
+				return (store.SIEMDelivery{}).Advance(ctx, scope, 1)
+			},
+		)
+		if err != nil {
+			t.Fatalf("seed audit-policy stream %s: %v", tenantID, err)
+		}
+	}
+	now := time.Now().UTC()
+	old := now.Add(-40 * 24 * time.Hour)
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE public.audit_events
+		    SET created_at = $1
+		  WHERE tenant_id = $2::uuid`,
+		old,
+		pooledID,
+	); err != nil {
+		t.Fatalf("backdate pooled audit-policy stream: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE `+quotedSchema+`.audit_events
+		    SET created_at = $1
+		  WHERE tenant_id = $2::uuid`,
+		old,
+		siloedID,
+	); err != nil {
+		t.Fatalf("backdate silo audit-policy stream: %v", err)
+	}
+
+	const deploymentWindow = 365 * 24 * time.Hour
+	life := tenantlife.New(
+		pool,
+		nil,
+		nil,
+		nil,
+		func(ctx context.Context, actor, action, target string, data map[string]any) error {
+			_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+			return err
+		},
+		"",
+		log,
+	).WithAuditRetentionMaximum(deploymentWindow)
+	thirtyDays := 30
+	if err := life.SetRetention(
+		tenancy.WithTenant(ctx, tenancy.ID(siloedID)),
+		tenantlife.RetentionPolicy{
+			TenantID:           siloedID,
+			AuditRetentionDays: &thirtyDays,
+			UpdatedBy:          "silo-tenant-admin",
+		},
+		"silo-tenant-admin",
+	); err != nil {
+		t.Fatalf("set silo tenant audit policy: %v", err)
+	}
+
+	runner := audit.NewRetentionRunnerPG(
+		pool,
+		audit.RetentionPolicy{Window: deploymentWindow},
+		nil,
+		log,
+	).WithTenantRetentionWindow(life.ProviderAuditRetentionWindowFor).
+		WithTenantIDsForTest(func(context.Context) ([]string, error) {
+			return []string{siloedID, pooledID}, nil
+		}).
+		WithNowForTest(func() time.Time { return now })
+	summary, err := runner.Tick(ctx)
+	if err != nil {
+		t.Fatalf("run silo effective audit retention: %v", err)
+	}
+	if summary.TenantPruned != 1 || summary.TenantsChecked != 2 {
+		t.Fatalf("silo effective retention summary = %+v, want silo-only prune", summary)
+	}
+
+	if got := countIn(t, pool, schema+".audit_events", siloedID); got != 2 {
+		t.Fatalf("silo retained policy+receipt rows = %d, want 2", got)
+	}
+	if got := countIn(t, pool, "public.audit_events", siloedID); got != 0 {
+		t.Fatalf("silo audit policy leaked into pooled table: %d", got)
+	}
+	if got := countIn(t, pool, "public.audit_events", pooledID); got != 1 {
+		t.Fatalf("default-window pooled old rows = %d, want retained 1", got)
+	}
+	if got := countIn(t, pool, schema+".audit_events", pooledID); got != 0 {
+		t.Fatalf("pooled audit row leaked into silo table: %d", got)
+	}
+
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(siloedID)),
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			var oldRows int64
+			var receiptWindow string
+			if err := scope.Q.QueryRow(
+				ctx,
+				`SELECT count(*) FROM audit_events
+				  WHERE tenant_id = $1::uuid
+				    AND action = 'retention.old.exported'`,
+				siloedID,
+			).Scan(&oldRows); err != nil {
+				return err
+			}
+			if oldRows != 0 {
+				return fmt.Errorf("silo old audit rows = %d, want pruned", oldRows)
+			}
+			if err := scope.Q.QueryRow(
+				ctx,
+				`SELECT data->>'retention_window'
+				   FROM audit_events
+				  WHERE tenant_id = $1::uuid AND action = $2`,
+				siloedID,
+				audit.RetentionPruneAction,
+			).Scan(&receiptWindow); err != nil {
+				return err
+			}
+			if receiptWindow != (30 * 24 * time.Hour).String() {
+				return fmt.Errorf(
+					"silo receipt window = %q, want %q",
+					receiptWindow,
+					(30 * 24 * time.Hour).String(),
+				)
+			}
+			return audit.TenantVerify(ctx, scope)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(pooledID)),
+		pool,
+		audit.TenantVerify,
+	)
+	if err != nil {
+		t.Fatalf("verify pooled default-window tenant: %v", err)
 	}
 }
