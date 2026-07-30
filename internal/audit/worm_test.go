@@ -148,6 +148,23 @@ func (s *refusingLimitedListStore) ListLimited(_ context.Context, prefix string,
 	return nil, objectstore.ErrTooMany
 }
 
+type duplicateArtifactListStore struct {
+	objectstore.Store
+	duplicate string
+}
+
+func (s *duplicateArtifactListStore) ListLimited(
+	ctx context.Context,
+	prefix string,
+	limit int,
+) ([]string, error) {
+	keys, err := s.Store.ListLimited(ctx, prefix, limit)
+	if err != nil {
+		return nil, err
+	}
+	return append(keys, s.duplicate), nil
+}
+
 func TestWORMFailsClosedOnAggregateSegmentArtifactLimit(t *testing.T) {
 	base := objectstore.NewMemory()
 	objects := &refusingLimitedListStore{Store: base}
@@ -163,6 +180,198 @@ func TestWORMFailsClosedOnAggregateSegmentArtifactLimit(t *testing.T) {
 	if objects.prefix != wormPrefix+"segment-" || objects.limit != maxWORMSegmentArtifacts {
 		t.Fatalf("limited list call = (%q, %d), want (%q, %d)",
 			objects.prefix, objects.limit, wormPrefix+"segment-", maxWORMSegmentArtifacts)
+	}
+}
+
+func TestWORMOrphanArtifactsRejectSignatureAndTail(t *testing.T) {
+	const (
+		firstSegment = wormPrefix + "segment-000000000001-000000000001.json"
+		tailSegment  = wormPrefix + "segment-000000000002-000000000002.json"
+	)
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name string
+		want string
+		make func(*testing.T) *WormExporter
+	}{
+		{
+			name: "deleted tail JSON leaves orphan signature",
+			want: "orphan signature",
+			make: func(t *testing.T) *WormExporter {
+				t.Helper()
+				store := objectstore.NewMemory()
+				events := chainedEvents(2)
+				w, err := NewWormExporterEphemeralForTest(sourceOf(events[:1]), store, testLog())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if n, err := w.ExportOnce(ctx); err != nil || n != 1 {
+					t.Fatalf("first export = (%d, %v), want (1, nil)", n, err)
+				}
+				w.source = sourceOf(events)
+				if n, err := w.ExportOnce(ctx); err != nil || n != 1 {
+					t.Fatalf("tail export = (%d, %v), want (1, nil)", n, err)
+				}
+				tailSig, err := store.Get(ctx, tailSegment+".sig")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if deleted, err := store.DeletePrefix(ctx, tailSegment); err != nil || deleted != 2 {
+					t.Fatalf("delete tail JSON pair = (%d, %v), want (2, nil)", deleted, err)
+				}
+				if err := store.Put(
+					ctx,
+					tailSegment+".sig",
+					"application/octet-stream",
+					tailSig.Data,
+				); err != nil {
+					t.Fatal(err)
+				}
+				return w
+			},
+		},
+		{
+			name: "signature-only directory",
+			want: "orphan signature",
+			make: func(t *testing.T) *WormExporter {
+				t.Helper()
+				store := objectstore.NewMemory()
+				w, err := NewWormExporterEphemeralForTest(sourceOf(nil), store, testLog())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := store.Put(
+					ctx,
+					firstSegment+".sig",
+					"application/octet-stream",
+					bytes.Repeat([]byte("s"), crypto.Ed25519SignatureSize),
+				); err != nil {
+					t.Fatal(err)
+				}
+				return w
+			},
+		},
+		{
+			name: "malformed signature artifact",
+			want: "invalid audit WORM segment artifact",
+			make: func(t *testing.T) *WormExporter {
+				t.Helper()
+				store := objectstore.NewMemory()
+				w, err := NewWormExporterEphemeralForTest(sourceOf(nil), store, testLog())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := store.Put(
+					ctx,
+					wormPrefix+"segment-not-canonical.sig",
+					"application/octet-stream",
+					bytes.Repeat([]byte("s"), crypto.Ed25519SignatureSize),
+				); err != nil {
+					t.Fatal(err)
+				}
+				return w
+			},
+		},
+		{
+			name: "duplicate signature artifact",
+			want: "duplicate signature",
+			make: func(t *testing.T) *WormExporter {
+				t.Helper()
+				store := objectstore.NewMemory()
+				w, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(1)), store, testLog())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if n, err := w.ExportOnce(ctx); err != nil || n != 1 {
+					t.Fatalf("seed export = (%d, %v), want (1, nil)", n, err)
+				}
+				w.objects = &duplicateArtifactListStore{
+					Store:     store,
+					duplicate: firstSegment + ".sig",
+				}
+				return w
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := tc.make(t)
+			if err := w.VerifyWORMChain(ctx); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("strict verification error = %v, want error containing %q", err, tc.want)
+			}
+			if watermark, err := w.ExportedWatermark(ctx); err == nil ||
+				!strings.Contains(err.Error(), tc.want) {
+				t.Fatalf(
+					"strict watermark = (%d, %v), want error containing %q",
+					watermark,
+					err,
+					tc.want,
+				)
+			}
+		})
+	}
+}
+
+func TestWORMMissingSignatureAllowanceIsFinalExportRetryOnly(t *testing.T) {
+	ctx := context.Background()
+	store := objectstore.NewMemory()
+	objects := &failingPutStore{Store: store, failSuffix: ".sig", failing: true}
+	w, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(3)), objects, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := w.ExportOnce(ctx); err == nil || n != 0 {
+		t.Fatalf("incomplete export = (%d, %v), want (0, injected signature error)", n, err)
+	}
+	if err := w.VerifyWORMChain(ctx); err == nil || !strings.Contains(err.Error(), "signature missing") {
+		t.Fatalf("strict verification of incomplete tail = %v, want missing-signature rejection", err)
+	}
+	if watermark, err := w.ExportedWatermark(ctx); err == nil {
+		t.Fatalf("strict watermark accepted incomplete tail at %d", watermark)
+	}
+	if last, hash, err := w.lastExportedHead(ctx); err != nil || last != 0 || hash != genesis {
+		t.Fatalf(
+			"retry cursor from incomplete final JSON = (%d, %q, %v), want (0, genesis, nil)",
+			last,
+			hash,
+			err,
+		)
+	}
+
+	objects.failing = false
+	if n, err := w.ExportOnce(ctx); err != nil || n != 3 {
+		t.Fatalf("retry export = (%d, %v), want (3, nil)", n, err)
+	}
+	if err := w.VerifyWORMChain(ctx); err != nil {
+		t.Fatalf("strict verification after retry: %v", err)
+	}
+}
+
+func TestWORMRetryRejectsMissingSignatureBeforeFinalSegment(t *testing.T) {
+	const middleSignature = wormPrefix + "segment-000000000002-000000000002.json.sig"
+	ctx := context.Background()
+	store := objectstore.NewMemory()
+	events := chainedEvents(3)
+	w, err := NewWormExporterEphemeralForTest(sourceOf(events[:1]), store, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for want := 1; want <= len(events); want++ {
+		w.source = sourceOf(events[:want])
+		if n, err := w.ExportOnce(ctx); err != nil || n != 1 {
+			t.Fatalf("export through seq %d = (%d, %v), want (1, nil)", want, n, err)
+		}
+	}
+	if deleted, err := store.DeletePrefix(ctx, middleSignature); err != nil || deleted != 1 {
+		t.Fatalf("delete middle signature = (%d, %v), want (1, nil)", deleted, err)
+	}
+
+	if _, _, err := w.lastExportedHead(ctx); err == nil || !strings.Contains(err.Error(), "signature missing") {
+		t.Fatalf("retry cursor accepted non-final missing signature: %v", err)
+	}
+	if err := w.VerifyWORMChain(ctx); err == nil || !strings.Contains(err.Error(), "signature missing") {
+		t.Fatalf("strict verification accepted non-final missing signature: %v", err)
 	}
 }
 

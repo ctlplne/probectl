@@ -660,16 +660,20 @@ func (w *WormExporter) scanWORMChainWithOptions(
 		}
 		return 0, "", err
 	}
-	var segKeys []string
-	for _, k := range keys {
-		if !strings.HasSuffix(k, ".sig") {
-			segKeys = append(segKeys, k)
-		}
+	if len(keys) > maxWORMSegmentArtifacts {
+		return 0, "", fmt.Errorf(
+			"audit WORM aggregate segment artifact limit %d exceeded: %w",
+			maxWORMSegmentArtifacts,
+			objectstore.ErrTooMany,
+		)
+	}
+	segKeys, incompleteTail, err := inventoryWORMSegmentArtifacts(keys, allowIncompleteTail)
+	if err != nil {
+		return 0, "", err
 	}
 	if len(segKeys) == 0 {
 		return 0, genesis, nil
 	}
-	sort.Strings(segKeys) // zero-padded seqs sort chronologically
 
 	pub, err := w.objects.GetLimited(ctx, wormPrefix+"signing.pub", maxWORMPublicKeyBytes)
 	if err != nil {
@@ -686,12 +690,23 @@ func (w *WormExporter) scanWORMChainWithOptions(
 	wantSeq := int64(1)
 	prevHash := genesis // the chain root (audit.go)
 	var last int64
-	for i, key := range segKeys {
+	for _, key := range segKeys {
 		var keyFrom, keyTo int64
 		base := strings.TrimSuffix(strings.TrimPrefix(key, wormPrefix), ".json")
 		if n, err := fmt.Sscanf(base, "segment-%d-%d", &keyFrom, &keyTo); err != nil || n != 2 ||
 			key != fmt.Sprintf("%ssegment-%012d-%012d.json", wormPrefix, keyFrom, keyTo) {
 			return 0, "", fmt.Errorf("invalid audit WORM segment key %q", key)
+		}
+		if key == incompleteTail {
+			if keyFrom != wantSeq {
+				return 0, "", fmt.Errorf(
+					"incomplete audit WORM tail %s starts at %d, want %d",
+					key,
+					keyFrom,
+					wantSeq,
+				)
+			}
+			return last, prevHash, nil
 		}
 
 		obj, err := w.objects.GetLimited(ctx, key, maxWORMSegmentBytes)
@@ -700,9 +715,6 @@ func (w *WormExporter) scanWORMChainWithOptions(
 		}
 		sig, err := w.objects.GetLimited(ctx, key+".sig", maxWORMSignatureBytes)
 		if err != nil {
-			if allowIncompleteTail && i == len(segKeys)-1 && errors.Is(err, objectstore.ErrNotFound) {
-				return last, prevHash, nil
-			}
 			return 0, "", fmt.Errorf("segment %s signature missing: %w", key, err)
 		}
 		ok, err := crypto.VerifyEd25519(w.pubPEM, obj.Data, sig.Data)
@@ -737,6 +749,91 @@ func (w *WormExporter) scanWORMChainWithOptions(
 		}
 	}
 	return last, prevHash, nil
+}
+
+// inventoryWORMSegmentArtifacts parses the complete bounded segment listing
+// before any chain position is trusted. Every canonical segment JSON must have
+// exactly one canonical signature companion and vice versa. The sole
+// exception is ExportOnce's final JSON: if its signature Put failed, the
+// exporter may derive a cursor from the preceding complete prefix and rewrite
+// that final segment on retry. Strict verification and retention watermarks do
+// not receive that allowance.
+func inventoryWORMSegmentArtifacts(
+	keys []string,
+	allowIncompleteTail bool,
+) (segmentKeys []string, incompleteTail string, err error) {
+	type artifactPair struct {
+		json bool
+		sig  bool
+	}
+
+	pairs := make(map[string]artifactPair, len(keys)/2)
+	for _, artifactKey := range keys {
+		segmentKey, isSignature, err := canonicalWORMSegmentArtifactKey(artifactKey)
+		if err != nil {
+			return nil, "", err
+		}
+		pair := pairs[segmentKey]
+		if isSignature {
+			if pair.sig {
+				return nil, "", fmt.Errorf(
+					"duplicate signature for audit WORM segment %q",
+					segmentKey,
+				)
+			}
+			pair.sig = true
+		} else {
+			if pair.json {
+				return nil, "", fmt.Errorf("duplicate audit WORM segment JSON %q", segmentKey)
+			}
+			pair.json = true
+		}
+		pairs[segmentKey] = pair
+	}
+
+	segmentKeys = make([]string, 0, len(pairs))
+	for key := range pairs {
+		segmentKeys = append(segmentKeys, key)
+	}
+	sort.Strings(segmentKeys) // zero-padded seqs sort chronologically
+
+	for i, key := range segmentKeys {
+		pair := pairs[key]
+		if !pair.json {
+			return nil, "", fmt.Errorf("orphan signature for audit WORM segment %q", key)
+		}
+		if pair.sig {
+			continue
+		}
+		if !allowIncompleteTail || i != len(segmentKeys)-1 {
+			return nil, "", fmt.Errorf("segment %s signature missing", key)
+		}
+		incompleteTail = key
+	}
+	return segmentKeys, incompleteTail, nil
+}
+
+func canonicalWORMSegmentArtifactKey(artifactKey string) (
+	segmentKey string,
+	isSignature bool,
+	err error,
+) {
+	segmentKey = artifactKey
+	if strings.HasSuffix(segmentKey, ".sig") {
+		isSignature = true
+		segmentKey = strings.TrimSuffix(segmentKey, ".sig")
+	}
+
+	var fromSeq, toSeq int64
+	base := strings.TrimSuffix(strings.TrimPrefix(segmentKey, wormPrefix), ".json")
+	if n, scanErr := fmt.Sscanf(base, "segment-%d-%d", &fromSeq, &toSeq); scanErr != nil ||
+		n != 2 ||
+		fromSeq <= 0 ||
+		toSeq < fromSeq ||
+		segmentKey != fmt.Sprintf("%ssegment-%012d-%012d.json", wormPrefix, fromSeq, toSeq) {
+		return "", false, fmt.Errorf("invalid audit WORM segment artifact %q", artifactKey)
+	}
+	return segmentKey, isSignature, nil
 }
 
 // VerifyWORMChain re-verifies the exported history end to end: every
