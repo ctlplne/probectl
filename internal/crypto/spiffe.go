@@ -57,22 +57,46 @@ func ParseSPIFFEID(uri string) (SPIFFEID, error) {
 	if u.Host != TrustDomain {
 		return SPIFFEID{}, fmt.Errorf("crypto: foreign spiffe trust domain %q (pinned to %q)", u.Host, TrustDomain)
 	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery ||
+		u.Fragment != "" || strings.Contains(uri, "#") {
+		return SPIFFEID{}, fmt.Errorf(
+			"crypto: spiffe id contains userinfo, query, or fragment: %q",
+			uri,
+		)
+	}
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
 	if len(parts) != 4 || parts[0] != "tenant" || parts[1] == "" ||
-		parts[2] != "agent" || parts[3] == "" {
+		parts[1] == "." || parts[1] == ".." ||
+		parts[2] != "agent" || parts[3] == "" ||
+		parts[3] == "." || parts[3] == ".." {
 		return SPIFFEID{}, fmt.Errorf("crypto: malformed agent spiffe id: %q", uri)
 	}
-	return SPIFFEID{TrustDomain: u.Host, TenantID: parts[1], AgentID: parts[3]}, nil
+	id := SPIFFEID{
+		TrustDomain: u.Host,
+		TenantID:    parts[1],
+		AgentID:     parts[3],
+	}
+	if u.String() != uri || id.String() != uri {
+		return SPIFFEID{}, fmt.Errorf(
+			"crypto: non-canonical agent spiffe id: %q",
+			uri,
+		)
+	}
+	return id, nil
 }
 
-// SPIFFEIDFromCert extracts the SPIFFE URI SAN from a (verified) certificate.
+// SPIFFEIDFromCert extracts the single canonical SPIFFE URI SAN from a
+// (verified) certificate.
 func SPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
-	for _, u := range cert.URIs {
-		if u.Scheme == "spiffe" {
-			return ParseSPIFFEID(u.String())
-		}
+	if cert == nil {
+		return SPIFFEID{}, fmt.Errorf("crypto: certificate is required")
 	}
-	return SPIFFEID{}, fmt.Errorf("crypto: certificate has no SPIFFE URI SAN")
+	if len(cert.URIs) != 1 || cert.URIs[0] == nil {
+		return SPIFFEID{}, fmt.Errorf(
+			"crypto: certificate must have exactly one URI SAN containing a canonical SPIFFE ID",
+		)
+	}
+	return ParseSPIFFEID(cert.URIs[0].String())
 }
 
 // SPIFFEIDFromCertFile reads the first certificate in a PEM file and returns its

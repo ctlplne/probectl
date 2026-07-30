@@ -40,3 +40,27 @@ func TestParseSPIFFEIDErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSPIFFEIDRejectsAmbiguousComponents(t *testing.T) {
+	const canonical = "spiffe://probectl/tenant/t1/agent/a1"
+	for name, uri := range map[string]string{
+		"userinfo":       "spiffe://operator@probectl/tenant/t1/agent/a1",
+		"query":          canonical + "?tenant=t2",
+		"empty query":    canonical + "?",
+		"fragment":       canonical + "#shadow",
+		"empty fragment": canonical + "#",
+		"escaped path":   "spiffe://probectl/tenant/t%31/agent/a1",
+		"raw space":      "spiffe://probectl/tenant/t 1/agent/a1",
+		"dot tenant":     "spiffe://probectl/tenant/./agent/a1",
+		"dot-dot agent":  "spiffe://probectl/tenant/t1/agent/..",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseSPIFFEID(uri); err == nil {
+				t.Fatalf("ParseSPIFFEID(%q) accepted an ambiguous identity", uri)
+			}
+		})
+	}
+	if _, err := ParseSPIFFEID(canonical); err != nil {
+		t.Fatalf("canonical identity rejected: %v", err)
+	}
+}

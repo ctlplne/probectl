@@ -7,9 +7,14 @@
 package crypto
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,6 +23,7 @@ import (
 
 type mtlsFixture struct {
 	caFile, serverCrt, serverKey, clientCrt, clientKey, spiffe string
+	ca                                                         *CA
 }
 
 func mtlsMaterial(t *testing.T) mtlsFixture {
@@ -55,7 +61,60 @@ func mtlsMaterialForSPIFFE(t *testing.T, spiffe string) mtlsFixture {
 		clientCrt: write("client.crt", cc),
 		clientKey: write("client.key", ck),
 		spiffe:    spiffe,
+		ca:        ca,
 	}
+}
+
+func issueClientLeafWithURIs(
+	t *testing.T,
+	ca *CA,
+	rawURIs ...string,
+) *x509.Certificate {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	uris := make([]*url.URL, 0, len(rawURIs))
+	for _, raw := range rawURIs {
+		uri, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("parse test URI %q: %v", raw, err)
+		}
+		uris = append(uris, uri)
+	}
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   "ambiguous-agent",
+			Organization: []string{"probectl"},
+		},
+		NotBefore:   time.Now().Add(-time.Minute),
+		NotAfter:    time.Now().Add(time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		URIs:        uris,
+	}
+	der, err := x509.CreateCertificate(
+		rand.Reader,
+		template,
+		ca.cert,
+		&key.PublicKey,
+		ca.key,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return leaf
 }
 
 func TestServerMTLSRejectsIncompleteSPIFFEIdentity(t *testing.T) {
@@ -87,6 +146,60 @@ func TestServerMTLSRejectsIncompleteSPIFFEIdentity(t *testing.T) {
 				t.Fatalf("ServerMTLSConfig accepted incomplete identity %q", spiffe)
 			}
 		})
+	}
+}
+
+func TestServerMTLSRejectsAmbiguousSPIFFEURIAndMultipleSANs(t *testing.T) {
+	f := mtlsMaterial(t)
+	serverCfg, err := ServerMTLSConfig(f.serverCrt, f.serverKey, f.caFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const canonical = "spiffe://probectl/tenant/tenant-123/agent/agent-abc"
+	for name, uris := range map[string][]string{
+		"userinfo": {"spiffe://operator@probectl/tenant/tenant-123/agent/agent-abc"},
+		"query":    {canonical + "?tenant=other"},
+		"fragment": {canonical + "#shadow"},
+		"multiple": {
+			canonical,
+			"spiffe://probectl/tenant/other/agent/other",
+		},
+		"mixed URI schemes": {
+			canonical,
+			"https://probectl.example/agent/agent-abc",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			leaf := issueClientLeafWithURIs(t, f.ca, uris...)
+			verifiedChains, err := leaf.Verify(x509.VerifyOptions{
+				Roots:     serverCfg.ClientCAs,
+				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+			})
+			if err != nil {
+				t.Fatalf("fixture must be CA-valid before identity policy runs: %v", err)
+			}
+			if err := serverCfg.VerifyPeerCertificate(
+				[][]byte{leaf.Raw},
+				verifiedChains,
+			); err == nil {
+				t.Fatalf("ServerMTLSConfig accepted ambiguous URI SANs %#v", uris)
+			}
+		})
+	}
+
+	canonicalLeaf := issueClientLeafWithURIs(t, f.ca, canonical)
+	verifiedChains, err := canonicalLeaf.Verify(x509.VerifyOptions{
+		Roots:     serverCfg.ClientCAs,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	})
+	if err != nil {
+		t.Fatalf("canonical fixture must be CA-valid: %v", err)
+	}
+	if err := serverCfg.VerifyPeerCertificate(
+		[][]byte{canonicalLeaf.Raw},
+		verifiedChains,
+	); err != nil {
+		t.Fatalf("canonical single URI SAN rejected: %v", err)
 	}
 }
 
