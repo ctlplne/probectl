@@ -74,10 +74,7 @@ func seedTenant(t *testing.T, pool *pgxpool.Pool, tenantID, name string) {
 			 VALUES ($1, $2, 'icmp', '192.0.2.1', 60, 5, '{}'::jsonb, true)`, tenantID, name); err != nil {
 			return err
 		}
-		_, err := sc.Q.Exec(ctx,
-			`INSERT INTO audit_events (tenant_id, seq, actor, action, target, data, prev_hash, hash)
-			 VALUES ($1, 1, 'it', 'seed', 'x', '{}'::jsonb, '', 'h')
-			 ON CONFLICT DO NOTHING`, tenantID)
+		_, err := audit.TenantAppend(ctx, sc, "it", "seed", "x", map[string]any{})
 		return err
 	})
 	if err != nil {
