@@ -113,6 +113,30 @@ func (s *countingGetStore) Get(ctx context.Context, key string) (objectstore.Obj
 	return s.Store.Get(ctx, key)
 }
 
+type countingLimitedStore struct {
+	objectstore.Store
+	listLimitedCalls int
+	getLimitedCalls  map[string]int
+}
+
+func (s *countingLimitedStore) ListLimited(
+	ctx context.Context,
+	prefix string,
+	maxKeys int,
+) ([]string, error) {
+	s.listLimitedCalls++
+	return s.Store.ListLimited(ctx, prefix, maxKeys)
+}
+
+func (s *countingLimitedStore) GetLimited(
+	ctx context.Context,
+	key string,
+	maxBytes int64,
+) (objectstore.Object, error) {
+	s.getLimitedCalls[key]++
+	return s.Store.GetLimited(ctx, key, maxBytes)
+}
+
 type refusingLimitedListStore struct {
 	objectstore.Store
 	prefix string
@@ -386,6 +410,174 @@ func TestWormCatchUpDrainsMultiplePages(t *testing.T) {
 	}
 	if watermark, err := w.ExportedWatermark(ctx); err != nil || watermark != int64(len(events)) {
 		t.Fatalf("multi-page watermark = (%d, %v), want (%d, nil)", watermark, err, len(events))
+	}
+}
+
+func TestWORMCatchUpHistoryScanBound(t *testing.T) {
+	const (
+		seedSegmentKey = wormPrefix + "segment-000000000001-000000000001.json"
+		publicKey      = wormPrefix + "signing.pub"
+	)
+	for _, tc := range []struct {
+		name    string
+		pages   int
+		pending int
+	}{
+		{name: "one_page", pages: 1},
+		{name: "four_pages", pages: 4},
+		{
+			name:    "max_pages_plus_pending_lag_probe",
+			pages:   maxWORMExportPagesPerCycle,
+			pending: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			base := objectstore.NewMemory()
+			all := chainedEvents(1 + tc.pages*MaxExportPageSize + tc.pending)
+			w, err := NewWormExporterEphemeralForTest(sourceOf(all[:1]), base, testLog())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n, err := w.ExportOnce(ctx); err != nil || n != 1 {
+				t.Fatalf("seed export = (%d, %v), want (1, nil)", n, err)
+			}
+
+			counted := &countingLimitedStore{
+				Store:           base,
+				getLimitedCalls: map[string]int{},
+			}
+			w.objects = counted
+			w.source = sourceOf(all)
+			w.runCycle(ctx)
+
+			if counted.listLimitedCalls != 2 {
+				t.Fatalf(
+					"full-history scans for %d catch-up pages = %d, want exactly initial+final (2)",
+					tc.pages,
+					counted.listLimitedCalls,
+				)
+			}
+			for _, key := range []string{seedSegmentKey, seedSegmentKey + ".sig"} {
+				if got := counted.getLimitedCalls[key]; got != 2 {
+					t.Fatalf(
+						"pre-existing history object %q reads for %d pages = %d, want initial+final (2)",
+						key,
+						tc.pages,
+						got,
+					)
+				}
+			}
+			if got := counted.getLimitedCalls[publicKey]; got != 3 {
+				t.Fatalf(
+					"public-key reads for %d pages = %d, want initial scan+one catch-up check+final scan (3)",
+					tc.pages,
+					got,
+				)
+			}
+			if tc.pending == 0 {
+				if got := w.lastSuccessUnix.Load(); got == 0 {
+					t.Fatal("bounded catch-up and final verification did not record success")
+				}
+				if got := w.lagging.Load(); got != 0 {
+					t.Fatalf("fully drained catch-up lag state = %d, want 0", got)
+				}
+			} else {
+				if got := w.lastSuccessUnix.Load(); got != 0 {
+					t.Fatalf("lagged catch-up recorded false success at %d", got)
+				}
+				if got := w.lagging.Load(); got != 1 {
+					t.Fatalf("pending-event lag state = %d, want 1", got)
+				}
+			}
+		})
+	}
+}
+
+func TestWORMCatchUpCursorRejectsDiscontinuousSource(t *testing.T) {
+	valid := chainedEvents(MaxExportPageSize + 1)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Event)
+		want   string
+	}{
+		{
+			name: "sequence_gap",
+			mutate: func(ev *Event) {
+				ev.Seq++
+			},
+			want: "sequence",
+		},
+		{
+			name: "broken_page_link",
+			mutate: func(ev *Event) {
+				ev.PrevHash = genesis
+				ev.Hash, _ = computeHash(
+					providerStream,
+					ev.Seq,
+					ev.Actor,
+					ev.Action,
+					ev.Target,
+					ev.Data,
+					ev.PrevHash,
+				)
+			},
+			want: "previous hash",
+		},
+		{
+			name: "canonical_hash_mismatch",
+			mutate: func(ev *Event) {
+				ev.Action = "provider.tampered"
+			},
+			want: "canonical hash",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			baseSource := sourceOf(valid)
+			source := func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
+				page, err := baseSource(ctx, afterSeq, limit)
+				if err != nil || afterSeq != MaxExportPageSize || len(page) == 0 {
+					return page, err
+				}
+				tc.mutate(&page[0])
+				return page, nil
+			}
+			store := objectstore.NewMemory()
+			w, err := NewWormExporterEphemeralForTest(source, store, testLog())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			exported, lagging, err := w.exportCatchUp(ctx)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("discontinuous catch-up error = %v, want error containing %q", err, tc.want)
+			}
+			if exported != MaxExportPageSize || lagging {
+				t.Fatalf(
+					"discontinuous catch-up state = (%d, %v), want (%d, false)",
+					exported,
+					lagging,
+					MaxExportPageSize,
+				)
+			}
+			keys, listErr := store.List(ctx, wormPrefix+"segment-")
+			if listErr != nil {
+				t.Fatal(listErr)
+			}
+			if len(keys) != 2 {
+				t.Fatalf("discontinuous source wrote objects past first verified page: %v", keys)
+			}
+			if watermark, watermarkErr := w.ExportedWatermark(ctx); watermarkErr != nil ||
+				watermark != MaxExportPageSize {
+				t.Fatalf(
+					"verified watermark after rejection = (%d, %v), want (%d, nil)",
+					watermark,
+					watermarkErr,
+					MaxExportPageSize,
+				)
+			}
+		})
 	}
 }
 

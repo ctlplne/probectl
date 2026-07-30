@@ -79,6 +79,16 @@ type WormSegment struct {
 // WormSource pages provider-stream events after a seq (the export cursor).
 type WormSource func(ctx context.Context, afterSeq int64, limit int) ([]Event, error)
 
+// wormExportCursor is the last complete, signed WORM chain position verified
+// at the start of a catch-up cycle or advanced by a successfully written page.
+// It is deliberately cycle-local: every public ExportOnce call and every new
+// run cycle still derives its initial cursor from the durable signed objects.
+type wormExportCursor struct {
+	lastSeq          int64
+	anchorHash       string
+	publicKeyEnsured bool
+}
+
 // WormExporter writes signed segments and verifies the exported chain.
 type WormExporter struct {
 	source  WormSource
@@ -264,33 +274,35 @@ func (w *WormExporter) runCycle(ctx context.Context) {
 // pages were full, a final read-only one-event probe reports whether lag remains
 // without creating a ninth segment.
 func (w *WormExporter) exportCatchUp(ctx context.Context) (exported int, lagging bool, err error) {
+	last, anchorHash, err := w.lastExportedHead(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	cursor := wormExportCursor{lastSeq: last, anchorHash: anchorHash}
 	for page := 0; page < maxWORMExportPagesPerCycle; page++ {
-		n, exportErr := w.ExportOnce(ctx)
+		var n int
+		cursor, n, err = w.exportPage(ctx, cursor)
 		exported += n
-		if exportErr != nil {
-			return exported, false, exportErr
+		if err != nil {
+			return exported, false, err
 		}
 		if n == 0 {
 			return exported, false, nil
 		}
 	}
-	lagging, err = w.hasPendingSource(ctx)
+	lagging, err = w.hasPendingSource(ctx, cursor)
 	return exported, lagging, err
 }
 
-func (w *WormExporter) hasPendingSource(ctx context.Context) (bool, error) {
-	last, anchorHash, err := w.lastExportedHead(ctx)
-	if err != nil {
-		return false, err
-	}
-	events, err := w.source(ctx, last, 1)
+func (w *WormExporter) hasPendingSource(ctx context.Context, cursor wormExportCursor) (bool, error) {
+	events, err := w.source(ctx, cursor.lastSeq, 1)
 	if err != nil {
 		return false, err
 	}
 	if len(events) > 1 {
 		return false, fmt.Errorf("audit: WORM source returned %d events to one-event lag probe", len(events))
 	}
-	if err := validateProviderSource(events, last, anchorHash); err != nil {
+	if err := validateProviderSource(events, cursor.lastSeq, cursor.anchorHash); err != nil {
 		return false, err
 	}
 	return len(events) == 1, nil
@@ -333,31 +345,50 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	events, err := w.source(ctx, last, MaxExportPageSize)
+	_, n, err := w.exportPage(ctx, wormExportCursor{lastSeq: last, anchorHash: anchorHash})
+	return n, err
+}
+
+// exportPage validates and writes one page after a cursor that was derived from
+// the signed chain or a page this same catch-up cycle just durably completed.
+// The caller may carry the returned cursor to the next page without rescanning
+// the complete object history. A write failure never advances the cursor.
+func (w *WormExporter) exportPage(
+	ctx context.Context,
+	cursor wormExportCursor,
+) (wormExportCursor, int, error) {
+	events, err := w.source(ctx, cursor.lastSeq, MaxExportPageSize)
 	if err != nil {
-		return 0, err
+		return cursor, 0, err
 	}
 	if len(events) > MaxExportPageSize {
-		return 0, fmt.Errorf("audit: WORM source returned %d events, exceeds %d-event limit", len(events), MaxExportPageSize)
+		return cursor, 0, fmt.Errorf(
+			"audit: WORM source returned %d events, exceeds %d-event limit",
+			len(events),
+			MaxExportPageSize,
+		)
 	}
 	// The source is still mutable PostgreSQL state. Prove its canonical hash
 	// chain against the last SIGNED WORM event before projecting personal fields
 	// away or writing any object. Otherwise a database owner could alter an
 	// unexported action, retain its stale hash, and have that inconsistency signed
 	// as durable evidence.
-	if err := validateProviderSource(events, last, anchorHash); err != nil {
-		return 0, err
+	if err := validateProviderSource(events, cursor.lastSeq, cursor.anchorHash); err != nil {
+		return cursor, 0, err
 	}
 	// Make the verification key durable only after source validation. A
 	// vulnerable older export may already have a valid segment + signature but
 	// no key object; lastExportedHead verifies that segment with the configured
 	// key, then this repairs only the missing companion object. Invalid source
 	// data must not create even this companion object.
-	if err := w.ensurePublicKey(ctx); err != nil {
-		return 0, err
+	if !cursor.publicKeyEnsured {
+		if err := w.ensurePublicKey(ctx); err != nil {
+			return cursor, 0, err
+		}
+		cursor.publicKeyEnsured = true
 	}
 	if len(events) == 0 {
-		return 0, nil
+		return cursor, 0, nil
 	}
 	seg := WormSegment{
 		FormatVersion: 1, Stream: "provider",
@@ -366,24 +397,26 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	}
 	raw, err := json.Marshal(seg)
 	if err != nil {
-		return 0, err
+		return cursor, 0, err
 	}
 	if int64(len(raw)) > maxWORMSegmentBytes {
-		return 0, fmt.Errorf("audit: WORM segment exceeds %d-byte limit", maxWORMSegmentBytes)
+		return cursor, 0, fmt.Errorf("audit: WORM segment exceeds %d-byte limit", maxWORMSegmentBytes)
 	}
 	sig, err := crypto.SignEd25519(w.privPEM, raw)
 	if err != nil {
-		return 0, fmt.Errorf("audit: sign segment: %w", err)
+		return cursor, 0, fmt.Errorf("audit: sign segment: %w", err)
 	}
 	key := fmt.Sprintf("%ssegment-%012d-%012d.json", wormPrefix, seg.FromSeq, seg.ToSeq)
 	if err := w.objects.Put(ctx, key, "application/json", raw); err != nil {
-		return 0, fmt.Errorf("audit: put segment: %w", err)
+		return cursor, 0, fmt.Errorf("audit: put segment: %w", err)
 	}
 	if err := w.objects.Put(ctx, key+".sig", "application/octet-stream", sig); err != nil {
-		return 0, fmt.Errorf("audit: put signature: %w", err)
+		return cursor, 0, fmt.Errorf("audit: put signature: %w", err)
 	}
 	w.log.Info("audit worm segment exported", "from_seq", seg.FromSeq, "to_seq", seg.ToSeq, "events", len(events))
-	return len(events), nil
+	cursor.lastSeq = events[len(events)-1].Seq
+	cursor.anchorHash = events[len(events)-1].Hash
+	return cursor, len(events), nil
 }
 
 func validateProviderSource(events []Event, lastSeq int64, anchorHash string) error {
