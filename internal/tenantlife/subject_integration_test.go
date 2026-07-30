@@ -207,6 +207,115 @@ func assertSubjectLifecycleIRAbsentFromBundle(
 	}
 }
 
+func TestPooledTenantExportOmitsIRAttribution(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	tenantA := mkTenant(t, pool, "it-ir-export-a-"+stamp)
+	tenantB := mkTenant(t, pool, "it-ir-export-b-"+stamp)
+	canaries := map[string]string{
+		tenantA: "pooled-export-a-" + stamp + "@example.test",
+		tenantB: "pooled-export-b-" + stamp + "@example.test",
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_records
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			tenantA,
+			tenantB,
+		); err != nil {
+			t.Errorf("cleanup pooled export IR records: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_heads
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			tenantA,
+			tenantB,
+		); err != nil {
+			t.Errorf("cleanup pooled export IR heads: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.tenants
+			  WHERE id = $1::uuid OR id = $2::uuid`,
+			tenantA,
+			tenantB,
+		); err != nil {
+			t.Errorf("cleanup pooled export tenants: %v", err)
+		}
+	})
+
+	for tenantID, canary := range canaries {
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				_, err := scope.Q.Exec(
+					ctx,
+					`INSERT INTO users
+					       (tenant_id, email, display_name, status, user_name, attributes)
+					 VALUES ($1::uuid, $2, 'Full Export Isolation Canary',
+					         'active', $2, '{}'::jsonb)`,
+					tenantID,
+					canary,
+				)
+				return err
+			},
+		)
+		if err != nil {
+			t.Fatalf("seed pooled export tenant %s: %v", tenantID, err)
+		}
+	}
+
+	stage := newSubjectLifecycleIRStage(t, pool)
+	irA := appendSubjectLifecycleIRFixture(t, ctx, pool, stage, tenantA, "export-a-"+stamp)
+	irB := appendSubjectLifecycleIRFixture(t, ctx, pool, stage, tenantB, "export-b-"+stamp)
+	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantA)
+	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantB)
+
+	life := New(pool, nil, nil, nil, nil, "", nil)
+	for _, tenantID := range []string{tenantA, tenantB} {
+		var bundle bytes.Buffer
+		manifest, err := life.Export(ctx, tenantID, &bundle)
+		if err != nil {
+			t.Fatalf("full export for pooled tenant %s: %v", tenantID, err)
+		}
+		if _, ok := manifest.Tables["ir_attribution_records"]; ok {
+			t.Fatalf("pooled tenant %s manifest exposed IR sidecar table", tenantID)
+		}
+		if !strings.Contains(
+			strings.Join(manifest.Notes, "\n"),
+			"Ordinary portability exports never include encrypted incident-response attribution.",
+		) {
+			t.Fatalf("pooled tenant %s manifest omitted fixed IR exclusion policy", tenantID)
+		}
+		files := readTarGz(t, bundle.Bytes())
+		assertSubjectLifecycleIRAbsentFromBundle(t, files, irA, irB)
+		users := files["postgres/users.jsonl"]
+		if !strings.Contains(users, canaries[tenantID]) {
+			t.Fatalf("pooled tenant %s export omitted its ordinary canary", tenantID)
+		}
+		for otherTenant, otherCanary := range canaries {
+			if otherTenant != tenantID && strings.Contains(users, otherCanary) {
+				t.Fatalf("pooled tenant %s export leaked tenant %s canary", tenantID, otherTenant)
+			}
+		}
+	}
+
+	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantA)
+	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantB)
+	if got := readSubjectLifecycleIRFixture(t, ctx, pool, tenantA, irA.auditSeq); got.rowJSON != irA.rowJSON {
+		t.Fatal("pooled tenant export altered tenant A encrypted IR record")
+	}
+	if got := readSubjectLifecycleIRFixture(t, ctx, pool, tenantB, irB.auditSeq); got.rowJSON != irB.rowJSON {
+		t.Fatal("pooled tenant export altered tenant B encrypted IR record")
+	}
+}
+
 func TestSubjectErasureTableDiscoveryErrorFailsClosed(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()

@@ -212,6 +212,152 @@ func assertSiloSubjectIRAbsentFromBundle(
 	}
 }
 
+func TestSiloTenantExportOmitsIRAttribution(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := context.Background()
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	siloTenant := mkTenant(t, pool, "ir-export-silo-"+stamp, "siloed", "")
+	pooledTenant := mkTenant(t, pool, "ir-export-pool-"+stamp, "pooled", "")
+	provisioner := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
+	if err := provisioner.Provision(
+		ctx,
+		siloTenant,
+		"",
+		tenancy.IsolationSiloed,
+	); err != nil {
+		t.Fatalf("provision IR full-export silo: %v", err)
+	}
+
+	router := NewRouter(pool, nil, time.Second)
+	tenancy.SetRouter(router)
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+	t.Cleanup(func() {
+		if err := provisioner.Teardown(
+			context.Background(),
+			siloTenant,
+			"",
+			tenancy.IsolationSiloed,
+		); err != nil {
+			t.Errorf("cleanup IR full-export silo: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_records
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			siloTenant,
+			pooledTenant,
+		); err != nil {
+			t.Errorf("cleanup IR full-export pooled records: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_heads
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			siloTenant,
+			pooledTenant,
+		); err != nil {
+			t.Errorf("cleanup IR full-export heads: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.tenants
+			  WHERE id = $1::uuid OR id = $2::uuid`,
+			siloTenant,
+			pooledTenant,
+		); err != nil {
+			t.Errorf("cleanup IR full-export tenants: %v", err)
+		}
+	})
+
+	canaries := map[string]string{
+		siloTenant:   "silo-export-" + stamp + "@example.test",
+		pooledTenant: "pooled-export-" + stamp + "@example.test",
+	}
+	for tenantID, canary := range canaries {
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				_, err := scope.Q.Exec(
+					ctx,
+					`INSERT INTO users
+					       (tenant_id, email, display_name, status, user_name, attributes)
+					 VALUES ($1::uuid, $2, 'Silo Export Isolation Canary',
+					         'active', $2, '{}'::jsonb)`,
+					tenantID,
+					canary,
+				)
+				return err
+			},
+		)
+		if err != nil {
+			t.Fatalf("seed silo export tenant %s: %v", tenantID, err)
+		}
+	}
+
+	stage := newSiloSubjectIRStage(t, pool)
+	siloIR := appendSiloSubjectIRFixture(
+		t,
+		ctx,
+		pool,
+		stage,
+		siloTenant,
+		"export-silo-"+stamp,
+	)
+	pooledIR := appendSiloSubjectIRFixture(
+		t,
+		ctx,
+		pool,
+		stage,
+		pooledTenant,
+		"export-pool-"+stamp,
+	)
+	assertSiloSubjectIRAppReadDenied(t, ctx, pool, siloTenant)
+	assertSiloSubjectIRAppReadDenied(t, ctx, pool, pooledTenant)
+
+	life := tenantlife.New(pool, nil, nil, nil, nil, "", log)
+	for _, tenantID := range []string{siloTenant, pooledTenant} {
+		var bundle bytes.Buffer
+		manifest, err := life.Export(ctx, tenantID, &bundle)
+		if err != nil {
+			t.Fatalf("full export for tenant %s: %v", tenantID, err)
+		}
+		if _, ok := manifest.Tables["ir_attribution_records"]; ok {
+			t.Fatalf("tenant %s manifest exposed IR sidecar table", tenantID)
+		}
+		if !strings.Contains(
+			strings.Join(manifest.Notes, "\n"),
+			"Ordinary portability exports never include encrypted incident-response attribution.",
+		) {
+			t.Fatalf("tenant %s manifest omitted fixed IR exclusion policy", tenantID)
+		}
+		files := readTenantlifeBundle(t, bundle.Bytes())
+		assertSiloSubjectIRAbsentFromBundle(t, files, siloIR, pooledIR)
+		users := files["postgres/users.jsonl"]
+		if !strings.Contains(users, canaries[tenantID]) {
+			t.Fatalf("tenant %s export omitted its ordinary canary", tenantID)
+		}
+		for otherTenant, otherCanary := range canaries {
+			if otherTenant != tenantID && strings.Contains(users, otherCanary) {
+				t.Fatalf("tenant %s export leaked tenant %s canary", tenantID, otherTenant)
+			}
+		}
+	}
+
+	assertSiloSubjectIRAppReadDenied(t, ctx, pool, siloTenant)
+	assertSiloSubjectIRAppReadDenied(t, ctx, pool, pooledTenant)
+	if got := readSiloSubjectIRFixture(t, ctx, pool, siloTenant, siloIR.auditSeq); got.rowJSON != siloIR.rowJSON {
+		t.Fatal("full export altered silo tenant encrypted IR record")
+	}
+	if got := readSiloSubjectIRFixture(t, ctx, pool, pooledTenant, pooledIR.auditSeq); got.rowJSON != pooledIR.rowJSON {
+		t.Fatal("silo tenant export altered pooled tenant encrypted IR record")
+	}
+}
+
 // TestAuditRetentionRoutesSiloAndPooledSequenceAnchors proves the privileged
 // delete leg and non-bypass receipt leg use the tenant's real PostgreSQL target.
 // The same full-prune transition runs for one pooled and one siloed tenant;

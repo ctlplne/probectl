@@ -75,6 +75,11 @@ probectl. For each bounded open, the temporary PEM buffer is zeroized and the
 parsed key capability is immediately discarded afterward; Go cannot guarantee
 in-place erasure of every parsed big-integer heap copy.
 
+Ordinary full-tenant and subject lifecycle exports cannot read, unseal, or
+export this sidecar. They carry one fixed, non-disclosing policy note and omit
+the sidecar table entirely; only the audited investigator path below can reveal
+attribution.
+
 Investigation-only separation of duty is enforced at
 `POST /v1/audit/ir/{event_ref}/reveal`: authenticated tenant scope first,
 mandatory MFA, the dedicated `ir.investigate` permission, and tenant ABAC.

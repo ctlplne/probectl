@@ -31,10 +31,17 @@ Tenant self-service: **Admin → Data lifecycle → Export my data**, or
 
 - `manifest.json` — row counts, object inventory, and format notes
   (`format_version: 1`);
-- `postgres/<table>.jsonl` — every tenant-owned row, one JSON object per line;
+- `postgres/<table>.jsonl` — ordinary tenant-owned rows, one JSON object per
+  line;
 - `flows.jsonl` — every flow record, streamed from the flow store.
 - `endpoint_events.jsonl` — every raw endpoint/DEM event, streamed through the
   tenant-scoped event-store boundary.
+
+Ordinary portability never reads, unseals, or exports the provider-only
+encrypted incident-response attribution sidecar. That evidence is accessible
+only through the audited `ir-investigator` separation-of-duty path. Every
+manifest carries the same fixed policy note, whether or not evidence exists, so
+the bundle exposes neither sidecar contents nor a presence/absence signal.
 
 Time-series metrics are **not** in the bundle: export them via the
 Prometheus-compatible API (federation / PromQL) — the manifest says so. Hand the

@@ -24,13 +24,19 @@ import (
 // The export bundle (the portability contract, format_version 1): a tar.gz of
 //
 //	manifest.json            counts, object inventory, format notes
-//	postgres/<table>.jsonl   every tenant-owned row, one JSON object per line
+//	postgres/<table>.jsonl   ordinary tenant-owned rows, one JSON object per line
 //	flows.jsonl              every flow record (streamed from the flow store)
 //	endpoint_events.jsonl    every endpoint/DEM event
+//
+// Provider-only encrypted incident-response attribution is deliberately absent
+// from ordinary portability bundles. Investigation access uses its dedicated,
+// audited separation-of-duty path.
 //
 // TSDB series are NOT bundled (metrics export rides PromQL/federation — the
 // manifest says so); object-store BLOBS are inventoried in the manifest
 // (key + size) rather than bundled in v1. Additive changes only.
+
+const ordinaryPortabilityIRPolicyNote = "Ordinary portability exports never include encrypted incident-response attribution. Investigation access, where applicable, is only through the audited IR-investigator path. This policy statement does not indicate whether any records exist."
 
 // Manifest describes one export bundle.
 type Manifest struct {
@@ -83,6 +89,7 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 			"TSDB metric series are not bundled: export them via the Prometheus-compatible API (federation/PromQL).",
 			"Object-store artifacts are inventoried under objects[]; fetch blobs individually via their API surfaces.",
 			"Immutable audit rows keep their tenant, sequence, timestamp, and chain fields; erased identities are emitted only through the canonical audit privacy projection.",
+			ordinaryPortabilityIRPolicyNote,
 		},
 		Redacted: redact,
 	}
@@ -94,12 +101,15 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 
-	// 1) Postgres: every tenant-owned table as JSONL, read under InTenant.
+	// 1) Postgres: ordinary tenant-owned tables as JSONL, read under InTenant.
+	// Retained encrypted IR evidence is classified and removed before entering
+	// the app-role transaction; this path never probes, counts, or opens it.
 	if e.pool != nil {
 		tables, err := e.tenantOwnedTables(ctx)
 		if err != nil {
 			return man, err
 		}
+		tables = ordinaryPortabilityExportTables(tables)
 		tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
 		for _, table := range tables {
 			var buf bytes.Buffer
@@ -220,6 +230,17 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 		}
 	}
 	return man, nil
+}
+
+func ordinaryPortabilityExportTables(tables []string) []string {
+	exportable := make([]string, 0, len(tables))
+	for _, table := range tables {
+		if retainedCryptoShreddedEvidenceTables[table] {
+			continue
+		}
+		exportable = append(exportable, table)
+	}
+	return exportable
 }
 
 // appendProjectedAuditJSONL is the only tenant-lifecycle path that serializes

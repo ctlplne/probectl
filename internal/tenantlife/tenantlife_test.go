@@ -31,6 +31,22 @@ var t0 = time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 
 func testLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+func TestFullTenantExportTableClassificationExcludesRetainedIREvidence(t *testing.T) {
+	got := ordinaryPortabilityExportTables([]string{
+		"agents",
+		"ir_attribution_records",
+		"tests",
+		"ir_attribution_heads",
+	})
+	if joined := strings.Join(got, ","); joined != "agents,tests" {
+		t.Fatalf("ordinary portability tables = %q, want %q", joined, "agents,tests")
+	}
+	if ordinaryPortabilityIRPolicyNote !=
+		"Ordinary portability exports never include encrypted incident-response attribution. Investigation access, where applicable, is only through the audited IR-investigator path. This policy statement does not indicate whether any records exist." {
+		t.Fatal("ordinary portability IR policy note changed")
+	}
+}
+
 type capturedAudit struct {
 	events []string
 	data   []map[string]any
