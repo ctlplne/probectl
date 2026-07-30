@@ -44,7 +44,7 @@ func TestDataRetentionMatrixCoversPrivacyGovernanceRows(t *testing.T) {
 		"covered_by_parent",
 		"not_capable",
 		"tsdb_metrics",
-		"subject-erasure markers",
+		"audit_subject_erasures",
 		"PROBECTL_AI_ANSWER_RETENTION",
 		"PROBECTL_BACKUP_RETENTION_DAYS",
 		"`/v1/lifecycle/retention` lets a tenant set stricter per-plane clocks",

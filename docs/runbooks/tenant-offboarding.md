@@ -84,11 +84,19 @@ trace/log rows, in-memory TSDB metric labels, topology/device graph labels,
 eBPF workload aggregates, and endpoint latest-view labels for the caller's
 tenant only when those stores are wired. Audit rows are append-only, so the
 engine records a `privacy.subject_erase` marker instead of rewriting history;
-future audit reads/exports project matching structured actor/target/data values
-as `[erased-subject]` while the hash chain stays verifiable. Aggregate backends
-that cannot locally delete a single subject are not hidden: the returned report
-lists each plane's deleted and remaining counts, `not_capable`/age-out basis
-where needed, and includes `report_sha256`.
+the same transaction records its tenant-scoped hash in
+`audit_subject_erasures`. Future audit reads/exports project matching structured
+actor/target/data values as `[erased-subject]` while the hash chain stays
+verifiable. Classified Postgres deletions and every captured stable-alias
+marker/projection share one tenant transaction, so a failed marker cannot leave
+identity rows deleted without their privacy projection. Subject and full-tenant
+bundles use the same projected audit serializer and retain the tenant,
+sequence, timestamp, and chain fields. Exported marker events can later age out
+without losing that projection; retention captures marker-only events from a
+rolling older binary before it deletes them. Aggregate backends that cannot
+locally delete a single subject are not hidden: the returned report lists each
+plane's deleted and remaining counts, `not_capable`/age-out basis where needed,
+and includes `report_sha256`.
 
 CLI equivalent:
 

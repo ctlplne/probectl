@@ -175,10 +175,10 @@ var dataInventory = []DataInventoryEntry{
 		Store:          "Tenant audit, provider audit, break-glass records, and signed WORM segments",
 		Plane:          "audit",
 		Owner:          "internal/audit, internal/siem, internal/objectstore, internal/tenantlife",
-		Home:           "Postgres hash chains plus optional signed WORM object segments and SIEM cursor state",
+		Home:           "Postgres hash chains, tenant-routed hash-only subject-erasure projections, optional signed WORM object segments, and SIEM cursor state",
 		Categories:     []Category{CatSubjectID, CatFreeText, CatCredential, CatObjectKey},
 		DataClasses:    []Class{ClassConfidential, ClassRestricted, ClassPII},
-		Retention:      "PROBECTL_AUDIT_RETENTION is 0 keep-forever only in single; multi-tenant/regulated default to 8760h and require WORM/SIEM watermarks before pruning older exported events",
+		Retention:      "PROBECTL_AUDIT_RETENTION is 0 keep-forever only in single; multi-tenant/regulated default to 8760h and require WORM/SIEM watermarks before pruning older exported events; subject-marker hashes remain in the tenant-routed projection after an eligible marker ages out",
 		RetentionOwner: "internal/audit",
 		Processors: []string{
 			"tamper-evident hash chaining",
@@ -188,7 +188,7 @@ var dataInventory = []DataInventoryEntry{
 		},
 		ExportBehavior: "audit export projects erased subjects and minimizes raw personal fields before WORM/SIEM copies",
 		TenantDelete:   "tenant offboarding records audit/export receipts; provider audit remains in the separate provider stream",
-		SubjectDelete:  "RecordSubjectErasure appends a privacy.subject_erase marker and future reads/exports project the subject",
+		SubjectDelete:  "RecordSubjectErasure atomically appends a privacy.subject_erase marker plus its tenant-scoped hash projection; retention captures rolling-old-writer markers before pruning and future reads/exports keep projecting the subject",
 	},
 	{
 		ID:             "ai-artifacts",

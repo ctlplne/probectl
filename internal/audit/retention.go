@@ -624,8 +624,8 @@ func deleteTenantPrefix(
 		`WITH ordered AS (
 		     SELECT seq,
 		            hash,
-		            (seq <= $2 AND created_at < $3 AND action <> $4) AS eligible,
-		            bool_or(NOT (seq <= $2 AND created_at < $3 AND action <> $4))
+		            (seq <= $2 AND created_at < $3) AS eligible,
+		            bool_or(NOT (seq <= $2 AND created_at < $3))
 		              OVER (ORDER BY seq ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS blocked
 		       FROM audit_events
 		      WHERE tenant_id = $1::uuid
@@ -636,26 +636,60 @@ func deleteTenantPrefix(
 		      WHERE eligible AND NOT blocked
 		      ORDER BY seq DESC
 		      LIMIT 1
-		   ),
-		   deleted AS (
-		     DELETE FROM audit_events
-		      WHERE tenant_id = $1::uuid
-		        AND seq <= (SELECT seq FROM cut)
-		      RETURNING seq
 		   )
 		   SELECT COALESCE((SELECT seq FROM cut), 0),
-		          COALESCE((SELECT hash FROM cut), ''),
-		          count(*)
-		     FROM deleted`,
+		          COALESCE((SELECT hash FROM cut), '')`,
 		tenantID,
 		exportedWatermark,
 		cutoff,
-		SubjectErasureAction,
-	).Scan(&cutSeq, &cutHash, &pruned)
+	).Scan(&cutSeq, &cutHash)
 	if err != nil {
 		return 0, "", 0, fmt.Errorf("prune tenant audit: %w", err)
 	}
-	return cutSeq, cutHash, pruned, nil
+	if cutSeq == 0 {
+		return 0, "", 0, nil
+	}
+
+	// Rolling deployments can still have an old writer that records only the
+	// immutable privacy.subject_erase event. Capture every marker in the prefix
+	// into the routed, append-only projection table before deleting any event.
+	// A malformed marker violates the target constraint and rolls this whole
+	// retention transaction back rather than silently losing a projection.
+	if _, err := q.Exec(
+		ctx,
+		`INSERT INTO audit_subject_erasures
+		    (tenant_id, subject_hash, created_at)
+		 SELECT tenant_id,
+		        data->>'subject_hash',
+		        min(created_at)
+		   FROM audit_events
+		  WHERE tenant_id = $1::uuid
+		    AND seq <= $2
+		    AND action = $3
+		  GROUP BY tenant_id, data->>'subject_hash'
+		 ON CONFLICT (tenant_id, subject_hash) DO NOTHING`,
+		tenantID,
+		cutSeq,
+		SubjectErasureAction,
+	); err != nil {
+		return 0, "", 0, fmt.Errorf("capture tenant audit subject erasures: %w", err)
+	}
+
+	tag, err := q.Exec(
+		ctx,
+		`DELETE FROM audit_events
+		  WHERE tenant_id = $1::uuid
+		    AND seq <= $2`,
+		tenantID,
+		cutSeq,
+	)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("prune tenant audit: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return 0, "", 0, fmt.Errorf("prune tenant audit: eligible prefix disappeared")
+	}
+	return cutSeq, cutHash, tag.RowsAffected(), nil
 }
 
 func updateProviderPruneAnchor(

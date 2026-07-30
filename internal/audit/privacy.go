@@ -9,7 +9,6 @@ package audit
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -36,38 +35,72 @@ func SubjectErasureHash(tenantID, subject string) string {
 }
 
 // RecordSubjectErasure appends an erasure marker to the tenant audit chain. It
-// preserves the hash chain (no old rows are edited) while making future List
-// calls project exact structured matches as erased.
+// preserves the hash chain (no old rows are edited) while atomically persisting
+// the hash-only projection state that survives normal audit-prefix retention.
 func RecordSubjectErasure(ctx context.Context, s tenancy.Scope, actor, subject, _ string) (Event, error) {
 	hash := SubjectErasureHash(s.Tenant.String(), subject)
 	if hash == "" {
 		return Event{}, fmt.Errorf("audit: subject erasure requires a non-empty subject")
 	}
+	// Use the audit-stream lock before touching the projection table. Retention
+	// takes this same lock before capturing rolling-old-writer markers, so this
+	// common order prevents a state-row/stream-lock deadlock.
+	if err := lockTenantStream(ctx, s.Q, s.Tenant.String()); err != nil {
+		return Event{}, fmt.Errorf("lock audit chain for subject erasure: %w", err)
+	}
+	if _, err := s.Q.Exec(
+		ctx,
+		`INSERT INTO audit_subject_erasures
+		    (tenant_id, subject_hash)
+		 VALUES ($1::uuid, $2)
+		 ON CONFLICT (tenant_id, subject_hash) DO NOTHING`,
+		s.Tenant.String(),
+		hash,
+	); err != nil {
+		return Event{}, fmt.Errorf("persist audit subject erasure: %w", err)
+	}
 	data := map[string]any{"subject_hash": hash}
-	return TenantAppend(ctx, s, actor, SubjectErasureAction, "subject:"+hash[:12], data)
+	return tenantAppendLocked(ctx, s, actor, SubjectErasureAction, "subject:"+hash[:12], data)
 }
 
 func subjectErasureHashes(ctx context.Context, s tenancy.Scope) (map[string]struct{}, error) {
-	rows, err := s.Q.Query(ctx, `SELECT data FROM audit_events WHERE action = $1`, SubjectErasureAction)
+	// The durable table is authoritative after retention. The UNION keeps a
+	// rolling old binary safe: its just-appended marker projects immediately,
+	// and the retention transaction will capture it before deleting that row.
+	rows, err := s.Q.Query(
+		ctx,
+		`SELECT subject_hash
+		   FROM audit_subject_erasures
+		 UNION
+		 SELECT data->>'subject_hash'
+		   FROM audit_events
+		  WHERE action = $1`,
+		SubjectErasureAction,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("list audit subject erasures: %w", err)
 	}
 	defer rows.Close()
 	out := map[string]struct{}{}
 	for rows.Next() {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
 			return nil, err
 		}
-		var data map[string]any
-		if err := json.Unmarshal(raw, &data); err != nil {
-			return nil, fmt.Errorf("decode audit subject erasure: %w", err)
+		if !validSubjectErasureHash(hash) {
+			return nil, fmt.Errorf("decode audit subject erasure: invalid subject hash")
 		}
-		if hash, ok := data["subject_hash"].(string); ok && hash != "" {
-			out[hash] = struct{}{}
-		}
+		out[hash] = struct{}{}
 	}
 	return out, rows.Err()
+}
+
+func validSubjectErasureHash(hash string) bool {
+	if len(hash) != 64 || strings.ToLower(hash) != hash {
+		return false
+	}
+	_, err := hex.DecodeString(hash)
+	return err == nil
 }
 
 func projectErasedSubjects(ev Event, tenantID string, erased map[string]struct{}) Event {

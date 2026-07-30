@@ -43,6 +43,16 @@ type Filter struct {
 	Target string
 }
 
+// TenantExportRow is the format-version-1 PostgreSQL portability shape for one
+// tenant audit row. ID and TenantID are storage identity fields that the audit
+// API's Event intentionally omits; embedding Event preserves the remaining
+// seq/actor/action/target/data/chain/timestamp fields.
+type TenantExportRow struct {
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	Event
+}
+
 // List returns a page of the calling tenant's audit events with seq greater than
 // afterSeq, in ascending order (the natural export cursor). RLS confines it to
 // the tenant. A non-positive limit uses DefaultExportPageSize; limit is capped at
@@ -96,6 +106,90 @@ func ListFiltered(ctx context.Context, s tenancy.Scope, afterSeq int64, limit in
 			return nil, fmt.Errorf("seq %d: decode data: %w", ev.Seq, err)
 		}
 		out = append(out, projectErasedSubjects(ev, s.Tenant.String(), erased))
+	}
+	return out, rows.Err()
+}
+
+// ListExportRows returns format-version-1 portability rows after afterSeq with
+// the canonical subject-erasure projection applied. The advisory transaction
+// lock prevents retention or appends from changing the stream between pages;
+// callers that page in one tenancy.Scope transaction keep that lock until the
+// bundle's audit read finishes.
+func ListExportRows(
+	ctx context.Context,
+	s tenancy.Scope,
+	afterSeq int64,
+	limit int,
+) ([]TenantExportRow, error) {
+	if limit <= 0 {
+		limit = DefaultExportPageSize
+	}
+	if limit > MaxExportPageSize {
+		limit = MaxExportPageSize
+	}
+	if err := lockTenantStream(ctx, s.Q, s.Tenant.String()); err != nil {
+		return nil, fmt.Errorf("lock audit export chain: %w", err)
+	}
+	erased, err := subjectErasureHashes(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.Q.Query(
+		ctx,
+		`SELECT id::text,
+		        tenant_id::text,
+		        seq,
+		        actor,
+		        action,
+		        target,
+		        data,
+		        prev_hash,
+		        hash,
+		        created_at
+		   FROM audit_events
+		  WHERE seq > $1
+		  ORDER BY seq
+		  LIMIT $2`,
+		afterSeq,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list audit export rows: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]TenantExportRow, 0, limit)
+	for rows.Next() {
+		var (
+			row       TenantExportRow
+			dataBytes []byte
+		)
+		if err := rows.Scan(
+			&row.ID,
+			&row.TenantID,
+			&row.Seq,
+			&row.Actor,
+			&row.Action,
+			&row.Target,
+			&dataBytes,
+			&row.PrevHash,
+			&row.Hash,
+			&row.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if row.TenantID != s.Tenant.String() {
+			return nil, fmt.Errorf("audit export row escaped tenant scope")
+		}
+		if err := json.Unmarshal(dataBytes, &row.Data); err != nil {
+			return nil, fmt.Errorf("seq %d: decode export data: %w", row.Seq, err)
+		}
+		row.Event = projectErasedSubjects(
+			row.Event,
+			s.Tenant.String(),
+			erased,
+		)
+		out = append(out, row)
 	}
 	return out, rows.Err()
 }

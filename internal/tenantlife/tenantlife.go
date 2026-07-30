@@ -92,6 +92,14 @@ type retentionPolicyAuditAppender func(
 	map[string]any,
 ) (audit.Event, error)
 
+type subjectErasureAppender func(
+	context.Context,
+	tenancy.Scope,
+	string,
+	string,
+	string,
+) (audit.Event, error)
+
 // PathDeleter is the pathstore erasure seam (memory + ClickHouse implement it).
 type PathDeleter interface {
 	DeleteTenant(ctx context.Context, tenantID string) (deleted, remaining int, err error)
@@ -178,6 +186,11 @@ type Engine struct {
 	// The unexported seam exists only so package tests can force an append
 	// failure and prove the policy upsert rolls back with it.
 	appendRetentionPolicyAudit retentionPolicyAuditAppender
+	// appendSubjectErasure is always audit.RecordSubjectErasure in production.
+	// The unexported seam lets integration tests force an alias-marker failure
+	// and prove every identity deletion and earlier alias marker rolls back in
+	// the same tenant transaction.
+	appendSubjectErasure subjectErasureAppender
 
 	// BackupNote is the operator's backup-retention statement, included
 	// verbatim in every attestation (the explicit backup-TTL story).
@@ -223,7 +236,8 @@ func newEngine(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.St
 	return &Engine{pool: pool, flows: flows, objects: objects, tsdbW: w,
 		audit: auditSink, backupNote: backupNote, backupRetentionDays: retentionDays,
 		log: log, now: time.Now, subjectTableExists: tableExists,
-		appendRetentionPolicyAudit: audit.TenantAppend}
+		appendRetentionPolicyAudit: audit.TenantAppend,
+		appendSubjectErasure:       audit.RecordSubjectErasure}
 }
 
 func tenantObjectStores(objects objectstore.Store, tenantID string) ([]objectstore.TenantStore, error) {
@@ -607,11 +621,13 @@ func (a Attestation) hash() string {
 }
 
 // appendOnlyTables are tenant-owned tables the APP ROLE may not delete by
-// design (audit_events is append-only for probectl_app — a deliberate
-// security property). The erase engine removes them via the PROVIDER role
-// instead (an explicit DELETE policy from migration 0029), never by
-// weakening the app role.
-var appendOnlyTables = map[string]bool{"audit_events": true}
+// design. Raw audit events and their hash-only subject-erasure projection are
+// durable evidence; the erase engine removes them via the routed PROVIDER
+// maintenance role only during verified full-tenant erasure.
+var appendOnlyTables = map[string]bool{
+	"audit_events":           true,
+	"audit_subject_erasures": true,
+}
 
 // erasePostgres deletes every tenant-owned row under the tenant's own scope.
 // Each table's DELETE runs in ITS OWN transaction: a failed statement aborts
@@ -652,16 +668,9 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 	}
 	// Append-only tables: erased via the provider role (the explicit S-T5
 	// DELETE policy) — the app role stays append-only.
-	err = tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
-		// TENANT-005: bind the provider verify SELECT policy to THIS tenant.
-		// The DELETE policy is USING(true) and is constrained by the explicit
-		// WHERE; the GUC scopes the count-verify SELECT below to one tenant so
-		// the provider cannot read another tenant's audit rows.
-		if _, err := q.Exec(ctx, `SELECT set_config('probectl.tenant_id', $1, true)`, tenantID); err != nil {
-			return fmt.Errorf("scope provider erase: %w", err)
-		}
+	err = tenancy.InTenantProviderMaintenance(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		for t := range appendOnlyTables {
-			tag, err := q.Exec(ctx, `DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID)
+			tag, err := sc.Q.Exec(ctx, `DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID)
 			if err != nil {
 				return fmt.Errorf("delete %s: %w", t, err)
 			}
@@ -692,16 +701,10 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 	if verr != nil {
 		return StoreResult{}, fmt.Errorf("tenantlife: postgres verify: %w", verr)
 	}
-	if perr := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
-		// TENANT-005: the provider verify SELECT policy is GUC-scoped — set the
-		// tenant so the count returns this tenant's append-only rows (and only
-		// this tenant's). Without it the scoped policy would read nothing.
-		if _, err := q.Exec(ctx, `SELECT set_config('probectl.tenant_id', $1, true)`, tenantID); err != nil {
-			return fmt.Errorf("scope provider verify: %w", err)
-		}
+	if perr := tenancy.InTenantProviderMaintenance(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		for t := range appendOnlyTables {
 			var n int64
-			if err := q.QueryRow(ctx, `SELECT count(*) FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID).Scan(&n); err != nil {
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID).Scan(&n); err != nil {
 				return err
 			}
 			if n != 0 {

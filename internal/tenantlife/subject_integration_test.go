@@ -179,6 +179,285 @@ func TestSubjectErasureNotCapableProductionStoreFailsClosedAndIsolated(t *testin
 	}
 }
 
+func TestSubjectErasureRetentionProjectionExportIsolation(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	tenantA := mkTenant(t, pool, "it-subject-projection-export-a-"+stamp)
+	tenantB := mkTenant(t, pool, "it-subject-projection-export-b-"+stamp)
+	t.Cleanup(func() {
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM tenants WHERE id = $1::uuid OR id = $2::uuid`,
+			tenantA,
+			tenantB,
+		); err != nil {
+			t.Errorf("cleanup projection-export tenants: %v", err)
+		}
+	})
+
+	subjectA := "projection-export-a-" + stamp + "@example.test"
+	subjectB := "projection-export-b-" + stamp + "@example.test"
+	for _, tc := range []struct {
+		tenantID string
+		subject  string
+	}{
+		{tenantID: tenantA, subject: subjectA},
+		{tenantID: tenantB, subject: subjectB},
+	} {
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tc.tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				_, err := audit.RecordSubjectErasure(
+					ctx,
+					scope,
+					"privacy-admin",
+					tc.subject,
+					"projection export regression",
+				)
+				return err
+			},
+		)
+		if err != nil {
+			t.Fatalf("record subject projection for %s: %v", tc.tenantID, err)
+		}
+	}
+
+	var bundle bytes.Buffer
+	manifest, err := New(pool, nil, nil, nil, nil, "", nil).ExportSubject(
+		ctx,
+		tenantA,
+		subjectA,
+		&bundle,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("export tenant A subject projection: %v", err)
+	}
+	hashA := audit.SubjectErasureHash(tenantA, subjectA)
+	hashB := audit.SubjectErasureHash(tenantB, subjectB)
+	if manifest.SubjectHash != hashA {
+		t.Fatalf("manifest subject hash = %q, want %q", manifest.SubjectHash, hashA)
+	}
+	files := readTarGz(t, bundle.Bytes())
+	projected := files["postgres/audit_subject_erasures.jsonl"]
+	if !strings.Contains(projected, hashA) {
+		t.Fatalf("subject export omitted its durable projection: %q", projected)
+	}
+	if strings.Contains(projected, hashB) || strings.Contains(projected, subjectA) ||
+		strings.Contains(projected, subjectB) {
+		t.Fatalf("subject projection export leaked raw/foreign identity: %q", projected)
+	}
+	planes := subjectPlanesByName(manifest.Planes)
+	if got := planes["postgres:audit_subject_erasures"]; got.Status != SubjectStatusExported ||
+		got.Rows != 1 {
+		t.Fatalf("subject projection export receipt = %+v, want one exported row", got)
+	}
+
+	// Asking tenant A for tenant B's plaintext still derives tenant A's hash,
+	// so neither storage routing nor the hash key can cross the outer boundary.
+	var foreignBundle bytes.Buffer
+	if _, err := New(pool, nil, nil, nil, nil, "", nil).ExportSubject(
+		ctx,
+		tenantA,
+		subjectB,
+		&foreignBundle,
+		false,
+	); err != nil {
+		t.Fatalf("export foreign subject under tenant A: %v", err)
+	}
+	foreignFiles := readTarGz(t, foreignBundle.Bytes())
+	if raw := foreignFiles["postgres/audit_subject_erasures.jsonl"]; raw != "" {
+		t.Fatalf("tenant A export returned tenant B projection: %q", raw)
+	}
+}
+
+func TestSubjectErasureAliasMarkerFailureRollsBackIdentityAndProjection(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	victim := mkTenant(t, pool, "it-subject-atomic-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-subject-atomic-b-"+stamp)
+	subject := "atomic-" + stamp + "@example.test"
+
+	seed := func(tenantID, externalID string) string {
+		t.Helper()
+		var userID string
+		if err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				return scope.Q.QueryRow(
+					ctx,
+					`INSERT INTO users
+					       (tenant_id, email, display_name, status, user_name,
+					        external_id, attributes)
+					 VALUES ($1::uuid, $2, 'Atomic Subject', 'active', $2, $3,
+					         jsonb_build_object('subject', $2::text))
+					 RETURNING id::text`,
+					tenantID,
+					subject,
+					externalID,
+				).Scan(&userID)
+			},
+		); err != nil {
+			t.Fatalf("seed atomic subject for %s: %v", tenantID, err)
+		}
+		return userID
+	}
+	victimExternalID := "atomic-external-" + stamp
+	victimUserID := seed(victim, victimExternalID)
+	seed(bystander, "bystander-external-"+stamp)
+
+	engine := New(pool, nil, nil, nil, nil, "", nil)
+	injected := errors.New("injected alias marker append failure")
+	var appendCalls int
+	engine.appendSubjectErasure = func(
+		ctx context.Context,
+		scope tenancy.Scope,
+		actor, alias, reason string,
+	) (audit.Event, error) {
+		appendCalls++
+		if appendCalls == 2 {
+			return audit.Event{}, injected
+		}
+		return audit.RecordSubjectErasure(ctx, scope, actor, alias, reason)
+	}
+
+	report, err := engine.EraseSubject(
+		ctx,
+		victim,
+		subject,
+		"privacy-admin",
+		"atomic alias regression",
+	)
+	if err != nil {
+		t.Fatalf("subject erasure should return its incomplete receipt: %v", err)
+	}
+	if report.Complete {
+		t.Fatalf("marker failure produced a complete receipt: %+v", report)
+	}
+	if appendCalls != 2 {
+		t.Fatalf("subject marker appender calls = %d, want failure on second alias", appendCalls)
+	}
+	postgres := subjectPlanesByName(report.Planes)["postgres"]
+	if postgres.Status != SubjectStatusFailed ||
+		!strings.Contains(postgres.Notes, injected.Error()) {
+		t.Fatalf("postgres atomic failure receipt = %+v", postgres)
+	}
+
+	for _, tenantID := range []string{victim, bystander} {
+		if got := countRows(
+			t,
+			pool,
+			`SELECT count(*)
+			   FROM users
+			  WHERE tenant_id = $1::uuid
+			    AND email = $2`,
+			tenantID,
+			subject,
+		); got != 1 {
+			t.Fatalf("tenant %s identity rows after rollback = %d, want 1", tenantID, got)
+		}
+		if got := countRows(
+			t,
+			pool,
+			`SELECT count(*)
+			   FROM audit_subject_erasures
+			  WHERE tenant_id = $1::uuid`,
+			tenantID,
+		); got != 0 {
+			t.Fatalf("tenant %s retained rolled-back subject projections: %d", tenantID, got)
+		}
+		if got := countRows(
+			t,
+			pool,
+			`SELECT count(*)
+			   FROM audit_events
+			  WHERE tenant_id = $1::uuid
+			    AND action = $2`,
+			tenantID,
+			audit.SubjectErasureAction,
+		); got != 0 {
+			t.Fatalf("tenant %s retained rolled-back subject markers: %d", tenantID, got)
+		}
+	}
+
+	engine.appendSubjectErasure = audit.RecordSubjectErasure
+	retry, err := engine.EraseSubject(
+		ctx,
+		victim,
+		subject,
+		"privacy-admin",
+		"atomic alias retry",
+	)
+	if err != nil {
+		t.Fatalf("retry subject erasure: %v", err)
+	}
+	if !retry.Complete {
+		t.Fatalf("retry subject erasure incomplete: %+v", retry)
+	}
+	if got := countRows(
+		t,
+		pool,
+		`SELECT count(*)
+		   FROM users
+		  WHERE tenant_id = $1::uuid
+		    AND email = $2`,
+		victim,
+		subject,
+	); got != 0 {
+		t.Fatalf("victim identity survived successful retry: %d", got)
+	}
+	expectedAliases := []string{subject, victimExternalID, victimUserID}
+	for _, alias := range expectedAliases {
+		hash := audit.SubjectErasureHash(victim, alias)
+		if got := countRows(
+			t,
+			pool,
+			`SELECT count(*)
+			   FROM audit_subject_erasures
+			  WHERE tenant_id = $1::uuid
+			    AND subject_hash = $2`,
+			victim,
+			hash,
+		); got != 1 {
+			t.Fatalf("durable projection for alias %q = %d, want 1", alias, got)
+		}
+	}
+	if got := countRows(
+		t,
+		pool,
+		`SELECT count(*)
+		   FROM audit_events
+		  WHERE tenant_id = $1::uuid
+		    AND action = $2`,
+		victim,
+		audit.SubjectErasureAction,
+	); got != int64(len(expectedAliases)) {
+		t.Fatalf(
+			"successful retry markers = %d, want %d aliases",
+			got,
+			len(expectedAliases),
+		)
+	}
+	if got := countRows(
+		t,
+		pool,
+		`SELECT count(*)
+		   FROM users
+		  WHERE tenant_id = $1::uuid
+		    AND email = $2`,
+		bystander,
+		subject,
+	); got != 1 {
+		t.Fatalf("successful retry altered bystander identity: %d", got)
+	}
+}
+
 func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()
@@ -304,6 +583,77 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	var postEraseSubjectBundle bytes.Buffer
+	postEraseSubjectManifest, err := e.ExportSubject(
+		ctx,
+		victim,
+		subject,
+		&postEraseSubjectBundle,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("post-erasure subject export: %v", err)
+	}
+	postEraseSubjectFiles := readTarGz(t, postEraseSubjectBundle.Bytes())
+	subjectAudit := postEraseSubjectFiles["postgres/audit_events.jsonl"]
+	if strings.Contains(strings.ToLower(subjectAudit), strings.ToLower(subject)) {
+		t.Fatalf("post-erasure subject audit export leaked plaintext: %s", subjectAudit)
+	}
+	if !strings.Contains(subjectAudit, audit.SubjectErasureAction) ||
+		!strings.Contains(subjectAudit, report.SubjectHash) ||
+		!strings.Contains(subjectAudit, `"id":"`) ||
+		!strings.Contains(subjectAudit, `"seq"`) ||
+		!strings.Contains(subjectAudit, `"hash"`) ||
+		!strings.Contains(subjectAudit, `"prev_hash"`) ||
+		!strings.Contains(subjectAudit, `"tenant_id":"`+victim+`"`) {
+		t.Fatalf("post-erasure subject audit evidence lost fields: %s", subjectAudit)
+	}
+	if got := subjectPlanesByName(postEraseSubjectManifest.Planes)["postgres:audit_events"]; got.Status != SubjectStatusExported ||
+		got.Rows == 0 {
+		t.Fatalf("post-erasure subject audit receipt = %+v", got)
+	}
+
+	var postEraseFullBundle bytes.Buffer
+	postEraseFullManifest, err := e.Export(
+		ctx,
+		victim,
+		&postEraseFullBundle,
+	)
+	if err != nil {
+		t.Fatalf("post-erasure full export: %v", err)
+	}
+	postEraseFullAudit := readTarGz(
+		t,
+		postEraseFullBundle.Bytes(),
+	)["postgres/audit_events.jsonl"]
+	if strings.Contains(strings.ToLower(postEraseFullAudit), strings.ToLower(subject)) {
+		t.Fatalf("post-erasure full audit export leaked plaintext: %s", postEraseFullAudit)
+	}
+	if !strings.Contains(postEraseFullAudit, "[erased-subject]") ||
+		!strings.Contains(postEraseFullAudit, audit.SubjectErasureAction) ||
+		!strings.Contains(postEraseFullAudit, `"id":"`) ||
+		!strings.Contains(postEraseFullAudit, `"tenant_id":"`+victim+`"`) {
+		t.Fatalf("post-erasure full audit export lost projection/evidence: %s", postEraseFullAudit)
+	}
+	if postEraseFullManifest.Tables["audit_events"] == 0 {
+		t.Fatalf("post-erasure full audit receipt = %+v", postEraseFullManifest.Tables)
+	}
+
+	var bystanderBundle bytes.Buffer
+	if _, err := e.Export(ctx, bystander, &bystanderBundle); err != nil {
+		t.Fatalf("bystander full export: %v", err)
+	}
+	bystanderAudit := readTarGz(
+		t,
+		bystanderBundle.Bytes(),
+	)["postgres/audit_events.jsonl"]
+	if !strings.Contains(
+		strings.ToLower(bystanderAudit),
+		strings.ToLower(subject),
+	) {
+		t.Fatalf("victim projection altered bystander audit export: %s", bystanderAudit)
 	}
 }
 
@@ -872,7 +1222,13 @@ func TestSubjectErasureEscapesSQLWildcards(t *testing.T) {
 	foreign := seed(bystander, subject, "foreign")
 
 	engine := New(pool, nil, nil, nil, nil, "", nil)
-	results, _, err := engine.eraseSubjectPostgres(ctx, victim, subject)
+	results, _, err := engine.eraseSubjectPostgres(
+		ctx,
+		victim,
+		subject,
+		"privacy-admin",
+		"wildcard regression",
+	)
 	if err != nil {
 		t.Fatalf("erase subject containing SQL wildcards: %v", err)
 	}

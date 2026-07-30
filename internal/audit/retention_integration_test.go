@@ -216,6 +216,310 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 	}
 }
 
+// TestTenantSubjectErasureRetentionProjection is the regression for
+// DATA-85020084. A privacy.subject_erase event is evidence, not a permanent
+// retention barrier: once it is old and exported, the marker and later eligible
+// rows may leave Postgres while the tenant-scoped subject projection remains.
+func TestTenantSubjectErasureRetentionProjection(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	stamp := time.Now().UnixNano()
+	tenantA, err := store.NewTenants(pool).Create(
+		ctx,
+		fmt.Sprintf("audit-erasure-retention-a-%d", stamp),
+		"Audit Erasure Retention A",
+	)
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tenantB, err := store.NewTenants(pool).Create(
+		ctx,
+		fmt.Sprintf("audit-erasure-retention-b-%d", stamp),
+		"Audit Erasure Retention B",
+	)
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(
+			context.Background(),
+			`DELETE FROM tenants WHERE id = $1::uuid OR id = $2::uuid`,
+			tenantA.ID,
+			tenantB.ID,
+		)
+	})
+
+	subjectA := "retained-alice@example.test"
+	subjectB := "retained-bob@example.test"
+	for _, tc := range []struct {
+		tenantID string
+		subject  string
+	}{
+		{tenantID: tenantA.ID, subject: subjectA},
+		{tenantID: tenantB.ID, subject: subjectB},
+	} {
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tc.tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				if _, err := TenantAppend(
+					ctx,
+					scope,
+					tc.subject,
+					"directory.before_erasure",
+					tc.subject,
+					map[string]any{"email": tc.subject},
+				); err != nil {
+					return err
+				}
+				if _, err := RecordSubjectErasure(
+					ctx,
+					scope,
+					"privacy-admin",
+					tc.subject,
+					"retention regression",
+				); err != nil {
+					return err
+				}
+				_, err := TenantAppend(
+					ctx,
+					scope,
+					tc.subject,
+					"directory.after_erasure",
+					tc.subject,
+					map[string]any{"email": tc.subject},
+				)
+				if err != nil {
+					return err
+				}
+				return (store.SIEMDelivery{}).Advance(ctx, scope, 3)
+			},
+		)
+		if err != nil {
+			t.Fatalf("seed tenant %s: %v", tc.tenantID, err)
+		}
+	}
+
+	now := time.Now().UTC()
+	old := now.Add(-48 * time.Hour)
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE audit_events
+		    SET created_at = $1
+		  WHERE tenant_id = $2::uuid`,
+		old,
+		tenantA.ID,
+	); err != nil {
+		t.Fatalf("backdate tenant A: %v", err)
+	}
+
+	policy := RetentionPolicy{Window: 24 * time.Hour}
+	if pruned, err := PruneTenant(
+		ctx,
+		pool,
+		tenantA.ID,
+		policy,
+		3,
+		now,
+	); err != nil || pruned != 3 {
+		t.Fatalf("prune marker-spanning prefix = (%d, %v), want (3, nil)", pruned, err)
+	}
+	if pruned, err := PruneTenant(
+		ctx,
+		pool,
+		tenantA.ID,
+		policy,
+		3,
+		now,
+	); err != nil || pruned != 0 {
+		t.Fatalf("repeat marker-spanning prune = (%d, %v), want (0, nil)", pruned, err)
+	}
+
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantA.ID)),
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			if _, err := TenantAppend(
+				ctx,
+				scope,
+				subjectA,
+				"directory.future",
+				subjectA,
+				map[string]any{"email": subjectA},
+			); err != nil {
+				return err
+			}
+			events, err := List(ctx, scope, 0, 100)
+			if err != nil {
+				return err
+			}
+			raw, err := json.Marshal(events)
+			if err != nil {
+				return err
+			}
+			if strings.Contains(strings.ToLower(string(raw)), subjectA) {
+				return fmt.Errorf("durable projection leaked subject after marker prune: %s", raw)
+			}
+			if !strings.Contains(string(raw), erasedSubjectValue) {
+				return fmt.Errorf("durable projection token missing after marker prune: %s", raw)
+			}
+			var own, other int
+			if err := scope.Q.QueryRow(
+				ctx,
+				`SELECT count(*) FROM audit_subject_erasures`,
+			).Scan(&own); err != nil {
+				return err
+			}
+			if err := scope.Q.QueryRow(
+				ctx,
+				`SELECT count(*)
+				   FROM audit_subject_erasures
+				  WHERE tenant_id = $1::uuid`,
+				tenantB.ID,
+			).Scan(&other); err != nil {
+				return err
+			}
+			if own != 1 || other != 0 {
+				return fmt.Errorf(
+					"tenant A projection RLS own/all=%d tenant-B=%d, want 1/0",
+					own,
+					other,
+				)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var tenantBEvents int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM audit_events WHERE tenant_id = $1::uuid`,
+		tenantB.ID,
+	).Scan(&tenantBEvents); err != nil {
+		t.Fatalf("count tenant B audit rows: %v", err)
+	}
+	if tenantBEvents != 3 {
+		t.Fatalf("tenant B audit rows = %d, want unchanged 3", tenantBEvents)
+	}
+}
+
+func TestSubjectErasureRetentionProjectionAtomicWithMarker(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	tenant, err := store.NewTenants(pool).Create(
+		ctx,
+		fmt.Sprintf("audit-erasure-atomic-%d", time.Now().UnixNano()),
+		"Audit Erasure Atomic",
+	)
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(
+			context.Background(),
+			`DELETE FROM tenants WHERE id = $1::uuid`,
+			tenant.ID,
+		)
+	})
+	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenant.ID))
+	if err := tenancy.InTenant(tctx, pool, func(ctx context.Context, scope tenancy.Scope) error {
+		_, err := TenantAppend(
+			ctx,
+			scope,
+			"atomic-test",
+			"projection.seed",
+			tenant.ID,
+			nil,
+		)
+		return err
+	}); err != nil {
+		t.Fatalf("seed audit stream: %v", err)
+	}
+
+	var realHeadHash string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT head_hash
+		   FROM audit_stream_heads
+		  WHERE tenant_id = $1::uuid`,
+		tenant.ID,
+	).Scan(&realHeadHash); err != nil {
+		t.Fatalf("read real audit head: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE audit_stream_heads
+		    SET head_hash = 'corrupt-for-atomic-rollback'
+		  WHERE tenant_id = $1::uuid`,
+		tenant.ID,
+	); err != nil {
+		t.Fatalf("inject audit head mismatch: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(
+			context.Background(),
+			`UPDATE audit_stream_heads
+			    SET head_hash = $2
+			  WHERE tenant_id = $1::uuid`,
+			tenant.ID,
+			realHeadHash,
+		)
+	})
+
+	subject := "atomic-projection@example.test"
+	err = tenancy.InTenant(tctx, pool, func(ctx context.Context, scope tenancy.Scope) error {
+		_, err := RecordSubjectErasure(
+			ctx,
+			scope,
+			"privacy-admin",
+			subject,
+			"atomic rollback regression",
+		)
+		return err
+	})
+	if err == nil {
+		t.Fatal("subject erasure unexpectedly committed against a corrupt audit head")
+	}
+
+	var projectionRows, markerRows int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)
+		   FROM audit_subject_erasures
+		  WHERE tenant_id = $1::uuid
+		    AND subject_hash = $2`,
+		tenant.ID,
+		SubjectErasureHash(tenant.ID, subject),
+	).Scan(&projectionRows); err != nil {
+		t.Fatalf("count rolled-back projection: %v", err)
+	}
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)
+		   FROM audit_events
+		  WHERE tenant_id = $1::uuid
+		    AND action = $2`,
+		tenant.ID,
+		SubjectErasureAction,
+	).Scan(&markerRows); err != nil {
+		t.Fatalf("count rolled-back marker: %v", err)
+	}
+	if projectionRows != 0 || markerRows != 0 {
+		t.Fatalf(
+			"failed subject erasure committed projection/marker = %d/%d, want 0/0",
+			projectionRows,
+			markerRows,
+		)
+	}
+}
+
 func assertProviderSeqAbsent(t *testing.T, pool *pgxpool.Pool, seq int64) {
 	t.Helper()
 	var count int

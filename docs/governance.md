@@ -164,8 +164,13 @@ owned by its own subsystem — governance is the dashboard, not a second engine:
   that operation. RUM is covered by the TSDB metric-label receipt, and
   aggregate-only remote backends report their retention/delete-series basis
   instead of silently disappearing. Audit uses an append-only
-  `privacy.subject_erase` marker and projects future reads, so the evidence
-  chain stays sealed while the person's visible fields are taped over.
+  `privacy.subject_erase` marker plus a tenant-routed, hash-only projection.
+  All classified Postgres deletions and every stable-alias marker/projection
+  commit in one tenant transaction; any marker failure rolls them all back.
+  The projection survives ordinary audit-prefix retention (including
+  marker-only writes from rolling older binaries), so the evidence chain stays
+  sealed and retention can progress while the person's visible fields remain
+  taped over in API, SIEM, subject-bundle, and full-tenant audit exports.
 - **Residency** is siloed stores pinned to a region, plus the region topology.
   Strict tenants run **siloed** (their own schemas/databases rather than shared
   ones) so their stores stay in the permitted region rather

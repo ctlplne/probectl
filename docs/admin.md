@@ -92,13 +92,23 @@ does.
 Subject erasure does **not** rewrite old audit rows, because rewriting them
 would break the evidence chain. Instead, probectl appends a
 `privacy.subject_erase` marker that stores only a tenant-scoped hash of the
-subject. Normal audit reads and exports then project matching structured
-`actor`, `target`, and `data` values as `[erased-subject]` while preserving the
-original `seq`, `prev_hash`, and `hash` fields. ELI5: the sealed evidence bag
-stays sealed, but the viewing window puts privacy tape over the person's name.
-The lifecycle API writes that marker as part of `POST
-/v1/lifecycle/subjects/erase`; use `POST /v1/lifecycle/subjects/export` first
-when the request is for a subject portability bundle instead of deletion.
+subject. The same transaction stores that one-way hash in the tenant-routed
+`audit_subject_erasures` projection table. Normal audit reads and exports then
+project matching structured `actor`, `target`, and `data` values as
+`[erased-subject]` while preserving the original `seq`, `prev_hash`, and `hash`
+fields. Once the marker event is old and durably exported, ordinary audit
+retention may prune it; the hash-only projection remains until full tenant
+erasure. A rolling older control-plane writer that emits only the marker is
+safe too: the retention transaction captures its hash before deleting the
+event. ELI5: the sealed evidence bag stays sealed, while a durable tenant-only
+index tells every later viewing window where to put privacy tape. The lifecycle
+API resolves every stable directory alias and writes all matching Postgres
+deletions, projections, and markers in one tenant transaction as part of `POST
+/v1/lifecycle/subjects/erase`; one failed alias marker rolls the whole Postgres
+change back. Both subject and full-tenant portability bundles serialize
+`audit_events` through this same projection while retaining tenant, sequence,
+timestamp, and chain fields. Use `POST /v1/lifecycle/subjects/export` first when
+the request is for a subject portability bundle instead of deletion.
 
 ### Exporting to a SIEM
 

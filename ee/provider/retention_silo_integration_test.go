@@ -120,6 +120,36 @@ func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 		t.Fatalf("governance did not read provider-owned retention: %+v", view)
 	}
 
+	if err := tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			_, err := audit.RecordSubjectErasure(
+				ctx,
+				scope,
+				"provider-it",
+				"full-erasure-projection@example.test",
+				"full tenant erasure regression",
+			)
+			return err
+		},
+	); err != nil {
+		t.Fatalf("seed silo subject-erasure projection: %v", err)
+	}
+	quotedProjection := pgx.Identifier{schema, "audit_subject_erasures"}.Sanitize()
+	var projectionRows int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM `+quotedProjection+`
+		  WHERE tenant_id = $1::uuid`,
+		tenantID,
+	).Scan(&projectionRows); err != nil {
+		t.Fatalf("count silo subject-erasure projection: %v", err)
+	}
+	if projectionRows != 1 {
+		t.Fatalf("silo subject-erasure projections = %d, want 1 before erase", projectionRows)
+	}
+
 	att, err := life.Erase(ctx, tenantID, slug, "provider-it")
 	if err != nil {
 		t.Fatalf("erase tenant: %v", err)
@@ -128,6 +158,17 @@ func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 		t.Fatalf("erasure attestation incomplete: %+v", att.Stores)
 	}
 	assertPublicRetentionDays(t, pool, tenantID, 0)
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM `+quotedProjection+`
+		  WHERE tenant_id = $1::uuid`,
+		tenantID,
+	).Scan(&projectionRows); err != nil {
+		t.Fatalf("verify erased silo subject projection: %v", err)
+	}
+	if projectionRows != 0 {
+		t.Fatalf("silo subject-erasure projections after tenant erase = %d, want 0", projectionRows)
+	}
 }
 
 type siloRetentionState struct {

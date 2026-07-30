@@ -190,6 +190,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	},
 	"alert_rules":  {plane: "postgres:alert_rules", disposition: subjectTableNoSubject},
 	"audit_events": {plane: "audit", disposition: subjectTableProjectMatches},
+	"audit_subject_erasures": {
+		plane:       "audit:subject_erasure_projection",
+		disposition: subjectTableProjectMatches,
+	},
 	"change_events": {
 		plane: "postgres:change_events", disposition: subjectTableDeleteMatches,
 		exact:    []string{"actor", "target"},
@@ -305,7 +309,7 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 		Redacted:      redact,
 		Notes: []string{
 			"Subject export filters only rows inside this tenant; it is not a cross-tenant search.",
-			"Immutable audit rows are exported as evidence; subject erasure uses an append-only projection marker instead of rewriting the hash chain.",
+			"Immutable audit rows keep their chain fields but are serialized through the canonical privacy projection; the matching hash-only erasure marker remains portable evidence.",
 		},
 	}
 	if redact {
@@ -388,11 +392,42 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	}
 	tctx := tenancy.WithTenant(x.ctx, tenancy.ID(x.tenantID))
 	subject := []byte(strings.ToLower(x.subject))
+	subjectHash := audit.SubjectErasureHash(x.tenantID, x.subject)
 	for _, table := range tables {
 		var buf bytes.Buffer
 		var count int64
 		err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-			rows, err := sc.Q.Query(ctx, `SELECT row_to_json(t) FROM `+pgIdent(table)+` t`)
+			if table == "audit_events" {
+				var err error
+				count, err = appendProjectedAuditJSONL(
+					ctx,
+					sc,
+					&buf,
+					func(event audit.Event, projected []byte) bool {
+						if bytes.Contains(
+							bytes.ToLower(projected),
+							subject,
+						) {
+							return true
+						}
+						hash, _ := event.Data["subject_hash"].(string)
+						return event.Action == audit.SubjectErasureAction &&
+							hash == subjectHash
+					},
+				)
+				return err
+			}
+			query := `SELECT row_to_json(t) FROM ` + pgIdent(table) + ` t`
+			var args []any
+			if table == "audit_subject_erasures" {
+				// Projection rows intentionally contain no plaintext subject,
+				// so generic JSON substring matching can never find them.
+				// Match the same tenant-bound one-way hash used at write time;
+				// RLS still provides the outer tenant boundary.
+				query += ` WHERE subject_hash = $1`
+				args = append(args, subjectHash)
+			}
+			rows, err := sc.Q.Query(ctx, query, args...)
 			if err != nil {
 				return err
 			}
@@ -402,7 +437,8 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 				if err := rows.Scan(&raw); err != nil {
 					return err
 				}
-				if !bytes.Contains(bytes.ToLower(raw), subject) {
+				if table != "audit_subject_erasures" &&
+					!bytes.Contains(bytes.ToLower(raw), subject) {
 					continue
 				}
 				buf.Write(raw)
@@ -602,31 +638,22 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 
 	destructiveSubjectValidated := false
 	if e.pool != nil {
-		deleted, aliases, err := e.eraseSubjectPostgres(ctx, tenantID, subject)
+		deleted, aliases, err := e.eraseSubjectPostgres(
+			ctx,
+			tenantID,
+			subject,
+			actor,
+			reason,
+		)
 		if err != nil {
 			fail("postgres", err.Error())
 		} else {
 			rep.Planes = append(rep.Planes, deleted...)
 			destructiveSubjectValidated = true
-			if len(aliases) == 0 {
-				aliases = []string{subject}
-			}
-			tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
-			if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				for _, alias := range aliases {
-					if _, err := audit.RecordSubjectErasure(ctx, sc, actor, alias, reason); err != nil {
-						return err
-					}
-				}
-				return nil
-			}); err != nil {
-				fail("audit", "subject marker failed: "+err.Error())
-			} else {
-				rep.Planes = append(rep.Planes, SubjectPlaneResult{
-					Plane: "audit", Status: SubjectStatusProjected, Projected: true,
-					Notes: fmt.Sprintf("append-only privacy.subject_erase markers recorded for %d stable subject aliases", len(aliases)),
-				})
-			}
+			rep.Planes = append(rep.Planes, SubjectPlaneResult{
+				Plane: "audit", Status: SubjectStatusProjected, Projected: true,
+				Notes: fmt.Sprintf("append-only privacy.subject_erase markers recorded atomically for %d stable subject aliases", len(aliases)),
+			})
 		}
 	} else {
 		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "postgres", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
@@ -800,7 +827,7 @@ func subjectErasurePlanesComplete(planes []SubjectPlaneResult) bool {
 
 func (e *Engine) eraseSubjectPostgres(
 	ctx context.Context,
-	tenantID, subject string,
+	tenantID, subject, actor, reason string,
 ) ([]SubjectPlaneResult, []string, error) {
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
 	var (
@@ -885,6 +912,23 @@ func (e *Engine) eraseSubjectPostgres(
 		}
 		if !equalStringSets(liveTables, afterTables) {
 			return fmt.Errorf("tenantlife: tenant-owned table set changed during subject erasure")
+		}
+		if e.appendSubjectErasure == nil {
+			return fmt.Errorf("tenantlife: subject erasure audit appender is unavailable")
+		}
+		for _, alias := range aliases.values() {
+			if _, err := e.appendSubjectErasure(
+				ctx,
+				sc,
+				actor,
+				alias,
+				reason,
+			); err != nil {
+				return fmt.Errorf(
+					"record subject erasure for stable alias: %w",
+					err,
+				)
+			}
 		}
 		return nil
 	})

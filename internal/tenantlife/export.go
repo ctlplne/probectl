@@ -16,6 +16,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -81,6 +82,7 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 		Notes: []string{
 			"TSDB metric series are not bundled: export them via the Prometheus-compatible API (federation/PromQL).",
 			"Object-store artifacts are inventoried under objects[]; fetch blobs individually via their API surfaces.",
+			"Immutable audit rows keep their tenant, sequence, timestamp, and chain fields; erased identities are emitted only through the canonical audit privacy projection.",
 		},
 		Redacted: redact,
 	}
@@ -103,6 +105,16 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 			var buf bytes.Buffer
 			var count int64
 			err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				if table == "audit_events" {
+					var err error
+					count, err = appendProjectedAuditJSONL(
+						ctx,
+						sc,
+						&buf,
+						nil,
+					)
+					return err
+				}
 				rows, err := sc.Q.Query(ctx, `SELECT row_to_json(t) FROM `+pgIdent(table)+` t`)
 				if err != nil {
 					return err
@@ -208,6 +220,71 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 		}
 	}
 	return man, nil
+}
+
+// appendProjectedAuditJSONL is the only tenant-lifecycle path that serializes
+// audit_events. It deliberately consumes audit.ListExportRows instead of
+// row_to_json so subject-erasure projection is identical in the audit API, SIEM
+// drain, full portability bundle, and subject bundle. The audit export-row API
+// preserves the format-version-1 id, tenant_id, and every stored chain field.
+func appendProjectedAuditJSONL(
+	ctx context.Context,
+	scope tenancy.Scope,
+	dst *bytes.Buffer,
+	include func(audit.Event, []byte) bool,
+) (int64, error) {
+	// TenantVerify takes the same transaction-scoped advisory lock used by
+	// append and retention, and proves the retained suffix reaches its durable
+	// head. The lock remains held by this scope transaction across every page,
+	// so a bundle cannot silently skip rows pruned between page reads.
+	if err := audit.TenantVerify(ctx, scope); err != nil {
+		return 0, fmt.Errorf("verify audit stream for portability export: %w", err)
+	}
+
+	var (
+		after int64
+		count int64
+	)
+	for {
+		rows, err := audit.ListExportRows(
+			ctx,
+			scope,
+			after,
+			audit.MaxExportPageSize,
+		)
+		if err != nil {
+			return 0, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			projected, err := json.Marshal(row.Event)
+			if err != nil {
+				return 0, fmt.Errorf(
+					"encode projected audit event %d: %w",
+					row.Seq,
+					err,
+				)
+			}
+			after = row.Seq
+			if include != nil && !include(row.Event, projected) {
+				continue
+			}
+			encoded, err := json.Marshal(row)
+			if err != nil {
+				return 0, fmt.Errorf(
+					"encode tenant audit event %d: %w",
+					row.Seq,
+					err,
+				)
+			}
+			dst.Write(encoded)
+			dst.WriteByte('\n')
+			count++
+		}
+	}
+	return count, nil
 }
 
 func writeTarFile(tw *tar.Writer, name string, data []byte, mod time.Time) error {
