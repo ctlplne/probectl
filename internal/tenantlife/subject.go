@@ -835,6 +835,12 @@ func (e *Engine) eraseSubjectPostgres(
 		aliases = newSubjectAliasSet(subject)
 	)
 	err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		// Ordinary audited mutations lock the tenant audit stream before their
+		// subject-bearing rows. Taking that same lock before catalog discovery
+		// and deletion prevents the inverse row-lock → audit-lock order.
+		if err := audit.LockTenantStream(ctx, sc.Q, tenantID); err != nil {
+			return fmt.Errorf("lock tenant audit stream before subject erasure: %w", err)
+		}
 		liveTables, err := subjectTenantOwnedTables(ctx, sc)
 		if err != nil {
 			return fmt.Errorf("discover tenant-owned tables: %w", err)

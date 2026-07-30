@@ -292,6 +292,14 @@ func lockTenantStream(ctx context.Context, q tenancy.Querier, tenantID string) e
 	return err
 }
 
+// LockTenantStream acquires the canonical transaction-scoped tenant audit
+// lock. Mutations that must lock tenant rows before appending their audit event
+// use this seam first so every caller keeps the same audit-lock → row-lock
+// order.
+func LockTenantStream(ctx context.Context, q tenancy.Querier, tenantID string) error {
+	return lockTenantStream(ctx, q, tenantID)
+}
+
 func lockProviderStream(ctx context.Context, q tenancy.Querier) error {
 	_, err := q.Exec(
 		ctx,
