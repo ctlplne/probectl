@@ -51,7 +51,7 @@ func TestParseDataPlanes(t *testing.T) {
 // list excluded.
 func TestProvisionPlan(t *testing.T) {
 	plan := ProvisionPlan("t_abc", []string{
-		"tests", "agents", "break_glass_grants", "tenant_retention",
+		"tests", "agents", "audit_events", "break_glass_grants", "tenant_retention",
 		"credential_locators", "agent_identity_revocations",
 	})
 	joined := strings.Join(plan, "\n")
@@ -59,12 +59,16 @@ func TestProvisionPlan(t *testing.T) {
 	for _, want := range []string{
 		`CREATE SCHEMA IF NOT EXISTS "t_abc"`,
 		`GRANT USAGE ON SCHEMA "t_abc" TO probectl_app`,
+		`GRANT USAGE ON SCHEMA "t_abc" TO probectl_provider`,
 		`CREATE TABLE IF NOT EXISTS "t_abc"."agents" (LIKE public."agents" INCLUDING ALL)`,
 		`CREATE TABLE IF NOT EXISTS "t_abc"."tests" (LIKE public."tests" INCLUDING ALL)`,
 		`ALTER TABLE "t_abc"."tests" ENABLE ROW LEVEL SECURITY`,
 		`ALTER TABLE "t_abc"."tests" FORCE ROW LEVEL SECURITY`,
 		`CREATE POLICY tenant_isolation ON "t_abc"."tests"`,
 		`GRANT SELECT, INSERT, UPDATE, DELETE ON "t_abc"."tests" TO probectl_app`,
+		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_app`,
+		`GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`,
+		`GRANT SELECT, DELETE ON "t_abc"."audit_events" TO probectl_provider`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("plan missing %q", want)
@@ -121,15 +125,32 @@ func TestCatchUpPlan(t *testing.T) {
 		t.Fatalf("drift: %+v", d)
 	}
 
-	// Fully caught up = empty plan + empty drift.
+	// Fully caught up = only the idempotent audit permission repair + empty
+	// structural drift.
 	cat.SchemaTables = []string{"tests", "agents", "new_table"}
 	cat.SchemaColumns["new_table"] = cat.Columns["new_table"]
 	cat.SchemaColumns["tests"] = cat.Columns["tests"]
 	if p := CatchUpPlan("t_abc", cat); len(p) != 0 {
-		t.Fatalf("caught-up plan must be empty: %v", p)
+		t.Fatalf("caught-up plan without audit_events must be empty: %v", p)
 	}
 	if !DiffDrift(cat).Empty() {
 		t.Fatal("caught-up drift must be empty")
+	}
+
+	cat.TenantTables = append(cat.TenantTables, "audit_events")
+	cat.SchemaTables = append(cat.SchemaTables, "audit_events")
+	cat.Columns["audit_events"] = []Column{{Name: "tenant_id", DataType: "uuid"}}
+	cat.SchemaColumns["audit_events"] = cat.Columns["audit_events"]
+	repair := strings.Join(CatchUpPlan("t_abc", cat), "\n")
+	for _, want := range []string{
+		`GRANT USAGE ON SCHEMA "t_abc" TO probectl_provider`,
+		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_app`,
+		`GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`,
+		`GRANT SELECT, DELETE ON "t_abc"."audit_events" TO probectl_provider`,
+	} {
+		if !strings.Contains(repair, want) {
+			t.Errorf("caught-up audit permission repair missing %q in:\n%s", want, repair)
+		}
 	}
 }
 

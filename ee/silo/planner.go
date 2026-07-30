@@ -70,26 +70,48 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 //  3. ENABLE+FORCE RLS + recreate the tenant_isolation policy (the silo is
 //     schema-isolated AND GUC-scoped: defense-in-depth, not replacement)
 //  4. grants for the app role (USAGE on the schema; DML on the tables)
+//  5. an audit-only, tenant-GUC-scoped provider maintenance capability:
+//     schema USAGE plus SELECT/DELETE on audit_events. The app role keeps
+//     audit_events append-only (SELECT/INSERT only).
 func ProvisionPlan(schema string, tenantTables []string) []string {
 	q := quoteIdent(schema)
 	plan := []string{
 		"CREATE SCHEMA IF NOT EXISTS " + q,
 		"GRANT USAGE ON SCHEMA " + q + " TO probectl_app",
+		"GRANT USAGE ON SCHEMA " + q + " TO probectl_provider",
 	}
 	for _, t := range TenantOwned(tenantTables) {
-		qt := q + "." + quoteIdent(t)
-		plan = append(plan,
-			"CREATE TABLE IF NOT EXISTS "+qt+" (LIKE public."+quoteIdent(t)+" INCLUDING ALL)",
-			"ALTER TABLE "+qt+" ENABLE ROW LEVEL SECURITY",
-			"ALTER TABLE "+qt+" FORCE ROW LEVEL SECURITY",
-			"DROP POLICY IF EXISTS tenant_isolation ON "+qt,
-			`CREATE POLICY tenant_isolation ON `+qt+`
-  USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
-  WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`,
-			"GRANT SELECT, INSERT, UPDATE, DELETE ON "+qt+" TO probectl_app",
-		)
+		plan = append(plan, provisionTablePlan(q, t)...)
 	}
 	return plan
+}
+
+func provisionTablePlan(quotedSchema, table string) []string {
+	qt := quotedSchema + "." + quoteIdent(table)
+	plan := []string{
+		"CREATE TABLE IF NOT EXISTS " + qt + " (LIKE public." + quoteIdent(table) + " INCLUDING ALL)",
+		"ALTER TABLE " + qt + " ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE " + qt + " FORCE ROW LEVEL SECURITY",
+		"DROP POLICY IF EXISTS tenant_isolation ON " + qt,
+		`CREATE POLICY tenant_isolation ON ` + qt + `
+  USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`,
+	}
+	return append(plan, tableRolePlan(qt, table)...)
+}
+
+func tableRolePlan(quotedTable, table string) []string {
+	if table == "audit_events" {
+		return []string{
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
+			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_app",
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
+			"GRANT SELECT, DELETE ON " + quotedTable + " TO probectl_provider",
+		}
+	}
+	return []string{
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + quotedTable + " TO probectl_app",
+	}
 }
 
 // CatchUpPlan renders the DDL that brings an EXISTING silo schema up to the
@@ -105,10 +127,26 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 		have[t] = true
 	}
 	var plan []string
-	for _, t := range TenantOwned(cat.TenantTables) {
+	tenantTables := TenantOwned(cat.TenantTables)
+	for _, t := range tenantTables {
+		if t == "audit_events" {
+			// Permission repair is intentionally idempotent and always emitted:
+			// restored/pre-0075 silos may have current columns but the old
+			// app-DELETE grant and no provider retention capability.
+			plan = append(
+				plan,
+				"GRANT USAGE ON SCHEMA "+q+" TO probectl_provider",
+			)
+			if have[t] {
+				plan = append(plan, tableRolePlan(q+"."+quoteIdent(t), t)...)
+			}
+			break
+		}
+	}
+	for _, t := range tenantTables {
 		if !have[t] {
 			// The same recipe as provisioning, for just this table.
-			plan = append(plan, ProvisionPlan(schema, []string{t})[2:]...)
+			plan = append(plan, provisionTablePlan(q, t)...)
 			continue
 		}
 		// Column diff: public minus silo, in public's order.

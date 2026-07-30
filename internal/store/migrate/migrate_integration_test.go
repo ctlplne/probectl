@@ -143,6 +143,219 @@ func TestMigrationContentPreservesTenantData(t *testing.T) {
 	assertOTLPTokenDataPreserved(ctx, t, pool)
 }
 
+func TestAuditStreamHeadMigrationBackfillsRetainedBoundary(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	pool := isolatedMigrationPool(ctx, t)
+	if _, err := migrate.New(migrationsThrough(t, 74), nil).Apply(ctx, pool); err != nil {
+		t.Fatalf("apply through 0074: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO tenants (id, slug, name, isolation_model) VALUES
+  ($1, 'audit-head-migration-a', 'Audit Head Migration A', 'pooled'),
+  ($2, 'audit-head-migration-b', 'Audit Head Migration B', 'siloed');
+`, migrationTenantA, migrationTenantB); err != nil {
+		t.Fatalf("seed pre-0075 tenants: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+CREATE SCHEMA t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb;
+GRANT USAGE ON SCHEMA t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb TO probectl_app;
+CREATE TABLE t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events
+  (LIKE public.audit_events INCLUDING ALL);
+ALTER TABLE t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events
+  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events
+  FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation
+  ON t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events
+  USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid);
+-- This is the pre-0075 provisioner shape being repaired: app DELETE was
+-- accidentally broad and provider retention had no silo capability.
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events TO probectl_app;
+`); err != nil {
+		t.Fatalf("seed pre-0075 silo audit grants: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+-- Tenant A and the provider stream model a previously partial prune: seq 1-2
+-- are gone, and seq 3's prev_hash is the exact surviving boundary anchor.
+INSERT INTO audit_events
+  (tenant_id, seq, actor, action, target, data, prev_hash, hash)
+VALUES
+  ($1, 3, 'migration', 'seed', 'a-3', '{}'::jsonb, 'tenant-a-hash-2', 'tenant-a-hash-3'),
+  ($1, 4, 'migration', 'seed', 'a-4', '{}'::jsonb, 'tenant-a-hash-3', 'tenant-a-hash-4');
+`, migrationTenantA); err != nil {
+		t.Fatalf("seed pre-0075 tenant audit streams: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+-- A stale/misrouted public row for the silo tenant must never win over the
+-- tenant's active physical stream during head backfill.
+INSERT INTO public.audit_events
+  (tenant_id, seq, actor, action, target, data, prev_hash, hash)
+VALUES
+  ($1, 99, 'migration', 'stale', 'b-public-stale', '{}'::jsonb,
+   'stale-public-prev', 'stale-public-hash');
+`, migrationTenantB); err != nil {
+		t.Fatalf("seed stale public silo audit row: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events
+  (tenant_id, seq, actor, action, target, data, prev_hash, hash)
+VALUES
+  ($1, 1, 'migration', 'seed', 'b-1', '{}'::jsonb, '', 'tenant-b-hash-1');
+`, migrationTenantB); err != nil {
+		t.Fatalf("seed pre-0075 silo audit stream: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO provider_audit_events
+  (seq, actor, action, target, data, prev_hash, hash)
+VALUES
+  (3, 'migration', 'seed', 'p-3', '{}'::jsonb, 'provider-hash-2', 'provider-hash-3'),
+  (4, 'migration', 'seed', 'p-4', '{}'::jsonb, 'provider-hash-3', 'provider-hash-4');
+`); err != nil {
+		t.Fatalf("seed pre-0075 provider audit stream: %v", err)
+	}
+
+	if _, err := migrate.New(migrationsThrough(t, 75), nil).Apply(ctx, pool); err != nil {
+		t.Fatalf("apply 0075: %v", err)
+	}
+
+	for _, tc := range []struct {
+		tenant               string
+		headSeq, prunedSeq   int64
+		headHash, prunedHash string
+	}{
+		{
+			tenant: migrationTenantA, headSeq: 4, headHash: "tenant-a-hash-4",
+			prunedSeq: 2, prunedHash: "tenant-a-hash-2",
+		},
+		{
+			tenant: migrationTenantB, headSeq: 1, headHash: "tenant-b-hash-1",
+			prunedSeq: 0, prunedHash: "",
+		},
+	} {
+		var headSeq, prunedSeq int64
+		var headHash, prunedHash string
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT head_seq, head_hash, pruned_seq, pruned_hash
+			   FROM audit_stream_heads
+			  WHERE tenant_id = $1::uuid`,
+			tc.tenant,
+		).Scan(&headSeq, &headHash, &prunedSeq, &prunedHash); err != nil {
+			t.Fatalf("read tenant %s audit head: %v", tc.tenant, err)
+		}
+		if headSeq != tc.headSeq || headHash != tc.headHash ||
+			prunedSeq != tc.prunedSeq || prunedHash != tc.prunedHash {
+			t.Fatalf(
+				"tenant %s head = (%d,%q,%d,%q), want (%d,%q,%d,%q)",
+				tc.tenant,
+				headSeq,
+				headHash,
+				prunedSeq,
+				prunedHash,
+				tc.headSeq,
+				tc.headHash,
+				tc.prunedSeq,
+				tc.prunedHash,
+			)
+		}
+	}
+
+	var providerHead, providerPruned int64
+	var providerHeadHash, providerPrunedHash string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT head_seq, head_hash, pruned_seq, pruned_hash
+		   FROM provider_audit_stream_head
+		  WHERE singleton`,
+	).Scan(
+		&providerHead,
+		&providerHeadHash,
+		&providerPruned,
+		&providerPrunedHash,
+	); err != nil {
+		t.Fatalf("read provider audit head: %v", err)
+	}
+	if providerHead != 4 || providerHeadHash != "provider-hash-4" ||
+		providerPruned != 2 || providerPrunedHash != "provider-hash-2" {
+		t.Fatalf(
+			"provider head = (%d,%q,%d,%q), want (4,%q,2,%q)",
+			providerHead,
+			providerHeadHash,
+			providerPruned,
+			providerPrunedHash,
+			"provider-hash-4",
+			"provider-hash-2",
+		)
+	}
+
+	var (
+		providerSchemaUsage bool
+		providerSelect      bool
+		providerDelete      bool
+		providerUpdate      bool
+		appInsert           bool
+		appDelete           bool
+	)
+	if err := pool.QueryRow(ctx, `
+SELECT has_schema_privilege(
+           'probectl_provider',
+           't_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb',
+           'USAGE'
+       ),
+       has_table_privilege(
+           'probectl_provider',
+           't_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events',
+           'SELECT'
+       ),
+       has_table_privilege(
+           'probectl_provider',
+           't_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events',
+           'DELETE'
+       ),
+       has_table_privilege(
+           'probectl_provider',
+           't_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events',
+           'UPDATE'
+       ),
+       has_table_privilege(
+           'probectl_app',
+           't_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events',
+           'INSERT'
+       ),
+       has_table_privilege(
+           'probectl_app',
+           't_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb.audit_events',
+           'DELETE'
+       )
+`).Scan(
+		&providerSchemaUsage,
+		&providerSelect,
+		&providerDelete,
+		&providerUpdate,
+		&appInsert,
+		&appDelete,
+	); err != nil {
+		t.Fatalf("read repaired silo audit privileges: %v", err)
+	}
+	if !providerSchemaUsage || !providerSelect || !providerDelete ||
+		providerUpdate || !appInsert || appDelete {
+		t.Fatalf(
+			"repaired silo privileges provider(usage/select/delete/update)=%t/%t/%t/%t app(insert/delete)=%t/%t",
+			providerSchemaUsage,
+			providerSelect,
+			providerDelete,
+			providerUpdate,
+			appInsert,
+			appDelete,
+		)
+	}
+}
+
 const (
 	migrationTenantA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	migrationTenantB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"

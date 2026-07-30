@@ -780,21 +780,9 @@ func startHAAndTenantLifecycle(
 
 	var providerAuditWatermark audit.ProviderWatermarkFunc
 	if cfg.AuditWORMDir != "" {
-		wormStore, werr := objectstore.NewFS(cfg.AuditWORMDir)
+		worm, werr := buildReconciledAuditWORM(ctx, cfg, db, log)
 		if werr != nil {
-			return nil, fmt.Errorf("audit worm store: %w", werr)
-		}
-		wormPriv, wormPub, wormKeyGen, kerr := audit.ResolveWormSigningKey(cfg.WormSigningKey, cfg.WormSigningKeyFile, cfg.RequireAtRestEncryption)
-		if kerr != nil {
-			return nil, fmt.Errorf("audit worm signing key: %w", kerr)
-		}
-		if wormKeyGen {
-			log.Warn("GENERATED a new WORM audit signing key — back this file up like any key material; losing it forfeits cross-restart verification of the exported chain",
-				"key_file", cfg.WormSigningKeyFile)
-		}
-		worm, werr := audit.NewWormExporterPG(db.Pool(), wormStore, wormPriv, wormPub, log)
-		if werr != nil {
-			return nil, fmt.Errorf("audit worm exporter: %w", werr)
+			return nil, werr
 		}
 		worm.WithMetrics(srv.Metrics())
 		providerAuditWatermark = worm.ExportedWatermark
@@ -822,6 +810,47 @@ func startHAAndTenantLifecycle(
 
 	srv.WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
 	return lifeEngine, nil
+}
+
+func buildReconciledAuditWORM(
+	ctx context.Context,
+	cfg *config.Config,
+	db *store.DB,
+	log *slog.Logger,
+) (*audit.WormExporter, error) {
+	if cfg == nil || db == nil || cfg.AuditWORMDir == "" {
+		return nil, fmt.Errorf("audit WORM reconciliation requires configured storage and database")
+	}
+	wormStore, err := objectstore.NewFS(cfg.AuditWORMDir)
+	if err != nil {
+		return nil, fmt.Errorf("audit worm store: %w", err)
+	}
+	wormPriv, wormPub, wormKeyGen, err := audit.ResolveWormSigningKey(
+		cfg.WormSigningKey,
+		cfg.WormSigningKeyFile,
+		cfg.RequireAtRestEncryption,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("audit worm signing key: %w", err)
+	}
+	if wormKeyGen {
+		log.Warn("GENERATED a new WORM audit signing key — back this file up like any key material; losing it forfeits cross-restart verification of the exported chain",
+			"key_file", cfg.WormSigningKeyFile)
+	}
+	worm, err := audit.NewWormExporterPG(
+		db.Pool(),
+		wormStore,
+		wormPriv,
+		wormPub,
+		log,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("audit worm exporter: %w", err)
+	}
+	if err := worm.ReconcileProviderHead(ctx, db.Pool()); err != nil {
+		return nil, fmt.Errorf("audit worm startup reconciliation: %w", err)
+	}
+	return worm, nil
 }
 
 // buildIngestWriter selects the tsdb.Writer used by the INGEST consumers.

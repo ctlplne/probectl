@@ -12,13 +12,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/alert"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -141,5 +144,132 @@ func TestEnvelopeRewrapWorkflowRetiresOldDeploymentKey(t *testing.T) {
 	}
 	if auditCount == 0 {
 		t.Fatal("execute rewrap must append a provider audit receipt")
+	}
+}
+
+func TestEnvelopeRewrapWORMAdmissionFailurePreventsMutationAndAuditReuse(t *testing.T) {
+	db := setupEnvelopeRewrapDB(t)
+	ctx := context.Background()
+	oldKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{6}, 32))
+	newKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+
+	tenantcrypto.Reset()
+	t.Cleanup(tenantcrypto.Reset)
+	oldSealer, err := tenantcrypto.NewEnvelopeSealer("old-worm-gate", oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantcrypto.SetPrimary(oldSealer)
+	tenant, err := store.NewTenants(db.Pool()).Create(
+		ctx,
+		fmt.Sprintf("worm-gated-rewrap-%d", time.Now().UnixNano()),
+		"WORM-gated rewrap",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var alertID string
+	if err := tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)),
+		db.Pool(),
+		func(ctx context.Context, sc tenancy.Scope) error {
+			rule, err := (store.AlertRules{}).Create(ctx, sc, alert.Rule{
+				TenantID:   tenant.ID,
+				Name:       "worm-gated-rewrap",
+				Enabled:    true,
+				Metric:     "probe.loss",
+				Type:       alert.Threshold,
+				Comparison: alert.GT,
+				Threshold:  0.5,
+				Severity:   alert.SeverityCritical,
+				Channels: []alert.ChannelSpec{{
+					Type: "webhook", URL: "https://hooks.example/worm-gate",
+					Secret: "must-not-rewrap",
+				}},
+			})
+			if err == nil {
+				alertID = rule.ID
+			}
+			return err
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	readChannels := func() string {
+		t.Helper()
+		var channels string
+		if err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)),
+			db.Pool(),
+			func(ctx context.Context, sc tenancy.Scope) error {
+				return sc.Q.QueryRow(
+					ctx,
+					`SELECT channels::text FROM alert_rules WHERE id = $1::uuid`,
+					alertID,
+				).Scan(&channels)
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+		return channels
+	}
+	beforeChannels := readChannels()
+	beforeHead, err := audit.ProviderHeadSeq(ctx, db.Pool())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newWithOld, err := tenantcrypto.NewEnvelopeKeyringSealer(
+		"new-worm-gate",
+		newKey,
+		map[string]string{"old-worm-gate": oldKey},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantcrypto.SetPrimary(newWithOld)
+
+	originalReconcile := reconcileProviderWORMBeforeEnvelopeMutation
+	reconcileProviderWORMBeforeEnvelopeMutation = func(
+		context.Context,
+		*config.Config,
+		*store.DB,
+		*slog.Logger,
+	) error {
+		return errors.New("verified WORM/SQL disagreement")
+	}
+	t.Cleanup(func() {
+		reconcileProviderWORMBeforeEnvelopeMutation = originalReconcile
+	})
+
+	cfg := &config.Config{
+		EnvelopeKeyID: "new-worm-gate",
+		AuditWORMDir:  t.TempDir(),
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	err = runEnvelopeRewrap(
+		ctx,
+		cfg,
+		db,
+		log,
+		[]string{"--from-key-id=old-worm-gate"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "verified WORM/SQL disagreement") {
+		t.Fatalf("WORM-gated rewrap error = %v", err)
+	}
+	if afterChannels := readChannels(); afterChannels != beforeChannels {
+		t.Fatal("WORM admission failure allowed envelope ciphertext mutation")
+	}
+	afterHead, err := audit.ProviderHeadSeq(ctx, db.Pool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterHead != beforeHead {
+		t.Fatalf(
+			"WORM admission failure advanced provider audit head from %d to %d",
+			beforeHead,
+			afterHead,
+		)
 	}
 }

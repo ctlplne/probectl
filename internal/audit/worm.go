@@ -24,6 +24,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // WORM export (U-041). The audit chains are tamper-EVIDENT in Postgres (RLS
@@ -449,6 +450,145 @@ func (w *WormExporter) ExportedWatermark(ctx context.Context) (int64, error) {
 	return last, err
 }
 
+// ReconcileProviderHead verifies the complete signed WORM chain and reconciles
+// its terminal sequence/hash with the durable SQL head before provider writes
+// are admitted at startup. This closes the one legacy state SQL cannot infer:
+// a pre-0075 full prune left no event row or head, while signed WORM still
+// proves the true terminal chain position.
+//
+// Reconciliation only creates a fully-pruned anchor when SQL is completely
+// empty. Any non-empty disagreement, WORM rewind behind a SQL prune anchor, or
+// hash mismatch fails closed; it is never "repaired" by guessing.
+func (w *WormExporter) ReconcileProviderHead(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+) error {
+	if w == nil || pool == nil {
+		return fmt.Errorf("audit: reconcile provider WORM head requires exporter and database")
+	}
+	// A legacy export can have every segment and signature durably written but
+	// be missing only the signing.pub companion. Verify that complete chain
+	// strictly with the configured key before repairing the public-key object.
+	// In particular, allowMissingPublicKey does not make an unsigned tail
+	// acceptable.
+	if _, _, err := w.scanWORMChainWithOptions(ctx, false, true); err != nil {
+		return fmt.Errorf("verify provider WORM artifacts before public-key repair: %w", err)
+	}
+	if err := w.ensurePublicKey(ctx); err != nil {
+		return fmt.Errorf("repair provider WORM public key for SQL reconciliation: %w", err)
+	}
+	wormSeq, wormHash, err := w.scanWORMChain(ctx, false)
+	if err != nil {
+		return fmt.Errorf("verify provider WORM head for SQL reconciliation: %w", err)
+	}
+	return tenancy.InProvider(
+		ctx,
+		pool,
+		func(ctx context.Context, q tenancy.Querier) error {
+			if err := lockProviderStream(ctx, q); err != nil {
+				return fmt.Errorf("lock provider audit reconciliation: %w", err)
+			}
+			head, err := ensureProviderStreamHead(ctx, q)
+			if err != nil {
+				return fmt.Errorf("read provider audit reconciliation head: %w", err)
+			}
+			if head.HeadSeq > 0 {
+				if err := providerVerifyFromLocked(ctx, q, head, 0); err != nil {
+					return fmt.Errorf(
+						"verify retained provider SQL before WORM reconciliation: %w",
+						err,
+					)
+				}
+			}
+			if wormSeq == 0 {
+				if head.PrunedSeq > 0 {
+					return fmt.Errorf(
+						"provider WORM chain is empty behind SQL prune anchor %d",
+						head.PrunedSeq,
+					)
+				}
+				return nil
+			}
+			if head.HeadSeq == 0 {
+				tag, err := q.Exec(
+					ctx,
+					`INSERT INTO provider_audit_stream_head AS heads
+					    (singleton, head_seq, head_hash, pruned_seq, pruned_hash, updated_at)
+					 VALUES (true, $1, $2, $1, $2, now())
+					 ON CONFLICT (singleton) DO UPDATE
+					        SET head_seq = EXCLUDED.head_seq,
+					            head_hash = EXCLUDED.head_hash,
+					            pruned_seq = EXCLUDED.pruned_seq,
+					            pruned_hash = EXCLUDED.pruned_hash,
+					            updated_at = now()
+					      WHERE heads.head_seq = 0
+					        AND heads.head_hash = ''
+					        AND heads.pruned_seq = 0
+					        AND heads.pruned_hash = ''`,
+					wormSeq,
+					wormHash,
+				)
+				if err != nil {
+					return fmt.Errorf("restore provider SQL head from verified WORM: %w", err)
+				}
+				if tag.RowsAffected() != 1 {
+					return fmt.Errorf("restore provider SQL head from verified WORM: concurrent state change")
+				}
+				if _, err := providerAppendLocked(
+					ctx,
+					q,
+					"system:audit-retention",
+					RetentionAnchorRecoveredAction,
+					"provider",
+					map[string]any{
+						"source":             "verified_worm",
+						"recovered_head_seq": wormSeq,
+					},
+				); err != nil {
+					return fmt.Errorf("append provider WORM anchor recovery receipt: %w", err)
+				}
+				return nil
+			}
+			if wormSeq < head.PrunedSeq {
+				return fmt.Errorf(
+					"provider WORM head %d is behind SQL prune anchor %d",
+					wormSeq,
+					head.PrunedSeq,
+				)
+			}
+			if wormSeq > head.HeadSeq {
+				return fmt.Errorf(
+					"provider WORM head %d is above SQL durable head %d with retained SQL state",
+					wormSeq,
+					head.HeadSeq,
+				)
+			}
+
+			sqlHash := head.PrunedHash
+			if wormSeq != head.PrunedSeq {
+				if err := q.QueryRow(
+					ctx,
+					`SELECT hash FROM provider_audit_events WHERE seq = $1`,
+					wormSeq,
+				).Scan(&sqlHash); err != nil {
+					return fmt.Errorf(
+						"read provider SQL hash at verified WORM seq %d: %w",
+						wormSeq,
+						err,
+					)
+				}
+			}
+			if sqlHash != wormHash {
+				return fmt.Errorf(
+					"provider WORM/SQL hash mismatch at seq %d",
+					wormSeq,
+				)
+			}
+			return nil
+		},
+	)
+}
+
 // lastExportedHead derives the export cursor and canonical hash anchor from the
 // verified segment prefix. An incomplete tail is excluded so retry can safely
 // rewrite its segment and missing companion objects; any other verification
@@ -463,6 +603,19 @@ func (w *WormExporter) lastExportedHead(ctx context.Context) (int64, string, err
 // write can be retried from the last complete prefix. Retention and explicit
 // verification reject that same partial tail.
 func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bool) (int64, string, error) {
+	return w.scanWORMChainWithOptions(ctx, allowIncompleteTail, allowIncompleteTail)
+}
+
+// scanWORMChainWithOptions separates the two legacy recovery allowances:
+// allowIncompleteTail permits only ExportOnce to retry a final segment whose
+// signature companion was not written, while allowMissingPublicKey permits a
+// caller to verify complete signed segments with the configured key before
+// repairing a missing signing.pub companion.
+func (w *WormExporter) scanWORMChainWithOptions(
+	ctx context.Context,
+	allowIncompleteTail bool,
+	allowMissingPublicKey bool,
+) (int64, string, error) {
 	keys, err := w.objects.ListLimited(ctx, wormPrefix+"segment-", maxWORMSegmentArtifacts)
 	if err != nil {
 		if errors.Is(err, objectstore.ErrTooMany) {
@@ -487,12 +640,12 @@ func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bo
 
 	pub, err := w.objects.GetLimited(ctx, wormPrefix+"signing.pub", maxWORMPublicKeyBytes)
 	if err != nil {
-		if !allowIncompleteTail || !errors.Is(err, objectstore.ErrNotFound) {
+		if !allowMissingPublicKey || !errors.Is(err, objectstore.ErrNotFound) {
 			return 0, "", fmt.Errorf("audit WORM signing public key unreadable: %w", err)
 		}
-		// Export recovery may inspect a legacy partial state with no public-key
-		// object, but every existing signature is still verified below with the
-		// configured durable key before ensurePublicKey repairs that object.
+		// Recovery may inspect a legacy state with no public-key object, but
+		// every existing signature is still verified below with the configured
+		// durable key before ensurePublicKey repairs that object.
 	} else if !bytes.Equal(pub.Data, w.pubPEM) {
 		return 0, "", fmt.Errorf("audit WORM signing public key does not match configured key")
 	}
@@ -564,13 +717,42 @@ func (w *WormExporter) VerifyWORMChain(ctx context.Context) error {
 // ListProvider returns provider-stream events with seq greater than afterSeq
 // in ascending order (the WORM export cursor).
 func ListProvider(ctx context.Context, pool *pgxpool.Pool, afterSeq int64, limit int) ([]Event, error) {
+	if afterSeq < 0 {
+		return nil, fmt.Errorf("list provider audit events: cursor must be non-negative")
+	}
 	if limit <= 0 {
 		limit = DefaultExportPageSize
 	}
 	if limit > MaxExportPageSize {
 		limit = MaxExportPageSize
 	}
-	rows, err := pool.Query(ctx,
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin provider audit list: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockProviderStream(ctx, tx); err != nil {
+		return nil, fmt.Errorf("lock provider audit list: %w", err)
+	}
+	head, err := ensureProviderStreamHead(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("read provider audit list head: %w", err)
+	}
+	if afterSeq < head.PrunedSeq {
+		return nil, fmt.Errorf(
+			"list provider audit events: WORM cursor %d is behind pruned anchor %d",
+			afterSeq,
+			head.PrunedSeq,
+		)
+	}
+	if afterSeq > head.HeadSeq {
+		return nil, fmt.Errorf(
+			"list provider audit events: WORM cursor %d is above durable head %d",
+			afterSeq,
+			head.HeadSeq,
+		)
+	}
+	rows, err := tx.Query(ctx,
 		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
 		   FROM provider_audit_events
 		  WHERE seq > $1
@@ -588,7 +770,30 @@ func ListProvider(ctx context.Context, pool *pgxpool.Pool, afterSeq int64, limit
 		}
 		out = append(out, ev)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if head.HeadSeq > afterSeq {
+		if len(out) == 0 {
+			return nil, fmt.Errorf(
+				"list provider audit events: durable head %d has no row after WORM cursor %d",
+				head.HeadSeq,
+				afterSeq,
+			)
+		}
+		if out[0].Seq != afterSeq+1 {
+			return nil, fmt.Errorf(
+				"list provider audit events: sequence gap after WORM cursor %d (next row is %d)",
+				afterSeq,
+				out[0].Seq,
+			)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit provider audit list: %w", err)
+	}
+	return out, nil
 }
 
 func scanProviderEvent(row interface{ Scan(...any) error }) (Event, error) {

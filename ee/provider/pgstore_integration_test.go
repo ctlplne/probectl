@@ -88,9 +88,12 @@ func isolatedBootstrapPGPool(t *testing.T) (*pgxpool.Pool, string, string) {
 			(LIKE public.provider_operators INCLUDING ALL)`,
 		`CREATE TABLE ` + quotedSchema + `.provider_audit_events
 			(LIKE public.provider_audit_events INCLUDING ALL)`,
+		`CREATE TABLE ` + quotedSchema + `.provider_audit_stream_head
+			(LIKE public.provider_audit_stream_head INCLUDING ALL)`,
 		`GRANT USAGE ON SCHEMA ` + quotedSchema + ` TO probectl_provider`,
 		`GRANT SELECT, INSERT, UPDATE ON ` + quotedSchema + `.provider_operators TO probectl_provider`,
 		`GRANT SELECT, INSERT ON ` + quotedSchema + `.provider_audit_events TO probectl_provider`,
+		`GRANT SELECT, INSERT, UPDATE ON ` + quotedSchema + `.provider_audit_stream_head TO probectl_provider`,
 	} {
 		if _, err := admin.Exec(ctx, statement); err != nil {
 			t.Fatalf("prepare isolated provider bootstrap schema: %v", err)

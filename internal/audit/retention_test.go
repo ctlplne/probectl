@@ -56,3 +56,55 @@ func TestPruneFailsClosedWithoutDB(t *testing.T) {
 		t.Errorf("zero-watermark tenant prune = (%d,%v), want (0,nil)", n, err)
 	}
 }
+
+func TestAuditRetentionSequenceAnchorValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		head    streamHead
+		wantErr bool
+	}{
+		{name: "empty", head: streamHead{}},
+		{
+			name: "partial prune",
+			head: streamHead{
+				HeadSeq: 8, HeadHash: "h8",
+				PrunedSeq: 3, PrunedHash: "h3",
+			},
+		},
+		{
+			name: "fully pruned head",
+			head: streamHead{
+				HeadSeq: 5, HeadHash: "h5",
+				PrunedSeq: 5, PrunedHash: "h5",
+			},
+		},
+		{
+			name: "rewound prune sequence",
+			head: streamHead{
+				HeadSeq: 4, HeadHash: "h4",
+				PrunedSeq: 5, PrunedHash: "h5",
+			},
+			wantErr: true,
+		},
+		{
+			name:    "missing durable head hash",
+			head:    streamHead{HeadSeq: 4},
+			wantErr: true,
+		},
+		{
+			name: "hash without prune sequence",
+			head: streamHead{
+				HeadSeq: 4, HeadHash: "h4",
+				PrunedHash: "h2",
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.head.validate("test")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validate() error = %v, wantErr=%v", err, tc.wantErr)
+			}
+		})
+	}
+}

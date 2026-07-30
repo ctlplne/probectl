@@ -36,6 +36,13 @@ var providerOwnedTables = map[string]providerOwnedKind{
 	"tenant_keys":       providerTenantTable,
 	"tenant_fairness":   providerTenantTable,
 	"tenant_governance": providerTenantTable,
+	// Audit stream heads are deployment-global routing/integrity metadata:
+	// hashes + sequence watermarks only, never audit payload. Keeping the RLS-
+	// scoped anchor in public lets a siloed stream retain one monotonic head
+	// across schema catch-up/replacement. Retention updates it through the
+	// tenant-GUC-scoped provider role; it is not lifecycle-deleted as generic
+	// provider data because the anchor is the retained integrity proof.
+	"audit_stream_heads": providerGlobalTable,
 	// Hash-only credential routing and certificate deny-list metadata must
 	// stay deployment-global: they are what resolves a tenant before that
 	// tenant's physical schema can be selected. Detailed credential/session

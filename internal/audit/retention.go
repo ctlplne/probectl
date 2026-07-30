@@ -53,6 +53,10 @@ func (p RetentionPolicy) cutoff(now time.Time) time.Time { return now.Add(-p.Win
 // deleted payload data.
 const RetentionPruneAction = "audit.retention_prune"
 
+// RetentionAnchorRecoveredAction records the exceptional, verified recovery of
+// a pre-0075 fully-pruned provider SQL head from signed WORM evidence.
+const RetentionAnchorRecoveredAction = "audit.retention_anchor_recovered"
+
 // ProviderWatermarkFunc returns the highest provider-audit seq proven durably
 // exported. Returning 0 makes provider pruning fail closed.
 type ProviderWatermarkFunc func(context.Context) (int64, error)
@@ -152,7 +156,6 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 		return sum, nil
 	}
 	now := r.now()
-	cutoff := r.policy.cutoff(now)
 	if r.providerWatermark != nil {
 		watermark, err := r.providerWatermark(ctx)
 		if err != nil {
@@ -163,11 +166,6 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 			return sum, err
 		}
 		sum.ProviderPruned = pruned
-		if pruned > 0 {
-			if err := r.recordProviderPrune(ctx, pruned, watermark, cutoff); err != nil {
-				return sum, err
-			}
-		}
 	}
 	tenants, err := r.tenantIDs(ctx)
 	if err != nil {
@@ -186,11 +184,6 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 			continue
 		}
 		sum.TenantPruned += pruned
-		if pruned > 0 {
-			if err := r.recordTenantPrune(ctx, tenantID, pruned, watermark, cutoff); err != nil {
-				r.log.Warn("tenant audit prune receipt failed", "tenant", tenantID, "error", err)
-			}
-		}
 	}
 	if sum.ProviderPruned > 0 || sum.TenantPruned > 0 {
 		r.log.Info("audit retention prune complete",
@@ -200,27 +193,6 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 			"retention", r.policy.Window.String())
 	}
 	return sum, nil
-}
-
-func (r *RetentionRunner) recordProviderPrune(ctx context.Context, pruned, watermark int64, cutoff time.Time) error {
-	_, err := ProviderAppend(ctx, r.pool, "system:audit-retention", RetentionPruneAction, "provider",
-		retentionReceiptData("provider", "", pruned, watermark, cutoff, r.policy.Window))
-	if err != nil {
-		return fmt.Errorf("record provider audit prune receipt: %w", err)
-	}
-	return nil
-}
-
-func (r *RetentionRunner) recordTenantPrune(ctx context.Context, tenantID string, pruned, watermark int64, cutoff time.Time) error {
-	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), r.pool,
-		func(ctx context.Context, s tenancy.Scope) error {
-			_, err := TenantAppend(ctx, s, "system:audit-retention", RetentionPruneAction, "audit/"+tenantID,
-				retentionReceiptData("tenant", tenantID, pruned, watermark, cutoff, r.policy.Window))
-			if err != nil {
-				return fmt.Errorf("record tenant audit prune receipt: %w", err)
-			}
-			return nil
-		})
 }
 
 func retentionReceiptData(stream, tenantID string, pruned, watermark int64, cutoff time.Time, window time.Duration) map[string]any {
@@ -267,49 +239,354 @@ func tenantSIEMWatermark(ctx context.Context, pool *pgxpool.Pool, tenantID strin
 	return seq, err
 }
 
-// PruneProvider prunes the provider/break-glass stream. It deletes only events
-// that are BOTH older than the retention window AND already durably exported
-// (seq <= exportedWatermark) — fail closed: an un-exported or in-window event is
-// never deleted. Returns the number of rows pruned. A disabled policy is a no-op.
+type providerPruneReceiptFunc func(
+	context.Context,
+	tenancy.Querier,
+	map[string]any,
+) error
+
+type tenantPruneReceiptFunc func(
+	context.Context,
+	tenancy.Scope,
+	map[string]any,
+) error
+
+// PruneProvider atomically advances the durable prune anchor, deletes the
+// eligible provider prefix, and appends its audit receipt. The event deletion
+// and receipt can therefore neither commit separately nor reset the stream
+// behind the already-durable WORM cursor.
 //
-// exportedWatermark is the highest provider seq the WORM exporter has signed into
-// object storage (audit/worm). Pass 0 to prune nothing (nothing proven exported).
-func PruneProvider(ctx context.Context, pool *pgxpool.Pool, p RetentionPolicy, exportedWatermark int64, now time.Time) (int64, error) {
-	if !p.Enabled() || exportedWatermark <= 0 {
+// exportedWatermark is the highest provider seq the WORM exporter has signed
+// into object storage. Pass 0 to prune nothing (nothing proven exported).
+func PruneProvider(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	p RetentionPolicy,
+	exportedWatermark int64,
+	now time.Time,
+) (int64, error) {
+	return pruneProviderWithReceipt(
+		ctx,
+		pool,
+		p,
+		exportedWatermark,
+		now,
+		func(ctx context.Context, q tenancy.Querier, data map[string]any) error {
+			if _, err := providerAppendLocked(
+				ctx,
+				q,
+				"system:audit-retention",
+				RetentionPruneAction,
+				"provider",
+				data,
+			); err != nil {
+				return fmt.Errorf("append provider prune receipt: %w", err)
+			}
+			return nil
+		},
+	)
+}
+
+func pruneProviderWithReceipt(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	p RetentionPolicy,
+	exportedWatermark int64,
+	now time.Time,
+	receipt providerPruneReceiptFunc,
+) (int64, error) {
+	if !p.Enabled() {
 		return 0, nil
 	}
-	tag, err := pool.Exec(ctx,
+	if exportedWatermark < 0 {
+		return 0, fmt.Errorf("provider audit WORM watermark must be non-negative")
+	}
+	if exportedWatermark == 0 {
+		return 0, nil
+	}
+	if receipt == nil {
+		return 0, fmt.Errorf("prune provider audit: receipt appender is required")
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin provider audit prune: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockProviderStream(ctx, tx); err != nil {
+		return 0, fmt.Errorf("lock provider audit prune: %w", err)
+	}
+	head, err := ensureProviderStreamHead(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("read provider audit prune head: %w", err)
+	}
+	if err := validateProviderPruneWatermark(exportedWatermark, head); err != nil {
+		return 0, err
+	}
+	if err := providerVerifyFromLocked(ctx, tx, head, 0); err != nil {
+		return 0, fmt.Errorf("verify provider audit before prune: %w", err)
+	}
+
+	cutSeq, cutHash, pruned, err := deleteProviderPrefix(
+		ctx,
+		tx,
+		exportedWatermark,
+		p.cutoff(now),
+	)
+	if err != nil {
+		return 0, err
+	}
+	if pruned == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return 0, fmt.Errorf("commit provider audit prune no-op: %w", err)
+		}
+		return 0, nil
+	}
+	if err := updateProviderPruneAnchor(ctx, tx, head, cutSeq, cutHash); err != nil {
+		return 0, err
+	}
+	if err := receipt(
+		ctx,
+		tx,
+		retentionReceiptData(
+			"provider",
+			"",
+			pruned,
+			exportedWatermark,
+			p.cutoff(now),
+			p.Window,
+		),
+	); err != nil {
+		return 0, fmt.Errorf("record provider audit prune receipt: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit provider audit prune: %w", err)
+	}
+	return pruned, nil
+}
+
+// PruneTenant applies the same atomic retention transition to one tenant. The
+// transaction runs as the least-privilege provider role because the app role
+// has no DELETE grant on append-only audit rows. The provider's event and head
+// policies are tenant-GUC scoped at PostgreSQL, every query also carries an
+// explicit tenant predicate, and the receipt switches to the app role.
+func PruneTenant(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tenantID string,
+	p RetentionPolicy,
+	exportedWatermark int64,
+	now time.Time,
+) (int64, error) {
+	return pruneTenantWithReceipt(
+		ctx,
+		pool,
+		tenantID,
+		p,
+		exportedWatermark,
+		now,
+		func(ctx context.Context, s tenancy.Scope, data map[string]any) error {
+			if _, err := tenantAppendLocked(
+				ctx,
+				s,
+				"system:audit-retention",
+				RetentionPruneAction,
+				"audit/"+tenantID,
+				data,
+			); err != nil {
+				return fmt.Errorf("append tenant prune receipt: %w", err)
+			}
+			return nil
+		},
+	)
+}
+
+func pruneTenantWithReceipt(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tenantID string,
+	p RetentionPolicy,
+	exportedWatermark int64,
+	now time.Time,
+	receipt tenantPruneReceiptFunc,
+) (int64, error) {
+	if !p.Enabled() || exportedWatermark <= 0 || tenantID == "" {
+		return 0, nil
+	}
+	if receipt == nil {
+		return 0, fmt.Errorf("prune tenant audit: receipt appender is required")
+	}
+	var pruned int64
+	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+	err := tenancy.InTenantProviderMaintenance(
+		tctx,
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			if err := requireDatabaseRole(
+				ctx,
+				scope.Q,
+				tenancy.ProviderRole,
+			); err != nil {
+				return fmt.Errorf("verify tenant audit maintenance role: %w", err)
+			}
+			if err := lockTenantStream(ctx, scope.Q, tenantID); err != nil {
+				return fmt.Errorf("lock tenant audit prune: %w", err)
+			}
+			head, err := ensureTenantStreamHeadAtCursor(
+				ctx,
+				scope.Q,
+				tenantID,
+				exportedWatermark,
+			)
+			if err != nil {
+				return fmt.Errorf("read tenant audit prune head: %w", err)
+			}
+			if err := tenantVerifyFromLocked(ctx, scope, head, 0); err != nil {
+				return fmt.Errorf("verify tenant audit before prune: %w", err)
+			}
+
+			cutSeq, cutHash, deleted, err := deleteTenantPrefix(
+				ctx,
+				scope.Q,
+				tenantID,
+				exportedWatermark,
+				p.cutoff(now),
+			)
+			if err != nil {
+				return err
+			}
+			if deleted == 0 {
+				return nil
+			}
+			if err := updateTenantPruneAnchor(
+				ctx,
+				scope.Q,
+				tenantID,
+				head,
+				cutSeq,
+				cutHash,
+			); err != nil {
+				return err
+			}
+
+			// Deletion is a tenant-GUC-scoped provider capability; the mandatory
+			// receipt is ordinary tenant audit DML and must prove it works as
+			// the NOBYPASSRLS app role in this same routed transaction.
+			if _, err := scope.Q.Exec(
+				ctx,
+				"SET LOCAL ROLE "+pgx.Identifier{tenancy.AppRole}.Sanitize(),
+			); err != nil {
+				return fmt.Errorf("assume app role for tenant prune receipt: %w", err)
+			}
+			if err := receipt(
+				ctx,
+				scope,
+				retentionReceiptData(
+					"tenant",
+					tenantID,
+					deleted,
+					exportedWatermark,
+					p.cutoff(now),
+					p.Window,
+				),
+			); err != nil {
+				return fmt.Errorf("record tenant audit prune receipt: %w", err)
+			}
+			pruned = deleted
+			return nil
+		},
+	)
+	if err != nil {
+		return 0, err
+	}
+	return pruned, nil
+}
+
+func validateProviderPruneWatermark(watermark int64, head streamHead) error {
+	if watermark < head.PrunedSeq {
+		return fmt.Errorf(
+			"provider audit WORM watermark %d is behind prune anchor %d",
+			watermark,
+			head.PrunedSeq,
+		)
+	}
+	if watermark > head.HeadSeq {
+		return fmt.Errorf(
+			"provider audit WORM watermark %d is above durable head %d",
+			watermark,
+			head.HeadSeq,
+		)
+	}
+	return nil
+}
+
+func requireDatabaseRole(
+	ctx context.Context,
+	q tenancy.Querier,
+	want string,
+) error {
+	var got string
+	if err := q.QueryRow(ctx, `SELECT current_user`).Scan(&got); err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("current database role is %q, want %q", got, want)
+	}
+	return nil
+}
+
+func deleteProviderPrefix(
+	ctx context.Context,
+	q tenancy.Querier,
+	exportedWatermark int64,
+	cutoff time.Time,
+) (cutSeq int64, cutHash string, pruned int64, err error) {
+	err = q.QueryRow(
+		ctx,
 		`WITH ordered AS (
 		     SELECT seq,
+		            hash,
 		            (seq <= $1 AND created_at < $2) AS eligible,
 		            bool_or(NOT (seq <= $1 AND created_at < $2))
 		              OVER (ORDER BY seq ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS blocked
 		       FROM provider_audit_events
 		   ),
 		   cut AS (
-		     SELECT max(seq) AS seq FROM ordered WHERE eligible AND NOT blocked
+		     SELECT seq, hash
+		       FROM ordered
+		      WHERE eligible AND NOT blocked
+		      ORDER BY seq DESC
+		      LIMIT 1
+		   ),
+		   deleted AS (
+		     DELETE FROM provider_audit_events
+		      WHERE seq <= (SELECT seq FROM cut)
+		      RETURNING seq
 		   )
-		   DELETE FROM provider_audit_events
-		    WHERE seq <= (SELECT seq FROM cut)`,
-		exportedWatermark, p.cutoff(now))
+		   SELECT COALESCE((SELECT seq FROM cut), 0),
+		          COALESCE((SELECT hash FROM cut), ''),
+		          count(*)
+		     FROM deleted`,
+		exportedWatermark,
+		cutoff,
+	).Scan(&cutSeq, &cutHash, &pruned)
 	if err != nil {
-		return 0, fmt.Errorf("prune provider audit: %w", err)
+		return 0, "", 0, fmt.Errorf("prune provider audit: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return cutSeq, cutHash, pruned, nil
 }
 
-// PruneTenant prunes one tenant's stream under the same fail-closed rule. The
-// tenant's hash chain is independent, so its watermark is the highest tenant seq
-// the SIEM/WORM export has durably captured for THAT tenant. Runs as the table
-// owner via the pool (the app role cannot delete); the caller is responsible for
-// having confirmed the export watermark out of band.
-func PruneTenant(ctx context.Context, pool *pgxpool.Pool, tenantID string, p RetentionPolicy, exportedWatermark int64, now time.Time) (int64, error) {
-	if !p.Enabled() || exportedWatermark <= 0 || tenantID == "" {
-		return 0, nil
-	}
-	tag, err := pool.Exec(ctx,
+func deleteTenantPrefix(
+	ctx context.Context,
+	q tenancy.Querier,
+	tenantID string,
+	exportedWatermark int64,
+	cutoff time.Time,
+) (cutSeq int64, cutHash string, pruned int64, err error) {
+	err = q.QueryRow(
+		ctx,
 		`WITH ordered AS (
 		     SELECT seq,
+		            hash,
 		            (seq <= $2 AND created_at < $3 AND action <> $4) AS eligible,
 		            bool_or(NOT (seq <= $2 AND created_at < $3 AND action <> $4))
 		              OVER (ORDER BY seq ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS blocked
@@ -317,13 +594,93 @@ func PruneTenant(ctx context.Context, pool *pgxpool.Pool, tenantID string, p Ret
 		      WHERE tenant_id = $1::uuid
 		   ),
 		   cut AS (
-		     SELECT max(seq) AS seq FROM ordered WHERE eligible AND NOT blocked
+		     SELECT seq, hash
+		       FROM ordered
+		      WHERE eligible AND NOT blocked
+		      ORDER BY seq DESC
+		      LIMIT 1
+		   ),
+		   deleted AS (
+		     DELETE FROM audit_events
+		      WHERE tenant_id = $1::uuid
+		        AND seq <= (SELECT seq FROM cut)
+		      RETURNING seq
 		   )
-		   DELETE FROM audit_events
-		    WHERE tenant_id = $1::uuid AND seq <= (SELECT seq FROM cut)`,
-		tenantID, exportedWatermark, p.cutoff(now), SubjectErasureAction)
+		   SELECT COALESCE((SELECT seq FROM cut), 0),
+		          COALESCE((SELECT hash FROM cut), ''),
+		          count(*)
+		     FROM deleted`,
+		tenantID,
+		exportedWatermark,
+		cutoff,
+		SubjectErasureAction,
+	).Scan(&cutSeq, &cutHash, &pruned)
 	if err != nil {
-		return 0, fmt.Errorf("prune tenant audit: %w", err)
+		return 0, "", 0, fmt.Errorf("prune tenant audit: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return cutSeq, cutHash, pruned, nil
+}
+
+func updateProviderPruneAnchor(
+	ctx context.Context,
+	q tenancy.Querier,
+	head streamHead,
+	cutSeq int64,
+	cutHash string,
+) error {
+	tag, err := q.Exec(
+		ctx,
+		`UPDATE provider_audit_stream_head
+		    SET pruned_seq = $1,
+		        pruned_hash = $2,
+		        updated_at = now()
+		  WHERE singleton
+		    AND head_seq = $3
+		    AND head_hash = $4
+		    AND pruned_seq < $1`,
+		cutSeq,
+		cutHash,
+		head.HeadSeq,
+		head.HeadHash,
+	)
+	if err != nil {
+		return fmt.Errorf("advance provider audit prune anchor: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("advance provider audit prune anchor: non-monotonic state transition")
+	}
+	return nil
+}
+
+func updateTenantPruneAnchor(
+	ctx context.Context,
+	q tenancy.Querier,
+	tenantID string,
+	head streamHead,
+	cutSeq int64,
+	cutHash string,
+) error {
+	tag, err := q.Exec(
+		ctx,
+		`UPDATE public.audit_stream_heads
+		    SET pruned_seq = $2,
+		        pruned_hash = $3,
+		        updated_at = now()
+		  WHERE tenant_id = $1::uuid
+		    AND head_seq = $4
+		    AND head_hash = $5
+		    AND pruned_seq < $2`,
+		tenantID,
+		cutSeq,
+		cutHash,
+		head.HeadSeq,
+		head.HeadHash,
+	)
+	if err != nil {
+		return fmt.Errorf("advance tenant audit prune anchor: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("advance tenant audit prune anchor: non-monotonic state transition")
+	}
+	return nil
 }

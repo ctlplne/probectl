@@ -144,3 +144,63 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 	}
 	return nil
 }
+
+// InTenantProviderMaintenance runs one narrowly-scoped storage-maintenance
+// transaction in the tenant's actual PostgreSQL target as the least-privilege
+// provider role. It binds routing and the tenant GUC before dropping privilege,
+// so pooled and siloed tables enforce the same storage-layer tenant boundary.
+//
+// This is not a handler/repository escape hatch. It exists for controlled
+// maintenance of app-append-only rows (currently audit retention) where the
+// mutation and its mandatory tenant audit receipt must share one transaction.
+// The callback still uses explicit tenant predicates as defense in depth and
+// assumes probectl_app before appending the receipt.
+func InTenantProviderMaintenance(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	fn func(context.Context, Scope) error,
+) error {
+	id, ok := FromContext(ctx)
+	if !ok {
+		return ErrNoTenant
+	}
+	schema, err := pgSchemaFor(ctx, id.String())
+	if err != nil {
+		return err
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tenant provider-maintenance tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if schema != "" {
+		if _, err := tx.Exec(
+			ctx,
+			"SET LOCAL search_path TO "+pgx.Identifier{schema}.Sanitize()+", public",
+		); err != nil {
+			return fmt.Errorf("route tenant provider-maintenance schema: %w", err)
+		}
+	}
+	if _, err := tx.Exec(
+		ctx,
+		"SELECT set_config('probectl.tenant_id', $1, true)",
+		id.String(),
+	); err != nil {
+		return fmt.Errorf("bind tenant provider-maintenance scope: %w", err)
+	}
+	if _, err := tx.Exec(
+		ctx,
+		"SET LOCAL ROLE "+pgx.Identifier{ProviderRole}.Sanitize(),
+	); err != nil {
+		return fmt.Errorf("assume provider role for tenant maintenance: %w", err)
+	}
+	if err := fn(ctx, Scope{Tenant: id, Q: tx}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tenant provider-maintenance tx: %w", err)
+	}
+	return nil
+}

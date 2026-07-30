@@ -109,11 +109,35 @@ than silently continuing — that's the signal to investigate.
   to keep-forever; `multi-tenant` and `regulated` default to a finite `8760h`
   window and fail closed without WORM/SIEM export-watermark configuration. When
   `PROBECTL_AUDIT_RETENTION` is positive, the hourly pruner removes only old
-  rows already covered by durable WORM/SIEM watermarks and appends prune
-  receipts. `/readyz.audit_retention` and the `probectl_audit_retention_*`
-  metrics show whether raw in-DB rows are actually aging out. WORM retention
-  can't be shortened after the fact, so size it deliberately (see
+  rows already covered by durable WORM/SIEM watermarks. A small, non-prunable
+  per-stream metadata row preserves the highest-ever sequence/hash and the
+  last-pruned sequence/hash, so even a full local prune cannot reset the chain
+  behind an export cursor. Prefix deletion, prune-anchor advance, and the
+  append-only prune receipt commit in one database transaction. The verifier
+  starts at that declared retention anchor but still rejects gaps, altered
+  hashes, or a missing retained tail; SIEM/WORM exporters likewise fail loudly
+  if their cursor is behind the prune anchor or above the durable head.
+  `/readyz.audit_retention` and the `probectl_audit_retention_*` metrics show
+  whether raw in-DB rows are actually aging out. WORM retention can't be
+  shortened after the fact, so size it deliberately (see
   [data-retention.md](data-retention.md)).
+- **Upgrade recovery for a prefix pruned before migration 0075.** A retained
+  suffix carries its predecessor hash, so 0075 reconstructs partial-prune
+  anchors exactly. If an older binary already removed an entire tenant suffix,
+  the surviving SIEM cursor makes the loss detectable and new appends fail
+  closed until that anchor is restored. The provider stream has no local
+  database cursor—the cursor and hash live in signed WORM objects—so a
+  pre-0075 *full* provider prune cannot be reconstructed by SQL alone. When
+  WORM is configured, startup verifies the complete signed WORM chain before
+  admitting provider writes. If SQL is completely empty, it restores the
+  terminal WORM sequence/hash as the prune anchor and atomically appends an
+  `audit.retention_anchor_recovered` receipt; retained SQL disagreement,
+  tampering, or a WORM rewind fails startup without changing SQL. Without the
+  original configured WORM evidence, restore the audit tables from backup or
+  restore `provider_audit_stream_head` under the audited maintenance procedure.
+  The mutating `envelope-rewrap` command runs the same admission gate before it
+  changes ciphertext, so a one-shot CLI cannot bypass recovery. Never fabricate
+  genesis or rewind the WORM cursor.
 - **It is not your SIEM.** For long-term search, alerting, and cross-system correlation,
   export to your SIEM ([siem.md](siem.md)); the in-product view is for recent,
   tenant-scoped review.

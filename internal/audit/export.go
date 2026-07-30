@@ -114,9 +114,48 @@ func normalizeFilter(v string) string {
 // Delivery is sequential and stops at the first sink error so the cursor never
 // skips an undelivered event.
 func Drain(ctx context.Context, s tenancy.Scope, sink Sink, afterSeq int64, limit int) (int64, error) {
+	if afterSeq < 0 {
+		return afterSeq, fmt.Errorf("audit export cursor must be non-negative")
+	}
+	head, haveHead, err := readTenantStreamHead(ctx, s.Q, s.Tenant.String())
+	if err != nil {
+		return afterSeq, err
+	}
+	if haveHead {
+		if afterSeq < head.PrunedSeq {
+			return afterSeq, fmt.Errorf(
+				"audit export cursor %d is behind tenant prune anchor %d",
+				afterSeq,
+				head.PrunedSeq,
+			)
+		}
+		if afterSeq > head.HeadSeq {
+			return afterSeq, fmt.Errorf(
+				"audit export cursor %d is above tenant durable head %d",
+				afterSeq,
+				head.HeadSeq,
+			)
+		}
+	}
 	events, err := List(ctx, s, afterSeq, limit)
 	if err != nil {
 		return afterSeq, err
+	}
+	if haveHead && head.HeadSeq > afterSeq {
+		if len(events) == 0 {
+			return afterSeq, fmt.Errorf(
+				"tenant durable head %d has no row after audit export cursor %d",
+				head.HeadSeq,
+				afterSeq,
+			)
+		}
+		if events[0].Seq != afterSeq+1 {
+			return afterSeq, fmt.Errorf(
+				"audit export sequence gap after cursor %d (next row is %d)",
+				afterSeq,
+				events[0].Seq,
+			)
+		}
 	}
 	cursor := afterSeq
 	for _, ev := range events {

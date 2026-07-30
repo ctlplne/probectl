@@ -31,6 +31,16 @@ type envelopeRewrapReceipt struct {
 	ProviderAuditEventID int64                       `json:"provider_audit_event_id,omitempty"`
 }
 
+var reconcileProviderWORMBeforeEnvelopeMutation = func(
+	ctx context.Context,
+	cfg *config.Config,
+	db *store.DB,
+	log *slog.Logger,
+) error {
+	_, err := buildReconciledAuditWORM(ctx, cfg, db, log)
+	return err
+}
+
 func runEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("envelope-rewrap", flag.ContinueOnError)
 	dryRun := fs.Bool("dry-run", false, "inventory only; do not update sealed values or append an audit event")
@@ -56,6 +66,11 @@ func runEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB, lo
 	}
 	if *fromKeyID == cfg.EnvelopeKeyID {
 		return fmt.Errorf("envelope-rewrap: from-key-id %q is the active key id", *fromKeyID)
+	}
+	if !*dryRun && cfg.AuditWORMDir != "" {
+		if err := reconcileProviderWORMBeforeEnvelopeMutation(ctx, cfg, db, log); err != nil {
+			return fmt.Errorf("envelope-rewrap provider audit admission: %w", err)
+		}
 	}
 
 	receipt, err := collectEnvelopeRewrap(ctx, db, cfg.EnvelopeKeyID, *fromKeyID, *dryRun, verifyOpen)

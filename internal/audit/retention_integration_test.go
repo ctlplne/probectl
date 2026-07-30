@@ -11,6 +11,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -256,4 +258,1221 @@ func assertTenantSeqPresent(t *testing.T, pool *pgxpool.Pool, tenantID string, s
 	if count != 1 {
 		t.Fatalf("tenant seq %d count=%d, want present", seq, count)
 	}
+}
+
+type retentionCaptureSink struct {
+	events []Event
+}
+
+func (s *retentionCaptureSink) Export(_ context.Context, _ string, ev Event) error {
+	s.events = append(s.events, ev)
+	return nil
+}
+
+// TestAuditRetentionAnchorSequenceAndCursorVisibility is the IR-baec5355 regression:
+// retention must not derive the next sequence/hash from prunable event rows.
+// It uses two real tenant streams (one fully pruned, one partially pruned) and
+// an isolated real provider stream. After pruning, appends must remain above
+// the already-durable SIEM/WORM cursors and be visible immediately.
+func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
+	t.Run("two tenant streams and SIEM cursors", func(t *testing.T) {
+		ctx := context.Background()
+		pool := setup(ctx, t)
+		defer pool.Close()
+
+		now := time.Now().UTC()
+		old := now.Add(-48 * time.Hour)
+		policy := RetentionPolicy{Window: 24 * time.Hour}
+
+		tenantA, err := store.NewTenants(pool).Create(
+			ctx,
+			fmt.Sprintf("audit-anchor-full-%d", time.Now().UnixNano()),
+			"Audit Anchor Full",
+		)
+		if err != nil {
+			t.Fatalf("create full-prune tenant: %v", err)
+		}
+		tenantB, err := store.NewTenants(pool).Create(
+			ctx,
+			fmt.Sprintf("audit-anchor-partial-%d", time.Now().UnixNano()),
+			"Audit Anchor Partial",
+		)
+		if err != nil {
+			t.Fatalf("create partial-prune tenant: %v", err)
+		}
+
+		for _, tenant := range []struct {
+			id     string
+			prefix string
+		}{
+			{id: tenantA.ID, prefix: "full"},
+			{id: tenantB.ID, prefix: "partial"},
+		} {
+			err := tenancy.InTenant(
+				tenancy.WithTenant(ctx, tenancy.ID(tenant.id)),
+				pool,
+				func(ctx context.Context, s tenancy.Scope) error {
+					for i := 1; i <= 4; i++ {
+						if _, err := TenantAppend(
+							ctx,
+							s,
+							"anchor-test",
+							"retention.seed",
+							fmt.Sprintf("%s-%d", tenant.prefix, i),
+							map[string]any{"i": i},
+						); err != nil {
+							return err
+						}
+					}
+					cursor := int64(2)
+					if tenant.id == tenantA.ID {
+						cursor = 4
+					}
+					return (store.SIEMDelivery{}).Advance(ctx, s, cursor)
+				},
+			)
+			if err != nil {
+				t.Fatalf("seed tenant %s: %v", tenant.prefix, err)
+			}
+		}
+
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2`,
+			old,
+			tenantA.ID,
+		); err != nil {
+			t.Fatalf("backdate full-prune stream: %v", err)
+		}
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2 AND seq <= 2`,
+			old,
+			tenantB.ID,
+		); err != nil {
+			t.Fatalf("backdate partial-prune stream: %v", err)
+		}
+
+		if n, err := PruneTenant(ctx, pool, tenantA.ID, policy, 4, now); err != nil || n != 4 {
+			t.Fatalf("full tenant prune = (%d, %v), want (4, nil)", n, err)
+		}
+		if n, err := PruneTenant(ctx, pool, tenantB.ID, policy, 2, now); err != nil || n != 2 {
+			t.Fatalf("partial tenant prune = (%d, %v), want (2, nil)", n, err)
+		}
+
+		for _, tenant := range []struct {
+			id          string
+			oldCursor   int64
+			wantFirst   int64
+			wantLast    int64
+			wantTargets []string
+		}{
+			{
+				id: tenantA.ID, oldCursor: 4, wantFirst: 5, wantLast: 6,
+				wantTargets: []string{"audit/" + tenantA.ID, "full-after-prune"},
+			},
+			{
+				id: tenantB.ID, oldCursor: 2, wantFirst: 3, wantLast: 6,
+				wantTargets: []string{"partial-3", "partial-4", "audit/" + tenantB.ID, "partial-after-prune"},
+			},
+		} {
+			err := tenancy.InTenant(
+				tenancy.WithTenant(ctx, tenancy.ID(tenant.id)),
+				pool,
+				func(ctx context.Context, s tenancy.Scope) error {
+					target := "partial-after-prune"
+					if tenant.id == tenantA.ID {
+						target = "full-after-prune"
+					}
+					ev, err := TenantAppend(
+						ctx,
+						s,
+						"anchor-test",
+						"retention.after",
+						target,
+						nil,
+					)
+					if err != nil {
+						return err
+					}
+					if ev.Seq != tenant.wantLast {
+						return fmt.Errorf(
+							"post-prune append seq = %d, want %d above cursor %d",
+							ev.Seq,
+							tenant.wantLast,
+							tenant.oldCursor,
+						)
+					}
+					if err := TenantVerify(ctx, s); err != nil {
+						return fmt.Errorf("retention-aware verify: %w", err)
+					}
+					var visibleHeads, crossHeads int
+					if err := s.Q.QueryRow(
+						ctx,
+						`SELECT count(*) FROM public.audit_stream_heads`,
+					).Scan(&visibleHeads); err != nil {
+						return err
+					}
+					otherID := tenantA.ID
+					if tenant.id == tenantA.ID {
+						otherID = tenantB.ID
+					}
+					if err := s.Q.QueryRow(
+						ctx,
+						`SELECT count(*)
+						   FROM public.audit_stream_heads
+						  WHERE tenant_id = $1::uuid`,
+						otherID,
+					).Scan(&crossHeads); err != nil {
+						return err
+					}
+					if visibleHeads != 1 || crossHeads != 0 {
+						return fmt.Errorf(
+							"head RLS visibility = own/all %d cross %d, want 1/0",
+							visibleHeads,
+							crossHeads,
+						)
+					}
+					cursor, err := (store.SIEMDelivery{}).Cursor(ctx, s)
+					if err != nil {
+						return err
+					}
+					if cursor != tenant.oldCursor {
+						return fmt.Errorf("SIEM cursor = %d, want %d", cursor, tenant.oldCursor)
+					}
+					sink := &retentionCaptureSink{}
+					next, err := Drain(ctx, s, sink, cursor, 100)
+					if err != nil {
+						return err
+					}
+					if next != tenant.wantLast {
+						return fmt.Errorf("SIEM drain cursor = %d, want %d", next, tenant.wantLast)
+					}
+					if len(sink.events) != len(tenant.wantTargets) {
+						return fmt.Errorf(
+							"SIEM delivered %d events, want %d: %#v",
+							len(sink.events),
+							len(tenant.wantTargets),
+							sink.events,
+						)
+					}
+					if sink.events[0].Seq != tenant.wantFirst {
+						return fmt.Errorf(
+							"SIEM first seq = %d, want %d",
+							sink.events[0].Seq,
+							tenant.wantFirst,
+						)
+					}
+					for i, wantTarget := range tenant.wantTargets {
+						if sink.events[i].Target != wantTarget {
+							return fmt.Errorf(
+								"SIEM event %d target = %q, want %q",
+								i,
+								sink.events[i].Target,
+								wantTarget,
+							)
+						}
+					}
+					return nil
+				},
+			)
+			if err != nil {
+				t.Fatalf("tenant %s post-prune proof: %v", tenant.id, err)
+			}
+		}
+
+		var originalAnchorHash string
+		if err := pool.QueryRow(
+			ctx,
+			`UPDATE public.audit_stream_heads
+			    SET pruned_hash = 'tampered-anchor'
+			  WHERE tenant_id = $1::uuid
+			  RETURNING (
+			      SELECT prev_hash
+			        FROM audit_events
+			       WHERE tenant_id = $1::uuid
+			       ORDER BY seq
+			       LIMIT 1
+			  )`,
+			tenantB.ID,
+		).Scan(&originalAnchorHash); err != nil {
+			t.Fatalf("tamper partial-prune anchor: %v", err)
+		}
+		err = tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantB.ID)),
+			pool,
+			TenantVerify,
+		)
+		if err == nil || !strings.Contains(err.Error(), "retention boundary broken") {
+			t.Fatalf("tampered prune anchor verify error = %v, want retention-boundary failure", err)
+		}
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE public.audit_stream_heads SET pruned_hash = $2 WHERE tenant_id = $1::uuid`,
+			tenantB.ID,
+			originalAnchorHash,
+		); err != nil {
+			t.Fatalf("restore partial-prune anchor: %v", err)
+		}
+		if err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantB.ID)),
+			pool,
+			TenantVerify,
+		); err != nil {
+			t.Fatalf("verify restored partial-prune anchor: %v", err)
+		}
+	})
+
+	t.Run("provider stream and WORM cursor", func(t *testing.T) {
+		ctx := context.Background()
+		admin := setup(ctx, t)
+		defer admin.Close()
+		pool := isolatedProviderRetentionPool(t, admin)
+		defer pool.Close()
+
+		for i := 1; i <= 3; i++ {
+			if _, err := ProviderAppend(
+				ctx,
+				pool,
+				"provider-anchor-test",
+				"retention.seed",
+				fmt.Sprintf("provider-%d", i),
+				map[string]any{"i": i},
+			); err != nil {
+				t.Fatalf("append provider seed %d: %v", i, err)
+			}
+		}
+
+		objects := objectstore.NewMemory()
+		worm, err := NewWormExporterEphemeralForTest(
+			func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
+				return ListProvider(ctx, pool, afterSeq, limit)
+			},
+			objects,
+			testLog(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err := worm.ExportOnce(ctx); err != nil || n != 3 {
+			t.Fatalf("initial WORM export = (%d, %v), want (3, nil)", n, err)
+		}
+		watermark, err := worm.ExportedWatermark(ctx)
+		if err != nil || watermark != 3 {
+			t.Fatalf("WORM watermark = (%d, %v), want (3, nil)", watermark, err)
+		}
+
+		now := time.Now().UTC()
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE provider_audit_events SET created_at = $1`,
+			now.Add(-48*time.Hour),
+		); err != nil {
+			t.Fatalf("backdate provider stream: %v", err)
+		}
+		if n, err := PruneProvider(
+			ctx,
+			pool,
+			RetentionPolicy{Window: 24 * time.Hour},
+			watermark,
+			now,
+		); err != nil || n != 3 {
+			t.Fatalf("full provider prune = (%d, %v), want (3, nil)", n, err)
+		}
+
+		ev, err := ProviderAppend(
+			ctx,
+			pool,
+			"provider-anchor-test",
+			"retention.after",
+			"provider-after-prune",
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("append provider after prune: %v", err)
+		}
+		if ev.Seq != 5 {
+			t.Fatalf("provider post-prune seq = %d, want 5 above WORM cursor 3", ev.Seq)
+		}
+		if err := ProviderVerify(ctx, pool); err != nil {
+			t.Fatalf("retention-aware provider verify: %v", err)
+		}
+		if n, err := worm.ExportOnce(ctx); err != nil || n != 2 {
+			t.Fatalf("post-prune WORM export = (%d, %v), want receipt+new event", n, err)
+		}
+		if err := worm.VerifyWORMChain(ctx); err != nil {
+			t.Fatalf("WORM chain after full prune: %v", err)
+		}
+
+		// A second pass proves partial pruning too: seq 4-5 are now exported
+		// and aged, while fresh/unexported seq 6 must remain. The receipt and
+		// next append continue at 7-8, immediately after WORM cursor 5.
+		watermark, err = worm.ExportedWatermark(ctx)
+		if err != nil || watermark != 5 {
+			t.Fatalf("second WORM watermark = (%d, %v), want (5, nil)", watermark, err)
+		}
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE provider_audit_events SET created_at = $1 WHERE seq <= $2`,
+			now.Add(-48*time.Hour),
+			watermark,
+		); err != nil {
+			t.Fatalf("backdate second provider prefix: %v", err)
+		}
+		blocker, err := ProviderAppend(
+			ctx,
+			pool,
+			"provider-anchor-test",
+			"retention.unexported",
+			"provider-partial-blocker",
+			nil,
+		)
+		if err != nil || blocker.Seq != 6 {
+			t.Fatalf("append provider partial blocker = (%d, %v), want (6, nil)", blocker.Seq, err)
+		}
+		if n, err := PruneProvider(
+			ctx,
+			pool,
+			RetentionPolicy{Window: 24 * time.Hour},
+			watermark,
+			now,
+		); err != nil || n != 2 {
+			t.Fatalf("partial provider prune = (%d, %v), want (2, nil)", n, err)
+		}
+		ev, err = ProviderAppend(
+			ctx,
+			pool,
+			"provider-anchor-test",
+			"retention.after-partial",
+			"provider-after-partial-prune",
+			nil,
+		)
+		if err != nil || ev.Seq != 8 {
+			t.Fatalf("append provider after partial prune = (%d, %v), want (8, nil)", ev.Seq, err)
+		}
+		if err := ProviderVerify(ctx, pool); err != nil {
+			t.Fatalf("provider verify after partial prune: %v", err)
+		}
+		if n, err := worm.ExportOnce(ctx); err != nil || n != 3 {
+			t.Fatalf("WORM export after partial prune = (%d, %v), want (3, nil)", n, err)
+		}
+		if err := worm.VerifyWORMChain(ctx); err != nil {
+			t.Fatalf("WORM chain after partial prune: %v", err)
+		}
+	})
+}
+
+// TestAuditRetentionReceiptRollbackPreservesSequenceAnchor proves the retention
+// receipt is part of the same real-PostgreSQL transaction as deletion and the
+// durable prune-anchor advance. An injected receipt failure must leave all
+// three pieces untouched for both privilege domains.
+func TestAuditRetentionReceiptRollbackPreservesSequenceAnchor(t *testing.T) {
+	t.Run("tenant", func(t *testing.T) {
+		ctx := context.Background()
+		pool := setup(ctx, t)
+		defer pool.Close()
+
+		tenant, err := store.NewTenants(pool).Create(
+			ctx,
+			fmt.Sprintf("audit-receipt-rollback-%d", time.Now().UnixNano()),
+			"Audit Receipt Rollback",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)),
+			pool,
+			func(ctx context.Context, s tenancy.Scope) error {
+				for i := 1; i <= 2; i++ {
+					if _, err := TenantAppend(
+						ctx,
+						s,
+						"rollback-test",
+						"retention.seed",
+						fmt.Sprintf("tenant-%d", i),
+						nil,
+					); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now().UTC()
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2::uuid`,
+			now.Add(-48*time.Hour),
+			tenant.ID,
+		); err != nil {
+			t.Fatal(err)
+		}
+
+		var receiptRole string
+		n, err := pruneTenantWithReceipt(
+			ctx,
+			pool,
+			tenant.ID,
+			RetentionPolicy{Window: 24 * time.Hour},
+			2,
+			now,
+			func(ctx context.Context, s tenancy.Scope, _ map[string]any) error {
+				if err := s.Q.QueryRow(ctx, `SELECT current_user`).Scan(&receiptRole); err != nil {
+					return err
+				}
+				return errors.New("injected tenant receipt failure")
+			},
+		)
+		if err == nil || !strings.Contains(err.Error(), "injected tenant receipt failure") || n != 0 {
+			t.Fatalf("failed tenant prune = (%d, %v), want rollback error", n, err)
+		}
+		if receiptRole != tenancy.AppRole {
+			t.Fatalf("tenant receipt role = %q, want %q", receiptRole, tenancy.AppRole)
+		}
+		assertTenantSeqPresent(t, pool, tenant.ID, 1)
+		assertTenantSeqPresent(t, pool, tenant.ID, 2)
+		var headSeq, prunedSeq int64
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT head_seq, pruned_seq
+			   FROM public.audit_stream_heads
+			  WHERE tenant_id = $1::uuid`,
+			tenant.ID,
+		).Scan(&headSeq, &prunedSeq); err != nil {
+			t.Fatal(err)
+		}
+		if headSeq != 2 || prunedSeq != 0 {
+			t.Fatalf("tenant head after rollback = (%d,%d), want (2,0)", headSeq, prunedSeq)
+		}
+		var receipts int
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT count(*)
+			   FROM audit_events
+			  WHERE tenant_id = $1::uuid AND action = $2`,
+			tenant.ID,
+			RetentionPruneAction,
+		).Scan(&receipts); err != nil {
+			t.Fatal(err)
+		}
+		if receipts != 0 {
+			t.Fatalf("tenant prune receipts after rollback = %d, want 0", receipts)
+		}
+	})
+
+	t.Run("provider", func(t *testing.T) {
+		ctx := context.Background()
+		admin := setup(ctx, t)
+		defer admin.Close()
+		pool := isolatedProviderRetentionPool(t, admin)
+		defer pool.Close()
+
+		for i := 1; i <= 2; i++ {
+			if _, err := ProviderAppend(
+				ctx,
+				pool,
+				"rollback-test",
+				"retention.seed",
+				fmt.Sprintf("provider-%d", i),
+				nil,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+		now := time.Now().UTC()
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE provider_audit_events SET created_at = $1`,
+			now.Add(-48*time.Hour),
+		); err != nil {
+			t.Fatal(err)
+		}
+
+		n, err := pruneProviderWithReceipt(
+			ctx,
+			pool,
+			RetentionPolicy{Window: 24 * time.Hour},
+			2,
+			now,
+			func(context.Context, tenancy.Querier, map[string]any) error {
+				return errors.New("injected provider receipt failure")
+			},
+		)
+		if err == nil || !strings.Contains(err.Error(), "injected provider receipt failure") || n != 0 {
+			t.Fatalf("failed provider prune = (%d, %v), want rollback error", n, err)
+		}
+		assertProviderSeqPresent(t, pool, 1)
+		assertProviderSeqPresent(t, pool, 2)
+		var headSeq, prunedSeq int64
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT head_seq, pruned_seq
+			   FROM provider_audit_stream_head
+			  WHERE singleton`,
+		).Scan(&headSeq, &prunedSeq); err != nil {
+			t.Fatal(err)
+		}
+		if headSeq != 2 || prunedSeq != 0 {
+			t.Fatalf("provider head after rollback = (%d,%d), want (2,0)", headSeq, prunedSeq)
+		}
+		var receipts int
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT count(*) FROM provider_audit_events WHERE action = $1`,
+			RetentionPruneAction,
+		).Scan(&receipts); err != nil {
+			t.Fatal(err)
+		}
+		if receipts != 0 {
+			t.Fatalf("provider prune receipts after rollback = %d, want 0", receipts)
+		}
+	})
+}
+
+func TestAuditRetentionAnchorFailsClosedAboveLegacySIEMCursor(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		legacyEvent bool
+	}{
+		{name: "fully pruned empty stream"},
+		{name: "legacy reset receipt at sequence one", legacyEvent: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := setup(ctx, t)
+			defer pool.Close()
+
+			tenant, err := store.NewTenants(pool).Create(
+				ctx,
+				fmt.Sprintf("audit-legacy-anchor-%d", time.Now().UnixNano()),
+				"Audit Legacy Anchor",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = tenancy.InTenant(
+				tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)),
+				pool,
+				func(ctx context.Context, s tenancy.Scope) error {
+					return (store.SIEMDelivery{}).Advance(ctx, s, 5)
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.legacyEvent {
+				hash, err := computeHash(
+					tenant.ID,
+					1,
+					"system:audit-retention",
+					RetentionPruneAction,
+					"audit/"+tenant.ID,
+					map[string]any{"legacy": true},
+					genesis,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := pool.Exec(
+					ctx,
+					`INSERT INTO audit_events
+					    (tenant_id, seq, actor, action, target, data, prev_hash, hash)
+					 VALUES (
+					    $1::uuid, 1, 'system:audit-retention', $2, $3,
+					    '{"legacy":true}'::jsonb, '', $4
+					 )`,
+					tenant.ID,
+					RetentionPruneAction,
+					"audit/"+tenant.ID,
+					hash,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			err = tenancy.InTenant(
+				tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)),
+				pool,
+				func(ctx context.Context, s tenancy.Scope) error {
+					_, err := TenantAppend(
+						ctx,
+						s,
+						"legacy-test",
+						"retention.after",
+						"must-not-append",
+						nil,
+					)
+					return err
+				},
+			)
+			if err == nil ||
+				(!strings.Contains(err.Error(), "unrecoverable") &&
+					!strings.Contains(err.Error(), "refusing to append behind")) {
+				t.Fatalf("legacy full-prune append error = %v, want fail-closed cursor/head error", err)
+			}
+			var events, heads int
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT count(*) FROM audit_events WHERE tenant_id = $1::uuid`,
+				tenant.ID,
+			).Scan(&events); err != nil {
+				t.Fatal(err)
+			}
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT count(*) FROM public.audit_stream_heads WHERE tenant_id = $1::uuid`,
+				tenant.ID,
+			).Scan(&heads); err != nil {
+				t.Fatal(err)
+			}
+			wantEvents := 0
+			if tc.legacyEvent {
+				wantEvents = 1
+			}
+			if events != wantEvents || heads != 0 {
+				t.Fatalf(
+					"legacy fail-closed state = events:%d heads:%d, want events:%d heads:0",
+					events,
+					heads,
+					wantEvents,
+				)
+			}
+		})
+	}
+}
+
+func TestAuditRetentionAnchorReconcilesRollingUpgradeBeforeCursorValidation(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	tenant, err := store.NewTenants(pool).Create(
+		ctx,
+		fmt.Sprintf("audit-rolling-head-%d", time.Now().UnixNano()),
+		"Audit Rolling Head",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenant.ID))
+	err = tenancy.InTenant(
+		tctx,
+		pool,
+		func(ctx context.Context, s tenancy.Scope) error {
+			first, err := TenantAppend(
+				ctx,
+				s,
+				"rolling-upgrade-test",
+				"retention.seed",
+				"first",
+				nil,
+			)
+			if err != nil {
+				return err
+			}
+			legacyData := map[string]any{"writer": "old-binary"}
+			legacyHash, err := computeHash(
+				tenant.ID,
+				2,
+				"rolling-upgrade-test",
+				"retention.legacy-append",
+				"second",
+				legacyData,
+				first.Hash,
+			)
+			if err != nil {
+				return err
+			}
+			dataJSON, err := json.Marshal(legacyData)
+			if err != nil {
+				return err
+			}
+			if _, err := s.Q.Exec(
+				ctx,
+				`INSERT INTO audit_events
+				    (tenant_id, seq, actor, action, target, data, prev_hash, hash)
+				 VALUES ($1::uuid, 2, $2, $3, $4, $5::jsonb, $6, $7)`,
+				tenant.ID,
+				"rolling-upgrade-test",
+				"retention.legacy-append",
+				"second",
+				string(dataJSON),
+				first.Hash,
+				legacyHash,
+			); err != nil {
+				return err
+			}
+			return (store.SIEMDelivery{}).Advance(ctx, s, 2)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var appended Event
+	err = tenancy.InTenant(
+		tctx,
+		pool,
+		func(ctx context.Context, s tenancy.Scope) error {
+			var err error
+			appended, err = TenantAppend(
+				ctx,
+				s,
+				"rolling-upgrade-test",
+				"retention.new-append",
+				"third",
+				nil,
+			)
+			if err != nil {
+				return err
+			}
+			return TenantVerify(ctx, s)
+		},
+	)
+	if err != nil {
+		t.Fatalf("reconcile old-binary extension before cursor validation: %v", err)
+	}
+	if appended.Seq != 3 {
+		t.Fatalf("post-reconciliation append seq = %d, want 3", appended.Seq)
+	}
+
+	var headSeq int64
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT head_seq
+		   FROM public.audit_stream_heads
+		  WHERE tenant_id = $1::uuid`,
+		tenant.ID,
+	).Scan(&headSeq); err != nil {
+		t.Fatal(err)
+	}
+	if headSeq != 3 {
+		t.Fatalf("reconciled durable head = %d, want 3", headSeq)
+	}
+}
+
+func TestAuditRetentionProviderCursorBoundsRollback(t *testing.T) {
+	ctx := context.Background()
+	admin := setup(ctx, t)
+	defer admin.Close()
+	pool := isolatedProviderRetentionPool(t, admin)
+	defer pool.Close()
+
+	for i := 1; i <= 3; i++ {
+		if _, err := ProviderAppend(
+			ctx,
+			pool,
+			"provider-cursor-test",
+			"retention.seed",
+			fmt.Sprintf("provider-%d", i),
+			nil,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE provider_audit_events SET created_at = $1`,
+		now.Add(-48*time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+	policy := RetentionPolicy{Window: 24 * time.Hour}
+
+	if n, err := PruneProvider(ctx, pool, policy, 4, now); err == nil ||
+		!strings.Contains(err.Error(), "above durable head") || n != 0 {
+		t.Fatalf("above-head WORM prune = (%d, %v), want rollback error", n, err)
+	}
+	assertProviderRetentionState(t, pool, 3, 0, 3, 0)
+
+	if n, err := PruneProvider(ctx, pool, policy, 2, now); err != nil || n != 2 {
+		t.Fatalf("valid provider prune = (%d, %v), want (2, nil)", n, err)
+	}
+	assertProviderRetentionState(t, pool, 4, 2, 2, 1)
+
+	if n, err := PruneProvider(ctx, pool, policy, 1, now); err == nil ||
+		!strings.Contains(err.Error(), "behind prune anchor") || n != 0 {
+		t.Fatalf("behind-anchor WORM prune = (%d, %v), want rollback error", n, err)
+	}
+	assertProviderRetentionState(t, pool, 4, 2, 2, 1)
+}
+
+func TestAuditRetentionProviderWORMAnchorReconcilesLegacyFullPrune(t *testing.T) {
+	t.Run("verified WORM restores empty SQL anchor", func(t *testing.T) {
+		ctx := context.Background()
+		admin := setup(ctx, t)
+		defer admin.Close()
+		pool := isolatedProviderRetentionPool(t, admin)
+		defer pool.Close()
+
+		var exportedHead Event
+		for i := 1; i <= 3; i++ {
+			ev, err := ProviderAppend(
+				ctx,
+				pool,
+				"provider-reconcile-test",
+				"retention.seed",
+				fmt.Sprintf("provider-%d", i),
+				nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			exportedHead = ev
+		}
+		objects := objectstore.NewMemory()
+		worm, err := NewWormExporterEphemeralForTest(
+			func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
+				return ListProvider(ctx, pool, afterSeq, limit)
+			},
+			objects,
+			testLog(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err := worm.ExportOnce(ctx); err != nil || n != 3 {
+			t.Fatalf("seed WORM export = (%d, %v), want (3, nil)", n, err)
+		}
+		if deleted, err := objects.DeletePrefix(
+			ctx,
+			wormPrefix+"signing.pub",
+		); err != nil || deleted != 1 {
+			t.Fatalf(
+				"remove legacy WORM public-key companion = (%d, %v), want (1, nil)",
+				deleted,
+				err,
+			)
+		}
+
+		// Exact pre-0075 full-prune legacy state: signed WORM survives, but SQL
+		// has neither a retained event nor durable metadata row. A complete
+		// signed legacy export may also be missing only signing.pub; startup
+		// verifies every signature with the configured key before repairing it.
+		if _, err := pool.Exec(ctx, `DELETE FROM provider_audit_events`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `DELETE FROM provider_audit_stream_head`); err != nil {
+			t.Fatal(err)
+		}
+		if err := worm.ReconcileProviderHead(ctx, pool); err != nil {
+			t.Fatalf("reconcile verified WORM into empty SQL: %v", err)
+		}
+		if err := worm.ReconcileProviderHead(ctx, pool); err != nil {
+			t.Fatalf("repeat provider WORM reconciliation: %v", err)
+		}
+		pub, err := objects.Get(ctx, wormPrefix+"signing.pub")
+		if err != nil {
+			t.Fatalf("read repaired WORM public-key companion: %v", err)
+		}
+		if string(pub.Data) != string(worm.pubPEM) {
+			t.Fatal("repaired WORM public-key companion does not match configured key")
+		}
+
+		var headSeq, prunedSeq int64
+		var headHash, prunedHash string
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT head_seq, head_hash, pruned_seq, pruned_hash
+			   FROM provider_audit_stream_head
+			  WHERE singleton`,
+		).Scan(&headSeq, &headHash, &prunedSeq, &prunedHash); err != nil {
+			t.Fatal(err)
+		}
+		if headSeq != 4 || prunedSeq != 3 ||
+			headHash == exportedHead.Hash || prunedHash != exportedHead.Hash {
+			t.Fatalf(
+				"reconciled provider head = (%d,%q,%d,%q), want receipt head at 4 after prune anchor (3,%q)",
+				headSeq,
+				headHash,
+				prunedSeq,
+				prunedHash,
+				exportedHead.Hash,
+			)
+		}
+		var recoveryReceipts int
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT count(*)
+			   FROM provider_audit_events
+			  WHERE action = $1`,
+			RetentionAnchorRecoveredAction,
+		).Scan(&recoveryReceipts); err != nil {
+			t.Fatal(err)
+		}
+		if recoveryReceipts != 1 {
+			t.Fatalf(
+				"repeated WORM reconciliation receipts = %d, want exactly 1",
+				recoveryReceipts,
+			)
+		}
+		var receipt Event
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
+			   FROM provider_audit_events
+			  WHERE seq = 4`,
+		).Scan(
+			&receipt.Seq,
+			&receipt.Actor,
+			&receipt.Action,
+			&receipt.Target,
+			&receipt.Data,
+			&receipt.PrevHash,
+			&receipt.Hash,
+			&receipt.CreatedAt,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if receipt.Action != RetentionAnchorRecoveredAction ||
+			receipt.PrevHash != exportedHead.Hash ||
+			receipt.Hash != headHash {
+			t.Fatalf(
+				"anchor recovery receipt = action:%q prev:%q hash:%q, want action:%q prev:%q hash:%q",
+				receipt.Action,
+				receipt.PrevHash,
+				receipt.Hash,
+				RetentionAnchorRecoveredAction,
+				exportedHead.Hash,
+				headHash,
+			)
+		}
+
+		ev, err := ProviderAppend(
+			ctx,
+			pool,
+			"provider-reconcile-test",
+			"retention.after-reconcile",
+			"provider-4",
+			nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Seq != 5 || ev.PrevHash != receipt.Hash {
+			t.Fatalf(
+				"post-reconciliation append = seq:%d prev:%q, want seq:5 prev:%q",
+				ev.Seq,
+				ev.PrevHash,
+				receipt.Hash,
+			)
+		}
+		if n, err := worm.ExportOnce(ctx); err != nil || n != 2 {
+			t.Fatalf("post-reconciliation WORM export = (%d, %v), want (2, nil)", n, err)
+		}
+		if err := worm.VerifyWORMChain(ctx); err != nil {
+			t.Fatalf("verify reconciled WORM chain: %v", err)
+		}
+	})
+
+	t.Run("retained SQL disagreement fails closed", func(t *testing.T) {
+		ctx := context.Background()
+		admin := setup(ctx, t)
+		defer admin.Close()
+		pool := isolatedProviderRetentionPool(t, admin)
+		defer pool.Close()
+
+		for i := 1; i <= 2; i++ {
+			if _, err := ProviderAppend(
+				ctx,
+				pool,
+				"provider-reconcile-test",
+				"retention.seed",
+				fmt.Sprintf("provider-%d", i),
+				nil,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+		worm, err := NewWormExporterEphemeralForTest(
+			func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
+				return ListProvider(ctx, pool, afterSeq, limit)
+			},
+			objectstore.NewMemory(),
+			testLog(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err := worm.ExportOnce(ctx); err != nil || n != 2 {
+			t.Fatalf("seed WORM export = (%d, %v), want (2, nil)", n, err)
+		}
+		if _, err := pool.Exec(ctx, `DELETE FROM provider_audit_events`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `DELETE FROM provider_audit_stream_head`); err != nil {
+			t.Fatal(err)
+		}
+		reset, err := ProviderAppend(
+			ctx,
+			pool,
+			"legacy-reset",
+			RetentionPruneAction,
+			"provider",
+			nil,
+		)
+		if err != nil || reset.Seq != 1 {
+			t.Fatalf("seed legacy reset = (%d, %v), want (1, nil)", reset.Seq, err)
+		}
+
+		if err := worm.ReconcileProviderHead(ctx, pool); err == nil ||
+			!strings.Contains(err.Error(), "above SQL durable head") {
+			t.Fatalf("reconcile retained SQL disagreement error = %v", err)
+		}
+		assertProviderRetentionState(t, pool, 1, 0, 1, 1)
+	})
+
+	t.Run("tampered retained suffix fails closed", func(t *testing.T) {
+		ctx := context.Background()
+		admin := setup(ctx, t)
+		defer admin.Close()
+		pool := isolatedProviderRetentionPool(t, admin)
+		defer pool.Close()
+
+		if _, err := ProviderAppend(
+			ctx,
+			pool,
+			"provider-reconcile-test",
+			"retention.seed",
+			"provider-1",
+			nil,
+		); err != nil {
+			t.Fatal(err)
+		}
+		worm, err := NewWormExporterEphemeralForTest(
+			func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
+				return ListProvider(ctx, pool, afterSeq, limit)
+			},
+			objectstore.NewMemory(),
+			testLog(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err := worm.ExportOnce(ctx); err != nil || n != 1 {
+			t.Fatalf("seed WORM export = (%d, %v), want (1, nil)", n, err)
+		}
+		for i := 2; i <= 3; i++ {
+			if _, err := ProviderAppend(
+				ctx,
+				pool,
+				"provider-reconcile-test",
+				"retention.seed",
+				fmt.Sprintf("provider-%d", i),
+				nil,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := pool.Exec(
+			ctx,
+			`UPDATE provider_audit_events SET actor = 'tampered' WHERE seq = 2`,
+		); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := worm.ReconcileProviderHead(ctx, pool); err == nil ||
+			!strings.Contains(err.Error(), "hash mismatch") {
+			t.Fatalf("reconcile tampered retained suffix error = %v", err)
+		}
+		assertProviderRetentionState(t, pool, 3, 0, 3, 0)
+		var actor string
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT actor FROM provider_audit_events WHERE seq = 2`,
+		).Scan(&actor); err != nil {
+			t.Fatal(err)
+		}
+		if actor != "tampered" {
+			t.Fatalf("failed reconciliation changed tampered SQL row actor to %q", actor)
+		}
+	})
+}
+
+func assertProviderRetentionState(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	wantHead, wantPruned, wantEvents int64,
+	wantReceipts int,
+) {
+	t.Helper()
+	ctx := context.Background()
+	var headSeq, prunedSeq, events int64
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT head_seq, pruned_seq
+		   FROM provider_audit_stream_head
+		  WHERE singleton`,
+	).Scan(&headSeq, &prunedSeq); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM provider_audit_events`,
+	).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	var receipts int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM provider_audit_events WHERE action = $1`,
+		RetentionPruneAction,
+	).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	if headSeq != wantHead || prunedSeq != wantPruned ||
+		events != wantEvents || receipts != wantReceipts {
+		t.Fatalf(
+			"provider retention state head/pruned/events/receipts = %d/%d/%d/%d, want %d/%d/%d/%d",
+			headSeq,
+			prunedSeq,
+			events,
+			receipts,
+			wantHead,
+			wantPruned,
+			wantEvents,
+			wantReceipts,
+		)
+	}
+}
+
+func isolatedProviderRetentionPool(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	ctx := context.Background()
+	schema := fmt.Sprintf("audit_retention_provider_%d", time.Now().UnixNano())
+	quoted := `"` + strings.ReplaceAll(schema, `"`, `""`) + `"`
+	for _, stmt := range []string{
+		`CREATE SCHEMA ` + quoted,
+		`CREATE TABLE ` + quoted + `.provider_audit_events
+			(LIKE public.provider_audit_events INCLUDING ALL)`,
+		`CREATE TABLE ` + quoted + `.provider_audit_stream_head
+			(LIKE public.provider_audit_stream_head INCLUDING ALL)`,
+		`GRANT USAGE ON SCHEMA ` + quoted + ` TO probectl_provider`,
+		`GRANT SELECT, INSERT ON ` + quoted + `.provider_audit_events TO probectl_provider`,
+		`GRANT SELECT, INSERT, UPDATE ON ` + quoted + `.provider_audit_stream_head TO probectl_provider`,
+	} {
+		if _, err := admin.Exec(ctx, stmt); err != nil {
+			t.Fatalf("prepare isolated provider retention schema: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), `DROP SCHEMA `+quoted+` CASCADE`)
+	})
+
+	cfg := admin.Config().Copy()
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open isolated provider retention pool: %v", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		t.Fatalf("ping isolated provider retention pool: %v", err)
+	}
+	return pool
 }
