@@ -19,6 +19,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
@@ -143,7 +144,7 @@ func TestMigrationContentPreservesTenantData(t *testing.T) {
 	assertOTLPTokenDataPreserved(ctx, t, pool)
 }
 
-func TestAuditStreamHeadMigrationBackfillsRetainedBoundary(t *testing.T) {
+func TestAuditStreamHeadMigrationBackfillsRetainedBoundaryAsNonBypassOwner(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -219,9 +220,26 @@ VALUES
 		t.Fatalf("seed pre-0075 provider audit stream: %v", err)
 	}
 
-	if _, err := migrate.New(migrationsThrough(t, 75), nil).Apply(ctx, pool); err != nil {
+	ownerPool := auditHeadMigrationOwnerPool(ctx, t, pool)
+	if _, err := migrate.New(migrationsThrough(t, 75), nil).Apply(ctx, ownerPool); err != nil {
 		t.Fatalf("apply 0075: %v", err)
 	}
+	migrationBody, err := fs.ReadFile(
+		migrations.FS,
+		"0075_audit_stream_heads.sql",
+	)
+	if err != nil {
+		t.Fatalf("read 0075 for idempotent replay: %v", err)
+	}
+	ownerConn, err := ownerPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire non-bypass migration owner for replay: %v", err)
+	}
+	if err := ownerConn.Conn().PgConn().Exec(ctx, string(migrationBody)).Close(); err != nil {
+		ownerConn.Release()
+		t.Fatalf("replay 0075 under forced RLS as non-bypass owner: %v", err)
+	}
+	ownerConn.Release()
 
 	for _, tc := range []struct {
 		tenant               string
@@ -263,6 +281,37 @@ VALUES
 				tc.prunedHash,
 			)
 		}
+	}
+
+	var (
+		headRLSEnabled bool
+		headRLSForced  bool
+		tempPolicies   int
+	)
+	if err := pool.QueryRow(ctx, `
+SELECT c.relrowsecurity,
+       c.relforcerowsecurity,
+       (
+           SELECT count(*)
+             FROM pg_policy
+            WHERE polrelid = 'public.audit_stream_heads'::regclass
+              AND polname IN (
+                  'audit_stream_head_migration_read',
+                  'audit_stream_head_migration_backfill'
+              )
+       )
+  FROM pg_class AS c
+ WHERE c.oid = 'public.audit_stream_heads'::regclass
+`).Scan(&headRLSEnabled, &headRLSForced, &tempPolicies); err != nil {
+		t.Fatalf("inspect replayed audit head RLS: %v", err)
+	}
+	if !headRLSEnabled || !headRLSForced || tempPolicies != 0 {
+		t.Fatalf(
+			"replayed audit head RLS enabled/forced/temp-policies = %t/%t/%d, want true/true/0",
+			headRLSEnabled,
+			headRLSForced,
+			tempPolicies,
+		)
 	}
 
 	var providerHead, providerPruned int64
@@ -354,6 +403,105 @@ SELECT has_schema_privilege(
 			appDelete,
 		)
 	}
+}
+
+// auditHeadMigrationOwnerPool transfers only the objects touched by 0075 to a
+// fresh table owner with the production-safe NOSUPERUSER/NOBYPASSRLS posture.
+// Connections still authenticate with the disposable database's admin login,
+// then assume that owner before the migration runner performs any work.
+func auditHeadMigrationOwnerPool(
+	ctx context.Context,
+	t *testing.T,
+	adminPool *pgxpool.Pool,
+) *pgxpool.Pool {
+	t.Helper()
+
+	role := fmt.Sprintf("probectl_migration_owner_%d", time.Now().UnixNano())
+	quotedRole := quoteIdent(role)
+	var adminUser string
+	if err := adminPool.QueryRow(ctx, `SELECT current_user`).Scan(&adminUser); err != nil {
+		t.Fatalf("read migration test admin role: %v", err)
+	}
+	if _, err := adminPool.Exec(
+		ctx,
+		"CREATE ROLE "+quotedRole+" NOLOGIN NOSUPERUSER NOBYPASSRLS",
+	); err != nil {
+		t.Fatalf("create non-bypass migration owner: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := adminPool.Exec(
+			cleanupCtx,
+			"REASSIGN OWNED BY "+quotedRole+" TO "+quoteIdent(adminUser),
+		); err != nil {
+			t.Errorf("reassign migration test owner: %v", err)
+			return
+		}
+		if _, err := adminPool.Exec(
+			cleanupCtx,
+			"DROP OWNED BY "+quotedRole,
+		); err != nil {
+			t.Errorf("drop migration test owner grants: %v", err)
+			return
+		}
+		if _, err := adminPool.Exec(cleanupCtx, "DROP ROLE "+quotedRole); err != nil {
+			t.Errorf("drop migration test owner: %v", err)
+		}
+	})
+
+	const siloSchema = "t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb"
+	for _, stmt := range []string{
+		"GRANT USAGE, CREATE ON SCHEMA public TO " + quotedRole,
+		"GRANT USAGE, CREATE ON SCHEMA " + siloSchema + " TO " + quotedRole + " WITH GRANT OPTION",
+		"ALTER TABLE public.schema_migrations OWNER TO " + quotedRole,
+		"ALTER TABLE public.tenants OWNER TO " + quotedRole,
+		"ALTER TABLE public.audit_events OWNER TO " + quotedRole,
+		"ALTER TABLE public.provider_audit_events OWNER TO " + quotedRole,
+		"ALTER TABLE " + siloSchema + ".audit_events OWNER TO " + quotedRole,
+	} {
+		if _, err := adminPool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("prepare non-bypass migration owner with %q: %v", stmt, err)
+		}
+	}
+
+	cfg := adminPool.Config().Copy()
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET ROLE "+quotedRole)
+		return err
+	}
+	ownerPool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open non-bypass migration owner pool: %v", err)
+	}
+	t.Cleanup(ownerPool.Close)
+	if err := ownerPool.Ping(ctx); err != nil {
+		t.Fatalf("ping non-bypass migration owner pool: %v", err)
+	}
+
+	var (
+		currentUser string
+		superuser   bool
+		bypassRLS   bool
+	)
+	if err := ownerPool.QueryRow(
+		ctx,
+		`SELECT current_user, rolsuper, rolbypassrls
+		   FROM pg_roles
+		  WHERE rolname = current_user`,
+	).Scan(&currentUser, &superuser, &bypassRLS); err != nil {
+		t.Fatalf("inspect non-bypass migration owner: %v", err)
+	}
+	if currentUser != role || superuser || bypassRLS {
+		t.Fatalf(
+			"migration owner = %q superuser=%t bypassrls=%t, want %q/false/false",
+			currentUser,
+			superuser,
+			bypassRLS,
+			role,
+		)
+	}
+	return ownerPool
 }
 
 const (

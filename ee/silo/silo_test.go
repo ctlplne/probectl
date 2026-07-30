@@ -51,7 +51,8 @@ func TestParseDataPlanes(t *testing.T) {
 // list excluded.
 func TestProvisionPlan(t *testing.T) {
 	plan := ProvisionPlan("t_abc", []string{
-		"tests", "agents", "audit_events", "break_glass_grants", "tenant_retention",
+		"tests", "agents", "audit_events", "audit_subject_erasures",
+		"break_glass_grants", "tenant_retention",
 		"credential_locators", "agent_identity_revocations",
 	})
 	joined := strings.Join(plan, "\n")
@@ -69,6 +70,9 @@ func TestProvisionPlan(t *testing.T) {
 		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_app`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`,
 		`GRANT SELECT, DELETE ON "t_abc"."audit_events" TO probectl_provider`,
+		`REVOKE ALL ON "t_abc"."audit_subject_erasures" FROM probectl_app`,
+		`GRANT SELECT, INSERT ON "t_abc"."audit_subject_erasures" TO probectl_app`,
+		`GRANT SELECT, INSERT, DELETE ON "t_abc"."audit_subject_erasures" TO probectl_provider`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("plan missing %q", want)
@@ -144,12 +148,41 @@ func TestCatchUpPlan(t *testing.T) {
 	repair := strings.Join(CatchUpPlan("t_abc", cat), "\n")
 	for _, want := range []string{
 		`GRANT USAGE ON SCHEMA "t_abc" TO probectl_provider`,
+		`ALTER TABLE "t_abc"."audit_events" ENABLE ROW LEVEL SECURITY`,
+		`ALTER TABLE "t_abc"."audit_events" FORCE ROW LEVEL SECURITY`,
+		`DROP POLICY IF EXISTS tenant_isolation ON "t_abc"."audit_events"`,
+		`CREATE POLICY tenant_isolation ON "t_abc"."audit_events"`,
 		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_app`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`,
 		`GRANT SELECT, DELETE ON "t_abc"."audit_events" TO probectl_provider`,
 	} {
 		if !strings.Contains(repair, want) {
 			t.Errorf("caught-up audit permission repair missing %q in:\n%s", want, repair)
+		}
+	}
+	policyAt := strings.Index(repair, `CREATE POLICY tenant_isolation ON "t_abc"."audit_events"`)
+	grantAt := strings.Index(repair, `GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`)
+	if policyAt < 0 || grantAt < 0 || policyAt > grantAt {
+		t.Fatalf("audit boundary must be repaired before grants:\n%s", repair)
+	}
+
+	cat.TenantTables = append(cat.TenantTables, "audit_subject_erasures")
+	cat.SchemaTables = append(cat.SchemaTables, "audit_subject_erasures")
+	cat.Columns["audit_subject_erasures"] = []Column{
+		{Name: "tenant_id", DataType: "uuid"},
+		{Name: "subject_hash", DataType: "text"},
+	}
+	cat.SchemaColumns["audit_subject_erasures"] = cat.Columns["audit_subject_erasures"]
+	markerRepair := strings.Join(CatchUpPlan("t_abc", cat), "\n")
+	for _, want := range []string{
+		`ALTER TABLE "t_abc"."audit_subject_erasures" ENABLE ROW LEVEL SECURITY`,
+		`ALTER TABLE "t_abc"."audit_subject_erasures" FORCE ROW LEVEL SECURITY`,
+		`CREATE POLICY tenant_isolation ON "t_abc"."audit_subject_erasures"`,
+		`GRANT SELECT, INSERT ON "t_abc"."audit_subject_erasures" TO probectl_app`,
+		`GRANT SELECT, INSERT, DELETE ON "t_abc"."audit_subject_erasures" TO probectl_provider`,
+	} {
+		if !strings.Contains(markerRepair, want) {
+			t.Errorf("subject-erasure marker repair missing %q in:\n%s", want, markerRepair)
 		}
 	}
 }

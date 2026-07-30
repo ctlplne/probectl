@@ -90,28 +90,49 @@ func provisionTablePlan(quotedSchema, table string) []string {
 	qt := quotedSchema + "." + quoteIdent(table)
 	plan := []string{
 		"CREATE TABLE IF NOT EXISTS " + qt + " (LIKE public." + quoteIdent(table) + " INCLUDING ALL)",
-		"ALTER TABLE " + qt + " ENABLE ROW LEVEL SECURITY",
-		"ALTER TABLE " + qt + " FORCE ROW LEVEL SECURITY",
-		"DROP POLICY IF EXISTS tenant_isolation ON " + qt,
-		`CREATE POLICY tenant_isolation ON ` + qt + `
-  USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
-  WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`,
 	}
-	return append(plan, tableRolePlan(qt, table)...)
+	return append(plan, repairTenantBoundaryPlan(qt, table)...)
 }
 
 func tableRolePlan(quotedTable, table string) []string {
-	if table == "audit_events" {
+	switch table {
+	case "audit_events":
 		return []string{
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
 			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_app",
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
 			"GRANT SELECT, DELETE ON " + quotedTable + " TO probectl_provider",
 		}
+	case "audit_subject_erasures":
+		return []string{
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
+			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_app",
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
+			"GRANT SELECT, INSERT, DELETE ON " + quotedTable + " TO probectl_provider",
+		}
 	}
 	return []string{
 		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + quotedTable + " TO probectl_app",
 	}
+}
+
+func providerMaintainedTable(table string) bool {
+	return table == "audit_events" || table == "audit_subject_erasures"
+}
+
+// repairTenantBoundaryPlan restores the storage-layer boundary before grants
+// are repaired. A restored silo may have the current columns while RLS is
+// disabled, not forced for its owner, or bound to a stale/permissive policy.
+func repairTenantBoundaryPlan(quotedTable, table string) []string {
+	plan := []string{
+		"ALTER TABLE " + quotedTable + " ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE " + quotedTable + " FORCE ROW LEVEL SECURITY",
+		"DROP POLICY IF EXISTS tenant_isolation ON " + quotedTable,
+		`CREATE POLICY tenant_isolation ON ` + quotedTable + `
+  USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`,
+	}
+	return append(plan, tableRolePlan(quotedTable, table)...)
 }
 
 // CatchUpPlan renders the DDL that brings an EXISTING silo schema up to the
@@ -129,17 +150,10 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 	var plan []string
 	tenantTables := TenantOwned(cat.TenantTables)
 	for _, t := range tenantTables {
-		if t == "audit_events" {
-			// Permission repair is intentionally idempotent and always emitted:
-			// restored/pre-0075 silos may have current columns but the old
-			// app-DELETE grant and no provider retention capability.
-			plan = append(
-				plan,
-				"GRANT USAGE ON SCHEMA "+q+" TO probectl_provider",
-			)
-			if have[t] {
-				plan = append(plan, tableRolePlan(q+"."+quoteIdent(t), t)...)
-			}
+		if providerMaintainedTable(t) {
+			// Provider maintenance tables need schema access whether catch-up
+			// creates them or repairs an existing/restored copy.
+			plan = append(plan, "GRANT USAGE ON SCHEMA "+q+" TO probectl_provider")
 			break
 		}
 	}
@@ -171,6 +185,11 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 				}
 			}
 			plan = append(plan, stmt)
+		}
+		if providerMaintainedTable(t) {
+			// Repair the isolation boundary before restoring role grants. This
+			// is deliberately emitted even with no structural drift.
+			plan = append(plan, repairTenantBoundaryPlan(q+"."+quoteIdent(t), t)...)
 		}
 	}
 	return plan
