@@ -42,6 +42,7 @@ const (
 	SubjectStatusExported       = "exported"
 	SubjectStatusDeleted        = "deleted"
 	SubjectStatusCoveredByPlane = "covered_by_parent"
+	SubjectStatusRetainedIR     = "retained_encrypted_evidence"
 	SubjectStatusProjected      = "projected"
 	SubjectStatusFailed         = "failed"
 	SubjectStatusNotDeployed    = "not_deployed"
@@ -129,6 +130,7 @@ const (
 	subjectTableDeleteMatches subjectTableDisposition = iota
 	subjectTableProjectMatches
 	subjectTableNoSubject
+	subjectTableRetainEncryptedEvidence
 )
 
 type subjectTablePolicy struct {
@@ -242,6 +244,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:incident_signals", disposition: subjectTableDeleteMatches,
 		exact:    []string{"target"},
 		contains: []string{"title", "summary", "attributes"},
+	},
+	"ir_attribution_records": {
+		plane:       "audit:ir_attribution_encrypted",
+		disposition: subjectTableRetainEncryptedEvidence,
 	},
 	"incidents": {
 		plane: "postgres:incidents", disposition: subjectTableDeleteMatches,
@@ -390,10 +396,27 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	if err != nil {
 		return err
 	}
+	classified, err := classifySubjectPostgresTables(tables)
+	if err != nil {
+		return err
+	}
+	policies := make(map[string]subjectTablePolicy, len(classified))
+	for _, table := range classified {
+		policies[table.name] = table.policy
+	}
 	tctx := tenancy.WithTenant(x.ctx, tenancy.ID(x.tenantID))
 	subject := []byte(strings.ToLower(x.subject))
 	subjectHash := audit.SubjectErasureHash(x.tenantID, x.subject)
 	for _, table := range tables {
+		policy := policies[table]
+		if policy.disposition == subjectTableRetainEncryptedEvidence {
+			x.man.Planes = append(x.man.Planes, SubjectPlaneResult{
+				Plane:  policy.plane,
+				Status: SubjectStatusRetainedIR,
+				Notes:  "excluded from ordinary subject export; retained ciphertext is revealable only through audited IR separation of duty",
+			})
+			continue
+		}
 		var buf bytes.Buffer
 		var count int64
 		err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -814,10 +837,12 @@ func subjectErasurePlanesComplete(planes []SubjectPlaneResult) bool {
 		switch plane.Status {
 		case SubjectStatusDeleted,
 			SubjectStatusCoveredByPlane,
+			SubjectStatusRetainedIR,
 			SubjectStatusProjected,
 			SubjectStatusNotDeployed:
 			// These statuses either prove the subject is gone from a deployed
-			// plane or state that no such plane exists in this deployment.
+			// plane, explicitly preserve separately encrypted evidence, or
+			// state that no such plane exists in this deployment.
 		default:
 			return false
 		}
@@ -878,6 +903,12 @@ func (e *Engine) eraseSubjectPostgres(
 				out = append(out, SubjectPlaneResult{
 					Plane: table.policy.plane, Status: SubjectStatusCoveredByPlane,
 					Notes: "live-schema policy declares no first-class data-subject field",
+				})
+				continue
+			case subjectTableRetainEncryptedEvidence:
+				out = append(out, SubjectPlaneResult{
+					Plane: table.policy.plane, Status: SubjectStatusRetainedIR,
+					Notes: "encrypted incident-response evidence retained; ordinary subject lifecycle cannot read, decrypt, or delete it",
 				})
 				continue
 			}
@@ -959,7 +990,9 @@ func classifySubjectPostgresTables(tables []string) ([]classifiedSubjectTable, e
 		switch policy.disposition {
 		case subjectTableDeleteMatches:
 			valid = len(policy.exact)+len(policy.contains) > 0
-		case subjectTableProjectMatches, subjectTableNoSubject:
+		case subjectTableProjectMatches,
+			subjectTableNoSubject,
+			subjectTableRetainEncryptedEvidence:
 			valid = len(policy.exact) == 0 && len(policy.contains) == 0
 		default:
 			valid = false

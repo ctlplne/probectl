@@ -2181,6 +2181,9 @@ audit reports `projected`; TSDB metrics, topology labels, eBPF workload
 aggregates, endpoint latest views, and topology device nodes report their own
 export/delete receipts when the wired backend is subject-capable. RUM reports
 `covered_by_parent` because its host/path samples live in `tsdb_metrics`.
+The encrypted IR attribution sidecar reports `retained_encrypted_evidence`:
+ordinary subject export and erasure cannot read, decrypt, or delete it, while
+the separately authorized and audited IR investigation path remains available.
 Aggregate backends that cannot locally delete one subject report `not_capable`
 with the delete-series or retention age-out basis instead of disappearing from
 the receipt.

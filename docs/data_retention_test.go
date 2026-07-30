@@ -42,6 +42,7 @@ func TestDataRetentionMatrixCoversPrivacyGovernanceRows(t *testing.T) {
 		"audit.retention_prune",
 		"lifecycle.retention_sweep",
 		"covered_by_parent",
+		"retained_encrypted_evidence",
 		"not_capable",
 		"tsdb_metrics",
 		"audit_subject_erasures",

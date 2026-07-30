@@ -117,12 +117,14 @@ semantics. Current inventory IDs: `audit-evidence`, `ai-artifacts`,
   timers; subject lifecycle is the tenant-scoped privacy control. Its manifest
   lists every privacy-relevant plane with exported/deleted counts, projected
   audit status, not-deployed status, `covered_by_parent` for RUM labels covered
-  by `tsdb_metrics`, or `not_capable` plus the age-out/delete-series basis for
-  aggregate backends that cannot safely delete one subject locally. A subject
-  erasure receipt is `complete:true` only when every deployed plane was erased
-  or count-verified clean; any deployed `not_capable` plane keeps it
-  `complete:false` while the report is still hashed and written to provider
-  audit.
+  by `tsdb_metrics`, `retained_encrypted_evidence` for the provider-only IR
+  sidecar that ordinary subject reads cannot access, or `not_capable` plus the
+  age-out/delete-series basis for aggregate backends that cannot safely delete
+  one subject locally. A subject erasure receipt is `complete:true` only when
+  every deployed plane was erased, count-verified clean, or explicitly
+  preserved as separately encrypted evidence; any deployed `not_capable` plane
+  keeps it `complete:false` while the report is still hashed and written to
+  provider audit.
 - If they ask about backups or SIEM, give the probectl attestation/cursor plus
   the operator's SIEM or backup policy. probectl cannot truthfully promise the
   destination deleted its copy.

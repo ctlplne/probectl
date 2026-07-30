@@ -296,7 +296,13 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		t.Fatalf("classification error = %q", err)
 	}
 
-	classified, err := classifySubjectPostgresTables([]string{"users", "audit_events", "ai_feedback", "roles"})
+	classified, err := classifySubjectPostgresTables([]string{
+		"users",
+		"audit_events",
+		"ai_feedback",
+		"roles",
+		"ir_attribution_records",
+	})
 	if err != nil {
 		t.Fatalf("known subject table inventory: %v", err)
 	}
@@ -314,6 +320,12 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 	}
 	if byName["roles"] != subjectTableNoSubject {
 		t.Fatalf("roles disposition = %d, want explicit no-subject classification", byName["roles"])
+	}
+	if byName["ir_attribution_records"] != subjectTableRetainEncryptedEvidence {
+		t.Fatalf(
+			"ir_attribution_records disposition = %d, want retained encrypted evidence",
+			byName["ir_attribution_records"],
+		)
 	}
 }
 

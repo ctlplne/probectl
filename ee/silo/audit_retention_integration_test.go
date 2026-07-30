@@ -14,6 +14,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,13 +24,193 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
+
+type siloSubjectIRWrapKeys struct {
+	provider crypto.KeyProvider
+}
+
+func (k siloSubjectIRWrapKeys) WrapProviderForTenant(
+	_ context.Context,
+	_ string,
+) (crypto.KeyProvider, error) {
+	return k.provider, nil
+}
+
+type siloSubjectIRFixture struct {
+	auditSeq        int64
+	rowJSON         string
+	ciphertextHex   string
+	plaintextCanary string
+}
+
+func newSiloSubjectIRStage(
+	t *testing.T,
+	pool *pgxpool.Pool,
+) *audit.IRStagePG {
+	t.Helper()
+	_, publicPEM, err := crypto.GenerateRSAOAEPKeyPEM()
+	if err != nil {
+		t.Fatalf("generate silo subject-lifecycle IR wrapping key: %v", err)
+	}
+	provider, err := crypto.NewRSAOAEPWrapProviderPEM(publicPEM)
+	if err != nil {
+		t.Fatalf("build silo subject-lifecycle IR wrapping provider: %v", err)
+	}
+	signingPrivate, signingPublic, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatalf("generate silo subject-lifecycle IR signing key: %v", err)
+	}
+	stage, err := audit.NewIRStagePG(
+		pool,
+		siloSubjectIRWrapKeys{provider: provider},
+		signingPrivate,
+		signingPublic,
+	)
+	if err != nil {
+		t.Fatalf("build silo subject-lifecycle IR sidecar: %v", err)
+	}
+	return stage
+}
+
+func appendSiloSubjectIRFixture(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	stage *audit.IRStagePG,
+	tenantID, label string,
+) siloSubjectIRFixture {
+	t.Helper()
+	operator := "silo-ir-subject-canary-" + label + "@example.test"
+	grant := "silo-subject-lifecycle-grant-" + label
+	surface := "privacy.subject.lifecycle"
+	reason := "silo subject lifecycle encrypted evidence regression " + label
+	event, err := audit.ProviderAppendBreakGlass(
+		ctx,
+		pool,
+		stage,
+		operator,
+		"provider.breakglass_access",
+		grant,
+		map[string]any{
+			"tenant":  tenantID,
+			"surface": surface,
+			"reason":  reason,
+		},
+		audit.IRAttribution{
+			Operator: operator,
+			TenantID: tenantID,
+			Grant:    grant,
+			Surface:  surface,
+			Consent:  "tenant-approved:privacy-admin-" + label,
+			Outcome:  "accessed",
+			Reason:   reason,
+		},
+	)
+	if err != nil {
+		t.Fatalf("append silo subject-lifecycle IR fixture for %s: %v", tenantID, err)
+	}
+	fixture := readSiloSubjectIRFixture(t, ctx, pool, tenantID, event.Seq)
+	fixture.plaintextCanary = operator
+	return fixture
+}
+
+func readSiloSubjectIRFixture(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tenantID string,
+	auditSeq int64,
+) siloSubjectIRFixture {
+	t.Helper()
+	fixture := siloSubjectIRFixture{auditSeq: auditSeq}
+	err := tenancy.InTenantProviderMaintenance(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			return scope.Q.QueryRow(
+				ctx,
+				`SELECT row_to_json(sidecar)::text,
+				        encode(sidecar.ciphertext, 'hex')
+				   FROM (
+				        SELECT tenant_id, audit_seq, chain_pos, event_ref, key_id,
+				               wrapped_dek, ciphertext, prev_hash, hash, signature,
+				               created_at
+				          FROM ir_attribution_records
+				         WHERE tenant_id = $1::uuid
+				           AND audit_seq = $2
+				   ) AS sidecar`,
+				tenantID,
+				auditSeq,
+			).Scan(&fixture.rowJSON, &fixture.ciphertextHex)
+		},
+	)
+	if err != nil {
+		t.Fatalf("read silo subject-lifecycle IR fixture for %s: %v", tenantID, err)
+	}
+	return fixture
+}
+
+func assertSiloSubjectIRAppReadDenied(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tenantID string,
+) {
+	t.Helper()
+	err := tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			var count int
+			return scope.Q.QueryRow(
+				ctx,
+				`SELECT count(*)
+				   FROM ir_attribution_records
+				  WHERE tenant_id = $1::uuid`,
+				tenantID,
+			).Scan(&count)
+		},
+	)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+		t.Fatalf(
+			"ordinary silo/app IR read error for %s = %v, want SQLSTATE 42501",
+			tenantID,
+			err,
+		)
+	}
+}
+
+func assertSiloSubjectIRAbsentFromBundle(
+	t *testing.T,
+	files map[string]string,
+	fixtures ...siloSubjectIRFixture,
+) {
+	t.Helper()
+	if _, ok := files["postgres/ir_attribution_records.jsonl"]; ok {
+		t.Fatal("ordinary silo lifecycle bundle exposed encrypted IR sidecar rows")
+	}
+	for path, raw := range files {
+		for _, fixture := range fixtures {
+			if strings.Contains(raw, fixture.ciphertextHex) {
+				t.Fatalf("ordinary silo lifecycle bundle %s exposed IR ciphertext", path)
+			}
+			if strings.Contains(raw, fixture.plaintextCanary) {
+				t.Fatalf("ordinary silo lifecycle bundle %s exposed IR plaintext canary", path)
+			}
+		}
+	}
+}
 
 // TestAuditRetentionRoutesSiloAndPooledSequenceAnchors proves the privileged
 // delete leg and non-bypass receipt leg use the tenant's real PostgreSQL target.
@@ -896,6 +1077,229 @@ func TestSiloSubjectErasureAliasMarkersAtomicAndExportsProjectedAudit(t *testing
 		strings.ToLower(subject),
 	) {
 		t.Fatalf("silo projection altered pooled bystander export: %s", bystanderAudit)
+	}
+}
+
+func TestSiloSubjectLifecycleRetainsEncryptedIRAttribution(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := context.Background()
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	victimID := mkTenant(
+		t,
+		pool,
+		"ir-subject-silo-"+stamp,
+		"siloed",
+		"",
+	)
+	bystanderID := mkTenant(
+		t,
+		pool,
+		"ir-subject-pool-"+stamp,
+		"pooled",
+		"",
+	)
+	provisioner := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
+	if err := provisioner.Provision(
+		ctx,
+		victimID,
+		"",
+		tenancy.IsolationSiloed,
+	); err != nil {
+		t.Fatalf("provision IR subject-lifecycle silo: %v", err)
+	}
+
+	router := NewRouter(pool, nil, time.Second)
+	tenancy.SetRouter(router)
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+	t.Cleanup(func() {
+		if err := provisioner.Teardown(
+			context.Background(),
+			victimID,
+			"",
+			tenancy.IsolationSiloed,
+		); err != nil {
+			t.Errorf("cleanup IR subject-lifecycle silo: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_records
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			victimID,
+			bystanderID,
+		); err != nil {
+			t.Errorf("cleanup IR subject-lifecycle pooled records: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_heads
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			victimID,
+			bystanderID,
+		); err != nil {
+			t.Errorf("cleanup IR subject-lifecycle heads: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.tenants
+			  WHERE id = $1::uuid OR id = $2::uuid`,
+			victimID,
+			bystanderID,
+		); err != nil {
+			t.Errorf("cleanup IR subject-lifecycle tenants: %v", err)
+		}
+	})
+
+	subject := "ir-silo-subject-" + stamp + "@example.test"
+	for _, tenantID := range []string{victimID, bystanderID} {
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				if _, err := scope.Q.Exec(
+					ctx,
+					`INSERT INTO users
+					       (tenant_id, email, display_name, status, user_name, attributes)
+					 VALUES ($1::uuid, $2, 'Encrypted Silo IR Subject',
+					         'active', $2,
+					         jsonb_build_object('subject', $2::text))`,
+					tenantID,
+					subject,
+				); err != nil {
+					return err
+				}
+				_, err := audit.TenantAppend(
+					ctx,
+					scope,
+					subject,
+					"directory.subject_seed",
+					subject,
+					map[string]any{"email": subject},
+				)
+				return err
+			},
+		)
+		if err != nil {
+			t.Fatalf("seed IR subject-lifecycle tenant %s: %v", tenantID, err)
+		}
+	}
+
+	stage := newSiloSubjectIRStage(t, pool)
+	victimIR := appendSiloSubjectIRFixture(
+		t,
+		ctx,
+		pool,
+		stage,
+		victimID,
+		"victim-"+stamp,
+	)
+	bystanderIR := appendSiloSubjectIRFixture(
+		t,
+		ctx,
+		pool,
+		stage,
+		bystanderID,
+		"bystander-"+stamp,
+	)
+	assertSiloSubjectIRAppReadDenied(t, ctx, pool, victimID)
+	assertSiloSubjectIRAppReadDenied(t, ctx, pool, bystanderID)
+
+	sink := func(
+		ctx context.Context,
+		actor, action, target string,
+		data map[string]any,
+	) error {
+		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+		return err
+	}
+	life := tenantlife.New(
+		pool,
+		nil,
+		nil,
+		nil,
+		sink,
+		"test backup policy",
+		log,
+	)
+
+	var subjectBundle bytes.Buffer
+	subjectManifest, err := life.ExportSubject(
+		ctx,
+		victimID,
+		subject,
+		&subjectBundle,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("export silo subject with encrypted IR evidence: %v", err)
+	}
+	subjectFiles := readTenantlifeBundle(t, subjectBundle.Bytes())
+	assertSiloSubjectIRAbsentFromBundle(t, subjectFiles, victimIR, bystanderIR)
+	var irExportReceipt tenantlife.SubjectPlaneResult
+	for _, plane := range subjectManifest.Planes {
+		if plane.Plane == "audit:ir_attribution_encrypted" {
+			irExportReceipt = plane
+		}
+	}
+	if irExportReceipt.Status != tenantlife.SubjectStatusRetainedIR ||
+		!strings.Contains(irExportReceipt.Notes, "excluded") {
+		t.Fatalf("silo subject IR export receipt = %+v", irExportReceipt)
+	}
+
+	report, err := life.EraseSubject(
+		ctx,
+		victimID,
+		subject,
+		"privacy-admin",
+		"retain encrypted silo IR evidence",
+	)
+	if err != nil {
+		t.Fatalf("erase silo subject with encrypted IR evidence: %v", err)
+	}
+	if !report.Complete {
+		t.Fatalf("silo subject erasure with encrypted IR evidence incomplete: %+v", report)
+	}
+	var irEraseReceipt tenantlife.SubjectPlaneResult
+	for _, plane := range report.Planes {
+		if plane.Plane == "audit:ir_attribution_encrypted" {
+			irEraseReceipt = plane
+		}
+	}
+	if irEraseReceipt.Status != tenantlife.SubjectStatusRetainedIR ||
+		!strings.Contains(irEraseReceipt.Notes, "retained") {
+		t.Fatalf("silo subject IR erasure receipt = %+v", irEraseReceipt)
+	}
+
+	schema := SchemaName(victimID)
+	if got := countIn(t, pool, schema+".users", victimID); got != 0 {
+		t.Fatalf("silo victim subject row survived erasure: %d", got)
+	}
+	if got := countIn(t, pool, "public.users", bystanderID); got != 1 {
+		t.Fatalf("silo victim subject erasure changed pooled bystander: %d", got)
+	}
+
+	victimAfter := readSiloSubjectIRFixture(
+		t,
+		ctx,
+		pool,
+		victimID,
+		victimIR.auditSeq,
+	)
+	bystanderAfter := readSiloSubjectIRFixture(
+		t,
+		ctx,
+		pool,
+		bystanderID,
+		bystanderIR.auditSeq,
+	)
+	if victimAfter.rowJSON != victimIR.rowJSON {
+		t.Fatal("silo subject erasure altered the victim encrypted IR record")
+	}
+	if bystanderAfter.rowJSON != bystanderIR.rowJSON {
+		t.Fatal("silo subject erasure altered the pooled bystander encrypted IR record")
 	}
 }
 

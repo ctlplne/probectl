@@ -17,16 +17,195 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
+
+type subjectLifecycleIRWrapKeys struct {
+	provider crypto.KeyProvider
+}
+
+func (k subjectLifecycleIRWrapKeys) WrapProviderForTenant(
+	_ context.Context,
+	_ string,
+) (crypto.KeyProvider, error) {
+	return k.provider, nil
+}
+
+type subjectLifecycleIRFixture struct {
+	auditSeq        int64
+	rowJSON         string
+	ciphertextHex   string
+	plaintextCanary string
+}
+
+func newSubjectLifecycleIRStage(
+	t *testing.T,
+	pool *pgxpool.Pool,
+) *audit.IRStagePG {
+	t.Helper()
+	_, publicPEM, err := crypto.GenerateRSAOAEPKeyPEM()
+	if err != nil {
+		t.Fatalf("generate subject-lifecycle IR wrapping key: %v", err)
+	}
+	provider, err := crypto.NewRSAOAEPWrapProviderPEM(publicPEM)
+	if err != nil {
+		t.Fatalf("build subject-lifecycle IR wrapping provider: %v", err)
+	}
+	signingPrivate, signingPublic, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatalf("generate subject-lifecycle IR signing key: %v", err)
+	}
+	stage, err := audit.NewIRStagePG(
+		pool,
+		subjectLifecycleIRWrapKeys{provider: provider},
+		signingPrivate,
+		signingPublic,
+	)
+	if err != nil {
+		t.Fatalf("build subject-lifecycle IR sidecar: %v", err)
+	}
+	return stage
+}
+
+func appendSubjectLifecycleIRFixture(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	stage *audit.IRStagePG,
+	tenantID, label string,
+) subjectLifecycleIRFixture {
+	t.Helper()
+	operator := "ir-subject-canary-" + label + "@example.test"
+	grant := "subject-lifecycle-grant-" + label
+	surface := "privacy.subject.lifecycle"
+	reason := "subject lifecycle encrypted evidence regression " + label
+	event, err := audit.ProviderAppendBreakGlass(
+		ctx,
+		pool,
+		stage,
+		operator,
+		"provider.breakglass_access",
+		grant,
+		map[string]any{
+			"tenant":  tenantID,
+			"surface": surface,
+			"reason":  reason,
+		},
+		audit.IRAttribution{
+			Operator: operator,
+			TenantID: tenantID,
+			Grant:    grant,
+			Surface:  surface,
+			Consent:  "tenant-approved:privacy-admin-" + label,
+			Outcome:  "accessed",
+			Reason:   reason,
+		},
+	)
+	if err != nil {
+		t.Fatalf("append subject-lifecycle IR fixture for %s: %v", tenantID, err)
+	}
+	fixture := readSubjectLifecycleIRFixture(t, ctx, pool, tenantID, event.Seq)
+	fixture.plaintextCanary = operator
+	return fixture
+}
+
+func readSubjectLifecycleIRFixture(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tenantID string,
+	auditSeq int64,
+) subjectLifecycleIRFixture {
+	t.Helper()
+	fixture := subjectLifecycleIRFixture{auditSeq: auditSeq}
+	err := tenancy.InTenantProviderMaintenance(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			return scope.Q.QueryRow(
+				ctx,
+				`SELECT row_to_json(sidecar)::text,
+				        encode(sidecar.ciphertext, 'hex')
+				   FROM (
+				        SELECT tenant_id, audit_seq, chain_pos, event_ref, key_id,
+				               wrapped_dek, ciphertext, prev_hash, hash, signature,
+				               created_at
+				          FROM ir_attribution_records
+				         WHERE tenant_id = $1::uuid
+				           AND audit_seq = $2
+				   ) AS sidecar`,
+				tenantID,
+				auditSeq,
+			).Scan(&fixture.rowJSON, &fixture.ciphertextHex)
+		},
+	)
+	if err != nil {
+		t.Fatalf("read subject-lifecycle IR fixture for %s: %v", tenantID, err)
+	}
+	return fixture
+}
+
+func assertSubjectLifecycleIRAppReadDenied(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tenantID string,
+) {
+	t.Helper()
+	err := tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			var count int
+			return scope.Q.QueryRow(
+				ctx,
+				`SELECT count(*)
+				   FROM ir_attribution_records
+				  WHERE tenant_id = $1::uuid`,
+				tenantID,
+			).Scan(&count)
+		},
+	)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+		t.Fatalf(
+			"ordinary tenant role read error for %s = %v, want SQLSTATE 42501",
+			tenantID,
+			err,
+		)
+	}
+}
+
+func assertSubjectLifecycleIRAbsentFromBundle(
+	t *testing.T,
+	files map[string]string,
+	fixtures ...subjectLifecycleIRFixture,
+) {
+	t.Helper()
+	if _, ok := files["postgres/ir_attribution_records.jsonl"]; ok {
+		t.Fatal("ordinary lifecycle bundle exposed encrypted IR sidecar rows")
+	}
+	for path, raw := range files {
+		for _, fixture := range fixtures {
+			if strings.Contains(raw, fixture.ciphertextHex) {
+				t.Fatalf("ordinary lifecycle bundle %s exposed IR ciphertext", path)
+			}
+			if strings.Contains(raw, fixture.plaintextCanary) {
+				t.Fatalf("ordinary lifecycle bundle %s exposed IR plaintext canary", path)
+			}
+		}
+	}
+}
 
 func TestSubjectErasureTableDiscoveryErrorFailsClosed(t *testing.T) {
 	pool := itPool(t)
@@ -654,6 +833,184 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 		strings.ToLower(subject),
 	) {
 		t.Fatalf("victim projection altered bystander audit export: %s", bystanderAudit)
+	}
+}
+
+func TestPooledSubjectLifecycleRetainsEncryptedIRAttribution(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	stamp := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	subject := "ir-subject-" + stamp + "@example.test"
+	victim := mkTenant(t, pool, "it-ir-subject-a-"+stamp)
+	bystander := mkTenant(t, pool, "it-ir-subject-b-"+stamp)
+	t.Cleanup(func() {
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_records
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			victim,
+			bystander,
+		); err != nil {
+			t.Errorf("cleanup pooled IR sidecar records: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.ir_attribution_heads
+			  WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid`,
+			victim,
+			bystander,
+		); err != nil {
+			t.Errorf("cleanup pooled IR sidecar heads: %v", err)
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.tenants
+			  WHERE id = $1::uuid OR id = $2::uuid`,
+			victim,
+			bystander,
+		); err != nil {
+			t.Errorf("cleanup pooled IR subject tenants: %v", err)
+		}
+	})
+
+	for _, tenantID := range []string{victim, bystander} {
+		err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				if _, err := scope.Q.Exec(
+					ctx,
+					`INSERT INTO users
+					       (tenant_id, email, display_name, status, user_name, attributes)
+					 VALUES ($1::uuid, $2, 'Encrypted IR Subject', 'active', $2,
+					         jsonb_build_object('subject', $2::text))`,
+					tenantID,
+					subject,
+				); err != nil {
+					return err
+				}
+				_, err := audit.TenantAppend(
+					ctx,
+					scope,
+					subject,
+					"directory.subject_seed",
+					subject,
+					map[string]any{"email": subject},
+				)
+				return err
+			},
+		)
+		if err != nil {
+			t.Fatalf("seed pooled IR subject tenant %s: %v", tenantID, err)
+		}
+	}
+
+	stage := newSubjectLifecycleIRStage(t, pool)
+	victimIR := appendSubjectLifecycleIRFixture(
+		t,
+		ctx,
+		pool,
+		stage,
+		victim,
+		"victim-"+stamp,
+	)
+	bystanderIR := appendSubjectLifecycleIRFixture(
+		t,
+		ctx,
+		pool,
+		stage,
+		bystander,
+		"bystander-"+stamp,
+	)
+	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, victim)
+	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, bystander)
+
+	sink := func(
+		ctx context.Context,
+		actor, action, target string,
+		data map[string]any,
+	) error {
+		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+		return err
+	}
+	life := New(pool, nil, nil, nil, sink, "test backup policy", nil)
+
+	var subjectBundle bytes.Buffer
+	subjectManifest, err := life.ExportSubject(
+		ctx,
+		victim,
+		subject,
+		&subjectBundle,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("export subject with encrypted IR evidence: %v", err)
+	}
+	subjectFiles := readTarGz(t, subjectBundle.Bytes())
+	assertSubjectLifecycleIRAbsentFromBundle(t, subjectFiles, victimIR, bystanderIR)
+	if got := subjectPlanesByName(subjectManifest.Planes)["audit:ir_attribution_encrypted"]; got.Status != SubjectStatusRetainedIR ||
+		!strings.Contains(got.Notes, "excluded") {
+		t.Fatalf("subject IR export receipt = %+v", got)
+	}
+
+	report, err := life.EraseSubject(
+		ctx,
+		victim,
+		subject,
+		"privacy-admin",
+		"retain encrypted IR evidence",
+	)
+	if err != nil {
+		t.Fatalf("erase subject with encrypted IR evidence: %v", err)
+	}
+	if !report.Complete {
+		t.Fatalf("subject erasure with encrypted IR evidence incomplete: %+v", report)
+	}
+	if got := subjectPlanesByName(report.Planes)["audit:ir_attribution_encrypted"]; got.Status != SubjectStatusRetainedIR ||
+		!strings.Contains(got.Notes, "retained") {
+		t.Fatalf("subject IR erasure receipt = %+v", got)
+	}
+	if got := countRows(
+		t,
+		pool,
+		`SELECT count(*) FROM public.users
+		  WHERE tenant_id = $1::uuid AND email = $2`,
+		victim,
+		subject,
+	); got != 0 {
+		t.Fatalf("victim subject row survived erasure: %d", got)
+	}
+	if got := countRows(
+		t,
+		pool,
+		`SELECT count(*) FROM public.users
+		  WHERE tenant_id = $1::uuid AND email = $2`,
+		bystander,
+		subject,
+	); got != 1 {
+		t.Fatalf("victim subject erasure changed bystander: %d", got)
+	}
+
+	victimAfter := readSubjectLifecycleIRFixture(
+		t,
+		ctx,
+		pool,
+		victim,
+		victimIR.auditSeq,
+	)
+	bystanderAfter := readSubjectLifecycleIRFixture(
+		t,
+		ctx,
+		pool,
+		bystander,
+		bystanderIR.auditSeq,
+	)
+	if victimAfter.rowJSON != victimIR.rowJSON {
+		t.Fatal("subject erasure altered the victim encrypted IR record")
+	}
+	if bystanderAfter.rowJSON != bystanderIR.rowJSON {
+		t.Fatal("victim subject erasure altered the bystander encrypted IR record")
 	}
 }
 
