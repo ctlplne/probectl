@@ -315,6 +315,20 @@ func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request, tenantI
 			return e
 		}
 		role = role0
+		// The exact separation-of-duty group is the supported provisioning
+		// surface for future pooled and physically siloed tenants. This runs
+		// inside the tenant-scoped transaction, so the permission cannot land
+		// in another tenant's routed role table.
+		if role.Slug == "ir-investigator" {
+			if e := (store.Roles{}).AddPermission(
+				ctx,
+				sc,
+				role.ID,
+				permIRInvestigate,
+			); e != nil {
+				return e
+			}
+		}
 		for _, m := range in.Members {
 			if e := (store.RoleBindings{}).Bind(ctx, sc, "user", m.Value, role.ID); e != nil {
 				return e

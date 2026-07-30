@@ -54,6 +54,7 @@ const (
 	permCMDBRead           = "cmdb.read"
 	permThreatRead         = "threat.read"
 	permAuditRead          = "audit.read"
+	permIRInvestigate      = "ir.investigate"
 	permAIQuery            = "ai.query"
 	permDirectoryRead      = "directory.read"
 	permDirectoryWrite     = "directory.write"
@@ -85,6 +86,7 @@ var allPermissionKeys = []string{
 	permDiagnosticsRead,
 	permRemediationPropose, permRemediationApprove,
 	permAuditRead,
+	permIRInvestigate,
 	permAIQuery,
 	ai.PermMetricsRead, ai.PermEventsRead, ai.PermEntitiesRead, ai.PermTopologyRead,
 }

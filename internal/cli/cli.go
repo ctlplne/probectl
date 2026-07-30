@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/i18n"
 )
@@ -29,6 +30,11 @@ type Config struct {
 	Tenant  string
 	JSON    bool
 	Locale  string
+	// SessionCookieFile is the owner-only file used by investigation commands
+	// that require an MFA-bearing browser/OIDC session rather than a bearer
+	// token. SessionCookie exists only in memory after that file is read.
+	SessionCookieFile string
+	SessionCookie     string
 }
 
 // Run executes one CLI invocation and returns a process exit code. It is pure
@@ -47,6 +53,9 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		Token:   getenv("PROBECTL_API_TOKEN"),
 		Tenant:  getenv("PROBECTL_TENANT"),
 		Locale:  i18n.Resolve(getenv("PROBECTL_LOCALE")),
+		SessionCookieFile: getenv(
+			"PROBECTL_SESSION_COOKIE_FILE",
+		),
 	}
 	// --json may appear anywhere; strip it before flag parsing.
 	args, cfg.JSON = extractBoolFlag(args, "--json")
@@ -88,6 +97,8 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		return cmdDevice(cfg, rest[1:], stdout, stderr)
 	case "ai":
 		return cmdAI(cfg, rest[1:], stdout, stderr)
+	case "audit":
+		return cmdAudit(cfg, rest[1:], stdin, stdout, stderr)
 	case "api":
 		return cmdAPI(cfg, rest[1:], stdout, stderr)
 	default:
@@ -139,7 +150,12 @@ func (c *client) do(method, path string, body any, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.cfg.Token != "" {
+	if c.cfg.SessionCookie != "" {
+		req.AddCookie(&http.Cookie{
+			Name:  auth.SessionCookie,
+			Value: c.cfg.SessionCookie,
+		})
+	} else if c.cfg.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	}
 	if c.cfg.Tenant != "" {
@@ -185,7 +201,12 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.cfg.Token != "" {
+	if c.cfg.SessionCookie != "" {
+		req.AddCookie(&http.Cookie{
+			Name:  auth.SessionCookie,
+			Value: c.cfg.SessionCookie,
+		})
+	} else if c.cfg.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	}
 	if c.cfg.Tenant != "" {

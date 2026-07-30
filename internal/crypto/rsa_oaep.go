@@ -36,6 +36,19 @@ type RSAOAEPKeyProvider struct {
 	priv  *rsa.PrivateKey
 }
 
+// Destroy removes this provider's private unwrap capability. Investigation
+// callers invoke it as soon as one bounded open completes; routine wrapping
+// providers never need it. The private PEM bytes are wiped by the caller before
+// this method runs, and dropping these references prevents accidental reuse.
+func (p *RSAOAEPKeyProvider) Destroy() {
+	if p == nil {
+		return
+	}
+	p.priv = nil
+	p.pub = nil
+	p.keyID = ""
+}
+
 // NewRSAOAEPWrapProviderPEM returns a public-only DEK wrapping provider.
 func NewRSAOAEPWrapProviderPEM(publicPEM []byte) (*RSAOAEPKeyProvider, error) {
 	pub, err := parseRSAOAEPPublicPEM(publicPEM)

@@ -167,6 +167,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/agents/{id}/ci", s.handleAgentCI, permAgentRead},
 		{http.MethodGet, "/v1/audit", s.handleListAudit, permAuditRead},
 		{http.MethodGet, "/v1/audit/verify", s.handleVerifyAudit, permAuditRead},
+		{http.MethodPost, irRevealRoutePattern, s.handleRevealIRAttribution, permIRInvestigate},
 		{http.MethodPost, "/v1/ai/ask", s.handleAIAsk, permAIQuery},
 		{http.MethodGet, "/v1/explorer/schema", s.handleExplorerSchema, permAIQuery},
 		{http.MethodPost, "/v1/explorer/query", s.handleExplorerQuery, permAIQuery},

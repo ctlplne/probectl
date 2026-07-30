@@ -478,6 +478,76 @@ func TestSCIMGroupsMembership(t *testing.T) {
 	}
 }
 
+func TestSCIMIRInvestigatorRoleIsExactAndTenantIsolated(t *testing.T) {
+	h, db := setupAPI(t)
+	tenantA := freshTenant(t, db, "scim-ir-a")
+	tenantB := freshTenant(t, db, "scim-ir-b")
+	tokenA := scimToken(t, db, tenantA, "idp-a")
+	tokenB := scimToken(t, db, tenantB, "idp-b")
+	create := func(token, displayName string) string {
+		t.Helper()
+		response := scimReq(
+			t,
+			h,
+			http.MethodPost,
+			"/scim/v2/Groups",
+			token,
+			`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"displayName":"`+
+				displayName+
+				`"}`,
+		)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("create %q group: %d %s",
+				displayName, response.Code, response.Body)
+		}
+		return scimID(t, response)
+	}
+	roleA := create(tokenA, "IR Investigator")
+	roleB := create(tokenB, "IR Investigator")
+	ordinary := create(tokenA, "IR Investigators")
+
+	permissions := func(tenantID, roleID string) []string {
+		t.Helper()
+		var out []string
+		err := tenancy.InTenant(
+			tenancy.WithTenant(
+				context.Background(),
+				tenancy.ID(tenantID),
+			),
+			db.Pool(),
+			func(ctx context.Context, scope tenancy.Scope) error {
+				var err error
+				out, err = (store.Roles{}).Permissions(
+					ctx,
+					scope,
+					roleID,
+				)
+				return err
+			},
+		)
+		if err != nil {
+			t.Fatalf("permissions tenant=%s role=%s: %v",
+				tenantID, roleID, err)
+		}
+		return out
+	}
+	for tenantID, roleID := range map[string]string{
+		tenantA: roleA,
+		tenantB: roleB,
+	} {
+		got := permissions(tenantID, roleID)
+		if len(got) != 1 || got[0] != permIRInvestigate {
+			t.Fatalf("tenant %s IR permissions = %v", tenantID, got)
+		}
+	}
+	if got := permissions(tenantA, ordinary); len(got) != 0 {
+		t.Fatalf("lookalike group received IR permission: %v", got)
+	}
+	if got := permissions(tenantB, roleA); len(got) != 0 {
+		t.Fatalf("tenant B read tenant A IR role permissions: %v", got)
+	}
+}
+
 // --- ABAC enforced over RBAC ---
 
 // createUserWithPerm provisions a user (with attributes) and grants it a single

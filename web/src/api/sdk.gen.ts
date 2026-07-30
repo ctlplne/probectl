@@ -1197,6 +1197,22 @@ export interface HopNode {
   sent?: number
 }
 
+export interface IRAttribution {
+  consent: string
+  event_ref: string
+  grant: string
+  operator: string
+  outcome: string
+  reason: string
+  surface: string
+  tenant_id: string
+  ts: string
+}
+
+export interface IRAttributionRevealRequest {
+  reason: string
+}
+
 export interface Incident {
   id?: string
   last_seen_at?: string
@@ -1915,6 +1931,13 @@ export interface ListAuditRequest {
 }
 
 export type ListAuditResponse = AuditList
+
+export interface RevealIrAttributionRequest {
+  eventRef: string
+  body: IRAttributionRevealRequest
+}
+
+export type RevealIrAttributionResponse = IRAttribution
 
 export interface VerifyAuditRequest {
 }
@@ -2989,6 +3012,13 @@ export class ProbectlSDKClient {
     if (request.action !== undefined) query.set("action", String(request.action))
     if (request.target !== undefined) query.set("target", String(request.target))
     return this.requestJSON<ListAuditResponse>("GET", path, query, undefined)
+  }
+
+  async revealIrAttribution(request: RevealIrAttributionRequest): Promise<RevealIrAttributionResponse> {
+    let path = "/v1/audit/ir/{event_ref}/reveal"
+    path = path.replace("{event_ref}", encodeURIComponent(String(request.eventRef)))
+    const query = new URLSearchParams()
+    return this.requestJSON<RevealIrAttributionResponse>("POST", path, query, request.body)
   }
 
   async verifyAudit(): Promise<VerifyAuditResponse> {

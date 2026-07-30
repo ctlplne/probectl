@@ -48,4 +48,12 @@ func TestRSAOAEPWrapOnlyProvider(t *testing.T) {
 	if _, err := investigator.UnwrapKey(context.Background(), "foreign", wrapped); err == nil {
 		t.Fatal("foreign key id was accepted")
 	}
+	investigator.Destroy()
+	if _, err := investigator.UnwrapKey(
+		context.Background(),
+		writer.KeyID(),
+		wrapped,
+	); !errors.Is(err, ErrUnwrapUnavailable) {
+		t.Fatalf("destroyed opener remained usable: %v", err)
+	}
 }

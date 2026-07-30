@@ -212,6 +212,14 @@ type Config struct {
 	// provider/break-glass writes load only these public keys; no investigation
 	// opener is present in the routine runtime.
 	IRPublicKeyDir string
+	// Investigation-time IR opener. IRPrivateKeyDir contains only
+	// envelope-encrypted <tenant-uuid>.pem.enc artifacts; IRUnlockKey is a
+	// distinct operator-supplied 32-byte KEK (base64) used through the
+	// internal/crypto KeyProvider seam. All three are optional in routine
+	// operation and are loaded only when an investigation mount is enabled.
+	IRPrivateKeyDir string
+	IRUnlockKeyID   string
+	IRUnlockKey     string
 	// ObjectStoreDir is the operator-owned filesystem object store for tenant
 	// artifacts such as browser synthetic screenshots/waterfalls. Empty leaves
 	// tenant object artifacts unserved; when set, the same store handle is used
@@ -750,6 +758,9 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.WormSigningKey = l.str("PROBECTL_WORM_SIGNING_KEY", "")
 	cfg.WormSigningKeyFile = l.str("PROBECTL_WORM_SIGNING_KEY_FILE", "")
 	cfg.IRPublicKeyDir = l.str("PROBECTL_IR_PUBLIC_KEY_DIR", "")
+	cfg.IRPrivateKeyDir = l.str("PROBECTL_IR_PRIVATE_KEY_DIR", "")
+	cfg.IRUnlockKeyID = l.str("PROBECTL_IR_UNLOCK_KEY_ID", "")
+	cfg.IRUnlockKey = l.str("PROBECTL_IR_UNLOCK_KEY", "")
 	cfg.ObjectStoreDir = l.str("PROBECTL_OBJECTSTORE_DIR", "")
 	cfg.TestSyncSigningKeyFile = l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", "")
 	cfg.TSDBMode = l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus")
@@ -982,6 +993,7 @@ func validateConfig(l *loader, cfg *Config) {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires durable bus/store modes; volatile lightweight modes are not allowed: %s", cfg.DeploymentProfile, strings.Join(volatile, ", "))
 	}
 	validateAuditRetentionProfile(l, cfg)
+	validateIRInvestigationConfig(l, cfg)
 	validateExternalEndpoints(l, cfg)
 	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
 		l.errf("PROBECTL_DATABASE_MIN_CONNS (%d) must be <= PROBECTL_DATABASE_MAX_CONNS (%d)",
@@ -1014,6 +1026,32 @@ func validateAuditRetentionProfile(l *loader, cfg *Config) {
 	}
 	if !cfg.SIEMEnabled || cfg.SIEMEndpoint == "" {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_SIEM_ENABLED=true and PROBECTL_SIEM_ENDPOINT so tenant audit rows have durable export watermarks before pruning", cfg.DeploymentProfile)
+	}
+}
+
+func validateIRInvestigationConfig(l *loader, cfg *Config) {
+	privateConfigured := strings.TrimSpace(cfg.IRPrivateKeyDir) != ""
+	unlockConfigured := strings.TrimSpace(cfg.IRUnlockKey) != "" ||
+		strings.TrimSpace(cfg.IRUnlockKeyID) != ""
+	if !privateConfigured {
+		if unlockConfigured {
+			l.errf("PROBECTL_IR_UNLOCK_KEY and PROBECTL_IR_UNLOCK_KEY_ID require PROBECTL_IR_PRIVATE_KEY_DIR")
+		}
+		return
+	}
+	if strings.TrimSpace(cfg.IRPublicKeyDir) == "" {
+		l.errf("PROBECTL_IR_PRIVATE_KEY_DIR requires PROBECTL_IR_PUBLIC_KEY_DIR")
+	}
+	if strings.TrimSpace(cfg.IRUnlockKey) == "" ||
+		strings.TrimSpace(cfg.IRUnlockKeyID) == "" {
+		l.errf("PROBECTL_IR_PRIVATE_KEY_DIR requires PROBECTL_IR_UNLOCK_KEY and PROBECTL_IR_UNLOCK_KEY_ID")
+		return
+	}
+	if _, err := crypto.NewStaticKeyProviderFromBase64(
+		cfg.IRUnlockKeyID,
+		cfg.IRUnlockKey,
+	); err != nil {
+		l.errf("PROBECTL_IR_UNLOCK_KEY must be a base64-encoded 32-byte key with a non-empty PROBECTL_IR_UNLOCK_KEY_ID")
 	}
 }
 

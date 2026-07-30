@@ -44,6 +44,19 @@ func (k integrationIRWORMKeys) WrapProviderForTenant(
 	return provider, nil
 }
 
+type integrationIROpenKeys map[string]crypto.KeyProvider
+
+func (k integrationIROpenKeys) OpenProviderForTenant(
+	_ context.Context,
+	tenantID, keyID string,
+) (crypto.KeyProvider, func(), error) {
+	provider, ok := k[tenantID]
+	if !ok || provider.KeyID() != keyID {
+		return nil, nil, ErrIRKeyUnavailable
+	}
+	return provider, func() {}, nil
+}
+
 func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
@@ -64,6 +77,42 @@ func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, tenantID := range []string{tenantA.ID, tenantB.ID} {
+		if err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			pool,
+			func(ctx context.Context, scope tenancy.Scope) error {
+				role, err := (store.Roles{}).Create(
+					ctx,
+					scope,
+					"ir-investigator",
+					"IR Investigator",
+					"separation of duty",
+				)
+				if err != nil {
+					return err
+				}
+				permissions, err := (store.Roles{}).Permissions(
+					ctx,
+					scope,
+					role.ID,
+				)
+				if err != nil {
+					return err
+				}
+				if len(permissions) != 1 ||
+					permissions[0] != "ir.investigate" {
+					return fmt.Errorf(
+						"IR investigator permissions = %v",
+						permissions,
+					)
+				}
+				return nil
+			},
+		); err != nil {
+			t.Fatalf("tenant %s IR role trigger: %v", tenantID, err)
+		}
 	}
 	irPrivate, irPublic, err := crypto.GenerateRSAOAEPKeyPEM()
 	if err != nil {
@@ -269,6 +318,66 @@ func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 			watermark,
 			err,
 			protectedEvent.Seq,
+		)
+	}
+	if err := tenancy.InProvider(
+		ctx,
+		pool,
+		func(ctx context.Context, q tenancy.Querier) error {
+			stage, err := sidecar.readIRStageByEventRef(
+				ctx,
+				q,
+				tenantA.ID,
+				protectedEvent.Hash,
+			)
+			if err != nil || stage.EventRef != protectedEvent.Hash {
+				return fmt.Errorf(
+					"tenant-A direct routed lookup = %#v, %w",
+					stage,
+					err,
+				)
+			}
+			_, err = sidecar.readIRStageByEventRef(
+				ctx,
+				q,
+				tenantB.ID,
+				protectedEvent.Hash,
+			)
+			if !errors.Is(err, ErrIRAttributionNotFound) {
+				return fmt.Errorf(
+					"tenant-B direct routed lookup = %w, want not found",
+					err,
+				)
+			}
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("storage-layer IR reveal isolation: %v", err)
+	}
+	revealer, err := NewIRRevealer(
+		worm,
+		sidecar,
+		integrationIROpenKeys{
+			tenantA.ID: investigator,
+			tenantB.ID: investigator,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revealed, err := revealer.Reveal(ctx, tenantA.ID, protectedEvent.Hash)
+	if err != nil {
+		t.Fatalf("reveal covered tenant-A attribution: %v", err)
+	}
+	assertIntegrationIRAttribution(t, revealed, attribution)
+	if _, err := revealer.Reveal(
+		ctx,
+		tenantB.ID,
+		protectedEvent.Hash,
+	); !errors.Is(err, ErrIRAttributionNotFound) {
+		t.Fatalf(
+			"tenant-B reveal of tenant-A event = %v, want indistinguishable not found",
+			err,
 		)
 	}
 
@@ -490,6 +599,11 @@ func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 	if !bytes.Equal(afterPrune.Data, companionObject.Data) {
 		t.Fatal("retention changed IR WORM companion bytes")
 	}
+	revealed, err = revealer.Reveal(ctx, tenantA.ID, protectedEvent.Hash)
+	if err != nil {
+		t.Fatalf("reveal after primary retention prune: %v", err)
+	}
+	assertIntegrationIRAttribution(t, revealed, attribution)
 	reconstructed = openIntegrationIRWORMAttribution(
 		t,
 		investigator,

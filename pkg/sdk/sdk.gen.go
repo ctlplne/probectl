@@ -1294,6 +1294,22 @@ type HopNode struct {
 	Sent      int         `json:"sent,omitempty"`
 }
 
+type IRAttribution struct {
+	Consent  string `json:"consent"`
+	EventRef string `json:"event_ref"`
+	Grant    string `json:"grant"`
+	Operator string `json:"operator"`
+	Outcome  string `json:"outcome"`
+	Reason   string `json:"reason"`
+	Surface  string `json:"surface"`
+	TenantId string `json:"tenant_id"`
+	Ts       string `json:"ts"`
+}
+
+type IRAttributionRevealRequest struct {
+	Reason string `json:"reason"`
+}
+
 type Incident struct {
 	Id               string   `json:"id,omitempty"`
 	LastSeenAt       string   `json:"last_seen_at,omitempty"`
@@ -2412,6 +2428,26 @@ func (c *Client) ListAudit(ctx context.Context, req ListAuditRequest) (*AuditLis
 	}
 	var out AuditList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Reveal one encrypted break-glass attribution
+type RevealIrAttributionRequest struct {
+	EventRef string                      `json:"-"`
+	Body     *IRAttributionRevealRequest `json:"-"`
+}
+
+func (c *Client) RevealIrAttribution(ctx context.Context, req RevealIrAttributionRequest) (*IRAttribution, error) {
+	path := "/v1/audit/ir/{event_ref}/reveal"
+	if req.EventRef == "" {
+		return nil, fmt.Errorf("event_ref is required")
+	}
+	path = strings.ReplaceAll(path, "{event_ref}", url.PathEscape(req.EventRef))
+	query := url.Values{}
+	var out IRAttribution
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

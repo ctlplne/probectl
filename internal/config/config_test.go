@@ -8,6 +8,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -206,6 +207,66 @@ func TestSessionIdleTimeoutOverride(t *testing.T) {
 	}
 	if cfg.SessionIdleTimeout != 45*time.Minute {
 		t.Fatalf("SessionIdleTimeout = %v, want 45m", cfg.SessionIdleTimeout)
+	}
+}
+
+func TestIRInvestigationConfigIsCompleteAndSecretSafe(t *testing.T) {
+	unlockKey := base64.StdEncoding.EncodeToString(
+		bytes.Repeat([]byte{0x7d}, crypto.KeySize),
+	)
+	env := map[string]string{
+		"PROBECTL_IR_PUBLIC_KEY_DIR":  "/operator/ir/public",
+		"PROBECTL_IR_PRIVATE_KEY_DIR": "/operator/ir/private",
+		"PROBECTL_IR_UNLOCK_KEY_ID":   "operator-ir-unlock-v1",
+		"PROBECTL_IR_UNLOCK_KEY":      unlockKey,
+	}
+	cfg, err := Load(envFunc(env))
+	if err != nil {
+		t.Fatalf("load complete IR investigation config: %v", err)
+	}
+	if cfg.IRPublicKeyDir != env["PROBECTL_IR_PUBLIC_KEY_DIR"] ||
+		cfg.IRPrivateKeyDir != env["PROBECTL_IR_PRIVATE_KEY_DIR"] ||
+		cfg.IRUnlockKeyID != env["PROBECTL_IR_UNLOCK_KEY_ID"] ||
+		cfg.IRUnlockKey != unlockKey {
+		t.Fatalf("loaded IR investigation config = %#v", cfg)
+	}
+	var log bytes.Buffer
+	slog.New(slog.NewJSONHandler(&log, nil)).Info("cfg", "config", cfg)
+	redacted, err := json.Marshal(cfg.Redacted())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(log.String(), unlockKey) ||
+		bytes.Contains(redacted, []byte(unlockKey)) {
+		t.Fatal("IR private-artifact unlock key leaked through config diagnostics")
+	}
+
+	for name, incomplete := range map[string]map[string]string{
+		"unlock without private directory": {
+			"PROBECTL_IR_UNLOCK_KEY_ID": "operator-ir-unlock-v1",
+			"PROBECTL_IR_UNLOCK_KEY":    unlockKey,
+		},
+		"private directory without public directory": {
+			"PROBECTL_IR_PRIVATE_KEY_DIR": "/operator/ir/private",
+			"PROBECTL_IR_UNLOCK_KEY_ID":   "operator-ir-unlock-v1",
+			"PROBECTL_IR_UNLOCK_KEY":      unlockKey,
+		},
+		"private directory without unlock key": {
+			"PROBECTL_IR_PUBLIC_KEY_DIR":  "/operator/ir/public",
+			"PROBECTL_IR_PRIVATE_KEY_DIR": "/operator/ir/private",
+		},
+		"invalid unlock key": {
+			"PROBECTL_IR_PUBLIC_KEY_DIR":  "/operator/ir/public",
+			"PROBECTL_IR_PRIVATE_KEY_DIR": "/operator/ir/private",
+			"PROBECTL_IR_UNLOCK_KEY_ID":   "operator-ir-unlock-v1",
+			"PROBECTL_IR_UNLOCK_KEY":      "not-a-key",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Load(envFunc(incomplete)); err == nil {
+				t.Fatal("incomplete IR investigation config was accepted")
+			}
+		})
 	}
 }
 

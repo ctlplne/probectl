@@ -232,32 +232,17 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	}
 
 	if lic.Has(license.FeatureProviderPlane) {
-		irKeys, err := audit.NewLocalIRPublicKeyResolver(cfg.IRPublicKeyDir)
-		if err != nil {
-			return fmt.Errorf("provider IR public keyring: %w", err)
-		}
-		wormPrivate, wormPublic, generated, err := audit.ResolveWormSigningKey(
-			cfg.WormSigningKey,
-			cfg.WormSigningKeyFile,
-			cfg.RequireAtRestEncryption,
+		irSidecar, investigator, err := buildIRInvestigator(
+			ctx,
+			cfg,
+			log,
+			pool,
+			worm,
 		)
 		if err != nil {
-			return fmt.Errorf("provider IR chain signing key: %w", err)
-		}
-		if generated {
-			log.Warn(
-				"generated provider IR/WORM signing key; preserve it for cross-restart verification",
-				"key_file",
-				cfg.WormSigningKeyFile,
-			)
-		}
-		irSidecar, err := audit.NewIRStagePG(pool, irKeys, wormPrivate, wormPublic)
-		if err != nil {
-			return fmt.Errorf("provider IR sidecar: %w", err)
-		}
-		if err := attachProviderIRDurability(ctx, worm, irSidecar); err != nil {
 			return err
 		}
+		srv.WithIRInvestigator(investigator)
 		h, err := provider.Build(cfg, provider.Deps{
 			Pool:      pool,
 			License:   lic,

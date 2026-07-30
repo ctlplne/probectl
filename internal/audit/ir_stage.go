@@ -37,6 +37,11 @@ const (
 	maxIRPublicKeyBytes  = 16 << 10
 	maxIRWrappedDEKBytes = 4096
 	maxIRCiphertextBytes = 32 << 10
+
+	// ActionIRAttributionReveal is the protected provider-stream action used
+	// for investigation intent/denial/result receipts. It deliberately remains
+	// in the break-glass namespace so a plain provider append is rejected.
+	ActionIRAttributionReveal = "provider.breakglass_ir_attribution_reveal"
 )
 
 var canonicalIRTenantID = regexp.MustCompile(
@@ -201,8 +206,40 @@ func validateIRAttribution(actor, action, target string, data map[string]any, a 
 			a.Outcome != "accessed" {
 			return errors.New("audit: IR access attribution differs from provider event")
 		}
+	case ActionIRAttributionReveal:
+		return validateIRRevealAttribution(target, data, a)
 	default:
 		return fmt.Errorf("audit: protected action %q has no IR attribution schema", action)
+	}
+	return nil
+}
+
+func validateIRRevealAttribution(
+	target string,
+	data map[string]any,
+	attribution IRAttribution,
+) error {
+	surface, surfaceOK := data["surface"].(string)
+	consent, consentOK := data["consent"].(string)
+	outcome, outcomeOK := data["outcome"].(string)
+	requestedRef, refOK := data["requested_event_ref"].(string)
+	if !surfaceOK || surface != "audit.ir.reveal" ||
+		!consentOK || consent != attribution.Consent ||
+		!outcomeOK || outcome != attribution.Outcome ||
+		!refOK || requestedRef != target ||
+		attribution.Surface != surface ||
+		attribution.Grant != target {
+		return errors.New("audit: IR reveal attribution differs from provider event")
+	}
+	switch attribution.Consent {
+	case "denied", "ir-investigator-authorized":
+	default:
+		return errors.New("audit: IR reveal attribution has invalid authorization state")
+	}
+	switch attribution.Outcome {
+	case "denied", "intent", "open_failed", "succeeded":
+	default:
+		return errors.New("audit: IR reveal attribution has invalid outcome")
 	}
 	return nil
 }

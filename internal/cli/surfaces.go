@@ -63,6 +63,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	}},
 	"audit": {Name: "audit", Summary: "audit log and verification", Ops: map[string]apiOp{
 		"list":   {Method: http.MethodGet, Path: "/v1/audit"},
+		"reveal": {Method: http.MethodPost, Path: "/v1/audit/ir/{event_ref}/reveal", ArgName: "event_ref", Description: "reveal one encrypted IR attribution with a reason read from stdin or an owner-only file"},
 		"verify": {Method: http.MethodGet, Path: "/v1/audit/verify"},
 	}},
 	"onboarding": {Name: "onboarding", Summary: "first-run setup progress", Ops: map[string]apiOp{

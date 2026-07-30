@@ -248,6 +248,14 @@ type Server struct {
 	// the attach seam; nil = the /v1/security/keys surface hides (404).
 	keyManager tenantcrypto.KeyManager
 
+	// Encrypted incident-response attribution reveal. It is attached only at
+	// the licensed runtime seam; ordinary audit reads never receive this
+	// investigation-only capability.
+	irInvestigator IRInvestigator
+	// Admitted investigation attempts are bounded per tenant before they can
+	// append retention-surviving intent/result evidence.
+	irRevealLimiter *keyLimiter
+
 	// OTLP token admin (WIRE-008): DB-backed, rotatable OTLP bearer tokens.
 	// Set via WithOTLPTokenAuth; nil authenticator = /v1/otlp-tokens hides (404).
 	// The store is accessed via s.pool (same pattern as scim/mcp tokens).
@@ -414,7 +422,8 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), deviceOps: device.NewMemoryOpsStore(), inventoryViews: inventory.NewMemoryViewStore(), startedAt: time.Now(),
 		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit),
 		scimLimiter: newKeyLimiter(scimDefaultRatePerMin), scimMaxUsers: scimDefaultMaxUsersPerTenant,
-		scimMaxGroups: scimDefaultMaxGroupsPerTenant}
+		scimMaxGroups:   scimDefaultMaxGroupsPerTenant,
+		irRevealLimiter: newKeyLimiter(3)}
 	s.registerAuditRetentionMetrics()
 	s.registerEnrollmentFailureMetrics()
 	s.enrollmentFailureAudit = s.persistEnrollmentFailure
@@ -568,7 +577,9 @@ func (s *Server) routes() http.Handler {
 		if p, ok := auditPolicyFor(rt.Method, rt.Pattern); ok && p.Mode == auditModeWrapped {
 			h = s.auditRoute(rt, p, h)
 		}
-		if hierarchyRouteAcceptsScopedGrant(rt.Method, rt.Pattern) {
+		if rt.Method == http.MethodPost && rt.Pattern == irRevealRoutePattern {
+			h = s.requireIRInvestigator(h)
+		} else if hierarchyRouteAcceptsScopedGrant(rt.Method, rt.Pattern) {
 			h = s.requireAnyPermission(rt.Permission, h)
 		} else {
 			h = s.requirePermission(rt.Permission, h)

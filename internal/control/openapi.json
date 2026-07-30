@@ -1710,6 +1710,88 @@
         }
       }
     },
+    "/v1/audit/ir/{event_ref}/reveal": {
+      "post": {
+        "operationId": "revealIRAttribution",
+        "summary": "Reveal one encrypted break-glass attribution",
+        "description": "Investigation-only, tenant-first reveal of a local encrypted IR attribution record. Requires the dedicated ir.investigate permission, MFA, and tenant ABAC. The authenticated principal supplies the tenant; the request cannot select another tenant. Admitted attempts are rate-bounded before they can create retention-surviving evidence; each intent, failed open, and successful open is committed to the separate provider/break-glass audit stream. Ordinary audit reads never invoke this path.",
+        "tags": [
+          "audit"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "event_ref",
+            "in": "path",
+            "required": true,
+            "description": "The lowercase SHA-256 reference of the protected provider/break-glass event.",
+            "schema": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64,
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IRAttributionRevealRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tenant-scoped attribution reconstructed from the verified retained sidecar and WORM binding. The response is marked no-store.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always no-store for decrypted attribution.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IRAttribution"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/audit/verify": {
       "get": {
         "operationId": "verifyAudit",
@@ -10791,6 +10873,72 @@
             "type": "string"
           },
           "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "IRAttributionRevealRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Required non-whitespace investigation purpose, limited by the server to 512 UTF-8 bytes after trimming. The CLI reads it from stdin or an owner-only regular file so it does not appear in process arguments."
+          }
+        }
+      },
+      "IRAttribution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operator",
+          "tenant_id",
+          "grant",
+          "surface",
+          "consent",
+          "outcome",
+          "reason",
+          "event_ref",
+          "ts"
+        ],
+        "properties": {
+          "operator": {
+            "type": "string",
+            "description": "The operator identity retained under encryption."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "grant": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          },
+          "consent": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "The original protected break-glass reason."
+          },
+          "event_ref": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "ts": {
             "type": "string",
             "format": "date-time"
           }

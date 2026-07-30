@@ -67,8 +67,28 @@ private by amnesia. The steady-state runtime has only a public wrapping key and
 cannot unseal the record; ordinary audit reads cannot reveal it. No vendor,
 third party, other tenant, network service, or phone-home path holds or resolves
 the key. The keyring is operator-owned local storage, so sealing remains
-deterministic in an air gap. Investigation-only separation of duty and audited
-unseal are a distinct surface.
+deterministic in an air gap. When an investigation is authorized, the operator
+mounts an owner-only directory containing envelope-encrypted private-key
+artifacts and supplies its distinct local unlock KEK through the
+`internal/crypto` key-provider seam. Plaintext private keys are never stored by
+probectl. For each bounded open, the temporary PEM buffer is zeroized and the
+parsed key capability is immediately discarded afterward; Go cannot guarantee
+in-place erasure of every parsed big-integer heap copy.
+
+Investigation-only separation of duty is enforced at
+`POST /v1/audit/ir/{event_ref}/reveal`: authenticated tenant scope first,
+mandatory MFA, the dedicated `ir.investigate` permission, and tenant ABAC.
+Migration 0081 registers that permission but deliberately grants it to no
+admin/editor/viewer role. It seeds the exact `ir-investigator` SCIM group for
+existing tenants and auto-grants only `ir.investigate` when that exact group is
+created for a later tenant. The tenant's IdP/SCIM administrator adds the
+investigator members; no hand-written SQL is required.
+Missing and other-tenant references have the same response. Every authorization
+check runs before any unseal or permanent IR receipt. Admitted attempts are
+rate-bounded; reveal intent, failed open, and successful open receipts commit to
+the separate provider/break-glass stream. The successful receipt commits before
+decrypted bytes are returned, and responses are marked `Cache-Control:
+no-store`.
 
 Migration 0079 is the append-time inner envelope; migration 0080 completes its
 retention-surviving WORM binding. After each signed WORM segment is durably
@@ -121,8 +141,42 @@ object, infer a route from arbitrary strings, or turn a link into authority to
 read or change anything.
 
 The CLI equivalents are `probectl audit list` (page through the same canonical
-`action` and `target` evidence) and `probectl audit verify` (check the hash
-chain). A terminal never needs UI-specific links to preserve evidence parity.
+`action` and `target` evidence), `probectl audit verify` (check the hash chain),
+and the separation-of-duty reveal path:
+
+```sh
+printf '%s\n' 'investigate privileged abuse case IR-42' |
+  probectl --tenant "$TENANT_ID" audit reveal "$EVENT_REF" \
+    --session-cookie-file /operator/private/probectl-session.cookie
+```
+
+Reveal requires an MFA-bearing OIDC session; ordinary bearer/API tokens cannot
+claim MFA and are rejected. Store the `probectl_session` cookie value in the
+mode-`0600` file (or set `PROBECTL_SESSION_COOKIE_FILE` to its path). The CLI
+uses the cookie instead of any configured bearer token.
+
+For a non-interactive investigation, pass
+`--reason-file /operator/private/case-reason.txt`; the CLI accepts only a real,
+mode-`0600` file. The reason is never accepted as a command-line
+value, so it does not appear in process arguments. A terminal never needs
+UI-specific links to preserve evidence parity.
+
+Provision the encrypted investigation artifact locally, without calling the
+control plane or any network service:
+
+```sh
+probectl audit seal-private-key "$TENANT_ID" \
+  --private-key-file /operator/escrow/tenant-ir-private.pem \
+  --unlock-key-file /operator/escrow/ir-artifact-kek.b64 \
+  --unlock-key-id operator-ir-unlock-v1 \
+  --output-dir /operator/ir/private
+```
+
+Both input files must be real mode-`0600` files and the output directory must
+be absolute and owner-only. The command refuses to overwrite a version, writes
+only the envelope-encrypted
+`<tenant>.<sha256-of-key-id>.pem.enc` artifact, and prints its non-secret path
+and key ID. Keep old versions after rotation.
 
 Expected result — entries oldest-first (ascending by sequence), wrapped with a
 `next` cursor:
