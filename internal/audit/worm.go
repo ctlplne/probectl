@@ -274,10 +274,11 @@ func (w *WormExporter) runCycle(ctx context.Context) {
 // pages were full, a final read-only one-event probe reports whether lag remains
 // without creating a ninth segment.
 func (w *WormExporter) exportCatchUp(ctx context.Context) (exported int, lagging bool, err error) {
-	last, anchorHash, err := w.lastExportedHead(ctx)
+	last, anchorHash, repaired, err := w.lastExportedHead(ctx)
 	if err != nil {
 		return 0, false, err
 	}
+	exported = repaired
 	cursor := wormExportCursor{lastSeq: last, anchorHash: anchorHash}
 	for page := 0; page < maxWORMExportPagesPerCycle; page++ {
 		var n int
@@ -341,12 +342,12 @@ func (w *WormExporter) recordVerifyFailure(err error) uint64 {
 // as one signed segment (no-op when nothing is new). Returns the number of
 // events exported.
 func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
-	last, anchorHash, err := w.lastExportedHead(ctx)
+	last, anchorHash, repaired, err := w.lastExportedHead(ctx)
 	if err != nil {
 		return 0, err
 	}
 	_, n, err := w.exportPage(ctx, wormExportCursor{lastSeq: last, anchorHash: anchorHash})
-	return n, err
+	return repaired + n, err
 }
 
 // exportPage validates and writes one page after a cursor that was derived from
@@ -504,7 +505,7 @@ func (w *WormExporter) ReconcileProviderHead(
 	// strictly with the configured key before repairing the public-key object.
 	// In particular, allowMissingPublicKey does not make an unsigned tail
 	// acceptable.
-	if _, _, err := w.scanWORMChainWithOptions(ctx, false, true); err != nil {
+	if _, _, err := w.scanWORMChainWithOptions(ctx, false, true, nil); err != nil {
 		return fmt.Errorf("verify provider WORM artifacts before public-key repair: %w", err)
 	}
 	if err := w.ensurePublicKey(ctx); err != nil {
@@ -623,32 +624,40 @@ func (w *WormExporter) ReconcileProviderHead(
 }
 
 // lastExportedHead derives the export cursor and canonical hash anchor from the
-// verified segment prefix. An incomplete tail is excluded so retry can safely
-// rewrite its segment and missing companion objects; any other verification
-// failure remains fatal.
-func (w *WormExporter) lastExportedHead(ctx context.Context) (int64, string, error) {
-	return w.scanWORMChain(ctx, true)
+// verified segment prefix. A final JSON whose signature write failed is
+// repaired in place only after it matches the exact live canonical source
+// prefix; its JSON is never rewritten. The returned count makes that completed
+// export visible to callers and metrics. Any other verification failure
+// remains fatal.
+func (w *WormExporter) lastExportedHead(ctx context.Context) (int64, string, int, error) {
+	var repaired int
+	last, hash, err := w.scanWORMChainWithOptions(ctx, true, true, &repaired)
+	return last, hash, repaired, err
 }
 
 // scanWORMChain verifies every segment from sequence one and returns the last
 // sequence whose segment, signature, key, and hash-chain links are durable.
-// allowIncompleteTail is used only by ExportOnce so a failed companion-object
-// write can be retried from the last complete prefix. Retention and explicit
-// verification reject that same partial tail.
+// allowIncompleteTail is used only by export entry points so a failed
+// signature write can be validated against its live source prefix and repaired.
+// Retention and explicit verification reject that same partial tail.
 func (w *WormExporter) scanWORMChain(ctx context.Context, allowIncompleteTail bool) (int64, string, error) {
-	return w.scanWORMChainWithOptions(ctx, allowIncompleteTail, allowIncompleteTail)
+	return w.scanWORMChainWithOptions(ctx, allowIncompleteTail, allowIncompleteTail, nil)
 }
 
 // scanWORMChainWithOptions separates the two legacy recovery allowances:
-// allowIncompleteTail permits only ExportOnce to retry a final segment whose
-// signature companion was not written, while allowMissingPublicKey permits a
-// caller to verify complete signed segments with the configured key before
-// repairing a missing signing.pub companion.
+// allowIncompleteTail permits only export entry points to repair a final
+// segment whose signature companion was not written, while
+// allowMissingPublicKey permits a caller to verify complete signed segments
+// with the configured key before repairing a missing signing.pub companion.
 func (w *WormExporter) scanWORMChainWithOptions(
 	ctx context.Context,
 	allowIncompleteTail bool,
 	allowMissingPublicKey bool,
+	repairedEvents *int,
 ) (int64, string, error) {
+	if repairedEvents != nil {
+		*repairedEvents = 0
+	}
 	keys, err := w.objects.ListLimited(ctx, wormPrefix+"segment-", maxWORMSegmentArtifacts)
 	if err != nil {
 		if errors.Is(err, objectstore.ErrTooMany) {
@@ -706,7 +715,21 @@ func (w *WormExporter) scanWORMChainWithOptions(
 					wantSeq,
 				)
 			}
-			return last, prevHash, nil
+			repairedLast, repairedHash, repaired, err := w.repairIncompleteWORMTail(
+				ctx,
+				key,
+				keyFrom,
+				keyTo,
+				last,
+				prevHash,
+			)
+			if err != nil {
+				return 0, "", err
+			}
+			if repairedEvents != nil {
+				*repairedEvents = repaired
+			}
+			return repairedLast, repairedHash, nil
 		}
 
 		obj, err := w.objects.GetLimited(ctx, key, maxWORMSegmentBytes)
@@ -751,13 +774,107 @@ func (w *WormExporter) scanWORMChainWithOptions(
 	return last, prevHash, nil
 }
 
+// repairIncompleteWORMTail completes the only recoverable half-write: the
+// exporter durably wrote a final canonical JSON segment but its signature Put
+// failed. The JSON object is never rewritten. Before signing its exact bytes,
+// the method proves that its bounded, canonical event projection is precisely
+// the next live provider-source slice anchored to the already-signed prefix.
+// Source growth is harmless: only the stored prefix is compared and signed;
+// later rows are exported by the normal page path.
+func (w *WormExporter) repairIncompleteWORMTail(
+	ctx context.Context,
+	key string,
+	keyFrom int64,
+	keyTo int64,
+	lastSeq int64,
+	anchorHash string,
+) (int64, string, int, error) {
+	obj, err := w.objects.GetLimited(ctx, key, maxWORMSegmentBytes)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("incomplete segment %s unreadable: %w", key, err)
+	}
+	if obj.ContentType != "application/json" {
+		return 0, "", 0, fmt.Errorf(
+			"incomplete segment %s has invalid content type %q",
+			key,
+			obj.ContentType,
+		)
+	}
+
+	var seg WormSegment
+	if err := json.Unmarshal(obj.Data, &seg); err != nil {
+		return 0, "", 0, fmt.Errorf("incomplete segment %s undecodable: %w", key, err)
+	}
+	canonical, err := json.Marshal(seg)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("canonicalize incomplete segment %s: %w", key, err)
+	}
+	if !bytes.Equal(obj.Data, canonical) {
+		return 0, "", 0, fmt.Errorf("incomplete segment %s is not canonical JSON", key)
+	}
+	if seg.FormatVersion != 1 || seg.Stream != "provider" || seg.ExportedAt.IsZero() {
+		return 0, "", 0, fmt.Errorf("incomplete segment %s has invalid format, stream, or timestamp", key)
+	}
+	if len(seg.Events) == 0 ||
+		len(seg.Events) > MaxExportPageSize ||
+		seg.FromSeq != keyFrom ||
+		seg.ToSeq != keyTo ||
+		seg.Events[0].Seq != keyFrom ||
+		seg.Events[len(seg.Events)-1].Seq != keyTo ||
+		keyTo-keyFrom+1 != int64(len(seg.Events)) {
+		return 0, "", 0, fmt.Errorf("incomplete segment %s has invalid sequence metadata", key)
+	}
+
+	live, err := w.source(ctx, lastSeq, len(seg.Events))
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("read live source for incomplete segment %s: %w", key, err)
+	}
+	if len(live) > len(seg.Events) {
+		return 0, "", 0, fmt.Errorf(
+			"audit: WORM source returned %d events for %d-event incomplete-tail comparison",
+			len(live),
+			len(seg.Events),
+		)
+	}
+	if len(live) != len(seg.Events) {
+		return 0, "", 0, fmt.Errorf(
+			"incomplete segment %s diverges from live source: got %d events, want %d",
+			key,
+			len(live),
+			len(seg.Events),
+		)
+	}
+	if err := validateProviderSource(live, lastSeq, anchorHash); err != nil {
+		return 0, "", 0, fmt.Errorf("validate live source for incomplete segment %s: %w", key, err)
+	}
+	expectedEvents, err := json.Marshal(minimizeEventsForWORM(live))
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("canonicalize live source for incomplete segment %s: %w", key, err)
+	}
+	storedEvents, err := json.Marshal(seg.Events)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("canonicalize stored events for incomplete segment %s: %w", key, err)
+	}
+	if !bytes.Equal(storedEvents, expectedEvents) {
+		return 0, "", 0, fmt.Errorf("incomplete segment %s diverges from live canonical source", key)
+	}
+
+	sig, err := crypto.SignEd25519(w.privPEM, obj.Data)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("audit: sign existing incomplete segment: %w", err)
+	}
+	if err := w.objects.Put(ctx, key+".sig", "application/octet-stream", sig); err != nil {
+		return 0, "", 0, fmt.Errorf("audit: put existing incomplete segment signature: %w", err)
+	}
+	return keyTo, seg.Events[len(seg.Events)-1].Hash, len(seg.Events), nil
+}
+
 // inventoryWORMSegmentArtifacts parses the complete bounded segment listing
 // before any chain position is trusted. Every canonical segment JSON must have
 // exactly one canonical signature companion and vice versa. The sole
-// exception is ExportOnce's final JSON: if its signature Put failed, the
-// exporter may derive a cursor from the preceding complete prefix and rewrite
-// that final segment on retry. Strict verification and retention watermarks do
-// not receive that allowance.
+// exception is an export entry point's final JSON: if its signature Put failed,
+// the exporter may validate and sign those exact existing bytes on retry.
+// Strict verification and retention watermarks do not receive that allowance.
 func inventoryWORMSegmentArtifacts(
 	keys []string,
 	allowIncompleteTail bool,

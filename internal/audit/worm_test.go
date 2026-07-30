@@ -103,6 +103,20 @@ func (s *failingPutStore) Put(ctx context.Context, key, contentType string, data
 	return s.Store.Put(ctx, key, contentType, data)
 }
 
+type refusingKeyPutStore struct {
+	objectstore.Store
+	key      string
+	attempts int
+}
+
+func (s *refusingKeyPutStore) Put(ctx context.Context, key, contentType string, data []byte) error {
+	if key == s.key {
+		s.attempts++
+		return errors.New("injected refusal to rewrite existing WORM segment")
+	}
+	return s.Store.Put(ctx, key, contentType, data)
+}
+
 type countingGetStore struct {
 	objectstore.Store
 	gets map[string]int
@@ -330,15 +344,6 @@ func TestWORMMissingSignatureAllowanceIsFinalExportRetryOnly(t *testing.T) {
 	if watermark, err := w.ExportedWatermark(ctx); err == nil {
 		t.Fatalf("strict watermark accepted incomplete tail at %d", watermark)
 	}
-	if last, hash, err := w.lastExportedHead(ctx); err != nil || last != 0 || hash != genesis {
-		t.Fatalf(
-			"retry cursor from incomplete final JSON = (%d, %q, %v), want (0, genesis, nil)",
-			last,
-			hash,
-			err,
-		)
-	}
-
 	objects.failing = false
 	if n, err := w.ExportOnce(ctx); err != nil || n != 3 {
 		t.Fatalf("retry export = (%d, %v), want (3, nil)", n, err)
@@ -367,12 +372,162 @@ func TestWORMRetryRejectsMissingSignatureBeforeFinalSegment(t *testing.T) {
 		t.Fatalf("delete middle signature = (%d, %v), want (1, nil)", deleted, err)
 	}
 
-	if _, _, err := w.lastExportedHead(ctx); err == nil || !strings.Contains(err.Error(), "signature missing") {
+	if _, _, _, err := w.lastExportedHead(ctx); err == nil || !strings.Contains(err.Error(), "signature missing") {
 		t.Fatalf("retry cursor accepted non-final missing signature: %v", err)
 	}
 	if err := w.VerifyWORMChain(ctx); err == nil || !strings.Contains(err.Error(), "signature missing") {
 		t.Fatalf("strict verification accepted non-final missing signature: %v", err)
 	}
+}
+
+func TestWORMRetryRepairsExactSegmentAfterSourceGrowth(t *testing.T) {
+	const partialKey = wormPrefix + "segment-000000000001-000000000003.json"
+	ctx := context.Background()
+
+	incomplete := func(t *testing.T, events []Event) (*WormExporter, *objectstore.MemStore, []byte) {
+		t.Helper()
+		store := objectstore.NewMemory()
+		failing := &failingPutStore{Store: store, failSuffix: ".sig", failing: true}
+		w, err := NewWormExporterEphemeralForTest(sourceOf(events), failing, testLog())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err := w.ExportOnce(ctx); err == nil || n != 0 {
+			t.Fatalf("incomplete export = (%d, %v), want (0, injected signature error)", n, err)
+		}
+		obj, err := store.Get(ctx, partialKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if watermark, err := w.ExportedWatermark(ctx); err == nil {
+			t.Fatalf("strict watermark accepted incomplete tail at %d", watermark)
+		}
+		return w, store, obj.Data
+	}
+
+	t.Run("static source signs existing bytes without JSON rewrite", func(t *testing.T) {
+		events := chainedEvents(3)
+		w, store, original := incomplete(t, events)
+		refusing := &refusingKeyPutStore{Store: store, key: partialKey}
+		w.objects = refusing
+
+		if n, err := w.ExportOnce(ctx); err != nil || n != len(events) {
+			t.Fatalf("static retry = (%d, %v), want (%d, nil)", n, err, len(events))
+		}
+		if refusing.attempts != 0 {
+			t.Fatalf("static retry attempted %d JSON rewrite(s), want 0", refusing.attempts)
+		}
+		repaired, err := store.Get(ctx, partialKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(repaired.Data, original) {
+			t.Fatal("static retry changed the existing incomplete segment bytes")
+		}
+		if err := w.VerifyWORMChain(ctx); err != nil {
+			t.Fatalf("strict verification after static retry: %v", err)
+		}
+	})
+
+	t.Run("source growth repairs exact prefix then exports later rows", func(t *testing.T) {
+		all := chainedEvents(5)
+		w, store, original := incomplete(t, all[:3])
+		refusing := &refusingKeyPutStore{Store: store, key: partialKey}
+		w.objects = refusing
+		w.source = sourceOf(all)
+
+		if n, err := w.ExportOnce(ctx); err != nil || n != len(all) {
+			t.Fatalf("growth retry = (%d, %v), want (%d, nil)", n, err, len(all))
+		}
+		if refusing.attempts != 0 {
+			t.Fatalf("growth retry attempted %d partial-JSON rewrite(s), want 0", refusing.attempts)
+		}
+		repaired, err := store.Get(ctx, partialKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(repaired.Data, original) {
+			t.Fatal("growth retry changed the existing incomplete segment bytes")
+		}
+		for _, key := range []string{
+			partialKey,
+			partialKey + ".sig",
+			wormPrefix + "segment-000000000004-000000000005.json",
+			wormPrefix + "segment-000000000004-000000000005.json.sig",
+		} {
+			if _, exists, err := store.Stat(ctx, key); err != nil || !exists {
+				t.Fatalf("expected exact retry artifact %q = (exists %v, %v)", key, exists, err)
+			}
+		}
+		if err := w.VerifyWORMChain(ctx); err != nil {
+			t.Fatalf("strict verification after growth retry: %v", err)
+		}
+		if watermark, err := w.ExportedWatermark(ctx); err != nil || watermark != int64(len(all)) {
+			t.Fatalf("strict watermark after growth retry = (%d, %v), want (%d, nil)",
+				watermark, err, len(all))
+		}
+	})
+
+	t.Run("tampered incomplete JSON is not signed", func(t *testing.T) {
+		events := chainedEvents(3)
+		w, store, raw := incomplete(t, events)
+		var seg WormSegment
+		if err := json.Unmarshal(raw, &seg); err != nil {
+			t.Fatal(err)
+		}
+		seg.Events[1].Action = "provider.tampered"
+		tampered, err := json.Marshal(seg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Put(ctx, partialKey, "application/json", tampered); err != nil {
+			t.Fatal(err)
+		}
+		w.objects = store
+
+		if n, err := w.ExportOnce(ctx); err == nil || n != 0 ||
+			!strings.Contains(err.Error(), "diverges") {
+			t.Fatalf("tampered partial retry = (%d, %v), want divergent-tail rejection", n, err)
+		}
+		if _, exists, err := store.Stat(ctx, partialKey+".sig"); err != nil || exists {
+			t.Fatalf("tampered partial signature = (exists %v, %v), want absent", exists, err)
+		}
+	})
+
+	t.Run("live source divergence is not signed", func(t *testing.T) {
+		events := chainedEvents(3)
+		w, store, _ := incomplete(t, events)
+		diverged := chainedEvents(3)
+		diverged[0].Action = "provider.diverged"
+		prevHash := genesis
+		for i := range diverged {
+			diverged[i].PrevHash = prevHash
+			hash, err := computeHash(
+				providerStream,
+				diverged[i].Seq,
+				diverged[i].Actor,
+				diverged[i].Action,
+				diverged[i].Target,
+				diverged[i].Data,
+				diverged[i].PrevHash,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diverged[i].Hash = hash
+			prevHash = hash
+		}
+		w.objects = store
+		w.source = sourceOf(diverged)
+
+		if n, err := w.ExportOnce(ctx); err == nil || n != 0 ||
+			!strings.Contains(err.Error(), "diverges") {
+			t.Fatalf("divergent source retry = (%d, %v), want divergent-tail rejection", n, err)
+		}
+		if _, exists, err := store.Stat(ctx, partialKey+".sig"); err != nil || exists {
+			t.Fatalf("divergent source signature = (exists %v, %v), want absent", exists, err)
+		}
+	})
 }
 
 func TestWORMObjectSizeBounds(t *testing.T) {
