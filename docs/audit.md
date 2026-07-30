@@ -51,6 +51,31 @@ What probectl guarantees you:
   correlation — probectl is the source of truth, not a replacement for your security
   tooling.
 
+### Encrypted incident-response attribution
+
+Provider break-glass evidence deliberately keeps the signed WORM copy
+minimized: operator identity, tenant, grant, consent, outcome, and reason are
+still stripped from that ordinary immutable projection. The real break-glass
+transaction now also writes one append-only encrypted IR sidecar record. That
+record is local-only, envelope-sealed under the operator's own per-tenant public
+wrapping key, hash-chained, and signed. Seal or sidecar failure rolls the
+break-glass mutation and provider audit event back together.
+
+This is a deliberate accountability-versus-minimization choice inside the
+sovereign boundary: privileged identity is private by encryption rather than
+private by amnesia. The steady-state runtime has only a public wrapping key and
+cannot unseal the record; ordinary audit reads cannot reveal it. No vendor,
+third party, other tenant, network service, or phone-home path holds or resolves
+the key. The keyring is operator-owned local storage, so sealing remains
+deterministic in an air gap. Investigation-only separation of duty and audited
+unseal are a distinct surface.
+
+Migration 0079 is the append-time inner-envelope foundation. Until the opaque
+record is additionally bound to an exact verified WORM segment and an
+independent IR coverage watermark exists, provider audit pruning fails closed.
+It never treats a normal WORM cursor as proof of attribution coverage and never
+fabricates coverage for older rows.
+
 Rejected agent and collector enrollment attempts use the fixed
 `security.enrollment_rejected` action. If a tenant was resolved from an
 authenticated caller, consumed tenant-bound token, or deployment-verified

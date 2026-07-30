@@ -185,6 +185,12 @@ func ProviderAppend(ctx context.Context, pool *pgxpool.Pool, actor, action, targ
 // same tenancy.InProvider callback makes an audit failure fail closed without
 // leaving an unaudited provider mutation.
 func ProviderAppendTx(ctx context.Context, q tenancy.Querier, actor, action, target string, data map[string]any) (Event, error) {
+	if isProtectedBreakGlassAction(action) {
+		return Event{}, fmt.Errorf(
+			"audit: protected break-glass action %q requires encrypted IR attribution",
+			action,
+		)
+	}
 	if err := lockProviderStream(ctx, q); err != nil {
 		return Event{}, fmt.Errorf("lock provider audit chain: %w", err)
 	}
@@ -192,6 +198,83 @@ func ProviderAppendTx(ctx context.Context, q tenancy.Querier, actor, action, tar
 }
 
 func providerAppendLocked(ctx context.Context, q tenancy.Querier, actor, action, target string, data map[string]any) (Event, error) {
+	return providerAppendLockedWith(ctx, q, actor, action, target, data, nil)
+}
+
+// ProviderAppendBreakGlass appends one protected provider event and its
+// encrypted attribution in one provider transaction.
+func ProviderAppendBreakGlass(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	sidecar IRStageAppender,
+	actor, action, target string,
+	data map[string]any,
+	attribution IRAttribution,
+) (Event, error) {
+	var event Event
+	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		var err error
+		event, err = ProviderAppendBreakGlassTx(
+			ctx,
+			q,
+			sidecar,
+			actor,
+			action,
+			target,
+			data,
+			attribution,
+		)
+		return err
+	})
+	return event, err
+}
+
+// ProviderAppendBreakGlassTx is the only append seam for provider.breakglass_*
+// actions. The caller owns the transaction, so a sidecar seal/insert failure
+// rolls back the protected mutation and provider event together.
+func ProviderAppendBreakGlassTx(
+	ctx context.Context,
+	q tenancy.Querier,
+	sidecar IRStageAppender,
+	actor, action, target string,
+	data map[string]any,
+	attribution IRAttribution,
+) (Event, error) {
+	if sidecar == nil {
+		return Event{}, errors.New("audit: encrypted IR attribution sidecar is unavailable")
+	}
+	if err := validateIRAttribution(actor, action, target, data, attribution); err != nil {
+		return Event{}, err
+	}
+	if err := lockProviderStream(ctx, q); err != nil {
+		return Event{}, fmt.Errorf("lock provider audit chain: %w", err)
+	}
+	return providerAppendLockedWith(
+		ctx,
+		q,
+		actor,
+		action,
+		target,
+		data,
+		func(event Event) error {
+			bound := attribution
+			bound.EventRef = event.Hash
+			bound.TS = event.CreatedAt
+			if err := sidecar.AppendIRStageTx(ctx, q, event, bound); err != nil {
+				return fmt.Errorf("append encrypted IR attribution: %w", err)
+			}
+			return nil
+		},
+	)
+}
+
+func providerAppendLockedWith(
+	ctx context.Context,
+	q tenancy.Querier,
+	actor, action, target string,
+	data map[string]any,
+	afterInsert func(Event) error,
+) (Event, error) {
 	head, err := ensureProviderStreamHead(ctx, q)
 	if err != nil {
 		return Event{}, fmt.Errorf("read provider audit head: %w", err)
@@ -218,6 +301,11 @@ func providerAppendLocked(ctx context.Context, q tenancy.Querier, actor, action,
 		ev.Seq, actor, action, target, string(dataJSON), ev.PrevHash, ev.Hash,
 	).Scan(&ev.CreatedAt); err != nil {
 		return Event{}, fmt.Errorf("insert provider audit event: %w", err)
+	}
+	if afterInsert != nil {
+		if err := afterInsert(ev); err != nil {
+			return Event{}, err
+		}
 	}
 	if err := advanceProviderStreamHead(ctx, q, head, ev); err != nil {
 		return Event{}, err

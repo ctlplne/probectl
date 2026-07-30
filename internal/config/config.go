@@ -207,6 +207,11 @@ type Config struct {
 	// breaks cross-restart chain verification). Back it up like the envelope key.
 	WormSigningKey     string
 	WormSigningKeyFile string
+	// IRPublicKeyDir is the operator-owned local keyring containing one
+	// <tenant-uuid>.pem public RSA wrapping key per tenant. Steady-state
+	// provider/break-glass writes load only these public keys; no investigation
+	// opener is present in the routine runtime.
+	IRPublicKeyDir string
 	// ObjectStoreDir is the operator-owned filesystem object store for tenant
 	// artifacts such as browser synthetic screenshots/waterfalls. Empty leaves
 	// tenant object artifacts unserved; when set, the same store handle is used
@@ -744,6 +749,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.AuditRetention = l.dur("PROBECTL_AUDIT_RETENTION", auditRetentionDefault(cfg.DeploymentProfile))
 	cfg.WormSigningKey = l.str("PROBECTL_WORM_SIGNING_KEY", "")
 	cfg.WormSigningKeyFile = l.str("PROBECTL_WORM_SIGNING_KEY_FILE", "")
+	cfg.IRPublicKeyDir = l.str("PROBECTL_IR_PUBLIC_KEY_DIR", "")
 	cfg.ObjectStoreDir = l.str("PROBECTL_OBJECTSTORE_DIR", "")
 	cfg.TestSyncSigningKeyFile = l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", "")
 	cfg.TSDBMode = l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus")

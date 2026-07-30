@@ -53,7 +53,16 @@ type Column struct {
 // TenantOwned filters (via the shared core deny list) and sorts the
 // tenant-owned table set.
 func TenantOwned(tables []string) []string {
-	out := tenancy.FilterTenantOwned(tables)
+	filtered := tenancy.FilterTenantOwned(tables)
+	out := make([]string, 0, len(filtered))
+	for _, table := range filtered {
+		// IR attribution heads are signed, hash-only provider control state.
+		// Ciphertext records are physically siloed; the single public head is
+		// tenant-GUC RLS scoped and deliberately not copied into each schema.
+		if table != "ir_attribution_heads" {
+			out = append(out, table)
+		}
+	}
 	sort.Strings(out)
 	return out
 }
@@ -112,6 +121,12 @@ func tableRolePlan(quotedTable, table string) []string {
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
 			"GRANT SELECT, INSERT, DELETE ON " + quotedTable + " TO probectl_provider",
 		}
+	case "ir_attribution_records":
+		return []string{
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
+			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_provider",
+		}
 	}
 	return []string{
 		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + quotedTable + " TO probectl_app",
@@ -119,7 +134,9 @@ func tableRolePlan(quotedTable, table string) []string {
 }
 
 func providerMaintainedTable(table string) bool {
-	return table == "audit_events" || table == "audit_subject_erasures"
+	return table == "audit_events" ||
+		table == "audit_subject_erasures" ||
+		table == "ir_attribution_records"
 }
 
 // schemaTenantID decodes the stable t_<UUID-without-dashes> schema name. An

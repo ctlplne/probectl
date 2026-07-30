@@ -349,6 +349,24 @@ func pruneProviderWithReceipt(
 		return 0, fmt.Errorf("begin provider audit prune: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// IR-3f573c58 establishes the append-time encrypted inner envelope, but the
+	// exact WORM-segment outer binding and its independent durable watermark
+	// land in the next focused finding. Once 0079 is installed, pruning must
+	// therefore stop rather than treat the ordinary WORM cursor as attribution
+	// coverage. This intentionally blunt gate is replaced only by verified IR
+	// coverage logic; it never guesses or backfills historical proof.
+	var irStageInstalled bool
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT to_regclass('public.ir_attribution_records') IS NOT NULL`,
+	).Scan(&irStageInstalled); err != nil {
+		return 0, fmt.Errorf("check encrypted IR retention gate: %w", err)
+	}
+	if irStageInstalled {
+		return 0, errors.New(
+			"provider audit retention blocked: encrypted IR WORM coverage watermark is not available",
+		)
+	}
 	if err := lockProviderStream(ctx, tx); err != nil {
 		return 0, fmt.Errorf("lock provider audit prune: %w", err)
 	}

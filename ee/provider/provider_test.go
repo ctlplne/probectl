@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	coreaudit "github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
@@ -46,15 +47,45 @@ func (failingAudit) Append(context.Context, string, string, string, map[string]a
 	return errAuditUnavailable
 }
 
+func (failingAudit) AppendBreakGlass(
+	context.Context,
+	string,
+	string,
+	string,
+	map[string]any,
+	coreaudit.IRAttribution,
+) error {
+	return errAuditUnavailable
+}
+
 type auditEvent struct {
 	Actor, Action, Target string
 	Data                  map[string]any
+	Attribution           *coreaudit.IRAttribution
 }
 
 func (a *memAudit) Append(_ context.Context, actor, action, target string, data map[string]any) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.events = append(a.events, auditEvent{actor, action, target, data})
+	a.events = append(a.events, auditEvent{
+		Actor: actor, Action: action, Target: target, Data: data,
+	})
+	return nil
+}
+
+func (a *memAudit) AppendBreakGlass(
+	_ context.Context,
+	actor, action, target string,
+	data map[string]any,
+	attribution coreaudit.IRAttribution,
+) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	copy := attribution
+	a.events = append(a.events, auditEvent{
+		Actor: actor, Action: action, Target: target, Data: data,
+		Attribution: &copy,
+	})
 	return nil
 }
 
@@ -83,6 +114,17 @@ func (a *memAudit) lastData(action string) map[string]any {
 		}
 	}
 	return nil
+}
+
+func (a *memAudit) lastAttribution(action string) (coreaudit.IRAttribution, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := len(a.events) - 1; i >= 0; i-- {
+		if a.events[i].Action == action && a.events[i].Attribution != nil {
+			return *a.events[i].Attribution, true
+		}
+	}
+	return coreaudit.IRAttribution{}, false
 }
 
 // memFairnessStore is a DB-less provider/fairness seam: it behaves like the
@@ -698,6 +740,15 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 	}
 	var g Grant
 	mustDecode(t, rec, &g)
+	assertIRAttribution(t, f.audit, "provider.breakglass_request", coreaudit.IRAttribution{
+		Operator: g.OperatorID,
+		TenantID: "tnA",
+		Grant:    g.ID,
+		Surface:  "provider.breakglass.request",
+		Consent:  GrantPending,
+		Outcome:  "requested",
+		Reason:   "incident #42: cross-plane RCA",
+	})
 
 	// PENDING grant: telemetry access is refused.
 	rec = f.doAuthed(t, token, http.MethodGet, "/provider/v1/breakglass/"+g.ID+"/results", nil)
@@ -723,6 +774,15 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 	if rec = doReq(f.h, req); rec.Code != http.StatusOK {
 		t.Fatalf("consent: %d %s", rec.Code, rec.Body.String())
 	}
+	assertIRAttribution(t, f.audit, "provider.breakglass_consent", coreaudit.IRAttribution{
+		Operator: g.OperatorID,
+		TenantID: "tnA",
+		Grant:    g.ID,
+		Surface:  "provider.breakglass.consent",
+		Consent:  "tenant-approved:admin@a.example",
+		Outcome:  "approved",
+		Reason:   "incident #42: cross-plane RCA",
+	})
 
 	// ACTIVE grant: access works, returns ONLY tenant A's data, and is audited.
 	before := f.audit.count("provider.breakglass_access")
@@ -736,6 +796,15 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 	if f.audit.count("provider.breakglass_access") != before+1 {
 		t.Fatal("break-glass access was not audited")
 	}
+	assertIRAttribution(t, f.audit, "provider.breakglass_access", coreaudit.IRAttribution{
+		Operator: g.OperatorID,
+		TenantID: "tnA",
+		Grant:    g.ID,
+		Surface:  "results.latest",
+		Consent:  "tenant-approved:admin@a.example",
+		Outcome:  "accessed",
+		Reason:   "incident #42: cross-plane RCA",
+	})
 	// A second read = a second audit record (every access, not every grant).
 	_ = f.doAuthed(t, token, http.MethodGet, "/provider/v1/breakglass/"+g.ID+"/results", nil)
 	if f.audit.count("provider.breakglass_access") != before+2 {
@@ -766,6 +835,15 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 	if rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/breakglass/"+g.ID+"/revoke", nil); rec.Code != http.StatusOK {
 		t.Fatalf("revoke: %d", rec.Code)
 	}
+	assertIRAttribution(t, f.audit, "provider.breakglass_revoke", coreaudit.IRAttribution{
+		Operator: g.OperatorID,
+		TenantID: "tnA",
+		Grant:    g.ID,
+		Surface:  "provider.breakglass.revoke",
+		Consent:  "revoked-by:root@msp.example",
+		Outcome:  GrantRevoked,
+		Reason:   "incident #42: cross-plane RCA",
+	})
 	if rec = f.doAuthed(t, token, http.MethodGet, "/provider/v1/breakglass/"+g.ID+"/results", nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("revoked grant must not grant access: %d", rec.Code)
 	}
@@ -780,8 +858,33 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 	if rec = doReq(f.h, req); rec.Code != http.StatusOK {
 		t.Fatalf("deny: %d", rec.Code)
 	}
+	assertIRAttribution(t, f.audit, "provider.breakglass_deny", coreaudit.IRAttribution{
+		Operator: g2.OperatorID,
+		TenantID: "tnA",
+		Grant:    g2.ID,
+		Surface:  "provider.breakglass.consent",
+		Consent:  "tenant-denied:admin@a.example",
+		Outcome:  GrantDenied,
+		Reason:   "second look",
+	})
 	if rec = f.doAuthed(t, token, http.MethodGet, "/provider/v1/breakglass/"+g2.ID+"/results", nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("denied grant must not grant access: %d", rec.Code)
+	}
+}
+
+func assertIRAttribution(
+	t *testing.T,
+	audit *memAudit,
+	action string,
+	want coreaudit.IRAttribution,
+) {
+	t.Helper()
+	got, ok := audit.lastAttribution(action)
+	if !ok {
+		t.Fatalf("%s did not use the typed IR attribution seam", action)
+	}
+	if got != want {
+		t.Fatalf("%s IR attribution = %+v, want %+v", action, got, want)
 	}
 }
 

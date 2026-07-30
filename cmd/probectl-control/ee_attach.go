@@ -33,6 +33,7 @@ import (
 	eeremediation "github.com/imfeelingtheagi/probectl/ee/remediation"
 	"github.com/imfeelingtheagi/probectl/ee/silo"
 	"github.com/imfeelingtheagi/probectl/ee/tenantkeys"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -230,14 +231,38 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	}
 
 	if lic.Has(license.FeatureProviderPlane) {
+		irKeys, err := audit.NewLocalIRPublicKeyResolver(cfg.IRPublicKeyDir)
+		if err != nil {
+			return fmt.Errorf("provider IR public keyring: %w", err)
+		}
+		wormPrivate, wormPublic, generated, err := audit.ResolveWormSigningKey(
+			cfg.WormSigningKey,
+			cfg.WormSigningKeyFile,
+			cfg.RequireAtRestEncryption,
+		)
+		if err != nil {
+			return fmt.Errorf("provider IR chain signing key: %w", err)
+		}
+		if generated {
+			log.Warn(
+				"generated provider IR/WORM signing key; preserve it for cross-restart verification",
+				"key_file",
+				cfg.WormSigningKeyFile,
+			)
+		}
+		irSidecar, err := audit.NewIRStagePG(irKeys, wormPrivate, wormPublic)
+		if err != nil {
+			return fmt.Errorf("provider IR sidecar: %w", err)
+		}
 		h, err := provider.Build(cfg, provider.Deps{
-			Pool:     pool,
-			License:  lic,
-			Log:      log,
-			Results:  results,
-			Sessions: srv.SessionManager(),
-			Perms:    srv.PermissionLoader(),
-			Silo:     siloOps,
+			Pool:      pool,
+			License:   lic,
+			Log:       log,
+			Results:   results,
+			Sessions:  srv.SessionManager(),
+			Perms:     srv.PermissionLoader(),
+			IRSidecar: irSidecar,
+			Silo:      siloOps,
 			SiloInvalidate: func() {
 				if routerInvalidate != nil {
 					routerInvalidate()

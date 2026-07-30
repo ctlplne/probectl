@@ -36,6 +36,17 @@ func (failingPGAudit) Append(context.Context, string, string, string, map[string
 	return errAuditUnavailable
 }
 
+func (failingPGAudit) AppendBreakGlass(
+	context.Context,
+	string,
+	string,
+	string,
+	map[string]any,
+	audit.IRAttribution,
+) error {
+	return errAuditUnavailable
+}
+
 func (failingPGAudit) AppendTx(
 	ctx context.Context,
 	q tenancy.Querier,
@@ -51,6 +62,18 @@ func (failingPGAudit) AppendTx(
 		return errors.New("provider audit failure injection unexpectedly succeeded")
 	}
 	return fmt.Errorf("%w: %v", errAuditUnavailable, err)
+}
+
+func (failingPGAudit) AppendBreakGlassTx(
+	context.Context,
+	tenancy.Querier,
+	string,
+	string,
+	string,
+	map[string]any,
+	audit.IRAttribution,
+) error {
+	return errAuditUnavailable
 }
 
 // The PG-backed provider store against the real test stack (Kafka-less: only

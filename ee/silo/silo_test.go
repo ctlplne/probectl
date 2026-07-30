@@ -52,6 +52,7 @@ func TestParseDataPlanes(t *testing.T) {
 func TestProvisionPlan(t *testing.T) {
 	plan := ProvisionPlan("t_abc", []string{
 		"tests", "agents", "audit_events", "audit_subject_erasures",
+		"ir_attribution_records", "ir_attribution_heads",
 		"break_glass_grants", "tenant_retention",
 		"credential_locators", "agent_identity_revocations",
 	})
@@ -73,6 +74,10 @@ func TestProvisionPlan(t *testing.T) {
 		`REVOKE ALL ON "t_abc"."audit_subject_erasures" FROM probectl_app`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_subject_erasures" TO probectl_app`,
 		`GRANT SELECT, INSERT, DELETE ON "t_abc"."audit_subject_erasures" TO probectl_provider`,
+		`CREATE TABLE IF NOT EXISTS "t_abc"."ir_attribution_records" (LIKE public."ir_attribution_records" INCLUDING ALL)`,
+		`REVOKE ALL ON "t_abc"."ir_attribution_records" FROM probectl_app`,
+		`REVOKE ALL ON "t_abc"."ir_attribution_records" FROM probectl_provider`,
+		`GRANT SELECT, INSERT ON "t_abc"."ir_attribution_records" TO probectl_provider`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("plan missing %q", want)
@@ -81,6 +86,7 @@ func TestProvisionPlan(t *testing.T) {
 	for _, providerOwned := range []string{
 		"break_glass_grants", "tenant_retention",
 		"credential_locators", "agent_identity_revocations",
+		"ir_attribution_heads",
 	} {
 		if strings.Contains(joined, providerOwned) {
 			t.Errorf("provider-owned table %s must never enter a tenant silo", providerOwned)

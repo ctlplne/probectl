@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	coreaudit "github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/license"
@@ -29,6 +30,12 @@ import (
 // CLAUDE.md §7 guardrail 7); tests capture events in memory.
 type AuditSink interface {
 	Append(ctx context.Context, actor, action, target string, data map[string]any) error
+	AppendBreakGlass(
+		ctx context.Context,
+		actor, action, target string,
+		data map[string]any,
+		attribution coreaudit.IRAttribution,
+	) error
 }
 
 // TelemetryReader is the ONLY telemetry surface break-glass can reach in S-T1:
@@ -688,9 +695,26 @@ func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, 
 		if err != nil {
 			return err
 		}
-		return audit.Append(ctx, op.Email, "provider.breakglass_request", g.ID, map[string]any{
-			"tenant": tenantID, "reason": reason, "expires_at": g.ExpiresAt.UTC().Format(time.RFC3339),
-		})
+		data := map[string]any{
+			"tenant": tenantID, "reason": reason,
+			"expires_at": g.ExpiresAt.UTC().Format(time.RFC3339),
+		}
+		return audit.AppendBreakGlass(
+			ctx,
+			op.Email,
+			"provider.breakglass_request",
+			g.ID,
+			data,
+			coreaudit.IRAttribution{
+				Operator: op.ID,
+				TenantID: tenantID,
+				Grant:    g.ID,
+				Surface:  "provider.breakglass.request",
+				Consent:  GrantPending,
+				Outcome:  "requested",
+				Reason:   reason,
+			},
+		)
 	})
 	if err != nil {
 		return Grant{}, err
@@ -725,7 +749,28 @@ func (s *Service) Consent(ctx context.Context, tenantID, grantID, by string, app
 		if err != nil {
 			return err
 		}
-		return audit.Append(ctx, by, action, grantID, map[string]any{"tenant": tenantID})
+		consent := "tenant-denied:" + by
+		outcome := GrantDenied
+		if approve {
+			consent = "tenant-approved:" + by
+			outcome = "approved"
+		}
+		return audit.AppendBreakGlass(
+			ctx,
+			by,
+			action,
+			grantID,
+			map[string]any{"tenant": tenantID, "reason": out.Reason},
+			coreaudit.IRAttribution{
+				Operator: out.OperatorID,
+				TenantID: tenantID,
+				Grant:    grantID,
+				Surface:  "provider.breakglass.consent",
+				Consent:  consent,
+				Outcome:  outcome,
+				Reason:   out.Reason,
+			},
+		)
 	})
 	if err != nil {
 		return Grant{}, err
@@ -742,7 +787,22 @@ func (s *Service) Revoke(ctx context.Context, actor, grantID string) (Grant, err
 		if err != nil {
 			return err
 		}
-		return audit.Append(ctx, actor, "provider.breakglass_revoke", grantID, map[string]any{"tenant": g.TenantID})
+		return audit.AppendBreakGlass(
+			ctx,
+			actor,
+			"provider.breakglass_revoke",
+			grantID,
+			map[string]any{"tenant": g.TenantID, "reason": g.Reason},
+			coreaudit.IRAttribution{
+				Operator: g.OperatorID,
+				TenantID: g.TenantID,
+				Grant:    grantID,
+				Surface:  "provider.breakglass.revoke",
+				Consent:  "revoked-by:" + actor,
+				Outcome:  GrantRevoked,
+				Reason:   g.Reason,
+			},
+		)
 	})
 	if err != nil {
 		return Grant{}, err
@@ -786,9 +846,25 @@ func (s *Service) BreakGlassResults(ctx context.Context, op Operator, grantID st
 		if err != nil {
 			return err
 		}
-		return audit.Append(ctx, op.Email, "provider.breakglass_access", grantID, map[string]any{
-			"tenant": g.TenantID, "surface": "results.latest", "use": g.UseCount,
-		})
+		return audit.AppendBreakGlass(
+			ctx,
+			op.Email,
+			"provider.breakglass_access",
+			grantID,
+			map[string]any{
+				"tenant": g.TenantID, "surface": "results.latest",
+				"use": g.UseCount, "reason": g.Reason,
+			},
+			coreaudit.IRAttribution{
+				Operator: g.OperatorID,
+				TenantID: g.TenantID,
+				Grant:    grantID,
+				Surface:  "results.latest",
+				Consent:  "tenant-approved:" + g.ConsentedBy,
+				Outcome:  "accessed",
+				Reason:   g.Reason,
+			},
+		)
 	}); err != nil {
 		return nil, err
 	}

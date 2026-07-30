@@ -55,6 +55,9 @@ type Deps struct {
 	Results  *control.LatestResults // the S-T1 break-glass telemetry surface
 	Sessions *auth.Manager          // tenant sessions (the consent leg); nil = consent 503s
 	Perms    auth.PermissionLoader  // tenant RBAC (the consent permission check)
+	// IRSidecar owns only public wrapping capability. Protected break-glass
+	// mutations fail closed if this local encrypted sidecar is unavailable.
+	IRSidecar audit.IRStageAppender
 	// S-T2: the silo capability (nil unless siloed_isolation is licensed —
 	// then only pooled tenants can be provisioned) + the isolation router's
 	// cache-invalidation hook for lifecycle changes.
@@ -84,6 +87,9 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if d.License == nil {
 		return nil, errors.New("provider: the license manager is required")
 	}
+	if d.IRSidecar == nil {
+		return nil, errors.New("provider: encrypted IR attribution sidecar is required")
+	}
 	if cfg.EnvelopeKey == "" {
 		return nil, errors.New("provider: PROBECTL_ENVELOPE_KEY is required (operator TOTP secrets are envelope-sealed at rest)")
 	}
@@ -94,7 +100,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	env := crypto.NewEnvelope(kek)
 
 	st := NewPGStore(d.Pool)
-	sink := &providerAudit{pool: d.Pool}
+	sink := &providerAudit{pool: d.Pool, ir: d.IRSidecar}
 	var telemetry TelemetryReader
 	if d.Results != nil {
 		telemetry = latestResultsReader{lr: d.Results}
@@ -123,7 +129,12 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 }
 
 // providerAudit writes the separate, tamper-evident provider audit stream.
-type providerAudit struct{ pool *pgxpool.Pool }
+// Break-glass actions use the typed same-transaction IR seam; a plain append is
+// rejected by internal/audit for that namespace.
+type providerAudit struct {
+	pool *pgxpool.Pool
+	ir   audit.IRStageAppender
+}
 
 func (a *providerAudit) Append(ctx context.Context, actor, action, target string, data map[string]any) error {
 	_, err := audit.ProviderAppend(ctx, a.pool, actor, action, target, data)
@@ -132,6 +143,45 @@ func (a *providerAudit) Append(ctx context.Context, actor, action, target string
 
 func (a *providerAudit) AppendTx(ctx context.Context, q tenancy.Querier, actor, action, target string, data map[string]any) error {
 	_, err := audit.ProviderAppendTx(ctx, q, actor, action, target, data)
+	return err
+}
+
+func (a *providerAudit) AppendBreakGlass(
+	ctx context.Context,
+	actor, action, target string,
+	data map[string]any,
+	attribution audit.IRAttribution,
+) error {
+	_, err := audit.ProviderAppendBreakGlass(
+		ctx,
+		a.pool,
+		a.ir,
+		actor,
+		action,
+		target,
+		data,
+		attribution,
+	)
+	return err
+}
+
+func (a *providerAudit) AppendBreakGlassTx(
+	ctx context.Context,
+	q tenancy.Querier,
+	actor, action, target string,
+	data map[string]any,
+	attribution audit.IRAttribution,
+) error {
+	_, err := audit.ProviderAppendBreakGlassTx(
+		ctx,
+		q,
+		a.ir,
+		actor,
+		action,
+		target,
+		data,
+		attribution,
+	)
 	return err
 }
 

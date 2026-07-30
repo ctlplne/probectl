@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	coreaudit "github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -45,6 +46,15 @@ func (s *PGStore) in(ctx context.Context, fn func(context.Context, tenancy.Queri
 
 type transactionalAuditSink interface {
 	AppendTx(context.Context, tenancy.Querier, string, string, string, map[string]any) error
+	AppendBreakGlassTx(
+		context.Context,
+		tenancy.Querier,
+		string,
+		string,
+		string,
+		map[string]any,
+		coreaudit.IRAttribution,
+	) error
 }
 
 type boundProviderAudit struct {
@@ -54,6 +64,23 @@ type boundProviderAudit struct {
 
 func (a boundProviderAudit) Append(ctx context.Context, actor, action, target string, data map[string]any) error {
 	return a.sink.AppendTx(ctx, a.q, actor, action, target, data)
+}
+
+func (a boundProviderAudit) AppendBreakGlass(
+	ctx context.Context,
+	actor, action, target string,
+	data map[string]any,
+	attribution coreaudit.IRAttribution,
+) error {
+	return a.sink.AppendBreakGlassTx(
+		ctx,
+		a.q,
+		actor,
+		action,
+		target,
+		data,
+		attribution,
+	)
 }
 
 // WithAuditedMutation runs the provider write and audit-chain append inside the
