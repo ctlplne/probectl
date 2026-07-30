@@ -299,7 +299,8 @@
                 "PROBECTL_ENVELOPE_KEY",
                 "PROBECTL_SESSION_HMAC_KEY",
                 "PROBECTL_DATABASE_URL",
-                "PROBECTL_OIDC_CLIENT_SECRET"
+                "PROBECTL_OIDC_CLIENT_SECRET",
+                "PROBECTL_IR_UNLOCK_KEY"
               ]
             }
           }

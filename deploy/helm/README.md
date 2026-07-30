@@ -158,7 +158,10 @@ both the WORM directory and key file live on the persistent claim.
 rejects names it already owns—including listener TLS, authentication, HSTS,
 at-rest encryption, database, OIDC, and chart-Secret keys—so a generic map
 cannot create duplicate ConfigMap entries or move credentials into that map.
-Configure those settings through their documented typed value or Secret.
+Configure those settings through their documented typed value or Secret. In
+particular, inject the offline `PROBECTL_IR_UNLOCK_KEY` only through the
+operator-managed `secrets.existingSecret`; the chart rejects attempts to place
+that investigation key in `control.extraEnv` or a ConfigMap.
 
 ## Optional public-feed BGP analyzer
 

@@ -118,8 +118,8 @@ oidc:
 secrets:
   # Name of a pre-created Secret holding PROBECTL_ENVELOPE_KEY,
   # PROBECTL_SESSION_HMAC_KEY, PROBECTL_DATABASE_URL, and optionally
-  # PROBECTL_OIDC_CLIENT_SECRET and PROBECTL_WORM_SIGNING_KEY. When set, the
-  # chart does NOT create its own.
+  # PROBECTL_OIDC_CLIENT_SECRET, PROBECTL_WORM_SIGNING_KEY, and the offline
+  # PROBECTL_IR_UNLOCK_KEY. When set, the chart does NOT create its own.
   existingSecret: ""
   # base64-encoded 32-byte envelope KEK (openssl rand -base64 32). Required.
   envelopeKey: ""

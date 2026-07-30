@@ -76,6 +76,49 @@ func TestHelmRejectsChartOwnedExtraEnv(t *testing.T) {
 	}
 }
 
+func TestHelmIRUnlockKeyRequiresExistingSecret(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+
+	const (
+		name   = "PROBECTL_IR_UNLOCK_KEY"
+		canary = "IR_CANARY_DO_NOT_USE"
+	)
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "schema"},
+		{name: "template", args: []string{"--skip-schema-validation"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{}, tc.args...)
+			args = append(args, "--set-string", "control.extraEnv."+name+"="+canary)
+			out, err := renderHelmConfigMap(t, args...)
+			if err == nil {
+				t.Fatalf("chart rendered the IR unlock key from control.extraEnv into a ConfigMap:\n%s", out)
+			}
+			if !strings.Contains(string(out), name) {
+				t.Fatalf("IR unlock key rejection does not identify %s:\n%s", name, out)
+			}
+			if strings.Contains(string(out), canary) {
+				t.Fatalf("IR unlock key rejection disclosed the planted value:\n%s", out)
+			}
+		})
+	}
+
+	out, err := renderHelmConfigMap(t,
+		"--set", "secrets.existingSecret=operator-runtime",
+	)
+	if err != nil {
+		t.Fatalf("operator-managed Secret render failed: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), name) || strings.Contains(string(out), canary) {
+		t.Fatalf("IR unlock key material appeared in the rendered ConfigMap:\n%s", out)
+	}
+}
+
 var renderedConfigMapEnvRE = regexp.MustCompile(`^  (PROBECTL_[A-Z0-9_]+):`)
 
 func TestHelmConfigMapKeysAreUniqueWithOrdinaryExtraEnv(t *testing.T) {

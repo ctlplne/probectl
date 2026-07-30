@@ -399,7 +399,8 @@ for reserved_env in \
   PROBECTL_SECURITY_CONTACT PROBECTL_OBJECTSTORE_DIR \
   PROBECTL_OIDC_ISSUER PROBECTL_OIDC_CLIENT_ID PROBECTL_OIDC_REDIRECT_URL \
   PROBECTL_ENVELOPE_KEY PROBECTL_SESSION_HMAC_KEY PROBECTL_DATABASE_URL \
-  PROBECTL_OIDC_CLIENT_SECRET PROBECTL_WORM_SIGNING_KEY; do
+  PROBECTL_OIDC_CLIENT_SECRET PROBECTL_WORM_SIGNING_KEY \
+  PROBECTL_IR_UNLOCK_KEY; do
   if render --show-only templates/configmap.yaml \
     --set-string "control.extraEnv.${reserved_env}=planted-override" >/dev/null 2>&1; then
     fail "chart accepted reserved control.extraEnv.${reserved_env} (CONFIG-11b3ac1d)"

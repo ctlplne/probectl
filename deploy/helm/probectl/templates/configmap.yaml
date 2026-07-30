@@ -21,6 +21,7 @@
   "PROBECTL_DATABASE_URL"
   "PROBECTL_OIDC_CLIENT_SECRET"
   "PROBECTL_WORM_SIGNING_KEY"
+  "PROBECTL_IR_UNLOCK_KEY"
 -}}
 {{- range $envName := $reservedControlEnv -}}
 {{- if hasKey $extraEnv $envName -}}
