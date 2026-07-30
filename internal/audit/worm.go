@@ -76,6 +76,22 @@ type WormSegment struct {
 	Events        []Event   `json:"events"`
 }
 
+// verifiedWORMSegment is minted only after WormExporter has read back the
+// exact JSON/signature objects and verified them with its own WORM public key.
+// The IR signer therefore never conflates its signing key with the WORM key.
+type verifiedWORMSegment struct {
+	key     string
+	segment WormSegment
+	raw     []byte
+	hash    string
+}
+
+type irWORMSegmentVerifier func(
+	context.Context,
+	string,
+	string,
+) (verifiedWORMSegment, error)
+
 // WormSource pages provider-stream events after a seq (the export cursor).
 type WormSource func(ctx context.Context, afterSeq int64, limit int) ([]Event, error)
 
@@ -96,6 +112,7 @@ type WormExporter struct {
 	privPEM []byte
 	pubPEM  []byte
 	log     *slog.Logger
+	ir      IRWORMDurability
 
 	gaps            atomic.Uint64 // chain-verification failures observed (never silent)
 	lastSuccessUnix atomic.Int64
@@ -177,6 +194,16 @@ func (w *WormExporter) WithMetrics(reg *selfmetrics.Registry) *WormExporter {
 	reg.Gauge("probectl_audit_worm_lagging",
 		"Whether the last verified audit WORM cycle left provider events pending after bounded catch-up (1=yes, 0=no).",
 		func() float64 { return float64(w.lagging.Load()) })
+	return w
+}
+
+// WithIRWORMDurability attaches the provider-only encrypted attribution
+// companion. It must be called before Run; routine/core WORM export remains
+// unchanged when no provider plane is licensed.
+func (w *WormExporter) WithIRWORMDurability(ir IRWORMDurability) *WormExporter {
+	if w != nil {
+		w.ir = ir
+	}
 	return w
 }
 
@@ -414,6 +441,27 @@ func (w *WormExporter) exportPage(
 	if err := w.objects.Put(ctx, key+".sig", "application/octet-stream", sig); err != nil {
 		return cursor, 0, fmt.Errorf("audit: put signature: %w", err)
 	}
+	if w.ir != nil {
+		verified, err := w.readVerifiedWORMSegment(ctx, key, "")
+		if err != nil {
+			return cursor, 0, err
+		}
+		if !bytes.Equal(verified.raw, raw) {
+			return cursor, 0, errors.New(
+				"audit: WORM segment differs from exported bytes before IR binding",
+			)
+		}
+		if err := w.ir.PersistWORMCompanion(
+			ctx,
+			w.objects,
+			verified,
+		); err != nil {
+			return cursor, 0, fmt.Errorf(
+				"audit: persist encrypted IR WORM companion: %w",
+				err,
+			)
+		}
+	}
 	w.log.Info("audit worm segment exported", "from_seq", seg.FromSeq, "to_seq", seg.ToSeq, "events", len(events))
 	cursor.lastSeq = events[len(events)-1].Seq
 	cursor.anchorHash = events[len(events)-1].Hash
@@ -473,6 +521,100 @@ func (w *WormExporter) ensurePublicKey(ctx context.Context) error {
 	}
 }
 
+func (w *WormExporter) readVerifiedWORMSegment(
+	ctx context.Context,
+	key string,
+	wantHash string,
+) (verifiedWORMSegment, error) {
+	canonicalKey, isSignature, err := canonicalWORMSegmentArtifactKey(key)
+	if err != nil || isSignature || canonicalKey != key {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: invalid WORM segment key for IR verification %q",
+			key,
+		)
+	}
+	object, err := w.objects.GetLimited(ctx, key, maxWORMSegmentBytes)
+	if err != nil {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: read WORM segment %s for IR verification: %w",
+			key,
+			err,
+		)
+	}
+	if object.ContentType != "application/json" {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: WORM segment %s has content type %q",
+			key,
+			object.ContentType,
+		)
+	}
+	signature, err := w.objects.GetLimited(
+		ctx,
+		key+".sig",
+		maxWORMSignatureBytes,
+	)
+	if err != nil {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: read WORM signature %s.sig for IR verification: %w",
+			key,
+			err,
+		)
+	}
+	if signature.ContentType != "application/octet-stream" ||
+		int64(len(signature.Data)) != maxWORMSignatureBytes {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: WORM signature %s.sig has invalid shape",
+			key,
+		)
+	}
+	ok, err := crypto.VerifyEd25519(w.pubPEM, object.Data, signature.Data)
+	if err != nil || !ok {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: WORM signature %s.sig is invalid",
+			key,
+		)
+	}
+	var segment WormSegment
+	if err := json.Unmarshal(object.Data, &segment); err != nil {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: decode WORM segment %s for IR verification: %w",
+			key,
+			err,
+		)
+	}
+	hash, err := validateIRWORMSegment(segment, object.Data)
+	if err != nil {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: validate WORM segment %s for IR verification: %w",
+			key,
+			err,
+		)
+	}
+	if key != fmt.Sprintf(
+		"%ssegment-%012d-%012d.json",
+		wormPrefix,
+		segment.FromSeq,
+		segment.ToSeq,
+	) {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: WORM segment %s metadata differs from object key",
+			key,
+		)
+	}
+	if wantHash != "" && hash != wantHash {
+		return verifiedWORMSegment{}, fmt.Errorf(
+			"audit: WORM segment %s hash differs from IR coverage",
+			key,
+		)
+	}
+	return verifiedWORMSegment{
+		key:     key,
+		segment: segment,
+		raw:     object.Data,
+		hash:    hash,
+	}, nil
+}
+
 // ExportedWatermark returns the highest provider-audit seq already present in
 // signed WORM segments. The retention runner uses this as a durable export
 // receipt; if the object store cannot be read, pruning fails closed.
@@ -482,6 +624,138 @@ func (w *WormExporter) ExportedWatermark(ctx context.Context) (int64, error) {
 	}
 	last, _, err := w.scanWORMChain(ctx, false)
 	return last, err
+}
+
+// RetentionWatermark is the provider-retention receipt. Provider builds use
+// the minimum of the verified signed-WORM sequence and the independently
+// verified IR coverage sequence, so either durability path can hold pruning
+// closed without weakening core-only WORM retention.
+func (w *WormExporter) RetentionWatermark(
+	ctx context.Context,
+) (int64, error) {
+	if w == nil {
+		return 0, nil
+	}
+	wormSeq, _, err := w.scanWORMChain(ctx, false)
+	if err != nil {
+		return 0, err
+	}
+	if w.ir == nil {
+		return wormSeq, nil
+	}
+	if err := w.ir.VerifyIRStages(ctx); err != nil {
+		return 0, fmt.Errorf("verify encrypted IR stage chains: %w", err)
+	}
+	irSeq, err := w.ir.CoverageWatermark(
+		ctx,
+		w.objects,
+		w.readVerifiedWORMSegment,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("verify encrypted IR WORM coverage: %w", err)
+	}
+	if irSeq > wormSeq {
+		return 0, fmt.Errorf(
+			"audit: encrypted IR coverage %d exceeds signed WORM sequence %d",
+			irSeq,
+			wormSeq,
+		)
+	}
+	if irSeq < wormSeq {
+		return irSeq, nil
+	}
+	return wormSeq, nil
+}
+
+// RetentionProof wraps the verified watermark in an opaque receipt consumed by
+// RetentionRunner. A raw integer cannot enter the encrypted-IR prune path.
+func (w *WormExporter) RetentionProof(
+	ctx context.Context,
+) (ProviderRetentionProof, error) {
+	watermark, err := w.RetentionWatermark(ctx)
+	if err != nil {
+		return ProviderRetentionProof{}, err
+	}
+	return ProviderRetentionProof{
+		watermark:  watermark,
+		verified:   true,
+		irVerified: w != nil && w.ir != nil,
+	}, nil
+}
+
+// ReconcileIRWORMDurability repairs the only safe crash window: a complete,
+// signed WORM segment exists but its encrypted companion/coverage transaction
+// did not finish. Existing finalized coverage with a missing companion remains
+// a tamper error and is never reconstructed.
+func (w *WormExporter) ReconcileIRWORMDurability(ctx context.Context) error {
+	if w == nil || w.ir == nil {
+		return nil
+	}
+	if err := w.ir.VerifyIRStages(ctx); err != nil {
+		return fmt.Errorf("verify encrypted IR stage chains: %w", err)
+	}
+	wormSeq, _, err := w.scanWORMChain(ctx, false)
+	if err != nil {
+		return fmt.Errorf("verify signed WORM chain before IR reconciliation: %w", err)
+	}
+	if err := w.reconcileIRWORMCompanions(ctx); err != nil {
+		return err
+	}
+	irSeq, err := w.ir.CoverageWatermark(
+		ctx,
+		w.objects,
+		w.readVerifiedWORMSegment,
+	)
+	if err != nil {
+		return fmt.Errorf("verify encrypted IR WORM coverage: %w", err)
+	}
+	if irSeq != wormSeq {
+		return fmt.Errorf(
+			"audit: encrypted IR coverage sequence %d differs from signed WORM sequence %d",
+			irSeq,
+			wormSeq,
+		)
+	}
+	return nil
+}
+
+func (w *WormExporter) reconcileIRWORMCompanions(ctx context.Context) error {
+	keys, err := w.objects.ListLimited(
+		ctx,
+		wormPrefix+"segment-",
+		maxWORMSegmentArtifacts,
+	)
+	if err != nil {
+		return fmt.Errorf("list WORM segments for IR reconciliation: %w", err)
+	}
+	segmentKeys, incompleteTail, err := inventoryWORMSegmentArtifacts(
+		keys,
+		false,
+	)
+	if err != nil {
+		return fmt.Errorf("inventory WORM segments for IR reconciliation: %w", err)
+	}
+	if incompleteTail != "" {
+		return errors.New("audit: incomplete WORM tail cannot receive IR coverage")
+	}
+	for _, key := range segmentKeys {
+		verified, err := w.readVerifiedWORMSegment(ctx, key, "")
+		if err != nil {
+			return err
+		}
+		if err := w.ir.PersistWORMCompanion(
+			ctx,
+			w.objects,
+			verified,
+		); err != nil {
+			return fmt.Errorf(
+				"reconcile encrypted IR companion for %s: %w",
+				key,
+				err,
+			)
+		}
+	}
+	return nil
 }
 
 // ReconcileProviderHead verifies the complete signed WORM chain and reconciles
@@ -632,6 +906,14 @@ func (w *WormExporter) ReconcileProviderHead(
 func (w *WormExporter) lastExportedHead(ctx context.Context) (int64, string, int, error) {
 	var repaired int
 	last, hash, err := w.scanWORMChainWithOptions(ctx, true, true, &repaired)
+	if err != nil {
+		return 0, "", 0, err
+	}
+	if w.ir != nil {
+		if err := w.ReconcileIRWORMDurability(ctx); err != nil {
+			return 0, "", 0, err
+		}
+	}
 	return last, hash, repaired, err
 }
 
@@ -957,8 +1239,29 @@ func canonicalWORMSegmentArtifactKey(artifactKey string) (
 // segment's signature, seq continuity from 1 with no gaps or overlaps, and
 // the hash chain across segment boundaries. Any failure is a loud error.
 func (w *WormExporter) VerifyWORMChain(ctx context.Context) error {
-	_, _, err := w.scanWORMChain(ctx, false)
-	return err
+	wormSeq, _, err := w.scanWORMChain(ctx, false)
+	if err != nil || w.ir == nil {
+		return err
+	}
+	if err := w.ir.VerifyIRStages(ctx); err != nil {
+		return fmt.Errorf("verify encrypted IR stage chains: %w", err)
+	}
+	irSeq, err := w.ir.CoverageWatermark(
+		ctx,
+		w.objects,
+		w.readVerifiedWORMSegment,
+	)
+	if err != nil {
+		return fmt.Errorf("verify encrypted IR WORM coverage: %w", err)
+	}
+	if irSeq != wormSeq {
+		return fmt.Errorf(
+			"audit: encrypted IR coverage sequence %d differs from signed WORM sequence %d",
+			irSeq,
+			wormSeq,
+		)
+	}
+	return nil
 }
 
 // ListProvider returns provider-stream events with seq greater than afterSeq

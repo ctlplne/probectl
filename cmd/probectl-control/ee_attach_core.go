@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
@@ -34,7 +35,8 @@ import (
 func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*license.Manager, *pgxpool.Pool, *control.LatestResults, flowstore.Store,
 	*pathstore.ClickHouse, ebpfstore.Store, otelstore.Store, endpointstore.Store,
-	*tenantlife.Engine, func(context.Context, string) ([]byte, func(), error),
+	*tenantlife.Engine, *audit.WormExporter,
+	func(context.Context, string) ([]byte, func(), error),
 	*fairness.Gate, topology.Store) error {
 	return nil
 }

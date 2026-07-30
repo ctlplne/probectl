@@ -403,17 +403,17 @@ func (rt *serveRuntime) configureTestSync() error {
 }
 
 func (rt *serveRuntime) startLifecycleAndServe() error {
-	var err error
-	rt.lifeEngine, err = startHAAndTenantLifecycle(rt.gctx, rt.g, rt.cfg, rt.db, rt.log,
+	lifeEngine, worm, err := startHAAndTenantLifecycle(rt.gctx, rt.g, rt.cfg, rt.db, rt.log,
 		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.ebpfStore, rt.objectStore)
 	if err != nil {
 		return err
 	}
+	rt.lifeEngine = lifeEngine
 	rt.lifeEngine.WithEndpointRetention(rt.endpointViews)
 	rt.lifeEngine.WithEndpointEvents(rt.endpointStore)
 	if err := attachEE(rt.gctx, rt.srv, rt.cfg, rt.log, rt.lic, rt.db.Pool(), rt.latestResults,
 		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.endpointStore, rt.lifeEngine,
-		rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore); err != nil {
+		worm, rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore); err != nil {
 		return err
 	}
 	if sup, ok := control.BuildAlertEvaluatorSupervisor(rt.db.Pool(), rt.tsdbWriter, alert.ChannelDeps{},

@@ -25,7 +25,7 @@ import (
 )
 
 // TestProviderRetentionPrune drives the EXC-ORG-01 retention pruner against real
-// Postgres: append a run of provider/break-glass events, then prune with a
+// Postgres: append a run of ordinary provider events, then prune with a
 // watermark + window and assert (a) only events BOTH old enough AND at/under the
 // exported watermark are removed, (b) newer or un-exported events survive, and
 // (c) the remaining chain STILL VERIFIES (no gap broke the hash chain a verifier
@@ -47,7 +47,7 @@ func TestProviderRetentionPrune(t *testing.T) {
 	// Append 6 events on the provider chain.
 	const n = 6
 	for i := 0; i < n; i++ {
-		if _, err := ProviderAppend(ctx, pool, "operator-x", "break_glass.access",
+		if _, err := ProviderAppend(ctx, pool, "operator-x", "retention.seed",
 			fmt.Sprintf("ret-%d", i), map[string]any{"i": i}); err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
@@ -68,7 +68,13 @@ func TestProviderRetentionPrune(t *testing.T) {
 	// Watermark covers only the first 3 of the 4 aged rows: row 4 is aged but NOT
 	// yet exported, so it must be KEPT (fail closed on un-exported history).
 	watermark := base + 3
-	pruned, err := PruneProvider(ctx, pool, policy, watermark, time.Now())
+	pruned, err := pruneProviderWithProof(
+		ctx,
+		pool,
+		policy,
+		verifiedWORMOnlyProof(watermark),
+		time.Now(),
+	)
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}
@@ -98,8 +104,21 @@ func TestProviderRetentionPrune(t *testing.T) {
 
 	// A second prune at the same watermark is idempotent (nothing left to prune
 	// at/under it that is also aged).
-	if again, err := PruneProvider(ctx, pool, policy, watermark, time.Now()); err != nil || again != 0 {
+	if again, err := pruneProviderWithProof(
+		ctx,
+		pool,
+		policy,
+		verifiedWORMOnlyProof(watermark),
+		time.Now(),
+	); err != nil || again != 0 {
 		t.Fatalf("idempotent re-prune = (%d,%v), want (0,nil)", again, err)
+	}
+}
+
+func verifiedWORMOnlyProof(watermark int64) ProviderRetentionProof {
+	return ProviderRetentionProof{
+		watermark: watermark,
+		verified:  true,
 	}
 }
 
@@ -122,7 +141,11 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 		t.Fatalf("provider head: %v", err)
 	}
 	wantProviderPruned := int64(0)
-	providerWatermark := ProviderWatermarkFunc(func(context.Context) (int64, error) { return 0, nil })
+	providerProof := ProviderRetentionProofFunc(
+		func(context.Context) (ProviderRetentionProof, error) {
+			return verifiedWORMOnlyProof(0), nil
+		},
+	)
 	if providerBase == 0 {
 		for i := 0; i < 4; i++ {
 			if _, err := ProviderAppend(ctx, pool, "operator-x", "provider.retention.seed",
@@ -136,7 +159,9 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 			t.Fatalf("backdate provider: %v", err)
 		}
 		wantProviderPruned = 2
-		providerWatermark = func(context.Context) (int64, error) { return providerBase + 2, nil }
+		providerProof = func(context.Context) (ProviderRetentionProof, error) {
+			return verifiedWORMOnlyProof(providerBase + 2), nil
+		}
 	}
 
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tid), pool, func(ctx context.Context, s tenancy.Scope) error {
@@ -166,7 +191,8 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 		t.Fatalf("backdate tenant: %v", err)
 	}
 
-	runner := NewRetentionRunnerPG(pool, RetentionPolicy{Window: 24 * time.Hour}, providerWatermark, testLog()).
+	runner := NewRetentionRunnerPG(pool, RetentionPolicy{Window: 24 * time.Hour}, nil, testLog()).
+		WithProviderRetentionProof(providerProof).
 		WithTenantIDsForTest(func(context.Context) ([]string, error) { return []string{tn.ID}, nil }).
 		WithNowForTest(func() time.Time { return now })
 	sum, err := runner.Tick(ctx)
@@ -874,11 +900,15 @@ func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
 		); err != nil {
 			t.Fatalf("backdate provider stream: %v", err)
 		}
-		if n, err := PruneProvider(
+		proof, err := worm.RetentionProof(ctx)
+		if err != nil {
+			t.Fatalf("verified provider retention proof: %v", err)
+		}
+		if n, err := pruneProviderWithProof(
 			ctx,
 			pool,
 			RetentionPolicy{Window: 24 * time.Hour},
-			watermark,
+			proof,
 			now,
 		); err != nil || n != 3 {
 			t.Fatalf("full provider prune = (%d, %v), want (3, nil)", n, err)
@@ -934,11 +964,15 @@ func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
 		if err != nil || blocker.Seq != 6 {
 			t.Fatalf("append provider partial blocker = (%d, %v), want (6, nil)", blocker.Seq, err)
 		}
-		if n, err := PruneProvider(
+		proof, err = worm.RetentionProof(ctx)
+		if err != nil {
+			t.Fatalf("second verified provider retention proof: %v", err)
+		}
+		if n, err := pruneProviderWithProof(
 			ctx,
 			pool,
 			RetentionPolicy{Window: 24 * time.Hour},
-			watermark,
+			proof,
 			now,
 		); err != nil || n != 2 {
 			t.Fatalf("partial provider prune = (%d, %v), want (2, nil)", n, err)
@@ -1388,18 +1422,36 @@ func TestAuditRetentionProviderCursorBoundsRollback(t *testing.T) {
 	}
 	policy := RetentionPolicy{Window: 24 * time.Hour}
 
-	if n, err := PruneProvider(ctx, pool, policy, 4, now); err == nil ||
+	if n, err := pruneProviderWithProof(
+		ctx,
+		pool,
+		policy,
+		verifiedWORMOnlyProof(4),
+		now,
+	); err == nil ||
 		!strings.Contains(err.Error(), "above durable head") || n != 0 {
 		t.Fatalf("above-head WORM prune = (%d, %v), want rollback error", n, err)
 	}
 	assertProviderRetentionState(t, pool, 3, 0, 3, 0)
 
-	if n, err := PruneProvider(ctx, pool, policy, 2, now); err != nil || n != 2 {
+	if n, err := pruneProviderWithProof(
+		ctx,
+		pool,
+		policy,
+		verifiedWORMOnlyProof(2),
+		now,
+	); err != nil || n != 2 {
 		t.Fatalf("valid provider prune = (%d, %v), want (2, nil)", n, err)
 	}
 	assertProviderRetentionState(t, pool, 4, 2, 2, 1)
 
-	if n, err := PruneProvider(ctx, pool, policy, 1, now); err == nil ||
+	if n, err := pruneProviderWithProof(
+		ctx,
+		pool,
+		policy,
+		verifiedWORMOnlyProof(1),
+		now,
+	); err == nil ||
 		!strings.Contains(err.Error(), "behind prune anchor") || n != 0 {
 		t.Fatalf("behind-anchor WORM prune = (%d, %v), want rollback error", n, err)
 	}

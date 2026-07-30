@@ -61,6 +61,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
 	flowStore flowstore.Store, pathCH *pathstore.ClickHouse, ebpfStore ebpfstore.Store, otelStore otelstore.Store, endpointStore endpointstore.Store,
 	life *tenantlife.Engine,
+	worm *audit.WormExporter,
 	resolveSecret func(context.Context, string) ([]byte, func(), error),
 	fairGate *fairness.Gate, topoStore topology.Store) error {
 	// One dynamic lifecycle capability is shared by every attached commercial
@@ -250,9 +251,12 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 				cfg.WormSigningKeyFile,
 			)
 		}
-		irSidecar, err := audit.NewIRStagePG(irKeys, wormPrivate, wormPublic)
+		irSidecar, err := audit.NewIRStagePG(pool, irKeys, wormPrivate, wormPublic)
 		if err != nil {
 			return fmt.Errorf("provider IR sidecar: %w", err)
+		}
+		if err := attachProviderIRDurability(ctx, worm, irSidecar); err != nil {
+			return err
 		}
 		h, err := provider.Build(cfg, provider.Deps{
 			Pool:      pool,
@@ -282,6 +286,29 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		srv.WithProviderPlane(h)
 		log.Info("provider plane attached (S-T1)",
 			"tier", lic.Tier(), "state", lic.State(), "tenant_band", lic.TenantBand())
+	}
+	return nil
+}
+
+func attachProviderIRDurability(
+	ctx context.Context,
+	worm *audit.WormExporter,
+	sidecar *audit.IRStagePG,
+) error {
+	if worm == nil {
+		return errors.New(
+			"provider IR sidecar requires signed WORM export before admission",
+		)
+	}
+	if sidecar == nil {
+		return errors.New("provider IR sidecar is unavailable")
+	}
+	worm.WithIRWORMDurability(sidecar)
+	if err := worm.ReconcileIRWORMDurability(ctx); err != nil {
+		return fmt.Errorf(
+			"provider IR WORM reconciliation before admission: %w",
+			err,
+		)
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ package silo
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
@@ -52,7 +54,7 @@ func (failingIntegrationIRKeys) WrapProviderForTenant(
 // TestIRAttributionAtomicSealIsolationAndTamper is the pooled+silo regression
 // for IR-3f573c58. It uses the real provider transaction and migration 0079.
 func TestIRAttributionAtomicSealIsolationAndTamper(t *testing.T) {
-	pool := irIntegrationPool(t)
+	pool := irWORMIsolationPool(t)
 	t.Cleanup(pool.Close)
 	testsupport.LockPostgresPublicCatalog(t, pool)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
@@ -134,6 +136,7 @@ func TestIRAttributionAtomicSealIsolationAndTamper(t *testing.T) {
 				tenantB: wrapOnly,
 			}
 			sidecar, err := audit.NewIRStagePG(
+				pool,
 				keys,
 				signingPrivate,
 				signingPublic,
@@ -157,6 +160,7 @@ func TestIRAttributionAtomicSealIsolationAndTamper(t *testing.T) {
 			assertProviderTargetCount(t, pool, plainAction, plainTarget, 0)
 
 			failingSidecar, err := audit.NewIRStagePG(
+				pool,
 				failingIntegrationIRKeys{},
 				signingPrivate,
 				signingPublic,
@@ -299,20 +303,220 @@ func TestIRAttributionAtomicSealIsolationAndTamper(t *testing.T) {
 	}
 }
 
-func irIntegrationPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testsupport.PostgresDSN())
+// TestIRWORMBindingRoutesPooledAndSiloedTenants proves the post-append WORM
+// binder reaches each tenant's physical stage store, while the existing
+// storage-layer RLS checks still prevent either tenant from reading the other.
+func TestIRWORMBindingRoutesPooledAndSiloedTenants(t *testing.T) {
+	pool := irWORMIsolationPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	t.Cleanup(cancel)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	signingPrivate, signingPublic, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
+		t.Fatal(err)
+	}
+	_, wrappingPublic, err := crypto.GenerateRSAOAEPKeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapOnly, err := crypto.NewRSAOAEPWrapProviderPEM(wrappingPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provisioner := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
+	type tenantPair struct {
+		model tenancy.IsolationModel
+		a     string
+		b     string
+	}
+	pairs := make([]tenantPair, 0, 2)
+	keys := integrationIRKeys{}
+	for _, model := range []tenancy.IsolationModel{
+		tenancy.IsolationPooled,
+		tenancy.IsolationSiloed,
+	} {
+		stamp := fmt.Sprintf("%s-%d", model, time.Now().UnixNano())
+		pair := tenantPair{
+			model: model,
+			a:     irIntegrationTenant(t, pool, "ir-worm-a-"+stamp, model),
+			b:     irIntegrationTenant(t, pool, "ir-worm-b-"+stamp, model),
+		}
+		if model == tenancy.IsolationSiloed {
+			for _, tenantID := range []string{pair.a, pair.b} {
+				if err := provisioner.Provision(
+					ctx,
+					tenantID,
+					"",
+					tenancy.IsolationSiloed,
+				); err != nil {
+					t.Fatalf("provision IR WORM silo %s: %v", tenantID, err)
+				}
+			}
+		}
+		keys[pair.a] = wrapOnly
+		keys[pair.b] = wrapOnly
+		pairs = append(pairs, pair)
+	}
+	sidecar, err := audit.NewIRStagePG(
+		pool,
+		keys,
+		signingPrivate,
+		signingPublic,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const canary = "ir-worm-routing-canary@example.test"
+	wantEvents := make(map[int64]struct{}, 4)
+	tenantIDs := make([]string, 0, 4)
+	for _, pair := range pairs {
+		for _, tenantID := range []string{pair.a, pair.b} {
+			grant := "grant-" + tenantID
+			event, err := audit.ProviderAppendBreakGlass(
+				ctx,
+				pool,
+				sidecar,
+				canary,
+				"provider.breakglass_access",
+				grant,
+				map[string]any{
+					"tenant":  tenantID,
+					"surface": "results.latest",
+					"reason":  "two-tenant WORM routing",
+				},
+				completeIntegrationIRAttribution(
+					tenantID,
+					"operator-"+tenantID[:8],
+					grant,
+					"two-tenant WORM routing",
+				),
+			)
+			if err != nil {
+				t.Fatalf("append routed IR event for %s: %v", tenantID, err)
+			}
+			wantEvents[event.Seq] = struct{}{}
+			tenantIDs = append(tenantIDs, tenantID)
+		}
+		assertIRStorageIsolation(t, pool, pair.model, pair.a, pair.b)
+	}
+
+	objects := objectstore.NewMemory()
+	worm, err := audit.NewWormExporterPG(
+		pool,
+		objects,
+		signingPrivate,
+		signingPublic,
+		log,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worm.WithIRWORMDurability(sidecar)
+	if n, err := worm.ExportOnce(ctx); err != nil || n != 4 {
+		t.Fatalf("routed IR WORM export = (%d, %v), want (4, nil)", n, err)
+	}
+	if watermark, err := worm.RetentionWatermark(ctx); err != nil ||
+		watermark != 4 {
+		t.Fatalf("routed IR WORM watermark = (%d, %v), want (4, nil)", watermark, err)
+	}
+	companion, err := objects.Get(
+		ctx,
+		"worm/audit/ir/segment-000000000001-000000000004.ir.json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(companion.Data, []byte(canary)) {
+		t.Fatal("operator canary leaked into pooled+silo IR WORM companion")
+	}
+	for _, tenantID := range tenantIDs {
+		if bytes.Contains(companion.Data, []byte(tenantID)) {
+			t.Fatalf(
+				"tenant %s leaked into pooled+silo IR WORM companion",
+				tenantID,
+			)
+		}
+	}
+	var decoded audit.IRWORMCompanion
+	if err := json.Unmarshal(companion.Data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Records) != len(wantEvents) {
+		t.Fatalf(
+			"routed IR WORM records = %d, want %d",
+			len(decoded.Records),
+			len(wantEvents),
+		)
+	}
+	seen := make(map[int64]struct{}, len(decoded.Records))
+	for _, record := range decoded.Records {
+		if _, ok := wantEvents[record.AuditSeq]; !ok {
+			t.Fatalf(
+				"IR WORM companion contains unexpected audit seq %d",
+				record.AuditSeq,
+			)
+		}
+		if _, duplicate := seen[record.AuditSeq]; duplicate {
+			t.Fatalf(
+				"IR WORM companion duplicates audit seq %d",
+				record.AuditSeq,
+			)
+		}
+		seen[record.AuditSeq] = struct{}{}
+	}
+}
+
+func irWORMIsolationPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	ctx := context.Background()
+	adminConfig, err := pgxpool.ParseConfig(testsupport.PostgresDSN())
+	if err != nil {
+		t.Fatalf("parse postgres DSN: %v", err)
+	}
+	adminConfig.ConnConfig.Database = "postgres"
+	admin, err := pgxpool.NewWithConfig(ctx, adminConfig)
+	if err != nil {
+		testsupport.SkipOrFatal(t, "open postgres admin connection: %v", err)
+	}
+	if err := admin.Ping(ctx); err != nil {
+		admin.Close()
 		testsupport.SkipOrFatal(t, "postgres unavailable: %v", err)
 	}
-	if err := pool.Ping(context.Background()); err != nil {
-		pool.Close()
-		testsupport.SkipOrFatal(t, "postgres unavailable: %v", err)
+	database := fmt.Sprintf("probectl_ir_worm_isolation_%d", time.Now().UnixNano())
+	quoted := pgx.Identifier{database}.Sanitize()
+	if _, err := admin.Exec(ctx, `CREATE DATABASE `+quoted); err != nil {
+		admin.Close()
+		t.Fatalf("create isolated IR WORM database: %v", err)
 	}
-	if _, err := migrate.New(migrations.FS, nil).Apply(context.Background(), pool); err != nil {
-		pool.Close()
-		t.Fatalf("migrate: %v", err)
+	testConfig := adminConfig.Copy()
+	testConfig.ConnConfig.Database = database
+	pool, err := pgxpool.NewWithConfig(ctx, testConfig)
+	if err != nil {
+		_, _ = admin.Exec(ctx, `DROP DATABASE `+quoted+` WITH (FORCE)`)
+		admin.Close()
+		t.Fatalf("open isolated IR WORM database: %v", err)
 	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		_, _ = admin.Exec(ctx, `DROP DATABASE `+quoted+` WITH (FORCE)`)
+		admin.Close()
+		t.Fatalf("ping isolated IR WORM database: %v", err)
+	}
+	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, pool); err != nil {
+		pool.Close()
+		_, _ = admin.Exec(ctx, `DROP DATABASE `+quoted+` WITH (FORCE)`)
+		admin.Close()
+		t.Fatalf("migrate isolated IR WORM database: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Close()
+		_, _ = admin.Exec(
+			context.Background(),
+			`DROP DATABASE IF EXISTS `+quoted+` WITH (FORCE)`,
+		)
+		admin.Close()
+	})
 	return pool
 }
 

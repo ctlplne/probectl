@@ -732,7 +732,7 @@ func startHAAndTenantLifecycle(
 	otelStore otelstore.Store,
 	ebpfStore ebpfstore.Store,
 	objectStore objectstore.Store,
-) (*tenantlife.Engine, error) {
+) (*tenantlife.Engine, *audit.WormExporter, error) {
 	if cfg.Region != "" {
 		topo := cluster.Topology{
 			Region: cfg.Region, Regions: cfg.Regions, Residency: cfg.Residency,
@@ -776,22 +776,26 @@ func startHAAndTenantLifecycle(
 		lifeEngine.RunRetention(ctx, 24*time.Hour)
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var providerAuditWatermark audit.ProviderWatermarkFunc
+	var providerAuditProof audit.ProviderRetentionProofFunc
+	var worm *audit.WormExporter
 	if cfg.AuditWORMDir != "" {
-		worm, werr := buildReconciledAuditWORM(ctx, cfg, db, log)
+		builtWORM, werr := buildReconciledAuditWORM(ctx, cfg, db, log)
 		if werr != nil {
-			return nil, werr
+			return nil, nil, werr
 		}
+		worm = builtWORM
 		worm.WithMetrics(srv.Metrics())
 		providerAuditWatermark = worm.ExportedWatermark
+		providerAuditProof = worm.RetentionProof
 		if err := singletons.Register("audit-worm-export", func(ctx context.Context, _ cluster.LeaseToken) error {
 			worm.Run(ctx, cfg.AuditWORMInterval)
 			return nil
 		}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		log.Info("audit WORM export enabled", "dir", cfg.AuditWORMDir, "interval", cfg.AuditWORMInterval.String())
 	}
@@ -800,12 +804,13 @@ func startHAAndTenantLifecycle(
 		audit.RetentionPolicy{Window: cfg.AuditRetention},
 		providerAuditWatermark,
 		log,
-	).WithTenantRetentionWindow(lifeEngine.ProviderAuditRetentionWindowFor)
+	).WithProviderRetentionProof(providerAuditProof).
+		WithTenantRetentionWindow(lifeEngine.ProviderAuditRetentionWindowFor)
 	if err := singletons.Register("audit-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
 		retention.Run(ctx, time.Hour)
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	log.Info("audit retention runner enabled",
 		"provider_retention", cfg.AuditRetention.String(),
@@ -814,7 +819,7 @@ func startHAAndTenantLifecycle(
 		"provider_watermark", providerAuditWatermark != nil)
 
 	srv.WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
-	return lifeEngine, nil
+	return lifeEngine, worm, nil
 }
 
 func buildReconciledAuditWORM(

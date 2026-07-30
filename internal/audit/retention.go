@@ -61,6 +61,18 @@ const RetentionAnchorRecoveredAction = "audit.retention_anchor_recovered"
 // exported. Returning 0 makes provider pruning fail closed.
 type ProviderWatermarkFunc func(context.Context) (int64, error)
 
+// ProviderRetentionProof is an opaque receipt minted by WormExporter only
+// after cryptographic verification. Its fields are deliberately private so a
+// raw caller-supplied integer cannot masquerade as IR coverage.
+type ProviderRetentionProof struct {
+	watermark  int64
+	verified   bool
+	irVerified bool
+}
+
+// ProviderRetentionProofFunc returns one opaque provider-retention receipt.
+type ProviderRetentionProofFunc func(context.Context) (ProviderRetentionProof, error)
+
 // TenantWatermarkFunc returns the highest tenant-audit seq proven durably
 // exported for one tenant. Returning 0 makes tenant pruning fail closed.
 type TenantWatermarkFunc func(context.Context, string) (int64, error)
@@ -89,6 +101,7 @@ type RetentionRunner struct {
 	pool              *pgxpool.Pool
 	policy            RetentionPolicy
 	providerWatermark ProviderWatermarkFunc
+	providerProof     ProviderRetentionProofFunc
 	tenantWatermark   TenantWatermarkFunc
 	tenantIDs         TenantIDsFunc
 	tenantWindow      TenantRetentionWindowFunc
@@ -122,6 +135,16 @@ func NewRetentionRunnerPG(pool *pgxpool.Pool, policy RetentionPolicy, providerWa
 // WithTenantWatermarkForTest replaces the tenant watermark source.
 func (r *RetentionRunner) WithTenantWatermarkForTest(fn TenantWatermarkFunc) *RetentionRunner {
 	r.tenantWatermark = fn
+	return r
+}
+
+// WithProviderRetentionProof replaces the legacy raw WORM watermark with an
+// opaque cryptographically verified receipt. Provider-plane runtime wiring
+// uses this path once encrypted IR attribution is attached.
+func (r *RetentionRunner) WithProviderRetentionProof(
+	fn ProviderRetentionProofFunc,
+) *RetentionRunner {
+	r.providerProof = fn
 	return r
 }
 
@@ -171,16 +194,41 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 		return sum, nil
 	}
 	now := r.now()
-	if r.policy.Enabled() && r.providerWatermark != nil {
-		watermark, err := r.providerWatermark(ctx)
-		if err != nil {
-			return sum, fmt.Errorf("provider audit watermark: %w", err)
+	if r.policy.Enabled() {
+		switch {
+		case r.providerProof != nil:
+			proof, err := r.providerProof(ctx)
+			if err != nil {
+				return sum, fmt.Errorf("provider audit retention proof: %w", err)
+			}
+			pruned, err := pruneProviderWithProof(
+				ctx,
+				r.pool,
+				r.policy,
+				proof,
+				now,
+			)
+			if err != nil {
+				return sum, err
+			}
+			sum.ProviderPruned = pruned
+		case r.providerWatermark != nil:
+			watermark, err := r.providerWatermark(ctx)
+			if err != nil {
+				return sum, fmt.Errorf("provider audit watermark: %w", err)
+			}
+			pruned, err := PruneProvider(
+				ctx,
+				r.pool,
+				r.policy,
+				watermark,
+				now,
+			)
+			if err != nil {
+				return sum, err
+			}
+			sum.ProviderPruned = pruned
 		}
-		pruned, err := PruneProvider(ctx, r.pool, r.policy, watermark, now)
-		if err != nil {
-			return sum, err
-		}
-		sum.ProviderPruned = pruned
 	}
 	tenants, err := r.tenantIDs(ctx)
 	if err != nil {
@@ -293,8 +341,9 @@ type tenantPruneReceiptFunc func(
 // and receipt can therefore neither commit separately nor reset the stream
 // behind the already-durable WORM cursor.
 //
-// exportedWatermark is the highest provider seq the WORM exporter has signed
-// into object storage. Pass 0 to prune nothing (nothing proven exported).
+// exportedWatermark is the highest provider seq jointly verified by the WORM
+// exporter and, once encrypted IR attribution is active, its independent
+// companion-coverage chain. Pass 0 to prune nothing.
 func PruneProvider(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -324,6 +373,35 @@ func PruneProvider(
 	)
 }
 
+func pruneProviderWithProof(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	p RetentionPolicy,
+	proof ProviderRetentionProof,
+	now time.Time,
+) (int64, error) {
+	return pruneProviderWithProofReceipt(
+		ctx,
+		pool,
+		p,
+		proof,
+		now,
+		func(ctx context.Context, q tenancy.Querier, data map[string]any) error {
+			if _, err := providerAppendLocked(
+				ctx,
+				q,
+				"system:audit-retention",
+				RetentionPruneAction,
+				"provider",
+				data,
+			); err != nil {
+				return fmt.Errorf("append provider prune receipt: %w", err)
+			}
+			return nil
+		},
+	)
+}
+
 func pruneProviderWithReceipt(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -332,6 +410,25 @@ func pruneProviderWithReceipt(
 	now time.Time,
 	receipt providerPruneReceiptFunc,
 ) (int64, error) {
+	return pruneProviderWithProofReceipt(
+		ctx,
+		pool,
+		p,
+		ProviderRetentionProof{watermark: exportedWatermark},
+		now,
+		receipt,
+	)
+}
+
+func pruneProviderWithProofReceipt(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	p RetentionPolicy,
+	proof ProviderRetentionProof,
+	now time.Time,
+	receipt providerPruneReceiptFunc,
+) (int64, error) {
+	exportedWatermark := proof.watermark
 	if !p.Enabled() {
 		return 0, nil
 	}
@@ -349,23 +446,78 @@ func pruneProviderWithReceipt(
 		return 0, fmt.Errorf("begin provider audit prune: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// IR-3f573c58 establishes the append-time encrypted inner envelope, but the
-	// exact WORM-segment outer binding and its independent durable watermark
-	// land in the next focused finding. Once 0079 is installed, pruning must
-	// therefore stop rather than treat the ordinary WORM cursor as attribution
-	// coverage. This intentionally blunt gate is replaced only by verified IR
-	// coverage logic; it never guesses or backfills historical proof.
-	var irStageInstalled bool
+	// Defense in depth: once the IR coverage schema is installed, a raw
+	// caller-supplied integer can never authorize a positive prune. The
+	// tenant-scoped stage tables are deliberately not inspected globally:
+	// FORCE RLS makes such a query empty under the production provider role.
+	// Instead, the provider event stream holds pruning closed from the atomic
+	// break-glass append until signed coverage exists, and the durable global
+	// coverage chain holds it closed thereafter.
+	var irCoverageInstalled bool
 	if err := tx.QueryRow(
 		ctx,
-		`SELECT to_regclass('public.ir_attribution_records') IS NOT NULL`,
-	).Scan(&irStageInstalled); err != nil {
-		return 0, fmt.Errorf("check encrypted IR retention gate: %w", err)
+		`SELECT to_regclass(
+		     'public.ir_attribution_worm_coverage_head'
+		 ) IS NOT NULL`,
+	).Scan(&irCoverageInstalled); err != nil {
+		return 0, fmt.Errorf("check encrypted IR coverage state: %w", err)
 	}
-	if irStageInstalled {
-		return 0, errors.New(
-			"provider audit retention blocked: encrypted IR WORM coverage watermark is not available",
-		)
+	if irCoverageInstalled {
+		if !proof.verified {
+			return 0, errors.New(
+				"provider audit retention blocked: a verified WORM proof is required",
+			)
+		}
+		var irCoveredSeq int64
+		err := tx.QueryRow(
+			ctx,
+			`SELECT covered_seq
+			   FROM public.ir_attribution_worm_coverage_head
+			  WHERE singleton`,
+		).Scan(&irCoveredSeq)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, errors.New(
+				"provider audit retention blocked: encrypted IR WORM coverage head is missing",
+			)
+		}
+		if err != nil {
+			return 0, fmt.Errorf("read encrypted IR retention watermark: %w", err)
+		}
+		var coverageRows, protectedEvents bool
+		if err := tx.QueryRow(
+			ctx,
+			`SELECT EXISTS (
+			     SELECT 1
+			       FROM public.ir_attribution_worm_coverage
+			 )`,
+		).Scan(&coverageRows); err != nil {
+			return 0, fmt.Errorf("inspect encrypted IR coverage rows: %w", err)
+		}
+		if err := tx.QueryRow(
+			ctx,
+			`SELECT EXISTS (
+			     SELECT 1
+			       FROM provider_audit_events
+			      WHERE lower(btrim(action)) LIKE '%breakglass%'
+			         OR lower(btrim(action)) LIKE '%break\_glass%' ESCAPE '\'
+			         OR lower(btrim(action)) LIKE '%break-glass%'
+			 )`,
+		).Scan(&protectedEvents); err != nil {
+			return 0, fmt.Errorf("inspect protected provider audit state: %w", err)
+		}
+		if (irCoveredSeq > 0 || coverageRows || protectedEvents) &&
+			!proof.irVerified {
+			return 0, errors.New(
+				"provider audit retention blocked: a verified encrypted IR coverage proof is required",
+			)
+		}
+		if proof.irVerified && exportedWatermark > irCoveredSeq {
+			return 0, fmt.Errorf(
+				"provider audit retention blocked: requested watermark %d exceeds encrypted IR coverage %d",
+				exportedWatermark,
+				irCoveredSeq,
+			)
+		}
 	}
 	if err := lockProviderStream(ctx, tx); err != nil {
 		return 0, fmt.Errorf("lock provider audit prune: %w", err)

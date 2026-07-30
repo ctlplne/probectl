@@ -70,11 +70,19 @@ the key. The keyring is operator-owned local storage, so sealing remains
 deterministic in an air gap. Investigation-only separation of duty and audited
 unseal are a distinct surface.
 
-Migration 0079 is the append-time inner-envelope foundation. Until the opaque
-record is additionally bound to an exact verified WORM segment and an
-independent IR coverage watermark exists, provider audit pruning fails closed.
-It never treats a normal WORM cursor as proof of attribution coverage and never
-fabricates coverage for older rows.
+Migration 0079 is the append-time inner envelope; migration 0080 completes its
+retention-surviving WORM binding. After each signed WORM segment is durably
+read back and verified with the WORM key, probectl outer-seals each protected
+stage with AAD containing the tenant, provider sequence, and hash of those exact
+segment bytes. The global companion omits the tenant identifier; it carries
+only the event sequence, randomized envelope material, and signed opaque
+commitments, so it does not restore the tenant linkage stripped from WORM. A
+separately signed companion manifest and continuous coverage head are then
+verified before retention may use the lower of the WORM and IR watermarks.
+Missing stages, companions, coverage rows, signatures, or chain links fail
+closed; the runtime never fabricates historical proof. The encrypted stage and
+companion are not pruned with the plaintext provider rows, so an authorized
+investigation can still reconstruct attribution after a legitimate prune.
 
 Rejected agent and collector enrollment attempts use the fixed
 `security.enrollment_rejected` action. If a tenant was resolved from an

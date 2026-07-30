@@ -25,6 +25,7 @@ import (
 // IRStagePG persists the append-time inner envelope. It deliberately has no
 // Open method: routine operation owns public wrapping capability only.
 type IRStagePG struct {
+	pool       *pgxpool.Pool
 	keys       IRWrapKeyResolver
 	signingKey []byte
 	verifyKey  []byte
@@ -32,9 +33,13 @@ type IRStagePG struct {
 
 // NewIRStagePG creates the local encrypted staging writer and verifier.
 func NewIRStagePG(
+	pool *pgxpool.Pool,
 	keys IRWrapKeyResolver,
 	signingPrivatePEM, signingPublicPEM []byte,
 ) (*IRStagePG, error) {
+	if pool == nil {
+		return nil, errors.New("audit: IR sidecar database is required")
+	}
 	if keys == nil {
 		return nil, errors.New("audit: IR wrapping-key resolver is required")
 	}
@@ -49,6 +54,7 @@ func NewIRStagePG(
 		return nil, errors.New("audit: IR signing public/private keys do not match")
 	}
 	return &IRStagePG{
+		pool:       pool,
 		keys:       keys,
 		signingKey: append([]byte(nil), signingPrivatePEM...),
 		verifyKey:  append([]byte(nil), signingPublicPEM...),
