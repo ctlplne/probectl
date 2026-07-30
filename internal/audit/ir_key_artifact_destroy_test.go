@@ -9,6 +9,7 @@ package audit
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -142,6 +143,139 @@ func TestIRKeyDestroyLocalArtifactInventoryDestroyAndRetry(t *testing.T) {
 	if !reflect.DeepEqual(retryReceipt, receipt) {
 		t.Fatalf("retry receipt = %#v, want %#v", retryReceipt, receipt)
 	}
+}
+
+func TestLocalIRKeyArtifactDestroyerInventoryIsPagedBoundedAndCancelable(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	page := make([]os.DirEntry, irArtifactInventoryPageSize)
+	for index := range page {
+		page[index] = irArtifactTestDirEntry("unrelated")
+	}
+
+	t.Run("exact aggregate ceiling", func(t *testing.T) {
+		t.Parallel()
+
+		remaining := maxIRArtifactInventoryEntries
+		requests := make([]int, 0)
+		entries, err := readBoundedIRPrivateDirectory(
+			context.Background(),
+			func(size int) ([]os.DirEntry, error) {
+				requests = append(requests, size)
+				if size <= 0 {
+					size = len(page)
+				}
+				if remaining == 0 {
+					return nil, io.EOF
+				}
+				count := min(size, remaining)
+				remaining -= count
+				return page[:count], nil
+			},
+		)
+		if err != nil {
+			t.Fatalf("exact-ceiling scan: %v", err)
+		}
+		if len(entries) != maxIRArtifactInventoryEntries {
+			t.Fatalf(
+				"exact-ceiling visits = %d, want %d",
+				len(entries),
+				maxIRArtifactInventoryEntries,
+			)
+		}
+		for _, size := range requests {
+			if size != irArtifactInventoryPageSize {
+				t.Fatalf(
+					"ReadDir request = %d, want fixed page size %d",
+					size,
+					irArtifactInventoryPageSize,
+				)
+			}
+		}
+	})
+
+	t.Run("one past aggregate ceiling", func(t *testing.T) {
+		t.Parallel()
+
+		remaining := maxIRArtifactInventoryEntries + 1
+		entries, err := readBoundedIRPrivateDirectory(
+			context.Background(),
+			func(size int) ([]os.DirEntry, error) {
+				if size <= 0 {
+					size = len(page)
+				}
+				count := min(size, remaining)
+				remaining -= count
+				if remaining == 0 {
+					return page[:count], io.EOF
+				}
+				return page[:count], nil
+			},
+		)
+		if err == nil ||
+			!strings.Contains(err.Error(), "private-key directory exceeds 65536 entries") {
+			t.Fatalf("one-past-ceiling error = %v, want aggregate bound refusal", err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf(
+				"one-past-ceiling visits = %d, want zero before overflow refusal",
+				len(entries),
+			)
+		}
+	})
+
+	t.Run("cancellation after page read", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		requests := 0
+		entries, err := readBoundedIRPrivateDirectory(
+			ctx,
+			func(size int) ([]os.DirEntry, error) {
+				requests++
+				cancel()
+				if size <= 0 {
+					size = len(page)
+				}
+				return page[:min(size, len(page))], nil
+			},
+		)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled scan error = %v, want context.Canceled", err)
+		}
+		if requests != 1 || len(entries) != 0 {
+			t.Fatalf(
+				"canceled scan requests/visits = %d/%d, want 1/0",
+				requests,
+				len(entries),
+			)
+		}
+	})
+
+	t.Run("empty page cannot spin", func(t *testing.T) {
+		t.Parallel()
+
+		requests := 0
+		entries, err := readBoundedIRPrivateDirectory(
+			context.Background(),
+			func(int) ([]os.DirEntry, error) {
+				requests++
+				return nil, nil
+			},
+		)
+		if !errors.Is(err, io.ErrNoProgress) {
+			t.Fatalf("empty-page error = %v, want io.ErrNoProgress", err)
+		}
+		if requests != 1 || len(entries) != 0 {
+			t.Fatalf(
+				"empty-page requests/entries = %d/%d, want 1/0",
+				requests,
+				len(entries),
+			)
+		}
+	})
 }
 
 func TestIRKeyDestroyRejectsUnsafeLocalArtifacts(t *testing.T) {
@@ -511,3 +645,10 @@ func writeIRArtifactTestFile(
 		t.Fatal(err)
 	}
 }
+
+type irArtifactTestDirEntry string
+
+func (e irArtifactTestDirEntry) Name() string             { return string(e) }
+func (irArtifactTestDirEntry) IsDir() bool                { return false }
+func (irArtifactTestDirEntry) Type() os.FileMode          { return 0 }
+func (irArtifactTestDirEntry) Info() (os.FileInfo, error) { return nil, nil }

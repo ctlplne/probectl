@@ -23,14 +23,19 @@ import (
 )
 
 const (
-	irPrivateArtifactDomain    = "probectl-ir-private-artifact-v1"
-	irKeyArtifactDestroyDomain = "probectl-ir-key-artifact-destruction-v1"
-	irPublicArtifactIDPrefix   = "public:"
-	irPrivateArtifactIDPrefix  = "private:"
-	irDestroyingArtifactInfix  = ".destroying-"
-	maxIRPrivateArtifactBytes  = 64 << 10
-	maxIRArtifactKeyIDs        = 4096
-	maxIRArtifactKeyIDBytes    = 256
+	irPrivateArtifactDomain     = "probectl-ir-private-artifact-v1"
+	irKeyArtifactDestroyDomain  = "probectl-ir-key-artifact-destruction-v1"
+	irPublicArtifactIDPrefix    = "public:"
+	irPrivateArtifactIDPrefix   = "private:"
+	irDestroyingArtifactInfix   = ".destroying-"
+	maxIRPrivateArtifactBytes   = 64 << 10
+	maxIRArtifactKeyIDs         = 4096
+	maxIRArtifactKeyIDBytes     = 256
+	irArtifactInventoryPageSize = 256
+	// The private key directory is deployment-wide. Inventory permits up to
+	// 65,536 aggregate entries before failing closed so unrelated local files
+	// cannot force unbounded work or allocation.
+	maxIRArtifactInventoryEntries = 65_536
 )
 
 // IROpenKeyResolver is the investigation-only half of the IR key domain.
@@ -465,6 +470,51 @@ type localIRKeyArtifactInventory struct {
 	tombstones map[string]struct{}
 }
 
+func readBoundedIRPrivateDirectory(
+	ctx context.Context,
+	readDir func(int) ([]os.DirEntry, error),
+) ([]os.DirEntry, error) {
+	entriesToVisit := make([]os.DirEntry, 0, irArtifactInventoryPageSize)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		entries, readErr := readDir(irArtifactInventoryPageSize)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return nil, fmt.Errorf(
+				"audit: read IR private-key directory: %w",
+				readErr,
+			)
+		}
+		if len(entries) == 0 {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf(
+				"audit: read IR private-key directory: %w",
+				io.ErrNoProgress,
+			)
+		}
+		if len(entries) > maxIRArtifactInventoryEntries-len(entriesToVisit) {
+			return nil, fmt.Errorf(
+				"audit: IR private-key directory exceeds %d entries",
+				maxIRArtifactInventoryEntries,
+			)
+		}
+		entriesToVisit = append(entriesToVisit, entries...)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+	}
+	return entriesToVisit, nil
+}
+
 func validateIRKeyArtifactDirectory(
 	directory string,
 	ownerOnly bool,
@@ -697,13 +747,13 @@ func (d *LocalIRKeyArtifactDestroyer) inventory(
 			err,
 		)
 	}
-	entries, readErr := privateDirectory.ReadDir(-1)
+	entries, readErr := readBoundedIRPrivateDirectory(
+		ctx,
+		privateDirectory.ReadDir,
+	)
 	closeErr := privateDirectory.Close()
 	if readErr != nil {
-		return localIRKeyArtifactInventory{}, fmt.Errorf(
-			"audit: read IR private-key directory: %w",
-			readErr,
-		)
+		return localIRKeyArtifactInventory{}, readErr
 	}
 	if closeErr != nil {
 		return localIRKeyArtifactInventory{}, closeErr
