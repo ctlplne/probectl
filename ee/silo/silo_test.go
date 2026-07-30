@@ -97,6 +97,14 @@ func TestProvisionPlan(t *testing.T) {
 	if !strings.HasPrefix(plan[0], "CREATE SCHEMA") {
 		t.Error("schema must be created first")
 	}
+	assertAuditWriteFencePlan(t, joined, "audit_events", "probectl_app")
+	assertAuditWriteFencePlan(
+		t,
+		joined,
+		"audit_subject_erasures",
+		"probectl_app, probectl_provider",
+	)
+	assertNoAuditWriteFencePlan(t, joined, "tests")
 }
 
 // TestCatchUpPlan pins the drift recipe: a missing table gets the full
@@ -153,6 +161,7 @@ func TestCatchUpPlan(t *testing.T) {
 		) {
 			t.Fatalf("caught-up plan did not repair %s boundary:\n%s", table, caughtUp)
 		}
+		assertNoAuditWriteFencePlan(t, caughtUp, table)
 	}
 	if strings.Contains(caughtUp, "CREATE TABLE") ||
 		strings.Contains(caughtUp, "ADD COLUMN") {
@@ -199,6 +208,7 @@ func TestCatchUpPlan(t *testing.T) {
 	if policyAt < 0 || grantAt < 0 || policyAt > grantAt {
 		t.Fatalf("audit boundary must be repaired before grants:\n%s", repair)
 	}
+	assertAuditWriteFencePlan(t, repair, "audit_events", "probectl_app")
 
 	cat.TenantTables = append(cat.TenantTables, "audit_subject_erasures")
 	cat.SchemaTables = append(cat.SchemaTables, "audit_subject_erasures")
@@ -218,6 +228,50 @@ func TestCatchUpPlan(t *testing.T) {
 	} {
 		if !strings.Contains(markerRepair, want) {
 			t.Errorf("subject-erasure marker repair missing %q in:\n%s", want, markerRepair)
+		}
+	}
+	assertAuditWriteFencePlan(t, markerRepair, "audit_events", "probectl_app")
+	assertAuditWriteFencePlan(
+		t,
+		markerRepair,
+		"audit_subject_erasures",
+		"probectl_app, probectl_provider",
+	)
+	for _, table := range []string{"agents", "new_table", "tests"} {
+		assertNoAuditWriteFencePlan(t, markerRepair, table)
+	}
+}
+
+func assertAuditWriteFencePlan(t *testing.T, plan, table, roles string) {
+	t.Helper()
+	quotedTable := `"t_abc"."` + table + `"`
+	for _, want := range []string{
+		`CREATE POLICY tenant_audit_write_eligibility ON ` + quotedTable + ` AS RESTRICTIVE
+  FOR INSERT TO ` + roles + `
+  WITH CHECK (public.probectl_tenant_audit_writes_allowed())`,
+		`CREATE TRIGGER tenant_audit_write_fence
+  BEFORE INSERT ON ` + quotedTable + `
+  FOR EACH ROW
+  EXECUTE FUNCTION public.probectl_enforce_tenant_audit_write_fence()`,
+		`ALTER TABLE ` + quotedTable + ` ENABLE ALWAYS TRIGGER tenant_audit_write_fence`,
+	} {
+		if !strings.Contains(plan, want) {
+			t.Errorf("%s audit write-fence plan missing %q in:\n%s", table, want, plan)
+		}
+	}
+}
+
+func assertNoAuditWriteFencePlan(t *testing.T, plan, table string) {
+	t.Helper()
+	quotedTable := `"t_abc"."` + table + `"`
+	for _, forbidden := range []string{
+		`tenant_audit_write_eligibility ON ` + quotedTable,
+		`tenant_audit_write_fence
+  BEFORE INSERT ON ` + quotedTable,
+		`ALTER TABLE ` + quotedTable + ` ENABLE ALWAYS TRIGGER tenant_audit_write_fence`,
+	} {
+		if strings.Contains(plan, forbidden) {
+			t.Fatalf("ordinary table %s received audit-only write fence %q", table, forbidden)
 		}
 	}
 }

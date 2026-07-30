@@ -122,6 +122,22 @@ verifies each store reads zero afterward. Note the Postgres deletes run under
 the same row-level security (RLS) scope as live queries — the eraser is
 *incapable* of reaching another tenant's rows, even buggy:
 
+Before the first delete, the engine changes the tenant to `offboarding`, sets
+the write-once `audit_write_fenced_at` marker, and records that transition while
+holding the tenant's audit-stream lock. PostgreSQL rejects clearing the marker
+or reopening a fenced tenant. Restrictive write policies plus `ALWAYS` triggers
+on `audit_events` and `audit_subject_erasures` enforce the marker on pooled and
+physical-silo tables: an in-flight writer finishes before the fence and is then
+erased; a later or rolling-old writer is rejected. Both append-only tables are
+deleted and count-verified in one routed transaction under the same lock.
+
+Provider-row deletion, the `deleted` registry tombstone, and the successful
+attestation append commit together only after every data store and key domain
+has completed. If establishing and auditing the fence fails, both changes roll
+back. After the fence commits, any later or finalization failure leaves the
+tenant `offboarding`, fenced, and retryable; correct the reported cause and
+rerun the idempotent erase.
+
 | Store | Mechanism | Verification |
 |---|---|---|
 | Postgres (pooled or silo-routed) | per-table `DELETE` **under the tenant's own scope** (RLS + silo routing — it cannot touch another tenant), multi-pass to satisfy intra-tenant foreign-key ordering | per-table `count(*) == 0` in-scope |

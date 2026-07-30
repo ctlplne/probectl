@@ -139,6 +139,30 @@ func providerMaintainedTable(table string) bool {
 		table == "ir_attribution_records"
 }
 
+func auditWriteFencePlan(quotedTable, table string) []string {
+	roles := ""
+	switch table {
+	case "audit_events":
+		roles = "probectl_app"
+	case "audit_subject_erasures":
+		roles = "probectl_app, probectl_provider"
+	default:
+		return nil
+	}
+	return []string{
+		"DROP POLICY IF EXISTS tenant_audit_write_eligibility ON " + quotedTable,
+		`CREATE POLICY tenant_audit_write_eligibility ON ` + quotedTable + ` AS RESTRICTIVE
+  FOR INSERT TO ` + roles + `
+  WITH CHECK (public.probectl_tenant_audit_writes_allowed())`,
+		"DROP TRIGGER IF EXISTS tenant_audit_write_fence ON " + quotedTable,
+		`CREATE TRIGGER tenant_audit_write_fence
+  BEFORE INSERT ON ` + quotedTable + `
+  FOR EACH ROW
+  EXECUTE FUNCTION public.probectl_enforce_tenant_audit_write_fence()`,
+		"ALTER TABLE " + quotedTable + " ENABLE ALWAYS TRIGGER tenant_audit_write_fence",
+	}
+}
+
 // schemaTenantID decodes the stable t_<UUID-without-dashes> schema name. An
 // invalid/non-silo name returns empty so policy generation fails closed.
 func schemaTenantID(schema string) string {
@@ -186,6 +210,7 @@ func repairTenantBoundaryPlan(schema, quotedTable, table string) []string {
   USING (` + predicate + `)
   WITH CHECK (` + predicate + `)`,
 	}
+	plan = append(plan, auditWriteFencePlan(quotedTable, table)...)
 	return append(plan, tableRolePlan(quotedTable, table)...)
 }
 

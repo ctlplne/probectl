@@ -101,6 +101,15 @@ type subjectErasureAppender func(
 	string,
 ) (audit.Event, error)
 
+type providerAuditTxAppender func(
+	context.Context,
+	tenancy.Querier,
+	string,
+	string,
+	string,
+	map[string]any,
+) (audit.Event, error)
+
 // PathDeleter is the pathstore erasure seam (memory + ClickHouse implement it).
 type PathDeleter interface {
 	DeleteTenant(ctx context.Context, tenantID string) (deleted, remaining int, err error)
@@ -209,6 +218,10 @@ type Engine struct {
 	// and prove every identity deletion and earlier alias marker rolls back in
 	// the same tenant transaction.
 	appendSubjectErasure subjectErasureAppender
+	// appendProviderAuditTx is always audit.ProviderAppendTx in production.
+	// Full-erasure fence and tombstone mutations use the caller's transaction
+	// so audit failure rolls the provider mutation back.
+	appendProviderAuditTx providerAuditTxAppender
 	// irAttribution is optional until the encrypted attribution sidecar is
 	// composed at the control-plane seam. Nil preserves the core erasure
 	// behavior; when present it fails closed before any deletion if planning
@@ -260,7 +273,8 @@ func newEngine(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.St
 		audit: auditSink, backupNote: backupNote, backupRetentionDays: retentionDays,
 		log: log, now: time.Now, subjectTableExists: tableExists,
 		appendRetentionPolicyAudit: audit.TenantAppend,
-		appendSubjectErasure:       audit.RecordSubjectErasure}
+		appendSubjectErasure:       audit.RecordSubjectErasure,
+		appendProviderAuditTx:      audit.ProviderAppendTx}
 }
 
 func tenantObjectStores(objects objectstore.Store, tenantID string) ([]objectstore.TenantStore, error) {
@@ -424,16 +438,9 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		FormatVersion: 1, TenantID: tenantID, TenantSlug: slug, Actor: actor,
 		StartedAt: e.now().UTC(), BackupPolicy: e.backupNote, Complete: true,
 	}
-	irPlanID := ""
-	if e.irAttribution != nil {
-		var err error
-		irPlanID, err = e.irAttribution.Plan(ctx, tenantID, actor)
-		if err != nil {
-			return att, fmt.Errorf("tenantlife: plan IR attribution crypto-shred: %w", err)
-		}
-		if strings.TrimSpace(irPlanID) == "" {
-			return att, errors.New("tenantlife: plan IR attribution crypto-shred: empty plan id")
-		}
+	irPlanID, err := e.prepareErasure(ctx, tenantID, actor)
+	if err != nil {
+		return att, err
 	}
 	fail := func(store, note string) {
 		att.Stores = append(att.Stores, StoreResult{Store: store, Deleted: -1, Notes: note})
@@ -600,16 +607,6 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 				att.Complete = false
 			}
 		}
-
-		// 5) Provider-plane rows ABOUT the tenant + the tombstone status.
-		if res, err := e.eraseProviderRows(ctx, tenantID); err != nil {
-			fail("provider_rows", err.Error())
-		} else {
-			att.Stores = append(att.Stores, res)
-			if !res.VerifiedZero {
-				att.Complete = false
-			}
-		}
 	} else {
 		att.Stores = append(att.Stores, StoreResult{Store: "postgres", VerifiedZero: true, Notes: "store not deployed"})
 	}
@@ -635,33 +632,132 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		&att,
 	)
 
-	att.FinishedAt = e.now().UTC()
-	// COMPLY-002: quantify the backup-coverage window. The live stores are
-	// zero NOW; any backup taken before this erasure expires by
-	// erased_at + retention, so that instant is when backup coverage is
-	// complete. Without a stated retention we leave it unquantified (the
-	// note still records the operator's policy).
-	if e.backupRetentionDays > 0 {
-		att.BackupRetentionDays = e.backupRetentionDays
-		deadline := att.FinishedAt.Add(time.Duration(e.backupRetentionDays) * 24 * time.Hour)
-		att.BackupErasureDeadline = &deadline
+	// Provider-owned rows, the registry tombstone, and the successful
+	// attestation append commit atomically only after every other store and key
+	// domain succeeds. A failed finalization rolls all three back and leaves
+	// the tenant offboarding behind the durable fence for an idempotent retry.
+	if e.pool != nil && att.Complete && irLifecycleErr == nil {
+		finalized, err := e.finalizeSuccessfulErasure(
+			ctx,
+			tenantID,
+			slug,
+			actor,
+			att,
+		)
+		if err == nil {
+			return finalized, nil
+		}
+		fail("provider_finalize", err.Error())
+		irLifecycleErr = errors.Join(irLifecycleErr, err)
+	} else if e.pool != nil {
+		fail("provider_rows", "not attempted: tenant erasure incomplete")
+		fail("tenant_registry", "not attempted: tenant erasure incomplete")
 	}
-	att.ReportSHA256 = att.hash()
 
-	// The attestation goes on the provider audit chain BEFORE returning —
-	// an unrecorded erasure is no erasure (audit-grade, guardrail 7).
-	if e.audit != nil {
-		if err := e.audit(ctx, actor, "lifecycle.erase", tenantID, map[string]any{
-			"slug": slug, "complete": att.Complete, "report_sha256": att.ReportSHA256,
-			"stores": len(att.Stores),
-		}); err != nil {
-			return att, errors.Join(
-				irLifecycleErr,
-				fmt.Errorf("tenantlife: attestation audit append failed: %w", err),
+	e.finishAttestation(&att)
+	auditErr := e.appendLifecycleAudit(ctx, actor, tenantID, slug, att)
+	return att, errors.Join(irLifecycleErr, auditErr)
+}
+
+func (e *Engine) prepareErasure(
+	ctx context.Context,
+	tenantID, actor string,
+) (string, error) {
+	if e.pool != nil {
+		if err := e.fenceTenantAuditWrites(ctx, tenantID, actor); err != nil {
+			return "", fmt.Errorf(
+				"tenantlife: establish tenant audit write fence: %w",
+				err,
 			)
 		}
 	}
-	return att, irLifecycleErr
+	planID := ""
+	if e.irAttribution != nil {
+		var err error
+		planID, err = e.irAttribution.Plan(ctx, tenantID, actor)
+		if err != nil {
+			return "", fmt.Errorf("tenantlife: plan IR attribution crypto-shred: %w", err)
+		}
+		if strings.TrimSpace(planID) == "" {
+			return "", errors.New("tenantlife: plan IR attribution crypto-shred: empty plan id")
+		}
+	}
+	return planID, nil
+}
+
+func (e *Engine) fenceTenantAuditWrites(
+	ctx context.Context,
+	tenantID, actor string,
+) error {
+	return tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
+		var canonicalTenantID string
+		if err := q.QueryRow(
+			ctx,
+			`SELECT $1::uuid::text`,
+			tenantID,
+		).Scan(&canonicalTenantID); err != nil {
+			return fmt.Errorf("canonicalize tenant id: %w", err)
+		}
+		if err := audit.LockTenantStream(ctx, q, canonicalTenantID); err != nil {
+			return fmt.Errorf("lock tenant audit stream: %w", err)
+		}
+		var alreadyFenced bool
+		var previousStatus string
+		if err := q.QueryRow(
+			ctx,
+			`SELECT status, audit_write_fenced_at IS NOT NULL
+			   FROM public.tenants
+			  WHERE id = $1::uuid
+			  FOR UPDATE`,
+			canonicalTenantID,
+		).Scan(&previousStatus, &alreadyFenced); err != nil {
+			return fmt.Errorf("lock tenant registry row: %w", err)
+		}
+		if previousStatus == "deleted" {
+			return errors.New("tenant is deleted and not eligible for erasure")
+		}
+		if alreadyFenced && previousStatus != "offboarding" {
+			return fmt.Errorf(
+				"tenant audit fence has invalid status %q",
+				previousStatus,
+			)
+		}
+		tag, err := q.Exec(
+			ctx,
+			`UPDATE public.tenants
+			    SET status = 'offboarding',
+			        audit_write_fenced_at =
+			            COALESCE(audit_write_fenced_at, now()),
+			        updated_at = now()
+			  WHERE id = $1::uuid
+			    AND status IN ('active', 'suspended', 'offboarding')`,
+			canonicalTenantID,
+		)
+		if err != nil {
+			return fmt.Errorf("transition tenant to offboarding: %w", err)
+		}
+		if tag.RowsAffected() != 1 {
+			return errors.New("tenant is absent, deleted, or not eligible for erasure")
+		}
+		appendTx := e.appendProviderAuditTx
+		if appendTx == nil {
+			appendTx = audit.ProviderAppendTx
+		}
+		if _, err := appendTx(
+			ctx,
+			q,
+			actor,
+			"lifecycle.erase_fence",
+			canonicalTenantID,
+			map[string]any{
+				"already_fenced":  alreadyFenced,
+				"previous_status": previousStatus,
+			},
+		); err != nil {
+			return fmt.Errorf("append tenant audit-fence event: %w", err)
+		}
+		return nil
+	})
 }
 
 func (e *Engine) finalizeIRAttribution(
@@ -796,23 +892,9 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 			break
 		}
 	}
-	// Append-only tables: erased via the provider role (the explicit S-T5
-	// DELETE policy) — the app role stays append-only.
-	err = tenancy.InTenantProviderMaintenance(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		for t := range appendOnlyTables {
-			tag, err := sc.Q.Exec(ctx, `DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID)
-			if err != nil {
-				return fmt.Errorf("delete %s: %w", t, err)
-			}
-			deleted += tag.RowsAffected()
-		}
-		return nil
-	})
-	if err != nil {
-		return StoreResult{}, fmt.Errorf("tenantlife: postgres erase (append-only tables): %w", err)
-	}
-	// Verify: every table reads zero within the tenant's scope (the
-	// append-only set is verified through the provider role).
+	// Verify ordinary tables before touching append-only evidence. A retryable
+	// ordinary-table failure must not erase the audit trail or tombstone the
+	// tenant.
 	verified := true
 	notes := ""
 	verr := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -831,20 +913,71 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 	if verr != nil {
 		return StoreResult{}, fmt.Errorf("tenantlife: postgres verify: %w", verr)
 	}
+	if !verified {
+		notes = trimNotes(notes, len(tables))
+		if retainedEvidenceTables > 0 {
+			notes += fmt.Sprintf("; %d encrypted IR evidence tables retained for crypto-shred", retainedEvidenceTables)
+		}
+		return StoreResult{
+			Store: "postgres", Deleted: deleted, VerifiedZero: false, Notes: notes,
+		}, nil
+	}
+
+	// Append-only evidence is deleted and exactly verified in ONE routed
+	// provider-maintenance transaction while holding the canonical audit lock.
+	// Migration 0083 makes status=offboarding a storage-layer INSERT fence, so
+	// the barrier remains in force after this transaction and through the later
+	// provider-row tombstone.
 	if perr := tenancy.InTenantProviderMaintenance(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, tenantID); err != nil {
+			return fmt.Errorf("lock tenant audit stream: %w", err)
+		}
+		var fenced bool
+		var status string
+		if err := sc.Q.QueryRow(
+			ctx,
+			`SELECT status, audit_write_fenced_at IS NOT NULL
+			   FROM public.tenants
+			  WHERE id = $1::uuid
+			  FOR KEY SHARE`,
+			tenantID,
+		).Scan(&status, &fenced); err != nil {
+			return fmt.Errorf("read tenant write-fence status: %w", err)
+		}
+		if !fenced || status == "deleted" {
+			return fmt.Errorf(
+				"tenant audit write fence invalid: status=%q fenced=%t",
+				status,
+				fenced,
+			)
+		}
+		for t := range appendOnlyTables {
+			tag, err := sc.Q.Exec(
+				ctx,
+				`DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1::uuid`,
+				tenantID,
+			)
+			if err != nil {
+				return fmt.Errorf("delete %s: %w", t, err)
+			}
+			deleted += tag.RowsAffected()
+		}
 		for t := range appendOnlyTables {
 			var n int64
-			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID).Scan(&n); err != nil {
-				return err
+			if err := sc.Q.QueryRow(
+				ctx,
+				`SELECT count(*) FROM `+pgIdent(t)+` WHERE tenant_id = $1::uuid`,
+				tenantID,
+			).Scan(&n); err != nil {
+				return fmt.Errorf("verify %s: %w", t, err)
 			}
 			if n != 0 {
-				verified = false
-				notes += fmt.Sprintf("%s:%d ", t, n)
+				return fmt.Errorf("verify %s: %d rows remain", t, n)
 			}
 		}
 		return nil
 	}); perr != nil {
-		return StoreResult{}, fmt.Errorf("tenantlife: postgres verify (append-only): %w", perr)
+		return StoreResult{}, fmt.Errorf("tenantlife: postgres erase and verify (append-only): %w", perr)
 	}
 	notes = trimNotes(notes, len(tables)+len(appendOnlyTables))
 	if retainedEvidenceTables > 0 {
@@ -853,35 +986,209 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 	return StoreResult{Store: "postgres", Deleted: deleted, VerifiedZero: verified, Notes: notes}, nil
 }
 
-// eraseProviderRows removes provider-plane rows about the tenant and marks
-// the registry tombstone (status=deleted; the row itself remains so the
-// attestation keeps a referent).
-func (e *Engine) eraseProviderRows(ctx context.Context, tenantID string) (StoreResult, error) {
-	var deleted int64
-	verified := true
-	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
-		for _, t := range tenancy.ProviderOwnedTenantTables() {
-			tag, err := q.Exec(ctx, `DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID)
-			if err != nil {
-				return fmt.Errorf("delete %s: %w", t, err)
+func (e *Engine) finalizeSuccessfulErasure(
+	ctx context.Context,
+	tenantID, slug, actor string,
+	att Attestation,
+) (Attestation, error) {
+	finalized := att
+	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+	err := tenancy.InTenantProviderMaintenance(
+		tctx,
+		e.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			if err := audit.LockTenantStream(ctx, sc.Q, tenantID); err != nil {
+				return fmt.Errorf("lock tenant audit stream: %w", err)
 			}
-			deleted += tag.RowsAffected()
-			var n int64
-			if err := q.QueryRow(ctx, `SELECT count(*) FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID).Scan(&n); err != nil {
+			var fenced bool
+			var status string
+			if err := sc.Q.QueryRow(
+				ctx,
+				`SELECT status, audit_write_fenced_at IS NOT NULL
+				   FROM public.tenants
+				  WHERE id = $1::uuid
+				  FOR UPDATE`,
+				tenantID,
+			).Scan(&status, &fenced); err != nil {
+				return fmt.Errorf("read tenant registry: %w", err)
+			}
+			if !fenced || status != "offboarding" {
+				return fmt.Errorf(
+					"tenant finalization fence invalid: status=%q fenced=%t",
+					status,
+					fenced,
+				)
+			}
+			for table := range appendOnlyTables {
+				var remaining int64
+				if err := sc.Q.QueryRow(
+					ctx,
+					`SELECT count(*) FROM `+pgIdent(table)+
+						` WHERE tenant_id = $1::uuid`,
+					tenantID,
+				).Scan(&remaining); err != nil {
+					return fmt.Errorf("verify %s before tombstone: %w", table, err)
+				}
+				if remaining != 0 {
+					return fmt.Errorf(
+						"refuse tombstone: %s has %d tenant rows",
+						table,
+						remaining,
+					)
+				}
+			}
+			providerResult, err := eraseProviderRowsTx(
+				ctx,
+				sc.Q,
+				tenantID,
+			)
+			if err != nil {
 				return err
 			}
-			if n != 0 {
-				verified = false
+			finalized.Stores = append(
+				finalized.Stores,
+				providerResult,
+				StoreResult{
+					Store:        "tenant_registry",
+					VerifiedZero: true,
+					Notes:        "tenant registry row tombstoned (status=deleted)",
+				},
+			)
+			e.finishAttestation(&finalized)
+			tag, err := sc.Q.Exec(
+				ctx,
+				`UPDATE public.tenants
+				    SET status = 'deleted',
+				        updated_at = now()
+				  WHERE id = $1::uuid
+				    AND status = 'offboarding'
+				    AND audit_write_fenced_at IS NOT NULL`,
+				tenantID,
+			)
+			if err != nil {
+				return fmt.Errorf("mark tenant deleted: %w", err)
 			}
-		}
-		_, err := q.Exec(ctx, `UPDATE tenants SET status = 'deleted', updated_at = now() WHERE id = $1`, tenantID)
-		return err
-	})
+			if tag.RowsAffected() != 1 {
+				return errors.New("mark tenant deleted: registry row missing")
+			}
+			appendTx := e.appendProviderAuditTx
+			if appendTx == nil {
+				appendTx = audit.ProviderAppendTx
+			}
+			if _, err := appendTx(
+				ctx,
+				sc.Q,
+				actor,
+				"lifecycle.erase",
+				tenantID,
+				lifecycleAuditData(slug, finalized),
+			); err != nil {
+				return fmt.Errorf("append successful erasure attestation: %w", err)
+			}
+			return nil
+		},
+	)
 	if err != nil {
-		return StoreResult{}, fmt.Errorf("tenantlife: provider rows: %w", err)
+		return att, fmt.Errorf("tenantlife: finalize provider erasure: %w", err)
 	}
-	return StoreResult{Store: "provider_rows", Deleted: deleted, VerifiedZero: verified,
-		Notes: "tenant registry row tombstoned (status=deleted)"}, nil
+	return finalized, nil
+}
+
+func eraseProviderRowsTx(
+	ctx context.Context,
+	q tenancy.Querier,
+	tenantID string,
+) (StoreResult, error) {
+	var deleted int64
+	for _, table := range tenancy.ProviderOwnedTenantTables() {
+		qualified := `public.` + pgIdent(table)
+		tag, err := q.Exec(
+			ctx,
+			`DELETE FROM `+qualified+` WHERE tenant_id = $1::uuid`,
+			tenantID,
+		)
+		if err != nil {
+			return StoreResult{}, fmt.Errorf("delete %s: %w", table, err)
+		}
+		deleted += tag.RowsAffected()
+		var remaining int64
+		if err := q.QueryRow(
+			ctx,
+			`SELECT count(*) FROM `+qualified+` WHERE tenant_id = $1::uuid`,
+			tenantID,
+		).Scan(&remaining); err != nil {
+			return StoreResult{}, fmt.Errorf("verify %s: %w", table, err)
+		}
+		if remaining != 0 {
+			return StoreResult{}, fmt.Errorf(
+				"verify %s: %d rows remain",
+				table,
+				remaining,
+			)
+		}
+	}
+	return StoreResult{
+		Store:        "provider_rows",
+		Deleted:      deleted,
+		VerifiedZero: true,
+		Notes:        "provider-owned tenant rows verified zero",
+	}, nil
+}
+
+func (e *Engine) finishAttestation(att *Attestation) {
+	att.FinishedAt = e.now().UTC()
+	// COMPLY-002: quantify the backup-coverage window. The live stores are
+	// zero NOW; any backup taken before this erasure expires by
+	// erased_at + retention, so that instant is when backup coverage is
+	// complete. Without a stated retention we leave it unquantified.
+	if e.backupRetentionDays > 0 {
+		att.BackupRetentionDays = e.backupRetentionDays
+		deadline := att.FinishedAt.Add(
+			time.Duration(e.backupRetentionDays) * 24 * time.Hour,
+		)
+		att.BackupErasureDeadline = &deadline
+	}
+	att.ReportSHA256 = att.hash()
+}
+
+func lifecycleAuditData(slug string, att Attestation) map[string]any {
+	return map[string]any{
+		"slug":          slug,
+		"complete":      att.Complete,
+		"report_sha256": att.ReportSHA256,
+		"stores":        len(att.Stores),
+	}
+}
+
+func (e *Engine) appendLifecycleAudit(
+	ctx context.Context,
+	actor, tenantID, slug string,
+	att Attestation,
+) error {
+	var err error
+	switch {
+	case e.audit != nil:
+		err = e.audit(
+			ctx,
+			actor,
+			"lifecycle.erase",
+			tenantID,
+			lifecycleAuditData(slug, att),
+		)
+	case e.pool != nil:
+		_, err = audit.ProviderAppend(
+			ctx,
+			e.pool,
+			actor,
+			"lifecycle.erase",
+			tenantID,
+			lifecycleAuditData(slug, att),
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("tenantlife: attestation audit append failed: %w", err)
+	}
+	return nil
 }
 
 func trimNotes(notes string, tables int) string {
