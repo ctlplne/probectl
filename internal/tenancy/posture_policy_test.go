@@ -63,4 +63,66 @@ func TestStrictTenantPolicyExpression(t *testing.T) {
 	}
 }
 
+func TestStrictSiloSchemaPolicyExpression(t *testing.T) {
+	const tenantID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	tests := []struct {
+		name string
+		expr *string
+		want bool
+	}{
+		{
+			name: "postgres canonical schema and GUC equality",
+			expr: policyExpr(
+				"((tenant_id = '" + tenantID + "'::uuid) AND " +
+					"(tenant_id = (NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text))::uuid))",
+			),
+			want: true,
+		},
+		{
+			name: "migration source schema and GUC equality",
+			expr: policyExpr(
+				"tenant_id = '" + tenantID + "'::uuid AND " +
+					"tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid",
+			),
+			want: true,
+		},
+		{
+			name: "missing",
+			expr: nil,
+		},
+		{
+			name: "GUC only",
+			expr: policyExpr(
+				"tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid",
+			),
+		},
+		{
+			name: "wrong physical schema tenant",
+			expr: policyExpr(
+				"tenant_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid AND " +
+					"tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid",
+			),
+		},
+		{
+			name: "permissive OR shape",
+			expr: policyExpr(
+				"tenant_id = '" + tenantID + "'::uuid OR " +
+					"tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid",
+			),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := strictSiloSchemaPolicyExpression(tc.expr, tenantID); got != tc.want {
+				t.Fatalf(
+					"strictSiloSchemaPolicyExpression(%v) = %t, want %t",
+					tc.expr,
+					got,
+					tc.want,
+				)
+			}
+		})
+	}
+}
+
 func policyExpr(expr string) *string { return &expr }

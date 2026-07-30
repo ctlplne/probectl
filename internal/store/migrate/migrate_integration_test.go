@@ -403,6 +403,13 @@ SELECT has_schema_privilege(
 			appDelete,
 		)
 	}
+	assertMigrationSiloGuard(
+		t,
+		pool,
+		"t_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb",
+		"audit_events",
+		migrationTenantB,
+	)
 }
 
 // auditHeadMigrationOwnerPool transfers only the objects touched by 0075 to a

@@ -28,8 +28,9 @@ import (
 // AssertIsolationPosture verifies, inside a real AppRole-scoped transaction,
 // that the effective role is non-superuser and cannot bypass RLS, and that
 // every tenant-owned table (one carrying a tenant_id column) has FORCE ROW
-// LEVEL SECURITY. It returns a non-nil error describing the first violation;
-// the caller (main) treats that as fatal.
+// LEVEL SECURITY. Canonical physical-silo tables must additionally carry the
+// exact schema-bound RESTRICTIVE guard. It returns a non-nil error describing
+// the first violation; the caller (main) treats that as fatal.
 func AssertIsolationPosture(ctx context.Context, pool *pgxpool.Pool) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -73,8 +74,9 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 
 	// 2. Every tenant-owned table (has a tenant_id column) must FORCE row
 	// security — otherwise the table owner (and any future grant) reads across
-	// tenants. relforcerowsecurity catches the subtle case the audit named: RLS
-	// enabled but not forced.
+	// tenants. Every ordinary table in a canonical t_<32hex> silo schema must
+	// also carry tenant_id uuid NOT NULL: physical silos contain tenant data
+	// only, and an unscoped restored table is a startup-fatal boundary failure.
 	//
 	// TENANT-008: this scans EVERY non-system schema, not just public. Siloed
 	// tenants' tables live in per-tenant schemas (ee/silo provisions them with
@@ -83,33 +85,77 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	// forced can never pass boot. We report schema.table so an offender in a
 	// silo schema is identifiable.
 	rows, err := q.Query(ctx, `
-		SELECT n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity
+		SELECT n.nspname,
+		       c.relname,
+		       c.relrowsecurity,
+		       c.relforcerowsecurity,
+		       a.attname IS NOT NULL,
+		       COALESCE(a.atttypid = 'uuid'::regtype, false),
+		       COALESCE(a.attnotnull, false)
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
+		LEFT JOIN LATERAL (
+		    SELECT attname, atttypid, attnotnull
+		      FROM pg_attribute
+		     WHERE attrelid = c.oid
+		       AND attname = 'tenant_id'
+		       AND NOT attisdropped
+		     LIMIT 1
+		) AS a ON true
 		WHERE c.relkind = 'r'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_toast%'
-		  AND n.nspname NOT LIKE 'pg_temp%'
-		  AND EXISTS (
-		      SELECT 1 FROM pg_attribute a
-		      WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
-		  )`)
+		  AND n.nspname NOT LIKE 'pg_temp%'`)
 	if err != nil {
 		return fmt.Errorf("isolation posture: enumerate tenant tables: %w", err)
 	}
 	defer rows.Close()
 
 	var offenders []string
+	var invalidSiloTables []string
+	var siloTables []siloPostureTable
 	var checked int
 	for rows.Next() {
 		var schema, name string
-		var enabled, forced bool
-		if err := rows.Scan(&schema, &name, &enabled, &forced); err != nil {
+		var enabled, forced, hasTenantID, tenantIDUUID, tenantIDNotNull bool
+		if err := rows.Scan(
+			&schema,
+			&name,
+			&enabled,
+			&forced,
+			&hasTenantID,
+			&tenantIDUUID,
+			&tenantIDNotNull,
+		); err != nil {
 			return fmt.Errorf("isolation posture: scan: %w", err)
+		}
+		schemaTenant, canonicalSilo := canonicalSiloTenantID(schema)
+		if canonicalSilo && (!hasTenantID || !tenantIDUUID || !tenantIDNotNull) {
+			invalidSiloTables = append(
+				invalidSiloTables,
+				fmt.Sprintf(
+					"%s.%s(tenant_id=%t,uuid=%t,not_null=%t)",
+					schema,
+					name,
+					hasTenantID,
+					tenantIDUUID,
+					tenantIDNotNull,
+				),
+			)
+		}
+		if !hasTenantID {
+			continue
 		}
 		checked++
 		if !enabled || !forced {
 			offenders = append(offenders, fmt.Sprintf("%s.%s(rls=%t,force=%t)", schema, name, enabled, forced))
+		}
+		if canonicalSilo {
+			siloTables = append(siloTables, siloPostureTable{
+				schema:   schema,
+				table:    name,
+				tenantID: schemaTenant,
+			})
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -118,11 +164,145 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	if checked == 0 {
 		return fmt.Errorf("isolation posture: found NO tenant-owned tables to verify — migrations not applied? (refusing to start)")
 	}
+	if len(invalidSiloTables) > 0 {
+		return fmt.Errorf(
+			"isolation posture: canonical silo table(s) without tenant_id uuid NOT NULL: %s (refusing to start)",
+			strings.Join(invalidSiloTables, ", "),
+		)
+	}
 	if len(offenders) > 0 {
 		return fmt.Errorf("isolation posture: %d tenant table(s) without FORCE ROW LEVEL SECURITY: %s (refusing to start)",
 			len(offenders), strings.Join(offenders, ", "))
 	}
+	if err := assertSiloSchemaGuards(ctx, q, siloTables); err != nil {
+		return err
+	}
 	return assertStrictPreTenantPolicies(ctx, q)
+}
+
+type siloPostureTable struct {
+	schema   string
+	table    string
+	tenantID string
+}
+
+type siloPolicyPosture struct {
+	count                  int
+	restrictive, allPublic bool
+	usingExpr, checkExpr   *string
+}
+
+func canonicalSiloTenantID(schema string) (string, bool) {
+	const prefix = "t_"
+	schema = strings.ToLower(schema)
+	if !strings.HasPrefix(schema, prefix) || len(schema) != len(prefix)+32 {
+		return "", false
+	}
+	compact := schema[len(prefix):]
+	for _, ch := range compact {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return "", false
+		}
+	}
+	return compact[:8] + "-" + compact[8:12] + "-" + compact[12:16] + "-" +
+		compact[16:20] + "-" + compact[20:], true
+}
+
+// assertSiloSchemaGuards verifies the policy property FORCE RLS cannot express:
+// every physical silo table has one exact RESTRICTIVE policy that AND-binds
+// rows to both the caller GUC and the immutable tenant encoded by its schema.
+// Extra permissive policies may survive a legacy restore, but cannot bypass
+// this guard.
+func assertSiloSchemaGuards(
+	ctx context.Context,
+	q postureQuerier,
+	tables []siloPostureTable,
+) error {
+	if len(tables) == 0 {
+		return nil
+	}
+	rows, err := q.Query(ctx, `
+		SELECT schemaname,
+		       tablename,
+		       permissive = 'RESTRICTIVE',
+		       cmd = 'ALL' AND roles = ARRAY['public'::name],
+		       qual,
+		       with_check
+		  FROM pg_policies
+		 WHERE policyname = 'tenant_schema_isolation'
+		 ORDER BY schemaname, tablename`)
+	if err != nil {
+		return fmt.Errorf("isolation posture: enumerate silo schema guards: %w", err)
+	}
+	defer rows.Close()
+
+	policies := make(map[string]siloPolicyPosture, len(tables))
+	for rows.Next() {
+		var schema, table string
+		var policy siloPolicyPosture
+		if err := rows.Scan(
+			&schema,
+			&table,
+			&policy.restrictive,
+			&policy.allPublic,
+			&policy.usingExpr,
+			&policy.checkExpr,
+		); err != nil {
+			return fmt.Errorf("isolation posture: scan silo schema guard: %w", err)
+		}
+		key := schema + "." + table
+		policy.count = policies[key].count + 1
+		policies[key] = policy
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("isolation posture: iterate silo schema guards: %w", err)
+	}
+
+	var unsafe []string
+	for _, table := range tables {
+		key := table.schema + "." + table.table
+		policy := policies[key]
+		if policy.count != 1 || !policy.restrictive || !policy.allPublic ||
+			!strictSiloSchemaPolicyExpression(policy.usingExpr, table.tenantID) ||
+			!strictSiloSchemaPolicyExpression(policy.checkExpr, table.tenantID) {
+			unsafe = append(unsafe, fmt.Sprintf(
+				"%s(count=%d,restrictive=%t,all_public=%t)",
+				key,
+				policy.count,
+				policy.restrictive,
+				policy.allPublic,
+			))
+		}
+	}
+	if len(unsafe) > 0 {
+		return fmt.Errorf(
+			"isolation posture: silo tables have missing or non-exact schema tenant guards: %s (refusing to start)",
+			strings.Join(unsafe, ", "),
+		)
+	}
+	return nil
+}
+
+func strictSiloSchemaPolicyExpression(expr *string, tenantID string) bool {
+	if expr == nil {
+		return false
+	}
+	normalized, ok := normalizeTenantPolicyExpression(*expr)
+	if !ok {
+		return false
+	}
+	for _, strict := range []string{
+		`tenant_id = '` + tenantID + `'::uuid AND ` +
+			`tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid`,
+		`(tenant_id = '` + tenantID + `'::uuid) AND ` +
+			`(tenant_id = (NULLIF(current_setting('probectl.tenant_id'::text, true), ''::text))::uuid)`,
+	} {
+		want, valid := normalizeTenantPolicyExpression(strict)
+		if valid && normalized == want {
+			return true
+		}
+	}
+	return false
 }
 
 var strictPreTenantPolicyTables = []string{

@@ -43,13 +43,15 @@ named channels are **topics**.
 | **siloed** | **per-tenant schema** (tenant-owned tables copied in; RLS recreated inside) | per-tenant database (+ data plane) | per-tenant namespaced topics | per-tenant key namespace |
 
 **The key idea: physical separation is layered *on top of* the pooled scoping,
-never *instead of* it.** A siloed schema still re-creates the
-`tenant_isolation` RLS policies, every transaction still binds the tenant setting,
-bus messages stay tenant-keyed, and every read is still tenant-scoped at the query
-layer. So even if routing sent a query to the wrong silo, the query would return
-*nothing* rather than another tenant's rows — walking into the wrong house still
-leaves you facing a locked safe whose key you don't hold. The defenses stack,
-they don't replace each other.
+never *instead of* it.** A siloed table has both the caller-scoped
+`tenant_isolation` policy and a `RESTRICTIVE` policy that fixes rows to the
+tenant UUID encoded by its physical schema. Every transaction still binds the
+tenant setting, bus messages stay tenant-keyed, and every read is still
+tenant-scoped at the query layer. So even if routing sent a query to the wrong
+silo—or a restored permissive policy survived—the query would return *nothing*
+rather than another tenant's rows, and writes would be rejected. The boot
+posture check refuses any canonical silo table without this exact guard. The
+defenses stack; they don't replace each other.
 
 **Fail closed on routing — everywhere, including the bus.** ("Fail closed":
 when the system cannot prove the safe answer, it refuses the operation rather
@@ -77,10 +79,11 @@ a transient routing blip delays the data instead of mis-routing it.
   tenant-owned table. The table set is *derived live* from
   `information_schema` — any `public` table with a `tenant_id` column, minus a
   provider-owned deny list — so the silo automatically tracks whatever tables the
-  schema actually has. Each table is created `LIKE public.<t> INCLUDING ALL`, with
-  the RLS policy recreated and the app-role grants applied. `tenancy.InTenant`
-  routes a siloed tenant by running `SET LOCAL search_path TO <schema>, public`,
-  so global tables (permissions, tenants) still resolve in `public`.
+  schema actually has. Each table is created `LIKE public.<t> INCLUDING ALL`;
+  forced RLS, the caller policy, the schema-bound restrictive policy, and
+  app-role grants are then applied. `tenancy.InTenant` routes a siloed tenant by
+  running `SET LOCAL search_path TO <schema>, public`, so global tables
+  (permissions, tenants) still resolve in `public`.
 - **ClickHouse:** a per-tenant database `probectl_t_<uuid>` holding **every**
   telemetry plane's tables — flow, path (hops/links), eBPF L7 edges, and OTLP
   traces+logs (TENANT-001). Inserts are split per target and reads route by the

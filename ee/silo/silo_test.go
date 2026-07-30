@@ -112,7 +112,10 @@ func TestCatchUpPlan(t *testing.T) {
 	for _, want := range []string{
 		`CREATE TABLE IF NOT EXISTS "t_abc"."new_table" (LIKE public."new_table" INCLUDING ALL)`,
 		`CREATE POLICY tenant_isolation ON "t_abc"."new_table"`,
+		`CREATE POLICY tenant_schema_isolation ON "t_abc"."new_table" AS RESTRICTIVE`,
 		`ALTER TABLE "t_abc"."tests" ADD COLUMN IF NOT EXISTS "added_later" text DEFAULT ''::text NOT NULL`,
+		`CREATE POLICY tenant_schema_isolation ON "t_abc"."tests" AS RESTRICTIVE`,
+		`CREATE POLICY tenant_schema_isolation ON "t_abc"."agents" AS RESTRICTIVE`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("catch-up missing %q in:\n%s", want, joined)
@@ -129,13 +132,35 @@ func TestCatchUpPlan(t *testing.T) {
 		t.Fatalf("drift: %+v", d)
 	}
 
-	// Fully caught up = only the idempotent audit permission repair + empty
-	// structural drift.
+	// Fully caught up still repairs every table's boundary; structural drift is
+	// empty, but policy drift is a startup-critical property rather than a
+	// one-time provisioning assumption.
 	cat.SchemaTables = []string{"tests", "agents", "new_table"}
 	cat.SchemaColumns["new_table"] = cat.Columns["new_table"]
 	cat.SchemaColumns["tests"] = cat.Columns["tests"]
-	if p := CatchUpPlan("t_abc", cat); len(p) != 0 {
-		t.Fatalf("caught-up plan without audit_events must be empty: %v", p)
+	caughtUp := strings.Join(CatchUpPlan("t_abc", cat), "\n")
+	for _, table := range []string{"agents", "new_table", "tests"} {
+		if !strings.Contains(
+			caughtUp,
+			`CREATE POLICY tenant_schema_isolation ON "t_abc"."`+table+`" AS RESTRICTIVE`,
+		) {
+			t.Fatalf("caught-up plan did not repair %s boundary:\n%s", table, caughtUp)
+		}
+	}
+	if strings.Contains(caughtUp, "CREATE TABLE") ||
+		strings.Contains(caughtUp, "ADD COLUMN") {
+		t.Fatalf("caught-up plan contains structural DDL:\n%s", caughtUp)
+	}
+	genericGuardAt := strings.Index(
+		caughtUp,
+		`CREATE POLICY tenant_schema_isolation ON "t_abc"."tests" AS RESTRICTIVE`,
+	)
+	genericGrantAt := strings.Index(
+		caughtUp,
+		`GRANT SELECT, INSERT, UPDATE, DELETE ON "t_abc"."tests" TO probectl_app`,
+	)
+	if genericGuardAt < 0 || genericGrantAt < 0 || genericGuardAt > genericGrantAt {
+		t.Fatalf("generic table boundary must be repaired before grants:\n%s", caughtUp)
 	}
 	if !DiffDrift(cat).Empty() {
 		t.Fatal("caught-up drift must be empty")
@@ -152,6 +177,8 @@ func TestCatchUpPlan(t *testing.T) {
 		`ALTER TABLE "t_abc"."audit_events" FORCE ROW LEVEL SECURITY`,
 		`DROP POLICY IF EXISTS tenant_isolation ON "t_abc"."audit_events"`,
 		`CREATE POLICY tenant_isolation ON "t_abc"."audit_events"`,
+		`DROP POLICY IF EXISTS tenant_schema_isolation ON "t_abc"."audit_events"`,
+		`CREATE POLICY tenant_schema_isolation ON "t_abc"."audit_events" AS RESTRICTIVE`,
 		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_app`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`,
 		`GRANT SELECT, DELETE ON "t_abc"."audit_events" TO probectl_provider`,
@@ -160,7 +187,7 @@ func TestCatchUpPlan(t *testing.T) {
 			t.Errorf("caught-up audit permission repair missing %q in:\n%s", want, repair)
 		}
 	}
-	policyAt := strings.Index(repair, `CREATE POLICY tenant_isolation ON "t_abc"."audit_events"`)
+	policyAt := strings.Index(repair, `CREATE POLICY tenant_schema_isolation ON "t_abc"."audit_events" AS RESTRICTIVE`)
 	grantAt := strings.Index(repair, `GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`)
 	if policyAt < 0 || grantAt < 0 || policyAt > grantAt {
 		t.Fatalf("audit boundary must be repaired before grants:\n%s", repair)
@@ -178,12 +205,47 @@ func TestCatchUpPlan(t *testing.T) {
 		`ALTER TABLE "t_abc"."audit_subject_erasures" ENABLE ROW LEVEL SECURITY`,
 		`ALTER TABLE "t_abc"."audit_subject_erasures" FORCE ROW LEVEL SECURITY`,
 		`CREATE POLICY tenant_isolation ON "t_abc"."audit_subject_erasures"`,
+		`CREATE POLICY tenant_schema_isolation ON "t_abc"."audit_subject_erasures" AS RESTRICTIVE`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_subject_erasures" TO probectl_app`,
 		`GRANT SELECT, INSERT, DELETE ON "t_abc"."audit_subject_erasures" TO probectl_provider`,
 	} {
 		if !strings.Contains(markerRepair, want) {
 			t.Errorf("subject-erasure marker repair missing %q in:\n%s", want, markerRepair)
 		}
+	}
+}
+
+func TestSiloTenantPolicyBindsCallerAndSchemaTenantRestrictively(t *testing.T) {
+	const (
+		schema   = "t_aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa"
+		tenantID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	)
+	plan := strings.Join(
+		ProvisionPlan(schema, []string{"tests"}),
+		"\n",
+	)
+	for _, want := range []string{
+		`CREATE POLICY tenant_isolation ON "` + schema + `"."tests"`,
+		`CREATE POLICY tenant_schema_isolation ON "` + schema + `"."tests" AS RESTRICTIVE`,
+		`FOR ALL TO PUBLIC`,
+		`tenant_id = '` + tenantID + `'::uuid`,
+		`tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid`,
+	} {
+		if !strings.Contains(plan, want) {
+			t.Fatalf("schema-bound policy missing %q:\n%s", want, plan)
+		}
+	}
+	if got := strings.Count(plan, `tenant_id = '`+tenantID+`'::uuid`); got != 4 {
+		t.Fatalf("schema tenant literal occurrences = %d, want 4:\n%s", got, plan)
+	}
+
+	invalid := strings.Join(ProvisionPlan("t_not-a-tenant", []string{"tests"}), "\n")
+	if !strings.Contains(
+		invalid,
+		`CREATE POLICY tenant_schema_isolation ON "t_not-a-tenant"."tests" AS RESTRICTIVE`,
+	) || !strings.Contains(invalid, "USING (false)") ||
+		!strings.Contains(invalid, "WITH CHECK (false)") {
+		t.Fatalf("invalid silo schema must generate a fail-closed guard:\n%s", invalid)
 	}
 }
 

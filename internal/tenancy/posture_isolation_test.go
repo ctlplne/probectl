@@ -134,6 +134,110 @@ func TestAssertIsolationPostureCoversSiloedSchema(t *testing.T) {
 	}
 }
 
+// TENANT-6784d6c9: FORCE RLS is not sufficient for a physical silo. PostgreSQL
+// ORs permissive policies, and a GUC-only policy accepts an A-labelled row in
+// B's schema. Boot must require one exact schema-bound RESTRICTIVE guard on
+// every canonical silo table.
+func TestAssertIsolationPostureRejectsSiloSchemaGuardDrift(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	const (
+		tenantID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+		schema   = "t_cccccccccccc4ccc8ccccccccccccccc"
+		table    = schema + ".probes"
+	)
+	exact := `tenant_id = '` + tenantID + `'::uuid
+		AND tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid`
+	tests := []struct {
+		name        string
+		guardDDL    string
+		wantFailure bool
+	}{
+		{
+			name:        "missing restrictive guard",
+			wantFailure: true,
+		},
+		{
+			name: "guard is permissive",
+			guardDDL: `CREATE POLICY tenant_schema_isolation ON ` + table + `
+				AS PERMISSIVE FOR ALL TO PUBLIC
+				USING (` + exact + `) WITH CHECK (` + exact + `)`,
+			wantFailure: true,
+		},
+		{
+			name: "guard binds wrong schema tenant",
+			guardDDL: `CREATE POLICY tenant_schema_isolation ON ` + table + `
+				AS RESTRICTIVE FOR ALL TO PUBLIC
+				USING (
+					tenant_id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'::uuid
+					AND tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid
+				)
+				WITH CHECK (
+					tenant_id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'::uuid
+					AND tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid
+				)`,
+			wantFailure: true,
+		},
+		{
+			name: "exact restrictive guard",
+			guardDDL: `CREATE POLICY tenant_schema_isolation ON ` + table + `
+				AS RESTRICTIVE FOR ALL TO PUBLIC
+				USING (` + exact + `) WITH CHECK (` + exact + `)`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conn, err := pool.Acquire(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Release()
+			tx, err := conn.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+
+			for _, ddl := range []string{
+				`CREATE SCHEMA ` + schema,
+				`CREATE TABLE ` + table + ` (tenant_id uuid NOT NULL, name text)`,
+				`ALTER TABLE ` + table + ` ENABLE ROW LEVEL SECURITY`,
+				`ALTER TABLE ` + table + ` FORCE ROW LEVEL SECURITY`,
+				`CREATE POLICY tenant_isolation ON ` + table + `
+					FOR ALL TO PUBLIC
+					USING (` + exact + `) WITH CHECK (` + exact + `)`,
+			} {
+				if _, err := tx.Exec(ctx, ddl); err != nil {
+					t.Fatalf("prepare silo posture fixture (%s): %v", ddl, err)
+				}
+			}
+			if tc.guardDDL != "" {
+				if _, err := tx.Exec(ctx, tc.guardDDL); err != nil {
+					t.Fatalf("install silo guard fixture: %v", err)
+				}
+			}
+			if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+tenancy.AppRole); err != nil {
+				t.Fatalf("assume app role: %v", err)
+			}
+			err = tenancy.AssertPostureTx(ctx, tx)
+			if tc.wantFailure {
+				if err == nil ||
+					!strings.Contains(err.Error(), "schema tenant guards") ||
+					!strings.Contains(err.Error(), table) {
+					t.Fatalf("boot posture accepted %s: %v", tc.name, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("exact schema guard failed boot posture: %v", err)
+			}
+		})
+	}
+}
+
 // TENANT-cff7c9e6: policy semantics are a storage boundary, not a keyword
 // convention. These two valid PostgreSQL policies evade a lexical "contains
 // tenant_id" check while exposing both tenant fixtures either when the GUC is

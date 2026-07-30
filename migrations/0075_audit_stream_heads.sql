@@ -189,9 +189,38 @@ BEGIN
         );
         EXECUTE format(
             'CREATE POLICY tenant_isolation ON %I.audit_events
-               USING (tenant_id = NULLIF(current_setting(''probectl.tenant_id'', true), '''')::uuid)
-               WITH CHECK (tenant_id = NULLIF(current_setting(''probectl.tenant_id'', true), '''')::uuid)',
+               USING (
+                   tenant_id = %L::uuid
+                   AND tenant_id = NULLIF(current_setting(''probectl.tenant_id'', true), '''')::uuid
+               )
+               WITH CHECK (
+                   tenant_id = %L::uuid
+                   AND tenant_id = NULLIF(current_setting(''probectl.tenant_id'', true), '''')::uuid
+               )',
+            silo.schema_name,
+            silo.tenant_id,
+            silo.tenant_id
+        );
+        EXECUTE format(
+            'DROP POLICY IF EXISTS tenant_schema_isolation
+                 ON %I.audit_events',
             silo.schema_name
+        );
+        EXECUTE format(
+            'CREATE POLICY tenant_schema_isolation
+                 ON %I.audit_events AS RESTRICTIVE
+                FOR ALL TO PUBLIC
+              USING (
+                  tenant_id = %L::uuid
+                  AND tenant_id = NULLIF(current_setting(''probectl.tenant_id'', true), '''')::uuid
+              )
+              WITH CHECK (
+                  tenant_id = %L::uuid
+                  AND tenant_id = NULLIF(current_setting(''probectl.tenant_id'', true), '''')::uuid
+              )',
+            silo.schema_name,
+            silo.tenant_id,
+            silo.tenant_id
         );
         EXECUTE format(
             'REVOKE ALL ON %I.audit_events FROM probectl_app',

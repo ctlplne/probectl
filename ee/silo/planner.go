@@ -67,8 +67,10 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 //  1. CREATE SCHEMA
 //  2. per tenant-owned table: CREATE TABLE (LIKE public.t INCLUDING ALL) —
 //     columns, defaults, indexes, constraints; RLS policies do NOT copy, so
-//  3. ENABLE+FORCE RLS + recreate the tenant_isolation policy (the silo is
-//     schema-isolated AND GUC-scoped: defense-in-depth, not replacement)
+//  3. ENABLE+FORCE RLS + recreate both the tenant_isolation policy and a
+//     RESTRICTIVE schema-tenant guard. Every row must match the caller GUC AND
+//     the immutable tenant UUID encoded by the physical schema; an extra
+//     permissive legacy policy therefore cannot OR-open a silo.
 //  4. grants for the app role (USAGE on the schema; DML on the tables)
 //  5. an audit-only, tenant-GUC-scoped provider maintenance capability:
 //     schema USAGE plus SELECT/DELETE on audit_events. The app role keeps
@@ -81,17 +83,17 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 		"GRANT USAGE ON SCHEMA " + q + " TO probectl_provider",
 	}
 	for _, t := range TenantOwned(tenantTables) {
-		plan = append(plan, provisionTablePlan(q, t)...)
+		plan = append(plan, provisionTablePlan(schema, t)...)
 	}
 	return plan
 }
 
-func provisionTablePlan(quotedSchema, table string) []string {
-	qt := quotedSchema + "." + quoteIdent(table)
+func provisionTablePlan(schema, table string) []string {
+	qt := quoteIdent(schema) + "." + quoteIdent(table)
 	plan := []string{
 		"CREATE TABLE IF NOT EXISTS " + qt + " (LIKE public." + quoteIdent(table) + " INCLUDING ALL)",
 	}
-	return append(plan, repairTenantBoundaryPlan(qt, table)...)
+	return append(plan, repairTenantBoundaryPlan(schema, qt, table)...)
 }
 
 func tableRolePlan(quotedTable, table string) []string {
@@ -120,17 +122,52 @@ func providerMaintainedTable(table string) bool {
 	return table == "audit_events" || table == "audit_subject_erasures"
 }
 
+// schemaTenantID decodes the stable t_<UUID-without-dashes> schema name. An
+// invalid/non-silo name returns empty so policy generation fails closed.
+func schemaTenantID(schema string) string {
+	const prefix = "t_"
+	schema = strings.ToLower(schema)
+	if !strings.HasPrefix(schema, prefix) || len(schema) != len(prefix)+32 {
+		return ""
+	}
+	compact := schema[len(prefix):]
+	for _, ch := range compact {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return ""
+		}
+	}
+	return compact[:8] + "-" + compact[8:12] + "-" + compact[12:16] + "-" +
+		compact[16:20] + "-" + compact[20:]
+}
+
+func siloTenantPredicate(schema string) string {
+	tenantID := schemaTenantID(schema)
+	if tenantID == "" {
+		return "false"
+	}
+	return `tenant_id = '` + tenantID + `'::uuid
+    AND tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid`
+}
+
 // repairTenantBoundaryPlan restores the storage-layer boundary before grants
-// are repaired. A restored silo may have the current columns while RLS is
-// disabled, not forced for its owner, or bound to a stale/permissive policy.
-func repairTenantBoundaryPlan(quotedTable, table string) []string {
+// are repaired. A restored silo may have RLS disabled, not forced for its
+// owner, a GUC-only policy that permits cross-schema writes, or an additional
+// permissive policy. The RESTRICTIVE guard remains an AND across every
+// permissive policy and binds the row to this physical schema's tenant.
+func repairTenantBoundaryPlan(schema, quotedTable, table string) []string {
+	predicate := siloTenantPredicate(schema)
 	plan := []string{
 		"ALTER TABLE " + quotedTable + " ENABLE ROW LEVEL SECURITY",
 		"ALTER TABLE " + quotedTable + " FORCE ROW LEVEL SECURITY",
 		"DROP POLICY IF EXISTS tenant_isolation ON " + quotedTable,
 		`CREATE POLICY tenant_isolation ON ` + quotedTable + `
-  USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
-  WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`,
+  USING (` + predicate + `)
+  WITH CHECK (` + predicate + `)`,
+		"DROP POLICY IF EXISTS tenant_schema_isolation ON " + quotedTable,
+		`CREATE POLICY tenant_schema_isolation ON ` + quotedTable + ` AS RESTRICTIVE
+  FOR ALL TO PUBLIC
+  USING (` + predicate + `)
+  WITH CHECK (` + predicate + `)`,
 	}
 	return append(plan, tableRolePlan(quotedTable, table)...)
 }
@@ -160,7 +197,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 	for _, t := range tenantTables {
 		if !have[t] {
 			// The same recipe as provisioning, for just this table.
-			plan = append(plan, provisionTablePlan(q, t)...)
+			plan = append(plan, provisionTablePlan(schema, t)...)
 			continue
 		}
 		// Column diff: public minus silo, in public's order.
@@ -186,11 +223,12 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 			}
 			plan = append(plan, stmt)
 		}
-		if providerMaintainedTable(t) {
-			// Repair the isolation boundary before restoring role grants. This
-			// is deliberately emitted even with no structural drift.
-			plan = append(plan, repairTenantBoundaryPlan(q+"."+quoteIdent(t), t)...)
-		}
+		// Repair every existing tenant table, not only provider-maintained
+		// tables. This is deliberately emitted even with no structural drift.
+		plan = append(
+			plan,
+			repairTenantBoundaryPlan(schema, q+"."+quoteIdent(t), t)...,
+		)
 	}
 	return plan
 }
