@@ -36,10 +36,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
@@ -64,9 +66,22 @@ type TSDBTenantDeleter interface {
 // chain that survives the tenant's own audit data being erased.
 type AuditSink func(ctx context.Context, actor, action, target string, data map[string]any) error
 
-const retentionAuditTimeout = 5 * time.Second
+const (
+	retentionAuditTimeout       = 5 * time.Second
+	retentionPolicyAuditAction  = "lifecycle.retention_set"
+	maxRetentionAuditActorBytes = 256
+)
 
 var errRetentionAuditUnavailable = errors.New("tenantlife: retention audit sink is unavailable")
+
+type retentionPolicyAuditAppender func(
+	context.Context,
+	tenancy.Scope,
+	string,
+	string,
+	string,
+	map[string]any,
+) (audit.Event, error)
 
 // PathDeleter is the pathstore erasure seam (memory + ClickHouse implement it).
 type PathDeleter interface {
@@ -150,6 +165,10 @@ type Engine struct {
 	log                *slog.Logger
 	now                func() time.Time
 	subjectTableExists func(context.Context, tenancy.Scope, string) (bool, error)
+	// appendRetentionPolicyAudit is always audit.TenantAppend in production.
+	// The unexported seam exists only so package tests can force an append
+	// failure and prove the policy upsert rolls back with it.
+	appendRetentionPolicyAudit retentionPolicyAuditAppender
 
 	// BackupNote is the operator's backup-retention statement, included
 	// verbatim in every attestation (the explicit backup-TTL story).
@@ -168,20 +187,20 @@ type Engine struct {
 // the deployment — recorded as "not deployed" in attestations, never
 // silently skipped). audit may be nil only when no pool exists (tests).
 func New(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.Store, w tsdb.Writer,
-	audit AuditSink, backupNote string, log *slog.Logger) *Engine {
-	return newEngine(pool, flows, objects, w, audit, backupNote, 0, log)
+	auditSink AuditSink, backupNote string, log *slog.Logger) *Engine {
+	return newEngine(pool, flows, objects, w, auditSink, backupNote, 0, log)
 }
 
 // NewWithBackupRetention is New plus a concrete backup-retention window
 // (days) so the attestation can quantify the backup-erasure deadline
 // (COMPLY-002). retentionDays <= 0 falls back to the note-only story.
 func NewWithBackupRetention(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.Store, w tsdb.Writer,
-	audit AuditSink, backupNote string, retentionDays int, log *slog.Logger) *Engine {
-	return newEngine(pool, flows, objects, w, audit, backupNote, retentionDays, log)
+	auditSink AuditSink, backupNote string, retentionDays int, log *slog.Logger) *Engine {
+	return newEngine(pool, flows, objects, w, auditSink, backupNote, retentionDays, log)
 }
 
 func newEngine(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.Store, w tsdb.Writer,
-	audit AuditSink, backupNote string, retentionDays int, log *slog.Logger) *Engine {
+	auditSink AuditSink, backupNote string, retentionDays int, log *slog.Logger) *Engine {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -189,8 +208,9 @@ func newEngine(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.St
 		backupNote = "Live-store deletion is attested below. Operator backups/snapshots expire per the deployment's backup policy — state PROBECTL_BACKUP_RETENTION_NOTE to put your TTL on the record."
 	}
 	return &Engine{pool: pool, flows: flows, objects: objects, tsdbW: w,
-		audit: audit, backupNote: backupNote, backupRetentionDays: retentionDays,
-		log: log, now: time.Now, subjectTableExists: tableExists}
+		audit: auditSink, backupNote: backupNote, backupRetentionDays: retentionDays,
+		log: log, now: time.Now, subjectTableExists: tableExists,
+		appendRetentionPolicyAudit: audit.TenantAppend}
 }
 
 func tenantObjectStores(objects objectstore.Store, tenantID string) ([]objectstore.TenantStore, error) {
@@ -734,13 +754,6 @@ type RetentionPolicy struct {
 	UpdatedBy                    string `json:"updated_by,omitempty"`
 }
 
-// RetentionAudit appends the mandatory tenant audit event for a retention
-// policy mutation through the exact transaction-bound Scope used by the
-// upsert. Returning an error rolls both writes back.
-type RetentionAudit func(context.Context, tenancy.Scope, RetentionPolicy) error
-
-var errRetentionAuditRequired = errors.New("tenantlife: retention policy audit callback is required")
-
 // RetentionFor reads a tenant's policy within its own scope (RLS).
 func (e *Engine) RetentionFor(ctx context.Context, tenantID string) (RetentionPolicy, error) {
 	p := RetentionPolicy{TenantID: tenantID}
@@ -765,25 +778,67 @@ SELECT flow_retention_days, otel_retention_days, ebpf_retention_days,
 	return p, err
 }
 
-// SetRetentionAudited upserts a tenant's policy and appends its mandatory
-// tamper-evident audit event in one RLS-enforced tenant transaction.
-func (e *Engine) SetRetentionAudited(ctx context.Context, p RetentionPolicy, appendAudit RetentionAudit) error {
+// SetRetention upserts a tenant's policy and appends exactly one engine-owned,
+// tamper-evident audit event in the same RLS-enforced tenant transaction. The
+// authoritative tenant must already be present in ctx; policy data can never
+// create or replace that scope.
+func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy, actor string) error {
+	tenantID, ok := tenancy.FromContext(ctx)
+	if !ok {
+		return tenancy.ErrNoTenant
+	}
+	if p.TenantID == "" || tenantID.String() != p.TenantID {
+		return fmt.Errorf(
+			"tenantlife: retention policy tenant %q does not match caller scope %q",
+			p.TenantID,
+			tenantID,
+		)
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return errors.New("tenantlife: retention policy audit actor is required")
+	}
+	if len(actor) > maxRetentionAuditActorBytes {
+		return fmt.Errorf(
+			"tenantlife: retention policy audit actor exceeds %d bytes",
+			maxRetentionAuditActorBytes,
+		)
+	}
 	if err := validateRetentionPolicy(p); err != nil {
 		return err
 	}
-	if appendAudit == nil {
-		return errRetentionAuditRequired
+	if e.appendRetentionPolicyAudit == nil {
+		return errRetentionAuditUnavailable
 	}
-	tctx := tenancy.WithTenant(ctx, tenancy.ID(p.TenantID))
-	return tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	return tenancy.InTenant(ctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := upsertRetentionPolicy(ctx, sc, p); err != nil {
 			return err
 		}
-		if err := appendAudit(ctx, sc, p); err != nil {
+		if _, err := e.appendRetentionPolicyAudit(
+			ctx,
+			sc,
+			actor,
+			retentionPolicyAuditAction,
+			p.TenantID,
+			retentionPolicyAuditData(p),
+		); err != nil {
 			return fmt.Errorf("tenantlife: append retention policy audit: %w", err)
 		}
 		return nil
 	})
+}
+
+func retentionPolicyAuditData(p RetentionPolicy) map[string]any {
+	return map[string]any{
+		"flow_retention_days":             p.FlowRetentionDays,
+		"otel_retention_days":             p.OtelRetentionDays,
+		"ebpf_retention_days":             p.EBPFRetentionDays,
+		"path_retention_days":             p.PathRetentionDays,
+		"audit_retention_days":            p.AuditRetentionDays,
+		"ai_answer_retention_days":        p.AIAnswerRetentionDays,
+		"object_retention_days":           p.ObjectRetentionDays,
+		"derived_identity_retention_days": p.DerivedIdentityRetentionDays,
+	}
 }
 
 func upsertRetentionPolicy(ctx context.Context, sc tenancy.Scope, p RetentionPolicy) error {

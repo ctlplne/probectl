@@ -24,10 +24,11 @@ import (
 )
 
 type fakeTenantLifecycle struct {
-	policy        tenantlife.RetentionPolicy
-	set           tenantlife.RetentionPolicy
-	setErr        error
-	auditProvided bool
+	policy           tenantlife.RetentionPolicy
+	set              tenantlife.RetentionPolicy
+	setErr           error
+	setActor         string
+	setContextTenant string
 }
 
 func (f *fakeTenantLifecycle) ExportRedacted(context.Context, string, io.Writer, bool) (tenantlife.Manifest, error) {
@@ -44,13 +45,16 @@ func (f *fakeTenantLifecycle) RetentionFor(_ context.Context, tenantID string) (
 	return p, nil
 }
 
-func (f *fakeTenantLifecycle) SetRetentionAudited(
-	_ context.Context,
+func (f *fakeTenantLifecycle) SetRetention(
+	ctx context.Context,
 	p tenantlife.RetentionPolicy,
-	appendAudit tenantlife.RetentionAudit,
+	actor string,
 ) error {
 	f.set = p
-	f.auditProvided = appendAudit != nil
+	f.setActor = actor
+	if tenantID, ok := tenancy.FromContext(ctx); ok {
+		f.setContextTenant = tenantID.String()
+	}
 	if f.setErr != nil {
 		return f.setErr
 	}
@@ -140,13 +144,11 @@ func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	if fake.set.TenantID != tid || fake.set.UpdatedBy != "tenant:"+tid || fake.set.EBPFRetentionDays == nil || *fake.set.EBPFRetentionDays != 7 {
 		t.Fatalf("set policy = %+v, want tenant-bound policy", fake.set)
 	}
-	if !fake.auditProvided {
-		t.Fatal("PUT retention did not provide its mandatory transaction-bound audit callback")
+	if fake.setActor != "dev@probectl.local" {
+		t.Fatalf("retention audit actor = %q, want authenticated request actor", fake.setActor)
 	}
-	auditData := lifecycleRetentionAuditData(fake.set)
-	if auditData["flow_retention_days"] != fake.set.FlowRetentionDays ||
-		auditData["otel_retention_days"] != fake.set.OtelRetentionDays {
-		t.Fatalf("retention audit data = %+v, want committed policy", auditData)
+	if fake.setContextTenant != tid {
+		t.Fatalf("retention caller context = %q, want authoritative tenant %q", fake.setContextTenant, tid)
 	}
 	auditPolicy, found := auditPolicyFor(http.MethodPut, "/v1/lifecycle/retention")
 	if !found || auditPolicy.Mode != auditModeExplicit || auditPolicy.Action != "lifecycle.retention_set" {
@@ -182,7 +184,12 @@ func TestLifecycleRetentionPolicyAuditFailureReturnsStableError(t *testing.T) {
 	if strings.Contains(rawBody, rawAuditError) {
 		t.Fatalf("response leaked audit dependency detail: %s", rawBody)
 	}
-	if !fake.auditProvided {
-		t.Fatal("handler error path omitted mandatory transaction-bound audit callback")
+	if fake.setActor != "dev@probectl.local" ||
+		fake.setContextTenant != tenancy.DefaultTenantID.String() {
+		t.Fatalf(
+			"handler omitted bounded audit actor or authoritative tenant context: actor=%q tenant=%q",
+			fake.setActor,
+			fake.setContextTenant,
+		)
 	}
 }

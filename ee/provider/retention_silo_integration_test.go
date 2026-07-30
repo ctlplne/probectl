@@ -15,9 +15,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	eegovernance "github.com/imfeelingtheagi/probectl/ee/governance"
@@ -28,6 +30,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 func TestSiloRetentionStaysProviderOwned(t *testing.T) {
@@ -78,22 +81,12 @@ func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 	}, "integration backups expire after 14 days", log).WithClock(func() time.Time { return now })
 
 	days := 1
-	if err := life.SetRetentionAudited(
-		ctx,
+	if err := life.SetRetention(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 		tenantlife.RetentionPolicy{
 			TenantID: tenantID, FlowRetentionDays: &days, UpdatedBy: "provider-it",
 		},
-		func(ctx context.Context, sc tenancy.Scope, policy tenantlife.RetentionPolicy) error {
-			_, err := audit.TenantAppend(
-				ctx,
-				sc,
-				"provider-it",
-				"lifecycle.retention_set",
-				policy.TenantID,
-				map[string]any{"flow_retention_days": policy.FlowRetentionDays},
-			)
-			return err
-		},
+		"provider-it",
 	); err != nil {
 		t.Fatalf("set retention through silo-routed tenant scope: %v", err)
 	}
@@ -135,6 +128,170 @@ func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 		t.Fatalf("erasure attestation incomplete: %+v", att.Stores)
 	}
 	assertPublicRetentionDays(t, pool, tenantID, 0)
+}
+
+type siloRetentionState struct {
+	PolicyRows        int64
+	FlowRetentionDays int
+	UpdatedBy         string
+	AuditRows         int64
+	RetentionAudits   int64
+	HeadSeq           int64
+	HeadHash          string
+	PrunedSeq         int64
+	PrunedHash        string
+}
+
+func snapshotSiloRetentionState(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	schema, tenantID string,
+) siloRetentionState {
+	t.Helper()
+	var got siloRetentionState
+	if err := pool.QueryRow(
+		context.Background(),
+		`SELECT count(*), max(flow_retention_days), max(updated_by)
+		   FROM public.tenant_retention
+		  WHERE tenant_id = $1::uuid`,
+		tenantID,
+	).Scan(&got.PolicyRows, &got.FlowRetentionDays, &got.UpdatedBy); err != nil {
+		t.Fatalf("snapshot public retention for %s: %v", tenantID, err)
+	}
+	quotedEvents := pgx.Identifier{schema, "audit_events"}.Sanitize()
+	if err := pool.QueryRow(
+		context.Background(),
+		`SELECT count(*),
+		        count(*) FILTER (WHERE action = 'lifecycle.retention_set')
+		   FROM `+quotedEvents+`
+		  WHERE tenant_id = $1::uuid`,
+		tenantID,
+	).Scan(&got.AuditRows, &got.RetentionAudits); err != nil {
+		t.Fatalf("snapshot silo audit events for %s: %v", tenantID, err)
+	}
+	if err := pool.QueryRow(
+		context.Background(),
+		`SELECT head_seq, head_hash, pruned_seq, pruned_hash
+		   FROM public.audit_stream_heads
+		  WHERE tenant_id = $1::uuid`,
+		tenantID,
+	).Scan(&got.HeadSeq, &got.HeadHash, &got.PrunedSeq, &got.PrunedHash); err != nil {
+		t.Fatalf("snapshot audit head for %s: %v", tenantID, err)
+	}
+	return got
+}
+
+func TestSiloRetentionTenantMismatchLeavesBothTenantsUnchanged(t *testing.T) {
+	pool := pgPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+
+	tenantIDs := make([]string, 0, 2)
+	for _, suffix := range []string{"a", "b"} {
+		slug := "it-retention-silo-mismatch-" + suffix + "-" + stamp
+		var tenantID string
+		if err := pool.QueryRow(
+			ctx,
+			`INSERT INTO tenants (slug, name, isolation_model, residency)
+			 VALUES ($1, $1, 'siloed', '')
+			 RETURNING id::text`,
+			slug,
+		).Scan(&tenantID); err != nil {
+			t.Fatalf("create silo tenant %s: %v", suffix, err)
+		}
+		tenantIDs = append(tenantIDs, tenantID)
+	}
+
+	provisioner := silo.NewProvisioner(pool, silo.CHPlanes{}, nil, 0, log)
+	for _, tenantID := range tenantIDs {
+		if err := provisioner.Provision(ctx, tenantID, "", tenancy.IsolationSiloed); err != nil {
+			t.Fatalf("provision retention silo %s: %v", tenantID, err)
+		}
+	}
+	t.Cleanup(func() {
+		for i := len(tenantIDs) - 1; i >= 0; i-- {
+			if err := provisioner.Teardown(
+				context.Background(),
+				tenantIDs[i],
+				"",
+				tenancy.IsolationSiloed,
+			); err != nil {
+				t.Errorf("teardown retention silo %s: %v", tenantIDs[i], err)
+			}
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM tenants WHERE id = ANY($1::uuid[])`,
+			tenantIDs,
+		); err != nil {
+			t.Errorf("cleanup retention silo tenants: %v", err)
+		}
+	})
+
+	router := silo.NewRouter(pool, nil, time.Second)
+	tenancy.SetRouter(router)
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+
+	engine := tenantlife.New(pool, nil, nil, nil, nil, "", log)
+	seedDays := []int{30, 60}
+	for i, tenantID := range tenantIDs {
+		if err := engine.SetRetention(
+			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+			tenantlife.RetentionPolicy{
+				TenantID:          tenantID,
+				FlowRetentionDays: &seedDays[i],
+				UpdatedBy:         "fixture-" + tenantID,
+			},
+			"fixture",
+		); err != nil {
+			t.Fatalf("seed silo tenant %s retention: %v", tenantID, err)
+		}
+	}
+
+	before := []siloRetentionState{
+		snapshotSiloRetentionState(t, pool, silo.SchemaName(tenantIDs[0]), tenantIDs[0]),
+		snapshotSiloRetentionState(t, pool, silo.SchemaName(tenantIDs[1]), tenantIDs[1]),
+	}
+	nextDays := 14
+	for _, mismatch := range []struct {
+		contextTenant string
+		policyTenant  string
+	}{
+		{contextTenant: tenantIDs[0], policyTenant: tenantIDs[1]},
+		{contextTenant: tenantIDs[1], policyTenant: tenantIDs[0]},
+	} {
+		err := engine.SetRetention(
+			tenancy.WithTenant(ctx, tenancy.ID(mismatch.contextTenant)),
+			tenantlife.RetentionPolicy{
+				TenantID:          mismatch.policyTenant,
+				FlowRetentionDays: &nextDays,
+				UpdatedBy:         "cross-tenant-probe",
+			},
+			"tenant-admin",
+		)
+		if err == nil {
+			t.Fatalf(
+				"tenant %s context accepted tenant %s retention policy",
+				mismatch.contextTenant,
+				mismatch.policyTenant,
+			)
+		}
+	}
+
+	for i, tenantID := range tenantIDs {
+		got := snapshotSiloRetentionState(t, pool, silo.SchemaName(tenantID), tenantID)
+		if !reflect.DeepEqual(got, before[i]) {
+			t.Fatalf(
+				"silo tenant %s changed after cross-tenant mismatch:\n got  %+v\n want %+v",
+				tenantID,
+				got,
+				before[i],
+			)
+		}
+	}
 }
 
 func tableExists(t *testing.T, pool *pgxpool.Pool, schema, table string) bool {

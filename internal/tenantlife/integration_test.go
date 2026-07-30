@@ -185,15 +185,10 @@ func runLifecycleEndToEndPG(t *testing.T, pool *pgxpool.Pool) (string, string) {
 
 	// Retention round-trip.
 	days := 14
-	if err := e.SetRetentionAudited(
-		ctx,
+	if err := e.SetRetention(
+		tenancy.WithTenant(ctx, tenancy.ID(victim)),
 		RetentionPolicy{TenantID: victim, FlowRetentionDays: &days, UpdatedBy: "it"},
-		func(ctx context.Context, sc tenancy.Scope, p RetentionPolicy) error {
-			_, err := audit.TenantAppend(ctx, sc, "it", "lifecycle.retention_set", p.TenantID, map[string]any{
-				"flow_retention_days": p.FlowRetentionDays,
-			})
-			return err
-		},
+		"it",
 	); err != nil {
 		t.Fatal(err)
 	}
