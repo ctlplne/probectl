@@ -501,13 +501,20 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		if ok {
 			remaining := 0
 			for _, objects := range tenantObjects {
-				left, _ := objects.List(ctx, "")
+				left, err := objects.List(ctx, "")
+				if err != nil {
+					fail("objects", "verify tenant namespace failed: "+err.Error())
+					ok = false
+					break
+				}
 				remaining += len(left)
 			}
-			verified := remaining == 0
-			att.Stores = append(att.Stores, StoreResult{Store: "objects", Deleted: int64(total), VerifiedZero: verified})
-			if !verified {
-				att.Complete = false
+			if ok {
+				verified := remaining == 0
+				att.Stores = append(att.Stores, StoreResult{Store: "objects", Deleted: int64(total), VerifiedZero: verified})
+				if !verified {
+					att.Complete = false
+				}
 			}
 		}
 	} else {

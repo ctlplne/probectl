@@ -12,6 +12,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -176,6 +177,79 @@ func TestEraseGoneFromEveryStore(t *testing.T) {
 	tampered.TenantSlug = "evil"
 	if tampered.hash() == att.ReportSHA256 {
 		t.Fatal("a tampered report must not hash-match")
+	}
+}
+
+type objectVerificationErrorStore struct {
+	objectstore.Store
+	prefix string
+	err    error
+}
+
+func (s objectVerificationErrorStore) List(ctx context.Context, prefix string) ([]string, error) {
+	if prefix == s.prefix {
+		return nil, s.err
+	}
+	return s.Store.List(ctx, prefix)
+}
+
+func TestEraseObjectVerificationErrorFailsClosedAndPreservesOtherTenant(t *testing.T) {
+	ctx := context.Background()
+	objects := objectstore.NewMemory()
+	for key, body := range map[string]string{
+		objectstore.TenantKey("tnA", "browser", "delete.png"): "tenant-a-pooled",
+		"silo/tnA/browser/delete.png":                         "tenant-a-silo",
+		objectstore.TenantKey("tnB", "browser", "keep.png"):   "tenant-b-pooled",
+		"silo/tnB/browser/keep.png":                           "tenant-b-silo",
+	} {
+		if err := objects.Put(ctx, key, "image/png", []byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	verifyErr := errors.New("object inventory unavailable")
+	failing := objectVerificationErrorStore{
+		Store:  objects,
+		prefix: objectstore.TenantKey("tnA") + "/",
+		err:    verifyErr,
+	}
+	audit := &capturedAudit{}
+	e := New(nil, nil, failing, nil, audit.sink, "", testLog()).
+		WithClock(func() time.Time { return t0 })
+
+	att, err := e.Erase(ctx, "tnA", "acme", "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if att.Complete {
+		t.Fatalf("unverifiable object erasure reported complete: %+v", att.Stores)
+	}
+	var objectResult *StoreResult
+	objectResults := 0
+	for i := range att.Stores {
+		if att.Stores[i].Store == "objects" {
+			objectResults++
+			objectResult = &att.Stores[i]
+		}
+	}
+	if objectResults != 1 || objectResult == nil {
+		t.Fatalf("object verification failure missing from attestation: %+v", att.Stores)
+	}
+	if objectResult.Deleted != -1 || objectResult.VerifiedZero ||
+		!strings.Contains(objectResult.Notes, verifyErr.Error()) {
+		t.Fatalf("object verification failure was misreported: %+v", *objectResult)
+	}
+	if keys, listErr := objects.List(ctx, objectstore.TenantKey("tnB")+"/"); listErr != nil || len(keys) != 1 {
+		t.Fatalf("tenant B pooled objects changed: keys=%v err=%v", keys, listErr)
+	}
+	if keys, listErr := objects.List(ctx, "silo/tnB/"); listErr != nil || len(keys) != 1 {
+		t.Fatalf("tenant B silo objects changed: keys=%v err=%v", keys, listErr)
+	}
+	if att.ReportSHA256 == "" || att.hash() != att.ReportSHA256 {
+		t.Fatalf("incomplete attestation hash is not verifiable: %+v", att)
+	}
+	if len(audit.events) != 1 || audit.events[0] != "lifecycle.erase" ||
+		audit.data[0]["complete"] != false {
+		t.Fatalf("incomplete lifecycle receipt = events %v data %+v", audit.events, audit.data)
 	}
 }
 
