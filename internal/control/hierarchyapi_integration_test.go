@@ -308,3 +308,166 @@ func TestScopedRBACHierarchySiblingAndTenantIsolation(t *testing.T) {
 		t.Fatalf("scoped grant created top-level org: %d body=%s", rootCreate.Code, rootCreate.Body.String())
 	}
 }
+
+func TestHierarchyResourceABACDenyAndTenantIsolation(t *testing.T) {
+	srv, db := setupAPIServerWithLatest(t, nil)
+	ctx := context.Background()
+	tenantA := freshTenant(t, db, "hierarchy-abac-a")
+	tenantB := freshTenant(t, db, "hierarchy-abac-b")
+
+	createOrg := func(tenant, slug string) *store.Organization {
+		t.Helper()
+		var org *store.Organization
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(),
+			func(ctx context.Context, scope tenancy.Scope) error {
+				var err error
+				org, err = (store.Organizations{}).Create(ctx, scope, slug, slug)
+				return err
+			}); err != nil {
+			t.Fatal(err)
+		}
+		return org
+	}
+	deniedOrgA := createOrg(tenantA, "abac-denied")
+	allowedOrgA := createOrg(tenantA, "abac-allowed")
+	orgB := createOrg(tenantB, "abac-allowed")
+
+	srv.abac = &abacCache{
+		pool: db.Pool(),
+		ttl:  time.Minute,
+		data: map[string]abacEntry{
+			tenantA: {
+				policies: []auth.Policy{
+					{
+						Name:       "deny organization reads",
+						Effect:     auth.PolicyDeny,
+						Permission: permOrgRead,
+						Resource: map[string]string{
+							auth.ResourceTenantKey:         tenantA,
+							string(auth.ScopeOrganization): deniedOrgA.ID,
+						},
+						Enabled: true,
+					},
+					{
+						Name:       "deny organization writes",
+						Effect:     auth.PolicyDeny,
+						Permission: permOrgWrite,
+						Resource: map[string]string{
+							auth.ResourceTenantKey:         tenantA,
+							string(auth.ScopeOrganization): deniedOrgA.ID,
+						},
+						Enabled: true,
+					},
+				},
+				expiry: time.Now().Add(time.Minute),
+			},
+			tenantB: {
+				policies: []auth.Policy{},
+				expiry:   time.Now().Add(time.Minute),
+			},
+		},
+		generations: map[string]uint64{},
+	}
+
+	principalA := auth.PrincipalWithPermissionGrants(
+		&auth.Principal{TenantID: tenantA, UserID: "hierarchy-abac-user-a"},
+		[]auth.PermissionGrant{
+			{Permission: permOrgRead, ScopeType: auth.ScopeOrganization, ScopeID: deniedOrgA.ID},
+			{Permission: permOrgWrite, ScopeType: auth.ScopeOrganization, ScopeID: deniedOrgA.ID},
+			{Permission: permOrgRead, ScopeType: auth.ScopeOrganization, ScopeID: allowedOrgA.ID},
+			{Permission: permOrgWrite, ScopeType: auth.ScopeOrganization, ScopeID: allowedOrgA.ID},
+		},
+	)
+	principalB := &auth.Principal{
+		TenantID: tenantB,
+		UserID:   "hierarchy-abac-user-b",
+		Permissions: map[string]bool{
+			permOrgRead:  true,
+			permOrgWrite: true,
+		},
+	}
+	denied, err := srv.abacDenies(ctx, principalA, permOrgRead, map[string]string{
+		auth.ResourceTenantKey:         tenantA,
+		string(auth.ScopeOrganization): deniedOrgA.ID,
+	})
+	if err != nil || !denied {
+		t.Fatalf("resource ABAC fixture denied=%v err=%v", denied, err)
+	}
+	call := func(caller *auth.Principal, method, pattern, path string, body any, handler apiHandler, permission string) *httptest.ResponseRecorder {
+		t.Helper()
+		var requestBody bytes.Buffer
+		if body != nil {
+			if err := json.NewEncoder(&requestBody).Encode(body); err != nil {
+				t.Fatal(err)
+			}
+		}
+		req := httptest.NewRequest(method, path, &requestBody)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), caller))
+		if strings.Contains(pattern, "/orgs/{id}/") {
+			req.SetPathValue("id", strings.Split(path, "/")[4])
+		}
+		protected := srv.requirePermission(permission, handler)
+		if hierarchyRouteAcceptsScopedGrant(method, pattern) {
+			protected = srv.requireAnyPermission(permission, handler)
+		}
+		rec := httptest.NewRecorder()
+		protected.ServeHTTP(rec, req)
+		return rec
+	}
+
+	tenantAList := call(
+		principalA, http.MethodGet, "/v1/hierarchy", "/v1/hierarchy",
+		nil, srv.handleGetHierarchy, permOrgRead,
+	)
+	if tenantAList.Code != http.StatusOK {
+		t.Fatalf("tenant A hierarchy = %d body=%s", tenantAList.Code, tenantAList.Body.String())
+	}
+	if strings.Contains(tenantAList.Body.String(), deniedOrgA.ID) {
+		t.Fatalf("resource ABAC leaked denied organization: %s", tenantAList.Body.String())
+	}
+	if !strings.Contains(tenantAList.Body.String(), allowedOrgA.ID) {
+		t.Fatalf("resource ABAC over-filtered allowed sibling: %s", tenantAList.Body.String())
+	}
+	if strings.Contains(tenantAList.Body.String(), orgB.ID) {
+		t.Fatalf("tenant A hierarchy leaked tenant B organization: %s", tenantAList.Body.String())
+	}
+
+	tenantACreate := call(
+		principalA,
+		http.MethodPost, "/v1/hierarchy/orgs/{id}/teams", "/v1/hierarchy/orgs/"+deniedOrgA.ID+"/teams",
+		map[string]string{"slug": "denied", "name": "Denied"}, srv.handleCreateTeam, permOrgWrite,
+	)
+	if tenantACreate.Code != http.StatusForbidden {
+		t.Fatalf("resource ABAC create = %d body=%s, want 403", tenantACreate.Code, tenantACreate.Body.String())
+	}
+
+	tenantAAllowedCreate := call(
+		principalA,
+		http.MethodPost, "/v1/hierarchy/orgs/{id}/teams", "/v1/hierarchy/orgs/"+allowedOrgA.ID+"/teams",
+		map[string]string{"slug": "allowed", "name": "Allowed"}, srv.handleCreateTeam, permOrgWrite,
+	)
+	if tenantAAllowedCreate.Code != http.StatusCreated {
+		t.Fatalf("same-tenant allowed create = %d body=%s, want 201", tenantAAllowedCreate.Code, tenantAAllowedCreate.Body.String())
+	}
+
+	tenantBList := call(
+		principalB, http.MethodGet, "/v1/hierarchy", "/v1/hierarchy",
+		nil, srv.handleGetHierarchy, permOrgRead,
+	)
+	if tenantBList.Code != http.StatusOK || !strings.Contains(tenantBList.Body.String(), orgB.ID) {
+		t.Fatalf("tenant B hierarchy = %d body=%s, want own organization", tenantBList.Code, tenantBList.Body.String())
+	}
+	if strings.Contains(tenantBList.Body.String(), deniedOrgA.ID) ||
+		strings.Contains(tenantBList.Body.String(), allowedOrgA.ID) {
+		t.Fatalf("tenant B hierarchy leaked tenant A organization: %s", tenantBList.Body.String())
+	}
+
+	tenantBCreate := call(
+		principalB,
+		http.MethodPost, "/v1/hierarchy/orgs/{id}/teams", "/v1/hierarchy/orgs/"+orgB.ID+"/teams",
+		map[string]string{"slug": "allowed", "name": "Allowed"}, srv.handleCreateTeam, permOrgWrite,
+	)
+	if tenantBCreate.Code != http.StatusCreated {
+		t.Fatalf("tenant B create = %d body=%s, want 201", tenantBCreate.Code, tenantBCreate.Body.String())
+	}
+}

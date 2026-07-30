@@ -164,6 +164,13 @@ policies can express things like:
   bindings already carry an `org`/`team`/`project` scope; see the `scope_type`
   column in migration `0003_rbac.sql`).
 
+Hierarchy reads and writes provide the resolved resource attributes to ABAC as
+`tenant`, `org`, `team`, and `project`. Parent resources are resolved inside the
+caller's tenant scope first; RBAC lineage is checked second; then a matching
+resource deny hides that branch from `GET /v1/hierarchy` or rejects the write.
+An ancestor deny also covers descendants because their resource map retains the
+ancestor identifiers.
+
 Policies are managed at **Admin & Settings → Identity administration** and at
 `/v1/abac/policies` (`GET` gated by `directory.read`; `POST` and `DELETE` by
 `directory.write`) and cached per tenant for a short TTL (30 seconds), with

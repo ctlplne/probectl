@@ -62,7 +62,7 @@ func (s *Server) handleGetHierarchy(w http.ResponseWriter, r *http.Request) erro
 	}
 	var resp hierarchyResponse
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		tree, err := loadHierarchy(ctx, sc, principal)
+		tree, err := s.loadHierarchy(ctx, sc, principal)
 		resp.Items = tree
 		return err
 	}); err != nil {
@@ -75,7 +75,27 @@ func (s *Server) handleGetHierarchy(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
-func loadHierarchy(ctx context.Context, sc tenancy.Scope, principal *auth.Principal) ([]hierarchyOrganization, error) {
+func hierarchyResource(principal *auth.Principal, lineage auth.ResourceLineage) map[string]string {
+	resource := map[string]string{
+		auth.ResourceTenantKey: principal.TenantID,
+	}
+	if lineage.OrganizationID != "" {
+		resource[string(auth.ScopeOrganization)] = lineage.OrganizationID
+	}
+	if lineage.TeamID != "" {
+		resource[string(auth.ScopeTeam)] = lineage.TeamID
+	}
+	if lineage.ProjectID != "" {
+		resource[string(auth.ScopeProject)] = lineage.ProjectID
+	}
+	return resource
+}
+
+func (s *Server) hierarchyABACDenies(ctx context.Context, principal *auth.Principal, permission string, lineage auth.ResourceLineage) (bool, error) {
+	return s.abacDenies(ctx, principal, permission, hierarchyResource(principal, lineage))
+}
+
+func (s *Server) loadHierarchy(ctx context.Context, sc tenancy.Scope, principal *auth.Principal) ([]hierarchyOrganization, error) {
 	orgs, err := store.Organizations{}.List(ctx, sc)
 	if err != nil {
 		return nil, err
@@ -83,6 +103,14 @@ func loadHierarchy(ctx context.Context, sc tenancy.Scope, principal *auth.Princi
 	out := make([]hierarchyOrganization, 0, len(orgs))
 	for _, org := range orgs {
 		orgLineage := auth.ResourceLineage{OrganizationID: org.ID}
+		orgVisible := principal.HasAt(permOrgRead, orgLineage)
+		if orgVisible {
+			denied, err := s.hierarchyABACDenies(ctx, principal, permOrgRead, orgLineage)
+			if err != nil {
+				return nil, err
+			}
+			orgVisible = !denied
+		}
 		teams, err := store.Teams{}.ListByOrg(ctx, sc, org.ID)
 		if err != nil {
 			return nil, err
@@ -90,25 +118,41 @@ func loadHierarchy(ctx context.Context, sc tenancy.Scope, principal *auth.Princi
 		ho := hierarchyOrganization{Organization: org, Teams: make([]hierarchyTeam, 0, len(teams))}
 		for _, team := range teams {
 			teamLineage := auth.ResourceLineage{OrganizationID: org.ID, TeamID: team.ID}
+			teamVisible := principal.HasAt(permOrgRead, teamLineage)
+			if teamVisible {
+				denied, err := s.hierarchyABACDenies(ctx, principal, permOrgRead, teamLineage)
+				if err != nil {
+					return nil, err
+				}
+				teamVisible = !denied
+			}
 			projects, err := store.Projects{}.ListByTeam(ctx, sc, team.ID)
 			if err != nil {
 				return nil, err
 			}
 			visibleProjects := make([]store.Project, 0, len(projects))
 			for _, project := range projects {
-				if principal.HasAt(permOrgRead, auth.ResourceLineage{
+				projectLineage := auth.ResourceLineage{
 					OrganizationID: org.ID,
 					TeamID:         team.ID,
 					ProjectID:      project.ID,
-				}) {
+				}
+				if !principal.HasAt(permOrgRead, projectLineage) {
+					continue
+				}
+				denied, err := s.hierarchyABACDenies(ctx, principal, permOrgRead, projectLineage)
+				if err != nil {
+					return nil, err
+				}
+				if !denied {
 					visibleProjects = append(visibleProjects, project)
 				}
 			}
-			if principal.HasAt(permOrgRead, teamLineage) || len(visibleProjects) > 0 {
+			if teamVisible || len(visibleProjects) > 0 {
 				ho.Teams = append(ho.Teams, hierarchyTeam{Team: team, Projects: visibleProjects})
 			}
 		}
-		if principal.HasAt(permOrgRead, orgLineage) || len(ho.Teams) > 0 {
+		if orgVisible || len(ho.Teams) > 0 {
 			out = append(out, ho)
 		}
 	}
@@ -129,7 +173,13 @@ func (s *Server) handleCreateOrganization(w http.ResponseWriter, r *http.Request
 	}
 	var created *store.Organization
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var e error
+		denied, e := s.hierarchyABACDenies(ctx, principal, permOrgWrite, auth.ResourceLineage{})
+		if e != nil {
+			return e
+		}
+		if denied {
+			return apierror.Forbidden("denied by an attribute policy: " + permOrgWrite)
+		}
 		created, e = store.Organizations{}.Create(ctx, sc, in.Slug, in.Name)
 		if e != nil {
 			return mapHierarchyStoreError(e)
@@ -159,8 +209,16 @@ func (s *Server) handleCreateTeam(w http.ResponseWriter, r *http.Request) error 
 			return e
 		}
 		principal := auth.PrincipalFrom(r.Context())
-		if principal == nil || !principal.HasAt(permOrgWrite, auth.ResourceLineage{OrganizationID: org.ID}) {
+		lineage := auth.ResourceLineage{OrganizationID: org.ID}
+		if principal == nil || !principal.HasAt(permOrgWrite, lineage) {
 			return apierror.Forbidden("permission does not cover organization")
+		}
+		denied, e := s.hierarchyABACDenies(ctx, principal, permOrgWrite, lineage)
+		if e != nil {
+			return e
+		}
+		if denied {
+			return apierror.Forbidden("denied by an attribute policy: " + permOrgWrite)
 		}
 		created, e = store.Teams{}.Create(ctx, sc, orgID, in.Slug, in.Name)
 		if e != nil {
@@ -193,11 +251,19 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) err
 			return e
 		}
 		principal := auth.PrincipalFrom(r.Context())
-		if principal == nil || !principal.HasAt(permOrgWrite, auth.ResourceLineage{
+		lineage := auth.ResourceLineage{
 			OrganizationID: team.OrgID,
 			TeamID:         team.ID,
-		}) {
+		}
+		if principal == nil || !principal.HasAt(permOrgWrite, lineage) {
 			return apierror.Forbidden("permission does not cover team")
+		}
+		denied, e := s.hierarchyABACDenies(ctx, principal, permOrgWrite, lineage)
+		if e != nil {
+			return e
+		}
+		if denied {
+			return apierror.Forbidden("denied by an attribute policy: " + permOrgWrite)
 		}
 		created, e = store.Projects{}.Create(ctx, sc, teamID, in.Slug, in.Name)
 		if e != nil {
