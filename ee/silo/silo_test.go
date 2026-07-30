@@ -53,6 +53,7 @@ func TestProvisionPlan(t *testing.T) {
 	plan := ProvisionPlan("t_abc", []string{
 		"tests", "agents", "audit_events", "audit_subject_erasures",
 		"ir_attribution_records", "ir_attribution_heads",
+		"ir_key_shred_records", "ir_key_shred_heads",
 		"break_glass_grants", "tenant_retention",
 		"credential_locators", "agent_identity_revocations",
 	})
@@ -86,7 +87,7 @@ func TestProvisionPlan(t *testing.T) {
 	for _, providerOwned := range []string{
 		"break_glass_grants", "tenant_retention",
 		"credential_locators", "agent_identity_revocations",
-		"ir_attribution_heads",
+		"ir_attribution_heads", "ir_key_shred_records", "ir_key_shred_heads",
 	} {
 		if strings.Contains(joined, providerOwned) {
 			t.Errorf("provider-owned table %s must never enter a tenant silo", providerOwned)

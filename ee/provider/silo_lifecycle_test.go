@@ -357,7 +357,8 @@ func TestSiloProvisionFailureIsResumable(t *testing.T) {
 
 // TestSiloedProvisioningLifecycle is the S-T2 lifecycle suite at the API:
 // pooled needs nothing; siloed/hybrid require the capability + a valid
-// residency, provision the silo BEFORE success, and offboard tears it down.
+// residency, provision the silo BEFORE success, and keep offboard
+// non-destructive so the separate verified erase flow can retain IR evidence.
 func TestSiloLifecycle(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	silo := &fakeSilo{planes: []string{"eu"}}
@@ -420,20 +421,21 @@ func TestSiloLifecycle(t *testing.T) {
 		t.Fatalf("failed silo provision: %d %s", rec.Code, rec.Body.String())
 	}
 
-	// Offboarding the siloed tenant tears its stores down + audits it.
+	// Offboarding the siloed tenant is status-only. It must not destroy the
+	// sidecar or any other store before the slug-confirmed erase flow.
 	rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants/"+siloed.ID+"/offboard", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("offboard: %d %s", rec.Code, rec.Body.String())
 	}
-	if len(silo.tornDown) != 1 || silo.tornDown[0] != siloed.ID+"|siloed|eu" {
-		t.Fatalf("teardown calls: %v", silo.tornDown)
+	if len(silo.tornDown) != 0 {
+		t.Fatalf("offboard destroyed silo before verified erase: %v", silo.tornDown)
 	}
-	if f.audit.count("provider.tenant_silo_teardown") != 1 {
-		t.Fatal("silo teardown must be audited")
+	if f.audit.count("provider.tenant_silo_teardown") != 0 {
+		t.Fatal("offboard claimed a silo teardown that did not occur")
 	}
 	// Offboarding the POOLED tenant calls no teardown (nothing siloed exists).
 	rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants/"+pooled.ID+"/offboard", nil)
-	if rec.Code != http.StatusOK || len(silo.tornDown) != 1 {
+	if rec.Code != http.StatusOK || len(silo.tornDown) != 0 {
 		t.Fatalf("pooled offboard: %d teardown=%v", rec.Code, silo.tornDown)
 	}
 

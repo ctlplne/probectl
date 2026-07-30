@@ -178,7 +178,8 @@ action; siloed and hybrid require the licensed tier):
 What you should observe: the isolated stores are created *before* the call
 returns — a siloed tenant never exists without its silo. A residency pin places
 that tenant's telemetry databases on the named regional data plane. Offboarding
-later tears those isolated stores down cleanly.
+is status-only; the stores remain available to the separate, verifiable
+deletion flow.
 
 **Inspect the effective posture from inside the tenant:**
 

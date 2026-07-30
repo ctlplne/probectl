@@ -106,11 +106,11 @@ probectl lifecycle subject-erase --subject alice@example.com --confirm alice@exa
 
 ## 2. Suspend, then offboard (provider console)
 
-Suspend stops the tenant's users from logging in. Offboard frees the licensed
-band slot (the tenant-count band your license permits) and, for a siloed or
-hybrid tenant, tears down that tenant's
-**containers** (its dedicated schema / ClickHouse database). For a pooled tenant,
-the rows still physically exist at this point — that's what step 3 erases.
+Suspend stops the tenant's users from logging in. Offboard then frees the
+licensed tenant-band slot and blocks tenant access. Offboard is deliberately
+non-destructive for every isolation model: it does not reclaim the silo, so the
+encrypted incident-response sidecar and its signed chain remain available to
+the verified erase plan.
 
 ## 3. Erase (irreversible, verifiable)
 
@@ -130,7 +130,13 @@ the same row-level security (RLS) scope as live queries — the eraser is
 | ClickHouse endpoint/DEM events | pooled: tenant-predicate mutation; siloed: `DROP DATABASE` | post-delete count == 0 (`endpoint_events` in the attestation) |
 | Object store (`PROBECTL_OBJECTSTORE_DIR`, when configured) | `DeletePrefix` on `tenant/<id>/` and `silo/<id>/`; browser synthetic artifacts use the same tenant-prefixed namespace | post-delete list is empty |
 | Tenant keys (BYOK editions) | **crypto-shred** — every key version's wrapped key is nulled and the chain marked `destroyed`, so any ciphertext (including in still-live backups) is permanently unreadable, and destroyed chains refuse re-keying | versions-destroyed count on the attestation; unlicensed deployments record "no per-tenant keyring installed" |
+| Provider IR attribution key | before any store delete, verify signed sidecar/WORM coverage and commit a signed exact-artifact plan; after every ordinary store succeeds, remove only that tenant's local public/encrypted-private artifacts and commit a signed tombstone. The encrypted sidecar remains as unreadable proof | `ir_attribution_keys` is verified only after exact artifact absence; plan/completion/failure receipts survive deletion. Mount the owner-only private-key directory for erase; missing capability or incomplete coverage fails before deletion |
 | Time-series (TSDB) | memory mode: in-place series delete. Prometheus mode: the engine calls the admin `delete_series` API itself and verifies. **If that admin API is disabled, this becomes a MANUAL STEP** — run `delete_series` for `{tenant_id="<id>"}` yourself (or let retention expire it); the attestation marks this store incomplete until you do | per mode |
+
+After Offboard, the isolated container remains until this erase completes.
+Physical container reclamation requires a separate tombstone-aware maintenance
+procedure; never use a raw schema drop, because that would erase the retained
+encrypted IR sidecar.
 
 > The engine also erases the other tenant-scoped planes the same way (path,
 > topology, endpoint/DEM event history, and externally-ingested OTLP traces/logs) — they appear in the
@@ -142,6 +148,12 @@ backups is a locked safe you can no longer walk up to — but you hold the only
 key. Destroy every copy of the key and every such safe, reachable or not,
 becomes scrap metal. That is how the engine can honestly attest deletion of
 data *inside backups it never touches*: ciphertext without a key is not data.
+
+For IR attribution, overwrite/unlink covers only the exact local artifacts
+mounted to probectl. Destroy operator backups, snapshots, escrow copies, or an
+external KMS handle separately. A signed probectl tombstone permanently refuses
+a restored local artifact, but it cannot claim physical zeroization of storage
+outside the operator-controlled mount.
 
 The tenant registry row is then **tombstoned** (`status=deleted`): the row
 remains as a referent for the attestation, but it holds no telemetry.

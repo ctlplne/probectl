@@ -69,6 +69,7 @@ type AuditSink func(ctx context.Context, actor, action, target string, data map[
 
 const (
 	retentionAuditTimeout       = 5 * time.Second
+	irLifecycleReceiptTimeout   = 5 * time.Second
 	retentionPolicyAuditAction  = "lifecycle.retention_set"
 	maxRetentionAuditActorBytes = 256
 	auditRetentionDay           = 24 * time.Hour
@@ -159,6 +160,23 @@ type SessionRetentionPruner interface {
 	PruneInactive(ctx context.Context, tenantID string, replayHorizon time.Duration) (deleted int64, err error)
 }
 
+// IRAttributionLifecycle is the tenant-erasure seam for the distinct
+// investigation-response attribution key domain. Plan must durably record the
+// intent and prove that the encrypted attribution sidecar is fully covered
+// before returning a plan ID. Execute performs the tenant-scoped crypto-shred
+// and records its successful completion. RecordFailure records a terminal
+// receipt when an existing erasure store fails after Plan has succeeded.
+// If Plan fails after recording its intent, Plan also owns that attempt's
+// terminal failure receipt because tenantlife cannot know how far it got.
+//
+// Only primitive strings cross this boundary so tenantlife does not depend on
+// the audit sidecar implementation (which itself composes lifecycle storage).
+type IRAttributionLifecycle interface {
+	Plan(ctx context.Context, tenantID, actor string) (planID string, err error)
+	Execute(ctx context.Context, tenantID, actor, planID string) error
+	RecordFailure(ctx context.Context, tenantID, actor, planID, failure string) error
+}
+
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
 	pool              *pgxpool.Pool
@@ -191,6 +209,11 @@ type Engine struct {
 	// and prove every identity deletion and earlier alias marker rolls back in
 	// the same tenant transaction.
 	appendSubjectErasure subjectErasureAppender
+	// irAttribution is optional until the encrypted attribution sidecar is
+	// composed at the control-plane seam. Nil preserves the core erasure
+	// behavior; when present it fails closed before any deletion if planning
+	// or coverage verification fails.
+	irAttribution IRAttributionLifecycle
 
 	// BackupNote is the operator's backup-retention statement, included
 	// verbatim in every attestation (the explicit backup-TTL story).
@@ -317,6 +340,14 @@ func (e *Engine) WithOtel(o OtelDeleter) *Engine { e.otel = o; return e }
 // WithEBPF attaches the eBPF L7 edge store for erasure coverage (TENANT-002).
 func (e *Engine) WithEBPF(d EBPFDeleter) *Engine { e.ebpf = d; return e }
 
+// WithIRAttributionLifecycle attaches the encrypted IR-attribution key
+// lifecycle. Planning runs before any tenant deletion; execution runs only
+// after every existing store and tenant keyring reports successful erasure.
+func (e *Engine) WithIRAttributionLifecycle(lifecycle IRAttributionLifecycle) *Engine {
+	e.irAttribution = lifecycle
+	return e
+}
+
 // WithClock overrides time (tests).
 func (e *Engine) WithClock(now func() time.Time) *Engine {
 	e.now = now
@@ -386,12 +417,23 @@ const maxDeletePasses = 6
 // reads zero afterward, marks the tenant deleted, and appends the
 // attestation to the provider audit stream BEFORE returning it. Pooled
 // tenants get scoped deletes (RLS-bound); siloed tenants' Postgres deletes
-// route into their own schema (the silo container drop itself is the
-// provider offboard step and is noted).
+// route into their own schema, where encrypted IR evidence remains after the
+// distinct attribution key is crypto-shredded.
 func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attestation, error) {
 	att := Attestation{
 		FormatVersion: 1, TenantID: tenantID, TenantSlug: slug, Actor: actor,
 		StartedAt: e.now().UTC(), BackupPolicy: e.backupNote, Complete: true,
+	}
+	irPlanID := ""
+	if e.irAttribution != nil {
+		var err error
+		irPlanID, err = e.irAttribution.Plan(ctx, tenantID, actor)
+		if err != nil {
+			return att, fmt.Errorf("tenantlife: plan IR attribution crypto-shred: %w", err)
+		}
+		if strings.TrimSpace(irPlanID) == "" {
+			return att, errors.New("tenantlife: plan IR attribution crypto-shred: empty plan id")
+		}
 	}
 	fail := func(store, note string) {
 		att.Stores = append(att.Stores, StoreResult{Store: store, Deleted: -1, Notes: note})
@@ -585,6 +627,14 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 			Notes: "no per-tenant keyring installed (byok feature not licensed)"})
 	}
 
+	irLifecycleErr := e.finalizeIRAttribution(
+		ctx,
+		tenantID,
+		actor,
+		irPlanID,
+		&att,
+	)
+
 	att.FinishedAt = e.now().UTC()
 	// COMPLY-002: quantify the backup-coverage window. The live stores are
 	// zero NOW; any backup taken before this erasure expires by
@@ -605,10 +655,70 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 			"slug": slug, "complete": att.Complete, "report_sha256": att.ReportSHA256,
 			"stores": len(att.Stores),
 		}); err != nil {
-			return att, fmt.Errorf("tenantlife: attestation audit append failed: %w", err)
+			return att, errors.Join(
+				irLifecycleErr,
+				fmt.Errorf("tenantlife: attestation audit append failed: %w", err),
+			)
 		}
 	}
-	return att, nil
+	return att, irLifecycleErr
+}
+
+func (e *Engine) finalizeIRAttribution(
+	ctx context.Context,
+	tenantID, actor, planID string,
+	att *Attestation,
+) error {
+	if e.irAttribution == nil {
+		return nil
+	}
+	if !att.Complete {
+		return e.recordIRAttributionFailure(
+			ctx,
+			tenantID,
+			actor,
+			planID,
+			"store_erasure_incomplete",
+		)
+	}
+	if err := e.irAttribution.Execute(ctx, tenantID, actor, planID); err != nil {
+		att.Stores = append(att.Stores, StoreResult{
+			Store: "ir_attribution_keys", Deleted: -1,
+			Notes: "crypto-shred failed",
+		})
+		att.Complete = false
+		return errors.Join(
+			fmt.Errorf("tenantlife: execute IR attribution crypto-shred: %w", err),
+			e.recordIRAttributionFailure(
+				ctx,
+				tenantID,
+				actor,
+				planID,
+				"crypto_shred_failed",
+			),
+		)
+	}
+	att.Stores = append(att.Stores, StoreResult{
+		Store:        "ir_attribution_keys",
+		VerifiedZero: true,
+		Notes:        "crypto-shred complete; encrypted attribution evidence retained",
+	})
+	return nil
+}
+
+func (e *Engine) recordIRAttributionFailure(
+	ctx context.Context,
+	tenantID, actor, planID, failure string,
+) error {
+	// A store or keyring may return after consuming/cancelling the caller's
+	// request context. Preserve values but give the forensic failure receipt a
+	// separate, finite window.
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), irLifecycleReceiptTimeout)
+	defer cancel()
+	if err := e.irAttribution.RecordFailure(auditCtx, tenantID, actor, planID, failure); err != nil {
+		return fmt.Errorf("tenantlife: record IR attribution crypto-shred failure: %w", err)
+	}
+	return nil
 }
 
 // hash computes the report digest over the canonical JSON minus the hash
@@ -629,6 +739,25 @@ var appendOnlyTables = map[string]bool{
 	"audit_subject_erasures": true,
 }
 
+// retainedCryptoShreddedEvidenceTables remain as encrypted, tamper-evident
+// proof after tenant deletion. Their distinct tenant IR key is destroyed by
+// IRAttributionLifecycle; deleting these rows would erase the proof itself and
+// break the WORM companion chain.
+var retainedCryptoShreddedEvidenceTables = map[string]bool{
+	"ir_attribution_records": true,
+	"ir_attribution_heads":   true,
+}
+
+func appRoleEraseTables(all []string) []string {
+	tables := make([]string, 0, len(all))
+	for _, table := range all {
+		if !appendOnlyTables[table] && !retainedCryptoShreddedEvidenceTables[table] {
+			tables = append(tables, table)
+		}
+	}
+	return tables
+}
+
 // erasePostgres deletes every tenant-owned row under the tenant's own scope.
 // Each table's DELETE runs in ITS OWN transaction: a failed statement aborts
 // a Postgres transaction, so per-table isolation is what lets the multi-pass
@@ -638,10 +767,11 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 	if err != nil {
 		return StoreResult{}, err
 	}
-	tables := make([]string, 0, len(all))
-	for _, t := range all {
-		if !appendOnlyTables[t] {
-			tables = append(tables, t)
+	tables := appRoleEraseTables(all)
+	retainedEvidenceTables := 0
+	for _, table := range all {
+		if retainedCryptoShreddedEvidenceTables[table] {
+			retainedEvidenceTables++
 		}
 	}
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
@@ -716,8 +846,11 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 	}); perr != nil {
 		return StoreResult{}, fmt.Errorf("tenantlife: postgres verify (append-only): %w", perr)
 	}
-	return StoreResult{Store: "postgres", Deleted: deleted, VerifiedZero: verified,
-		Notes: trimNotes(notes, len(all))}, nil
+	notes = trimNotes(notes, len(tables)+len(appendOnlyTables))
+	if retainedEvidenceTables > 0 {
+		notes += fmt.Sprintf("; %d encrypted IR evidence tables retained for crypto-shred", retainedEvidenceTables)
+	}
+	return StoreResult{Store: "postgres", Deleted: deleted, VerifiedZero: verified, Notes: notes}, nil
 }
 
 // eraseProviderRows removes provider-plane rows about the tenant and marks

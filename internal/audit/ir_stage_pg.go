@@ -153,6 +153,13 @@ func (s *IRStagePG) AppendIRStageTx(
 		); err != nil {
 			return fmt.Errorf("audit: lock IR attribution chain: %w", err)
 		}
+		// A durable destruction plan freezes this tenant's IR key domain.
+		// Checking under the same per-tenant lock serializes the final append
+		// against planning, and a retained tombstone keeps a restored key
+		// artifact from silently reactivating the sidecar.
+		if err := s.assertIRKeyActiveTx(ctx, q, attribution.TenantID); err != nil {
+			return err
+		}
 		if _, err := q.Exec(
 			ctx,
 			`INSERT INTO public.ir_attribution_heads (tenant_id)

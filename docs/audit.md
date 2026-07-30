@@ -104,6 +104,25 @@ closed; the runtime never fabricates historical proof. The encrypted stage and
 companion are not pruned with the plaintext provider rows, so an authorized
 investigation can still reconstruct attribution after a legitimate prune.
 
+Migration 0082 adds the separate, signed IR key-destruction ledger used by
+verifiable tenant deletion. Before deleting any tenant store, the lifecycle
+engine verifies the complete sidecar chain and WORM coverage, inventories every
+historical tenant IR key artifact, and atomically records a provider intent plus
+signed plan. That plan immediately freezes new sidecar writes and reveals. Only
+after every ordinary store succeeds does the explicitly mounted destruction
+capability remove the exact tenant public key and encrypted private artifacts,
+verify their absence, and atomically append the completion event and signed
+tombstone. Failure is separately audited with a bounded class; another tenant's
+key and ledger remain usable. The encrypted sidecar and WORM proof survive as
+unreadable accountability evidence, and a restored key file is still rejected
+by the tombstone.
+
+Local overwrite and unlink are best-effort filesystem hygiene, not a claim that
+flash media, snapshots, external escrow, or operator backups were physically
+zeroized. The operator must destroy those copies or the corresponding external
+KMS handle under its own policy. The product's signed tombstone prevents a
+restored local artifact from reactivating attribution through probectl.
+
 Rejected agent and collector enrollment attempts use the fixed
 `security.enrollment_rejected` action. If a tenant was resolved from an
 authenticated caller, consumed tenant-bound token, or deployment-verified

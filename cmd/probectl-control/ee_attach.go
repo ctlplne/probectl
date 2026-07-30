@@ -243,6 +243,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			return err
 		}
 		srv.WithIRInvestigator(investigator)
+		life.WithIRAttributionLifecycle(investigator)
 		h, err := provider.Build(cfg, provider.Deps{
 			Pool:      pool,
 			License:   lic,

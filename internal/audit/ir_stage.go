@@ -115,6 +115,9 @@ func (r *LocalIRPublicKeyResolver) WrapProviderForTenant(
 	path := filepath.Join(r.directory, tenantID+".pem")
 	f, err := os.Open(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: tenant IR public key is absent", ErrIRKeyUnavailable)
+		}
 		return nil, fmt.Errorf("audit: open tenant IR public key: %w", err)
 	}
 	defer f.Close()

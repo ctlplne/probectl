@@ -158,7 +158,7 @@
     },
     "/provider/v1/tenants/{id}/offboard": {
       "post": {
-        "summary": "Offboard a tenant: API access stops; a siloed/hybrid tenant's isolated stores are torn down (pooled-data export/verifiable deletion is S-T5)",
+        "summary": "Offboard a tenant: API access stops and the licensed-band slot is freed; all data and isolated stores remain for the separate verifiable-deletion flow",
         "responses": {
           "200": {
             "description": "OK"

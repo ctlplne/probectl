@@ -43,6 +43,14 @@ var providerOwnedTables = map[string]providerOwnedKind{
 	// tenant-GUC-scoped provider role; it is not lifecycle-deleted as generic
 	// provider data because the anchor is the retained integrity proof.
 	"audit_stream_heads": providerGlobalTable,
+	// Encrypted IR attribution heads and IR key-shred proofs are signed
+	// provider integrity metadata with no plaintext attribution or key
+	// material. They remain public for every isolation model and deliberately
+	// survive tenant teardown/deletion; detailed encrypted attribution records
+	// remain tenant-owned and route into physical silos.
+	"ir_attribution_heads": providerGlobalTable,
+	"ir_key_shred_records": providerGlobalTable,
+	"ir_key_shred_heads":   providerGlobalTable,
 	// Hash-only credential routing and certificate deny-list metadata must
 	// stay deployment-global: they are what resolves a tenant before that
 	// tenant's physical schema can be selected. Detailed credential/session

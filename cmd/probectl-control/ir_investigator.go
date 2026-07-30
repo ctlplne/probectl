@@ -24,9 +24,10 @@ import (
 )
 
 type irInvestigator struct {
-	pool     *pgxpool.Pool
-	sidecar  *audit.IRStagePG
-	revealer *audit.IRRevealer
+	pool      *pgxpool.Pool
+	sidecar   *audit.IRStagePG
+	revealer  *audit.IRRevealer
+	lifecycle *audit.IRKeyLifecycle
 }
 
 var _ control.IRInvestigator = (*irInvestigator)(nil)
@@ -69,7 +70,10 @@ func buildIRInvestigator(
 	if err := attachProviderIRDurability(ctx, worm, sidecar); err != nil {
 		return nil, nil, err
 	}
-	var openKeys audit.IROpenKeyResolver
+	var (
+		openKeys  audit.IROpenKeyResolver
+		destroyer crypto.KeyArtifactDestroyer
+	)
 	if cfg.IRPrivateKeyDir != "" {
 		unlock, err := crypto.NewStaticKeyProviderFromBase64(
 			cfg.IRUnlockKeyID,
@@ -88,14 +92,71 @@ func buildIRInvestigator(
 		if err != nil {
 			return nil, nil, fmt.Errorf("provider IR private keyring: %w", err)
 		}
+		destroyer, err = audit.NewLocalIRKeyArtifactDestroyer(
+			cfg.IRPublicKeyDir,
+			cfg.IRPrivateKeyDir,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"provider IR key destruction capability: %w",
+				err,
+			)
+		}
 	}
 	revealer, err := audit.NewIRRevealer(worm, sidecar, openKeys)
 	if err != nil {
 		return nil, nil, fmt.Errorf("provider IR revealer: %w", err)
 	}
+	lifecycle, err := audit.NewIRKeyLifecycle(worm, sidecar, destroyer)
+	if err != nil {
+		return nil, nil, fmt.Errorf("provider IR key lifecycle: %w", err)
+	}
+	if err := lifecycle.VerifyIRKeyShredLedger(ctx); err != nil {
+		return nil, nil, fmt.Errorf(
+			"provider IR key-destruction startup verification: %w",
+			err,
+		)
+	}
 	return sidecar, &irInvestigator{
 		pool: pool, sidecar: sidecar, revealer: revealer,
+		lifecycle: lifecycle,
 	}, nil
+}
+
+func (i *irInvestigator) Plan(
+	ctx context.Context,
+	tenantID, actor string,
+) (string, error) {
+	if i == nil || i.lifecycle == nil {
+		return "", errors.New("IR key lifecycle is unavailable")
+	}
+	return i.lifecycle.Plan(ctx, tenantID, actor)
+}
+
+func (i *irInvestigator) Execute(
+	ctx context.Context,
+	tenantID, actor, planID string,
+) error {
+	if i == nil || i.lifecycle == nil {
+		return errors.New("IR key lifecycle is unavailable")
+	}
+	return i.lifecycle.Execute(ctx, tenantID, actor, planID)
+}
+
+func (i *irInvestigator) RecordFailure(
+	ctx context.Context,
+	tenantID, actor, planID, failure string,
+) error {
+	if i == nil || i.lifecycle == nil {
+		return errors.New("IR key lifecycle is unavailable")
+	}
+	return i.lifecycle.RecordFailure(
+		ctx,
+		tenantID,
+		actor,
+		planID,
+		failure,
+	)
 }
 
 func (i *irInvestigator) RecordAttempt(

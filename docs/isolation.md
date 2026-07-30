@@ -156,11 +156,11 @@ Provisioning a tenant (`POST /provider/v1/tenants` with `isolation_model` +
 provisioning failure is loud, and because the DDL — the CREATE/ALTER/DROP class
 of SQL statements — is **idempotent** (safe to run twice; a second run finds the
 work already done), the call is simply
-re-runnable. Offboarding **tears the isolated stores down** (`DROP SCHEMA …
-CASCADE`, `DROP DATABASE`) — they are per-tenant containers, safe to drop. Pooled
-rows (a hybrid tenant's shared control state) are left untouched; their export and
-verifiable deletion is the separate compliance flow. Teardown is idempotent too: a
-partial failure is fixed by calling offboard again.
+re-runnable. Offboarding is deliberately **status-only** for every isolation
+model: API access stops and the tenant-band slot is freed, but its isolated
+stores remain available to the separate verifiable-deletion flow. A raw
+`DROP SCHEMA … CASCADE` is not an offboarding operation because it would erase
+the retained encrypted IR sidecar.
 
 ## Migrations across silos (the operational cost of siloed)
 
@@ -203,13 +203,14 @@ those models are refused (pooled always works). See [`configuration.md`](configu
 Unit tests cover the planner/catch-up/teardown DDL recipes, naming, drift
 diffing, router fail-closed semantics, flow-store routing (per-target inserts,
 pinned planes, malformed-name refusal), topic naming, and the provider-API
-lifecycle (license gating, residency validation, teardown-on-offboard, and
+lifecycle (license gating, residency validation, non-destructive offboard, and
 pooled↔siloed handler parity). The headline integration test (live Postgres) is
 `TestSiloedPhysicalSeparation`, which asserts: schema creation; **physical
 separation** (a siloed tenant's rows exist only in its schema — zero in `public`,
 and vice versa); pooled↔siloed **parity** of the same tenant-scoped operation;
 in-silo RLS defense-in-depth; router correctness; **catch-up** after a simulated
-later migration; and **teardown** (gone, idempotent, pooled data untouched).
+later migration; and the lower-level, idempotent teardown primitive. Shipping
+Offboard never calls that primitive.
 `TestPreTenantCredentialsRouteIntoSilos` adds pooled-A/silo-B coverage for
 sessions (including concurrent authenticated replacement), MCP, SCIM, OTLP,
 agent enrollment, hot revocation, certificate deny-list refresh, and restored

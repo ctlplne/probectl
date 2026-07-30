@@ -69,15 +69,6 @@ func (r *IRRevealer) Reveal(
 		!irLowerHex64.MatchString(eventRef) {
 		return IRAttribution{}, ErrIRAttributionNotFound
 	}
-
-	// Verify the routed sidecar chain before selecting a record. A removed or
-	// altered record is therefore an integrity failure, never a partial reveal.
-	if err := r.sidecar.VerifyTenant(ctx, r.sidecar.pool, tenantID); err != nil {
-		return IRAttribution{}, fmt.Errorf(
-			"audit: verify tenant IR chain before reveal: %w",
-			err,
-		)
-	}
 	// This verifies the full continuous coverage chain/head and every exact
 	// WORM+companion object before returning a retention-authorizing cursor.
 	covered, err := r.sidecar.CoverageWatermark(
@@ -97,43 +88,68 @@ func (r *IRRevealer) Reveal(
 		ctx,
 		r.sidecar.pool,
 		func(ctx context.Context, q tenancy.Querier) error {
-			stage, err := r.sidecar.readIRStageByEventRef(
-				ctx,
-				q,
-				tenantID,
-				eventRef,
-			)
-			if err != nil {
-				return err
-			}
-			if stage.AuditSeq > covered {
-				return errors.New(
-					"audit: IR attribution is not yet covered by durable WORM evidence",
+			return withIRTenantRoute(ctx, q, tenantID, func() error {
+				// Keep the same database advisory lock from ledger check through
+				// the final Open. Planning therefore cannot commit between an
+				// "active" check and use of the investigation-only key.
+				if err := lockIRTenant(ctx, q, tenantID); err != nil {
+					return err
+				}
+				if err := r.sidecar.assertIRKeyActiveTx(
+					ctx,
+					q,
+					tenantID,
+				); err != nil {
+					return err
+				}
+				if _, err := r.sidecar.verifiedIRStageSnapshotTx(
+					ctx,
+					q,
+					tenantID,
+				); err != nil {
+					return fmt.Errorf(
+						"audit: verify tenant IR chain before reveal: %w",
+						err,
+					)
+				}
+				stage, err := r.sidecar.readIRStageByEventRef(
+					ctx,
+					q,
+					tenantID,
+					eventRef,
 				)
-			}
-			coverage, err := r.sidecar.readIRCoverageForSeq(
-				ctx,
-				q,
-				stage.AuditSeq,
-			)
-			if err != nil {
-				return err
-			}
-			if err := r.sidecar.verifyIRCoverageRecord(coverage); err != nil {
-				return err
-			}
-			opened, err := r.openCoveredStage(
-				ctx,
-				tenantID,
-				eventRef,
-				stage,
-				coverage,
-			)
-			if err != nil {
-				return err
-			}
-			attribution = opened
-			return nil
+				if err != nil {
+					return err
+				}
+				if stage.AuditSeq > covered {
+					return errors.New(
+						"audit: IR attribution is not yet covered by durable WORM evidence",
+					)
+				}
+				coverage, err := r.sidecar.readIRCoverageForSeq(
+					ctx,
+					q,
+					stage.AuditSeq,
+				)
+				if err != nil {
+					return err
+				}
+				if err := r.sidecar.verifyIRCoverageRecord(coverage); err != nil {
+					return err
+				}
+				opened, err := r.openCoveredStage(
+					ctx,
+					tenantID,
+					eventRef,
+					stage,
+					coverage,
+				)
+				if err != nil {
+					return err
+				}
+				attribution = opened
+				return nil
+			})
 		},
 	)
 	if err != nil {

@@ -615,31 +615,14 @@ func (s *Service) Resume(ctx context.Context, actor, id string) (Tenant, error) 
 }
 
 // Offboard marks a tenant offboarding: API access stops and the tenant leaves
-// the licensed band. For siloed/hybrid tenants the isolated stores are torn
-// down (S-T2: "offboarding removes a siloed tenant's stores" — they are
-// per-tenant containers). POOLED rows are NOT touched: their export +
-// verifiable deletion are S-T5 (a compliance right, deliberately core).
-// Idempotent: a failed teardown is re-run by calling offboard again.
+// the licensed band. It is deliberately non-destructive for every isolation
+// model. The separate, slug-confirmed Erase flow must verify and delete
+// tenant data, crypto-shred the IR attribution key, and retain the encrypted
+// signed sidecar. Dropping a silo here would either bypass that plan or erase
+// its retained evidence. Physical container reclamation therefore remains a
+// separate, tombstone-aware maintenance operation.
 func (s *Service) Offboard(ctx context.Context, actor, id string) (Tenant, error) {
-	t, err := s.setStatus(ctx, actor, id, "offboarding", "provider.tenant_offboard")
-	if err != nil {
-		return Tenant{}, err
-	}
-	model := tenancy.IsolationModel(t.IsolationModel)
-	if model == tenancy.IsolationSiloed || model == tenancy.IsolationHybrid {
-		if s.silo == nil {
-			return Tenant{}, errors.New("provider: tenant has isolated stores but the silo capability is not attached")
-		}
-		if err := s.silo.Teardown(ctx, t.ID, t.Residency, model); err != nil {
-			return Tenant{}, fmt.Errorf("silo teardown failed (re-run offboard to retry): %w", err)
-		}
-		if err := s.audit.Append(ctx, actor, "provider.tenant_silo_teardown", t.ID, map[string]any{
-			"isolation_model": t.IsolationModel, "residency": t.Residency,
-		}); err != nil {
-			return Tenant{}, err
-		}
-	}
-	return t, nil
+	return s.setStatus(ctx, actor, id, "offboarding", "provider.tenant_offboard")
 }
 
 func (s *Service) setStatus(ctx context.Context, actor, id, status, action string) (Tenant, error) {
