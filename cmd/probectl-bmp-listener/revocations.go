@@ -129,7 +129,11 @@ func validateBMPDatabaseURL(role, raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("BMP %s database URL must include a host", role)
 	}
-	sslModes := u.Query()["sslmode"]
+	query := u.Query()
+	if _, present := query["host"]; present {
+		return fmt.Errorf("BMP %s database URL must use its authority host; query host overrides are not allowed", role)
+	}
+	sslModes := query["sslmode"]
 	if len(sslModes) != 1 || sslModes[0] != "verify-full" {
 		return fmt.Errorf("BMP %s database URL requires sslmode=verify-full", role)
 	}

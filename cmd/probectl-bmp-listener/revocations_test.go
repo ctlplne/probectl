@@ -161,3 +161,31 @@ func TestBMPDatabaseURLsRequireVerifyFull(t *testing.T) {
 		})
 	}
 }
+
+func TestBMPDatabaseURLsRejectHostOverrides(t *testing.T) {
+	secure := "postgres://bmp@db.internal:5432/probectl?sslmode=verify-full"
+	for name, urls := range map[string][2]string{
+		"identity unix socket override": {
+			secure + "&host=%2Fvar%2Frun%2Fpostgresql",
+			secure,
+		},
+		"identity remote host override": {
+			secure + "&host=other.internal",
+			secure,
+		},
+		"revocation unix socket override": {
+			secure,
+			secure + "&host=%2Fvar%2Frun%2Fpostgresql",
+		},
+		"revocation remote host override": {
+			secure,
+			secure + "&host=other.internal",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateBMPDatabaseURLs(urls[0], urls[1]); err == nil {
+				t.Fatal("BMP database URL query host override accepted")
+			}
+		})
+	}
+}

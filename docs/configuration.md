@@ -902,6 +902,11 @@ path is introduced.
 | `PROBECTL_BMP_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 | `PROBECTL_BMP_LOG_FORMAT` | `json` | `json` \| `text` |
 
+For both BMP PostgreSQL URLs, the URL authority is the canonical database host.
+A query-string `host=` override is rejected before either pool opens: PostgreSQL
+clients may otherwise replace the checked authority, and Unix-socket overrides
+do not carry TLS even when the URL also says `sslmode=verify-full`.
+
 Example:
 
 ```sh
