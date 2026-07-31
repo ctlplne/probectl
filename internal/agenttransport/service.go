@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -309,10 +310,31 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	if r.GetResultId() == "" {
 		r.ResultId = deterministicResultID(&r)
 	}
+	publish := func(ctx context.Context) error {
+		return svc.publishResult(ctx, id, &r)
+	}
+	if !hasObjectArtifact(&r) {
+		return publish(ctx)
+	}
+	if svc.pool == nil {
+		return errors.New("agent transport: object artifact ingest fence is unavailable")
+	}
+	return tenancy.NewPostgresWriterFence(svc.pool).WithTenantWrites(
+		ctx,
+		[]string{id.TenantID},
+		publish,
+	)
+}
+
+func hasObjectArtifact(r *resultv1.Result) bool {
+	return strings.TrimSpace(r.GetAttributes()["browser.screenshot.key"]) != ""
+}
+
+func (svc *service) publishResult(ctx context.Context, id crypto.SPIFFEID, r *resultv1.Result) error {
 	if svc.bus == nil {
 		return nil // no bus wired (minimal server): accept and count only
 	}
-	value, err := proto.Marshal(&r)
+	value, err := proto.Marshal(r)
 	if err != nil {
 		return err
 	}
@@ -335,7 +357,7 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	}
 	// SCALE-007: tenant|bucket key (agent entropy) — one large tenant spreads
 	// across partitions; each agent's stream keeps its FIFO.
-	return svc.bus.Publish(ctx, topic, bus.TenantKey(r.TenantId, r.AgentId), value)
+	return svc.bus.Publish(ctx, topic, bus.TenantKey(r.GetTenantId(), r.GetAgentId()), value)
 }
 
 // deterministicResultID derives a stable dedup id for a result that arrived
