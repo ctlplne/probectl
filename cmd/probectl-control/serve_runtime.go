@@ -417,7 +417,7 @@ func (rt *serveRuntime) configureTestSync() error {
 
 func (rt *serveRuntime) startLifecycleAndServe() error {
 	lifeEngine, worm, err := startHAAndTenantLifecycle(rt.gctx, rt.g, rt.cfg, rt.db, rt.log,
-		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.ebpfStore, rt.objectStore)
+		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.lifecycleEBPFStore(), rt.objectStore)
 	if err != nil {
 		return err
 	}
@@ -454,6 +454,13 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	rt.srv.WithAlertingActive(rt.alertingActive)
 	rt.g.Go(func() error { return rt.srv.Run(rt.gctx) })
 	return nil
+}
+
+// lifecycleEBPFStore exposes the concrete backend only to lifecycle capability
+// discovery. Ingest, API, and edition wiring continue to use rt.ebpfStore so
+// every production Insert remains protected by the durable writer fence.
+func (rt *serveRuntime) lifecycleEBPFStore() ebpfstore.Store {
+	return ebpfstore.UnderlyingStore(rt.ebpfStore)
 }
 
 func (rt *serveRuntime) startIngestConsumers() {

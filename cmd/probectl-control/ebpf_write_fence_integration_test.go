@@ -54,4 +54,17 @@ func TestEBPFFenceRuntime(t *testing.T) {
 	if !ebpfstore.HasTenantWriteFence(rt.ebpfStore) {
 		t.Fatal("production serve runtime exposed an unfenced eBPF Store")
 	}
+	if rt.lifecycleEBPFStore() == rt.ebpfStore {
+		t.Fatal("lifecycle received the ingest-only eBPF write-fence decorator")
+	}
+	type subjectDeleter interface {
+		DeleteSubject(
+			context.Context,
+			string,
+			string,
+		) (deleted, remaining int64, err error)
+	}
+	if _, ok := rt.lifecycleEBPFStore().(subjectDeleter); !ok {
+		t.Fatal("lifecycle eBPF backend lost DeleteSubject capability")
+	}
 }

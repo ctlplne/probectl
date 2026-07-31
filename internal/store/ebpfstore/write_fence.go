@@ -79,6 +79,22 @@ func ClickHouseStore(store Store) (*ClickHouse, bool) {
 	}
 }
 
+// UnderlyingStore returns the concrete lifecycle backend through the
+// ingest-only writer-fence decorator. Tenant lifecycle uses the concrete
+// backend to discover optional subject-export, subject-erasure, and retention
+// capabilities; production ingest and API paths must retain the decorated
+// Store.
+func UnderlyingStore(store Store) Store {
+	for {
+		switch current := store.(type) {
+		case *writeFencedStore:
+			store = current.next
+		default:
+			return store
+		}
+	}
+}
+
 // HasTenantWriteFence reports whether Store.Insert is protected by the durable
 // lifecycle writer lease. It is used by the runtime wiring regression.
 func HasTenantWriteFence(store Store) bool {
