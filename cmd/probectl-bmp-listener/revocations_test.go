@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,6 +186,25 @@ func TestBMPDatabaseURLsRejectHostOverrides(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := validateBMPDatabaseURLs(urls[0], urls[1]); err == nil {
 				t.Fatal("BMP database URL query host override accepted")
+			}
+		})
+	}
+}
+
+func TestBMPDatabaseURLErrorsDoNotDiscloseCredentials(t *testing.T) {
+	const canary = "credential-canary-636"
+	raw := "postgres://bmp:" + canary + "@%zz/probectl?sslmode=verify-full&sslpassword=" + canary
+	for _, role := range []string{"identity registry", "revocation"} {
+		t.Run(role, func(t *testing.T) {
+			err := validateBMPDatabaseURL(role, raw)
+			if err == nil {
+				t.Fatal("malformed BMP database URL accepted")
+			}
+			if strings.Contains(err.Error(), canary) || strings.Contains(err.Error(), raw) {
+				t.Fatalf("BMP database URL error disclosed credentials: %v", err)
+			}
+			if !strings.Contains(err.Error(), role) {
+				t.Fatalf("BMP database URL error lost bounded role guidance: %v", err)
 			}
 		})
 	}

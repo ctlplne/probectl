@@ -121,7 +121,7 @@ func validateBMPRevocationDatabaseURL(raw string) error {
 func validateBMPDatabaseURL(role, raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return fmt.Errorf("parse BMP %s database URL: %w", role, err)
+		return fmt.Errorf("BMP %s database URL is malformed", role)
 	}
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return fmt.Errorf("BMP %s database URL must use postgres:// or postgresql://", role)
