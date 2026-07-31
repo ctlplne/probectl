@@ -150,6 +150,8 @@ offboarding fence commits, retries for that tenant remain rejected.
 Endpoint/DEM event `Insert` uses the same durable lease at its store boundary,
 including the lightweight memory backend and every pooled or silo-routed
 ClickHouse target.
+The eBPF aggregate store applies that identical contract before any service
+edge batch enters its memory or pooled/silo-routed ClickHouse backend.
 Provider-global lifecycle evidence and tenant-key destruction remain on their
 separate provider-maintenance paths, so retrying an incomplete erase can still
 record its bounded receipt or complete crypto-shred without reopening ordinary

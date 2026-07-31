@@ -110,7 +110,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 				return pathstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
 			})
 		}
-		if c, ok := ebpfStore.(*ebpfstore.ClickHouse); ok {
+		if c, ok := ebpfstore.ClickHouseStore(ebpfStore); ok {
 			ebpfCH, ch.EBPF = c, c
 			c.WithRouter(func(ctx context.Context, tenantID string) (ebpfstore.Target, error) {
 				t, err := router.TargetsFor(ctx, tenantID)

@@ -169,11 +169,15 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		st.endpointStore,
 		writerFence,
 	)
+	ebpfStore := ebpfstore.WithTenantWriteFence(
+		st.ebpfStore,
+		writerFence,
+	)
 	return &serveRuntime{
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
 		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, ingestWriter: st.ingestWriter,
 		pathStore: st.pathStore, pathCH: st.pathCH, otelStore: st.otelStore,
-		flowStore: flowStore, ebpfStore: st.ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
+		flowStore: flowStore, ebpfStore: ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
 		ctx: ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
 	}
