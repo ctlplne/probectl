@@ -330,8 +330,9 @@ export interface CollectorConfigHint {
 
 export interface CollectorRegisterRequest {
   collection_profile?: "minimal" | "standard" | "topology-rich"
+  csr_pem?: string
   hostname?: string
-  plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
+  plane: "bgp" | "bmp" | "flow" | "device" | "ebpf" | "endpoint"
   token: string
 }
 
@@ -340,7 +341,8 @@ export interface CollectorRegistration {
   capabilities: string[]
   config: CollectorConfigHint
   hostname?: string
-  plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
+  plane: "bgp" | "bmp" | "flow" | "device" | "ebpf" | "endpoint"
+  svid?: RegisteredSVID
   tenant_id: string
 }
 
@@ -1528,6 +1530,17 @@ export interface ReadinessFinding {
   scope: "deployment"
   severity: "warning" | "critical"
   summary: string
+}
+
+export interface RegisteredSVID {
+  agent_id: string
+  ca_bundle: string
+  cert_pem: string
+  not_after: string
+  plane: "agent" | "bmp"
+  serial: string
+  spiffe_id: string
+  tenant_id: string
 }
 
 export interface SCIMToken {

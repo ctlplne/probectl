@@ -9,7 +9,9 @@ package bgp
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
+	"encoding/pem"
 	"errors"
 	"net"
 	"net/netip"
@@ -38,7 +40,7 @@ func TestBMPListenerPartitionsTenantScopedPeers(t *testing.T) {
 	}
 	serverCertFile := writePEM(t, dir, "server.crt", serverCert)
 	serverKeyFile := writePEM(t, dir, "server.key", serverKey)
-	serverCfg, err := probectlc.ServerMTLSConfig(serverCertFile, serverKeyFile, caFile)
+	serverCfg, err := probectlc.ServerBMPMTLSConfig(serverCertFile, serverKeyFile, caFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +51,14 @@ func TestBMPListenerPartitionsTenantScopedPeers(t *testing.T) {
 
 	pub := &capturePublisher{}
 	inv := NewBMPPeerInventory()
-	listener := NewBMPListener(ln, pub, "bmp-test", discardLogger(), WithBMPPeerInventory(inv))
+	listener := NewBMPListener(
+		ln,
+		pub,
+		"bmp-test",
+		discardLogger(),
+		WithBMPPeerInventory(inv),
+		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
+	)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errc := make(chan error, 1)
@@ -113,6 +122,235 @@ func TestBMPListenerPartitionsTenantScopedPeers(t *testing.T) {
 	}
 }
 
+func TestBMPListenerRefusesUnregisteredSelfIssuedRouter(t *testing.T) {
+	ca, err := probectlc.GenerateCA("bmp-unregistered-test-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	caFile := writePEM(t, dir, "ca.crt", ca.CertPEM())
+	serverCert, serverKey, err := ca.IssueServerCert("bmp-listener", []string{"127.0.0.1"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCfg, err := probectlc.ServerBMPMTLSConfig(
+		writePEM(t, dir, "server.crt", serverCert),
+		writePEM(t, dir, "server.key", serverKey),
+		caFile,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", serverCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pub := &capturePublisher{}
+	listener := NewBMPListener(
+		ln,
+		pub,
+		"bmp-test",
+		discardLogger(),
+		WithBMPIssuedIdentityVerifier(func(context.Context, string, string, string, string) (bool, error) {
+			return false, nil
+		}),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { errc <- listener.Serve(ctx) }()
+
+	// This certificate chains to the listener CA but was minted directly and
+	// has no corresponding agent_identities row. The old listener trusted the
+	// CA-shaped identity alone and therefore admitted it.
+	certPEM, keyPEM, err := ca.IssueClientCert(
+		"self-issued-router",
+		probectlc.BMPSPIFFEID("tenant-a", "self-issued-router"),
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCfg, err := probectlc.ClientMTLSConfig(
+		writePEM(t, dir, "self-issued.crt", certPEM),
+		writePEM(t, dir, "self-issued.key", keyPEM),
+		caFile,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCfg.ServerName = "127.0.0.1"
+	conn, err := tls.Dial("tcp", ln.Addr().String(), clientCfg)
+	if err == nil {
+		_, _ = conn.Write(buildBMPRouteMonitoring(
+			64511,
+			"192.0.2.11",
+			[]uint32{64511, 64500},
+			"203.0.113.0/24",
+			time.Now(),
+		))
+		_ = conn.Close()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	pub.mu.Lock()
+	published := len(pub.msgs)
+	pub.mu.Unlock()
+	if published != 0 {
+		t.Fatalf("unregistered self-issued router published %d BMP events, want 0", published)
+	}
+
+	cancel()
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatalf("serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("listener did not stop")
+	}
+}
+
+func TestBMPRegisteredRevokeRefusedTwoTenant(t *testing.T) {
+	ca, err := probectlc.GenerateCA("bmp-revoke-test-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	caFile := writePEM(t, dir, "ca.crt", ca.CertPEM())
+	serverCert, serverKey, err := ca.IssueServerCert("bmp-listener", []string{"127.0.0.1"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCfg, err := probectlc.ServerBMPMTLSConfig(
+		writePEM(t, dir, "server.crt", serverCert),
+		writePEM(t, dir, "server.key", serverKey),
+		caFile,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", serverCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type peerMaterial struct {
+		certFile string
+		keyFile  string
+		spiffe   string
+		serial   string
+	}
+	issue := func(tenantID, routerID string) peerMaterial {
+		t.Helper()
+		spiffe := probectlc.BMPSPIFFEID(tenantID, routerID)
+		certPEM, keyPEM, err := ca.IssueClientCert(routerID, spiffe, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		block, _ := pem.Decode(certPEM)
+		if block == nil {
+			t.Fatal("decode client certificate")
+		}
+		leaf, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return peerMaterial{
+			certFile: writePEM(t, dir, tenantID+"-"+routerID+".crt", certPEM),
+			keyFile:  writePEM(t, dir, tenantID+"-"+routerID+".key", keyPEM),
+			spiffe:   spiffe,
+			serial:   leaf.SerialNumber.Text(16),
+		}
+	}
+	peerA := issue("tenant-a", "router-a")
+	peerB := issue("tenant-b", "router-b")
+	issued := map[string]bool{
+		"tenant-a|router-a|" + peerA.spiffe + "|" + peerA.serial: true,
+		"tenant-b|router-b|" + peerB.spiffe + "|" + peerB.serial: true,
+	}
+	verifier := func(_ context.Context, tenantID, routerID, spiffeID, serial string) (bool, error) {
+		return issued[tenantID+"|"+routerID+"|"+spiffeID+"|"+serial], nil
+	}
+	revocations := probectlc.NewRevocationList()
+	pub := &capturePublisher{}
+	listener := NewBMPListener(
+		ln,
+		pub,
+		"bmp-test",
+		discardLogger(),
+		WithBMPIssuedIdentityVerifier(verifier),
+		WithBMPRevocationList(revocations),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { errc <- listener.Serve(ctx) }()
+
+	sendBMPWithCertificate(
+		t,
+		caFile,
+		ln.Addr().String(),
+		peerA.certFile,
+		peerA.keyFile,
+		buildBMPRouteMonitoring(64511, "192.0.2.11", []uint32{64511}, "203.0.113.0/24", time.Now()),
+	)
+	_ = waitCaptured(t, pub, 1)
+
+	revocations.RevokeID(peerA.spiffe)
+	sendBMPWithCertificate(
+		t,
+		caFile,
+		ln.Addr().String(),
+		peerA.certFile,
+		peerA.keyFile,
+		buildBMPRouteMonitoring(64511, "192.0.2.11", []uint32{64511}, "203.0.114.0/24", time.Now()),
+	)
+	time.Sleep(100 * time.Millisecond)
+	pub.mu.Lock()
+	afterARevoke := len(pub.msgs)
+	pub.mu.Unlock()
+	if afterARevoke != 1 {
+		t.Fatalf("revoked tenant-A router published again: messages=%d, want 1", afterARevoke)
+	}
+
+	sendBMPWithCertificate(
+		t,
+		caFile,
+		ln.Addr().String(),
+		peerB.certFile,
+		peerB.keyFile,
+		buildBMPRouteMonitoring(64512, "192.0.2.12", []uint32{64512}, "198.51.100.0/24", time.Now()),
+	)
+	_ = waitCaptured(t, pub, 2)
+
+	revocations.RevokeSerial(peerB.serial)
+	sendBMPWithCertificate(
+		t,
+		caFile,
+		ln.Addr().String(),
+		peerB.certFile,
+		peerB.keyFile,
+		buildBMPRouteMonitoring(64512, "192.0.2.12", []uint32{64512}, "198.51.101.0/24", time.Now()),
+	)
+	time.Sleep(100 * time.Millisecond)
+	pub.mu.Lock()
+	afterBSerialRevoke := len(pub.msgs)
+	pub.mu.Unlock()
+	if afterBSerialRevoke != 2 {
+		t.Fatalf("serial-revoked tenant-B router published again: messages=%d, want 2", afterBSerialRevoke)
+	}
+
+	cancel()
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatalf("serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("listener did not stop")
+	}
+}
+
 func TestBMPPeerIdentityRefusesPlaintext(t *testing.T) {
 	server, client := net.Pipe()
 	defer func() { _ = server.Close() }()
@@ -123,14 +361,23 @@ func TestBMPPeerIdentityRefusesPlaintext(t *testing.T) {
 	}
 }
 
+func allowBMPIdentity(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+
 func sendBMPMessage(t *testing.T, ca *probectlc.CA, caFile, dir, addr, tenantID, agentID string, msg []byte) {
 	t.Helper()
-	certPEM, keyPEM, err := ca.IssueClientCert(agentID, probectlc.AgentSPIFFEID(tenantID, agentID), time.Hour)
+	certPEM, keyPEM, err := ca.IssueClientCert(agentID, probectlc.BMPSPIFFEID(tenantID, agentID), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	certFile := writePEM(t, dir, agentID+".crt", certPEM)
 	keyFile := writePEM(t, dir, agentID+".key", keyPEM)
+	sendBMPWithCertificate(t, caFile, addr, certFile, keyFile, msg)
+}
+
+func sendBMPWithCertificate(t *testing.T, caFile, addr, certFile, keyFile string, msg []byte) {
+	t.Helper()
 	cfg, err := probectlc.ClientMTLSConfig(certFile, keyFile, caFile)
 	if err != nil {
 		t.Fatal(err)

@@ -135,7 +135,7 @@ func revocationGuard(rl *RevocationList, base func([][]byte, [][]*x509.Certifica
 		}
 		serial := leaf.SerialNumber.Text(16)
 		id := ""
-		if sid, e := SPIFFEIDFromCert(leaf); e == nil {
+		if sid, e := RegisteredSPIFFEIDFromCert(leaf); e == nil {
 			id = sid.String()
 		}
 		if rl.IsRevoked(serial, id) {

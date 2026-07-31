@@ -26,6 +26,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	probectlc "github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
@@ -49,6 +50,7 @@ func run() error {
 	certFile := fs.String("tls-cert", os.Getenv("PROBECTL_BMP_TLS_CERT_FILE"), "server certificate PEM; required")
 	keyFile := fs.String("tls-key", os.Getenv("PROBECTL_BMP_TLS_KEY_FILE"), "server key PEM; required")
 	caFile := fs.String("tls-ca", os.Getenv("PROBECTL_BMP_TLS_CA_FILE"), "client CA bundle PEM; required")
+	databaseURL := fs.String("database-url", os.Getenv("PROBECTL_BMP_DATABASE_URL"), "local probectl PostgreSQL URL used to verify registry-issued router identities; required")
 	collector := fs.String("collector", envOr("PROBECTL_BMP_COLLECTOR", "bmp"), "collector id written on BGP events")
 	busMode := fs.String("bus-mode", envOr("PROBECTL_BMP_BUS_MODE", "memory"), "result bus mode: memory|kafka")
 	busBrokers := fs.String("bus-brokers", os.Getenv("PROBECTL_BMP_BUS_BROKERS"), "comma-separated Kafka brokers")
@@ -76,6 +78,9 @@ func run() error {
 	if *certFile == "" || *keyFile == "" || *caFile == "" {
 		return fmt.Errorf("BMP listener requires --tls-cert, --tls-key, and --tls-ca")
 	}
+	if *databaseURL == "" {
+		return fmt.Errorf("PROBECTL_BMP_DATABASE_URL or --database-url is required for issued-identity verification")
+	}
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_BMP_LOG_LEVEL", "info"), envOr("PROBECTL_BMP_LOG_FORMAT", "json"))
 	if err := probectlc.RunPowerOnSelfTest(log); err != nil {
@@ -88,7 +93,28 @@ func run() error {
 		return err
 	}
 
-	tlsCfg, err := probectlc.ServerMTLSConfig(*certFile, *keyFile, *caFile)
+	registryDB, err := store.Open(context.Background(), *databaseURL, 4, 0, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("bgp bmp: open identity registry: %w", err)
+	}
+	defer registryDB.Close()
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = registryDB.Ping(pingCtx)
+	pingCancel()
+	if err != nil {
+		return fmt.Errorf("bgp bmp: identity registry unavailable: %w", err)
+	}
+	identities := store.NewAgentIdentities(registryDB.Pool())
+	revocations := probectlc.NewRevocationList()
+	verifyIssued := probectlc.IssuedIdentityVerifier(identities.KnownIssuedIdentity)
+
+	tlsCfg, err := probectlc.ServerBMPMTLSConfigRegistered(
+		*certFile,
+		*keyFile,
+		*caFile,
+		verifyIssued,
+		handshakeTimeout,
+	)
 	if err != nil {
 		return err
 	}
@@ -121,6 +147,8 @@ func run() error {
 			bgp.WithBMPReadTimeout(readTimeout),
 			bgp.WithBMPMaxSessions(maxSessions),
 			bgp.WithBMPSessionMetrics(metricsRuntime),
+			bgp.WithBMPRevocationList(revocations),
+			bgp.WithBMPIssuedIdentityVerifier(verifyIssued),
 		).Serve(ctx)
 	})
 }

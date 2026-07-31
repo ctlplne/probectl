@@ -220,7 +220,8 @@ automatic rotation described next.
 
 ### Revoking a compromised agent
 
-If an agent (or its key) is compromised, revoke it:
+If an agent, a registry-issued BMP router, or its key is compromised, revoke
+that existing registry id:
 
 ```sh
 probectl-control revoke-agent -tenant <uuid> -agent <id>
@@ -240,6 +241,8 @@ and both **enrollment and rotation refuse that identity** going forward. There
 is no resurrection path short of an operator un-revoking it in the database.
 (The admin API equivalent, `POST /v1/agents/{id}/revoke`, pushes the denial
 **live immediately** rather than waiting for the 30-second refresh.)
+BMP router SVIDs use the same endpoint and stored identity rows; there is no
+BMP-only revocation command or database.
 
 ### Certificate rotation — and what you watch
 

@@ -411,6 +411,7 @@ type CollectorConfigHint struct {
 
 type CollectorRegisterRequest struct {
 	CollectionProfile string `json:"collection_profile,omitempty"`
+	CsrPem            string `json:"csr_pem,omitempty"`
 	Hostname          string `json:"hostname,omitempty"`
 	Plane             string `json:"plane"`
 	Token             string `json:"token"`
@@ -422,6 +423,7 @@ type CollectorRegistration struct {
 	Config       CollectorConfigHint `json:"config"`
 	Hostname     string              `json:"hostname,omitempty"`
 	Plane        string              `json:"plane"`
+	Svid         RegisteredSVID      `json:"svid,omitempty"`
 	TenantId     string              `json:"tenant_id"`
 }
 
@@ -1634,6 +1636,17 @@ type ReadinessFinding struct {
 	Summary    string          `json:"summary"`
 }
 
+type RegisteredSVID struct {
+	AgentId  string `json:"agent_id"`
+	CaBundle string `json:"ca_bundle"`
+	CertPem  string `json:"cert_pem"`
+	NotAfter string `json:"not_after"`
+	Plane    string `json:"plane"`
+	Serial   string `json:"serial"`
+	SpiffeId string `json:"spiffe_id"`
+	TenantId string `json:"tenant_id"`
+}
+
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.
 type SCIMToken struct {
 	CreatedAt  string `json:"created_at"`
@@ -2093,7 +2106,7 @@ func (c *Client) AgentCi(ctx context.Context, req AgentCiRequest) (map[string]an
 	return out, nil
 }
 
-// Revoke an agent's identity (WIRE-003): persists, blocks re-enrollment/rotation, and refuses its mTLS handshakes from the next connection
+// Revoke a registered agent or BMP-router identity (WIRE-003): persists, blocks re-enrollment/rotation, and refuses its mTLS handshakes from the next connection
 type RevokeAgentRequest struct {
 	Id string `json:"-"`
 }

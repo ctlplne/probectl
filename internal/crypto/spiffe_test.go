@@ -21,8 +21,33 @@ func TestSPIFFERoundTrip(t *testing.T) {
 	if id.TrustDomain != "probectl" || id.TenantID != "tenant-123" || id.AgentID != "agent-abc" {
 		t.Errorf("parsed = %+v", id)
 	}
+	if id.Plane != "agent" {
+		t.Errorf("plane = %q, want agent", id.Plane)
+	}
 	if id.String() != uri {
 		t.Errorf("String() = %q, want %q", id.String(), uri)
+	}
+}
+
+func TestBMPSPIFFERoundTripAndPlaneSeparation(t *testing.T) {
+	uri := BMPSPIFFEID("tenant-123", "router-abc")
+	const want = "spiffe://probectl/tenant/tenant-123/bmp/router-abc"
+	if uri != want {
+		t.Fatalf("BMPSPIFFEID = %q, want %q", uri, want)
+	}
+	id, err := ParseBMPSPIFFEID(uri)
+	if err != nil {
+		t.Fatalf("parse BMP: %v", err)
+	}
+	if id.TrustDomain != TrustDomain || id.TenantID != "tenant-123" ||
+		id.AgentID != "router-abc" || id.Plane != "bmp" {
+		t.Fatalf("parsed BMP identity = %+v", id)
+	}
+	if _, err := ParseSPIFFEID(uri); err == nil {
+		t.Fatal("agent parser accepted a BMP-plane identity")
+	}
+	if _, err := ParseBMPSPIFFEID(AgentSPIFFEID("tenant-123", "router-abc")); err == nil {
+		t.Fatal("BMP parser accepted an agent-plane identity")
 	}
 }
 

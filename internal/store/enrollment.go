@@ -231,6 +231,26 @@ func (a AgentIdentities) KnownSerial(ctx context.Context, tenantID, agentID, ser
 	return n > 0, err
 }
 
+// KnownIssuedIdentity reports whether the exact tenant, registry id, SPIFFE
+// plane identity, and certificate serial were issued by this deployment. The
+// BMP listener uses this after deriving the tenant from the verified
+// certificate; InTenant makes a tenant-A credential unobservable in tenant B
+// even if a caller supplies mismatched application fields.
+func (a AgentIdentities) KnownIssuedIdentity(ctx context.Context, tenantID, agentID, spiffeID, serial string) (bool, error) {
+	var n int
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx,
+			`SELECT count(*)
+			   FROM agent_identities
+			  WHERE tenant_id = $1
+			    AND agent_id = $2
+			    AND spiffe_id = $3
+			    AND serial = $4`,
+			tenantID, agentID, spiffeID, serial).Scan(&n)
+	})
+	return n > 0, err
+}
+
 // AgentCA persists the deployment's agent CA hierarchy: the root CERTIFICATE
 // only (its key is exported once at init for offline custody, never stored)
 // and the issuing intermediate with its key SEALED via tenantcrypto.

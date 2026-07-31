@@ -264,6 +264,7 @@ type Identity struct {
 	SPIFFEID string    `json:"spiffe_id"`
 	TenantID string    `json:"tenant_id"`
 	AgentID  string    `json:"agent_id"`
+	Plane    string    `json:"plane"`
 	Serial   string    `json:"serial"`
 	NotAfter time.Time `json:"not_after"`
 }
@@ -299,7 +300,7 @@ func (s *Service) Enroll(ctx context.Context, req Request) (*Identity, error) {
 	} else if revoked {
 		return nil, refuseTenant(tenantID, ErrRevoked) // a revoked identity cannot be re-enrolled (WIRE-003)
 	}
-	return s.issue(ctx, tenantID, agentID, hostname, req.Version, req.CSRPEM, "" /* first issuance */)
+	return s.issue(ctx, tenantID, agentID, hostname, req.Version, req.CSRPEM, "agent", nil, "" /* first issuance */)
 }
 
 // CollectorIdentity is what a bus-only collector gets from registration: a
@@ -307,9 +308,10 @@ func (s *Service) Enroll(ctx context.Context, req Request) (*Identity, error) {
 // certificate — these collectors authenticate to the bus separately; the
 // registry row is what the control-plane tenant-binding verifies against.
 type CollectorIdentity struct {
-	TenantID string `json:"tenant_id"`
-	AgentID  string `json:"agent_id"`
-	Plane    string `json:"plane"`
+	TenantID string    `json:"tenant_id"`
+	AgentID  string    `json:"agent_id"`
+	Plane    string    `json:"plane"`
+	SVID     *Identity `json:"svid,omitempty"`
 }
 
 // RegisterCollector is the sanctioned registration path for bus-publishing
@@ -321,7 +323,7 @@ type CollectorIdentity struct {
 // row, returning the UUID for the collector to stamp on its records. It issues
 // no certificate (bus auth is separate); that is the only difference from
 // Enroll.
-func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane string) (*CollectorIdentity, error) {
+func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane, csrPEM string) (*CollectorIdentity, error) {
 	if !strings.HasPrefix(token, "pjt_") {
 		return nil, ErrInvalidToken
 	}
@@ -330,6 +332,9 @@ func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane 
 	if err != nil {
 		return nil, err
 	}
+	if plane == "bmp" && strings.TrimSpace(csrPEM) == "" {
+		return nil, ErrBadCSR
+	}
 	tenantID, pinned, err := store.NewEnrollTokens(s.pool).Consume(ctx, crypto.Hash([]byte(token)), hostname)
 	if err != nil {
 		if errors.Is(err, store.ErrEnrollTokenInvalid) {
@@ -337,14 +342,14 @@ func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane 
 		}
 		return nil, err
 	}
-	return s.registerCollector(ctx, tenantID, pinned, hostname, plane)
+	return s.registerCollector(ctx, tenantID, pinned, hostname, plane, csrPEM)
 }
 
 // RegisterCollectorForTenant is the authenticated tenant-admin path. The
 // expectedTenantID comes from the caller's principal, not from the token. Token
 // consumption runs through ConsumeForTenant so a stolen token from another
 // tenant cannot be burned or used to create a foreign registry row.
-func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenantID, token, hostname, plane string) (*CollectorIdentity, error) {
+func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenantID, token, hostname, plane, csrPEM string) (*CollectorIdentity, error) {
 	if !strings.HasPrefix(token, "pjt_") {
 		return nil, ErrInvalidToken
 	}
@@ -357,6 +362,9 @@ func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenant
 	if err != nil {
 		return nil, err
 	}
+	if plane == "bmp" && strings.TrimSpace(csrPEM) == "" {
+		return nil, ErrBadCSR
+	}
 	pinned, err := store.NewEnrollTokens(s.pool).ConsumeForTenant(ctx, expectedTenantID, crypto.Hash([]byte(token)), hostname)
 	if err != nil {
 		if errors.Is(err, store.ErrEnrollTokenInvalid) {
@@ -364,21 +372,21 @@ func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenant
 		}
 		return nil, err
 	}
-	return s.registerCollector(ctx, expectedTenantID, pinned, hostname, plane)
+	return s.registerCollector(ctx, expectedTenantID, pinned, hostname, plane, csrPEM)
 }
 
 // NormalizeCollectorPlane returns the canonical bus-collector plane name.
 func NormalizeCollectorPlane(plane string) (string, error) {
 	plane = strings.ToLower(strings.TrimSpace(plane))
 	switch plane {
-	case "bgp", "flow", "device", "ebpf", "endpoint":
+	case "bgp", "bmp", "flow", "device", "ebpf", "endpoint":
 		return plane, nil
 	default:
 		return "", ErrInvalidCollectorPlane
 	}
 }
 
-func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostname, plane string) (*CollectorIdentity, error) {
+func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostname, plane, csrPEM string) (*CollectorIdentity, error) {
 	agentID := pinned
 	if agentID == "" {
 		var err error
@@ -389,6 +397,30 @@ func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostn
 		return nil, rerr
 	} else if revoked {
 		return nil, refuseTenant(tenantID, ErrRevoked)
+	}
+	if plane == "bmp" {
+		svid, err := s.issue(
+			ctx,
+			tenantID,
+			agentID,
+			hostname,
+			"",
+			csrPEM,
+			"bmp",
+			[]string{"collector", "bmp"},
+			"",
+		)
+		if err != nil {
+			return nil, err
+		}
+		s.log.Info("bmp router registered",
+			"tenant_id", tenantID, "agent_id", agentID, "plane", plane, "hostname", hostname)
+		return &CollectorIdentity{
+			TenantID: tenantID,
+			AgentID:  agentID,
+			Plane:    plane,
+			SVID:     svid,
+		}, nil
 	}
 	spiffe := crypto.AgentSPIFFEID(tenantID, agentID)
 	name := hostname
@@ -455,7 +487,7 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 	}); err != nil {
 		return nil, ErrNotOurs
 	}
-	id, err := crypto.SPIFFEIDFromCert(cert)
+	id, err := crypto.RegisteredSPIFFEIDFromCert(cert)
 	if err != nil {
 		return nil, ErrNotOurs
 	}
@@ -489,13 +521,22 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 		}
 		return nil, err
 	}
-	return s.issue(ctx, id.TenantID, id.AgentID, cert.Subject.CommonName, "", req.CSRPEM, oldSerial)
+	return s.issue(ctx, id.TenantID, id.AgentID, cert.Subject.CommonName, "", req.CSRPEM, id.Plane, nil, oldSerial)
 }
 
 // issue signs the CSR for (tenant, agent), records the identity, and (on
 // first issuance) registers the agent so the Sprint 4 binding vouches for it.
-func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, version, csrPEM, rotatedFrom string) (*Identity, error) {
-	spiffe := crypto.AgentSPIFFEID(tenantID, agentID)
+func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, version, csrPEM, plane string, capabilities []string, rotatedFrom string) (*Identity, error) {
+	var spiffe string
+	switch plane {
+	case "", "agent":
+		plane = "agent"
+		spiffe = crypto.AgentSPIFFEID(tenantID, agentID)
+	case "bmp":
+		spiffe = crypto.BMPSPIFFEID(tenantID, agentID)
+	default:
+		return nil, refuseTenant(tenantID, ErrInvalidCollectorPlane)
+	}
 	leafPEM, serial, err := s.ca.SignCSR([]byte(csrPEM), spiffe, s.leafTTL)
 	if err != nil {
 		return nil, refuseTenant(tenantID, fmt.Errorf("%w: %v", ErrBadCSR, err))
@@ -513,7 +554,7 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 				if name == "" {
 					name = agentID
 				}
-				if _, err := (store.Agents{}).Register(ctx, sc, agentID, name, hostname, version, spiffe, nil); err != nil {
+				if _, err := (store.Agents{}).Register(ctx, sc, agentID, name, hostname, version, spiffe, capabilities); err != nil {
 					return err
 				}
 			}
@@ -528,13 +569,13 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 	}
 	s.log.Info("agent SVID "+action,
 		"tenant_id", tenantID, "agent_id", agentID, "serial", serialHex,
-		"not_after", notAfter.UTC().Format(time.RFC3339), "rotated_from", rotatedFrom)
+		"plane", plane, "not_after", notAfter.UTC().Format(time.RFC3339), "rotated_from", rotatedFrom)
 
 	chain := append(append([]byte{}, leafPEM...), s.ca.CertPEM()...)
 	return &Identity{
 		CertPEM: string(chain), CABundle: string(s.Bundle()),
 		SPIFFEID: spiffe, TenantID: tenantID, AgentID: agentID,
-		Serial: serialHex, NotAfter: notAfter,
+		Plane: plane, Serial: serialHex, NotAfter: notAfter,
 	}, nil
 }
 

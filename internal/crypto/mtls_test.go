@@ -7,6 +7,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -14,6 +15,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -146,6 +148,77 @@ func TestServerMTLSRejectsIncompleteSPIFFEIdentity(t *testing.T) {
 				t.Fatalf("ServerMTLSConfig accepted incomplete identity %q", spiffe)
 			}
 		})
+	}
+}
+
+func TestServerBMPMTLSConfigSeparatesIdentityPlanes(t *testing.T) {
+	bmp := mtlsMaterialForSPIFFE(t, BMPSPIFFEID("tenant-a", "router-a"))
+	bmpCfg, err := ServerBMPMTLSConfig(bmp.serverCrt, bmp.serverKey, bmp.caFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(mustReadFile(t, bmp.clientCrt))
+	if block == nil {
+		t.Fatal("BMP client certificate PEM did not decode")
+	}
+	bmpLeaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bmpCfg.VerifyPeerCertificate([][]byte{bmpLeaf.Raw}, nil); err != nil {
+		t.Fatalf("BMP listener rejected BMP-plane identity: %v", err)
+	}
+	agentCfg, err := ServerMTLSConfig(bmp.serverCrt, bmp.serverKey, bmp.caFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agentCfg.VerifyPeerCertificate([][]byte{bmpLeaf.Raw}, nil); err == nil {
+		t.Fatal("agent listener accepted BMP-plane identity")
+	}
+
+	agent := mtlsMaterialForSPIFFE(t, AgentSPIFFEID("tenant-a", "router-a"))
+	agentBlock, _ := pem.Decode(mustReadFile(t, agent.clientCrt))
+	if agentBlock == nil {
+		t.Fatal("agent client certificate PEM did not decode")
+	}
+	agentLeaf, err := x509.ParseCertificate(agentBlock.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bmpCfg, err = ServerBMPMTLSConfig(agent.serverCrt, agent.serverKey, agent.caFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bmpCfg.VerifyPeerCertificate([][]byte{agentLeaf.Raw}, nil); err == nil {
+		t.Fatal("BMP listener accepted agent-plane identity")
+	}
+
+	var checked SPIFFEID
+	registeredCfg, err := ServerBMPMTLSConfigRegistered(
+		bmp.serverCrt,
+		bmp.serverKey,
+		bmp.caFile,
+		func(_ context.Context, tenantID, routerID, spiffeID, serial string) (bool, error) {
+			checked, err = ParseBMPSPIFFEID(spiffeID)
+			if err != nil {
+				return false, err
+			}
+			if checked.TenantID != tenantID || checked.AgentID != routerID ||
+				serial != bmpLeaf.SerialNumber.Text(16) {
+				return false, fmt.Errorf("registry tuple mismatch")
+			}
+			return false, nil
+		},
+		time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registeredCfg.VerifyPeerCertificate([][]byte{bmpLeaf.Raw}, nil); err == nil {
+		t.Fatal("registry-aware BMP handshake accepted an unregistered certificate")
+	}
+	if checked.Plane != "bmp" {
+		t.Fatalf("registry verifier received identity %+v", checked)
 	}
 }
 

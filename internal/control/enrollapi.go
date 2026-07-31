@@ -30,7 +30,7 @@ import (
 type enrollmentService interface {
 	Enroll(context.Context, enroll.Request) (*enroll.Identity, error)
 	MintToken(context.Context, string, string, string, string, time.Duration) (string, string, error)
-	RegisterCollectorForTenant(context.Context, string, string, string, string) (*enroll.CollectorIdentity, error)
+	RegisterCollectorForTenant(context.Context, string, string, string, string, string) (*enroll.CollectorIdentity, error)
 	Rotate(context.Context, enroll.RotateRequest) (*enroll.Identity, error)
 	Revoke(context.Context, string, string, string) ([]string, string, error)
 }
@@ -184,6 +184,7 @@ type collectorRegistrationResponse struct {
 	Hostname     string              `json:"hostname,omitempty"`
 	Capabilities []string            `json:"capabilities"`
 	Config       collectorConfigHint `json:"config"`
+	SVID         *enroll.Identity    `json:"svid,omitempty"`
 }
 
 // handleRegisterCollector is the tenant-admin on-ramp for bus-publishing
@@ -199,6 +200,7 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 		Plane             string `json:"plane"`
 		Hostname          string `json:"hostname,omitempty"`
 		CollectionProfile string `json:"collection_profile,omitempty"`
+		CSRPEM            string `json:"csr_pem,omitempty"`
 	}
 	if err := decodeJSONLimit(r, 16<<10, &req); err != nil {
 		return err
@@ -212,7 +214,7 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 	var tenantID string
 	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		tenantID = sc.Tenant.String()
-		id, err := s.enrollSvc.RegisterCollectorForTenant(ctx, sc.Tenant.String(), req.Token, hostname, req.Plane)
+		id, err := s.enrollSvc.RegisterCollectorForTenant(ctx, sc.Tenant.String(), req.Token, hostname, req.Plane, req.CSRPEM)
 		if err != nil {
 			return err
 		}
@@ -223,6 +225,7 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			Hostname:     hostname,
 			Capabilities: []string{"collector", id.Plane},
 			Config:       collectorConfig(id.Plane, id.TenantID, id.AgentID, collectionProfile),
+			SVID:         id.SVID,
 		}
 		return s.recordAudit(ctx, sc, r, "collector.registered", id.AgentID, map[string]any{
 			"plane": id.Plane, "hostname": hostname, "collection_profile": collectionProfile,
@@ -236,7 +239,10 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			return apierror.Unauthorized("invalid enrollment token")
 		case errors.Is(err, enroll.ErrInvalidCollectorPlane):
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCollectorPlane, enrollmentSurfaceCollector, tenantID)
-			return apierror.BadRequest("collector plane must be one of: bgp, flow, device, ebpf, endpoint")
+			return apierror.BadRequest("collector plane must be one of: bgp, bmp, flow, device, ebpf, endpoint")
+		case errors.Is(err, enroll.ErrBadCSR):
+			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceCollector, tenantID)
+			return apierror.BadRequest("bmp registration requires a valid csr_pem")
 		case errors.Is(err, enroll.ErrRevoked):
 			s.authLimiter.Fail("ip:" + clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceCollector, tenantID)
@@ -276,6 +282,7 @@ func collectorConfig(plane, tenantID, agentID, collectionProfile string) collect
 		h.Env["PROBECTL_BMP_TLS_CERT_FILE"] = "/etc/probectl/bmp/tls.crt"
 		h.Env["PROBECTL_BMP_TLS_KEY_FILE"] = "/etc/probectl/bmp/tls.key"
 		h.Env["PROBECTL_BMP_TLS_CA_FILE"] = "/etc/probectl/agent-ca.crt"
+		h.Env["PROBECTL_BMP_DATABASE_URL"] = "postgres://bmp_registry@postgres:5432/probectl?sslmode=verify-full"
 		h.Env["PROBECTL_BMP_BUS_MODE"] = "kafka"
 		h.Env["PROBECTL_BMP_BUS_BROKERS"] = "kafka-1:9093"
 		h.Env["PROBECTL_BMP_BUS_TLS_ENABLED"] = "true"
@@ -285,10 +292,15 @@ func collectorConfig(plane, tenantID, agentID, collectionProfile string) collect
 		h.YAML["tls_cert_file"] = "/etc/probectl/bmp/tls.crt"
 		h.YAML["tls_key_file"] = "/etc/probectl/bmp/tls.key"
 		h.YAML["tls_ca_file"] = "/etc/probectl/agent-ca.crt"
+		h.YAML["database_url"] = "postgres://bmp_registry@postgres:5432/probectl?sslmode=verify-full"
 		h.YAML["bus_mode"] = "kafka"
 		h.YAML["bus_brokers"] = "kafka-1:9093"
 		h.YAML["bus_tls_enabled"] = "true"
 		h.StartupCommand = "probectl-bmp-listener"
+	case "bmp":
+		h.Env["PROBECTL_BMP_ROUTER_ID"] = agentID
+		h.YAML["router_id"] = agentID
+		h.YAML["identity_plane"] = "bmp"
 	case "flow":
 		h.Env["PROBECTL_FLOW_TENANT"] = tenantID
 		h.Env["PROBECTL_FLOW_AGENT_ID"] = agentID

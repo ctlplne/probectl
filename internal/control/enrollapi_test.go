@@ -32,7 +32,7 @@ func (forensicEnrollmentService) MintToken(context.Context, string, string, stri
 	return "", "", nil
 }
 
-func (forensicEnrollmentService) RegisterCollectorForTenant(context.Context, string, string, string, string) (*enroll.CollectorIdentity, error) {
+func (forensicEnrollmentService) RegisterCollectorForTenant(context.Context, string, string, string, string, string) (*enroll.CollectorIdentity, error) {
 	return nil, nil
 }
 

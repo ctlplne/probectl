@@ -100,27 +100,41 @@ func runEnrollToken(ctx context.Context, cfg *config.Config, db *store.DB, args 
 	return nil
 }
 
-// runRegisterCollector registers a bus-publishing collector (eBPF/flow/device/endpoint)
+// runRegisterCollector registers a bus-publishing collector or BMP router
 // from a one-time enroll token and prints the minted UUID identity for it to
-// stamp on its records (ARCH-011). No certificate is issued — bus collectors
-// authenticate to the broker separately; the registry row is what the
-// control-plane tenant-binding verifies their batches against.
+// stamp on its records (ARCH-011). Bus collectors authenticate to the broker;
+// plane=bmp additionally signs the router-owned CSR and records the resulting
+// SVID in the same authoritative identity registry.
 func runRegisterCollector(ctx context.Context, db *store.DB, args []string) error {
 	fs := flag.NewFlagSet("register-collector", flag.ContinueOnError)
 	token := fs.String("token", "", "one-time enroll token (pjt_...; REQUIRED)")
-	plane := fs.String("plane", "", "collector plane: ebpf | flow | device | endpoint (REQUIRED)")
+	plane := fs.String("plane", "", "collector plane: bgp | bmp | ebpf | flow | device | endpoint (REQUIRED)")
 	hostname := fs.String("hostname", "", "operator label / source host")
+	csrFile := fs.String("csr", "", "BMP router CSR PEM file (required for plane=bmp)")
+	certOut := fs.String("cert-out", "", "write issued BMP leaf+intermediate chain here")
+	caOut := fs.String("ca-out", "", "write BMP trust bundle here")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *token == "" || *plane == "" {
-		return fmt.Errorf("-token and -plane are required (mint a token with enroll-token; plane is ebpf|flow|device|endpoint)")
+		return fmt.Errorf("-token and -plane are required (mint a token with enroll-token)")
+	}
+	var csrPEM string
+	if *plane == "bmp" {
+		if *csrFile == "" || *certOut == "" || *caOut == "" {
+			return fmt.Errorf("plane=bmp requires -csr, -cert-out, and -ca-out")
+		}
+		raw, err := os.ReadFile(*csrFile)
+		if err != nil {
+			return fmt.Errorf("read BMP router CSR: %w", err)
+		}
+		csrPEM = string(raw)
 	}
 	svc, err := enroll.Load(ctx, db.Pool(), nil)
 	if err != nil {
 		return err
 	}
-	id, err := svc.RegisterCollector(ctx, *token, *hostname, *plane)
+	id, err := svc.RegisterCollector(ctx, *token, *hostname, *plane, csrPEM)
 	if err != nil {
 		return err
 	}
@@ -128,9 +142,26 @@ func runRegisterCollector(ctx context.Context, db *store.DB, args []string) erro
 	fmt.Println("  tenant_id:", id.TenantID)
 	fmt.Println("  agent_id: ", id.AgentID)
 	fmt.Println("  plane:    ", id.Plane)
+	if id.SVID != nil {
+		if err := os.WriteFile(*certOut, []byte(id.SVID.CertPEM), 0o600); err != nil {
+			return fmt.Errorf("write BMP certificate: %w", err)
+		}
+		if err := os.WriteFile(*caOut, []byte(id.SVID.CABundle), 0o644); err != nil {
+			return fmt.Errorf("write BMP trust bundle: %w", err)
+		}
+		fmt.Println("  spiffe_id:", id.SVID.SPIFFEID)
+		fmt.Println("  serial:   ", id.SVID.Serial)
+		fmt.Println("  cert:     ", *certOut)
+		fmt.Println("  ca_bundle:", *caOut)
+	}
 	fmt.Println()
-	fmt.Println("stamp agent_id on every record the collector publishes to the bus;")
-	fmt.Println("the control plane verifies it against this registry row (TENANT-101).")
+	if id.Plane == "bmp" {
+		fmt.Println("install the issued certificate with the CSR's existing private key on the BMP router;")
+		fmt.Println("the listener admits only this exact registry-issued tenant/plane/serial identity.")
+	} else {
+		fmt.Println("stamp agent_id on every record the collector publishes to the bus;")
+		fmt.Println("the control plane verifies it against this registry row (TENANT-101).")
+	}
 	return nil
 }
 

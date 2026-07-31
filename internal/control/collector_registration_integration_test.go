@@ -24,6 +24,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
@@ -358,5 +359,80 @@ func TestBGPCollectorRegistrationReturnsBMPConfigAndPublishBinding(t *testing.T)
 	full := getIncidentRLS(t, db.Pool(), tenant, open[0].ID)
 	if len(full.Signals) != 1 || full.Signals[0].Plane != "bgp" || full.Signals[0].Prefix != "192.0.2.0/24" {
 		t.Fatalf("BGP incident signals = %+v", full.Signals)
+	}
+}
+
+func TestBMPCollectorRegistrationIssuesRegistrySVIDTwoTenant(t *testing.T) {
+	db := changeDB(t)
+	svc := collectorEnrollService(t, db)
+	tenantA := freshTenant(t, db, "bmp-router-a")
+	tenantB := freshTenant(t, db, "bmp-router-b")
+	routerID := uuid(t)
+
+	srv := New(&config.Config{AuthMode: "dev"}, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
+	srv.SetEnrollService(svc)
+	h := srv.Handler()
+
+	token, _, err := svc.MintToken(context.Background(), tenantA, routerID, "edge-router-a", "test", time.Hour)
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	csr, _, err := crypto.CreateCSR("edge-router-a")
+	if err != nil {
+		t.Fatalf("create CSR: %v", err)
+	}
+	body := map[string]any{
+		"token":    token,
+		"plane":    "bmp",
+		"hostname": "edge-router-a",
+		"csr_pem":  string(csr),
+	}
+	cross := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenantB, body)
+	if cross.Code != http.StatusUnauthorized {
+		t.Fatalf("tenant B used tenant A BMP token = %d %s, want 401", cross.Code, cross.Body)
+	}
+	rec := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenantA, body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("BMP registration = %d %s, want 201", rec.Code, rec.Body)
+	}
+	var out collectorRegistrationResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if out.SVID == nil {
+		t.Fatal("BMP registration response omitted SVID")
+	}
+	wantSPIFFE := crypto.BMPSPIFFEID(tenantA, routerID)
+	if out.TenantID != tenantA || out.AgentID != routerID || out.Plane != "bmp" ||
+		out.SVID.SPIFFEID != wantSPIFFE || out.SVID.Plane != "bmp" {
+		t.Fatalf("BMP registration response = %+v, want %q", out, wantSPIFFE)
+	}
+	if out.Config.YAML["identity_plane"] != "bmp" ||
+		out.Config.YAML["router_id"] != routerID {
+		t.Fatalf("BMP router config = %+v", out.Config)
+	}
+
+	knownA, err := store.NewAgentIdentities(db.Pool()).KnownIssuedIdentity(
+		context.Background(),
+		tenantA,
+		routerID,
+		out.SVID.SPIFFEID,
+		out.SVID.Serial,
+	)
+	if err != nil || !knownA {
+		t.Fatalf("tenant A registry lookup = %v, %v", knownA, err)
+	}
+	knownB, err := store.NewAgentIdentities(db.Pool()).KnownIssuedIdentity(
+		context.Background(),
+		tenantB,
+		routerID,
+		out.SVID.SPIFFEID,
+		out.SVID.Serial,
+	)
+	if err != nil {
+		t.Fatalf("tenant B registry lookup: %v", err)
+	}
+	if knownB {
+		t.Fatal("tenant B saw tenant A's BMP SVID in its identity registry")
 	}
 }

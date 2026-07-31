@@ -106,6 +106,7 @@ func TestBMPReaderRejectsOverLimitUpdate(t *testing.T) {
 		WithBMPHandshakeTimeout(time.Second),
 		WithBMPReadTimeout(time.Second),
 		WithBMPPeerInventory(inventory),
+		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 	)
 	done := make(chan error, 1)
 	go func() { done <- listener.handleConn(context.Background(), server) }()

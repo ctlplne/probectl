@@ -366,6 +366,186 @@ func TestRevokeAgentPersistsAndBlocksReissuance(t *testing.T) {
 	}
 }
 
+func TestBMPRouterEnrollIssueRotateRevokeTwoTenant(t *testing.T) {
+	ctx := context.Background()
+	pool, svc, tenantA := setup(ctx, t)
+	tenantBRecord, err := store.NewTenants(pool).Create(
+		ctx,
+		fmt.Sprintf("bmp-b-%d", time.Now().UnixNano()),
+		"BMP tenant B",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantB := tenantBRecord.ID
+	routerA := fmt.Sprintf("b1000000-0000-4000-8000-%012x", time.Now().UnixNano()&0xffffffffffff)
+	routerB := fmt.Sprintf("b2000000-0000-4000-8000-%012x", time.Now().UnixNano()&0xffffffffffff)
+
+	tokenA, _, err := svc.MintToken(ctx, tenantA, routerA, "router-a", "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrA, keyA, err := crypto.CreateCSR("router-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RegisterCollectorForTenant(
+		ctx,
+		tenantB,
+		tokenA,
+		"router-a",
+		"bmp",
+		string(csrA),
+	); !errors.Is(err, enroll.ErrInvalidToken) {
+		t.Fatalf("tenant B consumed tenant A's BMP token: %v", err)
+	}
+	regA, err := svc.RegisterCollectorForTenant(
+		ctx,
+		tenantA,
+		tokenA,
+		"router-a",
+		"bmp",
+		string(csrA),
+	)
+	if err != nil {
+		t.Fatalf("register BMP router A: %v", err)
+	}
+	if regA.SVID == nil {
+		t.Fatal("BMP registration returned no SVID")
+	}
+	wantA := crypto.BMPSPIFFEID(tenantA, routerA)
+	if regA.Plane != "bmp" || regA.SVID.Plane != "bmp" ||
+		regA.SVID.SPIFFEID != wantA || regA.SVID.AgentID != routerA {
+		t.Fatalf("BMP registration = %+v, want tenant-bound bmp SVID %q", regA, wantA)
+	}
+
+	identities := store.NewAgentIdentities(pool)
+	known, err := identities.KnownIssuedIdentity(
+		ctx,
+		tenantA,
+		routerA,
+		regA.SVID.SPIFFEID,
+		regA.SVID.Serial,
+	)
+	if err != nil || !known {
+		t.Fatalf("issued BMP identity not found in tenant A registry: known=%v err=%v", known, err)
+	}
+	knownInB, err := identities.KnownIssuedIdentity(
+		ctx,
+		tenantB,
+		routerA,
+		regA.SVID.SPIFFEID,
+		regA.SVID.Serial,
+	)
+	if err != nil {
+		t.Fatalf("tenant B lookup: %v", err)
+	}
+	if knownInB {
+		t.Fatal("tenant A's BMP identity was visible as registry-issued in tenant B")
+	}
+	if knownWrongSerial, err := identities.KnownIssuedIdentity(
+		ctx,
+		tenantA,
+		routerA,
+		regA.SVID.SPIFFEID,
+		"deadbeef",
+	); err != nil || knownWrongSerial {
+		t.Fatalf("unissued serial accepted: known=%v err=%v", knownWrongSerial, err)
+	}
+
+	csrA2, _, err := crypto.CreateCSR("router-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofA, err := crypto.ECDSASignPEM(keyA, csrA2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedA, err := svc.Rotate(ctx, enroll.RotateRequest{
+		CertPEM:  leafOnly(regA.SVID.CertPEM),
+		CSRPEM:   string(csrA2),
+		ProofHex: fmt.Sprintf("%x", proofA),
+	})
+	if err != nil {
+		t.Fatalf("rotate BMP router A: %v", err)
+	}
+	if rotatedA.SPIFFEID != regA.SVID.SPIFFEID || rotatedA.Plane != "bmp" ||
+		rotatedA.Serial == regA.SVID.Serial {
+		t.Fatalf("BMP rotation changed identity or retained serial: first=%+v rotated=%+v", regA.SVID, rotatedA)
+	}
+	var rotatedFrom string
+	err = tenancy.InTenant(
+		tenancy.WithTenant(ctx, tenancy.ID(tenantA)),
+		pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(
+				ctx,
+				`SELECT COALESCE(rotated_from, '')
+				   FROM agent_identities
+				  WHERE tenant_id = $1
+				    AND agent_id = $2
+				    AND serial = $3`,
+				tenantA,
+				routerA,
+				rotatedA.Serial,
+			).Scan(&rotatedFrom)
+		},
+	)
+	if err != nil {
+		t.Fatalf("read BMP rotation provenance: %v", err)
+	}
+	if rotatedFrom != regA.SVID.Serial {
+		t.Fatalf("rotated_from = %q, want %q", rotatedFrom, regA.SVID.Serial)
+	}
+
+	tokenB, _, err := svc.MintToken(ctx, tenantB, routerB, "router-b", "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrB, _, err := crypto.CreateCSR("router-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	regB, err := svc.RegisterCollectorForTenant(
+		ctx,
+		tenantB,
+		tokenB,
+		"router-b",
+		"bmp",
+		string(csrB),
+	)
+	if err != nil {
+		t.Fatalf("register BMP router B: %v", err)
+	}
+
+	serials, spiffeID, err := svc.Revoke(ctx, tenantA, routerA, "test")
+	if err != nil {
+		t.Fatalf("revoke BMP router A: %v", err)
+	}
+	if spiffeID != regA.SVID.SPIFFEID ||
+		(!containsStr(serials, regA.SVID.Serial) && !containsStr(serials, rotatedA.Serial)) {
+		t.Fatalf("BMP revoke material = serials=%v spiffe=%q", serials, spiffeID)
+	}
+	revocations := crypto.NewRevocationList()
+	revocations.RevokeID(spiffeID)
+	for _, serial := range serials {
+		revocations.RevokeSerial(serial)
+	}
+	if !revocations.IsRevoked(rotatedA.Serial, rotatedA.SPIFFEID) {
+		t.Fatal("existing RevokeID/RevokeSerial path did not reject rotated BMP identity")
+	}
+	if revocations.IsRevoked(regB.SVID.Serial, regB.SVID.SPIFFEID) {
+		t.Fatal("revoking tenant A's BMP router affected tenant B")
+	}
+	revokedB, err := identities.IsAgentRevoked(ctx, tenantB, routerB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revokedB {
+		t.Fatal("tenant B BMP identity was marked revoked by tenant A's revocation")
+	}
+}
+
 func containsStr(xs []string, want string) bool {
 	for _, x := range xs {
 		if x == want {

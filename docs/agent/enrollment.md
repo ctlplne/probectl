@@ -112,6 +112,16 @@ trust-on-first-use fallback (no "accept whoever answers first and remember
 them"). With neither `--ca-pin` nor `--ca-file`, the system trust roots verify
 the server (the right choice when the control plane serves a
 publicly-issued certificate).
+
+Direct BMP routers reuse this exact enrollment CA, issuance code, identity
+tables, rotation proof, and revocation API with a plane-separated identity:
+`spiffe://probectl/tenant/<t>/bmp/<router-id>`. Register a router through
+`POST /v1/collectors/register` with `plane=bmp` and its locally generated
+`csr_pem`. Agent listeners accept only `/agent/`; the BMP listener accepts only
+`/bmp/` and requires the certificate's exact SPIFFE ID and serial to exist in
+the tenant-scoped registry. A credential therefore cannot cross either the
+tenant boundary or the agent/BMP plane boundary.
+
 Plaintext `http://` enrollment is refused before any token or CSR can leave the
 host. The only exception is an explicit local-development override
 (`--allow-plaintext-loopback`, or `enroll.allow_plaintext_loopback: true` for

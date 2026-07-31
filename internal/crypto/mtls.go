@@ -7,17 +7,83 @@
 package crypto
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
+	"time"
 )
 
 // ServerMTLSConfig builds a server TLS config that requires and verifies a client
 // certificate against the CA bundle in caFile. This is the agent-transport server
 // policy consumed by the gRPC server in S4. Non-mTLS connections are rejected.
 func ServerMTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
+	return serverMTLSConfig(certFile, keyFile, caFile, requirePinnedTrustDomain)
+}
+
+// ServerBMPMTLSConfig is the BMP-plane sibling of ServerMTLSConfig. It trusts
+// the same operator-owned enrollment CA but accepts only the dedicated
+// /bmp/<router-id> SPIFFE shape; agent SVIDs fail closed at the handshake.
+func ServerBMPMTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
+	return serverMTLSConfig(certFile, keyFile, caFile, requireBMPTrustDomain)
+}
+
+// IssuedIdentityVerifier checks an exact certificate tuple in the existing
+// enrollment registry. It is deliberately a function seam so internal/crypto
+// owns TLS policy without importing the storage implementation.
+type IssuedIdentityVerifier func(ctx context.Context, tenantID, identityID, spiffeID, serial string) (bool, error)
+
+// ServerBMPMTLSConfigRegistered adds an authoritative issued-identity lookup to
+// the BMP handshake. A CA-valid but unrecorded certificate is rejected before
+// TLS completes. The same finite timeout that bounds the surrounding handshake
+// should be supplied here so registry failure cannot hold a socket forever.
+func ServerBMPMTLSConfigRegistered(certFile, keyFile, caFile string, verify IssuedIdentityVerifier, timeout time.Duration) (*tls.Config, error) {
+	if verify == nil {
+		return nil, errors.New("crypto: BMP issued-identity verifier is required")
+	}
+	if timeout <= 0 {
+		return nil, errors.New("crypto: BMP issued-identity timeout must be positive")
+	}
+	cfg, err := ServerBMPMTLSConfig(certFile, keyFile, caFile)
+	if err != nil {
+		return nil, err
+	}
+	base := cfg.VerifyPeerCertificate
+	cfg.VerifyPeerCertificate = func(rawCerts [][]byte, chains [][]*x509.Certificate) error {
+		if err := base(rawCerts, chains); err != nil {
+			return err
+		}
+		leaf, err := x509.ParseCertificate(rawCerts[0])
+		if err != nil {
+			return fmt.Errorf("crypto: parse BMP client leaf: %w", err)
+		}
+		id, err := BMPSPIFFEIDFromCert(leaf)
+		if err != nil {
+			return fmt.Errorf("crypto: BMP client identity rejected: %w", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		issued, err := verify(
+			ctx,
+			id.TenantID,
+			id.AgentID,
+			id.String(),
+			leaf.SerialNumber.Text(16),
+		)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("crypto: BMP identity registry unavailable: %w", err)
+		}
+		if !issued {
+			return errors.New("crypto: unregistered BMP client identity refused")
+		}
+		return nil
+	}
+	return cfg, nil
+}
+
+func serverMTLSConfig(certFile, keyFile, caFile string, verify func([][]byte, [][]*x509.Certificate) error) (*tls.Config, error) {
 	cfg, err := ServerTLSConfig(certFile, keyFile)
 	if err != nil {
 		return nil, err
@@ -28,7 +94,7 @@ func ServerMTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
 	}
 	cfg.ClientCAs = pool
 	cfg.ClientAuth = tls.RequireAndVerifyClientCert
-	cfg.VerifyPeerCertificate = requirePinnedTrustDomain
+	cfg.VerifyPeerCertificate = verify
 	return cfg, nil
 }
 
@@ -37,6 +103,14 @@ func ServerMTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
 // the pinned trust domain — a valid-chain certificate from a FOREIGN trust
 // domain is refused at the handshake, before any request is read.
 func requirePinnedTrustDomain(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+	return requireSPIFFEPlane(rawCerts, SPIFFEIDFromCert)
+}
+
+func requireBMPTrustDomain(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+	return requireSPIFFEPlane(rawCerts, BMPSPIFFEIDFromCert)
+}
+
+func requireSPIFFEPlane(rawCerts [][]byte, parse func(*x509.Certificate) (SPIFFEID, error)) error {
 	if len(rawCerts) == 0 {
 		return errors.New("crypto: no client certificate")
 	}
@@ -44,7 +118,7 @@ func requirePinnedTrustDomain(rawCerts [][]byte, _ [][]*x509.Certificate) error 
 	if err != nil {
 		return fmt.Errorf("crypto: parse client leaf: %w", err)
 	}
-	if _, err := SPIFFEIDFromCert(leaf); err != nil {
+	if _, err := parse(leaf); err != nil {
 		return fmt.Errorf("crypto: client identity rejected: %w", err)
 	}
 	return nil

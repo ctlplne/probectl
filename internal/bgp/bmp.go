@@ -76,6 +76,8 @@ type BMPListener struct {
 	sessionSlots     chan struct{}
 	sessionMetrics   BMPSessionMetrics
 	activeSessions   atomic.Int64
+	verifyIssued     BMPIdentityVerifier
+	revocations      *probectlc.RevocationList
 }
 
 // BMPSessionMetrics receives process-aggregate session health without tenant
@@ -88,6 +90,27 @@ type BMPSessionMetrics interface {
 
 // BMPOption customizes a BMPListener.
 type BMPOption func(*BMPListener)
+
+// BMPIdentityVerifier checks the exact certificate identity against the
+// operator-owned enrollment registry. Implementations must scope the lookup at
+// the storage layer by tenant and fail closed on lookup errors.
+type BMPIdentityVerifier = probectlc.IssuedIdentityVerifier
+
+// WithBMPIssuedIdentityVerifier installs the authoritative registry check.
+// Production listeners must provide one; Serve refuses to start without it.
+func WithBMPIssuedIdentityVerifier(verify BMPIdentityVerifier) BMPOption {
+	return func(l *BMPListener) { l.verifyIssued = verify }
+}
+
+// WithBMPRevocationList installs the existing registry-driven revocation list.
+// The listener consults it before accepting any BMP payload bytes.
+func WithBMPRevocationList(rl *probectlc.RevocationList) BMPOption {
+	return func(l *BMPListener) {
+		if rl != nil {
+			l.revocations = rl
+		}
+	}
+}
 
 // WithBMPClock injects the clock used when a BMP peer omits its timestamp.
 func WithBMPClock(now func() time.Time) BMPOption {
@@ -162,6 +185,7 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 		handshakeTimeout: DefaultBMPHandshakeTimeout,
 		readTimeout:      DefaultBMPReadTimeout,
 		maxSessions:      DefaultBMPMaxSessions,
+		revocations:      probectlc.NewRevocationList(),
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -180,6 +204,9 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 	}
 	if l.pub == nil {
 		return errors.New("bgp bmp: publisher is nil")
+	}
+	if l.verifyIssued == nil {
+		return errors.New("bgp bmp: issued-identity registry verifier is required")
 	}
 	go func() {
 		<-ctx.Done()
@@ -241,6 +268,8 @@ func (l *BMPListener) releaseSession() {
 type bmpIdentity struct {
 	TenantID string
 	AgentID  string
+	SPIFFEID string
+	Serial   string
 }
 
 func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr error) {
@@ -271,9 +300,31 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 	}
 	handshakeCtx, cancel := context.WithTimeout(ctx, l.handshakeTimeout)
 	id, err := bmpPeerIdentity(handshakeCtx, conn)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if l.revocations.IsRevoked(id.Serial, id.SPIFFEID) {
+		cancel()
+		return fmt.Errorf("bgp bmp: registry-revoked router identity refused")
+	}
+	if l.verifyIssued == nil {
+		cancel()
+		return errors.New("bgp bmp: issued-identity registry verifier is required")
+	}
+	issued, err := l.verifyIssued(
+		handshakeCtx,
+		id.TenantID,
+		id.AgentID,
+		id.SPIFFEID,
+		id.Serial,
+	)
 	cancel()
 	if err != nil {
-		return err
+		return fmt.Errorf("bgp bmp: verify issued router identity: %w", err)
+	}
+	if !issued {
+		return errors.New("bgp bmp: unregistered router identity refused")
 	}
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return fmt.Errorf("bgp bmp: clear mtls handshake deadline: %w", err)
@@ -373,14 +424,20 @@ func bmpPeerIdentity(ctx context.Context, conn net.Conn) (bmpIdentity, error) {
 	if len(state.PeerCertificates) == 0 {
 		return bmpIdentity{}, errors.New("bgp bmp: mtls peer certificate missing")
 	}
-	id, err := probectlc.SPIFFEIDFromCert(state.PeerCertificates[0])
+	leaf := state.PeerCertificates[0]
+	id, err := probectlc.BMPSPIFFEIDFromCert(leaf)
 	if err != nil {
 		return bmpIdentity{}, fmt.Errorf("bgp bmp: peer identity: %w", err)
 	}
 	if id.TenantID == "" || id.AgentID == "" {
 		return bmpIdentity{}, errors.New("bgp bmp: peer identity missing tenant or agent")
 	}
-	return bmpIdentity{TenantID: id.TenantID, AgentID: id.AgentID}, nil
+	return bmpIdentity{
+		TenantID: id.TenantID,
+		AgentID:  id.AgentID,
+		SPIFFEID: id.String(),
+		Serial:   leaf.SerialNumber.Text(16),
+	}, nil
 }
 
 func readBMPMessage(r io.Reader) (uint8, []byte, error) {

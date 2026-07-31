@@ -18,27 +18,38 @@ import (
 // TrustDomain is probectl's default SPIFFE trust domain.
 const TrustDomain = "probectl"
 
-// SPIFFEID is a tenant-bound agent identity of the form
+// SPIFFEID is a tenant-bound registered workload identity of the form
 //
-//	spiffe://probectl/tenant/<tenantID>/agent/<agentID>
+//	spiffe://probectl/tenant/<tenantID>/<plane>/<agentID>
 //
-// The agent identity encodes its tenant (PRD §3.2), so the mTLS layer can derive
-// the agent's tenant from its verified certificate. SVID issuance is out of scope
-// here (S-EE1); this defines the identity shape and how it is read from a cert.
+// Plane is deliberately restricted to an identity shape owned by the existing
+// enrollment registry. Agent and BMP identities share issuance/revocation
+// storage, but their TLS listeners use plane-specific parsers so one plane's
+// credential cannot authenticate to another plane.
 type SPIFFEID struct {
 	TrustDomain string
 	TenantID    string
 	AgentID     string
+	Plane       string
 }
 
 // AgentSPIFFEID builds the SPIFFE URI for a tenant-bound agent.
 func AgentSPIFFEID(tenantID, agentID string) string {
-	return SPIFFEID{TrustDomain: TrustDomain, TenantID: tenantID, AgentID: agentID}.String()
+	return SPIFFEID{TrustDomain: TrustDomain, TenantID: tenantID, AgentID: agentID, Plane: "agent"}.String()
+}
+
+// BMPSPIFFEID builds the SPIFFE URI for a registry-issued BMP router.
+func BMPSPIFFEID(tenantID, routerID string) string {
+	return SPIFFEID{TrustDomain: TrustDomain, TenantID: tenantID, AgentID: routerID, Plane: "bmp"}.String()
 }
 
 // String renders the SPIFFE URI.
 func (id SPIFFEID) String() string {
-	return fmt.Sprintf("spiffe://%s/tenant/%s/agent/%s", id.TrustDomain, id.TenantID, id.AgentID)
+	plane := id.Plane
+	if plane == "" {
+		plane = "agent"
+	}
+	return fmt.Sprintf("spiffe://%s/tenant/%s/%s/%s", id.TrustDomain, id.TenantID, plane, id.AgentID)
 }
 
 // ParseSPIFFEID parses a probectl agent SPIFFE URI. The trust domain is
@@ -47,6 +58,17 @@ func (id SPIFFEID) String() string {
 // parse into a probectl identity — this is the central choke point every
 // verify/derivation path (server peer identity, agent self-identity) uses.
 func ParseSPIFFEID(uri string) (SPIFFEID, error) {
+	return parseSPIFFEIDForPlane(uri, "agent")
+}
+
+// ParseBMPSPIFFEID parses only a probectl BMP-router SPIFFE URI. Keeping this
+// separate from ParseSPIFFEID prevents a bmp credential from authenticating to
+// the agent transport, even though both identities use the same registry.
+func ParseBMPSPIFFEID(uri string) (SPIFFEID, error) {
+	return parseSPIFFEIDForPlane(uri, "bmp")
+}
+
+func parseSPIFFEIDForPlane(uri, plane string) (SPIFFEID, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return SPIFFEID{}, fmt.Errorf("crypto: parse spiffe id: %w", err)
@@ -67,18 +89,20 @@ func ParseSPIFFEID(uri string) (SPIFFEID, error) {
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
 	if len(parts) != 4 || parts[0] != "tenant" || parts[1] == "" ||
 		parts[1] == "." || parts[1] == ".." ||
-		parts[2] != "agent" || parts[3] == "" ||
+		parts[2] != plane || parts[3] == "" ||
 		parts[3] == "." || parts[3] == ".." {
-		return SPIFFEID{}, fmt.Errorf("crypto: malformed agent spiffe id: %q", uri)
+		return SPIFFEID{}, fmt.Errorf("crypto: malformed %s spiffe id: %q", plane, uri)
 	}
 	id := SPIFFEID{
 		TrustDomain: u.Host,
 		TenantID:    parts[1],
 		AgentID:     parts[3],
+		Plane:       plane,
 	}
 	if u.String() != uri || id.String() != uri {
 		return SPIFFEID{}, fmt.Errorf(
-			"crypto: non-canonical agent spiffe id: %q",
+			"crypto: non-canonical %s spiffe id: %q",
+			plane,
 			uri,
 		)
 	}
@@ -88,6 +112,25 @@ func ParseSPIFFEID(uri string) (SPIFFEID, error) {
 // SPIFFEIDFromCert extracts the single canonical SPIFFE URI SAN from a
 // (verified) certificate.
 func SPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
+	return spiffeIDFromCert(cert, ParseSPIFFEID)
+}
+
+// BMPSPIFFEIDFromCert extracts one canonical BMP-router URI SAN.
+func BMPSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
+	return spiffeIDFromCert(cert, ParseBMPSPIFFEID)
+}
+
+// RegisteredSPIFFEIDFromCert extracts either supported enrollment-registry
+// identity. Plane-specific listener authentication must use the narrower
+// helper above; this broader helper is for shared rotation and revocation.
+func RegisteredSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
+	if id, err := SPIFFEIDFromCert(cert); err == nil {
+		return id, nil
+	}
+	return BMPSPIFFEIDFromCert(cert)
+}
+
+func spiffeIDFromCert(cert *x509.Certificate, parse func(string) (SPIFFEID, error)) (SPIFFEID, error) {
 	if cert == nil {
 		return SPIFFEID{}, fmt.Errorf("crypto: certificate is required")
 	}
@@ -96,7 +139,7 @@ func SPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
 			"crypto: certificate must have exactly one URI SAN containing a canonical SPIFFE ID",
 		)
 	}
-	return ParseSPIFFEID(cert.URIs[0].String())
+	return parse(cert.URIs[0].String())
 }
 
 // SPIFFEIDFromCertFile reads the first certificate in a PEM file and returns its

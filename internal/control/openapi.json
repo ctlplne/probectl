@@ -7355,7 +7355,7 @@
     "/v1/agents/{id}/revoke": {
       "post": {
         "operationId": "revokeAgent",
-        "summary": "Revoke an agent's identity (WIRE-003): persists, blocks re-enrollment/rotation, and refuses its mTLS handshakes from the next connection",
+        "summary": "Revoke a registered agent or BMP-router identity (WIRE-003): persists, blocks re-enrollment/rotation, and refuses its mTLS handshakes from the next connection",
         "tags": [
           "agents"
         ],
@@ -7371,7 +7371,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Revoked: spiffe_id + count of live serials pushed to the handshake deny-list"
+            "description": "Revoked agent- or bmp-plane identity: spiffe_id + count of live serials pushed to the existing handshake deny-list"
           },
           "503": {
             "description": "Enrollment not configured"
@@ -8459,7 +8459,7 @@
       "post": {
         "operationId": "registerCollector",
         "summary": "Register a tenant-scoped bus collector from a one-time enrollment token",
-        "description": "Consumes a tenant-scoped one-time token inside the caller tenant and returns the collector identity to stamp on BGP, flow, device, eBPF, or endpoint records.",
+        "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp additionally requires csr_pem and returns a registry-issued /bmp/<router-id> SVID for router mTLS.",
         "tags": [
           "agents"
         ],
@@ -14859,6 +14859,7 @@
             "type": "string",
             "enum": [
               "bgp",
+              "bmp",
               "flow",
               "device",
               "ebpf",
@@ -14868,6 +14869,10 @@
           "hostname": {
             "type": "string",
             "description": "Optional operator label or collector host/source name."
+          },
+          "csr_pem": {
+            "type": "string",
+            "description": "Router-owned PKCS#10 CSR PEM. Required only for plane=bmp; the private key never leaves the router."
           },
           "collection_profile": {
             "type": "string",
@@ -14909,6 +14914,49 @@
           "yaml"
         ]
       },
+      "RegisteredSVID": {
+        "type": "object",
+        "properties": {
+          "cert_pem": {
+            "type": "string",
+            "description": "Issued leaf plus intermediate certificate chain."
+          },
+          "ca_bundle": {
+            "type": "string",
+            "description": "Operator-owned root plus intermediate trust bundle."
+          },
+          "spiffe_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "plane": {
+            "type": "string",
+            "enum": ["agent", "bmp"]
+          },
+          "serial": {
+            "type": "string"
+          },
+          "not_after": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "cert_pem",
+          "ca_bundle",
+          "spiffe_id",
+          "tenant_id",
+          "agent_id",
+          "plane",
+          "serial",
+          "not_after"
+        ]
+      },
       "CollectorRegistration": {
         "type": "object",
         "properties": {
@@ -14922,6 +14970,7 @@
             "type": "string",
             "enum": [
               "bgp",
+              "bmp",
               "flow",
               "device",
               "ebpf",
@@ -14939,6 +14988,10 @@
           },
           "config": {
             "$ref": "#/components/schemas/CollectorConfigHint"
+          },
+          "svid": {
+            "$ref": "#/components/schemas/RegisteredSVID",
+            "description": "Present only for plane=bmp."
           }
         },
         "required": [

@@ -858,9 +858,11 @@ recorded RIS fixture end to end for evaluation.
 For operators who run routers that export **BMP** (BGP Monitoring Protocol), run
 `probectl-bmp-listener` next to the routing fabric. It serves **mTLS only**:
 every router/collector peer presents a SPIFFE-style client certificate
-(`spiffe://probectl/tenant/<tenant>/agent/<router-id>`), and the listener derives
-the tenant from that verified certificate instead of trusting any BMP payload
-field. Route-monitoring updates are decoded, the peer is recorded in an
+(`spiffe://probectl/tenant/<tenant>/bmp/<router-id>`) issued through the existing
+collector/agent registry. The listener derives the tenant from that verified
+certificate and checks its exact tenant/router/SPIFFE/serial tuple against the
+local registry instead of trusting any BMP payload field. A CA-valid
+self-issued or agent-plane certificate is refused. Route-monitoring updates are decoded, the peer is recorded in an
 in-process tenant-scoped peer inventory, and each observed prefix is published to
 the same `probectl.bgp.events` topic as the public-collector analyzer.
 The setup on-ramp is the same tenant-bound collector registration used by the
@@ -869,12 +871,19 @@ or `probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc0
 The response includes `source_type: bmp`, `PROBECTL_BMP_COLLECTOR`, and the
 startup command `probectl-bmp-listener`.
 
+Each router is registered through the same `/v1/collectors/register` endpoint
+with `plane=bmp` and a router-owned `csr_pem`. The returned SVID is stored in the
+same identity tables and uses the existing rotation and agent-revocation API.
+This is entirely operator-local: no external identity service or phone-home
+path is introduced.
+
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `PROBECTL_BMP_LISTEN_ADDR` | (none) | BMP TCP listen address, for example `:1179`; required |
 | `PROBECTL_BMP_TLS_CERT_FILE` | (none) | server certificate PEM; required |
 | `PROBECTL_BMP_TLS_KEY_FILE` | (none) | server private key PEM; required |
 | `PROBECTL_BMP_TLS_CA_FILE` | (none) | CA bundle that signs router/client certificates; required |
+| `PROBECTL_BMP_DATABASE_URL` | (none) | local probectl PostgreSQL URL used only to verify registry-issued BMP identities; required. Use `sslmode=verify-full` outside explicit single-host development |
 | `PROBECTL_BMP_COLLECTOR` | `bmp` | collector label written on published BGP events |
 | `PROBECTL_BMP_HANDSHAKE_TIMEOUT` | `10s` | maximum time for an unauthenticated mTLS handshake; must be positive |
 | `PROBECTL_BMP_READ_TIMEOUT` | `2m` | rolling maximum for each authenticated BMP header and payload read; must be positive |
@@ -897,6 +906,7 @@ PROBECTL_BMP_LISTEN_ADDR=:1179 \
 PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
 PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
 PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \
+PROBECTL_BMP_DATABASE_URL='postgres://bmp_registry@postgres:5432/probectl?sslmode=verify-full' \
 PROBECTL_BMP_BUS_MODE=kafka \
 PROBECTL_BMP_BUS_BROKERS=kafka-1:9093 \
 PROBECTL_BMP_BUS_TLS_ENABLED=true \

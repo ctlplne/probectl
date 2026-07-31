@@ -144,16 +144,29 @@ PROBECTL_BMP_LISTEN_ADDR=:1179 \
 PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
 PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
 PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \
+PROBECTL_BMP_DATABASE_URL='postgres://bmp_registry@postgres:5432/probectl?sslmode=verify-full' \
 PROBECTL_BMP_BUS_MODE=kafka \
 PROBECTL_BMP_BUS_BROKERS=kafka-1:9093 \
 PROBECTL_BMP_BUS_TLS_ENABLED=true \
   probectl-bmp-listener
 ```
 
-Each router/client certificate uses the same tenant-bound identity shape as
-probectl agents: `spiffe://probectl/tenant/<tenant>/agent/<router-id>`. The
-listener records a per-tenant peer inventory in memory and emits `BGPEvent`
-records keyed by that tenant.
+Register each router through the existing collector enrollment surface with a
+router-owned CSR:
+
+```sh
+probectl collector register --body '{"token":"pjt_...","plane":"bmp","hostname":"edge-router-1","csr_pem":"-----BEGIN CERTIFICATE REQUEST-----\n...\n-----END CERTIFICATE REQUEST-----"}'
+```
+
+The private key stays on the router. The response returns a registry-issued
+`spiffe://probectl/tenant/<tenant>/bmp/<router-id>` SVID, its serial and expiry,
+and the operator-owned CA bundle. The listener accepts only that BMP plane and
+checks the exact tenant/router/SPIFFE/serial tuple in the existing identity
+registry before reading a BMP frame. A CA-valid self-issued SVID and an
+agent-plane SVID both fail closed. Rotation uses the existing
+`/enroll/agent/rotate` proof path; `probectl agent revoke <router-id>` or
+`POST /v1/agents/{id}/revoke` uses the existing identity/serial revocation
+lifecycle. There is no separate BMP identity system.
 
 The listener bounds peer-controlled resources by default: an mTLS handshake has
 10 seconds, each complete BMP header and payload has 2 minutes, and at most 256

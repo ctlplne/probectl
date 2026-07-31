@@ -76,6 +76,7 @@ func TestBMPAuthenticatedFrameStallDeadline(t *testing.T) {
 				WithBMPHandshakeTimeout(time.Second),
 				WithBMPReadTimeout(30*time.Millisecond),
 				WithBMPSessionMetrics(metrics),
+				WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 			)
 			done := make(chan error, 1)
 			go func() { done <- listener.handleConn(context.Background(), server) }()
@@ -180,11 +181,11 @@ func bmpTLSPipe(t *testing.T) (*tls.Conn, *tls.Conn) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientCert, clientKey, err := ca.IssueClientCert("router-a", probectlc.AgentSPIFFEID("tenant-a", "router-a"), time.Hour)
+	clientCert, clientKey, err := ca.IssueClientCert("router-a", probectlc.BMPSPIFFEID("tenant-a", "router-a"), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverCfg, err := probectlc.ServerMTLSConfig(
+	serverCfg, err := probectlc.ServerBMPMTLSConfig(
 		writePEM(t, dir, "server.crt", serverCert),
 		writePEM(t, dir, "server.key", serverKey),
 		caFile,
