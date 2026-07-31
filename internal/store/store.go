@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -48,7 +49,12 @@ func Open(ctx context.Context, dsn string, maxConns, minConns int32, connectTime
 func openPool(ctx context.Context, dsn string, maxConns, minConns int32, connectTimeout time.Duration) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("parse database url: %w", err)
+		// pgx's parse error redacts URL userinfo, but it retains arbitrary
+		// query values such as password and sslpassword. Do not wrap it into
+		// startup/log output: the raw connection string is still available to
+		// the configuration owner, while this boundary returns only bounded,
+		// credential-free guidance.
+		return nil, errors.New("parse database url: invalid PostgreSQL connection parameters")
 	}
 	if maxConns > 0 {
 		cfg.MaxConns = maxConns
