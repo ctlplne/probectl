@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,6 +40,15 @@ type fakeIRInvestigator struct {
 	onReceipt        func(IRInvestigationReceipt)
 	onRecord         func(context.Context, IRInvestigationReceipt)
 	onReveal         func()
+}
+
+type unreadIRBody struct {
+	reads int
+}
+
+func (b *unreadIRBody) Read([]byte) (int, error) {
+	b.reads++
+	return 0, errors.New("authorization gate read the request body")
 }
 
 func (f *fakeIRInvestigator) RecordAttempt(
@@ -109,10 +119,26 @@ func testIRRequest(
 	principal *auth.Principal,
 	eventRef, body string,
 ) *httptest.ResponseRecorder {
+	return testIRRequestReader(
+		recorder,
+		srv,
+		principal,
+		eventRef,
+		strings.NewReader(body),
+	)
+}
+
+func testIRRequestReader(
+	recorder *httptest.ResponseRecorder,
+	srv *Server,
+	principal *auth.Principal,
+	eventRef string,
+	body io.Reader,
+) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/audit/ir/"+eventRef+"/reveal",
-		strings.NewReader(body),
+		body,
 	)
 	if principal != nil {
 		request = request.WithContext(
@@ -122,6 +148,21 @@ func testIRRequest(
 	srv.cfg.AuthMode = "session"
 	srv.Handler().ServeHTTP(recorder, request)
 	return recorder
+}
+
+func testIRUnreadRequest(
+	srv *Server,
+	principal *auth.Principal,
+	eventRef string,
+) (*httptest.ResponseRecorder, *unreadIRBody) {
+	body := &unreadIRBody{}
+	return testIRRequestReader(
+		httptest.NewRecorder(),
+		srv,
+		principal,
+		eventRef,
+		body,
+	), body
 }
 
 func TestIRRevealSuccessAuditsBeforePlaintext(t *testing.T) {
@@ -298,29 +339,127 @@ func TestIRRevealTwoTenantIsolationAndMissingAreIndistinguishable(t *testing.T) 
 }
 
 func TestIRRevealDedicatedPermissionMFAAndABACDenyBeforeInvestigation(t *testing.T) {
+	t.Run("unauthenticated is not recorded", func(t *testing.T) {
+		fake := &fakeIRInvestigator{}
+		recorder, body := testIRUnreadRequest(
+			testServer(fakePinger{}).WithIRInvestigator(fake),
+			nil,
+			irRefA,
+		)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+		}
+		if got := testIRErrorContract(t, recorder); got !=
+			"unauthorized\x00authentication required" {
+			t.Fatalf("unauthenticated error contract = %q", got)
+		}
+		if body.reads != 0 || len(fake.receipts) != 0 || len(fake.order) != 0 {
+			t.Fatalf("unauthenticated request crossed investigation boundary: %+v", fake)
+		}
+	})
+	t.Run("tenant lifecycle", func(t *testing.T) {
+		fake := &fakeIRInvestigator{}
+		server := testServer(fakePinger{}).
+			WithTenantStatus(&fakeStatus{statuses: map[string]string{
+				irTenantA: "suspended",
+			}}).
+			WithIRInvestigator(fake)
+		recorder, body := testIRUnreadRequest(
+			server,
+			testIRPrincipal(irTenantA, true, true),
+			irRefA,
+		)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusForbidden, irRefA, "tenant_lifecycle",
+			"tenant_suspended\x00tenant is suspended",
+		)
+	})
+	t.Run("offboarded lifecycle stays stable without sidecar write", func(t *testing.T) {
+		fake := &fakeIRInvestigator{}
+		server := testServer(fakePinger{}).
+			WithTenantStatus(&fakeStatus{statuses: map[string]string{
+				irTenantA: "deleted",
+			}}).
+			WithIRInvestigator(fake)
+		recorder, body := testIRUnreadRequest(
+			server,
+			testIRPrincipal(irTenantA, true, true),
+			irRefA,
+		)
+		if recorder.Code != http.StatusForbidden {
+			t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+		}
+		if got := testIRErrorContract(t, recorder); got !=
+			"tenant_offboarded\x00tenant is offboarded" {
+			t.Fatalf("offboarded error contract = %q", got)
+		}
+		if body.reads != 0 || len(fake.receipts) != 0 || len(fake.order) != 0 {
+			t.Fatalf("offboarded request crossed sealed sidecar boundary: %+v", fake)
+		}
+	})
 	t.Run("audit read is insufficient", func(t *testing.T) {
 		principal := testIRPrincipal(irTenantA, true, false)
 		principal.Permissions[permAuditRead] = true
 		fake := &fakeIRInvestigator{}
-		recorder := testIRRequest(
-			httptest.NewRecorder(),
+		recorder, body := testIRUnreadRequest(
 			testServer(fakePinger{}).WithIRInvestigator(fake),
 			principal,
 			irRefA,
-			`{"reason":"must not be parsed before authorization"}`,
 		)
-		assertIRAuthorizationDenial(t, recorder, fake)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusForbidden, irRefA, "rbac_denied",
+			"forbidden\x00missing permission: "+permIRInvestigate,
+		)
+	})
+	t.Run("invalid event reference is suppressed", func(t *testing.T) {
+		fake := &fakeIRInvestigator{}
+		recorder, body := testIRUnreadRequest(
+			testServer(fakePinger{}).WithIRInvestigator(fake),
+			testIRPrincipal(irTenantA, true, false),
+			strings.Repeat("z", 1024),
+		)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusForbidden, "", "rbac_denied",
+			"forbidden\x00missing permission: "+permIRInvestigate,
+		)
 	})
 	t.Run("MFA is unconditional", func(t *testing.T) {
 		fake := &fakeIRInvestigator{}
-		recorder := testIRRequest(
-			httptest.NewRecorder(),
+		recorder, body := testIRUnreadRequest(
 			testServer(fakePinger{}).WithIRInvestigator(fake),
 			testIRPrincipal(irTenantA, false, true),
 			irRefA,
-			`{"reason":"must not be parsed before authorization"}`,
 		)
-		assertIRAuthorizationDenial(t, recorder, fake)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusForbidden, irRefA, "mfa_required",
+			"forbidden\x00multi-factor authentication required",
+		)
+	})
+	t.Run("ABAC unavailable", func(t *testing.T) {
+		fake := &fakeIRInvestigator{}
+		server := testServer(fakePinger{}).WithIRInvestigator(fake)
+		server.abac = &abacCache{
+			ttl: time.Minute,
+			load: func(context.Context, string) ([]auth.Policy, error) {
+				return nil, errors.New("policy store unavailable")
+			},
+			data:        map[string]abacEntry{},
+			generations: map[string]uint64{},
+		}
+		recorder, body := testIRUnreadRequest(
+			server,
+			testIRPrincipal(irTenantA, true, true),
+			irRefA,
+		)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusServiceUnavailable, irRefA, "abac_unavailable",
+			"unavailable\x00authorization policy is temporarily unavailable",
+		)
 	})
 	t.Run("tenant resource ABAC", func(t *testing.T) {
 		fake := &fakeIRInvestigator{}
@@ -355,15 +494,125 @@ func TestIRRevealDedicatedPermissionMFAAndABACDenyBeforeInvestigation(t *testing
 		if err != nil || !denied {
 			t.Fatalf("ABAC fixture denied=%v err=%v", denied, err)
 		}
-		recorder := testIRRequest(
-			httptest.NewRecorder(),
+		recorder, body := testIRUnreadRequest(
 			server,
 			principal,
 			irRefA,
-			`{"reason":"must not be parsed before authorization"}`,
 		)
-		assertIRAuthorizationDenial(t, recorder, fake)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusForbidden, irRefA, "abac_denied",
+			"forbidden\x00denied by an attribute policy: "+permIRInvestigate,
+		)
 	})
+	t.Run("denied receipt failure is fail closed", func(t *testing.T) {
+		fake := &fakeIRInvestigator{recordErrOutcome: IRAttemptDenied}
+		recorder, body := testIRUnreadRequest(
+			testServer(fakePinger{}).WithIRInvestigator(fake),
+			testIRPrincipal(irTenantA, true, false),
+			irRefA,
+		)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusServiceUnavailable, irRefA, "rbac_denied",
+			"unavailable\x00IR investigation audit is unavailable",
+		)
+	})
+	t.Run("canceled request preserves denied receipt", func(t *testing.T) {
+		fake := &fakeIRInvestigator{}
+		fake.onRecord = func(ctx context.Context, _ IRInvestigationReceipt) {
+			if err := ctx.Err(); err != nil {
+				t.Fatalf("durable receipt context = %v", err)
+			}
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("durable receipt context has no deadline")
+			}
+			remaining := time.Until(deadline)
+			if remaining <= 0 || remaining > irRevealResultAuditTimeout {
+				t.Fatalf("durable receipt deadline remaining = %v", remaining)
+			}
+		}
+		server := testServer(fakePinger{}).WithIRInvestigator(fake)
+		principal := testIRPrincipal(irTenantA, true, false)
+		body := &unreadIRBody{}
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/audit/ir/"+irRefA+"/reveal",
+			body,
+		)
+		ctx, cancel := context.WithCancel(request.Context())
+		cancel()
+		request = request.WithContext(auth.WithPrincipal(ctx, principal))
+		server.cfg.AuthMode = "session"
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		assertIRAuthorizationDenial(
+			t, recorder, fake, body,
+			http.StatusForbidden, irRefA, "rbac_denied",
+			"forbidden\x00missing permission: "+permIRInvestigate,
+		)
+	})
+}
+
+func TestIRRevealAuthorizationDenialRateLimitDoesNotDrainReveal(t *testing.T) {
+	fake := &fakeIRInvestigator{}
+	server := testServer(fakePinger{}).WithIRInvestigator(fake)
+	server.irRevealLimiter = newKeyLimiter(1)
+	deniedPrincipal := testIRPrincipal(irTenantA, true, false)
+
+	first, firstBody := testIRUnreadRequest(server, deniedPrincipal, irRefA)
+	assertIRAuthorizationDenial(
+		t, first, fake, firstBody,
+		http.StatusForbidden, irRefA, "rbac_denied",
+		"forbidden\x00missing permission: "+permIRInvestigate,
+	)
+	receiptCount := len(fake.receipts)
+
+	second, secondBody := testIRUnreadRequest(server, deniedPrincipal, irRefA)
+	if second.Code != http.StatusTooManyRequests ||
+		second.Header().Get("Retry-After") == "" {
+		t.Fatalf(
+			"rate-limited denial = %d headers=%v body=%s",
+			second.Code,
+			second.Header(),
+			second.Body,
+		)
+	}
+	if got := testIRErrorContract(t, second); got !=
+		"rate_limited\x00IR investigation authorization denial rate exceeded" {
+		t.Fatalf("rate-limited denial error contract = %q", got)
+	}
+	if secondBody.reads != 0 || len(fake.receipts) != receiptCount {
+		t.Fatalf(
+			"rate-limited denial crossed receipt boundary: reads=%d receipts=%d->%d",
+			secondBody.reads,
+			receiptCount,
+			len(fake.receipts),
+		)
+	}
+
+	authorized := testIRRequest(
+		httptest.NewRecorder(),
+		server,
+		testIRPrincipal(irTenantA, true, true),
+		irRefA,
+		`{"reason":"authorized bucket remains independent"}`,
+	)
+	if authorized.Code != http.StatusNotFound {
+		t.Fatalf(
+			"authorized reveal bucket was drained = %d body=%s",
+			authorized.Code,
+			authorized.Body,
+		)
+	}
+	if len(fake.receipts) != receiptCount+2 {
+		t.Fatalf(
+			"authorized reveal receipts = %d, want %d",
+			len(fake.receipts),
+			receiptCount+2,
+		)
+	}
 }
 
 func TestIRRevealRateLimitBoundsRetentionSurvivingReceipts(t *testing.T) {
@@ -382,17 +631,18 @@ func TestIRRevealRateLimitBoundsRetentionSurvivingReceipts(t *testing.T) {
 		t.Fatalf("first admitted request = %d %s", first.Code, first.Body)
 	}
 	receipts := len(fake.receipts)
-	second := testIRRequest(
-		httptest.NewRecorder(),
+	second, secondBody := testIRUnreadRequest(
 		server,
 		principal,
 		irRefA,
-		`{"reason":"case A"}`,
 	)
 	if second.Code != http.StatusTooManyRequests ||
 		second.Header().Get("Retry-After") == "" {
 		t.Fatalf("rate-limited request = %d headers=%v body=%s",
 			second.Code, second.Header(), second.Body)
+	}
+	if secondBody.reads != 0 {
+		t.Fatalf("rate-limited request body was read %d times", secondBody.reads)
 	}
 	if len(fake.receipts) != receipts {
 		t.Fatalf("rate limit appended permanent receipts: %d -> %d",
@@ -462,12 +712,41 @@ func assertIRAuthorizationDenial(
 	t *testing.T,
 	recorder *httptest.ResponseRecorder,
 	fake *fakeIRInvestigator,
+	body *unreadIRBody,
+	wantStatus int,
+	wantEventRef string,
+	wantErrorClass string,
+	wantErrorContract string,
 ) {
 	t.Helper()
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	if recorder.Code != wantStatus {
+		t.Fatalf(
+			"status = %d body=%s, want %d",
+			recorder.Code,
+			recorder.Body.String(),
+			wantStatus,
+		)
 	}
-	if len(fake.receipts) != 0 ||
+	if got := testIRErrorContract(t, recorder); got != wantErrorContract {
+		t.Fatalf(
+			"authorization denial error contract = %q, want %q",
+			got,
+			wantErrorContract,
+		)
+	}
+	if len(fake.receipts) != 1 {
+		t.Fatalf("authorization denial receipts = %+v, want exactly one", fake.receipts)
+	}
+	receipt := fake.receipts[0]
+	if receipt.TenantID != irTenantA ||
+		receipt.Actor != "investigator@example.test" ||
+		receipt.EventRef != wantEventRef ||
+		receipt.Reason != irRequestValidationReason ||
+		receipt.Outcome != IRAttemptDenied ||
+		receipt.ErrorClass != wantErrorClass {
+		t.Fatalf("authorization denial receipt = %+v", receipt)
+	}
+	if body.reads != 0 ||
 		strings.Contains(strings.Join(fake.order, ","), "reveal") {
 		t.Fatalf("authorization denial crossed reveal boundary: %+v", fake)
 	}

@@ -25,6 +25,7 @@ const (
 	irRevealMaxReason          = 512
 	irRevealResultAuditTimeout = 5 * time.Second
 	irRequestValidationReason  = "request rejected before investigation reason was accepted"
+	irAuthorizationDenialKey   = "ir-authorization-denial\x00"
 )
 
 // IRAttemptOutcome is the closed set of provider-stream investigation
@@ -100,14 +101,34 @@ func (s *Server) requireIRInvestigator(next apiHandler) apiHandler {
 			return apierror.Unauthorized("authentication required")
 		}
 		if err := s.checkTenantLifecycle(r, p.TenantID); err != nil {
-			return err
+			// Offboarding/deleted tenants may already have frozen or shredded
+			// their IR sidecar. Do not replace the stable lifecycle 403 with an
+			// audit-unavailable 503 when that store is intentionally sealed.
+			if domainErr, ok := apierror.As(err); ok &&
+				domainErr.Code == string(apierror.CodeTenantOffboarded) {
+				return err
+			}
+			return s.rejectIRAuthorization(
+				w,
+				r,
+				"tenant_lifecycle",
+				err,
+			)
 		}
 		if !p.MFASatisfied {
-			return apierror.Forbidden("multi-factor authentication required")
+			return s.rejectIRAuthorization(
+				w,
+				r,
+				"mfa_required",
+				apierror.Forbidden("multi-factor authentication required"),
+			)
 		}
 		if !p.Has(permIRInvestigate) {
-			return apierror.Forbidden(
-				"missing permission: " + permIRInvestigate,
+			return s.rejectIRAuthorization(
+				w,
+				r,
+				"rbac_denied",
+				apierror.Forbidden("missing permission: "+permIRInvestigate),
 			)
 		}
 		resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
@@ -118,11 +139,21 @@ func (s *Server) requireIRInvestigator(next apiHandler) apiHandler {
 			resource,
 		)
 		if err != nil {
-			return err
+			return s.rejectIRAuthorization(
+				w,
+				r,
+				"abac_unavailable",
+				err,
+			)
 		}
 		if denied {
-			return apierror.Forbidden(
-				"denied by an attribute policy: " + permIRInvestigate,
+			return s.rejectIRAuthorization(
+				w,
+				r,
+				"abac_denied",
+				apierror.Forbidden(
+					"denied by an attribute policy: "+permIRInvestigate,
+				),
 			)
 		}
 		if !s.irRevealLimiter.allow(p.TenantID) {
@@ -194,7 +225,7 @@ func (s *Server) handleRevealIRAttribution(
 	)
 	defer clearIRAttribution(&attribution)
 	if err != nil {
-		if receiptErr := s.recordIRPostOpen(
+		if receiptErr := s.recordIRDurableReceipt(
 			r,
 			s.irReceipt(
 				r,
@@ -213,7 +244,7 @@ func (s *Server) handleRevealIRAttribution(
 		p.TenantID,
 		eventRef,
 	); err != nil {
-		if receiptErr := s.recordIRPostOpen(
+		if receiptErr := s.recordIRDurableReceipt(
 			r,
 			s.irReceipt(
 				r,
@@ -236,7 +267,7 @@ func (s *Server) handleRevealIRAttribution(
 	payload = append(payload, '\n')
 	clearIRAttribution(&attribution)
 	defer crypto.Zeroize(payload)
-	if err := s.recordIRPostOpen(
+	if err := s.recordIRDurableReceipt(
 		r,
 		s.irReceipt(r, eventRef, reason, IRAttemptSucceeded, ""),
 	); err != nil {
@@ -249,20 +280,50 @@ func (s *Server) handleRevealIRAttribution(
 	return nil
 }
 
-func (s *Server) recordIRPostOpen(
+func (s *Server) recordIRDurableReceipt(
 	r *http.Request,
 	receipt IRInvestigationReceipt,
 ) error {
-	// An unseal attempt happened even if the caller disconnected. Preserve
-	// request values while replacing client cancellation with a strict bound so
-	// its result receipt has a deterministic opportunity to commit before any
-	// plaintext response.
+	// An investigation attempt happened even if the caller disconnected.
+	// Preserve request values while replacing client cancellation with a strict
+	// bound so its receipt has a deterministic opportunity to commit.
 	ctx, cancel := context.WithTimeout(
 		context.WithoutCancel(r.Context()),
 		irRevealResultAuditTimeout,
 	)
 	defer cancel()
 	return s.irInvestigator.RecordAttempt(ctx, receipt)
+}
+
+func (s *Server) rejectIRAuthorization(
+	w http.ResponseWriter,
+	r *http.Request,
+	errorClass string,
+	responseErr error,
+) error {
+	p := auth.PrincipalFrom(r.Context())
+	denialKey := irAuthorizationDenialKey + p.TenantID + "\x00" + auditActor(r)
+	if !s.irRevealLimiter.allow(denialKey) {
+		w.Header().Set("Retry-After", "20")
+		return apierror.RateLimited(
+			"IR investigation authorization denial rate exceeded",
+		)
+	}
+	// Authorization runs before the request body is accepted. Record only a
+	// fixed reason and a syntactically valid reference so an unauthorised caller
+	// cannot inject arbitrary path/body bytes into the retention-surviving
+	// provider stream.
+	eventRef := r.PathValue("event_ref")
+	if !validIREventRef(eventRef) {
+		eventRef = ""
+	}
+	return s.rejectIRReveal(
+		r,
+		eventRef,
+		irRequestValidationReason,
+		errorClass,
+		responseErr,
+	)
 }
 
 func (s *Server) rejectIRReveal(
@@ -273,8 +334,8 @@ func (s *Server) rejectIRReveal(
 	if reason == "" {
 		reason = irRequestValidationReason
 	}
-	if err := s.irInvestigator.RecordAttempt(
-		r.Context(),
+	if err := s.recordIRDurableReceipt(
+		r,
 		s.irReceipt(r, eventRef, reason, IRAttemptDenied, errorClass),
 	); err != nil {
 		return apierror.Unavailable("IR investigation audit is unavailable")
