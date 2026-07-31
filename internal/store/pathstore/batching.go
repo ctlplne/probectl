@@ -16,6 +16,8 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/path"
 )
 
+const pathBackgroundFlushTimeout = 5 * time.Second
+
 // BatchingSaver adds a CROSS-PATH batching window over a Store (Sprint 14,
 // SCALE-009): hops/links were already batched per path (one JSONEachRow body
 // each), but every discovery still cost its own pair of INSERT requests.
@@ -86,13 +88,24 @@ func (b *BatchingSaver) Save(_ context.Context, tenantID string, p *path.Path) e
 	b.pending = append(b.pending, pendingPath{tenantID: tenantID, p: p})
 	full := len(b.pending) >= b.max
 	if b.timer == nil && !full {
-		b.timer = time.AfterFunc(b.window, func() { b.Flush(context.Background()) })
+		b.timer = time.AfterFunc(b.window, b.flushBackground)
 	}
 	b.mu.Unlock()
 	if full {
-		b.Flush(context.Background())
+		b.flushBackground()
 	}
 	return nil
+}
+
+// flushBackground bounds internally-owned timer, size-trigger, and shutdown
+// work. In production the inner store first acquires the durable tenant writer
+// lease; an unavailable database or erasure lock must fail closed without
+// pinning a flusher forever. Caller-owned reads still pass their own contexts
+// directly to Flush.
+func (b *BatchingSaver) flushBackground() {
+	ctx, cancel := context.WithTimeout(context.Background(), pathBackgroundFlushTimeout)
+	defer cancel()
+	b.Flush(ctx)
 }
 
 // Flush persists everything pending (one combined insert per table when the
@@ -150,7 +163,7 @@ func (b *BatchingSaver) History(ctx context.Context, tenantID, target string, q 
 
 // Close flushes and closes the backend.
 func (b *BatchingSaver) Close() error {
-	b.Flush(context.Background())
+	b.flushBackground()
 	return b.inner.Close()
 }
 
