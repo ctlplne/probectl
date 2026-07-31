@@ -440,6 +440,7 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 	}
 	irPlanID, err := e.prepareErasure(ctx, tenantID, actor)
 	if err != nil {
+		att.Complete = false
 		return att, err
 	}
 	fail := func(store, note string) {
@@ -670,6 +671,11 @@ func (e *Engine) prepareErasure(
 	ctx context.Context,
 	tenantID, actor string,
 ) (string, error) {
+	if e.pool != nil && e.irAttribution == nil {
+		return "", errors.New(
+			"tenantlife: database-backed erasure requires the IR crypto-shred lifecycle",
+		)
+	}
 	if e.pool != nil {
 		if err := e.fenceTenantAuditWrites(ctx, tenantID, actor); err != nil {
 			return "", fmt.Errorf(

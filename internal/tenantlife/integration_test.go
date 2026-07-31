@@ -92,6 +92,203 @@ func countTests(t *testing.T, pool *pgxpool.Pool, tenantID string) int64 {
 	return n
 }
 
+func TestIRErasureWithoutLifecycleFailsClosedTwoTenant(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := context.Background()
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	tenantA := mkTenant(t, pool, "it-ir-missing-lifecycle-a-"+stamp)
+	tenantB := mkTenant(t, pool, "it-ir-missing-lifecycle-b-"+stamp)
+	t.Cleanup(func() {
+		for _, table := range []string{
+			"public.ir_attribution_records",
+			"public.ir_attribution_heads",
+			"public.tests",
+		} {
+			if _, err := pool.Exec(
+				context.Background(),
+				"DELETE FROM "+table+" WHERE tenant_id = $1::uuid OR tenant_id = $2::uuid",
+				tenantA,
+				tenantB,
+			); err != nil {
+				t.Errorf("cleanup %s: %v", table, err)
+			}
+		}
+		if _, err := pool.Exec(
+			context.Background(),
+			`DELETE FROM public.tenants
+			  WHERE id = $1::uuid OR id = $2::uuid`,
+			tenantA,
+			tenantB,
+		); err != nil {
+			t.Errorf("cleanup IR lifecycle tenants: %v", err)
+		}
+	})
+
+	for i, tenantID := range []string{tenantA, tenantB} {
+		if _, err := pool.Exec(
+			ctx,
+			`INSERT INTO public.tests
+			    (tenant_id, name, type, target, interval_seconds,
+			     timeout_seconds, params, enabled)
+			 VALUES ($1::uuid, $2, 'icmp', '192.0.2.1', 60, 5,
+			         '{}'::jsonb, true)`,
+			tenantID,
+			fmt.Sprintf("ir-lifecycle-probe-%d", i),
+		); err != nil {
+			t.Fatalf("seed tenant test row: %v", err)
+		}
+		eventRef := strings.Repeat(string(rune('a'+i)), 64)
+		recordHash := strings.Repeat(string(rune('c'+i)), 64)
+		signature := bytes.Repeat([]byte{byte(i + 1)}, 64)
+		if _, err := pool.Exec(
+			ctx,
+			`INSERT INTO public.ir_attribution_heads
+			    (tenant_id, record_count, last_audit_seq, last_hash,
+			     head_signature)
+			 VALUES ($1::uuid, 1, 1, $2, $3)`,
+			tenantID,
+			recordHash,
+			signature,
+		); err != nil {
+			t.Fatalf("seed IR attribution head: %v", err)
+		}
+		if _, err := pool.Exec(
+			ctx,
+			`INSERT INTO public.ir_attribution_records
+			    (tenant_id, audit_seq, chain_pos, event_ref, key_id,
+			     wrapped_dek, ciphertext, prev_hash, hash, signature)
+			 VALUES ($1::uuid, 1, 1, $2, 'ir-test-key', $3, $4, '',
+			         $5, $6)`,
+			tenantID,
+			eventRef,
+			[]byte{byte(i + 1)},
+			[]byte{byte(i + 2)},
+			recordHash,
+			signature,
+		); err != nil {
+			t.Fatalf("seed IR attribution record: %v", err)
+		}
+	}
+
+	events := []string{}
+	flows := &irLifecycleFlowStore{
+		Store:  flowstore.NewMemory(),
+		events: &events,
+		rows:   map[string]bool{tenantA: true, tenantB: true},
+	}
+	engine := New(
+		pool,
+		flows,
+		nil,
+		nil,
+		nil,
+		"test backups",
+		testLog(),
+	)
+
+	att, err := engine.Erase(ctx, tenantA, "tenant-a", "investigator")
+	if err == nil {
+		t.Fatal("Erase succeeded without the IR crypto-shred lifecycle")
+	}
+	if att.Complete {
+		t.Fatalf("failed erasure returned Complete=true: %+v", att)
+	}
+	if len(events) != 0 || !flows.rows[tenantA] || !flows.rows[tenantB] {
+		t.Fatalf("failed preflight reached destructive flow store: events=%v rows=%v", events, flows.rows)
+	}
+	if got := countTests(t, pool, tenantA); got != 1 {
+		t.Fatalf("tenant A test rows after refused erase = %d, want 1", got)
+	}
+	if got := countTests(t, pool, tenantB); got != 1 {
+		t.Fatalf("tenant B test rows after tenant A refusal = %d, want 1", got)
+	}
+	for _, tenantID := range []string{tenantA, tenantB} {
+		var records, heads int
+		var status string
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT
+			   (SELECT count(*) FROM public.ir_attribution_records
+			     WHERE tenant_id = $1::uuid),
+			   (SELECT count(*) FROM public.ir_attribution_heads
+			     WHERE tenant_id = $1::uuid),
+			   (SELECT status FROM public.tenants WHERE id = $1::uuid)`,
+			tenantID,
+		).Scan(&records, &heads, &status); err != nil {
+			t.Fatalf("verify retained IR evidence: %v", err)
+		}
+		if records != 1 || heads != 1 || status != "active" {
+			t.Fatalf(
+				"tenant %s changed after refused erase: records=%d heads=%d status=%s",
+				tenantID,
+				records,
+				heads,
+				status,
+			)
+		}
+	}
+
+	// Remove only tenant A's historical IR evidence. Empty sidecar tables are
+	// not proof that its operator-owned IR key domain is absent, so erasure must
+	// still fail closed without the lifecycle. Tenant B remains untouched.
+	if _, err := pool.Exec(
+		ctx,
+		`DELETE FROM public.ir_attribution_records WHERE tenant_id = $1::uuid`,
+		tenantA,
+	); err != nil {
+		t.Fatalf("remove tenant A IR record: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`DELETE FROM public.ir_attribution_heads WHERE tenant_id = $1::uuid`,
+		tenantA,
+	); err != nil {
+		t.Fatalf("remove tenant A IR head: %v", err)
+	}
+	att, err = engine.Erase(ctx, tenantA, "tenant-a", "investigator")
+	if err == nil {
+		t.Fatal("Erase succeeded without the IR lifecycle after sidecar rows were removed")
+	}
+	if att.Complete {
+		t.Fatalf("row-empty failed erasure returned Complete=true: %+v", att)
+	}
+	if len(events) != 0 || !flows.rows[tenantA] || !flows.rows[tenantB] {
+		t.Fatalf("row-empty refusal reached destructive flow store: events=%v rows=%v", events, flows.rows)
+	}
+	if got := countTests(t, pool, tenantA); got != 1 {
+		t.Fatalf("tenant A test rows after row-empty refusal = %d, want 1", got)
+	}
+	if got := countTests(t, pool, tenantB); got != 1 {
+		t.Fatalf("tenant B test rows after row-empty tenant A refusal = %d, want 1", got)
+	}
+	var recordsB, headsB int
+	var statusA, statusB string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT
+		   (SELECT count(*) FROM public.ir_attribution_records
+		     WHERE tenant_id = $1::uuid),
+		   (SELECT count(*) FROM public.ir_attribution_heads
+		     WHERE tenant_id = $1::uuid),
+		   (SELECT status FROM public.tenants WHERE id = $2::uuid),
+		   (SELECT status FROM public.tenants WHERE id = $1::uuid)`,
+		tenantB,
+		tenantA,
+	).Scan(&recordsB, &headsB, &statusA, &statusB); err != nil {
+		t.Fatalf("verify tenants after row-empty refusal: %v", err)
+	}
+	if recordsB != 1 || headsB != 1 || statusA != "active" || statusB != "active" {
+		t.Fatalf(
+			"tenant state changed after row-empty refusal: recordsB=%d headsB=%d statusA=%s statusB=%s",
+			recordsB,
+			headsB,
+			statusA,
+			statusB,
+		)
+	}
+}
+
 func TestLifecycleEndToEndPG(t *testing.T) {
 	pool := itPool(t)
 	// The lifecycle export enumerates the live public tenant-table catalog.
