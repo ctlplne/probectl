@@ -19,11 +19,31 @@ type writeFencedStore struct {
 	fence tenancy.WriterFence
 }
 
+type subjectDeletingStore interface {
+	DeleteSubject(
+		context.Context,
+		string,
+		string,
+	) (deleted, remaining int64, err error)
+}
+
+type subjectDeletingWriteFencedStore struct {
+	*writeFencedStore
+	deleter subjectDeletingStore
+}
+
 // WithTenantWriteFence wraps the flow mutation seam with the durable
 // deployment-wide erasure barrier. Reads, retention, export, deletion, and
 // backend routing continue through the original store unchanged.
 func WithTenantWriteFence(next Store, fence tenancy.WriterFence) Store {
-	return &writeFencedStore{next: next, fence: fence}
+	store := &writeFencedStore{next: next, fence: fence}
+	if deleter, ok := next.(subjectDeletingStore); ok {
+		return &subjectDeletingWriteFencedStore{
+			writeFencedStore: store,
+			deleter:          deleter,
+		}
+	}
+	return store
 }
 
 func (s *writeFencedStore) Insert(ctx context.Context, rows []Row) error {
@@ -102,6 +122,18 @@ func (s *writeFencedStore) Close() error {
 	return s.next.Close()
 }
 
+// DeleteSubject preserves the underlying store's optional subject-erasure
+// capability. WithTenantWriteFence returns this wrapper only when the concrete
+// backend implements that capability, so an incapable backend is not falsely
+// advertised to the tenant-lifecycle engine.
+func (s *subjectDeletingWriteFencedStore) DeleteSubject(
+	ctx context.Context,
+	tenantID string,
+	subject string,
+) (deleted, remaining int64, err error) {
+	return s.deleter.DeleteSubject(ctx, tenantID, subject)
+}
+
 // ClickHouseStore returns the concrete backend through the writer-fence
 // decorator. The edition seam uses it only to install per-tenant silo routing;
 // flow writes still enter through the decorated Store.
@@ -112,6 +144,8 @@ func ClickHouseStore(store Store) (*ClickHouse, bool) {
 			return current, true
 		case *writeFencedStore:
 			store = current.next
+		case *subjectDeletingWriteFencedStore:
+			store = current.next
 		default:
 			return nil, false
 		}
@@ -121,6 +155,10 @@ func ClickHouseStore(store Store) (*ClickHouse, bool) {
 // HasTenantWriteFence reports whether Store.Insert is protected by the durable
 // lifecycle writer lease. It is used by the runtime wiring regression.
 func HasTenantWriteFence(store Store) bool {
-	_, ok := store.(*writeFencedStore)
-	return ok
+	switch store.(type) {
+	case *writeFencedStore, *subjectDeletingWriteFencedStore:
+		return true
+	default:
+		return false
+	}
 }
