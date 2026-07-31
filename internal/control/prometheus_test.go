@@ -401,6 +401,61 @@ func TestRemoteWriteIngest(t *testing.T) {
 	}
 }
 
+func TestPromWriteUsesTenantFence(t *testing.T) {
+	rawStore := tsdb.NewMemory()
+	fenced := &denyingPromWriter{}
+	srv := testServer(fakePinger{}).
+		WithTSDB(rawStore).
+		WithTSDBIngest(fenced)
+
+	wr := &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{{
+		Labels: []*prompb.Label{
+			{Name: "__name__", Value: "node_load1"},
+			{Name: "tenant_id", Value: otherTenant},
+		},
+		Samples: []*prompb.Sample{{Value: 0.7, Timestamp: time.Now().UnixMilli()}},
+	}}}
+	raw, err := proto.Marshal(wr)
+	if err != nil {
+		t.Fatalf("marshal remote write: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/prometheus/write",
+		bytes.NewReader(snappy.Encode(nil, raw)),
+	)
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	req.Header.Set("Content-Encoding", "snappy")
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("write status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	if fenced.calls != 1 || len(fenced.series) != 1 {
+		t.Fatalf("tenant writer calls=%d series=%d, want 1/1", fenced.calls, len(fenced.series))
+	}
+	if got := fenced.series[0].Labels[tsdb.TenantLabel]; got != tenancy.DefaultTenantID.String() {
+		t.Fatalf("tenant writer tenant_id = %q, want authenticated tenant", got)
+	}
+	if rawStore.Len() != 0 {
+		t.Fatalf("remote write bypassed fenced seam; raw store contains %d samples", rawStore.Len())
+	}
+}
+
+type denyingPromWriter struct {
+	calls  int
+	series []tsdb.Series
+}
+
+func (w *denyingPromWriter) Write(_ context.Context, series []tsdb.Series) error {
+	w.calls++
+	w.series = append(w.series[:0], series...)
+	return tenancy.ErrTenantWritesFenced
+}
+
+func (*denyingPromWriter) Close() error { return nil }
+
 func TestRemoteWritePrometheusModeOverwritesHostileTenantLabels(t *testing.T) {
 	def := tenancy.DefaultTenantID.String()
 	var mu sync.Mutex

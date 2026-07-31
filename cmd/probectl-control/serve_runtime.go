@@ -69,6 +69,7 @@ type serveRuntime struct {
 
 	resultBus        bus.Bus
 	tsdbWriter       tsdb.Writer
+	tenantTSDBWriter tsdb.Writer
 	ingestWriter     tsdb.Writer
 	pathStore        pathstore.Store
 	pathCH           *pathstore.ClickHouse
@@ -181,9 +182,18 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		st.pathStore,
 		writerFence,
 	)
+	tenantTSDBWriter := tsdb.WithTenantWriteFence(
+		st.tsdbWriter,
+		writerFence,
+	)
+	ingestWriter := tsdb.WithTenantWriteFence(
+		st.ingestWriter,
+		writerFence,
+	)
 	return &serveRuntime{
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
-		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, ingestWriter: st.ingestWriter,
+		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter,
+		tenantTSDBWriter: tenantTSDBWriter, ingestWriter: ingestWriter,
 		pathStore: pathStore, pathCH: st.pathCH, otelStore: otelStore,
 		flowStore: flowStore, ebpfStore: ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
 		ctx: ctx, stop: stop, g: g, gctx: gctx,
@@ -310,6 +320,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithFlowQualityReceipts(rt.flowQualityStore).
 		WithOTelStore(rt.otelStore).
 		WithTSDB(rt.tsdbWriter).
+		WithTSDBIngest(rt.tenantTSDBWriter).
 		WithCMDB(rt.cmdbResolver).
 		WithTLSPosture(rt.tlsPostures).
 		WithOpenDataStatus(rt.ipEnricher, rt.iocStore, rt.iocRefresher).

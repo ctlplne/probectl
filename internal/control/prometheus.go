@@ -45,10 +45,21 @@ type promSnapshotter interface{ Snapshot() []tsdb.Series }
 func (s *Server) WithTSDB(w tsdb.Writer) *Server {
 	if w != nil {
 		s.tsdbWriter = w
+		s.tsdbIngestWriter = w
 		if s.cfg.TSDBMode == "prometheus" && s.cfg.TSDBURL != "" {
 			s.promUpstream = promapi.NewUpstream(s.cfg.TSDBURL)
 		}
 		s.rebuildAnalyzer()
+	}
+	return s
+}
+
+// WithTSDBIngest replaces only the tenant-owned remote-write seam. Queries keep
+// the concrete TSDB selected by WithTSDB, while production can attach the
+// durable lifecycle writer fence without hiding snapshot/upstream capabilities.
+func (s *Server) WithTSDBIngest(w tsdb.Writer) *Server {
+	if w != nil {
+		s.tsdbIngestWriter = w
 	}
 	return s
 }
@@ -423,7 +434,7 @@ func (s *Server) handlePromWrite(w http.ResponseWriter, r *http.Request) error {
 		promapi.WriteError(w, http.StatusBadRequest, "bad_data", derr.Error())
 		return nil
 	}
-	if err := s.tsdbWriter.Write(r.Context(), series); err != nil {
+	if err := s.tsdbIngestWriter.Write(r.Context(), series); err != nil {
 		promapi.WriteError(w, http.StatusInternalServerError, "internal", "tsdb write failed")
 		s.log.Error("remote-write persist failed", "error", err, "tenant_id", tid)
 		return nil

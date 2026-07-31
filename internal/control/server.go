@@ -122,8 +122,9 @@ type Server struct {
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
 	// Set via WithTSDB; nil answers 503 on the Grafana/federate/write endpoints.
-	tsdbWriter   tsdb.Writer
-	promUpstream *promapi.Upstream
+	tsdbWriter       tsdb.Writer
+	tsdbIngestWriter tsdb.Writer
+	promUpstream     *promapi.Upstream
 
 	// CMDB resolver (S40). nil unless a provider is configured (endpoints answer
 	// 503); set via WithCMDB.
