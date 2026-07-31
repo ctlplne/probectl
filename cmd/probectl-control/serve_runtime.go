@@ -79,6 +79,7 @@ type serveRuntime struct {
 	ebpfStore        ebpfstore.Store
 	endpointStore    endpointstore.Store
 	objectStore      objectstore.Store
+	writerFence      tenancy.WriterFence
 
 	ctx  context.Context
 	stop context.CancelFunc
@@ -196,7 +197,8 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		tenantTSDBWriter: tenantTSDBWriter, ingestWriter: ingestWriter,
 		pathStore: pathStore, pathCH: st.pathCH, otelStore: otelStore,
 		flowStore: flowStore, ebpfStore: ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
-		ctx: ctx, stop: stop, g: g, gctx: gctx,
+		writerFence: writerFence,
+		ctx:         ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
 	}
 }
@@ -234,6 +236,7 @@ func (rt *serveRuntime) buildServeEngines() error {
 	} else {
 		rt.topoStore = topology.NewIndexedStore()
 	}
+	rt.topoStore = topology.WithTenantWriteFence(rt.topoStore, rt.writerFence)
 	rt.log.Info("topology graph enabled", "engine", rt.cfg.TopologyEngine, "ebpf_store", rt.cfg.EBPFStoreMode)
 
 	var costOn, carbonOn, sloOn, complianceOn bool
