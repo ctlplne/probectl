@@ -309,7 +309,7 @@ func TestScopedRBACHierarchySiblingAndTenantIsolation(t *testing.T) {
 	}
 }
 
-func TestHierarchyResourceABACDenyAndTenantIsolation(t *testing.T) {
+func TestHierarchyResourceABACDenyTenantIsolationAndMutationBranches(t *testing.T) {
 	srv, db := setupAPIServerWithLatest(t, nil)
 	ctx := context.Background()
 	tenantA := freshTenant(t, db, "hierarchy-abac-a")
@@ -406,6 +406,9 @@ func TestHierarchyResourceABACDenyAndTenantIsolation(t *testing.T) {
 		if strings.Contains(pattern, "/orgs/{id}/") {
 			req.SetPathValue("id", strings.Split(path, "/")[4])
 		}
+		if strings.Contains(pattern, "/teams/{id}/") {
+			req.SetPathValue("id", strings.Split(path, "/")[4])
+		}
 		protected := srv.requirePermission(permission, handler)
 		if hierarchyRouteAcceptsScopedGrant(method, pattern) {
 			protected = srv.requireAnyPermission(permission, handler)
@@ -449,6 +452,18 @@ func TestHierarchyResourceABACDenyAndTenantIsolation(t *testing.T) {
 	if tenantAAllowedCreate.Code != http.StatusCreated {
 		t.Fatalf("same-tenant allowed create = %d body=%s, want 201", tenantAAllowedCreate.Code, tenantAAllowedCreate.Body.String())
 	}
+	var allowedTeamA store.Team
+	mustJSON(t, tenantAAllowedCreate, &allowedTeamA)
+	tenantASiblingCreate := call(
+		principalA,
+		http.MethodPost, "/v1/hierarchy/orgs/{id}/teams", "/v1/hierarchy/orgs/"+allowedOrgA.ID+"/teams",
+		map[string]string{"slug": "allowed-sibling", "name": "Allowed sibling"}, srv.handleCreateTeam, permOrgWrite,
+	)
+	if tenantASiblingCreate.Code != http.StatusCreated {
+		t.Fatalf("same-tenant sibling create = %d body=%s, want 201", tenantASiblingCreate.Code, tenantASiblingCreate.Body.String())
+	}
+	var allowedSiblingTeamA store.Team
+	mustJSON(t, tenantASiblingCreate, &allowedSiblingTeamA)
 
 	tenantBList := call(
 		principalB, http.MethodGet, "/v1/hierarchy", "/v1/hierarchy",
@@ -469,5 +484,226 @@ func TestHierarchyResourceABACDenyAndTenantIsolation(t *testing.T) {
 	)
 	if tenantBCreate.Code != http.StatusCreated {
 		t.Fatalf("tenant B create = %d body=%s, want 201", tenantBCreate.Code, tenantBCreate.Body.String())
+	}
+	var allowedTeamB store.Team
+	mustJSON(t, tenantBCreate, &allowedTeamB)
+
+	tenantWidePrincipal := func(tenant, user string) *auth.Principal {
+		return &auth.Principal{
+			TenantID: tenant,
+			UserID:   user,
+			Permissions: map[string]bool{
+				permOrgWrite: true,
+			},
+		}
+	}
+	tenantWideA := tenantWidePrincipal(tenantA, "hierarchy-abac-root-a")
+	tenantWideB := tenantWidePrincipal(tenantB, "hierarchy-abac-root-b")
+	setTenantAPolicies := func(policies []auth.Policy) {
+		srv.abac = &abacCache{
+			pool: db.Pool(),
+			ttl:  time.Minute,
+			data: map[string]abacEntry{
+				tenantA: {policies: policies, expiry: time.Now().Add(time.Minute)},
+				tenantB: {policies: []auth.Policy{}, expiry: time.Now().Add(time.Minute)},
+			},
+			generations: map[string]uint64{},
+		}
+	}
+	// Invoke the real handler adapter directly so each mutation proves the
+	// handler's resolved-resource ABAC branch, rather than passing only because
+	// the outer route middleware rejected a generic tenant resource first.
+	callHandlerDirect := func(
+		caller *auth.Principal,
+		path, resourceID string,
+		body any,
+		handler apiHandler,
+	) *httptest.ResponseRecorder {
+		t.Helper()
+		var requestBody bytes.Buffer
+		if err := json.NewEncoder(&requestBody).Encode(body); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, path, &requestBody)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), caller))
+		if resourceID != "" {
+			req.SetPathValue("id", resourceID)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	organizationSlugs := func(tenant string) []string {
+		t.Helper()
+		var slugs []string
+		if err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenant)),
+			db.Pool(),
+			func(ctx context.Context, scope tenancy.Scope) error {
+				organizations, err := (store.Organizations{}).List(ctx, scope)
+				if err != nil {
+					return err
+				}
+				for _, organization := range organizations {
+					slugs = append(slugs, organization.Slug)
+				}
+				return nil
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+		return slugs
+	}
+	projectSlugs := func(tenant, teamID string) []string {
+		t.Helper()
+		var slugs []string
+		if err := tenancy.InTenant(
+			tenancy.WithTenant(ctx, tenancy.ID(tenant)),
+			db.Pool(),
+			func(ctx context.Context, scope tenancy.Scope) error {
+				projects, err := (store.Projects{}).ListByTeam(ctx, scope, teamID)
+				if err != nil {
+					return err
+				}
+				for _, project := range projects {
+					slugs = append(slugs, project.Slug)
+				}
+				return nil
+			},
+		); err != nil {
+			t.Fatal(err)
+		}
+		return slugs
+	}
+	contains := func(values []string, target string) bool {
+		for _, value := range values {
+			if value == target {
+				return true
+			}
+		}
+		return false
+	}
+
+	tests := []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{
+			name: "organization create",
+			run: func(t *testing.T) {
+				setTenantAPolicies([]auth.Policy{{
+					Name:       "deny tenant organization writes",
+					Effect:     auth.PolicyDeny,
+					Permission: permOrgWrite,
+					Resource:   map[string]string{auth.ResourceTenantKey: tenantA},
+					Enabled:    true,
+				}})
+				const deniedSlug = "abac-denied-root"
+				denied := callHandlerDirect(
+					tenantWideA,
+					"/v1/hierarchy/orgs",
+					"",
+					map[string]string{"slug": deniedSlug, "name": "Denied root"},
+					srv.handleCreateOrganization,
+				)
+				if denied.Code != http.StatusForbidden {
+					t.Fatalf("tenant A denied organization = %d body=%s, want 403", denied.Code, denied.Body.String())
+				}
+				if contains(organizationSlugs(tenantA), deniedSlug) {
+					t.Fatal("tenant A denied organization was persisted")
+				}
+
+				for _, allowed := range []struct {
+					principal *auth.Principal
+					slug      string
+				}{
+					{principal: tenantWideB, slug: "abac-allowed-root-b"},
+					{principal: tenantWideA, slug: "abac-allowed-root-a"},
+				} {
+					// Tenant B runs while tenant A's deny remains installed.
+					// Clear it only for tenant A's same-tenant allowed control.
+					if allowed.principal == tenantWideA {
+						setTenantAPolicies(nil)
+					}
+					rec := callHandlerDirect(
+						allowed.principal,
+						"/v1/hierarchy/orgs",
+						"",
+						map[string]string{"slug": allowed.slug, "name": allowed.slug},
+						srv.handleCreateOrganization,
+					)
+					if rec.Code != http.StatusCreated {
+						t.Fatalf("allowed organization %s = %d body=%s, want 201", allowed.slug, rec.Code, rec.Body.String())
+					}
+				}
+				slugsA, slugsB := organizationSlugs(tenantA), organizationSlugs(tenantB)
+				if !contains(slugsA, "abac-allowed-root-a") ||
+					contains(slugsA, "abac-allowed-root-b") ||
+					!contains(slugsB, "abac-allowed-root-b") ||
+					contains(slugsB, "abac-allowed-root-a") {
+					t.Fatalf("allowed organizations are not tenant-isolated: tenantA=%v tenantB=%v", slugsA, slugsB)
+				}
+			},
+		},
+		{
+			name: "project create",
+			run: func(t *testing.T) {
+				setTenantAPolicies([]auth.Policy{{
+					Name:       "deny team project writes",
+					Effect:     auth.PolicyDeny,
+					Permission: permOrgWrite,
+					Resource: map[string]string{
+						auth.ResourceTenantKey: tenantA,
+						string(auth.ScopeTeam): allowedTeamA.ID,
+					},
+					Enabled: true,
+				}})
+				const deniedSlug = "abac-denied-project"
+				denied := callHandlerDirect(
+					tenantWideA,
+					"/v1/hierarchy/teams/"+allowedTeamA.ID+"/projects",
+					allowedTeamA.ID,
+					map[string]string{"slug": deniedSlug, "name": "Denied project"},
+					srv.handleCreateProject,
+				)
+				if denied.Code != http.StatusForbidden {
+					t.Fatalf("tenant A denied project = %d body=%s, want 403", denied.Code, denied.Body.String())
+				}
+				if contains(projectSlugs(tenantA, allowedTeamA.ID), deniedSlug) {
+					t.Fatal("tenant A denied project was persisted")
+				}
+
+				for _, allowed := range []struct {
+					principal *auth.Principal
+					tenant    string
+					teamID    string
+					slug      string
+				}{
+					{principal: tenantWideA, tenant: tenantA, teamID: allowedSiblingTeamA.ID, slug: "abac-allowed-project-a"},
+					{principal: tenantWideB, tenant: tenantB, teamID: allowedTeamB.ID, slug: "abac-allowed-project-b"},
+				} {
+					rec := callHandlerDirect(
+						allowed.principal,
+						"/v1/hierarchy/teams/"+allowed.teamID+"/projects",
+						allowed.teamID,
+						map[string]string{"slug": allowed.slug, "name": allowed.slug},
+						srv.handleCreateProject,
+					)
+					if rec.Code != http.StatusCreated {
+						t.Fatalf("allowed project %s = %d body=%s, want 201", allowed.slug, rec.Code, rec.Body.String())
+					}
+					if !contains(projectSlugs(allowed.tenant, allowed.teamID), allowed.slug) {
+						t.Fatalf("allowed project %s was not persisted in tenant %s", allowed.slug, allowed.tenant)
+					}
+				}
+				if contains(projectSlugs(tenantA, allowedTeamB.ID), "abac-allowed-project-b") ||
+					contains(projectSlugs(tenantB, allowedSiblingTeamA.ID), "abac-allowed-project-a") {
+					t.Fatal("allowed projects crossed the tenant storage boundary")
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, test.run)
 	}
 }
