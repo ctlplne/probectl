@@ -173,10 +173,14 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		st.ebpfStore,
 		writerFence,
 	)
+	otelStore := otelstore.WithTenantWriteFence(
+		st.otelStore,
+		writerFence,
+	)
 	return &serveRuntime{
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
 		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, ingestWriter: st.ingestWriter,
-		pathStore: st.pathStore, pathCH: st.pathCH, otelStore: st.otelStore,
+		pathStore: st.pathStore, pathCH: st.pathCH, otelStore: otelStore,
 		flowStore: flowStore, ebpfStore: ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
 		ctx: ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
@@ -318,7 +322,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 	if rt.sloEngine != nil {
 		rt.srv.WithSLO(rt.sloEngine)
 	}
-	if ch, ok := rt.otelStore.(*otelstore.ClickHouse); ok {
+	if ch, ok := otelstore.ClickHouseStore(rt.otelStore); ok {
 		ch.WithMetrics(rt.srv.Metrics())
 	}
 	if rt.ipEnricher != nil {
@@ -417,7 +421,7 @@ func (rt *serveRuntime) configureTestSync() error {
 
 func (rt *serveRuntime) startLifecycleAndServe() error {
 	lifeEngine, worm, err := startHAAndTenantLifecycle(rt.gctx, rt.g, rt.cfg, rt.db, rt.log,
-		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.lifecycleEBPFStore(), rt.objectStore)
+		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.lifecycleOTLPStore(), rt.lifecycleEBPFStore(), rt.objectStore)
 	if err != nil {
 		return err
 	}
@@ -461,6 +465,13 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 // every production Insert remains protected by the durable writer fence.
 func (rt *serveRuntime) lifecycleEBPFStore() ebpfstore.Store {
 	return ebpfstore.UnderlyingStore(rt.ebpfStore)
+}
+
+// lifecycleOTLPStore exposes the concrete backend only to lifecycle capability
+// discovery. Ingest, API, and edition wiring continue to use rt.otelStore so
+// every production span and log write remains protected by the writer fence.
+func (rt *serveRuntime) lifecycleOTLPStore() otelstore.Store {
+	return otelstore.UnderlyingStore(rt.otelStore)
 }
 
 func (rt *serveRuntime) startIngestConsumers() {
