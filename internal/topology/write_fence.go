@@ -13,6 +13,8 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
+const topologyWriteFenceTimeout = 5 * time.Second
+
 type writeFencedStore struct {
 	next  Store
 	fence tenancy.WriterFence
@@ -77,8 +79,10 @@ func (s *writeFencedTenantStore) mutate(write func()) {
 	if s.fence == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), topologyWriteFenceTimeout)
+	defer cancel()
 	_ = s.fence.WithTenantWrites(
-		context.Background(),
+		ctx,
 		[]string{s.tenant},
 		func(context.Context) error {
 			write()
