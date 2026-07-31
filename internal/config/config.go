@@ -1091,7 +1091,12 @@ func validatePostgresURLTLS(l *loader, profile, name, raw string) {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be a postgres:// or postgresql:// URL with sslmode=require, verify-ca, or verify-full", profile, name)
 		return
 	}
-	switch strings.ToLower(strings.TrimSpace(u.Query().Get("sslmode"))) {
+	query := u.Query()
+	if _, present := query["host"]; present {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to use its URL authority host; query host overrides are not allowed", profile, name)
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(query.Get("sslmode"))) {
 	case "require", "verify-ca", "verify-full":
 	default:
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to use PostgreSQL TLS: set sslmode=require, verify-ca, or verify-full; plaintext/degrade modes (disable, allow, prefer, or omitted) are single-profile dev only", profile, name)

@@ -461,6 +461,21 @@ func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
 	}
 }
 
+func TestDatastoreTLSRejectsPostgresHostOverrides(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		for _, name := range []string{"PROBECTL_DATABASE_URL", "PROBECTL_DATABASE_READ_URL"} {
+			t.Run(profile+"/"+name, func(t *testing.T) {
+				env := durableTenantProfileEnv(profile)
+				env[name] = "postgres://probectl:secret@pg.example:5432/probectl?sslmode=verify-full&host=other.example"
+				_, err := Load(envFunc(env))
+				if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "authority host") {
+					t.Fatalf("PostgreSQL query host override should fail closed, got %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestDatastoreTLSAllowsSingleProfileDevLoopback(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
 		"PROBECTL_DEPLOYMENT_PROFILE": "single",
