@@ -36,6 +36,9 @@ type fakeIRInvestigator struct {
 	revealErr        error
 	recordErrOutcome IRAttemptOutcome
 	receipts         []IRInvestigationReceipt
+	postShredTenants []string
+	postShredActors  []string
+	postShredErr     error
 	order            []string
 	onReceipt        func(IRInvestigationReceipt)
 	onRecord         func(context.Context, IRInvestigationReceipt)
@@ -67,6 +70,16 @@ func (f *fakeIRInvestigator) RecordAttempt(
 		return errors.New("provider audit unavailable")
 	}
 	return nil
+}
+
+func (f *fakeIRInvestigator) RecordPostShredAttempt(
+	_ context.Context,
+	tenantID, actor string,
+) error {
+	f.postShredTenants = append(f.postShredTenants, tenantID)
+	f.postShredActors = append(f.postShredActors, actor)
+	f.order = append(f.order, "post-shred-denied")
+	return f.postShredErr
 }
 
 func (f *fakeIRInvestigator) Reveal(
@@ -375,7 +388,7 @@ func TestIRRevealDedicatedPermissionMFAAndABACDenyBeforeInvestigation(t *testing
 			"tenant_suspended\x00tenant is suspended",
 		)
 	})
-	t.Run("offboarded lifecycle stays stable without sidecar write", func(t *testing.T) {
+	t.Run("offboarded lifecycle records a post-shred tombstone without sidecar write", func(t *testing.T) {
 		fake := &fakeIRInvestigator{}
 		server := testServer(fakePinger{}).
 			WithTenantStatus(&fakeStatus{statuses: map[string]string{
@@ -394,8 +407,40 @@ func TestIRRevealDedicatedPermissionMFAAndABACDenyBeforeInvestigation(t *testing
 			"tenant_offboarded\x00tenant is offboarded" {
 			t.Fatalf("offboarded error contract = %q", got)
 		}
-		if body.reads != 0 || len(fake.receipts) != 0 || len(fake.order) != 0 {
-			t.Fatalf("offboarded request crossed sealed sidecar boundary: %+v", fake)
+		if body.reads != 0 || len(fake.receipts) != 0 ||
+			len(fake.postShredTenants) != 1 ||
+			fake.postShredTenants[0] != irTenantA ||
+			len(fake.postShredActors) != 1 ||
+			fake.postShredActors[0] != "investigator@example.test" ||
+			strings.Join(fake.order, ",") != "post-shred-denied" {
+			t.Fatalf("offboarded request tombstone projection = %+v", fake)
+		}
+	})
+	t.Run("offboarded tombstone failure still denies and exposes nothing", func(t *testing.T) {
+		fake := &fakeIRInvestigator{
+			postShredErr: errors.New("provider tombstone unavailable"),
+		}
+		server := testServer(fakePinger{}).
+			WithTenantStatus(&fakeStatus{statuses: map[string]string{
+				irTenantA: "deleted",
+			}}).
+			WithIRInvestigator(fake)
+		recorder, body := testIRUnreadRequest(
+			server,
+			testIRPrincipal(irTenantA, true, true),
+			irRefA,
+		)
+		if recorder.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+		}
+		if got := testIRErrorContract(t, recorder); got !=
+			"unavailable\x00IR investigation audit is unavailable" {
+			t.Fatalf("post-shred audit failure contract = %q", got)
+		}
+		if body.reads != 0 || len(fake.receipts) != 0 ||
+			len(fake.postShredTenants) != 1 ||
+			strings.Contains(recorder.Body.String(), irRefA) {
+			t.Fatalf("failed post-shred tombstone leaked or revealed: %+v", fake)
 		}
 	})
 	t.Run("audit read is insufficient", func(t *testing.T) {

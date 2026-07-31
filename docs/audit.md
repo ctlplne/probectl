@@ -128,6 +128,19 @@ zeroized. The operator must destroy those copies or the corresponding external
 KMS handle under its own policy. The product's signed tombstone prevents a
 restored local artifact from reactivating attribution through probectl.
 
+After that signed crypto-shred tombstone exists, an authenticated reveal remains
+denied without touching the encrypted sidecar or resolving any tenant IR key.
+Instead, probectl atomically appends a fixed
+`provider.breakglass_ir_reveal_denied_post_shred` event and a separately signed,
+provider-global attempt tombstone. That tombstone keeps only the provider-domain
+operator, attempt time, target deleted tenant, fixed `audit.ir.reveal` surface,
+and `denied-post-shred` outcome. It intentionally keeps no requested IR event,
+grant, consent, reason, sidecar material, wrapped key, key location, or other
+tenant attribution. This preserves accountability for who attempted access
+without weakening crypto-shred: the destroyed tenant key is never recreated or
+opened. The provider event and signed tombstone commit together, and startup
+verification detects an altered or removed record.
+
 Rejected agent and collector enrollment attempts use the fixed
 `security.enrollment_rejected` action. If a tenant was resolved from an
 authenticated caller, consumed tenant-bound token, or deployment-verified

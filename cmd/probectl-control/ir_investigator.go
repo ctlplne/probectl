@@ -117,6 +117,12 @@ func buildIRInvestigator(
 			err,
 		)
 	}
+	if err := lifecycle.VerifyIRPostShredAttemptLedger(ctx); err != nil {
+		return nil, nil, fmt.Errorf(
+			"provider post-shred IR-attempt startup verification: %w",
+			err,
+		)
+	}
 	return sidecar, &irInvestigator{
 		pool: pool, sidecar: sidecar, revealer: revealer,
 		lifecycle: lifecycle,
@@ -181,6 +187,16 @@ func (i *irInvestigator) RecordAttempt(
 		attribution,
 	)
 	return err
+}
+
+func (i *irInvestigator) RecordPostShredAttempt(
+	ctx context.Context,
+	tenantID, actor string,
+) error {
+	if i == nil || i.sidecar == nil {
+		return errors.New("IR post-shred audit runtime is unavailable")
+	}
+	return i.sidecar.RecordIRPostShredRevealAttempt(ctx, tenantID, actor)
 }
 
 func (i *irInvestigator) Reveal(

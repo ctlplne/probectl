@@ -64,10 +64,13 @@ type IRAttribution struct {
 	TS       time.Time `json:"ts"`
 }
 
-// IRInvestigator is the narrow runtime seam. RecordAttempt writes only to the
-// protected provider stream; Reveal repeats tenant scope in durable storage.
+// IRInvestigator is the narrow runtime seam. RecordAttempt writes attributed
+// receipts while the tenant IR key is active. RecordPostShredAttempt writes
+// only a non-attributing provider tombstone after verified crypto-shred.
+// Reveal repeats tenant scope in durable storage.
 type IRInvestigator interface {
 	RecordAttempt(context.Context, IRInvestigationReceipt) error
+	RecordPostShredAttempt(context.Context, string, string) error
 	Reveal(context.Context, string, string) (IRAttribution, error)
 }
 
@@ -101,11 +104,21 @@ func (s *Server) requireIRInvestigator(next apiHandler) apiHandler {
 			return apierror.Unauthorized("authentication required")
 		}
 		if err := s.checkTenantLifecycle(r, p.TenantID); err != nil {
-			// Offboarding/deleted tenants may already have frozen or shredded
-			// their IR sidecar. Do not replace the stable lifecycle 403 with an
-			// audit-unavailable 503 when that store is intentionally sealed.
 			if domainErr, ok := apierror.As(err); ok &&
 				domainErr.Code == string(apierror.CodeTenantOffboarded) {
+				// The tenant key domain is already sealed or destroyed, so the
+				// encrypted attribution writer must never be invoked. Record
+				// only the provider operator, target tenant, fixed surface,
+				// time, and denial outcome in the signed post-shred ledger.
+				if recordErr := s.recordIRPostShredAttempt(
+					r,
+					p.TenantID,
+					auditActor(r),
+				); recordErr != nil {
+					return apierror.Unavailable(
+						"IR investigation audit is unavailable",
+					)
+				}
 				return err
 			}
 			return s.rejectIRAuthorization(
@@ -293,6 +306,20 @@ func (s *Server) recordIRDurableReceipt(
 	)
 	defer cancel()
 	return s.irInvestigator.RecordAttempt(ctx, receipt)
+}
+
+func (s *Server) recordIRPostShredAttempt(
+	r *http.Request,
+	tenantID, actor string,
+) error {
+	// The denial happened even if the client disconnected. This seam cannot
+	// open the shredded key or accept request body/path attribution.
+	ctx, cancel := context.WithTimeout(
+		context.WithoutCancel(r.Context()),
+		irRevealResultAuditTimeout,
+	)
+	defer cancel()
+	return s.irInvestigator.RecordPostShredAttempt(ctx, tenantID, actor)
 }
 
 func (s *Server) rejectIRAuthorization(

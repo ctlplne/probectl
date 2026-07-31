@@ -30,6 +30,8 @@ func TestIRIntegrityProofsStayGlobalAndEncryptedRecordsStayTenantOwned(t *testin
 		"ir_attribution_heads",
 		"ir_key_shred_records",
 		"ir_key_shred_heads",
+		"ir_post_shred_attempt_records",
+		"ir_post_shred_attempt_heads",
 	}
 	erased := ProviderOwnedTenantTables()
 	for _, table := range global {
@@ -52,6 +54,8 @@ func TestIRIntegrityProofsStayGlobalAndEncryptedRecordsStayTenantOwned(t *testin
 		"ir_attribution_heads",
 		"ir_key_shred_records",
 		"ir_key_shred_heads",
+		"ir_post_shred_attempt_records",
+		"ir_post_shred_attempt_heads",
 	})
 	if len(filtered) != 2 ||
 		filtered[0] != "audit_events" ||

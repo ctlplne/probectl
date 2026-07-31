@@ -415,6 +415,175 @@ func TestIRCryptoShredCoverageIsolationAndRecoveryDenial(t *testing.T) {
 		t.Fatalf("verify signed key-shred ledger: %v", err)
 	}
 
+	const postShredOperator = "post-shred-operator-canary@example.test"
+	var postShredEventsBefore int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM public.provider_audit_events WHERE action = $1`,
+		ActionIRPostShredRevealDenied,
+	).Scan(&postShredEventsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := sidecar.RecordIRPostShredRevealAttempt(
+		ctx,
+		tenantB.ID,
+		postShredOperator,
+	); err == nil {
+		t.Fatal("post-shred receipt accepted a tenant without a signed shred tombstone")
+	}
+	var postShredEventsAfterUnshredded int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM public.provider_audit_events WHERE action = $1`,
+		ActionIRPostShredRevealDenied,
+	).Scan(&postShredEventsAfterUnshredded); err != nil {
+		t.Fatal(err)
+	}
+	if postShredEventsAfterUnshredded != postShredEventsBefore {
+		t.Fatal("failed post-shred precondition left an unaudited provider event")
+	}
+
+	// The provider event and signed tombstone are one transaction. Force the
+	// companion insert to fail and prove that no event can commit alone.
+	if _, err := pool.Exec(
+		ctx,
+		`REVOKE INSERT ON public.ir_post_shred_attempt_records
+		 FROM probectl_provider`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(
+			context.Background(),
+			`GRANT SELECT, INSERT ON public.ir_post_shred_attempt_records
+			 TO probectl_provider`,
+		)
+	})
+	if err := sidecar.RecordIRPostShredRevealAttempt(
+		ctx,
+		tenantA.ID,
+		postShredOperator,
+	); err == nil {
+		t.Fatal("post-shred receipt committed without its signed companion")
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`GRANT SELECT, INSERT ON public.ir_post_shred_attempt_records
+		 TO probectl_provider`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var postShredEventsAfterFailedWrite int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM public.provider_audit_events WHERE action = $1`,
+		ActionIRPostShredRevealDenied,
+	).Scan(&postShredEventsAfterFailedWrite); err != nil {
+		t.Fatal(err)
+	}
+	if postShredEventsAfterFailedWrite != postShredEventsBefore {
+		t.Fatal("failed signed tombstone write left a provider event")
+	}
+
+	if err := sidecar.RecordIRPostShredRevealAttempt(
+		ctx,
+		tenantA.ID,
+		postShredOperator,
+	); err != nil {
+		t.Fatalf("record post-shred IR reveal denial: %v", err)
+	}
+	var (
+		attemptAt    time.Time
+		operator     string
+		surface      string
+		outcome      string
+		target       string
+		providerData []byte
+		storedRow    []byte
+	)
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT r.attempt_at, r.operator, r.surface, r.outcome,
+		        e.target, e.data::text::bytea, row_to_json(r)::text::bytea
+		   FROM public.ir_post_shred_attempt_records r
+		   JOIN public.provider_audit_events e
+		     ON e.hash = r.provider_event_ref
+		  WHERE r.tenant_id = $1::uuid`,
+		tenantA.ID,
+	).Scan(
+		&attemptAt,
+		&operator,
+		&surface,
+		&outcome,
+		&target,
+		&providerData,
+		&storedRow,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if attemptAt.IsZero() ||
+		operator != postShredOperator ||
+		surface != irPostShredSurface ||
+		outcome != irPostShredOutcome ||
+		target != tenantA.ID ||
+		!bytes.Contains(providerData, []byte(`"outcome": "denied-post-shred"`)) {
+		t.Fatalf(
+			"post-shred tombstone projection = at=%s operator=%q surface=%q outcome=%q target=%q data=%s",
+			attemptAt,
+			operator,
+			surface,
+			outcome,
+			target,
+			providerData,
+		)
+	}
+	for _, forbidden := range [][]byte{
+		[]byte(attributions[tenantA.ID].Operator),
+		[]byte(attributions[tenantA.ID].Grant),
+		[]byte(attributions[tenantA.ID].Consent),
+		[]byte(attributions[tenantA.ID].Reason),
+		[]byte(events[tenantA.ID].Hash),
+		artifacts[tenantA.ID].publicPEM,
+		artifacts[tenantA.ID].sealedPrivate,
+	} {
+		if len(forbidden) > 0 && bytes.Contains(storedRow, forbidden) {
+			t.Fatalf("post-shred tombstone retained shredded tenant attribution: %q", forbidden)
+		}
+	}
+	assertIRCryptoShredArtifactsAbsent(t, artifacts[tenantA.ID])
+	assertIRPostShredProviderIsolation(t, pool, tenantA.ID, tenantB.ID)
+	if err := lifecycle.VerifyIRPostShredAttemptLedger(ctx); err != nil {
+		t.Fatalf("verify signed post-shred IR attempt ledger: %v", err)
+	}
+
+	// An altered provider operator breaks the record signature. Restoring the
+	// signed value makes verification pass again.
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE public.ir_post_shred_attempt_records
+		    SET operator = 'altered-operator'
+		  WHERE tenant_id = $1::uuid`,
+		tenantA.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.VerifyIRPostShredAttemptLedger(ctx); err == nil {
+		t.Fatal("startup verification accepted an altered post-shred tombstone")
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE public.ir_post_shred_attempt_records
+		    SET operator = $2
+		  WHERE tenant_id = $1::uuid`,
+		tenantA.ID,
+		postShredOperator,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.VerifyIRPostShredAttemptLedger(ctx); err != nil {
+		t.Fatalf("restored post-shred tombstone did not verify: %v", err)
+	}
+
 	// A tenant that never had an IR event or key artifact still needs an
 	// honest, signed no-op plan/tombstone so verifiable deletion cannot become
 	// permanently stuck on a key domain that never existed.
@@ -513,6 +682,17 @@ func TestIRCryptoShredCoverageIsolationAndRecoveryDenial(t *testing.T) {
 	}
 	if err := lifecycle.VerifyIRKeyShredLedger(ctx); err != nil {
 		t.Fatalf("restored signed ledger did not verify: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`DELETE FROM public.ir_post_shred_attempt_records
+		  WHERE tenant_id = $1::uuid`,
+		tenantA.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.VerifyIRPostShredAttemptLedger(ctx); err == nil {
+		t.Fatal("startup verification accepted a removed post-shred tombstone")
 	}
 	if _, err := pool.Exec(
 		ctx,
@@ -774,5 +954,85 @@ func assertIRCryptoShredProviderIsolation(
 		if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT ir_shred_mutation_denied`); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func assertIRPostShredProviderIsolation(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	tenantA, tenantB string,
+) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL ROLE probectl_provider`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(
+		ctx,
+		`SELECT set_config('probectl.tenant_id', $1, true)`,
+		tenantA,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var ownRecords, foreignRecords, foreignHeads int
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT count(*) FROM public.ir_post_shred_attempt_records
+		  WHERE tenant_id = $1::uuid`,
+		tenantA,
+	).Scan(&ownRecords); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT count(*) FROM public.ir_post_shred_attempt_records
+		  WHERE tenant_id = $1::uuid`,
+		tenantB,
+	).Scan(&foreignRecords); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT count(*) FROM public.ir_post_shred_attempt_heads
+		  WHERE tenant_id = $1::uuid`,
+		tenantB,
+	).Scan(&foreignHeads); err != nil {
+		t.Fatal(err)
+	}
+	if ownRecords != 1 || foreignRecords != 0 || foreignHeads != 0 {
+		t.Fatalf(
+			"tenant-A provider scope saw own=%d foreign_records=%d foreign_heads=%d",
+			ownRecords,
+			foreignRecords,
+			foreignHeads,
+		)
+	}
+	if _, err := tx.Exec(ctx, `SAVEPOINT ir_post_shred_insert_denied`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(
+		ctx,
+		`INSERT INTO public.ir_post_shred_attempt_records
+		    (tenant_id, chain_pos, attempt_at, operator, surface, outcome,
+		     provider_event_ref, prev_hash, hash, signature)
+		 SELECT $2::uuid, chain_pos, attempt_at, operator, surface, outcome,
+		        provider_event_ref, prev_hash, hash, signature
+		   FROM public.ir_post_shred_attempt_records
+		  WHERE tenant_id = $1::uuid`,
+		tenantA,
+		tenantB,
+	); err == nil {
+		t.Fatal("tenant-A provider scope inserted a tenant-B post-shred tombstone")
+	}
+	if _, err := tx.Exec(
+		ctx,
+		`ROLLBACK TO SAVEPOINT ir_post_shred_insert_denied`,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
