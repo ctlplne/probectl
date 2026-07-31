@@ -219,10 +219,13 @@ func TestOtelSettingScopedReaderPolicy(t *testing.T) {
 		t.Fatalf("EnsureReaderRowPolicy: %v", err)
 	}
 	n, errText := otelCountAs(t, spansTable, reader, readerPw)
-	if errText != "" && strings.Contains(errText, "etting") {
-		testsupport.SkipOrFatal(t, "custom settings prefix not configured: %s", errText)
+	if errText != "" {
+		if strings.Contains(errText, "etting") {
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured: %s", errText)
+		}
+		t.Fatalf("reader read failed: %s", errText)
 	}
-	if errText == "" && n != 0 {
+	if n != 0 {
 		t.Fatalf("setting-scoped reader with NO setting saw %d rows, want 0 (fail closed)", n)
 	}
 }
