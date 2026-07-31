@@ -87,7 +87,8 @@ A few matching rules worth knowing:
 
 Definitions load from the directory named by `PROBECTL_SLO_DIR` (each file may
 hold multiple YAML documents separated by `---`). A malformed file, an invalid
-duration, or two SLOs with the same name **fails startup**.
+duration, two SLOs with the same name, or a definition file larger than 1 MiB
+**fails startup**. The size check happens before YAML decoding.
 
 ## Error budgets + multi-window burn-rate alerts
 
@@ -195,7 +196,7 @@ the alert evaluation.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_SLO_ENABLED` | `true` | the engine + result consumer (local-only) |
-| `PROBECTL_SLO_DIR` | (none) | directory of OpenSLO YAML definitions; empty means zero SLOs, honestly reported |
+| `PROBECTL_SLO_DIR` | (none) | directory of OpenSLO YAML definitions; each file is limited to 1 MiB; empty means zero SLOs, honestly reported |
 
 Out of scope by design: application-level SLOs. probectl correlates the network
 planes; it does not own application instrumentation.

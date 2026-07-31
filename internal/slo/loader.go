@@ -12,10 +12,13 @@ package slo
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+const maxDefinitionFileBytes = 1 << 20
 
 // LoadDir parses every *.yaml/*.yml in dir (each file may hold multiple
 // YAML documents separated by ---). dir "" loads nothing (the engine runs
@@ -35,7 +38,7 @@ func LoadDir(dir string) ([]SLO, error) {
 		if e.IsDir() || (!strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml")) {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, name))
+		raw, err := readDefinitionFile(filepath.Join(dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("slo: read %s: %w", name, err)
 		}
@@ -52,6 +55,25 @@ func LoadDir(dir string) ([]SLO, error) {
 		}
 	}
 	return out, nil
+}
+
+func readDefinitionFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxDefinitionFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxDefinitionFileBytes {
+		return nil, fmt.Errorf("definition exceeds %d-byte limit", maxDefinitionFileBytes)
+	}
+	return raw, nil
 }
 
 // splitDocs splits a multi-document YAML stream on top-level "---" lines.

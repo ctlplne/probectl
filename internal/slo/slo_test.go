@@ -289,6 +289,47 @@ func TestLoadDir(t *testing.T) {
 	}
 }
 
+func TestLoadDirBoundsDefinitionFile(t *testing.T) {
+	const boundary = maxDefinitionFileBytes
+	definitionAtSize := func(t *testing.T, size int) []byte {
+		t.Helper()
+		if size < len(checkoutSLO)+2 {
+			t.Fatalf("definition fixture size %d is too small", size)
+		}
+		return []byte(checkoutSLO + "\n#" + strings.Repeat("x", size-len(checkoutSLO)-2))
+	}
+
+	t.Run("maximum valid", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(
+			filepath.Join(dir, "maximum.yaml"),
+			definitionAtSize(t, boundary),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		definitions, err := LoadDir(dir)
+		if err != nil || len(definitions) != 1 {
+			t.Fatalf("maximum-valid definition: definitions=%d err=%v", len(definitions), err)
+		}
+	})
+
+	t.Run("one past", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(
+			filepath.Join(dir, "oversized.yaml"),
+			definitionAtSize(t, boundary+1),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadDir(dir); err == nil ||
+			!strings.Contains(err.Error(), "exceeds 1048576-byte limit") {
+			t.Fatalf("one-past definition error = %v, want explicit size refusal", err)
+		}
+	})
+}
+
 func TestParseWindow(t *testing.T) {
 	cases := map[string]time.Duration{"30d": 720 * time.Hour, "4w": 672 * time.Hour, "12h": 12 * time.Hour, "30m": 30 * time.Minute}
 	for raw, want := range cases {

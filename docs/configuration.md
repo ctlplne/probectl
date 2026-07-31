@@ -2008,7 +2008,7 @@ declaring these.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_SLO_ENABLED` | `true` | OpenSLO SLI/SLO engine over the synthetic-result stream (error budgets + multi-window burn-rate signals) |
-| `PROBECTL_SLO_DIR`     | (none) | directory of OpenSLO v1 YAML definitions (strictly validated; malformed/duplicate definitions fail startup) |
+| `PROBECTL_SLO_DIR`     | (none) | directory of OpenSLO v1 YAML definitions (strictly validated; malformed, duplicate, or over-1-MiB definitions fail startup) |
 
 Statuses at `GET /v1/slos`, OpenSLO export at `GET /v1/slos/openslo`, and the
 SLOs page. See `docs/slo.md`.
