@@ -13,12 +13,14 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 func TestEndpointDurableClickHouseIsolation(t *testing.T) {
 	rawURL := os.Getenv("PROBECTL_TEST_CLICKHOUSE_URL")
 	if rawURL == "" {
-		t.Skip("PROBECTL_TEST_CLICKHOUSE_URL not set")
+		testsupport.SkipOrFatal(t, "PROBECTL_TEST_CLICKHOUSE_URL not set — endpoint isolation integration needs ClickHouse")
 	}
 	store, err := NewClickHouse(rawURL, 30)
 	if err != nil {

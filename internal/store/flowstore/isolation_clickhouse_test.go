@@ -14,16 +14,19 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // U-026: the cross-tenant isolation gate, extended to REAL ClickHouse. Runs
 // inside `make test-isolation` when PROBECTL_FLOWSTORE_URL points at a CH
-// (the ci job provides a containerized one); skips otherwise.
+// (the CI job provides a containerized one). It skips when services are
+// optional locally and fails closed when the mandatory-service gate is active.
 func chFlow(t *testing.T) *ClickHouse {
 	t.Helper()
 	url := os.Getenv("PROBECTL_FLOWSTORE_URL")
 	if url == "" {
-		t.Skip("PROBECTL_FLOWSTORE_URL not set — ClickHouse isolation gate runs in CI")
+		testsupport.SkipOrFatal(t, "PROBECTL_FLOWSTORE_URL not set — ClickHouse isolation gate runs in CI")
 	}
 	c, err := NewClickHouse(url, 0)
 	if err != nil {
