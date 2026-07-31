@@ -18,15 +18,19 @@ type writeFencedWriter struct {
 }
 
 // WithTenantWriteFence guards a tenant-owned TSDB mutation with the durable
-// lifecycle lease. Wrapping a BatchingWriter on the outside is intentional:
-// BatchingWriter.Write waits for its concrete backend flush, so the lease
-// remains held until persistence succeeds or fails.
+// lifecycle lease. When the production batching writer is present, its inner
+// backend is decorated so the lease spans the actual background flush even if
+// a canceled caller returns before that shared mutation completes.
 func WithTenantWriteFence(next Writer, fence tenancy.WriterFence) Writer {
 	if next == nil {
 		return nil
 	}
 	if HasTenantWriteFence(next) {
 		return next
+	}
+	if batching, ok := next.(*BatchingWriter); ok {
+		batching.w = WithTenantWriteFence(batching.w, fence)
+		return batching
 	}
 	return &writeFencedWriter{next: next, fence: fence}
 }
