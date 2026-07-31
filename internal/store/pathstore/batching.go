@@ -8,6 +8,7 @@ package pathstore
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,8 @@ import (
 )
 
 const pathBackgroundFlushTimeout = 5 * time.Second
+
+var errBatchingSaverClosed = errors.New("pathstore: batching saver is closed")
 
 // BatchingSaver adds a CROSS-PATH batching window over a Store (Sprint 14,
 // SCALE-009): hops/links were already batched per path (one JSONEachRow body
@@ -41,6 +44,10 @@ type BatchingSaver struct {
 	mu      sync.Mutex
 	pending []pendingPath
 	timer   *time.Timer
+	closed  bool
+
+	flushMu  sync.Mutex
+	closeErr error
 
 	flushes atomic.Uint64
 	saved   atomic.Uint64
@@ -85,6 +92,10 @@ func (b *BatchingSaver) Save(_ context.Context, tenantID string, p *path.Path) e
 		return ErrNoTenant
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return errBatchingSaverClosed
+	}
 	b.pending = append(b.pending, pendingPath{tenantID: tenantID, p: p})
 	full := len(b.pending) >= b.max
 	if b.timer == nil && !full {
@@ -111,6 +122,15 @@ func (b *BatchingSaver) flushBackground() {
 // Flush persists everything pending (one combined insert per table when the
 // backend supports it). Safe to call concurrently.
 func (b *BatchingSaver) Flush(ctx context.Context) {
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+	b.flush(ctx)
+}
+
+// flush persists the current queue while flushMu is held. Serializing the
+// backend mutation makes its lifetime visible to Close: shutdown cannot close
+// the backend while a timer or caller is still using it.
+func (b *BatchingSaver) flush(ctx context.Context) {
 	b.mu.Lock()
 	batch := b.pending
 	b.pending = nil
@@ -163,8 +183,26 @@ func (b *BatchingSaver) History(ctx context.Context, tenantID, target string, q 
 
 // Close flushes and closes the backend.
 func (b *BatchingSaver) Close() error {
-	b.flushBackground()
-	return b.inner.Close()
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+
+	b.mu.Lock()
+	if b.closed {
+		err := b.closeErr
+		b.mu.Unlock()
+		return err
+	}
+	b.closed = true
+	b.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), pathBackgroundFlushTimeout)
+	b.flush(ctx)
+	cancel()
+	err := b.inner.Close()
+	b.mu.Lock()
+	b.closeErr = err
+	b.mu.Unlock()
+	return err
 }
 
 // Lost reports paths dropped by failed flushes (should be 0).
