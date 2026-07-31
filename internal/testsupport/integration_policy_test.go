@@ -94,14 +94,7 @@ func TestFlowClickHouseIsolationReaderErrorsMustFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read flow isolation test: %v", err)
 	}
-	testSource := string(source)
-	const vacuousReaderErrorCheck = `if errText != "" && strings.Contains(errText, "etting")`
-	if strings.Contains(testSource, vacuousReaderErrorCheck) {
-		t.Fatal("flow isolation test ignores non-setting reader errors instead of failing closed")
-	}
-	const failAllReaderErrors = "if errText != \"\" {\n"
-	if !strings.Contains(testSource, failAllReaderErrors) ||
-		!strings.Contains(testSource, `t.Fatalf("reader read failed: %s", errText)`) {
+	if !clickHouseReaderErrorsFail(source, "TestClickHouseSettingScopedReaderPolicy") {
 		t.Fatal("flow isolation test must fail every nonempty reader error")
 	}
 }
@@ -117,15 +110,92 @@ func TestOtelClickHouseIsolationReaderErrorsMustFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read OTel isolation test: %v", err)
 	}
-	testSource := string(source)
-	const vacuousReaderErrorCheck = `if errText != "" && strings.Contains(errText, "etting")`
-	if strings.Contains(testSource, vacuousReaderErrorCheck) {
-		t.Fatal("OTel isolation test ignores non-setting reader errors instead of failing closed")
-	}
-	const failAllReaderErrors = "if errText != \"\" {\n"
-	if !strings.Contains(testSource, failAllReaderErrors) ||
-		!strings.Contains(testSource, `t.Fatalf("reader read failed: %s", errText)`) {
+	if !clickHouseReaderErrorsFail(source, "TestOtelSettingScopedReaderPolicy") {
 		t.Fatal("OTel isolation test must fail every nonempty reader error")
+	}
+}
+
+func clickHouseReaderErrorsFail(source []byte, target string) bool {
+	file, err := parser.ParseFile(token.NewFileSet(), target+".go", source, 0)
+	if err != nil {
+		return false
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != target || fn.Body == nil {
+			continue
+		}
+		for _, stmt := range fn.Body.List {
+			guard, ok := stmt.(*ast.IfStmt)
+			if !ok || !isErrTextNonempty(guard.Cond) {
+				continue
+			}
+			for _, guardedStmt := range guard.Body.List {
+				exprStmt, ok := guardedStmt.(*ast.ExprStmt)
+				if !ok {
+					continue
+				}
+				call, ok := exprStmt.X.(*ast.CallExpr)
+				if !ok {
+					continue
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "Fatal" && sel.Sel.Name != "Fatalf") {
+					continue
+				}
+				receiver, ok := sel.X.(*ast.Ident)
+				if ok && receiver.Name == "t" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isErrTextNonempty(expr ast.Expr) bool {
+	condition, ok := expr.(*ast.BinaryExpr)
+	if !ok || condition.Op != token.NEQ {
+		return false
+	}
+	return isIdent(condition.X, "errText") && isEmptyString(condition.Y) ||
+		isEmptyString(condition.X) && isIdent(condition.Y, "errText")
+}
+
+func isIdent(expr ast.Expr, name string) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == name
+}
+
+func isEmptyString(expr ast.Expr) bool {
+	literal, ok := expr.(*ast.BasicLit)
+	return ok && literal.Kind == token.STRING && literal.Value == `""`
+}
+
+func TestClickHouseIsolationReaderErrorPolicyRejectsUnrelatedBranch(t *testing.T) {
+	for _, target := range []string{
+		"TestClickHouseSettingScopedReaderPolicy",
+		"TestOtelSettingScopedReaderPolicy",
+	} {
+		source := []byte(`package fixture
+func TestEarlierReader(t *testing.T) {
+	if errText != "" {
+		t.Fatalf("reader read failed: %s", errText)
+	}
+}
+func ` + target + `(t *testing.T) {
+	if errText != "" {
+		if strings.Contains(errText, "etting") {
+			t.Skip("missing prerequisite")
+		}
+	}
+	if n != 0 {
+		t.Fatal("unexpected rows")
+	}
+}`)
+		if clickHouseReaderErrorsFail(source, target) {
+			t.Errorf("%s policy was incorrectly satisfied by an unrelated earlier assertion", target)
+		}
 	}
 }
 
