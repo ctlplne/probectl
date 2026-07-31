@@ -177,10 +177,14 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		st.otelStore,
 		writerFence,
 	)
+	pathStore := pathstore.WithTenantWriteFence(
+		st.pathStore,
+		writerFence,
+	)
 	return &serveRuntime{
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
 		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, ingestWriter: st.ingestWriter,
-		pathStore: st.pathStore, pathCH: st.pathCH, otelStore: otelStore,
+		pathStore: pathStore, pathCH: st.pathCH, otelStore: otelStore,
 		flowStore: flowStore, ebpfStore: ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
 		ctx: ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
@@ -421,7 +425,7 @@ func (rt *serveRuntime) configureTestSync() error {
 
 func (rt *serveRuntime) startLifecycleAndServe() error {
 	lifeEngine, worm, err := startHAAndTenantLifecycle(rt.gctx, rt.g, rt.cfg, rt.db, rt.log,
-		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.lifecycleOTLPStore(), rt.lifecycleEBPFStore(), rt.objectStore)
+		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.lifecyclePathStore(), rt.topoStore, rt.lifecycleOTLPStore(), rt.lifecycleEBPFStore(), rt.objectStore)
 	if err != nil {
 		return err
 	}
@@ -472,6 +476,13 @@ func (rt *serveRuntime) lifecycleEBPFStore() ebpfstore.Store {
 // every production span and log write remains protected by the writer fence.
 func (rt *serveRuntime) lifecycleOTLPStore() otelstore.Store {
 	return otelstore.UnderlyingStore(rt.otelStore)
+}
+
+// lifecyclePathStore exposes the concrete backend only to lifecycle capability
+// discovery. API, MCP, and result ingestion retain rt.pathStore so every direct
+// or batched backend write remains protected by the writer fence.
+func (rt *serveRuntime) lifecyclePathStore() pathstore.Store {
+	return pathstore.UnderlyingStore(rt.pathStore)
 }
 
 func (rt *serveRuntime) startIngestConsumers() {
