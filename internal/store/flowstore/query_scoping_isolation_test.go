@@ -142,10 +142,13 @@ func TestClickHouseSettingScopedReaderPolicy(t *testing.T) {
 	// The policy applied; a read without the setting must return nothing for
 	// the reader (fail closed — unset setting matches no rows).
 	n, errText := chReadCountAs(t, reader, readerPw)
-	if errText != "" && strings.Contains(errText, "etting") {
-		t.Skipf("custom settings prefix not configured: %s", errText)
+	if errText != "" {
+		if strings.Contains(errText, "etting") {
+			t.Skipf("custom settings prefix not configured: %s", errText)
+		}
+		t.Fatalf("reader read failed: %s", errText)
 	}
-	if errText == "" && n != 0 {
+	if n != 0 {
 		t.Fatalf("setting-scoped reader with NO setting saw %d rows, want 0 (fail closed)", n)
 	}
 }

@@ -83,6 +83,29 @@ func TestClickHouseIsolationMandatoryServicePolicy(t *testing.T) {
 	}
 }
 
+func TestFlowClickHouseIsolationReaderErrorsMustFail(t *testing.T) {
+	_, here, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve policy test path")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(here), "..", ".."))
+	path := filepath.Join(root, "internal", "store", "flowstore", "query_scoping_isolation_test.go")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read flow isolation test: %v", err)
+	}
+	testSource := string(source)
+	const vacuousReaderErrorCheck = `if errText != "" && strings.Contains(errText, "etting")`
+	if strings.Contains(testSource, vacuousReaderErrorCheck) {
+		t.Fatal("flow isolation test ignores non-setting reader errors instead of failing closed")
+	}
+	const failAllReaderErrors = "if errText != \"\" {\n"
+	if !strings.Contains(testSource, failAllReaderErrors) ||
+		!strings.Contains(testSource, `t.Fatalf("reader read failed: %s", errText)`) {
+		t.Fatal("flow isolation test must fail every nonempty reader error")
+	}
+}
+
 func TestIntegrationPostgresAvailabilityUsesMandatoryServicePolicy(t *testing.T) {
 	_, here, _, ok := runtime.Caller(0)
 	if !ok {
