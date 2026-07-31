@@ -711,6 +711,13 @@ func (e *Engine) fenceTenantAuditWrites(
 		).Scan(&canonicalTenantID); err != nil {
 			return fmt.Errorf("canonicalize tenant id: %w", err)
 		}
+		if err := tenancy.LockTenantWrites(
+			ctx,
+			q,
+			canonicalTenantID,
+		); err != nil {
+			return err
+		}
 		if err := audit.LockTenantStream(ctx, q, canonicalTenantID); err != nil {
 			return fmt.Errorf("lock tenant audit stream: %w", err)
 		}

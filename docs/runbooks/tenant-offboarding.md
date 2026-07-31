@@ -131,12 +131,19 @@ the same row-level security (RLS) scope as live queries — the eraser is
 
 Before the first delete, the engine changes the tenant to `offboarding`, sets
 the write-once `audit_write_fenced_at` marker, and records that transition while
-holding the tenant's audit-stream lock. PostgreSQL rejects clearing the marker
-or reopening a fenced tenant. Restrictive write policies plus `ALWAYS` triggers
-on `audit_events` and `audit_subject_erasures` enforce the marker on pooled and
-physical-silo tables: an in-flight writer finishes before the fence and is then
-erased; a later or rolling-old writer is rejected. Both append-only tables are
-deleted and count-verified in one routed transaction under the same lock.
+holding the tenant-wide writer lock and the tenant's audit-stream lock.
+PostgreSQL rejects clearing the marker or reopening a fenced tenant. Every
+ordinary tenant-owned pooled or physical-silo table has an `ALWAYS`
+INSERT/UPDATE trigger that takes the matching shared writer lock and re-reads
+the durable registry row. An in-flight writer therefore finishes before the
+fence and is then erased; a later or rolling-old writer waits for the committed
+transition and is rejected. The append-only `audit_events` and
+`audit_subject_erasures` tables keep their stronger stream-lock triggers and
+are deleted and count-verified in one routed transaction under that lock.
+Provider-global lifecycle evidence and tenant-key destruction remain on their
+separate provider-maintenance paths, so retrying an incomplete erase can still
+record its bounded receipt or complete crypto-shred without reopening ordinary
+tenant writes.
 
 Provider-row deletion, the `deleted` registry tombstone, and the successful
 attestation append commit together only after every data store and key domain

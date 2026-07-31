@@ -105,6 +105,7 @@ func TestProvisionPlan(t *testing.T) {
 		"probectl_app, probectl_provider",
 	)
 	assertNoAuditWriteFencePlan(t, joined, "tests")
+	assertTenantWriteFencePlan(t, joined, "tests")
 }
 
 // TestCatchUpPlan pins the drift recipe: a missing table gets the full
@@ -162,6 +163,7 @@ func TestCatchUpPlan(t *testing.T) {
 			t.Fatalf("caught-up plan did not repair %s boundary:\n%s", table, caughtUp)
 		}
 		assertNoAuditWriteFencePlan(t, caughtUp, table)
+		assertTenantWriteFencePlan(t, caughtUp, table)
 	}
 	if strings.Contains(caughtUp, "CREATE TABLE") ||
 		strings.Contains(caughtUp, "ADD COLUMN") {
@@ -239,6 +241,7 @@ func TestCatchUpPlan(t *testing.T) {
 	)
 	for _, table := range []string{"agents", "new_table", "tests"} {
 		assertNoAuditWriteFencePlan(t, markerRepair, table)
+		assertTenantWriteFencePlan(t, markerRepair, table)
 	}
 }
 
@@ -272,6 +275,22 @@ func assertNoAuditWriteFencePlan(t *testing.T, plan, table string) {
 	} {
 		if strings.Contains(plan, forbidden) {
 			t.Fatalf("ordinary table %s received audit-only write fence %q", table, forbidden)
+		}
+	}
+}
+
+func assertTenantWriteFencePlan(t *testing.T, plan, table string) {
+	t.Helper()
+	quotedTable := `"t_abc"."` + table + `"`
+	for _, want := range []string{
+		`CREATE TRIGGER tenant_write_fence
+  BEFORE INSERT OR UPDATE ON ` + quotedTable + `
+  FOR EACH ROW
+  EXECUTE FUNCTION public.probectl_enforce_tenant_write_fence()`,
+		`ALTER TABLE ` + quotedTable + ` ENABLE ALWAYS TRIGGER tenant_write_fence`,
+	} {
+		if !strings.Contains(plan, want) {
+			t.Errorf("%s tenant write-fence plan missing %q in:\n%s", table, want, plan)
 		}
 	}
 }
