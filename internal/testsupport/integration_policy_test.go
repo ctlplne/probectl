@@ -11,12 +11,77 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestClickHouseIsolationMandatoryServicePolicy(t *testing.T) {
+	_, here, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve policy test path")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(here), "..", ".."))
+	targets := []string{
+		"internal/store/otelstore/query_scoping_isolation_test.go",
+		"internal/store/ebpfstore/query_scoping_isolation_test.go",
+	}
+	var violations []string
+	for _, rel := range targets {
+		path := filepath.Join(root, rel)
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", rel, err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "Skip" && sel.Sel.Name != "Skipf") {
+				return true
+			}
+			violations = append(
+				violations,
+				rel+":"+strconv.Itoa(fset.Position(call.Pos()).Line),
+			)
+			return true
+		})
+	}
+	if len(violations) != 0 {
+		t.Fatalf(
+			"ClickHouse isolation suites bypass PROBECTL_TEST_REQUIRE_SERVICES; use testsupport.SkipOrFatal: %s",
+			strings.Join(violations, ", "),
+		)
+	}
+
+	workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatalf("read CI workflow: %v", err)
+	}
+	workflowText := string(workflow)
+	jobStart := strings.Index(workflowText, "\n  cross-tenant-isolation:\n")
+	jobEnd := strings.Index(workflowText, "\n  integration:\n")
+	if jobStart < 0 || jobEnd <= jobStart {
+		t.Fatal("cross-tenant-isolation CI job boundaries are missing")
+	}
+	isolationJob := workflowText[jobStart:jobEnd]
+	for _, want := range []string{
+		"PROBECTL_OTELSTORE_URL: http://default:probectl@localhost:8123",
+		"PROBECTL_EBPFSTORE_URL: http://default:probectl@localhost:8123",
+		`PROBECTL_TEST_REQUIRE_SERVICES: "1"`,
+		"SQL_probectl_tenant=ci-isolation",
+	} {
+		if !strings.Contains(isolationJob, want) {
+			t.Errorf("cross-tenant isolation CI is missing %q", want)
+		}
+	}
+}
 
 func TestIntegrationPostgresAvailabilityUsesMandatoryServicePolicy(t *testing.T) {
 	_, here, _, ok := runtime.Caller(0)

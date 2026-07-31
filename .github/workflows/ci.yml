@@ -695,6 +695,8 @@ jobs:
     env:
       PROBECTL_FLOWSTORE_URL: http://default:probectl@localhost:8123
       PROBECTL_PATHSTORE_URL: http://default:probectl@localhost:8123
+      PROBECTL_OTELSTORE_URL: http://default:probectl@localhost:8123
+      PROBECTL_EBPFSTORE_URL: http://default:probectl@localhost:8123
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -702,6 +704,18 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Start TLS Postgres (verify-full, test CA — OPS-010)
         run: ./scripts/ci_pg_tls.sh
+      - name: Assert ClickHouse tenant-setting support
+        # The digest-pinned image declares custom_settings_prefixes=SQL_.
+        # Exercise it, rather than trusting image config, so every setting-
+        # scoped isolation test fails closed if that prerequisite ever drifts.
+        run: |
+          set -euo pipefail
+          value="$(curl --fail-with-body --silent --show-error \
+            --user default:probectl --get \
+            --data-urlencode "query=SELECT getSetting('SQL_probectl_tenant')" \
+            --data-urlencode "SQL_probectl_tenant=ci-isolation" \
+            http://localhost:8123/)"
+          test "${value}" = "ci-isolation"
       - name: Cross-tenant isolation tests
         # TEST-003: fail (not skip) if a backing service is unavailable — a
         # cross-tenant isolation suite that quietly skips is vacuous green.

@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // TENANT-003 / TENANT-004: prove the DB-level row policy — not the application
@@ -33,7 +35,7 @@ func otelCH(t *testing.T) *ClickHouse {
 	t.Helper()
 	u := os.Getenv("PROBECTL_OTELSTORE_URL")
 	if u == "" {
-		t.Skip("PROBECTL_OTELSTORE_URL not set — otel isolation gate runs in CI")
+		testsupport.SkipOrFatal(t, "PROBECTL_OTELSTORE_URL not set — otel isolation gate runs in CI")
 	}
 	c, err := NewClickHouse(u, 0)
 	if err != nil {
@@ -196,7 +198,12 @@ func TestOtelSettingScopedReaderPolicy(t *testing.T) {
 	readerPw := "readerpw"
 
 	for _, ddl := range []string{
-		fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", reader, readerPw),
+		fmt.Sprintf(
+			"CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s' SETTINGS %s = ''",
+			reader,
+			readerPw,
+			tenantSettingName,
+		),
 		fmt.Sprintf("GRANT SELECT ON *.* TO %s", reader),
 	} {
 		if err := c.exec(ctx, ddl, nil, nil); err != nil {
@@ -207,13 +214,13 @@ func TestOtelSettingScopedReaderPolicy(t *testing.T) {
 
 	if err := c.EnsureReaderRowPolicy(ctx, reader); err != nil {
 		if strings.Contains(err.Error(), "etting") {
-			t.Skipf("custom settings prefix not configured on this server: %v", err)
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured on this server: %v", err)
 		}
 		t.Fatalf("EnsureReaderRowPolicy: %v", err)
 	}
 	n, errText := otelCountAs(t, spansTable, reader, readerPw)
 	if errText != "" && strings.Contains(errText, "etting") {
-		t.Skipf("custom settings prefix not configured: %s", errText)
+		testsupport.SkipOrFatal(t, "custom settings prefix not configured: %s", errText)
 	}
 	if errText == "" && n != 0 {
 		t.Fatalf("setting-scoped reader with NO setting saw %d rows, want 0 (fail closed)", n)

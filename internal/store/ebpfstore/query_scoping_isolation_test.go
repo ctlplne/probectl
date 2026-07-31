@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // RED-001: the eBPF ClickHouse reader path must be database-scoped too. The
@@ -26,7 +28,7 @@ import (
 func TestEBPFSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	rawURL := os.Getenv("PROBECTL_EBPFSTORE_URL")
 	if rawURL == "" {
-		t.Skip("PROBECTL_EBPFSTORE_URL not set — ClickHouse isolation gate runs in CI")
+		testsupport.SkipOrFatal(t, "PROBECTL_EBPFSTORE_URL not set — ClickHouse isolation gate runs in CI")
 	}
 	c, err := NewClickHouse(rawURL, 0)
 	if err != nil {
@@ -62,7 +64,7 @@ func TestEBPFSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	}
 	if err := c.EnsureReaderRowPolicy(ctx, reader); err != nil {
 		if strings.Contains(err.Error(), "etting") {
-			t.Skipf("custom settings prefix not configured on this server: %v", err)
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured on this server: %v", err)
 		}
 		t.Fatalf("EnsureReaderRowPolicy: %v", err)
 	}
@@ -70,7 +72,7 @@ func TestEBPFSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	n, errText := ebpfCountAs(t, reader, readerPw, ta)
 	if errText != "" {
 		if strings.Contains(errText, "etting") {
-			t.Skipf("custom settings prefix not configured: %s", errText)
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured: %s", errText)
 		}
 		t.Fatalf("reader read failed: %s", errText)
 	}
