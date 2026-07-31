@@ -18,6 +18,7 @@ package compliance
 
 import (
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -27,6 +28,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxPolicyFileBytes = 1 << 20
 
 // Zone is a named address space ("cde", "corp", "dmz").
 type Zone struct {
@@ -125,7 +128,7 @@ func LoadDir(dir string) ([]Policy, error) {
 		if e.IsDir() || (!strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml")) {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, name))
+		raw, err := readPolicyFile(filepath.Join(dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("compliance: read %s: %w", name, err)
 		}
@@ -145,6 +148,25 @@ func LoadDir(dir string) ([]Policy, error) {
 		}
 	}
 	return out, nil
+}
+
+func readPolicyFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxPolicyFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxPolicyFileBytes {
+		return nil, fmt.Errorf("policy exceeds %d-byte limit", maxPolicyFileBytes)
+	}
+	return raw, nil
 }
 
 // zoneOf resolves an address to the first containing zone (longest prefix).

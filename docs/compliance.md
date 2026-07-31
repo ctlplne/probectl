@@ -44,7 +44,8 @@ Policies are YAML files in `PROBECTL_COMPLIANCE_POLICY_DIR`. They are validated
 typo like `birdirectional` is an error, not a silently ignored rule), and a
 malformed file **fails startup** — a boundary the operator believes is being
 validated must actually be validated, not silently skipped (`LoadDir` in
-`policy.go`).
+`policy.go`). Each policy file is limited to 1 MiB and an oversized file also
+fails startup before YAML decoding.
 
 ```yaml
 name: pci-segmentation
@@ -180,7 +181,7 @@ because nothing is watching must never look the same.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_COMPLIANCE_ENABLED` | `true` | the validator + consumers (local-only) |
-| `PROBECTL_COMPLIANCE_POLICY_DIR` | (none) | segmentation policy YAML directory (empty = zero policies, honestly reported) |
+| `PROBECTL_COMPLIANCE_POLICY_DIR` | (none) | segmentation policy YAML directory; each file is limited to 1 MiB (empty = zero policies, honestly reported) |
 
 ## Out of scope by design
 

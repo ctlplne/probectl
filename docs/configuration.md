@@ -2024,7 +2024,7 @@ a verdict naming the flow that crossed one. It never blocks anything.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_COMPLIANCE_ENABLED`    | `true` | segmentation validator over observed flow/eBPF traffic (validation only — never enforcement) |
-| `PROBECTL_COMPLIANCE_POLICY_DIR` | (none) | segmentation policy YAML directory (strictly validated; malformed files fail startup) |
+| `PROBECTL_COMPLIANCE_POLICY_DIR` | (none) | segmentation policy YAML directory (strictly validated; malformed or over-1-MiB files fail startup) |
 
 Verdicts at `GET /v1/compliance`, hash-chained audit evidence at
 `GET /v1/compliance/evidence`, and the Compliance page. See

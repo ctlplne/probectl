@@ -233,3 +233,43 @@ func TestLoadDirFailClosed(t *testing.T) {
 		t.Fatalf("empty config: %v %v", ps, err)
 	}
 }
+
+func TestLoadDirBoundsPolicyFile(t *testing.T) {
+	policyAtSize := func(t *testing.T, size int) []byte {
+		t.Helper()
+		if size < len(pciPolicy)+2 {
+			t.Fatalf("policy fixture size %d is too small", size)
+		}
+		return []byte(pciPolicy + "\n#" + strings.Repeat("x", size-len(pciPolicy)-2))
+	}
+
+	t.Run("maximum valid", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(
+			filepath.Join(dir, "maximum.yaml"),
+			policyAtSize(t, maxPolicyFileBytes),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		policies, err := LoadDir(dir)
+		if err != nil || len(policies) != 1 {
+			t.Fatalf("maximum-valid policy: policies=%d err=%v", len(policies), err)
+		}
+	})
+
+	t.Run("one past", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(
+			filepath.Join(dir, "oversized.yaml"),
+			policyAtSize(t, maxPolicyFileBytes+1),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadDir(dir); err == nil ||
+			!strings.Contains(err.Error(), "exceeds 1048576-byte limit") {
+			t.Fatalf("one-past policy error = %v, want explicit size refusal", err)
+		}
+	})
+}
