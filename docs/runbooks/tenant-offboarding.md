@@ -152,6 +152,25 @@ including the lightweight memory backend and every pooled or silo-routed
 ClickHouse target.
 The eBPF aggregate store applies that identical contract before any service
 edge batch enters its memory or pooled/silo-routed ClickHouse backend.
+OTLP span and log writes, path `Save`/`SaveBatch`, and both tenant TSDB entry
+points (result-bus ingest and Prometheus remote write) hold the same lease
+through their concrete backend mutation. The raw TSDB handle remains available
+only for queries, lifecycle deletion, and provider-global self-metrics; tenant
+writes never receive it directly. The in-memory or indexed topology store is
+decorated before it is handed to the API or any consumer, so every tenant-bound
+graph mutation is suppressed after fencing while deletion and retention
+capabilities remain available to the lifecycle engine.
+
+Agent-local browser object storage does not perform a new control-plane lease
+round trip. Instead, the existing mTLS `StreamResults` boundary recognizes an
+artifact-bearing result by its `browser.screenshot.key` attribute and holds the
+control-plane PostgreSQL writer lease across publication. An active tenant's
+artifact reference is accepted normally; an erasing/erased tenant's reference
+is refused before it reaches the result bus, while another tenant remains
+writable. Bus and pipeline buffers need no independent fence: every durable
+downstream writer above rechecks the authoritative lease before mutation, so a
+delayed record cannot refill a store after it was verified empty.
+
 Provider-global lifecycle evidence and tenant-key destruction remain on their
 separate provider-maintenance paths, so retrying an incomplete erase can still
 record its bounded receipt or complete crypto-shred without reopening ordinary
