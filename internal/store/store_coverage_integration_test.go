@@ -576,6 +576,40 @@ func TestEnrollmentStore(t *testing.T) {
 	if rs, sps, err := ai.ListRevoked(ctx); err != nil || len(rs) == 0 || len(sps) == 0 {
 		t.Fatalf("listRevoked: %v / %v / %v", err, rs, sps)
 	}
+	if rs, sps, err := NewBMPRevocations(pool).List(ctx); err != nil ||
+		!containsString(rs, serial) || !containsString(sps, spiffe) {
+		t.Fatalf("BMP execute-only revocation snapshot: %v / %v / %v", err, rs, sps)
+	}
+	roleTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = roleTx.Rollback(ctx) }()
+	if _, err := roleTx.Exec(ctx, "SET LOCAL ROLE "+BMPRevocationReaderRole); err != nil {
+		t.Fatalf("assume BMP revocation reader: %v", err)
+	}
+	var canReadIdentities, canExecuteSnapshot bool
+	if err := roleTx.QueryRow(ctx,
+		`SELECT
+		    has_table_privilege(current_user, 'public.agent_identities', 'SELECT'),
+		    has_function_privilege(
+		        current_user,
+		        'public.provider_list_revoked_agent_identities()',
+		        'EXECUTE'
+		    )`,
+	).Scan(&canReadIdentities, &canExecuteSnapshot); err != nil {
+		t.Fatalf("inspect BMP revocation reader grants: %v", err)
+	}
+	if canReadIdentities || !canExecuteSnapshot {
+		t.Fatalf(
+			"BMP revocation role grants: table_select=%v snapshot_execute=%v",
+			canReadIdentities,
+			canExecuteSnapshot,
+		)
+	}
+	if err := roleTx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback BMP revocation role inspection: %v", err)
+	}
 
 	ca := NewAgentCA(pool)
 	if err := ca.Save(ctx, "root", "ROOT-CERT-"+sfx, ""); err != nil {
@@ -766,4 +800,13 @@ func TestAgentsHeartbeatBatch(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

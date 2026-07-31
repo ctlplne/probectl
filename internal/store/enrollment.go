@@ -385,29 +385,73 @@ func (a AgentIdentities) IsAgentRevoked(ctx context.Context, tenantID, agentID s
 // even past its predecessors' expiry).
 func (a AgentIdentities) ListRevoked(ctx context.Context) (serials, spiffeIDs []string, err error) {
 	err = tenancy.InProvider(ctx, a.pool, func(ctx context.Context, q tenancy.Querier) error {
-		rows, queryErr := q.Query(ctx,
-			`SELECT serial, spiffe_id, live
-			   FROM provider_list_revoked_agent_identities()`)
-		if queryErr != nil {
-			return queryErr
-		}
-		defer rows.Close()
-		seen := map[string]bool{}
-		for rows.Next() {
-			var s, sp string
-			var live bool
-			if scanErr := rows.Scan(&s, &sp, &live); scanErr != nil {
-				return scanErr
-			}
-			if live {
-				serials = append(serials, s)
-			}
-			if !seen[sp] {
-				seen[sp] = true
-				spiffeIDs = append(spiffeIDs, sp)
-			}
-		}
-		return rows.Err()
+		var listErr error
+		serials, spiffeIDs, listErr = listRevoked(ctx, q)
+		return listErr
 	})
 	return serials, spiffeIDs, err
+}
+
+// BMPRevocationReaderRole is the NOLOGIN execute-only role that the standalone
+// BMP listener assumes while reading the cross-tenant revocation snapshot.
+const BMPRevocationReaderRole = "probectl_bmp_revocation_reader"
+
+// BMPRevocations exposes only the signed-off revocation snapshot function. It
+// never reads tenant tables directly; SET LOCAL ROLE makes the database enforce
+// the execute-only boundary even when the connection login has broader rights.
+type BMPRevocations struct{ pool *pgxpool.Pool }
+
+// NewBMPRevocations binds the standalone-listener snapshot reader to its pool.
+func NewBMPRevocations(pool *pgxpool.Pool) BMPRevocations {
+	return BMPRevocations{pool: pool}
+}
+
+// List returns a complete authoritative snapshot under the dedicated NOLOGIN
+// role. The caller replaces its in-memory list only after this method succeeds.
+func (r BMPRevocations) List(ctx context.Context) (serials, spiffeIDs []string, err error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("begin BMP revocation snapshot: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(
+		ctx,
+		"SET LOCAL ROLE "+pgx.Identifier{BMPRevocationReaderRole}.Sanitize(),
+	); err != nil {
+		return nil, nil, fmt.Errorf("assume BMP revocation reader role: %w", err)
+	}
+	serials, spiffeIDs, err = listRevoked(ctx, tx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("commit BMP revocation snapshot: %w", err)
+	}
+	return serials, spiffeIDs, nil
+}
+
+func listRevoked(ctx context.Context, q tenancy.Querier) (serials, spiffeIDs []string, err error) {
+	rows, err := q.Query(ctx,
+		`SELECT serial, spiffe_id, live
+		   FROM provider_list_revoked_agent_identities()`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var serial, spiffeID string
+		var live bool
+		if err := rows.Scan(&serial, &spiffeID, &live); err != nil {
+			return nil, nil, err
+		}
+		if live {
+			serials = append(serials, serial)
+		}
+		if !seen[spiffeID] {
+			seen[spiffeID] = true
+			spiffeIDs = append(spiffeIDs, spiffeID)
+		}
+	}
+	return serials, spiffeIDs, rows.Err()
 }

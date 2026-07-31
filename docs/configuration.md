@@ -884,6 +884,9 @@ path is introduced.
 | `PROBECTL_BMP_TLS_KEY_FILE` | (none) | server private key PEM; required |
 | `PROBECTL_BMP_TLS_CA_FILE` | (none) | CA bundle that signs router/client certificates; required |
 | `PROBECTL_BMP_DATABASE_URL` | (none) | local probectl PostgreSQL URL used only to verify registry-issued BMP identities; required. Use `sslmode=verify-full` outside explicit single-host development |
+| `PROBECTL_BMP_REVOCATION_DATABASE_URL` | (none) | separate local PostgreSQL login URL for authoritative revocation snapshots; required and must use `sslmode=verify-full`. Grant that login only the `probectl_bmp_revocation_reader` NOLOGIN role |
+| `PROBECTL_BMP_REVOCATION_REFRESH` | `30s` | bounded interval between complete revocation snapshots; must be positive |
+| `PROBECTL_BMP_REVOCATION_TIMEOUT` | `5s` | deadline for initial and periodic revocation snapshot reads; must be positive |
 | `PROBECTL_BMP_COLLECTOR` | `bmp` | collector label written on published BGP events |
 | `PROBECTL_BMP_HANDSHAKE_TIMEOUT` | `10s` | maximum time for an unauthenticated mTLS handshake; must be positive |
 | `PROBECTL_BMP_READ_TIMEOUT` | `2m` | rolling maximum for each authenticated BMP header and payload read; must be positive |
@@ -907,11 +910,29 @@ PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
 PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
 PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \
 PROBECTL_BMP_DATABASE_URL='postgres://bmp_registry@postgres:5432/probectl?sslmode=verify-full' \
+PROBECTL_BMP_REVOCATION_DATABASE_URL='postgres://bmp_revocation@postgres:5432/probectl?sslmode=verify-full' \
 PROBECTL_BMP_BUS_MODE=kafka \
 PROBECTL_BMP_BUS_BROKERS=kafka-1:9093 \
 PROBECTL_BMP_BUS_TLS_ENABLED=true \
   probectl-bmp-listener
 ```
+
+Create the revocation login in the operator's own PostgreSQL credential/key
+domain, then grant only the migration-created execute-only role:
+
+```sql
+CREATE ROLE bmp_revocation LOGIN;
+GRANT probectl_bmp_revocation_reader TO bmp_revocation;
+```
+
+Set its password or client-certificate authentication outside probectl. The
+listener assumes `probectl_bmp_revocation_reader`, which can execute only
+`provider_list_revoked_agent_identities()` and cannot select
+`agent_identities` or tenant telemetry. Startup fails closed before binding if
+the initial complete snapshot is unavailable. Later bounded refresh failures
+retain the last valid snapshot; they never replace it with an empty or partial
+list. This is an intra-deployment PostgreSQL connection only—no Internet
+service, vendor dependency, or phone-home path.
 
 ### Open-data enrichment
 

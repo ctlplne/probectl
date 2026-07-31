@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 // RevocationList is a registry-driven mTLS deny-list (U-038). Agent certs are
@@ -153,6 +154,32 @@ func ServerMTLSConfigRevocable(certFile, keyFile, caFile string, rl *RevocationL
 	if err != nil {
 		return nil, err
 	}
+	return withRevocationList(cfg, rl), nil
+}
+
+// ServerBMPMTLSConfigRegisteredRevocable composes the BMP plane pin, exact
+// registry-issued identity check, and the existing live RevocationList in one
+// handshake policy. Revocation augments both checks and cannot weaken either.
+func ServerBMPMTLSConfigRegisteredRevocable(
+	certFile, keyFile, caFile string,
+	verify IssuedIdentityVerifier,
+	timeout time.Duration,
+	rl *RevocationList,
+) (*tls.Config, error) {
+	cfg, err := ServerBMPMTLSConfigRegistered(
+		certFile,
+		keyFile,
+		caFile,
+		verify,
+		timeout,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return withRevocationList(cfg, rl), nil
+}
+
+func withRevocationList(cfg *tls.Config, rl *RevocationList) *tls.Config {
 	cfg.VerifyPeerCertificate = revocationGuard(rl, cfg.VerifyPeerCertificate)
-	return cfg, nil
+	return cfg
 }

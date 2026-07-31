@@ -7,6 +7,7 @@
 package crypto
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -85,5 +86,45 @@ func TestRevokedClientCertRefusedAtHandshake(t *testing.T) {
 	}
 	if err := guard([][]byte{leafFromPEM(t, foreignPEM).Raw}, nil); err == nil {
 		t.Fatal("foreign trust domain must still be refused")
+	}
+}
+
+func TestBMPRegisteredRevocationReplaceKeepsOtherTenantHandshake(t *testing.T) {
+	tenantAID := BMPSPIFFEID("tenant-a", "router-a")
+	tenantBID := BMPSPIFFEID("tenant-b", "router-b")
+	fixture := mtlsMaterialForSPIFFE(t, tenantAID)
+	tenantALeaf := leafFromPEM(t, mustReadFile(t, fixture.clientCrt))
+	tenantBLeaf := issueClientLeafWithURIs(t, fixture.ca, tenantBID)
+
+	revocations := NewRevocationList()
+	cfg, err := ServerBMPMTLSConfigRegisteredRevocable(
+		fixture.serverCrt,
+		fixture.serverKey,
+		fixture.caFile,
+		func(_ context.Context, _, _, _, _ string) (bool, error) {
+			return true, nil
+		},
+		time.Second,
+		revocations,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.VerifyPeerCertificate([][]byte{tenantALeaf.Raw}, nil); err != nil {
+		t.Fatalf("registered tenant-A BMP identity refused before revocation: %v", err)
+	}
+	if err := cfg.VerifyPeerCertificate([][]byte{tenantBLeaf.Raw}, nil); err != nil {
+		t.Fatalf("registered tenant-B BMP identity refused before revocation: %v", err)
+	}
+
+	revocations.Replace(
+		[]string{tenantALeaf.SerialNumber.Text(16)},
+		[]string{tenantAID},
+	)
+	if err := cfg.VerifyPeerCertificate([][]byte{tenantALeaf.Raw}, nil); err == nil {
+		t.Fatal("refreshed BMP revocation snapshot did not reject tenant A")
+	}
+	if err := cfg.VerifyPeerCertificate([][]byte{tenantBLeaf.Raw}, nil); err != nil {
+		t.Fatalf("tenant-A revocation affected tenant B: %v", err)
 	}
 }

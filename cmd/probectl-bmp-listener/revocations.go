@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/url"
+	"strings"
+	"time"
+
+	probectlc "github.com/imfeelingtheagi/probectl/internal/crypto"
+)
+
+const (
+	defaultBMPRevocationRefresh = 30 * time.Second
+	defaultBMPRevocationTimeout = 5 * time.Second
+)
+
+type bmpRevocationSource interface {
+	List(context.Context) (serials, spiffeIDs []string, err error)
+}
+
+type bmpRevocationFeed struct {
+	source  bmpRevocationSource
+	target  *probectlc.RevocationList
+	refresh time.Duration
+	timeout time.Duration
+	log     *slog.Logger
+}
+
+func newBMPRevocationFeed(
+	source bmpRevocationSource,
+	target *probectlc.RevocationList,
+	refresh, timeout time.Duration,
+	log *slog.Logger,
+) (*bmpRevocationFeed, error) {
+	if source == nil {
+		return nil, errors.New("BMP revocation source is required")
+	}
+	if target == nil {
+		return nil, errors.New("BMP revocation target is required")
+	}
+	if refresh <= 0 {
+		return nil, errors.New("BMP revocation refresh must be positive")
+	}
+	if timeout <= 0 {
+		return nil, errors.New("BMP revocation timeout must be positive")
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	return &bmpRevocationFeed{
+		source:  source,
+		target:  target,
+		refresh: refresh,
+		timeout: timeout,
+		log:     log,
+	}, nil
+}
+
+// loadInitialRevocations is the startup gate: the listener must not bind until
+// one complete authoritative snapshot has replaced the empty in-memory list.
+func (f *bmpRevocationFeed) loadInitialRevocations(ctx context.Context) error {
+	if err := f.replace(ctx); err != nil {
+		return fmt.Errorf("initial BMP revocation snapshot: %w", err)
+	}
+	return nil
+}
+
+// Run refreshes bounded snapshots. A failed refresh deliberately leaves the
+// last valid list installed; it never replaces known revocations with an empty
+// or partial result.
+func (f *bmpRevocationFeed) Run(ctx context.Context) error {
+	ticker := time.NewTicker(f.refresh)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := f.replace(ctx); err != nil {
+				f.log.Warn(
+					"BMP revocation refresh failed; retaining last valid snapshot",
+					"error",
+					err,
+				)
+			}
+		}
+	}
+}
+
+func (f *bmpRevocationFeed) replace(ctx context.Context) error {
+	refreshCtx, cancel := context.WithTimeout(ctx, f.timeout)
+	defer cancel()
+	serials, spiffeIDs, err := f.source.List(refreshCtx)
+	if err != nil {
+		return err
+	}
+	f.target.Replace(serials, spiffeIDs)
+	return nil
+}
+
+func validateBMPRevocationDatabaseURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("parse BMP revocation database URL: %w", err)
+	}
+	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
+		return errors.New("BMP revocation database URL must use postgres:// or postgresql://")
+	}
+	if u.Host == "" {
+		return errors.New("BMP revocation database URL must include a host")
+	}
+	sslModes := u.Query()["sslmode"]
+	if len(sslModes) != 1 || sslModes[0] != "verify-full" {
+		return errors.New("BMP revocation database URL requires sslmode=verify-full")
+	}
+	return nil
+}

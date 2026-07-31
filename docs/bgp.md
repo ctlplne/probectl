@@ -145,6 +145,7 @@ PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
 PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
 PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \
 PROBECTL_BMP_DATABASE_URL='postgres://bmp_registry@postgres:5432/probectl?sslmode=verify-full' \
+PROBECTL_BMP_REVOCATION_DATABASE_URL='postgres://bmp_revocation@postgres:5432/probectl?sslmode=verify-full' \
 PROBECTL_BMP_BUS_MODE=kafka \
 PROBECTL_BMP_BUS_BROKERS=kafka-1:9093 \
 PROBECTL_BMP_BUS_TLS_ENABLED=true \
@@ -167,6 +168,13 @@ agent-plane SVID both fail closed. Rotation uses the existing
 `/enroll/agent/rotate` proof path; `probectl agent revoke <router-id>` or
 `POST /v1/agents/{id}/revoke` uses the existing identity/serial revocation
 lifecycle. There is no separate BMP identity system.
+
+The standalone listener loads the existing registry's authoritative revocation
+snapshot before it binds and refreshes it every 30 seconds. The revocation DSN
+must use PostgreSQL `sslmode=verify-full` and a login granted only the
+`probectl_bmp_revocation_reader` NOLOGIN role. If the initial read fails,
+startup fails closed; if a later bounded refresh fails, the last valid list is
+retained. This is a local intra-deployment connection and never phones home.
 
 The listener bounds peer-controlled resources by default: an mTLS handshake has
 10 seconds, each complete BMP header and payload has 2 minutes, and at most 256
