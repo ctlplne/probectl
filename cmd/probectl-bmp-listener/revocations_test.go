@@ -129,3 +129,35 @@ func TestBMPRevocationDatabaseURLRequiresVerifyFull(t *testing.T) {
 		}
 	}
 }
+
+func TestBMPDatabaseURLsRequireVerifyFull(t *testing.T) {
+	secure := "postgres://bmp@db.internal:5432/probectl?sslmode=verify-full"
+	if err := validateBMPDatabaseURLs(secure, secure); err != nil {
+		t.Fatalf("secure identity and revocation URLs rejected: %v", err)
+	}
+
+	for name, urls := range map[string][2]string{
+		"identity missing sslmode": {
+			"postgres://bmp@db.internal:5432/probectl",
+			secure,
+		},
+		"identity does not verify server": {
+			"postgres://bmp@db.internal:5432/probectl?sslmode=require",
+			secure,
+		},
+		"revocation missing sslmode": {
+			secure,
+			"postgres://bmp@db.internal:5432/probectl",
+		},
+		"revocation does not verify server": {
+			secure,
+			"postgres://bmp@db.internal:5432/probectl?sslmode=require",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateBMPDatabaseURLs(urls[0], urls[1]); err == nil {
+				t.Fatal("unsafe BMP database URL pair accepted")
+			}
+		})
+	}
+}

@@ -107,20 +107,31 @@ func (f *bmpRevocationFeed) replace(ctx context.Context) error {
 	return nil
 }
 
+func validateBMPDatabaseURLs(identityRegistry, revocation string) error {
+	if err := validateBMPDatabaseURL("identity registry", identityRegistry); err != nil {
+		return err
+	}
+	return validateBMPDatabaseURL("revocation", revocation)
+}
+
 func validateBMPRevocationDatabaseURL(raw string) error {
+	return validateBMPDatabaseURL("revocation", raw)
+}
+
+func validateBMPDatabaseURL(role, raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return fmt.Errorf("parse BMP revocation database URL: %w", err)
+		return fmt.Errorf("parse BMP %s database URL: %w", role, err)
 	}
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
-		return errors.New("BMP revocation database URL must use postgres:// or postgresql://")
+		return fmt.Errorf("BMP %s database URL must use postgres:// or postgresql://", role)
 	}
 	if u.Host == "" {
-		return errors.New("BMP revocation database URL must include a host")
+		return fmt.Errorf("BMP %s database URL must include a host", role)
 	}
 	sslModes := u.Query()["sslmode"]
 	if len(sslModes) != 1 || sslModes[0] != "verify-full" {
-		return errors.New("BMP revocation database URL requires sslmode=verify-full")
+		return fmt.Errorf("BMP %s database URL requires sslmode=verify-full", role)
 	}
 	return nil
 }

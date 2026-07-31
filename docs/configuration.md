@@ -883,7 +883,7 @@ path is introduced.
 | `PROBECTL_BMP_TLS_CERT_FILE` | (none) | server certificate PEM; required |
 | `PROBECTL_BMP_TLS_KEY_FILE` | (none) | server private key PEM; required |
 | `PROBECTL_BMP_TLS_CA_FILE` | (none) | CA bundle that signs router/client certificates; required |
-| `PROBECTL_BMP_DATABASE_URL` | (none) | local probectl PostgreSQL URL used only to verify registry-issued BMP identities; required. Use `sslmode=verify-full` outside explicit single-host development |
+| `PROBECTL_BMP_DATABASE_URL` | (none) | local probectl PostgreSQL URL used only to verify registry-issued BMP identities; required and must use `sslmode=verify-full`. Startup rejects plaintext and server-unverified modes before opening the identity registry |
 | `PROBECTL_BMP_REVOCATION_DATABASE_URL` | (none) | separate local PostgreSQL login URL for authoritative revocation snapshots; required and must use `sslmode=verify-full`. Grant that login only the `probectl_bmp_revocation_reader` NOLOGIN role |
 | `PROBECTL_BMP_REVOCATION_REFRESH` | `30s` | bounded interval between complete revocation snapshots; must be positive |
 | `PROBECTL_BMP_REVOCATION_TIMEOUT` | `5s` | deadline for initial and periodic revocation snapshot reads; must be positive |

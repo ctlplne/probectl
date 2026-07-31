@@ -95,7 +95,7 @@ func run() error {
 	if *revocationDatabaseURL == "" {
 		return fmt.Errorf("PROBECTL_BMP_REVOCATION_DATABASE_URL or --revocation-database-url is required")
 	}
-	if err := validateBMPRevocationDatabaseURL(*revocationDatabaseURL); err != nil {
+	if err := validateBMPDatabaseURLs(*databaseURL, *revocationDatabaseURL); err != nil {
 		return err
 	}
 
