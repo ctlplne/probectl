@@ -30,6 +30,8 @@ func TestClickHouseIsolationMandatoryServicePolicy(t *testing.T) {
 		"internal/store/flowstore/isolation_clickhouse_test.go",
 		"internal/store/otelstore/query_scoping_isolation_test.go",
 		"internal/store/ebpfstore/query_scoping_isolation_test.go",
+		"internal/store/pathstore/isolation_clickhouse_test.go",
+		"internal/store/pathstore/query_scoping_isolation_test.go",
 	}
 	var violations []string
 	for _, rel := range targets {
@@ -74,6 +76,7 @@ func TestClickHouseIsolationMandatoryServicePolicy(t *testing.T) {
 	}
 	isolationJob := workflowText[jobStart:jobEnd]
 	for _, want := range []string{
+		"PROBECTL_PATHSTORE_URL: http://default:probectl@localhost:8123",
 		"PROBECTL_OTELSTORE_URL: http://default:probectl@localhost:8123",
 		"PROBECTL_EBPFSTORE_URL: http://default:probectl@localhost:8123",
 		`PROBECTL_TEST_REQUIRE_SERVICES: "1"`,

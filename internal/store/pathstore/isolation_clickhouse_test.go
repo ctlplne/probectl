@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // U-026: the cross-tenant isolation gate against REAL ClickHouse for the
@@ -24,7 +25,7 @@ import (
 func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	url := os.Getenv("PROBECTL_PATHSTORE_URL")
 	if url == "" {
-		t.Skip("PROBECTL_PATHSTORE_URL not set — ClickHouse isolation gate runs in CI")
+		testsupport.SkipOrFatal(t, "PROBECTL_PATHSTORE_URL not set — ClickHouse isolation gate runs in CI")
 	}
 	c, err := NewClickHouse(url)
 	if err != nil {

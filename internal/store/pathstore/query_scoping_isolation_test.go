@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // RED-001: the configured ClickHouse reader user must be constrained by the
@@ -29,7 +30,7 @@ import (
 func TestPathSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	rawURL := os.Getenv("PROBECTL_PATHSTORE_URL")
 	if rawURL == "" {
-		t.Skip("PROBECTL_PATHSTORE_URL not set — ClickHouse isolation gate runs in CI")
+		testsupport.SkipOrFatal(t, "PROBECTL_PATHSTORE_URL not set — ClickHouse isolation gate runs in CI")
 	}
 	c, err := NewClickHouse(rawURL)
 	if err != nil {
@@ -86,7 +87,7 @@ func TestPathSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	}
 	if err := c.EnsureReaderRowPolicy(ctx, readerB); err != nil {
 		if strings.Contains(err.Error(), "etting") {
-			t.Skipf("custom settings prefix not configured on this server: %v", err)
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured on this server: %v", err)
 		}
 		t.Fatalf("EnsureReaderRowPolicy: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestPathSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	n, errText := pathCountAs(t, readerB, readerPw, ta)
 	if errText != "" {
 		if strings.Contains(errText, "etting") {
-			t.Skipf("custom settings prefix not configured: %s", errText)
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured: %s", errText)
 		}
 		t.Fatalf("reader read failed: %s", errText)
 	}
