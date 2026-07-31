@@ -8,9 +8,12 @@ package tsdb
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
+
+var errBatchingWriterClosed = errors.New("tsdb: batching writer is closed")
 
 // BatchingWriter coalesces concurrent Write calls into one underlying
 // remote-write request (SCALE-001). The ingest hot path did one Prometheus
@@ -31,6 +34,10 @@ type BatchingWriter struct {
 	pending []Series
 	batch   *flushResult // the open batch every current caller will share
 	timer   *time.Timer
+	closed  bool
+
+	flushMu  sync.Mutex
+	closeErr error
 }
 
 type flushResult struct {
@@ -63,6 +70,10 @@ func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 	}
 	for len(series) > 0 {
 		b.mu.Lock()
+		if b.closed {
+			b.mu.Unlock()
+			return errBatchingWriterClosed
+		}
 		if b.batch == nil {
 			b.batch = &flushResult{done: make(chan struct{})}
 			b.timer = time.AfterFunc(b.maxWait, b.flush)
@@ -103,6 +114,14 @@ func (b *BatchingWriter) WriteGlobal(ctx context.Context, series []Series) error
 	if err := ValidateGlobalSeries(series); err != nil {
 		return err
 	}
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+	b.mu.Lock()
+	closed := b.closed
+	b.mu.Unlock()
+	if closed {
+		return errBatchingWriterClosed
+	}
 	gw, ok := b.w.(GlobalWriter)
 	if !ok {
 		return ErrGlobalWriterUnsupported
@@ -142,6 +161,15 @@ func waitFlush(ctx context.Context, batch *flushResult) error {
 // Safe to call from the timer and from a size-triggered Write; it swaps the
 // open batch out under the lock so exactly one flush handles each batch.
 func (b *BatchingWriter) flush() {
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+	b.flushLocked()
+}
+
+// flushLocked writes the current queue while flushMu is held. This makes the
+// real backend mutation part of the writer lifecycle: Close cannot overtake a
+// timer flush after it has removed the batch from the queue.
+func (b *BatchingWriter) flushLocked() {
 	b.mu.Lock()
 	if b.batch == nil {
 		b.mu.Unlock()
@@ -160,6 +188,22 @@ func (b *BatchingWriter) flush() {
 
 // Close flushes any open batch and closes the underlying writer.
 func (b *BatchingWriter) Close() error {
-	b.flush()
-	return b.w.Close()
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+
+	b.mu.Lock()
+	if b.closed {
+		err := b.closeErr
+		b.mu.Unlock()
+		return err
+	}
+	b.closed = true
+	b.mu.Unlock()
+
+	b.flushLocked()
+	err := b.w.Close()
+	b.mu.Lock()
+	b.closeErr = err
+	b.mu.Unlock()
+	return err
 }
