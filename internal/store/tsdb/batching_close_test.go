@@ -8,11 +8,45 @@ package tsdb
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+type deadlineCheckingTSDBWriter struct {
+	sawDeadline atomic.Bool
+}
+
+func (w *deadlineCheckingTSDBWriter) Write(ctx context.Context, _ []Series) error {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return errors.New("TSDB batch backend context has no deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 || remaining > tsdbBackgroundFlushTimeout {
+		return errors.New("TSDB batch backend deadline is outside the internal flush bound")
+	}
+	w.sawDeadline.Store(true)
+	return nil
+}
+
+func (*deadlineCheckingTSDBWriter) Close() error { return nil }
+
+func TestBatchingWriterBackgroundFlushHasDeadline(t *testing.T) {
+	under := &deadlineCheckingTSDBWriter{}
+	batching := NewBatchingWriter(under, 1, time.Hour)
+	if err := batching.Write(
+		context.Background(),
+		[]Series{tenantSeries("probe_up")},
+	); err != nil {
+		t.Fatalf("size-triggered batch flush: %v", err)
+	}
+	if !under.sawDeadline.Load() {
+		t.Fatal("size-triggered batch flush did not supply its own backend deadline")
+	}
+}
 
 type closeAwareTSDBWriter struct {
 	writeStarted chan struct{}

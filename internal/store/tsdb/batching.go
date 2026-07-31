@@ -15,6 +15,8 @@ import (
 
 var errBatchingWriterClosed = errors.New("tsdb: batching writer is closed")
 
+const tsdbBackgroundFlushTimeout = 5 * time.Second
+
 // BatchingWriter coalesces concurrent Write calls into one underlying
 // remote-write request (SCALE-001). The ingest hot path did one Prometheus
 // remote-write HTTP POST PER probe result; under a fleet that is a POST per
@@ -182,7 +184,12 @@ func (b *BatchingWriter) flushLocked() {
 	if timer != nil {
 		timer.Stop()
 	}
-	batch.err = b.w.Write(context.Background(), pending)
+	// A batch is shared by several callers, so no individual caller may cancel
+	// the real mutation. It still needs an internally-owned deadline: otherwise
+	// a stalled backend pins flushMu and prevents Close from completing.
+	ctx, cancel := context.WithTimeout(context.Background(), tsdbBackgroundFlushTimeout)
+	batch.err = b.w.Write(ctx, pending)
+	cancel()
 	close(batch.done) // wake every Write that joined this batch with the shared result
 }
 
