@@ -18,13 +18,8 @@ if [ "$#" -eq 0 ]; then
   set -- bash
 fi
 
-user_args=()
-if [ "$(id -u)" != "0" ]; then
-  user_args=(--user "$(id -u):$(id -g)")
-fi
-
 docker run --rm \
-  "${user_args[@]}" \
+  --user "$(id -u):$(id -g)" \
   -v "$repo_root:/src" \
   -v /sys/kernel/btf:/sys/kernel/btf:ro \
   -w /src \

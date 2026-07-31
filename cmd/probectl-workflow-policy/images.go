@@ -21,6 +21,11 @@ import (
 
 var literalDigestImagePattern = regexp.MustCompile(`^[^@[:space:]]+@sha256:[0-9a-fA-F]{64}$`)
 
+const (
+	maxWorkflowScriptBytes = 1 << 20
+	maxWorkflowScripts     = 256
+)
+
 type dockerOptionSet struct {
 	longValues  map[string]struct{}
 	longFlags   map[string]struct{}
@@ -76,6 +81,7 @@ var (
 )
 
 type imageFinding struct {
+	source string
 	line   int
 	key    string
 	value  string
@@ -101,6 +107,7 @@ func runImages(paths []string, stdout, stderr io.Writer) int {
 	}
 
 	failed := false
+	inspectedScripts := make(map[string]struct{})
 	for _, path := range files {
 		root, err := loadWorkflow(path)
 		if err != nil {
@@ -114,9 +121,24 @@ func runImages(paths []string, stdout, stderr io.Writer) int {
 			failed = true
 			continue
 		}
+		scriptFindings, err := workflowInvokedScriptImageFindings(
+			path,
+			root,
+			inspectedScripts,
+		)
+		if err != nil {
+			fmt.Fprintf(stderr, "workflow-policy: %s: %v\n", path, err)
+			failed = true
+			continue
+		}
+		findings = append(findings, scriptFindings...)
 		for _, finding := range findings {
 			fmt.Fprintln(stdout, "MUTABLE workflow image (container/service/matrix/docker run/pull must use a literal @sha256 digest; SUPPLY-002/SUPPLY-4ca4490d):")
-			fmt.Fprintf(stdout, "  %s:%d:%s: %q (%s)\n", path, finding.line, finding.key, finding.value, finding.reason)
+			source := path
+			if finding.source != "" {
+				source = finding.source
+			}
+			fmt.Fprintf(stdout, "  %s:%d:%s: %q (%s)\n", source, finding.line, finding.key, finding.value, finding.reason)
 			failed = true
 		}
 	}
@@ -198,6 +220,245 @@ func workflowImageFindings(root *yaml.Node) ([]imageFinding, error) {
 	var findings []imageFinding
 	walkWorkflowImages(jobs, &findings)
 	return findings, nil
+}
+
+type workflowScriptReference struct {
+	path string
+	line int
+}
+
+// workflowInvokedScriptImageFindings closes the gap between workflow YAML and
+// checked-in helpers: a mutable docker-run image in a directly invoked
+// scripts/*.sh file is executable CI input just like an inline run step.
+func workflowInvokedScriptImageFindings(
+	workflowPath string,
+	root *yaml.Node,
+	inspected map[string]struct{},
+) ([]imageFinding, error) {
+	references := workflowScriptReferences(root)
+	if len(references) == 0 {
+		return nil, nil
+	}
+	repositoryRoot, err := workflowRepositoryRoot(workflowPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var findings []imageFinding
+	for _, reference := range references {
+		scriptPath, err := resolveWorkflowScript(repositoryRoot, reference)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := inspected[scriptPath]; ok {
+			continue
+		}
+		if len(inspected) >= maxWorkflowScripts {
+			return nil, fmt.Errorf(
+				"workflow-invoked script count exceeds %d-file limit",
+				maxWorkflowScripts,
+			)
+		}
+		inspected[scriptPath] = struct{}{}
+		script, err := readWorkflowScript(scriptPath)
+		if err != nil {
+			return nil, err
+		}
+		localBuildVariables := localDockerBuildImageVariables(string(script))
+		node := &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Tag:   "!!str",
+			Value: string(script),
+			Line:  1,
+		}
+		for _, finding := range inspectDockerRunScript(node) {
+			if finding.key != "docker run" {
+				continue
+			}
+			if finding.reason ==
+				"docker image operand contains an unresolved shell or GitHub expression" {
+				if variable := shellVariableName(finding.value); variable != "" {
+					if buildLine, ok := localBuildVariables[variable]; ok &&
+						buildLine < finding.line {
+						continue
+					}
+				}
+			}
+			finding.source = scriptPath
+			findings = append(findings, finding)
+		}
+	}
+	return findings, nil
+}
+
+func workflowScriptReferences(root *yaml.Node) []workflowScriptReference {
+	var references []workflowScriptReference
+	var walk func(*yaml.Node)
+	walk = func(node *yaml.Node) {
+		switch node.Kind {
+		case yaml.MappingNode:
+			for index := 0; index < len(node.Content); index += 2 {
+				key, value := node.Content[index], node.Content[index+1]
+				if key.Value == "run" &&
+					value.Kind == yaml.ScalarNode &&
+					value.Tag == "!!str" {
+					for _, command := range staticShellCommands(value.Value) {
+						for _, word := range command {
+							path := filepath.ToSlash(word.value)
+							path = strings.TrimPrefix(path, "./")
+							if word.dynamic ||
+								!strings.HasPrefix(path, "scripts/") ||
+								!strings.EqualFold(filepath.Ext(path), ".sh") {
+								continue
+							}
+							references = append(
+								references,
+								workflowScriptReference{
+									path: path,
+									line: value.Line + word.line - 1,
+								},
+							)
+						}
+					}
+				}
+				walk(value)
+			}
+		case yaml.SequenceNode:
+			for _, child := range node.Content {
+				walk(child)
+			}
+		}
+	}
+	walk(root)
+	return references
+}
+
+func workflowRepositoryRoot(workflowPath string) (string, error) {
+	workflows := filepath.Dir(filepath.Clean(workflowPath))
+	github := filepath.Dir(workflows)
+	if filepath.Base(workflows) != "workflows" ||
+		filepath.Base(github) != ".github" {
+		return "", fmt.Errorf(
+			"cannot locate repository root above workflow %s",
+			workflowPath,
+		)
+	}
+	return filepath.Dir(github), nil
+}
+
+func resolveWorkflowScript(
+	repositoryRoot string,
+	reference workflowScriptReference,
+) (string, error) {
+	clean := filepath.Clean(reference.path)
+	scriptsRoot := filepath.Join(repositoryRoot, "scripts")
+	resolved := filepath.Join(repositoryRoot, clean)
+	relative, err := filepath.Rel(scriptsRoot, resolved)
+	if err != nil ||
+		relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf(
+			"workflow-invoked script at line %d escapes scripts/",
+			reference.line,
+		)
+	}
+	return resolved, nil
+}
+
+func readWorkflowScript(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect workflow-invoked script %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf(
+			"workflow-invoked script %s must be a regular non-symlink file",
+			path,
+		)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read workflow-invoked script %s: %w", path, err)
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, maxWorkflowScriptBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read workflow-invoked script %s: %w", path, err)
+	}
+	if len(raw) > maxWorkflowScriptBytes {
+		return nil, fmt.Errorf(
+			"read workflow-invoked script %s: exceeds %d bytes",
+			path,
+			maxWorkflowScriptBytes,
+		)
+	}
+	return raw, nil
+}
+
+// localDockerBuildImageVariables returns variables used as docker-build tags.
+// Running the immediately checked-out image by that variable does not consult
+// mutable registry state; every registry-backed run remains digest-required.
+func localDockerBuildImageVariables(script string) map[string]int {
+	variables := make(map[string]int)
+	for _, command := range staticShellCommands(script) {
+		dockerIndex := dockerExecutableIndex(command)
+		if dockerIndex < 0 {
+			continue
+		}
+		subcommandIndex, stop, reason := firstDockerArgument(
+			command,
+			dockerIndex+1,
+			dockerGlobalOptions,
+		)
+		if stop || reason != "" ||
+			command[subcommandIndex].value != "build" {
+			continue
+		}
+		for index := subcommandIndex + 1; index < len(command); index++ {
+			value := command[index].value
+			var tag string
+			switch {
+			case value == "-t" || value == "--tag":
+				index = nextShellArgument(command, index+1)
+				if index < 0 {
+					break
+				}
+				tag = command[index].value
+			case strings.HasPrefix(value, "--tag="):
+				tag = strings.TrimPrefix(value, "--tag=")
+			}
+			if variable := shellVariableName(tag); variable != "" {
+				if _, exists := variables[variable]; !exists {
+					variables[variable] = command[dockerIndex].line
+				}
+			}
+		}
+	}
+	return variables
+}
+
+func shellVariableName(value string) string {
+	if strings.HasPrefix(value, "${") &&
+		strings.HasSuffix(value, "}") {
+		value = strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+	} else if strings.HasPrefix(value, "$") {
+		value = strings.TrimPrefix(value, "$")
+	} else {
+		return ""
+	}
+	if value == "" {
+		return ""
+	}
+	for index, character := range value {
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			character == '_' ||
+			(index > 0 && character >= '0' && character <= '9') {
+			continue
+		}
+		return ""
+	}
+	return value
 }
 
 func walkWorkflowImages(node *yaml.Node, findings *[]imageFinding) {

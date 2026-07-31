@@ -7,6 +7,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -258,5 +260,123 @@ jobs:
 				t.Fatalf("digest-pinned workflow produced findings: %q", stdout.String())
 			}
 		})
+	}
+}
+
+func TestWorkflowInvokedScriptDockerImagePin(t *testing.T) {
+	t.Parallel()
+
+	repository := t.TempDir()
+	workflowDirectory := filepath.Join(repository, ".github", "workflows")
+	scriptDirectory := filepath.Join(repository, "scripts")
+	if err := os.MkdirAll(workflowDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(scriptDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	workflow := filepath.Join(workflowDirectory, "ci.yml")
+	if err := os.WriteFile(workflow, []byte(`
+jobs:
+  helper:
+    steps:
+      - run: bash scripts/ci-helper.sh
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(scriptDirectory, "ci-helper.sh")
+	if err := os.WriteFile(
+		helper,
+		[]byte("#!/usr/bin/env bash\ndocker run --rm postgres:16 true\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr strings.Builder
+	if code := run([]string{"images", workflow}, &stdout, &stderr); code != 1 {
+		t.Fatalf(
+			"mutable workflow helper: run() = %d, want 1; stdout=%q stderr=%q",
+			code,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	if !strings.Contains(stdout.String(), "ci-helper.sh") ||
+		!strings.Contains(stdout.String(), "postgres:16") {
+		t.Fatalf("diagnostic does not identify helper and image: %q", stdout.String())
+	}
+
+	if err := os.WriteFile(
+		helper,
+		[]byte("#!/usr/bin/env bash\nIMAGE=postgres:16\ndocker run --rm \"$IMAGE\" true\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"images", workflow}, &stdout, &stderr); code != 1 {
+		t.Fatalf(
+			"variable-hidden mutable helper: run() = %d, want 1; stdout=%q stderr=%q",
+			code,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+
+	if err := os.WriteFile(
+		helper,
+		[]byte("#!/usr/bin/env bash\nimage=postgres:16\ndocker run --rm \"$image\" true\ndocker build -t \"$image\" .\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"images", workflow}, &stdout, &stderr); code != 1 {
+		t.Fatalf(
+			"run-before-build helper: run() = %d, want 1; stdout=%q stderr=%q",
+			code,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+
+	if err := os.WriteFile(
+		helper,
+		[]byte("#!/usr/bin/env bash\ndocker run --rm postgres:16@sha256:"+zeroDigest+" true\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"images", workflow}, &stdout, &stderr); code != 0 {
+		t.Fatalf(
+			"digest-pinned helper: run() = %d, want 0; stdout=%q stderr=%q",
+			code,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+
+	if err := os.WriteFile(
+		helper,
+		[]byte("#!/usr/bin/env bash\nimage=toolchain:local\ndocker build -t \"$image\" .\ndocker run --rm \"$image\" true\n"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"images", workflow}, &stdout, &stderr); code != 0 {
+		t.Fatalf(
+			"locally built helper image: run() = %d, want 0; stdout=%q stderr=%q",
+			code,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 }

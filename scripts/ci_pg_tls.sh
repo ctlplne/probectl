@@ -23,7 +23,7 @@ openssl x509 -req -in "${dir}/server.csr" -CA "${dir}/ca.crt" -CAkey "${dir}/ca.
 docker run -d --name ci-postgres -p 5432:5432 \
   -e POSTGRES_USER=probectl -e POSTGRES_PASSWORD=probectl -e POSTGRES_DB=probectl \
   -v "$(pwd)/${dir}:/tlsin:ro" \
-  postgres:16 \
+  postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae \
   bash -c "install -o postgres -g postgres -m 600 /tlsin/server.key /var/lib/postgresql/server.key \
     && install -o postgres -g postgres -m 644 /tlsin/server.crt /var/lib/postgresql/server.crt \
     && exec docker-entrypoint.sh postgres -c ssl=on \
