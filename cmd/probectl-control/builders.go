@@ -1022,7 +1022,11 @@ func registerClickHouseBreakerGauges(m *metrics.Registry, pathCH *pathstore.Clic
 	if pathCH != nil {
 		registerClickHouseBreakerGaugeSet(m, "path", pathCH)
 	}
-	if src, ok := flowStore.(breakerStatsSource); ok {
+	flowBreakerStore := flowStore
+	if ch, ok := flowstore.ClickHouseStore(flowStore); ok {
+		flowBreakerStore = ch
+	}
+	if src, ok := flowBreakerStore.(breakerStatsSource); ok {
 		registerClickHouseBreakerGaugeSet(m, "flow", src)
 	}
 }

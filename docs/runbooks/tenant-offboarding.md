@@ -140,6 +140,13 @@ fence and is then erased; a later or rolling-old writer waits for the committed
 transition and is rejected. The append-only `audit_events` and
 `audit_subject_erasures` tables keep their stronger stream-lock triggers and
 are deleted and count-verified in one routed transaction under that lock.
+The production flow-store decorator applies the same contract to every
+ClickHouse or in-memory flow `Insert`: it takes shared leases in canonical
+tenant order, re-reads every tenant's durable lifecycle row, and holds the
+leases through the actual backend write. A mixed-tenant batch is rejected
+before any row reaches the backend if one tenant is fenced. Transient database
+or lease errors fail the whole flow insert and are safe to retry; once the
+offboarding fence commits, retries for that tenant remain rejected.
 Provider-global lifecycle evidence and tenant-key destruction remain on their
 separate provider-maintenance paths, so retrying an incomplete erase can still
 record its bounded receipt or complete crypto-shred without reopening ordinary

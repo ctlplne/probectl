@@ -90,7 +90,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		var ebpfCH *ebpfstore.ClickHouse
 		var otelCH *otelstore.ClickHouse
 		var endpointCH *endpointstore.ClickHouse
-		if c, ok := flowStore.(*flowstore.ClickHouse); ok {
+		if c, ok := flowstore.ClickHouseStore(flowStore); ok {
 			flowCH, ch.Flows = c, c
 			c.WithRouter(func(ctx context.Context, tenantID string) (flowstore.Target, error) {
 				t, err := router.TargetsFor(ctx, tenantID)
