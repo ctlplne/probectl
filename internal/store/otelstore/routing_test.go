@@ -20,8 +20,84 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
+
+type repeatedByteReader struct {
+	remaining int64
+	value     byte
+}
+
+func (r *repeatedByteReader) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:int(r.remaining)]
+	}
+	for i := range p {
+		p[i] = r.value
+	}
+	r.remaining -= int64(len(p))
+	return len(p), nil
+}
+
+func TestClickHouseQueryResponseBound(t *testing.T) {
+	t.Run("oversized", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			query, _ := url.QueryUnescape(r.URL.Query().Get("query"))
+			if !strings.Contains(query, "FORMAT JSON") {
+				return
+			}
+			if !strings.Contains(query, "SELECT tenant_id, trace_id") {
+				_, _ = io.WriteString(w, `{"data":[]}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"data":[{"tenant_id":"tenant-a","trace_id":"trace-a","span_id":"span-a","name":"`)
+			_, _ = io.Copy(w, &repeatedByteReader{
+				remaining: chclient.MaxResponseBytes,
+				value:     'x',
+			})
+			_, _ = io.WriteString(w, `","start_us":"1","duration_ns":"1","attrs":"{}"}]}`)
+		}))
+		defer srv.Close()
+
+		c, err := NewClickHouse(srv.URL, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.QuerySpans(context.Background(), "tenant-a", SpanQuery{}); !errors.Is(err, chclient.ErrResponseTooLarge) {
+			t.Fatalf("oversized QuerySpans error = %v, want %v", err, chclient.ErrResponseTooLarge)
+		}
+	})
+
+	t.Run("bounded valid JSON", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			query, _ := url.QueryUnescape(r.URL.Query().Get("query"))
+			if strings.Contains(query, "FORMAT JSON") {
+				if strings.Contains(query, "SELECT tenant_id, trace_id") {
+					_, _ = io.WriteString(w, `{"data":[{"tenant_id":"tenant-a","trace_id":"trace-a","span_id":"span-a","name":"bounded","start_us":"1","duration_ns":"2","attrs":"{}"}]}`)
+				} else {
+					_, _ = io.WriteString(w, `{"data":[]}`)
+				}
+			}
+		}))
+		defer srv.Close()
+
+		c, err := NewClickHouse(srv.URL, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		spans, err := c.QuerySpans(context.Background(), "tenant-a", SpanQuery{})
+		if err != nil {
+			t.Fatalf("bounded QuerySpans: %v", err)
+		}
+		if len(spans) != 1 || spans[0].TenantID != "tenant-a" || spans[0].Name != "bounded" {
+			t.Fatalf("bounded QuerySpans = %+v", spans)
+		}
+	})
+}
 
 func TestOTelTargetRouterReceivesOperationContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

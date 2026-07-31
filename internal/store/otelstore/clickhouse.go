@@ -985,7 +985,11 @@ func (c *ClickHouse) query(ctx context.Context, base, extraQS, sql string, p chP
 	var out struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	body, err := chclient.ReadResponseBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("otelstore: read result: %w", err)
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&out); err != nil {
 		return nil, fmt.Errorf("otelstore: decode result: %w", err)
 	}
 	return out.Data, nil
