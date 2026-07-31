@@ -147,6 +147,9 @@ leases through the actual backend write. A mixed-tenant batch is rejected
 before any row reaches the backend if one tenant is fenced. Transient database
 or lease errors fail the whole flow insert and are safe to retry; once the
 offboarding fence commits, retries for that tenant remain rejected.
+Endpoint/DEM event `Insert` uses the same durable lease at its store boundary,
+including the lightweight memory backend and every pooled or silo-routed
+ClickHouse target.
 Provider-global lifecycle evidence and tenant-key destruction remain on their
 separate provider-maintenance paths, so retrying an incomplete erase can still
 record its bounded receipt or complete crypto-shred without reopening ordinary

@@ -160,15 +160,20 @@ func runServe(cfg *config.Config, db *store.DB, log *slog.Logger, st *serveStore
 func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *serveStores, secretsResolver *secrets.Resolver) *serveRuntime {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	g, gctx := errgroup.WithContext(ctx)
+	writerFence := tenancy.NewPostgresWriterFence(db.Pool())
 	flowStore := flowstore.WithTenantWriteFence(
 		st.flowStore,
-		tenancy.NewPostgresWriterFence(db.Pool()),
+		writerFence,
+	)
+	endpointStore := endpointstore.WithTenantWriteFence(
+		st.endpointStore,
+		writerFence,
 	)
 	return &serveRuntime{
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
 		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, ingestWriter: st.ingestWriter,
 		pathStore: st.pathStore, pathCH: st.pathCH, otelStore: st.otelStore,
-		flowStore: flowStore, ebpfStore: st.ebpfStore, endpointStore: st.endpointStore, objectStore: st.objectStore,
+		flowStore: flowStore, ebpfStore: st.ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
 		ctx: ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
 	}
