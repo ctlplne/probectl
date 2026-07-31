@@ -2385,7 +2385,7 @@ streams — no outbound calls — and, per the guardrails, only ever *signals*.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_NDR_ENABLED`   | `true` | behavioral detection engine (DGA/exfil/beaconing/egress/lateral) over local DNS/flow/eBPF streams; signals only — never blocks |
-| `PROBECTL_NDR_RULES_DIR` | (none) | detection-as-code overlay directory; rules merge by id over the embedded defaults (a malformed dir fails startup) |
+| `PROBECTL_NDR_RULES_DIR` | (none) | detection-as-code overlay directory; rules merge by id over the embedded defaults, malformed directories fail startup, and each overlay file is capped at 1 MiB before decode |
 
 Detections are confidence-scored threat-plane signals (`ndr.*`) exported to
 incidents, the Security triage surface, and the SIEM (see *SIEM export* above).

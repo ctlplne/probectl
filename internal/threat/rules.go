@@ -18,6 +18,7 @@ package threat
 import (
 	"embed"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +27,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxRuleFileBytes = 1 << 20
 
 // RuleKind names a behavioral detector the engine implements.
 type RuleKind string
@@ -117,7 +120,7 @@ func LoadRules(dir string) ([]DetectionRule, error) {
 			if e.IsDir() || (!strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml")) {
 				continue
 			}
-			raw, err := os.ReadFile(filepath.Join(dir, name))
+			raw, err := readRuleFile(filepath.Join(dir, name))
 			if err != nil {
 				return nil, fmt.Errorf("threat: read rule file %s: %w", name, err)
 			}
@@ -147,6 +150,25 @@ func LoadRules(dir string) ([]DetectionRule, error) {
 	}
 	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
 	return rules, nil
+}
+
+func readRuleFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxRuleFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxRuleFileBytes {
+		return nil, fmt.Errorf("rule file exceeds %d-byte limit", maxRuleFileBytes)
+	}
+	return raw, nil
 }
 
 func loadFS() ([]DetectionRule, error) {

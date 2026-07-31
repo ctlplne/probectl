@@ -7,6 +7,7 @@
 package threat
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -110,4 +111,45 @@ func TestLoadRulesFailsClosed(t *testing.T) {
 	if _, err := LoadRules("/does/not/exist"); err == nil || !strings.Contains(err.Error(), "rules dir") {
 		t.Errorf("missing rules dir: %v", err)
 	}
+}
+
+func TestLoadRulesBoundsOverlayFile(t *testing.T) {
+	const limit = 1 << 20
+	valid := []byte(`rules:
+  - id: ndr-size-bound-test
+    version: 1
+    kind: lateral
+    name: Size bound test
+    severity: info
+    base_confidence: 10
+    suppress: 1m
+    thresholds: { fanout: 3, window_s: 60 }
+`)
+	pad := func(size int) []byte {
+		t.Helper()
+		if size < len(valid)+2 {
+			t.Fatalf("fixture size %d is too small", size)
+		}
+		return append(append(append([]byte{}, valid...), '\n', '#'), bytes.Repeat([]byte{'x'}, size-len(valid)-2)...)
+	}
+
+	t.Run("maximum", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(dir+"/maximum.yaml", pad(limit), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadRules(dir); err != nil {
+			t.Fatalf("maximum-sized rule file rejected: %v", err)
+		}
+	})
+
+	t.Run("one past maximum", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(dir+"/oversized.yaml", pad(limit+1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadRules(dir); err == nil || !strings.Contains(err.Error(), "exceeds 1048576-byte limit") {
+			t.Fatalf("one-past-maximum rule file error = %v", err)
+		}
+	})
 }

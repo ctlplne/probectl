@@ -132,7 +132,10 @@ rules:
 ```
 
 A malformed rules directory **fails startup** (fail closed — tuning the
-operator believes is live must actually be live, not silently dropped). Rules
+operator believes is live must actually be live, not silently dropped). Rule
+files are limited to **1 MiB each** and are rejected before YAML decoding when
+they exceed that ceiling, so an oversized operator-mounted overlay cannot make
+startup buffer an unbounded file. Rules
 are validated in `validateRules`: non-empty unique IDs, a known `kind`,
 `version >= 1`, `severity` in `{info, warning, critical}`,
 `base_confidence` in `0..100`, and a non-negative `suppress`. Two rules
