@@ -4,6 +4,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+// Package configschema holds the shared strict-decoding primitives for
+// operator-supplied YAML configuration (agent YAML, control-plane conffiles).
+// The invariant it owns: an unknown field, a duplicated document, or any
+// shape surprise in operator config FAILS decode — a typo must stop startup,
+// never silently disable a safety knob. Every YAML config surface routes
+// through this package rather than calling the YAML library directly.
 package configschema
 
 import (
