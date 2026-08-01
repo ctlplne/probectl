@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/ctlplne/probectl/internal/canary"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
@@ -56,7 +58,11 @@ func (co *Coordinator) Run(ctx context.Context) error {
 			}
 			co.log.Warn("coordination poll ended; reconnecting", "error", err.Error())
 		}
-		if !sleep(ctx, backoff) {
+		// SCALE-008, same as the forwarder: jitter so a fleet does not
+		// reconnect in lockstep after a control-plane restart. This loop is
+		// otherwise identical to Agent.forward's, and used to be the one of
+		// the two that slept on the raw backoff.
+		if !sleep(ctx, jittered(backoff)) {
 			return nil
 		}
 		backoff = min(backoff*2, maxBackoff)
@@ -64,25 +70,38 @@ func (co *Coordinator) Run(ctx context.Context) error {
 	return nil
 }
 
+// poll runs coordination tasks until ctx is canceled or the session fails.
+//
+// Task handlers are JOINED before poll returns (errgroup, the sanctioned
+// idiom). They used to be bare `go co.handle(...)` calls, which outlived Run
+// and — worse — could still be using client after the caller closed it on the
+// way round the reconnect loop.
 func (co *Coordinator) poll(ctx context.Context, client *Client) error {
 	ticker := time.NewTicker(co.cfg.A2A.PollInterval.Std())
 	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			resp, err := client.PollCoordination(pctx)
-			cancel()
-			if err != nil {
-				return err
-			}
-			if resp.GetHasTask() {
-				go co.handle(ctx, client, resp.GetTask())
+
+	var handlers errgroup.Group
+	pollErr := func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				resp, err := client.PollCoordination(pctx)
+				cancel()
+				if err != nil {
+					return err
+				}
+				if resp.GetHasTask() {
+					task := resp.GetTask()
+					handlers.Go(func() error { co.handle(ctx, client, task); return nil })
+				}
 			}
 		}
-	}
+	}()
+	_ = handlers.Wait() // handle never returns an error; it logs and gives up
+	return pollErr
 }
 
 func (co *Coordinator) handle(ctx context.Context, client *Client, task *agentv1.A2ATask) {

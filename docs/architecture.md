@@ -270,6 +270,37 @@ van is away. Delivery is **at-least-once**: a result may arrive twice (the
 consumer tolerates that), but never zero times. Every buffered and emitted
 result is stamped with the agent's tenant and id.
 
+## Concurrency idioms
+
+probectl uses a small, fixed set of concurrency patterns. The point is not
+taste: a codebase with five vocabularies for "run these together" is a codebase
+where a reviewer cannot tell a deliberate detached goroutine from a forgotten
+one. These are the sanctioned patterns — reach for the one that fits before
+inventing a sixth.
+
+| Need | Pattern | Where |
+|---|---|---|
+| Fan out and JOIN | `errgroup.Group` — every goroutine joined before the starter returns | `internal/agent` (host schedules, coordination handlers), `internal/cluster`, `internal/agent/metrics` |
+| Collapse duplicate work | `singleflight.Group` — concurrent misses share one load | `internal/control` ABAC policy cache |
+| Mutual exclusion across replicas | namespaced, transaction-scoped Postgres advisory locks | nine namespaces, see `internal/store` |
+| Serialize a write against concurrent writers | guarded compare-and-swap | the WORM audit head |
+| Hold a role for a bounded time | fencing-epoch lease | `pglease` |
+| Retry a remote dependency | exponential backoff with **jitter** (`jittered`) | agent forwarder and coordinator |
+
+Two rules carry most of the weight:
+
+**Joined lifetimes.** When a `Run` returns, nothing it started is still running.
+A goroutine that outlives its starter keeps holding resources the starter has
+already released — the coordinator's task handlers once outlived `Run` and could
+still be using a gRPC client the reconnect loop had closed. If a goroutine must
+genuinely outlive the call, it belongs to a supervisor with its own `Run`, not
+to a bare `go`.
+
+**Jitter every backoff.** Backoff without jitter converts one control-plane
+restart into a synchronized fleet-wide reconnect (SCALE-008). Two identical
+reconnect loops with only one jittered is the failure mode this rule exists to
+prevent; it happened.
+
 ## Result pipeline
 
 A result's journey: agent → gRPC `StreamResults` → control-plane ingest

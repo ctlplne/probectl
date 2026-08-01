@@ -11,8 +11,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strconv"
-	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
 	"github.com/ctlplne/probectl/internal/canary"
@@ -68,25 +69,28 @@ type Host struct {
 }
 
 // Run runs each canary on its interval until ctx is canceled.
+//
+// Fan-out uses errgroup, the one sanctioned agent-side idiom (docs/architecture
+// .md, "Concurrency idioms"): every goroutine is joined before Run returns, and
+// there is a single place a future error return can be threaded through. The
+// raw WaitGroup this replaced did the same job with a second vocabulary.
 func (h *Host) Run(ctx context.Context) {
-	var wg sync.WaitGroup
+	var g errgroup.Group
 	for _, s := range h.scheduled {
-		wg.Add(1)
-		go func(s scheduled) {
-			defer wg.Done()
+		g.Go(func() error {
 			t := time.NewTicker(s.interval)
 			defer t.Stop()
 			for {
 				select {
 				case <-ctx.Done():
-					return
+					return nil
 				case <-t.C:
 					h.probe(ctx, s)
 				}
 			}
-		}(s)
+		})
 	}
-	wg.Wait()
+	_ = g.Wait() // no schedule goroutine returns an error; ctx is the only exit
 }
 
 func (h *Host) probe(ctx context.Context, s scheduled) {
