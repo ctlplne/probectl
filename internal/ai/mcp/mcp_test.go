@@ -48,7 +48,7 @@ type fakeBackend struct {
 	mu              sync.Mutex
 	calls           []string
 	tenants         []string
-	listTestsResult any
+	listTestsResult *TestsResult
 	listTestsErr    error
 }
 
@@ -78,44 +78,44 @@ func (f *fakeBackend) seenTenants() []string {
 	defer f.mu.Unlock()
 	return append([]string(nil), f.tenants...)
 }
-func (f *fakeBackend) ListTests(_ context.Context, p *auth.Principal) (any, error) {
+func (f *fakeBackend) ListTests(_ context.Context, p *auth.Principal) (TestsResult, error) {
 	f.rec("ListTests", p)
 	if f.listTestsErr != nil {
-		return nil, f.listTestsErr
+		return TestsResult{}, f.listTestsErr
 	}
 	if f.listTestsResult != nil {
-		return f.listTestsResult, nil
+		return *f.listTestsResult, nil
 	}
-	return map[string]any{"tests": []any{}}, nil
+	return TestsResult{Tests: []TestSummary{}}, nil
 }
-func (f *fakeBackend) GetPath(_ context.Context, p *auth.Principal, target string) (any, error) {
+func (f *fakeBackend) GetPath(_ context.Context, p *auth.Principal, target string) (PathResult, error) {
 	f.rec("GetPath", p)
-	return map[string]any{"found": true, "target": target}, nil
+	return PathResult{Found: true, Target: target}, nil
 }
-func (f *fakeBackend) GetBGPEvents(_ context.Context, p *auth.Principal, _, _ string, _ int) (any, error) {
+func (f *fakeBackend) GetBGPEvents(_ context.Context, p *auth.Principal, _, _ string, _ int) (EventsResult, error) {
 	f.rec("GetBGPEvents", p)
-	return map[string]any{"events": []any{}}, nil
+	return EventsResult{Events: []ai.Row{}}, nil
 }
-func (f *fakeBackend) QueryFlows(_ context.Context, p *auth.Principal, _, _, _ string, _ int) (any, error) {
+func (f *fakeBackend) QueryFlows(_ context.Context, p *auth.Principal, _, _, _ string, _ int) (EventsResult, error) {
 	f.rec("QueryFlows", p)
-	return map[string]any{"events": []any{}}, nil
+	return EventsResult{Events: []ai.Row{}}, nil
 }
-func (f *fakeBackend) GetIncident(_ context.Context, p *auth.Principal, id string) (any, error) {
+func (f *fakeBackend) GetIncident(_ context.Context, p *auth.Principal, id string) (IncidentResult, error) {
 	f.rec("GetIncident", p)
-	return map[string]any{"id": id}, nil
+	return IncidentResult{ID: id}, nil
 }
-func (f *fakeBackend) CorrelateIncident(_ context.Context, p *auth.Principal, id string) (any, error) {
+func (f *fakeBackend) CorrelateIncident(_ context.Context, p *auth.Principal, id string) (CorrelationResult, error) {
 	f.rec("CorrelateIncident", p)
-	return map[string]any{"id": id}, nil
+	return CorrelationResult{Incident: IncidentResult{ID: id}}, nil
 }
-func (f *fakeBackend) ExplainDegradation(_ context.Context, p *auth.Principal, q string, _ map[string]string) (any, error) {
+func (f *fakeBackend) ExplainDegradation(_ context.Context, p *auth.Principal, q string, _ map[string]string) (ai.Answer, error) {
 	f.rec("ExplainDegradation", p)
-	return map[string]any{"root_cause": "x", "question": q}, nil
+	return ai.Answer{RootCause: "x", Question: q}, nil
 }
 
-func (f *fakeBackend) ProposeRemediation(_ context.Context, p *auth.Principal, kind, title, _, _, _ string) (any, error) {
+func (f *fakeBackend) ProposeRemediation(_ context.Context, p *auth.Principal, kind, title, _, _, _ string) (ProposalResult, error) {
 	f.rec("ProposeRemediation", p)
-	return map[string]any{"state": "proposed", "kind": kind, "title": title}, nil
+	return ProposalResult{State: "proposed", Kind: kind, Title: title}, nil
 }
 
 func principal(tenant string, perms ...string) *auth.Principal {
@@ -650,8 +650,8 @@ func TestListTestsSerializedPayloadLimit(t *testing.T) {
 		}
 	})
 
-	fb := &fakeBackend{listTestsResult: map[string]any{
-		"tests": []any{strings.Repeat("x", maxMCPToolResultBytes+1)},
+	fb := &fakeBackend{listTestsResult: &TestsResult{
+		Tests: []TestSummary{{Name: strings.Repeat("x", maxMCPToolResultBytes+1)}},
 	}}
 	s := newTestServer(fb, testGate())
 	raw := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)

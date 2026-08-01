@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -180,10 +181,10 @@ func (b mcpBackend) scope(ctx context.Context, p *auth.Principal, fn func(contex
 	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(p.TenantID)), b.pool, fn)
 }
 
-func (b mcpBackend) ListTests(ctx context.Context, p *auth.Principal) (any, error) {
+func (b mcpBackend) ListTests(ctx context.Context, p *auth.Principal) (mcp.TestsResult, error) {
 	release, err := b.beginQuery(ctx, p)
 	if err != nil {
-		return nil, err
+		return mcp.TestsResult{}, err
 	}
 	defer release()
 
@@ -195,68 +196,147 @@ func (b mcpBackend) ListTests(ctx context.Context, p *auth.Principal) (any, erro
 		tests = t
 		return e
 	}); err != nil {
-		return nil, err
+		return mcp.TestsResult{}, err
 	}
 	truncated := len(tests) > mcpMaxListedTests
 	if truncated {
 		tests = tests[:mcpMaxListedTests]
 	}
-	return map[string]any{
-		"tests":     tests,
-		"limit":     mcpMaxListedTests,
-		"truncated": truncated,
-	}, nil
+	// Projection, not marshaling: TenantID and the free-form Params map stay
+	// on this side of the boundary (see mcp.TestSummary).
+	out := mcp.TestsResult{Tests: make([]mcp.TestSummary, 0, len(tests)), Limit: mcpMaxListedTests, Truncated: truncated}
+	for _, t := range tests {
+		out.Tests = append(out.Tests, mcp.TestSummary{
+			ID:              t.ID,
+			Name:            t.Name,
+			Type:            t.Type,
+			Target:          t.Target,
+			IntervalSeconds: t.IntervalSeconds,
+			TimeoutSeconds:  t.TimeoutSeconds,
+			Enabled:         t.Enabled,
+		})
+	}
+	return out, nil
 }
 
-func (b mcpBackend) GetPath(ctx context.Context, p *auth.Principal, target string) (any, error) {
+func (b mcpBackend) GetPath(ctx context.Context, p *auth.Principal, target string) (mcp.PathResult, error) {
 	release, err := b.beginQuery(ctx, p)
 	if err != nil {
-		return nil, err
+		return mcp.PathResult{}, err
 	}
 	defer release()
 
 	pth, ok, err := b.pathStore.Latest(ctx, p.TenantID, target)
 	if err != nil {
-		return nil, err
+		return mcp.PathResult{}, err
 	}
 	if !ok {
-		return map[string]any{"found": false, "target": target}, nil
+		return mcp.PathResult{Found: false, Target: target}, nil
 	}
-	return map[string]any{"found": true, "path": pth}, nil
+	out := mcp.PathResult{
+		Found:              true,
+		Target:             pth.Target,
+		Mode:               pth.Mode,
+		DestinationReached: pth.DestinationReached,
+		Hops:               make([]mcp.PathHop, 0, len(pth.Hops)),
+	}
+	for _, h := range pth.Hops {
+		hop := mcp.PathHop{TTL: h.TTL, Nodes: make([]mcp.PathNode, 0, len(h.Nodes))}
+		for _, n := range h.Nodes {
+			hop.Nodes = append(hop.Nodes, mcp.PathNode{
+				IP:        n.IP,
+				Sent:      n.Sent,
+				Received:  n.Received,
+				LossRatio: n.LossRatio,
+				RTTAvgMs:  n.RTTAvgMs,
+				RTTMaxMs:  n.RTTMaxMs,
+				MPLS:      len(n.MPLS) > 0,
+			})
+		}
+		out.Hops = append(out.Hops, hop)
+	}
+	return out, nil
 }
 
-func (b mcpBackend) GetIncident(ctx context.Context, p *auth.Principal, id string) (any, error) {
+func (b mcpBackend) GetIncident(ctx context.Context, p *auth.Principal, id string) (mcp.IncidentResult, error) {
 	release, err := b.beginQuery(ctx, p)
 	if err != nil {
-		return nil, err
+		return mcp.IncidentResult{}, err
 	}
 	defer release()
 
 	inc, err := b.incident(ctx, p, id)
 	if err != nil {
-		return nil, err
+		return mcp.IncidentResult{}, err
 	}
-	return inc, nil
+	return projectIncident(inc), nil
 }
 
-func (b mcpBackend) CorrelateIncident(ctx context.Context, p *auth.Principal, id string) (any, error) {
+// projectIncident reduces a stored incident to the published contract. The
+// per-signal Attributes map is the field this drops on purpose: any plane can
+// add keys to it, and none of them are reviewed at this boundary.
+func projectIncident(inc *incident.Incident) mcp.IncidentResult {
+	if inc == nil {
+		return mcp.IncidentResult{}
+	}
+	out := mcp.IncidentResult{
+		ID:               inc.ID,
+		Status:           string(inc.Status),
+		Severity:         string(inc.Severity),
+		Title:            inc.Title,
+		Target:           inc.Target,
+		Prefix:           inc.Prefix,
+		StartedAt:        inc.StartedAt,
+		LastSeenAt:       inc.LastSeenAt,
+		ResolvedAt:       inc.ResolvedAt,
+		SignalCount:      inc.SignalCount,
+		SignalsTruncated: inc.SignalsTruncated,
+		SignalsLimit:     inc.SignalsLimit,
+		Signals:          make([]mcp.IncidentSignal, 0, len(inc.Signals)),
+	}
+	for _, sig := range inc.Signals {
+		out.Signals = append(out.Signals, mcp.IncidentSignal{
+			Plane:      sig.Plane,
+			Kind:       sig.Kind,
+			Severity:   string(sig.Severity),
+			Title:      sig.Title,
+			Summary:    sig.Summary,
+			Target:     sig.Target,
+			Prefix:     sig.Prefix,
+			OccurredAt: sig.OccurredAt,
+		})
+	}
+	return out
+}
+
+func (b mcpBackend) CorrelateIncident(ctx context.Context, p *auth.Principal, id string) (mcp.CorrelationResult, error) {
 	release, err := b.beginQuery(ctx, p)
 	if err != nil {
-		return nil, err
+		return mcp.CorrelationResult{}, err
 	}
 	defer release()
 
 	inc, err := b.incident(ctx, p, id)
 	if err != nil {
-		return nil, err
+		return mcp.CorrelationResult{}, err
 	}
 	// The incident IS the cross-plane correlation (S17): summarize which planes
-	// contributed alongside the full timeline.
-	planes := map[string]int{}
+	// contributed alongside the full timeline. The summary is a sorted list of
+	// named counts, not a map keyed by plane, so the wire shape stays declared.
+	counts := map[string]int{}
 	for _, sig := range inc.Signals {
-		planes[sig.Plane]++
+		counts[sig.Plane]++
 	}
-	return map[string]any{"incident": inc, "planes": planes, "signal_count": len(inc.Signals)}, nil
+	planes := make([]mcp.PlaneSignals, 0, len(counts))
+	for plane, n := range counts {
+		planes = append(planes, mcp.PlaneSignals{Plane: plane, Count: n})
+	}
+	sort.Slice(planes, func(i, j int) bool { return planes[i].Plane < planes[j].Plane })
+	return mcp.CorrelationResult{
+		Incident:    projectIncident(inc),
+		Planes:      planes,
+		SignalCount: len(inc.Signals),
+	}, nil
 }
 
 func (b mcpBackend) incident(ctx context.Context, p *auth.Principal, id string) (*incident.Incident, error) {
@@ -269,18 +349,18 @@ func (b mcpBackend) incident(ctx context.Context, p *auth.Principal, id string) 
 	return inc, err
 }
 
-func (b mcpBackend) GetBGPEvents(ctx context.Context, p *auth.Principal, prefix, asn string, limit int) (any, error) {
+func (b mcpBackend) GetBGPEvents(ctx context.Context, p *auth.Principal, prefix, asn string, limit int) (mcp.EventsResult, error) {
 	return b.queryEvents(ctx, p, map[string]string{"type": "bgp", "prefix": prefix, "asn": asn}, limit)
 }
 
-func (b mcpBackend) QueryFlows(ctx context.Context, p *auth.Principal, service, src, dst string, limit int) (any, error) {
+func (b mcpBackend) QueryFlows(ctx context.Context, p *auth.Principal, service, src, dst string, limit int) (mcp.EventsResult, error) {
 	return b.queryEvents(ctx, p, map[string]string{"type": "flow", "service": service, "src": src, "dst": dst}, limit)
 }
 
 // queryEvents goes through the S23 engine (events domain) — source RBAC+ABAC is
 // checked again — and degrades gracefully when the events store is not wired in
 // this deployment.
-func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[string]string, limit int) (any, error) {
+func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[string]string, limit int) (mcp.EventsResult, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -292,23 +372,25 @@ func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[
 	}
 	release, err := b.beginQuery(ctx, p) // fairness (S-T7)
 	if err != nil {
-		return nil, err
+		return mcp.EventsResult{}, err
 	}
 	defer release()
 	res, err := b.engine.Query(ctx, p, ai.Query{Domain: ai.DomainEvents, Selector: clean, Limit: limit})
 	if err != nil {
 		if errors.Is(err, ai.ErrNoSource) {
-			return map[string]any{"events": []any{}, "note": "the events store is not configured in this deployment"}, nil
+			return mcp.EventsResult{Events: []ai.Row{}, Note: "the events store is not configured in this deployment"}, nil
 		}
-		return nil, err
+		return mcp.EventsResult{}, err
 	}
-	return map[string]any{"events": res.Rows, "truncated": res.Truncated}, nil
+	// Engine.Query returns RAW store rows — only Correlate reduced them. This
+	// boundary is external, so the same per-domain allow-list runs here.
+	return mcp.EventsResult{Events: mcp.SanitizeEventRows(res.Rows), Truncated: res.Truncated}, nil
 }
 
-func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, question string, subject map[string]string) (any, error) {
+func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, question string, subject map[string]string) (ai.Answer, error) {
 	release, err := b.beginQuery(ctx, p)
 	if err != nil {
-		return nil, err
+		return ai.Answer{}, err
 	}
 	defer release()
 
@@ -358,12 +440,26 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 // proposal — this path can never approve or execute. When the feature is
 // unlicensed (no service installed), the tool errors. The proposer is recorded
 // as the AI, distinct from a human approver.
-func (b mcpBackend) ProposeRemediation(ctx context.Context, p *auth.Principal, kind, title, rationale, target, incidentID string) (any, error) {
+func (b mcpBackend) ProposeRemediation(ctx context.Context, p *auth.Principal, kind, title, rationale, target, incidentID string) (mcp.ProposalResult, error) {
 	if b.remediation == nil {
-		return nil, errors.New("remediation is not enabled in this deployment")
+		return mcp.ProposalResult{}, errors.New("remediation is not enabled in this deployment")
 	}
-	return b.remediation.Propose(ctx, p.TenantID, "ai:propose_remediation", remediation.ProposeInput{
+	prop, err := b.remediation.Propose(ctx, p.TenantID, "ai:propose_remediation", remediation.ProposeInput{
 		Kind: remediation.Kind(kind), Title: title, Rationale: rationale,
 		Target: target, IncidentID: incidentID,
 	})
+	if err != nil {
+		return mcp.ProposalResult{}, err
+	}
+	return mcp.ProposalResult{
+		ID:         prop.ID,
+		Kind:       string(prop.Kind),
+		Title:      prop.Title,
+		Rationale:  prop.Rationale,
+		Target:     prop.Target,
+		IncidentID: prop.IncidentID,
+		State:      string(prop.State),
+		ProposedBy: prop.ProposedBy,
+		CreatedAt:  prop.CreatedAt,
+	}, nil
 }

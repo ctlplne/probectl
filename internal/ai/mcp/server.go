@@ -305,7 +305,26 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	// output is tenant telemetry egressing the platform. The same per-tenant
 	// consent that gates the remote RCA model gates this (default deny), and
 	// the gate's redaction policy is applied to everything returned.
-	if err := s.gate.Authorize(ctx, p.TenantID); err != nil {
+	// AuthorizeAttempt, not Authorize: a refused tool call is a refused EGRESS
+	// ATTEMPT and belongs in the durable egress stream alongside the RCA and
+	// author surfaces (S-063994f7). It used to be recorded only in the
+	// call-audit stream, so an operator auditing "what did we refuse to send
+	// out" saw two of three surfaces. A failed audit sink supersedes the
+	// denial (ErrEgressAuditUnavailable) — an unrecorded decision is not a
+	// completed gate.
+	if err := s.gate.AuthorizeAttempt(ctx, ai.EgressEvent{
+		TenantID: p.TenantID,
+		Endpoint: "mcp-client",
+		Model:    "mcp",
+		Surface:  "mcp",
+	}); err != nil {
+		if errors.Is(err, ai.ErrEgressAuditUnavailable) {
+			s.log.Warn("mcp durable egress denial audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+			if auditErr := emit(CallPhaseTerminal, false, "egress_audit"); auditErr != nil {
+				return auditUnavailable()
+			}
+			return auditUnavailable()
+		}
 		if auditErr := emit(CallPhaseTerminal, false, "consent"); auditErr != nil {
 			return auditUnavailable()
 		}

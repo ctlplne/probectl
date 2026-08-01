@@ -274,41 +274,49 @@ func (*surfaceRemediationDelegateSpy) ApprovalsEnabled() bool { return true }
 
 type remediationMCPBackend struct{ svc rem.Service }
 
-func (remediationMCPBackend) ListTests(context.Context, *auth.Principal) (any, error) {
-	return nil, errors.New("unexpected ListTests call")
+func (remediationMCPBackend) ListTests(context.Context, *auth.Principal) (mcp.TestsResult, error) {
+	return mcp.TestsResult{}, errors.New("unexpected ListTests call")
 }
 
-func (remediationMCPBackend) GetPath(context.Context, *auth.Principal, string) (any, error) {
-	return nil, errors.New("unexpected GetPath call")
+func (remediationMCPBackend) GetPath(context.Context, *auth.Principal, string) (mcp.PathResult, error) {
+	return mcp.PathResult{}, errors.New("unexpected GetPath call")
 }
 
-func (remediationMCPBackend) GetBGPEvents(context.Context, *auth.Principal, string, string, int) (any, error) {
-	return nil, errors.New("unexpected GetBGPEvents call")
+func (remediationMCPBackend) GetBGPEvents(context.Context, *auth.Principal, string, string, int) (mcp.EventsResult, error) {
+	return mcp.EventsResult{}, errors.New("unexpected GetBGPEvents call")
 }
 
-func (remediationMCPBackend) QueryFlows(context.Context, *auth.Principal, string, string, string, int) (any, error) {
-	return nil, errors.New("unexpected QueryFlows call")
+func (remediationMCPBackend) QueryFlows(context.Context, *auth.Principal, string, string, string, int) (mcp.EventsResult, error) {
+	return mcp.EventsResult{}, errors.New("unexpected QueryFlows call")
 }
 
-func (remediationMCPBackend) GetIncident(context.Context, *auth.Principal, string) (any, error) {
-	return nil, errors.New("unexpected GetIncident call")
+func (remediationMCPBackend) GetIncident(context.Context, *auth.Principal, string) (mcp.IncidentResult, error) {
+	return mcp.IncidentResult{}, errors.New("unexpected GetIncident call")
 }
 
-func (remediationMCPBackend) CorrelateIncident(context.Context, *auth.Principal, string) (any, error) {
-	return nil, errors.New("unexpected CorrelateIncident call")
+func (remediationMCPBackend) CorrelateIncident(context.Context, *auth.Principal, string) (mcp.CorrelationResult, error) {
+	return mcp.CorrelationResult{}, errors.New("unexpected CorrelateIncident call")
 }
 
-func (remediationMCPBackend) ExplainDegradation(context.Context, *auth.Principal, string, map[string]string) (any, error) {
-	return nil, errors.New("unexpected ExplainDegradation call")
+func (remediationMCPBackend) ExplainDegradation(context.Context, *auth.Principal, string, map[string]string) (ai.Answer, error) {
+	return ai.Answer{}, errors.New("unexpected ExplainDegradation call")
 }
 
 func (b remediationMCPBackend) ProposeRemediation(
 	ctx context.Context,
 	p *auth.Principal,
 	kind, title, rationale, target, incidentID string,
-) (any, error) {
-	return b.svc.Propose(ctx, p.TenantID, "ai:propose_remediation", rem.ProposeInput{
+) (mcp.ProposalResult, error) {
+	prop, err := b.svc.Propose(ctx, p.TenantID, "ai:propose_remediation", rem.ProposeInput{
 		Kind: rem.Kind(kind), Title: title, Rationale: rationale,
 		Target: target, IncidentID: incidentID,
 	})
+	if err != nil {
+		return mcp.ProposalResult{}, err
+	}
+	return mcp.ProposalResult{
+		ID: prop.ID, Kind: string(prop.Kind), Title: prop.Title,
+		Rationale: prop.Rationale, Target: prop.Target, IncidentID: prop.IncidentID,
+		State: string(prop.State), ProposedBy: prop.ProposedBy, CreatedAt: prop.CreatedAt,
+	}, nil
 }

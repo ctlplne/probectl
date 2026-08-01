@@ -249,11 +249,12 @@ func TestEgressGateFailsClosed(t *testing.T) {
 		}, nil, DefaultRedaction),
 	}
 	for name, g := range cases {
-		if err := g.Authorize(context.Background(), "t1"); err == nil {
+		if err := g.AuthorizeAttempt(context.Background(), EgressEvent{TenantID: "t1", Surface: "test"}); err == nil {
 			t.Errorf("%s: must deny", name)
 		}
 	}
-	if err := NewEgressGate(allowTenants("t1"), nil, DefaultRedaction).Authorize(context.Background(), ""); err == nil {
+	empty := NewEgressGate(allowTenants("t1"), nil, DefaultRedaction)
+	if err := empty.AuthorizeAttempt(context.Background(), EgressEvent{TenantID: "", Surface: "test"}); err == nil {
 		t.Error("empty tenant must deny")
 	}
 }

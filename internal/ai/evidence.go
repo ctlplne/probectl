@@ -76,12 +76,15 @@ func sanitizeEvidenceFields(evs []Evidence) {
 	}
 }
 
-// sanitizeRowFields returns a copy of a raw query row reduced to the per-domain
+// SanitizeRow returns a copy of a raw query row reduced to the per-domain
 // allow-list (AIRCA-002), mirroring sanitizeEvidenceFields but for the raw Row
 // shape that Engine.Correlate emits. The cross-domain "_domain" provenance
 // marker is always preserved. Fail closed: unknown domains fall back to the
 // universal allow-list, so a future source/column cannot leak raw row data.
-func sanitizeRowFields(domain Domain, row Row) Row {
+//
+// Exported because the MCP surface must apply the SAME list (S-063994f7): the
+// external-client boundary had the weaker contract, and two lists would drift.
+func SanitizeRow(domain Domain, row Row) Row {
 	allowed, ok := evidenceFieldAllowList[domain]
 	if !ok {
 		allowed = universalEvidenceFields

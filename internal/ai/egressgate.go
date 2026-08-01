@@ -57,24 +57,16 @@ func (g *EgressGate) denialReason(ctx context.Context, tenantID string) (string,
 	return "", nil
 }
 
-// Authorize checks the tenant's egress consent. Fail closed: no policy wired,
-// a policy error, or no consent all deny. Surfaces that represent a remote
-// attempt should use AuthorizeAttempt so denials are durably recorded.
-func (g *EgressGate) Authorize(ctx context.Context, tenantID string) error {
-	reason, err := g.denialReason(ctx, tenantID)
-	if err != nil {
-		return err
-	}
-	if reason != "" {
-		return ErrEgressDenied
-	}
-	return nil
-}
-
 // AuthorizeAttempt checks consent for a known-tenant remote attempt and durably
 // records any denial before returning it. A failed/missing audit sink supersedes
 // the policy denial with ErrEgressAuditUnavailable, ensuring callers never
 // mistake an unrecorded decision for a completed gate.
+//
+// This is the ONLY consent entry point. A record-free variant used to exist
+// beside it, and the MCP surface used it — so MCP denials were absent from the
+// egress stream while RCA and author denials were in it (S-063994f7). Deleting
+// the variant is what makes "every refused egress attempt is durably recorded"
+// a property of the type rather than a convention callers must remember.
 func (g *EgressGate) AuthorizeAttempt(ctx context.Context, ev EgressEvent) error {
 	reason, err := g.denialReason(ctx, ev.TenantID)
 	if err != nil {

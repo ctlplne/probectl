@@ -232,10 +232,14 @@ func TestMCPAuditCoversEveryOutcome(t *testing.T) {
 // piiBackend overrides one tool to return realistic PII-laden telemetry.
 type piiBackend struct{ *fakeBackend }
 
-func (b *piiBackend) ListTests(_ context.Context, _ *auth.Principal) (any, error) {
-	return map[string]any{
-		"note":    "agent 10.9.8.7 (oncall bob@corp.example) token=verysecret99",
-		"healthy": true,
+func (b *piiBackend) ListTests(_ context.Context, _ *auth.Principal) (TestsResult, error) {
+	return TestsResult{
+		Tests: []TestSummary{{
+			Name:   "agent 10.9.8.7 (oncall bob@corp.example) token=verysecret99",
+			Target: "db-1.internal.example.com",
+		}},
+		Limit:     10,
+		Truncated: false,
 	}, nil
 }
 
@@ -259,7 +263,7 @@ func TestMCPToolResultsRedacted(t *testing.T) {
 	if err := json.Unmarshal(structured, &obj); err != nil {
 		t.Fatalf("redacted structuredContent must stay valid JSON: %v", err)
 	}
-	if obj["healthy"] != true {
+	if obj["limit"] != float64(10) || obj["truncated"] != false {
 		t.Fatalf("non-sensitive fields must survive: %v", obj)
 	}
 }

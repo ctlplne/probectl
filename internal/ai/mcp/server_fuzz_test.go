@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
 )
 
@@ -120,49 +121,49 @@ func (b *mcpFuzzBackend) rec() {
 	b.calls++
 }
 
-func (b *mcpFuzzBackend) ListTests(context.Context, *auth.Principal) (any, error) {
+func (b *mcpFuzzBackend) ListTests(context.Context, *auth.Principal) (TestsResult, error) {
 	b.rec()
-	return map[string]any{"tests": []any{}}, nil
+	return TestsResult{Tests: []TestSummary{}}, nil
 }
 
-func (b *mcpFuzzBackend) GetPath(_ context.Context, _ *auth.Principal, target string) (any, error) {
+func (b *mcpFuzzBackend) GetPath(_ context.Context, _ *auth.Principal, target string) (PathResult, error) {
 	b.rec()
-	return map[string]any{"target": target, "hops": []any{}}, nil
+	return PathResult{Target: target, Hops: []PathHop{}}, nil
 }
 
-func (b *mcpFuzzBackend) GetBGPEvents(context.Context, *auth.Principal, string, string, int) (any, error) {
+func (b *mcpFuzzBackend) GetBGPEvents(context.Context, *auth.Principal, string, string, int) (EventsResult, error) {
 	b.rec()
-	return map[string]any{"events": []any{}}, nil
+	return EventsResult{Events: []ai.Row{}}, nil
 }
 
-func (b *mcpFuzzBackend) QueryFlows(context.Context, *auth.Principal, string, string, string, int) (any, error) {
+func (b *mcpFuzzBackend) QueryFlows(context.Context, *auth.Principal, string, string, string, int) (EventsResult, error) {
 	b.rec()
-	return map[string]any{"flows": []any{}}, nil
+	return EventsResult{Events: []ai.Row{}}, nil
 }
 
-func (b *mcpFuzzBackend) GetIncident(_ context.Context, _ *auth.Principal, id string) (any, error) {
+func (b *mcpFuzzBackend) GetIncident(_ context.Context, _ *auth.Principal, id string) (IncidentResult, error) {
 	b.rec()
-	return map[string]any{"id": id}, nil
+	return IncidentResult{ID: id}, nil
 }
 
-func (b *mcpFuzzBackend) CorrelateIncident(_ context.Context, _ *auth.Principal, id string) (any, error) {
+func (b *mcpFuzzBackend) CorrelateIncident(_ context.Context, _ *auth.Principal, id string) (CorrelationResult, error) {
 	b.rec()
-	return map[string]any{"id": id, "signals": []any{}}, nil
+	return CorrelationResult{Incident: IncidentResult{ID: id, Signals: []IncidentSignal{}}}, nil
 }
 
-func (b *mcpFuzzBackend) ExplainDegradation(_ context.Context, _ *auth.Principal, question string, subject map[string]string) (any, error) {
+func (b *mcpFuzzBackend) ExplainDegradation(_ context.Context, _ *auth.Principal, question string, _ map[string]string) (ai.Answer, error) {
 	b.rec()
-	return map[string]any{"question": question, "subject": subject, "root_cause": "fuzz-safe"}, nil
+	return ai.Answer{Question: question, RootCause: "fuzz-safe"}, nil
 }
 
-func (b *mcpFuzzBackend) ProposeRemediation(_ context.Context, _ *auth.Principal, kind, title, rationale, target, incidentID string) (any, error) {
+func (b *mcpFuzzBackend) ProposeRemediation(_ context.Context, _ *auth.Principal, kind, title, rationale, target, incidentID string) (ProposalResult, error) {
 	b.rec()
-	return map[string]any{
-		"state":       "proposed",
-		"kind":        kind,
-		"title":       title,
-		"rationale":   rationale,
-		"target":      target,
-		"incident_id": incidentID,
+	return ProposalResult{
+		State:      "proposed",
+		Kind:       kind,
+		Title:      title,
+		Rationale:  rationale,
+		Target:     target,
+		IncidentID: incidentID,
 	}, nil
 }
