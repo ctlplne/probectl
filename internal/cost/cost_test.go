@@ -7,7 +7,10 @@
 package cost
 
 import (
+	"bytes"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -193,5 +196,49 @@ func TestParsersFailClosed(t *testing.T) {
 	// Region derivation convention.
 	if r := regionOfZone("us-east-1a"); r != "us-east-1" {
 		t.Errorf("regionOfZone = %s", r)
+	}
+}
+
+func TestLoadPriceTableBoundsFile(t *testing.T) {
+	const maxBytes = 1 << 20
+
+	raw := []byte(`{"per_gib":{"internet_egress":0.09},"source":"test","as_of":"2026-08-01","license":"test"}`)
+	if len(raw) > maxBytes {
+		t.Fatalf("price-table fixture is %d bytes, exceeds boundary", len(raw))
+	}
+	exact := append(append([]byte(nil), raw...), bytes.Repeat([]byte(" "), maxBytes-len(raw))...)
+
+	for _, tc := range []struct {
+		name    string
+		body    []byte
+		wantErr string
+	}{
+		{name: "exact limit", body: exact},
+		{
+			name:    "one byte over",
+			body:    append(append([]byte(nil), exact...), ' '),
+			wantErr: "price table exceeds 1048576-byte limit",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "prices.json")
+			if err := os.WriteFile(path, tc.body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			table, err := LoadPriceTable(path)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("LoadPriceTable exact-limit file: %v", err)
+				}
+				if got := table.PerGiB[ClassInternet]; got != 0.09 {
+					t.Fatalf("internet egress rate = %v, want 0.09", got)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("LoadPriceTable oversized error = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

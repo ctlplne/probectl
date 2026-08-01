@@ -17,8 +17,11 @@ package cost
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 )
+
+const maxPriceTableFileBytes = 1 << 20
 
 // PriceTable prices traffic classes in USD per GiB.
 type PriceTable struct {
@@ -55,7 +58,7 @@ func LoadPriceTable(path string) (*PriceTable, error) {
 	if path == "" {
 		return DefaultPriceTable(), nil
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := readPriceTableFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("cost: read price table: %w", err)
 	}
@@ -72,6 +75,25 @@ func LoadPriceTable(path string) (*PriceTable, error) {
 		}
 	}
 	return &t, nil
+}
+
+func readPriceTableFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxPriceTableFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxPriceTableFileBytes {
+		return nil, fmt.Errorf("price table exceeds %d-byte limit", maxPriceTableFileBytes)
+	}
+	return raw, nil
 }
 
 // Price returns the USD cost for byteCount of a class; ok=false when the
