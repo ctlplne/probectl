@@ -122,11 +122,14 @@ bytes but the manifest still states upgrade intent.
   `2026-09-30`. It is a Windows-only alternate-path bypass in the Vite
   `server.fs.deny` development server. Vite is build tooling, not part of the
   shipped browser bundle or Go binaries, and the production-only audit remains
-  unaffected. The policy deliberately does not force an unplanned Vite 8 major
-  upgrade. A different advisory or range, any installed-version change,
-  production reachability, audit clearance, or expiry fails closed; therefore
-  production adoption or the next planned Vite bump automatically reopens the
-  decision.
+  unaffected. Decision of record 2026-08-01: the Vite 8 upgrade (8.2.0 line at
+  decision time) lands before the `2026-09-30` boundary with the web build,
+  bundle-budget, rendered-a11y, and coverage gates green; the minimal patched
+  hop to `6.4.3` was rejected as landing two majors behind. The boundary is a
+  landing deadline, not a rolling renewal. A different advisory or range, any
+  installed-version change, production reachability, audit clearance, or
+  expiry fails closed; therefore production adoption or the planned Vite bump
+  automatically reopens the decision.
 
   The production `npm audit --omit=dev --json` report passes through the same
   policy checker with `--omit-dev`, so the full report owns dev-only exception
