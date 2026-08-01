@@ -139,6 +139,18 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 
 func (c *OTLPConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	c.ledger.addReceived(1)
+	// Fairness pre-admission (S-49d7cf45): the same cheap byte bound the
+	// native result plane applies, charged on the lane/key identity BEFORE
+	// unmarshal and conversion. The series meter stays after convert, where
+	// the series count is known.
+	if tenant := otlpTenantFromLaneOrKey(msg, laneTenant); tenant != "" && c.gate != nil &&
+		!c.gate.AdmitN(ctx, tenant, fairness.MeterBytes, int64(len(msg.Value))) {
+		c.shed.Add(1)
+		c.ledger.addFairnessShed(1)
+		c.log.Debug("otlp payload shed by fairness bounds before decode",
+			"tenant_id", tenant, "bytes", len(msg.Value))
+		return nil
+	}
 	var req colmetricspb.ExportMetricsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
 		c.ledger.addMalformed(1)

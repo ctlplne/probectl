@@ -11,15 +11,31 @@
 //
 // Three mechanisms, all per tenant and all observable:
 //
-//   - Ingest rate bounds: token buckets per (tenant, meter) on the result and
-//     flow consumers. Over-rate traffic is SHED with accounting — bounded
-//     admission to the expensive section (decode→store) is what keeps one
-//     tenant's burst from stalling the shared pipeline (backpressure
-//     isolation). Because the gate wraps the CONSUMER, it behaves identically
-//     under Kafka and the lightweight bus modes (the S-T7 watch-out).
+//   - Ingest rate bounds: token buckets per (tenant, meter) on the result,
+//     flow, device and OTLP consumers. Over-rate traffic is SHED with
+//     accounting. Admission happens in TWO places, and the split is the
+//     point (S-49d7cf45):
+//
+//     The BYTE bound is charged PRE-DECODE, on the cheapest identity
+//     available — the lane tenant for namespaced/siloed lanes, else the bus
+//     key — before protobuf unmarshal and before any tenant-verification
+//     registry lookup. That is what actually bounds the expensive section: a
+//     flooding tenant cannot buy decode CPU or verification-cache pressure
+//     from every other tenant on its way to being refused. A message with no
+//     lane and no key carries no identity to bound and falls through rather
+//     than being charged to the wrong tenant.
+//
+//     The RECORD-COUNT bounds (results, series) are charged AFTER decode,
+//     against the VERIFIED tenant, because the count is only known then and
+//     metering must follow records that really exist.
+//
+//     Because the gate wraps the CONSUMER, both behave identically under
+//     Kafka and the lightweight bus modes (the S-T7 watch-out).
+//
 //   - Query-cost guards: per-tenant in-flight concurrency + a per-minute
 //     query budget on the S23 query surfaces (AI ask, MCP, PromQL proxy).
 //     Over-budget callers get 429, never a slow platform.
+//
 //   - Accounting: per-tenant admitted/shed/rejected counters, exposed on
 //     /v1/fairness (the tenant debugging its own disputes), the provider
 //     console (ee), and as TSDB series (Grafana-federable).

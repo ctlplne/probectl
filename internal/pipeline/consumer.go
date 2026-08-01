@@ -424,6 +424,17 @@ func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 // the registry; namespaced lanes overwrite the tenant with the lane's.
 func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGroup) error {
 	c.ledger.addReceived(1)
+	// Fairness pre-admission (S-49d7cf45): shed on the CHEAPEST identity we
+	// have — the lane tenant, else the bus key — BEFORE unmarshal and before
+	// any registry verification lookup. Admission after decode still bounded
+	// the store, but a flooding tenant bought CPU and verification-cache
+	// pressure from every other tenant on the way there. The BYTES meter is
+	// charged here because the size is known without decoding; the RESULTS
+	// meter stays after decode, where the record is real and metering is
+	// accurate.
+	if !c.preAdmit(ctx, msg, lane) {
+		return nil
+	}
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		c.ledger.addMalformed(1)
@@ -457,14 +468,13 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 	// gate (surfaced via /v1/fairness, the provider console, and TSDB series)
 	// — never silent, never another tenant's problem. Shed messages are not
 	// metered: billing reflects stored work.
-	if c.gate != nil {
-		okResults := c.gate.AdmitN(ctx, r.GetTenantId(), fairness.MeterResults, 1)
-		okBytes := c.gate.AdmitN(ctx, r.GetTenantId(), fairness.MeterBytes, int64(len(msg.Value)))
-		if !okResults || !okBytes {
-			c.ledger.addFairnessShed(1)
-			c.log.Debug("result shed by fairness bounds", "tenant_id", r.GetTenantId())
-			return nil
-		}
+	// The bytes meter was charged pre-decode against the lane/key identity;
+	// the results meter is charged here against the VERIFIED tenant, so
+	// metering follows the record that actually exists.
+	if c.gate != nil && !c.gate.AdmitN(ctx, r.GetTenantId(), fairness.MeterResults, 1) {
+		c.ledger.addFairnessShed(1)
+		c.log.Debug("result shed by fairness bounds", "tenant_id", r.GetTenantId())
+		return nil
 	}
 	// Cardinality caps (U-017): NEW series identities past the per-agent /
 	// per-tenant caps are rejected per-series and counted; known identities
@@ -550,6 +560,31 @@ func (c *Consumer) writeWithRetry(ctx context.Context, series []tsdb.Series) err
 		backoff := c.retryBase << attempt
 		c.sleep(ctx, backoff+time.Duration(rand.Int64N(int64(backoff)/2+1)))
 	}
+}
+
+// preAdmit is the cheap pre-decode fairness check. It resolves the tenant
+// from the lane (authoritative for namespaced/siloed lanes) or the bus key
+// (tenant-keyed by every publisher), charges the payload size against that
+// tenant's byte bound, and sheds with accounting on refusal. An unkeyed
+// message carries no identity to bound, so it falls through to the
+// post-decode admission rather than being charged to the wrong tenant.
+func (c *Consumer) preAdmit(ctx context.Context, msg bus.Message, lane topicGroup) bool {
+	if c.gate == nil {
+		return true
+	}
+	tenant := lane.laneTenant
+	if tenant == "" {
+		tenant = string(tenantFromKey(msg.Key))
+	}
+	if tenant == "" {
+		return true
+	}
+	if c.gate.AdmitN(ctx, tenant, fairness.MeterBytes, int64(len(msg.Value))) {
+		return true
+	}
+	c.ledger.addFairnessShed(1)
+	c.log.Debug("result shed by fairness bounds before decode", "tenant_id", tenant, "bytes", len(msg.Value))
+	return false
 }
 
 // deadLetter routes the ORIGINAL message bytes to the record's LANE-specific
