@@ -1295,8 +1295,8 @@ fail-closed posture for the most sensitive thing this agent can do.
 | `PROBECTL_EBPF_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                            |
 | `PROBECTL_EBPF_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                     |
 | `PROBECTL_EBPF_BUS_NAMESPACE`  | (none)      | publish on this tenant's siloed bus lane (`probectl.<ns>.ebpf.flows`) instead of the shared topic; for per-tenant-namespaced (siloed) deployments |
-| `PROBECTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path) |
-| `PROBECTL_EBPF_L7_FIXTURE_PATH` | (none)     | replay recorded layer-7 events (no-kernel L7 path)             |
+| `PROBECTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path); maximum 8 MiB, with oversized fixtures rejected at startup |
+| `PROBECTL_EBPF_L7_FIXTURE_PATH` | (none)     | replay recorded layer-7 events (no-kernel L7 path); maximum 8 MiB, with oversized fixtures rejected at startup |
 | `PROBECTL_EBPF_RING_BUFFER_BYTES` | `16777216` | size of the L4 flow kernel→userspace ring buffer (16 MiB; live loader only). Bigger absorbs bigger flow bursts at the cost of memory. Rounded up to the next power of two at load; **capped at 268435456 (256 MiB)** — a larger value fails validation (EBPF-005) |
 | `PROBECTL_EBPF_L7_RING_BUFFER_BYTES` | `16777216` | size of the TLS/plaintext L7 chunk ring buffer (`tls_chunks`, 16 MiB default; live `ebpf` build only). This is separate from the L4 flow ring because L7 chunk bursts and flow bursts are different queues. Rounded/capped like `PROBECTL_EBPF_RING_BUFFER_BYTES`; **capped at 268435456 (256 MiB)** |
 | `PROBECTL_EBPF_LIBSSL`         | (auto)      | explicit OpenSSL/BoringSSL-compatible `libssl` path for TLS-plaintext (uprobe) L7 capture; when unset, the live loader auto-discovers installed `libssl.so.*` and `libgnutls.so.*` libraries (`ebpf` build) |

@@ -11,7 +11,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
@@ -66,7 +65,7 @@ type fixtureL7 struct {
 
 // NewFixtureL7Source loads recorded L7 events from path.
 func NewFixtureL7Source(path string) (*FixtureL7Source, error) {
-	data, err := os.ReadFile(path)
+	data, err := readFixtureFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("ebpf: read l7 fixture: %w", err)
 	}

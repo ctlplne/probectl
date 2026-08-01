@@ -10,8 +10,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 )
+
+const maxFixtureFileBytes = 8 << 20
 
 // Source is a stream of observed flows. The live source is a CO-RE eBPF program
 // (built only under -tags ebpf); the FixtureSource replays recorded flows for
@@ -54,7 +57,7 @@ type fixtureFlow struct {
 
 // NewFixtureSource loads recorded flows from path.
 func NewFixtureSource(path string) (*FixtureSource, error) {
-	data, err := os.ReadFile(path)
+	data, err := readFixtureFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("ebpf: read fixture: %w", err)
 	}
@@ -79,6 +82,23 @@ func NewFixtureSource(path string) (*FixtureSource, error) {
 		})
 	}
 	return &FixtureSource{flows: flows}, nil
+}
+
+func readFixtureFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxFixtureFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxFixtureFileBytes {
+		return nil, fmt.Errorf("fixture file exceeds %d-byte limit", maxFixtureFileBytes)
+	}
+	return data, nil
 }
 
 // Flows emits the recorded flows once, then closes the channel.
