@@ -209,7 +209,7 @@ caller's permission set) — the API, web UI, AI assistant, and
 MCP server all read through that same boundary, so a query cannot cross a
 tenant line even by mistake.
 
-External intelligence (RouteViews, RIPE RIS/Atlas, RPKI, threat-intel, cloud
+External intelligence (RouteViews, RIPE RIS, RPKI, threat-intel, cloud
 pricing) is fetched **once**, cached, and enriched per tenant; if a feed is
 rate-limited or down, that view degrades gracefully instead of taking the
 platform with it.
@@ -228,7 +228,7 @@ flowchart TB
     Analyzer["BGP analyzer (Python)<br/>RouteViews/RIS MRT + RIS Live"]
     Bus["Bus — Kafka / in-process<br/>(tenant-tagged)"]
     Stores["Postgres · ClickHouse · Prometheus/VM<br/>topology graph · object store"]
-    External["External (read-only, cached, degrade gracefully)<br/>RouteViews · RIPE RIS/Atlas · RPKI · PeeringDB · MaxMind/Cymru · CT logs · threat-intel · cloud pricing"]
+    External["External (read-only, cached, degrade gracefully)<br/>RouteViews · RIPE RIS · RPKI · PeeringDB · MaxMind/Cymru · CT logs · threat-intel · cloud pricing"]
 
     Provider -->|tenant-scoped, isolated| CP
     Agents -->|gRPC mTLS| Edge

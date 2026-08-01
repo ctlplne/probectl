@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -204,16 +203,15 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 }
 
 func (rt *serveRuntime) configureFlowEnrichment() {
-	if !rt.cfg.FlowEnrichASN {
+	en, ok := control.BuildEnrichment(rt.cfg, rt.log)
+	if !ok {
 		return
 	}
-	en := opendata.NewEnricher(rt.log, opendata.WithCacheMaxEntries(rt.cfg.FlowEnrichCacheMax))
-	en.Register(opendata.NewCymru(net.DefaultResolver))
 	async := pipeline.NewAsyncEnricher(en, rt.log)
 	rt.flowEnricher = async
 	rt.ipEnricher = en
 	rt.g.Go(func() error { return async.Run(rt.gctx) })
-	rt.log.Info("flow ASN enrichment enabled", "source", "team-cymru", "mode", "async")
+	rt.log.Info("open-data enrichment enabled", "mode", "async")
 }
 
 func (rt *serveRuntime) buildServeEngines() error {

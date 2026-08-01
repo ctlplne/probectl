@@ -320,6 +320,19 @@ type Config struct {
 	DerivedIdentityRetentionDays int
 	FlowEnrichASN                bool
 	FlowEnrichCacheMax           int
+	// FlowEnrichGeoDB points at an operator-supplied MaxMind GeoLite2 .mmdb
+	// (country/city/lat-lon; probectl never ships or fetches the database —
+	// docs/opendata-aup.md). FlowEnrichRIRDir points at a directory of RIR
+	// delegated-extended stats files (RIR + allocation status/date). Both are
+	// local files: no outbound dependency, air-gap friendly. An unreadable
+	// path degrades honestly — the source appears as "unavailable" in
+	// GET /v1/threat/intel/status instead of silently missing. FlowEnrichIXP
+	// opts in to PeeringDB IXP lookups (an OUTBOUND HTTPS dependency, off by
+	// default per the no-phone-home guardrail); it keys on the ASN the Team
+	// Cymru source resolves, so it requires FlowEnrichASN.
+	FlowEnrichGeoDB  string
+	FlowEnrichRIRDir string
+	FlowEnrichIXP    bool
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -790,6 +803,12 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.DerivedIdentityRetentionDays = l.intRange("PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS", 90, 0, 3650)
 	cfg.FlowEnrichASN = l.boolean("PROBECTL_FLOW_ENRICH_ASN", false)
 	cfg.FlowEnrichCacheMax = l.intRange("PROBECTL_FLOW_ENRICH_CACHE_MAX", 65536, 1, 10_000_000)
+	cfg.FlowEnrichGeoDB = l.str("PROBECTL_FLOW_ENRICH_GEOIP_DB", "")
+	cfg.FlowEnrichRIRDir = l.str("PROBECTL_FLOW_ENRICH_RIR_DIR", "")
+	cfg.FlowEnrichIXP = l.boolean("PROBECTL_FLOW_ENRICH_IXP", false)
+	if cfg.FlowEnrichIXP && !cfg.FlowEnrichASN {
+		l.errf("PROBECTL_FLOW_ENRICH_IXP requires PROBECTL_FLOW_ENRICH_ASN=true (PeeringDB keys on the ASN the Team Cymru source resolves; without it the IXP source can never contribute)")
+	}
 	// TENANT-004: profile-defaulted DB-level ClickHouse scoping.
 	cfg.FlowCHTenantScoping = l.boolean("PROBECTL_FLOWSTORE_TENANT_SCOPING", chScopeDefault)
 	cfg.FlowCHReaderUser = l.str("PROBECTL_FLOWSTORE_READER_USER", "")
@@ -1413,6 +1432,10 @@ func (c *Config) Redacted() map[string]any {
 		"replication_mode":            c.ReplicationMode,
 		"flow_retention_days":         c.FlowRetentionDays,
 		"flow_enrich_cache_max":       c.FlowEnrichCacheMax,
+		"flow_enrich_asn":             c.FlowEnrichASN,
+		"flow_enrich_geoip_db":        c.FlowEnrichGeoDB != "", // a boolean, never the operator's path
+		"flow_enrich_rir_dir":         c.FlowEnrichRIRDir != "",
+		"flow_enrich_ixp":             c.FlowEnrichIXP,
 		"backup_retention_note":       c.BackupRetentionNote,
 		"data_planes_configured":      c.DataPlanes != "",
 		"envelope_key_configured":     c.EnvelopeKey != "", // a boolean, never the key

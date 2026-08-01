@@ -1217,3 +1217,35 @@ func TestSIEMRejectsPlaintextRemote(t *testing.T) {
 		t.Fatalf("loopback plaintext SIEM fixture should be allowed: %v", err)
 	}
 }
+
+func TestFlowEnrichmentSourceConfig(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FlowEnrichGeoDB != "" || cfg.FlowEnrichRIRDir != "" || cfg.FlowEnrichIXP {
+		t.Fatalf("enrichment sources must default off: geo=%q rir=%q ixp=%v",
+			cfg.FlowEnrichGeoDB, cfg.FlowEnrichRIRDir, cfg.FlowEnrichIXP)
+	}
+
+	cfg, err = Load(envFunc(map[string]string{
+		"PROBECTL_FLOW_ENRICH_ASN":      "true",
+		"PROBECTL_FLOW_ENRICH_GEOIP_DB": "/data/GeoLite2-City.mmdb",
+		"PROBECTL_FLOW_ENRICH_RIR_DIR":  "/data/rir",
+		"PROBECTL_FLOW_ENRICH_IXP":      "true",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FlowEnrichGeoDB != "/data/GeoLite2-City.mmdb" || cfg.FlowEnrichRIRDir != "/data/rir" || !cfg.FlowEnrichIXP {
+		t.Fatalf("overrides not applied: geo=%q rir=%q ixp=%v",
+			cfg.FlowEnrichGeoDB, cfg.FlowEnrichRIRDir, cfg.FlowEnrichIXP)
+	}
+
+	// PeeringDB keys on the ASN Cymru resolves: IXP without ASN is a source
+	// that can never contribute, and the loader refuses to construct it.
+	_, err = Load(envFunc(map[string]string{"PROBECTL_FLOW_ENRICH_IXP": "true"}))
+	if err == nil || !strings.Contains(err.Error(), "PROBECTL_FLOW_ENRICH_IXP") {
+		t.Fatalf("IXP without ASN should fail closed, got %v", err)
+	}
+}

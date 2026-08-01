@@ -9,6 +9,8 @@ package opendata
 import (
 	"context"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,5 +72,46 @@ func TestRIRUnallocatedYieldsNothing(t *testing.T) {
 	}
 	if e.RIR != "" || len(e.Sources) != 0 {
 		t.Errorf("unallocated IP should add nothing: %+v", e)
+	}
+}
+
+func TestLoadRIRDir(t *testing.T) {
+	dir := t.TempDir()
+	stats := "arin|US|ipv4|192.0.2.0|256|20100714|assigned|opaque\nripencc|NL|ipv6|2001:db8::|32|20080512|allocated|opaque\n"
+	if err := os.WriteFile(filepath.Join(dir, "delegated-test-extended-latest"), []byte(stats), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".hidden"), []byte("junk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	idx, files, err := LoadRIRDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files != 1 {
+		t.Fatalf("files loaded = %d, want 1 (dotfiles and subdirs skipped)", files)
+	}
+	if v4, v6 := idx.Size(); v4 != 1 || v6 != 1 {
+		t.Fatalf("Size() = (%d, %d), want (1, 1)", v4, v6)
+	}
+	e := &Enrichment{}
+	if err := idx.Enrich(context.Background(), netip.MustParseAddr("192.0.2.7"), e); err != nil {
+		t.Fatal(err)
+	}
+	if e.RIR != "arin" || e.AllocationStatus != "assigned" || e.CountryCode != "US" {
+		t.Fatalf("loaded dir did not serve: %+v", e)
+	}
+}
+
+func TestLoadRIRDirFailsClosed(t *testing.T) {
+	if _, _, err := LoadRIRDir(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing directory must error")
+	}
+	if _, _, err := LoadRIRDir(t.TempDir()); err == nil {
+		t.Fatal("empty directory must error — a silently empty index would look healthy")
 	}
 }

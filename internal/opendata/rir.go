@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,6 +57,44 @@ type v6Entry struct {
 // NewRIRAllocations returns an empty index; load one or more RIR stats files with
 // Load (loading several RIRs builds a global allocation view).
 func NewRIRAllocations() *RIRAllocations { return &RIRAllocations{} }
+
+// LoadRIRDir builds an allocation index from every regular file in dir (the
+// operator drops the RIRs' delegated-extended stats files there; loading all
+// five registries builds the global view). Dotfiles and subdirectories are
+// skipped. It returns the number of files loaded; zero loadable files is an
+// error so a misconfigured directory cannot register a silently empty index.
+func LoadRIRDir(dir string) (*RIRAllocations, int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, 0, fmt.Errorf("opendata: read rir stats dir: %w", err)
+	}
+	idx := NewRIRAllocations()
+	loaded := 0
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, 0, fmt.Errorf("opendata: open rir stats file %q: %w", path, err)
+		}
+		err = idx.Load(f)
+		_ = f.Close()
+		if err != nil {
+			return nil, 0, fmt.Errorf("opendata: load rir stats file %q: %w", path, err)
+		}
+		loaded++
+	}
+	if loaded == 0 {
+		return nil, 0, fmt.Errorf("opendata: rir stats dir %q contains no stats files", dir)
+	}
+	return idx, loaded, nil
+}
+
+// Size reports the loaded index dimensions (v4 ranges, v6 prefixes) so the
+// registration path can log what a loaded directory actually contributed.
+func (s *RIRAllocations) Size() (v4, v6 int) { return len(s.v4), len(s.v6) }
 
 // Load streams a delegated-extended stats file into the index.
 func (s *RIRAllocations) Load(r io.Reader) error {

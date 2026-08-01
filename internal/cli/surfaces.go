@@ -312,6 +312,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"detections":   {Method: http.MethodGet, Path: "/v1/threat/detections"},
 		"intel-status": {Method: http.MethodGet, Path: "/v1/threat/intel/status"},
 	}},
+	"opendata": {Name: "opendata", Summary: "open-data enrichment lookup", Ops: map[string]apiOp{
+		"enrich": {Method: http.MethodGet, Path: "/v1/opendata/enrichment", Description: "open-data context for one IP (--query ip=<addr>)"},
+	}},
 	"tls": {Name: "tls", Summary: "TLS/certificate posture", Ops: map[string]apiOp{
 		"posture": {Method: http.MethodGet, Path: "/v1/tls/posture"},
 	}},

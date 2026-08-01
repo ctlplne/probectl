@@ -295,6 +295,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/siem/status":                         auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/threat/detections":                   auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/threat/intel/status":                 auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/opendata/enrichment":                 auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/cmdb/lookup":                         auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/secrets/health":                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/topology":                            auditWrapped(auditFacetSensitiveRead),

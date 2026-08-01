@@ -3986,6 +3986,24 @@ func (c *Client) TestOncallConnector(ctx context.Context, req TestOncallConnecto
 	return &out, nil
 }
 
+// Open-data enrichment context for one IP address
+type GetOpenDataEnrichmentRequest struct {
+	Ip *string `json:"-"`
+}
+
+func (c *Client) GetOpenDataEnrichment(ctx context.Context, req GetOpenDataEnrichmentRequest) (map[string]any, error) {
+	path := "/v1/opendata/enrichment"
+	query := url.Values{}
+	if req.Ip != nil {
+		query.Set("ip", formatQueryValue(*req.Ip))
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // List OTLP bearer token metadata for the caller's tenant
 type ListOtlpTokensRequest struct {
 }

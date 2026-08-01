@@ -88,6 +88,20 @@ func (en *Enricher) Register(s Source) {
 	})
 }
 
+// RegisterUnavailable registers a source the operator configured but whose
+// backing data could not be loaded (e.g. a GeoLite2 .mmdb path that does not
+// exist). The source is never invoked — it costs nothing per lookup and cannot
+// spam degradation warnings — but it appears in Status() with the load error,
+// so a configured-but-broken source is visible instead of silently absent.
+func (en *Enricher) RegisterUnavailable(s Source, reason error) {
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	en.sources = append(en.sources, &managedSource{
+		src:    s,
+		health: Health{Enabled: false, Status: "unavailable", LastError: reason.Error()},
+	})
+}
+
 // SetEnabled enables/disables a source by name (e.g. to honor an AUP restriction
 // or quarantine a flapping upstream). A disabled source is skipped, not removed.
 func (en *Enricher) SetEnabled(name string, enabled bool) {

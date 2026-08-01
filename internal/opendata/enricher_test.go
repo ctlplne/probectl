@@ -261,3 +261,29 @@ func TestEnricherInvalidIP(t *testing.T) {
 		t.Fatal("an invalid IP should error")
 	}
 }
+
+func TestRegisterUnavailableIsVisibleAndNeverInvoked(t *testing.T) {
+	en := NewEnricher(discardLogger(), WithCacheTTL(0))
+	src := &fakeSource{desc: Descriptor{Name: "geo"}, fn: func(netip.Addr, *Enrichment) error {
+		return nil
+	}}
+	en.RegisterUnavailable(src, errors.New("open mmdb: no such file"))
+
+	e, err := en.Enrich(context.Background(), "1.1.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.calls != 0 {
+		t.Fatalf("unavailable source was invoked %d times", src.calls)
+	}
+	if len(e.Sources) != 0 {
+		t.Fatalf("unavailable source contributed provenance: %+v", e.Sources)
+	}
+	st, ok := statusByName(en.Status(), "geo")
+	if !ok {
+		t.Fatal("unavailable source missing from Status() — the whole point is visibility")
+	}
+	if st.Health.Enabled || st.Health.Status != "unavailable" || st.Health.LastError != "open mmdb: no such file" {
+		t.Fatalf("status = %+v, want disabled/unavailable with the load error", st.Health)
+	}
+}

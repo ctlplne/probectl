@@ -53,6 +53,9 @@ func (g *geoSource) Descriptor() Descriptor {
 }
 
 func (g *geoSource) Enrich(_ context.Context, addr netip.Addr, e *Enrichment) error {
+	if g.reader == nil {
+		return fmt.Errorf("geo lookup: no database loaded")
+	}
 	res, ok, err := g.reader.LookupGeo(addr)
 	if err != nil {
 		return fmt.Errorf("geo lookup: %w", err)

@@ -75,7 +75,6 @@ Every source obeys the same safety rules, enforced in code:
 | **MaxMind GeoLite2** | `maxmind-geolite2` | `geo` | country, city, lat/lon | GeoLite2 EULA (CC BY-SA 4.0 attribution) | allowed-with-attribution | "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com" |
 | **PeeringDB** | `peeringdb` | `ixp` | IXP / facility presence | PeeringDB data (CC BY 4.0) | allowed-with-attribution | "Data from PeeringDB" |
 | **RIR delegated-stats** | `rir-stats` | `allocation` | RIR, country, allocation status/date | RIR delegated statistics (open data) | allowed | — |
-| **RIPE Atlas** (optional hook) | — | `measurement` | active ping/traceroute scheduling | RIPE Atlas terms (credit-based) | restricted (credits/terms) | per RIPE Atlas terms |
 
 (The `name`, license, attribution, and commercial-use cells above are taken
 verbatim from each source's `Descriptor().AUP` in `internal/opendata` —
@@ -83,9 +82,10 @@ verbatim from each source's `Descriptor().AUP` in `internal/opendata` —
 `Enricher.Status()` and `GET /v1/threat/intel/status` report per source at
 runtime. The served route also returns `enabled`, `status`, `last_success`, and
 `last_error` so an operator can see which public datasets are actually active
-without sampling probectl's own docs. The RIPE Atlas row is the exception: it
-is a *scheduler hook*, not an enrichment source, so it has no descriptor — its
-terms come from RIPE's credit-based AUP, noted in `atlas.go`.)
+without sampling probectl's own docs. Each source is enabled by its own
+`PROBECTL_FLOW_ENRICH_*` key — the table in `configuration.md` maps key to
+source — and `GET /v1/opendata/enrichment?ip=<addr>` serves the merged
+per-IP context with this provenance attached.)
 
 Notes:
 
@@ -95,14 +95,6 @@ Notes:
   it via `OpenMMDB(path)` (`maxmind.go`). probectl reading a database you
   provide keeps probectl clear of redistributing MaxMind's data — you hold the
   license; probectl just reads your copy.
-- **RIPE Atlas** is an **optional active-measurement hook**, not part of the
-  passive enrichment path. (RIPE Atlas is a community-run fleet of measurement
-  probes; you spend earned credits to schedule tests on it.) It schedules
-  measurements on the shared RIPE Atlas
-  platform *only* when an API key and credits are configured, and is **disabled
-  (fail closed) by default**: with no key, the default `NoopScheduler` returns
-  `ErrAtlasDisabled` (`atlas.go`). Because it costs RIPE Atlas credits and is
-  governed by RIPE's terms, its commercial use is marked `restricted`.
 - **Why "allowed-with-attribution" for three of them?** Team Cymru, MaxMind, and
   PeeringDB permit commercial use but require you to credit the source. The
   required attribution string is carried in each descriptor so a reseller can

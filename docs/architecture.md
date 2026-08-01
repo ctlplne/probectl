@@ -28,7 +28,7 @@ flowchart TB
     Analyzer["BGP analyzer (Python)<br/>RouteViews/RIS MRT + RIS Live"]
     Bus["Bus — Kafka / in-process memory<br/>(tenant-tagged)"]
     Stores["Postgres · ClickHouse · Prometheus/VM<br/>topology graph · object store"]
-    External["External (read-only, cached, degrade gracefully)<br/>RouteViews · RIPE RIS/Atlas · RPKI · PeeringDB · MaxMind/Cymru · CT logs · threat-intel · cloud pricing"]
+    External["External (read-only, cached, degrade gracefully)<br/>RouteViews · RIPE RIS · RPKI · PeeringDB · MaxMind/Cymru · CT logs · threat-intel · cloud pricing"]
 
     Provider -->|tenant-scoped, isolated| CP
     Agents -->|gRPC mTLS| Edge
@@ -586,7 +586,6 @@ flowchart LR
     PDB --> EN
     RIR --> EN
     EN -->|Enrichment + provenance| REC["flow / test record<br/>(tenant-scoped by the consumer)"]
-    Atlas["RIPE Atlas hook<br/>(optional, off by default)"] -.->|schedule active measurement| EXT["RIPE Atlas platform"]
 ```
 
 **Shared once, scoped per tenant.** Open data is deliberately **not** tenant-owned:
@@ -605,8 +604,7 @@ acceptable-use terms (license, commercial-use permission, attribution) travel on
 the `Descriptor` — the matrix in [`opendata-aup.md`](opendata-aup.md) that gates
 MSP resale. Every external fetch is over TLS with certificate validation and the
 response is treated as untrusted; per-IP and per-dataset caching shields
-rate-limited upstreams. MaxMind GeoLite2 is operator-supplied (not shipped), and
-RIPE Atlas is an optional active-measurement hook, off (fail-closed) by default.
+rate-limited upstreams. MaxMind GeoLite2 is operator-supplied (not shipped).
 
 ## Alerting engine
 

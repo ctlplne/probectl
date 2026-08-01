@@ -953,20 +953,26 @@ the difference between a number and a story. See
 test pipelines consume it where enrichment is enabled); each source is
 pluggable and individually enable-able:
 
-| Source | Kind | Input it needs | Notes |
-| ------ | ---- | -------------- | ----- |
-| Team Cymru | `asn` | a DNS resolver | IP→ASN/prefix/registry/AS-name via the Cymru IP-to-ASN DNS service |
-| MaxMind GeoLite2 | `geo` | a `.mmdb` path (`OpenMMDB`) | country/city/lat-lon; **operator-supplied DB** (not shipped) |
-| PeeringDB | `ixp` | the ASN (from Cymru) | IXP/facility presence via the PeeringDB REST API; cached per ASN |
-| RIR delegated-stats | `allocation` | a delegated-extended stats file | RIR/country/status/date; parsed once into a sorted index |
-| RIPE Atlas (optional) | `measurement` | an API key + credits | active ping/traceroute scheduling hook; **off (fail-closed) by default** |
+| Source | Kind | Enable with | Notes |
+| ------ | ---- | ----------- | ----- |
+| Team Cymru | `asn` | `PROBECTL_FLOW_ENRICH_ASN=true` | IP→ASN/prefix/registry/AS-name via the Cymru IP-to-ASN DNS service (outbound DNS) |
+| MaxMind GeoLite2 | `geo` | `PROBECTL_FLOW_ENRICH_GEOIP_DB=<path>` | country/city/lat-lon from an **operator-supplied** `.mmdb` (not shipped); local file, no egress |
+| RIR delegated-stats | `allocation` | `PROBECTL_FLOW_ENRICH_RIR_DIR=<dir>` | RIR/country/status/date from delegated-extended stats files; parsed once into a sorted index; local files, no egress |
+| PeeringDB | `ixp` | `PROBECTL_FLOW_ENRICH_IXP=true` | IXP/facility presence via the PeeringDB REST API (outbound HTTPS); cached per ASN; requires `PROBECTL_FLOW_ENRICH_ASN` |
 
 The `Enricher` runs every **enabled** source over an IP and merges the results,
 **caching per IP** and **degrading gracefully**: a disabled / failing / slow /
 panicking source is logged, marked `degraded` or `disabled` in `Enricher.Status()`,
 and skipped — a partial enrichment is returned and a down dataset never breaks a
-core path. Sources run in registration order (register the ASN source before
-PeeringDB). Each contribution records `Provenance` (source + license + attribution
+core path. A source whose configured local data cannot be loaded (a missing
+`.mmdb`, an empty stats directory) is registered `unavailable` with the load
+error and never invoked, so a broken path is visible in
+`GET /v1/threat/intel/status` instead of silently absent. Sources run in
+registration order — local files first (geo, then RIR), the Cymru DNS fallback
+after them, PeeringDB last because it keys on the ASN Cymru resolves.
+`GET /v1/opendata/enrichment?ip=<addr>` (CLI: `probectl opendata enrich
+--query ip=<addr>`) serves the merged context for one IP with per-source
+provenance. Each contribution records `Provenance` (source + license + attribution
 + fields); a source's AUP (license, commercial-use permission, attribution) is on
 its `Descriptor` — the matrix that gates MSP/commercial resale (not private or
 single-tenant OSS use). All fetches are over TLS with certificate validation and
@@ -1477,6 +1483,9 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_ENDPOINT_RETENTION_DAYS` | `90` | delete-after-N-days TTL for raw endpoint/DEM event history. `0` disables the table TTL; tenant derived-identity policy can still enforce a tighter window |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
 | `PROBECTL_FLOW_ENRICH_CACHE_MAX`  | `65536`  | hard maximum entries in the shared open-data enrichment cache. When more distinct IPs arrive, stale entries expire first and then the least-recently-used entry is evicted; cache size/hits/misses/evictions are exposed on `/metrics` |
+| `PROBECTL_FLOW_ENRICH_GEOIP_DB`   | *(unset)* | path to an operator-supplied MaxMind GeoLite2 `.mmdb` (country/city/lat-lon). probectl never ships or fetches the database (see `opendata-aup.md` for licensing). Local file — no egress, air-gap friendly. An unreadable path degrades honestly: the source shows `unavailable` in `GET /v1/threat/intel/status` and the control plane keeps serving |
+| `PROBECTL_FLOW_ENRICH_RIR_DIR`    | *(unset)* | directory of RIR delegated-extended stats files (RIR, allocation status/date; drop in all five registries' files for the global view). Local files — no egress. Same honest `unavailable` degradation as the geo source |
+| `PROBECTL_FLOW_ENRICH_IXP`        | `false`  | opt-in PeeringDB IXP/facility enrichment. Off by default because it makes outbound HTTPS calls to the PeeringDB API (the no-phone-home guardrail). Requires `PROBECTL_FLOW_ENRICH_ASN=true` — PeeringDB keys on the ASN the Cymru source resolves, and the control plane refuses to start with an IXP source that could never contribute |
 
 `PROBECTL_PATH_RETENTION_DAYS` applies the same pattern to raw path/traceroute
 ClickHouse rows: raw hops/links age out, while hourly tenant-scoped hop/link

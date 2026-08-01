@@ -2482,6 +2482,12 @@ export interface TestOncallConnectorRequest {
 
 export type TestOncallConnectorResponse = OncallTestResponse
 
+export interface GetOpenDataEnrichmentRequest {
+  ip: string
+}
+
+export type GetOpenDataEnrichmentResponse = JsonObject
+
 export interface ListOtlpTokensRequest {
 }
 
@@ -3626,6 +3632,13 @@ export class ProbectlSDKClient {
     let path = "/v1/oncall/test"
     const query = new URLSearchParams()
     return this.requestJSON<TestOncallConnectorResponse>("POST", path, query, request.body)
+  }
+
+  async getOpenDataEnrichment(request: GetOpenDataEnrichmentRequest): Promise<GetOpenDataEnrichmentResponse> {
+    let path = "/v1/opendata/enrichment"
+    const query = new URLSearchParams()
+    if (request.ip !== undefined) query.set("ip", String(request.ip))
+    return this.requestJSON<GetOpenDataEnrichmentResponse>("GET", path, query, undefined)
   }
 
   async listOtlpTokens(): Promise<ListOtlpTokensResponse> {

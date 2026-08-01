@@ -29,11 +29,10 @@ import (
 type Kind string
 
 const (
-	KindASN         Kind = "asn"         // IP → ASN / prefix / registry
-	KindGeo         Kind = "geo"         // IP → country / city / lat-lon
-	KindIXP         Kind = "ixp"         // ASN → IXP / facility presence
-	KindAllocation  Kind = "allocation"  // IP → RIR allocation / status
-	KindMeasurement Kind = "measurement" // active measurement scheduling (RIPE Atlas)
+	KindASN        Kind = "asn"        // IP → ASN / prefix / registry
+	KindGeo        Kind = "geo"        // IP → country / city / lat-lon
+	KindIXP        Kind = "ixp"        // ASN → IXP / facility presence
+	KindAllocation Kind = "allocation" // IP → RIR allocation / status
 )
 
 // Permission expresses a source's commercial-use terms (relevant to MSP resale —
@@ -68,9 +67,11 @@ type Descriptor struct {
 }
 
 // Health is a source's mutable runtime status, tracked by the Enricher.
+// "unavailable" marks a source the operator configured whose backing data
+// failed to load — registered for visibility, never invoked.
 type Health struct {
 	Enabled     bool
-	Status      string // "ok" | "degraded" | "failed" | "disabled"
+	Status      string // "ok" | "degraded" | "failed" | "disabled" | "unavailable"
 	LastSuccess time.Time
 	LastError   string
 }

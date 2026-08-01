@@ -6552,6 +6552,124 @@
         }
       }
     },
+    "/v1/opendata/enrichment": {
+      "get": {
+        "operationId": "getOpenDataEnrichment",
+        "summary": "Open-data enrichment context for one IP address",
+        "tags": [
+          "threat"
+        ],
+        "description": "Tenant-authenticated, flow.read-gated lookup of the shared open-data context for an IP: ASN and AS name (Team Cymru), country/city/coordinates (operator-supplied GeoLite2), RIR allocation registry/status/date (RIR delegated stats), and IXP presence (PeeringDB), each with per-source AUP provenance. The payload is shared public-dataset context about the queried address; no tenant-owned data is returned. Lookups share the flow-ingest enrichment cache. 503 when no enrichment source is configured.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": true,
+            "description": "An IPv4 or IPv6 address.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Open-data enrichment for the address; fields absent when no registered source provides them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ip": {
+                      "type": "string"
+                    },
+                    "asn": {
+                      "type": "integer"
+                    },
+                    "as_name": {
+                      "type": "string"
+                    },
+                    "prefix": {
+                      "type": "string"
+                    },
+                    "country_code": {
+                      "type": "string"
+                    },
+                    "city": {
+                      "type": "string"
+                    },
+                    "latitude": {
+                      "type": "number"
+                    },
+                    "longitude": {
+                      "type": "number"
+                    },
+                    "rir": {
+                      "type": "string"
+                    },
+                    "allocation_status": {
+                      "type": "string"
+                    },
+                    "allocation_date": {
+                      "type": "string"
+                    },
+                    "ixps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "ix_id": {
+                            "type": "integer"
+                          },
+                          "ipv4": {
+                            "type": "string"
+                          },
+                          "ipv6": {
+                            "type": "string"
+                          },
+                          "speed_mbit": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "sources": {
+                      "type": "array",
+                      "description": "Per-source provenance: which dataset contributed which fields, with its license and attribution.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "string"
+                          },
+                          "license": {
+                            "type": "string"
+                          },
+                          "attribution": {
+                            "type": "string"
+                          },
+                          "fields": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/endpoints": {
       "get": {
         "operationId": "listEndpoints",

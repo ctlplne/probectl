@@ -178,6 +178,12 @@ control-plane consumer can fill `source.as.number` / `destination.as.number`,
 the AS organization name, and the ISO country code via the opendata enricher —
 but it is **opt-in** (`PROBECTL_FLOW_ENRICH_ASN=true`), because the Team Cymru
 lookups it uses are outbound DNS and probectl never phones home by default.
+Air-gapped deployments can fill the country from local files instead: an
+operator-supplied GeoLite2 database (`PROBECTL_FLOW_ENRICH_GEOIP_DB`) or RIR
+delegated stats (`PROBECTL_FLOW_ENRICH_RIR_DIR`) enrich with no egress at all,
+and `GET /v1/opendata/enrichment?ip=` serves the full merged context (geo,
+allocation, IXP presence) for one address — see
+[`configuration.md`](configuration.md) for the source-by-source keys.
 Device-asserted AS numbers (NetFlow v5/v9/IPFIX can export them) always pass
 through and are never overridden — enrichment only fills blanks, is cached, and
 degrades gracefully: a down or rate-limited source never blocks ingest.
