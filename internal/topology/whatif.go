@@ -79,18 +79,21 @@ type Coverage struct {
 
 // Impact is the simulation result for one failed element.
 type Impact struct {
-	Target           string               `json:"target"`
-	TargetKind       string               `json:"target_kind"` // node kind, or "edge"
-	At               time.Time            `json:"at"`
-	BrokenPaths      []PathImpact         `json:"broken_paths"`
-	ReroutedPaths    []PathImpact         `json:"rerouted_paths"`
-	ImpactedTests    []TestImpact         `json:"impacted_tests"`
-	ImpactedServices []string             `json:"impacted_services"`
-	ImpactedPrefixes []string             `json:"impacted_prefixes"`
-	Disconnected     []string             `json:"disconnected"` // newly unreachable from every agent
-	ImpactedSLOs     []string             `json:"impacted_slos"`
-	Coverage         Coverage             `json:"coverage"`
-	Confidence       SimulationConfidence `json:"confidence"`
+	Target           string       `json:"target"`
+	TargetKind       string       `json:"target_kind"` // node kind, or "edge"
+	At               time.Time    `json:"at"`
+	BrokenPaths      []PathImpact `json:"broken_paths"`
+	ReroutedPaths    []PathImpact `json:"rerouted_paths"`
+	ImpactedTests    []TestImpact `json:"impacted_tests"`
+	ImpactedServices []string     `json:"impacted_services"`
+	ImpactedPrefixes []string     `json:"impacted_prefixes"`
+	Disconnected     []string     `json:"disconnected"` // newly unreachable from every agent
+	// Partial is true when a budget bound stopped the traversal early: the
+	// impact lists are a LOWER BOUND, and Coverage.Notes says which bound.
+	Partial      bool                 `json:"partial,omitempty"`
+	ImpactedSLOs []string             `json:"impacted_slos"`
+	Coverage     Coverage             `json:"coverage"`
+	Confidence   SimulationConfidence `json:"confidence"`
 }
 
 // Simulate fails the element with id `target` (a node ID like "hop:10.0.0.1"
@@ -98,7 +101,81 @@ type Impact struct {
 // `at` simulates over the LIVE graph (everything currently known) — and
 // returns the predicted impact. Unknown targets are an error (fail closed —
 // a typo'd simulation must not return an empty "no impact").
+// Budget bounds ONE simulation (Foundation-Loop S-29804e53). What-if runs a
+// breadth-first search per agent plus two whole-graph reachability passes, on
+// a SYNCHRONOUS handler, and previously had no limit, cap or deadline: the
+// only bounds were the graph's own maxima and a 64KB body cap, on both the
+// POST and the export GET. A budget that degrades to an honest partial result
+// is the difference between a slow answer and a self-inflicted availability
+// incident.
+type Budget struct {
+	// MaxAgents caps how many agents' routes are expanded (the per-agent BFS).
+	MaxAgents int
+	// MaxVisits caps total nodes visited across every traversal in one
+	// simulation — the real cost driver, since a dense graph makes each pass
+	// superlinear in edges.
+	MaxVisits int
+	// Deadline bounds wall-clock. Zero means "no wall-clock bound", used only
+	// by offline callers; the served paths always set one.
+	Deadline time.Duration
+}
+
+// DefaultBudget is what the served what-if paths use unless configured
+// otherwise. The numbers sit above the documented graph maxima so an ordinary
+// tenant never sees truncation, and far below what would hold a handler for
+// seconds.
+func DefaultBudget() Budget {
+	return Budget{MaxAgents: 2000, MaxVisits: 2_000_000, Deadline: 5 * time.Second}
+}
+
+func (b Budget) normalized() Budget {
+	d := DefaultBudget()
+	if b.MaxAgents <= 0 {
+		b.MaxAgents = d.MaxAgents
+	}
+	if b.MaxVisits <= 0 {
+		b.MaxVisits = d.MaxVisits
+	}
+	return b
+}
+
+// simMeter tracks budget consumption across one simulation's traversals.
+type simMeter struct {
+	budget    Budget
+	visits    int
+	start     time.Time
+	exhausted string // non-empty once a bound was hit; names which one
+}
+
+func (m *simMeter) spend(n int) bool {
+	if m.exhausted != "" {
+		return false
+	}
+	m.visits += n
+	if m.visits > m.budget.MaxVisits {
+		m.exhausted = "node-visit budget"
+		return false
+	}
+	if m.budget.Deadline > 0 && time.Since(m.start) > m.budget.Deadline {
+		m.exhausted = "wall-clock budget"
+		return false
+	}
+	return true
+}
+
+func (m *simMeter) ok() bool { return m.exhausted == "" }
+
+// Simulate runs a what-if with the default budget. Callers on a request path
+// use SimulateWithBudget so the deadline follows the request.
 func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impact, error) {
+	return SimulateWithBudget(s, tenant, target, at, slo, DefaultBudget())
+}
+
+// SimulateWithBudget is Simulate under an explicit budget. When a bound is
+// reached the traversal STOPS and the result says so in Coverage.Notes with
+// a Partial flag — an honest partial answer, never an unbounded run.
+func SimulateWithBudget(s Store, tenant, target string, at time.Time, slo SLOSource, budget Budget) (Impact, error) {
+	meter := &simMeter{budget: budget.normalized(), start: time.Now()}
 	graph, err := s.ForTenant(tenant)
 	if err != nil {
 		return Impact{}, err
@@ -129,7 +206,15 @@ func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impa
 	// --- path plane: every agent→host route, before vs after the failure ---
 	before := sim.adjacency(EdgePath, false, "")
 	after := sim.adjacency(EdgePath, false, target)
-	for _, agent := range sim.nodesOfKind(NodeAgent) {
+	agents := sim.nodesOfKind(NodeAgent)
+	if len(agents) > meter.budget.MaxAgents {
+		agents = agents[:meter.budget.MaxAgents]
+		meter.exhausted = "agent budget"
+	}
+	for _, agent := range agents {
+		if !meter.spend(1) {
+			break
+		}
 		if agent.ID == target {
 			// The agent itself failed: every route it had is broken.
 			for host, route := range routesFrom(before, agent.ID, sim, NodeHost) {
@@ -208,14 +293,19 @@ func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impa
 	allAfter := sim.adjacency("", false, target)
 	pre := map[string]bool{}
 	post := map[string]bool{}
-	for _, agent := range sim.nodesOfKind(NodeAgent) {
+	undirectedBefore := undirect(allBefore)
+	undirectedAfter := undirect(allAfter)
+	for _, agent := range agents {
 		if agent.ID == target {
 			continue
 		}
-		for n := range reachableFrom(undirect(allBefore), agent.ID) {
+		if !meter.spend(len(undirectedBefore)) {
+			break
+		}
+		for n := range reachableFrom(undirectedBefore, agent.ID) {
 			pre[n] = true
 		}
-		for n := range reachableFrom(undirect(allAfter), agent.ID) {
+		for n := range reachableFrom(undirectedAfter, agent.ID) {
 			post[n] = true
 		}
 	}
@@ -225,6 +315,13 @@ func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impa
 		}
 	}
 	sort.Strings(imp.Disconnected)
+
+	if !meter.ok() {
+		imp.Partial = true
+		imp.Coverage.Notes = append(imp.Coverage.Notes,
+			"PARTIAL RESULT: the "+meter.exhausted+" was exhausted before every agent was simulated — "+
+				"impact below is a lower bound, not a complete answer")
+	}
 
 	// --- SLO impact (S45 seam) ---
 	if slo != nil {

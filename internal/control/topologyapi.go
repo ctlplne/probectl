@@ -151,7 +151,11 @@ func (s *Server) simulateWhatIf(r *http.Request, req whatIfRequest) (topology.Im
 	if s.sloEngine != nil {
 		sloSrc = s.sloEngine
 	}
-	imp, err := topology.Simulate(s.topo, tid, req.Target, at, sloSrc)
+	// The served what-if paths (POST and the export GET) always run under an
+	// explicit budget: an unbounded simulation on a synchronous handler is the
+	// availability risk S-29804e53 names. Exhausting a bound yields a PARTIAL
+	// result with a note, never a long-running request.
+	imp, err := topology.SimulateWithBudget(s.topo, tid, req.Target, at, sloSrc, s.whatIfBudget())
 	if err != nil {
 		return topology.Impact{}, apierror.NotFound(err.Error())
 	}
@@ -665,4 +669,17 @@ func serviceEdgeTimes(e *ebpfv1.ServiceEdge, receivedAt time.Time) (time.Time, t
 		firstSeen, lastSeen = lastSeen, firstSeen
 	}
 	return firstSeen, lastSeen
+}
+
+// whatIfBudget resolves the configured simulation budget, falling back to the
+// package defaults when the server has no config (unit tests).
+func (s *Server) whatIfBudget() topology.Budget {
+	if s.cfg == nil {
+		return topology.DefaultBudget()
+	}
+	return topology.Budget{
+		MaxAgents: s.cfg.TopologyWhatIfMaxAgents,
+		MaxVisits: s.cfg.TopologyWhatIfMaxVisits,
+		Deadline:  s.cfg.TopologyWhatIfTimeout,
+	}
 }

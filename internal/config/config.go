@@ -249,6 +249,15 @@ type Config struct {
 	// (SMTPS from the first byte) — never plaintext (§7 guardrail 12).
 	// AlertSMTPPassword accepts a secret reference resolved through the
 	// secrets backend at boot; it is never logged (like CMDBSecret).
+	// TopologyWhatIfBudget bounds ONE what-if simulation (S-29804e53): the
+	// per-agent BFS plus two whole-graph reachability passes run on a
+	// synchronous handler, so an unbounded graph would hold it. Exceeding a
+	// bound returns an honest PARTIAL result, never an unbounded run. Zero
+	// values keep the built-in defaults.
+	TopologyWhatIfMaxAgents int
+	TopologyWhatIfMaxVisits int
+	TopologyWhatIfTimeout   time.Duration
+
 	AlertSMTPAddr     string
 	AlertSMTPFrom     string
 	AlertSMTPTLSMode  string
@@ -839,6 +848,9 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
 	cfg.CMDBCacheTTL = l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute)
 	cfg.AlertEvalInterval = l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second)
+	cfg.TopologyWhatIfMaxAgents = l.intRange("PROBECTL_TOPOLOGY_WHATIF_MAX_AGENTS", 2000, 1, 1_000_000)
+	cfg.TopologyWhatIfMaxVisits = l.intRange("PROBECTL_TOPOLOGY_WHATIF_MAX_VISITS", 2_000_000, 1000, 1_000_000_000)
+	cfg.TopologyWhatIfTimeout = l.dur("PROBECTL_TOPOLOGY_WHATIF_TIMEOUT", 5*time.Second)
 	cfg.AlertSMTPAddr = l.str("PROBECTL_ALERT_SMTP_ADDR", "")
 	cfg.AlertSMTPFrom = l.str("PROBECTL_ALERT_SMTP_FROM", "")
 	cfg.AlertSMTPTLSMode = l.enum("PROBECTL_ALERT_SMTP_TLS_MODE", "starttls", "starttls", "implicit")
