@@ -627,19 +627,34 @@ func (s *PGStore) ListGrantsForTenant(ctx context.Context, tenantID string) ([]G
 	return s.listGrants(ctx, `WHERE g.tenant_id = $1`, tenantID)
 }
 
-func (s *PGStore) grantUpdate(ctx context.Context, id, sql string, args ...any) (*Grant, error) {
+// decideGrant is the ONE state-transition primitive for break-glass consent,
+// deny and revoke (Foundation-Loop S-ae06d833). Every transition now does what
+// UseGrant always did: take the row lock, re-read the state INSIDE the
+// transaction, and re-state the precondition as UPDATE predicates so a lost
+// race fails closed at the storage layer instead of relying on the ordering of
+// cases in a Go switch. setSQL assigns the decision columns; guardSQL is the
+// extra precondition that transition requires beyond "still pending".
+func (s *PGStore) decideGrant(ctx context.Context, id, setSQL, guardSQL string, by string, at time.Time) (*Grant, error) {
 	var g Grant
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
-		tag, err := q.Exec(ctx, sql, args...)
+		var err error
+		g, err = scanGrant(q.QueryRow(ctx,
+			`SELECT `+grantCols+grantFrom+`WHERE g.id = $1 FOR UPDATE OF g`, id))
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		tag, err := q.Exec(ctx,
+			`UPDATE break_glass_grants SET `+setSQL+` WHERE id = $1 `+guardSQL, id, by, at)
+		if err != nil {
+			return err
 		}
-		var e error
-		g, e = scanGrant(q.QueryRow(ctx, `SELECT `+grantCols+grantFrom+`WHERE g.id = $1`, id))
-		return e
+		if tag.RowsAffected() != 1 {
+			// Another transaction decided this grant first. Fail closed: the
+			// caller sees the conflict rather than a silently clobbered state.
+			return ErrGrantDecided
+		}
+		g, err = scanGrant(q.QueryRow(ctx, `SELECT `+grantCols+grantFrom+`WHERE g.id = $1`, id))
+		return err
 	})
 	if err != nil {
 		return nil, mapPGErr(err)
@@ -647,19 +662,23 @@ func (s *PGStore) grantUpdate(ctx context.Context, id, sql string, args ...any) 
 	return &g, nil
 }
 
+// pendingGuard is the "still undecided" precondition shared by consent and
+// deny: no prior decision of any kind, and not yet expired.
+const pendingGuard = `AND consented_at IS NULL AND denied_at IS NULL AND revoked_at IS NULL AND expires_at > $3`
+
 func (s *PGStore) ConsentGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error) {
-	return s.grantUpdate(ctx, id,
-		`UPDATE break_glass_grants SET consented_by=$2, consented_at=$3 WHERE id=$1`, id, by, at)
+	return s.decideGrant(ctx, id, `consented_by=$2, consented_at=$3`, pendingGuard, by, at)
 }
 
 func (s *PGStore) DenyGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error) {
-	return s.grantUpdate(ctx, id,
-		`UPDATE break_glass_grants SET denied_by=$2, denied_at=$3 WHERE id=$1`, id, by, at)
+	return s.decideGrant(ctx, id, `denied_by=$2, denied_at=$3`, pendingGuard, by, at)
 }
 
+// RevokeGrant may follow a consent (revoking an active grant is the point) but
+// never a deny or a second revoke, and never resurrects an expired grant.
 func (s *PGStore) RevokeGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error) {
-	return s.grantUpdate(ctx, id,
-		`UPDATE break_glass_grants SET revoked_by=$2, revoked_at=$3 WHERE id=$1`, id, by, at)
+	return s.decideGrant(ctx, id, `revoked_by=$2, revoked_at=$3`,
+		`AND denied_at IS NULL AND revoked_at IS NULL AND expires_at > $3`, by, at)
 }
 
 // UseGrant is the grant access linearization point. The row lock keeps revoke

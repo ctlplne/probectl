@@ -52,7 +52,11 @@ var (
 	ErrBandExhausted = errors.New("provider: licensed tenant band exhausted")
 	ErrNotConsented  = errors.New("provider: break-glass grant is not active (missing consent, expired, denied, or revoked)")
 	ErrNotGrantee    = errors.New("provider: break-glass grants are operator-bound — only the requesting operator may use one")
-	ErrForbidden     = errors.New("provider: forbidden")
+	// ErrGrantDecided is returned when a consent/deny/revoke loses a race to
+	// another decision on the same grant. The storage-layer predicates refuse
+	// the second writer rather than letting it clobber the first (S-ae06d833).
+	ErrGrantDecided = errors.New("provider: break-glass grant was already decided by a concurrent request")
+	ErrForbidden    = errors.New("provider: forbidden")
 )
 
 // SiloOps is the S-T2 isolation seam: provisioning/teardown of a tenant's
