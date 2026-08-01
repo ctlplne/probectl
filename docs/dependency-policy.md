@@ -101,8 +101,9 @@ bytes but the manifest still states upgrade intent.
   after expiry.
 
   `GHSA-qwww-vcr4-c8h2` is accepted as documented risk for exactly React Router
-  `7.18.1` and official affected range `>=7.12.0 <8.3.0` through `2026-08-31`
-  only while
+  `7.18.1` and official affected range `>=7.12.0 <8.3.0` through `2026-10-31`
+  (re-verified 2026-08-01: the only patched release is the 8.3.0 major; the
+  newest 7.x, `7.18.2`, is still inside the affected range) only while
   [`scripts/check_web_router_mode.mjs`](../scripts/check_web_router_mode.mjs)
   proves the shipped UI remains a client-only
   `<BrowserRouter basename="/ui">` SPA with no RSC API, RSC build dependency,

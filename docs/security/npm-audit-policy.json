@@ -15,9 +15,9 @@
       },
       "max_severity": "high",
       "dev_only": false,
-      "expires_at": "2026-08-31",
+      "expires_at": "2026-10-31",
       "guard": "scripts/check_web_router_mode.mjs",
-      "reason": "Accepted documented risk for SUPPLY-86eeb375. GHSA-qwww-vcr4-c8h2 affects only unstable React Server Component APIs. probectl ships a client-only BrowserRouter with basename /ui, and the named guard rejects RSC APIs, RSC build dependencies, RSC entrypoints, server-action directives, and any loss of that exact browser-router seam. No compatible patched react-router-dom release is published as of 2026-07-28. A new advisory, affected-range drift, installed-version change, RSC/server-action adoption, audit clearance, or expiry fails closed and reopens review."
+      "reason": "Accepted documented risk for SUPPLY-86eeb375, re-verified 2026-08-01 (Foundation-Loop E-7cd17680). GHSA-qwww-vcr4-c8h2 affects only unstable React Server Component APIs. probectl ships a client-only BrowserRouter with basename /ui, and the named guard rejects RSC APIs, RSC build dependencies, RSC entrypoints, server-action directives, and any loss of that exact browser-router seam. As of 2026-08-01 the only patched release is react-router 8.3.0 — a major outside the installed 7.x line; the newest 7.x (7.18.2) remains inside the official affected range >=7.12.0 <8.3.0, so no compatible patched release exists. Renewed to 2026-10-31; revisit on a 7.x backport, the React Router 8 upgrade decision, or advisory change, whichever comes first. A new advisory, affected-range drift, installed-version change, RSC/server-action adoption, audit clearance, or expiry fails closed and reopens review."
     },
     {
       "id": "SUPPLY-1dbf9837-vite-windows-dev-server-only",
