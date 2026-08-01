@@ -148,7 +148,7 @@ func TestCrtShBoundsResponseBody(t *testing.T) {
 	if f, ok := atLimit.Check(context.Background(), cert(t, crypto.TestCertOptions{CommonName: "ct-exact.example"})); !ok || f.Kind != FindingCTNotLogged {
 		t.Fatalf("a valid body of exactly the cap must be accepted, got %v/%v", f, ok)
 	}
-	if stats := atLimit.Stats(); stats.Degraded != 0 {
+	if stats := atLimit.statsSnapshot(); stats.Degraded != 0 {
 		t.Fatalf("exact-limit body must not degrade, stats = %+v", stats)
 	}
 
@@ -160,7 +160,7 @@ func TestCrtShBoundsResponseBody(t *testing.T) {
 	if f, ok := overLimit.Check(context.Background(), cert(t, crypto.TestCertOptions{CommonName: "ct-over.example"})); ok {
 		t.Fatalf("cap+1 body must degrade to no finding, got %v/%v", f, ok)
 	}
-	if stats := overLimit.Stats(); stats.Degraded != 1 {
+	if stats := overLimit.statsSnapshot(); stats.Degraded != 1 {
 		t.Fatalf("cap+1 body must be recorded as degraded, not accepted from a truncated prefix, stats = %+v", stats)
 	}
 }
@@ -185,7 +185,7 @@ func TestCrtShCachesSerial(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("crt.sh calls = %d, want 1 cached serial/fingerprint lookup", calls)
 	}
-	stats := checker.Stats()
+	stats := checker.statsSnapshot()
 	if stats.CacheMisses != 1 || stats.CacheHits != 1 || stats.Requests != 1 {
 		t.Fatalf("stats = %+v, want one miss, one hit, one request", stats)
 	}
@@ -226,7 +226,7 @@ func TestCrtShBackoffAfterRateLimit(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("calls during backoff = %d, want still 1", calls)
 	}
-	if stats := checker.Stats(); stats.Degraded != 1 || stats.SkippedBackoff != 1 {
+	if stats := checker.statsSnapshot(); stats.Degraded != 1 || stats.SkippedBackoff != 1 {
 		t.Fatalf("stats during backoff = %+v, want degraded=1 skipped_backoff=1", stats)
 	}
 

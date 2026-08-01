@@ -103,8 +103,8 @@ func (r *Registry) New(cfg Config) (Canary, error) {
 	return f(cfg)
 }
 
-// Types returns the registered canary types.
-func (r *Registry) Types() []string {
+// types returns the registered canary types.
+func (r *Registry) types() []string {
 	out := make([]string, 0, len(r.factories))
 	for t := range r.factories {
 		out = append(out, t)

@@ -133,13 +133,6 @@ func (Agents) Get(ctx context.Context, s tenancy.Scope, id string) (*Agent, erro
 	return &a, nil
 }
 
-// Exists reports whether the tenant has at least one registered agent.
-func (Agents) Exists(ctx context.Context, s tenancy.Scope) (bool, error) {
-	var ok bool
-	err := s.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agents)`).Scan(&ok)
-	return ok, err
-}
-
 // ProducerReadiness reports all six shipped producer planes in a fixed-size
 // query. The query runs through the tenant transaction, so Postgres RLS is the
 // outer boundary; application code never receives another tenant's agents.
@@ -206,8 +199,8 @@ func (Agents) Delete(ctx context.Context, s tenancy.Scope, id string) error {
 	return nil
 }
 
-// List returns the tenant's agents.
-func (Agents) List(ctx context.Context, s tenancy.Scope) ([]Agent, error) {
+// list returns the tenant's agents.
+func (Agents) list(ctx context.Context, s tenancy.Scope) ([]Agent, error) {
 	rows, err := s.Q.Query(ctx, `SELECT `+agentCols+` FROM agents ORDER BY registered_at`)
 	if err != nil {
 		return nil, err
@@ -230,7 +223,7 @@ const DefaultAgentPageSize = 200
 // ListPage returns one cursor page of agents ordered by id, starting AFTER the
 // given cursor id (empty = first page), capped at limit (SCALE-010). Cursor
 // pagination keeps a fleet-scale /v1/agents response bounded — the unbounded
-// List() loaded every row, which falls over at 10k+ agents. The id ordering is
+// list() loaded every row, which falls over at 10k+ agents. The id ordering is
 // stable (UUID PK), so the next cursor is simply the last returned id.
 func (Agents) ListPage(ctx context.Context, s tenancy.Scope, afterID string, limit int) ([]Agent, error) {
 	if limit <= 0 || limit > 1000 {

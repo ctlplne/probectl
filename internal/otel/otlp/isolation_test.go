@@ -51,7 +51,7 @@ func TestOTLPIngestCrossTenantInjection(t *testing.T) {
 		return rec.Code
 	}
 	marshal := func(r *resultv1.Result) []byte {
-		b, _ := proto.Marshal(MetricsRequest(ResultResourceMetrics(r)))
+		b, _ := proto.Marshal(metricsRequest(resultResourceMetrics(r)))
 		return b
 	}
 

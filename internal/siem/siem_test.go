@@ -269,8 +269,8 @@ func TestPreset(t *testing.T) {
 
 func TestSyslogIngestReplaysRFC5424AndRFC3164PerTenant(t *testing.T) {
 	now := time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC)
-	store := NewMemorySyslogStore(10)
-	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+	store := newMemorySyslogStore(10)
+	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Sources: []SyslogSource{
@@ -294,7 +294,7 @@ func TestSyslogIngestReplaysRFC5424AndRFC3164PerTenant(t *testing.T) {
 	event, err := receiver.Record(context.Background(), SyslogEnvelope{
 		Line:          rfc5424,
 		SourceAddress: "192.0.2.10:6514",
-		Signature:     SyslogSignature("edge-secret", rfc5424),
+		Signature:     syslogSignature("edge-secret", rfc5424),
 		ReceivedAt:    now,
 	})
 	if err != nil {
@@ -336,10 +336,10 @@ func TestSyslogIngestReplaysRFC5424AndRFC3164PerTenant(t *testing.T) {
 		t.Fatalf("tls provenance missing: %+v", event)
 	}
 
-	if got := len(store.ListSyslogEvents("tenant-a")); got != 2 {
+	if got := len(store.listSyslogEvents("tenant-a")); got != 2 {
 		t.Fatalf("tenant-a syslog rows = %d, want 2", got)
 	}
-	if got := len(store.ListSyslogEvents("tenant-b")); got != 0 {
+	if got := len(store.listSyslogEvents("tenant-b")); got != 0 {
 		t.Fatalf("tenant-b syslog rows = %d, want 0", got)
 	}
 }
@@ -348,8 +348,8 @@ func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
 	now := time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC)
 	line := []byte(`<34>1 2026-06-30T13:00:00Z edge-1 firewall - link_down - first`)
 
-	unsignedStore := NewMemorySyslogStore(10)
-	unsigned, err := NewSyslogReceiver(SyslogReceiverConfig{
+	unsignedStore := newMemorySyslogStore(10)
+	unsigned, err := newSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Sources:  []SyslogSource{{Name: "edge-fw", HMACSecret: "edge-secret"}},
@@ -360,12 +360,12 @@ func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
 	if _, err := unsigned.Record(context.Background(), SyslogEnvelope{Line: line, Signature: "sha256=00", ReceivedAt: now}); !errors.Is(err, ErrSyslogUnauthenticated) {
 		t.Fatalf("forged signature err = %v, want unauthenticated", err)
 	}
-	if got := len(unsignedStore.ListSyslogEvents("tenant-a")); got != 0 {
+	if got := len(unsignedStore.listSyslogEvents("tenant-a")); got != 0 {
 		t.Fatalf("forged syslog stored %d rows", got)
 	}
 
-	store := NewMemorySyslogStore(10)
-	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+	store := newMemorySyslogStore(10)
+	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Sources: []SyslogSource{{
@@ -381,7 +381,7 @@ func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		if _, err := receiver.Record(context.Background(), SyslogEnvelope{
 			Line:       line,
-			Signature:  SyslogSignature("edge-secret", line),
+			Signature:  syslogSignature("edge-secret", line),
 			ReceivedAt: now.Add(time.Duration(i) * time.Second),
 		}); err != nil {
 			t.Fatalf("accepted syslog %d: %v", i, err)
@@ -389,19 +389,19 @@ func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
 	}
 	if _, err := receiver.Record(context.Background(), SyslogEnvelope{
 		Line:       line,
-		Signature:  SyslogSignature("edge-secret", line),
+		Signature:  syslogSignature("edge-secret", line),
 		ReceivedAt: now.Add(2 * time.Second),
 	}); !errors.Is(err, ErrSyslogRateLimited) {
 		t.Fatalf("third syslog err = %v, want rate limited", err)
 	}
-	if got := len(store.ListSyslogEvents("tenant-a")); got != 2 {
+	if got := len(store.listSyslogEvents("tenant-a")); got != 2 {
 		t.Fatalf("rate limited store rows = %d, want 2", got)
 	}
 }
 
 func TestSyslogIngestRejectsMalformedAndPlainListener(t *testing.T) {
-	store := NewMemorySyslogStore(10)
-	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+	store := newMemorySyslogStore(10)
+	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
 		TenantID:     "tenant-a",
 		MaxLineBytes: 32,
 		Sources:      []SyslogSource{{Name: "edge-fw", HMACSecret: "edge-secret"}},
@@ -413,27 +413,27 @@ func TestSyslogIngestRejectsMalformedAndPlainListener(t *testing.T) {
 	malformed := []byte(`<999>1 2026-06-30T13:00:00Z edge app - msg - bad`)
 	if _, err := receiver.Record(context.Background(), SyslogEnvelope{
 		Line:      malformed,
-		Signature: SyslogSignature("edge-secret", malformed),
+		Signature: syslogSignature("edge-secret", malformed),
 	}); !errors.Is(err, ErrSyslogParse) {
 		t.Fatalf("malformed pri err = %v, want parse", err)
 	}
 	oversized := []byte(`<34>1 2026-06-30T13:00:00Z edge app - msg - too-long`)
 	if _, err := receiver.Record(context.Background(), SyslogEnvelope{
 		Line:      oversized,
-		Signature: SyslogSignature("edge-secret", oversized),
+		Signature: syslogSignature("edge-secret", oversized),
 	}); !errors.Is(err, ErrSyslogParse) {
 		t.Fatalf("oversized err = %v, want parse", err)
 	}
-	if got := len(store.ListSyslogEvents("tenant-a")); got != 0 {
+	if got := len(store.listSyslogEvents("tenant-a")); got != 0 {
 		t.Fatalf("malformed syslog stored %d rows", got)
 	}
-	if err := receiver.ListenTLS(context.Background(), "127.0.0.1:0", nil); err == nil || !strings.Contains(err.Error(), "TLS config required") {
+	if err := receiver.listenTLS(context.Background(), "127.0.0.1:0", nil); err == nil || !strings.Contains(err.Error(), "TLS config required") {
 		t.Fatalf("nil TLS config should fail closed, got %v", err)
 	}
-	if _, err := NewSyslogReceiver(SyslogReceiverConfig{
+	if _, err := newSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Sources:  []SyslogSource{{Name: "plain-source"}},
-	}, NewMemorySyslogStore(1)); err == nil {
+	}, newMemorySyslogStore(1)); err == nil {
 		t.Fatal("source without signature or TLS client subject should fail closed")
 	}
 }
@@ -449,7 +449,7 @@ func TestSyslogLiveConnectionSurfacesSafeBoundedHealth(t *testing.T) {
 		}
 		return event, nil
 	})
-	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Log:      slog.New(slog.NewJSONHandler(&logs, nil)),
@@ -476,7 +476,7 @@ func TestSyslogLiveConnectionSurfacesSafeBoundedHealth(t *testing.T) {
 		`<34>1 2026-07-26T12:00:00Z edge firewall - live - limited-private-body`,
 	)
 
-	got := receiver.HealthSnapshot()
+	got := receiver.healthSnapshot()
 	if got.Accepted != 1 || got.Rejected != 2 || got.ParseFailed != 1 ||
 		got.RateLimited != 1 || got.PersistenceFailed != 1 {
 		t.Fatalf("live syslog health = %+v", got)
@@ -555,7 +555,7 @@ func TestSyslogParserEdgeCasesAndMemoryStoreBounds(t *testing.T) {
 		}
 	}
 
-	store := NewMemorySyslogStore(1)
+	store := newMemorySyslogStore(1)
 	first, err := store.RecordSyslog(context.Background(), SyslogEvent{TenantID: "tenant-a", Message: "first", Fingerprint: "first"})
 	if err != nil {
 		t.Fatal(err)
@@ -564,12 +564,12 @@ func TestSyslogParserEdgeCasesAndMemoryStoreBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := store.ListSyslogEvents("tenant-a")
+	rows := store.listSyslogEvents("tenant-a")
 	if len(rows) != 1 || rows[0].ID != second.ID || rows[0].ID == first.ID {
 		t.Fatalf("bounded store should retain only newest row: %+v", rows)
 	}
 	rows[0].Provenance["k"] = "mutated"
-	if got := store.ListSyslogEvents("tenant-a")[0].Provenance["k"]; got == "mutated" {
+	if got := store.listSyslogEvents("tenant-a")[0].Provenance["k"]; got == "mutated" {
 		t.Fatal("ListSyslogEvents must return defensive provenance copies")
 	}
 }

@@ -303,8 +303,8 @@ type Drift struct {
 	MissingColumns []string `json:"missing_columns"` // "table.column"
 }
 
-// Empty reports whether the silo is fully caught up.
-func (d Drift) Empty() bool { return len(d.MissingTables) == 0 && len(d.MissingColumns) == 0 }
+// empty reports whether the silo is fully caught up.
+func (d Drift) empty() bool { return len(d.MissingTables) == 0 && len(d.MissingColumns) == 0 }
 
 // DiffDrift computes the catch-up debt from catalog facts.
 func DiffDrift(cat Catalog) Drift {

@@ -56,7 +56,7 @@ func TestBMPListenerPartitionsTenantScopedPeers(t *testing.T) {
 		pub,
 		"bmp-test",
 		discardLogger(),
-		WithBMPPeerInventory(inv),
+		withBMPPeerInventory(inv),
 		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -98,7 +98,7 @@ func TestBMPListenerPartitionsTenantScopedPeers(t *testing.T) {
 		t.Fatal("tenant route events collapsed onto one prefix")
 	}
 
-	peers := inv.Snapshot()
+	peers := inv.snapshot()
 	if len(peers) != 2 {
 		t.Fatalf("inventory size = %d, want 2: %+v", len(peers), peers)
 	}

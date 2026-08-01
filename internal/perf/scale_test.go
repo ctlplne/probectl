@@ -31,7 +31,7 @@ func TestScaleGateCI(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), scaleGateTimeout(tier, scale))
 	defer cancel()
-	rep, err := RunScaleGate(ctx, tier, scale)
+	rep, err := runScaleGate(ctx, tier, scale)
 	if err != nil {
 		t.Fatalf("scale gate %s: %v", tier, err)
 	}
@@ -64,7 +64,7 @@ func TestScaleGateFleetEnvelopeCI(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	rep, err := DriveFleetEnvelope(ctx, tier, scale)
+	rep, err := driveFleetEnvelope(ctx, tier, scale)
 	if err != nil {
 		t.Fatalf("fleet envelope %s: %v", tier, err)
 	}
@@ -149,7 +149,7 @@ func TestProfilesShapeAndScaling(t *testing.T) {
 func TestFleetEnvelopeXXLCovers100kFanout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	rep, err := DriveFleetEnvelope(ctx, TierXXL, 1)
+	rep, err := driveFleetEnvelope(ctx, TierXXL, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +416,7 @@ func TestScaleGateFlowPlaneCI(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), flowPlaneTimeout(tier, scale))
 	defer cancel()
-	rep, err := DriveFlowPlane(ctx, tier, scale)
+	rep, err := driveFlowPlane(ctx, tier, scale)
 	if err != nil {
 		t.Fatalf("flow plane %s: %v", tier, err)
 	}

@@ -160,7 +160,7 @@ func TestCollectorQualitySetIsBoundedAndCountersSaturate(t *testing.T) {
 		c.observeQualityPacket(exporter, ProtoNetFlow5, now.Add(time.Duration(i)*time.Nanosecond),
 			[]Record{{SamplingRate: 1}}, 0, false)
 	}
-	if got := len(c.QualitySnapshot(now.Add(time.Minute))); got > MaxQualityReceiptsPerAgent {
+	if got := len(c.qualitySnapshot(now.Add(time.Minute))); got > MaxQualityReceiptsPerAgent {
 		t.Fatalf("quality cardinality=%d, max=%d", got, MaxQualityReceiptsPerAgent)
 	}
 	if got := saturatingQualityAdd(MaxQualityCounter-1, 10); got != MaxQualityCounter {
@@ -196,7 +196,7 @@ func TestCollectorEmitsQualityWindowAndRestoresItOnFailure(t *testing.T) {
 	c.observeQualityPacket("198.51.100.55", ProtoNetFlow5, now,
 		[]Record{{SamplingRate: 1}}, 0, false)
 	c.emitQualityReceipts(context.Background(), now.Add(time.Minute))
-	restored := c.QualitySnapshot(now.Add(time.Minute))
+	restored := c.qualitySnapshot(now.Add(time.Minute))
 	if len(restored) != 1 || restored[0].PacketsReceived != 1 || restored[0].RecordsDecoded != 1 {
 		t.Fatalf("failed quality window was not restored: %+v", restored)
 	}

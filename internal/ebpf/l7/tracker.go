@@ -46,8 +46,8 @@ func (t *Tracker) Flush() []Call {
 	return t.parser.Flush()
 }
 
-// Protocol returns the detected protocol ("" until detected).
-func (t *Tracker) Protocol() string { return t.proto }
+// protocol returns the detected protocol ("" until detected).
+func (t *Tracker) protocol() string { return t.proto }
 
 func parserFor(proto string) Parser {
 	switch proto {

@@ -132,8 +132,8 @@ func NewRetentionRunnerPG(pool *pgxpool.Pool, policy RetentionPolicy, providerWa
 	return r
 }
 
-// WithTenantWatermarkForTest replaces the tenant watermark source.
-func (r *RetentionRunner) WithTenantWatermarkForTest(fn TenantWatermarkFunc) *RetentionRunner {
+// withTenantWatermarkForTest replaces the tenant watermark source.
+func (r *RetentionRunner) withTenantWatermarkForTest(fn TenantWatermarkFunc) *RetentionRunner {
 	r.tenantWatermark = fn
 	return r
 }

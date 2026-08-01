@@ -70,6 +70,18 @@ type Event struct {
 // now (the caller passes a clock for determinism). Grossly future-dated events are
 // clamped to ingest time and annotated, so a bad source clock cannot poison later
 // AI/RCA windows.
+// knownKind bounds a caller-supplied kind to the declared vocabulary: the
+// generic webhook casts arbitrary strings into Kind, and an unbounded grouping
+// enum would fragment the UI/correlation by every sender's private spelling.
+func knownKind(k Kind) Kind {
+	switch k {
+	case KindDeploy, KindConfig, KindRoute, KindIaC, KindCommit, KindRelease, KindOther:
+		return k
+	default:
+		return KindOther
+	}
+}
+
 func (e *Event) normalize(source string, now time.Time) {
 	if e.Source == "" {
 		e.Source = source
@@ -77,6 +89,7 @@ func (e *Event) normalize(source string, now time.Time) {
 	if e.Kind == "" {
 		e.Kind = KindOther
 	}
+	e.Kind = knownKind(e.Kind)
 	if e.OccurredAt.IsZero() {
 		e.OccurredAt = now
 	}

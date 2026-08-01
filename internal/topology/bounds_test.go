@@ -16,7 +16,7 @@ import (
 // identities evicts the least-recently-seen instead of growing without bound.
 func TestGraphNodeCapEvictsOldest(t *testing.T) {
 	g := NewGraph("t-a")
-	g.SetBounds(3, 100, 0)
+	g.setBounds(3, 100, 0)
 	base := time.Unix(1_700_000_000, 0)
 	for i := 0; i < 5; i++ {
 		g.UpsertNode(Node{ID: fmt.Sprintf("n%d", i)}, base.Add(time.Duration(i)*time.Minute))
@@ -42,7 +42,7 @@ func TestGraphStalenessHorizon(t *testing.T) {
 	g := NewGraph("t-a")
 	now := time.Unix(1_700_000_000, 0)
 	g.now = func() time.Time { return now }
-	g.SetBounds(0, 0, 10*time.Minute)
+	g.setBounds(0, 0, 10*time.Minute)
 
 	g.UpsertNode(Node{ID: "stale"}, now.Add(-30*time.Minute)) // outside horizon
 	g.UpsertNode(Node{ID: "fresh"}, now.Add(-1*time.Minute))  // inside horizon

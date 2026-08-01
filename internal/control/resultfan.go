@@ -105,9 +105,6 @@ func (f *ResultFan) handleLane(ctx context.Context, msg bus.Message, laneTenant 
 	return nil
 }
 
-// Decoded reports messages decoded (each exactly once).
-func (f *ResultFan) Decoded() uint64 { return f.decoded.Load() }
-
 // runResultSink is the standalone-mode helper the individual consumers' Run
 // methods use (tests / non-fan deployments): one subscription, one decode,
 // one typed sink — the same code path the fan exercises.

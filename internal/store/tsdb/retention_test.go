@@ -35,7 +35,7 @@ func TestMemoryRetentionWindowSweeps(t *testing.T) {
 	if got := m.Len(); got != 1 {
 		t.Fatalf("retained = %d, want the aged arrival swept", got)
 	}
-	if u := m.Usage(); u.EvictedAge != 1 || u.Samples != 1 {
+	if u := m.usage(); u.EvictedAge != 1 || u.Samples != 1 {
 		t.Fatalf("usage = %+v", u)
 	}
 	if len(m.Query("fresh", nil)) != 1 || len(m.Query("old", nil)) != 0 {
@@ -53,7 +53,7 @@ func TestMemoryByteWallEvictsOldestFirst(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		_ = m.Write(context.Background(), []Series{sampleAt(now, fmt.Sprintf("m_%03d", i))})
 	}
-	u := m.Usage()
+	u := m.usage()
 	if u.Bytes > one*10 {
 		t.Fatalf("bytes = %d, above the wall %d", u.Bytes, one*10)
 	}
@@ -82,11 +82,11 @@ func TestMemorySoakPlateaus(t *testing.T) {
 		for i := 0; i < 200; i++ {
 			_ = m.Write(context.Background(), []Series{sampleAt(now, fmt.Sprintf("soak_%d", i%50))})
 		}
-		if u := m.Usage(); u.Bytes > peak {
+		if u := m.usage(); u.Bytes > peak {
 			peak = u.Bytes
 		}
 	}
-	final := m.Usage()
+	final := m.usage()
 	if final.Bytes > wall {
 		t.Fatalf("final bytes %d above the wall %d", final.Bytes, wall)
 	}
@@ -106,7 +106,7 @@ func TestMemoryDeleteTenantAccounting(t *testing.T) {
 	if _, err := m.DeleteTenant(context.Background(), "t"); err != nil {
 		t.Fatal(err)
 	}
-	if u := m.Usage(); u.Samples != 0 || u.Bytes != 0 {
+	if u := m.usage(); u.Samples != 0 || u.Bytes != 0 {
 		t.Fatalf("usage after erasure = %+v, want zeroed accounting", u)
 	}
 }

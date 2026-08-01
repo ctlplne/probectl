@@ -105,7 +105,7 @@ func TestBMPReaderRejectsOverLimitUpdate(t *testing.T) {
 	listener := NewBMPListener(nil, pub, "bounds", discardLogger(),
 		WithBMPHandshakeTimeout(time.Second),
 		WithBMPReadTimeout(time.Second),
-		WithBMPPeerInventory(inventory),
+		withBMPPeerInventory(inventory),
 		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 	)
 	done := make(chan error, 1)
@@ -152,7 +152,7 @@ func TestBMPReaderRejectsOverLimitUpdate(t *testing.T) {
 		t.Fatalf("published AS path = %v, want [64511 64500]", path)
 	}
 
-	peers := inventory.Snapshot()
+	peers := inventory.snapshot()
 	if len(peers) != 1 || peers[0].TenantID != "tenant-a" || peers[0].RouteAnnouncements != 1 {
 		t.Fatalf("inventory after rejected UPDATE = %+v, want one valid tenant-a announcement", peers)
 	}

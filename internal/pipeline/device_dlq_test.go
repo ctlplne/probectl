@@ -100,8 +100,8 @@ func TestDeviceWriteRetryDLQOnTransientFailure(t *testing.T) {
 	if got := c.retried.Load(); got != 2 {
 		t.Fatalf("retried = %d, want 2", got)
 	}
-	if c.DeadLettered() != 0 || c.Dropped() != 0 {
-		t.Fatalf("transient path must not DLQ/drop: dlq=%d dropped=%d", c.DeadLettered(), c.Dropped())
+	if c.deadLetteredCount() != 0 || c.droppedCount() != 0 {
+		t.Fatalf("transient path must not DLQ/drop: dlq=%d dropped=%d", c.deadLetteredCount(), c.droppedCount())
 	}
 
 	// Permanent: retries exhaust → the ORIGINAL bytes land on the device DLQ,
@@ -115,8 +115,8 @@ func TestDeviceWriteRetryDLQOnTransientFailure(t *testing.T) {
 	if err := c2.handleLane(ctx, msg, ""); err != nil {
 		t.Fatalf("handleLane: %v", err)
 	}
-	if c2.DeadLettered() != 1 || c2.Dropped() != 0 {
-		t.Fatalf("permanent failure must DLQ without dropping: dlq=%d dropped=%d", c2.DeadLettered(), c2.Dropped())
+	if c2.deadLetteredCount() != 1 || c2.droppedCount() != 0 {
+		t.Fatalf("permanent failure must DLQ without dropping: dlq=%d dropped=%d", c2.deadLetteredCount(), c2.droppedCount())
 	}
 	if len(b2.dlq) != 1 || string(b2.dlq[0].Value) != string(msg.Value) {
 		t.Fatal("DLQ must carry the ORIGINAL message bytes (replayable)")
@@ -129,8 +129,8 @@ func TestDeviceWriteRetryDLQOnTransientFailure(t *testing.T) {
 	c3 := NewDeviceConsumer(b3, w3, testLogger())
 	c3.sleep = func(context.Context, time.Duration) {}
 	_ = c3.handleLane(ctx, deviceMsg(t, "t-c", "agent-3"), "")
-	if c3.Dropped() != 1 {
-		t.Fatalf("DLQ-down is the only true loss: dropped=%d, want 1", c3.Dropped())
+	if c3.droppedCount() != 1 {
+		t.Fatalf("DLQ-down is the only true loss: dropped=%d, want 1", c3.droppedCount())
 	}
 }
 
@@ -147,8 +147,8 @@ func TestDeviceContextCancelUnknownOutcomeDoesNotDLQ(t *testing.T) {
 	if err == nil {
 		t.Fatal("handleLane returned nil for an unknown canceled write outcome")
 	}
-	if c.DeadLettered() != 0 || c.Dropped() != 0 || len(b.dlq) != 0 {
+	if c.deadLetteredCount() != 0 || c.droppedCount() != 0 || len(b.dlq) != 0 {
 		t.Fatalf("unknown outcome must not DLQ/drop: dlq=%d dropped=%d published=%d",
-			c.DeadLettered(), c.Dropped(), len(b.dlq))
+			c.deadLetteredCount(), c.droppedCount(), len(b.dlq))
 	}
 }

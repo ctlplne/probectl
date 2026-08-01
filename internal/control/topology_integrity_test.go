@@ -64,7 +64,7 @@ func TestTopologyIntegrityCountsMalformedInputs(t *testing.T) {
 		t.Fatalf("malformed device must not error stream: %v", err)
 	}
 
-	stats := tc.IntegrityStats()
+	stats := tc.integrityStats()
 	if stats.EBPF.Received != 1 || stats.EBPF.Malformed != 1 || stats.EBPF.Stored != 0 {
 		t.Fatalf("ebpf stats = %+v, want received=1 malformed=1 stored=0", stats.EBPF)
 	}
@@ -98,7 +98,7 @@ func TestTopologyRejectsBGPEnvelopePayloadTenantMismatch(t *testing.T) {
 	if err := tc.handleBGP(ctx, bus.Message{Key: []byte("tenant-b"), Value: raw}); err != nil {
 		t.Fatalf("mismatched bgp event should be dropped without retry: %v", err)
 	}
-	stats := tc.IntegrityStats()
+	stats := tc.integrityStats()
 	if stats.BGP.Received != 1 || stats.BGP.Rejected != 1 || stats.BGP.Stored != 0 {
 		t.Fatalf("bgp stats = %+v, want received=1 rejected=1 stored=0", stats.BGP)
 	}
@@ -152,7 +152,7 @@ func TestTopologyIntegrityCountsRejectedInputs(t *testing.T) {
 		t.Fatalf("mixed-tenant rejected ebpf must not error stream: %v", err)
 	}
 
-	stats := tc.IntegrityStats()
+	stats := tc.integrityStats()
 	if stats.EBPF.Rejected != 3 || stats.EBPF.Stored != 0 {
 		t.Fatalf("ebpf rejected stats = %+v, want rejected=3 stored=0", stats.EBPF)
 	}
@@ -206,7 +206,7 @@ func TestTopologyIntegrityCountsUnscopedPersistFailedAndStored(t *testing.T) {
 		t.Fatalf("device mixed integrity batch: %v", err)
 	}
 
-	stats := tc.IntegrityStats()
+	stats := tc.integrityStats()
 	if stats.EBPF.Stored != 1 || stats.EBPF.Unscoped != 1 || stats.EBPF.PersistFailed != 1 {
 		t.Fatalf("ebpf stats = %+v, want stored=1 unscoped=1 persist_failed=1", stats.EBPF)
 	}

@@ -126,7 +126,7 @@ func New(cfg *Config, em Emitter, log *slog.Logger) (*Collector, error) {
 }
 
 // Start binds the enabled listeners and launches the read + flush loops. It
-// returns once everything is listening (tests can then query LocalAddr).
+// returns once everything is listening (tests can then query localAddr).
 func (c *Collector) Start(ctx context.Context) error {
 	type listener struct {
 		name string
@@ -197,9 +197,9 @@ func (c *Collector) Close() {
 	}
 }
 
-// LocalAddr reports the bound address for a protocol listener ("" when not
+// localAddr reports the bound address for a protocol listener ("" when not
 // bound) — primarily for tests that listen on port 0.
-func (c *Collector) LocalAddr(protocol string) string {
+func (c *Collector) localAddr(protocol string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if conn, ok := c.conns[protocol]; ok {

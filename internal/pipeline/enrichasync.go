@@ -126,7 +126,7 @@ func (a *AsyncEnricher) warmOne(ctx context.Context, addr string) {
 	a.mu.Unlock()
 }
 
-// EnrichStats reports the cache behavior (hits/misses/shed warms).
-func (a *AsyncEnricher) EnrichStats() (hits, misses, dropped uint64) {
+// enrichStats reports the cache behavior (hits/misses/shed warms).
+func (a *AsyncEnricher) enrichStats() (hits, misses, dropped uint64) {
 	return a.hits.Load(), a.misses.Load(), a.dropped.Load()
 }

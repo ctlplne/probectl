@@ -65,7 +65,7 @@ func TestParseCloudMetricExportsForceTenantAndNormalizeProviders(t *testing.T) {
 func TestLoadWritesTenantScopedTSDBSeries(t *testing.T) {
 	mem := tsdb.NewMemory()
 	raw := `{"namespace":"AWS/ApplicationELB","metric_name":"TargetResponseTime","dimensions":{"LoadBalancer":"app/api/123"},"timestamp":"2026-06-30T12:00:00Z","value":"0.123","unit":"Seconds"}`
-	n, err := Load(context.Background(), ProviderAWSCloudWatch, "tenant-a", strings.NewReader(raw), mem)
+	n, err := load(context.Background(), ProviderAWSCloudWatch, "tenant-a", strings.NewReader(raw), mem)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -187,14 +187,6 @@ func validPermissionGrant(grant PermissionGrant) bool {
 	}
 }
 
-// Attr returns a subject attribute value (empty if absent).
-func (p *Principal) Attr(key string) string {
-	if p == nil {
-		return ""
-	}
-	return p.Attributes[key]
-}
-
 // SessionStore persists sessions, keyed by the hash of the opaque token.
 // LookupByHash returns only non-expired sessions.
 type SessionStore interface {

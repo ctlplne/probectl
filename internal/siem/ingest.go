@@ -115,8 +115,8 @@ type SyslogReceiver struct {
 	hits map[string][]time.Time
 }
 
-// NewSyslogReceiver validates cfg and builds a tenant-bound receiver.
-func NewSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogReceiver, error) {
+// newSyslogReceiver validates cfg and builds a tenant-bound receiver.
+func newSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogReceiver, error) {
 	if cfg.TenantID == "" {
 		return nil, errors.New("siem syslog ingest: tenant_id is required")
 	}
@@ -150,9 +150,9 @@ func NewSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogRece
 	}, nil
 }
 
-// SyslogSignature returns the canonical HMAC-SHA256 signature header value for
+// syslogSignature returns the canonical HMAC-SHA256 signature header value for
 // a syslog body. It routes through internal/crypto so FIPS swaps stay contained.
-func SyslogSignature(secret string, line []byte) string {
+func syslogSignature(secret string, line []byte) string {
 	return "sha256=" + hex.EncodeToString(crypto.Sign([]byte(secret), line))
 }
 
@@ -220,14 +220,14 @@ func (r *SyslogReceiver) Record(ctx context.Context, env SyslogEnvelope) (Syslog
 	return stored, nil
 }
 
-// HealthSnapshot exposes monotonic live-listener counters without record data.
-func (r *SyslogReceiver) HealthSnapshot() ingesthealth.Snapshot {
+// healthSnapshot exposes monotonic live-listener counters without record data.
+func (r *SyslogReceiver) healthSnapshot() ingesthealth.Snapshot {
 	return r.health.Snapshot()
 }
 
-// ListenTLS serves newline-delimited syslog over a TLS listener until ctx is
+// listenTLS serves newline-delimited syslog over a TLS listener until ctx is
 // canceled. A nil TLS config fails closed: inbound listeners must be TLS-only.
-func (r *SyslogReceiver) ListenTLS(ctx context.Context, addr string, tlsCfg *tls.Config) error {
+func (r *SyslogReceiver) listenTLS(ctx context.Context, addr string, tlsCfg *tls.Config) error {
 	if addr == "" {
 		return errors.New("siem syslog ingest: listen address is required")
 	}
@@ -606,8 +606,8 @@ type MemorySyslogStore struct {
 	events map[string][]SyslogEvent
 }
 
-// NewMemorySyslogStore returns a bounded tenant-partitioned syslog store.
-func NewMemorySyslogStore(maxPerTenant int) *MemorySyslogStore {
+// newMemorySyslogStore returns a bounded tenant-partitioned syslog store.
+func newMemorySyslogStore(maxPerTenant int) *MemorySyslogStore {
 	if maxPerTenant <= 0 {
 		maxPerTenant = defaultMaxSyslogRowsTenant
 	}
@@ -633,8 +633,8 @@ func (s *MemorySyslogStore) RecordSyslog(_ context.Context, event SyslogEvent) (
 	return event, nil
 }
 
-// ListSyslogEvents returns a copy of one tenant's syslog event partition.
-func (s *MemorySyslogStore) ListSyslogEvents(tenantID string) []SyslogEvent {
+// listSyslogEvents returns a copy of one tenant's syslog event partition.
+func (s *MemorySyslogStore) listSyslogEvents(tenantID string) []SyslogEvent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := append([]SyslogEvent(nil), s.events[tenantID]...)

@@ -132,7 +132,7 @@ type wormExporterMetrics struct {
 // KEYS-004: the per-boot ephemeral-key fallback is gone from this constructor —
 // a missing key is an error, so production can never silently mint a key that
 // breaks cross-restart chain verification. Tests that genuinely want a throwaway
-// key use NewWormExporterEphemeralForTest.
+// key use newWormExporterEphemeralForTest.
 func NewWormExporter(source WormSource, objects objectstore.Store, privPEM, pubPEM []byte, log *slog.Logger) (*WormExporter, error) {
 	if source == nil || objects == nil {
 		return nil, fmt.Errorf("audit: worm export requires a source and an object store")

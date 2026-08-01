@@ -38,8 +38,8 @@ func (r *Tenants) Create(ctx context.Context, slug, name string) (*Tenant, error
 	return &t, nil
 }
 
-// Get returns a tenant by id.
-func (r *Tenants) Get(ctx context.Context, id string) (*Tenant, error) {
+// get returns a tenant by id.
+func (r *Tenants) get(ctx context.Context, id string) (*Tenant, error) {
 	var t Tenant
 	if err := scanTenant(r.pool.QueryRow(ctx,
 		`SELECT `+tenantCols+` FROM tenants WHERE id = $1`, id), &t); err != nil {
@@ -48,8 +48,8 @@ func (r *Tenants) Get(ctx context.Context, id string) (*Tenant, error) {
 	return &t, nil
 }
 
-// GetBySlug returns a tenant by its unique slug.
-func (r *Tenants) GetBySlug(ctx context.Context, slug string) (*Tenant, error) {
+// getBySlug returns a tenant by its unique slug.
+func (r *Tenants) getBySlug(ctx context.Context, slug string) (*Tenant, error) {
 	var t Tenant
 	if err := scanTenant(r.pool.QueryRow(ctx,
 		`SELECT `+tenantCols+` FROM tenants WHERE slug = $1`, slug), &t); err != nil {

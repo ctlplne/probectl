@@ -25,22 +25,22 @@ type Baseline struct {
 	MaxPooledQueryP95 time.Duration
 }
 
-// M6Baseline is the GA (M6) regression-guard baseline the perf smoke asserts
+// m6Baseline is the GA (M6) regression-guard baseline the perf smoke asserts
 // against. The floors/ceilings are calibrated from the recorded CI numbers in
 // docs/perf-baseline.md with generous headroom, so the smoke catches an
 // order-of-magnitude regression (a pooled-cardinality or RLS-cost blow-up), not
 // ordinary CI jitter. Update both this and the doc together when the numbers
 // move materially.
-func M6Baseline() Baseline {
+func m6Baseline() Baseline {
 	return Baseline{
 		MinIngestThroughput: 3000, // results/sec on the lightweight ingest path
 		MaxPooledQueryP95:   250 * time.Millisecond,
 	}
 }
 
-// CheckIngest returns human-readable threshold violations for an ingest run
+// checkIngest returns human-readable threshold violations for an ingest run
 // (empty = within baseline).
-func (b Baseline) CheckIngest(r IngestReport) []string {
+func (b Baseline) checkIngest(r IngestReport) []string {
 	var v []string
 	if b.MinIngestThroughput > 0 && r.Throughput < b.MinIngestThroughput {
 		v = append(v, fmt.Sprintf("ingest throughput %.0f results/s is below the %.0f results/s floor",
@@ -49,9 +49,9 @@ func (b Baseline) CheckIngest(r IngestReport) []string {
 	return v
 }
 
-// CheckPooled returns threshold/correctness violations for a pooled run. A broken
+// checkPooled returns threshold/correctness violations for a pooled run. A broken
 // isolation result is always a violation (correctness, not just latency).
-func (b Baseline) CheckPooled(r PooledReport) []string {
+func (b Baseline) checkPooled(r PooledReport) []string {
 	var v []string
 	if !r.IsolationOK {
 		v = append(v, fmt.Sprintf("tenant isolation broken under load: %d/%d queries returned the wrong row count",

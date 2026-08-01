@@ -56,7 +56,7 @@ func chReadCountAs(t *testing.T, user, pass string) (int, string) {
 }
 
 // serviceUser pulls the connecting (write/service) user out of the env URL so
-// EnsureRowPolicies exempts the right account.
+// ensureRowPolicies exempts the right account.
 func serviceUser(t *testing.T) string {
 	t.Helper()
 	base, err := url.Parse(os.Getenv("PROBECTL_FLOWSTORE_URL"))
@@ -82,7 +82,7 @@ func TestClickHouseReaderCannotCrossTenant(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	if err := c.EnsureRowPolicies(ctx, serviceUser(t)); err != nil {
+	if err := c.ensureRowPolicies(ctx, serviceUser(t)); err != nil {
 		t.Fatalf("EnsureRowPolicies: %v", err)
 	}
 

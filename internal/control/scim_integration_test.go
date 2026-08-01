@@ -196,7 +196,7 @@ func TestSCIMAuthAndTenantIsolation(t *testing.T) {
 
 func TestSCIMDirectoryCapsAndSQLPagination(t *testing.T) {
 	srv, db := setupSessionAPI(t, auth.Identity{})
-	srv.WithSCIMControls(2, 2, 0)
+	srv.withSCIMControls(2, 2, 0)
 	h := srv.Handler()
 	tenant := freshTenant(t, db, "scimcap")
 	token := scimToken(t, db, tenant, "okta")
@@ -253,7 +253,7 @@ func TestSCIMDirectoryCapsAndSQLPagination(t *testing.T) {
 
 func TestSCIMTokenScopedRateLimit(t *testing.T) {
 	srv, db := setupSessionAPI(t, auth.Identity{})
-	srv.WithSCIMControls(100, 100, 1)
+	srv.withSCIMControls(100, 100, 1)
 	h := srv.Handler()
 	tA := freshTenant(t, db, "scimrateA")
 	tokA := scimToken(t, db, tA, "a")

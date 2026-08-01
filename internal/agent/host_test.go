@@ -18,7 +18,7 @@ import (
 )
 
 func TestHostProbesIntoBuffer(t *testing.T) {
-	buf, err := OpenBuffer(t.TempDir(), 1000)
+	buf, err := openBuffer(t.TempDir(), 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestHostProbesIntoBuffer(t *testing.T) {
 	if buf.Len() < 1 {
 		t.Fatalf("expected the no-op to buffer results, got %d", buf.Len())
 	}
-	frames, err := buf.PeekAll()
+	frames, err := buf.peekAll()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func (failedResultCanary) Run(context.Context) (canary.Result, error) {
 }
 
 func TestHostProbeEnqueuesFailedResultEnvelope(t *testing.T) {
-	buf, err := OpenBuffer(t.TempDir(), 10)
+	buf, err := openBuffer(t.TempDir(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestHostProbeEnqueuesFailedResultEnvelope(t *testing.T) {
 	}
 	h.probe(context.Background(), scheduled{canary: failedResultCanary{}, interval: time.Second})
 
-	frames, err := buf.PeekAll()
+	frames, err := buf.peekAll()
 	if err != nil {
 		t.Fatal(err)
 	}

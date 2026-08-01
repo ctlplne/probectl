@@ -265,8 +265,8 @@ func (m *MemoryStore) AppendSignal(_ context.Context, tenant, incidentID string,
 	return inc, nil
 }
 
-// Get returns an incident by id (test inspection).
-func (m *MemoryStore) Get(id string) *Incident {
+// get returns an incident by id (test inspection).
+func (m *MemoryStore) get(id string) *Incident {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.incidents[id]

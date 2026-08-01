@@ -202,22 +202,22 @@ func (c *OTLPConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 	return nil
 }
 
-// Consumed reports stored series (the round-trip test's hook).
-func (c *OTLPConsumer) Consumed() uint64 { return c.consumed.Load() }
+// consumed reports stored series (the round-trip test's hook).
+func (c *OTLPConsumer) consumedCount() uint64 { return c.consumed.Load() }
 
-// Shed reports series shed by the per-tenant fairness gate (SCALE-003).
-func (c *OTLPConsumer) Shed() uint64 { return c.shed.Load() }
+// shed reports series shed by the per-tenant fairness gate (SCALE-003).
+func (c *OTLPConsumer) shedCount() uint64 { return c.shed.Load() }
 
-// RejectedTenant reports OTLP metrics batches dropped by second-hop tenant
+// rejectedTenant reports OTLP metrics batches dropped by second-hop tenant
 // verification (TENANT-001 / RED-001).
-func (c *OTLPConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
+func (c *OTLPConsumer) rejectedTenant() uint64 { return c.rejected.Load() }
 
-// SkippedCompositeAttrs reports composite OTLP metric attributes intentionally
+// skippedCompositeAttrs reports composite OTLP metric attributes intentionally
 // not flattened into TSDB labels.
-func (c *OTLPConsumer) SkippedCompositeAttrs() uint64 { return c.skippedCompositeAttrs.Load() }
+func (c *OTLPConsumer) skippedCompositeAttrCount() uint64 { return c.skippedCompositeAttrs.Load() }
 
-// IntegrityStats returns the aggregate receipt ledger for this consumer.
-func (c *OTLPConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+// integrityStats returns the aggregate receipt ledger for this consumer.
+func (c *OTLPConsumer) integrityStats() IntegrityStats { return c.ledger.stats() }
 
 // tenantFromKey strips the Sprint 15 |bucket suffix if present.
 func tenantFromKey(key []byte) []byte {

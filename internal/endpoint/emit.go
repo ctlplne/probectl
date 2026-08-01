@@ -35,8 +35,8 @@ type BusEmitter struct {
 	topic  string // shared, or the tenant's namespaced lane (TENANT-107)
 }
 
-// NewBusEmitter returns an Emitter publishing to probectl.endpoint.results.
-func NewBusEmitter(b bus.Bus, tenant, agent string) *BusEmitter {
+// newBusEmitter returns an Emitter publishing to probectl.endpoint.results.
+func newBusEmitter(b bus.Bus, tenant, agent string) *BusEmitter {
 	e, _ := NewNamespacedBusEmitter(b, tenant, agent, "")
 	return e
 }

@@ -94,11 +94,11 @@ func (m *ResilientModel) Endpoint() string {
 	return ""
 }
 
-// Degradations reports how many answers fell back to the builtin.
-func (m *ResilientModel) Degradations() uint64 { return m.degraded.Load() }
+// degradations reports how many answers fell back to the builtin.
+func (m *ResilientModel) degradations() uint64 { return m.degraded.Load() }
 
-// CacheHits reports answers served without a provider round-trip.
-func (m *ResilientModel) CacheHits() uint64 { return m.cacheHits.Load() }
+// cacheHits reports answers served without a provider round-trip.
+func (m *ResilientModel) cacheHitCount() uint64 { return m.cacheHits.Load() }
 
 // Synthesize: cache → breaker(remote with timeout) → builtin fallback.
 func (m *ResilientModel) Synthesize(ctx context.Context, in SynthesisInput) (Synthesis, error) {

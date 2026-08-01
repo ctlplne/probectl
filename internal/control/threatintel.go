@@ -69,22 +69,13 @@ func NewIOCConsumer(b bus.Bus, c *incident.Correlator, store *opendata.IOCStore,
 	return &IOCConsumer{bus: b, correlator: c, store: store, log: log}
 }
 
-// WithSIEM forwards each IOC-match signal to the SIEM (S32) in addition to
-// correlating it into an incident. nil disables it (the default).
-// WithDetections retains every attributed match for the triage surface
-// (S-FE3). nil is a no-op.
-func (cs *IOCConsumer) WithDetections(ds *threat.DetectionStore) *IOCConsumer {
-	cs.detections = ds
-	return cs
-}
-
 func (cs *IOCConsumer) WithSIEM(fw *siem.Forwarder) *IOCConsumer {
 	cs.siem = fw
 	return cs
 }
 
-// WithNamespaceTenants subscribes standalone IOC matching to siloed result lanes.
-func (cs *IOCConsumer) WithNamespaceTenants(ns map[string]string) *IOCConsumer {
+// withNamespaceTenants subscribes standalone IOC matching to siloed result lanes.
+func (cs *IOCConsumer) withNamespaceTenants(ns map[string]string) *IOCConsumer {
 	cs.nsTenants = ns
 	return cs
 }
@@ -92,9 +83,9 @@ func (cs *IOCConsumer) WithNamespaceTenants(ns map[string]string) *IOCConsumer {
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cs *IOCConsumer) LaneFanoutEnabled() bool { return true }
 
-// Run subscribes to the network-results topic until ctx is canceled
+// run subscribes to the network-results topic until ctx is canceled
 // (standalone mode; production uses SinkResult via the ResultFan, SCALE-013).
-func (cs *IOCConsumer) Run(ctx context.Context) error {
+func (cs *IOCConsumer) run(ctx context.Context) error {
 	return runResultSinkLanes(ctx, cs.bus, "threat-intel-ip", cs.log, cs.nsTenants, cs.SinkResult)
 }
 

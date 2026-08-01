@@ -91,12 +91,6 @@ func (g *EgressGate) AuthorizeAttempt(ctx context.Context, ev EgressEvent) error
 	return ErrEgressDenied
 }
 
-// Redact applies the gate's redaction policy to one string (secrets always;
-// IPs/hostnames/PII/custom per policy).
-func (g *EgressGate) Redact(s string) string {
-	return g.RedactForTenant(s, "")
-}
-
 // RedactForTenant applies the gate's redaction policy with tenant-scoped
 // keyed tokens. Use this for every real egress surface; Redact remains only
 // as the tenantless test/helper wrapper.
@@ -105,15 +99,6 @@ func (g *EgressGate) RedactForTenant(s, tenantID string) string {
 		return redactTextForTenant(s, DefaultRedaction, tenantID)
 	}
 	return redactTextForTenant(s, g.redact, tenantID)
-}
-
-// Redaction exposes the gate's policy for adapters that redact structured
-// inputs themselves (the RCA model adapter).
-func (g *EgressGate) Redaction() RedactionPolicy {
-	if g == nil {
-		return DefaultRedaction
-	}
-	return g.redact
 }
 
 // Policy exposes the consent source so the Analyzer's existing egress seam

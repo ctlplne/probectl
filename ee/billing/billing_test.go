@@ -30,7 +30,7 @@ func testLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, ni
 func TestMeteringAccuracy(t *testing.T) {
 	store := NewMemStore()
 	now := t0
-	rec := NewRecorder(store, testLog()).WithClock(func() time.Time { return now })
+	rec := NewRecorder(store, testLog()).withClock(func() time.Time { return now })
 	ctx := context.Background()
 
 	// Known activity: 100 results + bytes from 10 concurrent writers.
@@ -49,7 +49,7 @@ func TestMeteringAccuracy(t *testing.T) {
 	rec.Record("tnB", usage.MeterAICalls, 3)
 
 	// A failed flush loses nothing.
-	store.FailNextAdd()
+	store.failNextAdd()
 	if err := rec.Flush(ctx); err == nil {
 		t.Fatal("forced flush failure must surface")
 	}
@@ -105,7 +105,7 @@ func TestCollectorSnapshots(t *testing.T) {
 			}
 			c := counts[id]
 			return c[0], c[1], nil
-		}, testLog()).WithClock(func() time.Time { return t0 })
+		}, testLog()).withClock(func() time.Time { return t0 })
 
 	if err := col.Snapshot(context.Background()); err != nil {
 		t.Fatal(err)
@@ -296,7 +296,7 @@ func TestQuotaCacheInvalidation(t *testing.T) {
 // and AllowCreate into the checker; uninstalled = no-op/allow-all.
 func TestUsageSeamWiring(t *testing.T) {
 	store := NewMemStore()
-	rec := NewRecorder(store, testLog()).WithClock(func() time.Time { return t0 })
+	rec := NewRecorder(store, testLog()).withClock(func() time.Time { return t0 })
 	usage.SetRecorder(rec)
 	defer usage.SetRecorder(nil)
 

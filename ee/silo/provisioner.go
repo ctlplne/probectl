@@ -384,8 +384,8 @@ func (p *Provisioner) backfillPreTenantMetadata(
 	return nil
 }
 
-// DriftFor reports a siloed tenant's catch-up debt (console honesty).
-func (p *Provisioner) DriftFor(ctx context.Context, tenantID string) (Drift, error) {
+// driftFor reports a siloed tenant's catch-up debt (console honesty).
+func (p *Provisioner) driftFor(ctx context.Context, tenantID string) (Drift, error) {
 	cat, err := p.readCatalog(ctx, SchemaName(tenantID))
 	if err != nil {
 		return Drift{}, err

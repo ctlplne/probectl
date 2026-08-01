@@ -26,7 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -444,18 +443,6 @@ func (rc *RUMConsumer) LaneFanoutEnabled() bool { return true }
 // synthetic results arrive via the decode-once ResultFan (SCALE-013).
 func (rc *RUMConsumer) RunViews(ctx context.Context) error {
 	return pipeline.RunLanes(ctx, rc.bus, bus.RUMEventsTopic, "rum-views", rc.nsTenants, rc.handleRUMEventLane)
-}
-
-// Run subscribes to both topics (own consumer groups) until ctx ends.
-func (rc *RUMConsumer) Run(ctx context.Context) error {
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return pipeline.RunLanes(gctx, rc.bus, bus.RUMEventsTopic, "rum-views", rc.nsTenants, rc.handleRUMEventLane)
-	})
-	g.Go(func() error {
-		return pipeline.RunLanes(gctx, rc.bus, bus.NetworkResultsTopic, "rum-synthetic", rc.nsTenants, rc.handleSyntheticLane)
-	})
-	return g.Wait()
 }
 
 func (rc *RUMConsumer) handleRUMEvent(ctx context.Context, msg bus.Message) error {

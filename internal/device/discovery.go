@@ -349,9 +349,9 @@ func ClassifyInventory(inv Inventory, rules []ClassifierRule) (string, float64) 
 	}
 }
 
-// BuildDiscoveryImport turns explicit reviewer choices into regular device
+// buildDiscoveryImport turns explicit reviewer choices into regular device
 // targets. Non-selected candidates remain inactive.
-func BuildDiscoveryImport(result DiscoveryResult, review DiscoveryReview, now func() time.Time) ([]Target, []DiscoveryAuditEvent, error) {
+func buildDiscoveryImport(result DiscoveryResult, review DiscoveryReview, now func() time.Time) ([]Target, []DiscoveryAuditEvent, error) {
 	if now == nil {
 		now = time.Now
 	}
@@ -403,13 +403,13 @@ type MemoryDiscoveryStore struct {
 	byTenant map[string]map[string]DiscoveryResult
 }
 
-// NewMemoryDiscoveryStore builds an empty tenant-filtered store.
-func NewMemoryDiscoveryStore() *MemoryDiscoveryStore {
+// newMemoryDiscoveryStore builds an empty tenant-filtered store.
+func newMemoryDiscoveryStore() *MemoryDiscoveryStore {
 	return &MemoryDiscoveryStore{byTenant: map[string]map[string]DiscoveryResult{}}
 }
 
-// SaveDiscoveryResult stores one result under its tenant and job IDs.
-func (s *MemoryDiscoveryStore) SaveDiscoveryResult(result DiscoveryResult) error {
+// saveDiscoveryResult stores one result under its tenant and job IDs.
+func (s *MemoryDiscoveryStore) saveDiscoveryResult(result DiscoveryResult) error {
 	if result.TenantID == "" {
 		return ErrDiscoveryTenantRequired
 	}
@@ -425,8 +425,8 @@ func (s *MemoryDiscoveryStore) SaveDiscoveryResult(result DiscoveryResult) error
 	return nil
 }
 
-// ListDiscoveryResults returns only the caller tenant's results.
-func (s *MemoryDiscoveryStore) ListDiscoveryResults(tenantID string) []DiscoveryResult {
+// listDiscoveryResults returns only the caller tenant's results.
+func (s *MemoryDiscoveryStore) listDiscoveryResults(tenantID string) []DiscoveryResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rows := s.byTenant[tenantID]
@@ -438,8 +438,8 @@ func (s *MemoryDiscoveryStore) ListDiscoveryResults(tenantID string) []Discovery
 	return out
 }
 
-// GetDiscoveryResult returns one result within the caller tenant.
-func (s *MemoryDiscoveryStore) GetDiscoveryResult(tenantID, jobID string) (DiscoveryResult, bool) {
+// getDiscoveryResult returns one result within the caller tenant.
+func (s *MemoryDiscoveryStore) getDiscoveryResult(tenantID, jobID string) (DiscoveryResult, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	r, ok := s.byTenant[tenantID][jobID]

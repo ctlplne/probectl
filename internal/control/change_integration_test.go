@@ -347,7 +347,7 @@ func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
 		ChangeCorrelationWindow: 24 * time.Hour, AIMaxEvidence: 50,
 	}
 	server := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
-		WithDeviceOps(ops)
+		withDeviceOps(ops)
 	h := server.Handler()
 
 	timelineA := apiReq(t, h, http.MethodGet, "/v1/changes", tenantA, nil)

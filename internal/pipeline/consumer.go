@@ -209,9 +209,6 @@ func (c *Consumer) WithStrictTenantLanes(strict bool) *Consumer {
 	return c
 }
 
-// RejectedTenant reports results dropped fail-closed by tenant verification.
-func (c *Consumer) RejectedTenant() uint64 { return c.rejectedTenant.Load() }
-
 // IntegrityStats returns the aggregate receipt ledger for this consumer.
 func (c *Consumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
 

@@ -81,8 +81,8 @@ func TestOTLPMetricsDeadLettersOnStoreFailure(t *testing.T) {
 		t.Fatalf("handle must not error the stream: %v", err)
 	}
 
-	if c.Consumed() != 0 {
-		t.Fatalf("consumed = %d, want 0 (store failed)", c.Consumed())
+	if c.consumedCount() != 0 {
+		t.Fatalf("consumed = %d, want 0 (store failed)", c.consumedCount())
 	}
 	if st := c.dlq.stats(); st.DeadLettered != 1 || st.Dropped != 0 || st.Retried == 0 {
 		t.Fatalf("dlq stats = %+v, want 1 dead-lettered, 0 dropped, >0 retried", st)

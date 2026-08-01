@@ -10,11 +10,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strconv"
 )
-
-func urlEscape(s string) string { return url.QueryEscape(s) }
 
 // Decode parses a ClickHouse JSONEachRow response body into row maps.
 func Decode(body []byte) ([]map[string]any, error) {

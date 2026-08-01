@@ -65,10 +65,10 @@ func TestTenantLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if got, err := repo.Get(ctx, tn.ID); err != nil || got.Slug != tn.Slug {
+	if got, err := repo.get(ctx, tn.ID); err != nil || got.Slug != tn.Slug {
 		t.Fatalf("get: %v / %+v", err, got)
 	}
-	if got, err := repo.GetBySlug(ctx, "crud-"+sfx); err != nil || got.ID != tn.ID {
+	if got, err := repo.getBySlug(ctx, "crud-"+sfx); err != nil || got.ID != tn.ID {
 		t.Fatalf("get by slug: %v / %+v", err, got)
 	}
 	if susp, err := repo.UpdateStatus(ctx, tn.ID, "suspended"); err != nil || susp.Status != "suspended" {
@@ -131,7 +131,7 @@ func TestHierarchyAndRBACCRUD(t *testing.T) {
 		if _, err := (RoleBindings{}).Create(ctx, s, "user", user.ID, role.ID, "tenant", nil); err != nil {
 			t.Fatalf("create binding: %v", err)
 		}
-		if n, err := (RoleBindings{}).CountForSubject(ctx, s, "user", user.ID); err != nil || n != 1 {
+		if n, err := (RoleBindings{}).countForSubject(ctx, s, "user", user.ID); err != nil || n != 1 {
 			t.Errorf("count bindings: %v / %d", err, n)
 		}
 		return nil
@@ -149,24 +149,24 @@ func TestProviderOperatorsAndBreakGlass(t *testing.T) {
 		t.Fatalf("create tenant: %v", err)
 	}
 
-	op, err := NewOperators(pool).Create(ctx, "op-"+sfx+"@example.com", "Operator")
+	op, err := newOperators(pool).create(ctx, "op-"+sfx+"@example.com", "Operator")
 	if err != nil {
 		t.Fatalf("create operator: %v", err)
 	}
 
-	bg := NewBreakGlass(pool)
-	grant, err := bg.Grant(ctx, op.ID, tn.ID, "incident-123", "read", "system", time.Now().Add(time.Hour))
+	bg := newBreakGlass(pool)
+	grant, err := bg.grant(ctx, op.ID, tn.ID, "incident-123", "read", "system", time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
-	active, err := bg.ListActive(ctx, tn.ID)
+	active, err := bg.listActive(ctx, tn.ID)
 	if err != nil || len(active) != 1 || active[0].ID != grant.ID {
 		t.Fatalf("list active: %v / %+v", err, active)
 	}
-	if err := bg.Revoke(ctx, grant.ID, "system"); err != nil {
+	if err := bg.revoke(ctx, grant.ID, "system"); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if active2, err := bg.ListActive(ctx, tn.ID); err != nil || len(active2) != 0 {
+	if active2, err := bg.listActive(ctx, tn.ID); err != nil || len(active2) != 0 {
 		t.Errorf("after revoke, active = %v / %+v", err, active2)
 	}
 }

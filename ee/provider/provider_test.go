@@ -259,7 +259,7 @@ func newFixture(t *testing.T, lic *license.Manager) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{store: store, svc: svc, audit: sink, now: &now}
-	svc.WithClock(func() time.Time { return *f.now })
+	svc.withClock(func() time.Time { return *f.now })
 	ta := &fakeTenantAuth{
 		sessions: map[string]*auth.Session{
 			"tenant-admin-A": {ID: "s1", TenantID: "tnA", UserID: "uA", Email: "admin@a.example"},
@@ -505,7 +505,7 @@ func TestBreakGlassUseRollsBackWhenAuditFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.WithClock(func() time.Time { return now })
+	svc.withClock(func() time.Time { return now })
 
 	op, err := store.CreateOperator(ctx, Operator{
 		Email: "operator@msp.example",
@@ -982,7 +982,7 @@ func TestFleetAggregation(t *testing.T) {
 		mustDecode(t, rec, &tn)
 		ids = append(ids, tn.ID)
 	}
-	f.store.SetFleet(
+	f.store.setFleet(
 		TenantFleet{TenantID: ids[0], AgentsTotal: 3, AgentsOnline: 2, AgentsStale: 1, Versions: map[string]int{"0.3.0": 3}},
 		TenantFleet{TenantID: ids[1], AgentsTotal: 1, AgentsOnline: 1, Versions: map[string]int{"0.2.9": 1}},
 	)

@@ -195,8 +195,8 @@ type MemoryUsage struct {
 	EvictedBytes uint64 // evicted by the byte wall (oldest-first)
 }
 
-// Usage snapshots the current accounting.
-func (m *Memory) Usage() MemoryUsage {
+// usage snapshots the current accounting.
+func (m *Memory) usage() MemoryUsage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return MemoryUsage{Samples: len(m.entries), Bytes: m.bytes, EvictedAge: m.evictedAge, EvictedBytes: m.evictedBytes}

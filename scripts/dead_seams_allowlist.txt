@@ -1,0 +1,139 @@
+# Dead-seams allowlist (Foundation-Loop T-2c9ab621).
+#
+# Every entry is an exported internal/ or ee/ symbol whose only references are
+# _test.go files, kept exported ON PURPOSE with the reason recorded here.
+# The gate fails on any entry that stops matching (stale entries cannot rot
+# into a denylist) and on any inert symbol missing from this file.
+#
+# Formats:  symbol <pkgpath>.<Name>[.<Method>] — <reason>
+#           package <pkgpath> — <reason>
+
+# ---- declared test-support packages -----------------------------------------
+package github.com/ctlplne/probectl/internal/testsupport — its declared role is cross-package test support (CLAUDE.md §5); every consumer is a _test.go by design
+
+# ---- the crypto door's test-fixture surface (§7.3) --------------------------
+symbol github.com/ctlplne/probectl/internal/crypto.CA.IssueClientCert — §7.3 forbids test packages minting their own primitives; dependent suites obtain client SVIDs here
+symbol github.com/ctlplne/probectl/internal/crypto.GenerateRSAKeyPEM — crypto-door test fixture: RSA material for SCIM/JWKS suites, never minted outside internal/crypto
+symbol github.com/ctlplne/probectl/internal/crypto.GenerateRSAOAEPKeyPEM — crypto-door test fixture: OAEP wrap material for BYOK suites, never minted outside internal/crypto
+symbol github.com/ctlplne/probectl/internal/crypto.GenerateTestCert — crypto-door test fixture: TLS certs for listener suites, never minted outside internal/crypto
+symbol github.com/ctlplne/probectl/internal/crypto.NewStaticKeyProvider — crypto-door test fixture: deterministic key provider for envelope suites
+symbol github.com/ctlplne/probectl/internal/crypto.TOTPNow — crypto-door test fixture: provider-console TOTP enrollment tests compute expected codes here
+
+# ---- isolation / migration / DR gate verification surfaces (§7.1) -----------
+symbol github.com/ctlplne/probectl/internal/store/ebpfstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
+symbol github.com/ctlplne/probectl/internal/store/endpointstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
+symbol github.com/ctlplne/probectl/internal/store/flowstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
+symbol github.com/ctlplne/probectl/internal/store/otelstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
+symbol github.com/ctlplne/probectl/internal/store/pathstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
+symbol github.com/ctlplne/probectl/internal/store/tsdb.UnderlyingWriter — isolation-suite probe: unwraps the fence to prove writes landed under the right tenant
+symbol github.com/ctlplne/probectl/internal/store/ebpfstore.CHMigrations — migration-gate input: the ClickHouse DDL corpus the schema gate lints
+symbol github.com/ctlplne/probectl/internal/store/endpointstore.CHMigrations — migration-gate input: the ClickHouse DDL corpus the schema gate lints
+symbol github.com/ctlplne/probectl/internal/store/flowstore.CHMigrations — migration-gate input: the ClickHouse DDL corpus the schema gate lints
+symbol github.com/ctlplne/probectl/internal/store/otelstore.CHMigrations — migration-gate input: the ClickHouse DDL corpus the schema gate lints
+symbol github.com/ctlplne/probectl/internal/store/pathstore.CHMigrations — migration-gate input: the ClickHouse DDL corpus the schema gate lints
+symbol github.com/ctlplne/probectl/internal/store/chmigrate.CheckAll — the ClickHouse migration gate itself, invoked by the store schema tests
+symbol github.com/ctlplne/probectl/internal/store/chclient.Params — ClickHouse query-parameter helper consumed by store integration suites
+
+# ---- integration-suite fixtures over the tenant store layer -----------------
+symbol github.com/ctlplne/probectl/internal/store.Tenants.Create — integration fixture: suites provision real tenants through the RLS path
+symbol github.com/ctlplne/probectl/internal/store.Tenants.UpdateStatus — integration fixture: lifecycle suites drive tenant status through the RLS path
+symbol github.com/ctlplne/probectl/internal/store.Tests.List — integration fixture: suites read back seeded synthetic tests through RLS
+symbol github.com/ctlplne/probectl/internal/store.Users.CreateSCIM — integration fixture: SCIM suites seed directory users through the RLS path
+symbol github.com/ctlplne/probectl/internal/store.Roles.Create — integration fixture: RBAC suites seed roles through the RLS path
+symbol github.com/ctlplne/probectl/internal/store.Roles.Permissions — integration fixture: RBAC suites read effective permissions through RLS
+symbol github.com/ctlplne/probectl/internal/store.RoleBindings.Create — integration fixture: RBAC suites bind subjects through the RLS path
+symbol github.com/ctlplne/probectl/internal/store.OTLPTokens.Create — integration fixture: OTLP ingest suites mint tenant tokens through RLS
+symbol github.com/ctlplne/probectl/internal/store.OTLPTokens.Revoke — integration fixture: OTLP ingest suites revoke tenant tokens through RLS
+symbol github.com/ctlplne/probectl/internal/store.ScimTokens.Revoke — integration fixture: SCIM suites revoke provisioning tokens through RLS
+symbol github.com/ctlplne/probectl/internal/store.SIEMDelivery.Cursor — integration fixture: SIEM suites assert the delivery cursor advanced
+
+# ---- shared in-memory fakes injected by dependent packages' tests -----------
+symbol github.com/ctlplne/probectl/ee/billing.NewMemStore — shared fake: metering suites in provider/control inject it for quota paths
+symbol github.com/ctlplne/probectl/ee/billing.MemStore.SetSlug — shared fake knob for the metering export tests
+symbol github.com/ctlplne/probectl/internal/device.NewMemoryCollectionOutcomeStore — shared fake injected by control-plane device API tests
+symbol github.com/ctlplne/probectl/internal/device.NewMemoryNeighborStore — shared fake injected by topology/control tests
+symbol github.com/ctlplne/probectl/internal/flow.NewMemoryQualityStore — shared fake injected by control-plane flow API tests
+symbol github.com/ctlplne/probectl/internal/incident.NewMemoryStore — shared fake injected by control/alerting correlation tests
+symbol github.com/ctlplne/probectl/internal/incident.MemoryStore.Len — shared-fake assertion knob for correlation tests
+symbol github.com/ctlplne/probectl/internal/objectstore.NewMemory — shared fake object store injected across WORM/browser/report suites
+symbol github.com/ctlplne/probectl/internal/objectstore.MemStore.Len — shared-fake assertion knob for artifact suites
+symbol github.com/ctlplne/probectl/internal/store/otelstore.Memory.Len — shared-fake assertion knob for OTLP pipeline tests
+symbol github.com/ctlplne/probectl/internal/threat.NewDetectionStore — shared fake detection store injected by control-plane threat API tests
+symbol github.com/ctlplne/probectl/internal/ebpf/l7.Manager.Len — assertion knob for the eBPF L7 scope tests in the parent package
+symbol github.com/ctlplne/probectl/internal/store/tsdb.New — in-memory TSDB constructor injected by dependent packages' tests (production wires the fenced writer seam)
+
+# ---- plane bus-emitter harnesses -------------------------------------------
+symbol github.com/ctlplne/probectl/internal/device.NewBusEmitter — plane test harness: device-plane integration tests publish through it
+symbol github.com/ctlplne/probectl/internal/ebpf.NewBusEmitter — plane test harness: eBPF-plane integration tests publish through it
+symbol github.com/ctlplne/probectl/internal/flow.NewBusEmitter — plane test harness: flow-plane integration tests publish through it
+
+# ---- wiring-contract surfaces asserted by dependent packages' tests ---------
+symbol github.com/ctlplne/probectl/internal/otel/otlp.LogsHTTPHandler — route-contract surface: cmd wiring tests mount and probe it
+symbol github.com/ctlplne/probectl/internal/otel/otlp.MetricsHTTPHandler — route-contract surface: cmd wiring tests mount and probe it
+symbol github.com/ctlplne/probectl/internal/otel/otlp.TracesHTTPHandler — route-contract surface: cmd wiring tests mount and probe it
+symbol github.com/ctlplne/probectl/internal/otel/otlp.TokenAuthenticator.ActiveTokens — auth-cache observability probe used by the OTLP wiring tests
+symbol github.com/ctlplne/probectl/internal/control.Server.Handler — the full middleware-chain handler cmd smoke tests drive requests through
+symbol github.com/ctlplne/probectl/internal/apierror.RegisteredCodes — error-vocabulary census consumed by SDK/i18n contract tests
+symbol github.com/ctlplne/probectl/internal/apierror.IsRegisteredCode — error-vocabulary membership check consumed by contract tests
+symbol github.com/ctlplne/probectl/internal/change.ProviderNames — webhook-provider census consumed by the docs/OpenAPI contract tests
+symbol github.com/ctlplne/probectl/internal/govern.RequiredDataInventoryIDs — governance-census contract consumed by docs accuracy tests
+symbol github.com/ctlplne/probectl/internal/compliance.VerifyEvidence — evidence-artifact verifier exercised by the compliance export tests
+symbol github.com/ctlplne/probectl/internal/support.ReadBundle — support-bundle verifier exercised by the bundle round-trip tests
+symbol github.com/ctlplne/probectl/internal/browsercanary.New — browser canary engine constructed by the agent plugin contract tests
+symbol github.com/ctlplne/probectl/internal/browsercanary.MarshalScript — script wire-format contract asserted by browser synthetic tests
+symbol github.com/ctlplne/probectl/internal/cluster.ReplicationSync — HA replication probe exercised by the multi-region suites
+symbol github.com/ctlplne/probectl/internal/pipeline.LaneFanout — bus-lane fanout helper exercised by cmd lane-supervisor tests
+
+# ---- test-clock / injection options on production types ---------------------
+symbol github.com/ctlplne/probectl/internal/audit.RetentionRunner.WithNowForTest — clock injection consumed by dependent packages' retention tests (name declares intent)
+symbol github.com/ctlplne/probectl/internal/audit.RetentionRunner.WithTenantIDsForTest — tenant-set injection consumed by dependent packages' retention tests
+symbol github.com/ctlplne/probectl/internal/slo.Engine.WithClock — clock injection consumed by control-plane SLO API tests
+symbol github.com/ctlplne/probectl/internal/tenantlife.Engine.WithClock — clock injection consumed by lifecycle integration suites
+symbol github.com/ctlplne/probectl/internal/fairness.Gate.WithPolicyTTL — TTL injection consumed by cmd fairness integration tests
+symbol github.com/ctlplne/probectl/internal/ai.WithEgressAudit — egress-audit sink injection consumed by cmd MCP/egress tests
+symbol github.com/ctlplne/probectl/internal/agenttransport.Server.WithControlVersion — version-skew injection consumed by the external skew integration suite
+symbol github.com/ctlplne/probectl/internal/agenttransport.Server.AcceptedResults — acceptance counter asserted by the external skew integration suite
+
+# ---- local chaos harness (observe-only, test-tagged consumers) --------------
+symbol github.com/ctlplne/probectl/internal/chaos.NewUDPProxy — local fault injector driven by its integration self-test (external test package)
+symbol github.com/ctlplne/probectl/internal/chaos.UDPProxy.Run — chaos proxy loop started by the integration self-test
+symbol github.com/ctlplne/probectl/internal/chaos.UDPProxy.SetFault — fault knob driven by the integration self-test
+symbol github.com/ctlplne/probectl/internal/chaos.UDPProxy.Addr — dial target read by the integration self-test
+
+# ---- superseded surfaces retained for the existing test corpus --------------
+# Migration debt, deliberately visible here until the tests move (recorded in
+# the foundation-loop discovered array):
+symbol github.com/ctlplne/probectl/internal/auth.Manager.Issue — superseded by the login flow's internal issuance; session fixtures in dependent tests still mint here
+symbol github.com/ctlplne/probectl/internal/auth.PermissionFingerprint — consumed by dependent packages' ABAC cache tests
+symbol github.com/ctlplne/probectl/internal/auth.TenantPermissionGrants — consumed by dependent packages' permission-cache tests
+symbol github.com/ctlplne/probectl/internal/tenantlife.New — superseded by NewWithBackupRetention in production; lifecycle test corpus still constructs here
+symbol github.com/ctlplne/probectl/internal/tenantlife.Engine.Export — superseded by the streaming export path; test corpus asserts against it
+symbol github.com/ctlplne/probectl/internal/audit.ProviderHeadSeq — provider-chain head probe consumed by ee/silo isolation suites
+symbol github.com/ctlplne/probectl/internal/notify.Dispatcher.Drain — connector-drain hook consumed by cmd shutdown tests
+symbol github.com/ctlplne/probectl/internal/siem.Forwarder.Stats — forwarder counters asserted by cmd SIEM wiring tests
+symbol github.com/ctlplne/probectl/internal/fairness.DefaultPolicy — policy baseline referenced by dependent packages' fairness tests
+symbol github.com/ctlplne/probectl/internal/fairness.Gate.EffectivePolicy — effective-policy probe asserted by cmd fairness tests
+symbol github.com/ctlplne/probectl/internal/tenantcrypto.AddOpener — envelope-opener registration used by ee/tenantkeys BYOK tests
+symbol github.com/ctlplne/probectl/internal/tenantcrypto.NewEnvelopeSealer — sealer constructor used by ee and backup test suites
+symbol github.com/ctlplne/probectl/internal/tenantcrypto.Reset — process-global reset for crypto test hermeticity (test-order independence)
+symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
+symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures
+symbol github.com/ctlplne/probectl/internal/remediation.StateApplied — remediation state vocabulary member asserted by ee workflow tests
+
+# ---- topology: pre-ForTenant tenant-string methods --------------------------
+# Superseded by the Store.ForTenant → TenantStore boundary (tenant bound once,
+# never per call). The pre-migration test corpus still drives these; new code
+# cannot reach them through the Store interface.
+symbol github.com/ctlplne/probectl/internal/topology.IndexedStore.ObservePath — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.IndexedStore.ObserveRouting — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.IndexedStore.ObserveDevice — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.IndexedStore.ObserveServiceEdge — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.MemoryStore.ObservePath — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.MemoryStore.ObserveRouting — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.MemoryStore.ObserveServiceEdge — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.MemoryStore.SnapshotAt — pre-ForTenant surface retained for the existing test corpus
+symbol github.com/ctlplne/probectl/internal/topology.MemoryStore.Latest — pre-ForTenant surface retained for the existing test corpus
+
+# ---- wire-vocabulary completeness ------------------------------------------
+symbol github.com/ctlplne/probectl/internal/ebpf.TransportUDP — OTel network.transport wire vocabulary: documents the value set result.proto carries; the TCP sibling is produced today
+symbol github.com/ctlplne/probectl/internal/ebpf.DirectionIngress — OTel network.io.direction wire vocabulary: documents the value set; the egress sibling is produced today

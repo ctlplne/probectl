@@ -64,7 +64,7 @@ func WithPermissionAuthorizer(authorize PermissionAuthorizer) Option {
 	return func(e *Engine) { e.permissionAuthorize = authorize }
 }
 
-// WithMaxRows / WithTimeout set the cost guards.
+// WithMaxRows / withTimeout set the cost guards.
 func WithMaxRows(n int) Option {
 	return func(e *Engine) {
 		if n > 0 {
@@ -73,7 +73,7 @@ func WithMaxRows(n int) Option {
 	}
 }
 
-func WithTimeout(d time.Duration) Option {
+func withTimeout(d time.Duration) Option {
 	return func(e *Engine) {
 		if d > 0 {
 			e.timeout = d
@@ -126,11 +126,11 @@ func (e *Engine) Query(ctx context.Context, p *auth.Principal, q Query) (Result,
 	return res, nil
 }
 
-// Correlate fans a subject across every domain the principal may read after
+// correlate fans a subject across every domain the principal may read after
 // RBAC+ABAC and returns one envelope with per-domain provenance — the cross-store
 // join. Domains the caller cannot read are silently skipped, so a correlation
 // never leaks out-of-scope data.
-func (e *Engine) Correlate(ctx context.Context, p *auth.Principal, subject map[string]string, r TimeRange) (Result, error) {
+func (e *Engine) correlate(ctx context.Context, p *auth.Principal, subject map[string]string, r TimeRange) (Result, error) {
 	if p == nil || p.TenantID == "" {
 		return Result{}, ErrNoTenant
 	}

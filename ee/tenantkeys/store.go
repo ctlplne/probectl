@@ -238,27 +238,27 @@ type rotationAuditRecord struct {
 	Mode     string
 }
 
-// NewMemStore returns an empty store.
-func NewMemStore() *MemStore { return &MemStore{keys: map[string][]KeyVersion{}} }
+// newMemStore returns an empty store.
+func newMemStore() *MemStore { return &MemStore{keys: map[string][]KeyVersion{}} }
 
-// FailAll makes every call fail (fail-safe tests).
-func (m *MemStore) FailAll(fail bool) {
+// failAll makes every call fail (fail-safe tests).
+func (m *MemStore) failAll(fail bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.fail = fail
 }
 
-// FailNextRotationInsert injects a successor-insert failure after the staged
+// failNextRotationInsert injects a successor-insert failure after the staged
 // predecessor retirement. It proves the live chain is not published.
-func (m *MemStore) FailNextRotationInsert(err error) {
+func (m *MemStore) injectRotationInsertFailure(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.failNextRotationInsert = err
 }
 
-// FailNextRotationAudit injects a mandatory-audit failure after both staged key
+// failNextRotationAudit injects a mandatory-audit failure after both staged key
 // mutations. It proves the entire staged transaction is discarded.
-func (m *MemStore) FailNextRotationAudit(err error) {
+func (m *MemStore) injectRotationAuditFailure(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.failNextRotationAudit = err

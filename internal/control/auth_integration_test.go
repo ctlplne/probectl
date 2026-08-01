@@ -91,7 +91,7 @@ func setupSessionAPIWithProvider(t *testing.T, ident auth.Identity) (*Server, *s
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "session", SessionTTL: time.Hour}
 	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
 	provider := &fakeProvider{ident: ident}
-	srv.SetSSOProviderFactory(fakeFactory{p: provider})
+	srv.setSSOProviderFactory(fakeFactory{p: provider})
 	return srv, db, provider
 }
 
@@ -347,7 +347,7 @@ func TestBearerTokenAuthenticatesTenantAPI(t *testing.T) {
 func TestCallbackRejectsNonceMismatch(t *testing.T) {
 	srv, _ := setupSessionAPI(t, auth.Identity{Email: "nonce@example.com"})
 	evil := &fakeProvider{ident: auth.Identity{Email: "nonce@example.com"}, wrongNonce: true}
-	srv.SetSSOProviderFactory(fakeFactory{p: evil})
+	srv.setSSOProviderFactory(fakeFactory{p: evil})
 	h := srv.Handler()
 
 	login := httptest.NewRecorder()

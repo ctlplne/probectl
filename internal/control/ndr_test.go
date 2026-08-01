@@ -48,7 +48,7 @@ func TestNDRConsumerFlowToDetectionAndIncident(t *testing.T) {
 	intel := loadedIOCStore() // 192.0.2.66 = feodo botnet C2 (confidence 90)
 	detections := threat.NewDetectionStore(0)
 	correlator := incident.NewCorrelator(incident.NewMemoryStore(), time.Hour, intelTestLog())
-	cs := NewNDRConsumer(nil, ndrEngine(t, intel), correlator, intelTestLog()).WithDetections(detections)
+	cs := NewNDRConsumer(nil, ndrEngine(t, intel), correlator, intelTestLog()).withDetections(detections)
 
 	batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
 		TenantId:           "t1",
@@ -92,7 +92,7 @@ func TestNDRConsumerFlowToDetectionAndIncident(t *testing.T) {
 // generated-looking names raises one confidence-scored detection.
 func TestNDRConsumerEBPFDNSToDGADetection(t *testing.T) {
 	detections := threat.NewDetectionStore(0)
-	cs := NewNDRConsumer(nil, ndrEngine(t, nil), nil, intelTestLog()).WithDetections(detections)
+	cs := NewNDRConsumer(nil, ndrEngine(t, nil), nil, intelTestLog()).withDetections(detections)
 
 	calls := make([]*ebpfv1.L7Call, 0, 25)
 	for i := 0; i < 25; i++ {
@@ -123,7 +123,7 @@ func TestNDRConsumerEBPFDNSToDGADetection(t *testing.T) {
 func TestNDRConsumerDropsUnscopedRecords(t *testing.T) {
 	detections := threat.NewDetectionStore(0)
 	intel := loadedIOCStore()
-	cs := NewNDRConsumer(nil, ndrEngine(t, intel), nil, intelTestLog()).WithDetections(detections)
+	cs := NewNDRConsumer(nil, ndrEngine(t, intel), nil, intelTestLog()).withDetections(detections)
 
 	batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
 		// no TenantId

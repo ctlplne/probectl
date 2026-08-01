@@ -82,8 +82,8 @@ func TestIdleTenantsAreEvicted(t *testing.T) {
 	// Every one of the 5000 idle tenants must be gone — only the gateShards
 	// trigger tenants (all admitted at the advanced time) remain.
 	tracked := tenantsTracked(g)
-	if g.Evicted() != uint64(n) {
-		t.Fatalf("the sweep must have reclaimed exactly the %d idle tenants, Evicted()=%d", n, g.Evicted())
+	if g.evictedCount() != uint64(n) {
+		t.Fatalf("the sweep must have reclaimed exactly the %d idle tenants, Evicted()=%d", n, g.evictedCount())
 	}
 	if tracked != len(triggers) {
 		t.Fatalf("the per-tenant map did not drain to just the live set: tracking %d, want %d", tracked, len(triggers))
@@ -120,8 +120,8 @@ func TestActiveTenantNeverEvicted(t *testing.T) {
 	if !found {
 		t.Fatal("a continuously-active tenant must never be evicted")
 	}
-	if g.Evicted() != 0 {
-		t.Fatalf("no eviction expected for a single always-active tenant, Evicted()=%d", g.Evicted())
+	if g.evictedCount() != 0 {
+		t.Fatalf("no eviction expected for a single always-active tenant, Evicted()=%d", g.evictedCount())
 	}
 }
 

@@ -184,9 +184,9 @@ func (oc *OutageConsumer) WithNamespaceTenants(ns map[string]string) *OutageCons
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (oc *OutageConsumer) LaneFanoutEnabled() bool { return true }
 
-// Run subscribes to the network-results topic (own consumer group) until ctx
+// run subscribes to the network-results topic (own consumer group) until ctx
 // ends.
-func (oc *OutageConsumer) Run(ctx context.Context) error {
+func (oc *OutageConsumer) run(ctx context.Context) error {
 	return pipeline.RunLanes(ctx, oc.bus, bus.NetworkResultsTopic, "outage-vantage", oc.nsTenants, oc.handleLane)
 }
 

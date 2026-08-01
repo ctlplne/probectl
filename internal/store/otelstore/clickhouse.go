@@ -917,12 +917,12 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	return nil
 }
 
-// EnsureRowPolicies installs DB-LEVEL tenancy on the spans+logs tables
+// ensureRowPolicies installs DB-LEVEL tenancy on the spans+logs tables
 // (TENANT-003 / U-026 parity with flowstore): per-tenant ClickHouse users
 // (named exactly the tenant id) are row-filtered to tenant_id = currentUser(),
 // while serviceUser keeps full access. Direct CH access with a tenant
 // credential can then never cross tenants, independent of this codebase.
-func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
+func (c *ClickHouse) ensureRowPolicies(ctx context.Context, serviceUser string) error {
 	if serviceUser == "" {
 		serviceUser = "default"
 	}

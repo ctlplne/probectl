@@ -85,7 +85,7 @@ func TestTenantAuditRetentionEffectiveWithGlobalKeepForeverStillChecksOverrides(
 		WithTenantIDsForTest(func(context.Context) ([]string, error) {
 			return []string{"tenant-a"}, nil
 		}).
-		WithTenantWatermarkForTest(func(context.Context, string) (int64, error) {
+		withTenantWatermarkForTest(func(context.Context, string) (int64, error) {
 			return 0, nil
 		})
 

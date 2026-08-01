@@ -66,9 +66,9 @@ func (a *Aggregator) Observe(f Flow) {
 	a.observed.Add(1)
 }
 
-// RecordDrops adds n to the dropped counter when only a legacy/fixture total is
+// recordDrops adds n to the dropped counter when only a legacy/fixture total is
 // available.
-func (a *Aggregator) RecordDrops(n uint64) { a.RecordDropStats(DropStats{Other: n}) }
+func (a *Aggregator) recordDrops(n uint64) { a.RecordDropStats(DropStats{Other: n}) }
 
 // RecordDropStats folds typed source loss into the cumulative drop counters.
 func (a *Aggregator) RecordDropStats(s DropStats) {

@@ -97,10 +97,10 @@ func (r Rollout) Released(c Cohort) bool {
 	return false
 }
 
-// DesiredVersion returns the version an agent should be running: the target when
+// desiredVersion returns the version an agent should be running: the target when
 // the agent's cohort has been released, otherwise its current version. With no
 // active rollout, an agent simply keeps its current version.
-func (r Rollout) DesiredVersion(agentID, current string) string {
+func (r Rollout) desiredVersion(agentID, current string) string {
 	if !r.Active() {
 		return current
 	}

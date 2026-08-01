@@ -27,7 +27,7 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	if url == "" {
 		testsupport.SkipOrFatal(t, "PROBECTL_PATHSTORE_URL not set — ClickHouse isolation gate runs in CI")
 	}
-	c, err := NewClickHouse(url)
+	c, err := newClickHouse(url)
 	if err != nil {
 		t.Fatalf("clickhouse: %v", err)
 	}

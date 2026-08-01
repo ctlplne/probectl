@@ -92,8 +92,8 @@ func (s ScimTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantI
 	return tenantID, err
 }
 
-// List returns a tenant's SCIM tokens (metadata only — never the hash).
-func (s ScimTokens) List(ctx context.Context, tenantID string) ([]ScimToken, error) {
+// list returns a tenant's SCIM tokens (metadata only — never the hash).
+func (s ScimTokens) list(ctx context.Context, tenantID string) ([]ScimToken, error) {
 	var out []ScimToken
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var listErr error

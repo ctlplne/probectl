@@ -65,8 +65,8 @@ func (Roles) Get(ctx context.Context, s tenancy.Scope, id string) (*Role, error)
 	return &r, nil
 }
 
-// GetBySlug returns a role by slug within the tenant.
-func (Roles) GetBySlug(ctx context.Context, s tenancy.Scope, slug string) (*Role, error) {
+// getBySlug returns a role by slug within the tenant.
+func (Roles) getBySlug(ctx context.Context, s tenancy.Scope, slug string) (*Role, error) {
 	var r Role
 	if err := scanRole(s.Q.QueryRow(ctx, `SELECT `+roleCols+` FROM roles WHERE slug = $1`, slug), &r); err != nil {
 		return nil, notFound("role", err)
@@ -95,8 +95,8 @@ func (Roles) Delete(ctx context.Context, s tenancy.Scope, id string) error {
 	return err
 }
 
-// List returns the tenant's roles.
-func (Roles) List(ctx context.Context, s tenancy.Scope) ([]Role, error) {
+// list returns the tenant's roles.
+func (Roles) list(ctx context.Context, s tenancy.Scope) ([]Role, error) {
 	total, err := (Roles{}).Count(ctx, s)
 	if err != nil {
 		return nil, err
@@ -182,8 +182,8 @@ func (RoleBindings) Create(ctx context.Context, s tenancy.Scope, subjectType, su
 	return id, err
 }
 
-// CountForSubject returns how many role bindings a subject has (used in S18).
-func (RoleBindings) CountForSubject(ctx context.Context, s tenancy.Scope, subjectType, subjectID string) (int, error) {
+// countForSubject returns how many role bindings a subject has (used in S18).
+func (RoleBindings) countForSubject(ctx context.Context, s tenancy.Scope, subjectType, subjectID string) (int, error) {
 	var n int
 	err := s.Q.QueryRow(ctx,
 		`SELECT count(*) FROM role_bindings WHERE subject_type = $1 AND subject_id = $2`,

@@ -78,7 +78,7 @@ func TestDiscoveryFixtureClassifiesAndRequiresReview(t *testing.T) {
 		t.Fatalf("missing audit receipt events: %+v", result.AuditEvents)
 	}
 
-	targets, events, err := BuildDiscoveryImport(result, DiscoveryReview{
+	targets, events, err := buildDiscoveryImport(result, DiscoveryReview{
 		TenantID:        "tenant-a",
 		JobID:           "job-1",
 		ReviewedBy:      "lead@example.com",
@@ -96,25 +96,25 @@ func TestDiscoveryFixtureClassifiesAndRequiresReview(t *testing.T) {
 }
 
 func TestDiscoveryStoreTenantIsolation(t *testing.T) {
-	store := NewMemoryDiscoveryStore()
+	store := newMemoryDiscoveryStore()
 	a := DiscoveryResult{TenantID: "tenant-a", JobID: "job-a", Status: DiscoveryStatusReviewRequired,
 		Devices: []DiscoveredDevice{{ID: "a", TenantID: "tenant-a", Address: "10.0.0.1"}}}
 	b := DiscoveryResult{TenantID: "tenant-b", JobID: "job-b", Status: DiscoveryStatusReviewRequired,
 		Devices: []DiscoveredDevice{{ID: "b", TenantID: "tenant-b", Address: "10.1.0.1"}}}
-	if err := store.SaveDiscoveryResult(a); err != nil {
+	if err := store.saveDiscoveryResult(a); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveDiscoveryResult(b); err != nil {
+	if err := store.saveDiscoveryResult(b); err != nil {
 		t.Fatal(err)
 	}
-	rows := store.ListDiscoveryResults("tenant-a")
+	rows := store.listDiscoveryResults("tenant-a")
 	if len(rows) != 1 || rows[0].JobID != "job-a" || rows[0].Devices[0].Address != "10.0.0.1" {
 		t.Fatalf("tenant-a rows = %+v", rows)
 	}
-	if _, ok := store.GetDiscoveryResult("tenant-a", "job-b"); ok {
+	if _, ok := store.getDiscoveryResult("tenant-a", "job-b"); ok {
 		t.Fatal("tenant-a could read tenant-b discovery result")
 	}
-	if _, ok := store.GetDiscoveryResult("tenant-b", "job-b"); !ok {
+	if _, ok := store.getDiscoveryResult("tenant-b", "job-b"); !ok {
 		t.Fatal("tenant-b could not read its own result")
 	}
 }

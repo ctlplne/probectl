@@ -17,7 +17,7 @@ import (
 
 func TestTopologyRebuildTargets(t *testing.T) {
 	for _, tier := range []Tier{TierS, TierM, TierL} {
-		target, err := TopologyRebuildTargetFor(tier)
+		target, err := topologyRebuildTargetFor(tier)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -40,7 +40,7 @@ func TestTopologyRebuildTargets(t *testing.T) {
 }
 
 func TestTopologyRebuildGateAbsorbsOneSchedulerPause(t *testing.T) {
-	target, err := TopologyRebuildTargetFor(TierM)
+	target, err := topologyRebuildTargetFor(TierM)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestTopologyRebuildGateAbsorbsOneSchedulerPause(t *testing.T) {
 }
 
 func TestTopologyRebuildGateRejectsSustainedSlowdown(t *testing.T) {
-	target, err := TopologyRebuildTargetFor(TierM)
+	target, err := topologyRebuildTargetFor(TierM)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestTopologyRebuildGateRejectsSustainedSlowdown(t *testing.T) {
 }
 
 func TestTopologyRebuildGateRequiresEverySampleCorrect(t *testing.T) {
-	target, err := TopologyRebuildTargetFor(TierM)
+	target, err := topologyRebuildTargetFor(TierM)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestTopologyRebuildGateRequiresEverySampleCorrect(t *testing.T) {
 }
 
 func TestTopologyRebuildReferenceRunRemainsStrict(t *testing.T) {
-	target, err := TopologyRebuildTargetFor(TierS)
+	target, err := topologyRebuildTargetFor(TierS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func topologyRebuildTimingSample(
 
 func TestTopologyRebuildTargetsCoverAllTiers(t *testing.T) {
 	for _, tier := range []Tier{TierS, TierM, TierL, TierXL, TierXXL} {
-		target, err := TopologyRebuildTargetFor(tier)
+		target, err := topologyRebuildTargetFor(tier)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +135,7 @@ func BenchmarkTopologyRebuild(b *testing.B) {
 	if tier == "" {
 		tier = TierL
 	}
-	target, err := TopologyRebuildTargetFor(tier)
+	target, err := topologyRebuildTargetFor(tier)
 	if err != nil {
 		b.Fatal(err)
 	}

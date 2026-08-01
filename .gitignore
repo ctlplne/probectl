@@ -72,3 +72,4 @@ internal/webui/dist/*.del.*
 *.swp
 receipts/
 web/coverage/
+/probectl-deadseams

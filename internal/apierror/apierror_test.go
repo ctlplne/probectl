@@ -165,10 +165,10 @@ func TestWithCode(t *testing.T) {
 
 func TestLocalizedMessageUsesStableCode(t *testing.T) {
 	e := NotFound("test not found")
-	if got := e.LocalizedMessage("es-MX"); got != "No encontrado" {
+	if got := e.localizedMessage("es-MX"); got != "No encontrado" {
 		t.Fatalf("LocalizedMessage = %q, want No encontrado", got)
 	}
-	if got := LocalizedMessage("es", "custom_code", "custom detail"); got != "custom detail" {
+	if got := localizedMessage("es", "custom_code", "custom detail"); got != "custom detail" {
 		t.Fatalf("custom fallback = %q", got)
 	}
 }

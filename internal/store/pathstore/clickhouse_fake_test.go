@@ -100,7 +100,7 @@ func newFakeCH(t *testing.T) (*fakeCH, *ClickHouse) {
 	f := &fakeCH{deleted: map[string]bool{}}
 	srv := httptest.NewServer(f.handler())
 	t.Cleanup(srv.Close)
-	ch, err := NewClickHouse(srv.URL)
+	ch, err := newClickHouse(srv.URL)
 	if err != nil {
 		t.Fatalf("NewClickHouse: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestClickHousePathHistoryScopesQueriesAndBindsCopiedID(t *testing.T) {
 // service user, and defaults that user to `default`.
 func TestClickHouseRowPolicyDDL(t *testing.T) {
 	f, ch := newFakeCH(t)
-	if err := ch.EnsureRowPolicies(context.Background(), ""); err != nil {
+	if err := ch.ensureRowPolicies(context.Background(), ""); err != nil {
 		t.Fatalf("EnsureRowPolicies: %v", err)
 	}
 	var policies []string

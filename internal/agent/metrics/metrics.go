@@ -286,12 +286,12 @@ func (r *Runtime) Serve(ctx context.Context) error {
 	return fmt.Errorf("agent metrics: serve: %w", err)
 }
 
-// Ready closes after the listener has bound successfully. It is a test/smoke
+// readyChan closes after the listener has bound successfully. It is a test/smoke
 // synchronization seam, not a network health endpoint.
-func (r *Runtime) Ready() <-chan struct{} { return r.ready }
+func (r *Runtime) readyChan() <-chan struct{} { return r.ready }
 
-// Addr returns the actual bound address (useful when Config.Addr uses port 0).
-func (r *Runtime) Addr() string {
+// boundAddr returns the actual bound address (useful when Config.addr uses port 0).
+func (r *Runtime) boundAddr() string {
 	r.addrMu.RLock()
 	defer r.addrMu.RUnlock()
 	return r.addr

@@ -93,7 +93,7 @@ func TestOtelReaderCannotCrossTenant(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write spans: %v", err)
 	}
-	if err := c.EnsureRowPolicies(ctx, otelServiceUser(t)); err != nil {
+	if err := c.ensureRowPolicies(ctx, otelServiceUser(t)); err != nil {
 		t.Fatalf("EnsureRowPolicies: %v", err)
 	}
 

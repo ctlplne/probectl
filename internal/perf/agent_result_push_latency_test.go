@@ -32,7 +32,7 @@ import (
 )
 
 func TestAgentResultPushLatency(t *testing.T) {
-	hp, ok := HotPathByID("hp-agent-result-push")
+	hp, ok := hotPathByID("hp-agent-result-push")
 	if !ok {
 		t.Fatal("missing hp-agent-result-push catalog row")
 	}

@@ -115,7 +115,7 @@ func TestPathEraseWriteFenceTwoTenant(t *testing.T) {
 	); err != nil {
 		t.Fatalf("tenant B Save was blocked by tenant A fence: %v", err)
 	}
-	if got := len(memory.ForTenant(tenantB)); got != 1 {
+	if got := len(memory.forTenant(tenantB)); got != 1 {
 		t.Fatalf("tenant B paths = %d, want 1", got)
 	}
 
@@ -138,10 +138,10 @@ func TestPathEraseWriteFenceTwoTenant(t *testing.T) {
 		t.Fatalf("queue post-fence tenant A path: %v", err)
 	}
 	batched.Flush(ctx)
-	if got := len(batchedMemory.ForTenant(tenantA)); got != 0 {
+	if got := len(batchedMemory.forTenant(tenantA)); got != 0 {
 		t.Fatalf("post-fence batched tenant A paths persisted = %d, want 0", got)
 	}
-	if got := batched.Lost(); got != 1 {
+	if got := batched.lostCount(); got != 1 {
 		t.Fatalf("rejected tenant A batched paths recorded lost = %d, want 1", got)
 	}
 	if err := batchedStore.Save(
@@ -152,7 +152,7 @@ func TestPathEraseWriteFenceTwoTenant(t *testing.T) {
 		t.Fatalf("queue tenant B batched path: %v", err)
 	}
 	batched.Flush(ctx)
-	if got := len(batchedMemory.ForTenant(tenantB)); got != 1 {
+	if got := len(batchedMemory.forTenant(tenantB)); got != 1 {
 		t.Fatalf("tenant B batched paths = %d, want 1", got)
 	}
 }

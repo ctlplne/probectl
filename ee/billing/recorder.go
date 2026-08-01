@@ -40,8 +40,8 @@ func NewRecorder(store Store, log *slog.Logger) *Recorder {
 	return &Recorder{store: store, log: log, now: time.Now, pending: map[counterKey]int64{}}
 }
 
-// WithClock overrides time (tests).
-func (r *Recorder) WithClock(now func() time.Time) *Recorder {
+// withClock overrides time (tests).
+func (r *Recorder) withClock(now func() time.Time) *Recorder {
 	r.now = now
 	return r
 }

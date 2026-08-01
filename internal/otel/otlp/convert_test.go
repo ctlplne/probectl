@@ -41,7 +41,7 @@ func TestResultResourceMetricsConform(t *testing.T) {
 		NetworkTransport: "tcp", Success: true, DurationNano: 1500, StartTimeUnixNano: 100,
 		Metrics: map[string]float64{"rtt.avg.ms": 12.5},
 	}
-	rm := ResultResourceMetrics(r)
+	rm := resultResourceMetrics(r)
 
 	attrs := resourceAttrs(rm)
 	if attrs[otel.AttrTenantID] != "t1" {
@@ -62,10 +62,10 @@ func TestResultResourceMetricsConform(t *testing.T) {
 
 func TestEveryConverterCarriesTenantAndConforms(t *testing.T) {
 	rms := []*metricspb.ResourceMetrics{
-		ResultResourceMetrics(&resultv1.Result{TenantId: "t", AgentId: "a", CanaryType: "icmp"}),
-		FlowResourceMetrics(&ebpfv1.Flow{TenantId: "t", AgentId: "a", SourceAddress: "1.1.1.1", DestinationAddress: "2.2.2.2", DestinationPort: 443, NetworkTransport: "tcp", Bytes: 10, Packets: 1}),
-		L7CallResourceMetrics(&ebpfv1.L7Call{TenantId: "t", AgentId: "a", Protocol: "http1", Method: "GET", Resource: "/x", Status: "200"}),
-		BGPEventResourceMetrics(&bgpv1.BGPEvent{TenantId: "t", EventType: bgpv1.EventType_EVENT_TYPE_ORIGIN_CHANGE, Severity: bgpv1.Severity_SEVERITY_INFO, Prefix: "192.0.2.0/24"}),
+		resultResourceMetrics(&resultv1.Result{TenantId: "t", AgentId: "a", CanaryType: "icmp"}),
+		flowResourceMetrics(&ebpfv1.Flow{TenantId: "t", AgentId: "a", SourceAddress: "1.1.1.1", DestinationAddress: "2.2.2.2", DestinationPort: 443, NetworkTransport: "tcp", Bytes: 10, Packets: 1}),
+		l7CallResourceMetrics(&ebpfv1.L7Call{TenantId: "t", AgentId: "a", Protocol: "http1", Method: "GET", Resource: "/x", Status: "200"}),
+		bGPEventResourceMetrics(&bgpv1.BGPEvent{TenantId: "t", EventType: bgpv1.EventType_EVENT_TYPE_ORIGIN_CHANGE, Severity: bgpv1.Severity_SEVERITY_INFO, Prefix: "192.0.2.0/24"}),
 	}
 	for i, rm := range rms {
 		if ResourceTenant(rm) != "t" {
@@ -92,10 +92,10 @@ func TestMetricTypeConformance(t *testing.T) {
 			byName[m.GetName()] = m
 		}
 	}
-	collect(FlowResourceMetrics(&ebpfv1.Flow{TenantId: "t", AgentId: "a", SourceAddress: "1.1.1.1", DestinationAddress: "2.2.2.2", DestinationPort: 443, NetworkTransport: "tcp", Bytes: 10, Packets: 1}))
-	collect(ResultResourceMetrics(&resultv1.Result{TenantId: "t", AgentId: "a", CanaryType: "icmp", Success: true, DurationNano: 1500, Metrics: map[string]float64{"rtt.avg.ms": 12.5}}))
-	collect(L7CallResourceMetrics(&ebpfv1.L7Call{TenantId: "t", AgentId: "a", Protocol: "http1", Method: "GET", Resource: "/x", Status: "200"}))
-	collect(BGPEventResourceMetrics(&bgpv1.BGPEvent{TenantId: "t", EventType: bgpv1.EventType_EVENT_TYPE_ORIGIN_CHANGE, Severity: bgpv1.Severity_SEVERITY_INFO, Prefix: "192.0.2.0/24"}))
+	collect(flowResourceMetrics(&ebpfv1.Flow{TenantId: "t", AgentId: "a", SourceAddress: "1.1.1.1", DestinationAddress: "2.2.2.2", DestinationPort: 443, NetworkTransport: "tcp", Bytes: 10, Packets: 1}))
+	collect(resultResourceMetrics(&resultv1.Result{TenantId: "t", AgentId: "a", CanaryType: "icmp", Success: true, DurationNano: 1500, Metrics: map[string]float64{"rtt.avg.ms": 12.5}}))
+	collect(l7CallResourceMetrics(&ebpfv1.L7Call{TenantId: "t", AgentId: "a", Protocol: "http1", Method: "GET", Resource: "/x", Status: "200"}))
+	collect(bGPEventResourceMetrics(&bgpv1.BGPEvent{TenantId: "t", EventType: bgpv1.EventType_EVENT_TYPE_ORIGIN_CHANGE, Severity: bgpv1.Severity_SEVERITY_INFO, Prefix: "192.0.2.0/24"}))
 
 	wantSum := []string{"probectl.flow.bytes", "probectl.flow.packets"}
 	wantGauge := []string{
@@ -132,7 +132,7 @@ func TestMetricTypeConformance(t *testing.T) {
 }
 
 func TestMetricsRequest(t *testing.T) {
-	req := MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "t"}))
+	req := metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "t"}))
 	if len(req.GetResourceMetrics()) != 1 {
 		t.Fatalf("resource metrics = %d, want 1", len(req.GetResourceMetrics()))
 	}

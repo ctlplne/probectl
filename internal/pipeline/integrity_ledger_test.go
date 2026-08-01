@@ -99,7 +99,7 @@ func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 			run: func(reg *selfmetrics.Registry) (IntegrityStats, error) {
 				c := NewDeviceConsumer(nil, tsdb.NewMemory(), testLogger()).WithMetrics(reg)
 				err := c.handleLane(ctx, garbage, "")
-				return c.IntegrityStats(), err
+				return c.integrityStats(), err
 			},
 		},
 		{
@@ -108,7 +108,7 @@ func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 			run: func(reg *selfmetrics.Registry) (IntegrityStats, error) {
 				c := NewFlowConsumer(nil, flowstore.NewMemory(), nil, testLogger()).WithMetrics(reg)
 				err := c.handleLane(ctx, garbage, "")
-				return c.IntegrityStats(), err
+				return c.integrityStats(), err
 			},
 		},
 		{
@@ -117,7 +117,7 @@ func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 			run: func(reg *selfmetrics.Registry) (IntegrityStats, error) {
 				c := NewOTLPConsumer(nil, tsdb.NewMemory(), testLogger()).WithMetrics(reg)
 				err := c.handle(ctx, garbage)
-				return c.IntegrityStats(), err
+				return c.integrityStats(), err
 			},
 		},
 		{
@@ -126,7 +126,7 @@ func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 			run: func(reg *selfmetrics.Registry) (IntegrityStats, error) {
 				c := NewOTLPTraceConsumer(nil, otelstore.NewMemory(), testLogger()).WithMetrics(reg)
 				err := c.handle(ctx, garbage)
-				return c.IntegrityStats(), err
+				return c.integrityStats(), err
 			},
 		},
 		{
@@ -135,7 +135,7 @@ func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 			run: func(reg *selfmetrics.Registry) (IntegrityStats, error) {
 				c := NewOTLPLogConsumer(nil, otelstore.NewMemory(), testLogger()).WithMetrics(reg)
 				err := c.handle(ctx, garbage)
-				return c.IntegrityStats(), err
+				return c.integrityStats(), err
 			},
 		},
 	}
@@ -185,10 +185,10 @@ func TestOTLPUnsupportedMetricsAreInIntegrityLedger(t *testing.T) {
 	if err := c.handle(context.Background(), bus.Message{Key: bus.TenantKey("t-ledger", "a"), Value: payload}); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if c.Consumed() != 0 || mem.Len() != 0 {
-		t.Fatalf("unsupported-only payload must not be counted/stored: consumed=%d len=%d", c.Consumed(), mem.Len())
+	if c.consumedCount() != 0 || mem.Len() != 0 {
+		t.Fatalf("unsupported-only payload must not be counted/stored: consumed=%d len=%d", c.consumedCount(), mem.Len())
 	}
-	stats := c.IntegrityStats()
+	stats := c.integrityStats()
 	if stats.Received != 1 || stats.Unsupported != 2 || stats.Stored != 0 {
 		t.Fatalf("ledger stats = %+v, want received=1 unsupported=2 stored=0", stats)
 	}

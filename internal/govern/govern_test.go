@@ -16,8 +16,8 @@ import (
 // TestIPsAsPII is the headline: an IP address classifies as PII by default and
 // redacts to its network prefix (host identity dropped), for both v4 and v6.
 func TestIPsAsPII(t *testing.T) {
-	if DefaultClassOf(CatIPAddress) != ClassPII {
-		t.Fatalf("ip_address must default to PII, got %s", DefaultClassOf(CatIPAddress))
+	if defaultClassOf(CatIPAddress) != ClassPII {
+		t.Fatalf("ip_address must default to PII, got %s", defaultClassOf(CatIPAddress))
 	}
 	for in, want := range map[string]string{
 		"203.0.113.42":          "203.0.113.0/24",
@@ -261,7 +261,7 @@ func TestCategoriesAndInventoryDenominatorsAreSortedCopies(t *testing.T) {
 	}
 
 	ids := RequiredDataInventoryIDs()
-	inv := DataInventory()
+	inv := dataInventoryEntries()
 	if len(ids) != len(inv) {
 		t.Fatalf("required ids = %d, inventory rows = %d", len(ids), len(inv))
 	}
@@ -273,7 +273,7 @@ func TestCategoriesAndInventoryDenominatorsAreSortedCopies(t *testing.T) {
 }
 
 func TestValidateDataInventoryRejectsBrokenRows(t *testing.T) {
-	errs := ValidateDataInventory(nil)
+	errs := validateDataInventory(nil)
 	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "empty") {
 		t.Fatalf("empty inventory errors = %v", errs)
 	}
@@ -301,7 +301,7 @@ func TestValidateDataInventoryRejectsBrokenRows(t *testing.T) {
 			Processors:  []string{""},
 		},
 	}
-	errs = ValidateDataInventory(bad)
+	errs = validateDataInventory(bad)
 	for _, want := range []string{"duplicate", "missing store", "unknown category", "invalid data class", "empty processor", "missing retention", "missing subject deletion"} {
 		found := false
 		for _, err := range errs {

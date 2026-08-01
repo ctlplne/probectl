@@ -70,10 +70,10 @@ type physicalSourceState struct {
 	edgeIDs map[string]struct{}
 }
 
-// SetBounds configures per-tenant node/edge caps and the Latest() staleness
+// setBounds configures per-tenant node/edge caps and the Latest() staleness
 // horizon (SCALE-004 / CORRECT-014). A non-positive value leaves that bound
 // unset (unbounded / no horizon). Safe to call at construction.
-func (g *Graph) SetBounds(maxNodes, maxEdges int, staleness time.Duration) {
+func (g *Graph) setBounds(maxNodes, maxEdges int, staleness time.Duration) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.maxNodes, g.maxEdges, g.staleness = maxNodes, maxEdges, staleness
@@ -107,9 +107,6 @@ func (g *Graph) evictOldestEdgeLocked() {
 		g.deleteEdgeLocked(oldestID)
 	}
 }
-
-// Tenant returns the graph's tenant.
-func (g *Graph) Tenant() string { return g.tenant }
 
 // UpsertNode records a node observation at time `at`, extending its validity
 // interval and merging non-empty attributes.
@@ -322,9 +319,9 @@ func (g *Graph) Traverse(from, to string, at time.Time) []string {
 	return nil
 }
 
-// NodeCount and EdgeCount report the full (all-time) graph size.
-func (g *Graph) NodeCount() int { g.mu.RLock(); defer g.mu.RUnlock(); return len(g.nodes) }
-func (g *Graph) EdgeCount() int { g.mu.RLock(); defer g.mu.RUnlock(); return len(g.edges) }
+// nodeCount and edgeCount report the full (all-time) graph size.
+func (g *Graph) nodeCount() int { g.mu.RLock(); defer g.mu.RUnlock(); return len(g.nodes) }
+func (g *Graph) edgeCount() int { g.mu.RLock(); defer g.mu.RUnlock(); return len(g.edges) }
 
 // PruneBefore removes graph elements whose last observation is older than the
 // cutoff. It is the store-owned age-retention clock for derived topology

@@ -24,7 +24,7 @@ import (
 // implementation, not the callers.
 //
 // Interop note: GCP service-account JWT requires RS256 (PKCS#1 v1.5). New
-// INTERNAL signing schemes must use SignRSAPSS instead (FIPS 186-5 / KEYS-001).
+// INTERNAL signing schemes must use signRSAPSS instead (FIPS 186-5 / KEYS-001).
 func SignRS256(privateKeyPEM, data []byte) ([]byte, error) {
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
@@ -53,14 +53,14 @@ func SignRS256(privateKeyPEM, data []byte) ([]byte, error) {
 	return rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 }
 
-// SignRSAPSS signs data with an RSA private key using PSS padding and SHA-256
+// signRSAPSS signs data with an RSA private key using PSS padding and SHA-256
 // (FIPS 186-5 compliant — KEYS-001). The salt length equals the hash length
 // (PSSSaltLengthEqualsHash). All new INTERNAL RSA signing schemes must call
 // this function; SignRS256 (PKCS#1 v1.5) is retained only for the GCP RS256
 // JWT interop path which requires the legacy algorithm.
 //
-// The public key is standard RSA; verify with VerifyRSAPSS.
-func SignRSAPSS(privateKeyPEM, data []byte) ([]byte, error) {
+// The public key is standard RSA; verify with verifyRSAPSS.
+func signRSAPSS(privateKeyPEM, data []byte) ([]byte, error) {
 	key, err := parseRSAPrivatePEM(privateKeyPEM)
 	if err != nil {
 		return nil, err
@@ -70,9 +70,9 @@ func SignRSAPSS(privateKeyPEM, data []byte) ([]byte, error) {
 		&rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
 }
 
-// VerifyRSAPSS verifies a PSS signature produced by SignRSAPSS. The public key
+// verifyRSAPSS verifies a PSS signature produced by signRSAPSS. The public key
 // is PEM-encoded ("PUBLIC KEY" PKIX).
-func VerifyRSAPSS(publicKeyPEM, data, sig []byte) error {
+func verifyRSAPSS(publicKeyPEM, data, sig []byte) error {
 	block, _ := pem.Decode(publicKeyPEM)
 	if block == nil {
 		return errors.New("crypto: no PEM block in public key")

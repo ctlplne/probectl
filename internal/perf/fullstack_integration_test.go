@@ -54,7 +54,7 @@ func TestFullStackLoadGate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	rep, err := RunFullStackGate(ctx, tier, scale, FullStackTargets{
+	rep, err := runFullStackGate(ctx, tier, scale, FullStackTargets{
 		Brokers: strings.Split(brokers, ","),
 		PromURL: prom,
 	})
@@ -63,10 +63,10 @@ func TestFullStackLoadGate(t *testing.T) {
 	}
 	t.Logf("RESULT ROW (docs/scale-gate.md): %s", rep)
 	t.Logf("ingest detail: %s", rep.Scale.Ingest)
-	t.Logf("%s", rep.Diagnostics())
+	t.Logf("%s", rep.diagnostics())
 
 	if len(rep.Scale.Violations) > 0 {
-		t.Fatalf("FULL-STACK GATE FAILED:\n%s\n%s", rep.Diagnostics(), strings.Join(rep.Scale.Violations, "\n"))
+		t.Fatalf("FULL-STACK GATE FAILED:\n%s\n%s", rep.diagnostics(), strings.Join(rep.Scale.Violations, "\n"))
 	}
 }
 
@@ -100,7 +100,7 @@ func TestFullStackFlowGate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	rep, err := RunFullStackFlowGate(ctx, tier, scale, FullStackFlowTargets{
+	rep, err := runFullStackFlowGate(ctx, tier, scale, FullStackFlowTargets{
 		Brokers:      strings.Split(brokers, ","),
 		FlowStoreURL: flowURL,
 	})
@@ -109,9 +109,9 @@ func TestFullStackFlowGate(t *testing.T) {
 	}
 	t.Logf("RESULT ROW (docs/scale-gate.md): %s", rep)
 	t.Logf("flow insert latency: %s", rep.InsertLatency)
-	t.Logf("%s", rep.Diagnostics())
+	t.Logf("%s", rep.diagnostics())
 
 	if len(rep.Violations) > 0 {
-		t.Fatalf("FULL-STACK FLOW GATE FAILED:\n%s\n%s", rep.Diagnostics(), strings.Join(rep.Violations, "\n"))
+		t.Fatalf("FULL-STACK FLOW GATE FAILED:\n%s\n%s", rep.diagnostics(), strings.Join(rep.Violations, "\n"))
 	}
 }

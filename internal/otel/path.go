@@ -34,8 +34,8 @@ type PathSummary struct {
 	DestinationReached bool
 }
 
-// PathAttributes maps a discovered path to its OTel/probectl attributes.
-func PathAttributes(p PathSummary) map[string]string {
+// pathAttributes maps a discovered path to its OTel/probectl attributes.
+func pathAttributes(p PathSummary) map[string]string {
 	attrs := map[string]string{
 		AttrTenantID:     p.TenantID,
 		AttrPathHopCount: strconv.Itoa(p.HopCount),

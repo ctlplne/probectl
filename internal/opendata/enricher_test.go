@@ -99,13 +99,13 @@ func TestEnricherDegradesOnFailure(t *testing.T) {
 }
 
 func TestEnricherSkipsDisabledSource(t *testing.T) {
-	en := NewEnricher(discardLogger(), WithCacheTTL(0))
+	en := NewEnricher(discardLogger(), withCacheTTL(0))
 	src := &fakeSource{desc: Descriptor{Name: "src"}, fn: func(_ netip.Addr, e *Enrichment) error {
 		e.CountryCode = "US"
 		return nil
 	}}
 	en.Register(src)
-	en.SetEnabled("src", false)
+	en.setEnabled("src", false)
 
 	e, err := en.Enrich(context.Background(), "1.1.1.1")
 	if err != nil {
@@ -140,7 +140,7 @@ func TestEnricherCachesByIP(t *testing.T) {
 
 func TestEnricherCacheMaxEntriesEvictsAndExpires(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	en := NewEnricher(discardLogger(), WithCacheTTL(time.Minute), WithCacheMaxEntries(3))
+	en := NewEnricher(discardLogger(), withCacheTTL(time.Minute), WithCacheMaxEntries(3))
 	en.cache.now = func() time.Time { return now }
 	src := &fakeSource{desc: Descriptor{Name: "src"}, fn: func(_ netip.Addr, e *Enrichment) error {
 		e.CountryCode = "ZZ"
@@ -154,7 +154,7 @@ func TestEnricherCacheMaxEntriesEvictsAndExpires(t *testing.T) {
 		}
 		now = now.Add(time.Second)
 	}
-	st := en.CacheStats()
+	st := en.cacheStats()
 	if st.Entries > 3 || st.MaxEntries != 3 {
 		t.Fatalf("cache size = %d/%d, want <=3/3", st.Entries, st.MaxEntries)
 	}
@@ -179,7 +179,7 @@ func TestEnricherCacheMaxEntriesEvictsAndExpires(t *testing.T) {
 	if _, err := en.Enrich(context.Background(), "203.0.113.5"); err != nil {
 		t.Fatal(err)
 	}
-	st = en.CacheStats()
+	st = en.cacheStats()
 	if st.Entries > 3 {
 		t.Fatalf("cache grew past cap after stale refresh: %+v", st)
 	}
@@ -193,7 +193,7 @@ func TestEnricherCacheMaxEntriesEvictsAndExpires(t *testing.T) {
 
 func TestEnricherCacheMetrics(t *testing.T) {
 	reg := metrics.New("test", "abc")
-	en := NewEnricher(discardLogger(), WithCacheTTL(time.Minute), WithCacheMaxEntries(1)).WithMetrics(reg)
+	en := NewEnricher(discardLogger(), withCacheTTL(time.Minute), WithCacheMaxEntries(1)).WithMetrics(reg)
 	src := &fakeSource{desc: Descriptor{Name: "src"}, fn: func(_ netip.Addr, e *Enrichment) error {
 		e.CountryCode = "ZZ"
 		return nil
@@ -263,7 +263,7 @@ func TestEnricherInvalidIP(t *testing.T) {
 }
 
 func TestRegisterUnavailableIsVisibleAndNeverInvoked(t *testing.T) {
-	en := NewEnricher(discardLogger(), WithCacheTTL(0))
+	en := NewEnricher(discardLogger(), withCacheTTL(0))
 	src := &fakeSource{desc: Descriptor{Name: "geo"}, fn: func(netip.Addr, *Enrichment) error {
 		return nil
 	}}

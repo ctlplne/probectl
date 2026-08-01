@@ -7,10 +7,8 @@
 package ai
 
 import (
-	"context"
 	"errors"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -50,48 +48,4 @@ func (f Feedback) Validate() error {
 		return ErrInvalidFeedback
 	}
 	return nil
-}
-
-// FeedbackStore persists answer feedback, tenant-scoped (the durable backing
-// enforces RLS — F50). The control plane wires a Postgres-backed store; tests and
-// dev use the in-memory one.
-type FeedbackStore interface {
-	Save(ctx context.Context, f Feedback) error
-}
-
-// MemoryFeedbackStore is an in-memory FeedbackStore for tests + dev. Records are
-// partitioned by tenant so a reader can never see another tenant's notes.
-type MemoryFeedbackStore struct {
-	mu       sync.Mutex
-	byTenant map[string][]Feedback
-}
-
-// NewMemoryFeedbackStore returns an empty in-memory feedback store.
-func NewMemoryFeedbackStore() *MemoryFeedbackStore {
-	return &MemoryFeedbackStore{byTenant: map[string][]Feedback{}}
-}
-
-// Save validates and stores a feedback record under its tenant.
-func (m *MemoryFeedbackStore) Save(_ context.Context, f Feedback) error {
-	if err := f.Validate(); err != nil {
-		return err
-	}
-	if f.TenantID == "" {
-		return ErrInvalidFeedback
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if f.CreatedAt.IsZero() {
-		f.CreatedAt = time.Now()
-	}
-	m.byTenant[f.TenantID] = append(m.byTenant[f.TenantID], f)
-	return nil
-}
-
-// ForTenant returns a copy of a tenant's feedback (test helper; never crosses
-// tenants).
-func (m *MemoryFeedbackStore) ForTenant(tenant string) []Feedback {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append([]Feedback(nil), m.byTenant[tenant]...)
 }

@@ -23,15 +23,6 @@ type inventoryViewCreateRequest struct {
 	Filters map[string]string `json:"filters"`
 }
 
-// WithInventoryViews attaches the tenant-scoped saved-view store. nil is a
-// no-op; New installs the in-memory lightweight store by default.
-func (s *Server) WithInventoryViews(store inventory.ViewStore) *Server {
-	if store != nil {
-		s.inventoryViews = store
-	}
-	return s
-}
-
 func (s *Server) viewStore() inventory.ViewStore {
 	if s.inventoryViews == nil {
 		s.inventoryViews = inventory.NewMemoryViewStore()

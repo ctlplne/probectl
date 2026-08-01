@@ -68,7 +68,7 @@ func TestSubjectStoreWrappersStayTenantScoped(t *testing.T) {
 		{
 			name: "memory",
 			seed: func(tenant string) {
-				memoryStore.ObserveDevice(tenant, DeviceInput{Address: "alice-switch", Name: "Alice switch", InterfaceIPs: []string{"192.0.2.10"}}, at)
+				memoryStore.observeDevice(tenant, DeviceInput{Address: "alice-switch", Name: "Alice switch", InterfaceIPs: []string{"192.0.2.10"}}, at)
 			},
 			export: func(tenant, subject string, w *bytes.Buffer) (int64, int64, int64, error) {
 				return memoryStore.ExportSubject(tenant, subject, w)

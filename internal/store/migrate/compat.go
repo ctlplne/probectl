@@ -256,9 +256,9 @@ func lockViolations(file, raw, norm string, fresh map[string]bool) []Violation {
 	return out
 }
 
-// CheckFS checks every *.sql migration in fsys and returns all violations, sorted
+// checkFS checks every *.sql migration in fsys and returns all violations, sorted
 // by filename. It is the migration-gate's core (run over migrations.FS).
-func CheckFS(fsys fs.FS) ([]Violation, error) {
+func checkFS(fsys fs.FS) ([]Violation, error) {
 	var files []string
 	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

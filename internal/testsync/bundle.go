@@ -78,11 +78,11 @@ func Sign(b Bundle, privPEM []byte) ([]byte, error) {
 // keep running the last verified test set rather than apply an unsigned one).
 var ErrBadSignature = errors.New("testsync: bundle signature does not verify (refusing)")
 
-// Verify checks a signed bundle against the build-baked Ed25519 public-key PEM
+// verify checks a signed bundle against the build-baked Ed25519 public-key PEM
 // and returns the bundle only if the signature is valid. A current epoch (the
 // one the agent is already running) is passed so a replayed OLDER bundle is
 // refused even if correctly signed.
-func Verify(signed []byte, pubPEM []byte, currentEpoch int64) (*Bundle, error) {
+func verify(signed []byte, pubPEM []byte, currentEpoch int64) (*Bundle, error) {
 	var s Signed
 	if err := json.Unmarshal(signed, &s); err != nil {
 		return nil, fmt.Errorf("testsync: malformed signed bundle: %w", err)

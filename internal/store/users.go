@@ -149,8 +149,8 @@ func (Users) GetByEmail(ctx context.Context, s tenancy.Scope, email string) (*Us
 	return &u, nil
 }
 
-// GetByExternalID returns a user by the IdP's external id within the tenant.
-func (Users) GetByExternalID(ctx context.Context, s tenancy.Scope, externalID string) (*User, error) {
+// getByExternalID returns a user by the IdP's external id within the tenant.
+func (Users) getByExternalID(ctx context.Context, s tenancy.Scope, externalID string) (*User, error) {
 	var u User
 	if err := scanUser(s.Q.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE external_id = $1`, externalID), &u); err != nil {
 		return nil, notFound("user", err)
@@ -158,9 +158,9 @@ func (Users) GetByExternalID(ctx context.Context, s tenancy.Scope, externalID st
 	return &u, nil
 }
 
-// List returns the tenant's users, optionally filtered by exact userName (the
+// list returns the tenant's users, optionally filtered by exact userName (the
 // SCIM `userName eq` filter).
-func (Users) List(ctx context.Context, s tenancy.Scope, userNameFilter string) ([]User, error) {
+func (Users) list(ctx context.Context, s tenancy.Scope, userNameFilter string) ([]User, error) {
 	total, err := (Users{}).Count(ctx, s, userNameFilter)
 	if err != nil {
 		return nil, err
@@ -226,9 +226,9 @@ func (Users) Delete(ctx context.Context, s tenancy.Scope, id string) error {
 	return err
 }
 
-// UpdateStatus changes a user's status (active/suspended/disabled). Deprovision
+// updateStatus changes a user's status (active/suspended/disabled). Deprovision
 // uses status='disabled'.
-func (Users) UpdateStatus(ctx context.Context, s tenancy.Scope, id, status string) (*User, error) {
+func (Users) updateStatus(ctx context.Context, s tenancy.Scope, id, status string) (*User, error) {
 	var u User
 	if err := scanUser(s.Q.QueryRow(ctx,
 		`UPDATE users SET status = $2, updated_at = now() WHERE id = $1 RETURNING `+userCols,

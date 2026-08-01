@@ -47,8 +47,8 @@ func NewCollector(store Store, tenants TenantLister, count TenantCounter, log *s
 	return &Collector{store: store, tenants: tenants, count: count, log: log, now: time.Now}
 }
 
-// WithClock overrides time (tests).
-func (c *Collector) WithClock(now func() time.Time) *Collector {
+// withClock overrides time (tests).
+func (c *Collector) withClock(now func() time.Time) *Collector {
 	c.now = now
 	return c
 }

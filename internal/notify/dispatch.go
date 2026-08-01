@@ -61,9 +61,9 @@ func NewDispatcher(links LinkStore, log *slog.Logger) *Dispatcher {
 	}
 }
 
-// WithDispatchControls overrides the bounded per-tenant queue depth and the
+// withDispatchControls overrides the bounded per-tenant queue depth and the
 // timeout applied to each connector/link-store operation. Call before first use.
-func (d *Dispatcher) WithDispatchControls(queueDepth int, connectorTimeout time.Duration) *Dispatcher {
+func (d *Dispatcher) withDispatchControls(queueDepth int, connectorTimeout time.Duration) *Dispatcher {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if queueDepth > 0 {
@@ -88,9 +88,6 @@ func (d *Dispatcher) Connectors(tenant string) []Connector {
 	defer d.mu.RUnlock()
 	return append([]Connector(nil), d.byTenant[tenant]...)
 }
-
-// Enabled reports whether any connector is configured for the tenant.
-func (d *Dispatcher) Enabled(tenant string) bool { return len(d.Connectors(tenant)) > 0 }
 
 // Opened pages/posts/opens-a-ticket for a newly opened incident — once per
 // connector. A connector that already has a link is skipped (idempotent across

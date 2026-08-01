@@ -101,7 +101,7 @@ func (t tenantStore) ObserveRouting(in RoutingInput, at time.Time) {
 	t.store.observeRoutingTenant(t.tenant, in, at)
 }
 
-// ObserveDevice implements TenantStore.
+// observeDevice implements TenantStore.
 func (t tenantStore) ObserveDevice(in DeviceInput, at time.Time) {
 	t.store.observeDeviceTenant(t.tenant, in, at)
 }
@@ -131,12 +131,12 @@ func (t tenantStore) Latest() Snapshot {
 	return t.store.latestTenant(t.tenant)
 }
 
-// Neighbors implements TenantStore.
+// neighbors implements TenantStore.
 func (t tenantStore) Neighbors(nodeID string, at time.Time) []string {
 	return t.store.neighborsTenant(t.tenant, nodeID, at)
 }
 
-// Traverse implements TenantStore.
+// traverse implements TenantStore.
 func (t tenantStore) Traverse(from, to string, at time.Time) []string {
 	return t.store.traverseTenant(t.tenant, from, to, at)
 }
@@ -231,29 +231,13 @@ func (s *MemoryStore) ObserveRouting(tenant string, in RoutingInput, at time.Tim
 	s.observeRoutingTenant(tenant, in, at)
 }
 
-// ObserveDevice is a concrete compatibility helper. Tenant-owned production
+// observeDevice is a concrete compatibility helper. Tenant-owned production
 // callers should bind ForTenant first.
-func (s *MemoryStore) ObserveDevice(tenant string, in DeviceInput, at time.Time) {
+func (s *MemoryStore) observeDevice(tenant string, in DeviceInput, at time.Time) {
 	if _, err := normalizeTenant(tenant); err != nil {
 		return
 	}
 	s.observeDeviceTenant(tenant, in, at)
-}
-
-// ObservePhysicalAdjacency is a concrete compatibility helper.
-func (s *MemoryStore) ObservePhysicalAdjacency(tenant string, in PhysicalAdjacencyInput, at time.Time) {
-	if _, err := normalizeTenant(tenant); err != nil {
-		return
-	}
-	s.observePhysicalAdjacencyTenant(tenant, in, at)
-}
-
-// ReplacePhysicalAdjacencies is a concrete compatibility helper.
-func (s *MemoryStore) ReplacePhysicalAdjacencies(tenant string, in PhysicalAdjacencySnapshot, at time.Time) {
-	if _, err := normalizeTenant(tenant); err != nil {
-		return
-	}
-	s.replacePhysicalAdjacenciesTenant(tenant, in, at)
 }
 
 // SnapshotAt is a concrete compatibility helper. Tenant-owned production
@@ -274,18 +258,18 @@ func (s *MemoryStore) Latest(tenant string) Snapshot {
 	return s.latestTenant(tenant)
 }
 
-// Neighbors is a concrete compatibility helper. Tenant-owned production
+// neighbors is a concrete compatibility helper. Tenant-owned production
 // callers should bind ForTenant first.
-func (s *MemoryStore) Neighbors(tenant, nodeID string, at time.Time) []string {
+func (s *MemoryStore) neighbors(tenant, nodeID string, at time.Time) []string {
 	if _, err := normalizeTenant(tenant); err != nil {
 		return nil
 	}
 	return s.neighborsTenant(tenant, nodeID, at)
 }
 
-// Traverse is a concrete compatibility helper. Tenant-owned production callers
+// traverse is a concrete compatibility helper. Tenant-owned production callers
 // should bind ForTenant first.
-func (s *MemoryStore) Traverse(tenant, from, to string, at time.Time) []string {
+func (s *MemoryStore) traverse(tenant, from, to string, at time.Time) []string {
 	if _, err := normalizeTenant(tenant); err != nil {
 		return nil
 	}

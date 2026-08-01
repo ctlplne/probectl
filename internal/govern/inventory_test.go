@@ -12,7 +12,7 @@ import (
 )
 
 func TestDataInventoryPrivacyGate(t *testing.T) {
-	if errs := ValidateDataInventory(DataInventory()); len(errs) > 0 {
+	if errs := validateDataInventory(dataInventoryEntries()); len(errs) > 0 {
 		var b strings.Builder
 		for _, err := range errs {
 			b.WriteString("\n  - " + err.Error())
@@ -38,7 +38,7 @@ func TestDataInventoryCoversCoreStoreFamilies(t *testing.T) {
 		"siem-cursors",
 	}
 	got := map[string]DataInventoryEntry{}
-	for _, entry := range DataInventory() {
+	for _, entry := range dataInventoryEntries() {
 		got[entry.ID] = entry
 	}
 	for _, id := range required {
@@ -53,7 +53,7 @@ func TestDataInventoryCoversCoreStoreFamilies(t *testing.T) {
 }
 
 func TestDataInventoryReturnsDefensiveCopy(t *testing.T) {
-	first := DataInventory()
+	first := dataInventoryEntries()
 	if len(first) == 0 {
 		t.Fatal("inventory unexpectedly empty")
 	}
@@ -62,7 +62,7 @@ func TestDataInventoryReturnsDefensiveCopy(t *testing.T) {
 	first[0].Categories[0] = CatCredential
 	first[0].Processors[0] = "mutated"
 
-	again := DataInventory()
+	again := dataInventoryEntries()
 	if again[0].ID == "mutated" || again[0].Processors[0] == "mutated" {
 		t.Fatal("DataInventory must return a defensive copy")
 	}

@@ -108,11 +108,11 @@ func TestCollectorEndToEnd(t *testing.T) {
 	}
 	defer c.Close()
 
-	nfAddr, sfAddr := c.LocalAddr("netflow"), c.LocalAddr("sflow")
+	nfAddr, sfAddr := c.localAddr("netflow"), c.localAddr("sflow")
 	if nfAddr == "" || sfAddr == "" {
 		t.Fatalf("listeners not bound: nf=%q sf=%q", nfAddr, sfAddr)
 	}
-	if c.LocalAddr("ipfix") != "" {
+	if c.localAddr("ipfix") != "" {
 		t.Fatal("ipfix listener bound although disabled")
 	}
 
@@ -199,7 +199,7 @@ func TestCollectorAllowsListedSource(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	defer c.Close()
-	sendUDP(t, c.LocalAddr("netflow"), []byte{0x01})
+	sendUDP(t, c.localAddr("netflow"), []byte{0x01})
 	deadline := time.Now().Add(time.Second)
 	for len(em.snapshot()) == 0 {
 		if time.Now().After(deadline) {
@@ -210,7 +210,7 @@ func TestCollectorAllowsListedSource(t *testing.T) {
 	if got := c.StatsSnapshot().SourceDrops; got != 0 {
 		t.Fatalf("listed source was dropped: %+v", c.StatsSnapshot())
 	}
-	quality := c.QualitySnapshot(time.Now().UTC())
+	quality := c.qualitySnapshot(time.Now().UTC())
 	if len(quality) != 1 || quality[0].ExporterAddress != "127.0.0.1" {
 		t.Fatalf("listed source quality receipt = %+v", quality)
 	}
@@ -237,7 +237,7 @@ func TestCollectorRejectsUnlistedSource(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	defer c.Close()
-	sendUDP(t, c.LocalAddr("netflow"), []byte{0x01})
+	sendUDP(t, c.localAddr("netflow"), []byte{0x01})
 	deadline := time.Now().Add(time.Second)
 	for c.StatsSnapshot().SourceDrops == 0 {
 		if time.Now().After(deadline) {
@@ -248,7 +248,7 @@ func TestCollectorRejectsUnlistedSource(t *testing.T) {
 	if got := em.snapshot(); len(got) != 0 {
 		t.Fatalf("unlisted source emitted records: %+v", got)
 	}
-	if got := c.QualitySnapshot(time.Now().UTC()); len(got) != 0 {
+	if got := c.qualitySnapshot(time.Now().UTC()); len(got) != 0 {
 		t.Fatalf("unlisted source was retained in quality receipts: %+v", got)
 	}
 }

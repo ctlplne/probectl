@@ -122,7 +122,7 @@ func TestAgentWithoutConsentHasNoL7Capture(t *testing.T) {
 // raw body byte persists beyond the boundary.
 func TestRedactPayloadStripsBodiesKeepsMetadata(t *testing.T) {
 	req := []byte("POST /login HTTP/1.1\r\nHost: app.example\r\nContent-Length: 27\r\n\r\npassword=hunter2&user=admin")
-	red := RedactPayload(append([]byte(nil), req...), RedactHeaders)
+	red := redactPayload(append([]byte(nil), req...), RedactHeaders)
 
 	if len(red) != len(req) {
 		t.Fatalf("length must be preserved for framing: %d != %d", len(red), len(req))
@@ -152,7 +152,7 @@ func TestRedactPayloadStripsBodiesKeepsMetadata(t *testing.T) {
 // Non-HTTP chunks keep only the protocol-detection window.
 func TestRedactPayloadNonHTTPKeepsOnlyPrefix(t *testing.T) {
 	chunk := bytes.Repeat([]byte{0xAB}, 512)
-	red := RedactPayload(append([]byte(nil), chunk...), RedactHeaders)
+	red := redactPayload(append([]byte(nil), chunk...), RedactHeaders)
 	if len(red) != 512 {
 		t.Fatal("length preserved")
 	}
@@ -169,7 +169,7 @@ func TestRedactPayloadNonHTTPKeepsOnlyPrefix(t *testing.T) {
 
 	// Short chunks fit inside the window and pass through.
 	short := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-	if got := RedactPayload(append([]byte(nil), short...), RedactHeaders); !bytes.Equal(got, short) {
+	if got := redactPayload(append([]byte(nil), short...), RedactHeaders); !bytes.Equal(got, short) {
 		t.Fatal("short chunk must be untouched")
 	}
 }
@@ -177,7 +177,7 @@ func TestRedactPayloadNonHTTPKeepsOnlyPrefix(t *testing.T) {
 // Full mode (consented debugging) leaves the payload intact.
 func TestRedactPayloadFullMode(t *testing.T) {
 	req := []byte("GET / HTTP/1.1\r\n\r\nsecret-body")
-	if got := RedactPayload(append([]byte(nil), req...), RedactFull); !bytes.Equal(got, req) {
+	if got := redactPayload(append([]byte(nil), req...), RedactFull); !bytes.Equal(got, req) {
 		t.Fatal("full mode must not modify the payload")
 	}
 }
@@ -196,7 +196,7 @@ func TestRedactPayloadZeroesSensitiveHeaderValues(t *testing.T) {
 		"Cookie: session=deadbeefcafe; csrf=zzz\r\n" +
 		"Proxy-Authorization: Basic dXNlcjpwYXNz\r\n" +
 		"Accept: application/json\r\n\r\n")
-	red := RedactPayload(append([]byte(nil), req...), RedactHeaders)
+	red := redactPayload(append([]byte(nil), req...), RedactHeaders)
 
 	if len(red) != len(req) {
 		t.Fatalf("length must be preserved for framing: %d != %d", len(red), len(req))
@@ -259,7 +259,7 @@ func TestRedactPayloadZeroesNonStandardSecretHeaders(t *testing.T) {
 		"X-Client-Secret: client-secret-value\r\n" +
 		"X-Custom-Token: custom-token-value\r\n" +
 		"Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00\r\n\r\n")
-	red := RedactPayload(append([]byte(nil), req...), RedactHeaders)
+	red := redactPayload(append([]byte(nil), req...), RedactHeaders)
 
 	for _, secret := range [][]byte{
 		[]byte("api-key-secret"),
@@ -371,7 +371,7 @@ func TestRedactSensitiveHeaderResponseSetCookie(t *testing.T) {
 	resp := []byte("HTTP/1.1 200 OK\r\n" +
 		"Set-Cookie: session=topsecretvalue; HttpOnly\r\n" +
 		"Content-Type: text/html\r\n\r\n")
-	red := RedactPayload(append([]byte(nil), resp...), RedactHeaders)
+	red := redactPayload(append([]byte(nil), resp...), RedactHeaders)
 	if bytes.Contains(red, []byte("topsecretvalue")) {
 		t.Fatalf("Set-Cookie value leaked: %q", red)
 	}

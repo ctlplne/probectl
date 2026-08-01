@@ -229,8 +229,8 @@ func TestDeviceIngestCrossTenantInjection(t *testing.T) {
 	if err := c.handleLane(ctx, mk(b, ag), ""); err != nil {
 		t.Fatalf("device handler must drop, not error: %v", err)
 	}
-	if c.RejectedBatches() != 1 || w.count() != 0 {
-		t.Fatalf("device injection not contained: rejected=%d written=%d", c.RejectedBatches(), w.count())
+	if c.rejectedBatches() != 1 || w.count() != 0 {
+		t.Fatalf("device injection not contained: rejected=%d written=%d", c.rejectedBatches(), w.count())
 	}
 	// Legit pair is written.
 	if err := c.handleLane(ctx, mk(a, ag), ""); err != nil {

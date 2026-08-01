@@ -54,7 +54,7 @@ func TestPrivacyDefaultScoping(t *testing.T) {
 
 func TestStrictPrivacyDropsAllIdentifiers(t *testing.T) {
 	s := fullSample()
-	StrictPrivacy().Apply(&s)
+	strictPrivacy().Apply(&s)
 	if s.WiFi.SSID != "" || s.WiFi.BSSID != "" || s.Gateway.IP != "" {
 		t.Errorf("strict privacy must drop every identifier, got ssid=%q bssid=%q gw=%q", s.WiFi.SSID, s.WiFi.BSSID, s.Gateway.IP)
 	}

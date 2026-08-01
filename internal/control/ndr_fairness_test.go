@@ -34,7 +34,7 @@ func TestNDRConsumerFairnessBounded(t *testing.T) {
 	gate := fairness.NewGate(fairness.Policy{FlowEventsPerSec: 5, BurstSeconds: 1}, nil)
 	cs := NewNDRConsumer(nil, ndrEngine(t, intel), correlator, intelTestLog()).
 		WithFairness(gate).
-		WithDetections(detections)
+		withDetections(detections)
 
 	flood := func(tenant string, n int) {
 		flows := make([]*flowv1.FlowRecord, 0, n)
@@ -62,7 +62,7 @@ func TestNDRConsumerFairnessBounded(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		flood("noisy", 50)
 	}
-	if cs.Shed() == 0 {
+	if cs.shedCount() == 0 {
 		t.Fatalf("NDR consumer shed 0 records for a tenant flooding 200 flows at a 5/s bound (SCALE-005 gate not wired)")
 	}
 

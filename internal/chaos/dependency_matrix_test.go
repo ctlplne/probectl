@@ -26,7 +26,7 @@ func TestDependencyChaosMatrixCoversRequiredFaults(t *testing.T) {
 	}
 
 	seen := map[string]DependencyScenario{}
-	for _, scenario := range DependencyChaosMatrix() {
+	for _, scenario := range dependencyChaosScenarios() {
 		if scenario.ID == "" {
 			t.Fatal("scenario with empty ID")
 		}
@@ -70,7 +70,7 @@ func TestDependencyChaosMatrixHasRunnableEvidence(t *testing.T) {
 		"./internal/store/tsdb":      true,
 	}
 
-	for _, scenario := range DependencyChaosMatrix() {
+	for _, scenario := range dependencyChaosScenarios() {
 		if scenario.Dependency == "" || scenario.Fault == "" || scenario.BlastRadius == "" {
 			t.Fatalf("scenario %q is missing dependency, fault, or blast radius: %+v", scenario.ID, scenario)
 		}
@@ -98,14 +98,14 @@ func TestDependencyChaosMatrixHasRunnableEvidence(t *testing.T) {
 }
 
 func TestDependencyChaosMatrixReturnsCopy(t *testing.T) {
-	got := DependencyChaosMatrix()
+	got := dependencyChaosScenarios()
 	if len(got) == 0 {
 		t.Fatal("empty dependency-chaos matrix")
 	}
 	got[0].ExpectedSignals[0] = "mutated"
 	got[0].Evidence[0].Package = "./mutated"
 
-	again := DependencyChaosMatrix()
+	again := dependencyChaosScenarios()
 	if slices.Contains(again[0].ExpectedSignals, "mutated") {
 		t.Fatal("ExpectedSignals slice was not copied")
 	}

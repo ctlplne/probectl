@@ -51,7 +51,7 @@ func TestHTTPExporterErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := exp.ExportMetrics(context.Background(), MetricsRequest()); err == nil {
+	if err := exp.ExportMetrics(context.Background(), metricsRequest()); err == nil {
 		t.Error("a non-200 response should surface as an error")
 	}
 }
@@ -76,7 +76,7 @@ func TestRoundTripHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &resultv1.Result{TenantId: "tenant-a", AgentId: "a1", CanaryType: "icmp", Success: true, DurationNano: 1234, Metrics: map[string]float64{"rtt.avg.ms": 9}}
-	if err := exp.ExportMetrics(context.Background(), MetricsRequest(ResultResourceMetrics(r))); err != nil {
+	if err := exp.ExportMetrics(context.Background(), metricsRequest(resultResourceMetrics(r))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -114,7 +114,7 @@ func TestRoundTripGRPC(t *testing.T) {
 	}
 	defer exp.Close()
 
-	if err := exp.ExportMetrics(context.Background(), MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"}))); err != nil {
+	if err := exp.ExportMetrics(context.Background(), metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"}))); err != nil {
 		t.Fatal(err)
 	}
 	select {

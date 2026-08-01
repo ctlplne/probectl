@@ -63,7 +63,7 @@ func TestCLIOpenAPIParity(t *testing.T) {
 
 func TestCLIHelpListsExpandedSurfaceGroups(t *testing.T) {
 	var out, errs bytes.Buffer
-	code := Run([]string{"help"}, func(string) string { return "" }, &out, &errs)
+	code := runCLI([]string{"help"}, func(string) string { return "" }, &out, &errs)
 	if code != 0 {
 		t.Fatalf("help exit = %d, stderr=%s", code, errs.String())
 	}
@@ -110,7 +110,7 @@ func TestCLIHelpInventoryMatchesSurfaceCommands(t *testing.T) {
 				}
 				return ""
 			}
-			code := Run([]string{"help"}, env, &out, &errs)
+			code := runCLI([]string{"help"}, env, &out, &errs)
 			if code != 0 {
 				t.Fatalf("help exit = %d, stderr=%s", code, errs.String())
 			}

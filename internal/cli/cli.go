@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package cli implements the probectl command-line interface for the
-// control-plane /v1 API. Run is the testable entry point; cmd/probectl is a thin
+// control-plane /v1 API. run is the testable entry point; cmd/probectl is a thin
 // wrapper around it.
 package cli
 
@@ -37,15 +37,15 @@ type Config struct {
 	SessionCookie     string
 }
 
-// Run executes one CLI invocation and returns a process exit code. It is pure
+// run executes one CLI invocation and returns a process exit code. It is pure
 // with respect to its arguments, environment accessor, and writers, so it is
 // straightforward to test.
-func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+func runCLI(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	return RunWithStdin(args, getenv, bytes.NewReader(nil), stdout, stderr)
 }
 
-// RunWithStdin is Run with an explicit input stream. Dashboard manifest import
-// uses it for Unix-friendly pipelines while Run remains source-compatible for
+// RunWithStdin is run with an explicit input stream. Dashboard manifest import
+// uses it for Unix-friendly pipelines while run remains source-compatible for
 // embedders and existing tests.
 func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cfg := Config{

@@ -82,8 +82,8 @@ type RouteDecl struct {
 	Pattern string
 }
 
-// Routes is the provider plane's route table.
-func Routes() []RouteDecl {
+// routes is the provider plane's route table.
+func routes() []RouteDecl {
 	base := []RouteDecl{
 		{http.MethodPost, "/provider/v1/auth/bootstrap"},
 		{http.MethodPost, "/provider/v1/auth/enroll/start"},

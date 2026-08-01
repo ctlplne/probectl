@@ -132,8 +132,8 @@ func (c *CrtSh) WithMetrics(reg *metrics.Registry) *CrtSh {
 	return c
 }
 
-// Stats returns a snapshot of CT checker health for tests and diagnostics.
-func (c *CrtSh) Stats() CrtShStats {
+// stats returns a snapshot of CT checker health for tests and diagnostics.
+func (c *CrtSh) statsSnapshot() CrtShStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.stats

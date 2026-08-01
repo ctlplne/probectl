@@ -252,8 +252,8 @@ func latestAgentObservation(st *agentState) time.Time {
 	return latest
 }
 
-// Len reports one tenant's endpoint count.
-func (s *SnapshotStore) Len(tenant string) int {
+// xLen reports one tenant's endpoint count.
+func (s *SnapshotStore) xLen(tenant string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.tenants[tenant])

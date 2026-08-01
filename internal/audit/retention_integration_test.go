@@ -218,7 +218,7 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 		assertTenantSeqAbsent(t, pool, tn.ID, 2)
 		assertTenantSeqPresent(t, pool, tn.ID, 3)
 		assertTenantSeqPresent(t, pool, tn.ID, 4)
-		if err := TenantVerifyFrom(ctx, s, 3); err != nil {
+		if err := tenantVerifyFrom(ctx, s, 3); err != nil {
 			return fmt.Errorf("kept tenant suffix must verify: %w", err)
 		}
 		events, err := List(ctx, s, 0, 100)

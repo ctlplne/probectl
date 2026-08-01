@@ -99,8 +99,8 @@ var tierFeatures = map[Tier][]Feature{
 	},
 }
 
-// TierFeatures returns a tier's feature set (copy).
-func TierFeatures(t Tier) []Feature {
+// tierFeatures returns a tier's feature set (copy).
+func featuresForTier(t Tier) []Feature {
 	return append([]Feature(nil), tierFeatures[t]...)
 }
 

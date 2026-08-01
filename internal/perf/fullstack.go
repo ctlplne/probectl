@@ -81,8 +81,8 @@ type FullStackReport struct {
 	SeriesCapped uint64
 }
 
-// Diagnostics renders the pipeline counters for the CI log.
-func (r FullStackReport) Diagnostics() string {
+// diagnostics renders the pipeline counters for the CI log.
+func (r FullStackReport) diagnostics() string {
 	return fmt.Sprintf(
 		"pipeline: published=%d produced=%d produce_fail=%d produce_shed=%d → received=%d stored=%d confirmed=%d/%d series; consumer retried=%d dead_lettered=%d dropped=%d write_queue_saturated=%d series_capped=%d",
 		r.Published, r.Produced, r.ProduceFail, r.ProduceShed, r.Received, r.Stored, r.Confirmed, r.UniqueSeries,
@@ -129,7 +129,7 @@ const (
 // DriveFullStack drives one tier profile through bus → consumer → writer and
 // confirms it back OUT of the store via count: settle on this run's unique
 // series, then per-tenant correctness + query latency. The bus/writer/count
-// seams keep the driver unit-testable; RunFullStackGate wires the real stack.
+// seams keep the driver unit-testable; runFullStackGate wires the real stack.
 func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCounter, profile Profile, atCIScale bool, ns string) (FullStackReport, error) {
 	cfg := profile.Ingest
 	cfg.Namespace = ns
@@ -336,10 +336,10 @@ func publishFullStackReadiness(ctx context.Context, b bus.Bus, tenant string) er
 	return flushFullStackBus(ctx, b, "readiness")
 }
 
-// RunFullStackGate wires the REAL stack — Kafka producer/consumer and the
+// runFullStackGate wires the REAL stack — Kafka producer/consumer and the
 // Prometheus remote-write writer + instant-query counter — and drives one
 // tier at the given scale (scale 1 = the reference-hardware run).
-func RunFullStackGate(ctx context.Context, tier Tier, scale float64, targets FullStackTargets) (FullStackReport, error) {
+func runFullStackGate(ctx context.Context, tier Tier, scale float64, targets FullStackTargets) (FullStackReport, error) {
 	profile, err := ProfileFor(tier, scale)
 	if err != nil {
 		return FullStackReport{}, err

@@ -233,11 +233,11 @@ func (r *ScaleReport) evaluate() {
 // false-positiving on a gate that sheds even modestly.
 const maxNoisyAdmitFrac = 0.95
 
-// RunScaleGate drives one tier end to end on the lightweight in-process
+// runScaleGate drives one tier end to end on the lightweight in-process
 // stack: the ingest profile, then the noisy-neighbor scenario (multi-tenant
 // tiers only). The same gate runs at CI scale (proving the gate) and full
 // scale (proving the platform on reference hardware).
-func RunScaleGate(ctx context.Context, tier Tier, scale float64) (ScaleReport, error) {
+func runScaleGate(ctx context.Context, tier Tier, scale float64) (ScaleReport, error) {
 	profile, err := ProfileFor(tier, scale)
 	if err != nil {
 		return ScaleReport{}, err

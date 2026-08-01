@@ -33,7 +33,7 @@ type PooledOps struct {
 	CountRows func(ctx context.Context, tenant tenancy.ID) (int, error)
 }
 
-// PooledReport is the outcome of a DrivePooled run.
+// PooledReport is the outcome of a drivePooled run.
 type PooledReport struct {
 	Tenants           int
 	ExpectedPerTenant int
@@ -53,11 +53,11 @@ func (r PooledReport) String() string {
 		r.IsolationOK, r.Mismatches, r.Latency)
 }
 
-// DrivePooled runs tenant-scoped queries concurrently across many tenants sharing
+// drivePooled runs tenant-scoped queries concurrently across many tenants sharing
 // the pooled stores, measuring query latency under mixed-tenant load and
 // asserting isolation: every query must see exactly expectedPerTenant rows (a
 // cross-tenant leak would inflate the count; a scoping bug would deflate it).
-func DrivePooled(ctx context.Context, tenants []tenancy.ID, expectedPerTenant int, ops PooledOps, cfg PooledConfig) (PooledReport, error) {
+func drivePooled(ctx context.Context, tenants []tenancy.ID, expectedPerTenant int, ops PooledOps, cfg PooledConfig) (PooledReport, error) {
 	if ops.CountRows == nil {
 		return PooledReport{}, fmt.Errorf("perf: PooledOps.CountRows is required")
 	}

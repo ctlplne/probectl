@@ -101,8 +101,8 @@ func TestBreakerOpensAndShortCircuits(t *testing.T) {
 	if got := remote.calls.Load(); got != breakerThreshold {
 		t.Fatalf("provider must stop being called once the breaker opens: %d calls, want %d", got, breakerThreshold)
 	}
-	if m.Degradations() != breakerThreshold+3 {
-		t.Fatalf("every answer in the window must be a marked degradation: %d", m.Degradations())
+	if m.degradations() != breakerThreshold+3 {
+		t.Fatalf("every answer in the window must be a marked degradation: %d", m.degradations())
 	}
 
 	// The banner names the circuit when it's the breaker short-circuiting.
@@ -151,8 +151,8 @@ func TestCacheHitsAcrossSessionsWithCitationRemap(t *testing.T) {
 	if remote.calls.Load() != 1 {
 		t.Fatalf("second call must be served from cache: %d provider calls", remote.calls.Load())
 	}
-	if m.CacheHits() != 1 {
-		t.Fatalf("cache hit not counted: %d", m.CacheHits())
+	if m.cacheHitCount() != 1 {
+		t.Fatalf("cache hit not counted: %d", m.cacheHitCount())
 	}
 	if syn2.Findings[0].Citations[0].EvidenceID != "ff09-E1" {
 		t.Fatalf("cached citations must remap to the NEW session id: %+v", syn2.Findings[0].Citations)
@@ -206,8 +206,8 @@ func TestSynthCacheIsTenantScoped(t *testing.T) {
 	if remote.calls.Load() != 2 {
 		t.Fatalf("tenant B identical input must MISS the cache (no cross-tenant bleed): got %d provider calls, want 2", remote.calls.Load())
 	}
-	if m.CacheHits() != 0 {
-		t.Fatalf("no cross-tenant cache hit may be counted: %d", m.CacheHits())
+	if m.cacheHitCount() != 0 {
+		t.Fatalf("no cross-tenant cache hit may be counted: %d", m.cacheHitCount())
 	}
 
 	// Tenant A repeating its OWN question hits its OWN entry.
@@ -217,8 +217,8 @@ func TestSynthCacheIsTenantScoped(t *testing.T) {
 	if remote.calls.Load() != 2 {
 		t.Fatalf("tenant A repeat must hit its own cache entry: %d provider calls", remote.calls.Load())
 	}
-	if m.CacheHits() != 1 {
-		t.Fatalf("tenant A same-tenant repeat must count one cache hit: %d", m.CacheHits())
+	if m.cacheHitCount() != 1 {
+		t.Fatalf("tenant A same-tenant repeat must count one cache hit: %d", m.cacheHitCount())
 	}
 
 	// The two tenants' keys must differ at the key level too.
@@ -281,8 +281,8 @@ func TestCacheIsBoundedAndEvictsOldest(t *testing.T) {
 	if got := remote.calls.Load(); got != int64(cacheMaxEntries+2) {
 		t.Fatalf("newer cache entry should still hit; provider calls = %d", got)
 	}
-	if m.CacheHits() != 1 {
-		t.Fatalf("newer entry cache hit not counted: %d", m.CacheHits())
+	if m.cacheHitCount() != 1 {
+		t.Fatalf("newer entry cache hit not counted: %d", m.cacheHitCount())
 	}
 }
 
@@ -299,7 +299,7 @@ func TestAnalyzeDegradedAnswerIsGroundedAndFlagged(t *testing.T) {
 	// The wrapper forwards RemoteEgress, so the U-013 consent gate still
 	// runs FIRST — this tenant has consented; the provider then fails.
 	a := NewAnalyzer(engineWith(fs), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+		withEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
 		WithEgressAudit(func(context.Context, EgressEvent) error { return nil }))
 
 	ans, err := a.Analyze(context.Background(), principal("t", PermEntitiesRead), Question{Text: "why is core-rtr-1 slow?"})

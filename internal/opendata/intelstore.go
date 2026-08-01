@@ -125,8 +125,8 @@ func (s *IOCStore) ScoreDomain(domain string) []IOCMatch {
 	return nil
 }
 
-// ScoreURL returns a match for an exact URL.
-func (s *IOCStore) ScoreURL(url string) []IOCMatch {
+// scoreURL returns a match for an exact URL.
+func (s *IOCStore) scoreURL(url string) []IOCMatch {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if m, ok := s.urls[strings.TrimSpace(url)]; ok {
@@ -165,9 +165,9 @@ func (s *IOCStore) Count() int {
 	return n
 }
 
-// Sources returns the per-source indicator counts, sorted by name (the operator
+// sources returns the per-source indicator counts, sorted by name (the operator
 // status / AUP matrix).
-func (s *IOCStore) Sources() []SourceCount {
+func (s *IOCStore) sourceCounts() []SourceCount {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]SourceCount, 0, len(s.sources))

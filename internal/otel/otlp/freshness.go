@@ -197,8 +197,8 @@ func (v *FreshnessVerifier) remember(tenant, nonce string, now time.Time) error 
 	return nil
 }
 
-// FreshnessHTTPHeaders signs test/client OTLP/HTTP freshness headers.
-func FreshnessHTTPHeaders(key []byte, sentAt time.Time, nonce, method, path string, body []byte) http.Header {
+// freshnessHTTPHeaders signs test/client OTLP/HTTP freshness headers.
+func freshnessHTTPHeaders(key []byte, sentAt time.Time, nonce, method, path string, body []byte) http.Header {
 	h := http.Header{}
 	canonical := canonicalFreshnessData("http", method+" "+path, sentAt, nonce, body)
 	h.Set(FreshnessSentAtHeader, sentAt.UTC().Format(time.RFC3339Nano))
@@ -207,8 +207,8 @@ func FreshnessHTTPHeaders(key []byte, sentAt time.Time, nonce, method, path stri
 	return h
 }
 
-// FreshnessGRPCMetadata signs test/client OTLP/gRPC freshness metadata.
-func FreshnessGRPCMetadata(key []byte, sentAt time.Time, nonce, method string, msg proto.Message) (metadata.MD, error) {
+// freshnessGRPCMetadata signs test/client OTLP/gRPC freshness metadata.
+func freshnessGRPCMetadata(key []byte, sentAt time.Time, nonce, method string, msg proto.Message) (metadata.MD, error) {
 	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
 	if err != nil {
 		return nil, err

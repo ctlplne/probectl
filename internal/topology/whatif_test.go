@@ -40,7 +40,7 @@ func diamondStore() *MemoryStore {
 	s.ObserveServiceEdge("t1", ServiceEdgeInput{Source: "api", Destination: "db-svc", DestPort: 5432, Transport: "tcp"}, watT)
 	s.ObserveServiceEdge("t1", ServiceEdgeInput{Source: "web-svc", Destination: "api", DestPort: 8080, Transport: "tcp"}, watT)
 	s.ObserveRouting("t1", RoutingInput{Prefix: "198.51.100.0/24", OriginASN: 64500}, watT)
-	s.ObserveDevice("t1", DeviceInput{Address: "192.0.2.250", Name: "core-sw", InterfaceIPs: []string{"10.0.0.1"}}, watT)
+	s.observeDevice("t1", DeviceInput{Address: "192.0.2.250", Name: "core-sw", InterfaceIPs: []string{"10.0.0.1"}}, watT)
 	return s
 }
 

@@ -158,10 +158,10 @@ func (r *TrapReceiver) Listen(ctx context.Context, addr string) error {
 	return tl.Listen(addr)
 }
 
-// DecodeAndRecord decodes a raw SNMP trap datagram, authenticates it against the
+// decodeAndRecord decodes a raw SNMP trap datagram, authenticates it against the
 // configured sources, and records exactly one event+alert row unless it is a
 // duplicate replay.
-func (r *TrapReceiver) DecodeAndRecord(ctx context.Context, data []byte, remote *net.UDPAddr) (TrapEvent, TrapAlert, bool, error) {
+func (r *TrapReceiver) decodeAndRecord(ctx context.Context, data []byte, remote *net.UDPAddr) (TrapEvent, TrapAlert, bool, error) {
 	if len(data) == 0 {
 		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("%w: empty datagram", ErrTrapParse)
 	}
@@ -191,8 +191,8 @@ func (r *TrapReceiver) RecordPacket(ctx context.Context, pkt *gosnmp.SnmpPacket,
 	return storedEvent, storedAlert, inserted, nil
 }
 
-// HealthSnapshot exposes monotonic live-listener counters without record data.
-func (r *TrapReceiver) HealthSnapshot() ingesthealth.Snapshot {
+// healthSnapshot exposes monotonic live-listener counters without record data.
+func (r *TrapReceiver) healthSnapshot() ingesthealth.Snapshot {
 	return r.health.Snapshot()
 }
 
@@ -575,8 +575,8 @@ func (s *MemoryTrapStore) RecordTrap(_ context.Context, event TrapEvent, alert T
 	return event, alert, true, nil
 }
 
-// ListTrapEvents returns a copy of one tenant's trap event partition.
-func (s *MemoryTrapStore) ListTrapEvents(tenantID string) []TrapEvent {
+// listTrapEvents returns a copy of one tenant's trap event partition.
+func (s *MemoryTrapStore) listTrapEvents(tenantID string) []TrapEvent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := append([]TrapEvent(nil), s.events[tenantID]...)
@@ -587,8 +587,8 @@ func (s *MemoryTrapStore) ListTrapEvents(tenantID string) []TrapEvent {
 	return out
 }
 
-// ListTrapAlerts returns a copy of one tenant's trap alert partition.
-func (s *MemoryTrapStore) ListTrapAlerts(tenantID string) []TrapAlert {
+// listTrapAlerts returns a copy of one tenant's trap alert partition.
+func (s *MemoryTrapStore) listTrapAlerts(tenantID string) []TrapAlert {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := append([]TrapAlert(nil), s.alerts[tenantID]...)

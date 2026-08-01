@@ -551,13 +551,13 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	return nil
 }
 
-// EnsureRowPolicies installs DB-LEVEL tenancy on the shared tables (U-026):
+// ensureRowPolicies installs DB-LEVEL tenancy on the shared tables (U-026):
 // per-tenant ClickHouse users (named exactly the tenant id, per the operator
 // convention in docs/isolation.md) are row-filtered to tenant_id =
 // currentUser(), while serviceUser (probectl's own account) keeps full
 // access via a permissive policy. Direct CH access with a tenant credential
 // can then never cross tenants, independent of this codebase.
-func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
+func (c *ClickHouse) ensureRowPolicies(ctx context.Context, serviceUser string) error {
 	if serviceUser == "" {
 		serviceUser = "default"
 	}
@@ -803,9 +803,9 @@ type HourlyRollup struct {
 	Flows     uint64    `json:"flows"`
 }
 
-// BackfillRollups rebuilds one tenant's hourly flow summaries for [from, to).
+// backfillRollups rebuilds one tenant's hourly flow summaries for [from, to).
 // It deletes the tenant+window rollups first so manual catch-up is idempotent.
-func (c *ClickHouse) BackfillRollups(ctx context.Context, tenantID string, from, to time.Time) error {
+func (c *ClickHouse) backfillRollups(ctx context.Context, tenantID string, from, to time.Time) error {
 	if tenantID == "" {
 		return ErrNoTenant
 	}
@@ -868,8 +868,8 @@ WHERE (tenant_id, row_id) IN (
 ) SETTINGS mutations_sync=2`
 }
 
-// HourlyRollups reads tenant-scoped long-retention flow summaries.
-func (c *ClickHouse) HourlyRollups(ctx context.Context, tenantID string, from, to time.Time) ([]HourlyRollup, error) {
+// hourlyRollups reads tenant-scoped long-retention flow summaries.
+func (c *ClickHouse) hourlyRollups(ctx context.Context, tenantID string, from, to time.Time) ([]HourlyRollup, error) {
 	if tenantID == "" {
 		return nil, ErrNoTenant
 	}

@@ -56,10 +56,10 @@ const (
 
 var errSCIMInvalidUserPatch = errors.New("control: invalid SCIM user patch")
 
-// WithSCIMControls overrides the built-in SCIM directory caps and token-scoped
+// withSCIMControls overrides the built-in SCIM directory caps and token-scoped
 // rate limit. Non-positive caps keep the hardened defaults; a non-positive rate
 // disables the token bucket for test/dev profiles that need it.
-func (s *Server) WithSCIMControls(maxUsers, maxGroups, ratePerMin int) *Server {
+func (s *Server) withSCIMControls(maxUsers, maxGroups, ratePerMin int) *Server {
 	if maxUsers > 0 {
 		s.scimMaxUsers = maxUsers
 	}

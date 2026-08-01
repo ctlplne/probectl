@@ -29,7 +29,7 @@ var errBatchingSaverClosed = errors.New("pathstore: batching saver is closed")
 //
 // Semantics, stated:
 //   - Save returns immediately; persistence lags by ≤ the window. Flush
-//     errors are LOUD (log + Lost counter) — a path snapshot is
+//     errors are LOUD (log + lost counter) — a path snapshot is
 //     re-discoverable, so the trade is bounded loss-on-crash vs per-path
 //     round-trips (the SCALE-009 ask).
 //   - Latest FLUSHES pending saves first — read-your-write holds for the
@@ -205,8 +205,5 @@ func (b *BatchingSaver) Close() error {
 	return err
 }
 
-// Lost reports paths dropped by failed flushes (should be 0).
-func (b *BatchingSaver) Lost() uint64 { return b.lost.Load() }
-
-// Flushes reports flush cycles (each ≤ 2 inserts on the CH backend).
-func (b *BatchingSaver) Flushes() uint64 { return b.flushes.Load() }
+// lost reports paths dropped by failed flushes (should be 0).
+func (b *BatchingSaver) lostCount() uint64 { return b.lost.Load() }

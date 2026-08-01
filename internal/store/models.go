@@ -117,17 +117,6 @@ type TenantIDPInput struct {
 	Flags        map[string]bool
 }
 
-// RoleBinding assigns a role to a subject within a scope (tenant/org/team/project)
-// — the delegated-admin grant.
-type RoleBinding struct {
-	ID          string `json:"id"`
-	SubjectType string `json:"subject_type"`
-	SubjectID   string `json:"subject_id"`
-	RoleID      string `json:"role_id"`
-	ScopeType   string `json:"scope_type"`
-	ScopeID     string `json:"scope_id,omitempty"`
-}
-
 // Role is a tenant-scoped RBAC role (enforcement lands in S18).
 type Role struct {
 	ID          string    `json:"id"`

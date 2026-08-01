@@ -51,11 +51,11 @@ func (s *Server) handleTLSPosture(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
-// WithDetections attaches the in-memory fallback backing GET
+// withDetections attaches the in-memory fallback backing GET
 // /v1/threat/detections (S-FE3) when no Postgres pool is available. Production
 // HA deployments prefer the durable incident_signals reader so every replica
 // answers from the same tenant-scoped store.
-func (s *Server) WithDetections(ds *threat.DetectionStore) *Server {
+func (s *Server) withDetections(ds *threat.DetectionStore) *Server {
 	if ds != nil {
 		s.detections = ds
 	}

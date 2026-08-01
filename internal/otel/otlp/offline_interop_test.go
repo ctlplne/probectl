@@ -52,7 +52,7 @@ func TestOfflineInteropOTelCollectorMetricsTracesLogs(t *testing.T) {
 		return nil
 	}), 1<<20))
 
-	metricReq := MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-a", AgentId: "collector-1", CanaryType: "http"}))
+	metricReq := metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-a", AgentId: "collector-1", CanaryType: "http"}))
 	traceReq := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
 		Resource:   &resourcepb.Resource{Attributes: []*commonpb.KeyValue{}},
 		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{Name: "GET /healthz"}}}},

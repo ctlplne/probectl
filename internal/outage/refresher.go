@@ -11,8 +11,6 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 // FeedHealth is one feed's runtime + provenance view (the API's feed block):
@@ -114,13 +112,4 @@ func (r *Refresher) Run(ctx context.Context) error {
 			r.Refresh(ctx)
 		}
 	}
-}
-
-// Descriptors exposes the configured feeds' provenance (docs/UI use).
-func (r *Refresher) Descriptors() []opendata.Descriptor {
-	out := make([]opendata.Descriptor, 0, len(r.feeds))
-	for _, f := range r.feeds {
-		out = append(out, f.Descriptor())
-	}
-	return out
 }

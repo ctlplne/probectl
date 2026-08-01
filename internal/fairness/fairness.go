@@ -360,10 +360,10 @@ func (g *Gate) sweepShardLocked(sh *gateShard, now time.Time) {
 	}
 }
 
-// Evicted reports how many tenants the idle sweep has reclaimed (SCALE-002
+// evicted reports how many tenants the idle sweep has reclaimed (SCALE-002
 // observability — exposed so the unbounded-map fix is provable in production,
 // not just in tests).
-func (g *Gate) Evicted() uint64 { return g.evicted.Load() }
+func (g *Gate) evictedCount() uint64 { return g.evicted.Load() }
 
 // policyFor resolves the tenant's effective policy under the tenant's shard
 // lock (held by the caller). The stored
@@ -565,8 +565,8 @@ func snapshotLocked(tenantID string, st *tenantState, pol Policy) Snapshot {
 	return s
 }
 
-// ParseRate parses an integer-ish env value into a float rate (config glue).
-func ParseRate(v string) float64 {
+// parseRate parses an integer-ish env value into a float rate (config glue).
+func parseRate(v string) float64 {
 	if v == "" {
 		return 0
 	}

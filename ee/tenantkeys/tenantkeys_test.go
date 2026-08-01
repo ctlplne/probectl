@@ -40,7 +40,7 @@ func testMaster(t *testing.T) *crypto.Envelope {
 
 func newRing(t *testing.T, resolve RefResolver) (*Keyring, *MemStore) {
 	t.Helper()
-	store := NewMemStore()
+	store := newMemStore()
 	k, err := NewKeyring(store, testMaster(t), resolve)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestRotationNoDowntime(t *testing.T) {
 		t.Fatalf("v1 format: %s", v1blob)
 	}
 
-	kv, err := k.Rotate(ctx, "tnA", ModeManaged, "")
+	kv, err := k.rotate(ctx, "tnA", ModeManaged, "")
 	if err != nil || kv.Version != 2 {
 		t.Fatalf("rotate: %+v %v", kv, err)
 	}
@@ -160,7 +160,7 @@ func TestRotationNoDowntime(t *testing.T) {
 // insert must leave the previous active key usable, and must not touch another
 // tenant's independent chain.
 func TestKeyRotateAtomicOnInsertFailure(t *testing.T) {
-	store := NewMemStore()
+	store := newMemStore()
 	k, err := NewKeyring(store, testMaster(t), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -176,8 +176,8 @@ func TestKeyRotateAtomicOnInsertFailure(t *testing.T) {
 		t.Fatalf("seed tenant B: %v", err)
 	}
 
-	store.FailNextRotationInsert(errors.New("injected successor insert failure"))
-	if _, err := k.Rotate(ctx, "tnA", ModeManaged, ""); err == nil {
+	store.injectRotationInsertFailure(errors.New("injected successor insert failure"))
+	if _, err := k.rotate(ctx, "tnA", ModeManaged, ""); err == nil {
 		t.Fatal("rotation with an injected successor failure must fail")
 	}
 
@@ -216,7 +216,7 @@ func TestKeyRotateAtomicOnAuditFailure(t *testing.T) {
 		t.Fatalf("seed tenant B: %v", err)
 	}
 
-	store.FailNextRotationAudit(errors.New("injected mandatory audit failure"))
+	store.injectRotationAuditFailure(errors.New("injected mandatory audit failure"))
 	if _, err := NewManager(k).RotateKey(ctx, "tnA", "alice@example.test", ModeManaged, ""); !errors.Is(err, tenantcrypto.ErrKeyRotationUnavailable) {
 		t.Fatalf("rotation whose mandatory audit append fails = %v, want unavailable", err)
 	}
@@ -321,7 +321,7 @@ func TestCryptoOffboard(t *testing.T) {
 	aad := []byte("x")
 
 	blobA, _ := k.Seal(ctx, "tnA", []byte("doomed"), aad)
-	_, _ = k.Rotate(ctx, "tnA", ModeManaged, "")
+	_, _ = k.rotate(ctx, "tnA", ModeManaged, "")
 	blobA2, _ := k.Seal(ctx, "tnA", []byte("doomed-v2"), aad)
 	blobB, _ := k.Seal(ctx, "tnB", []byte("survivor"), aad)
 
@@ -339,7 +339,7 @@ func TestCryptoOffboard(t *testing.T) {
 	if _, err := k.Seal(ctx, "tnA", []byte("new"), aad); !errors.Is(err, ErrKeyDestroyed) {
 		t.Fatalf("post-destroy seal must fail destroyed: %v", err)
 	}
-	if _, err := k.Rotate(ctx, "tnA", ModeManaged, ""); !errors.Is(err, ErrKeyDestroyed) {
+	if _, err := k.rotate(ctx, "tnA", ModeManaged, ""); !errors.Is(err, ErrKeyDestroyed) {
 		t.Fatalf("post-destroy rotation must fail destroyed: %v", err)
 	}
 	// Key material is wiped from the store.
@@ -376,11 +376,11 @@ func TestBYOKFailSafe(t *testing.T) {
 	aad := []byte("x")
 
 	// A dead reference cannot become the active key.
-	if _, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/wrong#ref"); err == nil {
+	if _, err := k.rotate(ctx, "tnA", ModeBYOK, "vault:kv/wrong#ref"); err == nil {
 		t.Fatal("a dead byok reference must be rejected before activation")
 	}
 	// A live one rotates in.
-	kv, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/tenants/acme#kek")
+	kv, err := k.rotate(ctx, "tnA", ModeBYOK, "vault:kv/tenants/acme#kek")
 	if err != nil || kv.Mode != ModeBYOK {
 		t.Fatalf("byok rotate: %+v %v", kv, err)
 	}
@@ -421,7 +421,7 @@ func TestBYOKRevocationInstantTTLZero(t *testing.T) {
 	k, _ := newRing(t, resolve)
 	// Pin the clock so the test cannot accidentally rely on wall-clock TTL expiry.
 	now := time.Unix(1_000, 0)
-	k.WithClock(func() time.Time { return now })
+	k.withClock(func() time.Time { return now })
 	// Default byokTTL is 0; assert it (the property under test).
 	if k.byokTTL != 0 {
 		t.Fatalf("default byokTTL = %v, want 0 (resolve-on-every-use)", k.byokTTL)
@@ -429,7 +429,7 @@ func TestBYOKRevocationInstantTTLZero(t *testing.T) {
 	ctx := context.Background()
 	aad := []byte("x")
 
-	kv, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek")
+	kv, err := k.rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek")
 	if err != nil || kv.Mode != ModeBYOK {
 		t.Fatalf("byok rotate: %+v %v", kv, err)
 	}
@@ -459,11 +459,11 @@ func TestBYOKPositiveTTLZeroizesExpiredCache(t *testing.T) {
 	}
 	k, _ := newRing(t, resolve)
 	now := time.Unix(30_000, 0)
-	k.WithClock(func() time.Time { return now }).WithBYOKTTL(time.Second)
+	k.withClock(func() time.Time { return now }).withBYOKTTL(time.Second)
 	ctx := context.Background()
 	aad := []byte("x")
 
-	kv, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek")
+	kv, err := k.rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek")
 	if err != nil || kv.Mode != ModeBYOK {
 		t.Fatalf("byok rotate: %+v %v", kv, err)
 	}
@@ -516,7 +516,7 @@ func TestBYOKResolverSlicesZeroizedAfterSealOpen(t *testing.T) {
 	crypto.Default = rec
 	t.Cleanup(func() { crypto.Default = base })
 
-	if _, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek"); err != nil {
+	if _, err := k.rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek"); err != nil {
 		t.Fatalf("byok rotate: %v", err)
 	}
 	blob, err := k.Seal(ctx, "tnA", []byte("secret"), aad)
@@ -553,7 +553,7 @@ func TestBYOKResolverSlicesZeroizedAfterSealOpen(t *testing.T) {
 func TestManagedKEKCacheTTLZeroizesExpiredEntry(t *testing.T) {
 	k, _ := newRing(t, nil)
 	now := time.Unix(10_000, 0)
-	k.WithClock(func() time.Time { return now }).WithTTL(time.Second)
+	k.withClock(func() time.Time { return now }).withTTL(time.Second)
 	ctx := context.Background()
 	aad := []byte("x")
 
@@ -584,7 +584,7 @@ func TestManagedKEKCacheTTLZeroizesExpiredEntry(t *testing.T) {
 // guard: replacing a cache entry must wipe the old entry's raw bytes first.
 func TestManagedKEKCacheOverwriteZeroizesPreviousEntry(t *testing.T) {
 	k, _ := newRing(t, nil)
-	k.WithTTL(time.Minute)
+	k.withTTL(time.Minute)
 
 	first := bytes.Repeat([]byte{0x11}, 32)
 	second := bytes.Repeat([]byte{0x22}, 32)
@@ -607,7 +607,7 @@ func TestManagedKEKCacheOverwriteZeroizesPreviousEntry(t *testing.T) {
 func TestManagedCacheEvictionPreservesRotationReads(t *testing.T) {
 	k, _ := newRing(t, nil)
 	now := time.Unix(20_000, 0)
-	k.WithClock(func() time.Time { return now }).WithTTL(time.Second)
+	k.withClock(func() time.Time { return now }).withTTL(time.Second)
 	ctx := context.Background()
 	aad := []byte("x")
 
@@ -619,7 +619,7 @@ func TestManagedCacheEvictionPreservesRotationReads(t *testing.T) {
 	if cachedV1 == nil || allZero(cachedV1) {
 		t.Fatalf("expected cached v1 KEK before rotation: %x", cachedV1)
 	}
-	if _, err := k.Rotate(ctx, "tnA", ModeManaged, ""); err != nil {
+	if _, err := k.rotate(ctx, "tnA", ModeManaged, ""); err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
 	if !allZero(cachedV1) {
@@ -714,7 +714,7 @@ func TestFailSafeOnStoreOutage(t *testing.T) {
 	k, store := newRing(t, nil)
 	ctx := context.Background()
 	blob, _ := k.Seal(ctx, "tnA", []byte("x"), nil)
-	store.FailAll(true)
+	store.failAll(true)
 	k.purgeTenant("tnA")
 	if _, err := k.Seal(ctx, "tnA", []byte("y"), nil); !errors.Is(err, ErrKeyUnavailable) {
 		t.Fatalf("seal during outage: %v", err)

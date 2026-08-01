@@ -49,9 +49,9 @@ func TestBYOKLifecycleE2E(t *testing.T) {
 	k, store := newRing(t, resolve)
 	// A positive managed-KEK TTL so a managed KEK is actually cached — that is
 	// what lets us assert the bytes are ZEROIZED on revoke/destroy (KEYS-003).
-	k.WithTTL(5 * time.Minute)
+	k.withTTL(5 * time.Minute)
 	now := time.Unix(2_000, 0)
-	k.WithClock(func() time.Time { return now })
+	k.withClock(func() time.Time { return now })
 
 	// ── 1. Provision (managed): first seal mints v1 and caches its KEK. ──────
 	v1blob, err := k.Seal(ctx, tenant, []byte("v1-secret"), aad)
@@ -63,8 +63,8 @@ func TestBYOKLifecycleE2E(t *testing.T) {
 		t.Fatal("managed KEK should be cached non-zero after the first seal")
 	}
 
-	// ── 2. Rotate (managed → managed): no downtime; v1 still opens, v2 is new.
-	kv2, err := k.Rotate(ctx, tenant, ModeManaged, "")
+	// ── 2. rotate (managed → managed): no downtime; v1 still opens, v2 is new.
+	kv2, err := k.rotate(ctx, tenant, ModeManaged, "")
 	if err != nil || kv2.Version != 2 {
 		t.Fatalf("rotate to v2: %+v %v", kv2, err)
 	}
@@ -81,7 +81,7 @@ func TestBYOKLifecycleE2E(t *testing.T) {
 	}
 
 	// ── 3. Adopt customer BYOK (rotate managed → byok). ─────────────────────
-	kv3, err := k.Rotate(ctx, tenant, ModeBYOK, "vault:kv/acme#kek")
+	kv3, err := k.rotate(ctx, tenant, ModeBYOK, "vault:kv/acme#kek")
 	if err != nil || kv3.Mode != ModeBYOK || kv3.Version != 3 {
 		t.Fatalf("rotate to byok v3: %+v %v", kv3, err)
 	}

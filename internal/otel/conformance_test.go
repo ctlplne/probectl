@@ -109,7 +109,7 @@ func TestAllSignalMappingsConform(t *testing.T) {
 			NewOriginAsn: 64500, PeerAsn: 65000, RpkiStatus: bgpv1.RpkiStatus_RPKI_STATUS_INVALID,
 			Collector: "rrc00", PeerAddress: "203.0.113.1",
 		}),
-		"path": PathAttributes(PathSummary{
+		"path": pathAttributes(PathSummary{
 			TenantID: "t", Target: "example.com", TargetIP: "93.184.216.34", Mode: "icmp",
 			HopCount: 12, DestinationReached: true,
 		}),
@@ -118,7 +118,7 @@ func TestAllSignalMappingsConform(t *testing.T) {
 			Source: "snmp", IfIndex: 3, IfName: "eth0",
 			Name: "probectl.device.if.in.octets", Value: 1, Unit: "octets",
 		}),
-		"netflow": NetFlowAttributes(&flowv1.FlowRecord{
+		"netflow": netFlowAttributes(&flowv1.FlowRecord{
 			TenantId: "t", AgentId: "a", ExporterAddress: "203.0.113.10", FlowProtocol: "netflow9",
 			SourceAddress: "10.0.0.1", SourcePort: 53, DestinationAddress: "10.0.0.2", DestinationPort: 443,
 			NetworkTransport: "udp", NetworkType: "ipv4", InputInterface: 3, OutputInterface: 4,

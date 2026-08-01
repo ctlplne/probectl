@@ -36,7 +36,7 @@ func TestHTTPReceiverAcceptsGzip(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	raw, _ := proto.Marshal(MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"})))
+	raw, _ := proto.Marshal(metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"})))
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	_, _ = gz.Write(raw)

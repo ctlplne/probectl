@@ -35,7 +35,7 @@ func TestCheckStorageEncryptionAtRest(t *testing.T) {
 	if got["storage-encryption /var/lib/probectl"] != OK {
 		t.Fatalf("zfs must pass: %+v", fs)
 	}
-	if !Strict(fs) {
+	if !strict(fs) {
 		t.Fatal("strict mode must fail on the unencrypted fixture")
 	}
 
@@ -45,7 +45,7 @@ func TestCheckStorageEncryptionAtRest(t *testing.T) {
 	if len(att) != 1 || att[0].Severity != Info || !strings.Contains(att[0].Detail, "ATTESTED") {
 		t.Fatalf("attested finding wrong: %+v", att)
 	}
-	if Strict(att) {
+	if strict(att) {
 		t.Fatal("attested deployment must pass strict")
 	}
 }

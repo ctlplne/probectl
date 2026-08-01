@@ -717,31 +717,6 @@ func (l *IRKeyLifecycle) readIRKeyShredAuditRefs(
 	return refs, nil
 }
 
-// AssertIRKeyActive verifies the signed ledger and denies use after planning.
-func (s *IRStagePG) AssertIRKeyActive(
-	ctx context.Context,
-	tenantID string,
-) error {
-	if s == nil || s.pool == nil {
-		return errors.New("audit: IR sidecar is unavailable")
-	}
-	if !canonicalIRTenantID.MatchString(tenantID) {
-		return ErrIRAttributionNotFound
-	}
-	return tenancy.InProvider(
-		ctx,
-		s.pool,
-		func(ctx context.Context, q tenancy.Querier) error {
-			return withIRTenantRoute(ctx, q, tenantID, func() error {
-				if err := lockIRTenant(ctx, q, tenantID); err != nil {
-					return err
-				}
-				return s.assertIRKeyActiveTx(ctx, q, tenantID)
-			})
-		},
-	)
-}
-
 func (s *IRStagePG) assertIRKeyActiveTx(
 	ctx context.Context,
 	q tenancy.Querier,

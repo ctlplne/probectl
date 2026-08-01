@@ -64,7 +64,7 @@ func TestIngestBaseline(t *testing.T) {
 
 	if testsupport.RaceEnabled {
 		t.Log("race instrumentation active: ingest completeness and tenant isolation exercised; the unchanged throughput floor is enforced by make test-performance without -race")
-	} else if v := M6Baseline().CheckIngest(rep); len(v) > 0 {
+	} else if v := m6Baseline().checkIngest(rep); len(v) > 0 {
 		t.Errorf("ingest baseline violated: %v", v)
 	}
 }

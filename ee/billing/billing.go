@@ -31,16 +31,6 @@ const (
 	KindGauge   = "gauge"   // point-in-time snapshot (peak on rollup)
 )
 
-// MeterKind classifies a meter name.
-func MeterKind(meter string) string {
-	switch meter {
-	case usage.MeterAgents, usage.MeterTests:
-		return KindGauge
-	default:
-		return KindCounter
-	}
-}
-
 // MeterUnit is the export unit for a meter.
 func MeterUnit(meter string) string {
 	if meter == usage.MeterIngestBytes {

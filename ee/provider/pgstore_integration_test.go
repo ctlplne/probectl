@@ -385,7 +385,7 @@ func newPGBreakGlassRaceFixture(t *testing.T) *pgBreakGlassRaceFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.WithClock(func() time.Time { return now })
+	service.withClock(func() time.Time { return now })
 
 	return &pgBreakGlassRaceFixture{
 		pool:      pool,

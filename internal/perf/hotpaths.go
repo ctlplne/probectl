@@ -383,8 +383,8 @@ func topologyRebuildHotPath() HotPathSLO {
 	}
 }
 
-// HotPathByID returns one catalog row by stable ID.
-func HotPathByID(id string) (HotPathSLO, bool) {
+// hotPathByID returns one catalog row by stable ID.
+func hotPathByID(id string) (HotPathSLO, bool) {
 	for _, hp := range HotPathCatalog() {
 		if hp.ID == id {
 			return hp, true

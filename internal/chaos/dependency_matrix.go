@@ -31,8 +31,8 @@ type ScenarioEvidence struct {
 	TestPattern string
 }
 
-// DependencyChaosMatrix returns the release-gated dependency-chaos contract.
-func DependencyChaosMatrix() []DependencyScenario {
+// dependencyChaosMatrix returns the release-gated dependency-chaos contract.
+func dependencyChaosScenarios() []DependencyScenario {
 	out := make([]DependencyScenario, len(dependencyChaosMatrix))
 	for i, s := range dependencyChaosMatrix {
 		out[i] = s

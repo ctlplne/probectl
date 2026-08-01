@@ -294,15 +294,15 @@ func l7CaptureAuthorized(cfg *Config) (bool, string) {
 	return true, ""
 }
 
-// RedactPayload applies the capture-boundary policy IN PLACE on p (the
+// redactPayload applies the capture-boundary policy IN PLACE on p (the
 // caller's private copy) and returns it. Length is preserved so protocol
 // framing (e.g. Content-Length accounting) stays parseable; the zeroed
 // region is the retained-plaintext kill zone.
-func RedactPayload(p []byte, mode string) []byte {
+func redactPayload(p []byte, mode string) []byte {
 	return redactPayloadWithPolicy(p, mode, headerValuePolicy{})
 }
 
-// redactPayloadWithPolicy is RedactPayload plus deployment-supplied header
+// redactPayloadWithPolicy is redactPayload plus deployment-supplied header
 // identity fragments and optional hash-all-header-values behavior.
 func redactPayloadWithPolicy(p []byte, mode string, policy headerValuePolicy) []byte {
 	policy.identityFragments = normalizeHeaderFragments(policy.identityFragments)

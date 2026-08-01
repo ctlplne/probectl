@@ -93,18 +93,12 @@ func (c *OTLPTraceConsumer) Run(ctx context.Context) error {
 	return RunLanes(ctx, c.bus, bus.OTLPTracesTopic, "otlp-traces", c.nsTenants, c.handleLane)
 }
 
-// Consumed reports stored spans (the round-trip test's hook).
-func (c *OTLPTraceConsumer) Consumed() uint64 { return c.consumed.Load() }
-
-// Shed reports spans shed by the per-tenant fairness gate (SCALE-003).
-func (c *OTLPTraceConsumer) Shed() uint64 { return c.shed.Load() }
-
-// RejectedTenant reports OTLP trace batches dropped by second-hop tenant
+// rejectedTenant reports OTLP trace batches dropped by second-hop tenant
 // verification (TENANT-001 / RED-001).
-func (c *OTLPTraceConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
+func (c *OTLPTraceConsumer) rejectedTenant() uint64 { return c.rejected.Load() }
 
-// IntegrityStats returns the aggregate receipt ledger for this consumer.
-func (c *OTLPTraceConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+// integrityStats returns the aggregate receipt ledger for this consumer.
+func (c *OTLPTraceConsumer) integrityStats() IntegrityStats { return c.ledger.stats() }
 
 func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 	return c.handleLane(ctx, msg, "")
@@ -272,18 +266,12 @@ func (c *OTLPLogConsumer) Run(ctx context.Context) error {
 	return RunLanes(ctx, c.bus, bus.OTLPLogsTopic, "otlp-logs", c.nsTenants, c.handleLane)
 }
 
-// Consumed reports stored records (the round-trip test's hook).
-func (c *OTLPLogConsumer) Consumed() uint64 { return c.consumed.Load() }
-
-// Shed reports records shed by the per-tenant fairness gate (SCALE-003).
-func (c *OTLPLogConsumer) Shed() uint64 { return c.shed.Load() }
-
-// RejectedTenant reports OTLP log batches dropped by second-hop tenant
+// rejectedTenant reports OTLP log batches dropped by second-hop tenant
 // verification (TENANT-001 / RED-001).
-func (c *OTLPLogConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
+func (c *OTLPLogConsumer) rejectedTenant() uint64 { return c.rejected.Load() }
 
-// IntegrityStats returns the aggregate receipt ledger for this consumer.
-func (c *OTLPLogConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+// integrityStats returns the aggregate receipt ledger for this consumer.
+func (c *OTLPLogConsumer) integrityStats() IntegrityStats { return c.ledger.stats() }
 
 func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 	return c.handleLane(ctx, msg, "")

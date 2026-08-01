@@ -33,7 +33,7 @@ func TestHotPathCatalogCoversAuditedSurfaces(t *testing.T) {
 		"hp-prom-query",
 	}
 	for _, id := range required {
-		if _, ok := HotPathByID(id); !ok {
+		if _, ok := hotPathByID(id); !ok {
 			t.Errorf("missing audited hot-path SLO row %q", id)
 		}
 	}

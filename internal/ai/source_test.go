@@ -66,13 +66,13 @@ func (erroringMetrics) QueryMetrics(context.Context, string, map[string]string, 
 
 func TestCorrelatePropagatesSourceError(t *testing.T) {
 	e := NewEngine(WithMetrics(erroringMetrics{}))
-	if _, err := e.Correlate(context.Background(), principal("t", PermMetricsRead), nil, TimeRange{}); err == nil {
+	if _, err := e.correlate(context.Background(), principal("t", PermMetricsRead), nil, TimeRange{}); err == nil {
 		t.Error("a source error should propagate from Correlate")
 	}
 }
 
 func TestEngineZeroOptionsAreNoOps(t *testing.T) {
-	e := NewEngine(WithMaxRows(0), WithTimeout(0))
+	e := NewEngine(WithMaxRows(0), withTimeout(0))
 	if e.maxRows != 1000 || e.timeout != 30*time.Second {
 		t.Errorf("zero options should be no-ops: maxRows=%d timeout=%v", e.maxRows, e.timeout)
 	}

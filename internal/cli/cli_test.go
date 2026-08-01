@@ -80,7 +80,7 @@ func runWithEnv(t *testing.T, srv *httptest.Server, extra map[string]string, arg
 		}
 		return ""
 	}
-	code = Run(args, env, &out, &errb)
+	code = runCLI(args, env, &out, &errb)
 	return out.String(), errb.String(), code
 }
 
@@ -111,7 +111,7 @@ func TestCLIUnknownCommandLocalizes(t *testing.T) { //nolint:misspell // Spanish
 
 func TestCLIDefaultAPIURLIsHTTPS(t *testing.T) {
 	var out, errb bytes.Buffer
-	code := Run([]string{"test", "list"}, func(string) string { return "" }, &out, &errb)
+	code := runCLI([]string{"test", "list"}, func(string) string { return "" }, &out, &errb)
 	if code != 1 {
 		t.Fatalf("exit = %d, stdout=%s stderr=%s", code, out.String(), errb.String())
 	}
@@ -273,7 +273,7 @@ func TestCLIAgentList(t *testing.T) {
 
 func TestCLIRolloutSurfaceHelp(t *testing.T) {
 	var out, errs bytes.Buffer
-	code := Run([]string{"rollout", "help"}, func(string) string { return "" }, &out, &errs)
+	code := runCLI([]string{"rollout", "help"}, func(string) string { return "" }, &out, &errs)
 	if code != 2 {
 		t.Fatalf("rollout help exit = %d, want usage exit 2", code)
 	}
@@ -1479,7 +1479,7 @@ func TestCLIVersionUsesSharedBuildStamp(t *testing.T) {
 	version.Version = "9.8.7-planted-stamp"
 
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"version"}, func(string) string { return "" }, &stdout, &stderr); code != 0 ||
+	if code := runCLI([]string{"version"}, func(string) string { return "" }, &stdout, &stderr); code != 0 ||
 		strings.TrimSpace(stdout.String()) != "probectl "+version.Version {
 		t.Errorf("version: code=%d out=%q stderr=%q, want shared build stamp %q",
 			code, stdout.String(), stderr.String(), version.Version)

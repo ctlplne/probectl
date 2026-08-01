@@ -432,19 +432,3 @@ func (ev *Evaluator) Tick(ctx context.Context) error {
 	}
 	return nil
 }
-
-// Run evaluates on a ticker until ctx is canceled.
-func (ev *Evaluator) Run(ctx context.Context) {
-	ticker := time.NewTicker(ev.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := ev.Tick(ctx); err != nil {
-				ev.log.Warn("alert evaluation tick failed", "error", err)
-			}
-		}
-	}
-}

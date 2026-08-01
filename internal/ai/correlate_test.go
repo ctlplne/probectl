@@ -20,7 +20,7 @@ func TestCorrelateFansOutAndRespectsRBAC(t *testing.T) {
 	e := NewEngine(WithMetrics(metrics), WithEvents(events), WithTopology(topo))
 	p := principal("t", PermMetricsRead, PermTopologyRead)
 
-	res, err := e.Correlate(context.Background(), p, map[string]string{"service": "checkout"}, TimeRange{})
+	res, err := e.correlate(context.Background(), p, map[string]string{"service": "checkout"}, TimeRange{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestCorrelateFansOutAndRespectsRBAC(t *testing.T) {
 	}
 }
 
-// AIRCA-002: Correlate output must carry only allow-listed keys (+ the _domain
+// AIRCA-002: correlate output must carry only allow-listed keys (+ the _domain
 // marker) — mirroring TestAnalyzeStripsRawEvidenceFields for the correlation
 // path. A raw source row with a secret/PII column must not egress.
 func TestCorrelateStripsNonAllowListedRowFields(t *testing.T) {
@@ -55,7 +55,7 @@ func TestCorrelateStripsNonAllowListedRowFields(t *testing.T) {
 	e := NewEngine(WithMetrics(metrics))
 	p := principal("t", PermMetricsRead)
 
-	res, err := e.Correlate(context.Background(), p, map[string]string{"service": "checkout"}, TimeRange{})
+	res, err := e.correlate(context.Background(), p, map[string]string{"service": "checkout"}, TimeRange{})
 	if err != nil {
 		t.Fatal(err)
 	}

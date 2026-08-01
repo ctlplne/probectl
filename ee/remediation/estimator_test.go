@@ -58,16 +58,16 @@ func TestMemStoreEdgeCases(t *testing.T) {
 	if _, err := m.Get(ctx, testTenant, "nope"); err == nil {
 		t.Fatal("Get missing must error")
 	}
-	if _, err := m.Decide(ctx, testTenant, "nope", rem.StateApproved, "u", "", time.Now()); err == nil {
+	if _, err := m.decide(ctx, testTenant, "nope", rem.StateApproved, "u", "", time.Now()); err == nil {
 		t.Fatal("Decide missing must error")
 	}
 
-	p, _ := m.Insert(ctx, testTenant, rem.Proposal{State: rem.StateProposed, CreatedAt: time.Now()})
-	if _, err := m.Decide(ctx, testTenant, p.ID, rem.StateApproved, "u", "ok", time.Now()); err != nil {
+	p, _ := m.insert(ctx, testTenant, rem.Proposal{State: rem.StateProposed, CreatedAt: time.Now()})
+	if _, err := m.decide(ctx, testTenant, p.ID, rem.StateApproved, "u", "ok", time.Now()); err != nil {
 		t.Fatalf("first decide: %v", err)
 	}
 	// A second decide on the now-approved row fails (not proposed).
-	if _, err := m.Decide(ctx, testTenant, p.ID, rem.StateRejected, "u", "", time.Now()); err != rem.ErrNotProposed {
+	if _, err := m.decide(ctx, testTenant, p.ID, rem.StateRejected, "u", "", time.Now()); err != rem.ErrNotProposed {
 		t.Fatalf("second decide: err=%v, want ErrNotProposed", err)
 	}
 }

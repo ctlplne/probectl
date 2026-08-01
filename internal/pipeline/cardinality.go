@@ -101,8 +101,8 @@ func NewCardinalityLimiter(perAgent, perTenant int) *CardinalityLimiter {
 	return l
 }
 
-// WithIdleTTL overrides the identity idle eviction window (tests; config).
-func (l *CardinalityLimiter) WithIdleTTL(ttl time.Duration) *CardinalityLimiter {
+// withIdleTTL overrides the identity idle eviction window (tests; config).
+func (l *CardinalityLimiter) withIdleTTL(ttl time.Duration) *CardinalityLimiter {
 	if ttl > 0 {
 		l.idleTTL = ttl
 	}

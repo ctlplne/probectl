@@ -36,7 +36,7 @@ func (Organizations) Create(ctx context.Context, s tenancy.Scope, slug, name str
 	return &o, nil
 }
 
-// Get returns an organization by id (RLS guarantees it belongs to the tenant).
+// get returns an organization by id (RLS guarantees it belongs to the tenant).
 func (Organizations) Get(ctx context.Context, s tenancy.Scope, id string) (*Organization, error) {
 	var o Organization
 	err := s.Q.QueryRow(ctx, `SELECT `+orgCols+` FROM organizations WHERE id = $1`, id).
@@ -83,7 +83,7 @@ func (Teams) Create(ctx context.Context, s tenancy.Scope, orgID, slug, name stri
 	return &t, nil
 }
 
-// Get returns a team by id.
+// get returns a team by id.
 func (Teams) Get(ctx context.Context, s tenancy.Scope, id string) (*Team, error) {
 	var t Team
 	err := s.Q.QueryRow(ctx, `SELECT `+teamCols+` FROM teams WHERE id = $1`, id).
@@ -130,8 +130,8 @@ func (Projects) Create(ctx context.Context, s tenancy.Scope, teamID, slug, name 
 	return &p, nil
 }
 
-// Get returns a project by id.
-func (Projects) Get(ctx context.Context, s tenancy.Scope, id string) (*Project, error) {
+// get returns a project by id.
+func (Projects) get(ctx context.Context, s tenancy.Scope, id string) (*Project, error) {
 	var p Project
 	err := s.Q.QueryRow(ctx, `SELECT `+projectCols+` FROM projects WHERE id = $1`, id).
 		Scan(&p.ID, &p.TenantID, &p.TeamID, &p.Slug, &p.Name, &p.CreatedAt, &p.UpdatedAt)

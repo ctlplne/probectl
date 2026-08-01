@@ -44,7 +44,7 @@ type counterKey struct {
 
 // Runtime drives one collector process: an SNMP poll loop per SNMP device and
 // a gNMI subscription loop per gNMI device, all feeding one Emitter and one
-// Correlator.
+// correlator.
 type Runtime struct {
 	cfg   *Config
 	creds CredentialSource
@@ -99,12 +99,8 @@ func New(cfg *Config, em Emitter, creds CredentialSource, log *slog.Logger) (*Ru
 	}, nil
 }
 
-// Correlator exposes the path/flow correlation index built from SNMP polls.
-func (r *Runtime) Correlator() *Correlator { return r.correlator }
-
-// TrapStore exposes accepted trap event/alert rows for tests and lightweight
-// operator views.
-func (r *Runtime) TrapStore() TrapStore { return r.traps }
+// correlator exposes the path/flow correlation index built from SNMP polls.
+func (r *Runtime) deviceCorrelator() *Correlator { return r.correlator }
 
 // StatsSnapshot returns a copy of the counters.
 func (r *Runtime) StatsSnapshot() map[string]uint64 {

@@ -90,22 +90,22 @@ func TestIngestConfigTotal(t *testing.T) {
 func TestBaselineChecks(t *testing.T) {
 	b := Baseline{MinIngestThroughput: 1000, MaxPooledQueryP95: 100 * time.Millisecond}
 
-	if v := b.CheckIngest(IngestReport{Throughput: 5000}); len(v) != 0 {
+	if v := b.checkIngest(IngestReport{Throughput: 5000}); len(v) != 0 {
 		t.Errorf("healthy ingest flagged: %v", v)
 	}
-	if v := b.CheckIngest(IngestReport{Throughput: 500}); len(v) != 1 {
+	if v := b.checkIngest(IngestReport{Throughput: 500}); len(v) != 1 {
 		t.Errorf("slow ingest not flagged: %v", v)
 	}
 
-	if v := b.CheckPooled(PooledReport{IsolationOK: true, Latency: LatencyStat{P95: 50 * time.Millisecond}}); len(v) != 0 {
+	if v := b.checkPooled(PooledReport{IsolationOK: true, Latency: LatencyStat{P95: 50 * time.Millisecond}}); len(v) != 0 {
 		t.Errorf("healthy pooled flagged: %v", v)
 	}
 	// Broken isolation is always a violation, regardless of latency.
-	bad := b.CheckPooled(PooledReport{IsolationOK: false, Mismatches: 3, Queries: 100, Latency: LatencyStat{P95: 10 * time.Millisecond}})
+	bad := b.checkPooled(PooledReport{IsolationOK: false, Mismatches: 3, Queries: 100, Latency: LatencyStat{P95: 10 * time.Millisecond}})
 	if len(bad) != 1 {
 		t.Errorf("broken isolation not flagged: %v", bad)
 	}
-	slow := b.CheckPooled(PooledReport{IsolationOK: true, Latency: LatencyStat{P95: 300 * time.Millisecond}})
+	slow := b.checkPooled(PooledReport{IsolationOK: true, Latency: LatencyStat{P95: 300 * time.Millisecond}})
 	if len(slow) != 1 {
 		t.Errorf("slow pooled query not flagged: %v", slow)
 	}

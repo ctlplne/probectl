@@ -30,7 +30,7 @@ func TestRCAEval(t *testing.T) {
 		t.Fatalf("eval set has %d scenarios, want >= 20", len(scenarios))
 	}
 
-	rep := Run(context.Background(), scenarios, nil)
+	rep := run(context.Background(), scenarios, nil)
 
 	if len(rep.Results) != len(scenarios) {
 		t.Fatalf("scored %d of %d scenarios", len(rep.Results), len(scenarios))
@@ -55,7 +55,7 @@ func TestRCAEval(t *testing.T) {
 	// regression (e.g. a scenario's expected label was dropped from the builtin
 	// output, or citation grounding loosened). This makes rca-eval BLOCKING for
 	// the builtin (remote/nondeterministic adapters stay artifact-only via
-	// Run(..., model)). Floors sit safely below the observed baseline
+	// run(..., model)). Floors sit safely below the observed baseline
 	// (accuracy 0.91, precision 0.92) so legitimate scenario churn has headroom;
 	// ratchet UP, never down (anti-vacuous-green §3).
 	const (
@@ -69,7 +69,7 @@ func TestRCAEval(t *testing.T) {
 		t.Errorf("builtin mean_citation_precision %.2f < floor %.2f (AIRCA-004 regression)", rep.MeanCitationPrecision, minMeanCitationPrecision)
 	}
 
-	t.Log(rep.Summary())
+	t.Log(rep.summary())
 	for _, r := range rep.Results {
 		t.Logf("  %-36s answer=%-5t precision=%.2f cited=%d conf=%s", r.Name, r.AnswerCorrect, r.CitationPrecision, r.Cited, r.Confidence)
 	}
@@ -139,7 +139,7 @@ func TestRCAEvalAdversarialDuplicateEventTimeFixture(t *testing.T) {
 		t.Fatalf("stale duplicate event time = %s, current = %s", stale.OccurredAt, primary.OccurredAt)
 	}
 
-	rep := Run(context.Background(), []Scenario{sc}, nil)
+	rep := run(context.Background(), []Scenario{sc}, nil)
 	if len(rep.Results) != 1 {
 		t.Fatalf("adversarial scenario produced %d results, want 1", len(rep.Results))
 	}

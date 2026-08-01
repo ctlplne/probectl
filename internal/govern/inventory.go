@@ -300,8 +300,8 @@ func RequiredDataInventoryIDs() []string {
 	return out
 }
 
-// DataInventory returns a sorted, defensive copy of the maintained data map.
-func DataInventory() []DataInventoryEntry {
+// dataInventory returns a sorted, defensive copy of the maintained data map.
+func dataInventoryEntries() []DataInventoryEntry {
 	out := make([]DataInventoryEntry, 0, len(dataInventory))
 	for _, e := range dataInventory {
 		out = append(out, cloneDataInventoryEntry(e))
@@ -310,9 +310,9 @@ func DataInventory() []DataInventoryEntry {
 	return out
 }
 
-// ValidateDataInventory is the privacy gate for the inventory. It is exported
+// validateDataInventory is the privacy gate for the inventory. It is exported
 // so docs/tests can assert the same rules the governance surface depends on.
-func ValidateDataInventory(entries []DataInventoryEntry) []error {
+func validateDataInventory(entries []DataInventoryEntry) []error {
 	var errs []error
 	if len(entries) == 0 {
 		return []error{fmt.Errorf("data inventory is empty")}

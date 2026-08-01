@@ -61,7 +61,7 @@ func TestCrossPlaneCorrelationGate(t *testing.T) {
 	if len(open) != 1 {
 		t.Fatalf("cross-plane fault produced %d incidents for t-a, want exactly 1", len(open))
 	}
-	inc := store.Get(open[0].ID)
+	inc := store.get(open[0].ID)
 	planes := map[string]bool{}
 	for _, s := range inc.Signals {
 		planes[s.Plane] = true

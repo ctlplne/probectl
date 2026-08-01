@@ -82,7 +82,7 @@ func TestFrameRequestsPrefixStopsBeforeMalformedFrame(t *testing.T) {
 		t.Fatalf("converted prefix length = %d, want 1", len(requests))
 	}
 
-	buffer, err := OpenBuffer(t.TempDir(), 10)
+	buffer, err := openBuffer(t.TempDir(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestFrameRequestsPrefixStopsBeforeMalformedFrame(t *testing.T) {
 	if err := buffer.Remove(len(requests)); err != nil {
 		t.Fatal(err)
 	}
-	remaining, err := buffer.PeekAll()
+	remaining, err := buffer.peekAll()
 	if err != nil {
 		t.Fatal(err)
 	}

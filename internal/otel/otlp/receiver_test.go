@@ -31,7 +31,7 @@ import (
 )
 
 func TestGRPCServerRequiresTLS(t *testing.T) {
-	if _, err := NewGRPCServer(nil, NewTokenAuthenticator(nil), testSinks(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil })), 0); err == nil {
+	if _, err := newGRPCServer(nil, NewTokenAuthenticator(nil), testSinks(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil })), 0); err == nil {
 		t.Error("expected NewGRPCServer to reject a nil TLS config (TLS-only)")
 	}
 }
@@ -71,17 +71,17 @@ func TestGRPCReceiverAuthAndTenantScope(t *testing.T) {
 		return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+tok)
 	}
 
-	if _, err := client.Export(withTok(""), MetricsRequest()); status.Code(err) != codes.Unauthenticated {
+	if _, err := client.Export(withTok(""), metricsRequest()); status.Code(err) != codes.Unauthenticated {
 		t.Errorf("no token: code = %v, want Unauthenticated", status.Code(err))
 	}
-	if _, err := client.Export(withTok("nope"), MetricsRequest()); status.Code(err) != codes.Unauthenticated {
+	if _, err := client.Export(withTok("nope"), metricsRequest()); status.Code(err) != codes.Unauthenticated {
 		t.Errorf("bad token: code = %v, want Unauthenticated", status.Code(err))
 	}
-	bad := MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-b"}))
+	bad := metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-b"}))
 	if _, err := client.Export(withTok("good"), bad); status.Code(err) != codes.PermissionDenied {
 		t.Errorf("out-of-tenant: code = %v, want PermissionDenied", status.Code(err))
 	}
-	ok := MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"}))
+	ok := metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"}))
 	if _, err := client.Export(withTok("good"), ok); err != nil {
 		t.Errorf("valid push: %v", err)
 	}
@@ -118,13 +118,13 @@ func TestHTTPReceiverAuthAndTenantScope(t *testing.T) {
 		return resp.StatusCode
 	}
 
-	if code := post("", MetricsRequest()); code != http.StatusUnauthorized {
+	if code := post("", metricsRequest()); code != http.StatusUnauthorized {
 		t.Errorf("no token: status = %d, want 401", code)
 	}
-	if code := post("tok", MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-b"}))); code != http.StatusForbidden {
+	if code := post("tok", metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-b"}))); code != http.StatusForbidden {
 		t.Errorf("out-of-tenant: status = %d, want 403", code)
 	}
-	if code := post("tok", MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"}))); code != http.StatusOK {
+	if code := post("tok", metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"}))); code != http.StatusOK {
 		t.Errorf("valid push: status = %d, want 200", code)
 	}
 	if captured != "tenant-a" {
@@ -133,7 +133,7 @@ func TestHTTPReceiverAuthAndTenantScope(t *testing.T) {
 }
 
 func TestNewGRPCServerHappyPath(t *testing.T) {
-	srv, err := NewGRPCServer(
+	srv, err := newGRPCServer(
 		&tls.Config{MinVersion: tls.VersionTLS12},
 		NewTokenAuthenticator(map[string]string{"t": "x"}),
 		testSinks(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil })),
@@ -146,7 +146,7 @@ func TestNewGRPCServerHappyPath(t *testing.T) {
 }
 
 func TestGRPCServerRegistersAllThreeSignals(t *testing.T) {
-	srv, err := NewGRPCServer(
+	srv, err := newGRPCServer(
 		&tls.Config{MinVersion: tls.VersionTLS12},
 		NewTokenAuthenticator(map[string]string{"t": "x"}),
 		testSinks(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil })),
@@ -179,7 +179,7 @@ func TestGRPCServerRegistersAllThreeSignals(t *testing.T) {
 func TestExportMissingTenantContextRejected(t *testing.T) {
 	svc := newMetricsService(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil }))
 	// Calling Export without the interceptor (no tenant on ctx) must fail closed.
-	if _, err := svc.Export(context.Background(), MetricsRequest()); status.Code(err) != codes.Unauthenticated {
+	if _, err := svc.Export(context.Background(), metricsRequest()); status.Code(err) != codes.Unauthenticated {
 		t.Errorf("missing tenant: code = %v, want Unauthenticated", status.Code(err))
 	}
 }

@@ -45,11 +45,11 @@ func init() {
 	}
 }
 
-// NetFlowAttributes maps a device FlowRecord (NetFlow/IPFIX/sFlow) to its OTel
+// netFlowAttributes maps a device FlowRecord (NetFlow/IPFIX/sFlow) to its OTel
 // resource + network attributes — designed in at the schema (CLAUDE.md §6), so
 // the OTLP layer (S22) exposes rather than remaps. The tenant is the outermost
 // scope; zero/empty optionals are omitted.
-func NetFlowAttributes(f *flowv1.FlowRecord) map[string]string {
+func netFlowAttributes(f *flowv1.FlowRecord) map[string]string {
 	attrs := map[string]string{
 		AttrTenantID: f.GetTenantId(),
 	}

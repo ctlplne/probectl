@@ -22,7 +22,7 @@ func enqueueN(t *testing.T, b *Buffer, n int) {
 }
 
 func TestBufferEnqueueDrainFIFO(t *testing.T) {
-	b, err := OpenBuffer(t.TempDir(), 100)
+	b, err := openBuffer(t.TempDir(), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestBufferEnqueueDrainFIFO(t *testing.T) {
 }
 
 func TestBufferDrainAfterDisconnect(t *testing.T) {
-	b, err := OpenBuffer(t.TempDir(), 100)
+	b, err := openBuffer(t.TempDir(), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestBufferDrainAfterDisconnect(t *testing.T) {
 }
 
 func TestBufferPartialDrainKeepsRemainder(t *testing.T) {
-	b, err := OpenBuffer(t.TempDir(), 100)
+	b, err := openBuffer(t.TempDir(), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestBufferPartialDrainKeepsRemainder(t *testing.T) {
 }
 
 func TestBufferBoundedBackpressure(t *testing.T) {
-	b, err := OpenBuffer(t.TempDir(), 2)
+	b, err := openBuffer(t.TempDir(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestBufferPeekBatchHonorsRecordAndByteCaps(t *testing.T) {
 
 func TestBufferPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
-	b, err := OpenBuffer(dir, 100)
+	b, err := openBuffer(dir, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestBufferPersistsAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b2, err := OpenBuffer(dir, 100) // simulate a restart
+	b2, err := openBuffer(dir, 100) // simulate a restart
 	if err != nil {
 		t.Fatal(err)
 	}

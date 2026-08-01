@@ -86,7 +86,7 @@ func TestPooledMultiTenant(t *testing.T) {
 		},
 	}
 
-	rep, err := DrivePooled(ctx, tenants, pooledRowsPerTen, ops,
+	rep, err := drivePooled(ctx, tenants, pooledRowsPerTen, ops,
 		PooledConfig{QueryReps: pooledQueryReps, Concurrency: pooledConcurrency})
 	if err != nil {
 		t.Fatalf("drive pooled: %v", err)
@@ -97,7 +97,7 @@ func TestPooledMultiTenant(t *testing.T) {
 		t.Fatalf("CROSS-TENANT ISOLATION FAILURE under load: %d/%d tenant-scoped queries saw the wrong row count",
 			rep.Mismatches, rep.Queries)
 	}
-	if v := M6Baseline().CheckPooled(rep); len(v) > 0 {
+	if v := m6Baseline().checkPooled(rep); len(v) > 0 {
 		t.Errorf("pooled baseline violated: %v", v)
 	}
 }

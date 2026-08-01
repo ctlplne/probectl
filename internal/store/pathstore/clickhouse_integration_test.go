@@ -28,7 +28,7 @@ func TestClickHouseRealRoundTrip(t *testing.T) {
 	if base == "" {
 		t.Skip("set PROBECTL_PATHSTORE_URL to run the ClickHouse round-trip test")
 	}
-	ch, err := NewClickHouse(base)
+	ch, err := newClickHouse(base)
 	if err != nil {
 		t.Fatalf("connect/schema: %v", err)
 	}

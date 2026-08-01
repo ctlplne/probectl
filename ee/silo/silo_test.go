@@ -143,7 +143,7 @@ func TestCatchUpPlan(t *testing.T) {
 
 	// Drift summary mirrors the same diff.
 	d := DiffDrift(cat)
-	if d.Empty() || len(d.MissingTables) != 1 || d.MissingTables[0] != "new_table" ||
+	if d.empty() || len(d.MissingTables) != 1 || d.MissingTables[0] != "new_table" ||
 		len(d.MissingColumns) != 1 || d.MissingColumns[0] != "tests.added_later" {
 		t.Fatalf("drift: %+v", d)
 	}
@@ -180,7 +180,7 @@ func TestCatchUpPlan(t *testing.T) {
 	if genericGuardAt < 0 || genericGrantAt < 0 || genericGuardAt > genericGrantAt {
 		t.Fatalf("generic table boundary must be repaired before grants:\n%s", caughtUp)
 	}
-	if !DiffDrift(cat).Empty() {
+	if !DiffDrift(cat).empty() {
 		t.Fatal("caught-up drift must be empty")
 	}
 

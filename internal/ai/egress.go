@@ -59,8 +59,8 @@ type EgressPolicy func(ctx context.Context, tenantID string) (bool, error)
 // an audit log line is not a substitute for the immutable tenant record.
 type EgressAudit func(ctx context.Context, ev EgressEvent) error
 
-// WithEgressPolicy sets the per-tenant remote-egress gate.
-func WithEgressPolicy(p EgressPolicy) AnalyzerOption {
+// withEgressPolicy sets the per-tenant remote-egress gate.
+func withEgressPolicy(p EgressPolicy) AnalyzerOption {
 	return func(a *Analyzer) { a.egressPolicy = p }
 }
 

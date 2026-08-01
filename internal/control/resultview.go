@@ -218,8 +218,8 @@ func (s *LatestResults) RecentSnapshot(tenant string) ([]ResultView, time.Time) 
 	return out, incompleteThrough
 }
 
-// Len reports one tenant's partition size.
-func (s *LatestResults) Len(tenant string) int {
+// xLen reports one tenant's partition size.
+func (s *LatestResults) xLen(tenant string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.tenants[tenant])
@@ -242,8 +242,8 @@ func NewResultViewConsumer(b bus.Bus, store *LatestResults, log *slog.Logger) *R
 	return &ResultViewConsumer{bus: b, store: store, log: log}
 }
 
-// WithNamespaceTenants subscribes standalone result views to siloed result lanes.
-func (cs *ResultViewConsumer) WithNamespaceTenants(ns map[string]string) *ResultViewConsumer {
+// withNamespaceTenants subscribes standalone result views to siloed result lanes.
+func (cs *ResultViewConsumer) withNamespaceTenants(ns map[string]string) *ResultViewConsumer {
 	cs.nsTenants = ns
 	return cs
 }
@@ -251,10 +251,10 @@ func (cs *ResultViewConsumer) WithNamespaceTenants(ns map[string]string) *Result
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cs *ResultViewConsumer) LaneFanoutEnabled() bool { return true }
 
-// Run consumes until ctx is done; malformed messages are dropped.
+// run consumes until ctx is done; malformed messages are dropped.
 // (Standalone mode — production wires SinkResult through the decode-once
 // ResultFan, SCALE-013.)
-func (cs *ResultViewConsumer) Run(ctx context.Context) error {
+func (cs *ResultViewConsumer) run(ctx context.Context) error {
 	return runResultSinkLanes(ctx, cs.bus, viewGroup("result-view"), cs.log, cs.nsTenants, cs.SinkResult)
 }
 

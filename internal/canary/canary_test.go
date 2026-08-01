@@ -39,7 +39,7 @@ func TestRegistry(t *testing.T) {
 	if _, err := r.New(Config{Type: "missing"}); err == nil {
 		t.Error("an unknown canary type should error")
 	}
-	if types := r.Types(); len(types) != 1 || types[0] != "noop" {
+	if types := r.types(); len(types) != 1 || types[0] != "noop" {
 		t.Errorf("Types() = %v, want [noop]", types)
 	}
 }

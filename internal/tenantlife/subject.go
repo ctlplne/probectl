@@ -47,7 +47,7 @@ const (
 	SubjectStatusFailed         = "failed"
 	SubjectStatusNotDeployed    = "not_deployed"
 	SubjectStatusNotCapable     = "not_capable"
-	SubjectStatusNotAddressable = "not_subject_addressable"
+	_                           = "not_subject_addressable"
 )
 
 // SubjectManifest describes a subject portability bundle.

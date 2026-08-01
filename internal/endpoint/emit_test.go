@@ -40,7 +40,7 @@ func (c *captureBus) Close() error                                              
 // with the attribution result carrying the cause.
 func TestBusEmitterPublishesTenantTaggedResults(t *testing.T) {
 	cb := &captureBus{}
-	em := NewBusEmitter(cb, "tenant-A", "laptop-7")
+	em := newBusEmitter(cb, "tenant-A", "laptop-7")
 
 	s := Sample{
 		TenantID: "tenant-A", AgentID: "laptop-7", Timestamp: time.Unix(1700000000, 0),

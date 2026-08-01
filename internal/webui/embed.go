@@ -28,9 +28,9 @@ import (
 //go:embed all:dist
 var dist embed.FS
 
-// Built reports whether a REAL UI bundle is embedded (a built asset other than
+// built reports whether a REAL UI bundle is embedded (a built asset other than
 // the placeholder index.html is present). The release build makes this true.
-func Built() bool {
+func built() bool {
 	entries, err := fs.ReadDir(dist, "dist")
 	if err != nil {
 		return false

@@ -20,9 +20,9 @@ const ContentType = "application/scim+json"
 const (
 	SchemaUser       = "urn:ietf:params:scim:schemas:core:2.0:User"
 	SchemaGroup      = "urn:ietf:params:scim:schemas:core:2.0:Group"
-	SchemaEnterprise = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
+	schemaEnterprise = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
 	SchemaList       = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
-	SchemaPatchOp    = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+	_                = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
 	SchemaError      = "urn:ietf:params:scim:api:messages:2.0:Error"
 	SchemaSPConfig   = "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"
 )

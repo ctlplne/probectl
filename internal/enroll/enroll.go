@@ -194,14 +194,6 @@ func Load(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) (*Service, 
 		leafTTL: DefaultLeafTTL, log: log, now: time.Now}, nil
 }
 
-// WithLeafTTL overrides the SVID TTL (tests; config).
-func (s *Service) WithLeafTTL(ttl time.Duration) *Service {
-	if ttl > 0 {
-		s.leafTTL = ttl
-	}
-	return s
-}
-
 // Bundle is the trust bundle transports verify against (root + intermediate).
 func (s *Service) Bundle() []byte {
 	return append(append([]byte{}, s.rootPEM...), s.ca.CertPEM()...)

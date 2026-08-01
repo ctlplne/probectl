@@ -156,14 +156,14 @@ func TestFlowRawRetentionLeavesHourlyRollupsQueryableTenantScoped(t *testing.T) 
 	if err := c.DeleteTenantBefore(context.Background(), "tenant-a", from); err != nil {
 		t.Fatal(err)
 	}
-	rollups, err := c.HourlyRollups(context.Background(), "tenant-a", from, now)
+	rollups, err := c.hourlyRollups(context.Background(), "tenant-a", from, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rollups) != 1 || rollups[0].Bytes != 42 || rollups[0].Flows != 1 {
 		t.Fatalf("tenant-a rollups = %+v", rollups)
 	}
-	other, err := c.HourlyRollups(context.Background(), "tenant-b", from, now)
+	other, err := c.hourlyRollups(context.Background(), "tenant-b", from, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestFlowRollupBackfillControlIsRoutedAndBound(t *testing.T) {
 	})
 	from := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	to := from.Add(time.Hour)
-	if err := c.BackfillRollups(context.Background(), "siloed", from, to); err != nil {
+	if err := c.backfillRollups(context.Background(), "siloed", from, to); err != nil {
 		t.Fatal(err)
 	}
 
@@ -282,7 +282,7 @@ func TestFlowClickHouseCountersPreserveUInt64Precision(t *testing.T) {
 		}
 	}
 
-	rollups, err := c.HourlyRollups(context.Background(), "tenant-a", now.Add(-time.Hour), now)
+	rollups, err := c.hourlyRollups(context.Background(), "tenant-a", now.Add(-time.Hour), now)
 	if err != nil {
 		t.Fatal(err)
 	}

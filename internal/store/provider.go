@@ -21,8 +21,8 @@ import (
 // Operators is the provider-operator repository.
 type Operators struct{ pool *pgxpool.Pool }
 
-// NewOperators returns the provider-operator repository.
-func NewOperators(pool *pgxpool.Pool) *Operators { return &Operators{pool: pool} }
+// newOperators returns the provider-operator repository.
+func newOperators(pool *pgxpool.Pool) *Operators { return &Operators{pool: pool} }
 
 const operatorCols = `id::text, email, name, status, created_at, updated_at`
 
@@ -30,8 +30,8 @@ func scanOperator(row interface{ Scan(...any) error }, o *ProviderOperator) erro
 	return row.Scan(&o.ID, &o.Email, &o.Name, &o.Status, &o.CreatedAt, &o.UpdatedAt)
 }
 
-// Create adds a provider operator.
-func (r *Operators) Create(ctx context.Context, email, name string) (*ProviderOperator, error) {
+// create adds a provider operator.
+func (r *Operators) create(ctx context.Context, email, name string) (*ProviderOperator, error) {
 	var o ProviderOperator
 	err := scanOperator(r.pool.QueryRow(ctx,
 		`INSERT INTO provider_operators (email, name) VALUES ($1, $2) RETURNING `+operatorCols,
@@ -42,8 +42,8 @@ func (r *Operators) Create(ctx context.Context, email, name string) (*ProviderOp
 	return &o, nil
 }
 
-// Get returns a provider operator by id.
-func (r *Operators) Get(ctx context.Context, id string) (*ProviderOperator, error) {
+// get returns a provider operator by id.
+func (r *Operators) get(ctx context.Context, id string) (*ProviderOperator, error) {
 	var o ProviderOperator
 	if err := scanOperator(r.pool.QueryRow(ctx,
 		`SELECT `+operatorCols+` FROM provider_operators WHERE id = $1`, id), &o); err != nil {
@@ -52,8 +52,8 @@ func (r *Operators) Get(ctx context.Context, id string) (*ProviderOperator, erro
 	return &o, nil
 }
 
-// List returns all provider operators.
-func (r *Operators) List(ctx context.Context) ([]ProviderOperator, error) {
+// list returns all provider operators.
+func (r *Operators) list(ctx context.Context) ([]ProviderOperator, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+operatorCols+` FROM provider_operators ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -74,8 +74,8 @@ func (r *Operators) List(ctx context.Context) ([]ProviderOperator, error) {
 // by which a provider operator may access one tenant's data).
 type BreakGlass struct{ pool *pgxpool.Pool }
 
-// NewBreakGlass returns the break-glass repository.
-func NewBreakGlass(pool *pgxpool.Pool) *BreakGlass { return &BreakGlass{pool: pool} }
+// newBreakGlass returns the break-glass repository.
+func newBreakGlass(pool *pgxpool.Pool) *BreakGlass { return &BreakGlass{pool: pool} }
 
 const grantCols = `id::text, operator_id::text, tenant_id::text, reason, scope, granted_by, granted_at, expires_at, revoked_at, revoked_by`
 
@@ -84,9 +84,9 @@ func scanGrant(row interface{ Scan(...any) error }, g *BreakGlassGrant) error {
 		&g.GrantedBy, &g.GrantedAt, &g.ExpiresAt, &g.RevokedAt, &g.RevokedBy)
 }
 
-// Grant creates a time-bounded break-glass grant. The caller should record a
+// grant creates a time-bounded break-glass grant. The caller should record a
 // provider audit event for the grant (internal/audit).
-func (r *BreakGlass) Grant(ctx context.Context, operatorID, tenantID, reason, scope, grantedBy string, expiresAt time.Time) (*BreakGlassGrant, error) {
+func (r *BreakGlass) grant(ctx context.Context, operatorID, tenantID, reason, scope, grantedBy string, expiresAt time.Time) (*BreakGlassGrant, error) {
 	var g BreakGlassGrant
 	err := scanGrant(r.pool.QueryRow(ctx,
 		`INSERT INTO break_glass_grants (operator_id, tenant_id, reason, scope, granted_by, expires_at)
@@ -98,9 +98,9 @@ func (r *BreakGlass) Grant(ctx context.Context, operatorID, tenantID, reason, sc
 	return &g, nil
 }
 
-// ListActive returns the currently-valid grants for a tenant (not revoked, not
+// listActive returns the currently-valid grants for a tenant (not revoked, not
 // expired).
-func (r *BreakGlass) ListActive(ctx context.Context, tenantID string) ([]BreakGlassGrant, error) {
+func (r *BreakGlass) listActive(ctx context.Context, tenantID string) ([]BreakGlassGrant, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+grantCols+` FROM break_glass_grants
 		 WHERE tenant_id = $1 AND revoked_at IS NULL AND expires_at > now()
@@ -120,8 +120,8 @@ func (r *BreakGlass) ListActive(ctx context.Context, tenantID string) ([]BreakGl
 	return out, rows.Err()
 }
 
-// Revoke ends a grant early.
-func (r *BreakGlass) Revoke(ctx context.Context, id, revokedBy string) error {
+// revoke ends a grant early.
+func (r *BreakGlass) revoke(ctx context.Context, id, revokedBy string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE break_glass_grants SET revoked_at = now(), revoked_by = $2
 		 WHERE id = $1 AND revoked_at IS NULL`, id, revokedBy)

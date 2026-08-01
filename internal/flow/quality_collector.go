@@ -185,9 +185,9 @@ func receiptFromQualityWindow(c *Collector, key qualityKey, row *qualityWindow, 
 	return EvaluateQualityState(receipt, at)
 }
 
-// QualitySnapshot returns a stable, bounded copy without resetting the active
+// qualitySnapshot returns a stable, bounded copy without resetting the active
 // observation windows. It exists for diagnostics and focused tests.
-func (c *Collector) QualitySnapshot(at time.Time) []QualityReceipt {
+func (c *Collector) qualitySnapshot(at time.Time) []QualityReceipt {
 	c.qualityMu.Lock()
 	defer c.qualityMu.Unlock()
 	out := make([]QualityReceipt, 0, len(c.quality))

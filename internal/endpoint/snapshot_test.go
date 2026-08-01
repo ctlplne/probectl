@@ -89,8 +89,8 @@ func TestSnapshotStoreBounds(t *testing.T) {
 		s.Record("t", fmt.Sprintf("ep-%d", i), rv(TypeAttribution, "x", at.Add(time.Duration(i)*time.Minute),
 			map[string]float64{"slow": 0}, map[string]string{"endpoint.cause": "none"}))
 	}
-	if s.Len("t") != 3 {
-		t.Fatalf("len = %d, want cap 3", s.Len("t"))
+	if s.xLen("t") != 3 {
+		t.Fatalf("len = %d, want cap 3", s.xLen("t"))
 	}
 	for _, v := range s.List("t") {
 		if v.AgentID == "ep-0" || v.AgentID == "ep-1" || v.AgentID == "ep-2" {

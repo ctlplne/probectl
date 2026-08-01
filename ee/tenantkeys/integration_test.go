@@ -90,7 +90,7 @@ func TestKeyChainPersistencePG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ring.Rotate(ctx, tnA, ModeManaged, ""); err != nil {
+	if _, err := ring.rotate(ctx, tnA, ModeManaged, ""); err != nil {
 		t.Fatal(err)
 	}
 	blob2, err := ring.Seal(ctx, tnA, []byte("pg-two"), aad)

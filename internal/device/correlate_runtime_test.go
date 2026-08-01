@@ -35,21 +35,21 @@ func testInventory() Inventory {
 // responder IP resolves to the device interface that answered it.
 func TestCorrelatorHopToInterface(t *testing.T) {
 	c := NewCorrelator()
-	c.Update(testInventory())
+	c.update(testInventory())
 
-	ref, ok := c.MatchHopIP("10.0.0.1")
+	ref, ok := c.matchHopIP("10.0.0.1")
 	if !ok || ref.Device != "192.0.2.1" || ref.SysName != "core-sw1" || ref.IfIndex != 1 || ref.IfName != "eth0" {
 		t.Fatalf("hop->iface = %+v ok=%v", ref, ok)
 	}
 	// The management address itself correlates at device level.
-	ref, ok = c.MatchHopIP("192.0.2.1")
+	ref, ok = c.matchHopIP("192.0.2.1")
 	if !ok || ref.Device != "192.0.2.1" || ref.IfIndex != 0 {
 		t.Fatalf("hop->device = %+v ok=%v", ref, ok)
 	}
-	if _, ok := c.MatchHopIP("203.0.113.99"); ok {
+	if _, ok := c.matchHopIP("203.0.113.99"); ok {
 		t.Fatal("unknown hop must not match")
 	}
-	if _, ok := c.MatchHopIP("not-an-ip"); ok {
+	if _, ok := c.matchHopIP("not-an-ip"); ok {
 		t.Fatal("garbage hop must not match")
 	}
 }
@@ -59,19 +59,19 @@ func TestCorrelatorHopToInterface(t *testing.T) {
 // interface address rather than the management address.
 func TestCorrelatorFlowToInterface(t *testing.T) {
 	c := NewCorrelator()
-	c.Update(testInventory())
+	c.update(testInventory())
 
-	ref, ok := c.MatchExporterInterface("192.0.2.1", 2)
+	ref, ok := c.matchExporterInterface("192.0.2.1", 2)
 	if !ok || ref.IfName != "eth1" {
 		t.Fatalf("flow->iface = %+v ok=%v", ref, ok)
 	}
 	// Exporter source = interface address: falls back via the IP index.
-	ref, ok = c.MatchExporterInterface("10.0.0.1", 1)
+	ref, ok = c.matchExporterInterface("10.0.0.1", 1)
 	if !ok || ref.IfName != "eth0" || ref.Device != "192.0.2.1" {
 		t.Fatalf("flow via iface addr = %+v ok=%v", ref, ok)
 	}
 	// Known device, unknown ifIndex: device-level partial match, ok=false.
-	ref, ok = c.MatchExporterInterface("192.0.2.1", 99)
+	ref, ok = c.matchExporterInterface("192.0.2.1", 99)
 	if ok || ref.Device != "192.0.2.1" {
 		t.Fatalf("partial match = %+v ok=%v", ref, ok)
 	}
@@ -81,16 +81,16 @@ func TestCorrelatorFlowToInterface(t *testing.T) {
 // IP index entries (devices renumber).
 func TestCorrelatorUpdateReplaces(t *testing.T) {
 	c := NewCorrelator()
-	c.Update(testInventory())
+	c.update(testInventory())
 
 	inv := testInventory()
 	inv.Interfaces[1] = Interface{Index: 1, Name: "eth0", Addrs: []netip.Addr{netip.MustParseAddr("10.0.0.2")}}
-	c.Update(inv)
+	c.update(inv)
 
-	if _, ok := c.MatchHopIP("10.0.0.1"); ok {
+	if _, ok := c.matchHopIP("10.0.0.1"); ok {
 		t.Fatal("stale interface address survived re-poll")
 	}
-	if ref, ok := c.MatchHopIP("10.0.0.2"); !ok || ref.IfName != "eth0" {
+	if ref, ok := c.matchHopIP("10.0.0.2"); !ok || ref.IfName != "eth0" {
 		t.Fatalf("new address = %+v ok=%v", ref, ok)
 	}
 	if c.Devices() != 1 {
@@ -116,16 +116,16 @@ func TestCorrelatorPruneBeforeDropsStaleInventoryLabels(t *testing.T) {
 	if deleted := c.PruneBefore(base.Add(24 * time.Hour)); deleted != 1 {
 		t.Fatalf("deleted = %d, want one stale device", deleted)
 	}
-	if ref, ok := c.MatchHopIP("10.0.10.1"); ok {
+	if ref, ok := c.matchHopIP("10.0.10.1"); ok {
 		t.Fatalf("stale hop still exposes old labels: %+v", ref)
 	}
-	if ref, ok := c.MatchExporterInterface("192.0.2.10", 1); ok || ref.Device != "" || ref.SysName != "" || ref.IfName != "" {
+	if ref, ok := c.matchExporterInterface("192.0.2.10", 1); ok || ref.Device != "" || ref.SysName != "" || ref.IfName != "" {
 		t.Fatalf("stale exporter still exposes old labels: %+v ok=%v", ref, ok)
 	}
-	if ref, ok := c.MatchHopIP("10.0.20.1"); !ok || ref.SysName != "fresh-core" || ref.IfName != "fresh-eth0" {
+	if ref, ok := c.matchHopIP("10.0.20.1"); !ok || ref.SysName != "fresh-core" || ref.IfName != "fresh-eth0" {
 		t.Fatalf("fresh hop label missing: %+v ok=%v", ref, ok)
 	}
-	if ref, ok := c.MatchExporterInterface("192.0.2.20", 1); !ok || ref.SysName != "fresh-core" || ref.IfName != "fresh-eth0" {
+	if ref, ok := c.matchExporterInterface("192.0.2.20", 1); !ok || ref.SysName != "fresh-core" || ref.IfName != "fresh-eth0" {
 		t.Fatalf("fresh exporter label missing: %+v ok=%v", ref, ok)
 	}
 }
@@ -167,7 +167,7 @@ func TestRuntimePollOnce(t *testing.T) {
 	if !conn.closed {
 		t.Fatal("connection not closed after poll")
 	}
-	if ref, ok := rt.Correlator().MatchHopIP("10.0.0.1"); !ok || ref.IfName != "eth0" {
+	if ref, ok := rt.deviceCorrelator().matchHopIP("10.0.0.1"); !ok || ref.IfName != "eth0" {
 		t.Fatalf("correlator not updated: %+v ok=%v", ref, ok)
 	}
 	if s := rt.StatsSnapshot(); s["polls"] != 1 || s["metrics"] == 0 || s["poll_errors"] != 0 {

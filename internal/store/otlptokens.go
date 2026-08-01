@@ -105,8 +105,8 @@ func (o OTLPTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantI
 	return tenantID, err
 }
 
-// List returns a tenant's OTLP tokens (metadata only — never the hash).
-func (o OTLPTokens) List(ctx context.Context, tenantID string) ([]OTLPToken, error) {
+// list returns a tenant's OTLP tokens (metadata only — never the hash).
+func (o OTLPTokens) list(ctx context.Context, tenantID string) ([]OTLPToken, error) {
 	var out []OTLPToken
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), o.pool, func(ctx context.Context, s tenancy.Scope) error {
 		var listErr error

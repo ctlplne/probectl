@@ -111,10 +111,10 @@ func TestBatchingSaverBackgroundFlushIsBounded(t *testing.T) {
 		t.Fatal("background path flush did not return after its context deadline")
 	}
 	deadline := time.Now().Add(time.Second)
-	for batching.Lost() != 1 && time.Now().Before(deadline) {
+	for batching.lostCount() != 1 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if got := batching.Lost(); got != 1 {
+	if got := batching.lostCount(); got != 1 {
 		t.Fatalf("timed-out background path flush recorded lost = %d, want 1", got)
 	}
 }

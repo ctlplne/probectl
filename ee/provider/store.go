@@ -548,8 +548,8 @@ func (m *MemStore) activeTenantCountLocked() int {
 	return n
 }
 
-// SetFleet seeds fleet rows (tests).
-func (m *MemStore) SetFleet(rows ...TenantFleet) {
+// setFleet seeds fleet rows (tests).
+func (m *MemStore) setFleet(rows ...TenantFleet) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range rows {

@@ -37,7 +37,7 @@ func TestFullStackFlowReportRendering(t *testing.T) {
 	if got := rep.String(); !strings.Contains(got, "full-stack-flow S") || !strings.Contains(got, "FAIL") {
 		t.Fatalf("report row = %s", got)
 	}
-	if got := rep.Diagnostics(); !strings.Contains(got, "stored=9/10") || !strings.Contains(got, "active_parts before=5 after=8") {
+	if got := rep.diagnostics(); !strings.Contains(got, "stored=9/10") || !strings.Contains(got, "active_parts before=5 after=8") {
 		t.Fatalf("diagnostics = %s", got)
 	}
 	rep.Violations = nil

@@ -53,8 +53,8 @@ func TestLatestResultsStore(t *testing.T) {
 		s.Record("t-a", ResultView{Type: "icmp", Target: fmt.Sprintf("10.0.0.%d", i), AgentID: "a1",
 			ObservedAt: at.Add(time.Duration(i+2) * time.Minute)})
 	}
-	if s.Len("t-a") != 3 {
-		t.Fatalf("len = %d, want cap 3", s.Len("t-a"))
+	if s.xLen("t-a") != 3 {
+		t.Fatalf("len = %d, want cap 3", s.xLen("t-a"))
 	}
 	if _, truncated := s.ListWithTruncation("t-a"); !truncated {
 		t.Fatal("tenant A eviction must be reported")
@@ -155,7 +155,7 @@ func TestLatestResultsEndToEnd(t *testing.T) {
 	consumer := NewResultViewConsumer(b, store, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = consumer.Run(ctx) }()
+	go func() { _ = consumer.run(ctx) }()
 	waitCtx, stopWaiting := context.WithTimeout(ctx, 2*time.Second)
 	if !b.WaitForSubscribers(waitCtx, bus.NetworkResultsTopic, 1) {
 		stopWaiting()

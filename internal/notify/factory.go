@@ -18,8 +18,8 @@ var providerCaps = map[string]Capability{
 	"jira":       CapabilityTicket,
 }
 
-// KnownProvider reports whether name is a supported connector provider.
-func KnownProvider(name string) bool {
+// knownProvider reports whether name is a supported connector provider.
+func knownProvider(name string) bool {
 	_, ok := providerCaps[strings.ToLower(strings.TrimSpace(name))]
 	return ok
 }

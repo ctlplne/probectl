@@ -74,8 +74,8 @@ type FullStackFlowReport struct {
 	Violations []string
 }
 
-// Diagnostics renders the flow pipeline counters for CI logs.
-func (r FullStackFlowReport) Diagnostics() string {
+// diagnostics renders the flow pipeline counters for CI logs.
+func (r FullStackFlowReport) diagnostics() string {
 	return fmt.Sprintf(
 		"flow pipeline: published=%d batches produced=%d produce_fail=%d produce_shed=%d → stored=%d/%d rows; rejected=%d retried=%d dead_lettered=%d dropped=%d; active_parts before=%d after=%d max_new=%d rows_after=%d",
 		r.Published, r.Produced, r.ProduceFail, r.ProduceShed, r.Stored, r.Records,
@@ -271,9 +271,9 @@ func DriveFullStackFlow(ctx context.Context, b bus.Bus, st flowstore.Store, part
 	return rep, nil
 }
 
-// RunFullStackFlowGate wires the REAL flow stack — Kafka plus ClickHouse — and
+// runFullStackFlowGate wires the REAL flow stack — Kafka plus ClickHouse — and
 // drives one tier at the given scale (scale 1 = reference-hardware run).
-func RunFullStackFlowGate(ctx context.Context, tier Tier, scale float64, targets FullStackFlowTargets) (FullStackFlowReport, error) {
+func runFullStackFlowGate(ctx context.Context, tier Tier, scale float64, targets FullStackFlowTargets) (FullStackFlowReport, error) {
 	profile, err := ProfileFor(tier, scale)
 	if err != nil {
 		return FullStackFlowReport{}, err

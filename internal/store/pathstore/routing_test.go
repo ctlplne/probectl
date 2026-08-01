@@ -61,7 +61,7 @@ func TestPathSaveRoutesPerTarget(t *testing.T) {
 	plane := httptest.NewServer(http.HandlerFunc(h))
 	defer plane.Close()
 
-	c, err := NewClickHouse(shared.URL)
+	c, err := newClickHouse(shared.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestPathQueryRoutesToTenantStore(t *testing.T) {
 		w.WriteHeader(200) // empty body => no rows
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL)
+	c, err := newClickHouse(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestPathEnsureAndDropTenantDatabase(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL)
+	c, err := newClickHouse(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestPathEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL)
+	c, err := newClickHouse(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}

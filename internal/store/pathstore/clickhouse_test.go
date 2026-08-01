@@ -32,7 +32,7 @@ func TestClickHouseHTTPStore(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ch, err := NewClickHouse(srv.URL)
+	ch, err := newClickHouse(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestClickHousePropagatesErrors(t *testing.T) {
 		http.Error(w, "Code: 60. Table does not exist", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	if _, err := NewClickHouse(srv.URL); err == nil {
+	if _, err := newClickHouse(srv.URL); err == nil {
 		t.Error("a 500 from ClickHouse should surface as an error")
 	}
 }

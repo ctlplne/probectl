@@ -366,8 +366,8 @@ func (s *Server) WithOTelStore(st otelstore.Store) *Server {
 	return s
 }
 
-// WithDeviceOps attaches the tenant-scoped device syslog/config archive store.
-func (s *Server) WithDeviceOps(st device.OpsStore) *Server {
+// withDeviceOps attaches the tenant-scoped device syslog/config archive store.
+func (s *Server) withDeviceOps(st device.OpsStore) *Server {
 	if st != nil {
 		s.deviceOps = st
 		s.rebuildAnalyzer()
@@ -449,11 +449,10 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	}
 
 	// Dev auth actually serving must be unmissable (RED-001/SEC-001): an
-	// error-level log, an audit event on the default tenant's tamper-evident
-	// chain (best-effort), and the process flag DevModeActive() for
-	// self-telemetry. main has already enforced build-tag + ack + loopback.
+	// error-level log and an audit event on the default tenant's
+	// tamper-evident chain (best-effort). main has already enforced
+	// build-tag + ack + loopback.
 	if cfg.AuthMode == "dev" && DevModeAvailable() {
-		devModeActive.Store(true)
 		log.Error("DEV AUTH ACTIVE: every request receives an all-permissions principal with NO authentication — " +
 			"local evaluation ONLY (this required a -tags devauth build, PROBECTL_DEV_AUTH_ACK, and a loopback bind)")
 		if pool != nil {

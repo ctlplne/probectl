@@ -45,9 +45,9 @@ var (
 	ErrUnknownProvider = errors.New("cloudmetrics: unknown provider")
 )
 
-// Load reads newline-delimited exported cloud metric rows and writes normalized
+// load reads newline-delimited exported cloud metric rows and writes normalized
 // series to writer. Blank lines and '#' comments are ignored.
-func Load(ctx context.Context, provider Provider, tenantID string, r io.Reader, writer tsdb.Writer) (int, error) {
+func load(ctx context.Context, provider Provider, tenantID string, r io.Reader, writer tsdb.Writer) (int, error) {
 	if writer == nil {
 		return 0, ErrNoWriter
 	}

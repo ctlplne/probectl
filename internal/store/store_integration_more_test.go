@@ -60,13 +60,13 @@ func TestAgentsRegistry(t *testing.T) {
 		if ren, err := (Agents{}).Rename(ctx, s, agentID, "edge-renamed"); err != nil || ren.Name != "edge-renamed" {
 			t.Fatalf("rename: %v / %+v", err, ren)
 		}
-		if list, err := (Agents{}).List(ctx, s); err != nil || len(list) != 1 {
+		if list, err := (Agents{}).list(ctx, s); err != nil || len(list) != 1 {
 			t.Fatalf("list: %v / %d", err, len(list))
 		}
 		if err := (Agents{}).Delete(ctx, s, agentID); err != nil {
 			t.Fatalf("delete: %v", err)
 		}
-		if list, err := (Agents{}).List(ctx, s); err != nil || len(list) != 0 {
+		if list, err := (Agents{}).list(ctx, s); err != nil || len(list) != 0 {
 			t.Fatalf("list after delete: %v / %d", err, len(list))
 		}
 		return nil
@@ -516,7 +516,7 @@ func TestTokenStores(t *testing.T) {
 	if gotTenant, err := scim.Authenticate(ctx, h2); err != nil || gotTenant != tn.ID {
 		t.Fatalf("scim auth: %v / %s", err, gotTenant)
 	}
-	if list, err := scim.List(ctx, tn.ID); err != nil || len(list) != 1 {
+	if list, err := scim.list(ctx, tn.ID); err != nil || len(list) != 1 {
 		t.Fatalf("scim list: %v / %d", err, len(list))
 	}
 	if err := scim.Revoke(ctx, tn.ID, id); err != nil {
@@ -620,14 +620,14 @@ func TestOTLPTokensStrictRLSAndPreTenantAuth(t *testing.T) {
 	if err != nil || gotTenant != tnA.ID {
 		t.Fatalf("store auth tenant A: %v / %s", err, gotTenant)
 	}
-	listA, err := otlp.List(ctx, tnA.ID)
+	listA, err := otlp.list(ctx, tnA.ID)
 	if err != nil {
 		t.Fatalf("list tenant A: %v", err)
 	}
 	if len(listA) != 1 || listA[0].ID != idA || listA[0].TenantID != tnA.ID {
 		t.Fatalf("tenant A list = %+v, want only %s", listA, idA)
 	}
-	listB, err := otlp.List(ctx, tnB.ID)
+	listB, err := otlp.list(ctx, tnB.ID)
 	if err != nil {
 		t.Fatalf("list tenant B: %v", err)
 	}

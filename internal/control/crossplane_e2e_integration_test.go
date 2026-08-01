@@ -99,7 +99,7 @@ func TestCrossPlaneCorrelationE2E(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() { _ = bgpConsumer.Run(runCtx) }()
-	go func() { _ = iocConsumer.Run(runCtx) }()
+	go func() { _ = iocConsumer.run(runCtx) }()
 
 	// Give the consumer groups a moment to join before producing.
 	time.Sleep(2 * time.Second)

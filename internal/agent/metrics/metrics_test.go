@@ -40,7 +40,7 @@ func TestMetricsEveryAgentComponentExposesCoreSeries(t *testing.T) {
 			errCh := make(chan error, 1)
 			go func() { errCh <- r.Serve(ctx) }()
 			waitReady(t, r)
-			resp, err := http.Get("http://" + r.Addr() + "/metrics") // #nosec G107 -- loopback-only test listener
+			resp, err := http.Get("http://" + r.boundAddr() + "/metrics") // #nosec G107 -- loopback-only test listener
 			if err != nil {
 				cancel()
 				t.Fatal(err)
@@ -116,7 +116,7 @@ func TestMetricsTLS13Listener(t *testing.T) {
 	tlsCfg := crypto.InternalClientTLSConfig()
 	tlsCfg.RootCAs = pool
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}}
-	resp, err := client.Get("https://" + r.Addr() + "/metrics")
+	resp, err := client.Get("https://" + r.boundAddr() + "/metrics")
 	if err != nil {
 		cancel()
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestMetricsWiredIntoEveryAgentBinary(t *testing.T) {
 func waitReady(t *testing.T, r *Runtime) {
 	t.Helper()
 	select {
-	case <-r.Ready():
+	case <-r.readyChan():
 	case <-time.After(3 * time.Second):
 		t.Fatal("metrics listener did not become ready")
 	}

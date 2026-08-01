@@ -39,9 +39,9 @@ func DefaultPrivacy() Privacy {
 	return Privacy{CollectSSID: true, CollectBSSID: false, CollectGatewayIP: true, CollectPublicHops: false}
 }
 
-// StrictPrivacy collects NO identifiers at all — only measurements. For
+// strictPrivacy collects NO identifiers at all — only measurements. For
 // high-governance fleets where even the SSID/gateway must not leave the device.
-func StrictPrivacy() Privacy { return Privacy{} }
+func strictPrivacy() Privacy { return Privacy{} }
 
 // Apply clears every identifier the policy does not permit. Measurements
 // (signal/RTT/loss/timings) are never touched — they are not PII and they are

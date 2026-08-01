@@ -82,8 +82,8 @@ func (c *FlowConsumer) Dropped() uint64 { return c.dropped.Load() }
 // Retried reports flow-store write retry attempts.
 func (c *FlowConsumer) Retried() uint64 { return c.retried.Load() }
 
-// IntegrityStats returns the aggregate receipt ledger for this consumer.
-func (c *FlowConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+// integrityStats returns the aggregate receipt ledger for this consumer.
+func (c *FlowConsumer) integrityStats() IntegrityStats { return c.ledger.stats() }
 
 // WithMetrics exports the aggregate receipt ledger at /metrics.
 func (c *FlowConsumer) WithMetrics(reg *metrics.Registry) *FlowConsumer {

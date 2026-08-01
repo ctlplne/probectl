@@ -104,8 +104,8 @@ func (m *Memory) History(_ context.Context, tenantID, target string, q HistoryQu
 // Close is a no-op.
 func (m *Memory) Close() error { return nil }
 
-// ForTenant returns the paths saved for a tenant (test/lightweight query).
-func (m *Memory) ForTenant(tenantID string) []*path.Path {
+// forTenant returns the paths saved for a tenant (test/lightweight query).
+func (m *Memory) forTenant(tenantID string) []*path.Path {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]*path.Path, 0, len(m.saved[tenantID]))

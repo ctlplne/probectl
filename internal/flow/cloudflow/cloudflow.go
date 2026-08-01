@@ -49,18 +49,18 @@ type Connector struct {
 	now     func() time.Time
 }
 
-// NewConnector builds a local cloud-flow importer. agentID is stamped as the
+// newConnector builds a local cloud-flow importer. agentID is stamped as the
 // collecting agent; when empty, a stable importer id is used.
-func NewConnector(store flowstore.Store, agentID string) *Connector {
+func newConnector(store flowstore.Store, agentID string) *Connector {
 	if agentID == "" {
 		agentID = "cloud-flow-importer"
 	}
 	return &Connector{store: store, agentID: agentID, now: time.Now}
 }
 
-// Load reads newline-delimited provider records, normalizes them, and inserts
+// load reads newline-delimited provider records, normalizes them, and inserts
 // them into the store. Blank lines and '#' comments are ignored.
-func (c *Connector) Load(ctx context.Context, provider Provider, tenantID string, r io.Reader) (int, error) {
+func (c *Connector) load(ctx context.Context, provider Provider, tenantID string, r io.Reader) (int, error) {
 	if c == nil || c.store == nil {
 		return 0, ErrNoStore
 	}

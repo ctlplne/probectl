@@ -79,14 +79,14 @@ type DeviceConsumer struct {
 	ledger       *integrityLedger
 }
 
-// Dropped reports device batches lost entirely (DLQ publish ALSO failed).
-func (c *DeviceConsumer) Dropped() uint64 { return c.dropped.Load() }
+// dropped reports device batches lost entirely (DLQ publish ALSO failed).
+func (c *DeviceConsumer) droppedCount() uint64 { return c.dropped.Load() }
 
-// DeadLettered reports device batches routed to the DLQ after exhaustion.
-func (c *DeviceConsumer) DeadLettered() uint64 { return c.deadLettered.Load() }
+// deadLettered reports device batches routed to the DLQ after exhaustion.
+func (c *DeviceConsumer) deadLetteredCount() uint64 { return c.deadLettered.Load() }
 
-// IntegrityStats returns the aggregate receipt ledger for this consumer.
-func (c *DeviceConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+// integrityStats returns the aggregate receipt ledger for this consumer.
+func (c *DeviceConsumer) integrityStats() IntegrityStats { return c.ledger.stats() }
 
 // WithMetrics exports the aggregate receipt ledger at /metrics.
 func (c *DeviceConsumer) WithMetrics(reg *metrics.Registry) *DeviceConsumer {
@@ -115,8 +115,8 @@ func (c *DeviceConsumer) WithNamespaceTenants(ns map[string]string) *DeviceConsu
 	return c
 }
 
-// RejectedBatches reports batches dropped by tenant verification.
-func (c *DeviceConsumer) RejectedBatches() uint64 { return c.rejected.Load() }
+// rejectedBatches reports batches dropped by tenant verification.
+func (c *DeviceConsumer) rejectedBatches() uint64 { return c.rejected.Load() }
 
 // NewDeviceConsumer builds the consumer.
 func NewDeviceConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *DeviceConsumer {

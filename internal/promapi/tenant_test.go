@@ -81,10 +81,10 @@ func TestUpstreamRefusesUnscopedForwards(t *testing.T) {
 	if _, err := u.Series(ctx, []Selector{ForceTenant(unscoped, "t1"), unscoped}, time.Now().Add(-time.Hour), time.Now()); !errors.Is(err, ErrUnscopedUpstreamQuery) {
 		t.Fatalf("Series with one unscoped member: %v", err)
 	}
-	if _, err := u.LabelNames(ctx, []Selector{unscoped}, time.Now().Add(-time.Hour), time.Now()); !errors.Is(err, ErrUnscopedUpstreamQuery) {
+	if _, err := u.labelNames(ctx, []Selector{unscoped}, time.Now().Add(-time.Hour), time.Now()); !errors.Is(err, ErrUnscopedUpstreamQuery) {
 		t.Fatalf("LabelNames unscoped: %v", err)
 	}
-	if _, err := u.LabelValues(ctx, "job", []Selector{unscoped}, time.Now().Add(-time.Hour), time.Now()); !errors.Is(err, ErrUnscopedUpstreamQuery) {
+	if _, err := u.labelValues(ctx, "job", []Selector{unscoped}, time.Now().Add(-time.Hour), time.Now()); !errors.Is(err, ErrUnscopedUpstreamQuery) {
 		t.Fatalf("LabelValues unscoped: %v", err)
 	}
 	if dialed {

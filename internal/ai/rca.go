@@ -98,9 +98,6 @@ type AnalyzerOption func(*Analyzer)
 // WithModel sets the synthesis backend (default: the built-in air-gapped model).
 func WithModel(m ModelAdapter) AnalyzerOption { return func(a *Analyzer) { a.model = m } }
 
-// WithPlanner overrides the query planner (default: HeuristicPlanner).
-func WithPlanner(p Planner) AnalyzerOption { return func(a *Analyzer) { a.planner = p } }
-
 // WithMaxConcurrent caps concurrent Analyze calls (U-048; default 8). The cap
 // is process-wide and fail-fast (ErrBusy), a backstop under the per-tenant
 // fairness gate when one is configured.

@@ -37,8 +37,8 @@ type errObjectTampered struct{ msg string }
 
 func (e errObjectTampered) Error() string { return e.msg }
 
-// IsTampered reports whether err is a BPF-object integrity failure.
-func IsTampered(err error) bool {
+// isTampered reports whether err is a BPF-object integrity failure.
+func isTampered(err error) bool {
 	_, ok := err.(errObjectTampered)
 	return ok
 }
@@ -49,10 +49,10 @@ func ObjectDigest(obj []byte) string {
 	return hex.EncodeToString(crypto.Hash(obj))
 }
 
-// VerifyObjectDigest checks obj against the build-time manifest digest for
+// verifyObjectDigest checks obj against the build-time manifest digest for
 // name. It fails closed: a missing/empty expected digest is a refusal, not a
 // skip — the manifest must cover every program the build embeds.
-func VerifyObjectDigest(name string, obj []byte, wantHex string) error {
+func verifyObjectDigest(name string, obj []byte, wantHex string) error {
 	if wantHex == "" {
 		return errObjectTampered{fmt.Sprintf(
 			"ebpf: no build-time digest for BPF object %q — refusing to load (regenerate with `make ebpf-agent`; U-014)", name)}

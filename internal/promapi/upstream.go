@@ -135,8 +135,8 @@ func (u *Upstream) Series(ctx context.Context, sels []Selector, start, end time.
 	return u.get(ctx, "/api/v1/series", p)
 }
 
-// LabelNames forwards a label-names query scoped by sels.
-func (u *Upstream) LabelNames(ctx context.Context, sels []Selector, start, end time.Time) (Result, error) {
+// labelNames forwards a label-names query scoped by sels.
+func (u *Upstream) labelNames(ctx context.Context, sels []Selector, start, end time.Time) (Result, error) {
 	if err := requireScoped(sels...); err != nil {
 		return Result{}, err
 	}
@@ -149,8 +149,8 @@ func (u *Upstream) LabelNames(ctx context.Context, sels []Selector, start, end t
 	return u.get(ctx, "/api/v1/labels", p)
 }
 
-// LabelValues forwards a label-values query for name scoped by sels.
-func (u *Upstream) LabelValues(ctx context.Context, name string, sels []Selector, start, end time.Time) (Result, error) {
+// labelValues forwards a label-values query for name scoped by sels.
+func (u *Upstream) labelValues(ctx context.Context, name string, sels []Selector, start, end time.Time) (Result, error) {
 	if err := requireScoped(sels...); err != nil {
 		return Result{}, err
 	}

@@ -29,7 +29,7 @@ func TestTLSPostureConsumerSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs := NewTLSPostureConsumer(nil, nil,
-		BuildTLSAnalyzer(&config.Config{TrustctlURL: "https://trustctl.example", TLSExpiryWarning: 21 * 24 * time.Hour}), nil)
+		buildTLSAnalyzer(&config.Config{TrustctlURL: "https://trustctl.example", TLSExpiryWarning: 21 * 24 * time.Hour}), nil)
 
 	r := &resultv1.Result{
 		TenantId:          "t",

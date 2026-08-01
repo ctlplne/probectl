@@ -222,15 +222,15 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 		}
 	})
 
-	drift, err := prov.DriftFor(ctx, siloedID)
-	if err != nil || drift.Empty() {
+	drift, err := prov.driftFor(ctx, siloedID)
+	if err != nil || drift.empty() {
 		t.Fatalf("drift must be visible: %+v %v", drift, err)
 	}
 	if err := prov.CatchUp(ctx, siloedID); err != nil {
 		t.Fatalf("catch-up: %v", err)
 	}
-	drift, err = prov.DriftFor(ctx, siloedID)
-	if err != nil || !drift.Empty() {
+	drift, err = prov.driftFor(ctx, siloedID)
+	if err != nil || !drift.empty() {
 		t.Fatalf("post-catch-up drift must be empty: %+v %v", drift, err)
 	}
 

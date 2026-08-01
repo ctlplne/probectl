@@ -32,7 +32,7 @@ func TestPathSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	if rawURL == "" {
 		testsupport.SkipOrFatal(t, "PROBECTL_PATHSTORE_URL not set — ClickHouse isolation gate runs in CI")
 	}
-	c, err := NewClickHouse(rawURL)
+	c, err := newClickHouse(rawURL)
 	if err != nil {
 		t.Fatalf("clickhouse: %v", err)
 	}

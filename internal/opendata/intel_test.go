@@ -141,7 +141,7 @@ func TestIOCStoreScoring(t *testing.T) {
 	if m := s.ScoreDomain("evil.example"); len(m) != 1 || m[0].Source != "urlhaus" {
 		t.Errorf("ScoreDomain = %+v", m)
 	}
-	if m := s.ScoreURL("http://evil.example/x.exe"); len(m) != 1 {
+	if m := s.scoreURL("http://evil.example/x.exe"); len(m) != 1 {
 		t.Errorf("ScoreURL = %+v", m)
 	}
 	// cert SHA1 stored uppercase, queried lowercase -> still matches; attribution preserved
@@ -158,8 +158,8 @@ func TestIOCStoreScoring(t *testing.T) {
 		t.Errorf("ScoreCert both = %+v, want 2", bm)
 	}
 
-	// Sources sorted by name with per-source counts (the AUP/status matrix)
-	srcs := s.Sources()
+	// sources sorted by name with per-source counts (the AUP/status matrix)
+	srcs := s.sourceCounts()
 	if len(srcs) != 5 {
 		t.Fatalf("Sources = %+v, want 5 distinct", srcs)
 	}

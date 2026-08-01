@@ -294,7 +294,7 @@ func TestLoginWithoutProviderConfigured(t *testing.T) {
 func TestTenantIdPLoginUsesTenantHintAndIgnoresHost(t *testing.T) {
 	srv := testServer(nil)
 	factory := &capturingOIDCFactory{}
-	srv.SetSSOProviderFactory(factory)
+	srv.setSSOProviderFactory(factory)
 
 	hintedTenant := "22222222-2222-2222-2222-222222222222"
 	hinted := httptest.NewRequest(http.MethodGet, "/auth/login?tenant="+hintedTenant, nil)

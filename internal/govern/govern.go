@@ -242,5 +242,5 @@ func Categories() []Category {
 	return out
 }
 
-// DefaultClassOf is the built-in class of a category (no policy).
-func DefaultClassOf(cat Category) Class { return Policy{}.ClassOf(cat) }
+// defaultClassOf is the built-in class of a category (no policy).
+func defaultClassOf(cat Category) Class { return Policy{}.ClassOf(cat) }

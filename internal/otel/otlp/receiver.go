@@ -65,11 +65,11 @@ func NewBusSink(publish func(ctx context.Context, tenant, entropy string, payloa
 	})
 }
 
-// NewGRPCServer builds a TLS-only OTLP/gRPC receiver: the MetricsService with an
+// newGRPCServer builds a TLS-only OTLP/gRPC receiver: the MetricsService with an
 // authenticating, tenant-scoping interceptor and a bounded receive size. It
 // fails closed if no TLS config is supplied — the receiver is never plaintext
 // (CLAUDE.md §7 guardrail 12).
-func NewGRPCServer(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int) (*grpc.Server, error) {
+func newGRPCServer(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int) (*grpc.Server, error) {
 	return NewGRPCServerWithFreshness(tlsCfg, auth, sinks, maxRecvBytes, nil)
 }
 

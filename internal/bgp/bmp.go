@@ -112,18 +112,9 @@ func WithBMPRevocationList(rl *probectlc.RevocationList) BMPOption {
 	}
 }
 
-// WithBMPClock injects the clock used when a BMP peer omits its timestamp.
-func WithBMPClock(now func() time.Time) BMPOption {
-	return func(l *BMPListener) {
-		if now != nil {
-			l.now = now
-		}
-	}
-}
-
-// WithBMPPeerInventory injects the peer inventory updated by accepted BMP
+// withBMPPeerInventory injects the peer inventory updated by accepted BMP
 // sessions. A nil inventory falls back to an empty in-process inventory.
-func WithBMPPeerInventory(inv *BMPPeerInventory) BMPOption {
+func withBMPPeerInventory(inv *BMPPeerInventory) BMPOption {
 	return func(l *BMPListener) {
 		if inv != nil {
 			l.inventory = inv
@@ -237,9 +228,6 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 		}()
 	}
 }
-
-// Inventory returns the listener's in-process BMP peer inventory.
-func (l *BMPListener) Inventory() *BMPPeerInventory { return l.inventory }
 
 func (l *BMPListener) acquireSession() bool {
 	select {
@@ -834,8 +822,8 @@ func (i *BMPPeerInventory) Upsert(record BMPPeerRecord) {
 	i.peers[key] = record
 }
 
-// Snapshot returns a deterministic copy of the inventory.
-func (i *BMPPeerInventory) Snapshot() []BMPPeerRecord {
+// snapshot returns a deterministic copy of the inventory.
+func (i *BMPPeerInventory) snapshot() []BMPPeerRecord {
 	if i == nil {
 		return nil
 	}

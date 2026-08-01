@@ -8,7 +8,7 @@ package topology
 
 // IndexedStore is the S43 dedicated-graph-engine option: the same Store
 // contract as MemoryStore, backed by forward/reverse adjacency indexes so
-// Neighbors and Traverse are proportional to a node's degree instead of the
+// neighbors and traverse are proportional to a node's degree instead of the
 // whole edge set — the L/XL-scale behavior the sprint requires. The migration
 // is TRANSPARENT: it is selected by configuration behind the S30 query API;
 // no caller changes. (An external graph-database adapter implements this same
@@ -118,31 +118,6 @@ func (s *IndexedStore) ObserveDevice(tenant string, in DeviceInput, at time.Time
 	s.observeDeviceTenant(tenant, in, at)
 }
 
-// ObservePhysicalAdjacency is a concrete compatibility helper.
-func (s *IndexedStore) ObservePhysicalAdjacency(tenant string, in PhysicalAdjacencyInput, at time.Time) {
-	if _, err := normalizeTenant(tenant); err != nil {
-		return
-	}
-	s.observePhysicalAdjacencyTenant(tenant, in, at)
-}
-
-// ReplacePhysicalAdjacencies is a concrete compatibility helper.
-func (s *IndexedStore) ReplacePhysicalAdjacencies(tenant string, in PhysicalAdjacencySnapshot, at time.Time) {
-	if _, err := normalizeTenant(tenant); err != nil {
-		return
-	}
-	s.replacePhysicalAdjacenciesTenant(tenant, in, at)
-}
-
-// SnapshotAt is a concrete compatibility helper. Tenant-owned production
-// callers should bind ForTenant first.
-func (s *IndexedStore) SnapshotAt(tenant string, at time.Time) Snapshot {
-	if _, err := normalizeTenant(tenant); err != nil {
-		return Snapshot{At: at}
-	}
-	return s.snapshotAtTenant(tenant, at)
-}
-
 // Latest is a concrete compatibility helper. Tenant-owned production callers
 // should bind ForTenant first.
 func (s *IndexedStore) Latest(tenant string) Snapshot {
@@ -152,20 +127,20 @@ func (s *IndexedStore) Latest(tenant string) Snapshot {
 	return s.latestTenant(tenant)
 }
 
-// Neighbors is a concrete compatibility helper via the adjacency indexes
+// neighbors is a concrete compatibility helper via the adjacency indexes
 // (degree-proportional). Tenant-owned production callers should bind ForTenant
 // first.
-func (s *IndexedStore) Neighbors(tenant, nodeID string, at time.Time) []string {
+func (s *IndexedStore) neighbors(tenant, nodeID string, at time.Time) []string {
 	if _, err := normalizeTenant(tenant); err != nil {
 		return nil
 	}
 	return s.neighborsTenant(tenant, nodeID, at)
 }
 
-// Traverse is a concrete compatibility helper for the shortest directed route
+// traverse is a concrete compatibility helper for the shortest directed route
 // via the forward index. Tenant-owned production callers should bind ForTenant
 // first.
-func (s *IndexedStore) Traverse(tenant, from, to string, at time.Time) []string {
+func (s *IndexedStore) traverse(tenant, from, to string, at time.Time) []string {
 	if _, err := normalizeTenant(tenant); err != nil {
 		return nil
 	}

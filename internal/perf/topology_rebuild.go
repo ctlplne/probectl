@@ -57,8 +57,8 @@ func TopologyRebuildTargets() []TopologyRebuildTarget {
 	}
 }
 
-// TopologyRebuildTargetFor returns one tier's cold-start target.
-func TopologyRebuildTargetFor(tier Tier) (TopologyRebuildTarget, error) {
+// topologyRebuildTargetFor returns one tier's cold-start target.
+func topologyRebuildTargetFor(tier Tier) (TopologyRebuildTarget, error) {
 	for _, target := range TopologyRebuildTargets() {
 		if target.Tier == tier {
 			return target, nil

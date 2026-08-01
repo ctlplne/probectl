@@ -28,7 +28,7 @@ func TestExportedOTLPCarriesSchemaURL(t *testing.T) {
 		TenantId: "t1", AgentId: "a1", CanaryType: "icmp",
 		Success: true, DurationNano: 100, StartTimeUnixNano: 1,
 	}
-	req := MetricsRequest(ResultResourceMetrics(r))
+	req := metricsRequest(resultResourceMetrics(r))
 
 	// Round-trip through the OTLP wire form.
 	wire, err := proto.Marshal(req)

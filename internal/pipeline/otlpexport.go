@@ -62,9 +62,9 @@ func NewOTLPExportConsumer(b bus.Bus, exp MetricsExporter, log *slog.Logger) *OT
 	return &OTLPExportConsumer{bus: b, exporter: exp, group: DefaultGroup + "-otlp-export", log: log}
 }
 
-// Exported / Failed report cumulative export outcomes (observability).
-func (c *OTLPExportConsumer) Exported() uint64 { return c.exported.Load() }
-func (c *OTLPExportConsumer) Failed() uint64   { return c.failed.Load() }
+// exported / failed report cumulative export outcomes (observability).
+func (c *OTLPExportConsumer) exportedCount() uint64 { return c.exported.Load() }
+func (c *OTLPExportConsumer) failedCount() uint64   { return c.failed.Load() }
 
 // WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP
 // metrics lane and verifies/restamps resource tenants before forwarding.
@@ -126,8 +126,7 @@ func NewOTLPTraceExportConsumer(b bus.Bus, exp TracesExporter, log *slog.Logger)
 	return &OTLPTraceExportConsumer{bus: b, exporter: exp, group: DefaultGroup + "-otlp-trace-export", log: log}
 }
 
-func (c *OTLPTraceExportConsumer) Exported() uint64 { return c.exported.Load() }
-func (c *OTLPTraceExportConsumer) Failed() uint64   { return c.failed.Load() }
+func (c *OTLPTraceExportConsumer) exportedCount() uint64 { return c.exported.Load() }
 
 // WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP
 // trace lane and verifies/restamps resource tenants before forwarding.
@@ -188,8 +187,7 @@ func NewOTLPLogExportConsumer(b bus.Bus, exp LogsExporter, log *slog.Logger) *OT
 	return &OTLPLogExportConsumer{bus: b, exporter: exp, group: DefaultGroup + "-otlp-log-export", log: log}
 }
 
-func (c *OTLPLogExportConsumer) Exported() uint64 { return c.exported.Load() }
-func (c *OTLPLogExportConsumer) Failed() uint64   { return c.failed.Load() }
+func (c *OTLPLogExportConsumer) exportedCount() uint64 { return c.exported.Load() }
 
 // WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP log
 // lane and verifies/restamps resource tenants before forwarding.

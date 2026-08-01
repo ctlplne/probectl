@@ -26,7 +26,7 @@ func TestTLSPostureSinkPostureIsPureReadModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	postures := threat.NewPostureStore(0)
-	cs := NewTLSPostureConsumer(nil, nil, BuildTLSAnalyzer(&config.Config{}), nil).
+	cs := NewTLSPostureConsumer(nil, nil, buildTLSAnalyzer(&config.Config{}), nil).
 		WithPostureStore(postures)
 
 	err = cs.SinkPosture(context.Background(), &resultv1.Result{

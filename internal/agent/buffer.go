@@ -60,14 +60,14 @@ const frameOverhead = 4
 // record count fills — guarding against ENOSPC from many large frames.
 const defaultMaxBytes = 256 << 20 // 256 MiB
 
-// OpenBuffer opens (creating if needed) a buffer in dir bounded to maxRecords
+// openBuffer opens (creating if needed) a buffer in dir bounded to maxRecords
 // and the default on-disk byte cap. It compacts the file on open, discarding
 // any torn tail frame left by a crash.
-func OpenBuffer(dir string, maxRecords int) (*Buffer, error) {
+func openBuffer(dir string, maxRecords int) (*Buffer, error) {
 	return OpenBufferWithBytes(dir, maxRecords, defaultMaxBytes)
 }
 
-// OpenBufferWithBytes is OpenBuffer with an explicit on-disk byte cap
+// OpenBufferWithBytes is openBuffer with an explicit on-disk byte cap
 // (RESIL-009). maxBytes == 0 uses defaultMaxBytes; maxBytes < 0 disables the
 // byte bound (records-only). Enqueue fails closed with ErrBufferFull when
 // EITHER the record OR the byte cap would be exceeded, shedding the newest
@@ -203,10 +203,10 @@ func (b *Buffer) NearFull(frac float64) bool {
 	return false
 }
 
-// PeekAll returns all undrained records without removing them. With Remove this
+// peekAll returns all undrained records without removing them. With Remove this
 // supports at-least-once forwarding: send a batch, get the control plane's ack,
 // then remove exactly that many — a failure mid-batch retains everything to retry.
-func (b *Buffer) PeekAll() ([][]byte, error) {
+func (b *Buffer) peekAll() ([][]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.readAll()

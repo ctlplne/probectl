@@ -35,7 +35,7 @@ func seededDetections() *threat.DetectionStore {
 }
 
 func TestThreatDetectionsEndpoint(t *testing.T) {
-	srv := testServer(fakePinger{}).WithDetections(seededDetections())
+	srv := testServer(fakePinger{}).withDetections(seededDetections())
 
 	rec := do(srv, http.MethodGet, "/v1/threat/detections")
 	if rec.Code != http.StatusOK {

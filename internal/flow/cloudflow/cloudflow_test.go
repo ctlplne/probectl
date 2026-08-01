@@ -34,7 +34,7 @@ func (c *captureEmitter) Emit(_ context.Context, recs []flow.Record) error {
 func TestConnectorLoadsCloudFixturesAndKeepsTenantIsolation(t *testing.T) {
 	ctx := context.Background()
 	store := flowstore.NewMemory()
-	conn := NewConnector(store, "cloud-agent-1")
+	conn := newConnector(store, "cloud-agent-1")
 	now := time.Date(2026, 6, 30, 12, 10, 0, 0, time.UTC)
 	conn.now = func() time.Time { return now }
 
@@ -47,7 +47,7 @@ func TestConnectorLoadsCloudFixturesAndKeepsTenantIsolation(t *testing.T) {
 		{ProviderGCPVPC, "gcp-vpc-flow.jsonl"},
 	} {
 		raw := readFixture(t, tc.fixture)
-		n, err := conn.Load(ctx, tc.provider, "tenant-a", bytes.NewReader(raw))
+		n, err := conn.load(ctx, tc.provider, "tenant-a", bytes.NewReader(raw))
 		if err != nil {
 			t.Fatalf("%s load: %v", tc.provider, err)
 		}
@@ -57,7 +57,7 @@ func TestConnectorLoadsCloudFixturesAndKeepsTenantIsolation(t *testing.T) {
 	}
 
 	foreign := []byte("2 123456789012 eni-foreign 172.16.0.10 172.16.0.11 44444 443 6 1000 9000000 1782820800 1782820860 ACCEPT OK\n")
-	if n, err := conn.Load(ctx, ProviderAWSVPC, "tenant-b", bytes.NewReader(foreign)); err != nil || n != 1 {
+	if n, err := conn.load(ctx, ProviderAWSVPC, "tenant-b", bytes.NewReader(foreign)); err != nil || n != 1 {
 		t.Fatalf("foreign tenant load inserted %d rows: %v", n, err)
 	}
 
@@ -132,8 +132,8 @@ func TestEmitPublishesTenantBoundCloudRecords(t *testing.T) {
 }
 
 func TestConnectorRefusesMissingTenant(t *testing.T) {
-	conn := NewConnector(flowstore.NewMemory(), "cloud-agent-1")
-	_, err := conn.Load(context.Background(), ProviderAWSVPC, "", strings.NewReader(""))
+	conn := newConnector(flowstore.NewMemory(), "cloud-agent-1")
+	_, err := conn.load(context.Background(), ProviderAWSVPC, "", strings.NewReader(""))
 	if !errors.Is(err, ErrNoTenant) {
 		t.Fatalf("missing tenant must fail closed, got %v", err)
 	}

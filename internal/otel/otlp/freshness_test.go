@@ -42,7 +42,7 @@ func TestFreshnessVerifierHTTPRejectsMissingReplayStaleAndTamperedEnvelopes(t *t
 		freshness,
 	)
 
-	body, err := proto.Marshal(MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"})))
+	body, err := proto.Marshal(metricsRequest(resultResourceMetrics(&resultv1.Result{TenantId: "tenant-a"})))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestFreshnessVerifierHTTPRejectsMissingReplayStaleAndTamperedEnvelopes(t *t
 		t.Fatalf("missing freshness = %d, want 401", code)
 	}
 
-	good := FreshnessHTTPHeaders(key, now, "nonce-1", http.MethodPost, "/v1/metrics", body)
+	good := freshnessHTTPHeaders(key, now, "nonce-1", http.MethodPost, "/v1/metrics", body)
 	if code := post(good, body); code != http.StatusOK {
 		t.Fatalf("fresh request = %d, want 200", code)
 	}
@@ -72,14 +72,14 @@ func TestFreshnessVerifierHTTPRejectsMissingReplayStaleAndTamperedEnvelopes(t *t
 		t.Fatalf("replayed nonce = %d, want 401", code)
 	}
 
-	stale := FreshnessHTTPHeaders(key, now.Add(-2*time.Minute), "nonce-2", http.MethodPost, "/v1/metrics", body)
+	stale := freshnessHTTPHeaders(key, now.Add(-2*time.Minute), "nonce-2", http.MethodPost, "/v1/metrics", body)
 	if code := post(stale, body); code != http.StatusUnauthorized {
 		t.Fatalf("stale envelope = %d, want 401", code)
 	}
 
 	tamperedBody := append([]byte(nil), body...)
 	tamperedBody[len(tamperedBody)-1] ^= 0xff
-	tampered := FreshnessHTTPHeaders(key, now, "nonce-3", http.MethodPost, "/v1/metrics", body)
+	tampered := freshnessHTTPHeaders(key, now, "nonce-3", http.MethodPost, "/v1/metrics", body)
 	if code := post(tampered, tamperedBody); code != http.StatusUnauthorized {
 		t.Fatalf("tampered body = %d, want 401", code)
 	}
@@ -93,11 +93,11 @@ func TestFreshnessVerifierGRPCUsesMethodBodyAndNonce(t *testing.T) {
 	key := bytes.Repeat([]byte{0x24}, crypto.KeySize)
 	now := time.Date(2026, 6, 19, 12, 30, 0, 0, time.UTC)
 	method := "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export"
-	req := MetricsRequest()
+	req := metricsRequest()
 	freshness := NewFreshnessVerifier(key, time.Minute)
 	freshness.now = func() time.Time { return now }
 
-	md, err := FreshnessGRPCMetadata(key, now, "grpc-nonce-1", method, req)
+	md, err := freshnessGRPCMetadata(key, now, "grpc-nonce-1", method, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestFreshnessVerifierGRPCUsesMethodBodyAndNonce(t *testing.T) {
 		t.Fatal("replayed grpc nonce accepted")
 	}
 
-	md, err = FreshnessGRPCMetadata(key, now, "grpc-nonce-2", method, req)
+	md, err = freshnessGRPCMetadata(key, now, "grpc-nonce-2", method, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestFreshnessNonceByteBoundHTTPAndGRPC(t *testing.T) {
 	key := bytes.Repeat([]byte{0x31}, crypto.KeySize)
 	now := time.Date(2026, 6, 19, 13, 0, 0, 0, time.UTC)
 	method := "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export"
-	grpcRequest := MetricsRequest()
+	grpcRequest := metricsRequest()
 	httpBody := []byte("bounded OTLP body")
 
 	for _, tc := range []struct {
@@ -138,7 +138,7 @@ func TestFreshnessNonceByteBoundHTTPAndGRPC(t *testing.T) {
 			freshness := NewFreshnessVerifier(key, time.Minute)
 			freshness.now = func() time.Time { return now }
 			req := httptest.NewRequest(http.MethodPost, "/v1/metrics", nil)
-			req.Header = FreshnessHTTPHeaders(key, now, tc.nonce, http.MethodPost, req.URL.Path, httpBody)
+			req.Header = freshnessHTTPHeaders(key, now, tc.nonce, http.MethodPost, req.URL.Path, httpBody)
 
 			err := freshness.VerifyHTTP(req, "tenant-a", httpBody)
 			if tc.wantErr && err == nil {
@@ -155,7 +155,7 @@ func TestFreshnessNonceByteBoundHTTPAndGRPC(t *testing.T) {
 		t.Run(tc.name+"/grpc", func(t *testing.T) {
 			freshness := NewFreshnessVerifier(key, time.Minute)
 			freshness.now = func() time.Time { return now }
-			md, err := FreshnessGRPCMetadata(key, now, tc.nonce, method, grpcRequest)
+			md, err := freshnessGRPCMetadata(key, now, tc.nonce, method, grpcRequest)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -184,7 +184,7 @@ func TestFreshnessOversizedNonceDoesNotEnterReplayCache(t *testing.T) {
 
 	verify := func(nonce string) error {
 		req := httptest.NewRequest(http.MethodPost, "/v1/metrics", nil)
-		req.Header = FreshnessHTTPHeaders(key, now, nonce, http.MethodPost, req.URL.Path, body)
+		req.Header = freshnessHTTPHeaders(key, now, nonce, http.MethodPost, req.URL.Path, body)
 		return freshness.VerifyHTTP(req, "tenant-a", body)
 	}
 

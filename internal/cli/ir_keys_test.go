@@ -48,7 +48,7 @@ func TestAuditSealPrivateKeyCreatesUsableEncryptedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code := Run(
+	code := runCLI(
 		[]string{
 			"audit", "seal-private-key", cliIRTenantA,
 			"--private-key-file", privatePath,

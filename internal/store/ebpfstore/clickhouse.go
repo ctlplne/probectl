@@ -352,28 +352,6 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	return nil
 }
 
-// EnsureRowPolicies installs DB-LEVEL tenancy on the edges table (TENANT-004 /
-// U-026 parity with flowstore): per-tenant CH users (named exactly the tenant
-// id) are row-filtered to tenant_id = currentUser(); serviceUser keeps full
-// access.
-func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
-	if serviceUser == "" {
-		serviceUser = "default"
-	}
-	if err := chValidUser(serviceUser); err != nil {
-		return fmt.Errorf("ebpfstore: service user: %w", err)
-	}
-	for _, ddl := range []string{
-		fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", edgesTable, serviceUser),
-		fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", edgesTable, serviceUser),
-	} {
-		if err := c.exec(ctx, ddl, nil); err != nil {
-			return fmt.Errorf("ebpfstore: row policy: %w", err)
-		}
-	}
-	return nil
-}
-
 // --- HTTP helpers over the shared chclient (CODE-006) ---
 
 func (c *ClickHouse) exec(ctx context.Context, query string, body io.Reader) error {

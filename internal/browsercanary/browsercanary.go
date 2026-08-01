@@ -71,11 +71,11 @@ func New(cfg canary.Config) (canary.Canary, error) {
 	return newBrowser(cfg, nil, nil, DriverConfig{Driver: DriverHTTP})
 }
 
-// NewWithObjectStore builds a browser canary factory that stores failure
+// newWithObjectStore builds a browser canary factory that stores failure
 // artifacts under tenant-scoped object keys. A configured store requires the
 // agent runtime to pass TenantID so artifact writes fail closed instead of
 // falling back to an unscoped path.
-func NewWithObjectStore(store objectstore.Store, log *slog.Logger) canary.Factory {
+func newWithObjectStore(store objectstore.Store, log *slog.Logger) canary.Factory {
 	return func(cfg canary.Config) (canary.Canary, error) {
 		return newBrowser(cfg, store, log, DriverConfig{Driver: DriverHTTP})
 	}

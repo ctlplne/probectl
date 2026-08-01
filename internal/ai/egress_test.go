@@ -74,7 +74,7 @@ func TestRemoteModelEgressDeniedWithoutConsent(t *testing.T) {
 
 	// Policy says no.
 	a = NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return false, nil }), audit)
+		withEgressPolicy(func(context.Context, string) (bool, error) { return false, nil }), audit)
 	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); !errors.Is(err, ErrEgressDenied) {
 		t.Fatalf("want ErrEgressDenied with denying policy, got %v", err)
 	}
@@ -93,7 +93,7 @@ func TestRemoteModelEgressPolicyErrorFailsClosedAndIsAudited(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
 	var events []EgressEvent
 	a := NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return false, errors.New("database unavailable") }),
+		withEgressPolicy(func(context.Context, string) (bool, error) { return false, errors.New("database unavailable") }),
 		WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
 			events = append(events, ev)
 			return nil
@@ -112,7 +112,7 @@ func TestRemoteRCAFailedAttemptIsAudited(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1", err: adapterErr}
 	var events []EgressEvent
 	a := NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(_ context.Context, tid string) (bool, error) {
+		withEgressPolicy(func(_ context.Context, tid string) (bool, error) {
 			return tid == "t1", nil
 		}),
 		WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
@@ -145,7 +145,7 @@ func TestRemoteModelEgressAllowedIsAudited(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
 	var events []EgressEvent
 	a := NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(_ context.Context, tid string) (bool, error) {
+		withEgressPolicy(func(_ context.Context, tid string) (bool, error) {
 			if tid != "t1" {
 				t.Errorf("policy consulted for tenant %q", tid)
 			}
@@ -186,7 +186,7 @@ func TestRemoteModelAuditSanitizesEndpointProvenance(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: rawEndpoint}
 	var events []EgressEvent
 	a := NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+		withEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
 		WithEgressAudit(func(_ context.Context, ev EgressEvent) error {
 			events = append(events, ev)
 			return nil
@@ -212,7 +212,7 @@ func TestRemoteModelAuditSanitizesEndpointProvenance(t *testing.T) {
 func TestRemoteRCARequiresDurableAuditBeforeDispatch(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
 	a := NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+		withEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
 	)
 
 	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); err == nil {
@@ -227,7 +227,7 @@ func TestRemoteRCAAuditWriteFailurePreventsDispatch(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
 	writeErr := errors.New("immutable store unavailable")
 	a := NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
+		withEgressPolicy(func(context.Context, string) (bool, error) { return true, nil }),
 		WithEgressAudit(func(context.Context, EgressEvent) error { return writeErr }),
 	)
 
@@ -244,7 +244,7 @@ func TestRemoteRCAAuditWriteFailurePreventsDispatch(t *testing.T) {
 // the local default is untouched (U-013 regression guard).
 func TestBuiltinModelNeverConsultsEgress(t *testing.T) {
 	a := NewAnalyzer(egressEngine(),
-		WithEgressPolicy(func(context.Context, string) (bool, error) {
+		withEgressPolicy(func(context.Context, string) (bool, error) {
 			t.Fatal("egress policy consulted for the builtin model")
 			return false, nil
 		}),

@@ -195,7 +195,7 @@ func TestCLIAIAskHandoffRejectsInvalidCombinationsBeforeRequest(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := Run(test.args, func(key string) string {
+			code := runCLI(test.args, func(key string) string {
 				if key == "PROBECTL_API_URL" {
 					return server.URL
 				}

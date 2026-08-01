@@ -41,6 +41,7 @@ cmd/        probectl-control · probectl-agent · probectl-ebpf-agent · probect
             probectl-flow-agent · probectl-device-agent · probectl-bmp-listener ·
             probectl-cloud-metrics · probectl-license · probectl-sdkgen ·
             probectl-workflow-policy · probectl-chaos-dependency-drill ·
+            probectl-deadseams (zero-call-site gate) ·
             terraform-provider-probectl · probectl (CLI, web-parity)
 internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agent runtime) ·
             agentlabel (placement-metadata validation) · agenttransport (agent gRPC lane, tenant-verifying) ·

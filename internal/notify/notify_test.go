@@ -368,7 +368,7 @@ func (c *blockingConnector) Resolve(ctx context.Context, _ incident.Incident, _ 
 func TestDispatcherConnectorTimeoutReleasesTenantQueue(t *testing.T) {
 	store := newMemStore()
 	slow := &blockingConnector{name: "slow", started: make(chan struct{})}
-	d := NewDispatcher(store, quiet()).WithDispatchControls(4, 25*time.Millisecond)
+	d := NewDispatcher(store, quiet()).withDispatchControls(4, 25*time.Millisecond)
 	d.Register("t1", slow)
 
 	start := time.Now()
@@ -450,11 +450,11 @@ func TestFactory(t *testing.T) {
 		if !ok || c.Name() != p {
 			t.Fatalf("connector %q: ok=%v name=%q", p, ok, c.Name())
 		}
-		if !KnownProvider(p) {
+		if !knownProvider(p) {
 			t.Fatalf("KnownProvider(%q) should be true", p)
 		}
 	}
-	if _, ok := NewConnector("nope", "x", "y", nil); ok || KnownProvider("nope") {
+	if _, ok := NewConnector("nope", "x", "y", nil); ok || knownProvider("nope") {
 		t.Fatal("unknown provider must be rejected")
 	}
 }

@@ -20,10 +20,10 @@ import (
 	"github.com/ctlplne/probectl/internal/threat"
 )
 
-// BuildTLSAnalyzer builds the S27 TLS/cert posture analyzer from config. CT
+// buildTLSAnalyzer builds the S27 TLS/cert posture analyzer from config. CT
 // correlation is enabled only when the operator opts in (external fetch — AUP /
 // sovereignty / no-phone-home).
-func BuildTLSAnalyzer(cfg *config.Config) *threat.Analyzer {
+func buildTLSAnalyzer(cfg *config.Config) *threat.Analyzer {
 	return BuildTLSAnalyzerWithMetrics(cfg, nil)
 }
 
@@ -72,20 +72,13 @@ func (cs *TLSPostureConsumer) WithPostureStore(ps *threat.PostureStore) *TLSPost
 	return cs
 }
 
-// WithDetections retains intel-attributed findings (malicious cert/JA3) for
-// the triage surface (S-FE3). nil is a no-op.
-func (cs *TLSPostureConsumer) WithDetections(ds *threat.DetectionStore) *TLSPostureConsumer {
-	cs.detections = ds
-	return cs
-}
-
 func (cs *TLSPostureConsumer) WithSIEM(fw *siem.Forwarder) *TLSPostureConsumer {
 	cs.siem = fw
 	return cs
 }
 
-// WithNamespaceTenants subscribes standalone TLS posture to siloed result lanes.
-func (cs *TLSPostureConsumer) WithNamespaceTenants(ns map[string]string) *TLSPostureConsumer {
+// withNamespaceTenants subscribes standalone TLS posture to siloed result lanes.
+func (cs *TLSPostureConsumer) withNamespaceTenants(ns map[string]string) *TLSPostureConsumer {
 	cs.nsTenants = ns
 	return cs
 }
@@ -93,9 +86,9 @@ func (cs *TLSPostureConsumer) WithNamespaceTenants(ns map[string]string) *TLSPos
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cs *TLSPostureConsumer) LaneFanoutEnabled() bool { return true }
 
-// Run subscribes until ctx is canceled (standalone mode; production uses
+// run subscribes until ctx is canceled (standalone mode; production uses
 // SinkResult via the ResultFan, SCALE-013).
-func (cs *TLSPostureConsumer) Run(ctx context.Context) error {
+func (cs *TLSPostureConsumer) run(ctx context.Context) error {
 	return runResultSinkLanes(ctx, cs.bus, "tls-posture", cs.log, cs.nsTenants, cs.SinkResult)
 }
 

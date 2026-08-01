@@ -116,7 +116,7 @@ func TestSingletonCoordinatorValidation(t *testing.T) {
 	if err := c.Run(context.Background()); err == nil {
 		t.Fatal("starting a coordinator twice must fail")
 	}
-	if c.WithMetrics(nil) != c || c.IsHolder() || c.Epoch() != 0 {
+	if c.WithMetrics(nil) != c || c.isHolder() || c.currentEpoch() != 0 {
 		t.Fatal("idle coordinator state must remain standby")
 	}
 	if _, err := NewPGLease(nil, "test", "replica"); err == nil {

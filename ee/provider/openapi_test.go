@@ -21,7 +21,7 @@ var providerSpec []byte
 // provider surface: the route table and the spec must match EXACTLY — no
 // undocumented provider routes, no documented phantoms (CLAUDE.md §6).
 func TestProviderOpenAPIMatchesRoutes(t *testing.T) {
-	for _, mismatch := range providerRouteSpecMismatches(providerRouteOps(Routes()), providerSpecOps(t)) {
+	for _, mismatch := range providerRouteSpecMismatches(providerRouteOps(routes()), providerSpecOps(t)) {
 		t.Error(mismatch)
 	}
 }
@@ -68,7 +68,7 @@ func providerRouteSpecMismatches(routeOps, specOps map[string]bool) []string {
 }
 
 func TestProviderOpenAPIGateCatchesPlantedDrift(t *testing.T) {
-	routeOps := providerRouteOps(Routes())
+	routeOps := providerRouteOps(routes())
 	specOps := providerSpecOps(t)
 	routeOps["GET /provider/v1/__planted_route_drift"] = true
 	specOps["POST /provider/v1/__planted_spec_drift"] = true
@@ -86,7 +86,7 @@ func TestProviderOpenAPIGateCatchesPlantedDrift(t *testing.T) {
 // mounted (a table entry without a handler would 404 silently).
 func TestProviderRoutesAreRegistered(t *testing.T) {
 	h := newTestHandler(t)
-	for _, rt := range Routes() {
+	for _, rt := range routes() {
 		pattern := strings.NewReplacer("{id}", "x").Replace(rt.Pattern)
 		req := newReq(rt.Method, pattern, nil)
 		rec := doReq(h, req)

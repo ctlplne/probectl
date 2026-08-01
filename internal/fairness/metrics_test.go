@@ -82,7 +82,7 @@ func TestRunMetricsLoop(t *testing.T) {
 
 func TestParseRate(t *testing.T) {
 	for in, want := range map[string]float64{"": 0, "x": 0, "-5": 0, "250": 250, "0.5": 0.5} {
-		if got := ParseRate(in); got != want {
+		if got := parseRate(in); got != want {
 			t.Fatalf("ParseRate(%q) = %v, want %v", in, got, want)
 		}
 	}

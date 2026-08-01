@@ -49,7 +49,7 @@ func (s *timedIncidentStore) AppendSignal(ctx context.Context, tenant, incidentI
 }
 
 func TestProbeResultToIncidentLatency(t *testing.T) {
-	hp, ok := HotPathByID("hp-probe-result-to-incident")
+	hp, ok := hotPathByID("hp-probe-result-to-incident")
 	if !ok {
 		t.Fatal("missing hp-probe-result-to-incident catalog row")
 	}

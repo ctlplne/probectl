@@ -61,7 +61,7 @@ const (
 var (
 	ErrKeyDestroyed   = errors.New("tenantkeys: the tenant's keys are destroyed (cryptographic offboarding) — ciphertexts are permanently unreadable")
 	ErrKeyUnavailable = errors.New("tenantkeys: tenant key unavailable — failing safe (no shared-key fallback)")
-	ErrNoActiveKey    = errors.New("tenantkeys: tenant has no active key")
+
 	ErrRotationCommit = errors.New("tenantkeys: atomic key rotation transaction failed")
 )
 
@@ -161,24 +161,24 @@ func NewKeyring(store Store, master *crypto.Envelope, resolve RefResolver) (*Key
 		now: time.Now, ttl: 30 * time.Second, byokTTL: 0, cache: map[string]cachedKEK{}}, nil
 }
 
-// WithClock overrides time (tests).
-func (k *Keyring) WithClock(now func() time.Time) *Keyring {
+// withClock overrides time (tests).
+func (k *Keyring) withClock(now func() time.Time) *Keyring {
 	k.now = now
 	return k
 }
 
-// WithTTL overrides the managed-KEK cache TTL (KEYS-003). A non-positive value
+// withTTL overrides the managed-KEK cache TTL (KEYS-003). A non-positive value
 // means resolve-on-every-use (no caching) for managed keys.
-func (k *Keyring) WithTTL(ttl time.Duration) *Keyring {
+func (k *Keyring) withTTL(ttl time.Duration) *Keyring {
 	k.ttl = ttl
 	return k
 }
 
-// WithBYOKTTL overrides the BYOK cache TTL (KEYS-002). It DEFAULTS to 0
+// withBYOKTTL overrides the BYOK cache TTL (KEYS-002). It DEFAULTS to 0
 // (resolve-on-every-use) so a revoked/purged BYOK reference stops decrypting
 // within the same process immediately — BYOK revocation is effectively
 // instantaneous, not bounded by a 30s window.
-func (k *Keyring) WithBYOKTTL(ttl time.Duration) *Keyring {
+func (k *Keyring) withBYOKTTL(ttl time.Duration) *Keyring {
 	k.byokTTL = ttl
 	return k
 }
@@ -410,10 +410,10 @@ func (k *Keyring) Open(ctx context.Context, tenantID string, stored string, aad 
 	return plain, nil
 }
 
-// Rotate activates a new key version as the system actor. Interactive callers
+// rotate activates a new key version as the system actor. Interactive callers
 // use RotateAudited so the authenticated actor is preserved in the mandatory
 // audit event.
-func (k *Keyring) Rotate(ctx context.Context, tenantID, mode, byokRef string) (*KeyVersion, error) {
+func (k *Keyring) rotate(ctx context.Context, tenantID, mode, byokRef string) (*KeyVersion, error) {
 	return k.RotateAudited(ctx, tenantID, "system", mode, byokRef)
 }
 

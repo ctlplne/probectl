@@ -55,7 +55,7 @@ func TestRouterStaleCapOneTTL(t *testing.T) {
 	if tg.Model != tenancy.IsolationSiloed {
 		t.Fatalf("stale snapshot lost the silo model: %+v", tg)
 	}
-	st := r.Stats()
+	st := r.stats()
 	if st.StaleServes != 1 || !strings.Contains(st.LastError, "connection refused") {
 		t.Fatalf("stale serving must be surfaced: %+v", st)
 	}
@@ -73,7 +73,7 @@ func TestRouterStaleCapOneTTL(t *testing.T) {
 	if _, err := r.TargetsFor(context.Background(), "t-silo"); err != nil {
 		t.Fatalf("recovery: %v", err)
 	}
-	if st := r.Stats(); st.LastError != "" {
+	if st := r.stats(); st.LastError != "" {
 		t.Fatalf("recovery should clear the last error: %+v", st)
 	}
 }
@@ -160,7 +160,7 @@ func TestRouterCanceledOrExpiredRefreshNeverServesStale(t *testing.T) {
 			if _, err := r.TargetsFor(tc.context(t), "tenant-a"); !errors.Is(err, tc.wantErr) {
 				t.Fatalf("refresh error = %v, want %v rather than stale fallback", err, tc.wantErr)
 			}
-			if stats := r.Stats(); stats.StaleServes != 0 {
+			if stats := r.stats(); stats.StaleServes != 0 {
 				t.Fatalf("canceled refresh counted as stale success: %+v", stats)
 			}
 		})

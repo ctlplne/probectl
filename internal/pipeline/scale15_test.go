@@ -28,7 +28,7 @@ import (
 func TestCardinalityEvictionBoundsMemory(t *testing.T) {
 	base := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 	now := base
-	l := NewCardinalityLimiter(100, 1000).WithIdleTTL(10 * time.Minute)
+	l := NewCardinalityLimiter(100, 1000).withIdleTTL(10 * time.Minute)
 	l.now = func() time.Time { return now }
 
 	mk := func(name string) []tsdb.Series {
@@ -264,7 +264,7 @@ func TestEnrichAsyncNeverBlocksHotPath(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		_, _ = a.Enrich(ctx, fmt.Sprintf("10.0.%d.%d", i/250, i%250))
 	}
-	_, misses, dropped := a.EnrichStats()
+	_, misses, dropped := a.enrichStats()
 	if misses == 0 || dropped == 0 {
 		t.Fatalf("lagging enrichment must shed warms: misses=%d dropped=%d", misses, dropped)
 	}

@@ -124,7 +124,7 @@ func TestOTLPThreeSignalRoundTrip(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		spans, logs := signals.Len(tenant)
-		if mc.Consumed() >= 1 && spans >= 1 && logs >= 1 {
+		if mc.consumedCount() >= 1 && spans >= 1 && logs >= 1 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -375,8 +375,8 @@ func TestOTLPTraceLogBusTenantIsAuthoritative(t *testing.T) {
 	if err := tc.handle(context.Background(), bus.Message{Key: bus.TenantKey("tenant-a", "replay"), Value: tpayload}); err != nil {
 		t.Fatalf("trace handle: %v", err)
 	}
-	if tc.RejectedTenant() != 1 {
-		t.Fatalf("trace rejected tenant count = %d, want 1", tc.RejectedTenant())
+	if tc.rejectedTenant() != 1 {
+		t.Fatalf("trace rejected tenant count = %d, want 1", tc.rejectedTenant())
 	}
 
 	lreq := &collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{
@@ -396,8 +396,8 @@ func TestOTLPTraceLogBusTenantIsAuthoritative(t *testing.T) {
 	if err := lc.handle(context.Background(), bus.Message{Key: bus.TenantKey("tenant-a", "replay"), Value: lpayload}); err != nil {
 		t.Fatalf("log handle: %v", err)
 	}
-	if lc.RejectedTenant() != 1 {
-		t.Fatalf("log rejected tenant count = %d, want 1", lc.RejectedTenant())
+	if lc.rejectedTenant() != 1 {
+		t.Fatalf("log rejected tenant count = %d, want 1", lc.rejectedTenant())
 	}
 
 	if got, _ := signals.QuerySpans(context.Background(), "tenant-b", otelstore.SpanQuery{}); len(got) != 0 {

@@ -54,7 +54,7 @@ func TestSNMPTrapReceiverReplaysV2CV3FixturesTenantScopedAlerts(t *testing.T) {
 
 	remote := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2162}
 	v2c := snmpTrapFixtureV2C(t, "public-core", oidSNMPLinkDown, 7)
-	event, alert, inserted, err := receiver.DecodeAndRecord(context.Background(), v2c, remote)
+	event, alert, inserted, err := receiver.decodeAndRecord(context.Background(), v2c, remote)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,12 +74,12 @@ func TestSNMPTrapReceiverReplaysV2CV3FixturesTenantScopedAlerts(t *testing.T) {
 		t.Fatalf("v2c event stored secret community instead of source name: %+v", event)
 	}
 
-	if _, _, inserted, err := receiver.DecodeAndRecord(context.Background(), v2c, remote); err != nil || inserted {
+	if _, _, inserted, err := receiver.decodeAndRecord(context.Background(), v2c, remote); err != nil || inserted {
 		t.Fatalf("duplicate v2c replay inserted=%v err=%v", inserted, err)
 	}
 
 	v3 := snmpTrapFixtureV3(t, "trap-user", "auth-password", oidSNMPColdStart, 0)
-	event, alert, inserted, err = receiver.DecodeAndRecord(context.Background(), v3, remote)
+	event, alert, inserted, err = receiver.decodeAndRecord(context.Background(), v3, remote)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,16 +93,16 @@ func TestSNMPTrapReceiverReplaysV2CV3FixturesTenantScopedAlerts(t *testing.T) {
 		t.Fatalf("v3 alert = %+v", alert)
 	}
 
-	if got := len(store.ListTrapEvents("tenant-a")); got != 2 {
+	if got := len(store.listTrapEvents("tenant-a")); got != 2 {
 		t.Fatalf("tenant-a events = %d, want 2", got)
 	}
-	if got := len(store.ListTrapAlerts("tenant-a")); got != 2 {
+	if got := len(store.listTrapAlerts("tenant-a")); got != 2 {
 		t.Fatalf("tenant-a alerts = %d, want 2", got)
 	}
-	if got := len(store.ListTrapEvents("tenant-b")); got != 0 {
+	if got := len(store.listTrapEvents("tenant-b")); got != 0 {
 		t.Fatalf("tenant-b events = %d, want 0", got)
 	}
-	if got := len(store.ListTrapAlerts("tenant-b")); got != 0 {
+	if got := len(store.listTrapAlerts("tenant-b")); got != 0 {
 		t.Fatalf("tenant-b alerts = %d, want 0", got)
 	}
 }
@@ -121,10 +121,10 @@ func TestSNMPTrapReceiverRejectsUnauthenticatedFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	remote := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2162}
-	if _, _, _, err := receiver.DecodeAndRecord(context.Background(), snmpTrapFixtureV2C(t, "wrong", oidSNMPLinkUp, 7), remote); err == nil {
+	if _, _, _, err := receiver.decodeAndRecord(context.Background(), snmpTrapFixtureV2C(t, "wrong", oidSNMPLinkUp, 7), remote); err == nil {
 		t.Fatal("wrong v2c community should fail closed")
 	}
-	if got := len(store.ListTrapEvents("tenant-a")); got != 0 {
+	if got := len(store.listTrapEvents("tenant-a")); got != 0 {
 		t.Fatalf("events after rejected trap = %d, want 0", got)
 	}
 }
@@ -181,7 +181,7 @@ func TestSNMPTrapLiveCallbackSurfacesSafeBoundedHealth(t *testing.T) {
 		errors.New("raw-packet=private auth-password=secret"),
 	)
 
-	got := receiver.HealthSnapshot()
+	got := receiver.healthSnapshot()
 	if got.Accepted != 1 || got.Rejected != 2 || got.ParseFailed != 1 ||
 		got.RateLimited != 0 || got.PersistenceFailed != 1 {
 		t.Fatalf("live trap health = %+v", got)

@@ -150,18 +150,3 @@ func (c *Conn) Stats() breaker.Stats { return c.def.Stats() }
 // and bound by ClickHouse to the {k:Type} placeholder, so a value is data, not
 // SQL syntax — no client-side escaping, no injection surface.
 type Params map[string]string
-
-// QS renders the &param_*=... suffix ("" for no params).
-func (p Params) QS() string {
-	if len(p) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	for k, v := range p {
-		sb.WriteString("&param_")
-		sb.WriteString(urlEscape(k))
-		sb.WriteString("=")
-		sb.WriteString(urlEscape(v))
-	}
-	return sb.String()
-}

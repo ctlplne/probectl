@@ -96,7 +96,7 @@ func TestBrowserCanaryStoresFailureArtifactWithTenantObjectStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := objectstore.NewMemory()
-	c, err := NewWithObjectStore(store, nil)(canary.Config{
+	c, err := newWithObjectStore(store, nil)(canary.Config{
 		Type:     Type,
 		Target:   app.URL + "/login",
 		Timeout:  time.Second,
@@ -130,7 +130,7 @@ func TestBrowserCanaryStoresFailureArtifactWithTenantObjectStore(t *testing.T) {
 }
 
 func TestBrowserCanaryArtifactStoreRequiresTenant(t *testing.T) {
-	_, err := NewWithObjectStore(objectstore.NewMemory(), nil)(canary.Config{
+	_, err := newWithObjectStore(objectstore.NewMemory(), nil)(canary.Config{
 		Type:   Type,
 		Target: "https://example.com/login",
 	})

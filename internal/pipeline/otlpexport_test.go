@@ -49,8 +49,8 @@ func TestOTLPExportConsumer(t *testing.T) {
 	if err := c.handle(context.Background(), bus.Message{Value: payload}); err != nil {
 		t.Fatalf("export: %v", err)
 	}
-	if c.Exported() != 1 || c.Failed() != 0 {
-		t.Fatalf("success counters: exported=%d failed=%d", c.Exported(), c.Failed())
+	if c.exportedCount() != 1 || c.failedCount() != 0 {
+		t.Fatalf("success counters: exported=%d failed=%d", c.exportedCount(), c.failedCount())
 	}
 
 	// Failure path → error returned (redelivery) + counted.
@@ -59,8 +59,8 @@ func TestOTLPExportConsumer(t *testing.T) {
 	if err := cf.handle(context.Background(), bus.Message{Value: payload}); err == nil {
 		t.Fatal("export failure must return an error so the record redelivers")
 	}
-	if cf.Failed() != 1 {
-		t.Fatalf("failure not counted: %d", cf.Failed())
+	if cf.failedCount() != 1 {
+		t.Fatalf("failure not counted: %d", cf.failedCount())
 	}
 
 	// Malformed payload is dropped, not errored.
@@ -107,8 +107,8 @@ func TestOTLPTraceLogExportConsumers(t *testing.T) {
 	if exp.traces != 1 || exp.logs != 1 {
 		t.Fatalf("forwards: traces=%d logs=%d, want 1/1", exp.traces, exp.logs)
 	}
-	if tc.Exported() != 1 || lc.Exported() != 1 {
-		t.Fatalf("exported counters: traces=%d logs=%d", tc.Exported(), lc.Exported())
+	if tc.exportedCount() != 1 || lc.exportedCount() != 1 {
+		t.Fatalf("exported counters: traces=%d logs=%d", tc.exportedCount(), lc.exportedCount())
 	}
 
 	// Malformed payloads are dropped, not errored.

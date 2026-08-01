@@ -137,8 +137,8 @@ func ReadSelfMounts() (string, error) {
 	return string(b), nil
 }
 
-// Strict reports whether findings demand a non-zero exit under --strict.
-func Strict(fs []Finding) bool {
+// strict reports whether findings demand a non-zero exit under --strict.
+func strict(fs []Finding) bool {
 	for _, f := range fs {
 		if f.Severity == Warn {
 			return true

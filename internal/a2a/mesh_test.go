@@ -60,17 +60,17 @@ func TestMeshSchedulerThreeSiteFixtureTenantPartitionAndIncidents(t *testing.T) 
 			success = false
 			loss = 1
 		}
-		if _, err := s.RecordResult("tenant-a", sess.SessionID, sess.InitiatorAgent, meshCanaryResult("initiator", success, loss, now)); err != nil {
+		if _, err := s.recordResult("tenant-a", sess.SessionID, sess.InitiatorAgent, meshCanaryResult("initiator", success, loss, now)); err != nil {
 			t.Fatalf("record initiator result: %v", err)
 		}
 	}
 	if degraded.SessionID == "" {
 		t.Fatal("test fixture did not find nyc->sfo session")
 	}
-	if _, err := s.RecordResult("tenant-a", degraded.SessionID, degraded.ResponderAgent, meshCanaryResult("responder", false, 1, now.Add(time.Second))); err != nil {
+	if _, err := s.recordResult("tenant-a", degraded.SessionID, degraded.ResponderAgent, meshCanaryResult("responder", false, 1, now.Add(time.Second))); err != nil {
 		t.Fatalf("record responder degraded result: %v", err)
 	}
-	if _, err := s.RecordResult("tenant-b", degraded.SessionID, degraded.InitiatorAgent, meshCanaryResult("initiator", true, 0, now)); err == nil {
+	if _, err := s.recordResult("tenant-b", degraded.SessionID, degraded.InitiatorAgent, meshCanaryResult("initiator", true, 0, now)); err == nil {
 		t.Fatal("cross-tenant result write must fail closed")
 	}
 
@@ -98,7 +98,7 @@ func TestMeshSchedulerThreeSiteFixtureTenantPartitionAndIncidents(t *testing.T) 
 
 	store := incident.NewMemoryStore()
 	c := incident.NewCorrelator(store, time.Minute, slog.New(slog.NewTextHandler(testWriter{t}, nil)))
-	for _, sig := range s.IncidentSignals("tenant-a") {
+	for _, sig := range s.incidentSignals("tenant-a") {
 		if _, err := c.Ingest(context.Background(), sig); err != nil {
 			t.Fatal(err)
 		}
@@ -125,10 +125,10 @@ func TestMeshSchedulerThreeSiteFixtureTenantPartitionAndIncidents(t *testing.T) 
 			break
 		}
 	}
-	if _, err := s.RecordResult("tenant-b", tenantBDegraded.SessionID, tenantBDegraded.InitiatorAgent, meshCanaryResult("initiator", false, 1, now)); err != nil {
+	if _, err := s.recordResult("tenant-b", tenantBDegraded.SessionID, tenantBDegraded.InitiatorAgent, meshCanaryResult("initiator", false, 1, now)); err != nil {
 		t.Fatal(err)
 	}
-	for _, sig := range s.IncidentSignals("tenant-b") {
+	for _, sig := range s.incidentSignals("tenant-b") {
 		if _, err := c.Ingest(context.Background(), sig); err != nil {
 			t.Fatal(err)
 		}

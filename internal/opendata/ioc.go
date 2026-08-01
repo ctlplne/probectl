@@ -26,7 +26,7 @@ const (
 	CategoryMaliciousJA3  = "malicious_ja3"
 	CategorySpam          = "spam"
 	CategoryTorExit       = "tor_exit"
-	CategoryScanner       = "scanner"
+	_                     = "scanner"
 	CategoryBlocklist     = "blocklist"
 )
 

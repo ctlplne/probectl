@@ -109,7 +109,7 @@ func scanProposal(row pgx.Row) (rem.Proposal, error) {
 	return p, nil
 }
 
-func (s *PGStore) Insert(ctx context.Context, tenantID string, p rem.Proposal) (rem.Proposal, error) {
+func (s *PGStore) insert(ctx context.Context, tenantID string, p rem.Proposal) (rem.Proposal, error) {
 	dry, err := json.Marshal(p.DryRun)
 	if err != nil {
 		return rem.Proposal{}, fmt.Errorf("marshal remediation dry_run: %w", err)
@@ -212,7 +212,7 @@ func (s *PGStore) Get(ctx context.Context, tenantID, id string) (rem.Proposal, e
 	return out, err
 }
 
-func (s *PGStore) Decide(ctx context.Context, tenantID, id string, state rem.State, by, note string, at time.Time) (rem.Proposal, error) {
+func (s *PGStore) decide(ctx context.Context, tenantID, id string, state rem.State, by, note string, at time.Time) (rem.Proposal, error) {
 	scoped, err := remediationTenantContext(ctx, tenantID)
 	if err != nil {
 		return rem.Proposal{}, err
@@ -286,7 +286,7 @@ type MemStore struct {
 // NewMemStore returns an empty store.
 func NewMemStore() *MemStore { return &MemStore{all: map[string][]rem.Proposal{}} }
 
-func (m *MemStore) Insert(_ context.Context, tenantID string, p rem.Proposal) (rem.Proposal, error) {
+func (m *MemStore) insert(_ context.Context, tenantID string, p rem.Proposal) (rem.Proposal, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.insertLocked(tenantID, p), nil
@@ -344,7 +344,7 @@ func (m *MemStore) Get(_ context.Context, tenantID, id string) (rem.Proposal, er
 	return rem.Proposal{}, rem.Error{Code: "not_found", Message: "remediation proposal not found"}
 }
 
-func (m *MemStore) Decide(_ context.Context, tenantID, id string, state rem.State, by, note string, at time.Time) (rem.Proposal, error) {
+func (m *MemStore) decide(_ context.Context, tenantID, id string, state rem.State, by, note string, at time.Time) (rem.Proposal, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.decideLocked(tenantID, id, state, by, note, at)

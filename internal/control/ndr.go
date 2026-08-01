@@ -122,8 +122,8 @@ func (cs *NDRConsumer) admitFlows(ctx context.Context, counts map[string]int) ma
 	return shed
 }
 
-// Shed reports flow/eBPF records the NDR consumer shed for fairness (SCALE-005).
-func (cs *NDRConsumer) Shed() uint64 { return cs.shed.Load() }
+// shed reports flow/eBPF records the NDR consumer shed for fairness (SCALE-005).
+func (cs *NDRConsumer) shedCount() uint64 { return cs.shed.Load() }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101,
 // ARCH-012) so the NDR consumer cannot raise a detection against a tenant the
@@ -165,8 +165,8 @@ func NewNDRConsumer(b bus.Bus, eng *threat.Engine, c *incident.Correlator, log *
 	return &NDRConsumer{engine: eng, bus: b, correlator: c, log: log}
 }
 
-// WithDetections retains raised detections for the triage surface (S-FE3).
-func (cs *NDRConsumer) WithDetections(ds *threat.DetectionStore) *NDRConsumer {
+// withDetections retains raised detections for the triage surface (S-FE3).
+func (cs *NDRConsumer) withDetections(ds *threat.DetectionStore) *NDRConsumer {
 	cs.detections = ds
 	return cs
 }
@@ -175,17 +175,6 @@ func (cs *NDRConsumer) WithDetections(ds *threat.DetectionStore) *NDRConsumer {
 func (cs *NDRConsumer) WithSIEM(fw *siem.Forwarder) *NDRConsumer {
 	cs.siem = fw
 	return cs
-}
-
-// Run subscribes to the DNS-result, flow, and eBPF topics (independent
-// consumer groups) until ctx is canceled.
-func (cs *NDRConsumer) Run(ctx context.Context) error {
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return pipeline.RunLanes(gctx, cs.bus, bus.NetworkResultsTopic, "ndr-dns", cs.nsTenants, cs.handleResultLane)
-	})
-	g.Go(func() error { return cs.RunFlowLanes(gctx) })
-	return g.Wait()
 }
 
 // RunFlowLanes consumes ONLY the flow/eBPF lanes — production mode when the

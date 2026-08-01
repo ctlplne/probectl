@@ -21,7 +21,7 @@ import (
 // CORRECT-005 lane-coverage gate: every consumer that subscribes to a
 // tenant-keyed topic must fan out across siloed-tenant lanes (implement
 // pipeline.LaneFanout) rather than ship shared-only and silently miss siloed
-// tenants. A NEW consumer added here that forgets WithNamespaceTenants/RunLanes
+// tenants. A NEW consumer added here that forgets withNamespaceTenants/RunLanes
 // fails to compile against this list — the regression guard the audit asked for.
 func TestConsumersFanOutAcrossLanes(t *testing.T) {
 	consumers := []any{
@@ -120,21 +120,21 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			name:   "result-view-standalone",
 			topics: []string{bus.NetworkResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
-				return NewResultViewConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+				return NewResultViewConsumer(b, nil, log).withNamespaceTenants(ns).run(ctx)
 			},
 		},
 		{
 			name:   "tls-posture-standalone",
 			topics: []string{bus.NetworkResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
-				return NewTLSPostureConsumer(b, nil, nil, log).WithNamespaceTenants(ns).Run(ctx)
+				return NewTLSPostureConsumer(b, nil, nil, log).withNamespaceTenants(ns).run(ctx)
 			},
 		},
 		{
 			name:   "ioc-standalone",
 			topics: []string{bus.NetworkResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
-				return NewIOCConsumer(b, nil, nil, log).WithNamespaceTenants(ns).Run(ctx)
+				return NewIOCConsumer(b, nil, nil, log).withNamespaceTenants(ns).run(ctx)
 			},
 		},
 		{
@@ -204,7 +204,7 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			name:   "outage",
 			topics: []string{bus.NetworkResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
-				return NewOutageConsumer(b, nil, nil, log).WithNamespaceTenants(ns).Run(ctx)
+				return NewOutageConsumer(b, nil, nil, log).WithNamespaceTenants(ns).run(ctx)
 			},
 		},
 		{

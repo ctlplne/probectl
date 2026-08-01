@@ -89,7 +89,7 @@ func TestRotatingMTLSConfigsUseInternalTLS13Floor(t *testing.T) {
 		t.Fatal("rotating client config must still present a hot-reloaded identity and verify the server CA")
 	}
 
-	serverCfg, _, err := ServerMTLSConfigRotating(certFile, keyFile, caFile, "spiffe://probectl/")
+	serverCfg, _, err := serverMTLSConfigRotating(certFile, keyFile, caFile, "spiffe://probectl/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestRotatingIdentityPicksUpRenewalWithoutRestart(t *testing.T) {
 	clientCfg.ServerName = "localhost"
 	ri.interval = 0 // test: re-stat on every handshake
 
-	serial1 := ri.Leaf().SerialNumber.String()
+	serial1 := ri.leafCert().SerialNumber.String()
 	if got := presentedSerial(t, serverCfg, clientCfg); got != serial1 {
 		t.Fatalf("first handshake presented %s, want %s", got, serial1)
 	}
@@ -165,7 +165,7 @@ func TestRotatingIdentityPicksUpRenewalWithoutRestart(t *testing.T) {
 	}
 
 	got := presentedSerial(t, serverCfg, clientCfg)
-	serial2 := ri.Leaf().SerialNumber.String()
+	serial2 := ri.leafCert().SerialNumber.String()
 	if serial2 == serial1 {
 		t.Fatal("identity did not reload the renewed certificate")
 	}
@@ -218,7 +218,7 @@ func TestRotatingIdentityFailsClosedOnSPIFFEMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	ri.interval = 0
-	serial1 := ri.Leaf().SerialNumber.String()
+	serial1 := ri.leafCert().SerialNumber.String()
 
 	wrong := AgentSPIFFEID("tenant-999", "agent-evil")
 	cc2, ck2, err := ca.IssueClientCert("agent-evil", wrong, time.Hour)

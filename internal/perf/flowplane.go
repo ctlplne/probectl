@@ -50,10 +50,10 @@ func (r FlowPlaneReport) String() string {
 		r.Tier, r.AtCIScale, r.Records, r.Stored, r.Rejected, r.RecordsSec)
 }
 
-// DriveFlowPlane pushes the tier's flow volume (records ≈ 4× the tier's
+// driveFlowPlane pushes the tier's flow volume (records ≈ 4× the tier's
 // result count — flow outvolumes results in every real deployment) through
 // the production consumer and verifies storage completeness.
-func DriveFlowPlane(ctx context.Context, tier Tier, scale float64) (FlowPlaneReport, error) {
+func driveFlowPlane(ctx context.Context, tier Tier, scale float64) (FlowPlaneReport, error) {
 	profile, err := ProfileFor(tier, scale)
 	if err != nil {
 		return FlowPlaneReport{}, err

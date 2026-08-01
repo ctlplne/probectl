@@ -33,7 +33,7 @@ func TestManagerRoutesByConnAndDetects(t *testing.T) {
 func TestTrackerUnknownProtocolNoCalls(t *testing.T) {
 	tr := NewTracker(12345)
 	calls := tr.OnData(DataEvent{Kind: Request, Time: time.Unix(0, 0), Payload: []byte("\x99\x98 garbage")})
-	if len(calls) != 0 || tr.Protocol() != ProtoUnknown {
-		t.Errorf("calls=%v proto=%q", calls, tr.Protocol())
+	if len(calls) != 0 || tr.protocol() != ProtoUnknown {
+		t.Errorf("calls=%v proto=%q", calls, tr.protocol())
 	}
 }

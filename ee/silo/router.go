@@ -52,8 +52,8 @@ type RouterStats struct {
 	SnapshotAge time.Duration
 }
 
-// Stats returns the current degradation counters.
-func (r *Router) Stats() RouterStats {
+// stats returns the current degradation counters.
+func (r *Router) stats() RouterStats {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	st := RouterStats{StaleServes: r.staleServes, LastError: r.lastErr}
@@ -94,7 +94,7 @@ func (r *Router) Invalidate() {
 
 // load refreshes the registry snapshot if stale. Serving a stale-but-known
 // snapshot on a read ERROR is tolerated for at most ONE extra TTL (U-090) —
-// and is surfaced loudly (warn log + Stats counter) every time it happens.
+// and is surfaced loudly (warn log + stats counter) every time it happens.
 // Beyond that the router refuses to answer (fail closed) rather than route
 // on ancient state: a siloed tenant must never ride an outdated registry.
 func (r *Router) load(ctx context.Context) (map[string]registryRow, error) {

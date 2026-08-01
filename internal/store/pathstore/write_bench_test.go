@@ -65,7 +65,7 @@ func BenchmarkPathStoreWriteBatched(b *testing.B) {
 	}
 	b.StopTimer()
 	bs.Flush(ctx)
-	if bs.Lost() != 0 {
-		b.Fatalf("batched writes lost %d", bs.Lost())
+	if bs.lostCount() != 0 {
+		b.Fatalf("batched writes lost %d", bs.lostCount())
 	}
 }

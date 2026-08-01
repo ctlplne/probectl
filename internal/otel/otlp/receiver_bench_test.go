@@ -28,7 +28,7 @@ import (
 
 func BenchmarkOTLPHTTPMetricsIngest(b *testing.B) {
 	auth := NewTokenAuthenticator(map[string]string{"tok": "tenant-a"})
-	body := mustMarshalBench(b, MetricsRequest(ResultResourceMetrics(&resultv1.Result{
+	body := mustMarshalBench(b, metricsRequest(resultResourceMetrics(&resultv1.Result{
 		TenantId: "tenant-a", AgentId: "agent-a", CanaryType: "icmp", Success: true,
 		DurationNano: 12_000_000, Metrics: map[string]float64{"rtt.avg.ms": 12},
 	})))

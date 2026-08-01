@@ -75,9 +75,9 @@ func (tc *TopologyConsumer) WithMetrics(reg *metrics.Registry) *TopologyConsumer
 	return tc
 }
 
-// IntegrityStats returns topology receipt/loss counters for tests and
+// integrityStats returns topology receipt/loss counters for tests and
 // diagnostics. Unknown/nil consumers report zeros rather than panicking.
-func (tc *TopologyConsumer) IntegrityStats() TopologyIntegrityStats {
+func (tc *TopologyConsumer) integrityStats() TopologyIntegrityStats {
 	if tc == nil || tc.ledger == nil {
 		return TopologyIntegrityStats{}
 	}

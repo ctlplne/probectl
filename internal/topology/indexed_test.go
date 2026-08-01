@@ -52,19 +52,19 @@ func TestIndexedStoreEquivalence(t *testing.T) {
 	seed(t, idx)
 
 	for _, node := range []string{"agent:a", "hop:10.0.0.1", "hop:10.0.0.4", "service:api", "device:192.0.2.250"} {
-		m := mem.Neighbors("t1", node, watT)
-		i := idx.Neighbors("t1", node, watT)
+		m := mem.neighbors("t1", node, watT)
+		i := idx.neighbors("t1", node, watT)
 		if fmt.Sprint(m) != fmt.Sprint(i) {
 			t.Fatalf("Neighbors(%s): memory=%v indexed=%v", node, m, i)
 		}
 	}
-	m := mem.Traverse("t1", "agent:a", "host:203.0.113.10", watT)
-	i := idx.Traverse("t1", "agent:a", "host:203.0.113.10", watT)
+	m := mem.traverse("t1", "agent:a", "host:203.0.113.10", watT)
+	i := idx.traverse("t1", "agent:a", "host:203.0.113.10", watT)
 	if fmt.Sprint(m) != fmt.Sprint(i) {
 		t.Fatalf("Traverse: memory=%v indexed=%v", m, i)
 	}
 	// Temporal validity flows from the single source of truth.
-	if got := idx.Neighbors("t1", "agent:a", watT.Add(-time.Hour)); len(got) != 0 {
+	if got := idx.neighbors("t1", "agent:a", watT.Add(-time.Hour)); len(got) != 0 {
 		t.Fatalf("neighbors before first observation = %v", got)
 	}
 	// Snapshot parity.
@@ -90,7 +90,7 @@ func TestIndexedStoreEquivalence(t *testing.T) {
 }
 
 // The S43 scale test: an XL graph (a multi-site fabric — ~31k nodes, ~46k
-// edges) on the dedicated engine. Traverse and a full what-if must stay
+// edges) on the dedicated engine. traverse and a full what-if must stay
 // interactive (well under the API budget), and the what-if prediction must
 // stay CORRECT at that scale: failing one site's aggregation hop breaks
 // exactly that site's leaf targets.
@@ -119,7 +119,7 @@ func TestIndexedStoreXLScaleWhatIf(t *testing.T) {
 	}
 
 	start := time.Now()
-	route := s.Traverse("t1", "agent:agent-7", "host:203.7.0.124", watT)
+	route := s.traverse("t1", "agent:agent-7", "host:203.7.0.124", watT)
 	if route == nil {
 		t.Fatal("traverse found no route on the XL graph")
 	}

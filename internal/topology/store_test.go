@@ -29,7 +29,7 @@ func TestMemoryStoreTenantIsolation(t *testing.T) {
 		}
 	}
 	// A tenant can never traverse into another tenant's graph.
-	if p := s.Traverse("tenant-b", "service:a-svc", "service:a-db", at); p != nil {
+	if p := s.traverse("tenant-b", "service:a-svc", "service:a-db", at); p != nil {
 		t.Errorf("tenant-b traverse reached tenant-a nodes: %v", p)
 	}
 	if len(a.Nodes) != 2 || len(s.Latest("tenant-b").Nodes) != 2 {

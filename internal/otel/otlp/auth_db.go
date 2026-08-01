@@ -103,8 +103,3 @@ func (a *DBTokenAuthenticator) Add(token, tenant string, expires time.Time) {
 func (a *DBTokenAuthenticator) Revoke(token string) bool {
 	return a.mem.Revoke(token)
 }
-
-// ActiveTokens counts currently-valid in-process tokens (for diagnostics).
-func (a *DBTokenAuthenticator) ActiveTokens() int {
-	return a.mem.ActiveTokens()
-}

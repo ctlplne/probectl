@@ -27,7 +27,7 @@ import (
 
 // The S-EE5 integration leg (live Postgres): proposals round-trip through
 // remediation_proposals under tenant RLS, a tenant sees ONLY its own proposals
-// (cross-tenant isolation), Decide is optimistic (only a proposed row moves),
+// (cross-tenant isolation), decide is optimistic (only a proposed row moves),
 // and the full Service writes the propose→approve trail to the tamper-evident
 // tenant audit stream.
 
@@ -73,7 +73,7 @@ func TestRemediationStoreRoundTripPG(t *testing.T) {
 		DryRun: rem.DryRun{BlastRadius: 4, ImpactedServices: []string{"svc-1"}},
 		State:  rem.StateProposed, ProposedBy: "ai:propose_remediation", CreatedAt: now,
 	}
-	saved, err := store.Insert(ctx, tnA, in)
+	saved, err := store.insert(ctx, tnA, in)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -101,8 +101,8 @@ func TestRemediationStoreRoundTripPG(t *testing.T) {
 		t.Fatalf("tenant B sees %d proposals, want 0", len(list))
 	}
 
-	// Decide moves proposed → approved exactly once (optimistic).
-	dec, err := store.Decide(ctx, tnA, saved.ID, rem.StateApproved, "user:admin", "ok", now)
+	// decide moves proposed → approved exactly once (optimistic).
+	dec, err := store.decide(ctx, tnA, saved.ID, rem.StateApproved, "user:admin", "ok", now)
 	if err != nil {
 		t.Fatalf("decide: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestRemediationStoreRoundTripPG(t *testing.T) {
 		t.Fatalf("decide result: %+v", dec)
 	}
 	// A second decide on the now-approved row fails (not proposed).
-	if _, err := store.Decide(ctx, tnA, saved.ID, rem.StateRejected, "user:admin", "", now); err != rem.ErrNotProposed {
+	if _, err := store.decide(ctx, tnA, saved.ID, rem.StateRejected, "user:admin", "", now); err != rem.ErrNotProposed {
 		t.Fatalf("second decide: err=%v, want ErrNotProposed", err)
 	}
 }

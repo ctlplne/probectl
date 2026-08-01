@@ -19,7 +19,7 @@
 // job that uploads the JSON report as an artifact. The builtin path is now
 // gated by a committed regression FLOOR (AIRCA-004) on answer accuracy and mean
 // citation precision in eval_test.go, so a grounding/accuracy regression fails
-// the build; nondeterministic remote adapters (Run with a non-nil model) stay
+// the build; nondeterministic remote adapters (run with a non-nil model) stay
 // artifact-only and are never floor-gated.
 package eval
 
@@ -110,8 +110,8 @@ func evalPrincipal() *auth.Principal {
 	}}
 }
 
-// Run scores every scenario against the given model (nil = the builtin).
-func Run(ctx context.Context, scenarios []Scenario, model ai.ModelAdapter) Report {
+// run scores every scenario against the given model (nil = the builtin).
+func run(ctx context.Context, scenarios []Scenario, model ai.ModelAdapter) Report {
 	if model == nil {
 		model = ai.NewBuiltinModel()
 	}
@@ -219,8 +219,8 @@ func citationPrecision(ans ai.Answer, relevant []string) (cited, hit int, precis
 	return cited, hit, float64(hit) / float64(cited)
 }
 
-// Summary renders the one-line score the CI log greps for.
-func (r Report) Summary() string {
+// summary renders the one-line score the CI log greps for.
+func (r Report) summary() string {
 	return fmt.Sprintf("rca-eval: scenarios=%d answer_accuracy=%.2f citation_precision=%.2f honesty=%t model=%s",
 		r.Scenarios, r.AnswerAccuracy, r.MeanCitationPrecision, r.HonestyPass, r.Model)
 }

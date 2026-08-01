@@ -276,11 +276,11 @@ func TestTierTableAndExtras(t *testing.T) {
 	// Table integrity: MSP is a strict superset of Enterprise, while the two
 	// resale-only capabilities never leak into Enterprise.
 	enterprise := map[Feature]bool{}
-	for _, f := range TierFeatures(TierEnterprise) {
+	for _, f := range featuresForTier(TierEnterprise) {
 		enterprise[f] = true
 	}
 	msp := map[Feature]bool{}
-	for _, f := range TierFeatures(TierMSP) {
+	for _, f := range featuresForTier(TierMSP) {
 		msp[f] = true
 	}
 	for f := range enterprise {

@@ -108,8 +108,8 @@ func NewService(store Store, sink AuditSink, lic *license.Manager, telemetry Tel
 	}, nil
 }
 
-// WithClock overrides time (tests).
-func (s *Service) WithClock(now func() time.Time) *Service {
+// withClock overrides time (tests).
+func (s *Service) withClock(now func() time.Time) *Service {
 	s.now = now
 	return s
 }
@@ -336,10 +336,6 @@ func (s *Service) RecordLoginLockout(ctx context.Context, key string, failures i
 			"audit_failures_total", s.lockoutAuditFailures.Load())
 	}
 }
-
-// LockoutAuditFailures reports how many provider-lockout audit appends have
-// failed (CODE-008 observability).
-func (s *Service) LockoutAuditFailures() uint64 { return s.lockoutAuditFailures.Load() }
 
 func (s *Service) Login(ctx context.Context, email, password, totpCode string) (Operator, error) {
 	op, cred, err := s.store.OperatorByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))

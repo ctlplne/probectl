@@ -131,7 +131,7 @@ func FuzzNDRObservationDecode(f *testing.F) {
 			t.Skip("bounded seed corpus: payload too large for unit-mode fuzz smoke")
 		}
 		ds := threat.NewDetectionStore(64)
-		cs := NewNDRConsumer(nil, threat.NewEngine(rules, nil, nil), nil, fuzzLogger()).WithDetections(ds)
+		cs := NewNDRConsumer(nil, threat.NewEngine(rules, nil, nil), nil, fuzzLogger()).withDetections(ds)
 		msg := bus.Message{Value: payload}
 		var err error
 		switch plane % 3 {

@@ -16,7 +16,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -253,9 +252,9 @@ func validateOIDCHTTPSURL(name, raw string) error {
 	return nil
 }
 
-// SetSSOProviderFactory overrides the SSO provider factory so tests can drive
+// setSSOProviderFactory overrides the SSO provider factory so tests can drive
 // login with a mock IdP without real OIDC discovery.
-func (s *Server) SetSSOProviderFactory(f auth.ProviderFactory) { s.providers = f }
+func (s *Server) setSSOProviderFactory(f auth.ProviderFactory) { s.providers = f }
 
 // devModeHook is the ONLY entry point to dev-auth behavior. It is nil unless
 // the binary was built with -tags devauth (internal/control/devauth.go), so a
@@ -269,14 +268,6 @@ var devModeHook func(s *Server, w http.ResponseWriter, r *http.Request) (p *auth
 // DevModeAvailable reports whether this binary is even capable of dev auth
 // (i.e. was built with -tags devauth). main refuses AuthMode=dev otherwise.
 func DevModeAvailable() bool { return devModeHook != nil }
-
-// devModeActive flips on (once) when a server actually starts in dev mode —
-// exported via DevModeActive for self-telemetry surfaces.
-var devModeActive atomic.Bool
-
-// DevModeActive reports whether any server in this process is serving the
-// all-permissions dev principal.
-func DevModeActive() bool { return devModeActive.Load() }
 
 // authenticate is the middleware that resolves a request's principal (if any) and
 // injects it into the context. Per-route enforcement (401/403) happens later.

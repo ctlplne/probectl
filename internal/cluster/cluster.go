@@ -141,16 +141,13 @@ func NewManager(topo Topology, writer, reader Prober) *Manager {
 	}
 }
 
-// WithNow injects a clock (tests).
-func (m *Manager) WithNow(now func() time.Time) *Manager {
+// withNow injects a clock (tests).
+func (m *Manager) withNow(now func() time.Time) *Manager {
 	if now != nil {
 		m.now = now
 	}
 	return m
 }
-
-// Topology returns the configured topology.
-func (m *Manager) Topology() Topology { return m.topo }
 
 // Refresh probes the endpoints once and recomputes the fencing state. The
 // epoch high-water mark only ever advances (monotonic): once a promotion to a

@@ -117,8 +117,8 @@ func (ri *RotatingIdentity) current() *tls.Certificate {
 	return ri.cert
 }
 
-// Leaf returns the current leaf certificate (expiry/identity introspection).
-func (ri *RotatingIdentity) Leaf() *x509.Certificate {
+// leafCert returns the current leaf certificate (expiry/identity introspection).
+func (ri *RotatingIdentity) leafCert() *x509.Certificate {
 	ri.mu.Lock()
 	defer ri.mu.Unlock()
 	return ri.leaf
@@ -152,11 +152,11 @@ func ClientMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*
 	return cfg, ri, nil
 }
 
-// ServerMTLSConfigRotating is ServerMTLSConfig with a rotating server
+// serverMTLSConfigRotating is ServerMTLSConfig with a rotating server
 // identity (the control plane's agent-transport cert can be trustctl-managed
 // too). This is a probectl-owned listener, so it uses the internal TLS 1.3
 // floor.
-func ServerMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*tls.Config, *RotatingIdentity, error) {
+func serverMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*tls.Config, *RotatingIdentity, error) {
 	ri, err := NewRotatingIdentity(certFile, keyFile, spiffePrefix)
 	if err != nil {
 		return nil, nil, err

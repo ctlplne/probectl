@@ -30,7 +30,7 @@ func TestSignedBundleRoundTripAndRejections(t *testing.T) {
 	}
 
 	// Valid: verifies, epoch newer than current.
-	got, err := Verify(signed, pub, 50)
+	got, err := verify(signed, pub, 50)
 	if err != nil {
 		t.Fatalf("valid bundle rejected: %v", err)
 	}
@@ -39,20 +39,20 @@ func TestSignedBundleRoundTripAndRejections(t *testing.T) {
 	}
 
 	// Replay/rollback: same or older epoch is refused even though signed.
-	if _, err := Verify(signed, pub, 100); err == nil {
+	if _, err := verify(signed, pub, 100); err == nil {
 		t.Fatal("a non-newer epoch must be refused (rollback/replay)")
 	}
 
 	// Tamper: flip a byte in the signed blob → signature fails.
 	tampered := append([]byte(nil), signed...)
 	tampered[len(tampered)/2] ^= 0xff
-	if _, err := Verify(tampered, pub, 50); err == nil {
+	if _, err := verify(tampered, pub, 50); err == nil {
 		t.Fatal("tampered bundle must fail verification")
 	}
 
 	// Wrong key: a different public key must not verify.
 	_, otherPub, _ := crypto.GenerateEd25519KeyPEM()
-	if _, err := Verify(signed, otherPub, 50); err != ErrBadSignature {
+	if _, err := verify(signed, otherPub, 50); err != ErrBadSignature {
 		t.Fatalf("wrong key: err = %v, want ErrBadSignature", err)
 	}
 }

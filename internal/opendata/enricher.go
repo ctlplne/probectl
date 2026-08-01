@@ -44,11 +44,8 @@ type Enricher struct {
 // Option configures an Enricher.
 type Option func(*Enricher)
 
-// WithSourceTimeout bounds each source's per-lookup time.
-func WithSourceTimeout(d time.Duration) Option { return func(e *Enricher) { e.timeout = d } }
-
-// WithCacheTTL sets the enrichment cache TTL (0 disables caching).
-func WithCacheTTL(d time.Duration) Option { return func(e *Enricher) { e.cache.setTTL(d) } }
+// withCacheTTL sets the enrichment cache TTL (0 disables caching).
+func withCacheTTL(d time.Duration) Option { return func(e *Enricher) { e.cache.setTTL(d) } }
 
 // WithCacheMaxEntries sets the hard entry cap for the shared enrichment cache.
 // Non-positive values disable caching; callers normally keep the finite default.
@@ -73,8 +70,8 @@ func (en *Enricher) WithMetrics(reg *metrics.Registry) *Enricher {
 	return en
 }
 
-// CacheStats returns aggregate cache behavior for tests and diagnostics.
-func (en *Enricher) CacheStats() CacheStats { return en.cache.stats() }
+// cacheStats returns aggregate cache behavior for tests and diagnostics.
+func (en *Enricher) cacheStats() CacheStats { return en.cache.stats() }
 
 // Register adds a source (enabled by default). Sources run in registration order,
 // so an ASN-providing source (Team Cymru) should be registered before one that
@@ -102,9 +99,9 @@ func (en *Enricher) RegisterUnavailable(s Source, reason error) {
 	})
 }
 
-// SetEnabled enables/disables a source by name (e.g. to honor an AUP restriction
+// setEnabled enables/disables a source by name (e.g. to honor an AUP restriction
 // or quarantine a flapping upstream). A disabled source is skipped, not removed.
-func (en *Enricher) SetEnabled(name string, enabled bool) {
+func (en *Enricher) setEnabled(name string, enabled bool) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
 	for _, ms := range en.sources {

@@ -144,7 +144,7 @@ func TestCorrelateSecondaryPermissionABAC(t *testing.T) {
 			return permission != PermMetricsRead, nil
 		}),
 	)
-	result, err := engine.Correlate(context.Background(),
+	result, err := engine.correlate(context.Background(),
 		principal("tenant-a", PermMetricsRead, PermTopologyRead), nil, TimeRange{})
 	if err != nil {
 		t.Fatal(err)

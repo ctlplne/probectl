@@ -91,8 +91,8 @@ func TestOTLPPushIsConsumedAndQueryable(t *testing.T) {
 	if err := c.handle(context.Background(), bus.Message{Key: bus.TenantKey("t-otlp", "x"), Value: payload}); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if c.Consumed() != 2 {
-		t.Fatalf("consumed = %d, want 2 (sum + gauge)", c.Consumed())
+	if c.consumedCount() != 2 {
+		t.Fatalf("consumed = %d, want 2 (sum + gauge)", c.consumedCount())
 	}
 
 	// Queryable, tenant-scoped, value intact.
@@ -237,8 +237,8 @@ func TestOTLPMetricCompositeAttrsAreSkippedAndCounted(t *testing.T) {
 			t.Fatalf("composite attr %s must not be flattened into labels: %+v", k, labels)
 		}
 	}
-	if c.SkippedCompositeAttrs() != 4 {
-		t.Fatalf("skipped composite attrs = %d, want 4", c.SkippedCompositeAttrs())
+	if c.skippedCompositeAttrCount() != 4 {
+		t.Fatalf("skipped composite attrs = %d, want 4", c.skippedCompositeAttrCount())
 	}
 	if reg.Counter("probectl_otlp_metrics_composite_attrs_skipped_total", "").Value() != 4 {
 		t.Fatal("composite attr skip counter must be surfaced")
@@ -270,8 +270,8 @@ func TestOTLPMetricBusTenantIsAuthoritative(t *testing.T) {
 	if err := c.handle(context.Background(), bus.Message{Key: bus.TenantKey("tenant-a", "replay"), Value: payload}); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if c.RejectedTenant() != 1 {
-		t.Fatalf("rejected tenant count = %d, want 1", c.RejectedTenant())
+	if c.rejectedTenant() != 1 {
+		t.Fatalf("rejected tenant count = %d, want 1", c.rejectedTenant())
 	}
 	if got := mem.Query("probectl_otlp_forged_value", map[string]string{"tenant_id": "tenant-b"}); len(got) != 0 {
 		t.Fatalf("forged metric landed in victim tenant: %+v", got)
@@ -331,11 +331,11 @@ func TestOTLPMetricDLQReplayKeepsBusTenantAuthoritative(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && c.RejectedTenant() == 0 {
+	for time.Now().Before(deadline) && c.rejectedTenant() == 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if c.RejectedTenant() != 1 {
-		t.Fatalf("rejected tenant count after DLQ replay = %d, want 1", c.RejectedTenant())
+	if c.rejectedTenant() != 1 {
+		t.Fatalf("rejected tenant count after DLQ replay = %d, want 1", c.rejectedTenant())
 	}
 	if got := mem.Query("probectl_otlp_replayed_forgery", map[string]string{"tenant_id": "tenant-b"}); len(got) != 0 {
 		t.Fatalf("replayed forgery landed in victim tenant: %+v", got)

@@ -121,10 +121,10 @@ func (e *Error) Error() string {
 // Unwrap exposes the wrapped cause for errors.Is / errors.As.
 func (e *Error) Unwrap() error { return e.err }
 
-// LocalizedMessage returns the human-facing message for e.Code in locale. The
+// localizedMessage returns the human-facing message for e.Code in locale. The
 // stable Code remains the machine contract; Message is the fallback for custom
 // codes.
-func (e *Error) LocalizedMessage(locale string) string {
+func (e *Error) localizedMessage(locale string) string {
 	return i18n.ErrorMessage(locale, e.Code, e.Message)
 }
 
@@ -166,8 +166,8 @@ func RateLimited(message string) *Error {
 }
 func TooLarge(message string) *Error { return newError(KindTooLarge, string(CodeTooLarge), message) }
 
-// LocalizedMessage returns a localized label for a stable API error code.
-func LocalizedMessage(locale, code, fallback string) string {
+// localizedMessage returns a localized label for a stable API error code.
+func localizedMessage(locale, code, fallback string) string {
 	return i18n.ErrorMessage(locale, code, fallback)
 }
 

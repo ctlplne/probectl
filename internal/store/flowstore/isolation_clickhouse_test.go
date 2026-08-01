@@ -337,7 +337,7 @@ func TestClickHouseRowPoliciesApply(t *testing.T) {
 	// CI connects as default; the disposable dev stack creates probectl and
 	// removes default. Exempt the service user actually present in the URL so
 	// the same database-level policy proof is portable across both fixtures.
-	if err := c.EnsureRowPolicies(ctx, serviceUser(t)); err != nil {
+	if err := c.ensureRowPolicies(ctx, serviceUser(t)); err != nil {
 		t.Fatalf("EnsureRowPolicies: %v", err)
 	}
 	out, err := c.query(ctx, "", "SELECT name FROM system.row_policies WHERE name LIKE 'probectl%'", nil)

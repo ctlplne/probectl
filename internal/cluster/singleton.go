@@ -32,8 +32,7 @@ const (
 var (
 	// ErrLeaseFenced means the caller's epoch is no longer the current epoch.
 	ErrLeaseFenced = pglease.ErrFenced
-	// ErrLeaseAlreadyHeld means Acquire was called twice on one lease handle.
-	ErrLeaseAlreadyHeld = pglease.ErrAlreadyHeld
+
 	// ErrSingletonTaskStopped means a registered forever-loop returned while
 	// its lease context was still live. The coordinator relinquishes leadership
 	// and retries the complete task set instead of running a partial leader.
@@ -143,11 +142,11 @@ func (c *Coordinator) WithMetrics(reg *metrics.Registry) *Coordinator {
 	return c
 }
 
-// IsHolder reports this process's current leadership state.
-func (c *Coordinator) IsHolder() bool { return c.holder.Load() }
+// isHolder reports this process's current leadership state.
+func (c *Coordinator) isHolder() bool { return c.holder.Load() }
 
-// Epoch reports the current epoch, or zero while this process is a standby.
-func (c *Coordinator) Epoch() int64 { return c.epoch.Load() }
+// currentEpoch reports the current epoch, or zero while this process is a standby.
+func (c *Coordinator) currentEpoch() int64 { return c.epoch.Load() }
 
 // Run keeps a hot acquire/renew loop until ctx ends. Expected acquisition and
 // task failures relinquish the whole term, then retry after one interval.

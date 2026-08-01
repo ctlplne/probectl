@@ -333,11 +333,11 @@ func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]ma
 	return e.c.doQuery(ctx, e.base, u)
 }
 
-// NewClickHouse connects to a ClickHouse HTTP endpoint and ensures the schema
+// newClickHouse connects to a ClickHouse HTTP endpoint and ensures the schema
 // via versioned, ledger-recorded migrations (U-046).
-func NewClickHouse(rawURL string) (*ClickHouse, error) { return NewClickHouseRetained(rawURL, 0) }
+func newClickHouse(rawURL string) (*ClickHouse, error) { return NewClickHouseRetained(rawURL, 0) }
 
-// NewClickHouseRetained is NewClickHouse plus the boot-applied retention TTL
+// NewClickHouseRetained is newClickHouse plus the boot-applied retention TTL
 // (Sprint 16, SCALE-006 — the flowstore pattern: runtime config, not schema).
 // retentionDays > 0 ALTERs a delete-TTL onto both path tables, idempotently.
 func NewClickHouseRetained(rawURL string, retentionDays int) (*ClickHouse, error) {
@@ -410,10 +410,10 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	return nil
 }
 
-// EnsureRowPolicies installs DB-level tenancy on the path tables (U-026) —
+// ensureRowPolicies installs DB-level tenancy on the path tables (U-026) —
 // same model as flowstore: per-tenant CH users see only their rows;
 // serviceUser keeps full access.
-func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
+func (c *ClickHouse) ensureRowPolicies(ctx context.Context, serviceUser string) error {
 	if serviceUser == "" {
 		serviceUser = "default"
 	}

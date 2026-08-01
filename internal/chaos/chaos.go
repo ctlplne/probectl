@@ -68,7 +68,7 @@ func (f Fault) Validate() error {
 }
 
 // UDPProxy forwards datagrams listener↔target, applying the current Fault in
-// both directions. One canary pointed at Addr() experiences the fault as if
+// both directions. One canary pointed at addr() experiences the fault as if
 // the network path itself were degraded.
 type UDPProxy struct {
 	listener *net.UDPConn
@@ -112,10 +112,10 @@ func NewUDPProxy(target string, f Fault) (*UDPProxy, error) {
 	}, nil
 }
 
-// Addr is the proxy's listen address — point the canary target here.
+// addr is the proxy's listen address — point the canary target here.
 func (p *UDPProxy) Addr() string { return p.listener.LocalAddr().String() }
 
-// SetFault swaps the active fault mid-run (the "inject" action of a chaos
+// setFault swaps the active fault mid-run (the "inject" action of a chaos
 // run). Invalid faults are rejected, keeping the previous one.
 func (p *UDPProxy) SetFault(f Fault) error {
 	if err := f.Validate(); err != nil {
@@ -159,7 +159,7 @@ func (p *UDPProxy) roll(f Fault) (drop bool, delay time.Duration) {
 	return false, time.Duration(delayMs * float64(time.Millisecond))
 }
 
-// Run pumps datagrams both ways until ctx ends. It blocks.
+// run pumps datagrams both ways until ctx ends. It blocks.
 func (p *UDPProxy) Run(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {

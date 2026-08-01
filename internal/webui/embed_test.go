@@ -32,14 +32,14 @@ func TestHandlerServesEmbeddedUI(t *testing.T) {
 	}
 }
 
-// UX-002: Built() must be HONEST — it returns true iff a REAL Vite bundle is
+// UX-002: built() must be HONEST — it returns true iff a REAL Vite bundle is
 // embedded. We no longer t.Skip() the assertion (a skip let the stub pass as if
 // it were the UI). Instead we assert each branch concretely:
-//   - placeholder embedded → Built() is false AND index.html says so plainly;
-//   - real bundle embedded → Built() is true AND a hashed assets/ file exists
+//   - placeholder embedded → built() is false AND index.html says so plainly;
+//   - real bundle embedded → built() is true AND a hashed assets/ file exists
 //     AND index.html references it (proving it is not just a renamed stub).
 //
-// The release build (docker, `release` tag) makes Built() true; see
+// The release build (docker, `release` tag) makes built() true; see
 // TestRealBundleRequiredInReleaseBuild (embed_release_test.go).
 func TestBuiltIsHonestAboutTheBundle(t *testing.T) {
 	entries, err := fs.ReadDir(dist, "dist")
@@ -53,7 +53,7 @@ func TestBuiltIsHonestAboutTheBundle(t *testing.T) {
 	}
 	index := string(idx)
 
-	if !Built() {
+	if !built() {
 		// Placeholder path: exactly index.html, and it must openly declare it is
 		// not the real UI (no silently-served stub pretending to be the app).
 		if len(entries) != 1 || entries[0].Name() != "index.html" {
@@ -70,7 +70,7 @@ func TestBuiltIsHonestAboutTheBundle(t *testing.T) {
 
 	// Real-bundle path: a hashed asset under assets/ must exist and index.html
 	// must reference it — that is what distinguishes a real Vite build from a
-	// stub that merely set Built()==true.
+	// stub that merely set built()==true.
 	assets, err := fs.ReadDir(dist, "dist/assets")
 	if err != nil || len(assets) == 0 {
 		t.Fatalf("Built()==true but dist/assets is empty/missing (%v) — not a real Vite bundle", err)

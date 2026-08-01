@@ -299,7 +299,7 @@ func TestMandatoryAuditFailureRollsBackMutation(t *testing.T) {
 			DryRun: rem.DryRun{BlastRadius: 1}, State: rem.StateProposed,
 			ProposedBy: "user:b@example.com", CreatedAt: fixedNow,
 		}
-		if _, err := store.Insert(context.Background(), testTenantB, tenantB); err != nil {
+		if _, err := store.insert(context.Background(), testTenantB, tenantB); err != nil {
 			t.Fatalf("seed tenant B: %v", err)
 		}
 

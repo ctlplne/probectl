@@ -93,7 +93,7 @@ func newBreakGlassRaceFixture(t *testing.T) *breakGlassRaceFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.WithClock(func() time.Time { return now })
+	service.withClock(func() time.Time { return now })
 
 	operator, err := store.CreateOperator(ctx, Operator{
 		Email: "race-operator@msp.example",

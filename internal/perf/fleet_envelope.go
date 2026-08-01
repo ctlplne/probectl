@@ -48,11 +48,11 @@ func (r FleetEnvelopeReport) String() string {
 // drains in bounded batches instead of one platform-sized burst.
 const fleetEnvelopeDrainChunk = 500
 
-// DriveFleetEnvelope drives the control-plane fan-out shape for one tier:
+// driveFleetEnvelope drives the control-plane fan-out shape for one tier:
 // registration, heartbeat, reconnect storm, bounded result drain, then a
 // tenant-by-tenant query pass. It intentionally checks every tenant because a
 // sampled query leg is how large-fleet scoping bugs hide.
-func DriveFleetEnvelope(ctx context.Context, tier Tier, scale float64) (FleetEnvelopeReport, error) {
+func driveFleetEnvelope(ctx context.Context, tier Tier, scale float64) (FleetEnvelopeReport, error) {
 	profile, err := ProfileFor(tier, scale)
 	if err != nil {
 		return FleetEnvelopeReport{}, err

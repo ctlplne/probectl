@@ -156,8 +156,8 @@ func (m *MemStore) SetSlug(id, slug string) {
 	m.slugs[id] = slug
 }
 
-// FailNextAdd makes the next AddCounters fail (lossless-flush tests).
-func (m *MemStore) FailNextAdd() {
+// failNextAdd makes the next AddCounters fail (lossless-flush tests).
+func (m *MemStore) failNextAdd() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.failAdd = true

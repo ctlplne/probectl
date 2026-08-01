@@ -22,7 +22,7 @@ func TestUserMarshalRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the enterprise extension marshals under its URN key
-	if !json.Valid(b) || !contains(string(b), SchemaEnterprise) {
+	if !json.Valid(b) || !contains(string(b), schemaEnterprise) {
 		t.Fatalf("enterprise extension key missing: %s", b)
 	}
 	var back User

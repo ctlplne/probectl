@@ -12,8 +12,8 @@ import (
 	"testing"
 )
 
-// TestSignRSAPSSRoundTrip is the KEYS-001 acceptance test: proves SignRSAPSS /
-// VerifyRSAPSS exist (PSS path), that a valid signature verifies, and that
+// TestSignRSAPSSRoundTrip is the KEYS-001 acceptance test: proves signRSAPSS /
+// verifyRSAPSS exist (PSS path), that a valid signature verifies, and that
 // tampered data / tampered signatures are rejected. Run:
 //
 //	go test ./internal/crypto/... -run TestSignRSAPSS
@@ -52,25 +52,25 @@ func TestSignRSAPSSRoundTrip(t *testing.T) {
 	data := []byte("probectl KEYS-001 PSS test payload")
 
 	// Sign with PSS.
-	sig, err := SignRSAPSS(privPEM, data)
+	sig, err := signRSAPSS(privPEM, data)
 	if err != nil {
 		t.Fatalf("SignRSAPSS: %v", err)
 	}
 
 	// Valid signature must verify.
-	if err := VerifyRSAPSS(pubPEM, data, sig); err != nil {
+	if err := verifyRSAPSS(pubPEM, data, sig); err != nil {
 		t.Fatalf("VerifyRSAPSS valid: %v", err)
 	}
 
 	// Tampered data must fail.
-	if err := VerifyRSAPSS(pubPEM, []byte("tampered"), sig); err == nil {
+	if err := verifyRSAPSS(pubPEM, []byte("tampered"), sig); err == nil {
 		t.Fatal("VerifyRSAPSS should reject tampered data")
 	}
 
 	// Tampered signature must fail.
 	bad := append([]byte(nil), sig...)
 	bad[0] ^= 0xff
-	if err := VerifyRSAPSS(pubPEM, data, bad); err == nil {
+	if err := verifyRSAPSS(pubPEM, data, bad); err == nil {
 		t.Fatal("VerifyRSAPSS should reject tampered signature")
 	}
 
@@ -80,7 +80,7 @@ func TestSignRSAPSSRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignRS256: %v", err)
 	}
-	if err := VerifyRSAPSS(pubPEM, data, v15sig); err == nil {
+	if err := verifyRSAPSS(pubPEM, data, v15sig); err == nil {
 		t.Fatal("VerifyRSAPSS must reject a PKCS#1 v1.5 signature (padding mismatch)")
 	}
 }
@@ -93,11 +93,11 @@ func TestSignRSAPSSIsNonDeterministic(t *testing.T) {
 		t.Fatalf("GenerateRSAKeyPEM: %v", err)
 	}
 	data := []byte("same payload")
-	sig1, err := SignRSAPSS(privPEM, data)
+	sig1, err := signRSAPSS(privPEM, data)
 	if err != nil {
 		t.Fatalf("sign1: %v", err)
 	}
-	sig2, err := SignRSAPSS(privPEM, data)
+	sig2, err := signRSAPSS(privPEM, data)
 	if err != nil {
 		t.Fatalf("sign2: %v", err)
 	}

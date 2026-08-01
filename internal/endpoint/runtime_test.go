@@ -33,7 +33,7 @@ func TestRuntimeTickEmits(t *testing.T) {
 		fakeSession{s: Session{Success: true, TotalMs: 2200}},
 	)
 	em := &fakeEmitter{}
-	rt := NewWith(cfg, col, em, quietLogger())
+	rt := newWith(cfg, col, em, quietLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the immediate tick still runs; then the loop sees Done and returns

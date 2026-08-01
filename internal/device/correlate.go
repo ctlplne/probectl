@@ -42,8 +42,8 @@ func NewCorrelator() *Correlator {
 	return &Correlator{byIP: map[netip.Addr]Ref{}, devices: map[string]Inventory{}, lastSeen: map[string]time.Time{}}
 }
 
-// Update replaces a device's inventory (called after each successful poll).
-func (c *Correlator) Update(inv Inventory) {
+// update replaces a device's inventory (called after each successful poll).
+func (c *Correlator) update(inv Inventory) {
 	c.UpdateAt(inv, time.Now())
 }
 
@@ -99,8 +99,8 @@ func (c *Correlator) dropDeviceIPsLocked(device string) {
 	}
 }
 
-// MatchHopIP correlates a path hop's responder IP to a device interface.
-func (c *Correlator) MatchHopIP(ip string) (Ref, bool) {
+// matchHopIP correlates a path hop's responder IP to a device interface.
+func (c *Correlator) matchHopIP(ip string) (Ref, bool) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return Ref{}, false
@@ -111,10 +111,10 @@ func (c *Correlator) MatchHopIP(ip string) (Ref, bool) {
 	return ref, ok
 }
 
-// MatchExporterInterface correlates a flow record's (exporter, ifIndex) to the
+// matchExporterInterface correlates a flow record's (exporter, ifIndex) to the
 // exporting device's named interface — exporter is the flow datagram's source
 // address, which is the device's management/loopback address in practice.
-func (c *Correlator) MatchExporterInterface(exporter string, ifIndex uint32) (Ref, bool) {
+func (c *Correlator) matchExporterInterface(exporter string, ifIndex uint32) (Ref, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 

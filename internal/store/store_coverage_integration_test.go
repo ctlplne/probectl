@@ -67,8 +67,8 @@ func TestStoreOpenPingPool(t *testing.T) {
 	}
 }
 
-// Users: Create, CreateSCIM (+ strOrNil/orEmptyAttrs/statusOrActive), Get,
-// GetByExternalID, Update, UpdateStatus, List (all + filtered), Delete.
+// Users: create, CreateSCIM (+ strOrNil/orEmptyAttrs/statusOrActive), get,
+// getByExternalID, Update, updateStatus, list (all + filtered), Delete.
 func TestUserLifecycleStore(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
@@ -94,7 +94,7 @@ func TestUserLifecycleStore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("createSCIM: %v", err)
 		}
-		if got, err := (Users{}).GetByExternalID(ctx, s, "ext-"+sfx); err != nil || got.ID != scim.ID {
+		if got, err := (Users{}).getByExternalID(ctx, s, "ext-"+sfx); err != nil || got.ID != scim.ID {
 			t.Fatalf("getByExternalID: %v / %+v", err, got)
 		}
 		if _, err := (Users{}).Update(ctx, s, scim.ID, User{
@@ -104,13 +104,13 @@ func TestUserLifecycleStore(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("update: %v", err)
 		}
-		if got, err := (Users{}).UpdateStatus(ctx, s, scim.ID, "suspended"); err != nil || got.Status != "suspended" {
+		if got, err := (Users{}).updateStatus(ctx, s, scim.ID, "suspended"); err != nil || got.Status != "suspended" {
 			t.Fatalf("updateStatus: %v / %+v", err, got)
 		}
-		if all, err := (Users{}).List(ctx, s, ""); err != nil || len(all) < 2 {
+		if all, err := (Users{}).list(ctx, s, ""); err != nil || len(all) < 2 {
 			t.Fatalf("list all: %v / %d", err, len(all))
 		}
-		if filtered, err := (Users{}).List(ctx, s, "s2-"+sfx); err != nil || len(filtered) != 1 {
+		if filtered, err := (Users{}).list(ctx, s, "s2-"+sfx); err != nil || len(filtered) != 1 {
 			t.Fatalf("list filtered: %v / %d", err, len(filtered))
 		}
 		if err := (Users{}).Delete(ctx, s, u.ID); err != nil {
@@ -139,10 +139,10 @@ func TestRBACStore(t *testing.T) {
 		if _, err := (Roles{}).Get(ctx, s, role.ID); err != nil {
 			t.Fatalf("role get: %v", err)
 		}
-		if _, err := (Roles{}).GetBySlug(ctx, s, role.Slug); err != nil {
+		if _, err := (Roles{}).getBySlug(ctx, s, role.Slug); err != nil {
 			t.Fatalf("role getBySlug: %v", err)
 		}
-		if roles, err := (Roles{}).List(ctx, s); err != nil || len(roles) == 0 {
+		if roles, err := (Roles{}).list(ctx, s); err != nil || len(roles) == 0 {
 			t.Fatalf("role list: %v / %d", err, len(roles))
 		}
 		if err := (Roles{}).AddPermission(ctx, s, role.ID, "test.read"); err != nil {
@@ -165,7 +165,7 @@ func TestRBACStore(t *testing.T) {
 		if _, err := (RoleBindings{}).Create(ctx, s, "user", u2.ID, role.ID, "tenant", nil); err != nil {
 			t.Fatalf("rolebinding create: %v", err)
 		}
-		if n, err := (RoleBindings{}).CountForSubject(ctx, s, "user", u1.ID); err != nil || n != 1 {
+		if n, err := (RoleBindings{}).countForSubject(ctx, s, "user", u1.ID); err != nil || n != 1 {
 			t.Fatalf("countForSubject: %v / %d", err, n)
 		}
 		if members, err := (RoleBindings{}).MembersOfRole(ctx, s, role.ID); err != nil || len(members) != 2 {
@@ -188,7 +188,7 @@ func TestRBACStore(t *testing.T) {
 	})
 }
 
-// Sessions (pool-based, global lookup): Create, idle-touching LookupByHash,
+// Sessions (pool-based, global lookup): create, idle-touching LookupByHash,
 // atomic RotateByHash, DeleteByHash, DeleteAllForUser. Needs a real tenant +
 // user (FKs).
 func TestSessionStoreCrossTenantIsolation(t *testing.T) {
@@ -628,7 +628,7 @@ func TestEnrollmentStore(t *testing.T) {
 	}
 }
 
-// ABAC policies: Create, List, Delete (tenant-scoped).
+// ABAC policies: create, list, Delete (tenant-scoped).
 func TestABACPolicyStore(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
@@ -656,7 +656,7 @@ func TestABACPolicyStore(t *testing.T) {
 	})
 }
 
-// Alert ops (silences/acks): Upsert (insert + ON CONFLICT update), List, Delete.
+// Alert ops (silences/acks): Upsert (insert + ON CONFLICT update), list, Delete.
 func TestAlertOpsStore(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
@@ -692,38 +692,38 @@ func TestProviderGetListAndBreakGlass(t *testing.T) {
 	pool := setup(ctx, t)
 	defer pool.Close()
 	sfx := fmt.Sprintf("%d", time.Now().UnixNano())
-	ops := NewOperators(pool)
-	op, err := ops.Create(ctx, "op-"+sfx+"@x.com", "Operator "+sfx)
+	ops := newOperators(pool)
+	op, err := ops.create(ctx, "op-"+sfx+"@x.com", "Operator "+sfx)
 	if err != nil {
 		t.Fatalf("operator create: %v", err)
 	}
-	if got, err := ops.Get(ctx, op.ID); err != nil || got.Email != op.Email {
+	if got, err := ops.get(ctx, op.ID); err != nil || got.Email != op.Email {
 		t.Fatalf("operator get: %v / %+v", err, got)
 	}
-	if list, err := ops.List(ctx); err != nil || len(list) == 0 {
+	if list, err := ops.list(ctx); err != nil || len(list) == 0 {
 		t.Fatalf("operator list: %v / %d", err, len(list))
 	}
 	tn, err := NewTenants(pool).Create(ctx, fmt.Sprintf("bg-%d", time.Now().UnixNano()), "BreakGlass")
 	if err != nil {
 		t.Fatalf("tenant: %v", err)
 	}
-	bg := NewBreakGlass(pool)
-	grant, err := bg.Grant(ctx, op.ID, tn.ID, "incident triage", "read", "admin@x", time.Now().Add(time.Hour))
+	bg := newBreakGlass(pool)
+	grant, err := bg.grant(ctx, op.ID, tn.ID, "incident triage", "read", "admin@x", time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
-	if active, err := bg.ListActive(ctx, tn.ID); err != nil || len(active) != 1 {
+	if active, err := bg.listActive(ctx, tn.ID); err != nil || len(active) != 1 {
 		t.Fatalf("listActive: %v / %d", err, len(active))
 	}
-	if err := bg.Revoke(ctx, grant.ID, "admin@x"); err != nil {
+	if err := bg.revoke(ctx, grant.ID, "admin@x"); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if active, err := bg.ListActive(ctx, tn.ID); err != nil || len(active) != 0 {
+	if active, err := bg.listActive(ctx, tn.ID); err != nil || len(active) != 0 {
 		t.Fatalf("listActive after revoke: %v / %d", err, len(active))
 	}
 }
 
-// Hierarchy getters: Organizations.Get/List, Teams.Get, Projects.Get.
+// Hierarchy getters: Organizations.get/list, Teams.get, Projects.get.
 func TestHierarchyGetters(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
@@ -755,14 +755,14 @@ func TestHierarchyGetters(t *testing.T) {
 		if err != nil {
 			t.Fatalf("project create: %v", err)
 		}
-		if _, err := (Projects{}).Get(ctx, s, proj.ID); err != nil {
+		if _, err := (Projects{}).get(ctx, s, proj.ID); err != nil {
 			t.Fatalf("project get: %v", err)
 		}
 		return nil
 	})
 }
 
-// Tenants.List (global).
+// Tenants.list (global).
 func TestTenantsList(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)

@@ -45,8 +45,8 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Runtime, error) {
 	}, nil
 }
 
-// NewWith builds a runtime from an explicit collector + emitter (the test seam).
-func NewWith(cfg *Config, collector *Collector, emitter Emitter, log *slog.Logger) *Runtime {
+// newWith builds a runtime from an explicit collector + emitter (the test seam).
+func newWith(cfg *Config, collector *Collector, emitter Emitter, log *slog.Logger) *Runtime {
 	return &Runtime{cfg: cfg, collector: collector, emitter: emitter, log: log}
 }
 

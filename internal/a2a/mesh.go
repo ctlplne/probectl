@@ -167,21 +167,8 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 	return append([]MeshSession(nil), created...), nil
 }
 
-// Sessions returns the caller tenant's known mesh sessions.
-func (m *MeshScheduler) Sessions(tenantID string) []MeshSession {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	out := make([]MeshSession, 0, len(m.byTenant[tenantID]))
-	for _, id := range m.byTenant[tenantID] {
-		if s, ok := m.sessions[id]; ok && s.TenantID == tenantID {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// RecordResult attaches one canary result to a tenant-owned mesh session.
-func (m *MeshScheduler) RecordResult(tenantID, sessionID, agentID string, res canary.Result) (MeshResult, error) {
+// recordResult attaches one canary result to a tenant-owned mesh session.
+func (m *MeshScheduler) recordResult(tenantID, sessionID, agentID string, res canary.Result) (MeshResult, error) {
 	if tenantID == "" || sessionID == "" || agentID == "" {
 		return MeshResult{}, errors.New("a2a mesh: tenant, session, and agent are required")
 	}
@@ -257,8 +244,8 @@ func (m *MeshScheduler) TopologyOverlay(tenantID string) []TopologyEdge {
 	return edges
 }
 
-// IncidentSignals maps degraded mesh results to cross-plane incident signals.
-func (m *MeshScheduler) IncidentSignals(tenantID string) []incident.Signal {
+// incidentSignals maps degraded mesh results to cross-plane incident signals.
+func (m *MeshScheduler) incidentSignals(tenantID string) []incident.Signal {
 	results := m.Results(tenantID)
 	signals := make([]incident.Signal, 0, len(results))
 	for _, r := range results {

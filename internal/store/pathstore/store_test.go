@@ -39,10 +39,10 @@ func TestMemoryStoreIsTenantScoped(t *testing.T) {
 	if err := m.Save(ctx, "t2", samplePath()); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.ForTenant("t1")) != 1 || len(m.ForTenant("t2")) != 1 {
-		t.Errorf("per-tenant counts = %d/%d, want 1/1", len(m.ForTenant("t1")), len(m.ForTenant("t2")))
+	if len(m.forTenant("t1")) != 1 || len(m.forTenant("t2")) != 1 {
+		t.Errorf("per-tenant counts = %d/%d, want 1/1", len(m.forTenant("t1")), len(m.forTenant("t2")))
 	}
-	if len(m.ForTenant("other")) != 0 {
+	if len(m.forTenant("other")) != 0 {
 		t.Error("an unrelated tenant should have no paths")
 	}
 }
@@ -135,16 +135,16 @@ func TestMemoryPathHistoryTenantTargetAndCopiedIDIsolation(t *testing.T) {
 }
 
 func TestNewModes(t *testing.T) {
-	if _, err := New("memory", ""); err != nil {
+	if _, err := xNew("memory", ""); err != nil {
 		t.Errorf("memory: %v", err)
 	}
-	if _, err := New("", ""); err != nil {
+	if _, err := xNew("", ""); err != nil {
 		t.Errorf("default: %v", err)
 	}
-	if _, err := New("clickhouse", ""); err == nil {
+	if _, err := xNew("clickhouse", ""); err == nil {
 		t.Error("clickhouse without a URL should error")
 	}
-	if _, err := New("bogus", ""); err == nil {
+	if _, err := xNew("bogus", ""); err == nil {
 		t.Error("unknown mode should error")
 	}
 }

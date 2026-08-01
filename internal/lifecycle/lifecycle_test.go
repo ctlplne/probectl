@@ -147,7 +147,7 @@ func TestRolloutProgression(t *testing.T) {
 	if r.Active() {
 		t.Fatal("stage 0 is not active")
 	}
-	if got := r.DesiredVersion("a", "1.4.0"); got != "1.4.0" {
+	if got := r.desiredVersion("a", "1.4.0"); got != "1.4.0" {
 		t.Fatalf("not-started rollout should keep current, got %s", got)
 	}
 
@@ -155,23 +155,23 @@ func TestRolloutProgression(t *testing.T) {
 	if !r.Active() || !r.Released(CohortCanary) || r.Released(CohortEarly) {
 		t.Fatalf("stage 1 should release canary only: %+v", r)
 	}
-	if got := r.DesiredVersion("a", "1.4.0"); got != "1.5.0" {
+	if got := r.desiredVersion("a", "1.4.0"); got != "1.5.0" {
 		t.Fatalf("canary agent should get target at stage 1, got %s", got)
 	}
 
 	// An early-cohort agent is NOT upgraded until stage 2.
 	re := Rollout{TargetVersion: "1.5.0", Stage: 1, Split: earlySplit}
-	if got := re.DesiredVersion("a", "1.4.0"); got != "1.4.0" {
+	if got := re.desiredVersion("a", "1.4.0"); got != "1.4.0" {
 		t.Fatalf("early agent should wait at stage 1, got %s", got)
 	}
 	re.Stage = 2
-	if got := re.DesiredVersion("a", "1.4.0"); got != "1.5.0" {
+	if got := re.desiredVersion("a", "1.4.0"); got != "1.5.0" {
 		t.Fatalf("early agent should upgrade at stage 2, got %s", got)
 	}
 
 	// Stage 3 releases the whole fleet.
 	rm := Rollout{TargetVersion: "1.5.0", Stage: 3, Split: Split{}}
-	if got := rm.DesiredVersion("anything", "1.4.0"); got != "1.5.0" {
+	if got := rm.desiredVersion("anything", "1.4.0"); got != "1.5.0" {
 		t.Fatalf("stage 3 should upgrade everyone, got %s", got)
 	}
 }

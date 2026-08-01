@@ -27,9 +27,9 @@ const (
 	schemaURL    = otel.SchemaURL
 )
 
-// ResultResourceMetrics converts a probe Result to OTLP ResourceMetrics, using
+// resultResourceMetrics converts a probe Result to OTLP ResourceMetrics, using
 // the canonical S6 resource attributes.
-func ResultResourceMetrics(r *resultv1.Result) *metricspb.ResourceMetrics {
+func resultResourceMetrics(r *resultv1.Result) *metricspb.ResourceMetrics {
 	ts := uint64(r.GetStartTimeUnixNano())
 	ms := []*metricspb.Metric{
 		gauge("probectl.probe.duration", "ns", ts, float64(r.GetDurationNano())),
@@ -41,10 +41,10 @@ func ResultResourceMetrics(r *resultv1.Result) *metricspb.ResourceMetrics {
 	return resourceMetrics(otel.ResultAttributes(r), ms...)
 }
 
-// FlowResourceMetrics converts an eBPF L3/L4 flow to OTLP ResourceMetrics.
+// flowResourceMetrics converts an eBPF L3/L4 flow to OTLP ResourceMetrics.
 // Bytes/packets are transferred-volume COUNTERS — emitted as monotonic Sum
 // (cumulative) per the OTel network semantic conventions (U-045), not Gauge.
-func FlowResourceMetrics(f *ebpfv1.Flow) *metricspb.ResourceMetrics {
+func flowResourceMetrics(f *ebpfv1.Flow) *metricspb.ResourceMetrics {
 	ts := uint64(f.GetObservedAtUnixNano())
 	return resourceMetrics(otel.FlowAttributes(f),
 		sum("probectl.flow.bytes", "By", ts, float64(f.GetBytes())),
@@ -52,8 +52,8 @@ func FlowResourceMetrics(f *ebpfv1.Flow) *metricspb.ResourceMetrics {
 	)
 }
 
-// L7CallResourceMetrics converts an eBPF L7 call to OTLP ResourceMetrics.
-func L7CallResourceMetrics(c *ebpfv1.L7Call) *metricspb.ResourceMetrics {
+// l7CallResourceMetrics converts an eBPF L7 call to OTLP ResourceMetrics.
+func l7CallResourceMetrics(c *ebpfv1.L7Call) *metricspb.ResourceMetrics {
 	ts := uint64(c.GetStartUnixNano())
 	return resourceMetrics(otel.L7CallAttributes(c),
 		gauge("probectl.l7.duration", "ns", ts, float64(c.GetLatencyNano())),
@@ -61,17 +61,17 @@ func L7CallResourceMetrics(c *ebpfv1.L7Call) *metricspb.ResourceMetrics {
 	)
 }
 
-// BGPEventResourceMetrics converts a BGP routing-security event to OTLP
+// bGPEventResourceMetrics converts a BGP routing-security event to OTLP
 // ResourceMetrics (the event surfaces as a unit-valued gauge with its attrs).
-func BGPEventResourceMetrics(e *bgpv1.BGPEvent) *metricspb.ResourceMetrics {
+func bGPEventResourceMetrics(e *bgpv1.BGPEvent) *metricspb.ResourceMetrics {
 	ts := uint64(e.GetDetectedAtUnixNano())
 	return resourceMetrics(otel.BGPEventAttributes(e),
 		gauge("probectl.bgp.event", "1", ts, 1),
 	)
 }
 
-// MetricsRequest wraps ResourceMetrics into an OTLP export request.
-func MetricsRequest(rms ...*metricspb.ResourceMetrics) *colmetricspb.ExportMetricsServiceRequest {
+// metricsRequest wraps ResourceMetrics into an OTLP export request.
+func metricsRequest(rms ...*metricspb.ResourceMetrics) *colmetricspb.ExportMetricsServiceRequest {
 	return &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: rms}
 }
 

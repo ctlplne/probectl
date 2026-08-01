@@ -66,9 +66,6 @@ func NewForwarder(f Formatter, s Sender, cfg Config, log *slog.Logger) *Forwarde
 	return &Forwarder{fmt: f, sender: s, cfg: cfg, log: log, ch: make(chan Event, cfg.BufferSize)}
 }
 
-// Format renders an event with the configured formatter (used in tests).
-func (fw *Forwarder) Format(e Event) []byte { return fw.fmt.Format(e) }
-
 // Deliver formats + sends one event, retrying with exponential backoff until it
 // succeeds or ctx is canceled. It returns ctx.Err() only when canceled mid-retry,
 // so a caller advancing a durable cursor never skips an undelivered event.

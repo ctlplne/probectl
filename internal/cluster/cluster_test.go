@@ -145,7 +145,7 @@ func TestStatusShape(t *testing.T) {
 	ctx := context.Background()
 	writer := &fakeProbe{p: Probe{Epoch: 3, WriterRegion: "us-east"}}
 	reader := &fakeProbe{p: Probe{InRecovery: true, Epoch: 3, LagSeconds: 1.5}}
-	m := NewManager(topo(), writer, reader).WithNow(func() time.Time { return time.Unix(1700000000, 0) })
+	m := NewManager(topo(), writer, reader).withNow(func() time.Time { return time.Unix(1700000000, 0) })
 	m.Refresh(ctx)
 	st := m.Status()
 	if st.Topology.Region != "us-east" || len(st.Topology.Regions) != 2 {

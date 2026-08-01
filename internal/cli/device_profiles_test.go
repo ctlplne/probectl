@@ -16,7 +16,7 @@ import (
 
 func TestCLIDeviceProfilesAreLocalAndCompiled(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"device", "profiles"}, func(string) string { return "" }, &stdout, &stderr)
+	code := runCLI([]string{"device", "profiles"}, func(string) string { return "" }, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
@@ -46,7 +46,7 @@ devices:
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code := Run(
+	code := runCLI(
 		[]string{"device", "config-preview", "--config", path},
 		func(string) string { return "" },
 		&stdout,

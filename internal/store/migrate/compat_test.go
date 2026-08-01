@@ -206,7 +206,7 @@ END $$;`,
 // (expand/contract). This walks the real embedded migrations FS, so adding a
 // destructive migration fails CI here.
 func TestMigrationsExpandContractCompat(t *testing.T) {
-	violations, err := CheckFS(migrations.FS)
+	violations, err := checkFS(migrations.FS)
 	if err != nil {
 		t.Fatalf("walk migrations: %v", err)
 	}

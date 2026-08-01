@@ -82,7 +82,7 @@ func TestOTLPCardinalityCapAndFairness(t *testing.T) {
 	if noisyStored > 500 {
 		t.Fatalf("noisy tenant stored %d series, want <= cardinality cap 500", noisyStored)
 	}
-	if c.Shed() == 0 {
+	if c.shedCount() == 0 {
 		t.Fatalf("fairness gate shed nothing for a tenant flooding %d series at a 100/s bound", 2*flood)
 	}
 

@@ -148,11 +148,11 @@ func TenantVerify(ctx context.Context, s tenancy.Scope) error {
 	return tenantVerifyFromLocked(ctx, s, head, 0)
 }
 
-// TenantVerifyFrom recomputes the tenant chain AFTER afterSeq. If afterSeq is
+// tenantVerifyFrom recomputes the tenant chain AFTER afterSeq. If afterSeq is
 // the durable prune sequence, its stored prune hash is used even though the
 // event row is intentionally gone. Asking to start inside an already-pruned
 // prefix fails closed because that older anchor is no longer locally provable.
-func TenantVerifyFrom(ctx context.Context, s tenancy.Scope, afterSeq int64) error {
+func tenantVerifyFrom(ctx context.Context, s tenancy.Scope, afterSeq int64) error {
 	if afterSeq < 0 {
 		return fmt.Errorf("tenant audit anchor sequence must be non-negative")
 	}

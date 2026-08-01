@@ -106,24 +106,6 @@ func (s *writeFencedStore) Close() error {
 	return s.next.Close()
 }
 
-// ClickHouseStore returns the concrete backend through batching and writer
-// fencing. Routing is configured on this pointer; writes still enter through
-// the decorated Store.
-func ClickHouseStore(store Store) (*ClickHouse, bool) {
-	for {
-		switch current := store.(type) {
-		case *ClickHouse:
-			return current, true
-		case *BatchingSaver:
-			store = current.inner
-		case *writeFencedStore:
-			store = current.next
-		default:
-			return nil, false
-		}
-	}
-}
-
 // UnderlyingStore returns the concrete backend for lifecycle capability
 // discovery through batching and writer-fence decorators.
 func UnderlyingStore(store Store) Store {

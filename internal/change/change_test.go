@@ -260,3 +260,19 @@ func hdrs(kv ...string) http.Header {
 	}
 	return h
 }
+
+func TestNormalizeBoundsKindToDeclaredVocabulary(t *testing.T) {
+	now := time.Now()
+	for _, known := range []Kind{KindDeploy, KindConfig, KindRoute, KindIaC, KindCommit, KindRelease, KindOther} {
+		e := Event{Kind: known}
+		e.normalize(ProviderGeneric, now)
+		if e.Kind != known {
+			t.Fatalf("declared kind %q was rewritten to %q", known, e.Kind)
+		}
+	}
+	e := Event{Kind: Kind("bespoke-sender-spelling")}
+	e.normalize(ProviderGeneric, now)
+	if e.Kind != KindOther {
+		t.Fatalf("unknown kind normalized to %q, want %q", e.Kind, KindOther)
+	}
+}

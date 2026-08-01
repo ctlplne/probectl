@@ -46,7 +46,7 @@ func TestLatestBoundsResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c, err := NewClickHouse(srv.URL)
+	c, err := newClickHouse(srv.URL)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
