@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type isolationStatus struct {

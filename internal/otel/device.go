@@ -9,7 +9,7 @@ package otel
 import (
 	"strconv"
 
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 )
 
 // Device-telemetry attribute keys (S39). No OTel semantic convention covers

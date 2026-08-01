@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // RED-001: the configured ClickHouse reader user must be constrained by the

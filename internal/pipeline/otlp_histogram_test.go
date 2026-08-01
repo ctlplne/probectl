@@ -14,8 +14,8 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
-	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	selfmetrics "github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // ARCH-006: an OTLP explicit-bucket histogram converts to the Prometheus

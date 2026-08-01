@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 // TestSealCAKeyRefusesPlaintext: KEYS-003. The agent-CA intermediate key must

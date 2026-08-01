@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/device"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 const (

@@ -14,9 +14,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/backup"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/backup"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 // backup-seal / backup-open (OPS-002): stdin→stdout envelope-encryption

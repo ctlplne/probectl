@@ -7,7 +7,7 @@
 package silo
 
 import (
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 
 	"fmt"
 	"sort"

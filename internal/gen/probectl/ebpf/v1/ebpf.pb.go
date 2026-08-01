@@ -658,7 +658,7 @@ const file_probectl_ebpf_v1_ebpf_proto_rawDesc = "" +
 	"\tFlowBatch\x12,\n" +
 	"\x05flows\x18\x01 \x03(\v2\x16.probectl.ebpf.v1.FlowR\x05flows\x123\n" +
 	"\x05edges\x18\x02 \x03(\v2\x1d.probectl.ebpf.v1.ServiceEdgeR\x05edges\x123\n" +
-	"\bl7_calls\x18\x03 \x03(\v2\x18.probectl.ebpf.v1.L7CallR\al7CallsBJZHgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1;ebpfv1b\x06proto3"
+	"\bl7_calls\x18\x03 \x03(\v2\x18.probectl.ebpf.v1.L7CallR\al7CallsBBZ@github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1;ebpfv1b\x06proto3"
 
 var (
 	file_probectl_ebpf_v1_ebpf_proto_rawDescOnce sync.Once

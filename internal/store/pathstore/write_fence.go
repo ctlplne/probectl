@@ -9,8 +9,8 @@ package pathstore
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type writeFencedStore struct {

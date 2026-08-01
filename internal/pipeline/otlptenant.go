@@ -16,7 +16,7 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 
-	"github.com/imfeelingtheagi/probectl/internal/otel"
+	"github.com/ctlplne/probectl/internal/otel"
 )
 
 var errOTLPResourceTenantMismatch = errors.New("pipeline: OTLP resource tenant does not match bus tenant")

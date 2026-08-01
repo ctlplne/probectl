@@ -9,7 +9,7 @@ package otel
 import (
 	"testing"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // TestResultAttributesConformToConventions is the semantic-convention conformance

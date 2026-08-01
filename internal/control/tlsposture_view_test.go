@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/threat"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/threat"
 )
 
 func TestTLSPostureSinkPostureIsPureReadModel(t *testing.T) {

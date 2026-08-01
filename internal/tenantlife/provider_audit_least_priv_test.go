@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // TENANT-005 (live Postgres): the provider role must NOT be able to SELECT

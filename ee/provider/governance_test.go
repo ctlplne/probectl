@@ -17,9 +17,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/imfeelingtheagi/probectl/internal/govern"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // memGovStore is an in-memory GovernanceStore for the handler tests (the PG

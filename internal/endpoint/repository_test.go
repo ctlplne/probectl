@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
+	"github.com/ctlplne/probectl/internal/store/endpointstore"
 )
 
 func TestEndpointDurableRestartAndIsolation(t *testing.T) {

@@ -7,9 +7,9 @@
 package topology
 
 import (
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
-	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
-	"github.com/imfeelingtheagi/probectl/internal/path"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 // FromPath maps a discovered Path (S10) to a PathInput, so a consumer of the

@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TENANT-003 / TENANT-004: prove the DB-level row policy — not the application

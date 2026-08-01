@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 // Path-store write benchmarks (Sprint 17, SCALE-015 — the named missing

@@ -9,8 +9,8 @@ package main
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/fairness"
 )
 
 // newFairnessGate is the single production construction path for per-tenant

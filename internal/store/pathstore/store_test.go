@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 func samplePath() *path.Path {

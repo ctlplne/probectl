@@ -20,9 +20,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
-	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/store"
 )
 
 func TestIRCryptoShredCoverageIsolationAndRecoveryDenial(t *testing.T) {

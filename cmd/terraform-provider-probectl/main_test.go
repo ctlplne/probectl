@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 func TestWriteVersion(t *testing.T) {

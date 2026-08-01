@@ -18,11 +18,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	coreaudit "github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	coreaudit "github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // AuditSink receives provider-plane audit events. The production sink wraps

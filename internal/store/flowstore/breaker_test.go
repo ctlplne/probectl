@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
 // SCALE-021 (now via the shared chclient, CODE-006): each routed silo endpoint

@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/apierror"
 )
 
 // Tenant lifecycle enforcement (S-T1). When the provider plane suspends or

@@ -38,7 +38,7 @@
 package gnmi
 
 import (
-	gnmi_ext "github.com/imfeelingtheagi/probectl/internal/gen/gnmi_ext"
+	gnmi_ext "github.com/ctlplne/probectl/internal/gen/gnmi_ext"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
@@ -2470,8 +2470,8 @@ const file_gnmi_gnmi_proto_rawDesc = "" +
 	"\x03Get\x12\x10.gnmi.GetRequest\x1a\x11.gnmi.GetResponse\x12*\n" +
 	"\x03Set\x12\x10.gnmi.SetRequest\x1a\x11.gnmi.SetResponse\x12@\n" +
 	"\tSubscribe\x12\x16.gnmi.SubscribeRequest\x1a\x17.gnmi.SubscribeResponse(\x010\x01:@\n" +
-	"\fgnmi_service\x12\x1c.google.protobuf.FileOptions\x18\xe9\a \x01(\tR\vgnmiServiceBi\xca>\x060.10.0\n" +
-	"\x15com.github.gnmi.protoB\tGnmiProtoP\x01Z:github.com/imfeelingtheagi/probectl/internal/gen/gnmi;gnmib\x06proto3"
+	"\fgnmi_service\x12\x1c.google.protobuf.FileOptions\x18\xe9\a \x01(\tR\vgnmiServiceBa\xca>\x060.10.0\n" +
+	"\x15com.github.gnmi.protoB\tGnmiProtoP\x01Z2github.com/ctlplne/probectl/internal/gen/gnmi;gnmib\x06proto3"
 
 var (
 	file_gnmi_gnmi_proto_rawDescOnce sync.Once

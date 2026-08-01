@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/agent"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/agent"
+	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 const defaultDrillTimeout = 10 * time.Second

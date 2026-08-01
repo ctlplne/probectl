@@ -11,8 +11,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/logging"
 )
 
 // CODE-001: buildServeStores carries the store-construction phase that used to

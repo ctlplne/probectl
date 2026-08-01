@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 
-	probectlcrypto "github.com/imfeelingtheagi/probectl/internal/crypto"
-	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
+	probectlcrypto "github.com/ctlplne/probectl/internal/crypto"
+	gnmipb "github.com/ctlplne/probectl/internal/gen/gnmi"
 )
 
 // gnmiMaxRecvBytes bounds each inbound gNMI SubscribeResponse. 4 MiB matches

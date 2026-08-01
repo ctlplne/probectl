@@ -21,14 +21,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
-	"github.com/imfeelingtheagi/probectl/migrations"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/crypto"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/store/migrate"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/migrations"
 )
 
 func TestObjectArtifactEraseWriteFenceTwoTenant(t *testing.T) {

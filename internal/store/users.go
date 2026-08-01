@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Users is the tenant-scoped user repository (per-tenant identity; SSO in S18,

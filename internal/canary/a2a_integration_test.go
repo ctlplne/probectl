@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/canary"
 )
 
 // TestA2ALoopback proves the two-way measurement core: a responder echoes the

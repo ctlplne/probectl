@@ -8,7 +8,7 @@
 # values-multitenant.yaml for the MSP / provider reference.
 
 image:
-  repository: ghcr.io/imfeelingtheagi/probectl-control
+  repository: ghcr.io/ctlplne/probectl-control
   # Required: immutable digest from the signed release or approved mirror.
   digest: "" # sha256:<64 lowercase hex>
   pullPolicy: IfNotPresent
@@ -24,7 +24,7 @@ fullnameOverride: ""
 bgpAnalyzer:
   enabled: false
   image:
-    repository: ghcr.io/imfeelingtheagi/probectl-bgp-analyzer
+    repository: ghcr.io/ctlplne/probectl-bgp-analyzer
     digest: "" # required when enabled; sha256:<64 hex>
     pullPolicy: IfNotPresent
   configSecret: "" # key below must contain analyzer JSON with tenant_id
@@ -57,7 +57,7 @@ bgpAnalyzer:
 browserAgent:
   enabled: false
   image:
-    repository: ghcr.io/imfeelingtheagi/probectl-browser-agent
+    repository: ghcr.io/ctlplne/probectl-browser-agent
     digest: "" # required when enabled; sha256:<64 hex>
     pullPolicy: IfNotPresent
   configSecret: ""
@@ -307,7 +307,7 @@ metrics:
     # Prometheus Operator CRD; regulated profiles enable it.
     enabled: false
     labels: {}
-    runbookBaseURL: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md
+    runbookBaseURL: https://github.com/ctlplne/probectl/blob/main/docs/runbooks/probectl-self-alerts.md
     thresholds:
       noSelfMetricsFor: 5m
       highGoroutines: 5000

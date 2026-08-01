@@ -10,8 +10,8 @@ import (
 	"context"
 	"time"
 
-	rem "github.com/imfeelingtheagi/probectl/internal/remediation"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	rem "github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 // TopologyEstimator computes a proposal's blast radius via the S43 topology

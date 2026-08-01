@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // TLS-plaintext capture policy (U-003, C13; path map in

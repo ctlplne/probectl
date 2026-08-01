@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/i18n"
+	"github.com/ctlplne/probectl/internal/i18n"
 )
 
 const helpGroupNameWidth = 24

@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 const EvaluationReceiptVersion = "probectl.alert-evaluation/v1"

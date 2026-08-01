@@ -10,8 +10,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/imfeelingtheagi/probectl/internal/alert"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // AlertMaintenance is the restart-safe repository for operator-created alert

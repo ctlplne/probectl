@@ -10,7 +10,7 @@ syntax = "proto3";
 // field tag; a CI `buf breaking` check enforces this.
 package probectl.agent.v1;
 
-option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1;agentv1";
+option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1";
 
 service AgentService {
   // Register announces an agent (idempotent upsert into the registry).

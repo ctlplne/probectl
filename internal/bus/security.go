@@ -17,7 +17,7 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Security is the Kafka transport policy (U-010): telemetry on the broker hop

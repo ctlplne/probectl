@@ -28,7 +28,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // Doer is the subset of *http.Client a connector needs (injectable for tests).

@@ -27,7 +27,7 @@ ADMISSION=deploy/admission/probectl-agent-image-integrity.kyverno.yaml
 check_identity_regexp() {
   local regexp="$1"
   local label="${2:-cosign identity}"
-  local official="https://github.com/imfeelingtheagi/probectl/.github/workflows/release.yml@refs/tags/v1.2.3"
+  local official="https://github.com/ctlplne/probectl/.github/workflows/release.yml@refs/tags/v1.2.3"
   local fork="https://github.com/attacker/probectl/.github/workflows/release.yml@refs/tags/v1.2.3"
 
   [[ "$official" =~ $regexp ]] ||
@@ -79,7 +79,7 @@ check_package_binary_verification() {
 
 if [[ "${1:-}" == "SELFTEST" ]]; then
   if ! check_identity_regexp \
-    '^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/' \
+    '^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/' \
     "cosign-wiring SELFTEST official identity"; then
     exit 1
   fi
@@ -146,7 +146,7 @@ for identity_source in "$INSTALL" "$AIRGAP" deploy/ansible/roles/probectl_agents
   if grep -Fq '[^/]+/probectl' "$identity_source"; then
     echo "${identity_source}: default cosign identity trusts an arbitrary repository owner"; fail=1
   fi
-  grep -Fq 'github.com/imfeelingtheagi/probectl/' "$identity_source" ||
+  grep -Fq 'github.com/ctlplne/probectl/' "$identity_source" ||
     { echo "${identity_source}: default cosign identity is not pinned to the official repository"; fail=1; }
 done
 grep -q "install_method == 'package_url'" "$TASKS" || { echo "ansible: package_url task block missing"; fail=1; }

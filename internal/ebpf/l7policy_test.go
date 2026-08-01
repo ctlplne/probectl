@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
+	"github.com/ctlplne/probectl/internal/ebpf/l7"
 )
 
 // U-003 + EBPF-001: capture is off by default and stays off without an

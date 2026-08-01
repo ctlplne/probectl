@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	"github.com/ctlplne/probectl/internal/canary"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
 
 // Coordinator participates in brokered agent-to-agent measurement. It keeps its

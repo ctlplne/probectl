@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Rollouts persists staged fleet rollout plans and their operator-visible event

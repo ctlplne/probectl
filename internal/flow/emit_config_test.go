@@ -17,8 +17,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
+	"github.com/ctlplne/probectl/internal/bus"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 // captureBus records every Publish for assertions.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 func meetsHighVolumeDecodeFloor(recordsPerSecond float64) bool {

@@ -61,7 +61,7 @@ PY
 }
 
 export_receipts() {
-  REPO="${REPO:-imfeelingtheagi/probectl}"
+  REPO="${REPO:-ctlplne/probectl}"
   OUT="${OUT:-dataroom-receipts-$(date -u +%Y%m%d)}"
   mkdir -p "$OUT"
 

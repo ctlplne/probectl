@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/logging"
 )
 
 // U-024 brute-force test: hammering an auth endpoint from one source locks

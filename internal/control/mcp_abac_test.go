@@ -13,10 +13,10 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
 )
 
 func TestMCPServerColdABACLoadFailureFailsClosed(t *testing.T) {

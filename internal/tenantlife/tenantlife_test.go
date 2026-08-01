@@ -19,13 +19,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/browser"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/browser"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/store/ebpfstore"
+	"github.com/ctlplne/probectl/internal/store/endpointstore"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/otelstore"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 var t0 = time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 type clusterGlobalOnlyWriter struct {

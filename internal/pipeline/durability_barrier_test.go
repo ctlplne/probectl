@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // blockingWriter lets a test hold a write open, then release it, and records

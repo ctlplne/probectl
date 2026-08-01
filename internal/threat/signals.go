@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // ToSignals maps a posture into threat-plane incident signals — one per finding —

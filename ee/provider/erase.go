@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
 // The S-T5 provider-side erase view: the CORE lifecycle engine does the

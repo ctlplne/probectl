@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 )
 
 const (

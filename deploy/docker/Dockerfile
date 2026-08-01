@@ -68,9 +68,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath ${GO_TAGS:+-tags ${GO_TAGS}} \
       -ldflags "-s -w \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}" \
+        -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} \
+        -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
+        -X github.com/ctlplne/probectl/internal/version.Date=${DATE}" \
       -o /out/app ./cmd/${COMPONENT}
 # A named volume mounted over a path absent from the image is initialized as
 # root-owned. Seed an empty non-root directory so the one-shot `gen-cert`
@@ -82,7 +82,7 @@ RUN install -d -m 0700 -o 65532 -g 65532 /out/certs
 # vulnerability-free for static Go binaries.
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
 ARG COMPONENT
-LABEL org.opencontainers.image.source="https://github.com/imfeelingtheagi/probectl" \
+LABEL org.opencontainers.image.source="https://github.com/ctlplne/probectl" \
       org.opencontainers.image.title="${COMPONENT}" \
       org.opencontainers.image.description="probectl ${COMPONENT}"
 COPY --from=build /out/app /usr/local/bin/app

@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/agent"
-	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
+	"github.com/ctlplne/probectl/internal/agent"
+	"github.com/ctlplne/probectl/internal/lifecycle"
 )
 
 // OPS-002: the manager plans a rollout, steps it via the engine, and halt/

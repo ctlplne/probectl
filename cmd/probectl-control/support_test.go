@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/support"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/support"
 )
 
 func TestOfflineSupportRedactsDatabaseQueryCredentials(t *testing.T) {

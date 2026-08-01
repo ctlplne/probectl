@@ -5,7 +5,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 # ---- configuration -------------------------------------------------------
-MODULE   := github.com/imfeelingtheagi/probectl
+MODULE   := github.com/ctlplne/probectl
 GO       ?= go
 PYTHON   ?= python3
 BIN_DIR  := bin
@@ -44,7 +44,7 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/version.Date=$(DATE)
 
 # Container / dev-stack settings.
-IMAGE_REGISTRY ?= ghcr.io/imfeelingtheagi
+IMAGE_REGISTRY ?= ghcr.io/ctlplne
 IMAGE_TAG      ?= $(VERSION)
 PLATFORMS      ?= linux/amd64,linux/arm64
 DOCKERFILE     := deploy/docker/Dockerfile
@@ -248,7 +248,7 @@ audit-verify-gate: ## Validate repaired probectl-audit VERIFY appendices and cit
 
 editions-gate: ## Editions import + commercial-header guards (self-tested), then core-only build/test with zero ee/ code linked.
 	SELFTEST=1 ./scripts/check_editions_imports.sh
-	core_pkgs="$$( $(GO) list -tags probectl_core -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee' | grep . )"; \
+	core_pkgs="$$( $(GO) list -tags probectl_core -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v '^github.com/ctlplne/probectl/ee' | grep . )"; \
 	$(GO) build -tags probectl_core $$core_pkgs; \
 	$(GO) test -tags probectl_core -count=1 $$core_pkgs
 

@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/promapi"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/promapi"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // Prometheus-compatible surfaces (S40, F30): the Grafana datasource API

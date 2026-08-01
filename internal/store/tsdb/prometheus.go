@@ -24,9 +24,9 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/breaker"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
+	"github.com/ctlplne/probectl/internal/breaker"
+	"github.com/ctlplne/probectl/internal/crypto"
+	prompb "github.com/ctlplne/probectl/internal/gen/prometheus/v1"
 )
 
 // Prometheus writes series via the Prometheus remote-write protocol (a snappy-

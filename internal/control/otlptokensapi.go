@@ -12,12 +12,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/otel/otlp"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/otel/otlp"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // OTLP token admin surface (WIRE-008): POST /v1/otlp-tokens (mint) and

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
+	"github.com/ctlplne/probectl/internal/store/otelstore"
 )
 
 // TENANT-008: tenant erasure must cover the externally-ingested OTLP

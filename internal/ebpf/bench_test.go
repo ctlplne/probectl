@@ -28,8 +28,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // trafficProfile is the defined synthetic shape: a host talking to a

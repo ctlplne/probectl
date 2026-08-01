@@ -13,7 +13,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
 // ndrFakeBinding verifies only the (tenant, agent) pairs it was told about;

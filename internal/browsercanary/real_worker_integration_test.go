@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/browser"
-	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/browser"
+	"github.com/ctlplne/probectl/internal/canary"
 )
 
 // TestAgentFactoryRunsRealPlaywrightWorker is W2's agent-driven smoke: the

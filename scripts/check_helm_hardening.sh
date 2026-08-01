@@ -71,7 +71,7 @@ need_digest_pinned_control_images() {
   local minimum="$3"
   local refs count
 
-  refs="$(grep -E '^[[:space:]]*image: ghcr.io/imfeelingtheagi/probectl-control' <<<"$body" || true)"
+  refs="$(grep -E '^[[:space:]]*image: ghcr.io/ctlplne/probectl-control' <<<"$body" || true)"
   count="$(grep -c . <<<"$refs" || true)"
   [ "$count" -ge "$minimum" ] \
     || fail "$label rendered $count primary control image references; expected at least $minimum"
@@ -207,7 +207,7 @@ analyzer_render="$(render \
   --set-string bgpAnalyzer.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
   --set-json 'bgpAnalyzer.networkPolicy.egressTo=[{"to":[{"ipBlock":{"cidr":"10.0.0.0/8"}}],"ports":[{"protocol":"TCP","port":9093}]}]')"
 need_fixed "name: probectl-bgp-analyzer" "$analyzer_render" "BGP analyzer Deployment/NetworkPolicy did not render (W1)"
-need_fixed "ghcr.io/imfeelingtheagi/probectl-bgp-analyzer@sha256:0000000000000000000000000000000000000000000000000000000000000000" "$analyzer_render" "BGP analyzer image is not digest-pinned (W1)"
+need_fixed "ghcr.io/ctlplne/probectl-bgp-analyzer@sha256:0000000000000000000000000000000000000000000000000000000000000000" "$analyzer_render" "BGP analyzer image is not digest-pinned (W1)"
 need_fixed "automountServiceAccountToken: false" "$analyzer_render" "BGP analyzer received a Kubernetes API token (W1)"
 need_fixed "PROBECTL_BGP_ANALYZER_CONFIG" "$analyzer_render" "BGP analyzer has no tenant config binding (W1)"
 need_fixed "ingress: []" "$analyzer_render" "BGP analyzer NetworkPolicy admits inbound traffic despite having no listener (W1)"
@@ -228,7 +228,7 @@ browser_render="$(render \
   --set-json 'browserAgent.networkPolicy.egressTo=[{"to":[{"ipBlock":{"cidr":"203.0.113.0/24"}}],"ports":[{"protocol":"TCP","port":443}]}]')"
 need_fixed "kind: DaemonSet" "$browser_render" "browser agent DaemonSet did not render (W2)"
 need_fixed "name: probectl-browser-agent" "$browser_render" "browser agent workload/NetworkPolicy is missing (W2)"
-need_fixed "ghcr.io/imfeelingtheagi/probectl-browser-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000" "$browser_render" "browser agent image is not digest-pinned (W2)"
+need_fixed "ghcr.io/ctlplne/probectl-browser-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000" "$browser_render" "browser agent image is not digest-pinned (W2)"
 need_fixed "automountServiceAccountToken: false" "$browser_render" "browser agent received a Kubernetes API token (W2)"
 need_fixed "readOnlyRootFilesystem: true" "$browser_render" "browser agent root filesystem is writable (W2)"
 need_fixed "PROBECTL_AGENT_BROWSER_WORKER_PATH" "$browser_render" "browser agent is not pinned to the packaged worker (W2)"

@@ -17,7 +17,7 @@ syntax = "proto3";
 // Backward compatibility: fields are additive-only; never renumber or reuse tags.
 package probectl.flow.v1;
 
-option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1;flowv1";
+option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1;flowv1";
 
 message FlowRecord {
   // --- Resource identity (OTel resource attributes) ---

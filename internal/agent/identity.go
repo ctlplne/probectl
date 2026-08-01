@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Agent-side enrollment + SVID rotation (Sprint 11, ADR

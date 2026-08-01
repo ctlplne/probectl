@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // WriteSeries snapshots the cluster state into the TSDB as region-labeled

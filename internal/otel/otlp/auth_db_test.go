@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 type fakeOTLPTokenStore struct {

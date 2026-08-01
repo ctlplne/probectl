@@ -16,7 +16,7 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Application-layer replay/freshness protection on ingestion (Sprint 12,

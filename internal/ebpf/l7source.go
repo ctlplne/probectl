@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
+	"github.com/ctlplne/probectl/internal/ebpf/l7"
 )
 
 // L7Event is one captured plaintext chunk plus its connection context, delivered

@@ -18,11 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/device"
-	"github.com/imfeelingtheagi/probectl/internal/ebpf"
-	"github.com/imfeelingtheagi/probectl/internal/endpoint"
-	"github.com/imfeelingtheagi/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/ebpf"
+	"github.com/ctlplne/probectl/internal/endpoint"
+	"github.com/ctlplne/probectl/internal/flow"
 )
 
 type captureBus struct {

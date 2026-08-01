@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 // Engine errors.

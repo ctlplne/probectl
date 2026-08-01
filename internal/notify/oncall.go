@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // --- PagerDuty (Events API v2) ---

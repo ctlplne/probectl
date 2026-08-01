@@ -15,13 +15,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/httpbody"
-	"github.com/imfeelingtheagi/probectl/internal/scim"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/scim"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // auditSCIM records a SCIM provisioning action; the actor is the directory service.

@@ -13,9 +13,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/flow"
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 func qualityProto(t *testing.T, tenant, agent, exporter string) *flowv1.FlowIngestQualityReceipt {

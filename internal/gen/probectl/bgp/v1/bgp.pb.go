@@ -9,10 +9,13 @@
 // Live) or from direct tenant-authenticated BMP router sessions, then bridged
 // onto the bus by internal/bgp.
 //
-// Tenancy: tenant_id is the outermost scope (F50). External BGP data is ingested
-// once and scoped per tenant by the monitoring configuration; direct BMP peers
-// derive tenant_id from the verified SPIFFE client certificate. The bridge fails
-// closed on an event with no tenant (CLAUDE.md §7 guardrails 1 and 10).
+// Tenancy: tenant_id is the outermost scope (F50). External BGP collector data
+// is ingested PER TENANT today: each tenant's analyzer subprocess consumes its
+// own collector feed, scoped by that tenant's monitoring configuration. Shared
+// ingest-once fan-out is a recorded scaling boundary, not the current shape —
+// see docs/adr/bgp-ingest-model.md. Direct BMP peers derive tenant_id from the
+// verified SPIFFE client certificate. The bridge fails closed on an event with
+// no tenant (CLAUDE.md §7 guardrails 1 and 10).
 //
 // Detection is a SIGNAL, not ground truth (guardrail 9): every event carries a
 // confidence and a severity and is tunable/suppressible downstream — probectl does
@@ -463,7 +466,7 @@ const file_probectl_bgp_v1_bgp_proto_rawDesc = "" +
 	"\x14SEVERITY_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSEVERITY_INFO\x10\x01\x12\x14\n" +
 	"\x10SEVERITY_WARNING\x10\x02\x12\x15\n" +
-	"\x11SEVERITY_CRITICAL\x10\x03BHZFgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1;bgpv1b\x06proto3"
+	"\x11SEVERITY_CRITICAL\x10\x03B@Z>github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1;bgpv1b\x06proto3"
 
 var (
 	file_probectl_bgp_v1_bgp_proto_rawDescOnce sync.Once

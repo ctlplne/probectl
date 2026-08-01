@@ -10,7 +10,7 @@ import (
 	_ "embed"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/apierror"
 )
 
 // openapiJSON is the OpenAPI 3.1 description of the control-plane API. Resource

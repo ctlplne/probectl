@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/enroll"
+	"github.com/ctlplne/probectl/internal/enroll"
 )
 
 type forensicEnrollmentService struct {

@@ -16,11 +16,11 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/endpoint"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
-	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/endpoint"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/store/endpointstore"
 )
 
 type endpointTestBinding map[[2]string]bool

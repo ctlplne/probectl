@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/flow"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 // Flow analytics (S38, F17): tenant-scoped reads over the flow store. The

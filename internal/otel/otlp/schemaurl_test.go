@@ -12,8 +12,8 @@ import (
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/protobuf/proto"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/otel"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/otel"
 )
 
 // TestExportedOTLPCarriesSchemaURL is the SCHEMA-004 acceptance test: an

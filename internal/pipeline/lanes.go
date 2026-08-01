@@ -10,7 +10,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/bus"
 )
 
 // LaneHandler processes one bus message known to belong to laneTenant. On the

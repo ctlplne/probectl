@@ -19,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/alert"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestAlertSupervisorEvaluatesTwoNonDefaultTenants(t *testing.T) {

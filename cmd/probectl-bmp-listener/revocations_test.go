@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	probectlc "github.com/imfeelingtheagi/probectl/internal/crypto"
+	probectlc "github.com/ctlplne/probectl/internal/crypto"
 )
 
 type revocationSnapshot struct {

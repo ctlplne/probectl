@@ -22,7 +22,7 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 func TestOfflineInteropOTelCollectorMetricsTracesLogs(t *testing.T) {

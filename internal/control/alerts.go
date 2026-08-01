@@ -10,10 +10,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/alert"
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // alertRequest is the create/update body for an alert rule.

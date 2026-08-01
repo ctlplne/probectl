@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/ai/mcp"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
 )
 
 func TestMCPListTestsBoundsAndFairness(t *testing.T) {

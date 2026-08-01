@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Role is an agent's role in an agent-to-agent session.

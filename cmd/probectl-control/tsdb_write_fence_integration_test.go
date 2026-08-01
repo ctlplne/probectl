@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TestTSDBFenceRuntime proves the production runtime keeps its concrete TSDB

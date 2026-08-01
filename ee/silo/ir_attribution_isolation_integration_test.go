@@ -20,13 +20,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
-	"github.com/imfeelingtheagi/probectl/migrations"
+	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/store/migrate"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/migrations"
 )
 
 type integrationIRKeys map[string]crypto.KeyProvider

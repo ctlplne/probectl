@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // TestBundleCompleteness is the EXC-ORG-03 completeness gate: it pins the exact

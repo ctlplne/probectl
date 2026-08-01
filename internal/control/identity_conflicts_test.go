@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/bus"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 func TestBuildIdentityConflictViewsFreshnessAndConfidence(t *testing.T) {

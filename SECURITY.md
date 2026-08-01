@@ -11,7 +11,7 @@ probectl and its users safe.
 **Please report suspected vulnerabilities privately — do not open a public
 issue.**
 
-- Preferred: open a [GitHub private security advisory](https://github.com/imfeelingtheagi/probectl/security/advisories/new)
+- Preferred: open a [GitHub private security advisory](https://github.com/ctlplne/probectl/security/advisories/new)
   ("Report a vulnerability") — GitHub's private reporting channel, visible only
   to you and the maintainer until a fix ships.
 - Each deployment also advertises a contact at `/.well-known/security.txt`

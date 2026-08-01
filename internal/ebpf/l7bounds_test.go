@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
+	"github.com/ctlplne/probectl/internal/ebpf/l7"
 )
 
 // TestAgentL7MapsStayBounded drives the LIVE agent path (observeL7, the same

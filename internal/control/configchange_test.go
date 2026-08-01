@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/change"
-	"github.com/imfeelingtheagi/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/change"
+	"github.com/ctlplne/probectl/internal/device"
 )
 
 func TestProjectConfigChangesRequiresExactTenantPredecessor(t *testing.T) {

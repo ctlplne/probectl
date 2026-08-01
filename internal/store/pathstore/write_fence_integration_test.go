@@ -20,11 +20,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
-	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
-	"github.com/imfeelingtheagi/probectl/migrations"
+	"github.com/ctlplne/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/store/migrate"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/migrations"
 )
 
 // TestPathEraseWriteFenceTwoTenant proves the shared tenant-writer lease at

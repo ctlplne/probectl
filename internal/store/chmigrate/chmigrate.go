@@ -38,7 +38,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Exec is the minimal ClickHouse client surface the runner needs — the

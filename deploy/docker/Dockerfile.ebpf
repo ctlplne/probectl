@@ -91,16 +91,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath -tags ebpf \
       -ldflags "-s -w \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}" \
+        -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} \
+        -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
+        -X github.com/ctlplne/probectl/internal/version.Date=${DATE}" \
       -o /out/app ./cmd/probectl-ebpf-agent
 
 # Minimal, non-root runtime. The agent needs CAP_BPF + CAP_PERFMON granted by
 # the orchestrator (see deploy/agent/probectl-ebpf-agent.service and the Helm
 # chart) — the image itself stays nonroot.
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
-LABEL org.opencontainers.image.source="https://github.com/imfeelingtheagi/probectl" \
+LABEL org.opencontainers.image.source="https://github.com/ctlplne/probectl" \
       org.opencontainers.image.title="probectl-ebpf-agent" \
       org.opencontainers.image.description="probectl eBPF host agent (live CO-RE loader, observe-only)"
 COPY --from=build /out/app /usr/local/bin/app

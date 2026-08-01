@@ -10,8 +10,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/ctlplne/probectl/internal/bus"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 )
 
 func TestBindBGPEventAuthenticatedTenantAcceptsBucketedKeys(t *testing.T) {

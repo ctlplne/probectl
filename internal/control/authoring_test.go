@@ -20,10 +20,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/ai/author"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai/author"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 func TestHandleAIAuthor(t *testing.T) {

@@ -18,9 +18,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/bus"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestLatestResultsStore(t *testing.T) {

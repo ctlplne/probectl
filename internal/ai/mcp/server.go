@@ -15,10 +15,10 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // protocolVersion is the MCP revision this server speaks.

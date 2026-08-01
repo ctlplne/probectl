@@ -9,7 +9,7 @@ package cli
 import (
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // Test mirrors the /v1/tests resource.

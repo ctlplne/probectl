@@ -19,8 +19,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
 type fakeTenantLifecycle struct {

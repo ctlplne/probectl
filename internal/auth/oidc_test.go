@@ -20,7 +20,7 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // mockIDP is a minimal OIDC identity provider for tests: it serves a discovery

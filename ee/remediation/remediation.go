@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	rem "github.com/imfeelingtheagi/probectl/internal/remediation"
+	rem "github.com/ctlplne/probectl/internal/remediation"
 )
 
 // Audit adapts a function to AuditSink. Unit tests use it to inject success and

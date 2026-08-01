@@ -10,10 +10,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/remediation"
 )
 
 // Guarded agentic remediation (S-EE5, F44 — guardrail-critical, ee-backed via

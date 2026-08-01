@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // The CI-scale gate run: proves the GATE end to end (profiles drive, SLOs

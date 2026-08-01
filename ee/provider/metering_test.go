@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/ee/billing"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/usage"
+	"github.com/ctlplne/probectl/ee/billing"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 // The S-T3 surface on the provider plane: usage/showback, the billing-export

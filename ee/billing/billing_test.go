@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/usage"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 var t0 = time.Date(2026, 6, 5, 14, 23, 45, 0, time.UTC) // mid-hour

@@ -691,7 +691,7 @@ const file_probectl_flow_v1_flow_proto_rawDesc = "" +
 	"nextAction\"\x8b\x01\n" +
 	"\x16FlowIngestQualityBatch\x12)\n" +
 	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12F\n" +
-	"\breceipts\x18\x02 \x03(\v2*.probectl.flow.v1.FlowIngestQualityReceiptR\breceiptsBJZHgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1;flowv1b\x06proto3"
+	"\breceipts\x18\x02 \x03(\v2*.probectl.flow.v1.FlowIngestQualityReceiptR\breceiptsBBZ@github.com/ctlplne/probectl/internal/gen/probectl/flow/v1;flowv1b\x06proto3"
 
 var (
 	file_probectl_flow_v1_flow_proto_rawDescOnce sync.Once

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/logging"
 )
 
 // OPS-005: /metrics is served, pre-auth (like /healthz), in Prometheus text

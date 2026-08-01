@@ -13,8 +13,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // DefaultRunTimeout bounds a single transaction run when none is configured.

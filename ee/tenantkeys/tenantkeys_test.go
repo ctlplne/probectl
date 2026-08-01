@@ -19,13 +19,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/control"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/control"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 func testMaster(t *testing.T) *crypto.Envelope {

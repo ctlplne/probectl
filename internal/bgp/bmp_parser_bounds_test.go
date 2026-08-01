@@ -16,7 +16,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 )
 
 func TestParseBGPUpdateRouteLimits(t *testing.T) {

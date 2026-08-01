@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store"
 )
 
 func validDashboardRequest() dashboardCreateRequest {

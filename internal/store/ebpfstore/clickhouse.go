@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
-	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
+	"github.com/ctlplne/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/store/chmigrate"
 )
 
 const sharedEdgesTable = "probectl_ebpf_edges"

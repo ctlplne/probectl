@@ -9,7 +9,7 @@ package eval
 import (
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai"
 )
 
 // row builds a planted evidence row.

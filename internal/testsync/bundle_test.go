@@ -9,7 +9,7 @@ package testsync
 import (
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // ARCH-001: a bundle signed by the control plane's key verifies against the

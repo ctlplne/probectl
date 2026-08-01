@@ -15,8 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/govern"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // The S-EE3 governance surface on the provider plane: the per-tenant

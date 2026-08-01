@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/pkg/sdk"
+	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
 func TestListTestsExampleUsesGeneratedSDK(t *testing.T) {

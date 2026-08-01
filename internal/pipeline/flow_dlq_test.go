@@ -15,9 +15,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/bus"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 // flowFlakyStore embeds the Store interface (so it satisfies it) but overrides

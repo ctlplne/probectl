@@ -14,7 +14,7 @@ set -euo pipefail
 VERSION="${VERSION:?set VERSION (e.g. 0.6.0)}"
 VERSION_NO_V="${VERSION#v}"
 TAG="${TAG:-v${VERSION#v}}"
-IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/imfeelingtheagi}"
+IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/ctlplne}"
 OUT="${OUT:-probectl-airgap-${VERSION}}"
 DIST="${DIST:-dist}"
 COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl-bgp-analyzer probectl-browser-agent terraform-provider-probectl probectl"
@@ -24,7 +24,7 @@ EXPECTED_PACKAGE_COUNT=20 # 5 packaged agents × 2 architectures × deb+rpm.
 VERIFY_COSIGN="${PROBECTL_AIRGAP_VERIFY_COSIGN:-1}"
 UNVERIFIED_ACK_VALUE="allow-unverified-airgap-artifacts"
 COSIGN_ISSUER="${PROBECTL_COSIGN_ISSUER:-https://token.actions.githubusercontent.com}"
-COSIGN_IDENTITY_REGEXP="${PROBECTL_COSIGN_IDENTITY_REGEXP:-^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/${TAG}$}"
+COSIGN_IDENTITY_REGEXP="${PROBECTL_COSIGN_IDENTITY_REGEXP:-^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/${TAG}$}"
 
 case "${VERIFY_COSIGN}" in
   1|true|TRUE|yes|YES) VERIFY_COSIGN=1 ;;

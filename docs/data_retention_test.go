@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/govern"
 )
 
 func TestDataRetentionMatrixCoversPrivacyGovernanceRows(t *testing.T) {

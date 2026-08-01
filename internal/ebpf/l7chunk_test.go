@@ -11,7 +11,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
+	"github.com/ctlplne/probectl/internal/ebpf/l7"
 )
 
 // rawChunk builds the wire form of a ring-buffer record exactly as

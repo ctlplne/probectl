@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/cost"
+	"github.com/ctlplne/probectl/internal/cost"
 )
 
 func testMapper(t *testing.T) *cost.Mapper {

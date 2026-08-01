@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 const (

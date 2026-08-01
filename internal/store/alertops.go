@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // AlertOps persists operator silences/acks (Sprint 16, ARCH-005 — the

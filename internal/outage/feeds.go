@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 // KindOutage classifies outage feeds in the shared open-data provenance model.

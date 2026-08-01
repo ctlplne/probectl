@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	agentcfg "github.com/imfeelingtheagi/probectl/internal/agent"
-	devicecfg "github.com/imfeelingtheagi/probectl/internal/device"
-	ebpfcfg "github.com/imfeelingtheagi/probectl/internal/ebpf"
-	endpointcfg "github.com/imfeelingtheagi/probectl/internal/endpoint"
-	flowcfg "github.com/imfeelingtheagi/probectl/internal/flow"
+	agentcfg "github.com/ctlplne/probectl/internal/agent"
+	devicecfg "github.com/ctlplne/probectl/internal/device"
+	ebpfcfg "github.com/ctlplne/probectl/internal/ebpf"
+	endpointcfg "github.com/ctlplne/probectl/internal/endpoint"
+	flowcfg "github.com/ctlplne/probectl/internal/flow"
 )
 
 // OPS-004: the Ansible probectl_agents role used to run `<binary> enroll` for

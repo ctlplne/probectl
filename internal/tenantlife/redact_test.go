@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/govern"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 // TestRedactedExport is the named redaction/masking test (S-EE3): a requested

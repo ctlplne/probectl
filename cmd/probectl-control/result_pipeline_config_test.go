@@ -9,10 +9,10 @@ package main
 import (
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 func TestBuildResultPipelineConsumerWiresWriteStageConfig(t *testing.T) {

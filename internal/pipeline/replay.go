@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/bus"
 )
 
 // Dead-letter replay (ARCH-001).

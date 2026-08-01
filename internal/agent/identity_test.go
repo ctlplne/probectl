@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // fakeControl serves a canned identity for /enroll/agent (no DB — the service

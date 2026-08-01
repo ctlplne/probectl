@@ -14,13 +14,13 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/fairness"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 type fairnessSource map[string]fairness.Policy

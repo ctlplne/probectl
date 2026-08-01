@@ -13,8 +13,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/branding"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/branding"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestBrandingEndpointIsDeploymentScopedAndProbectlBranded(t *testing.T) {

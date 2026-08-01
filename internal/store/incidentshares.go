@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // IncidentShares persists redacted, expiring incident-room snapshots. RLS is

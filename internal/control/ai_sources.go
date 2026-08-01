@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/promapi"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/promapi"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // metricsEvidenceSource adapts the production TSDB writer to ai.MetricsSource.

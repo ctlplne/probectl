@@ -12,7 +12,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/pkg/sdk"
+	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
 func main() {

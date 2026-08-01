@@ -20,7 +20,7 @@ syntax = "proto3";
 // Backward compatibility: fields are additive-only; never renumber or reuse tags.
 package probectl.bgp.v1;
 
-option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1;bgpv1";
+option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1;bgpv1";
 
 // EventType classifies the routing observation.
 enum EventType {

@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
-	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
-	"github.com/imfeelingtheagi/probectl/migrations"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/migrate"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/migrations"
 )
 
 func setupMCPStdioDB(t *testing.T) *store.DB {

@@ -10,7 +10,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 // CORRECT-010: a path save mints a fresh path_id + now() per call on a plain

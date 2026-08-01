@@ -16,8 +16,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 func TestTenantIdPAdminAPIIsolationEncryptionAndAudit(t *testing.T) {

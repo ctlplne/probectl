@@ -12,9 +12,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	"github.com/ctlplne/probectl/internal/agenttransport"
+	"github.com/ctlplne/probectl/internal/crypto"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
 
 // Client is the agent's mTLS gRPC connection to the control plane.

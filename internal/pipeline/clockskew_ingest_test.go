@@ -17,8 +17,8 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // CORRECT-006: the far-future clock-skew clamp must cover EVERY ingest path, not

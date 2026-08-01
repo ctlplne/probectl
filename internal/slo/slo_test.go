@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 var sloT = time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)

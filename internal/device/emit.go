@@ -12,8 +12,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
+	"github.com/ctlplne/probectl/internal/bus"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 )
 
 // Emitter receives normalized metric batches (the bus emitter in production,

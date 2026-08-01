@@ -11,7 +11,7 @@ separately from workload charts. They do not phone home.
 makes the privileged eBPF agent fail closed at admission unless the image is:
 
 - referenced with an immutable digest, and
-- signed by the `imfeelingtheagi/probectl` release workflow running on a tag.
+- signed by the `ctlplne/probectl` release workflow running on a tag.
 
 The Helm chart already refuses tag-only eBPF-agent images unless
 `image.allowTagOnly=true` is set as explicit break-glass, and the chart now

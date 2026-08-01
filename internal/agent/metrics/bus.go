@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/bus"
 )
 
 // ObserveBus wraps an agent's bus producer with publish RED metrics. Subscribe,

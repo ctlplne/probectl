@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	devicepkg "github.com/imfeelingtheagi/probectl/internal/device"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	devicepkg "github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 func TestDeviceInventoryAPIReadsTenantTopology(t *testing.T) {

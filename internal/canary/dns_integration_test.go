@@ -20,7 +20,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/canary"
 )
 
 // serveDNS starts in-process UDP and TCP DNS servers sharing one handler and

@@ -18,7 +18,7 @@ Sigstore's Fulcio issues a **short-lived certificate** bound to that identity
 stamps a certificate valid for minutes; Rekor is the public ledger every stamp
 lands in, so a stamp can't be quietly forged or backdated later. What you
 verify, then, is the *identity that signed* — that the artifact came from
-`imfeelingtheagi/probectl`'s `release.yml` running on a release tag — and
+`ctlplne/probectl`'s `release.yml` running on a release tag — and
 nothing else. The distinction matters: any seal proves a letter was sealed; the
 crest on the wax tells you *whose hand* sealed it, and the crest is what you
 check here.
@@ -34,7 +34,7 @@ itself signed the same way).
 # 0. Install cosign: https://docs.sigstore.dev/cosign/system_config/installation/
 TAG=v0.1.0
 BIN=probectl-agent_${TAG}_linux_amd64
-BASE=https://github.com/imfeelingtheagi/probectl/releases/download/${TAG}
+BASE=https://github.com/ctlplne/probectl/releases/download/${TAG}
 
 curl -fsSLO ${BASE}/${BIN} -O ${BASE}/${BIN}.sig -O ${BASE}/${BIN}.pem \
      -O ${BASE}/checksums.txt -O ${BASE}/checksums.txt.sig -O ${BASE}/checksums.txt.pem
@@ -45,7 +45,7 @@ cosign verify-blob \
   --signature   ${BIN}.sig \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --certificate-identity-regexp \
-    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+    "^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/" \
   ${BIN}
 
 # 2. Same check for the manifest, then verify the binary's checksum against it.
@@ -54,7 +54,7 @@ cosign verify-blob \
   --signature   checksums.txt.sig \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --certificate-identity-regexp \
-    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+    "^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/" \
   checksums.txt
 sha256sum --ignore-missing -c checksums.txt
 ```
@@ -76,7 +76,7 @@ fixture-only build and must not be installed as the live host agent.
 ### What the identity pin actually proves
 
 The `--certificate-identity-regexp` says: Fulcio bound this signing certificate
-to the workflow `release.yml` in `imfeelingtheagi/probectl`, running for a
+to the workflow `release.yml` in `ctlplne/probectl`, running for a
 `refs/tags/...` ref, authenticated by GitHub's OIDC issuer. A fork, a different
 workflow in the same repo, or a re-signed binary all fail that regexp match —
 which is exactly the guarantee you want.
@@ -89,7 +89,7 @@ chart artifact by immutable digest. Verify the package exactly like a binary:
 ```sh
 TAG=v0.2.0
 CHART=probectl-${TAG#v}.tgz
-BASE=https://github.com/imfeelingtheagi/probectl/releases/download/${TAG}
+BASE=https://github.com/ctlplne/probectl/releases/download/${TAG}
 
 curl -fsSLO ${BASE}/${CHART} -O ${BASE}/${CHART}.sig -O ${BASE}/${CHART}.pem
 cosign verify-blob \
@@ -97,7 +97,7 @@ cosign verify-blob \
   --signature   ${CHART}.sig \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --certificate-identity-regexp \
-    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+    "^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/" \
   ${CHART}
 ```
 
@@ -109,7 +109,7 @@ CHART_REF="$(cat probectl-${TAG#v}.chart-digest.txt)"
 cosign verify \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --certificate-identity-regexp \
-    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+    "^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/" \
   "${CHART_REF}"
 ```
 
@@ -131,13 +131,13 @@ Container images are also signed by immutable digest. First resolve the digest
 you will deploy, then verify that exact image reference:
 
 ```sh
-IMG=ghcr.io/imfeelingtheagi/probectl-ebpf-agent:0.2.0
+IMG=ghcr.io/ctlplne/probectl-ebpf-agent:0.2.0
 DIGEST="$(docker buildx imagetools inspect "$IMG" --format '{{.Manifest.Digest}}')"
 cosign verify \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --certificate-identity-regexp \
-    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
-  "ghcr.io/imfeelingtheagi/probectl-ebpf-agent@${DIGEST}"
+    "^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/" \
+  "ghcr.io/ctlplne/probectl-ebpf-agent@${DIGEST}"
 ```
 
 Images also carry SLSA provenance + SBOM attestations — an **attestation** is a

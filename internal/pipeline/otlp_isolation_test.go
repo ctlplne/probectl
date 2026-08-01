@@ -28,11 +28,11 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/otel"
-	"github.com/imfeelingtheagi/probectl/internal/otel/otlp"
-	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/otel"
+	"github.com/ctlplne/probectl/internal/otel/otlp"
+	"github.com/ctlplne/probectl/internal/store/otelstore"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 func TestOTLPServedPathIsolationAllSignals(t *testing.T) {

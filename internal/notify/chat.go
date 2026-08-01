@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // chat posts incident notifications to a Slack or Teams incoming webhook. The

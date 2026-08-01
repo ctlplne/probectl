@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // TENANT-104: the boot self-check passes against a correctly-migrated database

@@ -17,14 +17,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/alert"
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
-	"github.com/imfeelingtheagi/probectl/internal/incident"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/bus"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // pgIncidentStore implements incident.Store over Postgres, scoping every

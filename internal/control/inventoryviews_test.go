@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/endpoint"
+	"github.com/ctlplne/probectl/internal/endpoint"
 )
 
 func TestInventorySavedViewsTenantIsolation(t *testing.T) {

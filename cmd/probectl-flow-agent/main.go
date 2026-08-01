@@ -27,13 +27,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/flow"
-	"github.com/imfeelingtheagi/probectl/internal/flow/cloudflow"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/flow/cloudflow"
+	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 func main() {

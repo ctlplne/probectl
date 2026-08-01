@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/flow"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 type Provider string

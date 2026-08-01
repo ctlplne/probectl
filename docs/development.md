@@ -44,7 +44,7 @@ work-in-progress roll freely between them while each keeps its own inventory
 list — and when a product ships, only that workshop's own list counts. The
 repo is a workspace tying together two modules:
 
-- **`.`** — the primary module `github.com/imfeelingtheagi/probectl` (`cmd/`,
+- **`.`** — the primary module `github.com/ctlplne/probectl` (`cmd/`,
   `internal/`, `pkg/`). Production code and unit tests live here.
 - **`./test`** — the black-box integration harness. Kept as a _separate_ module on
   purpose: its heavy, test-only dependencies stay out of the main module's

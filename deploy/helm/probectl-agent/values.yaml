@@ -3,7 +3,7 @@
 # docs/ebpf-agent.md; this chart declares it explicitly (U-016).
 
 image:
-  repository: ghcr.io/imfeelingtheagi/probectl-ebpf-agent
+  repository: ghcr.io/ctlplne/probectl-ebpf-agent
   # REQUIRED for this privileged DaemonSet: pin the release tag AND digest,
   # e.g. tag: "0.4.0@sha256:<64 hex chars>". The chart refuses tag-only images
   # unless image.allowTagOnly=true is set as an explicit break-glass.
@@ -27,9 +27,9 @@ admission:
     validationFailureAction: Enforce
     background: false
     imageReferences:
-      - ghcr.io/imfeelingtheagi/probectl-ebpf-agent*
+      - ghcr.io/ctlplne/probectl-ebpf-agent*
     issuer: https://token.actions.githubusercontent.com
-    subjectRegExp: ^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/.*
+    subjectRegExp: ^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/.*
   # EBPF-007: background/admission audit for the agent's capability posture.
   # This does not block the explicit legacy SYS_ADMIN break-glass by default;
   # it creates Kyverno policy reports when a pod runs legacy or gains any

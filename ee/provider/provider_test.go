@@ -24,11 +24,11 @@ import (
 	"testing"
 	"time"
 
-	coreaudit "github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/license"
+	coreaudit "github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/license"
 )
 
 // --- shared fixtures ---

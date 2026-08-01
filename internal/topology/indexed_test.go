@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 func indexedScaleWithinBudget(traverse, simulation time.Duration) bool {

@@ -9,7 +9,7 @@ package remediation
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/license"
 )
 
 // GateServiceWrites preserves proposal review while denying every proposal or

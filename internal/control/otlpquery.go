@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/store/otelstore"
 )
 
 // The OTLP signal query surface (ARCH-001, Sprint 22): externally-ingested

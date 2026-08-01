@@ -22,7 +22,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/usage"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 // Meter kinds.

@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/device"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // DeviceCollectionOutcomes is the forced-RLS Postgres implementation of the

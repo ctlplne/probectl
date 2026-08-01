@@ -26,8 +26,8 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"google.golang.org/protobuf/proto"
 
-	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	prompb "github.com/ctlplne/probectl/internal/gen/prometheus/v1"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 type Provider string

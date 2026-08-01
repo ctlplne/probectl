@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
-	"github.com/imfeelingtheagi/probectl/migrations"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/migrate"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/topology"
+	"github.com/ctlplne/probectl/migrations"
 )
 
 // TestTopologyEraseWriteFenceTwoTenant proves the real runtime topology store

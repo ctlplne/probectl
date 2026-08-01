@@ -19,8 +19,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/crypto"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 const testedFreshnessNonceLimit = 128

@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/agent"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/agent"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // runEnroll is the first-contact bootstrap (Sprint 11):

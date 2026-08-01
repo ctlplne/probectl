@@ -18,9 +18,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	coreaudit "github.com/imfeelingtheagi/probectl/internal/audit"
-	rem "github.com/imfeelingtheagi/probectl/internal/remediation"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	coreaudit "github.com/ctlplne/probectl/internal/audit"
+	rem "github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // AuditEvent describes the mandatory tenant audit record paired with one

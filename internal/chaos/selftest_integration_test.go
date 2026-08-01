@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	"github.com/imfeelingtheagi/probectl/internal/chaos"
-	"github.com/imfeelingtheagi/probectl/internal/slo"
+	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/chaos"
+	"github.com/ctlplne/probectl/internal/slo"
 )
 
 const chaosSLOYAML = `apiVersion: openslo/v1

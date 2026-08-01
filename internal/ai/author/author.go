@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/testspec"
+	"github.com/ctlplne/probectl/internal/testspec"
 )
 
 // Proposal is an AI-authored test config pending human confirmation. It is NEVER

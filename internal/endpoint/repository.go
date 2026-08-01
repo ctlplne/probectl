@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
+	"github.com/ctlplne/probectl/internal/store/endpointstore"
 )
 
 // Repository combines the durable event store with the bounded latest-state

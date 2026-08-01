@@ -13,10 +13,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/enroll"
-	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/enroll"
+	"github.com/ctlplne/probectl/internal/store"
 )
 
 // Agent-enrollment operator CLI (Sprint 11, ADR docs/adr/agent-enrollment.md;

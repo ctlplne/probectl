@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // CORRECT-012: a sample stamped far in the future is clamped to ingest time and

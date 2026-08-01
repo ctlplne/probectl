@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // SelfMetrics is a point-in-time, deployment-local process snapshot. It

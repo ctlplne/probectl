@@ -9,7 +9,7 @@ package store
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // AIFeedback persists answer feedback for the AI assistant (S24, F13). It is

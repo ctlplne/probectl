@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // NetBox looks up CIs via the NetBox REST API. It is read-only and uses a

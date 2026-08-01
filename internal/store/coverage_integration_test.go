@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // TestCoverageCandidatesCrossTenantIsolation proves the relational agent×test

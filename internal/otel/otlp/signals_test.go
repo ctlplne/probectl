@@ -24,7 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/otel"
+	"github.com/ctlplne/probectl/internal/otel"
 )
 
 // --- helpers: tenant-stamped trace/log requests (the signals.go side has no

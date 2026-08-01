@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/metrics"
 )
 
 const (

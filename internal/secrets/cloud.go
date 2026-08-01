@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Cloud secret-manager backends (S41). All three speak plain HTTPS with

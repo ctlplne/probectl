@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 const (

@@ -10,9 +10,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/threat"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/threat"
 )
 
 // TLS/cert posture inventory API (S-FE2): the read side of S27. The inventory

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/config"
 )
 
 var renderedHSTSMaxAgeRE = regexp.MustCompile(`(?m)^[[:space:]]*PROBECTL_HSTS_MAX_AGE:[[:space:]]*"([^"]+)"[[:space:]]*$`)

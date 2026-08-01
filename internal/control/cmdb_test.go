@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/cmdb"
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/cmdb"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // fakeCMDB resolves one IP and one hostname.

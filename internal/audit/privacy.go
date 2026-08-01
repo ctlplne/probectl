@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 const (

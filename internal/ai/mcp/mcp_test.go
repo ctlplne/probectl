@@ -19,9 +19,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/fairness"
 )
 
 // testGate is a permissive egress gate for mechanics tests: consent allowed

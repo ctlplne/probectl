@@ -233,7 +233,7 @@ func TestHelmControlImageRequiresImmutableDigest(t *testing.T) {
 	if strings.Contains(helper, ".Values.image.tag") {
 		t.Error("primary image helper still accepts mutable image.tag")
 	}
-	if !strings.Contains(values, "image:\n  repository: ghcr.io/imfeelingtheagi/probectl-control\n") ||
+	if !strings.Contains(values, "image:\n  repository: ghcr.io/ctlplne/probectl-control\n") ||
 		!strings.Contains(values, "  digest: \"\" # sha256:<64 lowercase hex>\n") {
 		t.Error("primary image values do not expose the required digest field")
 	}

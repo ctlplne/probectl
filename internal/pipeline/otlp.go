@@ -19,11 +19,11 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/otel"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/otel"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // OTLPConsumer drains probectl.otlp.metrics into the TSDB (Sprint 16,

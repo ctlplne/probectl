@@ -21,7 +21,7 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 
-	"github.com/imfeelingtheagi/probectl/internal/ingesthealth"
+	"github.com/ctlplne/probectl/internal/ingesthealth"
 )
 
 const (

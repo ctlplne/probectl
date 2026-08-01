@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
 // Authenticator resolves a bearer token to a principal (tenant + RBAC + ABAC

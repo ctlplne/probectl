@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/breaker"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
-	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
+	"github.com/ctlplne/probectl/internal/breaker"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/store/chmigrate"
 )
 
 // tenant_id leads both the partition and the ORDER BY so tenant-scoped reads

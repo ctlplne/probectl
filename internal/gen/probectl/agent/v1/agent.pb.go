@@ -1028,7 +1028,7 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\fStreamConfig\x12&.probectl.agent.v1.StreamConfigRequest\x1a'.probectl.agent.v1.StreamConfigResponse0\x01\x12d\n" +
 	"\rStreamResults\x12'.probectl.agent.v1.StreamResultsRequest\x1a(.probectl.agent.v1.StreamResultsResponse(\x01\x12k\n" +
 	"\x10PollCoordination\x12*.probectl.agent.v1.PollCoordinationRequest\x1a+.probectl.agent.v1.PollCoordinationResponse\x12e\n" +
-	"\x0eReportEndpoint\x12(.probectl.agent.v1.ReportEndpointRequest\x1a).probectl.agent.v1.ReportEndpointResponseBLZJgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
+	"\x0eReportEndpoint\x12(.probectl.agent.v1.ReportEndpointRequest\x1a).probectl.agent.v1.ReportEndpointResponseBDZBgithub.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_probectl_agent_v1_agent_proto_rawDescOnce sync.Once

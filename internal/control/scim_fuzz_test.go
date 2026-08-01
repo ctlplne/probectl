@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/scim"
+	"github.com/ctlplne/probectl/internal/scim"
 )
 
 func FuzzDecodeSCIM(f *testing.F) {

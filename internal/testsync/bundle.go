@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Test is the minimal, agent-executable view of a synthetic test (the bundle

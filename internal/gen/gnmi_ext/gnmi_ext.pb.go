@@ -1210,7 +1210,7 @@ const file_gnmi_ext_gnmi_ext_proto_rawDesc = "" +
 	"\x04done\x18\x03 \x01(\bR\x04done*3\n" +
 	"\vExtensionID\x12\r\n" +
 	"\tEID_UNSET\x10\x00\x12\x15\n" +
-	"\x10EID_EXPERIMENTAL\x10\xe7\aBDZBgithub.com/imfeelingtheagi/probectl/internal/gen/gnmi_ext;gnmi_extb\x06proto3"
+	"\x10EID_EXPERIMENTAL\x10\xe7\aB<Z:github.com/ctlplne/probectl/internal/gen/gnmi_ext;gnmi_extb\x06proto3"
 
 var (
 	file_gnmi_ext_gnmi_ext_proto_rawDescOnce sync.Once

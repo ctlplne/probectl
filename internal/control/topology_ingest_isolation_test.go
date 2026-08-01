@@ -14,10 +14,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
-	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/bus"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
+	"github.com/ctlplne/probectl/internal/store/ebpfstore"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 func t6Log() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

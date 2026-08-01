@@ -62,7 +62,7 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   `probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`,
   `probectl-cloud-metrics`, `terraform-provider-probectl`, and `probectl` (the
   CLI) — to
-  `ghcr.io/imfeelingtheagi/<component>`, tagged with the exact version and
+  `ghcr.io/ctlplne/<component>`, tagged with the exact version and
   `latest`. Each image is **cosign-keyless signed by immutable digest** and
   carries **SLSA provenance and an SBOM** attestation (Buildx
   `provenance: true` + `sbom: true`). **SLSA provenance** is a signed build
@@ -96,7 +96,7 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   [`ops/verify-artifacts.md`](ops/verify-artifacts.md).
 - An auto-generated **release notes** entry on the GitHub Release.
 
-Image tags follow `ghcr.io/imfeelingtheagi/probectl-control:<version>` (and
+Image tags follow `ghcr.io/ctlplne/probectl-control:<version>` (and
 `:latest`) for discovery. Production deploys use immutable references: Compose
 requires digest-pinned `PROBECTL_IMAGE`, and Helm requires the signed digest in
 `image.digest` (see [`dependency-policy.md`](dependency-policy.md)).

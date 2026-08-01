@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/imfeelingtheagi/probectl/internal/anomaly"
+	"github.com/ctlplne/probectl/internal/anomaly"
 )
 
 var defaultAnomalyModel anomaly.Model = anomaly.NewLocalZScoreModel()

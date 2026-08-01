@@ -9,7 +9,7 @@ package otel
 import (
 	"strconv"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // SemConvVersion pins the OpenTelemetry semantic-convention version whose

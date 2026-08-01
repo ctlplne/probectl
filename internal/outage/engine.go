@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // Resolver maps a peer IP onto an outage scope (ASN preferred, country

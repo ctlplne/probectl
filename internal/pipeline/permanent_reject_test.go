@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // permWriter always returns a permanent (4xx) remote-write rejection.

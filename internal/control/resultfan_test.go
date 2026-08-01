@@ -10,7 +10,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/bus"
 )
 
 type captureBus struct {

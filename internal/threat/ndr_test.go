@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 func mustRules(t *testing.T) []DetectionRule {

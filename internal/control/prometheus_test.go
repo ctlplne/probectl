@@ -23,10 +23,10 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/ai"
+	prompb "github.com/ctlplne/probectl/internal/gen/prometheus/v1"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 const otherTenant = "00000000-0000-0000-0000-000000000002"

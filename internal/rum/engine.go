@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // Verdict is the synthetic↔RUM convergence call for one (app, host) — the

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 func TestMeshSchedulerThreeSiteFixtureTenantPartitionAndIncidents(t *testing.T) {

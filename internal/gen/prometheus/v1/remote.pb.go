@@ -244,7 +244,7 @@ const file_prometheus_v1_remote_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"<\n" +
 	"\x06Sample\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\x01R\x05value\x12\x1c\n" +
-	"\ttimestamp\x18\x02 \x01(\x03R\ttimestampBGZEgithub.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1;prompbb\x06proto3"
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestampB?Z=github.com/ctlplne/probectl/internal/gen/prometheus/v1;prompbb\x06proto3"
 
 var (
 	file_prometheus_v1_remote_proto_rawDescOnce sync.Once

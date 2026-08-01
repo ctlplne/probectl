@@ -16,8 +16,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/imfeelingtheagi/probectl/internal/agentlabel"
-	"github.com/imfeelingtheagi/probectl/internal/configschema"
+	"github.com/ctlplne/probectl/internal/agentlabel"
+	"github.com/ctlplne/probectl/internal/configschema"
 )
 
 const (

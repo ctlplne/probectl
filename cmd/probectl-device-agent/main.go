@@ -34,13 +34,13 @@ import (
 	"syscall"
 	"time"
 
-	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/device"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/secrets"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/secrets"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 const maxDiscoveryInputFileBytes = 8 << 20

@@ -101,7 +101,7 @@ func TestE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	licenseLDFlags := "-X github.com/imfeelingtheagi/probectl/internal/license.builtinPubKeysB64=" +
+	licenseLDFlags := "-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=" +
 		base64.StdEncoding.EncodeToString(pubPEM)
 
 	runCmd(t, root, nil, "go", "build", "-tags", "devauth", "-ldflags", licenseLDFlags, "-o", control, "./cmd/probectl-control")

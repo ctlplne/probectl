@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Sender delivers one formatted record to the SIEM. A non-nil error means the

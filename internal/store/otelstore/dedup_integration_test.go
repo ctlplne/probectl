@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TestOtelDedupRealRoundTrip proves CORRECT-004 against a real ClickHouse:

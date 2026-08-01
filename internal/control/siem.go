@@ -16,13 +16,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/govern"
-	"github.com/imfeelingtheagi/probectl/internal/incident"
-	"github.com/imfeelingtheagi/probectl/internal/siem"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/siem"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // defaultRedactKeys are audit `data` keys never forwarded to the SIEM — secrets

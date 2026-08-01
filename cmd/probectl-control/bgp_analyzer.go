@@ -19,9 +19,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/imfeelingtheagi/probectl/internal/bgp"
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/bgp"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/logging"
 )
 
 const maxAnalyzerConfigBytes = 1 << 20

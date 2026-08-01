@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/fairness"
 )
 
 // The S-T7 control-plane legs: the tenant self-view tells the truth in both

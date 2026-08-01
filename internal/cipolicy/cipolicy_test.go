@@ -413,7 +413,7 @@ func TestEditionsGateSkipsTestOnlyPackages(t *testing.T) {
 	for _, want := range []string{
 		"{{if .GoFiles}}{{.ImportPath}}{{end}}",
 		"-tags probectl_core",
-		"grep -v '^github.com/imfeelingtheagi/probectl/ee'",
+		"grep -v '^github.com/ctlplne/probectl/ee'",
 		"$(GO) build -tags probectl_core $$core_pkgs",
 		"$(GO) test -tags probectl_core -count=1 $$core_pkgs",
 	} {

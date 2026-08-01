@@ -13,16 +13,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	"github.com/imfeelingtheagi/probectl/internal/httpbody"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/testspec"
-	"github.com/imfeelingtheagi/probectl/internal/usage"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testspec"
+	"github.com/ctlplne/probectl/internal/usage"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // apiRoute binds a method+pattern to a handler. This table is the single source

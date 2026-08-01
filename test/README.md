@@ -19,7 +19,7 @@ test/
 
 ## Why a separate module
 
-`test/` is its own Go module (`github.com/imfeelingtheagi/probectl/test`) tied
+`test/` is its own Go module (`github.com/ctlplne/probectl/test`) tied
 into the workspace via `go.work`. This keeps heavy, test-only dependencies
 (Kafka/ClickHouse/Postgres drivers, testcontainers, …) out of the main module's
 `go.mod`/`go.sum` — anyone importing probectl's main module never inherits

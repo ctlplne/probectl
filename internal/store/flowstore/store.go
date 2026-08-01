@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/anomaly"
+	"github.com/ctlplne/probectl/internal/anomaly"
 )
 
 // Row is one stored flow record (post-decode, post-enrichment).

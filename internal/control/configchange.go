@@ -12,8 +12,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/change"
-	"github.com/imfeelingtheagi/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/change"
+	"github.com/ctlplne/probectl/internal/device"
 )
 
 const deviceConfigChangeSource = "probectl-device-config"

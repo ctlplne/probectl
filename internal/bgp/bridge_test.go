@@ -18,9 +18,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/bus"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // An origin-change event as the Python analyzer emits it (JSON Lines).

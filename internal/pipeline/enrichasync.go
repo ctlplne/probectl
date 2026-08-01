@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 // AsyncEnricher takes ASN/geo enrichment OFF the flow hot path (Sprint 15,

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
-	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/bus"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 // FuzzTopologyChangeEventIngest hardens the graph-ingest side of the topology

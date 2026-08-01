@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/metrics"
 )
 
 // TestEnricherMergesAllPlanes is the S15 Done-when: an IP is enriched with

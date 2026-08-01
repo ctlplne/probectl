@@ -3,7 +3,7 @@
 // (deploy/compose/dev.yml). Keeping them in a separate module isolates heavy
 // test-only dependencies (Kafka/ClickHouse/Postgres drivers, testcontainers,
 // ...) from the production module added in S6+.
-module github.com/imfeelingtheagi/probectl/test
+module github.com/ctlplne/probectl/test
 
 go 1.26.5
 

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
 // zeroReader is an unbounded NUL source with no backing buffer, so the handler

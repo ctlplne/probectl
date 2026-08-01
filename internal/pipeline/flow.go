@@ -16,13 +16,13 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
-	"github.com/imfeelingtheagi/probectl/internal/usage"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/fairness"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
+	"github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 // FlowGroup is the consumer-group name for the flow pipeline (its offsets are

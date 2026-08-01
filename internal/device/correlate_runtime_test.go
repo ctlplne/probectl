@@ -16,8 +16,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
+	"github.com/ctlplne/probectl/internal/bus"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 )
 
 func testInventory() Inventory {

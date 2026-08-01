@@ -11,7 +11,7 @@ package main
 import (
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/control"
+	"github.com/ctlplne/probectl/internal/control"
 )
 
 func TestIRInvestigationAuditProjectionUsesProtectedBoundedVocabulary(

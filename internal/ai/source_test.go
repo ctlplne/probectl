@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 func TestTopologySourceNeighborsAndSnapshot(t *testing.T) {

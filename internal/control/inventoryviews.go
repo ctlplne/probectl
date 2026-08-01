@@ -11,10 +11,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/inventory"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/inventory"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type inventoryViewCreateRequest struct {

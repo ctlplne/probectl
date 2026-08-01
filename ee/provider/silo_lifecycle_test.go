@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // fakeSilo records provisioning/teardown calls (the S-T2 SiloOps seam).

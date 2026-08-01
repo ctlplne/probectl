@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 func TestBuildCoverageMatrixStatesAndTenantResultPartition(t *testing.T) {

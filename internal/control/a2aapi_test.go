@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/a2a"
+	"github.com/ctlplne/probectl/internal/a2a"
 )
 
 // ARCH-009: with no broker attached the session-start endpoint reports

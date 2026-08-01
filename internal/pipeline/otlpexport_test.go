@@ -19,7 +19,7 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/bus"
 )
 
 type fakeExporter struct {

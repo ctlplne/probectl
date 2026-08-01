@@ -21,7 +21,7 @@ BTF_PATH="${BTF_PATH:-/sys/kernel/btf/vmlinux}"
 CLANG="${CLANG:-clang-14}"
 TOOLCHAIN_RECEIPT="${TOOLCHAIN_RECEIPT:-/usr/local/share/probectl/ebpf-toolchain.txt}"
 
-ldflags="-s -w -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}"
+ldflags="-s -w -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} -X github.com/ctlplne/probectl/internal/version.Date=${DATE}"
 
 find_bpftool() {
 	local tool

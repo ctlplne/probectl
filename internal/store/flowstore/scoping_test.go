@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
 // TENANT-102: when tenant scoping is on, a tenant-scoped read carries the

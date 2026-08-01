@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/config"
 )
 
 // TestFlowRetentionDefaultMatchesConfig keeps the operator-facing config table

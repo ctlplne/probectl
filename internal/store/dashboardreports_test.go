@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/migrations"
+	"github.com/ctlplne/probectl/migrations"
 )
 
 // TestDashboardTenantSchemaIsolation keeps a fast, database-free guard in the

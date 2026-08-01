@@ -17,7 +17,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/device"
 )
 
 func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {

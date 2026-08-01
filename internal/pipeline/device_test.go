@@ -13,9 +13,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/bus"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // TestDeviceConsumerEndToEnd: a published DeviceMetricBatch lands in the TSDB

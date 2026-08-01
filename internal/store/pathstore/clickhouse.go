@@ -21,11 +21,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/breaker"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/path"
-	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
-	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
+	"github.com/ctlplne/probectl/internal/breaker"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/store/chmigrate"
 )
 
 // (tenant_id, day) is the partition key (Sprint 16, SCALE-006 — the flowstore

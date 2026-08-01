@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/otel"
+	"github.com/ctlplne/probectl/internal/otel"
 )
 
 // OTLP traces + logs (ARCH-001): the receiver speaks all three OTLP signals,

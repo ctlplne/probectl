@@ -19,15 +19,15 @@ import (
 	"syscall"
 	"time"
 
-	aimcp "github.com/imfeelingtheagi/probectl/internal/ai/mcp"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/control"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	aimcp "github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/control"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type mcpStdioRuntime struct {

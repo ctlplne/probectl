@@ -10,9 +10,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/a2a"
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/a2a"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // ARCH-009: the A2A broker brokered agent-to-agent measurement sessions but had

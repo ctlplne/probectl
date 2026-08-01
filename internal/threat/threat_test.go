@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/crypto"
+	selfmetrics "github.com/ctlplne/probectl/internal/metrics"
 )
 
 func cert(t *testing.T, o crypto.TestCertOptions) *x509.Certificate {

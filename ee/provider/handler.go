@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
 // The provider HTTP surface, mounted by core at /provider/ (an opaque

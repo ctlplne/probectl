@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai"
 )
 
 // TestRCAEval runs the U-049 eval set through the real pipeline and reports

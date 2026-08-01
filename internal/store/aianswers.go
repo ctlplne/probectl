@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // AIAnswers persists RCA artifacts (U-093): the full cited answer plus the

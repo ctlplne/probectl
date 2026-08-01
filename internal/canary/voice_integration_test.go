@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/canary"
 )
 
 // The S47c 'Done when': a voice test reports MOS, jitter, and loss.

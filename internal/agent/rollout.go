@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
+	"github.com/ctlplne/probectl/internal/lifecycle"
 )
 
 // FleetAgent is the registry's view of one agent (the subset the rollout

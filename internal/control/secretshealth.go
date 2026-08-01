@@ -17,7 +17,7 @@ package control
 import (
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/secrets"
+	"github.com/ctlplne/probectl/internal/secrets"
 )
 
 // SecretsHealthSource is the read-side seam (*secrets.Resolver satisfies it).

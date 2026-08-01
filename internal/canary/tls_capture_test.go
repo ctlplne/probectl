@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // The S13 capture is extended for S27: attachTLS records the leaf cert DER + the

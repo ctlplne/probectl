@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // maxFileBytes bounds any single bundle file (the topology summary / metrics

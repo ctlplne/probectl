@@ -46,7 +46,7 @@ extend google.protobuf.FileOptions {
 // the Capabilities RPC.
 option (gnmi_service) = "0.10.0";
 
-option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/gnmi;gnmi";
+option go_package = "github.com/ctlplne/probectl/internal/gen/gnmi;gnmi";
 option java_multiple_files = true;
 option java_outer_classname = "GnmiProto";
 option java_package = "com.github.gnmi.proto";

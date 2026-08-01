@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/config"
 )
 
 func TestDecodeJSONRejectsOversizeAndTrailingValues(t *testing.T) {

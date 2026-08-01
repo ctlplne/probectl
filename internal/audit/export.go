@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Sink is the audit export hook: a destination that receives audit events for

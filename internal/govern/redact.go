@@ -15,7 +15,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Strategy is how a classified value is masked.

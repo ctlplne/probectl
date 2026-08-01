@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/promapi"
+	"github.com/ctlplne/probectl/internal/promapi"
 )
 
 func TestRunDryRunParsesCloudMetrics(t *testing.T) {

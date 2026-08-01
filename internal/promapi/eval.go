@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // DefaultLookback is how far an instant query looks back for the latest sample

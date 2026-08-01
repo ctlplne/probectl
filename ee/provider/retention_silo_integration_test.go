@@ -22,15 +22,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	eegovernance "github.com/imfeelingtheagi/probectl/ee/governance"
-	"github.com/imfeelingtheagi/probectl/ee/silo"
-	"github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	eegovernance "github.com/ctlplne/probectl/ee/governance"
+	"github.com/ctlplne/probectl/ee/silo"
+	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 func TestSiloRetentionStaysProviderOwned(t *testing.T) {

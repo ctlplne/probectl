@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
+	"github.com/ctlplne/probectl/internal/store/chmigrate"
 )
 
 func TestNewClickHouseReadsPopulatedMigrationLedgerAsJSONEachRow(t *testing.T) {

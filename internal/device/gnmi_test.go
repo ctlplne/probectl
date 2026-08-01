@@ -25,8 +25,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	probectlcrypto "github.com/imfeelingtheagi/probectl/internal/crypto"
-	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
+	probectlcrypto "github.com/ctlplne/probectl/internal/crypto"
+	gnmipb "github.com/ctlplne/probectl/internal/gen/gnmi"
 )
 
 func getenvDefault(key, def string) string {

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	rem "github.com/imfeelingtheagi/probectl/internal/remediation"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	rem "github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 // TestEstimatorReadOnlyWhatIf proves the estimator sizes the blast radius via a

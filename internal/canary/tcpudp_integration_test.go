@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/canary"
 )
 
 func TestTCPConnect(t *testing.T) {

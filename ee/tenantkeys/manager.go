@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 // Manager adapts the Keyring to the core tenantcrypto.KeyManager contract —

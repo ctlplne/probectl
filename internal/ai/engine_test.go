@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 // recordingSource implements all four source interfaces, recording the tenant it

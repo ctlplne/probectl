@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/otel"
+	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
+	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/otel"
 )
 
 type scheduled struct {

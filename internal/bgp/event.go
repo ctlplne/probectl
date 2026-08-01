@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 )
 
 // Event is the analyzer's JSON event shape (the analyzer↔control-plane contract).

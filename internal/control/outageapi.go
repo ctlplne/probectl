@@ -21,13 +21,13 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/incident"
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
-	"github.com/imfeelingtheagi/probectl/internal/outage"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/config"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/outage"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
 // BuildOutageFeeds builds the shared external-event store + refresher.

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/usage"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 // QuotaChecker implements usage.QuotaChecker over the quota store + live

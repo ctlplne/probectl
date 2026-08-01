@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
 
 // deniedStream fails the test if the server ever SENDS on the config stream —

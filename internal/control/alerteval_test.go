@@ -10,8 +10,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/alert"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 type fakeQuerier struct{ rows []tsdb.Series }

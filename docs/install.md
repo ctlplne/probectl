@@ -25,7 +25,7 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
 - A released image. Production Compose has no mutable image default. Set
   `PROBECTL_IMAGE` in `deploy/compose/.env` to a
   digest-pinned control-plane image such as
-  `ghcr.io/imfeelingtheagi/probectl-control:v0.6.0@sha256:<release-digest>` for
+  `ghcr.io/ctlplne/probectl-control:v0.6.0@sha256:<release-digest>` for
   both `certgen` and `control`. If GHCR returns `401 Unauthorized`, log in first
   with a token that has `read:packages`, or point `PROBECTL_IMAGE` at an
   internally mirrored digest. A tag-only local/mirror ref is allowed only with

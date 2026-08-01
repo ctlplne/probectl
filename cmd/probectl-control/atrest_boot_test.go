@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 func TestSetupSecretsAndEnvelopeRequiresKeyUnlessExplicitDev(t *testing.T) {

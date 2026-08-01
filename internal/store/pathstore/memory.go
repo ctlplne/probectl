@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 // Memory is an in-process Store that retains saved paths for query (lightweight

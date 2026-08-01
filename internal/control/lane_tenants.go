@@ -7,10 +7,10 @@
 package control
 
 import (
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
-	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 func stampResultLaneTenant(r *resultv1.Result, tenant string) {

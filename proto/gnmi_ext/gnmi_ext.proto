@@ -29,7 +29,7 @@ import "google/protobuf/duration.proto";
 // extensions defined outside of this package.
 package gnmi_ext;
 
-option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/gnmi_ext;gnmi_ext";
+option go_package = "github.com/ctlplne/probectl/internal/gen/gnmi_ext;gnmi_ext";
 
 // The Extension message contains a single gNMI extension.
 message Extension {

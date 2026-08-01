@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
 // fakeLifecycle records erase calls (the core engine seam).

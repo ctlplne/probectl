@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // tlsServer starts an HTTPS test server presenting the given cert/key, and

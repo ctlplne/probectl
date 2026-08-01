@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 // COMPLY-002: with a stated backup retention, the attestation quantifies a

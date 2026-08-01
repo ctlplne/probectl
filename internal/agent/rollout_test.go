@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
+	"github.com/ctlplne/probectl/internal/lifecycle"
 )
 
 var t0 = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -35,7 +35,7 @@ func goodArtifact() VerifiedArtifact {
 	return VerifiedArtifact{
 		Version:    "v0.2.0",
 		Digest:     "sha256:abc123",
-		Method:     "cosign verify ghcr.io/imfeelingtheagi/probectl-ebpf-agent@sha256:abc123",
+		Method:     "cosign verify ghcr.io/ctlplne/probectl-ebpf-agent@sha256:abc123",
 		VerifiedBy: "ops@example.com",
 	}
 }

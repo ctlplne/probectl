@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/change"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/change"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // ChangeEvents is the tenant-scoped change-event repository (S29, F39). RLS

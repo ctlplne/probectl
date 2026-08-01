@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
 // MaxResponseBodyBytes is the largest successful response buffered by one SDK call.

@@ -12,7 +12,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 type irLifecycleFake struct {

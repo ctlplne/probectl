@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
-	"github.com/imfeelingtheagi/probectl/internal/otel"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/otel"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 const metricPrefix = "probectl_probe_"

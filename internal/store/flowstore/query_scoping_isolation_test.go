@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TENANT-102 / TENANT-105 (Sprint 5/6): prove the DB-level row policy — not the

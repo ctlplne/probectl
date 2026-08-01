@@ -13,9 +13,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
 // runReplayDeadLetter is the `probectl-control replay-deadletter` subcommand

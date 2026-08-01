@@ -6,7 +6,7 @@
 
 package otel
 
-import ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
+import ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 
 // L7 call attribute keys (S21), following the OpenTelemetry http.* / rpc.* /
 // dns.* / messaging.* semantic conventions. Identity (tenant/agent) and the edge

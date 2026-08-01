@@ -9,7 +9,7 @@ package otel
 import (
 	"testing"
 
-	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 )
 
 func TestL7CallAttributesConformToConventions(t *testing.T) {

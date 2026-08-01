@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
+	gnmipb "github.com/ctlplne/probectl/internal/gen/gnmi"
 )
 
 func FuzzGNMINormalize(f *testing.F) {

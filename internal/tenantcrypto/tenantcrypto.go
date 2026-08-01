@@ -27,7 +27,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // Sealer seals and opens tenant-scoped values. Scheme is the stored-format

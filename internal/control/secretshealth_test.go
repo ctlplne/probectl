@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/secrets"
+	"github.com/ctlplne/probectl/internal/secrets"
 )
 
 type fakeSecretsHealth struct{ snapshots []secrets.BackendHealth }

@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
+	"github.com/ctlplne/probectl/internal/ebpf/l7"
 )
 
 // The earliest userspace boundary (EBPF-002): one ring-buffer record becomes

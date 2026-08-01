@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	rem "github.com/imfeelingtheagi/probectl/internal/remediation"
+	rem "github.com/ctlplne/probectl/internal/remediation"
 )
 
 const (

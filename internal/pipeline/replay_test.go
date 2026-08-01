@@ -16,7 +16,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kfake"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/bus"
 )
 
 // TestDeadLetterReplayReingests is the ARCH-001 acceptance test: a record

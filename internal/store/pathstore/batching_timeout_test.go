@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 type pathFlushContext struct {

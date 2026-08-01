@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 // The store sources. Each is tenant-scoped: the engine passes the principal's

@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/ebpf"
+	"github.com/ctlplne/probectl/internal/ebpf"
 )
 
 func main() {

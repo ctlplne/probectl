@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/i18n"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/i18n"
 )
 
 func cmdAI(cfg Config, args []string, stdout, stderr io.Writer) int {

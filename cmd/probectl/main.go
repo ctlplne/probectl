@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/imfeelingtheagi/probectl/internal/cli"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/cli"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 func main() {

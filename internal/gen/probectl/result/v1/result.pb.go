@@ -276,7 +276,7 @@ const file_probectl_result_v1_result_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"C\n" +
 	"\vResultBatch\x124\n" +
-	"\aresults\x18\x01 \x03(\v2\x1a.probectl.result.v1.ResultR\aresultsBNZLgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1;resultv1b\x06proto3"
+	"\aresults\x18\x01 \x03(\v2\x1a.probectl.result.v1.ResultR\aresultsBFZDgithub.com/ctlplne/probectl/internal/gen/probectl/result/v1;resultv1b\x06proto3"
 
 var (
 	file_probectl_result_v1_result_proto_rawDescOnce sync.Once

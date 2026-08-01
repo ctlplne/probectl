@@ -13,10 +13,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/support"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/support"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // supportBundle is the offline `probectl-control support-bundle` command

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestOncallStatusIsTenantScopedAndRedacted(t *testing.T) {

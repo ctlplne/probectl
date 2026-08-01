@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/flow"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // FlowQualityReceipts is the forced-RLS Postgres current-receipt store.

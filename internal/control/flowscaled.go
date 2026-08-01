@@ -6,7 +6,7 @@
 
 package control
 
-import flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
+import flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 
 // scaledFlowBytes returns the sampling-rate-adjusted byte count for a flow
 // record (CORRECT-001). Sampled flow exporters (sFlow, sampled NetFlow/IPFIX)

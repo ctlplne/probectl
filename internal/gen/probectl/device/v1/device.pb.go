@@ -700,7 +700,7 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	" \x01(\tR\n" +
 	"nextAction\"g\n" +
 	"\x1cDeviceCollectionOutcomeBatch\x12G\n" +
-	"\boutcomes\x18\x01 \x03(\v2+.probectl.device.v1.DeviceCollectionOutcomeR\boutcomesBNZLgithub.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
+	"\boutcomes\x18\x01 \x03(\v2+.probectl.device.v1.DeviceCollectionOutcomeR\boutcomesBFZDgithub.com/ctlplne/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
 
 var (
 	file_probectl_device_v1_device_proto_rawDescOnce sync.Once

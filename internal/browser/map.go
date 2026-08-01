@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/canary"
 )
 
 // ToCanaryResult maps a browser Result onto the canonical canary.Result envelope

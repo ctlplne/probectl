@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/perf"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/perf"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
 func TestCapacityModelDocumentsScaleProfiles(t *testing.T) {

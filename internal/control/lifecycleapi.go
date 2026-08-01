@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
 // The per-tenant lifecycle surface (S-T5, CORE — export + verifiable

@@ -14,7 +14,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/incident"
 )
 
 // basicAuth builds a Basic Authorization header from a "user:token" secret.

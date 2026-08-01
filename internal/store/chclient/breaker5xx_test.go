@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/breaker"
+	"github.com/ctlplne/probectl/internal/breaker"
 )
 
 // TestDo_5xxTripsBreaker is the RESIL-005 acceptance test: an up-but-erroring

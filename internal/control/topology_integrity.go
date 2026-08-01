@@ -9,7 +9,7 @@ package control
 import (
 	"sync/atomic"
 
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/metrics"
 )
 
 // TopologyPlaneIntegrityStats is the aggregate receipt/loss ledger for one

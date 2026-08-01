@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // CORRECT-012: agents stamp samples with their OWN clock. A misconfigured or

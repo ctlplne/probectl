@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/ee/billing"
+	"github.com/ctlplne/probectl/ee/billing"
 )
 
 // The S-T3 metering surface on the provider plane: per-tenant usage/showback,

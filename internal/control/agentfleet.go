@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/agent"
-	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
-	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/agent"
+	"github.com/ctlplne/probectl/internal/lifecycle"
+	"github.com/ctlplne/probectl/internal/store"
 )
 
 // Fleet health uses the same five-minute heartbeat promise as rollout

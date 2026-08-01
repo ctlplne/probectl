@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 // TestABACCacheNotPoisonedOnLoadError: CODE-002. A transient scope-setup/query

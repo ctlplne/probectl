@@ -18,9 +18,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath \
       -ldflags "-s -w \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}" \
+        -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} \
+        -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
+        -X github.com/ctlplne/probectl/internal/version.Date=${DATE}" \
       -o /out/probectl-agent ./cmd/probectl-agent
 
 # Chromium + OS runtime are supplied by the already-pinned Playwright image.

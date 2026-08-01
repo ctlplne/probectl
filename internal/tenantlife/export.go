@@ -16,9 +16,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/govern"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // The export bundle (the portability contract, format_version 1): a tar.gz of

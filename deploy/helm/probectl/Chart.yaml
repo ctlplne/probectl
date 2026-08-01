@@ -17,8 +17,8 @@ keywords:
   - network
   - opentelemetry
   - multi-tenant
-home: https://github.com/imfeelingtheagi/probectl
+home: https://github.com/ctlplne/probectl
 sources:
-  - https://github.com/imfeelingtheagi/probectl
+  - https://github.com/ctlplne/probectl
 maintainers:
   - name: probectl

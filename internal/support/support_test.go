@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // TestBundleHasNoSecrets is the named support-bundle test (the safety core,

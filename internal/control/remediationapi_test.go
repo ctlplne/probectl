@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/remediation"
 )
 
 // fakeRemed is a configurable in-test implementation of the CORE

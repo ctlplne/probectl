@@ -10,7 +10,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/fairness"
 )
 
 // The S-T7 fairness surface on the provider plane: cross-tenant accounting

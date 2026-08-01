@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // maxArtifact bounds the captured failure-artifact body.

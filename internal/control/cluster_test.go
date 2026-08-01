@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/cluster"
+	"github.com/ctlplne/probectl/internal/cluster"
 )
 
 // stubProbe is a settable cluster.Prober for the HTTP-level fence tests.

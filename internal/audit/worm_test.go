@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/objectstore"
 )
 
 // TestWormExporterRefusesEmptyKey: KEYS-004. The production constructors must

@@ -75,7 +75,7 @@ receipt with the change record.
 ```yaml
 services:
   ebpf-agent:
-    image: ghcr.io/imfeelingtheagi/probectl-ebpf-agent:<tag>
+    image: ghcr.io/ctlplne/probectl-ebpf-agent:<tag>
     security_opt:
       - no-new-privileges:true
       - seccomp=./deploy/agent/seccomp.json

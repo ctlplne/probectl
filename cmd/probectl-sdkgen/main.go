@@ -453,7 +453,7 @@ func (g generator) goSDK(ops []operation) ([]byte, error) {
 	b.WriteString("package sdk\n\n")
 	b.WriteString("import (\n")
 	b.WriteString("\t\"bytes\"\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"net/url\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n")
-	b.WriteString("\n\t\"github.com/imfeelingtheagi/probectl/internal/crypto\"\n\t\"github.com/imfeelingtheagi/probectl/internal/httpbody\"\n")
+	b.WriteString("\n\t\"github.com/ctlplne/probectl/internal/crypto\"\n\t\"github.com/ctlplne/probectl/internal/httpbody\"\n")
 	b.WriteString(")\n\n")
 	b.WriteString("// MaxResponseBodyBytes is the largest successful response buffered by one SDK call.\nconst MaxResponseBodyBytes int64 = httpbody.MaxClientResponseBodyBytes\n\n")
 	b.WriteString("// MaxErrorResponseBodyBytes is the largest error envelope buffered for decoding.\nconst MaxErrorResponseBodyBytes int64 = httpbody.MaxClientErrorResponseBodyBytes\n\n")

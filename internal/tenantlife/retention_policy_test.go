@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestRetentionAuditMandatoryActorAndTenantScopeBeforeStorage(t *testing.T) {

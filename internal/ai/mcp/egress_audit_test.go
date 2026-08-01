@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 func consentGate(allowed map[string]bool, redact ai.RedactionPolicy) *ai.EgressGate {

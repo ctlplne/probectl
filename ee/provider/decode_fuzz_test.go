@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/fairness"
 )
 
 func FuzzProviderDecode(f *testing.F) {

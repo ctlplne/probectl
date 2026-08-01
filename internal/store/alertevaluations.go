@@ -11,8 +11,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/alert"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 const (

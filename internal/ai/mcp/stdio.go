@@ -12,7 +12,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 // ServeStdio runs the MCP server over a newline-delimited JSON-RPC stream — the

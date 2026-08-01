@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/config"
 )
 
 // RED-001: dev auth may only ever bind loopback. Wildcards and empty hosts

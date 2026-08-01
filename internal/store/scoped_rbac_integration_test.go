@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestScopedRBACTenantIsolationPreservesBindingScope(t *testing.T) {

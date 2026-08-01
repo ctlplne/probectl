@@ -41,7 +41,7 @@ run_checks() {
   if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
     err "VERSION must contain one stable MAJOR.MINOR.PATCH version, got: ${version:-<empty>}"
   fi
-  expected_prefix="ghcr.io/imfeelingtheagi/probectl-control:v${version}@sha256:"
+  expected_prefix="ghcr.io/ctlplne/probectl-control:v${version}@sha256:"
   expected_placeholder="${expected_prefix}<release-digest>"
 
   images="$(extract_default_images "$root")"
@@ -145,9 +145,9 @@ if [ "${1:-}" = "SELFTEST" ]; then
   cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
 services:
   certgen:
-    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:v0.4.0}
+    image: ${PROBECTL_IMAGE:-ghcr.io/ctlplne/probectl-control:v0.4.0}
   control:
-    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:v0.4.0}
+    image: ${PROBECTL_IMAGE:-ghcr.io/ctlplne/probectl-control:v0.4.0}
 YAML
   echo '# missing registry-auth contract' > "$tmp/docs/install.md"
   echo '# missing registry-auth contract' > "$tmp/deploy/compose/README.md"
@@ -177,7 +177,7 @@ Use `docker login ghcr.io` if the release package is not anonymous.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
 MD
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
-# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.7@sha256:<release-digest>
+# PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.7@sha256:<release-digest>
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
 ENV
   cat > "$tmp/Makefile" <<'MAKE'
@@ -219,13 +219,13 @@ services:
 YAML
 
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
-# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.6@sha256:<release-digest>
+# PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.6@sha256:<release-digest>
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
 ENV
   expect_fixture_failure "wrong-version"
 
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
-# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.7
+# PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.7
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
 ENV
   expect_fixture_failure "tag-only"
@@ -236,7 +236,7 @@ ENV
   expect_fixture_failure "missing-image"
 
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
-# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v9.8.7@sha256:<release-digest>
+# PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.7@sha256:<release-digest>
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
 ENV
   fail=0

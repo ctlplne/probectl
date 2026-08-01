@@ -9,7 +9,7 @@ package otel
 import (
 	"strconv"
 
-	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 )
 
 // eBPF flow / service-map attribute keys (S20), following the OpenTelemetry

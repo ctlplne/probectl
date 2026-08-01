@@ -55,7 +55,7 @@ services:
   certgen:
     # SUPPLY-001: production Compose fails closed unless the operator supplies
     # an immutable digest ref, e.g.
-    # ghcr.io/imfeelingtheagi/probectl-control:v0.6.0@sha256:<release-digest>.
+    # ghcr.io/ctlplne/probectl-control:v0.6.0@sha256:<release-digest>.
     # Tag-only local/mirror refs require PROBECTL_ALLOW_TAG_IMAGE.
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}"
     command: ["gen-cert", "--if-missing", "/certs"]

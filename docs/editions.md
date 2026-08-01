@@ -158,7 +158,7 @@ cast into the door at the factory; a key slot the operator could swap would let
 anyone bring their own lock.
 
 ```sh
-go build -ldflags "-X github.com/imfeelingtheagi/probectl/internal/license.builtinPubKeysB64=<base64 PEM>[,<base64 PEM>]" ./cmd/probectl-control
+go build -ldflags "-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=<base64 PEM>[,<base64 PEM>]" ./cmd/probectl-control
 ```
 
 Dev builds bake no keys: unconfigured deployments run Core; a

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/metrics"
 )
 
 // DefaultCacheMaxEntries is the process-wide safety wall for the shared

@@ -9,7 +9,7 @@ package control
 import (
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/branding"
+	"github.com/ctlplne/probectl/internal/branding"
 )
 
 // handleBranding serves the public, deployment-wide UI theme contract. Product

@@ -14,18 +14,18 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/control"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
-	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/control"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/store/ebpfstore"
+	"github.com/ctlplne/probectl/internal/store/endpointstore"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/otelstore"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
+	"github.com/ctlplne/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 // attachEE is the core-only no-op twin of the ee attach seam: the

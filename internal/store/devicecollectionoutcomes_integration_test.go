@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/device"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestDeviceCollectionOutcomeStorageIsTenantIsolatedBoundedAndSecretFree(t *testing.T) {

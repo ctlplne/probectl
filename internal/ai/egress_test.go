@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 // fakeRemoteModel pretends to be a non-loopback HTTP model.

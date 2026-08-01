@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/chaos"
+	"github.com/ctlplne/probectl/internal/chaos"
 )
 
 func main() {

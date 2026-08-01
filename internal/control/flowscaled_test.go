@@ -9,7 +9,7 @@ package control
 import (
 	"testing"
 
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 // CORRECT-001: analytics volume math must use the sampling-scaled byte count.

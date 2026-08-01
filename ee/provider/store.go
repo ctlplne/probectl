@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // The provider plane's data model (S-T1). Tenants/operators/grants live in

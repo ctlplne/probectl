@@ -23,14 +23,14 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/imfeelingtheagi/probectl/internal/agent"
-	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/browsercanary"
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	"github.com/ctlplne/probectl/internal/agent"
+	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
+	"github.com/ctlplne/probectl/internal/browsercanary"
+	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 func main() {

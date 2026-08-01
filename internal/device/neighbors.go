@@ -18,8 +18,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
+	"github.com/ctlplne/probectl/internal/crypto"
+	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 )
 
 const (

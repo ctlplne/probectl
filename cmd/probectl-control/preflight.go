@@ -12,8 +12,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/preflight"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/preflight"
 )
 
 // runPreflight is the operator deployment self-check (Sprint 8 —

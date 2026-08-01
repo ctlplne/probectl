@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // ErrUnscopedUpstreamQuery refuses any forward whose selector is not pinned

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 // CertIntel scores a leaf certificate's SHA1 fingerprint and/or a client JA3

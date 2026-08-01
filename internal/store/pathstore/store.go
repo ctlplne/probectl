@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 // ErrNoTenant refuses any tenant-owned path operation without an outer tenant

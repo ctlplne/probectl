@@ -9,8 +9,8 @@ package main
 import (
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
 // SCALE-001: the default prometheus ingest profile wraps the writer in a

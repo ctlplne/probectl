@@ -18,7 +18,7 @@ import (
 )
 
 // Build metadata. These are overridden at link time with
-// -ldflags "-X github.com/imfeelingtheagi/probectl/internal/version.Version=...".
+// -ldflags "-X github.com/ctlplne/probectl/internal/version.Version=...".
 var (
 	// Version is the semantic version of the build (e.g. "v0.1.0").
 	Version = "0.0.0-dev"

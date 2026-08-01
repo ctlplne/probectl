@@ -6,7 +6,7 @@ syntax = "proto3";
 // POSTed to <tsdb>/api/v1/write. timestamps are Unix milliseconds.
 package prometheus.v1;
 
-option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1;prompb";
+option go_package = "github.com/ctlplne/probectl/internal/gen/prometheus/v1;prompb";
 
 message WriteRequest {
   repeated TimeSeries timeseries = 1;

@@ -21,13 +21,13 @@ import (
 	"syscall"
 	"time"
 
-	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/bgp"
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	probectlc "github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/version"
+	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
+	"github.com/ctlplne/probectl/internal/bgp"
+	"github.com/ctlplne/probectl/internal/bus"
+	probectlc "github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 func main() {

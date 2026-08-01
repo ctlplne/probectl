@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 // EgressGate is THE gate for external-AI egress (AIRCA-001/005): every

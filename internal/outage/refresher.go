@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 // FeedHealth is one feed's runtime + provenance view (the API's feed block):

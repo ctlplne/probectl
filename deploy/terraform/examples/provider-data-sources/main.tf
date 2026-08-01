@@ -3,7 +3,7 @@ terraform {
 
   required_providers {
     probectl = {
-      source  = "imfeelingtheagi/probectl"
+      source  = "ctlplne/probectl"
       version = "~> 0.1"
     }
   }

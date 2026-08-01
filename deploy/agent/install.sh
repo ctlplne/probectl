@@ -42,7 +42,7 @@ while [ "${1:-}" = "--verify" ] || [ "${1:-}" = "--no-verify" ]; do
   shift
 done
 COSIGN_ISSUER="${PROBECTL_COSIGN_ISSUER:-https://token.actions.githubusercontent.com}"
-COSIGN_IDENTITY_REGEXP="${PROBECTL_COSIGN_IDENTITY_REGEXP:-^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/}"
+COSIGN_IDENTITY_REGEXP="${PROBECTL_COSIGN_IDENTITY_REGEXP:-^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/}"
 UNVERIFIED_ACK_VALUE="allow-unsigned-cap-bpf-code"
 
 BIN="${1:?usage: install.sh [--verify|--no-verify] <path-to-probectl-ebpf-agent-binary> [config.yaml]}"

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/device"
 )
 
 func TestRunDiscoverBoundsInputFiles(t *testing.T) {

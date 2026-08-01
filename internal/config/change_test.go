@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/change"
+	"github.com/ctlplne/probectl/internal/change"
 )
 
 func TestChangeWebhooksConfig(t *testing.T) {

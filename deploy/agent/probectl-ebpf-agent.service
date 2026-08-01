@@ -10,7 +10,7 @@
 # program types); it never needs CAP_NET_ADMIN, CAP_SYS_PTRACE or root.
 [Unit]
 Description=probectl eBPF host agent (observe-only)
-Documentation=https://github.com/imfeelingtheagi/probectl/blob/main/docs/ebpf-agent.md
+Documentation=https://github.com/ctlplne/probectl/blob/main/docs/ebpf-agent.md
 After=network-online.target
 Wants=network-online.target
 

@@ -20,9 +20,9 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/imfeelingtheagi/probectl/internal/bgp"
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/bgp"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TestAnalyzerRunnerToBGPEventsAPI is W1's actual last-mile proof:

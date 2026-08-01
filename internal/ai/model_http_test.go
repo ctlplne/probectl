@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
 // A local Ollama server (loopback, plaintext) — the air-gapped path. Proves the

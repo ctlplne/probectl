@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/canary"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/objectstore"
 )
 
 // loginApp is a tiny local app with a real login flow: GET /login renders a form,

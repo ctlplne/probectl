@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/breaker"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/breaker"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // flakySynth is a remote-shaped adapter scripted to fail/hang/succeed.

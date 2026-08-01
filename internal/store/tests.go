@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Test is a synthetic-test definition. It is tenant-scoped: RLS confines every

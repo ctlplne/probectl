@@ -24,8 +24,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	basemetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/crypto"
+	basemetrics "github.com/ctlplne/probectl/internal/metrics"
 )
 
 const (

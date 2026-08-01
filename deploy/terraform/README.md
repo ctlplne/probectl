@@ -120,7 +120,7 @@ Configuration is env-friendly:
 terraform {
   required_providers {
     probectl = {
-      source  = "imfeelingtheagi/probectl"
+      source  = "ctlplne/probectl"
       version = "~> 0.1"
     }
   }
@@ -141,7 +141,7 @@ TLS policy inside `internal/crypto`.
 Air-gapped and pre-registry installs use Terraform's normal filesystem mirror or
 `dev_overrides` flow: place the signed release binary as
 `terraform-provider-probectl_v<version>` under the provider mirror path for
-`registry.terraform.io/imfeelingtheagi/probectl/<version>/<os>_<arch>/`, or point
+`registry.terraform.io/ctlplne/probectl/<version>/<os>_<arch>/`, or point
 development overrides at a local `bin/` directory.
 
 Resources:

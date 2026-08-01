@@ -14,7 +14,7 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"google.golang.org/protobuf/proto"
 
-	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
+	prompb "github.com/ctlplne/probectl/internal/gen/prometheus/v1"
 )
 
 func TestOfflineInteropPrometheusRemoteWriteFixtureForcesTenant(t *testing.T) {

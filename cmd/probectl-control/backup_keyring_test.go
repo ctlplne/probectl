@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/backup"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/backup"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 func TestBackupKeyProviderUsesEnvelopeOpenerKeys(t *testing.T) {

@@ -21,7 +21,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-module='github.com/imfeelingtheagi/probectl'
+module='github.com/ctlplne/probectl'
 
 # The sanctioned ee attach seams (one per binary that links ee features).
 allowlist='cmd/probectl-control/ee_attach.go'

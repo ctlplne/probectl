@@ -17,9 +17,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/store/endpointstore"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 type auditFlowRetentionPruner struct {

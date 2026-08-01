@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/config"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/otel/otlp"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/otel/otlp"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
 // signalExporter is an OTLP export client for all three signals (ARCH-003).

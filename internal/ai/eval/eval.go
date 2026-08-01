@@ -28,8 +28,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/ai"
-	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 // Scenario is one labeled RCA case: a question, planted per-domain evidence

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 type aupStatus struct {

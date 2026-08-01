@@ -10,9 +10,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/license"
-	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 // The per-tenant key / BYOK surface (S-T6, ee-backed): the tenant's security

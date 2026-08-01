@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 func statusQuietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

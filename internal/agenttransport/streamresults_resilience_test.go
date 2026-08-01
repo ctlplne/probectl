@@ -23,10 +23,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/crypto"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 func TestStreamResultsRefusesAckWhenMemoryPublishDropped(t *testing.T) {

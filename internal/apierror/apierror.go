@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/imfeelingtheagi/probectl/internal/i18n"
+	"github.com/ctlplne/probectl/internal/i18n"
 )
 
 // Kind is a coarse, transport-agnostic error category.

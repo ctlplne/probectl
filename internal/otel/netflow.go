@@ -9,7 +9,7 @@ package otel
 import (
 	"strconv"
 
-	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 // Device-flow attribute keys (S38). The 5-tuple reuses the OTel source.* /

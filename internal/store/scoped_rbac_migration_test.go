@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/migrations"
+	"github.com/ctlplne/probectl/migrations"
 )
 
 func TestScopedRBACTenantScopeMigrationIsOnline(t *testing.T) {

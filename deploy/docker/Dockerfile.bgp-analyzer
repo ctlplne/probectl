@@ -19,9 +19,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath \
       -ldflags "-s -w \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} \
-        -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}" \
+        -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} \
+        -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
+        -X github.com/ctlplne/probectl/internal/version.Date=${DATE}" \
       -o /out/probectl-control ./cmd/probectl-control
 
 # Multi-arch manifest digest, resolved 2026-07-14. Python is an established

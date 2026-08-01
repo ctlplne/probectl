@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type auditFacet string

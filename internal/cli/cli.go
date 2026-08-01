@@ -18,9 +18,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/httpbody"
-	"github.com/imfeelingtheagi/probectl/internal/i18n"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/i18n"
 )
 
 // Config is the resolved CLI configuration (flags override environment).

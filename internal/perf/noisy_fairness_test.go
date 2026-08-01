@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/fairness"
 )
 
 // TestNoisyHarnessInstallsFairnessGate is the SCALE-004 acceptance test: the

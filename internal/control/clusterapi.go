@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/cluster"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/cluster"
 )
 
 // Multi-region / active-active HA (S-EE2). The cluster manager owns the

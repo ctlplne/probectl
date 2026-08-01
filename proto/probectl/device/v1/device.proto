@@ -11,7 +11,7 @@ syntax = "proto3";
 // Backward compatibility: fields are additive-only; never renumber or reuse tags.
 package probectl.device.v1;
 
-option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1";
+option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/device/v1;devicev1";
 
 message DeviceMetric {
   // --- Resource identity (OTel resource attributes) ---

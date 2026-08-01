@@ -9,7 +9,7 @@ package tenantcrypto
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/license"
 )
 
 // GateKeyManagerWrites preserves the key-status read surface while denying

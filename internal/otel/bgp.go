@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 )
 
 // BGP routing-signal attribute keys (S14 / finalized S22). BGP has no OTel

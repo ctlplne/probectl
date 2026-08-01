@@ -9,7 +9,7 @@ package tsdb
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type writeFencedWriter struct {

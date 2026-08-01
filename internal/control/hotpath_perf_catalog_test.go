@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/perf"
+	"github.com/ctlplne/probectl/internal/perf"
 )
 
 // PERF-002: the user-visible hot-path SLO catalog must point at real served

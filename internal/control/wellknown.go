@@ -14,7 +14,7 @@ import (
 
 // defaultSecurityContact is advertised when the operator has not configured one.
 // It points at the disclosure policy rather than a fake mailbox.
-const defaultSecurityContact = "https://github.com/imfeelingtheagi/probectl/blob/main/SECURITY.md"
+const defaultSecurityContact = "https://github.com/ctlplne/probectl/blob/main/SECURITY.md"
 
 // handleSecurityTxt serves an RFC 9116 security.txt advertising this deployment's
 // vulnerability-disclosure contact (operator-set via PROBECTL_SECURITY_CONTACT) and
@@ -32,7 +32,7 @@ func (s *Server) handleSecurityTxt(w http.ResponseWriter, _ *http.Request) error
 			"Contact: %s\n"+
 			"Expires: %s\n"+
 			"Preferred-Languages: en\n"+
-			"Policy: https://github.com/imfeelingtheagi/probectl/blob/main/SECURITY.md\n",
+			"Policy: https://github.com/ctlplne/probectl/blob/main/SECURITY.md\n",
 		contact, expires)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

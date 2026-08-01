@@ -10,8 +10,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
-	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/fairness"
 )
 
 // The tenant fairness self-view (S-T7, core): a tenant can always see the

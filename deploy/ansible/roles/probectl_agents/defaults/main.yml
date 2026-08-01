@@ -42,7 +42,7 @@ probectl_verify_cosign: true          # SUPPLY-002: cosign-verify the package be
 # The release workflow signs keyless; these pin WHO may have signed (the probectl
 # release workflow on a tag). Override only for a fork/private build pipeline.
 probectl_cosign_issuer: "https://token.actions.githubusercontent.com"
-probectl_cosign_identity_regexp: "^https://github.com/imfeelingtheagi/probectl/\\.github/workflows/release\\.yml@refs/tags/"
+probectl_cosign_identity_regexp: "^https://github.com/ctlplne/probectl/\\.github/workflows/release\\.yml@refs/tags/"
 probectl_state_dir: "/var/lib/probectl-{{ probectl_agent_type }}"
 
 # Bus collector identity. These are minted once by

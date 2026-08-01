@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // C8 (U-013) table-driven redaction: IPs, v6, secrets, hostnames-per-policy.

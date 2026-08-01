@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // ErrAtlasDisabled is returned when RIPE Atlas scheduling is requested but not

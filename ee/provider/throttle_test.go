@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/license"
 )
 
 // SEC-003: the provider/operator login — the HIGHEST-privilege login in the

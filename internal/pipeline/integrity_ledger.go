@@ -9,7 +9,7 @@ package pipeline
 import (
 	"sync/atomic"
 
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/metrics"
 )
 
 // IntegrityStats is the per-signal receipt ledger exposed by ingest consumers.

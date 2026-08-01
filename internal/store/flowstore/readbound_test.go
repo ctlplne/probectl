@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
 // zeroReader is an unbounded source of NUL bytes with no backing buffer, so the

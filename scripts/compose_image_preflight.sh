@@ -100,7 +100,7 @@ compose preflight: PROBECTL_IMAGE must be digest-pinned for production Compose:
   $image
 
 Use an immutable ref such as:
-  ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>
+  ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:<release-digest>
 
 For a local or mirrored tag-only image, set:
   PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
@@ -133,7 +133,7 @@ run_preflight() {
   image="$(resolve_image)"
   if [ -z "$image" ]; then
     echo "compose preflight: set PROBECTL_IMAGE to a digest-pinned release image before running production Compose" >&2
-    echo "  example: PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>" >&2
+    echo "  example: PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:<release-digest>" >&2
     return 2
   fi
   validate_image_ref "$image"
@@ -183,12 +183,12 @@ exit 99
 SH
   chmod +x "$tmp/bin/docker"
 
-  PROBECTL_IMAGE="ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+  PROBECTL_IMAGE="ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
     DOCKER_LOG="$docker_log" INSPECT_RC=0 PULL_RC=1 PATH="$tmp/bin:$PATH" PROBECTL_REPO_ROOT="$root" bash "$script" >/dev/null
   : > "$docker_log"
-  PROBECTL_IMAGE="ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+  PROBECTL_IMAGE="ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
     DOCKER_LOG="$docker_log" INSPECT_RC=1 PULL_RC=0 PATH="$tmp/bin:$PATH" PROBECTL_REPO_ROOT="$root" bash "$script" >/dev/null
-  grep -Fq 'pull ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$docker_log" || {
+  grep -Fq 'pull ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$docker_log" || {
     echo "SELFTEST FAILED: pull path did not use the compose image" >&2
     return 1
   }

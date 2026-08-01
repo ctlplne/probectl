@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/license"
 )
 
 func main() {
@@ -84,7 +84,7 @@ func genKey(args []string) error {
 		return err
 	}
 	fmt.Printf("wrote %s (PRIVATE — keep offline, never commit) and %s\n", *outPriv, *outPub)
-	fmt.Printf("bake into release builds with:\n  -ldflags \"-X github.com/imfeelingtheagi/probectl/internal/license.builtinPubKeysB64=%s\"\n",
+	fmt.Printf("bake into release builds with:\n  -ldflags \"-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=%s\"\n",
 		base64.StdEncoding.EncodeToString(pub))
 	return nil
 }

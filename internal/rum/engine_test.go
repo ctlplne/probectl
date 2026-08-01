@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 func at(minutes int) time.Time {

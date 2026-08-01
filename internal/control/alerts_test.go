@@ -9,7 +9,7 @@ package control
 import (
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/alert"
 )
 
 func TestAlertRequestToRuleDefaults(t *testing.T) {

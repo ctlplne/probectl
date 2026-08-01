@@ -285,7 +285,7 @@ YAML
   cat > "$tmp/probectl.yml" <<'YAML'
 services:
   control:
-    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:v0.4.0}
+    image: ${PROBECTL_IMAGE:-ghcr.io/ctlplne/probectl-control:v0.4.0}
 YAML
   if grep -oE '\$\{PROBECTL_IMAGE:-[^}]+' "$tmp/probectl.yml" | sed 's/.*:-//' | awk 'index($0,"@sha256:")==0 { bad=1 } END { exit bad ? 0 : 1 }'; then :; else echo "SELFTEST broken (compose tag default)"; exit 1; fi
   cat > "$tmp/bad-helper.tpl" <<'TPL'

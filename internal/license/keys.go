@@ -12,7 +12,7 @@ import "encoding/base64"
 // (PEM, base64-encoded; comma-separated to support rotation), injected at
 // release time via:
 //
-//	go build -ldflags "-X github.com/imfeelingtheagi/probectl/internal/license.builtinPubKeysB64=$(base64 -w0 license-signing.pub)"
+//	go build -ldflags "-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=$(base64 -w0 license-signing.pub)"
 //
 // A development build bakes NO keys: any configured license file then fails
 // verification loudly ("no trusted license keys are baked into this build"),

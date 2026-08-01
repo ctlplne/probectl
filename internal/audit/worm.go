@@ -21,10 +21,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
-	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/crypto"
+	selfmetrics "github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // WORM export (U-041). The audit chains are tamper-EVIDENT in Postgres (RLS

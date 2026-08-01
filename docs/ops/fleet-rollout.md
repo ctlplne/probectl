@@ -128,13 +128,13 @@ artifact kinds verify differently:
   deploy and verify that digest before planning:
 
   ```sh
-  IMG=ghcr.io/imfeelingtheagi/probectl-ebpf-agent:<version>
+  IMG=ghcr.io/ctlplne/probectl-ebpf-agent:<version>
   DIGEST="$(docker buildx imagetools inspect "$IMG" --format '{{.Manifest.Digest}}')"
   cosign verify \
     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
     --certificate-identity-regexp \
-      "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
-    "ghcr.io/imfeelingtheagi/probectl-ebpf-agent@${DIGEST}"
+      "^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/" \
+    "ghcr.io/ctlplne/probectl-ebpf-agent@${DIGEST}"
   ```
 
 - **VM binaries** are **cosign-keyless signed** — signed via a short-lived

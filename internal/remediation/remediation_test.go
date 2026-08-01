@@ -10,7 +10,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/apierror"
 )
 
 func TestValidKind(t *testing.T) {

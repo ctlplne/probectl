@@ -18,8 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/imfeelingtheagi/probectl/internal/cluster/pglease"
-	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/cluster/pglease"
+	"github.com/ctlplne/probectl/internal/metrics"
 )
 
 const (

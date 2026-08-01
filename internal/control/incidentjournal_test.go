@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
 func TestValidateIncidentJournalRequest(t *testing.T) {

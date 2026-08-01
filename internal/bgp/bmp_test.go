@@ -22,9 +22,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
-	probectlc "github.com/imfeelingtheagi/probectl/internal/crypto"
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/ctlplne/probectl/internal/bus"
+	probectlc "github.com/ctlplne/probectl/internal/crypto"
+	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 )
 
 func TestBMPListenerPartitionsTenantScopedPeers(t *testing.T) {

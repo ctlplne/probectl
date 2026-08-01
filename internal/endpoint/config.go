@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/configschema"
+	"github.com/ctlplne/probectl/internal/configschema"
 )
 
 const (

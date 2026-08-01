@@ -1,4 +1,4 @@
-module github.com/imfeelingtheagi/probectl
+module github.com/ctlplne/probectl
 
 // Pinned to the official go1.26.5 release (sumdb-verified on download —
 // docs/build/toolchain.md). The exact patch in the go directive keeps

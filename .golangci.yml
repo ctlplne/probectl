@@ -41,7 +41,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/imfeelingtheagi/probectl
+        - github.com/ctlplne/probectl
   exclusions:
     paths:
       - internal/gen

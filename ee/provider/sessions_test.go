@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 func TestSessionsUseKeyedHMACWhenConfigured(t *testing.T) {

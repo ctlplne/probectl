@@ -17,7 +17,7 @@ permissions:
 
 env:
   GO_VERSION: "1.26.5"
-  IMAGE_PREFIX: ghcr.io/imfeelingtheagi
+  IMAGE_PREFIX: ghcr.io/ctlplne
 
 jobs:
   # U-022/U-083: a tag ships nothing unless the FULL ci workflow concluded

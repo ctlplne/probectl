@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/cost"
+	"github.com/ctlplne/probectl/internal/cost"
 )
 
 // Coefficients pins the estimation model.

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/flow"
-	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestFlowQualityReceiptStorageIsForcedRLSTenantIsolatedAndSecretFree(t *testing.T) {

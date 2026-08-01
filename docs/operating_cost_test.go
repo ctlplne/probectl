@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/perf"
+	"github.com/ctlplne/probectl/internal/perf"
 )
 
 func TestOperatingCostModelDocumentsTierWorksheet(t *testing.T) {
