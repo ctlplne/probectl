@@ -164,6 +164,49 @@ func TestLoadBoundsConfigFile(t *testing.T) {
 	}
 }
 
+func TestJoinTokenBoundsTokenFile(t *testing.T) {
+	const (
+		limit  = 64 << 10
+		canary = "planted-enrollment-token-canary"
+	)
+	t.Setenv("PROBECTL_AGENT_JOIN_TOKEN", "")
+
+	for _, tc := range []struct {
+		name    string
+		size    int
+		wantErr bool
+	}{
+		{name: "maximum", size: limit},
+		{name: "one past maximum", size: limit + 1, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := append([]byte(canary), bytes.Repeat([]byte{'x'}, tc.size-len(canary))...)
+			path := filepath.Join(t.TempDir(), "join-token")
+			if err := os.WriteFile(path, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := Config{Enroll: EnrollConfig{TokenFile: path}}
+			got, err := cfg.JoinToken()
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "enrollment token file exceeds 65536-byte limit") {
+					t.Fatalf("one-past-maximum enrollment token error = %v", err)
+				}
+				if strings.Contains(err.Error(), canary) {
+					t.Fatalf("enrollment token error leaked token material: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("maximum-sized enrollment token rejected: %v", err)
+			}
+			if got != string(body) {
+				t.Fatalf("maximum-sized enrollment token length = %d, want %d", len(got), len(body))
+			}
+		})
+	}
+}
+
 func TestConfigAcceptsUniqueTestIDsAndRejectsAmbiguity(t *testing.T) {
 	valid := writeAgentConfig(t, `
 control_plane:

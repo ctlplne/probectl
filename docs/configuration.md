@@ -351,7 +351,7 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_BROWSER_WORKER_PATH` | `browser.worker.path` | worker program passed to the command (the shipped browser-agent image uses `/worker/worker.mjs`) |
 | `PROBECTL_AGENT_IDENTITY_SERVER` | `identity.server` | control-plane HTTPS base URL enabling automatic certificate rotation — the agent rotates its mTLS identity at ~2/3 of its lifetime via `/enroll/agent/rotate`. See [`agent/enrollment.md`](agent/enrollment.md) |
 | `PROBECTL_AGENT_JOIN_TOKEN` | — | a one-time join token for **first-boot enrollment**: with no identity present yet, the agent redeems it, writes its identity, then runs. Idempotent (a present identity is never overwritten) and fail-closed. See [`agent/enrollment.md`](agent/enrollment.md) |
-| `PROBECTL_AGENT_ENROLL_TOKEN_FILE` | `enroll.token_file` | a file holding the join token (a mounted secret, read once); `PROBECTL_AGENT_JOIN_TOKEN` takes precedence |
+| `PROBECTL_AGENT_ENROLL_TOKEN_FILE` | `enroll.token_file` | a file holding the join token (a mounted secret, read once, maximum 64 KiB); oversized files fail closed without exposing token bytes; `PROBECTL_AGENT_JOIN_TOKEN` takes precedence |
 | `PROBECTL_AGENT_ENROLL_SERVER` | `enroll.server` | enrollment target for first-boot enrollment; defaults to `identity.server` |
 | `PROBECTL_AGENT_ENROLL_CA_PIN` | `enroll.ca_pin` | optional hex sha256 pin of the server cert for first contact; otherwise `tls.ca_file` verifies the server |
 | — | `enroll.allow_plaintext_loopback` | dev/test-only escape hatch for `http://localhost` enrollment. Default `false`; non-loopback plaintext is always refused |

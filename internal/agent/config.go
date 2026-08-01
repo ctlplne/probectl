@@ -27,6 +27,7 @@ const (
 	defaultDrainPace              = 150 * time.Millisecond
 	ConfigAPIVersion              = "probectl.io/agent/v1"
 	maxConfigFileBytes            = 1 << 20
+	maxJoinTokenFileBytes         = 64 << 10
 )
 
 // Duration is a time.Duration that unmarshals from a YAML string like "30s".
@@ -252,13 +253,32 @@ func (c *Config) JoinToken() (string, error) {
 		return t, nil
 	}
 	if c.Enroll.TokenFile != "" {
-		b, err := os.ReadFile(c.Enroll.TokenFile)
+		b, err := readJoinTokenFile(c.Enroll.TokenFile)
 		if err != nil {
 			return "", fmt.Errorf("read enroll.token_file: %w", err)
 		}
 		return strings.TrimSpace(string(b)), nil
 	}
 	return "", nil
+}
+
+func readJoinTokenFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxJoinTokenFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxJoinTokenFileBytes {
+		return nil, fmt.Errorf("enrollment token file exceeds %d-byte limit", maxJoinTokenFileBytes)
+	}
+	return raw, nil
 }
 
 func (c *Config) applyEnv() {
