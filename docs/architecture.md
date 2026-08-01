@@ -347,8 +347,19 @@ default for tiny deployments, roughly under five agents) and a **kafka** mode;
 the writer has a **memory** mode and a **prometheus** remote-write mode
 (Prometheus/VictoriaMetrics). In memory mode the agent ACK waits for the
 in-process consumer handler to finish, and the default overflow policy
-back-pressures rather than dropping. It is still not a replayable broker log, so
-Kafka is the production path for crash-durable transit. The consumer converts
+back-pressures rather than dropping.
+
+**Consumer groups mean the same thing in both modes.** A message reaches every
+group, and exactly one member within a group. The memory bus used to discard the
+group entirely — every subscriber got every message — so any statement about
+independent offsets or replay isolation was quietly Kafka-only while lightweight
+mode is a shipped option. `internal/pipeline` carries a parity suite that runs
+one dead-letter replay scenario against both implementations (kfake gives a real
+in-process broker), because two per-bus tests that never compare cannot disagree.
+
+Memory mode is still not a replayable broker log — a record published to a topic
+with no live subscriber is gone, and nothing survives a restart — so Kafka
+remains the production path for crash-durable transit. The consumer converts
 each result into
 `probectl_probe_*` time-series labeled by
 `tenant_id`/`agent_id`/`canary_type`/`server_address`. Because a TSDB — a

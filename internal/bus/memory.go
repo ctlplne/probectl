@@ -32,8 +32,15 @@ const DefaultMemoryBuffer = 1024
 // subscribes, which matches the pipeline (the consumer starts at boot, before
 // agents connect). Messages are not persisted.
 type Memory struct {
-	mu          sync.Mutex
-	subs        map[string][]chan Message
+	mu sync.Mutex
+	// subs is topic -> consumer group -> members. The nesting IS the consumer
+	// group semantics (S-901480ab): a message goes to EVERY group, but to
+	// exactly ONE member within a group — the same contract Kafka gives. The
+	// map used to be topic -> members with the group argument discarded, so
+	// every subscriber saw every message and any reasoning about independent
+	// offsets or replay isolation was Kafka-only, while lightweight mode is a
+	// shipped deployment option.
+	subs        map[string]map[string]*memoryGroup
 	closed      bool
 	bufSize     int
 	dropOn      bool          // overflow policy: true = drop+count, false = block (U-079)
@@ -91,7 +98,7 @@ func WithSubscribeWorkers(n int) MemoryOption {
 // buffer, block-on-full, Flush waits for delivered handlers).
 func NewMemory(opts ...MemoryOption) *Memory {
 	m := &Memory{
-		subs:      make(map[string][]chan Message),
+		subs:      make(map[string]map[string]*memoryGroup),
 		bufSize:   DefaultMemoryBuffer,
 		flushWait: closedFlushWait(),
 	}
@@ -116,13 +123,28 @@ func (m *Memory) HandlerErrors() uint64 { return m.handlerErr.Load() }
 // is counted — never silent.
 func (m *Memory) HandlerLost() uint64 { return m.handlerLost.Load() }
 
+// memoryGroup is one consumer group's members on one topic, plus the
+// round-robin cursor that spreads the topic's messages across them. Each member
+// has its own buffered channel, so members progress independently — that is the
+// in-process analog of independent offsets.
+type memoryGroup struct {
+	members []chan Message
+	next    int
+}
+
 // subscriberCount returns the live subscriber count for a topic under the
 // lock — the race-free way for tests (and callers) to await registration.
 // Reading m.subs directly races the Subscribe writer (caught by -race).
+// It counts members across ALL groups: a caller waiting for its consumers to be
+// ready cares that they are registered, not how they are grouped.
 func (m *Memory) subscriberCount(topic string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return len(m.subs[topic])
+	n := 0
+	for _, g := range m.subs[topic] {
+		n += len(g.members)
+	}
+	return n
 }
 
 // WaitForSubscribers blocks until at least n subscribers are registered on
@@ -144,9 +166,10 @@ func (m *Memory) WaitForSubscribers(ctx context.Context, topic string, n int) bo
 	}
 }
 
-// Publish delivers value to every current subscriber of topic. In block mode it
-// back-pressures until each subscriber accepts the message. In explicit drop
-// mode it still returns ErrMemoryDropped if any subscriber buffer was full, so
+// Publish delivers value to every consumer GROUP on topic, and within each
+// group to exactly one member (round-robin) — Kafka's contract. In block mode
+// it back-pressures until each selected member accepts the message. In explicit
+// drop mode it still returns ErrMemoryDropped if a selected buffer was full, so
 // upstream durability barriers can fail closed instead of ACKing lost telemetry.
 func (m *Memory) Publish(ctx context.Context, topic string, key, value []byte) error {
 	m.mu.Lock()
@@ -154,7 +177,17 @@ func (m *Memory) Publish(ctx context.Context, topic string, key, value []byte) e
 		m.mu.Unlock()
 		return errClosed
 	}
-	chans := append([]chan Message(nil), m.subs[topic]...)
+	// One recipient per group, chosen under the same lock that advances the
+	// cursor, so two concurrent publishes cannot pick the same member twice
+	// while another member is never picked.
+	var chans []chan Message
+	for _, g := range m.subs[topic] {
+		if len(g.members) == 0 {
+			continue
+		}
+		chans = append(chans, g.members[g.next%len(g.members)])
+		g.next = (g.next + 1) % len(g.members)
+	}
 	m.mu.Unlock()
 
 	msg := Message{Topic: topic, Key: key, Value: value}
@@ -188,18 +221,28 @@ func (m *Memory) Publish(ctx context.Context, topic string, key, value []byte) e
 	return nil
 }
 
-// Subscribe delivers topic messages to handler until ctx is canceled.
-func (m *Memory) Subscribe(ctx context.Context, topic, _ string, handler Handler) error {
+// Subscribe joins group on topic and delivers that group's share of the
+// messages to handler until ctx is canceled. Two subscribers in the same group
+// SPLIT the topic; two subscribers in different groups each receive all of it.
+func (m *Memory) Subscribe(ctx context.Context, topic, group string, handler Handler) error {
 	ch := make(chan Message, m.bufSize)
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		return errClosed
 	}
-	m.subs[topic] = append(m.subs[topic], ch)
+	if m.subs[topic] == nil {
+		m.subs[topic] = map[string]*memoryGroup{}
+	}
+	g := m.subs[topic][group]
+	if g == nil {
+		g = &memoryGroup{}
+		m.subs[topic][group] = g
+	}
+	g.members = append(g.members, ch)
 	m.mu.Unlock()
 	defer func() {
-		m.removeSub(topic, ch)
+		m.removeSub(topic, group, ch)
 		for {
 			select {
 			case <-ch:
@@ -321,14 +364,26 @@ func (m *Memory) Close() error {
 	return nil
 }
 
-func (m *Memory) removeSub(topic string, ch chan Message) {
+func (m *Memory) removeSub(topic, group string, ch chan Message) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	subs := m.subs[topic]
-	for i, c := range subs {
+	g := m.subs[topic][group]
+	if g == nil {
+		return
+	}
+	for i, c := range g.members {
 		if c == ch {
-			m.subs[topic] = append(subs[:i], subs[i+1:]...)
+			g.members = append(g.members[:i], g.members[i+1:]...)
 			break
+		}
+	}
+	if len(g.members) == 0 {
+		// Drop the empty group so a departed group stops being a delivery
+		// target — otherwise Publish would keep selecting from an empty slice
+		// and a later rejoin would inherit a stale cursor.
+		delete(m.subs[topic], group)
+		if len(m.subs[topic]) == 0 {
+			delete(m.subs, topic)
 		}
 	}
 }
