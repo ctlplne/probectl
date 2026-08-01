@@ -126,6 +126,45 @@ func TestCrtShGraceful(t *testing.T) {
 	}
 }
 
+func TestCrtShBoundsResponseBody(t *testing.T) {
+	// A response of exactly the cap is accepted; one byte more must degrade
+	// closed BEFORE JSON decoding. The old way — io.LimitReader truncating the
+	// body to the cap — let an oversized upstream body decode as a complete,
+	// trusted CT answer from a silent prefix.
+	pad := func(total int) []byte {
+		body := make([]byte, total)
+		copy(body, "[]")
+		for i := 2; i < total; i++ {
+			body[i] = ' '
+		}
+		return body
+	}
+
+	exact := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(pad(int(maxCrtShResponseBodyBytes)))
+	}))
+	defer exact.Close()
+	atLimit := &CrtSh{endpoint: exact.URL, client: exact.Client()}
+	if f, ok := atLimit.Check(context.Background(), cert(t, crypto.TestCertOptions{CommonName: "ct-exact.example"})); !ok || f.Kind != FindingCTNotLogged {
+		t.Fatalf("a valid body of exactly the cap must be accepted, got %v/%v", f, ok)
+	}
+	if stats := atLimit.Stats(); stats.Degraded != 0 {
+		t.Fatalf("exact-limit body must not degrade, stats = %+v", stats)
+	}
+
+	oversized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(pad(int(maxCrtShResponseBodyBytes) + 1))
+	}))
+	defer oversized.Close()
+	overLimit := &CrtSh{endpoint: oversized.URL, client: oversized.Client()}
+	if f, ok := overLimit.Check(context.Background(), cert(t, crypto.TestCertOptions{CommonName: "ct-over.example"})); ok {
+		t.Fatalf("cap+1 body must degrade to no finding, got %v/%v", f, ok)
+	}
+	if stats := overLimit.Stats(); stats.Degraded != 1 {
+		t.Fatalf("cap+1 body must be recorded as degraded, not accepted from a truncated prefix, stats = %+v", stats)
+	}
+}
+
 func TestCrtShCachesSerial(t *testing.T) {
 	leaf := cert(t, crypto.TestCertOptions{CommonName: "cached.example"})
 	calls := 0

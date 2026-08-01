@@ -9,9 +9,7 @@ package threat
 import (
 	"context"
 	"crypto/x509"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -20,6 +18,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
 )
 
@@ -58,6 +57,10 @@ const (
 	defaultCrtShMinInterval = 200 * time.Millisecond
 	defaultCrtShBaseBackoff = time.Second
 	defaultCrtShMaxBackoff  = time.Minute
+
+	// maxCrtShResponseBodyBytes bounds a crt.sh JSON response. Bodies larger
+	// than this degrade closed before JSON decoding — never a silent prefix.
+	maxCrtShResponseBodyBytes int64 = 1 << 20
 )
 
 type ctCacheEntry struct {
@@ -170,8 +173,11 @@ func (c *CrtSh) Check(ctx context.Context, leaf *x509.Certificate) (Finding, boo
 		c.recordDegraded(host)
 		return Finding{}, false // rate-limited / error → graceful no-op
 	}
+	// Bounded read through a max-plus-one sentinel: a body over the cap (or one
+	// with trailing JSON garbage) degrades closed BEFORE decoding — an
+	// oversized upstream response must never be accepted as a silent prefix.
 	var entries []map[string]any
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&entries); err != nil {
+	if err := httpbody.DecodeJSON(resp.Body, maxCrtShResponseBodyBytes, &entries); err != nil {
 		c.recordDegraded(host)
 		return Finding{}, false
 	}

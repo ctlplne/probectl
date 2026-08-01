@@ -1808,7 +1808,10 @@ CT logs are Certificate Transparency's public, append-only ledgers of every
 certificate publicly issued — correlation against them answers "was a cert for
 *my* name issued that I don't know about?" (a rogue or mis-issued certificate).
 It is **off by default** (an external fetch — sovereignty / AUP /
-rate limits) and degrades gracefully when the CT source is down.
+rate limits) and degrades gracefully when the CT source is down. Responses are
+read through a bounded 1 MiB sentinel: a larger or trailing-garbage body is
+rejected before JSON decoding and degrades closed — never accepted as a
+silently truncated prefix.
 
 ### Threat-intel enrichment
 
