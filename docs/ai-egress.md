@@ -58,10 +58,9 @@ in the prompt to begin with — a model cannot leak what was never fetched.
 masking sensitive values inside text before it leaves, and it runs in three
 tiers: secrets (bearer/authorization values, `key=value` credentials, AWS
 access key IDs, PEM blocks) are **always** masked — no setting turns that off;
-IP addresses and free-text PII (emails, phone numbers, MAC addresses) are
-masked **by default** (`PROBECTL_AI_REDACT_IPS`, `PROBECTL_AI_REDACT_PII`);
-hostnames (`PROBECTL_AI_REDACT_HOSTNAMES` — kept by default, because the
-hostname is usually the very thing you're asking about) and any
+IP addresses, hostnames and free-text PII (emails, phone numbers, MAC
+addresses) are masked **by default** (`PROBECTL_AI_REDACT_IPS`,
+`PROBECTL_AI_REDACT_HOSTNAMES`, `PROBECTL_AI_REDACT_PII`); any
 operator-supplied custom patterns (`PROBECTL_AI_REDACT_PATTERNS`,
 `;;`-separated regexes — `;;` because regexes routinely contain commas; one
 bad pattern refuses the whole config, fail closed) are masked **per policy** —
@@ -75,6 +74,31 @@ match low-entropy values such as private IPs without the deployment secret. When
 otherwise probectl uses a process-local random key, so labels remain protected
 but rotate when the process restarts. The model can still correlate ("this
 address appears in both signals") without ever seeing the real value.
+
+### Why hostnames are masked by default
+
+The default was chosen deliberately, not inherited. probectl's central promise
+is that **telemetry never leaves the operator's network**, and the remote-model
+path is the one place that promise is actually tested. An internal FQDN is not
+incidental context: `payments-db-3.prod.acme.internal` discloses a service
+inventory, an environment layout, a customer or tenant name, and often the
+topology around it — verbatim, to a third party, in a form that needs no
+analysis to read.
+
+The counter-argument used to win here — "the hostname is usually the very thing
+you're asking about" — turns out not to require the *real* hostname. Masking is
+deterministic per tenant, so the model still sees that `[host:9f2c…]` appears in
+the BGP signal and in the flow signal and reasons about the correlation exactly
+as before; only the human reading the cited answer needs the real name, and the
+citation is resolved locally after the model returns. Analysis quality is
+preserved; the identifier stays inside.
+
+An operator who weighs that tradeoff differently sets
+`PROBECTL_AI_REDACT_HOSTNAMES=false`. That is a deliberate, auditable opt-out —
+which is a materially different thing from a default that quietly ships open.
+`internal/ai.TestRedactionFieldClassesCrossingTheBoundary` pins exactly which
+classes cross under the default policy, so a future change to this decision has
+to be made on purpose.
 
 ## One gate, three doors
 

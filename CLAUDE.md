@@ -73,6 +73,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             outage (collective outage view) · path (ECMP/MPLS path discovery) ·
             perf (load/perf harness) · pipeline (bus-to-store result pipeline, tenant-verifying) ·
             preflight (deployment self-check) · promapi (Prometheus-compatible surfaces) ·
+            redactpat (shared secret/PII recognition patterns) ·
             remediation (core guarded-remediation seam) · reporting (tenant report artifacts) ·
             rum (real-user monitoring) · schema (offline schema lints) ·
             scim (SCIM 2.0 provisioning) · secrets (secret-backend integration) ·

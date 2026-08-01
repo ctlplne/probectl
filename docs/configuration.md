@@ -1767,7 +1767,7 @@ rotate on restart. See [`ai-rca.md`](ai-rca.md).
 | `PROBECTL_AI_MODEL_PROVIDER` | `builtin` | `builtin` (air-gapped, the default) \| `ollama` \| `openai` \| `anthropic` |
 | `PROBECTL_AI_EGRESS_ACK` | (none) | **required to use a REMOTE model**: must equal `yes-send-tenant-data-to-the-remote-model`, or the server refuses to start. This is a deliberate "yes, I know data leaves" gate, on top of per-tenant consent + audit — see [`docs/ai-egress.md`](ai-egress.md) |
 | `PROBECTL_AI_REDACT_IPS` | `true` | mask IP addresses in anything sent to an external model (stable per-tenant tokens, so correlation survives without public hash dictionaries; local file paths are never redacted) |
-| `PROBECTL_AI_REDACT_HOSTNAMES` | `false` | also mask hostnames (secrets are masked unconditionally regardless of this) |
+| `PROBECTL_AI_REDACT_HOSTNAMES` | `true` | also mask hostnames before remote egress — internal FQDNs are a service inventory; set `false` to deliberately opt out (secrets are masked unconditionally regardless of this) |
 | `PROBECTL_AI_REDACT_PII` | `true` | mask free-text PII — emails, phone numbers, MAC addresses — in anything sent to an external model (RCA prompts, MCP tool results, authoring prompts) |
 | `PROBECTL_AI_REDACT_PATTERNS` | (none) | your own regexes (`;;`-separated), masked as `[custom:<token>]` — for org-specific identifiers (employee IDs, ticket refs). A bad pattern refuses start (fail closed) |
 | `PROBECTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |

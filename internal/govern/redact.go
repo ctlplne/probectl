@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/redactpat"
 )
 
 // Strategy is how a classified value is masked.
@@ -39,14 +40,15 @@ const telemetryRedacted = "[redacted]"
 var (
 	telemetryKeyNormalizer = strings.NewReplacer(".", "_", "-", "_")
 
-	telemetryBearerHeaderRE = regexp.MustCompile(`(?i)\b(authorization:\s*bearer\s+)[A-Za-z0-9._~+/=-]{8,}`)
-	telemetryBearerRE       = regexp.MustCompile(`(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}`)
-	telemetryCredentialKVRE = regexp.MustCompile(`(?i)\b((?:api[_\-.]?key|access[_\-.]?key|secret|token|password|passwd|pwd)\s*[=:]\s*)[^\s"'&]+`)
-	telemetryEmailRE        = regexp.MustCompile(`\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`)
-	telemetryMACRE          = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
-	telemetryIPv4RE         = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	telemetryIPv6RE         = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{0,4}:){2,}[0-9A-Fa-f]{0,4}\b`)
-	telemetryURLRE          = regexp.MustCompile(`https?://[^\s"'<>()]+`)
+	// Shapes come from internal/redactpat, which is the ONE definition of what
+	// a secret/identifier LOOKS LIKE, shared with the AI egress path
+	// (S-e5e1b903). This package still owns the STRATEGY: none/partial/hash/
+	// drop per category, prefix preserved so an operator reading a support
+	// bundle can still tell an Authorization header from an api_key.
+	telemetryCredentialKVRE = redactpat.CredentialKV
+	telemetryEmailRE        = redactpat.Email
+	telemetryMACRE          = redactpat.MAC
+	telemetryURLRE          = redactpat.URL
 	telemetryPathIDRE       = regexp.MustCompile(`(?i)^(?:[0-9a-f]{16,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{6,})$`)
 )
 
@@ -154,9 +156,12 @@ func RedactTelemetryText(pol Policy, value string) string {
 	if value == "" {
 		return value
 	}
-	out := telemetryBearerHeaderRE.ReplaceAllString(value, "${1}"+telemetryRedacted)
-	out = telemetryBearerRE.ReplaceAllString(out, "${1}"+telemetryRedacted)
-	out = telemetryCredentialKVRE.ReplaceAllString(out, "${1}"+telemetryRedacted)
+	// Always-masked shapes come from redactpat.Secrets() in its order; this
+	// path keeps the diagnostic prefix ("api_key=", "Authorization: Bearer ")
+	// and drops the value.
+	out := redactpat.MaskSecrets(value, func(redactpat.SecretShape, string) string {
+		return telemetryRedacted
+	})
 	out = telemetryURLRE.ReplaceAllStringFunc(out, func(raw string) string {
 		return redactTelemetryURL(pol, raw)
 	})
@@ -166,18 +171,10 @@ func RedactTelemetryText(pol Policy, value string) string {
 	out = telemetryMACRE.ReplaceAllStringFunc(out, func(match string) string {
 		return redactTelemetryInline(pol, CatMAC, match)
 	})
-	out = telemetryIPv4RE.ReplaceAllStringFunc(out, func(match string) string {
-		ip := net.ParseIP(match)
-		if ip == nil || ip.To4() == nil {
-			return match
-		}
+	out = redactpat.MaskIPv4(out, func(match string) string {
 		return redactTelemetryInline(pol, CatIPAddress, match)
 	})
-	out = telemetryIPv6RE.ReplaceAllStringFunc(out, func(match string) string {
-		ip := net.ParseIP(match)
-		if ip == nil || ip.To4() != nil {
-			return match
-		}
+	out = redactpat.MaskIPv6(out, func(match string) string {
 		return redactTelemetryInline(pol, CatIPAddress, match)
 	})
 	return out

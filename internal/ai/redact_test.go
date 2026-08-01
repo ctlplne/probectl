@@ -23,7 +23,7 @@ import (
 // C8 (U-013) table-driven redaction: IPs, v6, secrets, hostnames-per-policy.
 func TestRedactText(t *testing.T) {
 	def := DefaultRedaction
-	hosts := RedactionPolicy{MaskIPs: true, MaskHostnames: true}
+	noHosts := RedactionPolicy{MaskIPs: true, MaskPII: true, MaskHostnames: false}
 	cases := []struct {
 		name string
 		in   string
@@ -45,10 +45,10 @@ func TestRedactText(t *testing.T) {
 			[]string{"AKIAIOSFODNN7EXAMPLE"}, []string{"found", "in env"}},
 		{"pem block", "cert -----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY----- end", def,
 			[]string{"MIIE"}, []string{"cert", "end"}},
-		{"hostnames kept by default", "db-1.internal.example.com slow", def,
-			nil, []string{"db-1.internal.example.com", "slow"}},
-		{"hostnames masked per policy", "db-1.internal.example.com slow", hosts,
+		{"hostnames masked by default", "db-1.internal.example.com slow", def,
 			[]string{"db-1.internal.example.com"}, []string{"slow"}},
+		{"hostnames kept only when the operator opts out", "db-1.internal.example.com slow", noHosts,
+			nil, []string{"db-1.internal.example.com", "slow"}},
 		{"ips off", "10.1.2.3 reachable", RedactionPolicy{MaskIPs: false},
 			nil, []string{"10.1.2.3", "reachable"}},
 	}

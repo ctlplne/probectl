@@ -459,8 +459,11 @@ type Config struct {
 	AIPersistAnswers  bool
 	AIAnswerRetention time.Duration
 	// AIRedactIPs / AIRedactHostnames (U-013/C8): the pre-egress redaction
-	// pass for REMOTE models — IPs masked by default, hostnames per policy;
+	// pass for REMOTE models — IPs, hostnames and PII masked by default;
 	// obvious secrets are always masked. Local paths are never redacted.
+	// The hostname default is deliberate (S-e5e1b903): internal FQDNs are a
+	// service inventory, and the remote path is exactly the boundary the
+	// "telemetry never leaves the operator's network" promise is about.
 	AIRedactIPs       bool
 	AIRedactHostnames bool
 	// AIRedactPII (AIRCA-002): mask emails, phone numbers, and MAC
@@ -915,7 +918,7 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.AIAnswerRetention = l.dur("PROBECTL_AI_ANSWER_RETENTION", 90*24*time.Hour)
 	cfg.AIEgressAck = l.str("PROBECTL_AI_EGRESS_ACK", "")
 	cfg.AIRedactIPs = l.boolean("PROBECTL_AI_REDACT_IPS", true)
-	cfg.AIRedactHostnames = l.boolean("PROBECTL_AI_REDACT_HOSTNAMES", false)
+	cfg.AIRedactHostnames = l.boolean("PROBECTL_AI_REDACT_HOSTNAMES", true)
 	cfg.AIRedactPII = l.boolean("PROBECTL_AI_REDACT_PII", true)
 	cfg.AIRedactCustom = l.str("PROBECTL_AI_REDACT_PATTERNS", "")
 	cfg.MCPHTTPAddr = l.str("PROBECTL_MCP_HTTP_ADDR", "")
