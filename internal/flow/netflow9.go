@@ -7,9 +7,10 @@
 package flow
 
 import (
-	"encoding/binary"
 	"fmt"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/wire"
 )
 
 // NetFlow v9 (RFC 3954): a 20-byte header followed by flowsets. Set ID 0 is a
@@ -35,24 +36,32 @@ func (d *nf9Decoder) decode(pkt []byte, exporter string, now time.Time) (recs []
 	if len(pkt) < nf9HeaderLen {
 		return nil, 0, fmt.Errorf("netflow9: datagram too short: %d bytes", len(pkt))
 	}
-	if v := binary.BigEndian.Uint16(pkt[0:2]); v != 9 {
+	r := wire.New(pkt)
+	if v := r.U16(); v != 9 {
 		return nil, 0, fmt.Errorf("netflow9: unexpected version %d", v)
 	}
-	sysUptimeMS := binary.BigEndian.Uint32(pkt[4:8])
-	unixSecs := binary.BigEndian.Uint32(pkt[8:12])
-	domain := binary.BigEndian.Uint32(pkt[16:20]) // source ID
+	r.Skip(2) // record count (advisory; the flowset walk is authoritative)
+	sysUptimeMS := r.U32()
+	unixSecs := r.U32()
+	r.Skip(4)         // sequence number
+	domain := r.U32() // source ID
+	if err := r.Err(); err != nil {
+		return nil, 0, fmt.Errorf("netflow9: header: %w", err)
+	}
 
 	export := time.Unix(int64(unixSecs), 0)
 	clk := ieClock{boot: export.Add(-time.Duration(sysUptimeMS) * time.Millisecond), export: export}
 
-	off := nf9HeaderLen
-	for off+4 <= len(pkt) {
-		setID := binary.BigEndian.Uint16(pkt[off : off+2])
-		setLen := int(binary.BigEndian.Uint16(pkt[off+2 : off+4]))
-		if setLen < 4 || off+setLen > len(pkt) {
-			return recs, templateMisses, fmt.Errorf("netflow9: bad flowset length %d at offset %d", setLen, off)
+	// Each flowset is consumed through its OWN length-delimited sub-reader, so
+	// a lying set length can never reach past its own frame.
+	for r.Remaining() >= 4 {
+		setOffset := r.Offset()
+		setID := r.U16()
+		setLen := int(r.U16())
+		if setLen < 4 || setLen-4 > r.Remaining() {
+			return recs, templateMisses, fmt.Errorf("netflow9: bad flowset length %d at offset %d", setLen, setOffset)
 		}
-		body := pkt[off+4 : off+setLen]
+		body := r.Bytes(setLen - 4)
 		switch {
 		case setID == 0:
 			d.parseTemplates(body, exporter, domain, false)
@@ -65,7 +74,9 @@ func (d *nf9Decoder) decode(pkt []byte, exporter string, now time.Time) (recs []
 				return recs, templateMisses, fmt.Errorf("netflow9: record bound exceeded")
 			}
 		}
-		off += setLen
+	}
+	if err := r.Err(); err != nil {
+		return recs, templateMisses, fmt.Errorf("netflow9: %w", err)
 	}
 	return recs, templateMisses, nil
 }
@@ -73,21 +84,19 @@ func (d *nf9Decoder) decode(pkt []byte, exporter string, now time.Time) (recs []
 // parseTemplates parses a template flowset: repeated (templateID, fieldCount,
 // fieldCount x (type, length)).
 func (d *nf9Decoder) parseTemplates(b []byte, exporter string, domain uint32, _ bool) {
-	off := 0
-	for off+4 <= len(b) {
-		tid := binary.BigEndian.Uint16(b[off : off+2])
-		fc := int(binary.BigEndian.Uint16(b[off+2 : off+4]))
-		off += 4
-		if tid < 256 || fc <= 0 || fc > 512 || off+fc*4 > len(b) {
+	r := wire.New(b)
+	for r.Remaining() >= 4 {
+		tid := r.U16()
+		fc := int(r.U16())
+		if tid < 256 || fc <= 0 || fc > 512 || fc*4 > r.Remaining() {
 			return // malformed remainder — stop, keep what we have
 		}
 		fields := make([]templateField, 0, fc)
 		for i := 0; i < fc; i++ {
-			fields = append(fields, templateField{
-				ID:     binary.BigEndian.Uint16(b[off : off+2]),
-				Length: binary.BigEndian.Uint16(b[off+2 : off+4]),
-			})
-			off += 4
+			fields = append(fields, templateField{ID: r.U16(), Length: r.U16()})
+		}
+		if r.Err() != nil {
+			return
 		}
 		d.templates.put(templateKey{exporter, domain, tid}, templateRecord{Fields: fields})
 	}
@@ -96,24 +105,22 @@ func (d *nf9Decoder) parseTemplates(b []byte, exporter string, domain uint32, _ 
 // parseOptionsTemplates parses an options-template flowset (RFC 3954 §6.2):
 // (templateID, scopeLenBytes, optionLenBytes, scope fields…, option fields…).
 func (d *nf9Decoder) parseOptionsTemplates(b []byte, exporter string, domain uint32) {
-	off := 0
-	for off+6 <= len(b) {
-		tid := binary.BigEndian.Uint16(b[off : off+2])
-		scopeBytes := int(binary.BigEndian.Uint16(b[off+2 : off+4]))
-		optionBytes := int(binary.BigEndian.Uint16(b[off+4 : off+6]))
-		off += 6
-		if tid < 256 || scopeBytes < 0 || optionBytes < 0 || off+scopeBytes+optionBytes > len(b) ||
+	r := wire.New(b)
+	for r.Remaining() >= 6 {
+		tid := r.U16()
+		scopeBytes := int(r.U16())
+		optionBytes := int(r.U16())
+		if tid < 256 || scopeBytes < 0 || optionBytes < 0 || scopeBytes+optionBytes > r.Remaining() ||
 			(scopeBytes+optionBytes) == 0 || (scopeBytes%4 != 0) || (optionBytes%4 != 0) {
 			return
 		}
 		nScope, nOpt := scopeBytes/4, optionBytes/4
 		fields := make([]templateField, 0, nScope+nOpt)
 		for i := 0; i < nScope+nOpt; i++ {
-			fields = append(fields, templateField{
-				ID:     binary.BigEndian.Uint16(b[off : off+2]),
-				Length: binary.BigEndian.Uint16(b[off+2 : off+4]),
-			})
-			off += 4
+			fields = append(fields, templateField{ID: r.U16(), Length: r.U16()})
+		}
+		if r.Err() != nil {
+			return
 		}
 		d.templates.put(templateKey{exporter, domain, tid},
 			templateRecord{Fields: fields, Options: true, ScopeLen: nScope})
@@ -134,19 +141,19 @@ func (d *nf9Decoder) decodeData(b []byte, tid uint16, exporter string, domain ui
 		return 0, 0
 	}
 	exporterRate := d.sampling.get(exporter, domain)
-	off := 0
-	for off+width <= len(b) && len(*out) < nf9MaxRecordsPerPacket {
-		row := b[off : off+width]
-		off += width
+	set := wire.New(b)
+	// Each record, and each field within it, is a length-delimited sub-reader:
+	// a template whose field lengths overrun the row can consume at most that
+	// row, and never the next record's bytes.
+	for set.Remaining() >= width && len(*out) < nf9MaxRecordsPerPacket {
+		row := set.Sub(width)
 		n++
 		if tmpl.Options {
-			fo := 0
 			for _, f := range tmpl.Fields {
-				if rate := optionsSamplingRate(f.ID, row[fo:fo+int(f.Length)]); rate > 0 {
+				if rate := optionsSamplingRate(f.ID, row.Bytes(int(f.Length))); rate > 0 {
 					d.sampling.set(exporter, domain, rate)
 					exporterRate = rate
 				}
-				fo += int(f.Length)
 			}
 			continue
 		}
@@ -157,13 +164,11 @@ func (d *nf9Decoder) decodeData(b []byte, tid uint16, exporter string, domain ui
 			ObservedAt:        now,
 			SamplingRate:      exporterRate,
 		}
-		fo := 0
 		var inline uint64
 		for _, f := range tmpl.Fields {
-			if r := applyIE(&rec, f.ID, row[fo:fo+int(f.Length)], clk); r > 0 {
+			if r := applyIE(&rec, f.ID, row.Bytes(int(f.Length)), clk); r > 0 {
 				inline = r
 			}
-			fo += int(f.Length)
 		}
 		if inline > 0 {
 			rec.SamplingRate = inline

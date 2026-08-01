@@ -49,7 +49,7 @@ func TestOfflineInteropFlowCapturesDecodeAndNormalize(t *testing.T) {
 	row := nf9V4Row([4]byte{172, 16, 0, 1}, [4]byte{172, 16, 0, 2}, 53, 33000, 17, 512, 4, 10_000, 20_000)
 	decode("netflow-v9-template", buildNF9Template(100_000, unix, 7, 260, nf9V4Fields))
 	decode("netflow-v9-data", buildNF9Data(100_000, unix, 7, 260, [][]byte{row}))
-	ipfixRow := (&wire{}).
+	ipfixRow := (&wireBuf{}).
 		raw([]byte{192, 0, 2, 1}).raw([]byte{198, 51, 100, 2}).
 		u16(443).u16(55000).u8(6).u64(123_456).u64(789).b
 	decode("ipfix", ipfixMsg(unix, 9,

@@ -83,7 +83,8 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             testspec (synthetic-test schema) · testsupport (shared test helpers, fail-closed skips) ·
             testsync (signed pull-based test distribution) · threat (TLS/NDR-lite threat signals) ·
             topology (versioned topology + what-if) · usage (core metering seam) ·
-            version (build metadata) · webui (embedded web UI)
+            version (build metadata) · webui (embedded web UI) ·
+            wire (bounded reader for untrusted wire input)
 ee/         billing (metering/usage export) · governance (ee governance workflows) ·
             provider (provider/management plane) · remediation (guarded remediation workflow) ·
             silo (siloed/hybrid isolation) · tenantkeys (BYOK) · web (embedded provider-console assets)

@@ -14,23 +14,23 @@ import (
 // wire is a tiny big-endian packet builder: the test-side encoder that the
 // decoders are checked against ("fixture captures" synthesized byte-precisely
 // from the RFCs — deterministic and reviewable, unlike opaque pcaps).
-type wire struct{ b []byte }
+type wireBuf struct{ b []byte }
 
-func (w *wire) u8(v byte) *wire { w.b = append(w.b, v); return w }
-func (w *wire) u16(v uint16) *wire {
+func (w *wireBuf) u8(v byte) *wireBuf { w.b = append(w.b, v); return w }
+func (w *wireBuf) u16(v uint16) *wireBuf {
 	w.b = binary.BigEndian.AppendUint16(w.b, v)
 	return w
 }
-func (w *wire) u32(v uint32) *wire {
+func (w *wireBuf) u32(v uint32) *wireBuf {
 	w.b = binary.BigEndian.AppendUint32(w.b, v)
 	return w
 }
-func (w *wire) u64(v uint64) *wire {
+func (w *wireBuf) u64(v uint64) *wireBuf {
 	w.b = binary.BigEndian.AppendUint64(w.b, v)
 	return w
 }
-func (w *wire) raw(p []byte) *wire { w.b = append(w.b, p...); return w }
-func (w *wire) pad(n int) *wire {
+func (w *wireBuf) raw(p []byte) *wireBuf { w.b = append(w.b, p...); return w }
+func (w *wireBuf) pad(n int) *wireBuf {
 	for i := 0; i < n; i++ {
 		w.b = append(w.b, 0)
 	}
@@ -50,7 +50,7 @@ type nf5rec struct {
 }
 
 func buildNF5(sysUptimeMS, unixSecs uint32, sampling uint16, recs []nf5rec) []byte {
-	w := &wire{}
+	w := &wireBuf{}
 	w.u16(5).u16(uint16(len(recs))).u32(sysUptimeMS).u32(unixSecs).u32(0).u32(1)
 	w.u8(1).u8(2)   // engine type/id -> domain 0x0102
 	w.u16(sampling) // 2-bit mode + 14-bit interval
@@ -68,8 +68,8 @@ func buildNF5(sysUptimeMS, unixSecs uint32, sampling uint16, recs []nf5rec) []by
 
 // --- NetFlow v9 -------------------------------------------------------------
 
-func nf9Header(count uint16, sysUptimeMS, unixSecs, sourceID uint32) *wire {
-	w := &wire{}
+func nf9Header(count uint16, sysUptimeMS, unixSecs, sourceID uint32) *wireBuf {
+	w := &wireBuf{}
 	w.u16(9).u16(count).u32(sysUptimeMS).u32(unixSecs).u32(77).u32(sourceID)
 	return w
 }
@@ -125,7 +125,7 @@ func ipfixMsg(exportSecs, domain uint32, sets ...[]byte) []byte {
 	for _, s := range sets {
 		body += len(s)
 	}
-	w := &wire{}
+	w := &wireBuf{}
 	w.u16(10).u16(uint16(16 + body)).u32(exportSecs).u32(9001).u32(domain)
 	for _, s := range sets {
 		w.raw(s)
@@ -141,7 +141,7 @@ type ipfixField struct {
 }
 
 func ipfixTemplateSet(setID, tid uint16, scopeCount uint16, fields []ipfixField) []byte {
-	w := &wire{}
+	w := &wireBuf{}
 	hdr := 4
 	if setID == 3 {
 		hdr = 6
@@ -176,7 +176,7 @@ func ipfixDataSet(tid uint16, rows ...[]byte) []byte {
 	for _, r := range rows {
 		body += len(r)
 	}
-	w := &wire{}
+	w := &wireBuf{}
 	w.u16(tid).u16(uint16(4 + body))
 	for _, r := range rows {
 		w.raw(r)
@@ -188,7 +188,7 @@ func ipfixDataSet(tid uint16, rows ...[]byte) []byte {
 
 // buildEthIPv4TCP builds an Ethernet/802.1Q(optional)/IPv4/TCP header blob.
 func buildEthIPv4TCP(vlan uint16, src, dst [4]byte, sport, dport uint16, tcpFlags byte, proto byte) []byte {
-	w := &wire{}
+	w := &wireBuf{}
 	w.raw(make([]byte, 12)) // MACs
 	if vlan != 0 {
 		w.u16(0x8100).u16(vlan)
@@ -207,7 +207,7 @@ func buildEthIPv4TCP(vlan uint16, src, dst [4]byte, sport, dport uint16, tcpFlag
 }
 
 func buildEthIPv6UDP(src, dst [16]byte, sport, dport uint16) []byte {
-	w := &wire{}
+	w := &wireBuf{}
 	w.raw(make([]byte, 12)).u16(0x86DD)
 	w.u8(0x60).u8(0).u16(0) // version/tc/flow
 	w.u16(8).u8(17).u8(64)  // payload len, next header UDP, hop limit
@@ -222,16 +222,16 @@ func buildSFlowRaw(rate, inIf, outIf uint32, hdr []byte, expanded bool, extraCou
 	pad := (4 - len(hdr)%4) % 4
 
 	// flow record: raw packet header
-	rec := &wire{}
+	rec := &wireBuf{}
 	rec.u32(1)                // header protocol: ethernet
 	rec.u32(1500)             // frame length
 	rec.u32(4)                // stripped
 	rec.u32(uint32(len(hdr))) // header length
 	rec.raw(hdr).pad(pad)     // header + XDR pad
-	record := (&wire{}).u32(1).u32(uint32(len(rec.b))).raw(rec.b).b
+	record := (&wireBuf{}).u32(1).u32(uint32(len(rec.b))).raw(rec.b).b
 
 	// flow sample
-	s := &wire{}
+	s := &wireBuf{}
 	s.u32(101) // sequence
 	if expanded {
 		s.u32(0).u32(3)                // source id type/index
@@ -248,17 +248,17 @@ func buildSFlowRaw(rate, inIf, outIf uint32, hdr []byte, expanded bool, extraCou
 	if expanded {
 		format = 3
 	}
-	sample := (&wire{}).u32(format).u32(uint32(len(s.b))).raw(s.b).b
+	sample := (&wireBuf{}).u32(format).u32(uint32(len(s.b))).raw(s.b).b
 
 	n := uint32(1)
 	var counter []byte
 	if extraCounterSample {
-		body := (&wire{}).u32(7).u32(3).u32(0).b // junk counter body
-		counter = (&wire{}).u32(2).u32(uint32(len(body))).raw(body).b
+		body := (&wireBuf{}).u32(7).u32(3).u32(0).b // junk counter body
+		counter = (&wireBuf{}).u32(2).u32(uint32(len(body))).raw(body).b
 		n = 2
 	}
 
-	w := &wire{}
+	w := &wireBuf{}
 	w.u32(5).u32(1).raw([]byte{192, 0, 2, 1}) // version, v4 agent
 	w.u32(3)                                  // sub-agent id
 	w.u32(900).u32(123456).u32(n)             // seq, uptime, samples

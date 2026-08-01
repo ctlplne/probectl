@@ -94,7 +94,7 @@ var nf9V4Fields = [][2]uint16{
 }
 
 func nf9V4Row(src, dst [4]byte, sport, dport uint16, proto byte, bytes, pkts, first, last uint32) []byte {
-	w := &wire{}
+	w := &wireBuf{}
 	w.raw(src[:]).raw(dst[:]).u16(sport).u16(dport).u8(proto)
 	w.u32(bytes).u32(pkts).u32(first).u32(last)
 	w.u16(7).u16(8).u16(120).u16(64496).u16(64497).u8(0x02).u8(0)
@@ -162,7 +162,7 @@ func TestNetFlow9OptionsSampling(t *testing.T) {
 		t.Fatalf("options template: %v", err)
 	}
 	optData := buildNF9Data(50_000, unix, 7, 256, [][]byte{
-		(&wire{}).u32(1).u32(64).b, // scope + samplingInterval 64
+		(&wireBuf{}).u32(1).u32(64).b, // scope + samplingInterval 64
 	})
 	if _, _, err := d.Decode(optData, exporter, testTime); err != nil {
 		t.Fatalf("options data: %v", err)
@@ -195,7 +195,7 @@ func TestNetFlow9IPv6Template(t *testing.T) {
 	}
 	src := netip.MustParseAddr("2001:db8::1").As16()
 	dst := netip.MustParseAddr("2001:db8::2").As16()
-	row := (&wire{}).raw(src[:]).raw(dst[:]).u16(8080).u16(443).u8(6).u32(900).b
+	row := (&wireBuf{}).raw(src[:]).raw(dst[:]).u16(8080).u16(443).u8(6).u32(900).b
 	recs, _, err := d.Decode(buildNF9Data(1000, unix, 7, 270, [][]byte{row}), exporter, testTime)
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("decode: recs=%d err=%v", len(recs), err)
@@ -255,7 +255,7 @@ func TestIPFIXDecode(t *testing.T) {
 	}
 	startMs := uint64(testTime.Add(-2 * time.Minute).UnixMilli())
 	endMs := uint64(testTime.Add(-1 * time.Minute).UnixMilli())
-	row := (&wire{}).
+	row := (&wireBuf{}).
 		raw([]byte{192, 0, 2, 1}).raw([]byte{198, 51, 100, 2}).
 		u16(443).u16(55000).u8(6).
 		u64(123_456).u64(789).
@@ -299,12 +299,12 @@ func TestIPFIXVariableAndEnterprise(t *testing.T) {
 		{ID: 99, Len: 4, Enterprise: 4242}, // vendor field: skipped
 		{ID: ieIPv4Dst, Len: 4},
 	}
-	short := (&wire{}).
+	short := (&wireBuf{}).
 		raw([]byte{10, 0, 0, 1}).
 		u8(3).raw([]byte("ge0")). // varlen short form
 		u32(0xDEADBEEF).
 		raw([]byte{10, 0, 0, 2}).b
-	long := (&wire{}).
+	long := (&wireBuf{}).
 		raw([]byte{10, 0, 0, 3}).
 		u8(255).u16(4).raw([]byte("xe-1")). // varlen long form
 		u32(0xDEADBEEF).
@@ -331,9 +331,9 @@ func TestIPFIXOptionsSampling(t *testing.T) {
 	d := NewDecoder(time.Hour, 128)
 	now := uint32(testTime.Unix())
 	optTmpl := ipfixTemplateSet(3, 310, 1, []ipfixField{{ID: 149, Len: 4}, {ID: ieSamplingPktIvl, Len: 4}})
-	optData := ipfixDataSet(310, (&wire{}).u32(9).u32(1000).b)
+	optData := ipfixDataSet(310, (&wireBuf{}).u32(9).u32(1000).b)
 	flowTmpl := ipfixTemplateSet(2, 320, 0, []ipfixField{{ID: ieIPv4Src, Len: 4}, {ID: ieInBytes, Len: 4}})
-	flowData := ipfixDataSet(320, (&wire{}).raw([]byte{10, 1, 1, 1}).u32(50).b)
+	flowData := ipfixDataSet(320, (&wireBuf{}).raw([]byte{10, 1, 1, 1}).u32(50).b)
 
 	if _, _, err := d.Decode(ipfixMsg(now, 9, optTmpl, optData), exporter, testTime); err != nil {
 		t.Fatalf("options msg: %v", err)

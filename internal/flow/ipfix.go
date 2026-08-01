@@ -7,9 +7,10 @@
 package flow
 
 import (
-	"encoding/binary"
 	"fmt"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/wire"
 )
 
 // IPFIX (RFC 7011): a 16-byte message header followed by sets. Set ID 2 is a
@@ -32,25 +33,33 @@ func (d *ipfixDecoder) decode(pkt []byte, exporter string, now time.Time) (recs 
 	if len(pkt) < ipfixHeaderLen {
 		return nil, 0, fmt.Errorf("ipfix: message too short: %d bytes", len(pkt))
 	}
-	if v := binary.BigEndian.Uint16(pkt[0:2]); v != 10 {
+	r := wire.New(pkt)
+	if v := r.U16(); v != 10 {
 		return nil, 0, fmt.Errorf("ipfix: unexpected version %d", v)
 	}
-	msgLen := int(binary.BigEndian.Uint16(pkt[2:4]))
+	msgLen := int(r.U16())
 	if msgLen < ipfixHeaderLen || msgLen > len(pkt) {
 		return nil, 0, fmt.Errorf("ipfix: bad message length %d (have %d)", msgLen, len(pkt))
 	}
-	exportSecs := binary.BigEndian.Uint32(pkt[4:8])
-	domain := binary.BigEndian.Uint32(pkt[12:16])
+	exportSecs := r.U32()
+	r.Skip(4)         // sequence number
+	domain := r.U32() // observation domain
+	if err := r.Err(); err != nil {
+		return nil, 0, fmt.Errorf("ipfix: header: %w", err)
+	}
 	clk := ieClock{export: time.Unix(int64(exportSecs), 0)} // no sysUptime in IPFIX
 
-	off := ipfixHeaderLen
-	for off+4 <= msgLen {
-		setID := binary.BigEndian.Uint16(pkt[off : off+2])
-		setLen := int(binary.BigEndian.Uint16(pkt[off+2 : off+4]))
-		if setLen < 4 || off+setLen > msgLen {
-			return recs, templateMisses, fmt.Errorf("ipfix: bad set length %d at offset %d", setLen, off)
+	// The message length is authoritative over the datagram: sets are walked
+	// inside a sub-reader bounded by it, and each set inside its own frame.
+	msg := wire.New(pkt[ipfixHeaderLen:msgLen])
+	for msg.Remaining() >= 4 {
+		setOffset := ipfixHeaderLen + msg.Offset()
+		setID := msg.U16()
+		setLen := int(msg.U16())
+		if setLen < 4 || setLen-4 > msg.Remaining() {
+			return recs, templateMisses, fmt.Errorf("ipfix: bad set length %d at offset %d", setLen, setOffset)
 		}
-		body := pkt[off+4 : off+setLen]
+		body := msg.Bytes(setLen - 4)
 		switch {
 		case setID == 2:
 			d.parseTemplates(body, exporter, domain, false)
@@ -60,7 +69,9 @@ func (d *ipfixDecoder) decode(pkt []byte, exporter string, now time.Time) (recs 
 			miss := d.decodeData(body, setID, exporter, domain, now, clk, &recs)
 			templateMisses += miss
 		}
-		off += setLen
+	}
+	if err := msg.Err(); err != nil {
+		return recs, templateMisses, fmt.Errorf("ipfix: %w", err)
 	}
 	return recs, templateMisses, nil
 }
@@ -70,44 +81,38 @@ func (d *ipfixDecoder) decode(pkt []byte, exporter string, now time.Time) (recs 
 // (templateID, fieldCount). Field specs are (type[, enterprise], length) with
 // the enterprise bit in the type's MSB.
 func (d *ipfixDecoder) parseTemplates(b []byte, exporter string, domain uint32, options bool) {
-	off := 0
 	hdr := 4
 	if options {
 		hdr = 6
 	}
-	for off+hdr <= len(b) {
-		tid := binary.BigEndian.Uint16(b[off : off+2])
-		fc := int(binary.BigEndian.Uint16(b[off+2 : off+4]))
+	r := wire.New(b)
+	for r.Remaining() >= hdr {
+		tid := r.U16()
+		fc := int(r.U16())
 		scope := 0
 		if options {
-			scope = int(binary.BigEndian.Uint16(b[off+4 : off+6]))
+			scope = int(r.U16())
 		}
-		off += hdr
 		if tid < 256 || fc <= 0 || fc > 512 || scope < 0 || scope > fc {
 			return
 		}
 		fields := make([]templateField, 0, fc)
-		ok := true
 		for i := 0; i < fc; i++ {
-			if off+4 > len(b) {
-				ok = false
-				break
+			if r.Remaining() < 4 {
+				return
 			}
-			typ := binary.BigEndian.Uint16(b[off : off+2])
-			length := binary.BigEndian.Uint16(b[off+2 : off+4])
-			off += 4
+			typ := r.U16()
+			length := r.U16()
 			f := templateField{ID: typ & 0x7FFF, Length: length}
 			if typ&0x8000 != 0 { // enterprise-specific: 4-byte PEN follows
-				if off+4 > len(b) {
-					ok = false
-					break
+				if r.Remaining() < 4 {
+					return
 				}
-				f.Enterprise = binary.BigEndian.Uint32(b[off : off+4])
-				off += 4
+				f.Enterprise = r.U32()
 			}
 			fields = append(fields, f)
 		}
-		if !ok {
+		if r.Err() != nil {
 			return
 		}
 		d.templates.put(templateKey{exporter, domain, tid},
@@ -123,14 +128,14 @@ func (d *ipfixDecoder) decodeData(b []byte, tid uint16, exporter string, domain 
 		return 1
 	}
 	exporterRate := d.sampling.get(exporter, domain)
-	off := 0
+	set := wire.New(b)
 	for len(*out) < ipfixMaxRecordsPerPacket {
 		// A record needs at least 1 byte per field remaining; the per-field
 		// reads below bound-check precisely. Stop on residual padding.
-		if minW := tmpl.fixedWidth(); minW > 0 && off+minW > len(b) {
+		if minW := tmpl.fixedWidth(); minW > 0 && set.Remaining() < minW {
 			break
 		}
-		if off >= len(b) || len(b)-off < len(tmpl.Fields) {
+		if set.Empty() || set.Remaining() < len(tmpl.Fields) {
 			break
 		}
 		rec := Record{
@@ -145,27 +150,24 @@ func (d *ipfixDecoder) decodeData(b []byte, tid uint16, exporter string, domain 
 		for _, f := range tmpl.Fields {
 			flen := int(f.Length)
 			if f.Length == 0xFFFF { // variable length (RFC 7011 §7)
-				if off >= len(b) {
+				if set.Empty() {
 					bad = true
 					break
 				}
-				flen = int(b[off])
-				off++
+				flen = int(set.U8())
 				if flen == 255 {
-					if off+2 > len(b) {
+					if set.Remaining() < 2 {
 						bad = true
 						break
 					}
-					flen = int(binary.BigEndian.Uint16(b[off : off+2]))
-					off += 2
+					flen = int(set.U16())
 				}
 			}
-			if off+flen > len(b) {
+			if flen > set.Remaining() {
 				bad = true
 				break
 			}
-			val := b[off : off+flen]
-			off += flen
+			val := set.Bytes(flen)
 			if f.Enterprise != 0 {
 				continue // vendor-specific: skipped by length
 			}

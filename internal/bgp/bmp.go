@@ -23,6 +23,7 @@ import (
 	"time"
 
 	probectlc "github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/wire"
 )
 
 const (
@@ -693,19 +694,24 @@ func parseBGPASPathValueWidth(value []byte, width int) ([]uint32, bool, error) {
 		return nil, true, fmt.Errorf("%w: %d > %d", errBMPASPathLimit, entryCount, maxBMPASPathEntries)
 	}
 
+	// The count pass above proved the framing; the decode pass reads it back
+	// through the shared bounded reader (internal/wire) so the two passes
+	// cannot disagree about where a segment ends.
+	r := wire.New(value)
 	path := make([]uint32, 0, entryCount)
-	for len(value) > 0 {
-		count := int(value[1])
-		value = value[2:]
-		need := count * width
+	for !r.Empty() {
+		r.Skip(1) // segment type (validated by the counting pass)
+		count := int(r.U8())
 		for i := 0; i < count; i++ {
 			if width == 4 {
-				path = append(path, binary.BigEndian.Uint32(value[i*4:i*4+4]))
+				path = append(path, r.U32())
 			} else {
-				path = append(path, uint32(binary.BigEndian.Uint16(value[i*2:i*2+2])))
+				path = append(path, uint32(r.U16()))
 			}
 		}
-		value = value[need:]
+		if r.Err() != nil {
+			return nil, false, nil
+		}
 	}
 	return path, true, nil
 }
@@ -717,21 +723,23 @@ func countBGPASPathEntries(value []byte, width int) (int, bool) {
 		return 0, false
 	}
 	entries := 0
-	for len(value) > 0 {
-		if len(value) < 2 {
+	r := wire.New(value)
+	for !r.Empty() {
+		if r.Remaining() < 2 {
 			return 0, false
 		}
-		segType, count := value[0], int(value[1])
+		segType, count := r.U8(), int(r.U8())
 		if segType < 1 || segType > 4 {
 			return 0, false
 		}
-		value = value[2:]
-		if count > len(value)/width {
+		if count > r.Remaining()/width {
 			return 0, false
 		}
-		need := count * width
+		r.Skip(count * width)
 		entries += count
-		value = value[need:]
+	}
+	if r.Err() != nil {
+		return 0, false
 	}
 	return entries, true
 }
