@@ -16,7 +16,11 @@
 // ever groups a tenant's own signals.
 package incident
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
 
 // MaxSignalsPerRead bounds one incident-room response. SignalCount remains the
 // full durable count; callers can distinguish a truncated evidence window from
@@ -82,6 +86,29 @@ type Signal struct {
 	Prefix     string            `json:"prefix,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 	OccurredAt time.Time         `json:"occurred_at"`
+}
+
+// ErrNoCorrelationKey is returned when a signal carries neither Target nor
+// Prefix. It is a distinct sentinel so a plane's ingest path can tell a
+// programming error (no key) from a transient store failure.
+var ErrNoCorrelationKey = errors.New("incident: signal has no correlation key (Target or Prefix)")
+
+// CorrelationKey returns the value relatedness joins on, or "" when the signal
+// carries none. A plane building signals can assert on this before emitting.
+func (s Signal) CorrelationKey() string {
+	if s.Target != "" {
+		return s.Target
+	}
+	return s.Prefix
+}
+
+// validateCorrelationKey enforces the join contract at the ingest boundary.
+func (s Signal) validateCorrelationKey() error {
+	if s.CorrelationKey() != "" {
+		return nil
+	}
+	return fmt.Errorf("%w: plane %q kind %q cannot correlate and would open one incident per signal",
+		ErrNoCorrelationKey, s.Plane, s.Kind)
 }
 
 // Incident groups related signals. Signals is its timeline (populated on read).

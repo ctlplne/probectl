@@ -8,8 +8,10 @@ package incident
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -76,5 +78,77 @@ func TestCrossPlaneCorrelationGate(t *testing.T) {
 	// Isolation: the other tenant got its OWN separate incident.
 	if other, _ := store.OpenIncidents(context.Background(), "t-other"); len(other) != 1 {
 		t.Fatalf("t-other should have its own 1 incident, got %d", len(other))
+	}
+}
+
+// TestCrossPlaneCorrelationGateRefusesKeylessPlane extends the gate with the
+// case it could not previously see (S-9d415bb9): a synthetic NEW plane that
+// emits signals carrying neither Target nor Prefix.
+//
+// Relatedness is a target/prefix join, so such a signal can never correlate
+// with anything — before this it was accepted and silently produced ONE
+// INCIDENT PER SIGNAL, fragmenting the cross-plane invariant that is the
+// product's headline differentiator, while the gate only ever exercised planes
+// that already set a target. The boundary now refuses it and names the plane,
+// so a new plane fails at its first emission rather than quietly degrading
+// correlation for everyone.
+func TestCrossPlaneCorrelationGateRefusesKeylessPlane(t *testing.T) {
+	store := NewMemoryStore()
+	c := NewCorrelator(store, 10*time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Now()
+
+	inc, err := c.Ingest(context.Background(), Signal{
+		TenantID: "t-a", Plane: "synthetic-new-plane", Kind: "widget.degraded",
+		Severity: SeverityWarning, OccurredAt: now,
+	})
+	if err == nil {
+		t.Fatal("a signal with neither Target nor Prefix must be REFUSED: it can never correlate and would open one incident per signal")
+	}
+	if !errors.Is(err, ErrNoCorrelationKey) {
+		t.Fatalf("refusal must be the correlation-key sentinel, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "synthetic-new-plane") {
+		t.Fatalf("the refusal must NAME the offending plane so its author can fix it: %v", err)
+	}
+	if inc != nil {
+		t.Fatal("a refused signal must not open an incident")
+	}
+	if got := store.Len(); got != 0 {
+		t.Fatalf("a refused signal left %d incidents behind", got)
+	}
+
+	// The SAME plane correlates normally once it supplies a key — the rule is
+	// "bring a correlation key", not "new planes are unwelcome".
+	target := "203.0.113.77"
+	first, err := c.Ingest(context.Background(), Signal{
+		TenantID: "t-a", Plane: "synthetic-new-plane", Kind: "widget.degraded",
+		Severity: SeverityWarning, Target: target, OccurredAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.Ingest(context.Background(), Signal{
+		TenantID: "t-a", Plane: "network", Kind: "alert.firing",
+		Severity: SeverityCritical, Target: target, OccurredAt: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID {
+		t.Fatalf("a keyed new plane must correlate cross-plane: %s vs %s", first.ID, second.ID)
+	}
+}
+
+// TestSignalCorrelationKeyPrefersTargetThenPrefix pins the accessor planes use
+// to self-check before emitting.
+func TestSignalCorrelationKeyPrefersTargetThenPrefix(t *testing.T) {
+	if got := (Signal{Target: "t", Prefix: "p"}).CorrelationKey(); got != "t" {
+		t.Fatalf("CorrelationKey = %q, want the target", got)
+	}
+	if got := (Signal{Prefix: "203.0.113.0/24"}).CorrelationKey(); got != "203.0.113.0/24" {
+		t.Fatalf("CorrelationKey = %q, want the prefix fallback", got)
+	}
+	if got := (Signal{}).CorrelationKey(); got != "" {
+		t.Fatalf("a keyless signal must report no key, got %q", got)
 	}
 }

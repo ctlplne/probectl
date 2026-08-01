@@ -118,10 +118,22 @@ func (c *Correlator) notify(ctx context.Context, inc *Incident, opened bool) {
 }
 
 // Ingest correlates a signal into an existing open incident or opens a new one.
-// It fails closed if the signal carries no tenant (guardrail 1).
+// It fails closed if the signal carries no tenant (guardrail 1) or no
+// correlation key (S-9d415bb9).
 func (c *Correlator) Ingest(ctx context.Context, sig Signal) (*Incident, error) {
 	if sig.TenantID == "" {
 		return nil, errors.New("incident: signal has no tenant_id")
+	}
+	// CORRELATION KEY (S-9d415bb9). Relatedness is a target/prefix join, so a
+	// signal carrying NEITHER can never correlate with anything: it silently
+	// produces one incident per signal and quietly breaks the cross-plane
+	// invariant that is the product's headline differentiator. Ingest
+	// previously validated only the tenant, so the guarantee rested on every
+	// plane REMEMBERING to set a key. Now the boundary refuses the signal and
+	// names the plane, so a new plane fails loudly at its first emission
+	// instead of degrading correlation for everyone.
+	if err := sig.validateCorrelationKey(); err != nil {
+		return nil, err
 	}
 	now := c.now()
 	if sig.OccurredAt.IsZero() {
