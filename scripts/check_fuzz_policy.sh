@@ -4,7 +4,19 @@
 # TEST-003: prove the fuzz gates are structurally honest. The PR smoke gate
 # must discover every fuzz target, and the nightly workflow must either fit its
 # whole fuzz budget inside the job timeout or shard targets with a matrix.
+#
+# S-7f81b4c2 adds ATTACK-SURFACE PARITY on top of that budget honesty: budget
+# checks cannot see a parser with no target at all, so every parser of
+# untrusted input must be bound in docs/fuzz/parser_register.json to a target
+# that exists (or carry a written exemption). SELFTEST proves the parity rule
+# can fail by planting an unregistered parser.
 set -euo pipefail
+
+if [ "${1:-}" = "SELFTEST" ]; then
+  cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  go test ./internal/cipolicy -run 'TestFuzzParitySelfTestCatchesAnUnregisteredParser' -count=1
+  exit $?
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NIGHTLY="$ROOT/.github/workflows/nightly.yml"
@@ -127,5 +139,10 @@ if [ "$budget_seconds" -gt "$timeout_seconds" ]; then
   echo "fuzz-policy: per-target fuzztime ${nightly_fuzztime} exceeds job timeout ${nightly_timeout_minutes}m" >&2
   exit 1
 fi
+
+( cd "$ROOT" && go test ./internal/cipolicy -run 'TestFuzzParity' -count=1 ) || {
+  echo "fuzz-policy: attack-surface parity failed (see docs/fuzz/parser_register.json)" >&2
+  exit 1
+}
 
 echo "fuzz-policy: OK (${target_count} targets discovered; nightly is matrix-sharded; ${nightly_fuzztime} <= ${nightly_timeout_minutes}m)"

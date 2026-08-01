@@ -1,0 +1,167 @@
+{
+  "purpose": "Attack-surface parity for fuzzing (Foundation-Loop S-7f81b4c2). Every function that consumes untrusted input in the ingest-surface packages is bound here to the fuzz target that exercises it, or carries a written exemption saying why it is not untrusted input. internal/cipolicy's TestFuzzParityEveryParserIsRegistered discovers parsers structurally and fails on any that is missing, on a target that does not exist, and on a stale entry that matches no parser.",
+  "parsers": {
+    "bgp.decodeIPv4NLRI": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBGPASPath": {
+      "target": "FuzzBGPASPath"
+    },
+    "bgp.parseBGPASPathValue": {
+      "target": "FuzzBGPASPath"
+    },
+    "bgp.parseBGPASPathValueWidth": {
+      "target": "FuzzBGPASPath"
+    },
+    "bgp.parseBGPUpdateRoutes": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPPeer": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPRouteMonitoring": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "device.ParseCollectionProfile": {
+      "exempt": "operator-authored collection profile from config, not device-supplied bytes"
+    },
+    "device.ParseSyslogLine": {
+      "target": "FuzzDeviceSyslogLine"
+    },
+    "device.TrapReceiver.decodeAndRecord": {
+      "target": "FuzzSNMPTrapDatagram"
+    },
+    "device.decodeConfigYAML": {
+      "exempt": "operator-supplied agent config file, not network input"
+    },
+    "device.parseDiscoveryRange": {
+      "exempt": "operator-supplied CIDR/range string from config, not device-supplied bytes"
+    },
+    "device.parsePriority": {
+      "target": "FuzzDeviceSyslogLine"
+    },
+    "endpoint.decodeConfigYAML": {
+      "exempt": "operator-supplied agent config file, not network input"
+    },
+    "endpoint.parseAirportChannel": {
+      "target": "FuzzWiFiParsers"
+    },
+    "endpoint.parseAirportI": {
+      "target": "FuzzWiFiParsers"
+    },
+    "endpoint.parseNetshWlan": {
+      "target": "FuzzWiFiParsers"
+    },
+    "endpoint.parseNmcli": {
+      "target": "FuzzWiFiParsers"
+    },
+    "endpoint.parseProcNetWireless": {
+      "target": "FuzzWiFiParsers"
+    },
+    "endpoint.parseTraceHops": {
+      "target": "FuzzParseTraceHops"
+    },
+    "flow.Collector.decodeSafely": {
+      "target": "FuzzDecode"
+    },
+    "flow.Decoder.Decode": {
+      "target": "FuzzDecode"
+    },
+    "flow.decodeConfigYAML": {
+      "exempt": "operator-supplied agent config file, not network input; malformed config fails startup loudly"
+    },
+    "flow.decodeNetFlow5": {
+      "target": "FuzzDecode"
+    },
+    "flow.decodeSFlow": {
+      "target": "FuzzDecode"
+    },
+    "flow.decodeSFlowSample": {
+      "target": "FuzzDecode"
+    },
+    "flow.ipfixDecoder.decode": {
+      "target": "FuzzDecode"
+    },
+    "flow.ipfixDecoder.decodeData": {
+      "target": "FuzzDecode"
+    },
+    "flow.ipfixDecoder.parseTemplates": {
+      "target": "FuzzDecode"
+    },
+    "flow.nf9Decoder.decode": {
+      "target": "FuzzDecode"
+    },
+    "flow.nf9Decoder.decodeData": {
+      "target": "FuzzDecode"
+    },
+    "flow.nf9Decoder.parseOptionsTemplates": {
+      "target": "FuzzDecode"
+    },
+    "flow.nf9Decoder.parseTemplates": {
+      "target": "FuzzDecode"
+    },
+    "flow.parseEthernet": {
+      "target": "FuzzDecode"
+    },
+    "flow.parseIPv4": {
+      "target": "FuzzDecode"
+    },
+    "flow.parseIPv6": {
+      "target": "FuzzDecode"
+    },
+    "flow.parseL4": {
+      "target": "FuzzDecode"
+    },
+    "flow.parseRawPacketHeader": {
+      "target": "FuzzDecode"
+    },
+    "flow.readUint": {
+      "target": "FuzzDecode"
+    },
+    "notify.ParseInbound": {
+      "target": "FuzzParseInbound"
+    },
+    "notify.parseGenericInbound": {
+      "target": "FuzzParseInbound"
+    },
+    "notify.parseJiraInbound": {
+      "target": "FuzzParseInbound"
+    },
+    "notify.parseServiceNowInbound": {
+      "target": "FuzzParseInbound"
+    },
+    "path.parseICMPv4": {
+      "target": "FuzzParseICMPv4"
+    },
+    "path.parseTimeExceeded": {
+      "target": "FuzzParseTimeExceeded"
+    },
+    "rum.ParseBeacon": {
+      "target": "FuzzParseBeacon"
+    },
+    "siem.ParsePreset": {
+      "exempt": "operator-selected preset NAME from config, not an ingested payload"
+    },
+    "siem.parseRFC3164": {
+      "target": "FuzzParseSyslog"
+    },
+    "siem.parseRFC3164Message": {
+      "target": "FuzzParseSyslog"
+    },
+    "siem.parseRFC5424": {
+      "target": "FuzzParseSyslog"
+    },
+    "siem.parseRFC5424Time": {
+      "target": "FuzzParseSyslog"
+    },
+    "siem.parseStructuredData": {
+      "target": "FuzzParseSyslog"
+    },
+    "siem.parseSyslog": {
+      "target": "FuzzParseSyslog"
+    },
+    "siem.parseSyslogPRI": {
+      "target": "FuzzParseSyslog"
+    }
+  }
+}
