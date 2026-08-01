@@ -28,6 +28,7 @@ func TestClickHouseIsolationMandatoryServicePolicy(t *testing.T) {
 	targets := []string{
 		"internal/store/endpointstore/isolation_clickhouse_integration_test.go",
 		"internal/store/flowstore/isolation_clickhouse_test.go",
+		"internal/store/flowstore/query_scoping_isolation_test.go",
 		"internal/store/otelstore/query_scoping_isolation_test.go",
 		"internal/store/ebpfstore/query_scoping_isolation_test.go",
 		"internal/store/pathstore/isolation_clickhouse_test.go",

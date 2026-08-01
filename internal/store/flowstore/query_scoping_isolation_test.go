@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 )
 
 // TENANT-102 / TENANT-105 (Sprint 5/6): prove the DB-level row policy — not the
@@ -121,7 +123,12 @@ func TestClickHouseSettingScopedReaderPolicy(t *testing.T) {
 	readerPw := "readerpw"
 
 	for _, ddl := range []string{
-		fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", reader, readerPw),
+		fmt.Sprintf(
+			"CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s' SETTINGS %s = ''",
+			reader,
+			readerPw,
+			tenantSettingName,
+		),
 		fmt.Sprintf("GRANT SELECT ON *.* TO %s", reader),
 	} {
 		if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
@@ -135,7 +142,7 @@ func TestClickHouseSettingScopedReaderPolicy(t *testing.T) {
 		// creation when custom_settings_prefixes is unset — that is operator
 		// config, not a code defect.
 		if strings.Contains(err.Error(), "etting") {
-			t.Skipf("custom settings prefix not configured on this server: %v", err)
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured on this server: %v", err)
 		}
 		t.Fatalf("EnsureReaderRowPolicy: %v", err)
 	}
@@ -144,7 +151,7 @@ func TestClickHouseSettingScopedReaderPolicy(t *testing.T) {
 	n, errText := chReadCountAs(t, reader, readerPw)
 	if errText != "" {
 		if strings.Contains(errText, "etting") {
-			t.Skipf("custom settings prefix not configured: %s", errText)
+			testsupport.SkipOrFatal(t, "custom settings prefix not configured: %s", errText)
 		}
 		t.Fatalf("reader read failed: %s", errText)
 	}
