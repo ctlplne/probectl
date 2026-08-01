@@ -311,7 +311,8 @@ intentionally absent.
 
 The canary agent is the worker that actually runs the probes (ping, TCP, DNS,
 HTTP, …). Unlike the control plane, its primary config is a **YAML file**
-(`-config`, or the path in `PROBECTL_AGENT_CONFIG`) — see
+(`-config`, or the path in `PROBECTL_AGENT_CONFIG`), bounded to 1 MiB before
+YAML decoding — see
 [`deploy/agent/probectl-agent.example.yml`](../deploy/agent/probectl-agent.example.yml).
 Crucially, the agent does **not** configure its own tenant or id: those come from
 its mTLS client certificate (above), so you can't accidentally point an agent at

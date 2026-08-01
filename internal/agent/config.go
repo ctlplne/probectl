@@ -8,6 +8,7 @@ package agent
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -25,6 +26,7 @@ const (
 	defaultDrainMaxBytes    int64 = 8 << 20 // 8 MiB per StreamResults call
 	defaultDrainPace              = 150 * time.Millisecond
 	ConfigAPIVersion              = "probectl.io/agent/v1"
+	maxConfigFileBytes            = 1 << 20
 )
 
 // Duration is a time.Duration that unmarshals from a YAML string like "30s".
@@ -194,7 +196,7 @@ type CanaryConfig struct {
 
 // Load reads, defaults, and validates the agent config from a YAML file.
 func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := readConfigFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
@@ -208,6 +210,25 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func readConfigFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxConfigFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxConfigFileBytes {
+		return nil, fmt.Errorf("config file exceeds %d-byte limit", maxConfigFileBytes)
+	}
+	return raw, nil
 }
 
 func decodeConfigYAML(raw []byte, cfg *Config) error {
