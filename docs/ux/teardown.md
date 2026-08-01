@@ -1,8 +1,10 @@
 # Competitive UX teardown
 
-Research snapshot: **2026-07-14**. This is the X0 baseline for the six journeys in
-[`harness/UX_SEED.md`](../../../harness/UX_SEED.md). It evaluates the product UI a user can
-operate, not the amount of backend code behind it.
+Research snapshot: **2026-07-14**. This is the X0 baseline for the six competitive
+journeys enumerated below (the rubric seed originated in the since-retired harness
+program; the journey definitions and score anchors in this document are now the
+canonical copy). It evaluates the product UI a user can operate, not the amount of
+backend code behind it.
 
 ## Method and limits
 

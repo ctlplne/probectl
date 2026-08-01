@@ -8,12 +8,14 @@ Instructions for coding agents (Codex, Claude Code, Cowork, or any other) workin
    guardrails are non-negotiable under any level of autonomy; §6 conventions bind
    every commit.
 
-2. **If your task is the remediation program** (anything like "continue the harness",
-   "work the backlog", "bring the platform to GA/F500"): read **`../harness/HARNESS.md`** —
-   the harness lives OUTSIDE this repo, as a sibling folder at the workspace root
-   (`ctlplne-probectl/harness/`). State lives in `../harness/backlog.json` — never in your
-   session. Repo commits carry the trailer `Harness-Task: <id>`; record each commit sha in
-   the backlog's evidence_log.
+2. **If your task is the structural program** (anything like "work the foundation loop"
+   or "work the backlog"): read **`../foundation-loop/PLAYBOOK.md`** — the program lives
+   OUTSIDE this repo, as a sibling folder at the workspace root. State lives in
+   `../foundation-loop/backlog.json` — never in your session. Repo commits carry the
+   trailer `Foundation-Loop: <id>`; record each commit sha in the backlog's evidence_log.
+   This is the ONLY live program. Its predecessors (the original harness, audit-harness,
+   and the redteam loops) are dormant or retired — see `CLAUDE.md` §11. The retired
+   harness's parked proofs E2/E3/E4/L4 live in `probectl-PRD-v1.1.md` §4.
 
 3. **If your task is ordinary feature/bug work:** follow `CLAUDE.md` §6–§9 (smallest
    coherent change; OpenAPI + docs + idempotent migration in the same commit; conventional
@@ -25,4 +27,7 @@ Instructions for coding agents (Codex, Claude Code, Cowork, or any other) workin
    is no white-label. New core files carry the MPL header; new `ee/` files carry the
    commercial header. Core never imports `ee/` — CI blocks it.
 
-5. Verification helpers (from the workspace root): `bash harness/harness.sh status | next | validate | endgate`.
+5. Verification (from the repo root): `bash scripts/verify_all.sh` is the executed-proof
+   umbrella; individual gates are listed by `make help`. Contract-file references are
+   themselves gated: `scripts/check_contract_links.sh` fails on any reference in this
+   file or `CLAUDE.md` whose target does not exist.

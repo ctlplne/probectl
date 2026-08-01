@@ -11,7 +11,7 @@
 - **Remediation observe-only/human-gated; detection is a signal, never an IPS.** [§7.8–9]
 - **Editions:** commercial code only in `ee/`; core never imports `ee/` (CI-guarded); tier checks live in `internal/license` only, gated at the `main.go` `Build*` seams only. [§2]
 
-**Ask before:** changing an architecture/stack decision, touching a guardrail, or adding a dependency/data source — except work pre-authorized by the harness backlog (§11). Smallest coherent change always.
+**Ask before:** changing an architecture/stack decision, touching a guardrail, or adding a dependency/data source — except work pre-authorized by the live program backlog (§11). Smallest coherent change always.
 
 ## 1. What probectl is
 
@@ -32,7 +32,7 @@ Tenant-bound **agents** (Go single binary, compiled-in canary plugins; mTLS + SP
 
 ## 4. Stack
 
-Go control plane + agents (static, `linux/amd64|arm64`) · Python analyzer · eBPF via `cilium/ebpf` (CO-RE, observe-only, digest-verified objects) · gRPC bidi mTLS + Protobuf · OTel-native schema (OTLP ingest/export; tenant as resource attribute) · AI adapters: builtin deterministic (air-gapped default), Ollama, OpenAI-compatible (covers Azure OpenAI/vLLM), Anthropic — remote egress consent-gated + redacted · web/: React, design tokens only (no hardcoded values), WCAG 2.2 AA CI gate, command palette, dark-native, tenant indicator always visible · packaging: multi-arch Docker, hardened HTTPS-by-default Helm + compose, air-gap bundle, Terraform.
+Go control plane + agents (static, `linux/amd64|arm64`) · Python analyzer · eBPF via `github.com/cilium/ebpf` (CO-RE, observe-only, digest-verified objects) · gRPC bidi mTLS + Protobuf · OTel-native schema (OTLP ingest/export; tenant as resource attribute) · AI adapters: builtin deterministic (air-gapped default), Ollama, OpenAI-compatible (covers Azure OpenAI/vLLM), Anthropic — remote egress consent-gated + redacted · web/: React, design tokens only (no hardcoded values), WCAG 2.2 AA CI gate, command palette, dark-native, tenant indicator always visible · packaging: multi-arch Docker, hardened HTTPS-by-default Helm + compose, air-gap bundle, Terraform.
 
 ## 5. Layout
 
@@ -47,7 +47,7 @@ internal/   control (API) · tenancy · agent · canary · path · bgp · ebpf �
 ee/         provider · billing (metering) · silo · tenantkeys (BYOK) · remediation · governance
 analyzer/   Python BGP · proto/ schemas · migrations/ (sequential, idempotent) · web/ frontend
 deploy/     helm · compose · terraform · backup · packaging | docs/ · test/ (real-stack integration)
-../harness/ self-driving remediation program — OUTSIDE the repo, at the workspace root (§11)
+../foundation-loop/ structural-excellence program (the one live program) — OUTSIDE the repo, at the workspace root (§11)
 ```
 
 ## 6. Conventions
@@ -93,10 +93,12 @@ Read this file + PRD first. Plan → implement → test → document → PR. Sma
 
 Not a vendor-operated public SaaS (multi-tenancy exists for MSP/partner self-hosting); not an APM/tracing replacement; not a SIEM/log platform; not an inline IPS/full NDR; no global first-party agent/BGP fleet; no un-gated remediation; no phone-home; **no white-label/OEM rebranding** — MSPs resell under the probectl banner.
 
-## 11. Remediation harness (standing program)
+## 11. Foundation loop (the one live program)
 
-`../harness/` (a sibling of this repo at the workspace root — deliberately outside the repo so program state never ships with the product) = the self-driving GA/F500 program: `HARNESS.md` (loop + rules), `backlog.json` (state; lanes W/H/L/E/X; sealed `policy` block — agents may not edit policy or weaken the E8 end gate), `harness.sh` (helpers; `serve` hosts the board), `tracker.html` (live read-only tracker over the backlog), `UX_SEED.md` (competitive rubric seed). "Continue the remediation harness" ⇒ start at `../harness/HARNESS.md`. Backlog `pre_authorized` items satisfy §0's "ask before" rule; §7 holds at full autonomy. Business decisions of record live in `backlog.json` `policy.business_model` (MPL-2.0 core; enterprise flat self-host; MSP consumption resale, probectl banner; no white-label).
+`../foundation-loop/` (a sibling of this repo at the workspace root — deliberately outside the repo so program state never ships with the product) is the ONLY live agent program: `../foundation-loop/PLAYBOOK.md` (how to work the backlog), `../foundation-loop/RUN_PROMPT.md` (concurrency, task queue, stop rules), `../foundation-loop/backlog.json` (state; sealed `policy` block — agents may not edit policy, the thesis, the definition of done, or the exit criteria). "Work the foundation loop" ⇒ start at `../foundation-loop/PLAYBOOK.md`. Backlog items with `executor: agent` satisfy §0's "ask before" rule; §7 holds at full autonomy. Commits carry the trailer `Foundation-Loop: <id>`.
+
+Predecessor programs are dormant or retired and must not be executed: `../audit-harness/` (stopped at iteration 15, ga_ready) and `../refactored-redteam-loop/` (stopped at iteration 31, assured) carry DORMANT markers at their roots and are read-only reference; the original harness and the superseded redteam-loop directories are retired and deleted. The retired harness's four parked proofs (E2/E3/E4/L4) live in `probectl-PRD-v1.1.md` §4. Business decisions of record live in §2 of this file (decision of record 2026-07-14).
 
 ## 12. References
 
-Current steering contract: `probectl-PRD-v1.1.md` · detailed feature/evidence inventory: `probectl-PRD-v1.0.md` · historical contract: `probectl-PRD-v0.5.md` (frozen) · editions: `docs/editions.md` · config: `docs/configuration.md` · runbooks/architecture/compliance: `docs/` · audit report: `../probectl-design-feature-audit-2026-07-14.html` · sibling: `trustctl`.
+Current steering contract: `probectl-PRD-v1.1.md` · detailed feature/evidence inventory: `probectl-PRD-v1.0.md` · editions: `docs/editions.md` · config: `docs/configuration.md` · runbooks/architecture/compliance: `docs/` · sibling: `trustctl`.
