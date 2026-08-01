@@ -71,6 +71,14 @@ What probectl guarantees you:
 - **Direct router feeds are tenant-authenticated.** A BMP peer's tenant comes from
   its verified SPIFFE client certificate, not from the BMP payload. Unknown or
   plaintext peers are refused before route data is read.
+- **Collector ingestion is per tenant (decision of record).** Each tenant's
+  analyzer subprocess consumes its own feed — one RIS Live websocket and its own
+  supplied MRT artifacts per tenant — so N monitored tenants means N feed
+  consumers. This is deliberate at current scale: binding the tenant at the
+  process boundary keeps cross-tenant state out of the analyzer entirely. The
+  trigger condition and design for a shared ingest-once fan-out (one collector
+  consumer, per-tenant scoping at publish) are recorded in
+  [`docs/adr/bgp-ingest-model.md`](adr/bgp-ingest-model.md).
 
 ## Use it
 

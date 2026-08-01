@@ -36,7 +36,7 @@ flowchart TB
     Agents -->|results, tenant-tagged| Bus
     Bus --> Subsys
     Subsys -->|queries, tenant-first| Stores
-    External -.->|ingest once, scope per tenant| Analyzer
+    External -.->|per-tenant ingest, ADR bgp-ingest-model| Analyzer
     External -.->|cached| Subsys
 ```
 

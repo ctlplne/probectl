@@ -12,7 +12,7 @@
   "web/src/i18n/messages.ts",
   "analyzer/README.md"
  ],
- "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness",
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant",
  "claims": [
   {
    "id": "CLM-NO-PHONE-HOME",
@@ -126,6 +126,7 @@
    "surfaces": [
     "CONTRIBUTING.md",
     "analyzer/README.md",
+    "docs/adr/bgp-ingest-model.md",
     "docs/adr/config-push.md",
     "docs/agent/enrollment.md",
     "docs/ai-egress.md",
@@ -527,6 +528,32 @@
    "proof": [
     "test:internal/ebpf/integrity_test.go#TestVerifyObjectDigestTamper",
     "test:internal/ebpf/trustboundary_test.go#TestObjectDigestVerificationWiredIntoEveryLoader"
+   ]
+  },
+  {
+   "id": "CLM-INGEST-SCOPE",
+   "kind": "capability",
+   "statement": "Open-data/threat feeds are ingested once (shared) then scoped per tenant; BGP collector ingestion runs per tenant by decision of record (ADR bgp-ingest-model), with the shared fan-out as a recorded scaling boundary.",
+   "pattern": "ingested once|ingest-once|ingest once|per-tenant ingest|per tenant ingest|Collector ingestion is per tenant",
+   "surfaces": [
+    "docs/adr/bgp-ingest-model.md",
+    "docs/architecture.md",
+    "docs/bgp.md",
+    "docs/data-retention.md",
+    "docs/features/open-data-and-outage.md",
+    "docs/hardening.md",
+    "docs/outside-in.md",
+    "docs/threat-intel.md",
+    "probectl-PRD-v1.0.md"
+   ],
+   "code": [
+    "internal/opendata/source.go",
+    "internal/bgp/runner.go",
+    "analyzer/probectl_analyzer/config.py"
+   ],
+   "proof": [
+    "make:test-isolation",
+    "test:internal/opendata"
    ]
   },
   {

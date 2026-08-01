@@ -5,10 +5,13 @@ syntax = "proto3";
 // Live) or from direct tenant-authenticated BMP router sessions, then bridged
 // onto the bus by internal/bgp.
 //
-// Tenancy: tenant_id is the outermost scope (F50). External BGP data is ingested
-// once and scoped per tenant by the monitoring configuration; direct BMP peers
-// derive tenant_id from the verified SPIFFE client certificate. The bridge fails
-// closed on an event with no tenant (CLAUDE.md §7 guardrails 1 and 10).
+// Tenancy: tenant_id is the outermost scope (F50). External BGP collector data
+// is ingested PER TENANT today: each tenant's analyzer subprocess consumes its
+// own collector feed, scoped by that tenant's monitoring configuration. Shared
+// ingest-once fan-out is a recorded scaling boundary, not the current shape —
+// see docs/adr/bgp-ingest-model.md. Direct BMP peers derive tenant_id from the
+// verified SPIFFE client certificate. The bridge fails closed on an event with
+// no tenant (CLAUDE.md §7 guardrails 1 and 10).
 //
 // Detection is a SIGNAL, not ground truth (guardrail 9): every event carries a
 // confidence and a severity and is tunable/suppressible downstream — probectl does
