@@ -9,10 +9,13 @@ package path
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"sort"
 )
+
+const maxGeoTableFileBytes = 1 << 20
 
 // Hop geolocation, guardrail-shaped: the ONLY source is a file the operator
 // supplies (PROBECTL_HOP_GEO_FILE) — a JSON array of CIDR→location rows. No
@@ -45,7 +48,7 @@ type GeoTable struct {
 // row rejects the whole file (fail closed — a half-trusted table would serve
 // half-invented maps).
 func LoadGeoTable(file string) (*GeoTable, error) {
-	raw, err := os.ReadFile(file)
+	raw, err := readGeoTableFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("hop geo table: %w", err)
 	}
@@ -78,6 +81,25 @@ func LoadGeoTable(file string) (*GeoTable, error) {
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].prefix.Bits() > rows[j].prefix.Bits() })
 	return &GeoTable{rows: rows}, nil
+}
+
+func readGeoTableFile(file string) ([]byte, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxGeoTableFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxGeoTableFileBytes {
+		return nil, fmt.Errorf("file exceeds %d-byte limit", maxGeoTableFileBytes)
+	}
+	return raw, nil
 }
 
 // Lookup returns the most specific matching location, or nil. Private ranges

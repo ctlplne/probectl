@@ -9,6 +9,7 @@ package path
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -75,6 +76,28 @@ func TestGeoTableFailsClosedOnBadFiles(t *testing.T) {
 	}
 	if _, err := LoadGeoTable(filepath.Join(t.TempDir(), "missing.json")); err == nil {
 		t.Fatal("expected missing file to error")
+	}
+}
+
+func TestLoadGeoTableBoundsFile(t *testing.T) {
+	const maxBytes = 1 << 20
+	valid := `[{"cidr":"10.0.0.0/8","lat":1,"lon":2,"city":"bounded"}]`
+	exact := valid + strings.Repeat(" ", maxBytes-len(valid))
+
+	table, err := LoadGeoTable(writeGeoFile(t, exact))
+	if err != nil {
+		t.Fatalf("exact-limit file should load: %v", err)
+	}
+	if got := table.Lookup("10.1.2.3"); got == nil || got.City != "bounded" {
+		t.Fatalf("exact-limit file lookup = %+v, want bounded location", got)
+	}
+
+	_, err = LoadGeoTable(writeGeoFile(t, exact+" "))
+	if err == nil {
+		t.Fatal("one-byte-oversized valid JSON should fail before decoding, got nil error")
+	}
+	if !strings.Contains(err.Error(), "1048576-byte limit") {
+		t.Fatalf("oversized file error = %q, want finite-read limit", err)
 	}
 }
 

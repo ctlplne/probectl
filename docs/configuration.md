@@ -87,7 +87,7 @@ serves HTTPS directly, including behind an ingress.
 
 | Variable                          | Default                                                              | Description                                  |
 | --------------------------------- | ------------------------------------------------------------------- | -------------------------------------------- |
-| `PROBECTL_HOP_GEO_FILE`             | *(empty)*                                                           | Optional operator-supplied JSON table (`[{"cidr","lat","lon","city","country"}]`) locating path responders for the geographic path view. Longest prefix wins; private ranges are the operator's to map. Nothing is ever fetched from a geolocation service; a malformed file disables enrichment (fail closed) with a warning. |
+| `PROBECTL_HOP_GEO_FILE`             | *(empty)*                                                           | Optional operator-supplied JSON table (`[{"cidr","lat","lon","city","country"}]`) locating path responders for the geographic path view (maximum 1 MiB). Longest prefix wins; private ranges are the operator's to map. Nothing is ever fetched from a geolocation service; a malformed or oversized file disables enrichment (fail closed) with a warning. |
 | `PROBECTL_HTTP_ADDR`                | `:8080`                                                             | API listen address                           |
 | `PROBECTL_HTTP_READ_TIMEOUT`        | `15s`                                                              | HTTP read timeout                            |
 | `PROBECTL_HTTP_WRITE_TIMEOUT`       | `15s`                                                              | HTTP write timeout                           |
