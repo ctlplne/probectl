@@ -7,11 +7,48 @@
 package ebpf
 
 import (
+	"bytes"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLoadBoundsConfigFile(t *testing.T) {
+	const limit = 1 << 20
+	valid := []byte("apiVersion: " + ConfigAPIVersion + "\ntenant_id: t\n")
+	pad := func(size int) []byte {
+		t.Helper()
+		if size < len(valid)+2 {
+			t.Fatalf("fixture size %d is too small", size)
+		}
+		return append(append(append([]byte{}, valid...), '\n', '#'), bytes.Repeat([]byte{'x'}, size-len(valid)-2)...)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		size    int
+		wantErr bool
+	}{
+		{name: "maximum", size: limit},
+		{name: "one past maximum", size: limit + 1, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "ebpf.yml")
+			writeFile(t, path, string(pad(tc.size)))
+			_, err := Load(path)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "exceeds 1048576-byte limit") {
+					t.Fatalf("one-past-maximum ebpf config error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("maximum-sized ebpf config rejected: %v", err)
+			}
+		})
+	}
+}
 
 func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 	dir := t.TempDir()

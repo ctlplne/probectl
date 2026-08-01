@@ -1274,7 +1274,8 @@ probectl api GET /v1/fairness     # raw escape hatch for JSON APIs
 The eBPF agent watches a host's network from inside the Linux kernel — it sees
 which processes talk to which services without you instrumenting anything. It is
 **observe-only**: it never blocks or modifies traffic. Like the canary agent, its
-real config is a **YAML file** (`-config` / `PROBECTL_EBPF_CONFIG`); see
+real config is a **YAML file** (`-config` / `PROBECTL_EBPF_CONFIG`), bounded to
+1 MiB before YAML decoding; see
 [`deploy/agent/probectl-ebpf-agent.example.yml`](../deploy/agent/probectl-ebpf-agent.example.yml)
 and [`ebpf-agent.md`](ebpf-agent.md), with `PROBECTL_EBPF_*` env vars overriding
 individual fields. The in-kernel loader is compiled in only with the `ebpf` build
