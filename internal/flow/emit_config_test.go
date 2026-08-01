@@ -7,6 +7,7 @@
 package flow
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -203,6 +204,38 @@ func TestConfigLoadAcceptsSchemaVersionAlias(t *testing.T) {
 	if cfg.APIVersion != ConfigAPIVersion {
 		t.Fatalf("apiVersion = %q, want %q", cfg.APIVersion, ConfigAPIVersion)
 	}
+}
+
+func TestLoadBoundsConfigFile(t *testing.T) {
+	const limit = 1 << 20
+	valid := []byte("apiVersion: " + ConfigAPIVersion + "\ntenant_id: t-size-bound\nbus:\n  mode: memory\nnetflow:\n  enabled: true\n  listen: \"127.0.0.1:2055\"\nipfix:\n  enabled: false\nsflow:\n  enabled: false\n")
+	pad := func(size int) []byte {
+		t.Helper()
+		if size < len(valid)+2 {
+			t.Fatalf("fixture size %d is too small", size)
+		}
+		return append(append(append([]byte{}, valid...), '\n', '#'), bytes.Repeat([]byte{'x'}, size-len(valid)-2)...)
+	}
+
+	t.Run("maximum", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "maximum.yaml")
+		if err := os.WriteFile(path, pad(limit), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err != nil {
+			t.Fatalf("maximum-sized flow config rejected: %v", err)
+		}
+	})
+
+	t.Run("one past maximum", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "oversized.yaml")
+		if err := os.WriteFile(path, pad(limit+1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "exceeds 1048576-byte limit") {
+			t.Fatalf("one-past-maximum flow config error = %v", err)
+		}
+	})
 }
 
 func TestShippedFlowConfigsLoadStrictly(t *testing.T) {

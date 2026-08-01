@@ -1391,8 +1391,9 @@ decodes them (template + sampling handling), and publishes normalized batches to
 `probectl.flow.events` (`flowv1.FlowBatch`, tenant-keyed). Cloud flow logs and
 metrics are imported from local files already exported by the operator's cloud
 pipeline. probectl does not poll cloud-provider APIs.
-It reads a YAML config (default path `PROBECTL_FLOW_CONFIG`); `PROBECTL_FLOW_*`
-env vars override the file. The defaults serve all three protocols on their
+It reads a YAML config (default path `PROBECTL_FLOW_CONFIG`), refusing files
+larger than 1 MiB before YAML decoding; `PROBECTL_FLOW_*` env vars override the
+file. The defaults serve all three protocols on their
 standard ports (NetFlow `:2055`, IPFIX `:4739`, sFlow `:6343`). See
 [`flow.md`](flow.md) for the security posture: flow export is plaintext UDP by
 design, so every datagram is treated as untrusted and the collector should sit
