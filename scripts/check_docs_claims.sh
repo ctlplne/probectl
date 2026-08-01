@@ -1,17 +1,30 @@
 #!/usr/bin/env bash
-# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S19, SEC-004).
+# check_docs_claims.sh — claim-register gate + honest-claim properties
+# (Foundation-Loop T-eb2b5d7c; formerly DOCS-S01..S19, SEC-004 only).
 #
-# The audit confirmed a set of HONEST-CLAIM strengths: the default AI is the
-# air-gapped builtin, there is no vendor-telemetry egress in the source, no
-# remediation executor exists, performance numbers are labeled illustrative /
-# pending (never fabricated), there are no marketing boasts, and SECURITY.md
-# now scopes provider-operator abuse as in-scope. This gate fails if any of
-# those properties silently regresses — i.e. if a future change re-introduces
-# a phone-home default, a remediation executor, a fabricated SLA, or drops the
-# provider-operator scope language.
+# Two layers, one rule:
 #
-# Dependency-free string/grep assertions. SELFTEST proves each assertion can
-# fail (anti-vacuous-green): it points the checks at a synthetic bad fixture.
+#  1. REGISTER (the rule): docs/claims/register.json declares every
+#     capability claim made in a governed surface (README, PRDs, docs/,
+#     SECURITY/LICENSING/CONTRIBUTING, UI copy catalog) and binds it to the
+#     code paths that implement it and the gate/test that proves it.
+#     scripts/claims_register_check.py enforces BOTH directions: an
+#     undeclared capability-shaped claim fails (REG-UNCOVERED — new files
+#     and new claim families are always caught), and a declared claim whose
+#     bound code path, proof, surface, or phrasing stops existing fails
+#     (REG-STALE-CODE / REG-BAD-PROOF / REG-STALE-SURFACE /
+#     REG-STALE-PATTERN). The claim grammar may only be extended
+#     (REG-GRAMMAR-FLOOR).
+#
+#  2. PROPERTIES (migrated, not deleted): the DOCS-S01..S19 + SEC-004
+#     honest-claim assertions below are register entries of kind
+#     legacy-property; the register binds each to its planted-failure
+#     selftest here, and the SELFTEST label list is read FROM the register,
+#     so dropping a property from either side fails the gate.
+#
+# SELFTEST proves the gate can fail before it is trusted: the good fixture
+# must PASS (anti-vacuous harness), then every legacy label and every REG-*
+# failure shape is planted and must be caught.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -263,6 +276,17 @@ run_checks() { # run_checks <root>
   return $f
 }
 
+run_register() { # run_register <root> — the claim-register rule (T-eb2b5d7c)
+  python3 scripts/claims_register_check.py --root "$1"
+}
+
+run_all() { # run_all <root> — properties + register together
+  local f=0
+  run_checks "$1" || f=1
+  run_register "$1" || f=1
+  return $f
+}
+
 write_good_fixture() { # write_good_fixture <dir>
   local d="$1"
   mkdir -p \
@@ -393,10 +417,10 @@ EOF
 The viewer waits for control-plane readiness and sample topology data.
 docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
 EOF
-  cat > "$d/docs/alerting.md" <<'EOF'
+  cat >> "$d/docs/alerting.md" <<'EOF'
 Reducing MTTI or MTTR is a design intent, not a measured outcome.
 EOF
-  cat > "$d/docs/ai-rca.md" <<'EOF'
+  cat >> "$d/docs/ai-rca.md" <<'EOF'
 Reducing MTTI or MTTR is a design intent, not a measured outcome.
 EOF
   cat > "$d/docs/pov-demo-script.md" <<'EOF'
@@ -429,7 +453,7 @@ EOF
   cat > "$d/docs/features/alerting-and-incidents.md" <<'EOF'
 Email channel not wired; see ../limitations.md#built-not-yet-served-edges
 EOF
-  cat > "$d/docs/alerting.md" <<'EOF'
+  cat >> "$d/docs/alerting.md" <<'EOF'
 Email channel not wired; see limitations.md#built-not-yet-served-edges
 EOF
   cat > "$d/docs/tls-observability.md" <<'EOF'
@@ -444,6 +468,42 @@ EOF
   cat > "$d/SECURITY.md" <<'EOF'
 break-glass-gate bypass
 EOF
+
+  # Claim-register fixture: the governed fixture surfaces above carry
+  # register coverage exactly like the real tree, so SELFTEST exercises the
+  # same rule the live run enforces. Grammar and legacy entries come from
+  # the real register (single source of truth); capability entries bind the
+  # fixture's own claim-bearing lines.
+  mkdir -p "$d/docs/claims" "$d/scripts"
+  cp scripts/check_docs_claims.sh "$d/scripts/check_docs_claims.sh"
+  python3 - "$d" <<'PYEOF'
+import json, sys
+d = sys.argv[1]
+real = json.load(open("docs/claims/register.json", encoding="utf-8"))
+legacy = [c for c in real["claims"] if c.get("kind") == "legacy-property"]
+claims = [
+  {"id": "CLM-NO-PHONE-HOME", "kind": "capability",
+   "statement": "fixture: no default egress",
+   "pattern": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress",
+   "surfaces": ["docs/ai-rca.md", "docs/pov-demo-script.md"],
+   "code": ["internal/ai/egressgate.go", "internal/ai/model_builtin.go"],
+   "proof": ["selftest-label:DOCS-S03"]},
+  {"id": "CLM-NOT-AN-IPS", "kind": "capability",
+   "statement": "fixture: signals not blocking",
+   "pattern": "never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)",
+   "surfaces": ["docs/limitations.md"],
+   "code": ["internal/threat/ndr.go"],
+   "proof": ["selftest-label:DOCS-S07"]},
+  {"id": "CLM-HONEST-NUMBERS", "kind": "capability",
+   "statement": "fixture: numbers stay labeled",
+   "pattern": "\\bguarantees?\\b",
+   "surfaces": ["docs/perf-baseline.md"],
+   "code": [],
+   "proof": ["selftest-label:DOCS-S06"]},
+] + legacy
+fix = {"version": 1, "governed": real["governed"], "grammar": real["grammar"], "claims": claims}
+json.dump(fix, open(f"{d}/docs/claims/register.json", "w", encoding="utf-8"), indent=1)
+PYEOF
 }
 
 break_fixture() { # break_fixture <label> <dir>
@@ -550,6 +610,54 @@ EOF
     SEC-004)
       echo '# scope' > "$d/SECURITY.md"
       ;;
+    REG-UNCOVERED)
+      # A brand-new file making a capability-shaped claim (an untrue one,
+      # deliberately) must fail until it is consciously registered.
+      echo 'This build adds phone-home telemetry to the collector.' > "$d/docs/new-page.md"
+      ;;
+    REG-STALE-CODE)
+      python3 - "$d" <<'PYEOF'
+import json, sys
+p = f"{sys.argv[1]}/docs/claims/register.json"
+r = json.load(open(p))
+for c in r["claims"]:
+    if c["id"] == "CLM-NO-PHONE-HOME":
+        c["code"] = ["internal/ai/missing_gadget.go"]
+json.dump(r, open(p, "w"))
+PYEOF
+      ;;
+    REG-STALE-PATTERN)
+      python3 - "$d" <<'PYEOF'
+import json, sys
+p = f"{sys.argv[1]}/docs/claims/register.json"
+r = json.load(open(p))
+r["claims"].append({"id": "CLM-GHOST", "kind": "capability",
+  "statement": "fixture: registered claim nothing asserts",
+  "pattern": "quantum teleportation drive",
+  "surfaces": ["docs/ai-rca.md"], "code": [], "proof": ["selftest-label:DOCS-S01"]})
+json.dump(r, open(p, "w"))
+PYEOF
+      ;;
+    REG-BAD-PROOF)
+      python3 - "$d" <<'PYEOF'
+import json, sys
+p = f"{sys.argv[1]}/docs/claims/register.json"
+r = json.load(open(p))
+for c in r["claims"]:
+    if c["id"] == "CLM-NOT-AN-IPS":
+        c["proof"] = ["make:no-such-target"]
+json.dump(r, open(p, "w"))
+PYEOF
+      ;;
+    REG-GRAMMAR-FLOOR)
+      python3 - "$d" <<'PYEOF'
+import json, sys
+p = f"{sys.argv[1]}/docs/claims/register.json"
+r = json.load(open(p))
+r["grammar"] = "phone-home"
+json.dump(r, open(p, "w"))
+PYEOF
+      ;;
     *)
       echo "unknown SELFTEST label: $label" >&2
       return 2
@@ -564,7 +672,7 @@ expect_label_failure() { # expect_label_failure <label>
   out="$tmp/out"
   write_good_fixture "$tmp"
   break_fixture "$label" "$tmp"
-  if run_checks "$tmp" >"$out" 2>&1; then
+  if run_all "$tmp" >"$out" 2>&1; then
     echo "SELFTEST FAILED: $label fixture passed unexpectedly" >&2
     cat "$out" >&2
     rm -rf "$tmp"
@@ -580,14 +688,32 @@ expect_label_failure() { # expect_label_failure <label>
 }
 
 if [ "${1:-}" = "SELFTEST" ]; then
-  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 DOCS-S17 DOCS-S18 DOCS-S19 SEC-004}"
+  # 0) Anti-vacuous harness: the good fixture must PASS before planted
+  #    failures prove anything — a gate that fails on everything would
+  #    otherwise pass every planted-failure assertion below.
+  good="$(mktemp -d)"
+  write_good_fixture "$good"
+  if ! run_all "$good" >"$good/out" 2>&1; then
+    echo "SELFTEST FAILED: the good fixture did not pass — the harness cannot distinguish red from green" >&2
+    cat "$good/out" >&2
+    rm -rf "$good"
+    exit 1
+  fi
+  rm -rf "$good"
+
+  # The legacy label list is read FROM the register (single source of
+  # truth): dropping a migrated property from the register drops its
+  # planted-failure proof and this selftest with it — visibly.
+  legacy_labels="$(python3 scripts/claims_register_check.py --list-legacy)"
+  reg_labels="REG-UNCOVERED REG-STALE-CODE REG-STALE-PATTERN REG-BAD-PROOF REG-GRAMMAR-FLOOR"
+  labels="${2:-$legacy_labels $reg_labels}"
   for label in $labels; do
     expect_label_failure "$label"
   done
-  echo "check_docs_claims SELFTEST OK (targeted bad fixtures correctly rejected: $labels)"
+  echo "check_docs_claims SELFTEST OK (good fixture passes; planted failures rejected: $(echo $labels | tr '\n' ' '))"
   exit 0
 fi
 
-run_checks "." || fail=1
+run_all "." || fail=1
 if [ "$fail" -ne 0 ]; then exit 1; fi
-echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S19, SEC-004)"
+echo "check_docs_claims: honest-claim properties + claim register hold (see docs/claims/register.json)"

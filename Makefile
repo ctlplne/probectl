@@ -377,6 +377,10 @@ lint-python: ## Lint the Python analyzer (ruff + black --check).
 	ruff check analyzer
 	black --check analyzer
 
+.PHONY: docs-claims-gate
+docs-claims-gate: ## Claim register + honest-claim properties, self-tested in both directions (docs/claims/register.json).
+	./scripts/check_docs_claims.sh SELFTEST && ./scripts/check_docs_claims.sh
+
 .PHONY: verify-all
 verify-all: ## Sprint 25 umbrella: build + lint + race tests + scans + eBPF compile, every output tee'd to receipts/ (executed verification, not static claims). Load+attach rides the ebpf-kernel-matrix CI job.
 	./scripts/verify_all.sh

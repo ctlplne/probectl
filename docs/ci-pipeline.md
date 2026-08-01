@@ -95,10 +95,15 @@ Verification you ran, not verification you described.
 - **openapi-gate** — every registered core `/v1` and provider `/provider/v1`
   route exactly matches its OpenAPI 3.1 spec; no undocumented routes ship.
 - **docs-claims gate** — `scripts/check_docs_claims.sh SELFTEST &&
-  scripts/check_docs_claims.sh` proves the public docs stay honest about
-  sovereignty, observe-only remediation, performance framing, non-goals, and
-  served-vs-library limitations; SELFTEST runs one negative fixture per
-  advertised DOCS-S label so the gate cannot go vacuously green.
+  scripts/check_docs_claims.sh` (also `make docs-claims-gate`) enforces the
+  claim register: every capability claim in a governed surface is declared
+  in `docs/claims/register.json` and bound to the code path that implements
+  it and the gate/test that proves it (`scripts/claims_register_check.py`,
+  both directions — an undeclared claim-shaped line fails, and a stale
+  code/proof/surface binding fails), plus the migrated DOCS-S honest-claim
+  properties. SELFTEST first proves the good fixture passes, then runs one
+  negative fixture per DOCS-S label AND per REG-* register failure shape,
+  so the gate cannot go vacuously green in either direction.
 - **migration-gate** — DB migrations are additive / expand-only: it rejects
   destructive or blocking changes (drop column, column-type change, rename,
   adding `NOT NULL`) so release N's schema still works with N-1's code during a

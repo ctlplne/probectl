@@ -1,0 +1,722 @@
+{
+ "version": 1,
+ "purpose": "Machine-readable claim register: every capability claim in a governed surface binds to the code path that implements it and the gate/test that proves it. Enforced by scripts/claims_register_check.py, driven from scripts/check_docs_claims.sh. See docs/claims/README.md.",
+ "governed": [
+  "README.md",
+  "probectl-PRD-v1.1.md",
+  "probectl-PRD-v1.0.md",
+  "SECURITY.md",
+  "LICENSING.md",
+  "CONTRIBUTING.md",
+  "docs/**/*.md",
+  "web/src/i18n/messages.ts"
+ ],
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated",
+ "claims": [
+  {
+   "id": "CLM-NO-PHONE-HOME",
+   "kind": "capability",
+   "statement": "No default outbound telemetry, beacon, or phone-home exists; telemetry never leaves the operator's network by default.",
+   "pattern": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress",
+   "surfaces": [
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/admin.md",
+    "docs/adr/agent-enrollment.md",
+    "docs/agent/enrollment.md",
+    "docs/ai-egress.md",
+    "docs/ai-rca.md",
+    "docs/audit.md",
+    "docs/auth/self-hosted-idp.md",
+    "docs/buyer-memo.md",
+    "docs/carbon.md",
+    "docs/compliance/control-evidence.md",
+    "docs/configuration.md",
+    "docs/dependency-policy.md",
+    "docs/deploying-agents.md",
+    "docs/editions.md",
+    "docs/endpoint-dem.md",
+    "docs/features/ai-assistant.md",
+    "docs/features/control-plane.md",
+    "docs/features/digital-experience.md",
+    "docs/features/open-data-and-outage.md",
+    "docs/flow.md",
+    "docs/getting-started.md",
+    "docs/hardening.md",
+    "docs/operating-cost.md",
+    "docs/ops/air-gap.md",
+    "docs/ops/backup-restore.md",
+    "docs/ops/fleet-rollout.md",
+    "docs/outage.md",
+    "docs/outside-in.md",
+    "docs/pov-demo-script.md",
+    "docs/security/agent-whitepaper.md",
+    "docs/siem.md",
+    "docs/supportability.md",
+    "docs/threat-intel.md",
+    "docs/tls-observability.md",
+    "docs/ux/teardown.md",
+    "probectl-PRD-v1.0.md",
+    "probectl-PRD-v1.1.md"
+   ],
+   "code": [
+    "internal/ai/egressgate.go",
+    "internal/ai/model_builtin.go",
+    "internal/otel/otlp/exporter.go",
+    "internal/opendata/source.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S02",
+    "selftest-label:DOCS-S03",
+    "selftest-label:DOCS-S09",
+    "test:docs/outside_in_test.go"
+   ]
+  },
+  {
+   "id": "CLM-AIR-GAP",
+   "kind": "capability",
+   "statement": "The deployment operates air-gapped: the default AI is the in-process builtin and no feature requires egress.",
+   "pattern": "air-gap",
+   "surfaces": [
+    "README.md",
+    "SECURITY.md",
+    "docs/adr/agent-enrollment.md",
+    "docs/ai-authoring.md",
+    "docs/ai-egress.md",
+    "docs/ai-quickstart.md",
+    "docs/ai-rca.md",
+    "docs/auth/self-hosted-idp.md",
+    "docs/browser-synthetic.md",
+    "docs/build/toolchain.md",
+    "docs/compliance/control-evidence.md",
+    "docs/configuration.md",
+    "docs/dependency-policy.md",
+    "docs/deploying-agents.md",
+    "docs/development.md",
+    "docs/ebpf-agent.md",
+    "docs/features/ai-assistant.md",
+    "docs/features/digital-experience.md",
+    "docs/features/identity-and-access.md",
+    "docs/flow.md",
+    "docs/hardening.md",
+    "docs/ops/air-gap.md",
+    "docs/ops/verify-artifacts.md",
+    "docs/pov-demo-script.md",
+    "docs/pricing.md",
+    "docs/security/agent-whitepaper.md",
+    "docs/security/threat-model.md",
+    "docs/ux/design-principles.md",
+    "docs/ux/teardown.md",
+    "probectl-PRD-v1.0.md"
+   ],
+   "code": [
+    "internal/ai/model_builtin.go",
+    "internal/control/ai.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S01"
+   ]
+  },
+  {
+   "id": "CLM-FAIL-CLOSED",
+   "kind": "capability",
+   "statement": "Missing channel security, credential, signature, tenant binding, or license state degrades closed, never open.",
+   "pattern": "fail[- ]closed|fails? closed",
+   "surfaces": [
+    "CONTRIBUTING.md",
+    "docs/adr/config-push.md",
+    "docs/agent/enrollment.md",
+    "docs/ai-egress.md",
+    "docs/ai-query.md",
+    "docs/alerting.md",
+    "docs/architecture.md",
+    "docs/audit.md",
+    "docs/bgp.md",
+    "docs/browser-synthetic.md",
+    "docs/chaos.md",
+    "docs/compliance/control-evidence.md",
+    "docs/compliance/fips-evidence.md",
+    "docs/configuration.md",
+    "docs/data-retention.md",
+    "docs/dependency-policy.md",
+    "docs/deploying-agents.md",
+    "docs/development.md",
+    "docs/device-telemetry.md",
+    "docs/diligence-register.md",
+    "docs/ebpf-agent.md",
+    "docs/ecosystem-integrations.md",
+    "docs/editions.md",
+    "docs/features/active-testing.md",
+    "docs/features/alerting-and-incidents.md",
+    "docs/features/commercial-plane.md",
+    "docs/features/control-plane.md",
+    "docs/features/identity-and-access.md",
+    "docs/features/integrations.md",
+    "docs/features/operations.md",
+    "docs/features/security-and-threat.md",
+    "docs/features/telemetry-planes.md",
+    "docs/features/tenancy.md",
+    "docs/features/topology-and-change.md",
+    "docs/flow.md",
+    "docs/getting-started.md",
+    "docs/governance.md",
+    "docs/ha.md",
+    "docs/hardening.md",
+    "docs/install.md",
+    "docs/isolation.md",
+    "docs/journeys/production-operations.md",
+    "docs/mcp.md",
+    "docs/ndr.md",
+    "docs/opendata-aup.md",
+    "docs/ops/backup-restore.md",
+    "docs/ops/branch-protection.md",
+    "docs/ops/fleet-rollout.md",
+    "docs/ops/verify-artifacts.md",
+    "docs/otlp.md",
+    "docs/pov-demo-script.md",
+    "docs/releasing.md",
+    "docs/remediation.md",
+    "docs/rum.md",
+    "docs/scim-abac.md",
+    "docs/secrets.md",
+    "docs/security/agent-whitepaper.md",
+    "docs/security/tenant-isolation.md",
+    "docs/security/threat-model.md",
+    "docs/siem.md",
+    "docs/topology.md",
+    "docs/ux/cross-plane-context.md",
+    "docs/ux/demo-mode.md",
+    "docs/ux/design-principles.md",
+    "probectl-PRD-v1.0.md",
+    "probectl-PRD-v1.1.md",
+    "web/src/i18n/messages.ts"
+   ],
+   "code": [
+    "internal/pipeline/consumer.go",
+    "internal/agenttransport/peer.go",
+    "internal/ai/egressgate.go",
+    "internal/tenancy/posture.go"
+   ],
+   "proof": [
+    "make:test-isolation"
+   ]
+  },
+  {
+   "id": "CLM-TAMPER-EVIDENT",
+   "kind": "capability",
+   "statement": "Audit streams are hash-chained and tamper-evident.",
+   "pattern": "tamper-evident|hash-chained",
+   "surfaces": [
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "docs/admin.md",
+    "docs/adr/volatile-stores.md",
+    "docs/ai-authoring.md",
+    "docs/ai-egress.md",
+    "docs/ai-quickstart.md",
+    "docs/ai-rca.md",
+    "docs/alerting.md",
+    "docs/architecture.md",
+    "docs/audit.md",
+    "docs/compliance.md",
+    "docs/compliance/control-evidence.md",
+    "docs/configuration.md",
+    "docs/features/ai-assistant.md",
+    "docs/features/alerting-and-incidents.md",
+    "docs/features/commercial-plane.md",
+    "docs/features/control-plane.md",
+    "docs/features/identity-and-access.md",
+    "docs/features/integrations.md",
+    "docs/features/security-and-threat.md",
+    "docs/governance.md",
+    "docs/hardening.md",
+    "docs/install.md",
+    "docs/journeys/threat-response.md",
+    "docs/mcp.md",
+    "docs/provider-plane.md",
+    "docs/remediation.md",
+    "docs/runbooks/tenant-offboarding.md",
+    "docs/security/threat-model.md",
+    "docs/siem.md",
+    "probectl-PRD-v1.0.md"
+   ],
+   "code": [
+    "internal/audit/audit.go",
+    "internal/audit/worm.go"
+   ],
+   "proof": [
+    "make:audit-verify-gate"
+   ]
+  },
+  {
+   "id": "CLM-OBSERVE-ONLY",
+   "kind": "capability",
+   "statement": "Collection and detection observe; nothing mutates the observed network (eBPF observe-only, no remediation executor).",
+   "pattern": "observe-only",
+   "surfaces": [
+    "CONTRIBUTING.md",
+    "docs/architecture.md",
+    "docs/buyer-memo.md",
+    "docs/configuration.md",
+    "docs/dependency-policy.md",
+    "docs/deploying-agents.md",
+    "docs/device-telemetry.md",
+    "docs/ebpf-agent.md",
+    "docs/ebpf-feasibility.md",
+    "docs/features/active-testing.md",
+    "docs/features/digital-experience.md",
+    "docs/features/security-and-threat.md",
+    "docs/features/telemetry-planes.md",
+    "docs/features/topology-and-change.md",
+    "docs/getting-started.md",
+    "docs/glossary.md",
+    "docs/hardening.md",
+    "docs/limitations.md",
+    "docs/pov-demo-script.md",
+    "docs/remediation.md",
+    "docs/security/agent-whitepaper.md",
+    "docs/security/threat-model.md",
+    "docs/threat-intel.md",
+    "docs/topology.md",
+    "docs/ux/design-principles.md",
+    "docs/ux/keyboard-command-reference.md",
+    "probectl-PRD-v1.0.md",
+    "web/src/i18n/messages.ts"
+   ],
+   "code": [
+    "internal/ebpf/observeonly_test.go",
+    "ee/remediation"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S04",
+    "test:internal/ebpf/observeonly_test.go"
+   ]
+  },
+  {
+   "id": "CLM-HUMAN-GATED",
+   "kind": "capability",
+   "statement": "Remediation is human-gated: explicit approval, dry-run, blast-radius limits; never autonomous.",
+   "pattern": "human-gated",
+   "surfaces": [
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/ai-authoring.md",
+    "docs/ai-quickstart.md",
+    "docs/ai-rca.md",
+    "docs/architecture.md",
+    "docs/buyer-memo.md",
+    "docs/chaos.md",
+    "docs/configuration.md",
+    "docs/ebpf-agent.md",
+    "docs/features/ai-assistant.md",
+    "docs/features/alerting-and-incidents.md",
+    "docs/features/cost-slo-and-chaos.md",
+    "docs/features/security-and-threat.md",
+    "docs/hardening.md",
+    "docs/journeys.md",
+    "docs/journeys/production-operations.md",
+    "docs/journeys/threat-response.md",
+    "docs/limitations.md",
+    "docs/mcp.md",
+    "docs/ops/fleet-rollout.md",
+    "docs/pov-demo-script.md",
+    "docs/remediation.md",
+    "docs/security/threat-model.md",
+    "docs/topology.md",
+    "docs/ux/design-principles.md",
+    "docs/ux/teardown.md",
+    "probectl-PRD-v1.0.md",
+    "probectl-PRD-v1.1.md",
+    "web/src/i18n/messages.ts"
+   ],
+   "code": [
+    "ee/remediation"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S04"
+   ]
+  },
+  {
+   "id": "CLM-NOT-AN-IPS",
+   "kind": "capability",
+   "statement": "Detection is a confidence-scored signal, never inline blocking / an IPS.",
+   "pattern": "never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)",
+   "surfaces": [
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/architecture.md",
+    "docs/buyer-memo.md",
+    "docs/configuration.md",
+    "docs/deploying-agents.md",
+    "docs/ebpf-agent.md",
+    "docs/ebpf-feasibility.md",
+    "docs/features/open-data-and-outage.md",
+    "docs/features/security-and-threat.md",
+    "docs/hardening.md",
+    "docs/limitations.md",
+    "docs/ndr.md",
+    "docs/outage.md",
+    "docs/pov-demo-script.md",
+    "docs/security/agent-whitepaper.md",
+    "docs/security/threat-model.md",
+    "docs/threat-intel.md",
+    "docs/tls-observability.md",
+    "probectl-PRD-v1.0.md"
+   ],
+   "code": [
+    "internal/threat/ndr.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S07",
+    "selftest-label:DOCS-S08"
+   ]
+  },
+  {
+   "id": "CLM-STORAGE-LAYER-TENANCY",
+   "kind": "capability",
+   "statement": "Tenant isolation is enforced at the storage layer (FORCE RLS / partition / silo), not per-handler.",
+   "pattern": "enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security",
+   "surfaces": [
+    "docs/admin.md",
+    "docs/adr/volatile-stores.md",
+    "docs/ai-rca.md",
+    "docs/architecture.md",
+    "docs/configuration.md",
+    "docs/dashboard-reporting.md",
+    "docs/diligence-register.md",
+    "docs/features/ai-assistant.md",
+    "docs/features/identity-and-access.md",
+    "docs/features/tenancy.md",
+    "docs/flow.md",
+    "docs/glossary.md",
+    "docs/governance.md",
+    "docs/hardening.md",
+    "docs/isolation.md",
+    "docs/metering.md",
+    "docs/perf-baseline.md",
+    "docs/quality/coverage.md",
+    "docs/runbooks/tenant-offboarding.md",
+    "docs/scim-abac.md",
+    "docs/security/tenant-isolation.md",
+    "docs/security/threat-model.md",
+    "probectl-PRD-v1.0.md"
+   ],
+   "code": [
+    "internal/tenancy/writefence.go",
+    "internal/tenancy/posture.go",
+    "migrations"
+   ],
+   "proof": [
+    "make:test-isolation"
+   ]
+  },
+  {
+   "id": "CLM-HONEST-NUMBERS",
+   "kind": "capability",
+   "statement": "Numbers are labeled illustrative/reference/smoke; guarantee language is bounded to what is measured or explicitly negated.",
+   "pattern": "\\bguarantees?\\b",
+   "surfaces": [
+    "docs/ai-egress.md",
+    "docs/ai-query.md",
+    "docs/ai-rca.md",
+    "docs/audit.md",
+    "docs/bgp.md",
+    "docs/capacity.md",
+    "docs/configuration.md",
+    "docs/deploying-agents.md",
+    "docs/development.md",
+    "docs/device-telemetry.md",
+    "docs/ebpf-agent.md",
+    "docs/features/active-testing.md",
+    "docs/features/ai-assistant.md",
+    "docs/features/telemetry-planes.md",
+    "docs/features/tenancy.md",
+    "docs/features/topology-and-change.md",
+    "docs/hardening.md",
+    "docs/isolation.md",
+    "docs/lifecycle.md",
+    "docs/mcp.md",
+    "docs/multi-region.md",
+    "docs/ops/verify-artifacts.md",
+    "docs/perf-baseline.md",
+    "docs/quality/coverage.md",
+    "docs/secrets.md",
+    "docs/siem.md"
+   ],
+   "code": [],
+   "proof": [
+    "selftest-label:DOCS-S06",
+    "selftest-label:DOCS-S18"
+   ]
+  },
+  {
+   "id": "CLM-SEP-AUDITED",
+   "kind": "capability",
+   "statement": "Provider/break-glass operations are separately audited from tenant streams.",
+   "pattern": "separately audited",
+   "surfaces": [
+    "README.md",
+    "docs/audit.md",
+    "docs/ux/design-principles.md",
+    "docs/ux/rubric-results.md",
+    "probectl-PRD-v1.0.md"
+   ],
+   "code": [
+    "ee/provider/service.go",
+    "internal/audit/audit.go"
+   ],
+   "proof": [
+    "selftest-label:SEC-004"
+   ]
+  },
+  {
+   "id": "CLM-CONSENT-GATED",
+   "kind": "capability",
+   "statement": "Remote AI egress requires explicit tenant consent and redaction; denial is the default.",
+   "pattern": "consent-gated",
+   "surfaces": [
+    "docs/compliance/control-evidence.md",
+    "docs/configuration.md",
+    "docs/mcp.md",
+    "docs/operating-cost.md",
+    "docs/pov-demo-script.md",
+    "docs/rum.md",
+    "probectl-PRD-v1.0.md"
+   ],
+   "code": [
+    "internal/ai/egressgate.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S03"
+   ]
+  },
+  {
+   "id": "DOCS-S01",
+   "kind": "legacy-property",
+   "statement": "Default AI is the air-gapped builtin gated by AIModelEnabled.",
+   "code": [
+    "internal/control/ai.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S01"
+   ]
+  },
+  {
+   "id": "DOCS-S02",
+   "kind": "legacy-property",
+   "statement": "No vendor analytics/beacon SDK or hardcoded vendor egress URL in source.",
+   "code": [],
+   "proof": [
+    "selftest-label:DOCS-S02"
+   ]
+  },
+  {
+   "id": "DOCS-S03",
+   "kind": "legacy-property",
+   "statement": "AI/RCA claims are backed by the builtin no-phone-home implementation and a fail-closed egress gate.",
+   "code": [
+    "internal/ai/eval/eval.go",
+    "internal/ai/model_builtin.go",
+    "internal/ai/egressgate.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S03"
+   ]
+  },
+  {
+   "id": "DOCS-S04",
+   "kind": "legacy-property",
+   "statement": "No remediation executor exists; the product is observe-only / human-gated.",
+   "code": [],
+   "proof": [
+    "selftest-label:DOCS-S04"
+   ]
+  },
+  {
+   "id": "DOCS-S05",
+   "kind": "legacy-property",
+   "statement": "The eBPF userspace bench floor (20k eps) guard exists.",
+   "code": [
+    "internal/ebpf/bench_test.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S05"
+   ]
+  },
+  {
+   "id": "DOCS-S06",
+   "kind": "legacy-property",
+   "statement": "Performance/scale/cost numbers stay labeled illustrative/reference/smoke, never SLAs.",
+   "code": [
+    "docs/perf-baseline.md",
+    "docs/capacity.md",
+    "docs/finops.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S06"
+   ]
+  },
+  {
+   "id": "DOCS-S07",
+   "kind": "legacy-property",
+   "statement": "NDR-lite stays confidence-scored signals.",
+   "code": [
+    "docs/ndr.md",
+    "internal/threat/ndr.go",
+    "internal/threat/model.go",
+    "internal/threat/detections.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S07"
+   ]
+  },
+  {
+   "id": "DOCS-S08",
+   "kind": "legacy-property",
+   "statement": "Limitations/non-goals stay explicit; no marketplace route appears.",
+   "code": [
+    "docs/limitations.md",
+    "docs/features.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S08"
+   ]
+  },
+  {
+   "id": "DOCS-S09",
+   "kind": "legacy-property",
+   "statement": "OTLP export is operator-configured; no hardcoded telemetry endpoint.",
+   "code": [
+    "internal/otel/otlp/exporter.go"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S09"
+   ]
+  },
+  {
+   "id": "DOCS-S10",
+   "kind": "legacy-property",
+   "statement": "Dev auth stays build-tag-gated.",
+   "code": [],
+   "proof": [
+    "selftest-label:DOCS-S10"
+   ]
+  },
+  {
+   "id": "DOCS-S11",
+   "kind": "legacy-property",
+   "statement": "Release CI proves devauth is physically absent from release binaries.",
+   "code": [
+    ".github/workflows/ci.yml",
+    "docs/ci-pipeline.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S11"
+   ]
+  },
+  {
+   "id": "DOCS-S12",
+   "kind": "legacy-property",
+   "statement": "The docs-claims gate is wired into Makefile, CI, and pipeline docs.",
+   "code": [
+    "Makefile",
+    ".github/workflows/ci.yml",
+    "docs/ci-pipeline.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S12"
+   ]
+  },
+  {
+   "id": "DOCS-S13",
+   "kind": "legacy-property",
+   "statement": "README carries no marketing boasts.",
+   "code": [
+    "README.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S13"
+   ]
+  },
+  {
+   "id": "DOCS-S14",
+   "kind": "legacy-property",
+   "statement": "README keeps its 'What probectl is not' section.",
+   "code": [
+    "README.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S14"
+   ]
+  },
+  {
+   "id": "DOCS-S15",
+   "kind": "legacy-property",
+   "statement": "Built-not-yet-served limitations stay canonical in docs/limitations.md with backlinks.",
+   "code": [
+    "docs/limitations.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S15"
+   ]
+  },
+  {
+   "id": "DOCS-S16",
+   "kind": "legacy-property",
+   "statement": "Root LICENSE is final unmodified MPL-2.0; only commercial paper pends counsel.",
+   "code": [
+    "LICENSE",
+    "LICENSING.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S16"
+   ]
+  },
+  {
+   "id": "DOCS-S17",
+   "kind": "legacy-property",
+   "statement": "Quickstart timing is readiness-based, not a stopwatch promise.",
+   "code": [
+    "deploy/compose/eval.yml"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S17"
+   ]
+  },
+  {
+   "id": "DOCS-S18",
+   "kind": "legacy-property",
+   "statement": "MTTI/MTTR language distinguishes design intent from measured outcomes.",
+   "code": [
+    "README.md",
+    "docs/alerting.md",
+    "docs/ai-rca.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S18"
+   ]
+  },
+  {
+   "id": "DOCS-S19",
+   "kind": "legacy-property",
+   "statement": "The canonical PoV enumerates default posture and operator-enabled egress.",
+   "code": [
+    "docs/pov-demo-script.md"
+   ],
+   "proof": [
+    "selftest-label:DOCS-S19"
+   ]
+  },
+  {
+   "id": "SEC-004",
+   "kind": "legacy-property",
+   "statement": "SECURITY.md scopes provider-operator break-glass abuse as in-scope.",
+   "code": [
+    "SECURITY.md"
+   ],
+   "proof": [
+    "selftest-label:SEC-004"
+   ]
+  }
+ ]
+}
