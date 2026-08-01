@@ -32,8 +32,8 @@ extract_section() {
     | LC_ALL=C sort -u
 }
 
-list_dirs() { # list_dirs <root-dir>
-  find "$1" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort -u
+list_dirs() { # list_dirs <root-dir> — portable: BSD find has no -printf
+  find "$1" -mindepth 1 -maxdepth 1 -type d | sed 's|.*/||' | LC_ALL=C sort -u
 }
 
 check_map() { # check_map <claude-md> <tree-root>
