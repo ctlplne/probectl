@@ -9,9 +9,10 @@
   "LICENSING.md",
   "CONTRIBUTING.md",
   "docs/**/*.md",
-  "web/src/i18n/messages.ts"
+  "web/src/i18n/messages.ts",
+  "analyzer/README.md"
  ],
- "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated",
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS",
  "claims": [
   {
    "id": "CLM-NO-PHONE-HOME",
@@ -124,6 +125,7 @@
    "pattern": "fail[- ]closed|fails? closed",
    "surfaces": [
     "CONTRIBUTING.md",
+    "analyzer/README.md",
     "docs/adr/config-push.md",
     "docs/agent/enrollment.md",
     "docs/ai-egress.md",
@@ -344,6 +346,7 @@
    "surfaces": [
     "CONTRIBUTING.md",
     "README.md",
+    "analyzer/README.md",
     "docs/architecture.md",
     "docs/buyer-memo.md",
     "docs/configuration.md",
@@ -488,6 +491,25 @@
    ],
    "proof": [
     "selftest-label:DOCS-S03"
+   ]
+  },
+  {
+   "id": "CLM-BGP-FEEDS",
+   "kind": "capability",
+   "statement": "The analyzer fetches only RPKI VRP data (read-only, validated TLS, per-run, no on-disk cache; failure degrades to RPKI unknown); collector MRT archives are bring-your-own local artifacts with no fetching or decompression; RIS Live reads RIPE's public websocket.",
+   "pattern": "bring-your-own artifact|fetched read-only over validated TLS|fetches itself is RPKI|fetches no archives|read-only over validated TLS",
+   "surfaces": [
+    "docs/bgp.md",
+    "analyzer/README.md"
+   ],
+   "code": [
+    "analyzer/probectl_analyzer/pipeline.py",
+    "analyzer/probectl_analyzer/mrt.py",
+    "analyzer/probectl_analyzer/rislive.py"
+   ],
+   "proof": [
+    "make:test-python",
+    "test:analyzer/tests/test_pipeline.py"
    ]
   },
   {

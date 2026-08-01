@@ -1,10 +1,12 @@
 # analyzer/ — probectl BGP analyzer (Python)
 
 The BGP analyzer is the one probectl component written in Python (the language has
-the richest BGP/MRT libraries). It ingests **public** collector data — **RouteViews**
-(bulk **MRT** over HTTP; MRT, RFC 6396, is the standard binary archive format for
-BGP table snapshots and update streams) and **RIPE RIS** (MRT + the **RIS Live**
-websocket, RIPE's real-time feed of BGP messages) — does per-prefix AS-path
+the richest BGP/MRT libraries). It analyzes **public** collector data — **RouteViews**
+and **RIPE RIS** **MRT** archives (MRT, RFC 6396, is the standard binary archive
+format for BGP table snapshots and update streams) supplied as **bring-your-own
+artifacts** (bulk-download and decompress them yourself: the analyzer fetches no
+archives and does no decompression), plus the **RIS Live**
+websocket, RIPE's real-time feed of BGP messages — does per-prefix AS-path
 monitoring with origin-change / hijack / leak detection and **RPKI** (RFC 6811)
 validation (checking each announcement against cryptographically published
 statements of which AS may originate a prefix), and emits `probectl.bgp.events`
@@ -36,8 +38,10 @@ pip install -e '.[dev]'                         # from analyzer/
 # (imported lazily — MRT/replay processing works without it):
 pip install websockets
 
-# process a RouteViews / RIS MRT dump
-python -m probectl_analyzer --config config.json --mrt rib.20260101.0000.bz2.mrt
+# process a RouteViews / RIS MRT dump (bring-your-own artifact: download and
+# decompress it first — the analyzer reads plain MRT bytes, no bz2/gzip)
+bzip2 -dk rib.20260101.0000.bz2   # → rib.20260101.0000 (raw MRT)
+python -m probectl_analyzer --config config.json --mrt rib.20260101.0000
 
 # replay a recorded RIS Live capture (JSON Lines)
 python -m probectl_analyzer --config config.json --replay ris-capture.jsonl
