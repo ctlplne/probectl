@@ -744,7 +744,7 @@ func (rt *serveRuntime) startTLSPostureSinks() {
 }
 
 func (rt *serveRuntime) startEdgeTransports() error {
-	if err := startAgentTransport(rt.gctx, rt.g, rt.cfg, rt.db, rt.resultBus, rt.a2aBroker, rt.srv, rt.enrollSvc, rt.log); err != nil {
+	if err := startAgentTransport(rt.gctx, rt.g, rt.cfg, rt.db, rt.resultBus, rt.a2aBroker, rt.srv, rt.enrollSvc, rt.writerFence, rt.log); err != nil {
 		return err
 	}
 	if err := startOTLPSubsystems(rt.gctx, rt.g, rt.cfg, rt.db, rt.resultBus, rt.ingestWriter, rt.otelStore, rt.fairGate, rt.srv, rt.log); err != nil {

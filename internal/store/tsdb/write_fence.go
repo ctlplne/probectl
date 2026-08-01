@@ -45,17 +45,9 @@ func (w *writeFencedWriter) Write(
 	if err := ValidateTenantSeries(series); err != nil {
 		return err
 	}
-	tenantIDs := make([]string, 0, len(series))
-	for i := range series {
-		tenantIDs = append(tenantIDs, series[i].Labels[TenantLabel])
-	}
-	return w.fence.WithTenantWrites(
-		ctx,
-		tenantIDs,
-		func(ctx context.Context) error {
-			return w.next.Write(ctx, series)
-		},
-	)
+	return tenancy.FencedWrite(ctx, w.fence, series,
+		func(s Series) string { return s.Labels[TenantLabel] }, ErrTenantRequired,
+		func(ctx context.Context) error { return w.next.Write(ctx, series) })
 }
 
 // WriteGlobal preserves the explicit non-tenant self-metrics escape hatch.

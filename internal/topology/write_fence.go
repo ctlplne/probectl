@@ -8,6 +8,7 @@ package topology
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -75,20 +76,24 @@ type writeFencedTenantStore struct {
 	fence  tenancy.WriterFence
 }
 
+// mutate runs one graph mutation through the shared fence adapter. DECLARED
+// DIVERGENCE from the house error semantics (S-a9f9db46): the TenantStore
+// contract has VOID mutation methods (observations are fire-and-forget from
+// hot ingest paths), so a fenced, failing, or absent lease cannot surface an
+// error to the caller — the write is DROPPED, fail closed, and the drop is
+// LOUD: logged at error level with the tenant and cause, never silent.
 func (s *writeFencedTenantStore) mutate(write func()) {
-	if s.fence == nil {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), topologyWriteFenceTimeout)
 	defer cancel()
-	_ = s.fence.WithTenantWrites(
-		ctx,
-		[]string{s.tenant},
+	err := tenancy.FencedTenantWrite(ctx, s.fence, s.tenant, tenancy.ErrWriterFenceUnavailable,
 		func(context.Context) error {
 			write()
 			return nil
-		},
-	)
+		})
+	if err != nil {
+		slog.Default().Error("topology mutation dropped: tenant writer fence refused the write (fail closed)",
+			"tenant_id", s.tenant, "error", err.Error())
+	}
 }
 
 func (s *writeFencedTenantStore) ObservePath(in PathInput, at time.Time) {

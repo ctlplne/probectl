@@ -540,6 +540,7 @@ func startAgentTransport(
 	a2aBroker *a2a.Broker,
 	srv *control.Server,
 	enrollSvc *enroll.Service,
+	writerFence tenancy.WriterFence,
 	log *slog.Logger,
 ) error {
 	if !cfg.AgentTransportEnabled() {
@@ -549,6 +550,7 @@ func startAgentTransport(
 	if err != nil {
 		return fmt.Errorf("agent transport: %w", err)
 	}
+	grpcSrv.WithWriterFence(writerFence)
 	grpcSrv.WithVersionPolicy(lifecycle.Policy{Window: cfg.AgentSkewWindow, Min: cfg.AgentMinVersion})
 
 	if enrollSvc != nil {

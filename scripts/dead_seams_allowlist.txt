@@ -25,6 +25,7 @@ symbol github.com/ctlplne/probectl/internal/store/endpointstore.HasTenantWriteFe
 symbol github.com/ctlplne/probectl/internal/store/flowstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
 symbol github.com/ctlplne/probectl/internal/store/otelstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
 symbol github.com/ctlplne/probectl/internal/store/pathstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
+symbol github.com/ctlplne/probectl/internal/agenttransport.Server.HasTenantWriteFence — isolation-suite probe: the write-fence inventory asserts artifact ingest carries the injected fence
 symbol github.com/ctlplne/probectl/internal/store/tsdb.UnderlyingWriter — isolation-suite probe: unwraps the fence to prove writes landed under the right tenant
 symbol github.com/ctlplne/probectl/internal/store/ebpfstore.CHMigrations — migration-gate input: the ClickHouse DDL corpus the schema gate lints
 symbol github.com/ctlplne/probectl/internal/store/endpointstore.CHMigrations — migration-gate input: the ClickHouse DDL corpus the schema gate lints

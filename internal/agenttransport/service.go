@@ -88,6 +88,11 @@ type service struct {
 	// rolling upgrade never lets an incompatible agent into the fleet.
 	compat         lifecycle.Policy
 	controlVersion string
+
+	// fence is the deployment-wide erasure barrier for object-artifact ingest
+	// (S-a9f9db46): INJECTED from the runtime like every other plane's — never
+	// constructed ad hoc per call — so the write-fence inventory sees it.
+	fence tenancy.WriterFence
 }
 
 // Register upserts the agent into its tenant's registry. The id and tenant are
@@ -316,14 +321,8 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	if !hasObjectArtifact(&r) {
 		return publish(ctx)
 	}
-	if svc.pool == nil {
-		return errors.New("agent transport: object artifact ingest fence is unavailable")
-	}
-	return tenancy.NewPostgresWriterFence(svc.pool).WithTenantWrites(
-		ctx,
-		[]string{id.TenantID},
-		publish,
-	)
+	return tenancy.FencedTenantWrite(ctx, svc.fence, id.TenantID,
+		errors.New("agent transport: artifact result carries no tenant"), publish)
 }
 
 func hasObjectArtifact(r *resultv1.Result) bool {

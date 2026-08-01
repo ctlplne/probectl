@@ -12,10 +12,14 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/agenttransport"
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
@@ -87,5 +91,38 @@ func TestTenantEraseMultiPlaneWriteFenceInventory(t *testing.T) {
 	}
 	if rt.tsdbWriter != rawTSDB || tsdb.HasTenantWriteFence(rt.tsdbWriter) {
 		t.Error("query/lifecycle/global TSDB path must remain the concrete backend outside tenant-write fencing")
+	}
+
+	// Agent transport (S-a9f9db46): object-artifact ingest consumes the SAME
+	// injected fence as every other plane — never an ad-hoc per-call fence.
+	ca, err := crypto.GenerateCA("fence-inventory-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM, err := ca.IssueServerCert("control", []string{"127.0.0.1"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	for name, data := range map[string][]byte{"cert.pem": certPEM, "key.pem": keyPEM, "ca.pem": ca.CertPEM()} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	transport, err := agenttransport.New(
+		filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem"), filepath.Join(dir, "ca.pem"),
+		db.Pool(), nil, nil, log)
+	if err != nil {
+		t.Fatalf("agent transport construction: %v", err)
+	}
+	transport.WithWriterFence(rt.writerFence)
+	if !transport.HasTenantWriteFence() {
+		t.Error("agent transport artifact ingest is not protected by the tenant erasure fence")
+	}
+
+	// Anti-vacuous half: the inventory must be able to FAIL. A planted
+	// unfenced store is caught by the same predicate the checklist uses.
+	if flowstore.HasTenantWriteFence(flowstore.NewMemory()) {
+		t.Error("planted unfenced flow store passed the fence predicate — the inventory can no longer fail")
 	}
 }

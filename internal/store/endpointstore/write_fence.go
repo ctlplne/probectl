@@ -27,23 +27,14 @@ func WithTenantWriteFence(next Store, fence tenancy.WriterFence) Store {
 }
 
 func (s *writeFencedStore) Insert(ctx context.Context, events []Event) error {
-	if len(events) == 0 {
-		return s.next.Insert(ctx, events)
+	if len(events) > 0 {
+		if err := validate(events); err != nil {
+			return err
+		}
 	}
-	if err := validate(events); err != nil {
-		return err
-	}
-	tenantIDs := make([]string, 0, len(events))
-	for i := range events {
-		tenantIDs = append(tenantIDs, events[i].TenantID)
-	}
-	return s.fence.WithTenantWrites(
-		ctx,
-		tenantIDs,
-		func(ctx context.Context) error {
-			return s.next.Insert(ctx, events)
-		},
-	)
+	return tenancy.FencedWrite(ctx, s.fence, events,
+		func(e Event) string { return e.TenantID }, ErrNoTenant,
+		func(ctx context.Context) error { return s.next.Insert(ctx, events) })
 }
 
 func (s *writeFencedStore) Latest(

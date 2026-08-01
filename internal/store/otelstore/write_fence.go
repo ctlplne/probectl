@@ -28,46 +28,18 @@ func (s *writeFencedStore) WriteSpans(
 	ctx context.Context,
 	spans []Span,
 ) error {
-	if len(spans) == 0 {
-		return s.next.WriteSpans(ctx, spans)
-	}
-	tenantIDs := make([]string, 0, len(spans))
-	for i := range spans {
-		if spans[i].TenantID == "" {
-			return ErrNoTenant
-		}
-		tenantIDs = append(tenantIDs, spans[i].TenantID)
-	}
-	return s.fence.WithTenantWrites(
-		ctx,
-		tenantIDs,
-		func(ctx context.Context) error {
-			return s.next.WriteSpans(ctx, spans)
-		},
-	)
+	return tenancy.FencedWrite(ctx, s.fence, spans,
+		func(sp Span) string { return sp.TenantID }, ErrNoTenant,
+		func(ctx context.Context) error { return s.next.WriteSpans(ctx, spans) })
 }
 
 func (s *writeFencedStore) WriteLogs(
 	ctx context.Context,
 	recs []LogRecord,
 ) error {
-	if len(recs) == 0 {
-		return s.next.WriteLogs(ctx, recs)
-	}
-	tenantIDs := make([]string, 0, len(recs))
-	for i := range recs {
-		if recs[i].TenantID == "" {
-			return ErrNoTenant
-		}
-		tenantIDs = append(tenantIDs, recs[i].TenantID)
-	}
-	return s.fence.WithTenantWrites(
-		ctx,
-		tenantIDs,
-		func(ctx context.Context) error {
-			return s.next.WriteLogs(ctx, recs)
-		},
-	)
+	return tenancy.FencedWrite(ctx, s.fence, recs,
+		func(rec LogRecord) string { return rec.TenantID }, ErrNoTenant,
+		func(ctx context.Context) error { return s.next.WriteLogs(ctx, recs) })
 }
 
 func (s *writeFencedStore) QuerySpans(

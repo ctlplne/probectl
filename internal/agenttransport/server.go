@@ -22,6 +22,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/lifecycle"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/version"
 )
 
@@ -64,6 +65,12 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 		freshness: newNonceCache(DefaultFreshnessWindow),
 	}
 	if pool != nil {
+		// Default fence over the shared pool; the runtime replaces it with the
+		// deployment-wide instance via WithWriterFence so every plane shares
+		// one fence object and the inventory regression can see it.
+		svc.fence = tenancy.NewPostgresWriterFence(pool)
+	}
+	if pool != nil {
 		// SCALE-012: heartbeats coalesce into one multi-row UPDATE per tenant
 		// per window instead of one UPDATE per RPC (fleet-linear write load).
 		svc.hb = newHeartbeatBatcher(pool, log, defaultHeartbeatWindow)
@@ -90,6 +97,19 @@ func (s *Server) RevocationList() *crypto.RevocationList { return s.revocations 
 
 // WithVersionPolicy sets the agent↔control version-skew policy (S34). The default
 // is the N/N-1 window with no explicit floor. Returns the server for chaining.
+// WithWriterFence injects the deployment-wide tenant writer fence used by
+// object-artifact ingest; nil is ignored (the pool-derived default stands).
+func (s *Server) WithWriterFence(f tenancy.WriterFence) *Server {
+	if f != nil {
+		s.svc.fence = f
+	}
+	return s
+}
+
+// HasTenantWriteFence reports whether artifact ingest is protected by the
+// erasure barrier — the write-fence inventory regression checks it.
+func (s *Server) HasTenantWriteFence() bool { return s.svc.fence != nil }
+
 func (s *Server) WithVersionPolicy(p lifecycle.Policy) *Server {
 	s.svc.compat = p
 	return s

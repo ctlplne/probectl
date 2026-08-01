@@ -47,23 +47,14 @@ func WithTenantWriteFence(next Store, fence tenancy.WriterFence) Store {
 }
 
 func (s *writeFencedStore) Insert(ctx context.Context, rows []Row) error {
-	if len(rows) == 0 {
-		return s.next.Insert(ctx, rows)
+	if len(rows) > 0 {
+		if err := validateInsertRows(rows); err != nil {
+			return err
+		}
 	}
-	if err := validateInsertRows(rows); err != nil {
-		return err
-	}
-	tenantIDs := make([]string, 0, len(rows))
-	for i := range rows {
-		tenantIDs = append(tenantIDs, rows[i].TenantID)
-	}
-	return s.fence.WithTenantWrites(
-		ctx,
-		tenantIDs,
-		func(ctx context.Context) error {
-			return s.next.Insert(ctx, rows)
-		},
-	)
+	return tenancy.FencedWrite(ctx, s.fence, rows,
+		func(r Row) string { return r.TenantID }, ErrNoTenant,
+		func(ctx context.Context) error { return s.next.Insert(ctx, rows) })
 }
 
 func (s *writeFencedStore) TopTalkers(

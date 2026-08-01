@@ -35,16 +35,8 @@ func (s *writeFencedStore) Save(
 	tenantID string,
 	p *path.Path,
 ) error {
-	if tenantID == "" {
-		return ErrNoTenant
-	}
-	return s.fence.WithTenantWrites(
-		ctx,
-		[]string{tenantID},
-		func(ctx context.Context) error {
-			return s.next.Save(ctx, tenantID, p)
-		},
-	)
+	return tenancy.FencedTenantWrite(ctx, s.fence, tenantID, ErrNoTenant,
+		func(ctx context.Context) error { return s.next.Save(ctx, tenantID, p) })
 }
 
 // SaveBatch preserves the ClickHouse cross-path batching fast path while
@@ -57,16 +49,8 @@ func (s *writeFencedStore) SaveBatch(
 	if len(items) == 0 {
 		return nil
 	}
-	tenantIDs := make([]string, 0, len(items))
-	for i := range items {
-		if items[i].TenantID == "" {
-			return ErrNoTenant
-		}
-		tenantIDs = append(tenantIDs, items[i].TenantID)
-	}
-	return s.fence.WithTenantWrites(
-		ctx,
-		tenantIDs,
+	return tenancy.FencedWrite(ctx, s.fence, items,
+		func(it PathItem) string { return it.TenantID }, ErrNoTenant,
 		func(ctx context.Context) error {
 			if batch, ok := s.next.(batchSaver); ok {
 				return batch.SaveBatch(ctx, items)
