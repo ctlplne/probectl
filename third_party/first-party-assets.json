@@ -1,0 +1,17 @@
+{
+  "purpose": "First-party binary assets (G-bc21fbb0). The vendored-asset gate discovers binary/data assets repo-wide by content class; anything not declared as third-party in vendored-assets.json must be declared here with an origin so provenance is answerable for every shipped asset. An entry without a reason is invalid.",
+  "assets": [
+    {
+      "path": "docs/ops/images/fleet-rollout-console.jpg",
+      "origin": "first-party product screenshot (fleet rollout console), captured from a local dev deployment"
+    },
+    {
+      "path": "docs/ops/images/fleet-rollout-halted.jpg",
+      "origin": "first-party product screenshot (halted rollout state), captured from a local dev deployment"
+    },
+    {
+      "path": "docs/ops/images/fleet-rollout-human-gate.jpg",
+      "origin": "first-party product screenshot (human-gate approval step), captured from a local dev deployment"
+    }
+  ]
+}
