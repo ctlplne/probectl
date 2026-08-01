@@ -98,7 +98,7 @@ func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 			metricName: "probectl_pipeline_device_malformed_total",
 			run: func(reg *selfmetrics.Registry) (IntegrityStats, error) {
 				c := NewDeviceConsumer(nil, tsdb.NewMemory(), testLogger()).WithMetrics(reg)
-				err := c.handleLane(ctx, garbage, "")
+				err := c.handleLane(ctx, garbage, bus.DeviceMetricsTopic, "")
 				return c.integrityStats(), err
 			},
 		},
@@ -107,7 +107,7 @@ func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 			metricName: "probectl_pipeline_flow_malformed_total",
 			run: func(reg *selfmetrics.Registry) (IntegrityStats, error) {
 				c := NewFlowConsumer(nil, flowstore.NewMemory(), nil, testLogger()).WithMetrics(reg)
-				err := c.handleLane(ctx, garbage, "")
+				err := c.handleLane(ctx, garbage, bus.FlowEventsTopic, "")
 				return c.integrityStats(), err
 			},
 		},

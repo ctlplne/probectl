@@ -174,7 +174,7 @@ func TestFlowIngestCrossTenantInjectionRealStores(t *testing.T) {
 	}
 
 	// RED TEAM: A's agent claims tenant B. Must be rejected; nothing under B.
-	if err := c.handleLane(ctx, flowBatchMsg(b, ag), ""); err != nil {
+	if err := c.handleLane(ctx, flowBatchMsg(b, ag), bus.FlowEventsTopic, ""); err != nil {
 		t.Fatalf("handler must drop, not error: %v", err)
 	}
 	if c.RejectedBatches() != 1 {
@@ -185,7 +185,7 @@ func TestFlowIngestCrossTenantInjectionRealStores(t *testing.T) {
 	}
 
 	// Legit pair lands under A.
-	if err := c.handleLane(ctx, flowBatchMsg(a, ag), ""); err != nil {
+	if err := c.handleLane(ctx, flowBatchMsg(a, ag), bus.FlowEventsTopic, ""); err != nil {
 		t.Fatalf("legit batch: %v", err)
 	}
 	if n := top(a); n == 0 {
@@ -193,7 +193,7 @@ func TestFlowIngestCrossTenantInjectionRealStores(t *testing.T) {
 	}
 
 	// Namespaced lane bound to A, payload claims B → re-stamped to A; B stays empty.
-	if err := c.handleLane(ctx, flowBatchMsg(b, ag), a); err != nil {
+	if err := c.handleLane(ctx, flowBatchMsg(b, ag), bus.FlowEventsTopic, a); err != nil {
 		t.Fatalf("lane batch: %v", err)
 	}
 	if n := top(b); n != 0 {
@@ -226,14 +226,14 @@ func TestDeviceIngestCrossTenantInjection(t *testing.T) {
 	}
 
 	// Injection: dropped before any write.
-	if err := c.handleLane(ctx, mk(b, ag), ""); err != nil {
+	if err := c.handleLane(ctx, mk(b, ag), bus.DeviceMetricsTopic, ""); err != nil {
 		t.Fatalf("device handler must drop, not error: %v", err)
 	}
 	if c.rejectedBatches() != 1 || w.count() != 0 {
 		t.Fatalf("device injection not contained: rejected=%d written=%d", c.rejectedBatches(), w.count())
 	}
 	// Legit pair is written.
-	if err := c.handleLane(ctx, mk(a, ag), ""); err != nil {
+	if err := c.handleLane(ctx, mk(a, ag), bus.DeviceMetricsTopic, ""); err != nil {
 		t.Fatalf("device legit: %v", err)
 	}
 	if w.count() == 0 {

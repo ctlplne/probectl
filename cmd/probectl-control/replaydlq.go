@@ -16,6 +16,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/store"
 )
 
 // runReplayDeadLetter is the `probectl-control replay-deadletter` subcommand
@@ -50,7 +51,21 @@ func runReplayDeadLetter(cfg *config.Config, log *slog.Logger, args []string) er
 	}
 	defer b.Close()
 
-	res, err := pipeline.NewDeadLetterReplayer(b, log).Replay(context.Background(), pipeline.ReplayConfig{
+	replayer := pipeline.NewDeadLetterReplayer(b, log)
+	// The legacy shared results DLQ replays into the TRUSTED network lane, so
+	// its records are re-verified against the agents registry (S-f02d4e59);
+	// the replayer fails closed on that topic without a binding.
+	if *topic == bus.DeadLetterResultsTopic {
+		db, err := store.Open(context.Background(), cfg.DatabaseURL,
+			cfg.DatabaseMaxConns, cfg.DatabaseMinConns, cfg.DatabaseConnTimeout)
+		if err != nil {
+			return fmt.Errorf("replay-deadletter: open database for tenant re-verification: %w", err)
+		}
+		defer db.Close()
+		replayer.WithBinding(pipeline.NewRegistryBinding(db.Pool()))
+	}
+
+	res, err := replayer.Replay(context.Background(), pipeline.ReplayConfig{
 		DLQTopic:    *topic,
 		MaxRecords:  *maxRecords,
 		MaxPerSec:   *maxRate,
@@ -59,6 +74,7 @@ func runReplayDeadLetter(cfg *config.Config, log *slog.Logger, args []string) er
 	if err != nil {
 		return err
 	}
-	fmt.Printf("replayed %d record(s) from %s to %s\n", res.Replayed, res.DLQTopic, res.SourceTopic)
+	fmt.Printf("replayed %d record(s) from %s to %s (%d refused re-verification)\n",
+		res.Replayed, res.DLQTopic, res.SourceTopic, res.Refused)
 	return nil
 }

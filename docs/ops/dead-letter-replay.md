@@ -17,14 +17,34 @@ underlying store has recovered (ARCH-001).
 
 ## Dead-letter topics → source topics
 
-| Dead-letter topic                     | Replays onto              |
-| ------------------------------------- | ------------------------- |
-| `probectl.deadletter.results`         | `probectl.network.results`|
-| `probectl.deadletter.device`          | `probectl.device.metrics` |
-| `probectl.deadletter.flow`            | `probectl.flow.events`    |
-| `probectl.deadletter.otlp.metrics`    | `probectl.otlp.metrics`   |
-| `probectl.deadletter.otlp.traces`     | `probectl.otlp.traces`    |
-| `probectl.deadletter.otlp.logs`       | `probectl.otlp.logs`      |
+Every ingest lane parks its exhausted records on its **own** dead-letter
+topic, so a dead letter keeps the lane authority it was admitted under and
+replay re-enters the exact lane it left — the endpoint lane re-verifies agent
+bindings on re-ingest, and a record can never be laundered into the trusted
+network lane by a round trip through the DLQ. Siloed tenants' lanes dead-letter
+to **namespaced** DLQ topics (`probectl.<ns>.deadletter.*`) under the same
+tenant-bound ACLs as the lane itself, and replay likewise re-enters the
+namespaced lane.
+
+| Dead-letter topic                      | Replays onto               |
+| -------------------------------------- | -------------------------- |
+| `probectl.deadletter.results`          | `probectl.network.results` |
+| `probectl.deadletter.results.endpoint` | `probectl.endpoint.results`|
+| `probectl.deadletter.results.rum`      | `probectl.rum.events`      |
+| `probectl.deadletter.device`           | `probectl.device.metrics`  |
+| `probectl.deadletter.flow`             | `probectl.flow.events`     |
+| `probectl.deadletter.otlp.metrics`     | `probectl.otlp.metrics`    |
+| `probectl.deadletter.otlp.traces`      | `probectl.otlp.traces`     |
+| `probectl.deadletter.otlp.logs`        | `probectl.otlp.logs`       |
+
+**Legacy shared results DLQ**: before per-lane dead-lettering, endpoint- and
+RUM-lane records parked on the shared `probectl.deadletter.results`, whose
+replay target is the *trusted* network lane. Replaying that topic therefore
+re-verifies every record's claimed (tenant, agent) against the agents registry
+first — the command opens the database for exactly this — and **refuses**
+anything unverifiable (counted and printed as `refused`). RUM records carry no
+agent identity and so cannot be replayed from the legacy topic; new RUM dead
+letters land on `probectl.deadletter.results.rum` and replay normally.
 
 `probectl.deadletter.bgp` is intentionally not listed: the BGP incident
 consumer currently leaves failed source messages uncommitted instead of
@@ -43,10 +63,12 @@ consumer are implemented together.
    ```
 
    The replayer drains the dead-letter topic and re-publishes each record onto
-   its source topic, where the normal ingest consumers pick it up again. The
-   original tenant key and payload are preserved verbatim — a replayed record
-   lands with its original tenant and series, never reattributed. It uses the
-   same bus the control plane uses (`PROBECTL_BUS_*`).
+   its source topic, where the normal ingest consumers pick it up again — and
+   re-apply that lane's tenant verification, exactly as at first ingest. The
+   original tenant key and payload are preserved verbatim. It uses the same
+   bus the control plane uses (`PROBECTL_BUS_*`); for the legacy shared
+   results topic it also opens the database (`PROBECTL_DATABASE_URL`) to
+   re-verify each record's identity before handing it to the trusted lane.
 
    Flags:
 

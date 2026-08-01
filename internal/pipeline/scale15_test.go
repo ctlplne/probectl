@@ -150,7 +150,7 @@ func TestDeviceRateLimitAndCardinality(t *testing.T) {
 		v, _ := proto.Marshal(&devicev1.DeviceMetricBatch{Metrics: ms})
 		return bus.Message{Key: []byte("t-d"), Value: v}
 	}
-	if err := c.handleLane(ctx, mkBatch(10, "ok"), ""); err != nil {
+	if err := c.handleLane(ctx, mkBatch(10, "ok"), bus.DeviceMetricsTopic, ""); err != nil {
 		t.Fatal(err)
 	}
 	if w.count() == 0 {
@@ -160,7 +160,7 @@ func TestDeviceRateLimitAndCardinality(t *testing.T) {
 	// semantics admit at most one in-flight overshoot, then SHED. Total
 	// written stays bounded near the cap, nowhere near the offered load.
 	for i := 0; i < 10; i++ {
-		if err := c.handleLane(ctx, mkBatch(100, fmt.Sprintf("burst%d", i)), ""); err != nil {
+		if err := c.handleLane(ctx, mkBatch(100, fmt.Sprintf("burst%d", i)), bus.DeviceMetricsTopic, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -175,7 +175,7 @@ func TestDeviceRateLimitAndCardinality(t *testing.T) {
 	w2 := &s15Writer{}
 	c2 := NewDeviceConsumer(nil, w2, testLogger())
 	c2.card = NewCardinalityLimiter(5, 1000)
-	if err := c2.handleLane(ctx, mkBatch(50, "card"), ""); err != nil {
+	if err := c2.handleLane(ctx, mkBatch(50, "card"), bus.DeviceMetricsTopic, ""); err != nil {
 		t.Fatal(err)
 	}
 	if w2.count() != 5 {

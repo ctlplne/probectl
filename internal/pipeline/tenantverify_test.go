@@ -188,7 +188,7 @@ func TestFlowConsumerCrossTenantInjection(t *testing.T) {
 
 	// RED TEAM: tenant A's agent claims tenant B in the payload — the record
 	// must NEVER land under tenant B.
-	if err := c.handleLane(ctx, mkBatch("tenant-b", "agent-1"), ""); err != nil {
+	if err := c.handleLane(ctx, mkBatch("tenant-b", "agent-1"), bus.FlowEventsTopic, ""); err != nil {
 		t.Fatalf("handler must drop, not error the stream: %v", err)
 	}
 	if got := c.RejectedBatches(); got != 1 {
@@ -199,7 +199,7 @@ func TestFlowConsumerCrossTenantInjection(t *testing.T) {
 	}
 
 	// The legitimate pair flows through and is stored under the verified tenant.
-	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), ""); err != nil {
+	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), bus.FlowEventsTopic, ""); err != nil {
 		t.Fatalf("legit batch: %v", err)
 	}
 	if rows := st.RowsForTenant("tenant-a"); len(rows) != 1 {
@@ -208,7 +208,7 @@ func TestFlowConsumerCrossTenantInjection(t *testing.T) {
 
 	// Namespaced lane: payload claims tenant-b, but the lane belongs to
 	// tenant-a — the stored row must carry tenant-a (lane authoritative).
-	if err := c.handleLane(ctx, mkBatch("tenant-b", "agent-1"), "tenant-a"); err != nil {
+	if err := c.handleLane(ctx, mkBatch("tenant-b", "agent-1"), bus.FlowEventsTopic, "tenant-a"); err != nil {
 		t.Fatalf("lane batch: %v", err)
 	}
 	if rows := st.RowsForTenant("tenant-a"); len(rows) != 2 {
@@ -244,7 +244,7 @@ func TestFlowConsumerStrictLaneClosesSharedLaneForgery(t *testing.T) {
 
 	// FORGERY on the shared lane: a registry-VALID pair (the residual gap) is
 	// now refused outright — strict mode does not even consult the registry.
-	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), ""); err != nil {
+	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), bus.FlowEventsTopic, ""); err != nil {
 		t.Fatalf("handler must drop, not error: %v", err)
 	}
 	if got := c.RejectedBatches(); got != 1 {
@@ -256,7 +256,7 @@ func TestFlowConsumerStrictLaneClosesSharedLaneForgery(t *testing.T) {
 
 	// The SAME record on the agent's namespaced lane flows through (the lane is
 	// the authoritative, forgery-proof path).
-	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), "tenant-a"); err != nil {
+	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), bus.FlowEventsTopic, "tenant-a"); err != nil {
 		t.Fatalf("namespaced lane batch: %v", err)
 	}
 	if rows := st.RowsForTenant("tenant-a"); len(rows) != 1 {

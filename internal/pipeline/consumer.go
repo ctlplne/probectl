@@ -353,8 +353,13 @@ type writeItem struct {
 	series []tsdb.Series
 	msg    bus.Message
 	r      *resultv1.Result
-	bytes  int        // ingest bytes to meter once the write is durable (CORRECT-005)
-	done   chan error // CORRECT-001: write-stage signals durability back to the handler
+	// sourceTopic is the LANE the record arrived on. The DLQ path derives the
+	// lane's OWN dead-letter topic from it (S-f02d4e59), so a parked record
+	// keeps its originally-bound lane authority and replay re-enters the lane
+	// that will re-apply that authority.
+	sourceTopic string
+	bytes       int        // ingest bytes to meter once the write is durable (CORRECT-005)
+	done        chan error // CORRECT-001: write-stage signals durability back to the handler
 }
 
 // writeOne is the write stage's per-record body: store (with retry), then either
@@ -376,7 +381,7 @@ func (c *Consumer) writeOne(ctx context.Context, it writeItem) error {
 			return err
 		}
 		before := c.dropped.Load()
-		c.deadLetter(ctx, it.msg, it.r, err)
+		c.deadLetter(ctx, it, err)
 		if c.dropped.Load() > before {
 			// DLQ publish failed too — not safely handled; keep the offset so the
 			// record is redelivered rather than silently lost.
@@ -411,7 +416,7 @@ func (c *Consumer) WithWriteQueueDepth(n int) *Consumer {
 // retried with jittered backoff and, after exhaustion, dead-lettered with
 // the ORIGINAL bytes (U-019) — never silently lost.
 func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
-	return c.handleLane(ctx, msg, topicGroup{})
+	return c.handleLane(ctx, msg, topicGroup{topic: bus.NetworkResultsTopic})
 }
 
 // handleLane is handle with the lane's tenant-authority context (TENANT-101):
@@ -498,7 +503,7 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 			c.recordWriteQueueSaturation()
 		}
 		select {
-		case ch <- writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value), done: done}:
+		case ch <- writeItem{series: series, msg: msg, r: &r, sourceTopic: lane.topic, bytes: len(msg.Value), done: done}:
 		case <-ctx.Done():
 			return ctx.Err() // shutting down: don't commit a record we never wrote
 		}
@@ -510,7 +515,7 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 		}
 	}
 	// Synchronous path (unit tests, lightweight mode): same durability contract.
-	return c.writeOne(ctx, writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value)})
+	return c.writeOne(ctx, writeItem{series: series, msg: msg, r: &r, sourceTopic: lane.topic, bytes: len(msg.Value)})
 }
 
 func (c *Consumer) recordWriteQueueSaturation() {
@@ -547,15 +552,23 @@ func (c *Consumer) writeWithRetry(ctx context.Context, series []tsdb.Series) err
 	}
 }
 
-// deadLetter routes the ORIGINAL message bytes to the dead-letter topic
-// (tenant-keyed, replayable) and accounts the outcome. A DLQ publish failure
-// is the only true loss — it is counted and logged at ERROR.
-func (c *Consumer) deadLetter(ctx context.Context, msg bus.Message, r *resultv1.Result, writeErr error) {
-	if err := c.bus.Publish(ctx, bus.DeadLetterResultsTopic, msg.Key, msg.Value); err != nil {
+// deadLetter routes the ORIGINAL message bytes to the record's LANE-specific
+// dead-letter topic (tenant-keyed, replayable; S-f02d4e59) and accounts the
+// outcome: the endpoint lane's dead letters park on the endpoint DLQ, a siloed
+// lane's on its namespaced (tenant-bound ACL) DLQ — never a pooled topic — so
+// replay re-enters through the lane that re-applies tenant verification. A DLQ
+// resolution or publish failure is the only true loss — counted and logged.
+func (c *Consumer) deadLetter(ctx context.Context, it writeItem, writeErr error) {
+	msg, r := it.msg, it.r
+	dlqTopic, err := bus.DeadLetterTopicFor(it.sourceTopic)
+	if err == nil {
+		err = c.bus.Publish(ctx, dlqTopic, msg.Key, msg.Value)
+	}
+	if err != nil {
 		c.dropped.Add(1)
 		c.ledger.addDropped(1)
 		c.log.Error("RESULT LOST: store write exhausted retries and dead-letter publish failed",
-			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
+			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(), "lane", it.sourceTopic,
 			"write_error", writeErr.Error(), "dlq_error", err.Error(),
 			"dropped_total", c.dropped.Load())
 		return
@@ -564,6 +577,6 @@ func (c *Consumer) deadLetter(ctx context.Context, msg bus.Message, r *resultv1.
 	c.ledger.addDeadLettered(1)
 	c.log.Error("store write exhausted retries — result dead-lettered (replayable)",
 		"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
-		"topic", bus.DeadLetterResultsTopic, "error", writeErr.Error(),
+		"topic", dlqTopic, "error", writeErr.Error(),
 		"dead_lettered_total", c.deadLettered.Load())
 }

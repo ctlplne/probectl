@@ -94,7 +94,7 @@ func TestFlowWriteRetryDLQParity(t *testing.T) {
 	b := &flowDLQBus{}
 	c := NewFlowConsumer(b, st, nil, testLogger())
 	c.sleep = func(context.Context, time.Duration) {}
-	if err := c.handleLane(ctx, flowMsg(t, "t-a", "agent-1"), ""); err != nil {
+	if err := c.handleLane(ctx, flowMsg(t, "t-a", "agent-1"), bus.FlowEventsTopic, ""); err != nil {
 		t.Fatalf("handleLane: %v", err)
 	}
 	if st.wrote == 0 {
@@ -113,7 +113,7 @@ func TestFlowWriteRetryDLQParity(t *testing.T) {
 	c2 := NewFlowConsumer(b2, st2, nil, testLogger())
 	c2.sleep = func(context.Context, time.Duration) {}
 	msg := flowMsg(t, "t-b", "agent-2")
-	if err := c2.handleLane(ctx, msg, ""); err != nil {
+	if err := c2.handleLane(ctx, msg, bus.FlowEventsTopic, ""); err != nil {
 		t.Fatalf("handleLane: %v", err)
 	}
 	if c2.DeadLettered() != 1 || c2.Dropped() != 0 {
@@ -128,7 +128,7 @@ func TestFlowWriteRetryDLQParity(t *testing.T) {
 	b3 := &flowDLQBus{failDLQ: true}
 	c3 := NewFlowConsumer(b3, st3, nil, testLogger())
 	c3.sleep = func(context.Context, time.Duration) {}
-	_ = c3.handleLane(ctx, flowMsg(t, "t-c", "agent-3"), "")
+	_ = c3.handleLane(ctx, flowMsg(t, "t-c", "agent-3"), bus.FlowEventsTopic, "")
 	if c3.Dropped() != 1 {
 		t.Fatalf("DLQ-down is the only true loss: dropped=%d, want 1", c3.Dropped())
 	}
@@ -143,7 +143,7 @@ func TestFlowContextCancelUnknownOutcomeDoesNotDLQ(t *testing.T) {
 	c := NewFlowConsumer(b, st, nil, testLogger())
 	c.sleep = func(context.Context, time.Duration) {}
 
-	err := c.handleLane(ctx, flowMsg(t, "t-cancel", "agent-1"), "")
+	err := c.handleLane(ctx, flowMsg(t, "t-cancel", "agent-1"), bus.FlowEventsTopic, "")
 	if err == nil {
 		t.Fatal("handleLane returned nil for an unknown canceled insert outcome")
 	}

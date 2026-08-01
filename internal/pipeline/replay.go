@@ -13,7 +13,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/ctlplne/probectl/internal/bus"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // Dead-letter replay (ARCH-001).
@@ -31,30 +34,31 @@ import (
 // key (tenant) and value (original payload) are preserved verbatim, so a
 // replayed record lands with its original tenant/series — never reattributed.
 
-// dlqSource maps each dead-letter topic to the source topic its records replay
-// into. A DLQ topic with no mapping is a programming error (fail closed).
-var dlqSource = map[string]string{
-	bus.DeadLetterResultsTopic:     bus.NetworkResultsTopic,
-	bus.DeadLetterDeviceTopic:      bus.DeviceMetricsTopic,
-	bus.DeadLetterFlowTopic:        bus.FlowEventsTopic,
-	bus.DeadLetterOTLPMetricsTopic: bus.OTLPMetricsTopic,
-	bus.DeadLetterOTLPTracesTopic:  bus.OTLPTracesTopic,
-	bus.DeadLetterOTLPLogsTopic:    bus.OTLPLogsTopic,
-}
+// The DLQ→source mapping is bus.SourceTopicForDeadLetter (S-f02d4e59): each
+// lane's dead letters replay into the SAME lane they left — the endpoint lane
+// re-verifies agent bindings, namespaced (siloed) lanes re-apply their lane
+// tenant — so replay re-enters through a path that re-applies exactly the
+// authority the record was originally admitted under. A DLQ topic with no
+// mapping is a programming error (fail closed).
 
-// ReplayableTopics returns the dead-letter topics the replayer understands.
+// ReplayableTopics returns the base dead-letter topics the replayer
+// understands (namespaced variants of each replay too).
 func ReplayableTopics() []string {
-	out := make([]string, 0, len(dlqSource))
-	for t := range dlqSource {
-		out = append(out, t)
+	return []string{
+		bus.DeadLetterResultsTopic,
+		bus.DeadLetterResultsTopic + ".endpoint",
+		bus.DeadLetterResultsTopic + ".rum",
+		bus.DeadLetterDeviceTopic,
+		bus.DeadLetterFlowTopic,
+		bus.DeadLetterOTLPMetricsTopic,
+		bus.DeadLetterOTLPTracesTopic,
+		bus.DeadLetterOTLPLogsTopic,
 	}
-	return out
 }
 
 // SourceTopicFor returns the source topic a dead-letter topic replays into.
 func SourceTopicFor(dlqTopic string) (string, bool) {
-	src, ok := dlqSource[dlqTopic]
-	return src, ok
+	return bus.SourceTopicForDeadLetter(dlqTopic)
 }
 
 // ReplayConfig configures one DLQ drain.
@@ -71,12 +75,30 @@ type ReplayResult struct {
 	DLQTopic    string
 	SourceTopic string
 	Replayed    int
+	// Refused counts legacy records that failed tenant re-verification and
+	// were NOT replayed (fail closed).
+	Refused int
 }
 
 // DeadLetterReplayer re-ingests dead-lettered records.
 type DeadLetterReplayer struct {
-	bus bus.Bus
-	log *slog.Logger
+	bus     bus.Bus
+	log     *slog.Logger
+	binding TenantBinding
+}
+
+// WithBinding attaches the agents registry so replay of the LEGACY shared
+// results DLQ can re-verify records before handing them to the trusted
+// network lane. Pre-S-f02d4e59 deployments parked endpoint- and RUM-lane
+// records on that shared topic; replaying that residue verbatim would launder
+// an unverified payload tenant through the trusted lane. With a binding, each
+// legacy record's (tenant, agent) is re-checked and a failure is REFUSED
+// (counted, logged) — the same fail-closed posture as first ingest. New dead
+// letters land on per-lane topics whose replay re-enters verifying lanes, so
+// they need no replayer-side check.
+func (r *DeadLetterReplayer) WithBinding(b TenantBinding) *DeadLetterReplayer {
+	r.binding = b
+	return r
 }
 
 // NewDeadLetterReplayer builds a replayer over the same bus the control plane
@@ -91,9 +113,16 @@ func NewDeadLetterReplayer(b bus.Bus, log *slog.Logger) *DeadLetterReplayer {
 // Replay drains cfg.DLQTopic and re-publishes each record to its source topic.
 // It blocks until idle, MaxRecords, or ctx cancellation, then returns counts.
 func (r *DeadLetterReplayer) Replay(ctx context.Context, cfg ReplayConfig) (ReplayResult, error) {
-	src, ok := dlqSource[cfg.DLQTopic]
+	src, ok := bus.SourceTopicForDeadLetter(cfg.DLQTopic)
 	if !ok {
 		return ReplayResult{}, fmt.Errorf("replay: %q is not a known dead-letter topic (want one of %v)", cfg.DLQTopic, ReplayableTopics())
+	}
+	// The legacy shared results DLQ replays into the TRUSTED network lane; its
+	// records may predate per-lane dead-lettering. Refuse to replay it without
+	// a binding to re-verify against (fail closed), and re-verify each record.
+	verifyLegacy := cfg.DLQTopic == bus.DeadLetterResultsTopic
+	if verifyLegacy && r.binding == nil {
+		return ReplayResult{}, fmt.Errorf("replay: %s re-enters the trusted network lane; a tenant binding is required to re-verify parked records (fail closed)", bus.DeadLetterResultsTopic)
 	}
 	group := cfg.Group
 	if group == "" {
@@ -104,7 +133,7 @@ func (r *DeadLetterReplayer) Replay(ctx context.Context, cfg ReplayConfig) (Repl
 		idle = 5 * time.Second
 	}
 
-	var replayed atomic.Int64
+	var replayed, refused atomic.Int64
 	// minInterval throttles re-publish to MaxPerSec.
 	var minInterval time.Duration
 	if cfg.MaxPerSec > 0 {
@@ -158,6 +187,14 @@ func (r *DeadLetterReplayer) Replay(ctx context.Context, cfg ReplayConfig) (Repl
 			}
 			last = time.Now()
 		}
+		if verifyLegacy {
+			if err := r.verifyLegacyResult(hctx, msg); err != nil {
+				refused.Add(1)
+				r.log.Error("REFUSED dead-letter replay: legacy record failed tenant re-verification (fail closed)",
+					"dlq_topic", cfg.DLQTopic, "error", err.Error(), "refused_total", refused.Load())
+				return nil // consumed (never replayed); operators triage from the log + count
+			}
+		}
 		// Re-publish to the SOURCE topic, preserving the tenant key + original
 		// payload verbatim — the record re-enters the normal ingest path.
 		if err := r.bus.Publish(hctx, src, msg.Key, msg.Value); err != nil {
@@ -185,7 +222,31 @@ func (r *DeadLetterReplayer) Replay(ctx context.Context, cfg ReplayConfig) (Repl
 	if err != nil && subCtx.Err() == nil && ctx.Err() == nil {
 		return ReplayResult{}, err
 	}
-	res := ReplayResult{DLQTopic: cfg.DLQTopic, SourceTopic: src, Replayed: int(replayed.Load())}
-	r.log.Info("dead-letter replay finished", "dlq_topic", cfg.DLQTopic, "source_topic", src, "replayed", res.Replayed)
+	res := ReplayResult{DLQTopic: cfg.DLQTopic, SourceTopic: src, Replayed: int(replayed.Load()), Refused: int(refused.Load())}
+	r.log.Info("dead-letter replay finished", "dlq_topic", cfg.DLQTopic, "source_topic", src,
+		"replayed", res.Replayed, "refused", res.Refused)
 	return res, nil
+}
+
+// verifyLegacyResult re-verifies one legacy shared-DLQ record: the payload's
+// claimed (tenant, agent) must still be bound in the agents registry, and the
+// bus key must agree with the payload tenant. Anything unverifiable is
+// refused — including RUM records (no agent id), which cannot prove a binding
+// and predate per-lane dead-lettering.
+func (r *DeadLetterReplayer) verifyLegacyResult(ctx context.Context, msg bus.Message) error {
+	var rec resultv1.Result
+	if err := proto.Unmarshal(msg.Value, &rec); err != nil {
+		return fmt.Errorf("undecodable result payload: %w", err)
+	}
+	tenant, agent := rec.GetTenantId(), rec.GetAgentId()
+	if tenant == "" || agent == "" {
+		return fmt.Errorf("record carries no verifiable identity (tenant %q, agent %q)", tenant, agent)
+	}
+	if keyTenant := string(tenantFromKey(msg.Key)); keyTenant != "" && keyTenant != tenant {
+		return fmt.Errorf("bus key tenant %q disagrees with payload tenant %q", keyTenant, tenant)
+	}
+	if err := r.binding.Verify(ctx, tenant, agent); err != nil {
+		return fmt.Errorf("agent %q is not bound to tenant %q: %w", agent, tenant, err)
+	}
+	return nil
 }

@@ -249,3 +249,77 @@ func TenantFromKey(key []byte) string {
 	}
 	return s[:len(s)-3]
 }
+
+// deadLetterBySource is the bijective lane→dead-letter mapping (Foundation-Loop
+// S-f02d4e59). Each ingest lane parks its exhausted records on its OWN
+// dead-letter topic, so a dead letter carries its originally-bound lane
+// authority and replay re-enters the exact lane it left — the endpoint lane
+// re-verifies agent bindings, tenant-bound lanes re-bind, and a record can
+// never be laundered into the trusted network lane by a round trip through
+// the DLQ. The network lane keeps the legacy shared name so pre-existing
+// parked records remain replayable (the replayer re-verifies that residue).
+var deadLetterBySource = map[string]string{
+	NetworkResultsTopic:  DeadLetterResultsTopic,
+	EndpointResultsTopic: DeadLetterResultsTopic + ".endpoint",
+	RUMEventsTopic:       DeadLetterResultsTopic + ".rum",
+	FlowEventsTopic:      DeadLetterFlowTopic,
+	DeviceMetricsTopic:   DeadLetterDeviceTopic,
+	OTLPMetricsTopic:     DeadLetterOTLPMetricsTopic,
+	OTLPTracesTopic:      DeadLetterOTLPTracesTopic,
+	OTLPLogsTopic:        DeadLetterOTLPLogsTopic,
+}
+
+// DeadLetterTopicFor returns the dead-letter topic for an ingest lane topic,
+// including namespaced (siloed) lanes: a siloed lane's dead letters rest on a
+// namespaced DLQ topic under the SAME tenant-bound ACLs as the lane itself,
+// never on a pooled topic. Unknown topics are an error (fail closed).
+func DeadLetterTopicFor(sourceTopic string) (string, error) {
+	if dlq, ok := deadLetterBySource[sourceTopic]; ok {
+		return dlq, nil
+	}
+	ns, base, ok := splitNamespaced(sourceTopic)
+	if ok {
+		if dlq, mapped := deadLetterBySource[base]; mapped {
+			return TopicFor(ns, dlq)
+		}
+	}
+	return "", fmt.Errorf("bus: no dead-letter topic for lane %q (fail closed)", sourceTopic)
+}
+
+// SourceTopicForDeadLetter inverts DeadLetterTopicFor, again including
+// namespaced dead-letter topics.
+func SourceTopicForDeadLetter(dlqTopic string) (string, bool) {
+	for src, dlq := range deadLetterBySource {
+		if dlq == dlqTopic {
+			return src, true
+		}
+	}
+	ns, base, ok := splitNamespaced(dlqTopic)
+	if !ok {
+		return "", false
+	}
+	for src, dlq := range deadLetterBySource {
+		if dlq == base {
+			namespaced, err := TopicFor(ns, src)
+			if err != nil {
+				return "", false
+			}
+			return namespaced, true
+		}
+	}
+	return "", false
+}
+
+// splitNamespaced decomposes "probectl.<ns>.<rest>" into (ns, "probectl.<rest>")
+// when <ns> is a valid namespace and the base is a known probectl topic shape.
+func splitNamespaced(topic string) (ns, base string, ok bool) {
+	rest, hasPrefix := strings.CutPrefix(topic, "probectl.")
+	if !hasPrefix {
+		return "", "", false
+	}
+	seg, tail, found := strings.Cut(rest, ".")
+	if !found || !namespaceRe.MatchString(seg) {
+		return "", "", false
+	}
+	return seg, "probectl." + tail, true
+}

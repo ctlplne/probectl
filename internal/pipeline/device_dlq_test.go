@@ -91,7 +91,7 @@ func TestDeviceWriteRetryDLQOnTransientFailure(t *testing.T) {
 	b := &captureDLQBus{}
 	c := NewDeviceConsumer(b, w, testLogger())
 	c.sleep = func(context.Context, time.Duration) {} // no real backoff in tests
-	if err := c.handleLane(ctx, deviceMsg(t, "t-a", "agent-1"), ""); err != nil {
+	if err := c.handleLane(ctx, deviceMsg(t, "t-a", "agent-1"), bus.DeviceMetricsTopic, ""); err != nil {
 		t.Fatalf("handleLane: %v", err)
 	}
 	if w.wrote == 0 {
@@ -112,7 +112,7 @@ func TestDeviceWriteRetryDLQOnTransientFailure(t *testing.T) {
 	c2 := NewDeviceConsumer(b2, w2, testLogger())
 	c2.sleep = func(context.Context, time.Duration) {}
 	msg := deviceMsg(t, "t-b", "agent-2")
-	if err := c2.handleLane(ctx, msg, ""); err != nil {
+	if err := c2.handleLane(ctx, msg, bus.DeviceMetricsTopic, ""); err != nil {
 		t.Fatalf("handleLane: %v", err)
 	}
 	if c2.deadLetteredCount() != 1 || c2.droppedCount() != 0 {
@@ -128,7 +128,7 @@ func TestDeviceWriteRetryDLQOnTransientFailure(t *testing.T) {
 	b3 := &captureDLQBus{failDLQ: true}
 	c3 := NewDeviceConsumer(b3, w3, testLogger())
 	c3.sleep = func(context.Context, time.Duration) {}
-	_ = c3.handleLane(ctx, deviceMsg(t, "t-c", "agent-3"), "")
+	_ = c3.handleLane(ctx, deviceMsg(t, "t-c", "agent-3"), bus.DeviceMetricsTopic, "")
 	if c3.droppedCount() != 1 {
 		t.Fatalf("DLQ-down is the only true loss: dropped=%d, want 1", c3.droppedCount())
 	}
@@ -143,7 +143,7 @@ func TestDeviceContextCancelUnknownOutcomeDoesNotDLQ(t *testing.T) {
 	c := NewDeviceConsumer(b, w, testLogger())
 	c.sleep = func(context.Context, time.Duration) {}
 
-	err := c.handleLane(ctx, deviceMsg(t, "t-cancel", "agent-1"), "")
+	err := c.handleLane(ctx, deviceMsg(t, "t-cancel", "agent-1"), bus.DeviceMetricsTopic, "")
 	if err == nil {
 		t.Fatal("handleLane returned nil for an unknown canceled write outcome")
 	}

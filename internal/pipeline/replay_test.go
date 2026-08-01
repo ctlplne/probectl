@@ -15,14 +15,33 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kfake"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/bus"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // TestDeadLetterReplayReingests is the ARCH-001 acceptance test: a record
 // parked on probectl.deadletter.results is, after a replay, re-published to the
 // source topic (probectl.network.results) with its ORIGINAL tenant key and
 // payload — proving the product can recover dead-lettered telemetry itself.
+// legacyResultPayload builds a decodable Result carrying a verifiable
+// identity, as replay's legacy re-verification demands of the shared topic.
+func legacyResultPayload(t *testing.T, tenant, agent string) []byte {
+	t.Helper()
+	v, err := proto.Marshal(&resultv1.Result{TenantId: tenant, AgentId: agent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// allowAllBinding satisfies replay's legacy re-verification for tests whose
+// subject is the replay MECHANICS (flush, redelivery), not the refusal path.
+type allowAllBinding struct{}
+
+func (allowAllBinding) Verify(context.Context, string, string) error { return nil }
+
 func TestDeadLetterReplayReingests(t *testing.T) {
 	b := bus.NewMemory()
 	defer b.Close()
@@ -45,7 +64,7 @@ func TestDeadLetterReplayReingests(t *testing.T) {
 	}()
 
 	// Start the replayer draining the DLQ topic.
-	r := NewDeadLetterReplayer(b, testLogger())
+	r := NewDeadLetterReplayer(b, testLogger()).WithBinding(allowAllBinding{})
 	replayDone := make(chan ReplayResult, 1)
 	go func() {
 		res, err := r.Replay(context.Background(), ReplayConfig{
@@ -61,7 +80,7 @@ func TestDeadLetterReplayReingests(t *testing.T) {
 	// Give both subscribers a moment to register, then dead-letter a record.
 	time.Sleep(50 * time.Millisecond)
 	origKey := []byte("tenant-a")
-	origVal := []byte("the-original-result-bytes")
+	origVal := legacyResultPayload(t, "tenant-a", "agent-1")
 	if err := b.Publish(context.Background(), bus.DeadLetterResultsTopic, origKey, origVal); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +91,7 @@ func TestDeadLetterReplayReingests(t *testing.T) {
 		if string(g.key) != "tenant-a" {
 			t.Errorf("replayed key = %q, want tenant-a (original tenant must be preserved)", g.key)
 		}
-		if string(g.val) != "the-original-result-bytes" {
+		if string(g.val) != string(origVal) {
 			t.Errorf("replayed payload = %q, want the original bytes", g.val)
 		}
 	case <-time.After(2 * time.Second):
@@ -96,11 +115,11 @@ func TestDeadLetterReplayReingests(t *testing.T) {
 func TestDeadLetterReplayFlushFailurePreventsCommit(t *testing.T) {
 	flushErr := errors.New("broker flush failed")
 	b := &flushFailReplayBus{
-		msg:      bus.Message{Topic: bus.DeadLetterResultsTopic, Key: []byte("tenant-a"), Value: []byte("payload")},
+		msg:      bus.Message{Topic: bus.DeadLetterResultsTopic, Key: []byte("tenant-a"), Value: legacyResultPayload(t, "tenant-a", "agent-1")},
 		flushErr: flushErr,
 	}
 
-	r := NewDeadLetterReplayer(b, testLogger())
+	r := NewDeadLetterReplayer(b, testLogger()).WithBinding(allowAllBinding{})
 	res, err := r.Replay(context.Background(), ReplayConfig{
 		DLQTopic:    bus.DeadLetterResultsTopic,
 		IdleTimeout: time.Second,
@@ -134,7 +153,7 @@ func TestDeadLetterReplayKafkaFlushFailureLeavesDLQRedeliverable(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if err := seed.Publish(ctx, bus.DeadLetterResultsTopic, []byte("tenant-a"), []byte("payload")); err != nil {
+	if err := seed.Publish(ctx, bus.DeadLetterResultsTopic, []byte("tenant-a"), legacyResultPayload(t, "tenant-a", "agent-1")); err != nil {
 		t.Fatalf("seed DLQ record: %v", err)
 	}
 	if err := seed.Flush(ctx); err != nil {
@@ -146,7 +165,7 @@ func TestDeadLetterReplayKafkaFlushFailureLeavesDLQRedeliverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	failing := &flushFailKafkaBus{Kafka: k1, err: errors.New("forced source flush failure")}
-	r1 := NewDeadLetterReplayer(failing, testLogger())
+	r1 := NewDeadLetterReplayer(failing, testLogger()).WithBinding(allowAllBinding{})
 	res, err := r1.Replay(ctx, ReplayConfig{
 		DLQTopic:    bus.DeadLetterResultsTopic,
 		Group:       "spine-002-redelivery",
@@ -173,7 +192,7 @@ func TestDeadLetterReplayKafkaFlushFailureLeavesDLQRedeliverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer k2.Close()
-	r2 := NewDeadLetterReplayer(k2, testLogger())
+	r2 := NewDeadLetterReplayer(k2, testLogger()).WithBinding(allowAllBinding{})
 	res, err = r2.Replay(ctx, ReplayConfig{
 		DLQTopic:    bus.DeadLetterResultsTopic,
 		Group:       "spine-002-redelivery",
@@ -204,7 +223,7 @@ type flushFailReplayBus struct {
 }
 
 func (b *flushFailReplayBus) Publish(_ context.Context, topic string, key, value []byte) error {
-	b.published = topic == bus.NetworkResultsTopic && string(key) == "tenant-a" && string(value) == "payload"
+	b.published = topic == bus.NetworkResultsTopic && string(key) == "tenant-a" && len(value) > 0
 	return nil
 }
 

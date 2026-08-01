@@ -156,7 +156,7 @@ consumer group alongside `probectl.network.results`. A separate durable consumer
 writes the event-shaped fields (SSID/gateway/session labels and attribution) to
 ClickHouse. It verifies the bus lane or registered agent-to-tenant binding
 *before* either cache or durable persistence, retries a bounded number of times,
-and sends the original protobuf to `probectl.deadletter.results` if ClickHouse
+and sends the original protobuf to `probectl.deadletter.results.endpoint` if ClickHouse
 remains unavailable. A store failure therefore cannot silently acknowledge and
 lose an endpoint event.
 

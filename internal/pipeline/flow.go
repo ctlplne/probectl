@@ -151,7 +151,9 @@ func (c *FlowConsumer) Run(ctx context.Context) error {
 			wg.Add(1)
 			go func(s laneSub) {
 				defer wg.Done()
-				h := func(hctx context.Context, msg bus.Message) error { return c.handleLane(hctx, msg, s.laneTenant) }
+				h := func(hctx context.Context, msg bus.Message) error {
+					return c.handleLane(hctx, msg, s.topic, s.laneTenant)
+				}
 				if err := c.bus.Subscribe(ctx2, s.topic, s.group, h); err != nil && ctx2.Err() == nil {
 					errs <- err
 					cancel()
@@ -211,7 +213,7 @@ func (c *FlowConsumer) RejectedBatches() uint64 { return c.rejected.Load() }
 
 // handle serves the shared lane.
 func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
-	return c.handleLane(ctx, msg, "")
+	return c.handleLane(ctx, msg, c.topic, "")
 }
 
 // handleLane decodes one FlowBatch, VERIFIES its tenant (TENANT-101: the
@@ -220,7 +222,7 @@ func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
 // dropped fail-closed and counted; transient store failures retry with
 // jittered backoff and, on exhaustion, dead-letter the ORIGINAL bytes — real
 // parity with the result + device pipelines (CORRECT-010).
-func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopic, laneTenant string) error {
 	c.ledger.addReceived(1)
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
@@ -273,7 +275,7 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 		if unknownWriteOutcome(ctx, err) {
 			return err
 		}
-		c.deadLetter(ctx, msg, tenant, err)
+		c.deadLetter(ctx, msg, laneTopic, tenant, err)
 		return nil
 	}
 	c.ledger.addStored(1)
@@ -300,7 +302,7 @@ func (c *FlowConsumer) insertWithRetry(ctx context.Context, rows []flowstore.Row
 
 // deadLetter publishes the ORIGINAL message bytes to the flow DLQ (tenant-keyed,
 // replayable). A DLQ publish failure is the only true loss.
-func (c *FlowConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant string, insertErr error) {
+func (c *FlowConsumer) deadLetter(ctx context.Context, msg bus.Message, laneTopic, tenant string, insertErr error) {
 	if c.bus == nil {
 		c.dropped.Add(1)
 		c.ledger.addDropped(1)
@@ -308,7 +310,11 @@ func (c *FlowConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant s
 			"tenant_id", tenant, "insert_error", insertErr.Error(), "dropped_total", c.dropped.Load())
 		return
 	}
-	if err := c.bus.Publish(ctx, bus.DeadLetterFlowTopic, msg.Key, msg.Value); err != nil {
+	dlqTopic, derr := bus.DeadLetterTopicFor(laneTopic)
+	if derr == nil {
+		derr = c.bus.Publish(ctx, dlqTopic, msg.Key, msg.Value)
+	}
+	if err := derr; err != nil {
 		c.dropped.Add(1)
 		c.ledger.addDropped(1)
 		c.log.Error("FLOW BATCH LOST: insert exhausted retries and dead-letter publish failed",
@@ -319,7 +325,7 @@ func (c *FlowConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant s
 	c.deadLettered.Add(1)
 	c.ledger.addDeadLettered(1)
 	c.log.Warn("flow batch dead-lettered after insert retries",
-		"tenant_id", tenant, "topic", bus.DeadLetterFlowTopic, "insert_error", insertErr.Error())
+		"tenant_id", tenant, "topic", dlqTopic, "insert_error", insertErr.Error())
 }
 
 // enrichRecord fills missing ASN/geo via opendata (S15). Device-asserted AS

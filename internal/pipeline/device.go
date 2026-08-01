@@ -157,7 +157,9 @@ func (c *DeviceConsumer) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func(s laneSub) {
 			defer wg.Done()
-			h := func(hctx context.Context, msg bus.Message) error { return c.handleLane(hctx, msg, s.laneTenant) }
+			h := func(hctx context.Context, msg bus.Message) error {
+				return c.handleLane(hctx, msg, s.topic, s.laneTenant)
+			}
 			if err := c.bus.Subscribe(ctx2, s.topic, s.group, h); err != nil && ctx2.Err() == nil {
 				c.log.Error("device subscription failed", "topic", s.topic, "error", err.Error())
 				errs <- err
@@ -179,7 +181,7 @@ func (c *DeviceConsumer) Run(ctx context.Context) error {
 // payload is never authoritative), re-stamps, and writes its series.
 // Unverifiable batches are dropped fail-closed and counted; transient write
 // failures are logged and dropped (best-effort, matching the result pipeline).
-func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopic, laneTenant string) error {
 	c.ledger.addReceived(1)
 	var batch devicev1.DeviceMetricBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
@@ -246,7 +248,7 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 		if unknownWriteOutcome(ctx, err) {
 			return err
 		}
-		c.deadLetter(ctx, msg, tenant, err)
+		c.deadLetter(ctx, msg, laneTopic, tenant, err)
 		return nil
 	}
 	c.ledger.addStored(1)
@@ -271,7 +273,7 @@ func (c *DeviceConsumer) writeWithRetry(ctx context.Context, series []tsdb.Serie
 
 // deadLetter publishes the ORIGINAL message bytes to the device DLQ
 // (tenant-keyed, replayable). A DLQ publish failure is the only true loss.
-func (c *DeviceConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant string, writeErr error) {
+func (c *DeviceConsumer) deadLetter(ctx context.Context, msg bus.Message, laneTopic, tenant string, writeErr error) {
 	if c.bus == nil {
 		c.dropped.Add(1)
 		c.ledger.addDropped(1)
@@ -279,7 +281,11 @@ func (c *DeviceConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant
 			"tenant_id", tenant, "write_error", writeErr.Error(), "dropped_total", c.dropped.Load())
 		return
 	}
-	if err := c.bus.Publish(ctx, bus.DeadLetterDeviceTopic, msg.Key, msg.Value); err != nil {
+	dlqTopic, derr := bus.DeadLetterTopicFor(laneTopic)
+	if derr == nil {
+		derr = c.bus.Publish(ctx, dlqTopic, msg.Key, msg.Value)
+	}
+	if err := derr; err != nil {
 		c.dropped.Add(1)
 		c.ledger.addDropped(1)
 		c.log.Error("DEVICE BATCH LOST: write exhausted retries and dead-letter publish failed",
@@ -290,7 +296,7 @@ func (c *DeviceConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant
 	c.deadLettered.Add(1)
 	c.ledger.addDeadLettered(1)
 	c.log.Warn("device batch dead-lettered after write retries",
-		"tenant_id", tenant, "topic", bus.DeadLetterDeviceTopic, "write_error", writeErr.Error())
+		"tenant_id", tenant, "topic", dlqTopic, "write_error", writeErr.Error())
 }
 
 // DeviceMetricToSeries converts one device sample into a TSDB series with
