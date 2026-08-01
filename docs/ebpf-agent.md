@@ -427,8 +427,14 @@ anyone adds a filesystem/env object-load path.
 The live build regenerates `vmlinux.h` (a generated header containing the
 kernel's type definitions, dumped from its BTF) from the running kernel, runs
 `bpf2go`, and writes the SHA-256 manifest (`gendigests` → `bpf_digests_ebpf.go`)
-that the loaders verify before **any** kernel load — a tampered or stale object
-refuses to load. The `cilium/ebpf` loader dependency is already pinned in
+that the loaders verify before **any** kernel load — an object that does not
+match its same-build manifest (swapped, corrupted, or left behind by an un-run
+generator) refuses to load. Be precise about what each control proves: the
+digest proves **generator freshness and binary self-consistency** (the manifest
+comes from the same build, so a rebuild produces a matching one); tamper
+protection for the *shipped* artifact is the **cosign release signature** above,
+which covers objects + manifest + binary together.
+The `cilium/ebpf` loader dependency is already pinned in
 `go.mod`; only the `-tags ebpf` files import it, so the default build never
 compiles or links it. On the build host:
 

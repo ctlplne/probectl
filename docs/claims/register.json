@@ -12,7 +12,7 @@
   "web/src/i18n/messages.ts",
   "analyzer/README.md"
  ],
- "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS",
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness",
  "claims": [
   {
    "id": "CLM-NO-PHONE-HOME",
@@ -510,6 +510,23 @@
    "proof": [
     "make:test-python",
     "test:analyzer/tests/test_pipeline.py"
+   ]
+  },
+  {
+   "id": "CLM-EBPF-INTEGRITY",
+   "kind": "capability",
+   "statement": "The embedded BPF object digest proves generator freshness and binary self-consistency (mismatch refuses to load, fail closed); tamper protection for the shipped artifact is the cosign release signature over objects + manifest + binary together.",
+   "pattern": "same-build manifest|generator freshness|refuses to load|digest-verified|cosign release signature|cosign-signed",
+   "surfaces": [
+    "docs/ebpf-agent.md"
+   ],
+   "code": [
+    "internal/ebpf/integrity.go",
+    "internal/ebpf/gendigests"
+   ],
+   "proof": [
+    "test:internal/ebpf/integrity_test.go#TestVerifyObjectDigestTamper",
+    "test:internal/ebpf/trustboundary_test.go#TestObjectDigestVerificationWiredIntoEveryLoader"
    ]
   },
   {

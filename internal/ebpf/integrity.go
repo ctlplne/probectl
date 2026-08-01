@@ -17,10 +17,19 @@ import (
 // the agent at `make ebpf-agent` time, and so is a SHA-256 manifest of them
 // (bpf_digests_ebpf.go, written by internal/ebpf/gendigests right after
 // bpf2go). Before anything is handed to the kernel, the embedded bytes must
-// match the manifest — a swapped or corrupted object REFUSES to load (the
+// match the manifest — an object that mismatches REFUSES to load (the
 // kernel never sees it) and the failure is loud (error + the agent's
 // attach-failure metric). An empty manifest entry also refuses: integrity is
 // never silently skipped for a known program.
+//
+// Be precise about what this proves: the manifest is produced by the SAME
+// build from the SAME bytes, so this check proves generator freshness and
+// binary self-consistency — an object swapped or corrupted relative to its
+// own build's manifest, or a manifest left stale by an un-run generator. It
+// is NOT the artifact tamper control: an attacker who rebuilds gets a
+// matching manifest. Tamper protection for the shipped artifact is the
+// cosign release signature, which covers objects + manifest + binary
+// together (docs/ebpf-agent.md, "Trust boundary").
 
 // ErrObjectTampered wraps every integrity failure so callers/tests can
 // identify the class.

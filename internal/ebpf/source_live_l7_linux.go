@@ -88,8 +88,9 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 	if s.hasExeEntries() {
 		s.scopeRefresh = newL7ScopeSyncMonitor(cfg, log, scopeExe)
 	}
-	// U-014: the embedded object must match the build-time manifest before
-	// the kernel ever sees it; a tampered/stale object refuses to load. The
+	// U-014: the embedded object must match its same-build digest manifest
+	// before the kernel ever sees it (self-consistency + generator freshness;
+	// artifact tampering is the cosign release signature's domain). The
 	// object (and so its manifest key) is per-arch — see the bpf2go directive.
 	objName := "sslsniff_x86"
 	if runtime.GOARCH == "arm64" {
