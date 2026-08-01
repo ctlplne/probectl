@@ -7,6 +7,7 @@
 package endpoint
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,44 @@ thresholds:
 	}
 	if c.Thresholds.WiFiWeakRSSIDBm != -70 {
 		t.Errorf("threshold yaml not applied: %v", c.Thresholds.WiFiWeakRSSIDBm)
+	}
+}
+
+func TestLoadBoundsConfigFile(t *testing.T) {
+	const limit = 1 << 20
+	valid := []byte("apiVersion: " + ConfigAPIVersion + "\ntenant_id: acme\n")
+	pad := func(size int) []byte {
+		t.Helper()
+		if size < len(valid)+2 {
+			t.Fatalf("fixture size %d is too small", size)
+		}
+		return append(append(append([]byte{}, valid...), '\n', '#'), bytes.Repeat([]byte{'x'}, size-len(valid)-2)...)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		size    int
+		wantErr bool
+	}{
+		{name: "maximum", size: limit},
+		{name: "one past maximum", size: limit + 1, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "endpoint.yml")
+			if err := os.WriteFile(path, pad(tc.size), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "exceeds 1048576-byte limit") {
+					t.Fatalf("one-past-maximum endpoint config error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("maximum-sized endpoint config rejected: %v", err)
+			}
+		})
 	}
 }
 

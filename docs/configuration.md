@@ -1354,8 +1354,9 @@ whether a slowdown is the WiFi, the ISP, or the network. Because it sits on a
 personal device, its defaults are **privacy-first** — it collects the WiFi name
 and gateway (useful, low-risk) but **not** the AP MAC or public hop IPs (which can
 geolocate a person), and it discloses exactly what it collects on startup. It reads
-a YAML config (default path `PROBECTL_ENDPOINT_CONFIG`); `PROBECTL_ENDPOINT_*` env
-vars override it. See [`endpoint-dem.md`](endpoint-dem.md).
+a YAML config (default path `PROBECTL_ENDPOINT_CONFIG`), bounded to 1 MiB before
+YAML decoding; `PROBECTL_ENDPOINT_*` env vars override it. See
+[`endpoint-dem.md`](endpoint-dem.md).
 
 | Variable                              | Default        | Meaning                                                          |
 | ------------------------------------- | -------------- | ---------------------------------------------------------------- |

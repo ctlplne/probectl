@@ -8,6 +8,7 @@ package endpoint
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -16,7 +17,10 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
 
-const ConfigAPIVersion = "probectl.io/endpoint/v1"
+const (
+	ConfigAPIVersion   = "probectl.io/endpoint/v1"
+	maxConfigFileBytes = 1 << 20
+)
 
 // Config is the endpoint agent configuration: a YAML file with PROBECTL_ENDPOINT_*
 // environment overrides. Every key is documented in docs/configuration.md.
@@ -82,7 +86,7 @@ func Default() *Config {
 func Load(path string) (*Config, error) {
 	cfg := Default()
 	if path != "" {
-		data, err := os.ReadFile(path)
+		data, err := readConfigFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read endpoint config: %w", err)
 		}
@@ -95,6 +99,25 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func readConfigFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxConfigFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxConfigFileBytes {
+		return nil, fmt.Errorf("config file exceeds %d-byte limit", maxConfigFileBytes)
+	}
+	return raw, nil
 }
 
 func decodeConfigYAML(raw []byte, cfg *Config) error {
