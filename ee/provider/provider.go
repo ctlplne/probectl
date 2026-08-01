@@ -58,6 +58,11 @@ type Deps struct {
 	// IRSidecar owns only public wrapping capability. Protected break-glass
 	// mutations fail closed if this local encrypted sidecar is unavailable.
 	IRSidecar audit.IRStageAppender
+	// Reaper, when set, receives the constructed service so core can schedule
+	// the stranded-provisioning sweep on its singleton coordinator
+	// (S-fadcec95). nil = no sweep (unit tests, and deployments that have not
+	// wired the scheduler).
+	Reaper ProvisionReaper
 	// S-T2: the silo capability (nil unless siloed_isolation is licensed —
 	// then only pooled tenants can be provisioned) + the isolation router's
 	// cache-invalidation hook for lifecycle changes.
@@ -80,6 +85,11 @@ type Deps struct {
 // hard requirements (fail closed on configuration): a database pool and the
 // envelope key — TOTP secrets are sealed at rest, so a provider deployment
 // without PROBECTL_ENVELOPE_KEY is a misconfiguration, not a shrug.
+// ProvisionReaper is how core schedules the stranded-attempt sweep without
+// importing this package's types: Build hands the constructed service to the
+// callback, which owns the loop and its cadence.
+type ProvisionReaper func(*Service)
+
 func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if d.Pool == nil {
 		return nil, errors.New("provider: a database pool is required")
@@ -122,6 +132,14 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if log == nil {
 		log = slog.Default()
 	}
+	// S-fadcec95: sweep stranded provisioning attempts on the control plane's
+	// own clock. Without a scheduled reaper the staging rows are permanent —
+	// the whole point of the finding — and a reaper that exists but is never
+	// run is the same thing with extra code.
+	if d.Reaper != nil {
+		d.Reaper(svc)
+	}
+
 	return NewHandler(svc, NewSessions(cfg.SessionHMACKey).WithIdleTimeout(cfg.SessionIdleTimeout), tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
 		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).

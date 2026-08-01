@@ -8,9 +8,11 @@ package silo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -135,34 +137,107 @@ func (p *Provisioner) endpointTarget(tenantID, residency string) endpointstore.T
 	return endpointstore.Target{Database: CHDatabase(tenantID), BaseURL: p.chBaseURL(residency)}
 }
 
-// provisionCH creates every configured CH plane's per-tenant database (idempotent).
-func (p *Provisioner) provisionCH(ctx context.Context, tenantID, residency string) error {
+// provisionCompensateTimeout bounds the undo of an aborted provision. It runs
+// on a detached context, so it needs its own bound.
+const provisionCompensateTimeout = 30 * time.Second
+
+// provisionStep is one leg of the ClickHouse provision, with the compensation
+// that undoes it. Recording them as a LEDGER (rather than five sequential
+// early-returns) is what makes the sequence compensating: a failure at leg N
+// undoes legs 1..N-1 instead of leaving their databases orphaned behind an
+// abandoned attempt (Foundation-Loop S-fadcec95).
+type provisionStep struct {
+	plane      string
+	ensure     func(context.Context) error
+	compensate func(context.Context) error
+}
+
+// chSteps is the ordered ledger of ClickHouse provisioning legs for one
+// tenant. Only configured planes appear, so the ledger describes exactly what
+// this deployment will do — and exactly what it must undo.
+func (p *Provisioner) chSteps(tenantID, residency string) []provisionStep {
+	var steps []provisionStep
 	if p.ch.Flows != nil {
-		if err := p.ch.Flows.EnsureTenantDatabase(ctx, p.flowTarget(tenantID, residency), p.retentionDays); err != nil {
-			return fmt.Errorf("silo: provision flow plane: %w", err)
-		}
+		t := p.flowTarget(tenantID, residency)
+		steps = append(steps, provisionStep{
+			plane:      "flow",
+			ensure:     func(ctx context.Context) error { return p.ch.Flows.EnsureTenantDatabase(ctx, t, p.retentionDays) },
+			compensate: func(ctx context.Context) error { return p.ch.Flows.DropTenantDatabase(ctx, t) },
+		})
 	}
 	if p.ch.Paths != nil {
-		if err := p.ch.Paths.EnsureTenantDatabase(ctx, p.pathTarget(tenantID, residency), p.retentionDays); err != nil {
-			return fmt.Errorf("silo: provision path plane: %w", err)
-		}
+		t := p.pathTarget(tenantID, residency)
+		steps = append(steps, provisionStep{
+			plane:      "path",
+			ensure:     func(ctx context.Context) error { return p.ch.Paths.EnsureTenantDatabase(ctx, t, p.retentionDays) },
+			compensate: func(ctx context.Context) error { return p.ch.Paths.DropTenantDatabase(ctx, t) },
+		})
 	}
 	if p.ch.EBPF != nil {
-		if err := p.ch.EBPF.EnsureTenantDatabase(ctx, p.ebpfTarget(tenantID, residency), p.retentionDays); err != nil {
-			return fmt.Errorf("silo: provision ebpf plane: %w", err)
-		}
+		t := p.ebpfTarget(tenantID, residency)
+		steps = append(steps, provisionStep{
+			plane:      "ebpf",
+			ensure:     func(ctx context.Context) error { return p.ch.EBPF.EnsureTenantDatabase(ctx, t, p.retentionDays) },
+			compensate: func(ctx context.Context) error { return p.ch.EBPF.DropTenantDatabase(ctx, t) },
+		})
 	}
 	if p.ch.Otel != nil {
-		if err := p.ch.Otel.EnsureTenantDatabase(ctx, p.otelTarget(tenantID, residency), p.retentionDays); err != nil {
-			return fmt.Errorf("silo: provision otel plane: %w", err)
-		}
+		t := p.otelTarget(tenantID, residency)
+		steps = append(steps, provisionStep{
+			plane:      "otel",
+			ensure:     func(ctx context.Context) error { return p.ch.Otel.EnsureTenantDatabase(ctx, t, p.retentionDays) },
+			compensate: func(ctx context.Context) error { return p.ch.Otel.DropTenantDatabase(ctx, t) },
+		})
 	}
 	if p.ch.Endpoint != nil {
-		if err := p.ch.Endpoint.EnsureTenantDatabase(ctx, p.endpointTarget(tenantID, residency), p.endpointRetentionDays); err != nil {
-			return fmt.Errorf("silo: provision endpoint plane: %w", err)
+		t := p.endpointTarget(tenantID, residency)
+		steps = append(steps, provisionStep{
+			plane: "endpoint",
+			ensure: func(ctx context.Context) error {
+				return p.ch.Endpoint.EnsureTenantDatabase(ctx, t, p.endpointRetentionDays)
+			},
+			compensate: func(ctx context.Context) error { return p.ch.Endpoint.DropTenantDatabase(ctx, t) },
+		})
+	}
+	return steps
+}
+
+// provisionCH creates every configured CH plane's per-tenant database
+// (idempotent) and COMPENSATES on failure: the legs that already succeeded are
+// dropped before the error returns, so an abandoned attempt cannot leave
+// orphaned per-tenant databases behind it. Compensation runs on a detached
+// context so a caller cancellation — the most likely reason a leg failed —
+// cannot also prevent the cleanup.
+func (p *Provisioner) provisionCH(ctx context.Context, tenantID, residency string) error {
+	steps := p.chSteps(tenantID, residency)
+	for i, step := range steps {
+		if err := step.ensure(ctx); err != nil {
+			provisionErr := fmt.Errorf("silo: provision %s plane: %w", step.plane, err)
+			if cerr := p.compensate(ctx, steps[:i], tenantID); cerr != nil {
+				return errors.Join(provisionErr, cerr)
+			}
+			return provisionErr
 		}
 	}
 	return nil
+}
+
+// compensate undoes completed legs in REVERSE order. Every failure to undo is
+// reported (joined), never swallowed: an un-droppable database is exactly the
+// orphan an operator must be told about.
+func (p *Provisioner) compensate(ctx context.Context, done []provisionStep, tenantID string) error {
+	if len(done) == 0 {
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), provisionCompensateTimeout)
+	defer cancel()
+	var errs []error
+	for i := len(done) - 1; i >= 0; i-- {
+		if err := done[i].compensate(cctx); err != nil {
+			errs = append(errs, fmt.Errorf("silo: compensate %s plane for tenant %s: %w", done[i].plane, tenantID, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // teardownCH drops every configured CH plane's per-tenant database.

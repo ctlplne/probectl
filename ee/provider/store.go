@@ -143,6 +143,14 @@ type MutationStore interface {
 	CreateTenant(ctx context.Context, slug, name, isolationModel, residency string, tenantBand int) (Tenant, error)
 	CreateTenantProvision(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error)
 	CompleteTenantProvision(ctx context.Context, id string, tenantBand int) (Tenant, bool, error)
+	// RecordProvisionAttempt updates a stranded attempt's step ledger: how far
+	// it got and why it stopped (S-fadcec95). Operators decide retry-vs-abandon
+	// on that evidence rather than on a guess.
+	RecordProvisionAttempt(ctx context.Context, id, step, failure string) error
+	// AbandonProvision removes a staging row whose external legs have been
+	// compensated. It is the ONLY way a provisioning row leaves the table
+	// other than completion, so an abandoned attempt is always deliberate.
+	AbandonProvision(ctx context.Context, id string) (bool, error)
 	RenameTenant(ctx context.Context, id, name string) (Tenant, error)
 	SetTenantStatus(ctx context.Context, id, status string) (Tenant, error)
 	CreateGrant(ctx context.Context, g Grant) (Grant, error)
@@ -156,6 +164,21 @@ type MutationStore interface {
 // unit. Production executes it in one provider-scoped PostgreSQL transaction;
 // MemStore stages its copy and publishes it only after the audit succeeds.
 type AuditedMutation func(context.Context, MutationStore, AuditSink) error
+
+// StrandedProvision is a provisioning attempt that never completed: the
+// staging row plus how far it got and why it stopped. A tenant is not
+// routable and consumes no band slot while in this state.
+type StrandedProvision struct {
+	ID             string    `json:"id"`
+	Slug           string    `json:"slug"`
+	Name           string    `json:"name"`
+	IsolationModel string    `json:"isolation_model"`
+	Residency      string    `json:"residency"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastAttemptAt  time.Time `json:"last_attempt_at"`
+	LastStep       string    `json:"last_step"`
+	LastError      string    `json:"last_error,omitempty"`
+}
 
 // Store is the provider plane's persistence surface.
 type Store interface {
@@ -173,6 +196,9 @@ type Store interface {
 
 	// Tenant lifecycle.
 	ListTenants(ctx context.Context) ([]Tenant, error)
+	// ListStrandedProvisions returns provisioning attempts whose last attempt
+	// is older than age — the rows an operator (or the reaper) must act on.
+	ListStrandedProvisions(ctx context.Context, age time.Duration) ([]StrandedProvision, error)
 	TenantBySlug(ctx context.Context, slug string) (*Tenant, error)
 	CountActiveTenants(ctx context.Context) (int, error)
 
@@ -207,8 +233,11 @@ type MemStore struct {
 	operators  map[string]*memOperator
 	tenants    map[string]*Tenant
 	provisions map[string]*Tenant
-	grants     map[string]*Grant
-	fleet      map[string]TenantFleet // keyed by tenant ID; set by tests
+	// ledger records how far each in-flight provision got and why it stopped
+	// (S-fadcec95), keyed by the same id as provisions.
+	ledger map[string]StrandedProvision
+	grants map[string]*Grant
+	fleet  map[string]TenantFleet // keyed by tenant ID; set by tests
 }
 
 type memOperator struct {
@@ -458,6 +487,62 @@ func (m *MemStore) CreateTenantProvision(
 	}
 	m.provisions[t.ID] = &t
 	return t, nil
+}
+
+// RecordProvisionAttempt updates the in-memory step ledger.
+func (m *MemStore) RecordProvisionAttempt(_ context.Context, id, step, failure string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.provisions[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if m.ledger == nil {
+		m.ledger = map[string]StrandedProvision{}
+	}
+	entry := m.ledger[id]
+	entry.ID, entry.Slug, entry.Name = t.ID, t.Slug, t.Name
+	entry.IsolationModel, entry.Residency, entry.CreatedAt = t.IsolationModel, t.Residency, t.CreatedAt
+	entry.LastStep, entry.LastError, entry.LastAttemptAt = step, failure, time.Now().UTC()
+	m.ledger[id] = entry
+	return nil
+}
+
+// AbandonProvision removes a staging row and its ledger entry.
+func (m *MemStore) AbandonProvision(_ context.Context, id string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.provisions[id]; !ok {
+		return false, nil
+	}
+	delete(m.provisions, id)
+	delete(m.ledger, id)
+	return true, nil
+}
+
+// ListStrandedProvisions returns in-flight attempts last touched before the
+// age cutoff (age <= 0 lists them all), newest first.
+func (m *MemStore) ListStrandedProvisions(_ context.Context, age time.Duration) ([]StrandedProvision, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cutoff := time.Now().Add(-age)
+	var out []StrandedProvision
+	for id, t := range m.provisions {
+		entry, ok := m.ledger[id]
+		if !ok {
+			entry = StrandedProvision{
+				ID: t.ID, Slug: t.Slug, Name: t.Name,
+				IsolationModel: t.IsolationModel, Residency: t.Residency,
+				CreatedAt: t.CreatedAt, LastAttemptAt: t.CreatedAt, LastStep: "registered",
+			}
+		}
+		if age > 0 && entry.LastAttemptAt.After(cutoff) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastAttemptAt.After(out[j].LastAttemptAt) })
+	return out, nil
 }
 
 func (m *MemStore) CompleteTenantProvision(

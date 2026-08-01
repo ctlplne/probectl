@@ -34,6 +34,7 @@ import (
 	"github.com/ctlplne/probectl/ee/silo"
 	"github.com/ctlplne/probectl/ee/tenantkeys"
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/cluster"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/control"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -63,7 +64,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	life *tenantlife.Engine,
 	worm *audit.WormExporter,
 	resolveSecret func(context.Context, string) ([]byte, func(), error),
-	fairGate *fairness.Gate, topoStore topology.Store) error {
+	fairGate *fairness.Gate, topoStore topology.Store,
+	singletons *cluster.Coordinator) error {
 	// One dynamic lifecycle capability is shared by every attached commercial
 	// mutation adapter. Entitlement stays in the Has checks below; this method
 	// value re-evaluates the license clock on every write, so active/grace can
@@ -245,6 +247,32 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		srv.WithIRInvestigator(investigator)
 		life.WithIRAttributionLifecycle(investigator)
 		h, err := provider.Build(cfg, provider.Deps{
+			Reaper: func(svc *provider.Service) {
+				// One replica sweeps (the coordinator elects it), bounded per
+				// run, on the configured cadence. Abandoning tears down the
+				// stranded silo BEFORE removing the staging row, so the sweep
+				// can never create the orphan it exists to remove.
+				_ = singletons.Register("provider-provision-reaper", func(ctx context.Context, _ cluster.LeaseToken) error {
+					ticker := time.NewTicker(cfg.ProvisionReapInterval)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return nil
+						case <-ticker.C:
+							n, err := svc.ReapStrandedProvisions(ctx, "system:provision-reaper",
+								cfg.ProvisionReapAfter, cfg.ProvisionReapMax)
+							if err != nil {
+								log.Warn("stranded provisioning sweep incomplete", "reaped", n, "error", err.Error())
+								continue
+							}
+							if n > 0 {
+								log.Info("abandoned stranded provisioning attempts", "count", n)
+							}
+						}
+					}
+				})
+			},
 			Pool:      pool,
 			License:   lic,
 			Log:       log,

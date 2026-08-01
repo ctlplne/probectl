@@ -489,6 +489,22 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 	}
 
 	if err := s.silo.Provision(ctx, t.ID, residency, model); err != nil {
+		// Record how far the attempt got BEFORE returning, so a stranded row
+		// carries evidence an operator can act on rather than a bare
+		// "provisioning" status (S-fadcec95). The provisioner itself has
+		// already compensated its completed ClickHouse legs.
+		ledgerCtx, ledgerCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer ledgerCancel()
+		if lerr := s.store.WithAuditedMutation(ledgerCtx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+			if err := store.RecordProvisionAttempt(ctx, t.ID, "silo", err.Error()); err != nil {
+				return err
+			}
+			return audit.Append(ctx, actor, "provider.tenant_provision_stranded", t.ID,
+				map[string]any{"last_step": "silo"})
+		}); lerr != nil {
+			s.log.Warn("provisioning step ledger unavailable",
+				"tenant_id", t.ID, "error", lerr.Error())
+		}
 		auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		auditErr := s.recordTenantProvisionEvent(auditCtx, actor, "provider.tenant_provision_failure", t, map[string]any{
@@ -703,6 +719,80 @@ func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, 
 		return Grant{}, err
 	}
 	return g, nil
+}
+
+// ListStrandedProvisions surfaces in-flight provisioning attempts older than
+// age so the provider console can show what happened and offer retry or
+// abandon. age <= 0 lists every in-flight attempt.
+func (s *Service) ListStrandedProvisions(ctx context.Context, age time.Duration) ([]StrandedProvision, error) {
+	return s.store.ListStrandedProvisions(ctx, age)
+}
+
+// AbandonProvision drops a stranded attempt's staging row after tearing down
+// whatever external state it created. Teardown runs FIRST: abandoning the row
+// while a silo database survives is exactly the orphan this finding is about.
+func (s *Service) AbandonProvision(ctx context.Context, actor, id string) error {
+	stranded, err := s.store.ListStrandedProvisions(ctx, 0)
+	if err != nil {
+		return err
+	}
+	var target *StrandedProvision
+	for i := range stranded {
+		if stranded[i].ID == id {
+			target = &stranded[i]
+			break
+		}
+	}
+	if target == nil {
+		return ErrNotFound
+	}
+	if s.silo != nil {
+		if err := s.silo.Teardown(ctx, target.ID, target.Residency,
+			tenancy.IsolationModel(target.IsolationModel)); err != nil {
+			return fmt.Errorf("provider: tear down the stranded silo before abandoning it: %w", err)
+		}
+	}
+	return s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		removed, err := store.AbandonProvision(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			return ErrNotFound
+		}
+		return audit.Append(ctx, actor, "provider.tenant_provision_abandoned", id, map[string]any{
+			"slug": target.Slug, "last_step": target.LastStep,
+		})
+	})
+}
+
+// ReapStrandedProvisions abandons every attempt older than age, bounded by
+// limit per run so a sweep can never become an unbounded destructive loop. It
+// returns how many it removed; each removal is separately audited.
+func (s *Service) ReapStrandedProvisions(ctx context.Context, actor string, age time.Duration, limit int) (int, error) {
+	if age <= 0 {
+		return 0, fmt.Errorf("provider: refusing to reap with a non-positive age (that would abandon in-flight provisioning)")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	stranded, err := s.store.ListStrandedProvisions(ctx, age)
+	if err != nil {
+		return 0, err
+	}
+	reaped := 0
+	var errs []error
+	for _, p := range stranded {
+		if reaped >= limit {
+			break
+		}
+		if err := s.AbandonProvision(ctx, actor, p.ID); err != nil {
+			errs = append(errs, fmt.Errorf("reap %s: %w", p.Slug, err))
+			continue
+		}
+		reaped++
+	}
+	return reaped, errors.Join(errs...)
 }
 
 // Consent records a tenant admin's decision. by identifies the consenting

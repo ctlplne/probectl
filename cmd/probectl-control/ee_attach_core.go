@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/cluster"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/control"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -37,6 +38,7 @@ func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*pathstore.ClickHouse, ebpfstore.Store, otelstore.Store, endpointstore.Store,
 	*tenantlife.Engine, *audit.WormExporter,
 	func(context.Context, string) ([]byte, func(), error),
-	*fairness.Gate, topology.Store) error {
+	*fairness.Gate, topology.Store,
+	*cluster.Coordinator) error {
 	return nil
 }

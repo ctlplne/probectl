@@ -176,6 +176,28 @@
         }
       }
     },
+    "/provider/v1/tenants/provisioning": {
+      "get": {
+        "summary": "Provisioning attempts that never completed, with the last step each reached",
+        "description": "Stranded attempts hold a staging row but no routable tenant and no licensed band slot. Each entry reports the furthest provisioning leg completed and the failure that stopped it, so an operator can choose between retrying (the idempotent POST /provider/v1/tenants) and abandoning. Optional older_than (a Go duration) narrows the list.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/provisioning/{id}/abandon": {
+      "post": {
+        "summary": "Abandon a stranded provisioning attempt (admin only)",
+        "description": "Tears down whatever external silo state the attempt created, then removes its staging row. Teardown runs first: dropping the row while a per-tenant database survives is precisely the orphan this action exists to prevent. Separately audited on the provider stream.",
+        "responses": {
+          "200": {
+            "description": "Abandoned"
+          }
+        }
+      }
+    },
     "/provider/v1/breakglass": {
       "get": {
         "summary": "List break-glass grants with derived state",
@@ -362,10 +384,18 @@
       "FairnessCounters": {
         "type": "object",
         "properties": {
-          "admitted_calls": { "type": "integer" },
-          "admitted_units": { "type": "integer" },
-          "shed_calls": { "type": "integer" },
-          "shed_units": { "type": "integer" }
+          "admitted_calls": {
+            "type": "integer"
+          },
+          "admitted_units": {
+            "type": "integer"
+          },
+          "shed_calls": {
+            "type": "integer"
+          },
+          "shed_units": {
+            "type": "integer"
+          }
         }
       },
       "FairnessPolicy": {
@@ -373,36 +403,79 @@
         "additionalProperties": false,
         "description": "Per-tenant fairness override. A missing or 0 field inherits the deployment default; persisted override values must be positive.",
         "properties": {
-          "results_per_sec": { "type": "number", "minimum": 0 },
-          "flow_events_per_sec": { "type": "number", "minimum": 0 },
-          "ingest_bytes_per_sec": { "type": "number", "minimum": 0 },
-          "device_metrics_per_sec": { "type": "number", "minimum": 0 },
-          "otlp_series_per_sec": { "type": "number", "minimum": 0 },
-          "burst_seconds": { "type": "number", "minimum": 0 },
-          "query_concurrency": { "type": "integer", "minimum": 0 },
-          "queries_per_min": { "type": "number", "minimum": 0 },
-          "weight": { "type": "integer", "minimum": 0 }
+          "results_per_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "flow_events_per_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "ingest_bytes_per_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "device_metrics_per_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "otlp_series_per_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "burst_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "query_concurrency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queries_per_min": {
+            "type": "number",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 0
+          }
         }
       },
       "FairnessQueryCounters": {
         "type": "object",
         "properties": {
-          "allowed": { "type": "integer" },
-          "rejected_concurrency": { "type": "integer" },
-          "rejected_budget": { "type": "integer" },
-          "in_flight": { "type": "integer" }
+          "allowed": {
+            "type": "integer"
+          },
+          "rejected_concurrency": {
+            "type": "integer"
+          },
+          "rejected_budget": {
+            "type": "integer"
+          },
+          "in_flight": {
+            "type": "integer"
+          }
         }
       },
       "FairnessSnapshot": {
         "type": "object",
         "properties": {
-          "tenant_id": { "type": "string" },
-          "policy": { "$ref": "#/components/schemas/FairnessPolicy" },
+          "tenant_id": {
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/FairnessPolicy"
+          },
           "ingest": {
             "type": "object",
-            "additionalProperties": { "$ref": "#/components/schemas/FairnessCounters" }
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FairnessCounters"
+            }
           },
-          "queries": { "$ref": "#/components/schemas/FairnessQueryCounters" }
+          "queries": {
+            "$ref": "#/components/schemas/FairnessQueryCounters"
+          }
         }
       },
       "FairnessView": {
@@ -410,11 +483,15 @@
         "properties": {
           "items": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/FairnessSnapshot" }
+            "items": {
+              "$ref": "#/components/schemas/FairnessSnapshot"
+            }
           },
           "overrides": {
             "type": "object",
-            "additionalProperties": { "$ref": "#/components/schemas/FairnessPolicy" }
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FairnessPolicy"
+            }
           }
         }
       }

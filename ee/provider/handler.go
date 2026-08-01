@@ -102,6 +102,8 @@ func routes() []RouteDecl {
 		{http.MethodPost, "/provider/v1/tenants/{id}/resume"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/offboard"},
 		{http.MethodGet, "/provider/v1/fleet"},
+		{http.MethodGet, "/provider/v1/tenants/provisioning"},
+		{http.MethodPost, "/provider/v1/tenants/provisioning/{id}/abandon"},
 		{http.MethodGet, "/provider/v1/breakglass"},
 		{http.MethodPost, "/provider/v1/breakglass"},
 		{http.MethodPost, "/provider/v1/breakglass/{id}/revoke"},
@@ -155,6 +157,11 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("POST /provider/v1/tenants/{id}/resume", h.asOperator("", h.handleResume))
 	h.handle("POST /provider/v1/tenants/{id}/offboard", h.asOperator("", h.handleOffboard))
 	h.handle("GET /provider/v1/fleet", h.asOperator("", h.handleFleet))
+	// Stranded provisioning attempts (S-fadcec95): list what never completed
+	// with its last step, and offer an EXPLICIT abandon. Retry is the existing
+	// idempotent POST /provider/v1/tenants with the same body.
+	h.handle("GET /provider/v1/tenants/provisioning", h.asOperator("", h.handleListStrandedProvisions))
+	h.handle("POST /provider/v1/tenants/provisioning/{id}/abandon", h.asOperator(RoleAdmin, h.handleAbandonProvision))
 	h.handle("GET /provider/v1/breakglass", h.asOperator("", h.handleListGrants))
 	h.handle("POST /provider/v1/breakglass", h.asOperator("", h.handleRequestGrant))
 	h.handle("POST /provider/v1/breakglass/{id}/revoke", h.asOperator("", h.handleRevokeGrant))
@@ -273,6 +280,42 @@ func (h *Handler) asTenantAdmin(fn func(w http.ResponseWriter, r *http.Request, 
 		}
 		return fn(w, r, sess.TenantID, principal.Email)
 	}
+}
+
+// handleListStrandedProvisions serves the stranded-attempt list. The optional
+// older_than filter (a Go duration) narrows it to attempts an operator is
+// likely to act on; the default lists every in-flight attempt.
+func (h *Handler) handleListStrandedProvisions(w http.ResponseWriter, r *http.Request, _ Operator) error {
+	age := time.Duration(0)
+	if v := strings.TrimSpace(r.URL.Query().Get("older_than")); v != "" {
+		parsed, err := time.ParseDuration(v)
+		if err != nil || parsed < 0 {
+			return errValidation{message: "older_than must be a non-negative Go duration (e.g. 30m)"}
+		}
+		age = parsed
+	}
+	items, err := h.svc.ListStrandedProvisions(r.Context(), age)
+	if err != nil {
+		return err
+	}
+	if items == nil {
+		items = []StrandedProvision{}
+	}
+	return h.writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// handleAbandonProvision tears down a stranded attempt's external state and
+// removes its staging row. Admin-only and separately audited: it is a
+// destructive lifecycle action on a half-created tenant.
+func (h *Handler) handleAbandonProvision(w http.ResponseWriter, r *http.Request, op Operator) error {
+	id := r.PathValue("id")
+	if strings.TrimSpace(id) == "" {
+		return errValidation{message: "provisioning id is required"}
+	}
+	if err := h.svc.AbandonProvision(r.Context(), op.Email, id); err != nil {
+		return err
+	}
+	return h.writeJSON(w, http.StatusOK, map[string]any{"abandoned": true, "id": id})
 }
 
 // --- auth handlers ---

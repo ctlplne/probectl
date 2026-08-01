@@ -249,6 +249,15 @@ type Config struct {
 	// (SMTPS from the first byte) — never plaintext (§7 guardrail 12).
 	// AlertSMTPPassword accepts a secret reference resolved through the
 	// secrets backend at boot; it is never logged (like CMDBSecret).
+	// ProvisionReap* bound the stranded-provisioning sweep (S-fadcec95): how
+	// often it runs, how old an attempt must be before it is abandoned, and
+	// how many one run may abandon. The sweep tears down external silo state
+	// before removing a staging row, so it can never create the orphan it
+	// exists to remove.
+	ProvisionReapInterval time.Duration
+	ProvisionReapAfter    time.Duration
+	ProvisionReapMax      int
+
 	// TopologyWhatIfBudget bounds ONE what-if simulation (S-29804e53): the
 	// per-agent BFS plus two whole-graph reachability passes run on a
 	// synchronous handler, so an unbounded graph would hold it. Exceeding a
@@ -848,6 +857,9 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
 	cfg.CMDBCacheTTL = l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute)
 	cfg.AlertEvalInterval = l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second)
+	cfg.ProvisionReapInterval = l.dur("PROBECTL_PROVISION_REAP_INTERVAL", 15*time.Minute)
+	cfg.ProvisionReapAfter = l.dur("PROBECTL_PROVISION_REAP_AFTER", 24*time.Hour)
+	cfg.ProvisionReapMax = l.intRange("PROBECTL_PROVISION_REAP_MAX", 25, 1, 1000)
 	cfg.TopologyWhatIfMaxAgents = l.intRange("PROBECTL_TOPOLOGY_WHATIF_MAX_AGENTS", 2000, 1, 1_000_000)
 	cfg.TopologyWhatIfMaxVisits = l.intRange("PROBECTL_TOPOLOGY_WHATIF_MAX_VISITS", 2_000_000, 1000, 1_000_000_000)
 	cfg.TopologyWhatIfTimeout = l.dur("PROBECTL_TOPOLOGY_WHATIF_TIMEOUT", 5*time.Second)

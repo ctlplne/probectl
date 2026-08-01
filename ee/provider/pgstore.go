@@ -419,6 +419,64 @@ func (s *PGStore) CompleteTenantProvision(
 	return out, completed, nil
 }
 
+// RecordProvisionAttempt writes the step ledger for a stranded attempt.
+func (s *PGStore) RecordProvisionAttempt(ctx context.Context, id, step, failure string) error {
+	return s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		_, err := q.Exec(ctx,
+			`UPDATE tenant_provisioning
+			    SET last_step = $2, last_error = $3, last_attempt_at = now()
+			  WHERE id = $1::uuid`, id, step, failure)
+		return err
+	})
+}
+
+// AbandonProvision deletes a staging row. It reports whether a row was
+// removed so the caller can tell "abandoned" from "already gone".
+func (s *PGStore) AbandonProvision(ctx context.Context, id string) (bool, error) {
+	var removed bool
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		tag, err := q.Exec(ctx, `DELETE FROM tenant_provisioning WHERE id = $1::uuid`, id)
+		if err != nil {
+			return err
+		}
+		removed = tag.RowsAffected() == 1
+		return nil
+	})
+	return removed, mapPGErr(err)
+}
+
+// ListStrandedProvisions returns attempts whose LAST attempt is older than
+// age, newest first. age <= 0 lists every in-flight attempt.
+func (s *PGStore) ListStrandedProvisions(ctx context.Context, age time.Duration) ([]StrandedProvision, error) {
+	var out []StrandedProvision
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		cutoff := time.Now().Add(-age)
+		if age <= 0 {
+			cutoff = time.Now()
+		}
+		rows, err := q.Query(ctx,
+			`SELECT id::text, slug, name, isolation_model, residency,
+			        created_at, last_attempt_at, last_step, last_error
+			   FROM tenant_provisioning
+			  WHERE last_attempt_at <= $1
+			  ORDER BY last_attempt_at DESC`, cutoff)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var p StrandedProvision
+			if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.IsolationModel, &p.Residency,
+				&p.CreatedAt, &p.LastAttemptAt, &p.LastStep, &p.LastError); err != nil {
+				return err
+			}
+			out = append(out, p)
+		}
+		return rows.Err()
+	})
+	return out, mapPGErr(err)
+}
+
 func (s *PGStore) RenameTenant(ctx context.Context, id, name string) (Tenant, error) {
 	var out Tenant
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
