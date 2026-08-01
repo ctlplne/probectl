@@ -146,18 +146,45 @@ func (c *abacCache) invalidate(tenantID string) {
 	c.mu.Unlock()
 }
 
-// abacDenies reports whether a tenant's ABAC policies deny a permission for the
-// principal (after RBAC has already permitted it). resource is nil for routes
-// that carry no resource attributes.
-func (s *Server) abacDenies(ctx context.Context, p *auth.Principal, perm string, resource map[string]string) (bool, error) {
-	if s.abac == nil {
-		return false, nil
+// decide is the control plane's single authorization door (S-6357f747): it
+// loads the tenant's ABAC policies FAIL CLOSED (a load failure is an error,
+// never RBAC-only access) and evaluates the documented order — tenant
+// boundary, then RBAC per mode, then ABAC deny — through auth.Decide, the one
+// evaluator every surface shares. Route middleware, Explorer sources, canary
+// overrides, IR attribution, incident sharing, onboarding checks and
+// authoring extras all pass here; the authz-chokepoint gate bans new direct
+// uses of the underlying evaluation primitives outside this file.
+func (s *Server) decide(ctx context.Context, p *auth.Principal, perm string, mode auth.RBACCheck, resource map[string]string) (auth.DecisionReason, error) {
+	var policies []auth.Policy
+	if s.abac != nil && p != nil {
+		loaded, err := s.abac.policies(ctx, p.TenantID)
+		if err != nil {
+			return auth.DecisionPolicyDeny, apierror.Unavailable("authorization policy is temporarily unavailable").Wrap(err)
+		}
+		policies = loaded
 	}
-	policies, err := s.abac.policies(ctx, p.TenantID)
+	return auth.Decide(p, perm, mode, policies, resource), nil
+}
+
+// authorize is decide with the standard error mapping for handlers that need
+// no per-layer copy: 401 unauthenticated, 403 with the layer's phrasing.
+func (s *Server) authorize(ctx context.Context, p *auth.Principal, perm string, mode auth.RBACCheck, resource map[string]string) error {
+	reason, err := s.decide(ctx, p, perm, mode, resource)
 	if err != nil {
-		return false, apierror.Unavailable("authorization policy is temporarily unavailable").Wrap(err)
+		return err
 	}
-	return auth.Evaluate(policies, perm, p.Attributes, resource) == auth.PolicyDeny, nil
+	switch reason {
+	case auth.DecisionAllowed:
+		return nil
+	case auth.DecisionUnauthenticated:
+		return apierror.Unauthorized("authentication required")
+	case auth.DecisionTenantBoundary:
+		return apierror.Forbidden("resource belongs to another tenant")
+	case auth.DecisionRBAC:
+		return apierror.Forbidden("missing permission: " + perm)
+	default:
+		return apierror.Forbidden("denied by an attribute policy: " + perm)
+	}
 }
 
 // --- /v1/abac/policies admin (the ABAC policy model contract) ---

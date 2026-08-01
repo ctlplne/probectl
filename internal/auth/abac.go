@@ -63,14 +63,10 @@ func Evaluate(policies []Policy, permission string, subject, resource map[string
 	return decided
 }
 
-// Permit is the full S31 access decision for a permission: RBAC must grant it AND
-// ABAC must not deny it. resource may be nil for routes that carry no resource
-// attributes (then only subject-attribute policies apply).
-func Permit(p *Principal, permission string, policies []Policy, resource map[string]string) bool {
-	if !p.Has(permission) {
-		return false // RBAC baseline
-	}
-	return Evaluate(policies, permission, attrsOf(p), resource) != PolicyDeny
+// permit is Decide's boolean shadow for the abac unit tests; Decide is the
+// full ordered evaluation every surface routes through.
+func permit(p *Principal, permission string, policies []Policy, resource map[string]string) bool {
+	return Decide(p, permission, RBACGlobal, policies, resource) == DecisionAllowed
 }
 
 // ResourceTenantKey is the resource-attribute key carrying the tenant a resource
@@ -91,17 +87,7 @@ const ResourceTenantKey = "tenant"
 // AI/MCP enforcement order) is encoded; handlers and the MCP tool layer route
 // their decision through it rather than re-implementing the order ad hoc.
 func Authorize(p *Principal, permission string, policies []Policy, resource map[string]string) bool {
-	if p == nil {
-		return false
-	}
-	// 1. Tenant boundary (outermost). If the resource names a tenant, it must be
-	// the principal's. A provider operator is a SEPARATE privilege domain and is
-	// not modeled as a tenant principal here, so it likewise fails closed.
-	if rt, ok := resource[ResourceTenantKey]; ok && rt != "" && rt != p.TenantID {
-		return false
-	}
-	// 2 + 3. RBAC baseline AND ABAC non-deny.
-	return Permit(p, permission, policies, resource)
+	return Decide(p, permission, RBACGlobal, policies, resource) == DecisionAllowed
 }
 
 // attrsSubset reports whether every key/value in required is present and equal in
@@ -120,4 +106,62 @@ func attrsOf(p *Principal) map[string]string {
 		return nil
 	}
 	return p.Attributes
+}
+
+// RBACCheck selects how the RBAC layer of a Decision evaluates.
+type RBACCheck int
+
+const (
+	// RBACGlobal requires the permission tenant-wide (Principal.Has).
+	RBACGlobal RBACCheck = iota
+	// RBACAnyScope admits a scoped grant at the route edge (Principal.HasAny);
+	// the handler then re-checks against the resolved resource lineage.
+	RBACAnyScope
+	// RBACPreverified records that a FINER RBAC check (HasAt on a resolved
+	// lineage, or a route-edge check for a different permission) already
+	// happened upstream; the decision applies only the tenant boundary and the
+	// ABAC deny layer. Use it to bring post-resolution re-authorizations
+	// through the same door, never to skip RBAC where none ran.
+	RBACPreverified
+)
+
+// DecisionReason says which layer refused (or that none did).
+type DecisionReason int
+
+const (
+	DecisionAllowed DecisionReason = iota
+	DecisionUnauthenticated
+	DecisionTenantBoundary
+	DecisionRBAC
+	DecisionPolicyDeny
+)
+
+// Decide is the S-6357f747 authorization chokepoint: ONE evaluation of the
+// documented order — tenant boundary first, then RBAC (per mode), then ABAC
+// deny-override — reporting which layer refused. Authorize is its boolean
+// shadow; the control plane's Server.decide and the MCP dispatch both route
+// here, so no surface re-implements the sequence.
+func Decide(p *Principal, permission string, mode RBACCheck, policies []Policy, resource map[string]string) DecisionReason {
+	if p == nil {
+		return DecisionUnauthenticated
+	}
+	if rt, ok := resource[ResourceTenantKey]; ok && rt != "" && rt != p.TenantID {
+		return DecisionTenantBoundary
+	}
+	switch mode {
+	case RBACGlobal:
+		if !p.Has(permission) {
+			return DecisionRBAC
+		}
+	case RBACAnyScope:
+		if !p.HasAny(permission) {
+			return DecisionRBAC
+		}
+	case RBACPreverified:
+		// RBAC already evaluated upstream against a finer scope.
+	}
+	if Evaluate(policies, permission, attrsOf(p), resource) == PolicyDeny {
+		return DecisionPolicyDeny
+	}
+	return DecisionAllowed
 }

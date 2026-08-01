@@ -145,12 +145,14 @@ func (s *Server) requireIRInvestigator(next apiHandler) apiHandler {
 			)
 		}
 		resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
-		denied, err := s.abacDenies(
+		reason, err := s.decide(
 			r.Context(),
 			p,
 			permIRInvestigate,
+			auth.RBACPreverified,
 			resource,
 		)
+		denied := reason != auth.DecisionAllowed
 		if err != nil {
 			return s.rejectIRAuthorization(
 				w,

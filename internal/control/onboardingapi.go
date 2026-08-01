@@ -82,16 +82,12 @@ func (s *Server) handleOnboardingProgress(w http.ResponseWriter, r *http.Request
 		if decision, ok := permissionDecisions[permission]; ok {
 			return decision
 		}
-		if !principal.Has(permission) {
-			permissionDecisions[permission] = false
-			return false
-		}
-		denied, err := s.abacDenies(r.Context(), principal, permission, nil)
+		reason, err := s.decide(r.Context(), principal, permission, auth.RBACGlobal, nil)
 		if err != nil {
 			authorizationErr = err
 			return false
 		}
-		decision := !denied
+		decision := reason == auth.DecisionAllowed
 		permissionDecisions[permission] = decision
 		return decision
 	}

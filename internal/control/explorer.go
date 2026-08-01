@@ -168,15 +168,18 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 		return apierror.Validation(err.Error())
 	}
 	permission := explorerPermission(query.Source)
-	if permission == "" || !p.Has(permission) {
+	if permission == "" {
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
 	resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
-	denied, err := s.abacDenies(r.Context(), p, permission, resource)
+	reason, err := s.decide(r.Context(), p, permission, auth.RBACGlobal, resource)
 	if err != nil {
 		return err
 	}
-	if denied {
+	if reason == auth.DecisionRBAC || reason == auth.DecisionUnauthenticated || reason == auth.DecisionTenantBoundary {
+		return apierror.Forbidden("this role cannot read the selected Explorer source")
+	}
+	if reason == auth.DecisionPolicyDeny {
 		return apierror.Forbidden("an attribute policy denies the selected Explorer source")
 	}
 
@@ -236,16 +239,19 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 		return apierror.Validation("Explorer comparison windows must have positive duration")
 	}
 	permission := explorerPermission(current.Source)
-	if permission == "" || !p.Has(permission) {
+	if permission == "" {
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
 	resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
-	denied, err := s.abacDenies(r.Context(), p, permission, resource)
+	reason, err := s.decide(r.Context(), p, permission, auth.RBACGlobal, resource)
 	if err != nil {
 		return err
 	}
-	if denied {
+	if reason == auth.DecisionPolicyDeny {
 		return apierror.Forbidden("an attribute policy denies the selected Explorer source")
+	}
+	if reason != auth.DecisionAllowed {
+		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
 
 	comparisonStarted := time.Now()

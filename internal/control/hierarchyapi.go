@@ -92,7 +92,14 @@ func hierarchyResource(principal *auth.Principal, lineage auth.ResourceLineage) 
 }
 
 func (s *Server) hierarchyABACDenies(ctx context.Context, principal *auth.Principal, permission string, lineage auth.ResourceLineage) (bool, error) {
-	return s.abacDenies(ctx, principal, permission, hierarchyResource(principal, lineage))
+	// RBAC already ran at a FINER scope (Principal.HasAt on the resolved
+	// lineage) before this call; the door applies the tenant boundary and the
+	// ABAC deny layer (auth.RBACPreverified documents exactly that).
+	reason, err := s.decide(ctx, principal, permission, auth.RBACPreverified, hierarchyResource(principal, lineage))
+	if err != nil {
+		return false, err
+	}
+	return reason != auth.DecisionAllowed, nil
 }
 
 func (s *Server) loadHierarchy(ctx context.Context, sc tenancy.Scope, principal *auth.Principal) ([]hierarchyOrganization, error) {

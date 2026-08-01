@@ -522,21 +522,15 @@ func (s *Server) requirePermissionMode(perm string, allowScoped bool, h apiHandl
 			return apierror.Forbidden("multi-factor authentication required")
 		}
 		if perm != "" {
-			allowed := p.Has(perm)
+			// One door for the whole order (S-6357f747): RBAC per mode, then
+			// the tenant's ABAC deny-override — a policy may DENY a permission
+			// an RBAC role grants (S31) — with policy loading fail closed.
+			mode := auth.RBACGlobal
 			if allowScoped {
-				allowed = p.HasAny(perm)
+				mode = auth.RBACAnyScope
 			}
-			if !allowed {
-				return apierror.Forbidden("missing permission: " + perm)
-			}
-			// ABAC over RBAC (S31): a tenant attribute policy may DENY a permission an
-			// RBAC role grants (e.g. contractors can't write, step-up MFA required).
-			denied, err := s.abacDenies(r.Context(), p, perm, nil)
-			if err != nil {
+			if err := s.authorize(r.Context(), p, perm, mode, nil); err != nil {
 				return err
-			}
-			if denied {
-				return apierror.Forbidden("denied by an attribute policy: " + perm)
 			}
 		}
 		return h(w, r)

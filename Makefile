@@ -372,6 +372,7 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 	SELFTEST=1 ./scripts/check_tls_configs.sh
 	SELFTEST=1 ./scripts/check_enrollment_scoping.sh
 	./scripts/check_dead_seams.sh SELFTEST && ./scripts/check_dead_seams.sh
+	./scripts/check_authz_chokepoint.sh SELFTEST && ./scripts/check_authz_chokepoint.sh
 	PROBECTL_A11Y_THEMES= SELFTEST=1 bash scripts/web_rendered_a11y_container.sh
 	PROBECTL_A11Y_THEMES=ember SELFTEST=1 bash scripts/web_rendered_a11y_container.sh
 

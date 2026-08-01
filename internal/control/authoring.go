@@ -139,12 +139,10 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 	// RBAC grant AND its ABAC deny-override even though the route's outer
 	// permission is test.write. A caller without flow.read can still receive
 	// incident-derived proposals, but learns nothing from the flow plane.
-	if principal.Has(permFlowRead) {
-		denied, err := s.abacDenies(r.Context(), principal, permFlowRead, nil)
-		if err != nil {
-			return err
-		}
-		if !denied {
+	if reason, err := s.decide(r.Context(), principal, permFlowRead, auth.RBACGlobal, nil); err != nil {
+		return err
+	} else if reason == auth.DecisionAllowed {
+		{
 			rows, err := s.flowStore.TopTalkers(r.Context(), flowstore.TopQuery{
 				TenantID: tenantID,
 				By:       flowstore.ByDst,

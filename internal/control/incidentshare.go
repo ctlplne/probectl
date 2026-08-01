@@ -79,16 +79,16 @@ func (s *Server) handleCreateIncidentShare(w http.ResponseWriter, r *http.Reques
 	}
 	// The route middleware already requires incident.read. The snapshot also
 	// performs RCA, so require ai.query before any evidence gathering.
-	if !p.Has(permAIQuery) {
-		return apierror.Forbidden("AI query permission is required to share cited incident evidence")
-	}
 	resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
-	denied, err := s.abacDenies(r.Context(), p, permAIQuery, resource)
+	reason, err := s.decide(r.Context(), p, permAIQuery, auth.RBACGlobal, resource)
 	if err != nil {
 		return err
 	}
-	if denied {
+	if reason == auth.DecisionPolicyDeny {
 		return apierror.Forbidden("an attribute policy denies AI evidence access")
+	}
+	if reason != auth.DecisionAllowed {
+		return apierror.Forbidden("AI query permission is required to share cited incident evidence")
 	}
 
 	var req createIncidentShareRequest

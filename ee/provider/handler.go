@@ -131,12 +131,16 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 		svc.RecordLoginLockout(context.Background(), key, failures, lockout)
 	}
 
-	// Public (they establish the operator session or the enrollment).
-	h.handle("POST /provider/v1/auth/bootstrap", h.handleBootstrap)
-	h.handle("POST /provider/v1/auth/enroll/start", h.handleEnrollStart)
-	h.handle("POST /provider/v1/auth/enroll/complete", h.handleEnrollComplete)
-	h.handle("POST /provider/v1/auth/login", h.handleLogin)
-	h.handle("POST /provider/v1/auth/logout", h.handleLogout)
+	// Public (they establish the operator session or the enrollment). Every
+	// pattern registered WITHOUT an authorization wrapper must appear in
+	// providerPublicAuthPatterns with its reason — the authz-chokepoint gate
+	// holds the two in exact correspondence, so an unwrapped route cannot
+	// appear silently and a stale exemption cannot linger.
+	h.public("POST /provider/v1/auth/bootstrap", h.handleBootstrap)
+	h.public("POST /provider/v1/auth/enroll/start", h.handleEnrollStart)
+	h.public("POST /provider/v1/auth/enroll/complete", h.handleEnrollComplete)
+	h.public("POST /provider/v1/auth/login", h.handleLogin)
+	h.public("POST /provider/v1/auth/logout", h.handleLogout)
 
 	// Operator-session routes. SoD: operator-level unless noted admin.
 	h.handle("GET /provider/v1/me", h.asOperator("", h.handleMe))
@@ -656,4 +660,28 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": code, "message": message}})
+}
+
+// providerPublicAuthPatterns is the CLOSED set of provider routes deliberately
+// registered without an operator/tenant-admin authorization wrapper, each with
+// the reason it is public. The authz-chokepoint gate (S-6357f747) fails if a
+// route is registered unwrapped without an entry here, or if an entry stops
+// matching a registration.
+// public registers a deliberately session-less route. The pattern MUST carry
+// an entry in providerPublicAuthPatterns — registering an undeclared public
+// route is a programmer error and panics at construction, and the
+// authz-chokepoint gate enforces the same correspondence statically.
+func (h *Handler) public(pattern string, fn providerHandler) {
+	if _, ok := providerPublicAuthPatterns[pattern]; !ok {
+		panic("provider route " + pattern + " registered as public without an entry in providerPublicAuthPatterns")
+	}
+	h.handle(pattern, fn)
+}
+
+var providerPublicAuthPatterns = map[string]string{
+	"POST /provider/v1/auth/bootstrap":       "first-operator bootstrap: no operator exists yet to authenticate",
+	"POST /provider/v1/auth/enroll/start":    "operator enrollment begins pre-session (token-gated inside)",
+	"POST /provider/v1/auth/enroll/complete": "operator enrollment completes pre-session (token-gated inside)",
+	"POST /provider/v1/auth/login":           "establishes the operator session (rate-limited + lockout)",
+	"POST /provider/v1/auth/logout":          "tears down a session by its own token; no privilege exercised",
 }

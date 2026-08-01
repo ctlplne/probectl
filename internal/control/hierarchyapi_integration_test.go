@@ -386,12 +386,12 @@ func TestHierarchyResourceABACDenyTenantIsolationAndMutationBranches(t *testing.
 			permOrgWrite: true,
 		},
 	}
-	denied, err := srv.abacDenies(ctx, principalA, permOrgRead, map[string]string{
+	reason, err := srv.decide(ctx, principalA, permOrgRead, auth.RBACPreverified, map[string]string{
 		auth.ResourceTenantKey:         tenantA,
 		string(auth.ScopeOrganization): deniedOrgA.ID,
 	})
-	if err != nil || !denied {
-		t.Fatalf("resource ABAC fixture denied=%v err=%v", denied, err)
+	if err != nil || reason != auth.DecisionPolicyDeny {
+		t.Fatalf("resource ABAC fixture reason=%v err=%v", reason, err)
 	}
 	call := func(caller *auth.Principal, method, pattern, path string, body any, handler apiHandler, permission string) *httptest.ResponseRecorder {
 		t.Helper()

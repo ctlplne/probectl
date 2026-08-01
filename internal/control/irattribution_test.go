@@ -530,14 +530,15 @@ func TestIRRevealDedicatedPermissionMFAAndABACDenyBeforeInvestigation(t *testing
 			generations: map[string]uint64{},
 		}
 		principal := testIRPrincipal(irTenantA, true, true)
-		denied, err := server.abacDenies(
+		reason, err := server.decide(
 			context.Background(),
 			principal,
 			permIRInvestigate,
+			auth.RBACPreverified,
 			map[string]string{auth.ResourceTenantKey: irTenantA},
 		)
-		if err != nil || !denied {
-			t.Fatalf("ABAC fixture denied=%v err=%v", denied, err)
+		if err != nil || reason != auth.DecisionPolicyDeny {
+			t.Fatalf("ABAC fixture reason=%v err=%v", reason, err)
 		}
 		recorder, body := testIRUnreadRequest(
 			server,

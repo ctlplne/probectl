@@ -71,13 +71,13 @@ func TestEvaluateResourceMFAAndDisabled(t *testing.T) {
 func TestPermit(t *testing.T) {
 	p := &Principal{Permissions: map[string]bool{"test.write": true}, Attributes: map[string]string{"department": "contractor"}}
 	deny := []Policy{pol("no-contractor", PolicyDeny, "test.write", map[string]string{"department": "contractor"}, 1)}
-	if Permit(p, "test.write", deny, nil) {
+	if permit(p, "test.write", deny, nil) {
 		t.Error("ABAC deny should block an RBAC-permitted action")
 	}
-	if !Permit(p, "test.write", nil, nil) {
+	if !permit(p, "test.write", nil, nil) {
 		t.Error("RBAC-permitted with no policy should permit")
 	}
-	if Permit(p, "agent.write", nil, nil) {
+	if permit(p, "agent.write", nil, nil) {
 		t.Error("missing RBAC permission must not permit (RBAC is the baseline)")
 	}
 }

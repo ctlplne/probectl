@@ -395,16 +395,20 @@ func (s *Server) guardAllowPrivate(r *http.Request, params map[string]string) er
 		if params[param] != "true" {
 			continue
 		}
-		if p == nil || !p.Has(perm) {
+		if p == nil {
 			return apierror.Forbidden("setting " + param + " requires permission: " + perm)
 		}
 		resource := map[string]string{auth.ResourceTenantKey: p.TenantID}
-		denied, err := s.abacDenies(r.Context(), p, perm, resource)
+		reason, err := s.decide(r.Context(), p, perm, auth.RBACGlobal, resource)
 		if err != nil {
 			return err
 		}
-		if denied {
+		switch reason {
+		case auth.DecisionAllowed:
+		case auth.DecisionPolicyDeny:
 			return apierror.Forbidden("setting " + param + " denied by an attribute policy: " + perm)
+		default:
+			return apierror.Forbidden("setting " + param + " requires permission: " + perm)
 		}
 	}
 	return nil
