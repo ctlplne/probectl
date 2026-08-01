@@ -100,6 +100,7 @@ func DriveIngest(ctx context.Context, b bus.Bus, w tsdb.Writer, confirmed func()
 
 	// Start the consumer (agents → bus → consumer → TSDB).
 	consumer := pipeline.NewConsumer(b, w, "perf", logging.New(io.Discard, "error", "json")).
+		WithTenantBinding(harnessBinding{}). // no registry in the harness stack
 		WithWriteWorkers(ingestHarnessWriteWorkers(cfg)).
 		WithWriteQueueDepth(ingestHarnessWriteQueueDepth(cfg))
 	cctx, cancel := context.WithCancel(ctx)

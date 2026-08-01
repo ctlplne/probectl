@@ -46,7 +46,8 @@ one.
 B1 tenant↔tenant (inside every shared component) · B2 agent↔control plane ·
 B3 ingest surfaces (bus, OTLP, webhooks) · B4 control plane↔stores ·
 B5 operator/provider plane↔tenant data · B6 AI/MCP↔models and callers ·
-B7 build/release↔deployments · B8 agent↔monitored host.
+B7 build/release↔deployments · B8 agent↔monitored host ·
+**B9 endpoint/DEM agent↔bus (a deliberately distinct, lower trust tier)**.
 
 ## 3. Attacker profiles
 
@@ -95,6 +96,43 @@ trying to reach another tenant's data. The full storage-layer mechanism is in
 | Tampering in transit | TLS 1.2+/1.3 via the hardened configs in `internal/crypto`; no plaintext agent transport |
 | Fleet takeover via updates | **No self-update channel exists**; upgrades are operator-driven waves of **cosign-signed artifacts** with registry verification and halt-on-error (`internal/agent/rollout.go`) |
 | Rogue agent floods | fairness + cardinality caps as in B1; per-agent registry identity, version-skew-gated handshake (`internal/lifecycle/version.go`) |
+
+### B9 — Endpoint/DEM agent ↔ bus (a distinct, declared trust tier)
+
+probectl has **two** agent trust models, and this section exists so the second
+one is a decision rather than an oversight.
+
+The canary agent (B2) holds an mTLS client certificate with a SPIFFE-style
+identity; its tenant comes from the certificate, never from the payload, and the
+control plane re-stamps the identity before publishing to the bus. The
+**endpoint/DEM agent is different**: it runs on employee laptops and desktops,
+asserts its `tenant_id` from local YAML with no certificate and no SPIFFE, and
+publishes **directly** to `probectl.endpoint.results`.
+
+That is a real reduction in trust, and it is accepted deliberately: DEM's value
+is coverage of the actual end-user fleet, and requiring per-device certificate
+enrollment on every laptop is the reason most DEM deployments never reach
+meaningful coverage. The tier is **declared, not hidden**, and it is contained by
+one rule:
+
+> **The endpoint payload's tenant is never authoritative.** Every endpoint lane
+> is a VERIFYING lane: the claimed `(tenant, agent)` is checked against the agent
+> registry before a single sample is stored, and a claim that does not verify is
+> refused and counted — never stored, never re-attributed.
+
+| Threat | Mitigation — evidence |
+|---|---|
+| A tampered config claims another tenant | the endpoint lane verifies the claimed `(tenant, agent)` against the registry (`internal/pipeline` `resultTopics`, `verify: true`) and refuses what does not bind (TENANT-101, fail closed) |
+| A siloed tenant's lane is used to smuggle another tenant's data | a namespaced lane's tenant is authoritative and OVERWRITES the payload's claim; the disagreement is logged |
+| Verification is skipped on the recovery path | dead-letter replay re-enters through the SAME lane it left (`bus.SourceTopicForDeadLetter`), so a replayed endpoint record is verified again — replay is not a bypass (S-f02d4e59) |
+| A future lane forgets to verify | `TestEndpointLanesAlwaysVerify` asserts the PROPERTY over every lane `resultTopics` produces, base or namespaced, so a new lane cannot opt out by omission |
+| A compromised laptop floods the bus | per-tenant fairness admission runs before decode on the cheapest available identity; shed work is counted, never another tenant's problem |
+
+What this tier does **not** protect against, stated plainly: an attacker with
+code execution on an enrolled laptop can emit **plausible but false measurements
+for that laptop's own tenant**. Registry verification binds the claim to a
+registered agent; it does not attest that the numbers are real. Treat DEM
+samples as fleet-experience telemetry, not as evidence in a dispute.
 
 ### B3 — Ingest surfaces (bus, OTLP, webhooks)
 
@@ -161,6 +199,7 @@ this revision:
 | Multi-region RTO/RPO at representative scale | the CI failover drill runs continuously; a representative-scale run and sign-off are pending |
 | Reference-host agent overhead (live kernel ring buffer) | the userspace pipeline is measured; the on-host live row is pending |
 | Core `LICENSE` is MPL-2.0; bespoke `ee/`/reseller terms await counsel | commercial motion remains gated on counsel-approved terms, without making the core grant provisional |
+| The endpoint/DEM agent has no certificate identity (B9) | declared as a distinct trust tier, contained by mandatory lane verification and asserted as a property (`TestEndpointLanesAlwaysVerify`). Per-device enrollment remains a possible future upgrade, not a silent assumption |
 
 ## 6. Review log
 

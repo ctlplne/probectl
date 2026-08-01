@@ -42,7 +42,12 @@ func TestConsumerKafkaMode(t *testing.T) {
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		_ = NewConsumer(b, w, "kfake-test", logging.New(io.Discard, "error", "json")).Run(ctx)
+		_ = NewConsumer(b, w, "kfake-test", logging.New(io.Discard, "error", "json")).
+			// The endpoint lane is a verifying lane; Run refuses to open one
+			// without a binding (TENANT-101 / threat model B9). This test's
+			// subject is bus-mode parity, not the refusal path.
+			WithTenantBinding(allowAllBinding{}).
+			Run(ctx)
 		close(done)
 	}()
 	time.Sleep(500 * time.Millisecond) // let the consumer join the group

@@ -184,7 +184,8 @@ func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 ti
 	defer b.Close()
 	w := tsdb.NewMemory()
 
-	consumer := pipeline.NewConsumer(b, w, "perf-noisy", logging.New(io.Discard, "error", "json"))
+	consumer := pipeline.NewConsumer(b, w, "perf-noisy", logging.New(io.Discard, "error", "json")).
+		WithTenantBinding(harnessBinding{}) // no registry in the harness stack
 	if cfg.Fairness != nil {
 		// SCALE-004: the harness now actually installs the fairness gate it
 		// claims to validate — without this the noisy-neighbor scenario never

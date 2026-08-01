@@ -43,7 +43,8 @@ func TestAgentResultPushLatency(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	b := bus.NewMemory()
 	store := tsdb.NewMemory()
-	consumer := pipeline.NewConsumer(b, store, "perf-agent-result-push", log)
+	consumer := pipeline.NewConsumer(b, store, "perf-agent-result-push", log).
+		WithTenantBinding(harnessBinding{})
 
 	pipeCtx, stopPipe := context.WithCancel(ctx)
 	pipeDone := make(chan error, 1)

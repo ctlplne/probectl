@@ -28,9 +28,20 @@ type Config struct {
 	APIVersion    string `yaml:"apiVersion"`
 	SchemaVersion int    `yaml:"schema_version,omitempty"`
 
-	// TenantID binds every emitted DEM result to one tenant (F50). In production
-	// the agent derives this from its SPIFFE client-cert identity (like the canary
-	// agent); the explicit field supports the lightweight / single-tenant deploy.
+	// TenantID binds every emitted DEM result to one tenant (F50).
+	//
+	// This is an ASSERTION, not an identity. Unlike the canary agent — whose
+	// tenant comes from an mTLS/SPIFFE certificate and is re-stamped by the
+	// control plane — the endpoint agent has no certificate: it runs on
+	// employee laptops, where per-device enrollment is the reason most DEM
+	// deployments never reach useful coverage. That distinct trust tier is
+	// DECLARED (docs/security/threat-model.md, boundary B9), not assumed away.
+	//
+	// The claim is contained on the receiving side: the endpoint lane verifies
+	// (tenant, agent) against the agent registry before anything is stored, on
+	// every path including dead-letter replay, and internal/pipeline refuses to
+	// open the lane at all without that binding. Nothing here can make this
+	// value authoritative.
 	TenantID string `yaml:"tenant_id"`
 	// AgentID identifies this device in the fleet ("" => the hostname).
 	AgentID string `yaml:"agent_id"`

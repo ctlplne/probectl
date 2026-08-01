@@ -142,6 +142,7 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	// remote-write status/body) go to stderr so a failed gate is diagnosable
 	// from the CI log — not swallowed.
 	consumer := pipeline.NewConsumer(b, w, "loadgate-"+ns, logging.New(os.Stderr, "error", "json")).
+		WithTenantBinding(harnessBinding{}). // no registry in the harness stack
 		WithWriteWorkers(fullStackWriteWorkers(profile, atCIScale)).
 		WithWriteQueueDepth(fullStackWriteQueueDepth(profile, atCIScale))
 	cctx, cancel := context.WithCancel(ctx)

@@ -59,7 +59,7 @@ func TestConsumerWritesToTSDB(t *testing.T) {
 	b := bus.NewMemory()
 	defer b.Close()
 	w := tsdb.NewMemory()
-	c := NewConsumer(b, w, "test", logging.New(io.Discard, "error", "json"))
+	c := NewConsumer(b, w, "test", logging.New(io.Discard, "error", "json")).WithTenantBinding(allowAllBinding{})
 
 	done := make(chan struct{})
 	go func() { _ = c.Run(ctx); close(done) }()
@@ -103,7 +103,7 @@ func TestConsumerWritesEndpointResults(t *testing.T) {
 	b := bus.NewMemory()
 	defer b.Close()
 	w := tsdb.NewMemory()
-	c := NewConsumer(b, w, "test", logging.New(io.Discard, "error", "json"))
+	c := NewConsumer(b, w, "test", logging.New(io.Discard, "error", "json")).WithTenantBinding(allowAllBinding{})
 
 	done := make(chan struct{})
 	go func() { _ = c.Run(ctx); close(done) }()

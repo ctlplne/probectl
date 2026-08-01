@@ -9,6 +9,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"sync"
@@ -193,7 +194,8 @@ func (c *Consumer) WithNamespaceTenants(m map[string]string) *Consumer {
 
 // WithTenantBinding installs registry-backed verification of agent-published
 // results (the endpoint lanes) — the payload tenant is never authoritative
-// (TENANT-101). nil keeps legacy behavior for DB-less unit tests.
+// (TENANT-101). It is REQUIRED before Run will open a verifying lane: see
+// Run's fail-closed check.
 func (c *Consumer) WithTenantBinding(b TenantBinding) *Consumer {
 	c.binding = b
 	return c
@@ -284,6 +286,23 @@ type topicGroup struct {
 // on any one cancels the rest and is returned.
 func (c *Consumer) Run(ctx context.Context) error {
 	subs := c.resultTopics()
+	// Fail closed on the ONE guarantee the endpoint/DEM trust tier rests on
+	// (threat model B9, S-3ae8162b). The endpoint agent asserts its tenant from
+	// local YAML with no certificate, so its lane is a VERIFYING lane — and a
+	// verifying lane with no binding verifies nothing. That used to be a
+	// convention ("production remembers to wire it"); a consumer that skipped
+	// WithTenantBinding still subscribed and still stored whatever tenant the
+	// payload claimed. Refusing to start is the difference between a declared
+	// trust tier and an accidental one.
+	if c.binding == nil {
+		for _, s := range subs {
+			if s.verify {
+				return fmt.Errorf("pipeline: refusing to consume %s without a tenant binding: "+
+					"the lane verifies agent-published results against the registry, and without a "+
+					"binding the payload's tenant claim would be authoritative (TENANT-101, fail closed)", s.topic)
+			}
+		}
+	}
 	topics := make([]string, len(subs))
 	for i, s := range subs {
 		topics[i] = s.topic
