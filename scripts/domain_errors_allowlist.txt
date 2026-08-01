@@ -1,0 +1,15 @@
+# Domain-error vocabulary allowlist (Foundation-Loop S-ef8e66dc).
+#
+# Format: <file>:<Receiver>.<Method> — <reason>
+#
+# An entry needs a written reason; the gate rejects one without it, because an
+# exemption nobody had to justify is a denylist entry wearing a comment. A stale
+# entry — one whose violation is gone — also fails the gate, so an exemption
+# cannot outlive the thing it excused.
+#
+# The bar for an entry: the method is NOT reachable from an HTTP handler, so
+# there is no transport that has to decide a status code. Everything else gets
+# an apierror.
+
+internal/store/store.go:DB.WithReadReplica — process bootstrap, not a request path: called once from main() before any listener is bound. A failure here aborts startup with the wrapped cause in the operator's log; there is no HTTP status to choose.
+internal/store/enrollment.go:BMPRevocations.List — standalone-listener path (cmd/probectl-bmp-listener), reached from no HTTP handler. The listener replaces its in-memory revocation list only when this succeeds and logs the wrapped cause otherwise; a Kind would have no transport to travel over.

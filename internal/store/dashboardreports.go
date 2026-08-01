@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -128,7 +129,7 @@ func scanDashboardView(row interface{ Scan(...any) error }, out *DashboardView) 
 
 func (DashboardReports) CreateView(ctx context.Context, s tenancy.Scope, in DashboardViewInput) (*DashboardView, error) {
 	if !json.Valid(in.Definition) {
-		return nil, errors.New("dashboard definition is not valid JSON")
+		return nil, apierror.Validation("dashboard definition is not valid JSON")
 	}
 	var out DashboardView
 	err := scanDashboardView(s.Q.QueryRow(ctx, `

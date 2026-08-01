@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
@@ -103,7 +104,8 @@ func (AlertRules) RewrapEnvelopeSecrets(ctx context.Context, s tenancy.Scope, ac
 			}
 			newKeyID, ok := tenantcrypto.DeploymentEnvelopeKeyID(rewrapped)
 			if !ok || newKeyID != activeKeyID {
-				return stats, fmt.Errorf("alert_rules: rewrap produced key id %q (want active %q)", newKeyID, activeKeyID)
+				return stats, apierror.Internal("key rotation could not complete").
+					Wrap(fmt.Errorf("alert_rules: rewrap produced key id %q (want active %q)", newKeyID, activeKeyID))
 			}
 			candidate.channels[i].Secret = rewrapped
 			stats.Rewrapped++

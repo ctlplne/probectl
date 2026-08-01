@@ -8,12 +8,12 @@ package store
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -33,10 +33,10 @@ func NewDeviceNeighbors(pool *pgxpool.Pool) *DeviceNeighbors {
 
 func (s *DeviceNeighbors) ReplaceSnapshot(ctx context.Context, tenant string, snapshot device.NeighborSnapshot) error {
 	if s == nil || s.pool == nil {
-		return errors.New("device neighbors: persistence is not wired")
+		return apierror.Unavailable("device neighbors are not available in this deployment")
 	}
 	if tenant == "" || snapshot.TenantID != tenant {
-		return errors.New("device neighbors: tenant scope mismatch")
+		return apierror.Forbidden("device neighbor tenant scope mismatch")
 	}
 	valid, err := device.ValidateNeighborSnapshot(snapshot)
 	if err != nil {
@@ -106,16 +106,16 @@ func (s *DeviceNeighbors) ReplaceSnapshot(ctx context.Context, tenant string, sn
 
 func (s *DeviceNeighbors) ListNeighbors(ctx context.Context, tenant string, filter device.NeighborFilter) ([]device.NeighborEvidence, bool, error) {
 	if s == nil || s.pool == nil {
-		return nil, false, errors.New("device neighbors: persistence is not wired")
+		return nil, false, apierror.Unavailable("device neighbors are not available in this deployment")
 	}
 	if tenant == "" {
-		return nil, false, errors.New("device neighbors: tenant_id is required")
+		return nil, false, apierror.Validation("tenant_id is required")
 	}
 	filter.Device = strings.TrimSpace(filter.Device)
 	filter.Protocol = strings.ToLower(strings.TrimSpace(filter.Protocol))
 	if filter.Protocol != "" && filter.Protocol != device.NeighborProtocolLLDP &&
 		filter.Protocol != device.NeighborProtocolCDP {
-		return nil, false, errors.New("device neighbors: protocol must be lldp or cdp")
+		return nil, false, apierror.Validation("protocol must be lldp or cdp")
 	}
 	limit := filter.Limit
 	if limit < 1 {

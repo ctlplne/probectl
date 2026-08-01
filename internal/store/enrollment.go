@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -333,10 +334,8 @@ func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, rev
 		}
 		rows.Close()
 		if len(revoked) == 0 {
-			return fmt.Errorf(
-				"store: agent %s has no issued identities in tenant %s",
-				agentID, tenantID,
-			)
+			return apierror.NotFound("agent has no issued identities").
+				Wrap(fmt.Errorf("store: agent %s has no issued identities in tenant %s", agentID, tenantID))
 		}
 		for _, item := range revoked {
 			var synced bool

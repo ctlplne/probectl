@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
@@ -74,7 +75,8 @@ LIMIT 1`).Scan(&out.TenantID, &out.Issuer, &out.ClientID, &sealed, &out.Redirect
 	}
 	if len(flagsJSON) > 0 {
 		if err := json.Unmarshal(flagsJSON, &out.Flags); err != nil {
-			return nil, fmt.Errorf("store: decode tenant identity provider flags: %w", err)
+			return nil, apierror.Internal("tenant identity provider is not readable").
+				Wrap(fmt.Errorf("store: decode tenant identity provider flags: %w", err))
 		}
 	}
 	if out.Flags == nil {
@@ -86,7 +88,8 @@ LIMIT 1`).Scan(&out.TenantID, &out.Issuer, &out.ClientID, &sealed, &out.Redirect
 	}
 	plain, err := tenantcrypto.Open(ctx, sc.Tenant.String(), sealed, []byte(tenantIDPSecretAAD))
 	if err != nil {
-		return nil, fmt.Errorf("store: open tenant identity provider client secret: %w", err)
+		return nil, apierror.Internal("tenant identity provider is not readable").
+			Wrap(fmt.Errorf("store: open tenant identity provider client secret: %w", err))
 	}
 	defer crypto.Zeroize(plain)
 	out.ClientSecret = string(plain)
@@ -105,7 +108,8 @@ func (TenantIDPs) UpsertScoped(ctx context.Context, sc tenancy.Scope, in TenantI
 	if in.ClientSecret != "" {
 		sealed, sealErr := tenantcrypto.Seal(ctx, sc.Tenant.String(), []byte(in.ClientSecret), []byte(tenantIDPSecretAAD))
 		if sealErr != nil {
-			return nil, fmt.Errorf("store: seal tenant identity provider client secret: %w", sealErr)
+			return nil, apierror.Internal("tenant identity provider could not be saved").
+				Wrap(fmt.Errorf("store: seal tenant identity provider client secret: %w", sealErr))
 		}
 		if !tenantcrypto.HasScheme(sealed) {
 			return nil, ErrTenantIDPEncryptionRequired
@@ -123,7 +127,8 @@ func (TenantIDPs) UpsertScoped(ctx context.Context, sc tenancy.Scope, in TenantI
 	}
 	flagsJSON, err := json.Marshal(in.Flags)
 	if err != nil {
-		return nil, fmt.Errorf("store: encode tenant identity provider flags: %w", err)
+		return nil, apierror.Internal("tenant identity provider could not be saved").
+			Wrap(fmt.Errorf("store: encode tenant identity provider flags: %w", err))
 	}
 	_, err = sc.Q.Exec(ctx, `
 INSERT INTO tenant_idp

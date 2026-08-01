@@ -8,12 +8,12 @@ package store
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -32,10 +32,10 @@ func NewFlowQualityReceipts(pool *pgxpool.Pool) *FlowQualityReceipts {
 
 func (s *FlowQualityReceipts) UpsertQualityReceipt(ctx context.Context, tenant string, receipt flow.QualityReceipt) error {
 	if s == nil || s.pool == nil {
-		return errors.New("flow quality receipts: persistence is not wired")
+		return apierror.Unavailable("flow quality receipts are not available in this deployment")
 	}
 	if tenant == "" || receipt.TenantID != tenant {
-		return errors.New("flow quality receipts: tenant scope mismatch")
+		return apierror.Forbidden("flow quality receipt tenant scope mismatch")
 	}
 	valid, err := flow.ValidateQualityReceipt(receipt)
 	if err != nil {
@@ -119,17 +119,17 @@ func (s *FlowQualityReceipts) UpsertQualityReceipt(ctx context.Context, tenant s
 
 func (s *FlowQualityReceipts) ListQualityReceipts(ctx context.Context, tenant string, filter flow.QualityFilter) ([]flow.QualityReceipt, bool, error) {
 	if s == nil || s.pool == nil {
-		return nil, false, errors.New("flow quality receipts: persistence is not wired")
+		return nil, false, apierror.Unavailable("flow quality receipts are not available in this deployment")
 	}
 	if tenant == "" {
-		return nil, false, errors.New("flow quality receipts: tenant_id is required")
+		return nil, false, apierror.Validation("tenant_id is required")
 	}
 	filter.AgentID = strings.TrimSpace(filter.AgentID)
 	filter.Exporter = strings.TrimSpace(filter.Exporter)
 	filter.Protocol = strings.ToLower(strings.TrimSpace(filter.Protocol))
 	filter.State = strings.ToLower(strings.TrimSpace(filter.State))
 	if len(filter.AgentID) > 128 {
-		return nil, false, errors.New("flow quality receipts: invalid agent_id")
+		return nil, false, apierror.Validation("agent_id is too long")
 	}
 	if filter.Exporter != "" {
 		exporter, err := flow.NormalizeQualityExporter(filter.Exporter)
@@ -139,10 +139,10 @@ func (s *FlowQualityReceipts) ListQualityReceipts(ctx context.Context, tenant st
 		filter.Exporter = exporter
 	}
 	if filter.Protocol != "" && !flow.ValidQualityProtocol(filter.Protocol) {
-		return nil, false, errors.New("flow quality receipts: invalid protocol")
+		return nil, false, apierror.Validation("protocol is not a known flow protocol")
 	}
 	if filter.State != "" && !flow.ValidQualityState(filter.State) {
-		return nil, false, errors.New("flow quality receipts: invalid state")
+		return nil, false, apierror.Validation("state is not a known receipt state")
 	}
 	limit := filter.Limit
 	if limit < 1 {

@@ -8,12 +8,12 @@ package store
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -33,10 +33,10 @@ func NewDeviceCollectionOutcomes(pool *pgxpool.Pool) *DeviceCollectionOutcomes {
 
 func (s *DeviceCollectionOutcomes) UpsertCollectionOutcome(ctx context.Context, tenant string, outcome device.CollectionOutcome) error {
 	if s == nil || s.pool == nil {
-		return errors.New("device collection outcomes: persistence is not wired")
+		return apierror.Unavailable("device collection outcomes are not available in this deployment")
 	}
 	if tenant == "" || outcome.TenantID != tenant {
-		return errors.New("device collection outcomes: tenant scope mismatch")
+		return apierror.Forbidden("device collection outcome tenant scope mismatch")
 	}
 	valid, err := device.ValidateCollectionOutcome(outcome)
 	if err != nil {
@@ -96,16 +96,16 @@ func (s *DeviceCollectionOutcomes) UpsertCollectionOutcome(ctx context.Context, 
 
 func (s *DeviceCollectionOutcomes) ListCollectionOutcomes(ctx context.Context, tenant string, filter device.CollectionOutcomeFilter) ([]device.CollectionOutcome, bool, error) {
 	if s == nil || s.pool == nil {
-		return nil, false, errors.New("device collection outcomes: persistence is not wired")
+		return nil, false, apierror.Unavailable("device collection outcomes are not available in this deployment")
 	}
 	if tenant == "" {
-		return nil, false, errors.New("device collection outcomes: tenant_id is required")
+		return nil, false, apierror.Validation("tenant_id is required")
 	}
 	filter.AgentID = strings.TrimSpace(filter.AgentID)
 	filter.Target = strings.TrimSpace(filter.Target)
 	filter.State = strings.ToLower(strings.TrimSpace(filter.State))
 	if filter.State != "" && !device.ValidCollectionState(filter.State) {
-		return nil, false, errors.New("device collection outcomes: invalid state")
+		return nil, false, apierror.Validation("state is not a known collection state")
 	}
 	limit := filter.Limit
 	if limit < 1 {
