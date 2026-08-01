@@ -16,7 +16,10 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
@@ -27,7 +30,7 @@ import (
 func TestPrometheusRemoteWrite(t *testing.T) {
 	base := os.Getenv("PROBECTL_PROM_URL")
 	if base == "" {
-		t.Skip("set PROBECTL_PROM_URL to run the Prometheus remote-write test")
+		testsupport.SkipOrFatal(t, "set PROBECTL_PROM_URL to run the Prometheus remote-write test")
 	}
 
 	w := tsdb.NewPrometheus(base)

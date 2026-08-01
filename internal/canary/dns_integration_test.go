@@ -16,7 +16,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 
 	"github.com/miekg/dns"
 
@@ -261,7 +264,7 @@ func TestDNSLiveDoT(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !res.Success {
-		t.Skipf("DoT unavailable in this environment: %v", res.Error)
+		testsupport.SkipOrFatal(t, "DoT unavailable in this environment: %v", res.Error)
 	}
 	if res.Attributes["probectl.dns.transport"] != "dot" {
 		t.Errorf("transport attr = %q", res.Attributes["probectl.dns.transport"])
@@ -279,7 +282,7 @@ func TestDNSLiveTrace(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !res.Success {
-		t.Skipf("trace unavailable in this environment: %v", res.Error)
+		testsupport.SkipOrFatal(t, "trace unavailable in this environment: %v", res.Error)
 	}
 	if res.Metrics["dns.trace.hops"] < 2 {
 		t.Errorf("trace hops = %v, want a multi-step delegation", res.Metrics["dns.trace.hops"])

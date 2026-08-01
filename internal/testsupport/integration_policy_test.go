@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,38 +26,29 @@ func TestClickHouseIsolationMandatoryServicePolicy(t *testing.T) {
 		t.Fatal("resolve policy test path")
 	}
 	root := filepath.Clean(filepath.Join(filepath.Dir(here), "..", ".."))
-	targets := []string{
-		"internal/store/endpointstore/isolation_clickhouse_integration_test.go",
-		"internal/store/flowstore/isolation_clickhouse_test.go",
-		"internal/store/flowstore/query_scoping_isolation_test.go",
-		"internal/store/otelstore/query_scoping_isolation_test.go",
-		"internal/store/ebpfstore/query_scoping_isolation_test.go",
-		"internal/store/pathstore/isolation_clickhouse_test.go",
-		"internal/store/pathstore/query_scoping_isolation_test.go",
+	// S-208ed3d9: DISCOVER every isolation- or integration-tagged test file
+	// instead of naming seven. The previous list left two isolation files
+	// outside the guard entirely, and any new required suite joined them by
+	// default — a cross-tenant isolation suite that quietly skips is vacuous
+	// green, which is this guard's own stated reason for existing.
+	targets, err := requiredSuiteFiles(root)
+	if err != nil {
+		t.Fatalf("discover required suites: %v", err)
+	}
+	if len(targets) < 20 {
+		t.Fatalf("discovery found only %d required-suite files; the guard's reach collapsed", len(targets))
 	}
 	var violations []string
 	for _, rel := range targets {
 		path := filepath.Join(root, rel)
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, nil, 0)
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			t.Fatalf("parse %s: %v", rel, err)
 		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || (sel.Sel.Name != "Skip" && sel.Sel.Name != "Skipf") {
-				return true
-			}
-			violations = append(
-				violations,
-				rel+":"+strconv.Itoa(fset.Position(call.Pos()).Line),
-			)
-			return true
-		})
+		for _, line := range bareSkipLines(fset, file) {
+			violations = append(violations, rel+":"+strconv.Itoa(line))
+		}
 	}
 	if len(violations) != 0 {
 		t.Fatalf(
@@ -87,6 +79,96 @@ func TestClickHouseIsolationMandatoryServicePolicy(t *testing.T) {
 			t.Errorf("cross-tenant isolation CI is missing %q", want)
 		}
 	}
+}
+
+// requiredSuiteFiles returns every repo-relative _test.go path carrying an
+// isolation or integration build tag — the suites CI runs with
+// PROBECTL_TEST_REQUIRE_SERVICES=1, where a skip is indistinguishable from a
+// pass.
+func requiredSuiteFiles(root string) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "web", "third_party":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		if !hasRequiredSuiteTag(string(src)) {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, path)
+		if rerr != nil {
+			return rerr
+		}
+		out = append(out, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(out)
+	return out, err
+}
+
+// hasRequiredSuiteTag reports whether the source carries a //go:build
+// constraint naming the isolation or integration tag.
+func hasRequiredSuiteTag(src string) bool {
+	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "//go:build") {
+			if line != "" && !strings.HasPrefix(line, "//") && !strings.HasPrefix(line, "package") {
+				return false // past the header
+			}
+			continue
+		}
+		constraint := strings.TrimPrefix(line, "//go:build")
+		for _, tag := range strings.FieldsFunc(constraint, func(r rune) bool {
+			return r == ' ' || r == '&' || r == '|' || r == '(' || r == ')' || r == '!'
+		}) {
+			if tag == "isolation" || tag == "integration" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// bareSkipLines reports every t.Skip/Skipf call in file that is NOT routed
+// through the fail-closed helper — at ANY nesting depth, and regardless of
+// whether a t.Fatal happens to follow it in the same block. The old guard
+// looked only for the call and was satisfied by a skip nested inside an if
+// whose else branch fataled: the skip still ran, which is the whole failure
+// mode (skip-before-fatal).
+func bareSkipLines(fset *token.FileSet, file *ast.File) []int {
+	var lines []int
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || (sel.Sel.Name != "Skip" && sel.Sel.Name != "Skipf" && sel.Sel.Name != "SkipNow") {
+			return true
+		}
+		// testsupport.SkipOrFatal is the sanctioned door: it honors
+		// PROBECTL_TEST_REQUIRE_SERVICES and fatals in CI.
+		if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "testsupport" {
+			return true
+		}
+		lines = append(lines, fset.Position(call.Pos()).Line)
+		return true
+	})
+	sort.Ints(lines)
+	return lines
 }
 
 func TestFlowClickHouseIsolationReaderErrorsMustFail(t *testing.T) {
@@ -296,4 +378,111 @@ func postgresAvailabilityReason(reason string) bool {
 	return strings.Contains(reason, "no database available") ||
 		strings.Contains(reason, "database unavailable") ||
 		strings.Contains(reason, "postgres unavailable")
+}
+
+// TestSkipPolicyGuardCatchesPlantedShapes is the guard's own anti-vacuous
+// proof (S-208ed3d9). The previous negative test anticipated a bare skip but
+// not the SKIP-BEFORE-FATAL combination — a skip nested inside a conditional
+// whose other branch fatals. That shape satisfied a "does a Fatal appear?"
+// reading of the file while still skipping the suite, which is the entire
+// failure mode: a cross-tenant isolation suite that quietly skips is vacuous
+// green.
+func TestSkipPolicyGuardCatchesPlantedShapes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src       string
+		wantLines int
+	}{
+		"bare skip": {
+			src: `package x
+import "testing"
+func TestA(t *testing.T) {
+	if cond {
+		t.Skip("no service")
+	}
+	t.Fatal("unreachable")
+}`,
+			wantLines: 1,
+		},
+		"skip before fatal, nested": {
+			src: `package x
+import "testing"
+func TestA(t *testing.T) {
+	if outer {
+		if inner {
+			t.Skipf("no service: %v", err)
+		} else {
+			t.Fatal("required")
+		}
+	}
+}`,
+			wantLines: 1,
+		},
+		"SkipNow at depth": {
+			src: `package x
+import "testing"
+func TestA(t *testing.T) {
+	for range items {
+		func() {
+			t.SkipNow()
+		}()
+	}
+}`,
+			wantLines: 1,
+		},
+		"sanctioned prerequisite door": {
+			src: `package x
+import (
+	"testing"
+	"github.com/ctlplne/probectl/internal/testsupport"
+)
+func TestA(t *testing.T) {
+	if cond {
+		testsupport.SkipOrFatal(t, "postgres unavailable: %v", err)
+	}
+}`,
+			wantLines: 0,
+		},
+		"sanctioned opt-in door": {
+			src: `package x
+import (
+	"testing"
+	"github.com/ctlplne/probectl/internal/testsupport"
+)
+func TestA(t *testing.T) {
+	if cond {
+		testsupport.SkipOptIn(t, "PROBECTL_RUN_FULLSTACK_LOAD", "load gate")
+	}
+}`,
+			wantLines: 0,
+		},
+	} {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, "planted.go", tc.src, 0)
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if got := bareSkipLines(fset, file); len(got) != tc.wantLines {
+			t.Errorf("%s: guard found %d bare skips, want %d", name, len(got), tc.wantLines)
+		}
+	}
+}
+
+// TestSkipPolicyGuardDiscoversNewFiles proves the reach is DISCOVERY, not a
+// list: a synthetic required-suite file is recognized by its build tag alone.
+func TestSkipPolicyGuardDiscoversNewFiles(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src  string
+		want bool
+	}{
+		"isolation tag":           {"//go:build isolation\n\npackage x\n", true},
+		"integration tag":         {"//go:build integration\n\npackage x\n", true},
+		"combined tag":            {"//go:build integration && !race\n\npackage x\n", true},
+		"unrelated tag":           {"//go:build devauth\n\npackage x\n", false},
+		"no tag":                  {"package x\n", false},
+		"tag-shaped body mention": {"package x\n\n// isolation is discussed here\nvar s = \"integration\"\n", false},
+	} {
+		if got := hasRequiredSuiteTag(tc.src); got != tc.want {
+			t.Errorf("%s: hasRequiredSuiteTag = %v, want %v", name, got, tc.want)
+		}
+	}
 }

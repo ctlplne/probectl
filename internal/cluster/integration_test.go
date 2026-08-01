@@ -51,7 +51,7 @@ func TestPGProberAndPromotePG(t *testing.T) {
 		t.Fatalf("probe: %v", before.Err)
 	}
 	if before.InRecovery {
-		t.Skip("test database is a replica (in recovery) — promotion test needs a primary")
+		testsupport.SkipOrFatal(t, "test database is a replica (in recovery) — promotion test needs a primary")
 	}
 
 	// A promotion bumps the epoch monotonically and records the region.

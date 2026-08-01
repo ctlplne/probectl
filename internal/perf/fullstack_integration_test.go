@@ -13,7 +13,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TestFullStackLoadGate is the U-005 entry point for BOTH runs of the
@@ -30,12 +33,12 @@ import (
 // FRESH stack (`make compose-up`).
 func TestFullStackLoadGate(t *testing.T) {
 	if os.Getenv("PROBECTL_RUN_FULLSTACK_LOAD") != "1" {
-		t.Skip("full-stack load gate is explicit; run make load-test-smoke or make load-test")
+		testsupport.SkipOptIn(t, "PROBECTL_RUN_FULLSTACK_LOAD", "the full-stack load gate runs via make load-test-smoke")
 	}
 	brokers := os.Getenv("PROBECTL_TEST_KAFKA")
 	prom := os.Getenv("PROBECTL_PROM_URL")
 	if brokers == "" || prom == "" {
-		t.Skip("PROBECTL_TEST_KAFKA / PROBECTL_PROM_URL not set — the full-stack load gate needs the real stack (make compose-up)")
+		testsupport.SkipOptIn(t, "PROBECTL_RUN_FULLSTACK_LOAD", "the full-stack load gate runs via make load-test-smoke")
 	}
 
 	tier := Tier(os.Getenv("PROBECTL_SCALE_TIER"))
@@ -76,12 +79,12 @@ func TestFullStackLoadGate(t *testing.T) {
 // query p95, and ClickHouse active-part pressure on the real flow stack.
 func TestFullStackFlowGate(t *testing.T) {
 	if os.Getenv("PROBECTL_RUN_FULLSTACK_LOAD") != "1" {
-		t.Skip("full-stack flow gate is explicit; run make load-test-smoke or make load-test")
+		testsupport.SkipOptIn(t, "PROBECTL_RUN_FULLSTACK_LOAD", "the full-stack load gate runs via make load-test-smoke")
 	}
 	brokers := os.Getenv("PROBECTL_TEST_KAFKA")
 	flowURL := os.Getenv("PROBECTL_FLOWSTORE_URL")
 	if brokers == "" || flowURL == "" {
-		t.Skip("PROBECTL_TEST_KAFKA / PROBECTL_FLOWSTORE_URL not set — the full-stack flow gate needs the real Kafka + ClickHouse stack (make compose-up)")
+		testsupport.SkipOptIn(t, "PROBECTL_RUN_FULLSTACK_LOAD", "the full-stack load gate runs via make load-test-smoke")
 	}
 
 	tier := Tier(os.Getenv("PROBECTL_SCALE_TIER"))

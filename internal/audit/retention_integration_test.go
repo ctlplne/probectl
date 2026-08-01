@@ -15,7 +15,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -41,7 +44,7 @@ func TestProviderRetentionPrune(t *testing.T) {
 		t.Fatalf("head seq: %v", err)
 	}
 	if base != 0 {
-		t.Skipf("provider audit stream is shared and already has %d rows; strict prefix pruning needs an isolated stream", base)
+		testsupport.SkipOrFatal(t, "provider audit stream is shared and already has %d rows; strict prefix pruning needs an isolated stream", base)
 	}
 
 	// Append 6 events on the provider chain.

@@ -19,7 +19,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // httpExec is a minimal ClickHouse HTTP adapter for the containerized gate
@@ -91,7 +94,7 @@ func (h httpExec) Query(ctx context.Context, sql string, p Params) ([]map[string
 func TestClickHouseMigrationsEndToEnd(t *testing.T) {
 	base := os.Getenv("PROBECTL_FLOWSTORE_URL")
 	if base == "" {
-		t.Skip("PROBECTL_FLOWSTORE_URL not set — the CH migration gate runs in CI")
+		testsupport.SkipOrFatal(t, "PROBECTL_FLOWSTORE_URL not set — the CH migration gate runs in CI")
 	}
 	db := httpExec{base: strings.TrimRight(base, "/"), client: &http.Client{Timeout: 30 * time.Second}}
 	ctx := context.Background()

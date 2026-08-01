@@ -17,7 +17,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TestRunLoopback proves the tracer end to end against a reachable destination: a
@@ -33,7 +36,7 @@ func TestRunLoopback(t *testing.T) {
 	cfg := Config{Target: "127.0.0.1", Mode: "icmp", TraceCount: 2, MaxHops: 5, PerHopTimeout: time.Second}
 	p, err := Run(ctx, cfg)
 	if err != nil {
-		t.Skipf("path trace unavailable (sockets restricted): %v", err)
+		testsupport.SkipOrFatal(t, "path trace unavailable (sockets restricted): %v", err)
 	}
 	if p.TargetIP != "127.0.0.1" {
 		t.Errorf("target ip = %q, want 127.0.0.1", p.TargetIP)
@@ -166,7 +169,7 @@ func rawPathUnavailable(t *testing.T, format string, args ...any) {
 	if os.Getenv("PROBECTL_TEST_REQUIRE_RAW_PATH") == "1" {
 		t.Fatalf(format, args...)
 	}
-	t.Skipf(format, args...)
+	testsupport.SkipOrFatal(t, format, args...)
 }
 
 type rawMultiHopFixture struct {

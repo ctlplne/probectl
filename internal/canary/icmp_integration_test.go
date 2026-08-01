@@ -11,7 +11,10 @@ package canary_test
 import (
 	"context"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 
 	"github.com/ctlplne/probectl/internal/canary"
 )
@@ -31,10 +34,10 @@ func TestICMPLoopback(t *testing.T) {
 			}
 			res, err := c.Run(context.Background())
 			if err != nil {
-				t.Skipf("ICMP socket unavailable (need ping_group_range or CAP_NET_RAW): %v", err)
+				testsupport.SkipOrFatal(t, "ICMP socket unavailable (need ping_group_range or CAP_NET_RAW): %v", err)
 			}
 			if !res.Success {
-				t.Skipf("loopback %s unreachable in this environment: %s", target, res.Error)
+				testsupport.SkipOrFatal(t, "loopback %s unreachable in this environment: %s", target, res.Error)
 			}
 			if res.Metrics["packets.received"] < 1 {
 				t.Fatalf("no replies from %s: %v", target, res.Metrics)

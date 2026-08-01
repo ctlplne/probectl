@@ -14,7 +14,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 
 	"github.com/ctlplne/probectl/internal/browser"
 	"github.com/ctlplne/probectl/internal/canary"
@@ -27,7 +30,7 @@ import (
 func TestAgentFactoryRunsRealPlaywrightWorker(t *testing.T) {
 	worker := os.Getenv("PROBECTL_BROWSER_WORKER_PATH")
 	if worker == "" {
-		t.Skip("PROBECTL_BROWSER_WORKER_PATH is required for the real worker smoke")
+		testsupport.SkipOrFatal(t, "PROBECTL_BROWSER_WORKER_PATH is required for the real worker smoke")
 	}
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

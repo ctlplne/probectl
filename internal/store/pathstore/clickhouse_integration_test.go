@@ -17,7 +17,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+
 	"time"
+
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // TestClickHouseRealRoundTrip writes a path to a real ClickHouse over HTTP and
@@ -26,7 +29,7 @@ import (
 func TestClickHouseRealRoundTrip(t *testing.T) {
 	base := os.Getenv("PROBECTL_PATHSTORE_URL")
 	if base == "" {
-		t.Skip("set PROBECTL_PATHSTORE_URL to run the ClickHouse round-trip test")
+		testsupport.SkipOrFatal(t, "set PROBECTL_PATHSTORE_URL to run the ClickHouse round-trip test")
 	}
 	ch, err := newClickHouse(base)
 	if err != nil {

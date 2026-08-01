@@ -35,6 +35,18 @@ func SkipOrFatal(t testing.TB, format string, args ...any) {
 	t.Skipf(format, args...)
 }
 
+// SkipOptIn is the OTHER sanctioned skip: a suite that is deliberately not
+// part of the required set — a load gate, a destructive drill — and runs only
+// when its own opt-in variable is set. It is distinct from SkipOrFatal on
+// purpose (S-208ed3d9): a MISSING PREREQUISITE must fail closed in CI, while
+// an OPT-IN suite legitimately does not run there. Naming the enabling
+// variable keeps the distinction auditable — `grep SkipOptIn` lists every
+// suite that is off by default and says how to turn it on.
+func SkipOptIn(t testing.TB, envVar, reason string) {
+	t.Helper()
+	t.Skipf("opt-in suite: set %s=1 to run — %s", envVar, reason)
+}
+
 // PostgresDSN resolves the test Postgres DSN from the environment, in
 // precedence order (TEST-003):
 //
