@@ -39,12 +39,53 @@ Go control plane + agents (static, `linux/amd64|arm64`) · Python analyzer · eB
 ```
 cmd/        probectl-control · probectl-agent · probectl-ebpf-agent · probectl-endpoint ·
             probectl-flow-agent · probectl-device-agent · probectl-bmp-listener ·
-            probectl-cloud-metrics · probectl-license · probectl-sdkgen · probectl (CLI, web-parity)
-internal/   control (API) · tenancy · agent · canary · path · bgp · ebpf · flow · device ·
-            opendata · threat · change · topology · cost · slo · compliance · ai (query/RCA/MCP) ·
-            crypto (the only crypto door) · auth · audit · store · bus · otel · license · fairness ·
-            lifecycle/tenantlife · branding (deployment theming) · support · perf
-ee/         provider · billing (metering) · silo · tenantkeys (BYOK) · remediation · governance
+            probectl-cloud-metrics · probectl-license · probectl-sdkgen ·
+            probectl-workflow-policy · probectl-chaos-dependency-drill ·
+            terraform-provider-probectl · probectl (CLI, web-parity)
+internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agent runtime) ·
+            agentlabel (placement-metadata validation) · agenttransport (agent gRPC lane, tenant-verifying) ·
+            ai (AI query/RCA/MCP + egress gate) · alert (alerting engine) ·
+            anomaly (tenant-scoped anomaly models) · apierror (domain error vocabulary) ·
+            audit (immutable audit log + WORM) · auth (OIDC SSO, RBAC/ABAC) ·
+            backup (at-rest backup encryption) · bgp (BGP bridge to control plane) ·
+            branding (deployment theming) · breaker (storage-client circuit breaker) ·
+            browser (browser/transaction synthetics) · browsercanary (browser engine as canary plugin) ·
+            bus (Kafka/NATS/memory transport) · canary (canary plugin interface) ·
+            carbon (carbon/power observability) · change (change ingest + incident correlation) ·
+            chaos (local test-only fault injector) · cipolicy (CI/workflow policy tests) ·
+            cli (probectl CLI) · cloudmetrics (cloud metric importers) ·
+            cluster (multi-region HA) · cmdb (CMDB correlation) ·
+            compliance (segmentation validation + evidence) · config (config load/validate) ·
+            configschema (config YAML schema helpers) · control (HTTP API server) ·
+            cost (FinOps/egress cost engine) · crypto (the only crypto door) ·
+            device (SNMP/device telemetry plane) · docslint (doc-accuracy tests) ·
+            ebpf (eBPF host agent) · endpoint (endpoint/DEM agent) ·
+            enroll (agent trust root/enrollment) · fairness (per-tenant admission fairness) ·
+            flow (NetFlow/sFlow/IPFIX plane) · gen (generated code: protobuf/gNMI/prometheus) ·
+            govern (data-governance core) · httpbody (bounded HTTP body readers) ·
+            i18n (server/CLI message catalog) · incident (cross-plane incident correlation) ·
+            ingesthealth (payload-free ingest observability) · inventory (operator-list primitives) ·
+            license (offline edition gating) · lifecycle (zero-downtime upgrade) ·
+            logging (structured slog setup) · metrics (self-observability) ·
+            notify (on-call/notification wiring) · objectstore (per-tenant blob store) ·
+            opendata (open-data enrichment) · otel (OTel semconv mapping) ·
+            outage (collective outage view) · path (ECMP/MPLS path discovery) ·
+            perf (load/perf harness) · pipeline (bus-to-store result pipeline, tenant-verifying) ·
+            preflight (deployment self-check) · promapi (Prometheus-compatible surfaces) ·
+            remediation (core guarded-remediation seam) · reporting (tenant report artifacts) ·
+            rum (real-user monitoring) · schema (offline schema lints) ·
+            scim (SCIM 2.0 provisioning) · secrets (secret-backend integration) ·
+            siem (SIEM export) · slo (OpenSLO engine) ·
+            store (tenant-scoped datastore adapters) · support (support bundles/health) ·
+            tenancy (tenant boundary: fences + posture) · tenantcrypto (per-tenant at-rest crypto seam) ·
+            tenantlife (tenant lifecycle: export/erasure) · terraformprovider (Terraform provider core) ·
+            testspec (synthetic-test schema) · testsupport (shared test helpers, fail-closed skips) ·
+            testsync (signed pull-based test distribution) · threat (TLS/NDR-lite threat signals) ·
+            topology (versioned topology + what-if) · usage (core metering seam) ·
+            version (build metadata) · webui (embedded web UI)
+ee/         billing (metering/usage export) · governance (ee governance workflows) ·
+            provider (provider/management plane) · remediation (guarded remediation workflow) ·
+            silo (siloed/hybrid isolation) · tenantkeys (BYOK) · web (embedded provider-console assets)
 analyzer/   Python BGP · proto/ schemas · migrations/ (sequential, idempotent) · web/ frontend
 deploy/     helm · compose · terraform · backup · packaging | docs/ · test/ (real-stack integration)
 ../foundation-loop/ structural-excellence program (the one live program) — OUTSIDE the repo, at the workspace root (§11)
