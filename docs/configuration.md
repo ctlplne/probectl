@@ -1508,10 +1508,10 @@ session. Each LLDP/CDP attempt separately publishes a stable, non-secret
 readiness receipt to `probectl.device.collection-outcomes`, so failure,
 successful-empty, unsupported, and never-observed cannot be confused. Accepted
 traps become tenant-scoped event and alert rows. The full
-device list and optional trap listener live in a
-YAML config
-(see `deploy/agent/probectl-device-agent.example.yml`); the env vars below override
-it and give a **single-device quick start** for trying one device fast. See
+device list and optional trap listener live in a YAML config, bounded to 1 MiB
+before YAML decoding (see `deploy/agent/probectl-device-agent.example.yml`); the
+env vars below override it and give a **single-device quick start** for trying
+one device fast. See
 [`device-telemetry.md`](device-telemetry.md).
 
 Set top-level `collection_profile` to `minimal`, `standard`, or

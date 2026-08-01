@@ -9,6 +9,7 @@ package device
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -19,7 +20,10 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
 
-const ConfigAPIVersion = "probectl.io/device-agent/v1"
+const (
+	ConfigAPIVersion   = "probectl.io/device-agent/v1"
+	maxConfigFileBytes = 1 << 20
+)
 
 // Device transports.
 const (
@@ -147,7 +151,7 @@ func Default() *Config {
 func Load(path string) (*Config, error) {
 	cfg := Default()
 	if path != "" {
-		raw, err := os.ReadFile(path)
+		raw, err := readConfigFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("device: read config: %w", err)
 		}
@@ -160,6 +164,25 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func readConfigFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxConfigFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxConfigFileBytes {
+		return nil, fmt.Errorf("config file exceeds %d-byte limit", maxConfigFileBytes)
+	}
+	return raw, nil
 }
 
 func decodeConfigYAML(raw []byte, cfg *Config) error {
