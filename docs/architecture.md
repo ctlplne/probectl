@@ -301,6 +301,29 @@ restart into a synchronized fleet-wide reconnect (SCALE-008). Two identical
 reconnect loops with only one jittered is the failure mode this rule exists to
 prevent; it happened.
 
+## Store transport
+
+Every store that talks to an external data plane over HTTP goes through ONE
+breaker-guarded transport, `internal/store/chclient` (CODE-006). It owns the
+hardened TLS client, a circuit breaker **per data-plane endpoint** (SCALE-021 —
+one down silo never trips another's writes), the bounded response read
+(`MaxResponseBytes`), and the classification of what counts as an upstream
+fault: 5xx and 429 are the upstream's problem and trip the breaker; 4xx is the
+caller's and does not, so one malformed sample cannot take ingestion down.
+
+The four ClickHouse-backed stores (flowstore, otelstore, pathstore, ebpfstore)
+were consolidated onto it first. The TSDB remote-write writer
+(`internal/store/tsdb`) kept a parallel breaker and its own copy of that
+classification, so the per-target-breaker fix landed for the silos and not for
+metrics — and its admin-API (erasure) calls bypassed the breaker entirely. It
+now uses `chclient` too, and `internal/store/tsdb` carries a parity test that
+drives the same fault sequence through both and requires identical breaker
+state. Asserting each path's behavior in isolation is how they drifted.
+
+Stores keep their own DDL, routing, tenant-scoping and SQL; `chclient` owns only
+wire transport and decode. A new HTTP-backed store belongs on it — a second
+transport is a second place for a resilience fix to be forgotten.
+
 ## Result pipeline
 
 A result's journey: agent → gRPC `StreamResults` → control-plane ingest

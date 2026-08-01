@@ -27,6 +27,7 @@ import (
 	"github.com/ctlplne/probectl/internal/breaker"
 	"github.com/ctlplne/probectl/internal/crypto"
 	prompb "github.com/ctlplne/probectl/internal/gen/prometheus/v1"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
 // Prometheus writes series via the Prometheus remote-write protocol (a snappy-
@@ -34,9 +35,16 @@ import (
 // with --web.enable-remote-write-receiver) and VictoriaMetrics. TLS in transit is
 // supported by using an https URL (CLAUDE.md §7 guardrail 12).
 type Prometheus struct {
-	url               string
-	client            *http.Client
-	breaker           *breaker.Breaker
+	url string
+	// base is the breaker key: chclient keys a breaker PER data-plane endpoint
+	// (SCALE-021), so a future multi-endpoint TSDB router gets isolated
+	// breakers without another change here.
+	base string
+	// conn is the shared breaker-guarded transport (CODE-006). The TSDB used
+	// to carry its own breaker and its own copy of the 5xx/429 classification,
+	// so the per-target-breaker fix landed for the ClickHouse silos and not
+	// for metrics. One transport, one classification, one place to fix.
+	conn              *chclient.Conn
 	rejectedPermanent atomic.Uint64 // samples remote-write rejected with a 4xx (CORRECT-003)
 }
 
@@ -76,44 +84,24 @@ func NewPrometheusWithClient(url string, client *http.Client) *Prometheus {
 	if client == nil {
 		client = crypto.HardenedHTTPClient(30 * time.Second)
 	}
+	base := strings.TrimRight(url, "/")
 	return &Prometheus{
-		url:     strings.TrimRight(url, "/") + "/api/v1/write",
-		client:  client,
-		breaker: breaker.New(0, 0),
+		url:  base + "/api/v1/write",
+		base: base,
+		conn: chclient.NewWithClient(client),
 	}
 }
 
-// promDo issues the request through the circuit breaker (U-078): a transport
-// failure (upstream unreachable) trips it after the threshold, short-circuiting
-// further calls until a cooldown probe succeeds.
+// promDo issues the request through the SHARED transport's circuit breaker
+// (U-078 / CODE-006): a transport failure trips it after the threshold, and
+// RESIL-005's "an up-but-erroring upstream (5xx/429) is a fault too" is
+// classified once, in chclient, for every store.
 func (p *Prometheus) promDo(req *http.Request) (*http.Response, error) {
-	var resp *http.Response
-	err := p.breaker.Do(func() error {
-		r, e := p.client.Do(req) //nolint:bodyclose // the response escapes to promDo's caller, which closes it
-		if e != nil {
-			return e
-		}
-		resp = r
-		// RESIL-005: an up-but-erroring upstream (5xx/429) is a breaker fault
-		// too, not just a transport error. Count it (sentinel) but still
-		// surface the response; the sentinel is stripped below.
-		if r.StatusCode >= 500 || r.StatusCode == http.StatusTooManyRequests {
-			return errServerError
-		}
-		return nil
-	})
-	if errors.Is(err, errServerError) {
-		err = nil
-	}
-	return resp, err
+	return p.conn.Do(p.base, req)
 }
-
-// errServerError marks a completed-but-faulting (5xx/429) response as a breaker
-// failure while letting the response escape to the caller (RESIL-005).
-var errServerError = errors.New("tsdb: upstream server error (5xx/429)")
 
 // BreakerStats exposes the TSDB breaker state (U-078 fallback metrics).
-func (p *Prometheus) BreakerStats() breaker.Stats { return p.breaker.Stats() }
+func (p *Prometheus) BreakerStats() breaker.Stats { return p.conn.BreakerFor(p.base).Stats() }
 
 // ErrAdminAPIDisabled reports that the upstream's admin API (delete_series)
 // is not enabled — the erasure engine then records the documented manual
@@ -134,7 +122,10 @@ func (p *Prometheus) DeleteTenant(ctx context.Context, tenantID string) (int, er
 	if err != nil {
 		return 0, err
 	}
-	resp, err := p.client.Do(del)
+	// Admin-API calls go through the same breaker as remote-write: they hit the
+	// same endpoint, and a TSDB that is down for writes is down for erasure too.
+	// They used to bypass it entirely.
+	resp, err := p.promDo(del)
 	if err != nil {
 		return 0, fmt.Errorf("tsdb: delete_series: %w", err)
 	}
@@ -151,7 +142,7 @@ func (p *Prometheus) DeleteTenant(ctx context.Context, tenantID string) (int, er
 	// has no such endpoint — non-2xx here is not a failure).
 	if clean, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		base+"/api/v1/admin/tsdb/clean_tombstones", nil); err == nil {
-		if r2, err := p.client.Do(clean); err == nil {
+		if r2, err := p.promDo(clean); err == nil {
 			_ = r2.Body.Close()
 		}
 	}
@@ -162,7 +153,7 @@ func (p *Prometheus) DeleteTenant(ctx context.Context, tenantID string) (int, er
 	if err != nil {
 		return 0, err
 	}
-	r3, err := p.client.Do(q)
+	r3, err := p.promDo(q)
 	if err != nil {
 		return 0, fmt.Errorf("tsdb: post-delete verification query: %w", err)
 	}

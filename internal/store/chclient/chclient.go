@@ -102,6 +102,18 @@ func New(timeout time.Duration) *Conn {
 	return &Conn{def: breaker.New(0, 0), client: crypto.HardenedHTTPClient(timeout)}
 }
 
+// NewWithClient builds a Conn over a caller-supplied HTTP client. It exists for
+// the one store whose transport must be injectable — the TSDB remote-write
+// writer, whose tests drive a socket-free RoundTripper to inspect the exact
+// snappy/protobuf request. A nil client falls back to the hardened one, so an
+// injection seam can never silently downgrade production TLS.
+func NewWithClient(client *http.Client) *Conn {
+	if client == nil {
+		client = crypto.HardenedHTTPClient(30 * time.Second)
+	}
+	return &Conn{def: breaker.New(0, 0), client: client}
+}
+
 // BreakerFor returns the circuit breaker for a routed endpoint: the pooled
 // default ("") uses the long-lived breaker; each siloed BaseURL gets its own so
 // one silo's outage can't trip another's writes (SCALE-021).
