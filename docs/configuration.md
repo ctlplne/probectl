@@ -843,7 +843,7 @@ not receive Kafka/DB credentials — the Go bridge alone owns the bus connection
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `PROBECTL_BGP_ANALYZER_CONFIG` | (none) | analyzer JSON path; required; its `tenant_id` becomes the trusted output binding |
+| `PROBECTL_BGP_ANALYZER_CONFIG` | (none) | analyzer JSON path (maximum 1 MiB); required; its `tenant_id` becomes the trusted output binding |
 | `PROBECTL_BGP_ANALYZER_SOURCE` | (none) | required: `ris-live` \| `mrt` \| `replay`; the stock image supports MRT/replay, while live mode needs the analyzer's optional `websockets` package |
 | `PROBECTL_BGP_ANALYZER_SOURCE_FILE` | (none) | required input path for `mrt` and `replay` |
 | `PROBECTL_BGP_ANALYZER_RESTART` | `true` for live; `false` for files | restart the subprocess after it exits; backoff is always bounded |

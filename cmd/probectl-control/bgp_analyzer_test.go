@@ -72,3 +72,41 @@ func TestLoadBGPAnalyzerRuntimeFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestAnalyzerConfigTenantBoundsFile(t *testing.T) {
+	const document = `{"tenant_id":"tenant-a"}`
+	cases := []struct {
+		name    string
+		size    int
+		wantErr string
+	}{
+		{name: "exact limit", size: maxAnalyzerConfigBytes},
+		{name: "one byte over", size: maxAnalyzerConfigBytes + 1, wantErr: "exceeds 1048576 bytes"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "analyzer.json")
+			content := append([]byte(document), make([]byte, tc.size-len(document))...)
+			for i := len(document); i < len(content); i++ {
+				content[i] = ' '
+			}
+			if err := os.WriteFile(path, content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := analyzerConfigTenant(path)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("analyzerConfigTenant() error = %v", err)
+				}
+				if got != "tenant-a" {
+					t.Fatalf("analyzerConfigTenant() = %q, want tenant-a", got)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("analyzerConfigTenant() error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}

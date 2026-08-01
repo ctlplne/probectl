@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -144,10 +145,17 @@ func analyzerConfigTenant(path string) (string, error) {
 		return "", fmt.Errorf("open analyzer config: %w", err)
 	}
 	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxAnalyzerConfigBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read analyzer config: %w", err)
+	}
+	if len(data) > maxAnalyzerConfigBytes {
+		return "", fmt.Errorf("analyzer config exceeds %d bytes", maxAnalyzerConfigBytes)
+	}
 	var cfg struct {
 		TenantID string `json:"tenant_id"`
 	}
-	dec := json.NewDecoder(io.LimitReader(f, maxAnalyzerConfigBytes+1))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&cfg); err != nil {
 		return "", fmt.Errorf("decode analyzer config: %w", err)
 	}
