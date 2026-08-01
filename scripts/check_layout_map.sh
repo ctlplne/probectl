@@ -20,13 +20,16 @@ cd "$(dirname "$0")/.."
 # (from the line starting `<section>/` up to the next unindented section).
 extract_section() {
   local file="$1" section="$2"
+  # Portability: BSD awk rejects '/' inside a bracket class in a regex
+  # literal, and BSD tr is byte-oriented over the multibyte '·' — so the
+  # section-exit class avoids '/', and the separator split uses awk gsub.
   awk -v sec="$section" '
     $0 ~ "^" sec "/" { insec = 1 }
-    insec && $0 !~ "^" sec "/" && $0 ~ /^[a-z.][a-zA-Z0-9_./-]*\// { insec = 0 }
+    insec && $0 !~ "^" sec "/" && $0 ~ /^[a-z.][a-zA-Z0-9_.-]*\// { insec = 0 }
     insec { print }
   ' "$file" \
     | sed -E "s|^$section/||" \
-    | tr '·' '\n' \
+    | awk '{ gsub(/·/, "\n") } 1' \
     | sed -E 's/\([^)]*\)//g; s/^[[:space:]]+//; s/[[:space:]]+$//' \
     | awk 'NF { print $1 }' \
     | LC_ALL=C sort -u
@@ -69,9 +72,10 @@ selftest() {
   fi
 
   # (a) plant a deletion: drop one real package name from a fixture map.
+  # (space-anchored match, not \b — BSD sed has no \b)
   local victim
   victim="$(list_dirs internal | head -1)"
-  sed "s/\b${victim} (/${victim}-DELETED (/" CLAUDE.md > "$tmp/missing.md"
+  sed "s/ ${victim} (/ ${victim}-DELETED (/" CLAUDE.md > "$tmp/missing.md"
   if check_map "$tmp/missing.md" . >/dev/null 2>&1; then
     echo "layout-map SELFTEST FAILED: deleting '$victim' from the map was not caught" >&2
     return 1
