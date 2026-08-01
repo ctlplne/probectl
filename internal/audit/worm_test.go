@@ -596,7 +596,8 @@ func TestWORMObjectExactSizeBounds(t *testing.T) {
 	if int64(len(obj.Data)) >= maxWORMSegmentBytes {
 		t.Fatalf("generated segment unexpectedly exceeds test ceiling: %d", len(obj.Data))
 	}
-	exactSegment := append(obj.Data, bytes.Repeat([]byte(" "), int(maxWORMSegmentBytes)-len(obj.Data))...)
+	exactSegment := append(append([]byte(nil), obj.Data...),
+		bytes.Repeat([]byte(" "), int(maxWORMSegmentBytes)-len(obj.Data))...)
 	sig, err := crypto.SignEd25519(priv, exactSegment)
 	if err != nil {
 		t.Fatal(err)

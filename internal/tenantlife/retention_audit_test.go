@@ -265,99 +265,99 @@ func TestRetentionAuditFailureAfterEverySuccessfulPruneIsReturned(t *testing.T) 
 	tests := []struct {
 		name  string
 		store string
-		run   func(*Engine) (error, int)
+		run   func(*Engine) (int, error)
 	}{
 		{
 			name:  "sessions",
 			store: "sessions",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditSessionRetentionPruner{}
 				engine.WithSessionRetention(pruner, time.Hour)
 				err := engine.sweepSessionRetention(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 		{
 			name:  "flows",
 			store: "flows",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditFlowRetentionPruner{}
 				engine.flows = pruner
 				err := engine.sweepFlowRetention(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 		{
 			name:  "otel",
 			store: "otel",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditOtelRetentionPruner{}
 				engine.WithOtel(pruner)
 				err := engine.sweepOtelRetention(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 		{
 			name:  "ebpf",
 			store: "ebpf",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditEBPFRetentionPruner{}
 				engine.WithEBPF(pruner)
 				err := engine.sweepEBPFRetention(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 		{
 			name:  "path",
 			store: "path",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditPathRetentionPruner{}
 				engine.WithPaths(pruner)
 				err := engine.sweepPathRetention(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 		{
 			name:  "ai_answers",
 			store: "ai_answers",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				calls := 0
 				engine.aiAnswerRetention = func(context.Context, string, time.Duration) (int64, error) {
 					calls++
 					return 1, nil
 				}
 				err := engine.sweepAIAnswerRetention(context.Background(), policy)
-				return err, calls
+				return calls, err
 			},
 		},
 		{
 			name:  "topology",
 			store: "topology",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditTopologyRetentionPruner{}
 				engine.WithTopology(pruner).WithDerivedIdentityRetentionDays(1)
 				err := engine.pruneDerivedIdentityCaches(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 		{
 			name:  "endpoint",
 			store: "endpoint",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditCacheRetentionPruner{}
 				engine.WithEndpointRetention(pruner).WithDerivedIdentityRetentionDays(1)
 				err := engine.pruneDerivedIdentityCaches(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 		{
 			name:  "endpoint_events",
 			store: "endpoint_events",
-			run: func(engine *Engine) (error, int) {
+			run: func(engine *Engine) (int, error) {
 				pruner := &auditEndpointEventRetentionPruner{}
 				engine.WithEndpointEvents(pruner).WithDerivedIdentityRetentionDays(1)
 				err := engine.pruneDerivedIdentityCaches(context.Background(), policy)
-				return err, len(pruner.calls)
+				return len(pruner.calls), err
 			},
 		},
 	}
@@ -383,7 +383,7 @@ func TestRetentionAuditFailureAfterEverySuccessfulPruneIsReturned(t *testing.T) 
 			engine := New(nil, nil, nil, nil, audit, "", testLog()).
 				WithClock(func() time.Time { return t0 })
 
-			err, calls := test.run(engine)
+			calls, err := test.run(engine)
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("terminal audit error = %v, want %v", err, wantErr)
 			}

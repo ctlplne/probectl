@@ -78,8 +78,8 @@ func newSubjectLifecycleIRStage(
 }
 
 func appendSubjectLifecycleIRFixture(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	stage *audit.IRStagePG,
 	tenantID, label string,
@@ -114,14 +114,14 @@ func appendSubjectLifecycleIRFixture(
 	if err != nil {
 		t.Fatalf("append subject-lifecycle IR fixture for %s: %v", tenantID, err)
 	}
-	fixture := readSubjectLifecycleIRFixture(t, ctx, pool, tenantID, event.Seq)
+	fixture := readSubjectLifecycleIRFixture(ctx, t, pool, tenantID, event.Seq)
 	fixture.plaintextCanary = operator
 	return fixture
 }
 
 func readSubjectLifecycleIRFixture(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID string,
 	auditSeq int64,
@@ -156,8 +156,8 @@ func readSubjectLifecycleIRFixture(
 }
 
 func assertSubjectLifecycleIRAppReadDenied(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID string,
 ) {
@@ -272,10 +272,10 @@ func TestPooledTenantExportOmitsIRAttribution(t *testing.T) {
 	}
 
 	stage := newSubjectLifecycleIRStage(t, pool)
-	irA := appendSubjectLifecycleIRFixture(t, ctx, pool, stage, tenantA, "export-a-"+stamp)
-	irB := appendSubjectLifecycleIRFixture(t, ctx, pool, stage, tenantB, "export-b-"+stamp)
-	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantA)
-	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantB)
+	irA := appendSubjectLifecycleIRFixture(ctx, t, pool, stage, tenantA, "export-a-"+stamp)
+	irB := appendSubjectLifecycleIRFixture(ctx, t, pool, stage, tenantB, "export-b-"+stamp)
+	assertSubjectLifecycleIRAppReadDenied(ctx, t, pool, tenantA)
+	assertSubjectLifecycleIRAppReadDenied(ctx, t, pool, tenantB)
 
 	life := New(pool, nil, nil, nil, nil, "", nil)
 	for _, tenantID := range []string{tenantA, tenantB} {
@@ -306,12 +306,12 @@ func TestPooledTenantExportOmitsIRAttribution(t *testing.T) {
 		}
 	}
 
-	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantA)
-	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, tenantB)
-	if got := readSubjectLifecycleIRFixture(t, ctx, pool, tenantA, irA.auditSeq); got.rowJSON != irA.rowJSON {
+	assertSubjectLifecycleIRAppReadDenied(ctx, t, pool, tenantA)
+	assertSubjectLifecycleIRAppReadDenied(ctx, t, pool, tenantB)
+	if got := readSubjectLifecycleIRFixture(ctx, t, pool, tenantA, irA.auditSeq); got.rowJSON != irA.rowJSON {
 		t.Fatal("pooled tenant export altered tenant A encrypted IR record")
 	}
-	if got := readSubjectLifecycleIRFixture(t, ctx, pool, tenantB, irB.auditSeq); got.rowJSON != irB.rowJSON {
+	if got := readSubjectLifecycleIRFixture(ctx, t, pool, tenantB, irB.auditSeq); got.rowJSON != irB.rowJSON {
 		t.Fatal("pooled tenant export altered tenant B encrypted IR record")
 	}
 }
@@ -1017,23 +1017,23 @@ func TestPooledSubjectLifecycleRetainsEncryptedIRAttribution(t *testing.T) {
 
 	stage := newSubjectLifecycleIRStage(t, pool)
 	victimIR := appendSubjectLifecycleIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		stage,
 		victim,
 		"victim-"+stamp,
 	)
 	bystanderIR := appendSubjectLifecycleIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		stage,
 		bystander,
 		"bystander-"+stamp,
 	)
-	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, victim)
-	assertSubjectLifecycleIRAppReadDenied(t, ctx, pool, bystander)
+	assertSubjectLifecycleIRAppReadDenied(ctx, t, pool, victim)
+	assertSubjectLifecycleIRAppReadDenied(ctx, t, pool, bystander)
 
 	sink := func(
 		ctx context.Context,
@@ -1102,15 +1102,15 @@ func TestPooledSubjectLifecycleRetainsEncryptedIRAttribution(t *testing.T) {
 	}
 
 	victimAfter := readSubjectLifecycleIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		victim,
 		victimIR.auditSeq,
 	)
 	bystanderAfter := readSubjectLifecycleIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		bystander,
 		bystanderIR.auditSeq,

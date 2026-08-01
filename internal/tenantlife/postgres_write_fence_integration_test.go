@@ -39,7 +39,7 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	tenantA := mkTenant(t, pool, "pg-write-fence-a-"+stamp)
 	tenantB := mkTenant(t, pool, "pg-write-fence-b-"+stamp)
-	assertPublicTenantWriteFenceCoverage(t, ctx, pool)
+	assertPublicTenantWriteFenceCoverage(ctx, t, pool)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
 			context.Background(),
@@ -58,8 +58,8 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	})
 
 	inflight, inflightPID, resultA := beginPooledResultWrite(
-		t,
 		ctx,
+		t,
 		pool,
 		tenantA,
 	)
@@ -98,8 +98,8 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	}()
 
 	waitForTenantWriteFenceWaiter(
-		t,
 		ctx,
+		t,
 		pool,
 		inflightPID,
 		fenceDone,
@@ -110,7 +110,7 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	if err := <-fenceDone; err != nil {
 		t.Fatalf("establish PostgreSQL write fence: %v", err)
 	}
-	assertTenantStatus(t, ctx, pool, tenantA, "offboarding")
+	assertTenantStatus(ctx, t, pool, tenantA, "offboarding")
 
 	if _, err := appendPooledResult(ctx, pool, tenantA); err == nil {
 		t.Fatal("tenant A INSERT succeeded after the durable PostgreSQL fence")
@@ -135,8 +135,8 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 }
 
 func assertPublicTenantWriteFenceCoverage(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 ) {
 	t.Helper()
@@ -189,8 +189,8 @@ func assertPublicTenantWriteFenceCoverage(
 }
 
 func beginPooledResultWrite(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID string,
 ) (pgx.Tx, int32, string) {
@@ -228,8 +228,8 @@ func beginPooledResultWrite(
 }
 
 func waitForTenantWriteFenceWaiter(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	holderPID int32,
 	fenceDone <-chan error,

@@ -46,8 +46,8 @@ func TestEBPFEraseWriteFenceTwoTenant(t *testing.T) {
 	testsupport.LockPostgresPublicCatalog(t, pool)
 
 	stamp := time.Now().UTC().UnixNano()
-	tenantA := insertEBPFFenceTenant(t, ctx, pool, fmt.Sprintf("ebpf-fence-a-%d", stamp))
-	tenantB := insertEBPFFenceTenant(t, ctx, pool, fmt.Sprintf("ebpf-fence-b-%d", stamp))
+	tenantA := insertEBPFFenceTenant(ctx, t, pool, fmt.Sprintf("ebpf-fence-a-%d", stamp))
+	tenantB := insertEBPFFenceTenant(ctx, t, pool, fmt.Sprintf("ebpf-fence-b-%d", stamp))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
 			context.Background(),
@@ -217,8 +217,8 @@ func ebpfFenceEdge(tenantID string, windowStart time.Time) Edge {
 }
 
 func insertEBPFFenceTenant(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	slug string,
 ) string {

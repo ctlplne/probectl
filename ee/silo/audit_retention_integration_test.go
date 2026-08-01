@@ -83,8 +83,8 @@ func newSiloSubjectIRStage(
 }
 
 func appendSiloSubjectIRFixture(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	stage *audit.IRStagePG,
 	tenantID, label string,
@@ -119,14 +119,14 @@ func appendSiloSubjectIRFixture(
 	if err != nil {
 		t.Fatalf("append silo subject-lifecycle IR fixture for %s: %v", tenantID, err)
 	}
-	fixture := readSiloSubjectIRFixture(t, ctx, pool, tenantID, event.Seq)
+	fixture := readSiloSubjectIRFixture(ctx, t, pool, tenantID, event.Seq)
 	fixture.plaintextCanary = operator
 	return fixture
 }
 
 func readSiloSubjectIRFixture(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID string,
 	auditSeq int64,
@@ -161,8 +161,8 @@ func readSiloSubjectIRFixture(
 }
 
 func assertSiloSubjectIRAppReadDenied(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID string,
 ) {
@@ -301,23 +301,23 @@ func TestSiloTenantExportOmitsIRAttribution(t *testing.T) {
 
 	stage := newSiloSubjectIRStage(t, pool)
 	siloIR := appendSiloSubjectIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		stage,
 		siloTenant,
 		"export-silo-"+stamp,
 	)
 	pooledIR := appendSiloSubjectIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		stage,
 		pooledTenant,
 		"export-pool-"+stamp,
 	)
-	assertSiloSubjectIRAppReadDenied(t, ctx, pool, siloTenant)
-	assertSiloSubjectIRAppReadDenied(t, ctx, pool, pooledTenant)
+	assertSiloSubjectIRAppReadDenied(ctx, t, pool, siloTenant)
+	assertSiloSubjectIRAppReadDenied(ctx, t, pool, pooledTenant)
 
 	life := tenantlife.New(pool, nil, nil, nil, nil, "", log)
 	for _, tenantID := range []string{siloTenant, pooledTenant} {
@@ -348,12 +348,12 @@ func TestSiloTenantExportOmitsIRAttribution(t *testing.T) {
 		}
 	}
 
-	assertSiloSubjectIRAppReadDenied(t, ctx, pool, siloTenant)
-	assertSiloSubjectIRAppReadDenied(t, ctx, pool, pooledTenant)
-	if got := readSiloSubjectIRFixture(t, ctx, pool, siloTenant, siloIR.auditSeq); got.rowJSON != siloIR.rowJSON {
+	assertSiloSubjectIRAppReadDenied(ctx, t, pool, siloTenant)
+	assertSiloSubjectIRAppReadDenied(ctx, t, pool, pooledTenant)
+	if got := readSiloSubjectIRFixture(ctx, t, pool, siloTenant, siloIR.auditSeq); got.rowJSON != siloIR.rowJSON {
 		t.Fatal("full export altered silo tenant encrypted IR record")
 	}
-	if got := readSiloSubjectIRFixture(t, ctx, pool, pooledTenant, pooledIR.auditSeq); got.rowJSON != pooledIR.rowJSON {
+	if got := readSiloSubjectIRFixture(ctx, t, pool, pooledTenant, pooledIR.auditSeq); got.rowJSON != pooledIR.rowJSON {
 		t.Fatal("silo tenant export altered pooled tenant encrypted IR record")
 	}
 }
@@ -1335,23 +1335,23 @@ func TestSiloSubjectLifecycleRetainsEncryptedIRAttribution(t *testing.T) {
 
 	stage := newSiloSubjectIRStage(t, pool)
 	victimIR := appendSiloSubjectIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		stage,
 		victimID,
 		"victim-"+stamp,
 	)
 	bystanderIR := appendSiloSubjectIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		stage,
 		bystanderID,
 		"bystander-"+stamp,
 	)
-	assertSiloSubjectIRAppReadDenied(t, ctx, pool, victimID)
-	assertSiloSubjectIRAppReadDenied(t, ctx, pool, bystanderID)
+	assertSiloSubjectIRAppReadDenied(ctx, t, pool, victimID)
+	assertSiloSubjectIRAppReadDenied(ctx, t, pool, bystanderID)
 
 	sink := func(
 		ctx context.Context,
@@ -1428,15 +1428,15 @@ func TestSiloSubjectLifecycleRetainsEncryptedIRAttribution(t *testing.T) {
 	}
 
 	victimAfter := readSiloSubjectIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		victimID,
 		victimIR.auditSeq,
 	)
 	bystanderAfter := readSiloSubjectIRFixture(
-		t,
 		ctx,
+		t,
 		pool,
 		bystanderID,
 		bystanderIR.auditSeq,

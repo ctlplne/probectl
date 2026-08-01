@@ -46,8 +46,8 @@ func TestEndpointEraseWriteFenceTwoTenant(t *testing.T) {
 	testsupport.LockPostgresPublicCatalog(t, pool)
 
 	stamp := time.Now().UTC().UnixNano()
-	tenantA := insertEndpointFenceTenant(t, ctx, pool, fmt.Sprintf("endpoint-fence-a-%d", stamp))
-	tenantB := insertEndpointFenceTenant(t, ctx, pool, fmt.Sprintf("endpoint-fence-b-%d", stamp))
+	tenantA := insertEndpointFenceTenant(ctx, t, pool, fmt.Sprintf("endpoint-fence-a-%d", stamp))
+	tenantB := insertEndpointFenceTenant(ctx, t, pool, fmt.Sprintf("endpoint-fence-b-%d", stamp))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
 			context.Background(),
@@ -219,8 +219,8 @@ func endpointFenceEvent(tenantID, signalKey string) Event {
 }
 
 func insertEndpointFenceTenant(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	slug string,
 ) string {

@@ -76,7 +76,7 @@ func TestLiveIPv6Flow(t *testing.T) {
 		t.Fatalf("flows stream: %v", err)
 	}
 	liveTCPTransfer(t, "tcp6", ln.Addr().String(), []byte("probectl-ipv6"))
-	waitLiveTCPServer(t, ctx, done)
+	waitLiveTCPServer(ctx, t, done)
 
 	f, ok := waitLiveFlow(ctx, flows, func(f Flow) bool {
 		return f.NetworkType == NetworkIPv6 && (f.Source.Address == "::1" || f.Destination.Address == "::1")
@@ -108,7 +108,7 @@ func TestLiveBytePacketCounters(t *testing.T) {
 		t.Fatalf("flows stream: %v", err)
 	}
 	liveTCPTransfer(t, "tcp4", ln.Addr().String(), []byte(strings.Repeat("x", 4096)))
-	waitLiveTCPServer(t, ctx, done)
+	waitLiveTCPServer(ctx, t, done)
 
 	f, ok := waitLiveFlow(ctx, flows, func(f Flow) bool {
 		return f.State == StateClose && f.Bytes > 0 && f.Packets > 0
@@ -155,7 +155,7 @@ func liveTCPTransfer(t *testing.T, network, addr string, payload []byte) {
 	}
 }
 
-func waitLiveTCPServer(t *testing.T, ctx context.Context, done <-chan struct{}) {
+func waitLiveTCPServer(ctx context.Context, t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-done:

@@ -337,7 +337,7 @@ func (s *Server) rejectIRAuthorization(
 		)
 	}
 	// Authorization runs before the request body is accepted. Record only a
-	// fixed reason and a syntactically valid reference so an unauthorised caller
+	// fixed reason and a syntactically valid reference so an unauthorized caller
 	// cannot inject arbitrary path/body bytes into the retention-surviving
 	// provider stream.
 	eventRef := r.PathValue("event_ref")

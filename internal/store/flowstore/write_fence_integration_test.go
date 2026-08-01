@@ -46,8 +46,8 @@ func TestFlowEraseWriteFenceTwoTenant(t *testing.T) {
 	testsupport.LockPostgresPublicCatalog(t, pool)
 
 	stamp := time.Now().UTC().UnixNano()
-	tenantA := insertFlowFenceTenant(t, ctx, pool, fmt.Sprintf("flow-fence-a-%d", stamp))
-	tenantB := insertFlowFenceTenant(t, ctx, pool, fmt.Sprintf("flow-fence-b-%d", stamp))
+	tenantA := insertFlowFenceTenant(ctx, t, pool, fmt.Sprintf("flow-fence-a-%d", stamp))
+	tenantB := insertFlowFenceTenant(ctx, t, pool, fmt.Sprintf("flow-fence-b-%d", stamp))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
 			context.Background(),
@@ -196,8 +196,8 @@ func commitFlowEraseFence(
 }
 
 func insertFlowFenceTenant(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	slug string,
 ) string {

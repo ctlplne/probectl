@@ -76,7 +76,7 @@ func TestPooledTenantEraseConcurrentAuditBarrier(t *testing.T) {
 		}
 	})
 
-	inflight, inflightPID := beginPooledSubjectErasure(t, ctx, pool, tenantA)
+	inflight, inflightPID := beginPooledSubjectErasure(ctx, t, pool, tenantA)
 	flows := &blockingAuditBarrierFlowStore{
 		Store:   flowstore.NewMemory(),
 		entered: make(chan struct{}),
@@ -110,8 +110,8 @@ func TestPooledTenantEraseConcurrentAuditBarrier(t *testing.T) {
 	}()
 
 	waitForTenantAuditLockWaiter(
-		t,
 		ctx,
+		t,
 		pool,
 		inflightPID,
 		flows.entered,
@@ -125,17 +125,17 @@ func TestPooledTenantEraseConcurrentAuditBarrier(t *testing.T) {
 		t.Fatal("erase did not reach the first post-fence store")
 	case <-flows.entered:
 	}
-	assertTenantStatus(t, ctx, pool, tenantA, "offboarding")
+	assertTenantStatus(ctx, t, pool, tenantA, "offboarding")
 
-	assertRawAuditWritesDenied(t, ctx, pool, tenantA, "post-fence-a")
-	assertOwnerAuditWritesDenied(t, ctx, pool, "public", tenantA)
-	assertRawAuditWritesAllowed(t, ctx, pool, tenantB, "active-b")
+	assertRawAuditWritesDenied(ctx, t, pool, tenantA, "post-fence-a")
+	assertOwnerAuditWritesDenied(ctx, t, pool, "public", tenantA)
+	assertRawAuditWritesAllowed(ctx, t, pool, tenantB, "active-b")
 
 	if err := setTenantStatusAsProvider(ctx, pool, tenantB, "suspended"); err != nil {
 		t.Fatalf("suspend eligible tenant B: %v", err)
 	}
-	assertTenantStatus(t, ctx, pool, tenantB, "suspended")
-	assertRawAuditWritesAllowed(t, ctx, pool, tenantB, "suspended-b")
+	assertTenantStatus(ctx, t, pool, tenantB, "suspended")
+	assertRawAuditWritesAllowed(ctx, t, pool, tenantB, "suspended-b")
 
 	// A provider/admin status write must not be able to erase the durable
 	// lifecycle barrier. This simulates a stale or compromised control-plane
@@ -143,8 +143,8 @@ func TestPooledTenantEraseConcurrentAuditBarrier(t *testing.T) {
 	if err := setTenantStatusAsProvider(ctx, pool, tenantA, "active"); err == nil {
 		t.Fatal("provider reopened a tenant after the durable erasure fence")
 	}
-	assertTenantStatus(t, ctx, pool, tenantA, "offboarding")
-	assertRawAuditWritesDenied(t, ctx, pool, tenantA, "forced-active-a")
+	assertTenantStatus(ctx, t, pool, tenantA, "offboarding")
+	assertRawAuditWritesDenied(ctx, t, pool, tenantA, "forced-active-a")
 
 	close(flows.release)
 	var result eraseResult
@@ -159,13 +159,13 @@ func TestPooledTenantEraseConcurrentAuditBarrier(t *testing.T) {
 	if !result.att.Complete {
 		t.Fatalf("erase attestation incomplete: %+v", result.att.Stores)
 	}
-	assertTenantStatus(t, ctx, pool, tenantA, "deleted")
-	assertAuditBarrierCounts(t, ctx, pool, "public", tenantA, 0, 0)
-	assertAuditBarrierCounts(t, ctx, pool, "public", tenantB, 2, 2)
+	assertTenantStatus(ctx, t, pool, tenantA, "deleted")
+	assertAuditBarrierCounts(ctx, t, pool, "public", tenantA, 0, 0)
+	assertAuditBarrierCounts(ctx, t, pool, "public", tenantB, 2, 2)
 
-	assertRawAuditWritesDenied(t, ctx, pool, tenantA, "post-delete-a")
-	assertRawAuditWritesAllowed(t, ctx, pool, tenantB, "post-delete-b")
-	assertAuditBarrierCounts(t, ctx, pool, "public", tenantB, 3, 3)
+	assertRawAuditWritesDenied(ctx, t, pool, tenantA, "post-delete-a")
+	assertRawAuditWritesAllowed(ctx, t, pool, tenantB, "post-delete-b")
+	assertAuditBarrierCounts(ctx, t, pool, "public", tenantB, 3, 3)
 }
 
 func TestPooledTenantEraseFenceAuditFailureRollsBack(t *testing.T) {
@@ -216,9 +216,9 @@ func TestPooledTenantEraseFenceAuditFailureRollsBack(t *testing.T) {
 		t.Fatal("erase touched a data store after its fence audit rolled back")
 	default:
 	}
-	assertTenantStatus(t, ctx, pool, tenantID, "active")
-	assertTenantFence(t, ctx, pool, tenantID, false)
-	assertRawAuditWritesAllowed(t, ctx, pool, tenantID, "rollback-writable")
+	assertTenantStatus(ctx, t, pool, tenantID, "active")
+	assertTenantFence(ctx, t, pool, tenantID, false)
+	assertRawAuditWritesAllowed(ctx, t, pool, tenantID, "rollback-writable")
 }
 
 func TestPooledTenantEraseFinalAuditFailureIsRetryable(t *testing.T) {
@@ -290,9 +290,9 @@ func TestPooledTenantEraseFinalAuditFailureIsRetryable(t *testing.T) {
 	if err == nil {
 		t.Fatalf("erase succeeded despite final audit failure: %+v", first)
 	}
-	assertTenantStatus(t, ctx, pool, tenantID, "offboarding")
-	assertTenantFence(t, ctx, pool, tenantID, true)
-	assertRawAuditWritesDenied(t, ctx, pool, tenantID, "retry-fenced")
+	assertTenantStatus(ctx, t, pool, tenantID, "offboarding")
+	assertTenantFence(ctx, t, pool, tenantID, true)
+	assertRawAuditWritesDenied(ctx, t, pool, tenantID, "retry-fenced")
 
 	engine.appendProviderAuditTx = audit.ProviderAppendTx
 	second, err := engine.Erase(
@@ -307,13 +307,13 @@ func TestPooledTenantEraseFinalAuditFailureIsRetryable(t *testing.T) {
 	if !second.Complete {
 		t.Fatalf("retry attestation incomplete: %+v", second.Stores)
 	}
-	assertTenantStatus(t, ctx, pool, tenantID, "deleted")
-	assertTenantFence(t, ctx, pool, tenantID, true)
+	assertTenantStatus(ctx, t, pool, tenantID, "deleted")
+	assertTenantFence(ctx, t, pool, tenantID, true)
 }
 
 func beginPooledSubjectErasure(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID string,
 ) (pgx.Tx, int32) {
@@ -364,8 +364,8 @@ func beginPooledSubjectErasure(
 }
 
 func waitForTenantAuditLockWaiter(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	holderPID int32,
 	storeEntered <-chan struct{},
@@ -468,8 +468,8 @@ func appendRawAuditEvent(
 }
 
 func assertRawAuditWritesDenied(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID, marker string,
 ) {
@@ -493,8 +493,8 @@ func assertRawAuditWritesDenied(
 }
 
 func assertRawAuditWritesAllowed(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID, marker string,
 ) {
@@ -518,8 +518,8 @@ func assertRawAuditWritesAllowed(
 }
 
 func assertOwnerAuditWritesDenied(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	schema, tenantID string,
 ) {
@@ -580,8 +580,8 @@ func setTenantStatusAsProvider(
 }
 
 func assertTenantFence(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID string,
 	want bool,
@@ -603,8 +603,8 @@ func assertTenantFence(
 }
 
 func assertTenantStatus(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID, want string,
 ) {
@@ -623,8 +623,8 @@ func assertTenantStatus(
 }
 
 func assertAuditBarrierCounts(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	schema, tenantID string,
 	wantEvents, wantProjections int,

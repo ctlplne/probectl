@@ -237,14 +237,22 @@ func TestHelmControlImageRequiresImmutableDigest(t *testing.T) {
 		!strings.Contains(values, "  digest: \"\" # sha256:<64 lowercase hex>\n") {
 		t.Error("primary image values do not expose the required digest field")
 	}
-	if strings.Contains(values[:strings.Index(values, "imagePullSecrets:")], "tag:") {
+	valuesPullSecrets := strings.Index(values, "imagePullSecrets:")
+	if valuesPullSecrets < 0 {
+		t.Fatal("primary image values missing the imagePullSecrets anchor")
+	}
+	if strings.Contains(values[:valuesPullSecrets], "tag:") {
 		t.Error("primary image values still expose a mutable tag")
+	}
+	schemaPullSecrets := strings.Index(schema, `"imagePullSecrets"`)
+	if schemaPullSecrets < 0 {
+		t.Fatal("primary image schema missing the imagePullSecrets anchor")
 	}
 	for _, want := range []string{
 		`"digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }`,
 		`"required": ["repository", "digest", "pullPolicy"]`,
 	} {
-		if !strings.Contains(schema[:strings.Index(schema, `"imagePullSecrets"`)], want) {
+		if !strings.Contains(schema[:schemaPullSecrets], want) {
 			t.Errorf("primary image schema missing %q", want)
 		}
 	}

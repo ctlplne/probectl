@@ -224,7 +224,7 @@ func TestIntegrationPostgresAvailabilityUsesMandatoryServicePolicy(t *testing.T)
 		}
 		name := entry.Name()
 		if !strings.HasSuffix(name, "_integration_test.go") &&
-			!(strings.Contains(name, "isolation") && strings.HasSuffix(name, "_test.go")) {
+			(!strings.Contains(name, "isolation") || !strings.HasSuffix(name, "_test.go")) {
 			return nil
 		}
 		fset := token.NewFileSet()

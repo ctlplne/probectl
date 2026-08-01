@@ -139,7 +139,7 @@ func TestIRCryptoShredStoreFailureRecordsBoundedFailureWithoutExecute(t *testing
 		t.Fatalf("call order = %v, want %v", events, want)
 	}
 	if lifecycle.failureContextErr != nil {
-		t.Fatalf("failure receipt inherited cancelled context: %v", lifecycle.failureContextErr)
+		t.Fatalf("failure receipt inherited canceled context: %v", lifecycle.failureContextErr)
 	}
 	if !lifecycle.failureHasDeadline {
 		t.Fatal("failure receipt context has no finite deadline")

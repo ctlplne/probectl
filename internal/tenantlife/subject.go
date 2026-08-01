@@ -986,7 +986,7 @@ func classifySubjectPostgresTables(tables []string) ([]classifiedSubjectTable, e
 			unknown = append(unknown, table)
 			continue
 		}
-		valid := true
+		var valid bool
 		switch policy.disposition {
 		case subjectTableDeleteMatches:
 			valid = len(policy.exact)+len(policy.contains) > 0

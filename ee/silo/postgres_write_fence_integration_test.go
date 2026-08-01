@@ -108,8 +108,8 @@ func TestSiloTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 
 	schema := SchemaName(tenantA)
 	inflight, inflightPID, resultA := beginSiloResultWrite(
-		t,
 		ctx,
+		t,
 		pool,
 		schema,
 		tenantA,
@@ -172,8 +172,8 @@ func TestSiloTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	}()
 
 	waitForSiloWriteFenceWaiter(
-		t,
 		ctx,
+		t,
 		pool,
 		inflightPID,
 		flows.entered,
@@ -186,7 +186,7 @@ func TestSiloTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 		t.Fatal("silo erasure did not reach its first post-fence store")
 	case <-flows.entered:
 	}
-	assertSiloBarrierStatus(t, ctx, pool, tenantA, "offboarding")
+	assertSiloBarrierStatus(ctx, t, pool, tenantA, "offboarding")
 
 	if _, err := appendSiloFenceResult(ctx, pool, tenantA); err == nil {
 		t.Fatal("silo tenant A INSERT succeeded after the durable PostgreSQL fence")
@@ -222,7 +222,7 @@ func TestSiloTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	if !erased.att.Complete {
 		t.Fatalf("silo erase attestation incomplete: %+v", erased.att.Stores)
 	}
-	assertSiloBarrierStatus(t, ctx, pool, tenantA, "deleted")
+	assertSiloBarrierStatus(ctx, t, pool, tenantA, "deleted")
 	if _, err := appendSiloFenceResult(ctx, pool, tenantA); err == nil {
 		t.Fatal("silo tenant A INSERT succeeded after deletion")
 	}
@@ -232,8 +232,8 @@ func TestSiloTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 }
 
 func beginSiloResultWrite(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	schema, tenantID string,
 ) (pgx.Tx, int32, string) {
@@ -277,8 +277,8 @@ func beginSiloResultWrite(
 }
 
 func waitForSiloWriteFenceWaiter(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	holderPID int32,
 	storeEntered <-chan struct{},

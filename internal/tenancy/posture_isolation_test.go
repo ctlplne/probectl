@@ -135,7 +135,7 @@ func TestAssertIsolationPostureCoversSiloedSchema(t *testing.T) {
 }
 
 // TENANT-6784d6c9: FORCE RLS is not sufficient for a physical silo. PostgreSQL
-// ORs permissive policies, and a GUC-only policy accepts an A-labelled row in
+// ORs permissive policies, and a GUC-only policy accepts an A-labeled row in
 // B's schema. Boot must require one exact schema-bound RESTRICTIVE guard on
 // every canonical silo table.
 func TestAssertIsolationPostureRejectsSiloSchemaGuardDrift(t *testing.T) {

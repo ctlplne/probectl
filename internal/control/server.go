@@ -578,11 +578,12 @@ func (s *Server) routes() http.Handler {
 		if p, ok := auditPolicyFor(rt.Method, rt.Pattern); ok && p.Mode == auditModeWrapped {
 			h = s.auditRoute(rt, p, h)
 		}
-		if rt.Method == http.MethodPost && rt.Pattern == irRevealRoutePattern {
+		switch {
+		case rt.Method == http.MethodPost && rt.Pattern == irRevealRoutePattern:
 			h = s.requireIRInvestigator(h)
-		} else if hierarchyRouteAcceptsScopedGrant(rt.Method, rt.Pattern) {
+		case hierarchyRouteAcceptsScopedGrant(rt.Method, rt.Pattern):
 			h = s.requireAnyPermission(rt.Permission, h)
-		} else {
+		default:
 			h = s.requirePermission(rt.Permission, h)
 		}
 		if lifecycle, ok := apiLifecycleFor(rt.Method, rt.Pattern); ok {

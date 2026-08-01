@@ -23,8 +23,8 @@ import (
 )
 
 func sessionCleanupIdentity(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	label string,
 ) (tenantID, userID string) {
@@ -49,8 +49,8 @@ func TestSessionDetailCleanupTenantIsolationAndCallbackRace(t *testing.T) {
 	pool := setup(ctx, t)
 	defer pool.Close()
 
-	tenantA, userA := sessionCleanupIdentity(t, ctx, pool, "tenant-a")
-	tenantB, userB := sessionCleanupIdentity(t, ctx, pool, "tenant-b")
+	tenantA, userA := sessionCleanupIdentity(ctx, t, pool, "tenant-a")
+	tenantB, userB := sessionCleanupIdentity(ctx, t, pool, "tenant-b")
 	sessions := NewSessions(pool)
 	horizon := time.Hour
 	now := time.Now()

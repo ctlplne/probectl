@@ -81,10 +81,10 @@ func (a *memAudit) AppendBreakGlass(
 ) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	copy := attribution
+	attributionCopy := attribution
 	a.events = append(a.events, auditEvent{
 		Actor: actor, Action: action, Target: target, Data: data,
-		Attribution: &copy,
+		Attribution: &attributionCopy,
 	})
 	return nil
 }

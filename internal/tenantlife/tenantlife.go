@@ -73,7 +73,7 @@ const (
 	retentionPolicyAuditAction  = "lifecycle.retention_set"
 	maxRetentionAuditActorBytes = 256
 	auditRetentionDay           = 24 * time.Hour
-	maxAuditRetentionDays       = int64((1<<63 - 1) / int64(auditRetentionDay))
+	maxAuditRetentionDays       = (1<<63 - 1) / int64(auditRetentionDay)
 )
 
 var errRetentionAuditUnavailable = errors.New("tenantlife: retention audit sink is unavailable")
@@ -826,7 +826,7 @@ func (e *Engine) recordIRAttributionFailure(
 	ctx context.Context,
 	tenantID, actor, planID, failure string,
 ) error {
-	// A store or keyring may return after consuming/cancelling the caller's
+	// A store or keyring may return after consuming/canceling the caller's
 	// request context. Preserve values but give the forensic failure receipt a
 	// separate, finite window.
 	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), irLifecycleReceiptTimeout)

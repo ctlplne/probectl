@@ -22,31 +22,6 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func tenantRetentionAuditCount(
-	t *testing.T,
-	engine *Engine,
-	tenantID, action string,
-) int64 {
-	t.Helper()
-	var count int64
-	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenantID))
-	err := tenancy.InTenant(ctx, engine.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(
-			ctx,
-			`SELECT count(*)
-			   FROM audit_events
-			  WHERE tenant_id = $1
-			    AND action = $2`,
-			tenantID,
-			action,
-		).Scan(&count)
-	})
-	if err != nil {
-		t.Fatalf("count tenant retention audits: %v", err)
-	}
-	return count
-}
-
 type retentionPolicyState struct {
 	FlowDays      int
 	PolicyRows    int64
@@ -146,39 +121,6 @@ func latestRetentionAudit(t *testing.T, engine *Engine, tenantID string) audit.E
 		t.Fatalf("decode latest retention audit data: %v", err)
 	}
 	return ev
-}
-
-func tenantRetentionPolicyRowCount(t *testing.T, engine *Engine, tenantID string) int64 {
-	t.Helper()
-	var count int64
-	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenantID))
-	err := tenancy.InTenant(ctx, engine.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(
-			ctx,
-			`SELECT count(*) FROM tenant_retention WHERE tenant_id = $1`,
-			tenantID,
-		).Scan(&count)
-	})
-	if err != nil {
-		t.Fatalf("count tenant retention policy rows: %v", err)
-	}
-	return count
-}
-
-func requireFlowRetentionDays(t *testing.T, engine *Engine, tenantID string, want int) {
-	t.Helper()
-	policy, err := engine.RetentionFor(context.Background(), tenantID)
-	if err != nil {
-		t.Fatalf("read tenant %s retention policy: %v", tenantID, err)
-	}
-	if policy.FlowRetentionDays == nil || *policy.FlowRetentionDays != want {
-		t.Fatalf(
-			"tenant %s flow retention = %v, want %d",
-			tenantID,
-			policy.FlowRetentionDays,
-			want,
-		)
-	}
 }
 
 func TestRetentionAuditMandatoryFixedRollbackAndPooledIsolationPG(t *testing.T) {
@@ -336,9 +278,7 @@ func TestRetentionAuditMandatoryFixedRollbackAndPooledIsolationPG(t *testing.T) 
 
 	for _, tenantID := range []string{tenantA, tenantB} {
 		ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenantID))
-		if err := tenancy.InTenant(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
-			return audit.TenantVerify(ctx, sc)
-		}); err != nil {
+		if err := tenancy.InTenant(ctx, pool, audit.TenantVerify); err != nil {
 			t.Fatalf("tenant %s audit chain after rollback/success: %v", tenantID, err)
 		}
 	}

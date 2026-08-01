@@ -91,8 +91,8 @@ func TestSiloTenantEraseConcurrentAuditBarrier(t *testing.T) {
 
 	schema := SchemaName(tenantA)
 	inflight, inflightPID := beginSiloSubjectErasure(
-		t,
 		ctx,
+		t,
 		pool,
 		schema,
 		tenantA,
@@ -143,8 +143,8 @@ func TestSiloTenantEraseConcurrentAuditBarrier(t *testing.T) {
 	}()
 
 	waitForSiloTenantAuditLockWaiter(
-		t,
 		ctx,
+		t,
 		pool,
 		inflightPID,
 		flows.entered,
@@ -158,11 +158,11 @@ func TestSiloTenantEraseConcurrentAuditBarrier(t *testing.T) {
 		t.Fatal("silo erase did not reach the first post-fence store")
 	case <-flows.entered:
 	}
-	assertSiloBarrierStatus(t, ctx, pool, tenantA, "offboarding")
+	assertSiloBarrierStatus(ctx, t, pool, tenantA, "offboarding")
 
-	assertSiloRawAuditWritesDenied(t, ctx, pool, tenantA, "post-fence-a")
-	assertSiloOwnerAuditWritesDenied(t, ctx, pool, schema, tenantA)
-	assertSiloRawAuditWritesAllowed(t, ctx, pool, tenantB, "active-b")
+	assertSiloRawAuditWritesDenied(ctx, t, pool, tenantA, "post-fence-a")
+	assertSiloOwnerAuditWritesDenied(ctx, t, pool, schema, tenantA)
+	assertSiloRawAuditWritesAllowed(ctx, t, pool, tenantB, "active-b")
 
 	if err := setSiloTenantStatusAsProvider(
 		ctx,
@@ -172,8 +172,8 @@ func TestSiloTenantEraseConcurrentAuditBarrier(t *testing.T) {
 	); err != nil {
 		t.Fatalf("suspend eligible pooled tenant B: %v", err)
 	}
-	assertSiloBarrierStatus(t, ctx, pool, tenantB, "suspended")
-	assertSiloRawAuditWritesAllowed(t, ctx, pool, tenantB, "suspended-b")
+	assertSiloBarrierStatus(ctx, t, pool, tenantB, "suspended")
+	assertSiloRawAuditWritesAllowed(ctx, t, pool, tenantB, "suspended-b")
 
 	// The write-once registry fence must reject a stale provider replica that
 	// tries to reopen the siloed tenant while erasure is paused.
@@ -185,8 +185,8 @@ func TestSiloTenantEraseConcurrentAuditBarrier(t *testing.T) {
 	); err == nil {
 		t.Fatal("provider reopened a siloed tenant after the durable erasure fence")
 	}
-	assertSiloBarrierStatus(t, ctx, pool, tenantA, "offboarding")
-	assertSiloRawAuditWritesDenied(t, ctx, pool, tenantA, "forced-active-a")
+	assertSiloBarrierStatus(ctx, t, pool, tenantA, "offboarding")
+	assertSiloRawAuditWritesDenied(ctx, t, pool, tenantA, "forced-active-a")
 
 	close(flows.release)
 	var result eraseResult
@@ -201,18 +201,18 @@ func TestSiloTenantEraseConcurrentAuditBarrier(t *testing.T) {
 	if !result.att.Complete {
 		t.Fatalf("silo erase attestation incomplete: %+v", result.att.Stores)
 	}
-	assertSiloBarrierStatus(t, ctx, pool, tenantA, "deleted")
-	assertSiloAuditBarrierCounts(t, ctx, pool, schema, tenantA, 0, 0)
-	assertSiloAuditBarrierCounts(t, ctx, pool, "public", tenantB, 2, 2)
+	assertSiloBarrierStatus(ctx, t, pool, tenantA, "deleted")
+	assertSiloAuditBarrierCounts(ctx, t, pool, schema, tenantA, 0, 0)
+	assertSiloAuditBarrierCounts(ctx, t, pool, "public", tenantB, 2, 2)
 
-	assertSiloRawAuditWritesDenied(t, ctx, pool, tenantA, "post-delete-a")
-	assertSiloRawAuditWritesAllowed(t, ctx, pool, tenantB, "post-delete-b")
-	assertSiloAuditBarrierCounts(t, ctx, pool, "public", tenantB, 3, 3)
+	assertSiloRawAuditWritesDenied(ctx, t, pool, tenantA, "post-delete-a")
+	assertSiloRawAuditWritesAllowed(ctx, t, pool, tenantB, "post-delete-b")
+	assertSiloAuditBarrierCounts(ctx, t, pool, "public", tenantB, 3, 3)
 }
 
 func beginSiloSubjectErasure(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	schema, tenantID string,
 ) (pgx.Tx, int32) {
@@ -269,8 +269,8 @@ func beginSiloSubjectErasure(
 }
 
 func waitForSiloTenantAuditLockWaiter(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	holderPID int32,
 	storeEntered <-chan struct{},
@@ -373,8 +373,8 @@ func appendRoutedRawAuditEvent(
 }
 
 func assertSiloRawAuditWritesDenied(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID, marker string,
 ) {
@@ -398,8 +398,8 @@ func assertSiloRawAuditWritesDenied(
 }
 
 func assertSiloRawAuditWritesAllowed(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID, marker string,
 ) {
@@ -423,8 +423,8 @@ func assertSiloRawAuditWritesAllowed(
 }
 
 func assertSiloOwnerAuditWritesDenied(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	schema, tenantID string,
 ) {
@@ -488,8 +488,8 @@ func setSiloTenantStatusAsProvider(
 }
 
 func assertSiloBarrierStatus(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	tenantID, want string,
 ) {
@@ -508,8 +508,8 @@ func assertSiloBarrierStatus(
 }
 
 func assertSiloAuditBarrierCounts(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	schema, tenantID string,
 	wantEvents, wantProjections int,

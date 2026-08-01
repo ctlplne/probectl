@@ -438,12 +438,12 @@ func localDockerBuildImageVariables(script string) map[string]int {
 }
 
 func shellVariableName(value string) string {
-	if strings.HasPrefix(value, "${") &&
-		strings.HasSuffix(value, "}") {
+	switch {
+	case strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}"):
 		value = strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
-	} else if strings.HasPrefix(value, "$") {
+	case strings.HasPrefix(value, "$"):
 		value = strings.TrimPrefix(value, "$")
-	} else {
+	default:
 		return ""
 	}
 	if value == "" {

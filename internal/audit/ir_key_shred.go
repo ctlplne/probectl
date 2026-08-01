@@ -210,8 +210,8 @@ func (l *IRKeyLifecycle) Plan(
 					tenantID,
 				)
 				if err != nil &&
-					!(snapshot.Head.RecordCount == 0 &&
-						errors.Is(err, ErrIRKeyUnavailable)) {
+					(snapshot.Head.RecordCount != 0 ||
+						!errors.Is(err, ErrIRKeyUnavailable)) {
 					return fmt.Errorf(
 						"audit: resolve current tenant IR wrapping key: %w",
 						err,
@@ -916,8 +916,8 @@ func (s *IRStagePG) verifyIRKeyShredStateTx(
 		case count == 1 && record.Kind == "plan" &&
 			record.PlanRef == "" && record.DestroyedCount == 0 &&
 			record.DestroyReceiptHash == "":
-			copy := record
-			state.Plan = &copy
+			recordCopy := record
+			state.Plan = &recordCopy
 		case count == 2 && record.Kind == "tombstone" &&
 			state.Plan != nil && record.PlanRef == state.Plan.Hash &&
 			record.DestroyedCount == int64(len(record.ArtifactManifest.Artifacts)) &&
@@ -938,8 +938,8 @@ func (s *IRStagePG) verifyIRKeyShredStateTx(
 					"audit: IR key tombstone differs from its signed plan",
 				)
 			}
-			copy := record
-			state.Tombstone = &copy
+			recordCopy := record
+			state.Tombstone = &recordCopy
 		default:
 			return irKeyShredState{}, errors.New(
 				"audit: IR key destruction ledger has an invalid state",

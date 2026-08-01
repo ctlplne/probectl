@@ -610,7 +610,7 @@ func assertIRStorageIsolation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE probectl_provider`); err != nil {
 		t.Fatal(err)
 	}

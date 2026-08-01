@@ -238,8 +238,8 @@ func TestIRCryptoShredLedgerIsolationSurvivesDeletionTeardown(t *testing.T) {
 			}
 
 			assertIRShredProviderIsolation(
-				t,
 				ctx,
+				t,
 				pool,
 				tenantA,
 				tenantB,
@@ -277,8 +277,8 @@ func TestIRCryptoShredLedgerIsolationSurvivesDeletionTeardown(t *testing.T) {
 }
 
 func assertIRShredProviderIsolation(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool interface {
 		Begin(context.Context) (pgx.Tx, error)
 	},
@@ -289,7 +289,7 @@ func assertIRShredProviderIsolation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE probectl_provider`); err != nil {
 		t.Fatal(err)
 	}

@@ -47,8 +47,8 @@ func TestTopologyEraseWriteFenceTwoTenant(t *testing.T) {
 	testsupport.LockPostgresPublicCatalog(t, db.Pool())
 
 	stamp := time.Now().UTC().UnixNano()
-	tenantA := insertTopologyFenceTenant(t, ctx, db, fmt.Sprintf("topology-fence-a-%d", stamp))
-	tenantB := insertTopologyFenceTenant(t, ctx, db, fmt.Sprintf("topology-fence-b-%d", stamp))
+	tenantA := insertTopologyFenceTenant(ctx, t, db, fmt.Sprintf("topology-fence-a-%d", stamp))
+	tenantB := insertTopologyFenceTenant(ctx, t, db, fmt.Sprintf("topology-fence-b-%d", stamp))
 	t.Cleanup(func() {
 		_, _ = db.Pool().Exec(
 			context.Background(),
@@ -132,7 +132,7 @@ func commitTopologyEraseFence(ctx context.Context, db *store.DB, tenantID string
 	})
 }
 
-func insertTopologyFenceTenant(t *testing.T, ctx context.Context, db *store.DB, slug string) string {
+func insertTopologyFenceTenant(ctx context.Context, t *testing.T, db *store.DB, slug string) string {
 	t.Helper()
 	var tenantID string
 	if err := db.Pool().QueryRow(

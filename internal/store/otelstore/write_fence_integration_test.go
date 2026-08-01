@@ -46,8 +46,8 @@ func TestOTLPEraseWriteFenceTwoTenant(t *testing.T) {
 	testsupport.LockPostgresPublicCatalog(t, pool)
 
 	stamp := time.Now().UTC().UnixNano()
-	tenantA := insertOTLPFenceTenant(t, ctx, pool, fmt.Sprintf("otlp-fence-a-%d", stamp))
-	tenantB := insertOTLPFenceTenant(t, ctx, pool, fmt.Sprintf("otlp-fence-b-%d", stamp))
+	tenantA := insertOTLPFenceTenant(ctx, t, pool, fmt.Sprintf("otlp-fence-a-%d", stamp))
+	tenantB := insertOTLPFenceTenant(ctx, t, pool, fmt.Sprintf("otlp-fence-b-%d", stamp))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
 			context.Background(),
@@ -217,8 +217,8 @@ func commitOTLPEraseFence(
 }
 
 func insertOTLPFenceTenant(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	pool *pgxpool.Pool,
 	slug string,
 ) string {

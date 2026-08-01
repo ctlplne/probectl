@@ -49,8 +49,8 @@ func TestObjectArtifactEraseWriteFenceTwoTenant(t *testing.T) {
 	testsupport.LockPostgresPublicCatalog(t, pool)
 
 	stamp := time.Now().UTC().UnixNano()
-	tenantA := insertArtifactFenceTenant(t, ctx, pool, fmt.Sprintf("artifact-fence-a-%d", stamp))
-	tenantB := insertArtifactFenceTenant(t, ctx, pool, fmt.Sprintf("artifact-fence-b-%d", stamp))
+	tenantA := insertArtifactFenceTenant(ctx, t, pool, fmt.Sprintf("artifact-fence-a-%d", stamp))
+	tenantB := insertArtifactFenceTenant(ctx, t, pool, fmt.Sprintf("artifact-fence-b-%d", stamp))
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
 			context.Background(),
@@ -161,7 +161,7 @@ func commitArtifactEraseFence(ctx context.Context, pool *pgxpool.Pool, tenantID 
 	})
 }
 
-func insertArtifactFenceTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool, slug string) string {
+func insertArtifactFenceTenant(ctx context.Context, t *testing.T, pool *pgxpool.Pool, slug string) string {
 	t.Helper()
 	var tenantID string
 	if err := pool.QueryRow(

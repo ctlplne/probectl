@@ -74,8 +74,8 @@ func TestIRCryptoShredCoverageIsolationAndRecoveryDenial(t *testing.T) {
 	artifacts := make(map[string]irCryptoShredTestArtifacts, 2)
 	for _, tenantID := range []string{tenantA.ID, tenantB.ID} {
 		artifacts[tenantID] = writeIRCryptoShredTestArtifacts(
-			t,
 			ctx,
+			t,
 			unlock,
 			publicDirectory,
 			privateDirectory,
@@ -771,8 +771,8 @@ func (r *blockingIROpenResolver) OpenProviderForTenant(
 }
 
 func writeIRCryptoShredTestArtifacts(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	unlock crypto.KeyProvider,
 	publicDirectory, privateDirectory, tenantID string,
 ) irCryptoShredTestArtifacts {
