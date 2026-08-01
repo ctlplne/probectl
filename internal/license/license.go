@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -50,7 +51,8 @@ const (
 
 	// legacyTierProvider is accepted only while verifying already-signed v1
 	// development licenses. New licenses are always issued as TierMSP.
-	legacyTierProvider Tier = "provider"
+	legacyTierProvider  Tier = "provider"
+	maxLicenseFileBytes      = 1 << 20
 )
 
 // PricingModel is descriptive commercial metadata. It never grants a feature
@@ -285,7 +287,7 @@ func Load(path string, trustedPubPEMs [][]byte) (*Manager, error) {
 	if path == "" {
 		return Community(), nil
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := readLicenseFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("license: read %s: %w", path, err)
 	}
@@ -294,6 +296,25 @@ func Load(path string, trustedPubPEMs [][]byte) (*Manager, error) {
 		return nil, err
 	}
 	return &Manager{claims: claims, clock: time.Now}, nil
+}
+
+func readLicenseFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxLicenseFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if len(raw) > maxLicenseFileBytes {
+		return nil, fmt.Errorf("license file exceeds %d-byte limit", maxLicenseFileBytes)
+	}
+	return raw, nil
 }
 
 // Sign serializes claims, signs the exact payload bytes with the PEM private

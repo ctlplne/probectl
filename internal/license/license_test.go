@@ -7,6 +7,7 @@
 package license
 
 import (
+	"bytes"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -100,6 +101,52 @@ func TestVerifyTable(t *testing.T) {
 		if _, err := Verify(raw, [][]byte{pub}); err == nil {
 			t.Errorf("%s: must be rejected", name)
 		}
+	}
+}
+
+func TestLoadBoundsLicenseFile(t *testing.T) {
+	const maxBytes = 1 << 20
+
+	priv, pub := testKeypair(t)
+	raw, err := Sign(
+		testClaims(TierEnterprise, time.Now().Add(24*time.Hour)),
+		priv,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) > maxBytes {
+		t.Fatalf("signed test license is %d bytes, exceeds boundary fixture", len(raw))
+	}
+
+	exact := append(append([]byte(nil), raw...), bytes.Repeat([]byte(" "), maxBytes-len(raw))...)
+	tests := []struct {
+		name    string
+		body    []byte
+		wantErr string
+	}{
+		{name: "exact limit", body: exact},
+		{
+			name:    "one byte over",
+			body:    append(append([]byte(nil), exact...), ' '),
+			wantErr: "license file exceeds 1048576-byte limit",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "license.json")
+			if err := os.WriteFile(path, tc.body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path, [][]byte{pub})
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("Load exact-limit license: %v", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("Load oversized license error = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 

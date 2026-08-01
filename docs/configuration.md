@@ -2104,7 +2104,7 @@ precisely why verification works with the network cable unplugged.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PROBECTL_LICENSE_FILE` | (none) | path to the Ed25519-signed license file. Unset = Community (the full core, default-open). Set-but-missing/invalid = **startup error** (fail closed on configuration) |
+| `PROBECTL_LICENSE_FILE` | (none) | path to the Ed25519-signed license file (maximum 1 MiB). Unset = Community (the full core, default-open). Set-but-missing/invalid/oversized = **startup error** (fail closed on configuration) |
 
 Verification is **offline** — local signature math against public keys baked
 into the binary at build time (never an env var; never phone-home). Expiry
