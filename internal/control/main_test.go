@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,11 @@ func TestMain(m *testing.M) {
 // without weakening the release guarantee (RED-001).
 func init() { devModeHook = testDevAuthHook }
 
+// testWithholdPermissionsHeader lets a test drop specific permissions from
+// the dev principal for one request (test-binary only: this hook is installed
+// by main_test.go and never exists in a shipped binary).
+const testWithholdPermissionsHeader = "X-Probectl-Test-Withhold-Permissions"
+
 func testDevAuthHook(_ *Server, w http.ResponseWriter, r *http.Request) (*auth.Principal, bool) {
 	tid := tenancy.DefaultTenantID
 	if h := r.Header.Get("X-Probectl-Tenant"); h != "" {
@@ -44,9 +50,21 @@ func testDevAuthHook(_ *Server, w http.ResponseWriter, r *http.Request) (*auth.P
 		}
 		tid = tenancy.ID(h)
 	}
+	// S-e0e73b57: the dev principal normally holds every permission, which
+	// makes requirePermission a pass-through for the handler suites. A test
+	// may narrow it for ONE request by naming the permissions it wants
+	// withheld, so an authorization refusal can actually be observed.
 	perms := make(map[string]bool, len(allPermissionKeys))
+	withheld := map[string]bool{}
+	for _, k := range strings.Split(r.Header.Get(testWithholdPermissionsHeader), ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			withheld[k] = true
+		}
+	}
 	for _, k := range allPermissionKeys {
-		perms[k] = true
+		if !withheld[k] {
+			perms[k] = true
+		}
 	}
 	return &auth.Principal{
 		TenantID:       tid.String(),
