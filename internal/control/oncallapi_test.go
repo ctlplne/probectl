@@ -7,12 +7,15 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -174,5 +177,50 @@ func TestNotificationRoutingRoutesPermissions(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("routes not registered: %+v", want)
+	}
+}
+
+type recordingMailSender struct {
+	mu   sync.Mutex
+	to   []string
+	subj string
+	body string
+}
+
+func (m *recordingMailSender) Send(_ context.Context, to []string, subject, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.to = append([]string(nil), to...)
+	m.subj = subject
+	m.body = body
+	return nil
+}
+
+func TestAlertChannelTestDeliversEmailThroughConfiguredSender(t *testing.T) {
+	mail := &recordingMailSender{}
+	srv := testServer(fakePinger{}).WithAlertChannelDeps(alert.ChannelDeps{Mail: mail})
+	body := `{"rule_name":"latency smoke","metric":"probectl_result_rtt_ms","channel":{"type":"email","recipients":["oncall@example.test"]}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/alerts/test-channel", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("email channel test status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	mail.mu.Lock()
+	defer mail.mu.Unlock()
+	if len(mail.to) != 1 || mail.to[0] != "oncall@example.test" ||
+		!strings.Contains(mail.subj, "latency smoke") {
+		t.Fatalf("email not delivered through the configured sender: to=%v subj=%q", mail.to, mail.subj)
+	}
+}
+
+func TestAlertChannelTestEmailWithoutSenderStaysHonest(t *testing.T) {
+	srv := testServer(fakePinger{}) // no ChannelDeps: email must fail, not pretend
+	body := `{"rule_name":"r","metric":"m","channel":{"type":"email","recipients":["oncall@example.test"]}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/alerts/test-channel", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unconfigured email channel test = %d, want 503; body=%s", rec.Code, rec.Body.String())
 	}
 }

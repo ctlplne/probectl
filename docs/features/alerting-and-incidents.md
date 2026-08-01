@@ -273,12 +273,14 @@ inline.
   neither an in-process TSDB nor a Prometheus/VictoriaMetrics instant-query
   backend wired, the evaluation loop is skipped and this flag tells you so
   honestly, rather than showing a falsely empty "all clear".
-- **Email-channel honesty.** The webhook channel is the fully wired delivery
-  path. If you configure an email channel where a mail sender is not wired, that
-  rule's email notification is skipped with a logged warning rather than failing
-  silently in a confusing way. The canonical built-not-yet-served entry is in
-  the [limitations table](../limitations.md#built-not-yet-served-edges); prefer
-  the webhook channel, or incident-level connectors, for paging.
+- **Email-channel honesty.** Both rule-level channels deliver: webhooks
+  (HMAC-signed HTTPS POST) and email through the `PROBECTL_ALERT_SMTP_*`
+  endpoint, where TLS is mandatory — a server that will not secure the session
+  is refused rather than mailed in plaintext. On a deployment with no SMTP
+  address configured, a rule's email notification is skipped with a logged
+  warning rather than failing silently in a confusing way; other genuinely
+  unserved edges stay in the
+  [limitations table](../limitations.md#built-not-yet-served-edges).
 - **Correlation needs more than one plane reporting.** A single-plane deployment
   still alerts perfectly, but "one incident with cross-plane evidence" only pays
   off once you have producers feeding more than one plane. The room names each

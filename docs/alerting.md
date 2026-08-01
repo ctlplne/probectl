@@ -24,13 +24,16 @@ something is wrong. It has two halves that together form one truth:
   preview API, survive control-plane restarts, and create audit events when
   changed.
 
-Two honesty notes on delivery. The **webhook** channel is the fully-wired path
-(HTTPS POST, body signed with HMAC-SHA256 in `X-Probectl-Signature`). The
-**email** channel type exists end to end (a plain-text message via an SMTP
-sender), but the shipped control plane does not yet wire a mail sender or
-expose SMTP configuration — a rule with an email channel is skipped with a
-logged warning until one is wired. This is tracked as a built-not-yet-served
-edge in the canonical [limitations table](limitations.md#built-not-yet-served-edges).
+Both rule-level channels are wired. The **webhook** channel is an HTTPS POST
+with the body signed HMAC-SHA256 in `X-Probectl-Signature`. The **email**
+channel delivers through the SMTP endpoint configured with
+`PROBECTL_ALERT_SMTP_*` (address, envelope sender, optional auth — see
+[`configuration.md`](configuration.md)); TLS is mandatory in both its modes
+(`starttls`, the default, refuses a server that does not offer STARTTLS;
+`implicit` speaks SMTPS from the first byte) — there is no plaintext mail
+transport (§7 guardrail 12). With no SMTP address configured, a rule with an
+email channel is skipped with a logged warning, and
+`POST /v1/alerts/test-channel` reports the failure instead of pretending.
 And per-rule channels are only half the notification story: incident-level
 paging, chat, and ticketing connectors (PagerDuty, Opsgenie, Slack, Teams,
 ServiceNow, Jira) ride the *incident* pipeline, not alert rules — see

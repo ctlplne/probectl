@@ -196,7 +196,7 @@ func (s *Server) handleAlertChannelTest(w http.ResponseWriter, r *http.Request) 
 			return err
 		}
 	}
-	delivered := alert.NewNotifier(alert.ChannelDeps{}, s.log).Deliver(r.Context(), rule, alert.Alert{
+	delivered := alert.NewNotifier(s.alertChannelDeps, s.log).Deliver(r.Context(), rule, alert.Alert{
 		RuleID:     "test",
 		RuleName:   ruleName,
 		TenantID:   tid,

@@ -8,9 +8,11 @@ package control
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
@@ -78,3 +80,33 @@ func TestMetricSourceAddsMatchLabels(t *testing.T) {
 
 var _ tsdbQuerier = fakeQuerier{}
 var _ alert.MetricSource = metricSource{}
+
+func TestBuildAlertChannelDeps(t *testing.T) {
+	log := statusQuietLog()
+
+	deps, err := BuildAlertChannelDeps(&config.Config{}, nil, log)
+	if err != nil || deps.Mail != nil {
+		t.Fatalf("unconfigured SMTP must yield a nil sender, got (%v, %v)", deps.Mail, err)
+	}
+
+	deps, err = BuildAlertChannelDeps(&config.Config{
+		AlertSMTPAddr: "mail.example.test:587",
+		AlertSMTPFrom: "probectl@example.test",
+	}, nil, log)
+	if err != nil || deps.Mail == nil {
+		t.Fatalf("configured SMTP must yield a sender, got (%v, %v)", deps.Mail, err)
+	}
+
+	resolveFail := func(context.Context, string) (string, error) {
+		return "", errors.New("backend down")
+	}
+	_, err = BuildAlertChannelDeps(&config.Config{
+		AlertSMTPAddr:     "mail.example.test:587",
+		AlertSMTPFrom:     "probectl@example.test",
+		AlertSMTPUsername: "alerts",
+		AlertSMTPPassword: "secret://mail-password",
+	}, resolveFail, log)
+	if err == nil {
+		t.Fatal("an unresolvable configured credential must fail the boot, not build a credential-less sender")
+	}
+}

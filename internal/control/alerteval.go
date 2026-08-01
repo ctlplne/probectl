@@ -8,7 +8,10 @@ package control
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
+	"net/smtp"
 	"sort"
 	"strings"
 	"sync"
@@ -17,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -143,6 +147,40 @@ func alertWriterQueryable(writer any) bool {
 	default:
 		return false
 	}
+}
+
+// BuildAlertChannelDeps constructs the shared alert-channel dependencies from
+// config: the mail sender when SMTP is configured (PROBECTL_ALERT_SMTP_*), nil
+// otherwise so the notifier keeps reporting "no mail sender is configured".
+// resolveSecret maps the configured password through the secrets backend; an
+// explicitly configured credential that cannot resolve is a boot error, never
+// a silently credential-less sender (missing credential → fail closed).
+func BuildAlertChannelDeps(cfg *config.Config, resolveSecret func(context.Context, string) (string, error), log *slog.Logger) (alert.ChannelDeps, error) {
+	deps := alert.ChannelDeps{}
+	if cfg == nil || cfg.AlertSMTPAddr == "" {
+		return deps, nil
+	}
+	var auth smtp.Auth
+	if cfg.AlertSMTPUsername != "" {
+		password := cfg.AlertSMTPPassword
+		if resolveSecret != nil {
+			resolved, err := resolveSecret(context.Background(), password)
+			if err != nil {
+				return deps, fmt.Errorf("alert smtp: resolve PROBECTL_ALERT_SMTP_PASSWORD: %w", err)
+			}
+			password = resolved
+		}
+		host, _, err := net.SplitHostPort(cfg.AlertSMTPAddr)
+		if err != nil {
+			return deps, fmt.Errorf("alert smtp: invalid PROBECTL_ALERT_SMTP_ADDR %q: %w", cfg.AlertSMTPAddr, err)
+		}
+		auth = smtp.PlainAuth("", cfg.AlertSMTPUsername, password, host)
+	}
+	deps.Mail = alert.NewSMTPSender(cfg.AlertSMTPAddr, cfg.AlertSMTPFrom, auth,
+		alert.SMTPTLSMode(cfg.AlertSMTPTLSMode), nil)
+	log.Info("alert email channel enabled",
+		"tls_mode", cfg.AlertSMTPTLSMode, "authenticated", auth != nil)
+	return deps, nil
 }
 
 // BuildAlertEvaluator wires the alerting evaluator over the shared TSDB and the

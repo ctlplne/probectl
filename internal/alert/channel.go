@@ -9,10 +9,12 @@ package alert
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/smtp"
 	"strings"
@@ -110,20 +112,96 @@ func (e *EmailChannel) Notify(ctx context.Context, a Alert) error {
 	return e.sender.Send(ctx, e.recipients, subject, body)
 }
 
-// SMTPSender delivers mail via net/smtp.
+// SMTPTLSMode selects how the SMTP connection is secured. There is no
+// plaintext mode: alert mail carries incident detail, and a mail transport
+// without channel security fails closed (CLAUDE.md §7 guardrail 12).
+type SMTPTLSMode string
+
+const (
+	// SMTPStartTLS dials plain TCP and REQUIRES the server to advertise
+	// STARTTLS before any credential or message byte is sent (ports 587/25).
+	SMTPStartTLS SMTPTLSMode = "starttls"
+	// SMTPImplicitTLS speaks TLS from the first byte (SMTPS, port 465).
+	SMTPImplicitTLS SMTPTLSMode = "implicit"
+)
+
+// SMTPSender delivers mail over a TLS-secured SMTP session. Certificate
+// validation is always on; the TLS policy comes from internal/crypto.
 type SMTPSender struct {
-	addr string // host:port
-	from string
-	auth smtp.Auth
+	addr    string // host:port
+	from    string
+	auth    smtp.Auth
+	mode    SMTPTLSMode
+	tlsBase *tls.Config
 }
 
-// NewSMTPSender builds an SMTP-backed MailSender.
-func NewSMTPSender(addr, from string, auth smtp.Auth) *SMTPSender {
-	return &SMTPSender{addr: addr, from: from, auth: auth}
+// NewSMTPSender builds an SMTP-backed MailSender. A nil tlsBase uses the
+// hardened third-party client policy from internal/crypto (TLS 1.2 floor,
+// certificate validation on); tests inject a config carrying their test CA.
+func NewSMTPSender(addr, from string, auth smtp.Auth, mode SMTPTLSMode, tlsBase *tls.Config) *SMTPSender {
+	if tlsBase == nil {
+		tlsBase = crypto.HardenedClientTLSConfig()
+	}
+	if mode == "" {
+		mode = SMTPStartTLS
+	}
+	return &SMTPSender{addr: addr, from: from, auth: auth, mode: mode, tlsBase: tlsBase}
 }
 
-// Send composes a minimal RFC 5322 message and sends it.
-func (s *SMTPSender) Send(_ context.Context, to []string, subject, body string) error {
+// Send composes a minimal RFC 5322 message and delivers it over a session that
+// is TLS-secured before authentication or content: implicit mode handshakes
+// first; starttls mode refuses a server that does not offer STARTTLS.
+func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string) error {
+	host, _, err := net.SplitHostPort(s.addr)
+	if err != nil {
+		return fmt.Errorf("smtp: invalid address %q: %w", s.addr, err)
+	}
+	tlsCfg := s.tlsBase.Clone()
+	tlsCfg.ServerName = host
+
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("smtp: dial: %w", err)
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	if s.mode == SMTPImplicitTLS {
+		conn = tls.Client(conn, tlsCfg)
+	}
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("smtp: handshake: %w", err)
+	}
+	defer func() { _ = c.Close() }()
+
+	if s.mode == SMTPStartTLS {
+		if ok, _ := c.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("smtp: server %s does not offer STARTTLS — refusing plaintext mail transport (guardrail 12)", s.addr)
+		}
+		if err := c.StartTLS(tlsCfg); err != nil {
+			return fmt.Errorf("smtp: starttls: %w", err)
+		}
+	}
+	if s.auth != nil {
+		if err := c.Auth(s.auth); err != nil {
+			return fmt.Errorf("smtp: auth: %w", err)
+		}
+	}
+	if err := c.Mail(s.from); err != nil {
+		return fmt.Errorf("smtp: mail from: %w", err)
+	}
+	for _, rcpt := range to {
+		if err := c.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("smtp: rcpt %s: %w", rcpt, err)
+		}
+	}
+	wc, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("smtp: data: %w", err)
+	}
 	msg := strings.Builder{}
 	fmt.Fprintf(&msg, "From: %s\r\n", s.from)
 	fmt.Fprintf(&msg, "To: %s\r\n", strings.Join(to, ", "))
@@ -131,5 +209,12 @@ func (s *SMTPSender) Send(_ context.Context, to []string, subject, body string) 
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	msg.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
 	msg.WriteString(body)
-	return smtp.SendMail(s.addr, s.auth, s.from, to, []byte(msg.String()))
+	if _, err := io.WriteString(wc, msg.String()); err != nil {
+		_ = wc.Close()
+		return fmt.Errorf("smtp: write: %w", err)
+	}
+	if err := wc.Close(); err != nil {
+		return fmt.Errorf("smtp: close message: %w", err)
+	}
+	return c.Quit()
 }

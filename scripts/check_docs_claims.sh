@@ -159,10 +159,12 @@ run_checks() { # run_checks <root>
 
   # DOCS-S15: built-not-yet-served limitations stay canonical. Feature pages may
   # state local caveats, but the durable denominator lives in docs/limitations.md.
+  # (Foundation-Loop T-82cf4a6f: 'Alert email delivery' left this table — SMTP
+  # is wired — so the row and docs/alerting.md's caveat link are no longer
+  # required; a doc claiming a resolved limitation would itself be untrue.)
   local limits="$r/docs/limitations.md"
   if ! grep -q '## Built, not yet served edges' "$limits" 2>/dev/null \
      || ! grep -q 'Chaos injector API/control-plane surface' "$limits" 2>/dev/null \
-     || ! grep -q 'Alert email delivery' "$limits" 2>/dev/null \
      || ! grep -q 'eBPF TLS posture ingest' "$limits" 2>/dev/null \
      || ! grep -q 'Raw eBPF flow retention' "$limits" 2>/dev/null \
      || ! grep -q 'Browser artifact S3 / MinIO backend' "$limits" 2>/dev/null; then
@@ -172,7 +174,6 @@ run_checks() { # run_checks <root>
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/tls-observability.md" 2>/dev/null \
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/deploying-agents.md" 2>/dev/null \
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/browser-synthetic.md" 2>/dev/null \
-     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/alerting.md" 2>/dev/null \
      || ! grep -q '../limitations.md#built-not-yet-served-edges' "$r/docs/features/alerting-and-incidents.md" 2>/dev/null; then
     echo "DOCS-S15: built-not-yet-served feature caveats must link to docs/limitations.md" >&2; f=1
   fi

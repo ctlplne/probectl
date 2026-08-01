@@ -23,6 +23,7 @@ import (
 	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/author"
+	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/carbon"
@@ -135,6 +136,12 @@ type Server struct {
 	// (empty list / 503 on actions).
 	alertStateMu sync.RWMutex
 	alertState   map[string]AlertStateSource
+
+	// Alert-channel dependencies shared with the evaluator (mail sender,
+	// webhook client). Set via WithAlertChannelDeps so the channel-test
+	// endpoint exercises the SAME delivery path the evaluator uses; the zero
+	// value keeps email honestly unconfigured.
+	alertChannelDeps alert.ChannelDeps
 
 	// TLS/cert posture inventory (S-FE2): the store the TLS consumer maintains.
 	// Set via WithTLSPosture; nil reports collector_running=false.

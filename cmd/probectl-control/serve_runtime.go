@@ -19,7 +19,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/ctlplne/probectl/internal/a2a"
-	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/carbon"
 	"github.com/ctlplne/probectl/internal/cluster"
@@ -449,7 +448,12 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 		worm, rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore); err != nil {
 		return err
 	}
-	if sup, ok := control.BuildAlertEvaluatorSupervisor(rt.db.Pool(), rt.tsdbWriter, alert.ChannelDeps{},
+	channelDeps, err := control.BuildAlertChannelDeps(rt.cfg, rt.secretsResolver.Resolve, rt.log)
+	if err != nil {
+		return err
+	}
+	rt.srv.WithAlertChannelDeps(channelDeps)
+	if sup, ok := control.BuildAlertEvaluatorSupervisor(rt.db.Pool(), rt.tsdbWriter, channelDeps,
 		rt.cfg.AlertEvalInterval, control.AlertSink(rt.correlator, rt.log), rt.log,
 		func(tenant string, src control.AlertStateSource) { rt.srv.WithAlertState(tenant, src) },
 		func(tenant string) { rt.srv.WithoutAlertState(tenant) }); ok {

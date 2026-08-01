@@ -1249,3 +1249,47 @@ func TestFlowEnrichmentSourceConfig(t *testing.T) {
 		t.Fatalf("IXP without ASN should fail closed, got %v", err)
 	}
 }
+
+func TestAlertSMTPConfig(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AlertSMTPAddr != "" || cfg.AlertSMTPTLSMode != "starttls" {
+		t.Fatalf("SMTP defaults: addr=%q mode=%q, want off/starttls", cfg.AlertSMTPAddr, cfg.AlertSMTPTLSMode)
+	}
+
+	cfg, err = Load(envFunc(map[string]string{
+		"PROBECTL_ALERT_SMTP_ADDR":     "mail.example.test:465",
+		"PROBECTL_ALERT_SMTP_FROM":     "probectl@example.test",
+		"PROBECTL_ALERT_SMTP_TLS_MODE": "implicit",
+		"PROBECTL_ALERT_SMTP_USERNAME": "alerts",
+		"PROBECTL_ALERT_SMTP_PASSWORD": "secret://mail",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AlertSMTPAddr != "mail.example.test:465" || cfg.AlertSMTPTLSMode != "implicit" ||
+		cfg.AlertSMTPUsername != "alerts" || cfg.AlertSMTPPassword != "secret://mail" {
+		t.Fatalf("SMTP overrides not applied: %+v", cfg)
+	}
+
+	for name, env := range map[string]map[string]string{
+		"addr without from": {"PROBECTL_ALERT_SMTP_ADDR": "mail.example.test:587"},
+		"from without addr": {"PROBECTL_ALERT_SMTP_FROM": "probectl@example.test"},
+		"username without password": {
+			"PROBECTL_ALERT_SMTP_ADDR":     "mail.example.test:587",
+			"PROBECTL_ALERT_SMTP_FROM":     "probectl@example.test",
+			"PROBECTL_ALERT_SMTP_USERNAME": "alerts",
+		},
+		"plaintext mode rejected": {
+			"PROBECTL_ALERT_SMTP_ADDR":     "mail.example.test:25",
+			"PROBECTL_ALERT_SMTP_FROM":     "probectl@example.test",
+			"PROBECTL_ALERT_SMTP_TLS_MODE": "none",
+		},
+	} {
+		if _, err := Load(envFunc(env)); err == nil {
+			t.Fatalf("%s: expected a config error", name)
+		}
+	}
+}

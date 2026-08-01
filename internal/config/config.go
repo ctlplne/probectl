@@ -242,6 +242,18 @@ type Config struct {
 
 	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
 	AlertEvalInterval time.Duration
+	// Alert email delivery (the "email" channel type). AlertSMTPAddr
+	// (host:port) turns the channel on; empty keeps it off and the notifier
+	// reports "no mail sender is configured". TLS is mandatory in both modes
+	// — starttls (default; the server MUST advertise STARTTLS) or implicit
+	// (SMTPS from the first byte) — never plaintext (§7 guardrail 12).
+	// AlertSMTPPassword accepts a secret reference resolved through the
+	// secrets backend at boot; it is never logged (like CMDBSecret).
+	AlertSMTPAddr     string
+	AlertSMTPFrom     string
+	AlertSMTPTLSMode  string
+	AlertSMTPUsername string
+	AlertSMTPPassword string
 
 	// Incidents (S17): the time window within which related signals correlate
 	// into one incident.
@@ -827,6 +839,20 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
 	cfg.CMDBCacheTTL = l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute)
 	cfg.AlertEvalInterval = l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second)
+	cfg.AlertSMTPAddr = l.str("PROBECTL_ALERT_SMTP_ADDR", "")
+	cfg.AlertSMTPFrom = l.str("PROBECTL_ALERT_SMTP_FROM", "")
+	cfg.AlertSMTPTLSMode = l.enum("PROBECTL_ALERT_SMTP_TLS_MODE", "starttls", "starttls", "implicit")
+	cfg.AlertSMTPUsername = l.str("PROBECTL_ALERT_SMTP_USERNAME", "")
+	cfg.AlertSMTPPassword = l.str("PROBECTL_ALERT_SMTP_PASSWORD", "")
+	if cfg.AlertSMTPAddr != "" && cfg.AlertSMTPFrom == "" {
+		l.errf("PROBECTL_ALERT_SMTP_ADDR requires PROBECTL_ALERT_SMTP_FROM (the envelope sender)")
+	}
+	if cfg.AlertSMTPAddr == "" && (cfg.AlertSMTPFrom != "" || cfg.AlertSMTPUsername != "" || cfg.AlertSMTPPassword != "") {
+		l.errf("PROBECTL_ALERT_SMTP_FROM/_USERNAME/_PASSWORD are set but PROBECTL_ALERT_SMTP_ADDR is not — the email channel stays off without an address, which is probably not what you meant")
+	}
+	if (cfg.AlertSMTPUsername == "") != (cfg.AlertSMTPPassword == "") {
+		l.errf("PROBECTL_ALERT_SMTP_USERNAME and PROBECTL_ALERT_SMTP_PASSWORD must be set together")
+	}
 	cfg.IncidentWindow = l.dur("PROBECTL_INCIDENT_WINDOW", 10*time.Minute)
 }
 
@@ -1436,6 +1462,8 @@ func (c *Config) Redacted() map[string]any {
 		"flow_enrich_geoip_db":        c.FlowEnrichGeoDB != "", // a boolean, never the operator's path
 		"flow_enrich_rir_dir":         c.FlowEnrichRIRDir != "",
 		"flow_enrich_ixp":             c.FlowEnrichIXP,
+		"alert_smtp_configured":       c.AlertSMTPAddr != "", // a boolean, never address or credentials
+		"alert_smtp_tls_mode":         c.AlertSMTPTLSMode,
 		"backup_retention_note":       c.BackupRetentionNote,
 		"data_planes_configured":      c.DataPlanes != "",
 		"envelope_key_configured":     c.EnvelopeKey != "", // a boolean, never the key

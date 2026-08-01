@@ -38,6 +38,14 @@ type AlertStateSource interface {
 	Acknowledge(fingerprint, by string) (alert.ActiveAlert, error)
 }
 
+// WithAlertChannelDeps attaches the shared alert-channel dependencies so the
+// operator channel-test endpoint delivers through the same mail sender and
+// webhook client the evaluator uses. Returns the server for chaining.
+func (s *Server) WithAlertChannelDeps(deps alert.ChannelDeps) *Server {
+	s.alertChannelDeps = deps
+	return s
+}
+
 // WithAlertState attaches a tenant's alert-state source (its evaluator engine).
 // Returns the server for chaining.
 func (s *Server) WithAlertState(tenant string, src AlertStateSource) *Server {
