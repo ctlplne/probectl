@@ -28,9 +28,14 @@ type Config struct {
 	APIVersion    string `yaml:"apiVersion"`
 	SchemaVersion int    `yaml:"schema_version,omitempty"`
 
-	// TenantID binds every emitted flow to one tenant (F50). In production the
-	// agent derives this from its SPIFFE client-cert identity (like the canary
-	// agent); the explicit field supports the lightweight / single-tenant deploy.
+	// TenantID binds every emitted flow to one tenant (F50). It comes from the
+	// agent's deployment configuration — rendered from the enrollment-issued
+	// values (Helm sets it from the tenant-bound registration; rendering fails
+	// closed without it) — NOT from a SPIFFE client certificate: unlike the
+	// canary agent's gRPC lane, this agent publishes straight to the bus. The
+	// runtime refuses any source-asserted foreign tenant, and the
+	// tenant-verifying pipeline consumer re-checks every batch downstream, so
+	// a lying payload cannot cross the tenant boundary either way.
 	TenantID string `yaml:"tenant_id"`
 	Host     string `yaml:"host"`
 

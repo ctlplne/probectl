@@ -217,12 +217,19 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
-// observe stamps identity (defense-in-depth — the source may omit it), enriches,
-// and folds the flow into the aggregator.
+// observe stamps identity, enriches, and folds the flow into the aggregator.
+// The agent is bound to exactly one tenant (its enrolled deployment identity),
+// so a source-asserted FOREIGN tenant — a bad fixture, a corrupt recording —
+// is REFUSED, never forwarded and never silently rewritten: the flow is
+// dropped with an error log (fail closed, CLAUDE.md §7 guardrail 1). The
+// tenant-verifying pipeline consumer re-checks downstream regardless.
 func (a *Agent) observe(f Flow) {
-	if f.TenantID == "" {
-		f.TenantID = a.cfg.TenantID
+	if f.TenantID != "" && f.TenantID != a.cfg.TenantID {
+		a.log.Error("REJECTED flow: source asserted a foreign tenant (agent is tenant-bound, fail closed)",
+			"asserted_tenant", f.TenantID, "bound_tenant", a.cfg.TenantID)
+		return
 	}
+	f.TenantID = a.cfg.TenantID
 	if f.AgentID == "" {
 		f.AgentID = a.cfg.Host
 	}
@@ -246,11 +253,18 @@ func (a *Agent) observeL7(ev L7Event) {
 		if _, known := a.l7conns[ev.ConnID]; !known && a.l7connsCap > 0 && len(a.l7conns) >= a.l7connsCap {
 			a.evictOldestL7Conn()
 		}
+		// Same tenant-bound contract as observe(): a source-asserted foreign
+		// tenant is refused, never adopted (fail closed).
+		if ev.TenantID != "" && ev.TenantID != a.cfg.TenantID {
+			a.log.Error("REJECTED L7 event: source asserted a foreign tenant (agent is tenant-bound, fail closed)",
+				"asserted_tenant", ev.TenantID, "bound_tenant", a.cfg.TenantID)
+			return
+		}
 		a.l7conns[ev.ConnID] = l7conn{
 			src:       ev.Source,
 			dst:       ev.Destination,
 			transport: orString(ev.Transport, TransportTCP),
-			tenant:    orString(ev.TenantID, a.cfg.TenantID),
+			tenant:    a.cfg.TenantID,
 			encrypted: ev.Encrypted,
 		}
 	}
