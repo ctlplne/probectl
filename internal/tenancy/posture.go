@@ -9,6 +9,7 @@ package tenancy
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -177,7 +178,10 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	if err := assertSiloSchemaGuards(ctx, q, siloTables); err != nil {
 		return err
 	}
-	return assertStrictPreTenantPolicies(ctx, q)
+	if err := assertStrictPreTenantPolicies(ctx, q); err != nil {
+		return err
+	}
+	return assertProviderPoliciesAreScoped(ctx, q)
 }
 
 type siloPostureTable struct {
@@ -368,6 +372,112 @@ func assertStrictPreTenantPolicies(ctx context.Context, q postureQuerier) error 
 			strings.Join(unsafe, ", "))
 	}
 	return nil
+}
+
+// providerManagedTables are the tenant_id-carrying tables the provider plane
+// legitimately operates ACROSS tenants, each with the reason. These hold
+// provider-plane control state — the tenant's configuration and the MSP's
+// metering — not the tenant's telemetry or operational data, and managing them
+// cross-tenant IS the provider console's job (CLAUDE.md §2, §3). Every OTHER
+// tenant-owned table defaults to "the provider may not read it unscoped", so a
+// new table is refused at boot until someone classifies it.
+//
+// An entry that no longer carries a provider policy is stale and fails too, so
+// this cannot rot into a list of yesterday's exceptions.
+var providerManagedTables = map[string]string{
+	"tenant_branding":            "deployment theming the provider console administers per tenant",
+	"tenant_fairness":            "per-tenant admission policy the provider sets and displays",
+	"tenant_governance":          "data-governance policy the provider administers per tenant",
+	"tenant_keys":                "BYOK key metadata the provider rotates on the tenant's behalf",
+	"tenant_quotas":              "MSP quota configuration, provider-owned by definition",
+	"tenant_retention":           "retention policy the provider administers per tenant",
+	"usage_records":              "consumption metering: the MSP's own billing input, aggregated across tenants",
+	"credential_locators":        "pre-tenant credential routing the provider maintains during lifecycle operations",
+	"agent_identity_revocations": "deployment-wide revocation list the provider maintains for the handshake deny-list",
+}
+
+// assertProviderPoliciesAreScoped refuses to start when the PROVIDER role
+// holds an unconstrained cross-tenant read on a table holding TENANT DATA
+// (Foundation-Loop S-1612260f).
+//
+// Provider operators get no implicit telemetry read (CLAUDE.md §7 guardrail
+// 1): cross-tenant access is explicit, time-bounded, consented break-glass —
+// which runs through the TENANT role and a GUC, never the provider role.
+// Migration 0045 tightened exactly this for audit_events and named the shape
+// it removed: a `FOR SELECT ... USING (true)` provider policy. 0088 removed
+// the surviving one on agents. This assertion makes the shape unable to come
+// back: any provider-role SELECT/ALL policy on a table that has a tenant_id
+// column must constrain rows by the tenant GUC. A DELETE-only policy (the
+// erase mutation, which deletes by an explicit WHERE tenant_id = $1) is not a
+// read capability and is left alone.
+func assertProviderPoliciesAreScoped(ctx context.Context, q postureQuerier) error {
+	rows, err := q.Query(ctx, `
+		SELECT p.tablename, p.policyname, p.cmd, p.qual
+		  FROM pg_policies p
+		 WHERE p.schemaname = current_schema()
+		   AND p.cmd IN ('SELECT', 'ALL')
+		   AND 'probectl_provider' = ANY(p.roles)
+		   AND EXISTS (
+		       SELECT 1 FROM information_schema.columns c
+		        WHERE c.table_schema = p.schemaname
+		          AND c.table_name   = p.tablename
+		          AND c.column_name  = 'tenant_id'
+		   )
+		 ORDER BY p.tablename, p.policyname`)
+	if err != nil {
+		return fmt.Errorf("isolation posture: enumerate provider policies: %w", err)
+	}
+	defer rows.Close()
+
+	var unscoped []string
+	seenManaged := map[string]bool{}
+	for rows.Next() {
+		var table, policy, command string
+		var usingExpr *string
+		if err := rows.Scan(&table, &policy, &command, &usingExpr); err != nil {
+			return fmt.Errorf("isolation posture: scan provider policy: %w", err)
+		}
+		if _, managed := providerManagedTables[table]; managed {
+			seenManaged[table] = true
+			continue
+		}
+		if !providerPolicyIsTenantScoped(usingExpr) {
+			unscoped = append(unscoped, fmt.Sprintf("%s.%s (%s)", table, policy, command))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("isolation posture: iterate provider policies: %w", err)
+	}
+	if len(unscoped) > 0 {
+		return fmt.Errorf("isolation posture: the provider role holds unconstrained cross-tenant read policies on tenant-owned tables: %s — scope them to the tenant GUC, expose an aggregate-only view, or classify the table in providerManagedTables with a reason (refusing to start)",
+			strings.Join(unscoped, ", "))
+	}
+	var stale []string
+	for table := range providerManagedTables {
+		if !seenManaged[table] {
+			stale = append(stale, table)
+		}
+	}
+	if len(stale) > 0 {
+		sort.Strings(stale)
+		return fmt.Errorf("isolation posture: providerManagedTables lists %s, which no longer carries a provider policy — remove the stale classification (refusing to start)",
+			strings.Join(stale, ", "))
+	}
+	return nil
+}
+
+// providerPolicyIsTenantScoped reports whether a provider policy's USING
+// expression constrains rows to the tenant GUC. An absent or `true` predicate
+// is precisely the unconstrained shape.
+func providerPolicyIsTenantScoped(expr *string) bool {
+	if expr == nil {
+		return false
+	}
+	e := strings.ToLower(strings.Join(strings.Fields(*expr), " "))
+	if e == "true" || e == "" {
+		return false
+	}
+	return strings.Contains(e, "probectl.tenant_id") && strings.Contains(e, "tenant_id")
 }
 
 func strictTenantPolicyExpression(expr *string) bool {

@@ -499,14 +499,16 @@ func (s *PGStore) CountActiveTenants(ctx context.Context) (int, error) {
 func (s *PGStore) FleetSummary(ctx context.Context) ([]TenantFleet, error) {
 	var out []TenantFleet
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		// Reads the AGGREGATE-ONLY fleet view (migration 0088), not agents:
+		// the provider role holds no row-read capability on tenant-owned agent
+		// rows, so this query cannot be widened into one (S-1612260f).
 		rows, err := q.Query(ctx, `
 			SELECT t.id::text, t.slug, t.name, t.status,
-			       count(a.id),
-			       count(a.id) FILTER (WHERE a.status = 'online'),
-			       count(a.id) FILTER (WHERE a.status = 'online' AND a.last_seen_at < now() - interval '5 minutes')
+			       coalesce(c.agents_total, 0),
+			       coalesce(c.agents_online, 0),
+			       coalesce(c.agents_stale, 0)
 			  FROM tenants t
-			  LEFT JOIN agents a ON a.tenant_id = t.id
-			 GROUP BY t.id, t.slug, t.name, t.status
+			  LEFT JOIN provider_agent_fleet_counts c ON c.tenant_id = t.id
 			 ORDER BY t.slug`)
 		if err != nil {
 			return err
@@ -529,9 +531,8 @@ func (s *PGStore) FleetSummary(ctx context.Context) ([]TenantFleet, error) {
 		}
 
 		vrows, err := q.Query(ctx, `
-			SELECT tenant_id::text, agent_version, count(*)
-			  FROM agents WHERE agent_version <> ''
-			 GROUP BY tenant_id, agent_version`)
+			SELECT tenant_id::text, agent_version, agents
+			  FROM provider_agent_fleet_versions`)
 		if err != nil {
 			return err
 		}

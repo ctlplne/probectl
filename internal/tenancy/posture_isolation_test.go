@@ -320,3 +320,73 @@ func TestAssertIsolationPostureRejectsAlternateFailOpenPolicies(t *testing.T) {
 		})
 	}
 }
+
+// TestAssertIsolationPostureCatchesUnconstrainedProviderRead plants the exact
+// shape migration 0045 removed from audit_events and 0088 removed from agents
+// — a provider-role SELECT policy with USING(true) on a tenant-owned table —
+// and proves boot refuses it (Foundation-Loop S-1612260f). Without this the
+// next provider query written against such a table would inherit a
+// cross-tenant read that no test catches.
+func TestAssertIsolationPostureCatchesUnconstrainedProviderRead(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`CREATE POLICY planted_provider_read ON agents FOR SELECT TO probectl_provider USING (true)`); err != nil {
+		t.Fatalf("plant unconstrained provider policy: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+tenancy.AppRole); err != nil {
+		t.Fatalf("assume app role: %v", err)
+	}
+	err = tenancy.AssertPostureTx(ctx, tx)
+	if err == nil || !strings.Contains(err.Error(), "unconstrained cross-tenant read") {
+		t.Fatalf("posture must refuse an unconstrained provider read policy, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "agents.planted_provider_read") {
+		t.Fatalf("posture must name the offending policy, got %v", err)
+	}
+}
+
+// And the sanctioned shape must PASS: a provider policy scoped by the tenant
+// GUC (migration 0045's audit_events pattern) is least privilege, not a
+// violation — otherwise the assertion would be unusable and get disabled.
+func TestAssertIsolationPostureAcceptsGUCScopedProviderRead(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`CREATE POLICY planted_scoped_read ON agents FOR SELECT TO probectl_provider
+		     USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)`); err != nil {
+		t.Fatalf("plant scoped provider policy: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+tenancy.AppRole); err != nil {
+		t.Fatalf("assume app role: %v", err)
+	}
+	if err := tenancy.AssertPostureTx(ctx, tx); err != nil {
+		t.Fatalf("a GUC-scoped provider policy is least privilege and must pass, got %v", err)
+	}
+}
