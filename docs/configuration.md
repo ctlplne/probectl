@@ -1632,6 +1632,8 @@ The job file is JSON:
 The command uses the same `PROBECTL_DEVICE_CRED_<NAME>_*` variables and secrets
 resolver described above. The optional `-fixture fixture.json` flag supplies
 canned device inventories for offline demos/tests and avoids network probes.
+Both the required job and optional fixture JSON files have an 8 MiB maximum;
+larger files fail closed before JSON decoding or any discovery probe.
 
 ### OTLP receiver
 

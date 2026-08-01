@@ -10,10 +10,63 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/imfeelingtheagi/probectl/internal/device"
 )
+
+func TestRunDiscoverBoundsInputFiles(t *testing.T) {
+	const maxBytes = 8 << 20
+	const jobJSON = `{"id":"job-bound","tenant_id":"tenant-a","ranges":["10.10.0.1"],"max_hosts":1,"credentials":[{"tenant_id":"tenant-a","name":"core-ro","transport":"snmpv2c"}]}`
+	const fixtureJSON = `{"devices":[{"address":"10.10.0.1"}]}`
+
+	dir := t.TempDir()
+	t.Setenv("PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY", "public")
+	writeInput := func(name, data string, size int) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		body := data + strings.Repeat(" ", size-len(data))
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	exactJob := writeInput("job-exact.json", jobJSON, maxBytes)
+	exactFixture := writeInput("fixture-exact.json", fixtureJSON, maxBytes)
+	if err := runDiscover([]string{"-job", exactJob, "-fixture", exactFixture, "-out", filepath.Join(dir, "exact-result.json")}); err != nil {
+		t.Fatalf("exact-limit inputs: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		job     string
+		fixture string
+	}{
+		{
+			name:    "job",
+			job:     writeInput("job-oversize.json", jobJSON, maxBytes+1),
+			fixture: exactFixture,
+		},
+		{
+			name:    "fixture",
+			job:     exactJob,
+			fixture: writeInput("fixture-oversize.json", fixtureJSON, maxBytes+1),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := runDiscover([]string{"-job", tt.job, "-fixture", tt.fixture, "-out", filepath.Join(dir, tt.name+"-result.json")})
+			if err == nil {
+				t.Fatal("one-byte-oversize input: expected error")
+			}
+			if !strings.Contains(err.Error(), "8388608-byte limit") {
+				t.Fatalf("one-byte-oversize input error = %q, want byte-limit detail", err)
+			}
+		})
+	}
+}
 
 func TestRunDiscoverWritesReviewOnlyFixtureResult(t *testing.T) {
 	dir := t.TempDir()

@@ -22,6 +22,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -41,6 +42,8 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/secrets"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
+
+const maxDiscoveryInputFileBytes = 8 << 20
 
 func main() {
 	if len(os.Args) > 1 {
@@ -165,13 +168,12 @@ func runDiscover(args []string) error {
 	if *jobPath == "" {
 		return fmt.Errorf("-job is required")
 	}
-	jobFile, err := os.Open(*jobPath)
+	jobData, err := readDiscoveryInputFile(*jobPath)
 	if err != nil {
 		return fmt.Errorf("read job: %w", err)
 	}
-	defer jobFile.Close()
 	var job device.DiscoveryJob
-	dec := json.NewDecoder(jobFile)
+	dec := json.NewDecoder(bytes.NewReader(jobData))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&job); err != nil {
 		return fmt.Errorf("parse job: %w", err)
@@ -188,12 +190,11 @@ func runDiscover(args []string) error {
 	}
 	var prober device.DiscoveryProber = device.SNMPDiscoveryProber{}
 	if *fixturePath != "" {
-		fixtureFile, err := os.Open(*fixturePath)
+		fixtureData, err := readDiscoveryInputFile(*fixturePath)
 		if err != nil {
 			return fmt.Errorf("read fixture: %w", err)
 		}
-		defer fixtureFile.Close()
-		prober, err = device.LoadDiscoveryFixture(fixtureFile)
+		prober, err = device.LoadDiscoveryFixture(bytes.NewReader(fixtureData))
 		if err != nil {
 			return fmt.Errorf("parse fixture: %w", err)
 		}
@@ -212,6 +213,23 @@ func runDiscover(args []string) error {
 		return err
 	}
 	return os.WriteFile(*outPath, raw, 0o600)
+}
+
+func readDiscoveryInputFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxDiscoveryInputFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxDiscoveryInputFileBytes {
+		return nil, fmt.Errorf("discovery input exceeds %d-byte limit", maxDiscoveryInputFileBytes)
+	}
+	return data, nil
 }
 
 func envOr(key, def string) string {
