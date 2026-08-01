@@ -91,3 +91,29 @@ func TestHealthStateFailsClosedOnStaleOrInvalidFiles(t *testing.T) {
 		t.Fatalf("invalid probe should fail closed, got %v", err)
 	}
 }
+
+func TestCheckHealthStateBoundsFile(t *testing.T) {
+	const maxBytes = 16 << 10
+	dir := t.TempDir()
+	path := filepath.Join(dir, "live.json")
+	state := `{"status":true,"updated_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`
+	exact := state + strings.Repeat(" ", maxBytes-len(state))
+
+	if err := os.WriteFile(path, []byte(exact), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckHealthState(dir, "live", time.Minute); err != nil {
+		t.Fatalf("exact-limit health state: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(exact+" "), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckHealthState(dir, "live", time.Minute)
+	if err == nil {
+		t.Fatal("one-byte-oversize health state: expected error")
+	}
+	if !strings.Contains(err.Error(), "16384-byte limit") {
+		t.Fatalf("one-byte-oversize health state error = %q, want byte-limit detail", err)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 const (
 	DefaultHealthStateDir = "/var/run/probectl-ebpf-agent"
 	healthFileInterval    = 2 * time.Second
+	maxHealthStateBytes   = 16 << 10
 )
 
 // DefaultHealthStateMaxAge is the exec-probe freshness window. It is several
@@ -189,9 +191,17 @@ func CheckHealthState(dir, name string, maxAge time.Duration) error {
 	if name != "live" && name != "ready" {
 		return fmt.Errorf("health state: invalid probe %q", name)
 	}
-	b, err := os.ReadFile(filepath.Join(dir, name+".json"))
+	f, err := os.Open(filepath.Join(dir, name+".json"))
 	if err != nil {
 		return fmt.Errorf("health state: read %s: %w", name, err)
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxHealthStateBytes+1))
+	if err != nil {
+		return fmt.Errorf("health state: read %s: %w", name, err)
+	}
+	if len(b) > maxHealthStateBytes {
+		return fmt.Errorf("health state: read %s: file exceeds %d-byte limit", name, maxHealthStateBytes)
 	}
 	var st healthStateFile
 	if err := json.Unmarshal(b, &st); err != nil {
