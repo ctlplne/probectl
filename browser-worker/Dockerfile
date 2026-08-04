@@ -4,7 +4,7 @@
 # setup. The container runs one transaction per invocation; the probectl fleet owns
 # concurrency, isolation (it kills the process on timeout), and worker recycling.
 # Digest-pinned (U-061); keep the npm playwright version in lockstep with the tag.
-FROM mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+FROM mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
 
 WORKDIR /worker
 
