@@ -99,8 +99,21 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
+        "mode": { "type": "string", "enum": ["filesystem", "s3"] },
         "mountPath": { "type": "string", "minLength": 1 },
-        "existingClaim": { "type": "string" }
+        "existingClaim": { "type": "string" },
+        "s3": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": { "type": "string" },
+            "bucket": { "type": "string" },
+            "region": { "type": "string", "minLength": 1 },
+            "accessKey": { "type": "string" },
+            "prefix": { "type": "string" }
+          },
+          "required": ["endpoint", "bucket", "region", "accessKey", "prefix"]
+        }
       }
     },
     "metrics": {
@@ -293,6 +306,14 @@
                 "PROBECTL_AUTH_MODE",
                 "PROBECTL_SECURITY_CONTACT",
                 "PROBECTL_OBJECTSTORE_DIR",
+                "PROBECTL_OBJECTSTORE_MODE",
+                "PROBECTL_OBJECTSTORE_S3_ENDPOINT",
+                "PROBECTL_OBJECTSTORE_S3_BUCKET",
+                "PROBECTL_OBJECTSTORE_S3_REGION",
+                "PROBECTL_OBJECTSTORE_S3_ACCESS_KEY",
+                "PROBECTL_OBJECTSTORE_S3_SECRET_KEY",
+                "PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN",
+                "PROBECTL_OBJECTSTORE_S3_PREFIX",
                 "PROBECTL_OIDC_ISSUER",
                 "PROBECTL_OIDC_CLIENT_ID",
                 "PROBECTL_OIDC_REDIRECT_URL",
@@ -323,7 +344,10 @@
       "properties": {
         "existingSecret": { "type": "string" },
         "envelopeKey": { "type": "string" },
-        "sessionHMACKey": { "type": "string", "pattern": "^(|[0-9a-fA-F]{64})$" }
+        "sessionHMACKey": { "type": "string", "pattern": "^(|[0-9a-fA-F]{64})$" },
+        "evidenceSigningKey": { "type": "string" },
+        "objectStoreS3SecretKey": { "type": "string" },
+        "objectStoreS3SessionToken": { "type": "string" }
       }
     },
     "database": {

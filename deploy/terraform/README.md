@@ -21,6 +21,8 @@ deploy/terraform/
 └── examples/
     ├── kubernetes/                   # deployment root you can `terraform apply`
     │   └── main.tf · variables.tf · terraform.tfvars.example
+    ├── two-region/                   # two Kubernetes failure domains, one writer
+    │   └── main.tf · variables.tf · outputs.tf · terraform.tfvars.example
     └── provider-data-sources/        # native provider read-only lookups/pages
         └── main.tf
 ```
@@ -55,10 +57,11 @@ catalogs which agent produces which data plane.
 | Variable | Type | Default | Description |
 | -------- | ---- | ------- | ----------- |
 | `ingress_host` | string | — (required) | External hostname for the HTTPS ingress |
-| `database_url` | string (sensitive) | — (required) | Postgres DSN (`sslmode=require`) |
+| `database_url` | string (sensitive) | — (required) | TLS Postgres writer DSN (`sslmode=require`, `verify-ca`, or `verify-full`) |
+| `database_read_url` | string (sensitive) | `""` | optional region-local TLS read-replica DSN, injected only through the Secret |
 | `envelope_key` | string (sensitive) | — (required) | base64 32-byte KEK (`openssl rand -base64 32`) |
 | `session_hmac_key` | string (sensitive) | — (required) | hex 32-byte session HMAC key (`openssl rand -hex 32`) |
-| `size` | string | `medium` | `small`/`medium`/`large` reference profile (or `""` for chart defaults) |
+| `size` | string | `medium` | `small`/`medium`/`large`/`multiregion` reference profile (or `""` for chart defaults) |
 | `chart` | string | `../../helm/probectl` | chart path (local) or repo/OCI ref |
 | `chart_version` | string | `""` | pin a chart version (repo/OCI charts) |
 | `release_name` | string | `probectl` | Helm release name |
@@ -82,7 +85,8 @@ catalogs which agent produces which data plane.
 ### How secrets are handled
 
 The module writes `PROBECTL_ENVELOPE_KEY` / `PROBECTL_SESSION_HMAC_KEY` /
-`PROBECTL_DATABASE_URL` (and the OIDC client secret) into a Kubernetes `Secret` and sets the chart's
+`PROBECTL_DATABASE_URL` / optional `PROBECTL_DATABASE_READ_URL` (and the OIDC
+client secret) into a Kubernetes `Secret` and sets the chart's
 `secrets.existingSecret` to it — so no credential is ever rendered into the
 ConfigMap or the Helm release values. Mark `database_url` / `envelope_key` /
 `session_hmac_key` / `oidc_client_secret` sensitive (they are) and source them from your secret
@@ -94,6 +98,32 @@ in its **state** (the `terraform.tfstate` file, or a remote state backend).
 Marking a variable `sensitive` redacts it from plan/apply *output* — the value
 still lands in state. So treat the state backend with the same access control
 and encryption as the secrets themselves.
+
+## Two-region reference
+
+`examples/two-region` is the selected BL-029/031 reference topology. It invokes
+the same module twice with provider aliases, once for each independent
+Kubernetes API failure domain. Both releases use the hardened
+`values-multiregion.yaml` profile and the same stable, fenced writer endpoint;
+each receives its own local read-replica DSN through a Secret. The declared
+metadata contract is synchronous PostgreSQL replication, RPO `0`, and RTO
+`<=60s`. Those are test thresholds, not a promise: a deployment receipt must
+measure them before making the claim.
+
+The root intentionally does not provision a cloud network, Kubernetes cluster,
+database, DNS failover, ClickHouse replica, or object bucket. Those are
+operator-owned infrastructure choices. This keeps probectl cloud-agnostic and
+avoids silently granting a module broad cloud-account privileges. Supply two
+kubeconfigs plus existing TLS/trust Secrets and a TLS writer/read DSN. Keep its
+Terraform state encrypted and access-controlled because, like the single-region
+root, it contains sensitive inputs.
+
+ArgoCD's matching two-region `ApplicationSet` lives at
+`deploy/gitops/argocd/applicationset-multiregion.yaml`. Terraform is the clean
+bootstrap path; ArgoCD is the continuing desired-state/drift controller. Do not
+let both own the same Helm release after handoff: import or remove the Terraform
+`helm_release` ownership as documented in the live change record, then prove an
+out-of-band annotation is self-healed by ArgoCD.
 
 ### Security posture
 

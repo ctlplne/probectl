@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, isApiStatus } from './client'
+import { apiFetch, apiFetchBytes, isApiStatus } from './client'
 import type { Answer } from './ai'
 
 export type Severity = 'info' | 'warning' | 'critical'
@@ -14,6 +14,7 @@ export type IncidentStatus = 'open' | 'resolved'
 /** A Signal is one plane's observation on an incident timeline. plane/kind are
  *  free-form and attributes is arbitrary, so future planes need no UI changes. */
 export interface Signal {
+  id?: string
   plane: string
   kind: string
   severity: Severity
@@ -23,6 +24,25 @@ export interface Signal {
   prefix?: string
   attributes?: Record<string, string>
   occurred_at: string
+}
+
+export interface IncidentCorrelationOverride {
+  id: string
+  tenant_id: string
+  source_incident_id: string
+  detached_incident_id: string
+  source_signal_id: string
+  plane: string
+  kind: string
+  target?: string
+  prefix?: string
+  reason: string
+  active: boolean
+  created_by: string
+  created_at: string
+  reversed_by?: string
+  reversal_reason?: string
+  reversed_at?: string
 }
 
 export interface Incident {
@@ -40,6 +60,7 @@ export interface Incident {
   signals?: Signal[]
   signals_truncated?: boolean
   signals_limit?: number
+  correlation_overrides?: IncidentCorrelationOverride[]
 }
 
 export interface ChangeEvent {
@@ -193,6 +214,17 @@ export function useCreateIncidentShare(id: string | undefined) {
   })
 }
 
+/** Downloads the exact signed bytes of a probectl-evidence/v1 package. */
+export function useExportIncidentEvidence(id: string | undefined) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetchBytes(`/incidents/${id}/exports`, {
+        method: 'POST',
+        headers: { Accept: 'application/vnd.probectl.evidence+json' },
+      }),
+  })
+}
+
 /** Reads an authenticated same-tenant share. Missing, expired, revoked, and
  * foreign-tenant IDs intentionally have the same 404 behavior. */
 export function useIncidentShare(id: string | undefined) {
@@ -244,6 +276,62 @@ export function useResolveIncident(id: string | undefined) {
       }),
     onSuccess: (inc) => {
       qc.setQueryData(['incident', id], inc)
+      void qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
+  })
+}
+
+/** useReopenIncident explicitly reverses a resolved state; the server audits
+ * the in-tenant incident.write principal and mirrors the PSA reopen event. */
+export function useReopenIncident(id: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<Incident>(`/incidents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'open' }),
+      }),
+    onSuccess: (inc) => {
+      qc.setQueryData(['incident', id], inc)
+      void qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
+  })
+}
+
+export function useCreateIncidentCorrelationOverride(id: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (request: { signal_id: string; reason: string }) =>
+      apiFetch<{
+        override: IncidentCorrelationOverride
+        detached_incident: Incident
+      }>(`/incidents/${id}/correlation-overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['incident', id] })
+      void qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
+  })
+}
+
+export function useReverseIncidentCorrelationOverride(id: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (request: { override_id: string; reason: string }) =>
+      apiFetch<IncidentCorrelationOverride>(
+        `/incidents/${id}/correlation-overrides/${request.override_id}/reverse`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: request.reason }),
+        },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['incident', id] })
       void qc.invalidateQueries({ queryKey: ['incidents'] })
     },
   })

@@ -220,17 +220,25 @@ type Config struct {
 	IRPrivateKeyDir string
 	IRUnlockKeyID   string
 	IRUnlockKey     string
-	// ObjectStoreDir is the operator-owned filesystem object store for tenant
-	// artifacts such as browser synthetic screenshots/waterfalls. Empty leaves
-	// tenant object artifacts unserved; when set, the same store handle is used
-	// by artifact writers and tenant lifecycle export/erase.
-	ObjectStoreDir string
+	// Object-store settings back tenant artifacts such as browser screenshots.
+	// Filesystem is the local/dev fallback; s3 is the durable S3/MinIO backend.
+	ObjectStoreMode, ObjectStoreDir                   string
+	ObjectStoreS3Endpoint, ObjectStoreS3Bucket        string
+	ObjectStoreS3Region, ObjectStoreS3AccessKey       string
+	ObjectStoreS3SecretKey, ObjectStoreS3SessionToken string
+	ObjectStoreS3Prefix                               string
 	// TestSyncSigningKeyFile (ARCH-001) is the Ed25519 PKCS#8 PEM the control
 	// plane signs pull-able test bundles with (generated + persisted on first
 	// boot, like the WORM key). Empty = central test distribution is off
 	// (GET /v1/tests/bundle reports 503). Agents verify against the build-baked
 	// public half.
 	TestSyncSigningKeyFile string
+	// EvidenceSigningKey is a base64-encoded PKCS#8 Ed25519 private key shared
+	// by every control-plane replica. EvidenceSigningKeyFile is the single-node
+	// generated+persistent alternative. They sign immutable
+	// probectl-evidence/v1 incident packages; no key means export fails closed.
+	EvidenceSigningKey     string
+	EvidenceSigningKeyFile string
 	TSDBMode               string
 	TSDBURL                string
 	// RemoteWriteBatch* (SCALE-001): coalesce concurrent remote-writes into one
@@ -807,8 +815,18 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.IRPrivateKeyDir = l.str("PROBECTL_IR_PRIVATE_KEY_DIR", "")
 	cfg.IRUnlockKeyID = l.str("PROBECTL_IR_UNLOCK_KEY_ID", "")
 	cfg.IRUnlockKey = l.str("PROBECTL_IR_UNLOCK_KEY", "")
+	cfg.ObjectStoreMode = l.enum("PROBECTL_OBJECTSTORE_MODE", "filesystem", "filesystem", "s3")
 	cfg.ObjectStoreDir = l.str("PROBECTL_OBJECTSTORE_DIR", "")
+	cfg.ObjectStoreS3Endpoint = l.str("PROBECTL_OBJECTSTORE_S3_ENDPOINT", "")
+	cfg.ObjectStoreS3Bucket = l.str("PROBECTL_OBJECTSTORE_S3_BUCKET", "")
+	cfg.ObjectStoreS3Region = l.str("PROBECTL_OBJECTSTORE_S3_REGION", "us-east-1")
+	cfg.ObjectStoreS3AccessKey = l.str("PROBECTL_OBJECTSTORE_S3_ACCESS_KEY", "")
+	cfg.ObjectStoreS3SecretKey = l.str("PROBECTL_OBJECTSTORE_S3_SECRET_KEY", "")
+	cfg.ObjectStoreS3SessionToken = l.str("PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN", "")
+	cfg.ObjectStoreS3Prefix = l.str("PROBECTL_OBJECTSTORE_S3_PREFIX", "probectl")
 	cfg.TestSyncSigningKeyFile = l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", "")
+	cfg.EvidenceSigningKey = l.str("PROBECTL_EVIDENCE_SIGNING_KEY", "")
+	cfg.EvidenceSigningKeyFile = l.str("PROBECTL_EVIDENCE_SIGNING_KEY_FILE", "")
 	cfg.TSDBMode = l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus")
 	cfg.TSDBURL = l.str("PROBECTL_TSDB_URL", "")
 	cfg.RemoteWriteBatchEnabled = l.boolean("PROBECTL_REMOTE_WRITE_BATCH_ENABLED", false)
@@ -1055,6 +1073,14 @@ func validateConfig(l *loader, cfg *Config) {
 	}
 	if cfg.EndpointStoreMode == "clickhouse" && cfg.EndpointStoreURL == "" {
 		l.errf("PROBECTL_ENDPOINTSTORE_MODE=clickhouse requires PROBECTL_ENDPOINTSTORE_URL")
+	}
+	if cfg.ObjectStoreMode == "s3" {
+		if cfg.ObjectStoreDir != "" {
+			l.errf("PROBECTL_OBJECTSTORE_MODE=s3 cannot be combined with PROBECTL_OBJECTSTORE_DIR")
+		}
+		if cfg.ObjectStoreS3Endpoint == "" || cfg.ObjectStoreS3Bucket == "" || cfg.ObjectStoreS3AccessKey == "" || cfg.ObjectStoreS3SecretKey == "" {
+			l.errf("PROBECTL_OBJECTSTORE_MODE=s3 requires endpoint, bucket, access key, and secret key")
+		}
 	}
 	validateDatastoreTLS(l, cfg)
 	validateClickHouseTenantReaders(l, cfg)
@@ -1796,6 +1822,7 @@ func (l *loader) changeWebhooks(key string) map[string]ChangeWebhook {
 var knownNotifyProviders = map[string]bool{
 	"pagerduty": true, "opsgenie": true, "slack": true,
 	"teams": true, "servicenow": true, "jira": true,
+	"psa": true,
 }
 
 // notifyConnectors parses "tenant|provider|endpoint|secret,..." into outbound
@@ -1825,6 +1852,10 @@ func (l *loader) notifyConnectors(key string) []NotifyConnector {
 		}
 		if !knownNotifyProviders[provider] {
 			l.errf("%s: unknown provider %q", key, provider)
+			continue
+		}
+		if provider == "psa" && strings.TrimSpace(secret) == "" {
+			l.errf("%s: psa connector requires a non-empty HMAC signing secret", key)
 			continue
 		}
 		if err := validateNotifyEndpoint(endpoint); err != nil {

@@ -92,9 +92,19 @@ The verdicts (`endpoint.cause`):
 - **`none`** — nothing impaired.
 - **`unknown`** — a slow session, but no path visibility to localize it.
 
-Each verdict carries a confidence (0–1) and a human-readable summary. The cutoffs
-are configurable (`thresholds:` in config, defaulting to `DefaultThresholds` —
-where the −75 dBm and 35% values above come from).
+Each verdict carries a confidence (0–1) and a human-readable summary. A named
+fault domain is emitted only at confidence **0.80 or higher**. Below that floor,
+the result is `unknown`, while the candidate layer scores and reason remain
+visible for investigation. ELI5: the engine may say “I see a clue near the
+gateway,” but it does not say “the gateway did it” until the clue is strong
+enough. The result also carries `endpoint.calibration_status` and
+`confidence_floor`; the status is `provisional-synthetic-corpus` until a
+representative design-partner corpus replaces the synthetic positive, negative,
+ambiguous, and multi-cause fixtures. The synthetic gate permits no more than 1%
+high-confidence misattribution, but it is not a field-accuracy claim.
+
+The measurement cutoffs are configurable (`thresholds:` in config, defaulting
+to `DefaultThresholds` — where the −75 dBm and 35% values above come from).
 
 ## Privacy — it runs on someone's personal device
 

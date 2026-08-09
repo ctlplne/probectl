@@ -18,6 +18,7 @@ your platform already runs) so a `git push` is the only deploy action — no
 ```text
 deploy/gitops/
 ├── argocd/application.yaml                 # ArgoCD Application
+├── argocd/applicationset-multiregion.yaml  # exact two-region fleet template
 └── flux/{gitrepository,helmrelease}.yaml   # Flux source + HelmRelease
 ```
 
@@ -68,6 +69,15 @@ syncing. `syncPolicy.automated` with `prune`
 `selfHeal` (revert out-of-band edits) makes the cluster self-correcting;
 `CreateNamespace=true` and
 `ServerSideApply=true` are set.
+
+For the selected two-region reference, use
+`argocd/applicationset-multiregion.yaml`. Its list generator creates exactly one
+application per approved region with `values-multiregion.yaml`, synchronous
+metadata replication declarations, RPO `0`, and RTO `60`. Replace both cluster
+API placeholders, hosts, Secret names, repository URL/revision, and signed image
+digest. The pre-created `probectl-secrets` in each region must contain the same
+stable TLS writer DSN and that region's TLS read-replica DSN. No DSN or key is
+stored in the ApplicationSet.
 
 ## Flux
 

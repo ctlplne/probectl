@@ -378,6 +378,29 @@ tls:
 	}
 }
 
+func TestConfigLoadsDurableS3ArtifactStore(t *testing.T) {
+	t.Setenv("PROBECTL_AGENT_OBJECTSTORE_MODE", "s3")
+	t.Setenv("PROBECTL_AGENT_OBJECTSTORE_S3_ENDPOINT", "https://minio.example")
+	t.Setenv("PROBECTL_AGENT_OBJECTSTORE_S3_BUCKET", "artifacts")
+	t.Setenv("PROBECTL_AGENT_OBJECTSTORE_S3_ACCESS_KEY", "access")
+	t.Setenv("PROBECTL_AGENT_OBJECTSTORE_S3_SECRET_KEY", "secret")
+	path := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ArtifactStore.Mode != "s3" || cfg.ArtifactStore.Endpoint != "https://minio.example" || cfg.ArtifactStore.Bucket != "artifacts" {
+		t.Fatalf("artifact store = %+v", cfg.ArtifactStore)
+	}
+}
+
 func TestConfigBrowserDriverDefaultsToHTTP(t *testing.T) {
 	path := writeAgentConfig(t, `
 control_plane:

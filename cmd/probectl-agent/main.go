@@ -129,13 +129,25 @@ func run() error {
 	canary.SetCAFileDir(cfg.TLS.CanaryCADir)
 
 	var artifactStore objectstore.Store
-	if cfg.ArtifactStore.Dir != "" {
+	if cfg.ArtifactStore.Mode == "s3" {
+		store, err := objectstore.NewS3(objectstore.S3Config{
+			Endpoint: cfg.ArtifactStore.Endpoint, Bucket: cfg.ArtifactStore.Bucket,
+			Region: cfg.ArtifactStore.Region, AccessKey: cfg.ArtifactStore.AccessKey,
+			SecretKey: cfg.ArtifactStore.SecretKey, SessionToken: cfg.ArtifactStore.SessionToken,
+			Prefix: cfg.ArtifactStore.Prefix,
+		})
+		if err != nil {
+			return err
+		}
+		artifactStore = store
+		log.Info("agent tenant artifact store enabled", "mode", "s3", "bucket", cfg.ArtifactStore.Bucket)
+	} else if cfg.ArtifactStore.Dir != "" {
 		store, err := objectstore.NewFS(cfg.ArtifactStore.Dir)
 		if err != nil {
 			return err
 		}
 		artifactStore = store
-		log.Info("agent tenant artifact store enabled", "dir", cfg.ArtifactStore.Dir)
+		log.Info("agent tenant artifact store enabled", "mode", "filesystem", "dir", cfg.ArtifactStore.Dir)
 	}
 
 	// Compiled-in canary plugins.

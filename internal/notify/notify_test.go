@@ -83,11 +83,14 @@ func bodyJSON(t *testing.T, b []byte) map[string]any {
 // --- in-memory link store ---
 
 type memStore struct {
-	mu sync.Mutex
-	m  map[string]*Link
+	mu        sync.Mutex
+	m         map[string]*Link
+	incidents map[string][]incident.Incident
 }
 
-func newMemStore() *memStore   { return &memStore{m: map[string]*Link{}} }
+func newMemStore() *memStore {
+	return &memStore{m: map[string]*Link{}, incidents: map[string][]incident.Incident{}}
+}
 func lk(t, i, c string) string { return t + "|" + i + "|" + c }
 
 func (s *memStore) Get(_ context.Context, t, i, c string) (*Link, error) {
@@ -118,6 +121,18 @@ func (s *memStore) FindByRef(_ context.Context, t, c, ref string) (*Link, error)
 		}
 	}
 	return nil, nil
+}
+
+func (s *memStore) ListIncidents(_ context.Context, tenant string) ([]incident.Incident, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]incident.Incident(nil), s.incidents[tenant]...), nil
+}
+
+func (s *memStore) setIncidents(tenant string, incidents ...incident.Incident) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.incidents[tenant] = append([]incident.Incident(nil), incidents...)
 }
 
 // --- connector payload tests ---
@@ -251,6 +266,115 @@ func TestJiraEndpointParseAndOpenResolve(t *testing.T) {
 	}
 }
 
+func TestPSALifecycleContractIsSignedRedactedAndStable(t *testing.T) {
+	fd := &fakeDoer{respond: func(_ string, _ string, body []byte) (int, string) {
+		var event psaEvent
+		_ = json.Unmarshal(body, &event)
+		if event.Action == "create" {
+			return 201, `{"external_ref":"TICKET-7","status":"open"}`
+		}
+		return 202, `{}`
+	}}
+	p := newPSA("https://psa.test/probectl", "shared-hmac-secret", fd)
+	inc := sampleIncident()
+	inc.Title = "customer password=hunter22 at 10.0.0.5"
+	inc.StartedAt = time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	inc.LastSeenAt = inc.StartedAt.Add(time.Minute)
+	inc.SignalCount = 3
+
+	delivery, err := p.Open(context.Background(), inc)
+	if err != nil || delivery.ExternalRef != "TICKET-7" {
+		t.Fatalf("create = %+v err=%v", delivery, err)
+	}
+	if err := p.Update(context.Background(), inc, delivery.ExternalRef); err != nil {
+		t.Fatal(err)
+	}
+	inc.Status = incident.StatusResolved
+	if err := p.Resolve(context.Background(), inc, delivery.ExternalRef); err != nil {
+		t.Fatal(err)
+	}
+	inc.Status = incident.StatusOpen
+	if err := p.Reopen(context.Background(), inc, delivery.ExternalRef); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := fd.calls()
+	if len(calls) != 4 {
+		t.Fatalf("calls=%d want=4", len(calls))
+	}
+	for i, wantAction := range []string{"create", "update", "resolve", "reopen"} {
+		call := calls[i]
+		var event psaEvent
+		if err := json.Unmarshal(call.body, &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Contract != PSAContractVersion || event.Action != wantAction || event.IdempotencyKey != call.header.Get("Idempotency-Key") {
+			t.Fatalf("event %d = %+v headers=%v", i, event, call.header)
+		}
+		mac, err := hex.DecodeString(strings.TrimPrefix(call.header.Get(PSASignatureHeader), "sha256="))
+		if err != nil || !crypto.Verify([]byte("shared-hmac-secret"), call.body, mac) {
+			t.Fatalf("event %d signature invalid: %v", i, err)
+		}
+		body := string(call.body)
+		for _, forbidden := range []string{"t1", "10.0.0.5", "hunter22", "customer password"} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("PSA event leaked %q: %s", forbidden, body)
+			}
+		}
+	}
+	// Repeating the same revision yields the same receiver-side idempotency key.
+	if _, err := p.Open(context.Background(), inc); err != nil {
+		t.Fatal(err)
+	}
+	if got := fd.calls()[4].header.Get("Idempotency-Key"); got != calls[0].header.Get("Idempotency-Key") {
+		t.Fatalf("create idempotency key drifted: %q != %q", got, calls[0].header.Get("Idempotency-Key"))
+	}
+}
+
+func TestDispatcherPSARetriesAndMirrorsFullLifecycle(t *testing.T) {
+	store := newMemStore()
+	attempts := 0
+	fd := &fakeDoer{respond: func(_ string, _ string, body []byte) (int, string) {
+		var event psaEvent
+		_ = json.Unmarshal(body, &event)
+		if event.Action == "create" {
+			attempts++
+			if attempts < 3 {
+				return 503, `{}`
+			}
+			return 201, `{"external_ref":"PSA-1","status":"open"}`
+		}
+		return 202, `{}`
+	}}
+	d := NewDispatcher(store, quiet()).withDispatchControls(4, time.Second)
+	d.Register("t1", newPSA("https://psa.test/hook", "secret", fd))
+	inc := sampleIncident()
+	inc.SignalCount = 1
+	inc.StartedAt = time.Now().Add(-time.Minute)
+	inc.LastSeenAt = time.Now()
+
+	d.Opened(context.Background(), inc)
+	d.Updated(context.Background(), func() incident.Incident { inc.SignalCount = 2; return inc }())
+	d.Resolved(context.Background(), func() incident.Incident { inc.Status = incident.StatusResolved; return inc }(), "api")
+	d.Reopened(context.Background(), func() incident.Incident { inc.Status = incident.StatusOpen; return inc }())
+	drain(t, d, "t1")
+
+	actions := []string{}
+	for _, call := range fd.calls() {
+		var event psaEvent
+		if json.Unmarshal(call.body, &event) == nil {
+			actions = append(actions, event.Action)
+		}
+	}
+	if got := strings.Join(actions, ","); got != "create,create,create,update,resolve,reopen" {
+		t.Fatalf("lifecycle/retry actions = %s", got)
+	}
+	link, _ := store.Get(context.Background(), "t1", "i1", "psa")
+	if link == nil || link.ExternalRef != "PSA-1" || link.Status != "open" {
+		t.Fatalf("final link = %+v", link)
+	}
+}
+
 // --- dispatcher: idempotency, loop protection, graceful degrade ---
 
 func countAction(calls []capReq, action string) int {
@@ -343,6 +467,75 @@ func TestDispatcherGracefulDegrade(t *testing.T) {
 	}
 	if l, _ := store.Get(context.Background(), "t1", "i1", "pagerduty"); l == nil {
 		t.Fatal("the healthy connector should still have opened")
+	}
+}
+
+func TestDispatcherReconcileRecoversPSALifecycle(t *testing.T) {
+	store := newMemStore()
+	fd := &fakeDoer{respond: func(_, _ string, body []byte) (int, string) {
+		var event psaEvent
+		if err := json.Unmarshal(body, &event); err != nil {
+			t.Fatalf("decode PSA event: %v", err)
+		}
+		if event.Action == "create" {
+			return http.StatusCreated, `{"external_ref":"PSA-1","status":"open"}`
+		}
+		return http.StatusOK, `{}`
+	}}
+	d := NewDispatcher(store, quiet())
+	d.Register("t1", newPSA("https://psa.test/tickets", "signing-secret", fd))
+
+	inc := sampleIncident()
+	inc.Status = incident.StatusOpen
+	inc.SignalCount = 3
+	store.setIncidents("t1", inc)
+	d.Reconcile(context.Background())
+	link, _ := store.Get(context.Background(), "t1", inc.ID, "psa")
+	if link == nil || link.ExternalRef != "PSA-1" || link.Revision != 3 || link.Status != "open" {
+		t.Fatalf("create reconciliation link = %+v", link)
+	}
+
+	inc.SignalCount = 4
+	store.setIncidents("t1", inc)
+	d.Reconcile(context.Background())
+	link, _ = store.Get(context.Background(), "t1", inc.ID, "psa")
+	if link == nil || link.Revision != 4 || link.Status != "open" {
+		t.Fatalf("update reconciliation link = %+v", link)
+	}
+
+	inc.Status = incident.StatusResolved
+	store.setIncidents("t1", inc)
+	d.Reconcile(context.Background())
+	link, _ = store.Get(context.Background(), "t1", inc.ID, "psa")
+	if link == nil || link.Status != "resolved" {
+		t.Fatalf("resolve reconciliation link = %+v", link)
+	}
+
+	inc.Status = incident.StatusOpen
+	inc.SignalCount = 5
+	store.setIncidents("t1", inc)
+	d.Reconcile(context.Background())
+	link, _ = store.Get(context.Background(), "t1", inc.ID, "psa")
+	if link == nil || link.Status != "open" || link.Revision != 5 {
+		t.Fatalf("reopen reconciliation link = %+v", link)
+	}
+
+	actions := make([]string, 0, len(fd.calls()))
+	for _, call := range fd.calls() {
+		var event psaEvent
+		if err := json.Unmarshal(call.body, &event); err != nil {
+			t.Fatalf("decode action: %v", err)
+		}
+		actions = append(actions, event.Action)
+	}
+	if got, want := strings.Join(actions, ","), "create,update,resolve,reopen"; got != want {
+		t.Fatalf("reconciled actions = %q, want %q", got, want)
+	}
+
+	// Once the mirror matches the tenant-scoped incident, another pass is a no-op.
+	d.Reconcile(context.Background())
+	if got := len(fd.calls()); got != 4 {
+		t.Fatalf("converged reconciliation sent %d requests, want 4", got)
 	}
 }
 
@@ -445,7 +638,7 @@ func TestParseInbound(t *testing.T) {
 }
 
 func TestFactory(t *testing.T) {
-	for _, p := range []string{"pagerduty", "opsgenie", "slack", "teams", "servicenow", "jira"} {
+	for _, p := range []string{"pagerduty", "opsgenie", "slack", "teams", "servicenow", "jira", "psa"} {
 		c, ok := NewConnector(p, "https://x.test", "secret", &fakeDoer{})
 		if !ok || c.Name() != p {
 			t.Fatalf("connector %q: ok=%v name=%q", p, ok, c.Name())

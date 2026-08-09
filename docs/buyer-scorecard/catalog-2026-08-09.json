@@ -1,0 +1,148 @@
+{
+  "schema": "probectl-bakeoff-catalog/v1",
+  "revision": "2026-08-09-repository-evidence-2",
+  "scenarios": [
+    {
+      "id": "isp-proof",
+      "title": "Intermittent ISP proof",
+      "fixture": "Three customer-owned vantages at 5-second cadence for 90 seconds, clock skew <=2 seconds, one missing interval, and one ISP impairment must produce exactly one tenant-scoped incident and an offline-verifiable evidence package.",
+      "acceptance_criteria": ["exactly one incident", "three vantages represented", "missing interval explicit", "canonical manifest and attachment digests verify offline", "cross-tenant read denied"],
+      "measures": ["setup minutes", "incident count", "evidence completeness", "verification result", "support steps"],
+      "non_goals": ["vendor-operated global probe fleet"]
+    },
+    {
+      "id": "remote-user",
+      "title": "Remote-user fault-domain attribution",
+      "fixture": "Replay a consented endpoint-plus-synthetic corpus with local Wi-Fi, LAN, ISP, destination, and unknown faults; score only labels above the 0.80 confidence floor.",
+      "acceptance_criteria": ["endpoint and synthetic provenance remain separate", "below-0.80 attribution is unknown", "high-confidence misattribution <=1% on an approved representative corpus", "tenant isolation holds"],
+      "measures": ["setup minutes", "high-confidence precision", "unknown rate", "privacy review steps"],
+      "non_goals": ["silent endpoint collection", "decrypted payload capture"]
+    },
+    {
+      "id": "msp-onboarding-psa",
+      "title": "MSP onboarding and PSA lifecycle",
+      "fixture": "Provision two overlapping-network tenants, enroll agents, reconcile signed vendor-neutral PSA create/update/resolve/reopen events after a simulated outage, and complete tenant offboarding.",
+      "acceptance_criteria": ["cross-tenant reads fail", "PSA receiver verifies exact-body signature", "retry and durable reconciliation converge", "resolved incident reopens explicitly", "offboarding proof completes"],
+      "measures": ["onboarding minutes", "operator steps", "ticket convergence time", "offboarding minutes", "support interventions"],
+      "non_goals": ["vendor-specific PSA adapter before design-partner selection", "white-label identity replacement"]
+    },
+    {
+      "id": "route-flow-incident",
+      "title": "Route change to traffic-impact incident",
+      "fixture": "Replay one tenant's BGP route change and flow shift while another tenant has overlapping addresses; correlate only the first tenant's evidence and survive an external-feed outage.",
+      "acceptance_criteria": ["one tenant-scoped incident", "BGP and flow evidence cited", "overlapping tenant absent", "feed outage degrades gracefully"],
+      "measures": ["time to incident", "evidence completeness", "cross-tenant leakage", "outage behavior"],
+      "non_goals": ["inline blocking", "SIEM ownership"]
+    },
+    {
+      "id": "alert-cascade",
+      "title": "Alert cascade grouping and reversal",
+      "fixture": "Inject one fault that emits multiple plane alerts, inspect the grouping/suppression explanation, override it as an authorized tenant incident writer, and explicitly reverse the override.",
+      "acceptance_criteria": ["one correlated incident", "grouping and suppression reasons visible", "override persists until reversal", "write permission and tenant scope enforced", "all changes audited"],
+      "measures": ["raw alert count", "incident count", "explanation completeness", "reversal steps"],
+      "non_goals": ["automatic remediation"]
+    },
+    {
+      "id": "upgrade-restore",
+      "title": "Upgrade, restore, rollback, and regional failover",
+      "fixture": "Upgrade a two-region Kubernetes deployment from v0.5.0 to the current release, validate tenant traffic and data, roll back, restore backups, and execute a fenced regional failover.",
+      "acceptance_criteria": ["PostgreSQL metadata RPO 0", "metadata RTO <=60 seconds", "ClickHouse and object recovery measured separately", "rollback returns a healthy compatible version", "tenant isolation holds throughout"],
+      "measures": ["upgrade minutes", "rollback minutes", "metadata RPO/RTO", "ClickHouse recovery", "object recovery", "operator steps"],
+      "non_goals": ["claiming a local compose drill proves regional WAN or DNS behavior"]
+    },
+    {
+      "id": "cost",
+      "title": "Transparent self-hosted cost and retention",
+      "fixture": "Run the same 10/100/1,000-tenant workload assumptions through lean, baseline, and high retention/sampling/replication/query-load cases using buyer-supplied USD prices and labor.",
+      "acceptance_criteria": ["every result traces to formula and provenance", "unknown inputs remain unknown", "license and infrastructure costs remain separate", "no runtime price fetch or phone-home"],
+      "measures": ["USD/month", "USD/tenant-month", "USD/logical-retained-TB-month", "operator hours", "migration hours"],
+      "non_goals": ["presenting planning hypotheses as a quote"]
+    }
+  ],
+  "candidates": [
+    {
+      "name": "probectl",
+      "results": [
+        {
+          "scenario_id": "isp-proof",
+          "status": "pass",
+          "evidence": [
+            {"kind": "documentation", "location": "docs/incident-evidence.md", "claim": "evidence package contract"},
+            {"kind": "test", "location": "internal/control/incidentevidence_integration_test.go", "claim": "tenant-scoped export integration"},
+            {"kind": "test", "location": "internal/evidence/package_test.go", "claim": "offline package verification"}
+          ],
+          "notes": "Repository golden fixture passes; a customer-site pilot remains separate field evidence."
+        },
+        {
+          "scenario_id": "remote-user",
+          "status": "unknown",
+          "evidence": [
+            {"kind": "test", "location": "internal/endpoint/attribution_test.go", "claim": "provisional synthetic attribution corpus"},
+            {"kind": "documentation", "location": "docs/endpoint-dem.md", "claim": "consent and provenance contract"}
+          ],
+          "notes": "The algorithm and 0.80 floor are implemented, but the required approved representative corpus is not yet a real-user study."
+        },
+        {
+          "scenario_id": "msp-onboarding-psa",
+          "status": "unknown",
+          "evidence": [
+            {"kind": "test", "location": "internal/control/notify_integration_test.go", "claim": "signed PSA retry and lifecycle reconciliation"},
+            {"kind": "documentation", "location": "docs/oncall-itsm.md", "claim": "vendor-neutral PSA contract"}
+          ],
+          "notes": "The software path passes; onboarding time and vendor-specific workflow remain unknown until the first MSP design partner."
+        },
+        {
+          "scenario_id": "route-flow-incident",
+          "status": "pass",
+          "evidence": [
+            {"kind": "test", "location": "internal/incident/correlation_gate_test.go", "claim": "cross-plane tenant-scoped correlation gate"},
+            {"kind": "documentation", "location": "docs/ai-rca.md", "claim": "cited route and traffic evidence contract"}
+          ],
+          "notes": "Repository scenario evidence passes; buyer-scale timing still follows the selected volume profile."
+        },
+        {
+          "scenario_id": "alert-cascade",
+          "status": "pass",
+          "evidence": [
+            {"kind": "test", "location": "internal/incident/correlation_override_test.go", "claim": "explainable grouping, detach, reversal, and tenant boundary"},
+            {"kind": "test", "location": "internal/control/incidents_integration_test.go", "claim": "forced-RLS restart and audit lifecycle"},
+            {"kind": "test", "location": "web/src/test/incidents.test.tsx", "claim": "authorized incident-room create and reverse journey"},
+            {"kind": "documentation", "location": "docs/alerting.md", "claim": "grouping, maintenance, and override operator contract"}
+          ],
+          "notes": "Repository unit, real-PostgreSQL integration, and UI journey evidence pass; the deterministic match confidence is explicitly not a root-cause probability."
+        },
+        {
+          "scenario_id": "upgrade-restore",
+          "status": "unknown",
+          "evidence": [
+            {"kind": "receipt", "location": "docs/ops/backup-restore-results.csv", "claim": "local backup and restore results"},
+            {"kind": "receipt", "location": "docs/ops/failover-results.csv", "claim": "local compose failover result"}
+          ],
+          "notes": "Local mechanics have receipts; the requested v0.5.0-to-current two-region Kubernetes drill is not yet a representative receipt."
+        },
+        {
+          "scenario_id": "cost",
+          "status": "pass",
+          "evidence": [
+            {"kind": "calculator", "location": "docs/pricing/tco-calculator.md", "claim": "offline formula and provenance contract"},
+            {"kind": "fixture", "location": "docs/pricing/tco-inputs-2026-08-09.json", "claim": "editable USD input revision"},
+            {"kind": "receipt", "location": "docs/pricing/tco-output-2026-08-09.md", "claim": "10/100/1,000 scenario output"}
+          ],
+          "notes": "Calculator behavior passes; engineering assumptions stay labeled until external scale and operations measurements replace them."
+        }
+      ]
+    },
+    {
+      "name": "buyer incumbent",
+      "results": [
+        {"scenario_id": "isp-proof", "status": "unknown", "evidence": [], "notes": "Buyer supplies an evidence link from its own evaluated incumbent."},
+        {"scenario_id": "remote-user", "status": "unknown", "evidence": [], "notes": "Buyer supplies an evidence link from its own evaluated incumbent."},
+        {"scenario_id": "msp-onboarding-psa", "status": "unknown", "evidence": [], "notes": "Buyer supplies an evidence link from its own evaluated incumbent."},
+        {"scenario_id": "route-flow-incident", "status": "unknown", "evidence": [], "notes": "Buyer supplies an evidence link from its own evaluated incumbent."},
+        {"scenario_id": "alert-cascade", "status": "unknown", "evidence": [], "notes": "Buyer supplies an evidence link from its own evaluated incumbent."},
+        {"scenario_id": "upgrade-restore", "status": "unknown", "evidence": [], "notes": "Buyer supplies an evidence link from its own evaluated incumbent."},
+        {"scenario_id": "cost", "status": "unknown", "evidence": [], "notes": "Buyer supplies an evidence link from its own evaluated incumbent."}
+      ]
+    }
+  ]
+}

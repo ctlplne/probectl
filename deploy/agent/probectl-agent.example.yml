@@ -44,9 +44,19 @@ buffer:
 artifact_store:
   # Optional. Browser canary failure artifacts are written under
   # tenant/<tenant-id>/browser/... when this is configured. Mount the same
-  # operator-owned object-store path/backing volume used by the control plane
-  # PROBECTL_OBJECTSTORE_DIR when tenant export/erase must cover artifacts.
+  # operator-owned backend used by the control plane when tenant export/erase
+  # must cover artifacts. Filesystem is the local/dev fallback.
+  mode: filesystem
   dir: /var/lib/probectl/objects
+  # Durable S3/MinIO example (inject secret_key/session_token at runtime):
+  # mode: s3
+  # endpoint: https://minio.example
+  # bucket: probectl-artifacts
+  # region: us-east-1
+  # access_key: ""
+  # secret_key: ""
+  # session_token: ""
+  # prefix: probectl
 
 # Select exactly one meaning for browser canaries on this agent. "http" runs
 # scripted HTTP transactions without rendering. "browser" requires the

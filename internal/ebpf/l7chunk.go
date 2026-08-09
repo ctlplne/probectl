@@ -57,16 +57,20 @@ func decodeChunkWithPolicy(raw []byte, tenantID, mode string, policy headerValue
 		n = uint32(len(c.Data))
 	}
 	payload := redactPayloadWithPolicy(append([]byte(nil), c.Data[:n]...), mode, policy)
+	observedAt := time.Now()
 	return L7Event{
-		ConnID:      c.Conn,
-		TenantID:    tenantID,
-		Encrypted:   true,
+		ConnID:    c.Conn,
+		TenantID:  tenantID,
+		Encrypted: true,
+		TLS: TLSMetadata{
+			Visibility: "encrypted_unknown", Source: "uprobe", HandshakeAt: observedAt,
+		},
 		Source:      Endpoint{PID: c.PID}, // 5-tuple correlation is the productionization step
 		Destination: Endpoint{},
 		Transport:   TransportTCP,
 		Data: l7.DataEvent{
 			Kind:    kind,
-			Time:    time.Now(),
+			Time:    observedAt,
 			Payload: payload,
 			Size:    int(c.OrigLen),
 		},

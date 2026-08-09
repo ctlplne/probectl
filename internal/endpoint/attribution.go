@@ -22,6 +22,15 @@ const (
 	CauseUnknown Cause = "unknown" // a slowdown is present but no layer signal explains it
 )
 
+// MinimumActionableConfidence is the approved fail-closed boundary for naming a
+// remote user's fault domain. Lower-confidence classifications preserve all
+// layer scores but emit UNKNOWN instead of a plausible-sounding accusation.
+const MinimumActionableConfidence = 0.80
+
+// AttributionCalibrationStatus remains provisional until a representative
+// design-partner corpus replaces the synthetic acceptance corpus.
+const AttributionCalibrationStatus = "provisional-synthetic-corpus"
+
 // LayerState is one layer's assessment.
 type LayerState struct {
 	Impaired bool    `json:"impaired"`
@@ -32,14 +41,16 @@ type LayerState struct {
 // Attribution is the verdict: the closest impaired layer owns the slowdown,
 // because a weak near link inflates everything measured downstream of it.
 type Attribution struct {
-	Cause      Cause      `json:"cause"`
-	Confidence float64    `json:"confidence"` // 0..1
-	Summary    string     `json:"summary"`
-	Slow       bool       `json:"slow"` // whether a user-visible slowdown was observed at all
-	WiFi       LayerState `json:"wifi"`
-	Local      LayerState `json:"local"`
-	ISP        LayerState `json:"isp"`
-	Network    LayerState `json:"network"`
+	Cause             Cause      `json:"cause"`
+	Confidence        float64    `json:"confidence"` // 0..1
+	ConfidenceFloor   float64    `json:"confidence_floor"`
+	CalibrationStatus string     `json:"calibration_status"`
+	Summary           string     `json:"summary"`
+	Slow              bool       `json:"slow"` // whether a user-visible slowdown was observed at all
+	WiFi              LayerState `json:"wifi"`
+	Local             LayerState `json:"local"`
+	ISP               LayerState `json:"isp"`
+	Network           LayerState `json:"network"`
 }
 
 // Thresholds are the (configurable) cutoffs the attribution engine uses. Defaults
@@ -78,10 +89,9 @@ func DefaultThresholds() Thresholds {
 // exactly the misattribution this engine must avoid.
 func Attribute(s Sample, t Thresholds) Attribution {
 	a := Attribution{
-		WiFi:    assessWiFi(s.WiFi, t),
-		Local:   assessLocal(s.Gateway, t),
-		ISP:     assessISP(s.LastMile, t),
-		Network: assessNetwork(s, t),
+		WiFi: assessWiFi(s.WiFi, t), Local: assessLocal(s.Gateway, t),
+		ISP: assessISP(s.LastMile, t), Network: assessNetwork(s, t),
+		ConfidenceFloor: MinimumActionableConfidence, CalibrationStatus: AttributionCalibrationStatus,
 	}
 	a.Slow = worstSessionMs(s.Sessions) >= t.SessionSlowMs
 
@@ -110,6 +120,13 @@ func Attribute(s Sample, t Thresholds) Attribution {
 	// A corroborating clean downstream raises confidence in a near-layer verdict;
 	// an also-impaired downstream lowers it (the fault may be shared).
 	a.Confidence = clamp01(a.Confidence)
+	if a.Cause != CauseNone && a.Cause != CauseUnknown && a.Confidence < MinimumActionableConfidence {
+		candidate := a.Cause
+		reason := a.Summary
+		a.Cause = CauseUnknown
+		a.Summary = fmt.Sprintf("possible %s attribution withheld: confidence %.2f is below %.2f; %s",
+			candidate, a.Confidence, MinimumActionableConfidence, reason)
+	}
 	return a
 }
 

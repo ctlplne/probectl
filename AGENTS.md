@@ -8,14 +8,13 @@ Instructions for coding agents (Codex, Claude Code, Cowork, or any other) workin
    guardrails are non-negotiable under any level of autonomy; §6 conventions bind
    every commit.
 
-2. **If your task is the structural program** (anything like "work the foundation loop"
-   or "work the backlog"): read **`../foundation-loop/PLAYBOOK.md`** — the program lives
-   OUTSIDE this repo, as a sibling folder at the workspace root. State lives in
-   `../foundation-loop/backlog.json` — never in your session. Repo commits carry the
-   trailer `Foundation-Loop: <id>`; record each commit sha in the backlog's evidence_log.
-   This is the ONLY live program. Its predecessors (the original harness, audit-harness,
-   and the redteam loops) are dormant or retired — see `CLAUDE.md` §11. The retired
-   harness's parked proofs E2/E3/E4/L4 live in `probectl-PRD-v1.1.md` §4.
+2. **If your task is the structural backlog** (anything like "work the backlog"):
+   the machine-readable state is **`../backlog.json`** and its human-readable mirror is
+   **`../probectl-comprehensive-backlog-2026-08-08.html`**. Both live outside this repo
+   so program state never ships with the product; keep them synchronized and record exact
+   repo commit SHAs in their evidence. Do not invent a missing program/playbook path.
+   Backlog work still obeys the contract and §7 guardrails; the retired harness proofs
+   E2/E3/E4/L4 remain documented in `probectl-PRD-v1.1.md` §4.
 
 3. **If your task is ordinary feature/bug work:** follow `CLAUDE.md` §6–§9 (smallest
    coherent change; OpenAPI + docs + idempotent migration in the same commit; conventional

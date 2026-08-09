@@ -21,8 +21,8 @@ much just-written data the failover loses). The step-by-step procedure a human
 follows during a real failover is the separate runbook,
 [region-failover.md](../runbooks/region-failover.md).
 
-> **Scope note.** The representative row below is a production-shaped metadata
-> failover fixture: real Postgres streaming replication, a hard primary loss,
+> **Scope note.** The local rows below are production-shaped metadata
+> failover fixtures: real Postgres streaming replication, a hard primary loss,
 > standby promotion, and the first accepted write on the promoted node. It runs
 > on single-host compose, so it does not include real WAN lag, DNS/proxy
 > re-pointing, or control-plane fence release. Those deployment-specific pieces
@@ -52,8 +52,10 @@ It then:
    successful write** on the promoted node — promotion alone isn't recovery,
    *accepting writes* is;
 5. computes **RPO** = the client-acked rows that did not make it to the promoted
-   node (async streaming replication's honest loss window), reported in rows and
-   in seconds at the measured write rate.
+   node, reported in rows and seconds. The selected reference mode is
+   synchronous `remote_apply`; a non-zero acknowledged-row loss fails the drill.
+   Set `PROBECTL_FAILOVER_REPLICATION_MODE=async` only to measure the explicit
+   lower-latency alternative honestly.
 
 **Client-acked** means the database confirmed the commit back to the client —
 these are writes a caller was *told* succeeded, which is why they're the honest
@@ -97,10 +99,12 @@ full metadata-tier sequence end to end.
 |---|---|---|---|---|---|
 | _continuous_ | CI drill (dev compose, single host) | see job log | see job log (typically low seconds) | see job log (typically 0–1 rows) | gate |
 | 2026-07-01 | `representative-compose` metadata failover fixture (single-host compose streaming replica; WAN/DNS/proxy excluded) | 6.8 writes/s | 673 ms | 0 rows (~0.00 s) | pass; archived log `docs/ops/drill-logs/failover-representative-20260701.log`; CSV row in `docs/ops/failover-results.csv` |
+| 2026-08-09 | `two-failure-domain-sync-rehearsal` (single-host disposable Compose; synchronous `remote_apply`; WAN/DNS/proxy/control-plane excluded) | 7.6 writes/s | 655 ms | **0 acknowledged rows** | preliminary working-tree pass; exact-clean-SHA receipt is regenerated after all changes land |
 
-**Sign-off:** `representative-compose` metadata failover evidence recorded by
-the probectl audit harness on 2026-07-01. Operator-specific WAN, DNS/proxy, and
-fence-release timing remains deployment-owned evidence.
+**Sign-off boundary:** the local promotion mechanism is measured. Operator-
+specific WAN, DNS/proxy, control-plane fence-release timing, Kubernetes region
+failure, ClickHouse restore, and object restore remain separate fields in the
+two-region live receipt; none inherits the 655 ms PostgreSQL-only timing.
 
 ## Real-event quick reference
 

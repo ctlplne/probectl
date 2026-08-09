@@ -48,6 +48,10 @@ func (s *timedIncidentStore) AppendSignal(ctx context.Context, tenant, incidentI
 	return out, err
 }
 
+func (s *timedIncidentStore) ActiveCorrelationOverrides(ctx context.Context, tenant string, sig incident.Signal) ([]incident.CorrelationOverride, error) {
+	return s.inner.ActiveCorrelationOverrides(ctx, tenant, sig)
+}
+
 func TestProbeResultToIncidentLatency(t *testing.T) {
 	hp, ok := hotPathByID("hp-probe-result-to-incident")
 	if !ok {

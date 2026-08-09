@@ -54,6 +54,12 @@ export interface TrustctlHandoff {
 export interface TLSPosture {
   target: string
   source: string
+  state: 'observed' | 'unknown' | 'unsupported'
+  visibility: string
+  capture: string
+  /** Confidence in percentage points, never a 0..1 ratio. */
+  confidence: number
+  freshness: 'current' | 'stale' | 'unknown'
   tls_version: string
   cipher: string
   leaf?: TLSCertificate

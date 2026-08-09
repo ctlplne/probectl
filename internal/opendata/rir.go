@@ -160,9 +160,10 @@ func (s *RIRAllocations) Descriptor() Descriptor {
 		Kind:    KindAllocation,
 		Cadence: 24 * time.Hour,
 		AUP: AUP{
-			License:       "RIR delegated statistics (open data)",
-			URL:           "https://www.nro.net/about/rirs/statistics/",
-			CommercialUse: CommercialAllowed,
+			License:        "RIR delegated statistics; registry-specific terms",
+			URL:            "https://www.nro.net/about/rirs/statistics/",
+			CommercialUse:  CommercialUnknown,
+			Redistribution: "The five RIRs publish separately; validate each registry's current terms before provider/MSP use or redistribution",
 		},
 	}
 }

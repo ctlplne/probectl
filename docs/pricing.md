@@ -20,6 +20,15 @@ provisioning ceiling, not a telemetry kill switch. Contract rates and reseller
 terms are counsel-owned artifacts; they do not create another runtime feature
 table.
 
+The founder-approved **planning recommendation** is available in the fully
+editable [offline TCO calculator](pricing/tco-calculator.md): Core $0,
+Enterprise $24,000 USD/year flat per deployment, and MSP $12,000 USD/year plus
+$15 USD per peak agent-month. Those dollar inputs are a dated hypothesis for
+design-partner and margin testing—not a quote, offer, final price, or legal term.
+The calculator shows 10/100/1,000-tenant cases, feature boundaries, tenant-band
+caps, infrastructure, retention, backup/HA, labor, support, migration, and
+sensitivity without fetching any price or usage data.
+
 There is no "SSO tax": OIDC SSO, SCIM, RBAC, and ABAC are core. SAML is not yet
 supported, and is tracked as a capability gap rather than a paid downgrade.
 

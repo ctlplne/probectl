@@ -1293,3 +1293,29 @@ func TestAlertSMTPConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestDurableS3ObjectStoreConfig(t *testing.T) {
+	cfg, err := Load(envFunc(map[string]string{
+		"PROBECTL_OBJECTSTORE_MODE":          "s3",
+		"PROBECTL_OBJECTSTORE_S3_ENDPOINT":   "https://minio.example",
+		"PROBECTL_OBJECTSTORE_S3_BUCKET":     "artifacts",
+		"PROBECTL_OBJECTSTORE_S3_ACCESS_KEY": "access",
+		"PROBECTL_OBJECTSTORE_S3_SECRET_KEY": "vault:kv/objectstore#secret",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ObjectStoreMode != "s3" || cfg.ObjectStoreS3Bucket != "artifacts" || cfg.ObjectStoreS3Region != "us-east-1" {
+		t.Fatalf("object store config = %+v", cfg)
+	}
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_OBJECTSTORE_MODE": "s3"})); err == nil {
+		t.Fatal("partial S3 object-store config must fail closed")
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_OBJECTSTORE_MODE": "s3", "PROBECTL_OBJECTSTORE_DIR": "/tmp/objects",
+		"PROBECTL_OBJECTSTORE_S3_ENDPOINT": "https://minio.example", "PROBECTL_OBJECTSTORE_S3_BUCKET": "b",
+		"PROBECTL_OBJECTSTORE_S3_ACCESS_KEY": "a", "PROBECTL_OBJECTSTORE_S3_SECRET_KEY": "s",
+	})); err == nil {
+		t.Fatal("ambiguous filesystem+S3 object-store config must fail closed")
+	}
+}

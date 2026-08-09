@@ -11,10 +11,10 @@
 # glob/placeholder characters (* ? < > | $ { } ( ) space) are non-literal
 # and ignored. A new dangling reference fails without this script changing.
 #
-# Out-of-repo references (../foundation-loop/ etc.) are workspace scaffolding
-# deliberately not shipped with the product: they are enforced when the
-# workspace layout is present (../foundation-loop exists) and skipped with a
-# printed notice in a bare clone (CI), where siblings are absent by design.
+# Out-of-repo references (the structural backlog files) are workspace scaffolding
+# deliberately not shipped with the product: they are enforced when that
+# workspace layout is present (`../backlog.json` exists) and skipped with a
+# printed notice in a bare clone (CI), where parent artifacts are absent by design.
 #
 # Self-test: SELFTEST plants (a) a dangling backtick path and (b) a dangling
 # markdown link in a scratch file and asserts the guard reports BOTH, then
@@ -64,7 +64,7 @@ looks_like_path() {
 check_file() {
   local f="$1" fail=0 workspace_present=0 ref target
   [ -f "$f" ] || { echo "contract-links: contract file missing: $f" >&2; return 1; }
-  [ -d "../foundation-loop" ] && workspace_present=1
+  [ -f "../backlog.json" ] && workspace_present=1
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
     looks_like_path "$ref" || continue

@@ -37,12 +37,12 @@ Two reasons, and they pull in different directions:
    it on a tenant-scoped record, so the tenant boundary is enforced where the
    data lands, not in the shared lookup (see
    [`security/tenant-isolation.md`](security/tenant-isolation.md)).
-2. **Licensing for resale.** The AUP terms below are **not a constraint on
-   private development or single-tenant open-source use.** They become a gating
-   item only for **commercial / MSP resale** — i.e. reselling probectl as a
-   service to many customers (see [`editions.md`](editions.md)). If you plan to
-   run provider mode commercially, resolve the reseller redistribution terms
-   first.
+2. **Licensing for resale.** These labels are an engineering safety control,
+   not legal advice. `restricted` or `unknown` means **do not enable the source
+   in a commercial/provider deployment until the operator has source-specific
+   rights in writing**. Even a source that is safe for internal use can forbid
+   sharing its data with an MSP's customers. See the dated counsel worksheet in
+   [`legal/open-data-source-review-2026-08-09.md`](legal/open-data-source-review-2026-08-09.md).
 
 ## How sources behave (the three guardrails)
 
@@ -71,10 +71,10 @@ Every source obeys the same safety rules, enforced in code:
 
 | Source | `name` | Kind | Provides | License / terms | Commercial use | Attribution required |
 | ------ | ------ | ---- | -------- | --------------- | -------------- | -------------------- |
-| **Team Cymru** IP-to-ASN | `team-cymru` | `asn` | ASN, prefix, registry, AS name | Team Cymru community service (free) | allowed-with-attribution | "IP-to-ASN mapping by Team Cymru" |
-| **MaxMind GeoLite2** | `maxmind-geolite2` | `geo` | country, city, lat/lon | GeoLite2 EULA (CC BY-SA 4.0 attribution) | allowed-with-attribution | "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com" |
-| **PeeringDB** | `peeringdb` | `ixp` | IXP / facility presence | PeeringDB data (CC BY 4.0) | allowed-with-attribution | "Data from PeeringDB" |
-| **RIR delegated-stats** | `rir-stats` | `allocation` | RIR, country, allocation status/date | RIR delegated statistics (open data) | allowed | — |
+| **Team Cymru** IP-to-ASN | `team-cymru` | `asn` | ASN, prefix, registry, AS name | Community service; no redistribution grant established | **unknown** | "IP-to-ASN mapping by Team Cymru" |
+| **MaxMind GeoLite2** | `maxmind-geolite2` | `geo` | country, city, lat/lon | GeoLite EULA, including CC BY-SA terms | **restricted** | "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com" |
+| **PeeringDB** | `peeringdb` | `ixp` | IXP / facility presence | PeeringDB AUP | **restricted** | "Data from PeeringDB" |
+| **RIR delegated-stats** | `rir-stats` | `allocation` | RIR, country, allocation status/date | Five registry-specific terms | **unknown** | — |
 
 (The `name`, license, attribution, and commercial-use cells above are taken
 verbatim from each source's `Descriptor().AUP` in `internal/opendata` —
@@ -89,17 +89,20 @@ per-IP context with this provenance attached.)
 
 Notes:
 
-- **MaxMind GeoLite2** is **not shipped** with probectl. The operator supplies
-  the `.mmdb` database file (MaxMind's binary geo-database format) under
-  MaxMind's license and points the geo source at
-  it via `OpenMMDB(path)` (`maxmind.go`). probectl reading a database you
-  provide keeps probectl clear of redistributing MaxMind's data — you hold the
-  license; probectl just reads your copy.
-- **Why "allowed-with-attribution" for three of them?** Team Cymru, MaxMind, and
-  PeeringDB permit commercial use but require you to credit the source. The
-  required attribution string is carried in each descriptor so a reseller can
-  surface it correctly — the label travels with the data, so the credit can't
-  be forgotten downstream.
+- **MaxMind GeoLite2 is not shipped.** The operator supplies the `.mmdb` file.
+  This prevents probectl from distributing the database, but it does **not** by
+  itself authorize an MSP to expose derived GeoLite data to customers. The
+  current GeoLite EULA grants internal-business use and MaxMind separately
+  offers redistribution licensing, so provider use stays `restricted` until
+  the operator's agreement covers it.
+- **PeeringDB stays off the commercial green list.** Its own API-key guide says
+  the AUP prevents commercial use. Public availability is not a commercial
+  license.
+- **Team Cymru and RIR statistics stay `unknown`.** “Free” or “public” describes
+  access, not necessarily resale rights. Counsel or the operator must map the
+  exact intended use to written permission for each publisher.
+- Attribution text still travels with every contributing record, but
+  attribution never upgrades `restricted` or `unknown` into permission.
 
 ## Related source sets
 

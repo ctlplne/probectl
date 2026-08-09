@@ -43,16 +43,18 @@ func (s Sample) ToResults() []canary.Result {
 		Success:   a.Cause == CauseNone, // success == nothing impaired
 		StartedAt: ts,
 		Metrics: map[string]float64{
-			"confidence":    a.Confidence,
-			"slow":          b2f(a.Slow),
-			"wifi_score":    a.WiFi.Score,
-			"local_score":   a.Local.Score,
-			"isp_score":     a.ISP.Score,
-			"network_score": a.Network.Score,
+			"confidence":       a.Confidence,
+			"confidence_floor": a.ConfidenceFloor,
+			"slow":             b2f(a.Slow),
+			"wifi_score":       a.WiFi.Score,
+			"local_score":      a.Local.Score,
+			"isp_score":        a.ISP.Score,
+			"network_score":    a.Network.Score,
 		},
 		Attributes: dropEmpty(map[string]string{
-			"endpoint.cause":   string(a.Cause),
-			"endpoint.summary": a.Summary,
+			"endpoint.cause":              string(a.Cause),
+			"endpoint.summary":            a.Summary,
+			"endpoint.calibration_status": a.CalibrationStatus,
 		}),
 	})
 

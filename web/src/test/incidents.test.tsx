@@ -33,11 +33,20 @@ const incident = {
       occurred_at: '2026-01-01T00:00:00Z',
     },
     {
+      id: '00000000-0000-4000-8000-000000000002',
       plane: 'bgp',
       kind: 'bgp.possible_hijack',
       severity: 'critical',
       title: 'possible hijack of 192.0.2.0/24',
       target: '192.0.2.0/24',
+      attributes: {
+        'correlation.state': 'grouped',
+        'correlation.parent_incident_id': 'inc-1',
+        'correlation.reason': 'within_window_and_shared_target_or_prefix',
+        'correlation.match_confidence': '1.00',
+        'correlation.confidence_scope': 'deterministic_match_not_root_cause_probability',
+        'correlation.freshness_seconds': '60',
+      },
       occurred_at: '2026-01-01T00:01:00Z',
     },
   ],
@@ -76,6 +85,87 @@ describe('unified incident room', () => {
     expect(
       screen.getByText(/flow analytics evidence is missing.*coverage gap, not a healthy zero/i),
     ).toBeInTheDocument()
+  })
+
+  test('explains grouping and completes audited ungroup then reversal journey', async () => {
+    const user = userEvent.setup()
+    const base = defaultFetch()
+    let active = false
+    const override = {
+      id: '00000000-0000-4000-8000-000000000099',
+      tenant_id: 't',
+      source_incident_id: 'inc-1',
+      detached_incident_id: 'inc-2',
+      source_signal_id: '00000000-0000-4000-8000-000000000002',
+      plane: 'bgp',
+      kind: 'bgp.possible_hijack',
+      target: '192.0.2.0/24',
+      prefix: '',
+      reason: 'route change is independently actionable',
+      active: true,
+      created_by: 'operator@example.test',
+      created_at: '2026-01-01T00:02:00Z',
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathOf(input)
+      const method = init?.method ?? 'GET'
+      if (path === '/v1/incidents') return jsonResponse({ items: [incident] })
+      if (path === '/v1/incidents/inc-1' && method === 'GET') {
+        return jsonResponse(active ? { ...incident, correlation_overrides: [override] } : incident)
+      }
+      if (path === '/v1/incidents/inc-1/correlation-overrides' && method === 'POST') {
+        active = true
+        return jsonResponse(
+          { override, detached_incident: { ...incident, id: 'inc-2', signal_count: 1 } },
+          201,
+        )
+      }
+      if (
+        path === `/v1/incidents/inc-1/correlation-overrides/${override.id}/reverse` &&
+        method === 'POST'
+      ) {
+        active = false
+        return jsonResponse({ ...override, active: false, reversed_at: '2026-01-01T00:03:00Z' })
+      }
+      return base(input, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderApp('/incidents', {
+      me: { permissions: ['incident.read', 'incident.write', 'ai.query'] },
+    })
+
+    const routingTable = await screen.findByRole('table', {
+      name: /BGP & routing incident evidence/i,
+    })
+    await user.click(within(routingTable).getByRole('button', { name: /possible hijack/i }))
+    expect(await screen.findByRole('heading', { name: /grouping decision/i })).toBeInTheDocument()
+    expect(screen.getByText('within_window_and_shared_target_or_prefix')).toBeInTheDocument()
+    expect(screen.getByText(/deterministic_match_not_root_cause_probability/)).toBeInTheDocument()
+
+    await user.type(
+      screen.getByRole('textbox', { name: /why is this signal independently important/i }),
+      'route change is independently actionable',
+    )
+    await user.click(screen.getByRole('button', { name: /ungroup into independent incident/i }))
+    expect(await screen.findByText(/override .*ACTIVE/i)).toBeInTheDocument()
+    const createCall = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        pathOf(input) === '/v1/incidents/inc-1/correlation-overrides' && init?.method === 'POST',
+    )
+    expect(JSON.parse(String((createCall?.[1] as RequestInit).body))).toEqual({
+      signal_id: '00000000-0000-4000-8000-000000000002',
+      reason: 'route change is independently actionable',
+    })
+
+    await user.type(
+      screen.getByRole('textbox', { name: /why reverse this override/i }),
+      'operator confirmed regrouping is safe',
+    )
+    await user.click(screen.getByRole('button', { name: /reverse grouping override/i }))
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/correlation-overrides/${override.id}/reverse`),
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 
   test('shows an empty state when there are no incidents', async () => {

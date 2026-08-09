@@ -34,13 +34,13 @@ variable "chart_version" {
 }
 
 variable "size" {
-  description = "Reference sizing profile: small | medium | large (uses the chart's values-<size>.yaml). Empty uses chart defaults."
+  description = "Reference sizing profile: small | medium | large | multiregion (uses the chart's values-<size>.yaml). Empty uses chart defaults."
   type        = string
   default     = "medium"
 
   validation {
-    condition     = contains(["", "small", "medium", "large"], var.size)
-    error_message = "size must be one of: \"\", small, medium, large."
+    condition     = contains(["", "small", "medium", "large", "multiregion"], var.size)
+    error_message = "size must be one of: \"\", small, medium, large, multiregion."
   }
 }
 
@@ -116,6 +116,26 @@ variable "database_url" {
   description = "Postgres DSN. Use sslmode=require in production."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = can(regex("[?&]sslmode=(require|verify-ca|verify-full)(&|$)", var.database_url))
+    error_message = "database_url must require PostgreSQL TLS with sslmode=require, verify-ca, or verify-full."
+  }
+}
+
+variable "database_read_url" {
+  description = "Optional TLS PostgreSQL DSN for the region-local read replica. It is injected through the Secret, never Helm values or the ConfigMap."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition = (
+      var.database_read_url == "" ||
+      can(regex("[?&]sslmode=(require|verify-ca|verify-full)(&|$)", var.database_read_url))
+    )
+    error_message = "database_read_url must be empty or require PostgreSQL TLS with sslmode=require, verify-ca, or verify-full."
+  }
 }
 
 variable "envelope_key" {

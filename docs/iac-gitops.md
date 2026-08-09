@@ -90,6 +90,16 @@ Two more overlays ship for specialized profiles: `values-strict.yaml` (the
 regulated/hardened profile the gate renders) and `values-multiregion.yaml`
 (active-active HA — see [multi-region.md](multi-region.md)).
 
+The selected two-region reference is executable configuration, not prose:
+[`deploy/terraform/examples/two-region`](../deploy/terraform/examples/two-region)
+instantiates the module against two Kubernetes providers, while
+[`applicationset-multiregion.yaml`](../deploy/gitops/argocd/applicationset-multiregion.yaml)
+declares the same two releases for continuing ArgoCD reconciliation. PostgreSQL
+writer and local-read DSNs remain Secret-only. Synchronous metadata replication,
+RPO `0`, and RTO `<=60s` are the acceptance thresholds; ClickHouse and object
+recovery remain distinct backup/replication measurements and never inherit the
+metadata number by implication.
+
 ```bash
 helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-medium.yaml \
   --set ingress.host=probectl.example.com --set ingress.tlsSecretName=probectl-tls \
@@ -127,13 +137,15 @@ modules can compose with existing probectl objects without importing them as
 managed resources. Tenant and agent/test reads remain tenant-scoped; provider
 tenant inventory uses the separate operator privilege domain. `make
 terraform-gate` runs `terraform fmt -check` and `terraform validate` against the
-example root in `deploy/terraform/examples/kubernetes`; provider data-source
+single-region and two-region roots; provider data-source
 examples live in `deploy/terraform/examples/provider-data-sources`.
 
 ## GitOps
 
-`deploy/gitops/` has an ArgoCD `Application` (`argocd/application.yaml`) and a
-Flux `GitRepository` + `HelmRelease` (`flux/`). Both reference
+`deploy/gitops/` has an ArgoCD `Application` (`argocd/application.yaml`), a
+two-region ArgoCD `ApplicationSet`
+(`argocd/applicationset-multiregion.yaml`), and a Flux `GitRepository` +
+`HelmRelease` (`flux/`). All reference
 `secrets.existingSecret` rather than inlining credentials — Git history is
 forever, so a secret must never enter it. Manage that Secret
 with **Sealed Secrets** or the **External Secrets Operator** (both keep only an
@@ -156,15 +168,15 @@ structurally validates the manifests (every doc has an `apiVersion` + `kind`).
   validates the GitOps manifests and the compose config. (This is the CI job
   name to require in [branch protection](ops/branch-protection.md); `make
   gitops-gate` runs inside it.)
-- `terraform-gate` — `terraform fmt -check` + `validate` of the module via the
-  example root.
+- `terraform-gate` — `terraform fmt -check` + `validate` of the module through
+  both deployment roots.
 - `gitops-gate` — a `make` target: the ArgoCD/Flux manifests are well-formed
   (`apiVersion` + `kind`).
 
 ## Scope
 
-This stack is single-cluster IaC/GitOps with a secure-by-default chart.
-Active-active **multi-region topology and DR** is documented separately
+This stack includes single-cluster and exact two-region IaC/GitOps roots over a
+secure-by-default chart. Active-active **multi-region topology and DR** is documented separately
 ([multi-region.md](multi-region.md), [ops/dr.md](ops/dr.md),
 [runbooks/region-failover.md](runbooks/region-failover.md)) and is an Enterprise
 entitlement (the validated failover runbooks and support, not the fence itself).

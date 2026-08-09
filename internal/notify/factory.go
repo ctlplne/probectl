@@ -16,6 +16,7 @@ var providerCaps = map[string]Capability{
 	"teams":      CapabilityChat,
 	"servicenow": CapabilityTicket,
 	"jira":       CapabilityTicket,
+	"psa":        CapabilityTicket,
 }
 
 // knownProvider reports whether name is a supported connector provider.
@@ -40,6 +41,8 @@ func NewConnector(provider, endpoint, secret string, client Doer) (Connector, bo
 		return newServiceNow(endpoint, secret, client), true
 	case "jira":
 		return newJira(endpoint, secret, client), true
+	case "psa":
+		return newPSA(endpoint, secret, client), true
 	default:
 		return nil, false
 	}

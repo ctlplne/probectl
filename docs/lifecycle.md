@@ -92,6 +92,34 @@ against N+1's additive schema, because the schema only *added* — it didn't rem
 anything N depends on. (The contract migration that finally removes the old shape
 is deliberately deferred to a later release precisely so this stays true.)
 
+### Executed v0.5.0 rollback boundary
+
+The supported upgrade boundary for this release is `v0.5.0` → the current
+`0.6.0` release. `make upgrade-rollback-drill-isolated` is the executable proof,
+not a mock: it extracts and builds the exact `v0.5.0` tag, starts a disposable
+real PostgreSQL service, and then runs this sequence:
+
+1. apply the 45 historical migrations and start the v0.5.0 HTTPS server;
+2. plant two tenants with overlapping targets plus a stable test/data digest,
+   wrapped-key bytes, and audit-chain sentinels;
+3. prove a failed pre-migration connection changes nothing;
+4. apply the current additive migrations and start the current HTTPS server;
+5. put the v0.5.0 binary back on the current schema and start it over HTTPS;
+6. roll forward to current again; and
+7. after every boundary, require the same digest, forced-RLS one-tenant view,
+   wrapped-key bytes, and audit-head continuity.
+
+The command refuses a dirty worktree for release evidence. Developers may set
+`PROBECTL_UPGRADE_ALLOW_DIRTY=1` only for an explicitly non-release rehearsal.
+It is destructive only to its unique disposable Compose project. Backup/restore
+remains a separate mechanism and receipt (`make backup-restore-drill-isolated`),
+so a successful binary rollback is never misrepresented as disaster recovery.
+
+This proves binary/schema compatibility on real PostgreSQL. It does not by
+itself prove Kubernetes rolling-scheduler behavior, regional WAN/DNS timing, or
+a non-author's runbook usability; those belong in the selected two-region live
+receipt described in [`docs/ops/two-region-receipt.md`](ops/two-region-receipt.md).
+
 ## Agent version skew
 
 **Skew** is the version distance between two sides that must interoperate —

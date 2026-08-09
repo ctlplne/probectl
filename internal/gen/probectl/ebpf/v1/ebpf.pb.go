@@ -394,8 +394,20 @@ type L7Call struct {
 	LatencyNano     int64  `protobuf:"varint,13,opt,name=latency_nano,json=latencyNano,proto3" json:"latency_nano,omitempty"`
 	RequestBytes    uint64 `protobuf:"varint,14,opt,name=request_bytes,json=requestBytes,proto3" json:"request_bytes,omitempty"`
 	ResponseBytes   uint64 `protobuf:"varint,15,opt,name=response_bytes,json=responseBytes,proto3" json:"response_bytes,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// TLS posture metadata captured with the call. This is handshake/certificate
+	// metadata only: the TLS posture consumer never stores method/resource/body.
+	// visibility is observed | encrypted_unknown | sidecar_unknown | unsupported.
+	TlsVisibility         string `protobuf:"bytes,16,opt,name=tls_visibility,json=tlsVisibility,proto3" json:"tls_visibility,omitempty"`
+	TlsVersion            string `protobuf:"bytes,17,opt,name=tls_version,json=tlsVersion,proto3" json:"tls_version,omitempty"`
+	TlsCipher             string `protobuf:"bytes,18,opt,name=tls_cipher,json=tlsCipher,proto3" json:"tls_cipher,omitempty"`
+	TlsServerName         string `protobuf:"bytes,19,opt,name=tls_server_name,json=tlsServerName,proto3" json:"tls_server_name,omitempty"`
+	TlsPeerCertificateDer []byte `protobuf:"bytes,20,opt,name=tls_peer_certificate_der,json=tlsPeerCertificateDer,proto3" json:"tls_peer_certificate_der,omitempty"`
+	TlsVerification       string `protobuf:"bytes,21,opt,name=tls_verification,json=tlsVerification,proto3" json:"tls_verification,omitempty"`                  // verified | unverified | unknown
+	TlsObservationSource  string `protobuf:"bytes,22,opt,name=tls_observation_source,json=tlsObservationSource,proto3" json:"tls_observation_source,omitempty"` // uprobe | socket | sidecar | fixture
+	TlsHandshakeUnixNano  int64  `protobuf:"varint,23,opt,name=tls_handshake_unix_nano,json=tlsHandshakeUnixNano,proto3" json:"tls_handshake_unix_nano,omitempty"`
+	TlsConfidence         uint32 `protobuf:"varint,24,opt,name=tls_confidence,json=tlsConfidence,proto3" json:"tls_confidence,omitempty"` // percentage points; 1..100 when observed
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *L7Call) Reset() {
@@ -533,6 +545,69 @@ func (x *L7Call) GetResponseBytes() uint64 {
 	return 0
 }
 
+func (x *L7Call) GetTlsVisibility() string {
+	if x != nil {
+		return x.TlsVisibility
+	}
+	return ""
+}
+
+func (x *L7Call) GetTlsVersion() string {
+	if x != nil {
+		return x.TlsVersion
+	}
+	return ""
+}
+
+func (x *L7Call) GetTlsCipher() string {
+	if x != nil {
+		return x.TlsCipher
+	}
+	return ""
+}
+
+func (x *L7Call) GetTlsServerName() string {
+	if x != nil {
+		return x.TlsServerName
+	}
+	return ""
+}
+
+func (x *L7Call) GetTlsPeerCertificateDer() []byte {
+	if x != nil {
+		return x.TlsPeerCertificateDer
+	}
+	return nil
+}
+
+func (x *L7Call) GetTlsVerification() string {
+	if x != nil {
+		return x.TlsVerification
+	}
+	return ""
+}
+
+func (x *L7Call) GetTlsObservationSource() string {
+	if x != nil {
+		return x.TlsObservationSource
+	}
+	return ""
+}
+
+func (x *L7Call) GetTlsHandshakeUnixNano() int64 {
+	if x != nil {
+		return x.TlsHandshakeUnixNano
+	}
+	return 0
+}
+
+func (x *L7Call) GetTlsConfidence() uint32 {
+	if x != nil {
+		return x.TlsConfidence
+	}
+	return 0
+}
+
 // FlowBatch is the payload published to probectl.ebpf.flows (tenant-keyed).
 type FlowBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -637,7 +712,7 @@ const file_probectl_ebpf_v1_ebpf_proto_rawDesc = "" +
 	"\bl7_calls\x18\f \x01(\x04R\al7Calls\x12\x1b\n" +
 	"\tl7_errors\x18\r \x01(\x04R\bl7Errors\x12-\n" +
 	"\x13l7_latency_sum_nano\x18\x0e \x01(\x03R\x10l7LatencySumNano\x12-\n" +
-	"\x13l7_latency_max_nano\x18\x0f \x01(\x03R\x10l7LatencyMaxNano\"\xd8\x03\n" +
+	"\x13l7_latency_max_nano\x18\x0f \x01(\x03R\x10l7LatencyMaxNano\"\xdf\x06\n" +
 	"\x06L7Call\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x16\n" +
@@ -654,7 +729,18 @@ const file_probectl_ebpf_v1_ebpf_proto_rawDesc = "" +
 	"\x0fstart_unix_nano\x18\f \x01(\x03R\rstartUnixNano\x12!\n" +
 	"\flatency_nano\x18\r \x01(\x03R\vlatencyNano\x12#\n" +
 	"\rrequest_bytes\x18\x0e \x01(\x04R\frequestBytes\x12%\n" +
-	"\x0eresponse_bytes\x18\x0f \x01(\x04R\rresponseBytes\"\xa3\x01\n" +
+	"\x0eresponse_bytes\x18\x0f \x01(\x04R\rresponseBytes\x12%\n" +
+	"\x0etls_visibility\x18\x10 \x01(\tR\rtlsVisibility\x12\x1f\n" +
+	"\vtls_version\x18\x11 \x01(\tR\n" +
+	"tlsVersion\x12\x1d\n" +
+	"\n" +
+	"tls_cipher\x18\x12 \x01(\tR\ttlsCipher\x12&\n" +
+	"\x0ftls_server_name\x18\x13 \x01(\tR\rtlsServerName\x127\n" +
+	"\x18tls_peer_certificate_der\x18\x14 \x01(\fR\x15tlsPeerCertificateDer\x12)\n" +
+	"\x10tls_verification\x18\x15 \x01(\tR\x0ftlsVerification\x124\n" +
+	"\x16tls_observation_source\x18\x16 \x01(\tR\x14tlsObservationSource\x125\n" +
+	"\x17tls_handshake_unix_nano\x18\x17 \x01(\x03R\x14tlsHandshakeUnixNano\x12%\n" +
+	"\x0etls_confidence\x18\x18 \x01(\rR\rtlsConfidence\"\xa3\x01\n" +
 	"\tFlowBatch\x12,\n" +
 	"\x05flows\x18\x01 \x03(\v2\x16.probectl.ebpf.v1.FlowR\x05flows\x123\n" +
 	"\x05edges\x18\x02 \x03(\v2\x1d.probectl.ebpf.v1.ServiceEdgeR\x05edges\x123\n" +

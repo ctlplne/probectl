@@ -5,6 +5,11 @@ tenant FinOps feature in [`finops.md`](finops.md), which prices customer network
 egress. This is the operator's planning worksheet: compute, storage, query load,
 and optional remote-model RCA bursts.
 
+The executable, offline version of this worksheet is
+[`pricing/tco-calculator.md`](pricing/tco-calculator.md). Its versioned input and
+output cover 10/100/1,000 tenants, retention/sampling/replication/query
+sensitivity, labor, support, migration, plan caps, and explicit unknowns.
+
 The model is intentionally formula-first. Cloud list prices, discounts, hardware
 leases, and reserved capacity vary too much for one table to be universal, so the
 tables below use explicit unit assumptions. Swap the assumptions with your own
@@ -71,6 +76,18 @@ Example: moving a tenant from 30 to 90 days of 10,000 flow rows/s adds roughly
 `60 * 10 * 4.12 = 2,472 USD/month` of hot ClickHouse storage before replicas.
 That is why retention belongs in the tenant governance discussion, not only in a
 storage alarm.
+
+For a normalized buyer comparison, the executable calculator reports:
+
+```text
+infrastructure_per_logical_retained_tb = infrastructure / logical_retained
+```
+
+One logical retained TB is the compressed, sampled data volume before replicas.
+Hot and backup copies are costed separately, so replication cannot disappear
+from the denominator. Revision 1's storage prices are dated planning inputs;
+ingest and compression remain clearly labeled engineering assumptions until
+the L/XL/XXL receipts replace them.
 
 ## Query Load Cost
 

@@ -136,6 +136,16 @@ literals become `?`, so the default L7 path carries operation shape (`SELECT`,
 Calls are attributed to the connection's **client→server** edge regardless of
 which direction completed them.
 
+TLS posture is a separate privacy-minimized projection. `L7Call` can carry
+version, cipher, server name, peer-certificate DER, verification state, capture
+source, timestamp, confidence, and an explicit visibility state. The posture
+consumer copies only those handshake/certificate fields—never method, resource,
+header, or body—and validates the complete tenant-bound batch before mutating
+the inventory. Live uprobes that only prove encrypted plaintext visibility emit
+`encrypted_unknown`; sidecars emit `sidecar_unknown`; neither is guessed into a
+certificate conclusion. See [TLS observability](tls-observability.md) and the
+[derived-only raw-history decision](adr/ebpf-raw-history.md).
+
 ### Kubernetes identity without API custody
 
 The default Kubernetes chart deliberately sets

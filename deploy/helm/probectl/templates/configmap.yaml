@@ -13,6 +13,14 @@
   "PROBECTL_AUTH_MODE"
   "PROBECTL_SECURITY_CONTACT"
   "PROBECTL_OBJECTSTORE_DIR"
+  "PROBECTL_OBJECTSTORE_MODE"
+  "PROBECTL_OBJECTSTORE_S3_ENDPOINT"
+  "PROBECTL_OBJECTSTORE_S3_BUCKET"
+  "PROBECTL_OBJECTSTORE_S3_REGION"
+  "PROBECTL_OBJECTSTORE_S3_ACCESS_KEY"
+  "PROBECTL_OBJECTSTORE_S3_SECRET_KEY"
+  "PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN"
+  "PROBECTL_OBJECTSTORE_S3_PREFIX"
   "PROBECTL_OIDC_ISSUER"
   "PROBECTL_OIDC_CLIENT_ID"
   "PROBECTL_OIDC_REDIRECT_URL"
@@ -21,6 +29,8 @@
   "PROBECTL_DATABASE_URL"
   "PROBECTL_OIDC_CLIENT_SECRET"
   "PROBECTL_WORM_SIGNING_KEY"
+  "PROBECTL_EVIDENCE_SIGNING_KEY"
+  "PROBECTL_EVIDENCE_SIGNING_KEY_FILE"
   "PROBECTL_IR_UNLOCK_KEY"
 -}}
 {{- range $envName := $reservedControlEnv -}}
@@ -34,6 +44,9 @@
 {{- $objectStoreMount := printf "%v" .Values.objectStore.mountPath -}}
 {{- if not .Values.objectStore.enabled -}}
 {{- fail "PROBECTL_AUDIT_WORM_DIR requires objectStore.enabled=true so signed audit segments have a mounted durable store (CONFIG-09e06212)" -}}
+{{- end -}}
+{{- if ne .Values.objectStore.mode "filesystem" -}}
+{{- fail "PROBECTL_AUDIT_WORM_DIR requires objectStore.mode=filesystem; the WORM path is a mounted object-lock filesystem" -}}
 {{- end -}}
 {{- if not (trim .Values.objectStore.existingClaim) -}}
 {{- fail "PROBECTL_AUDIT_WORM_DIR requires a non-empty objectStore.existingClaim; emptyDir is never durable WORM storage (CONFIG-09e06212)" -}}
@@ -134,7 +147,16 @@ data:
   PROBECTL_AUTH_MODE: {{ .Values.control.authMode | quote }}
   PROBECTL_SECURITY_CONTACT: {{ .Values.control.securityContact | quote }}
   {{- if .Values.objectStore.enabled }}
+  PROBECTL_OBJECTSTORE_MODE: {{ .Values.objectStore.mode | quote }}
+  {{- if eq .Values.objectStore.mode "s3" }}
+  PROBECTL_OBJECTSTORE_S3_ENDPOINT: {{ required "objectStore.s3.endpoint is required for s3 mode" .Values.objectStore.s3.endpoint | quote }}
+  PROBECTL_OBJECTSTORE_S3_BUCKET: {{ required "objectStore.s3.bucket is required for s3 mode" .Values.objectStore.s3.bucket | quote }}
+  PROBECTL_OBJECTSTORE_S3_REGION: {{ .Values.objectStore.s3.region | quote }}
+  PROBECTL_OBJECTSTORE_S3_ACCESS_KEY: {{ required "objectStore.s3.accessKey is required for s3 mode" .Values.objectStore.s3.accessKey | quote }}
+  PROBECTL_OBJECTSTORE_S3_PREFIX: {{ .Values.objectStore.s3.prefix | quote }}
+  {{- else }}
   PROBECTL_OBJECTSTORE_DIR: {{ .Values.objectStore.mountPath | quote }}
+  {{- end }}
   {{- end }}
   {{- if .Values.oidc.issuer }}
   PROBECTL_OIDC_ISSUER: {{ .Values.oidc.issuer | quote }}

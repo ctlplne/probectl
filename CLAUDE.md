@@ -11,7 +11,7 @@
 - **Remediation observe-only/human-gated; detection is a signal, never an IPS.** [§7.8–9]
 - **Editions:** commercial code only in `ee/`; core never imports `ee/` (CI-guarded); tier checks live in `internal/license` only, gated at the `main.go` `Build*` seams only. [§2]
 
-**Ask before:** changing an architecture/stack decision, touching a guardrail, or adding a dependency/data source — except work pre-authorized by the live program backlog (§11). Smallest coherent change always.
+**Ask before:** changing an architecture/stack decision, touching a guardrail, or adding a dependency/data source. A backlog item is not permission to relax §7. Smallest coherent change always.
 
 ## 1. What probectl is
 
@@ -40,6 +40,7 @@ Go control plane + agents (static, `linux/amd64|arm64`) · Python analyzer · eB
 cmd/        probectl-control · probectl-agent · probectl-ebpf-agent · probectl-endpoint ·
             probectl-flow-agent · probectl-device-agent · probectl-bmp-listener ·
             probectl-cloud-metrics · probectl-license · probectl-sdkgen ·
+            probectl-scorecard ·
             probectl-workflow-policy · probectl-chaos-dependency-drill ·
             probectl-deadseams (zero-call-site gate) ·
             terraform-provider-probectl · probectl (CLI, web-parity)
@@ -48,7 +49,8 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             ai (AI query/RCA/MCP + egress gate) · alert (alerting engine) ·
             anomaly (tenant-scoped anomaly models) · apierror (domain error vocabulary) ·
             audit (immutable audit log + WORM) · auth (OIDC SSO, RBAC/ABAC) ·
-            backup (at-rest backup encryption) · bgp (BGP bridge to control plane) ·
+            backup (at-rest backup encryption) · bakeoff (buyer comparison scorecards) ·
+            bgp (BGP bridge to control plane) ·
             branding (deployment theming) · breaker (storage-client circuit breaker) ·
             browser (browser/transaction synthetics) · browsercanary (browser engine as canary plugin) ·
             bus (Kafka/NATS/memory transport) · canary (canary plugin interface) ·
@@ -61,6 +63,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             cost (FinOps/egress cost engine) · crypto (the only crypto door) ·
             device (SNMP/device telemetry plane) · docslint (doc-accuracy tests) ·
             ebpf (eBPF host agent) · endpoint (endpoint/DEM agent) ·
+            evidence (signed offline incident packages) ·
             enroll (agent trust root/enrollment) · fairness (per-tenant admission fairness) ·
             flow (NetFlow/sFlow/IPFIX plane) · gen (generated code: protobuf/gNMI/prometheus) ·
             govern (data-governance core) · httpbody (bounded HTTP body readers) ·
@@ -86,7 +89,8 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             topology (versioned topology + what-if) · usage (core metering seam) ·
             version (build metadata) · webui (embedded web UI) ·
             wire (bounded reader for untrusted wire input)
-ee/         billing (metering/usage export) · governance (ee governance workflows) ·
+ee/         billing (metering/usage export) · cmd (commercial offline CLIs) ·
+            governance (ee governance workflows) · pricing (offline TCO/pricing model) ·
             provider (provider/management plane) · remediation (guarded remediation workflow) ·
             silo (siloed/hybrid isolation) · tenantkeys (BYOK) · web (embedded provider-console assets)
 analyzer/   Python BGP · proto/ schemas · migrations/ (sequential, idempotent) · web/ frontend
@@ -137,11 +141,17 @@ Read this file + PRD first. Plan → implement → test → document → PR. Sma
 
 Not a vendor-operated public SaaS (multi-tenancy exists for MSP/partner self-hosting); not an APM/tracing replacement; not a SIEM/log platform; not an inline IPS/full NDR; no global first-party agent/BGP fleet; no un-gated remediation; no phone-home; **no white-label/OEM rebranding** — MSPs resell under the probectl banner.
 
-## 11. Foundation loop (the one live program)
+## 11. Structural backlog
 
-`../foundation-loop/` (a sibling of this repo at the workspace root — deliberately outside the repo so program state never ships with the product) is the ONLY live agent program: `../foundation-loop/PLAYBOOK.md` (how to work the backlog), `../foundation-loop/RUN_PROMPT.md` (concurrency, task queue, stop rules), `../foundation-loop/backlog.json` (state; sealed `policy` block — agents may not edit policy, the thesis, the definition of done, or the exit criteria). "Work the foundation loop" ⇒ start at `../foundation-loop/PLAYBOOK.md`. Backlog items with `executor: agent` satisfy §0's "ask before" rule; §7 holds at full autonomy. Commits carry the trailer `Foundation-Loop: <id>`.
-
-Predecessor programs are dormant or retired and must not be executed: `../audit-harness/` (stopped at iteration 15, ga_ready) and `../refactored-redteam-loop/` (stopped at iteration 31, assured) carry DORMANT markers at their roots and are read-only reference; the original harness and the superseded redteam-loop directories are retired and deleted. The retired harness's four parked proofs (E2/E3/E4/L4) live in `probectl-PRD-v1.1.md` §4. Business decisions of record live in §2 of this file (decision of record 2026-07-14).
+The live machine-readable program state is `../backlog.json`; its human-readable
+mirror is `../probectl-comprehensive-backlog-2026-08-08.html`. They deliberately
+live outside the repository so product releases do not ship planning state. Keep
+the two files synchronized, preserve honest COMPLETE/PARTIAL/DEFERRED semantics,
+and attach exact repository commit SHAs and reproducible receipts to evidence.
+There is no separate `foundation-loop` directory or implied exception to the
+architecture/guardrail approval rules. The retired harness's parked proofs
+E2/E3/E4/L4 live in `probectl-PRD-v1.1.md` §4. Business decisions of record live
+in §2 of this file (decision of record 2026-07-14).
 
 ## 12. References
 

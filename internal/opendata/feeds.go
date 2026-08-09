@@ -29,13 +29,11 @@ func orDefault(c Doer) Doer {
 	return c
 }
 
-var aupAbuseCh = AUP{License: "abuse.ch (CC0 1.0 Public Domain)", URL: "https://abuse.ch/", CommercialUse: CommercialAllowed}
-
 // NewSpamhausDROP — hijacked / criminal-leased netblocks (CIDR).
 func NewSpamhausDROP(client Doer) ThreatIntelSource {
 	return &lineFeed{
 		desc: Descriptor{Name: "spamhaus_drop", Kind: KindThreatIntel, Cadence: 8 * time.Hour,
-			AUP: AUP{License: "Spamhaus DROP (free)", URL: "https://www.spamhaus.org/drop/", Attribution: "Spamhaus DROP", CommercialUse: CommercialAttribution}},
+			AUP: AUP{License: "Spamhaus DROP Fair Use Policy", URL: "https://www.spamhaus.org/blocklists/drop-fair-use-policy/", CommercialUse: CommercialRestricted, Redistribution: "No IP-license grant is stated and commercial materials may not reference Spamhaus data; use a commercial agreement before MSP/provider use"}},
 		url: urlSpamhausDROP, client: orDefault(client), parse: spamhausParse,
 	}
 }
@@ -55,7 +53,7 @@ func spamhausParse(line string) (IOC, bool) {
 func NewFeodoTracker(client Doer) ThreatIntelSource {
 	return &lineFeed{
 		desc: Descriptor{Name: "feodo_tracker", Kind: KindThreatIntel, Cadence: 1 * time.Hour,
-			AUP: aupAbuseCh},
+			AUP: AUP{License: "Feodo Tracker CC0 1.0", URL: "https://feodotracker.abuse.ch/blocklist/", CommercialUse: CommercialAllowed}},
 		url: urlFeodo, client: orDefault(client), parse: feodoParse,
 	}
 }
@@ -71,7 +69,7 @@ func feodoParse(line string) (IOC, bool) {
 // The direct tie to S27: a leaf cert matching here is a malicious_cert finding.
 func NewSSLBLCerts(client Doer) ThreatIntelSource {
 	return &lineFeed{
-		desc: Descriptor{Name: "sslbl", Kind: KindThreatIntel, Cadence: 1 * time.Hour, AUP: aupAbuseCh},
+		desc: Descriptor{Name: "sslbl", Kind: KindThreatIntel, Cadence: 1 * time.Hour, AUP: AUP{License: "SSLBL CC0 1.0", URL: "https://sslbl.abuse.ch/blacklist/", CommercialUse: CommercialAllowed}},
 		url:  urlSSLBLCerts, client: orDefault(client), parse: sslblCertParse,
 	}
 }
@@ -97,7 +95,7 @@ func sslblCertParse(line string) (IOC, bool) {
 // NewSSLBLJA3 — malicious JA3 client fingerprints (abuse.ch SSLBL).
 func NewSSLBLJA3(client Doer) ThreatIntelSource {
 	return &lineFeed{
-		desc: Descriptor{Name: "sslbl_ja3", Kind: KindThreatIntel, Cadence: 1 * time.Hour, AUP: aupAbuseCh},
+		desc: Descriptor{Name: "sslbl_ja3", Kind: KindThreatIntel, Cadence: 1 * time.Hour, AUP: AUP{License: "SSLBL CC0 1.0", URL: "https://sslbl.abuse.ch/blacklist/", CommercialUse: CommercialAllowed}},
 		url:  urlSSLBLJA3, client: orDefault(client), parse: sslblJA3Parse,
 	}
 }
@@ -120,8 +118,9 @@ func sslblJA3Parse(line string) (IOC, bool) {
 // NewURLhaus — malware-distribution URLs (abuse.ch).
 func NewURLhaus(client Doer) ThreatIntelSource {
 	return &lineFeed{
-		desc: Descriptor{Name: "urlhaus", Kind: KindThreatIntel, Cadence: 1 * time.Hour, AUP: aupAbuseCh},
-		url:  urlURLhaus, client: orDefault(client), parse: urlhausParse,
+		desc: Descriptor{Name: "urlhaus", Kind: KindThreatIntel, Cadence: 1 * time.Hour,
+			AUP: AUP{License: "URLhaus community API fair-use terms", URL: "https://urlhaus.abuse.ch/api/", CommercialUse: CommercialRestricted, Redistribution: "Commercial or for-profit use may require the enhanced abuse.ch commercial API; obtain written coverage before MSP/provider use"}},
+		url: urlURLhaus, client: orDefault(client), parse: urlhausParse,
 	}
 }
 
@@ -134,7 +133,7 @@ func urlhausParse(line string) (IOC, bool) {
 	if !strings.HasPrefix(u, "http") {
 		return IOC{}, false
 	}
-	return IOC{Type: IOCTypeURL, Value: u, Source: "urlhaus", Category: CategoryMalware, Confidence: 85, License: "abuse.ch CC0"}, true
+	return IOC{Type: IOCTypeURL, Value: u, Source: "urlhaus", Category: CategoryMalware, Confidence: 85, License: "URLhaus community API fair-use"}, true
 }
 
 // NewTorExit — Tor exit-node IPs (lower confidence: Tor is not inherently
@@ -142,7 +141,7 @@ func urlhausParse(line string) (IOC, bool) {
 func NewTorExit(client Doer) ThreatIntelSource {
 	return &lineFeed{
 		desc: Descriptor{Name: "tor_exit", Kind: KindThreatIntel, Cadence: 1 * time.Hour,
-			AUP: AUP{License: "Tor Project exit list (CC0)", URL: "https://check.torproject.org/", CommercialUse: CommercialAllowed}},
+			AUP: AUP{License: "Tor Project bulk exit list; dataset terms not established", URL: "https://check.torproject.org/torbulkexitlist", CommercialUse: CommercialUnknown, Redistribution: "Verify the bulk exit list's current dataset terms before provider/MSP use or redistribution"}},
 		url: urlTorExit, client: orDefault(client), parse: torParse,
 	}
 }
@@ -151,7 +150,7 @@ func torParse(line string) (IOC, bool) {
 	if strings.ContainsAny(line, " \t,") {
 		return IOC{}, false
 	}
-	return IOC{Type: IOCTypeIP, Value: line, Source: "tor_exit", Category: CategoryTorExit, Confidence: 50, License: "Tor Project CC0"}, true
+	return IOC{Type: IOCTypeIP, Value: line, Source: "tor_exit", Category: CategoryTorExit, Confidence: 50, License: "Tor Project bulk exit list"}, true
 }
 
 // NewFireHOL — FireHOL level-1 aggregate blocklist (IPs + CIDRs). It aggregates

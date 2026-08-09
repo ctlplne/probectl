@@ -400,7 +400,11 @@ for reserved_env in \
   PROBECTL_OIDC_ISSUER PROBECTL_OIDC_CLIENT_ID PROBECTL_OIDC_REDIRECT_URL \
   PROBECTL_ENVELOPE_KEY PROBECTL_SESSION_HMAC_KEY PROBECTL_DATABASE_URL \
   PROBECTL_OIDC_CLIENT_SECRET PROBECTL_WORM_SIGNING_KEY \
-  PROBECTL_IR_UNLOCK_KEY; do
+  PROBECTL_IR_UNLOCK_KEY PROBECTL_OBJECTSTORE_MODE PROBECTL_OBJECTSTORE_DIR \
+  PROBECTL_OBJECTSTORE_S3_ENDPOINT PROBECTL_OBJECTSTORE_S3_BUCKET \
+  PROBECTL_OBJECTSTORE_S3_REGION PROBECTL_OBJECTSTORE_S3_ACCESS_KEY \
+  PROBECTL_OBJECTSTORE_S3_SECRET_KEY PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN \
+  PROBECTL_OBJECTSTORE_S3_PREFIX; do
   if render --show-only templates/configmap.yaml \
     --set-string "control.extraEnv.${reserved_env}=planted-override" >/dev/null 2>&1; then
     fail "chart accepted reserved control.extraEnv.${reserved_env} (CONFIG-11b3ac1d)"
@@ -417,6 +421,28 @@ duplicate_env="$(
   || fail "ConfigMap rendered duplicate environment keys: $duplicate_env (CONFIG-11b3ac1d)"
 need_fixed 'PROBECTL_BUS_MODE: "memory"' "$ordinary_cm" "ordinary control.extraEnv key was not preserved (CONFIG-11b3ac1d)"
 need_fixed 'PROBECTL_REGION: "local"' "$ordinary_cm" "second ordinary control.extraEnv key was not preserved (CONFIG-11b3ac1d)"
+# BL-026: durable S3/MinIO mode renders only non-secret coordinates into the
+# ConfigMap, assumes signing material comes from the runtime Secret, and does
+# not mount the filesystem fallback volume.
+s3_args=(
+  --set objectStore.mode=s3
+  --set-string objectStore.s3.endpoint=https://minio.example
+  --set-string objectStore.s3.bucket=probectl-artifacts
+  --set-string objectStore.s3.region=us-east-1
+  --set-string objectStore.s3.accessKey=AKID
+  --set-string objectStore.s3.prefix=probectl
+  --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=
+)
+s3_cm="$(render --show-only templates/configmap.yaml "${s3_args[@]}")"
+s3_deploy="$(render --show-only templates/deployment.yaml "${s3_args[@]}")"
+need_fixed 'PROBECTL_OBJECTSTORE_MODE: "s3"' "$s3_cm" "S3 object-store mode did not render"
+need_fixed 'PROBECTL_OBJECTSTORE_S3_ENDPOINT: "https://minio.example"' "$s3_cm" "S3 endpoint did not render"
+if grep -q 'PROBECTL_OBJECTSTORE_S3_SECRET_KEY\|PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN' <<<"$s3_cm"; then
+  fail "S3 object-store secret material was rendered into ConfigMap"
+fi
+if grep -q 'name: tenant-objects' <<<"$s3_deploy"; then
+  fail "S3 object-store mode mounted the filesystem fallback volume"
+fi
 # SUPPLY-deb3c967: migration and server must resolve to the signed digest, while
 # the old tag-only input and malformed digests must fail before rendering.
 need_digest_pinned_control_images "default chart" "$base" 2

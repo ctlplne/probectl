@@ -151,25 +151,34 @@ fired and can tune or suppress it: `intel.source`, `intel.category`,
 Each feed carries machine-readable provenance and acceptable-use (AUP) terms in
 its `Descriptor().AUP` (`internal/opendata/feeds.go`) — *provenance* is where
 the data came from; the *AUP* (acceptable-use policy) is what its publisher
-permits you to do with it. As with open-data
-enrichment, **these terms are not a constraint on private development or
-single-tenant open-source use** — they gate only **commercial / MSP resale**
-(reselling probectl to many customers; see [`editions.md`](editions.md)).
-Resolve redistribution terms before enabling provider mode commercially.
+permits you to do with it. The terms apply to every use. Commercial/MSP resale
+is the higher-risk case because an internal-use grant may not cover displaying
+data or derived detections to end customers. Treat `restricted` and `unknown`
+as unavailable in provider mode until written rights cover the exact use (see
+[`editions.md`](editions.md)).
 
 | Feed | `name` | IOC type | Category | Confidence | License / terms | Commercial use |
 | ---- | ------ | -------- | -------- | ---------- | --------------- | -------------- |
-| **Spamhaus DROP** | `spamhaus_drop` | CIDR | spam / hijacked netblocks | 90 | Spamhaus DROP (free) | allowed-with-attribution |
-| **Feodo Tracker** (abuse.ch) | `feodo_tracker` | IP | botnet C2 | 90 | abuse.ch CC0 | allowed |
-| **SSLBL certs** (abuse.ch) | `sslbl` | cert SHA1 | malicious cert | 95 | abuse.ch CC0 | allowed |
-| **SSLBL JA3** (abuse.ch) | `sslbl_ja3` | JA3 | malicious JA3 | 85 | abuse.ch CC0 | allowed |
-| **URLhaus** (abuse.ch) | `urlhaus` | URL | malware URL | 85 | abuse.ch CC0 | allowed |
-| **Tor exit list** | `tor_exit` | IP | tor exit | 50 | Tor Project (CC0) | allowed |
+| **Spamhaus DROP** | `spamhaus_drop` | CIDR | spam / hijacked netblocks | 90 | Spamhaus DROP Fair Use Policy | **restricted** |
+| **Feodo Tracker** (abuse.ch) | `feodo_tracker` | IP | botnet C2 | 90 | Feodo Tracker CC0 | allowed |
+| **SSLBL certs** (abuse.ch) | `sslbl` | cert SHA1 | malicious cert | 95 | SSLBL CC0 | allowed |
+| **SSLBL JA3** (abuse.ch) | `sslbl_ja3` | JA3 | malicious JA3 | 85 | SSLBL CC0 | allowed |
+| **URLhaus** (abuse.ch) | `urlhaus` | URL | malware URL | 85 | community API fair-use terms | **restricted** |
+| **Tor exit list** | `tor_exit` | IP | tor exit | 50 | dataset terms not established | **unknown** |
 | **FireHOL level 1** | `firehol_level1` | IP / CIDR | aggregate blocklist | 75 | aggregate (mixed terms) | **restricted** |
 
 > **FireHOL** aggregates many upstream feeds with **mixed licenses**, so its
 > descriptor marks it `restricted` for resale (`CommercialRestricted`). Verify
 > upstream terms before commercial redistribution.
+
+The dated source-by-source evidence and counsel questions live in
+[`legal/open-data-source-review-2026-08-09.md`](legal/open-data-source-review-2026-08-09.md).
+Two distinctions matter: Feodo and SSLBL explicitly permit commercial use under
+their dataset-specific CC0 terms; URLhaus's current community API says
+commercial use may require a paid API, so one generic “abuse.ch CC0” label would
+be unsafe. Spamhaus's DROP policy does not state an IP-license grant and limits
+commercial references to its name/data. `restricted` and `unknown` therefore
+stay unavailable for MSP resale until written rights are attached to the deployment.
 
 Set `PROBECTL_THREATINTEL_FEEDS` to a comma-separated subset of the `name`
 column, or leave it empty to load all built-in feeds.

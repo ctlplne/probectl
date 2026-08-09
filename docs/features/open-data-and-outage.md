@@ -64,13 +64,13 @@ reads obeys the same three rules, enforced in code:
 The datasets cover ASN (network operator), geographic country and city,
 internet-exchange presence, and allocation registry. The geographic database is
 *not* shipped with probectl — you supply the file under its own license and point
-probectl at it, which keeps probectl clear of redistributing someone else's data:
-you hold the license, probectl just reads your copy. Each source also carries a
-machine-readable label describing where the data came from and what you are allowed
-to do with it, like a nutrition label printed on every dataset. Those terms are not
-a constraint on private use or single-tenant use; they become relevant only if you
-resell probectl as a service to many customers, in which case you confirm the
-reseller redistribution terms first.
+probectl at it. That avoids distributing the database in probectl, but it does
+not expand the operator's license rights. Each source carries a machine-readable
+label describing where the data came from and its known use restrictions, like
+a nutrition label printed on every dataset. `restricted` or `unknown` is a stop
+sign for provider/MSP use until a source-specific agreement or counsel review
+authorizes the exact use. The live matrix and dated evidence are in
+[`../opendata-aup.md`](../opendata-aup.md).
 
 **The outage view joins two inputs.** It builds situational awareness from:
 
@@ -157,10 +157,11 @@ curl -sS "https://localhost:8443/v1/outages"
 - **A down source degrades, it never breaks you.** A failing enrichment source
   makes records plainer; a failing outage feed serves its last-good events,
   labeled stale. Neither takes a core path down.
-- **Public-data terms matter only for resale.** If you resell probectl as a service
-  to many customers, some feeds carry non-commercial or attribution terms you must
-  confirm first. Private and single-tenant use is unaffected. The required
-  attribution travels with each dataset so a downstream reseller cannot forget it.
+- **Public-data terms always apply; resale raises the risk.** Private or
+  single-tenant use may fit a source's internal-use grant, but it is not
+  automatically exempt. Provider/MSP use must not enable a `restricted` or
+  `unknown` source without written coverage. Attribution travels with the data,
+  but attribution is not a substitute for permission.
 
 ## Reference
 

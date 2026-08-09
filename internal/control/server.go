@@ -202,6 +202,11 @@ type Server struct {
 	// bundles (ARCH-001). Set via WithTestSyncKey; empty leaves
 	// GET /v1/tests/bundle reporting 503.
 	testSyncKey []byte
+	// evidenceSigningKey signs immutable probectl-evidence/v1 packages. It is
+	// injected at the runtime build seam from a stable operator-owned key;
+	// empty means the export route fails closed rather than self-signing with an
+	// ephemeral identity.
+	evidenceSigningKey []byte
 
 	// rollouts holds active staged-rollout plans (OPS-002), lazily created.
 	rollouts     *rolloutManager
@@ -354,6 +359,16 @@ func (s *Server) WithCMDB(r *cmdb.Resolver) *Server {
 // tooling. nil is a no-op (the feature stays off). Returns the server for chaining.
 func (s *Server) WithDispatcher(d *notify.Dispatcher) *Server {
 	s.dispatcher = d
+	return s
+}
+
+// WithEvidenceSigningKey attaches the stable Ed25519 key used for incident
+// evidence exports. The copy prevents a caller from mutating key bytes after
+// the server has started.
+func (s *Server) WithEvidenceSigningKey(privatePEM []byte) *Server {
+	if len(privatePEM) > 0 {
+		s.evidenceSigningKey = append([]byte(nil), privatePEM...)
+	}
 	return s
 }
 

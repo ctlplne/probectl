@@ -38,6 +38,7 @@ func TestConsumersFanOutAcrossLanes(t *testing.T) {
 		(*ResultFan)(nil),
 		(*ResultViewConsumer)(nil),
 		(*TLSPostureConsumer)(nil),
+		(*EBPFTLSPostureConsumer)(nil),
 		(*IOCConsumer)(nil),
 		(*SLOConsumer)(nil),
 		(*CarbonConsumer)(nil),
@@ -128,6 +129,13 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			topics: []string{bus.NetworkResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
 				return NewTLSPostureConsumer(b, nil, nil, log).withNamespaceTenants(ns).run(ctx)
+			},
+		},
+		{
+			name:   "tls-posture-ebpf",
+			topics: []string{bus.EBPFFlowsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return NewEBPFTLSPostureConsumer(b, nil, nil, log).WithNamespaceTenants(ns).Run(ctx)
 			},
 		},
 		{

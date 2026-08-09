@@ -35,8 +35,9 @@ const (
 	KindAllocation Kind = "allocation" // IP → RIR allocation / status
 )
 
-// Permission expresses a source's commercial-use terms (relevant to MSP resale —
-// CLAUDE.md §2; not to private development or single-tenant OSS use).
+// Permission expresses the engineering review of a source's commercial-use
+// terms. All source terms still apply to every use; this field highlights the
+// higher-risk MSP/provider case and is not legal advice.
 type Permission string
 
 const (

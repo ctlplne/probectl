@@ -16,6 +16,13 @@ import type { TLSPosture } from '../api/tls'
 function postureFixtures(): TLSPosture[] {
   const now = Date.now()
   const days = (n: number) => new Date(now + n * 86_400_000).toISOString()
+  const evidence = {
+    state: 'observed' as const,
+    visibility: 'synthetic_handshake',
+    capture: 'http',
+    confidence: 100,
+    freshness: 'current' as const,
+  }
   const leaf = (subject: string, notAfter: string, extra?: Partial<TLSPosture['leaf']>) => ({
     subject,
     issuer: 'CN=ACME Issuing CA',
@@ -33,6 +40,7 @@ function postureFixtures(): TLSPosture[] {
     {
       target: 'expired.acme.example:443',
       source: 'http',
+      ...evidence,
       tls_version: '1.2',
       cipher: 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256',
       leaf: leaf('CN=expired.acme.example', days(-2)),
@@ -54,6 +62,7 @@ function postureFixtures(): TLSPosture[] {
     {
       target: 'weak.acme.example:443',
       source: 'http',
+      ...evidence,
       tls_version: '1.0',
       cipher: 'TLS_RSA_WITH_RC4_128_SHA',
       leaf: leaf('CN=weak.acme.example', days(200), { key_type: 'RSA', key_bits: 1024 }),
@@ -68,6 +77,7 @@ function postureFixtures(): TLSPosture[] {
     {
       target: 'self.acme.example:8443',
       source: 'http',
+      ...evidence,
       tls_version: '1.3',
       cipher: 'TLS_AES_128_GCM_SHA256',
       leaf: leaf('CN=self.acme.example', days(20), { self_signed: true }),
@@ -81,6 +91,7 @@ function postureFixtures(): TLSPosture[] {
     {
       target: 'ct.acme.example:443',
       source: 'http',
+      ...evidence,
       tls_version: '1.3',
       cipher: 'TLS_AES_256_GCM_SHA384',
       leaf: leaf('CN=ct.acme.example', days(80)),
@@ -93,6 +104,7 @@ function postureFixtures(): TLSPosture[] {
     {
       target: 'clean.acme.example:443',
       source: 'http',
+      ...evidence,
       tls_version: '1.3',
       cipher: 'TLS_AES_128_GCM_SHA256',
       leaf: leaf('CN=clean.acme.example', days(120)),

@@ -29,6 +29,8 @@ import (
 //	PROBECTL_CHANGE_WEBHOOKS         → ChangeWebhooks[].Secret
 //	PROBECTL_NOTIFY_CONNECTORS       → NotifyConnectors[].Secret
 //	PROBECTL_NOTIFY_INBOUND          → NotifyInbound[].Secret
+//	PROBECTL_OBJECTSTORE_S3_SECRET_KEY → ObjectStoreS3SecretKey
+//	PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN → ObjectStoreS3SessionToken
 //
 // Any resolution failure is returned (fail closed): the control plane must
 // not start with a partially-resolved credential set. OTLP ingest tokens are
@@ -49,6 +51,8 @@ func (c *Config) ResolveSecretRefs(ctx context.Context, resolve func(context.Con
 		{"PROBECTL_SIEM_TOKEN", &c.SIEMToken},
 		{"PROBECTL_BUS_SASL_PASSWORD", &c.BusSASLPassword},
 		{"PROBECTL_OUTAGE_RADAR_TOKEN", &c.OutageRadarToken},
+		{"PROBECTL_OBJECTSTORE_S3_SECRET_KEY", &c.ObjectStoreS3SecretKey},
+		{"PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN", &c.ObjectStoreS3SessionToken},
 	}
 	for i := range c.NotifyConnectors {
 		fields = append(fields, struct {

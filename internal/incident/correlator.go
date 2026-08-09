@@ -37,6 +37,7 @@ type Store interface {
 	OpenIncidents(ctx context.Context, tenant string) ([]*Incident, error)
 	Create(ctx context.Context, inc *Incident) (*Incident, error)
 	AppendSignal(ctx context.Context, tenant, incidentID string, sig Signal) (*Incident, error)
+	ActiveCorrelationOverrides(ctx context.Context, tenant string, sig Signal) ([]CorrelationOverride, error)
 }
 
 // TransactionalStore can serialize the read-correlate-create sequence in the
@@ -189,12 +190,22 @@ func (c *Correlator) correlateLocked(ctx context.Context, sig Signal) (*Incident
 }
 
 func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) (*Incident, bool, error) {
+	overrides, err := st.ActiveCorrelationOverrides(ctx, sig.TenantID, sig)
+	if err != nil {
+		// An unavailable override store must be loud: silently ignoring operator
+		// intent could suppress the very alert they detached.
+		return nil, false, fmt.Errorf("incident: load correlation overrides: %w", err)
+	}
 	open, err := st.OpenIncidents(ctx, sig.TenantID)
 	if err != nil {
 		return nil, false, fmt.Errorf("incident: load open incidents: %w", err)
 	}
 	for _, inc := range open {
+		if excludedByOverride(inc.ID, overrides) {
+			continue
+		}
 		if related(inc, sig, c.window) {
+			sig = withCorrelationExplanation(sig, inc, c.window, overrides)
 			updated, err := st.AppendSignal(ctx, sig.TenantID, inc.ID, sig)
 			if err != nil {
 				return nil, false, fmt.Errorf("incident: append signal: %w", err)
@@ -209,6 +220,7 @@ func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) 
 	if err != nil {
 		return nil, false, fmt.Errorf("incident: create: %w", err)
 	}
+	sig = withRootCorrelationExplanation(sig, created, overrides)
 	updated, err := st.AppendSignal(ctx, sig.TenantID, created.ID, sig)
 	if err != nil {
 		return nil, false, fmt.Errorf("incident: append first signal: %w", err)
@@ -218,6 +230,64 @@ func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) 
 	return updated, true, nil
 }
 
+func excludedByOverride(incidentID string, overrides []CorrelationOverride) bool {
+	for _, override := range overrides {
+		if override.Active && override.SourceIncidentID == incidentID {
+			return true
+		}
+	}
+	return false
+}
+
+func withCorrelationExplanation(sig Signal, parent *Incident, window time.Duration, overrides []CorrelationOverride) Signal {
+	sig.Attributes = cloneAttributes(sig.Attributes)
+	sig.Attributes["correlation.state"] = "grouped"
+	sig.Attributes["correlation.parent_incident_id"] = parent.ID
+	sig.Attributes["correlation.reason"] = "within_window_and_shared_target_or_prefix"
+	sig.Attributes["correlation.rule"] = "time_target_prefix_v1"
+	sig.Attributes["correlation.window_seconds"] = fmt.Sprintf("%.0f", window.Seconds())
+	freshness := sig.OccurredAt.Sub(parent.LastSeenAt)
+	if freshness < 0 {
+		freshness = -freshness
+	}
+	sig.Attributes["correlation.freshness_seconds"] = fmt.Sprintf("%.0f", freshness.Seconds())
+	sig.Attributes["correlation.match_confidence"] = "1.00"
+	sig.Attributes["correlation.confidence_scope"] = "deterministic_match_not_root_cause_probability"
+	if len(overrides) > 0 {
+		override := overrides[0]
+		sig.Attributes["correlation.override_id"] = override.ID
+		sig.Attributes["correlation.excluded_parent_incident_id"] = override.SourceIncidentID
+		sig.Attributes["correlation.reason"] = "operator_ungroup_override_then_related_independent_incident"
+	}
+	return sig
+}
+
+func withRootCorrelationExplanation(sig Signal, root *Incident, overrides []CorrelationOverride) Signal {
+	sig.Attributes = cloneAttributes(sig.Attributes)
+	sig.Attributes["correlation.state"] = "root"
+	sig.Attributes["correlation.parent_incident_id"] = root.ID
+	sig.Attributes["correlation.reason"] = "no_related_open_incident"
+	sig.Attributes["correlation.rule"] = "time_target_prefix_v1"
+	sig.Attributes["correlation.freshness_seconds"] = "0"
+	sig.Attributes["correlation.match_confidence"] = "1.00"
+	sig.Attributes["correlation.confidence_scope"] = "deterministic_match_not_root_cause_probability"
+	if len(overrides) > 0 {
+		override := overrides[0]
+		sig.Attributes["correlation.override_id"] = override.ID
+		sig.Attributes["correlation.excluded_parent_incident_id"] = override.SourceIncidentID
+		sig.Attributes["correlation.reason"] = "operator_ungroup_override_created_independent_incident"
+	}
+	return sig
+}
+
+func cloneAttributes(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in)+8)
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
 // --- in-memory store (lightweight mode + tests) ---
 
 // MemoryStore is an in-process Store.
@@ -225,11 +295,32 @@ type MemoryStore struct {
 	mu        sync.Mutex
 	seq       int
 	incidents map[string]*Incident
+	overrides map[string]CorrelationOverride
 }
 
 // NewMemoryStore returns an empty in-memory store.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{incidents: make(map[string]*Incident)}
+	return &MemoryStore{incidents: make(map[string]*Incident), overrides: make(map[string]CorrelationOverride)}
+}
+
+func (m *MemoryStore) ActiveCorrelationOverrides(_ context.Context, tenant string, sig Signal) ([]CorrelationOverride, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []CorrelationOverride{}
+	for _, override := range m.overrides {
+		if override.TenantID == tenant && override.Matches(sig) {
+			out = append(out, override)
+		}
+	}
+	return out, nil
+}
+
+// putCorrelationOverride is a test/lightweight-mode helper. Production writes
+// use the tenant-scoped control API and Postgres repository.
+func (m *MemoryStore) putCorrelationOverride(override CorrelationOverride) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.overrides[override.ID] = override
 }
 
 // OpenIncidents returns the tenant's open incidents, most-recently-active first.

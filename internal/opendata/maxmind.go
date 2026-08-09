@@ -44,10 +44,11 @@ func (g *geoSource) Descriptor() Descriptor {
 		Kind:    KindGeo,
 		Cadence: 7 * 24 * time.Hour,
 		AUP: AUP{
-			License:       "GeoLite2 EULA (CC BY-SA 4.0 attribution)",
-			URL:           "https://www.maxmind.com/en/geolite2/eula",
-			Attribution:   "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com",
-			CommercialUse: CommercialAttribution,
+			License:        "GeoLite EULA (includes CC BY-SA 4.0 terms)",
+			URL:            "https://www.maxmind.com/en/geolite2/eula",
+			Attribution:    "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com",
+			CommercialUse:  CommercialRestricted,
+			Redistribution: "Operator-supplied internal use only by default; sharing, resale, or redistribution requires MaxMind-authorized terms",
 		},
 	}
 }

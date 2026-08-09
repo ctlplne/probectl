@@ -163,7 +163,15 @@ type BufferConfig struct {
 // canaries. Operators mount this to the same self-hosted object-store backend
 // the control plane lifecycle engine inventories and erases.
 type ArtifactStoreConfig struct {
-	Dir string `yaml:"dir"`
+	Mode         string `yaml:"mode"`
+	Dir          string `yaml:"dir"`
+	Endpoint     string `yaml:"endpoint"`
+	Bucket       string `yaml:"bucket"`
+	Region       string `yaml:"region"`
+	AccessKey    string `yaml:"access_key"`
+	SecretKey    string `yaml:"secret_key"`
+	SessionToken string `yaml:"session_token"`
+	Prefix       string `yaml:"prefix"`
 }
 
 // BrowserConfig selects the implementation used for browser transaction
@@ -295,6 +303,14 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
 	override("PROBECTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)
 	override("PROBECTL_AGENT_OBJECTSTORE_DIR", &c.ArtifactStore.Dir)
+	override("PROBECTL_AGENT_OBJECTSTORE_MODE", &c.ArtifactStore.Mode)
+	override("PROBECTL_AGENT_OBJECTSTORE_S3_ENDPOINT", &c.ArtifactStore.Endpoint)
+	override("PROBECTL_AGENT_OBJECTSTORE_S3_BUCKET", &c.ArtifactStore.Bucket)
+	override("PROBECTL_AGENT_OBJECTSTORE_S3_REGION", &c.ArtifactStore.Region)
+	override("PROBECTL_AGENT_OBJECTSTORE_S3_ACCESS_KEY", &c.ArtifactStore.AccessKey)
+	override("PROBECTL_AGENT_OBJECTSTORE_S3_SECRET_KEY", &c.ArtifactStore.SecretKey)
+	override("PROBECTL_AGENT_OBJECTSTORE_S3_SESSION_TOKEN", &c.ArtifactStore.SessionToken)
+	override("PROBECTL_AGENT_OBJECTSTORE_S3_PREFIX", &c.ArtifactStore.Prefix)
 	override("PROBECTL_AGENT_BROWSER_DRIVER", &c.Browser.Driver)
 	override("PROBECTL_AGENT_BROWSER_WORKER_COMMAND", &c.Browser.Worker.Command)
 	override("PROBECTL_AGENT_BROWSER_WORKER_PATH", &c.Browser.Worker.Path)
@@ -329,6 +345,15 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Browser.Driver == "" {
 		c.Browser.Driver = "http"
+	}
+	if c.ArtifactStore.Mode == "" {
+		c.ArtifactStore.Mode = "filesystem"
+	}
+	if c.ArtifactStore.Region == "" {
+		c.ArtifactStore.Region = "us-east-1"
+	}
+	if c.ArtifactStore.Prefix == "" {
+		c.ArtifactStore.Prefix = "probectl"
 	}
 	if c.Browser.Worker.Command == "" {
 		c.Browser.Worker.Command = "node"
@@ -405,6 +430,18 @@ func (c *Config) validate() error {
 		}
 	default:
 		return fmt.Errorf("config: browser.driver must be http or browser (got %q)", c.Browser.Driver)
+	}
+	switch c.ArtifactStore.Mode {
+	case "filesystem":
+	case "s3":
+		if c.ArtifactStore.Dir != "" {
+			return fmt.Errorf("config: artifact_store.mode=s3 cannot be combined with dir")
+		}
+		if c.ArtifactStore.Endpoint == "" || c.ArtifactStore.Bucket == "" || c.ArtifactStore.AccessKey == "" || c.ArtifactStore.SecretKey == "" {
+			return fmt.Errorf("config: artifact_store.mode=s3 requires endpoint, bucket, access_key, and secret_key")
+		}
+	default:
+		return fmt.Errorf("config: artifact_store.mode must be filesystem or s3 (got %q)", c.ArtifactStore.Mode)
 	}
 	testIDs := make(map[string]int, len(c.Canaries))
 	for i, cc := range c.Canaries {

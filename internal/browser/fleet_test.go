@@ -8,6 +8,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -174,6 +175,30 @@ func TestFleetStoresFailureArtifact(t *testing.T) {
 	obj, err := store.Get(context.Background(), res.Screenshot.Key)
 	if err != nil || string(obj.Data) != "PNGBYTES" {
 		t.Fatalf("stored artifact: %q err=%v", obj.Data, err)
+	}
+}
+
+type failingPutStore struct{ *objectstore.MemStore }
+
+func (s failingPutStore) Put(context.Context, string, string, []byte) error {
+	return errors.New("object store unavailable")
+}
+
+func TestFleetObjectStoreOutagePublishesNoPartialReference(t *testing.T) {
+	store := failingPutStore{MemStore: objectstore.NewMemory()}
+	factory := func() Driver { return &lifecycleDriver{screenshot: []byte("PNGBYTES"), fail: true} }
+	fleet := NewFleet(Config{MaxConcurrency: 1}, factory, store, quiet())
+	defer fleet.Close()
+
+	res, err := fleet.Run(context.Background(), "t9", trivialScript())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || res.Error == "" {
+		t.Fatalf("test outcome was hidden by artifact outage: %+v", res)
+	}
+	if res.Screenshot != nil || store.Len() != 0 {
+		t.Fatalf("failed upload published a partial artifact reference: ref=%+v len=%d", res.Screenshot, store.Len())
 	}
 }
 

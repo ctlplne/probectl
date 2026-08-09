@@ -1,0 +1,73 @@
+# ArgoCD fleet declaration for exactly two approved probectl regions. Secrets
+# remain out of Git; each destination must already contain the named TLS,
+# backend trust, and probectl-secrets Secrets.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: probectl-two-region
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - region: us-east
+            server: https://REPLACE_WITH_REGION_A_KUBERNETES_API
+            ingressHost: us-east.probectl.example
+            tlsSecret: probectl-us-east-tls
+            backendTrustSecret: probectl-us-east-backend-ca
+          - region: us-west
+            server: https://REPLACE_WITH_REGION_B_KUBERNETES_API
+            ingressHost: us-west.probectl.example
+            tlsSecret: probectl-us-west-tls
+            backendTrustSecret: probectl-us-west-backend-ca
+  template:
+    metadata:
+      name: 'probectl-{{.region}}'
+      labels:
+        app.kubernetes.io/part-of: probectl
+        probectl.io/region: '{{.region}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/your-org/probectl.git
+        targetRevision: main
+        path: deploy/helm/probectl
+        helm:
+          valueFiles:
+            - values-multiregion.yaml
+          parameters:
+            - name: control.extraEnv.PROBECTL_REGION
+              value: '{{.region}}'
+            - name: control.extraEnv.PROBECTL_REGIONS
+              value: us-east,us-west
+            - name: control.extraEnv.PROBECTL_REPLICATION_MODE
+              value: sync
+            - name: control.extraEnv.PROBECTL_RPO_SECONDS
+              value: '0'
+            - name: control.extraEnv.PROBECTL_RTO_SECONDS
+              value: '60'
+            - name: ingress.host
+              value: '{{.ingressHost}}'
+            - name: ingress.tlsSecretName
+              value: '{{.tlsSecret}}'
+            - name: ingress.backendTLS.trustSecret
+              value: '{{.backendTrustSecret}}'
+            - name: ingress.backendTLS.serverName
+              value: '{{.ingressHost}}'
+            - name: control.tls.existingSecret
+              value: '{{.tlsSecret}}'
+            - name: image.digest
+              value: sha256:REPLACE_WITH_64_HEX_RELEASE_DIGEST
+            - name: secrets.existingSecret
+              value: probectl-secrets
+      destination:
+        server: '{{.server}}'
+        namespace: probectl
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

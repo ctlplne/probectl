@@ -152,6 +152,10 @@ func (s failingIncidentStore) AppendSignal(context.Context, string, string, inci
 	return nil, errors.New("unexpected append")
 }
 
+func (s failingIncidentStore) ActiveCorrelationOverrides(context.Context, string, incident.Signal) ([]incident.CorrelationOverride, error) {
+	return nil, s.err
+}
+
 type recordingIncidentStore struct {
 	openCalls int
 	created   int
@@ -171,4 +175,8 @@ func (s *recordingIncidentStore) Create(_ context.Context, inc *incident.Inciden
 func (s *recordingIncidentStore) AppendSignal(context.Context, string, string, incident.Signal) (*incident.Incident, error) {
 	s.appended++
 	return nil, errors.New("unexpected append")
+}
+
+func (s *recordingIncidentStore) ActiveCorrelationOverrides(context.Context, string, incident.Signal) ([]incident.CorrelationOverride, error) {
+	return nil, nil
 }

@@ -1,0 +1,29 @@
+{
+  "schema": "probectl-counsel-checklist/v1",
+  "as_of": "2026-08-09",
+  "authoritative": false,
+  "notice": "Engineering-prepared counsel input only; not legal advice or approved terms.",
+  "founder_decisions": [
+    {"id": "DEC-01", "status": "locked", "decision": "Core is MPL-2.0; commercial implementation is isolated under ee/."},
+    {"id": "DEC-02", "status": "locked", "decision": "No white-label or OEM identity replacement; MSPs operate under the probectl brand."},
+    {"id": "DEC-03", "status": "locked", "decision": "Customer/MSP self-hosted deployments; no first-party public SaaS."},
+    {"id": "DEC-04", "status": "locked", "decision": "Offline-signed licensing; no remote license verification."},
+    {"id": "DEC-05", "status": "locked", "decision": "USD pricing; no ingest-byte fee."},
+    {"id": "DEC-06", "status": "locked", "decision": "Vendor-neutral signed PSA ticket contract; named adapter follows design-partner choice."}
+  ],
+  "counsel_items": [
+    {"id": "LEG-01", "status": "open", "owner": "corporate_ip_counsel", "deliverable": "Exact legal entity, addresses, and complete IP-assignment chain"},
+    {"id": "LEG-02", "status": "open", "owner": "open_source_commercial_counsel", "deliverable": "Inbound-rights policy for ee/ contributions; CLA or equivalent decision"},
+    {"id": "LEG-03", "status": "open", "owner": "open_source_counsel", "deliverable": "Written MPL boundary, notices, and distribution review"},
+    {"id": "LEG-04", "status": "open", "owner": "commercial_counsel", "deliverable": "Final ee/LICENSE and evaluation terms"},
+    {"id": "LEG-05", "status": "open", "owner": "commercial_counsel", "deliverable": "MSA, order form, support schedule, and negotiation matrix"},
+    {"id": "LEG-06", "status": "open", "owner": "channel_counsel", "deliverable": "MSP/reseller addendum and end-customer minimum terms"},
+    {"id": "LEG-07", "status": "open", "owner": "privacy_counsel", "deliverable": "Role-mapped DPA, security annex, privacy notice, and retention schedule"},
+    {"id": "LEG-08", "status": "open", "owner": "privacy_counsel", "deliverable": "Transfer mechanism and SCC/UK addendum decision for actual support flows"},
+    {"id": "LEG-09", "status": "open", "owner": "trademark_counsel", "deliverable": "Clearance, filing decision, and no-white-label partner brand guide"},
+    {"id": "LEG-10", "status": "open", "owner": "export_counsel", "deliverable": "Encryption export classification and sanctions process"},
+    {"id": "LEG-11", "status": "open", "owner": "data_licensing_counsel", "deliverable": "Written commercial rights schedule for every enabled restricted/unknown external source"},
+    {"id": "LEG-12", "status": "open", "owner": "privacy_counsel", "deliverable": "Website/sales/support data inventory and cookie/privacy posture"}
+  ],
+  "commercial_launch_gate": "No paid MSP end-customer deployment relies on draft repository paper or a restricted/unknown external source without counsel-approved written coverage."
+}

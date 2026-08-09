@@ -10,9 +10,10 @@ That handshake *already tells you* the server's
 certificate, TLS version, and cipher. The **TLS observability** layer harvests
 that information probectl has **already captured** and analyzes it for posture
 problems: certs about to expire, weak keys, deprecated TLS versions, untrusted
-chains, and so on. (The observation model is source-tagged — `http` | `ebpf` —
-so the eBPF L7 plane can feed the same analyzer; today the HTTPS synthetic is
-the live source. See the coverage caveat below.)
+chains, and so on. The observation model is source-tagged — `http` | `ebpf`.
+HTTPS synthetics feed their captured handshake, while the eBPF L7 lane projects
+only privacy-minimized certificate/handshake metadata. It never copies method,
+resource, headers, or decrypted payload into the posture inventory.
 
 The key design choice is in the name: it **observes**, it does not re-probe. It
 never opens a second connection or re-handshakes a target just to inspect the
@@ -28,6 +29,8 @@ trustctl-adjacent security win: cheap, because the handshake came for free.
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   C["HTTPS synthetic<br/>captures version/cipher/leaf-DER/verified"] --> R["result attributes<br/>(carried over the bus)"]
+  E["eBPF L7<br/>handshake/cert metadata only"] --> V["tenant binding + whole-batch validation"]
+  V --> A
   R --> O["FromCanaryAttributes<br/>(reuse — no re-handshake)"]
   O --> A["Analyzer.Analyze"]
   A --> F["Findings"]
@@ -56,6 +59,12 @@ The flow, step by step:
 3. **Analyze.** `threat.Analyzer.Analyze` inspects the handshake facts and the
    parsed leaf, emits severity-scored findings, and (when there's a renewable
    cert problem) builds a trustctl handoff payload.
+4. **Preserve uncertainty.** An eBPF record with `encrypted_unknown`,
+   `sidecar_unknown`, or `unsupported` visibility becomes an explicit
+   unknown/unsupported posture. A malformed, unscoped, mixed-tenant, or
+   registry-mismatched batch mutates nothing. The API labels source, capture
+   mechanism, confidence, and read-time freshness (`current` ≤10 minutes,
+   otherwise `stale`).
 
 ## What it flags
 
@@ -115,20 +124,18 @@ The observation model defines two capture sources, and they see different
 things:
 
 - The **HTTP synthetic** path (`source: http`) sees the certificate
-  **probectl's own client** negotiated. This always works — it's probectl
-  initiating the handshake — and it is the path that feeds the posture
-  inventory today.
-- The **eBPF L7** path (`source: ebpf`) is the designed-in second source: it
-  would see **server-side** TLS by reading plaintext at the TLS library's
-  read/write calls, via **uprobes** — hooks attached to a userspace library's
-  functions. It is
-  [built, not yet served](limitations.md#built-not-yet-served-edges): not wired
-  into the posture pipeline yet — and when it is, it carries a structural blind
-	  spot: a **Go server terminates TLS inside the Go runtime**, not in a system TLS
-	  library probectl's uprobes attach to, so a Go server's TLS stays invisible to
-	  the eBPF path. Go `crypto/tls` plaintext capture is explicitly post-GA / out of
-	  scope for GA (the same Go-TLS limitation described in
-	  [`ebpf-feasibility.md`](ebpf-feasibility.md)).
+  **probectl's own client** negotiated. This works whenever probectl initiates
+  the handshake.
+- The **eBPF L7** path (`source: ebpf`) is wired to the same inventory. A source
+  that supplies validated version/cipher/certificate metadata yields an
+  observed posture; the recorded fixture is the deterministic acceptance path.
+  The current live C-library plaintext uprobe does not pretend it can derive
+  certificate posture from decrypted bytes: it emits `encrypted_unknown` until
+  a trustworthy handshake-metadata source is present. Sidecars likewise stay
+  `sidecar_unknown`. A **Go server terminates TLS inside the Go runtime**, not in
+  a system TLS library probectl's uprobes attach to, so Go `crypto/tls` metadata
+  capture remains [a documented post-GA limitation](limitations.md#built-not-yet-served-edges) (see
+  [`ebpf-feasibility.md`](ebpf-feasibility.md)).
 
 The synthetic path is unaffected by either caveat: anything you point an HTTPS
 test at lands in the inventory.
@@ -152,11 +159,14 @@ genuinely empty fleet, so an empty page never lies about why).
 
 The web surface lives at `/security`:
 
-- the certificate inventory (filterable by issuer/SAN text and by flag —
+- the certificate inventory, including evidence source, capture mechanism,
+  observed/unknown/unsupported state, confidence, and freshness (filterable by issuer/SAN text and by flag —
   expired / expiring / weak / self-signed / CT / intel);
 - an **expiring-soon worklist** (≤30 days, soonest first);
 - a per-cert detail view whose **trustctl handoff is the analyzer's payload
   verbatim** — you copy the exact JSON and use the payload's own deep link, never
   a value re-derived in the browser.
 
-The inventory rebuilds itself from the result stream after a restart.
+The inventory rebuilds itself from the HTTPS-result and eBPF streams after a
+restart. The derived-only/raw-history decision is recorded in
+[`docs/adr/ebpf-raw-history.md`](adr/ebpf-raw-history.md).

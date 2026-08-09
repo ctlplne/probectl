@@ -86,6 +86,19 @@ message L7Call {
   int64 latency_nano = 13;
   uint64 request_bytes = 14;
   uint64 response_bytes = 15;
+
+  // TLS posture metadata captured with the call. This is handshake/certificate
+  // metadata only: the TLS posture consumer never stores method/resource/body.
+  // visibility is observed | encrypted_unknown | sidecar_unknown | unsupported.
+  string tls_visibility = 16;
+  string tls_version = 17;
+  string tls_cipher = 18;
+  string tls_server_name = 19;
+  bytes tls_peer_certificate_der = 20;
+  string tls_verification = 21; // verified | unverified | unknown
+  string tls_observation_source = 22; // uprobe | socket | sidecar | fixture
+  int64 tls_handshake_unix_nano = 23;
+  uint32 tls_confidence = 24; // percentage points; 1..100 when observed
 }
 
 // FlowBatch is the payload published to probectl.ebpf.flows (tenant-keyed).

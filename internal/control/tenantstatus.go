@@ -8,10 +8,12 @@ package control
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -37,9 +39,10 @@ type TenantStatusSource interface {
 
 // tenantStatusCache is a small TTL cache over the tenants table. On a read
 // error it serves the last-known status (a DB blip must not take the API
-// down); a tenant never seen resolves to active (lifecycle gating is an
-// administrative state — the SECURITY boundary remains RLS, which fails
-// closed on its own).
+// down). A principal whose tenant no longer exists resolves to deleted: this
+// keeps the request outside tenant-scoped handlers and their mandatory audit
+// writes, which are durably fenced once a tenant is absent/offboarded. The
+// storage/query boundary remains RLS; this is an earlier, clearer refusal.
 type tenantStatusCache struct {
 	pool *pgxpool.Pool
 	ttl  time.Duration
@@ -72,7 +75,14 @@ func (c *tenantStatusCache) TenantStatus(ctx context.Context, tenantID string) (
 	var status string
 	err := c.pool.QueryRow(ctx, `SELECT status FROM tenants WHERE id = $1`, tenantID).Scan(&status)
 	if err != nil {
-		// Serve stale on error; absent any knowledge, treat as active.
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.mu.Lock()
+			c.entries[tenantID] = statusEntry{status: "deleted", fetched: time.Now()}
+			c.mu.Unlock()
+			return "deleted", nil
+		}
+		// Serve stale on infrastructure errors; absent prior knowledge, preserve
+		// availability. RLS still fails closed independently.
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if e, ok := c.entries[tenantID]; ok {

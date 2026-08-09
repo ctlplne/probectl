@@ -93,9 +93,110 @@ func TestIncidentCorrelationAndAPI(t *testing.T) {
 		t.Errorf("resolved = %+v", resolved)
 	}
 
-	// A bad PATCH status → 422.
-	if rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, tenant, map[string]any{"status": "open"}); rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("invalid status = %d, want 422", rec.Code)
+	// Explicit reopen is the reversible lifecycle action; history remains.
+	if rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, tenant, map[string]any{"status": "open"}); rec.Code != http.StatusOK {
+		t.Errorf("reopen = %d, want 200", rec.Code)
+	}
+	var reopened incident.Incident
+	mustJSON(t, rec, &reopened)
+	if reopened.Status != incident.StatusOpen || reopened.ResolvedAt != nil {
+		t.Errorf("reopened = %+v", reopened)
+	}
+}
+
+// TestIncidentCorrelationOverrideLifecycle proves the BL-015 acceptance path
+// against Postgres: exact signal IDs, tenant-scoped durable override, a fresh
+// correlator (restart), explicit reversal, and immutable audit receipts.
+func TestIncidentCorrelationOverrideLifecycle(t *testing.T) {
+	h, db := setupAPI(t)
+	ctx := context.Background()
+	tenantA := freshTenant(t, db, "inc-override-a")
+	tenantB := freshTenant(t, db, "inc-override-b")
+	now := time.Now().UTC().Truncate(time.Second)
+	correlator := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	parent, err := correlator.Ingest(ctx, incident.Signal{
+		TenantID: tenantA, Plane: "network", Kind: "alert.firing",
+		Title: "loss", Target: "192.0.2.10", Severity: incident.SeverityWarning, OccurredAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := correlator.Ingest(ctx, incident.Signal{
+		TenantID: tenantA, Plane: "bgp", Kind: "bgp.origin_change",
+		Title: "independent route change", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24",
+		Severity: incident.SeverityCritical, OccurredAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	get := apiReq(t, h, http.MethodGet, "/v1/incidents/"+parent.ID, tenantA, nil)
+	var parentFull incident.Incident
+	mustJSON(t, get, &parentFull)
+	if len(parentFull.Signals) != 2 || parentFull.Signals[1].ID == "" {
+		t.Fatalf("incident signal IDs unavailable: %+v", parentFull.Signals)
+	}
+	if got := parentFull.Signals[1].Attributes["correlation.parent_incident_id"]; got != parent.ID {
+		t.Fatalf("suppressed/grouped signal parent = %q, want %q", got, parent.ID)
+	}
+
+	create := apiReq(t, h, http.MethodPost, "/v1/incidents/"+parent.ID+"/correlation-overrides", tenantA, map[string]any{
+		"signal_id": parentFull.Signals[1].ID,
+		"reason":    "route change is independently actionable",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create override = %d: %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		Override         incident.CorrelationOverride `json:"override"`
+		DetachedIncident incident.Incident            `json:"detached_incident"`
+	}
+	mustJSON(t, create, &created)
+	if !created.Override.Active || created.DetachedIncident.ID == "" || created.DetachedIncident.ID == parent.ID {
+		t.Fatalf("created override = %+v / detached=%+v", created.Override, created.DetachedIncident)
+	}
+
+	// Another tenant receives the same 404 for foreign and absent evidence.
+	foreign := apiReq(t, h, http.MethodPost, "/v1/incidents/"+parent.ID+"/correlation-overrides", tenantB, map[string]any{
+		"signal_id": parentFull.Signals[1].ID, "reason": "cross tenant attempt",
+	})
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("cross-tenant override = %d, want 404: %s", foreign.Code, foreign.Body.String())
+	}
+
+	// A fresh correlator simulates restart/rebuild. It must reload the durable
+	// override and append to the independent incident, never the source.
+	afterRestart := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	after, err := afterRestart.Ingest(ctx, incident.Signal{
+		TenantID: tenantA, Plane: "bgp", Kind: "bgp.origin_change",
+		Title: "route change recurrence", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24",
+		Severity: incident.SeverityWarning, OccurredAt: now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != created.DetachedIncident.ID {
+		t.Fatalf("restart discarded override: appended to %s, want detached %s", after.ID, created.DetachedIncident.ID)
+	}
+
+	reverse := apiReq(t, h, http.MethodPost,
+		"/v1/incidents/"+parent.ID+"/correlation-overrides/"+created.Override.ID+"/reverse",
+		tenantA, map[string]any{"reason": "operator confirmed regrouping is safe"})
+	if reverse.Code != http.StatusOK {
+		t.Fatalf("reverse override = %d: %s", reverse.Code, reverse.Body.String())
+	}
+	var reversed incident.CorrelationOverride
+	mustJSON(t, reverse, &reversed)
+	if reversed.Active || reversed.ReversedAt == nil || reversed.ReversalReason == "" {
+		t.Fatalf("reversed override = %+v", reversed)
+	}
+
+	get = apiReq(t, h, http.MethodGet, "/v1/incidents/"+parent.ID, tenantA, nil)
+	mustJSON(t, get, &parentFull)
+	if len(parentFull.CorrelationOverrides) != 1 || parentFull.CorrelationOverrides[0].Active {
+		t.Fatalf("incident did not retain reversed override history: %+v", parentFull.CorrelationOverrides)
+	}
+	auditLog := apiReq(t, h, http.MethodGet, "/v1/audit?limit=1000", tenantA, nil)
+	if auditLog.Code != http.StatusOK || !strings.Contains(auditLog.Body.String(), "incident.correlation_override_create") || !strings.Contains(auditLog.Body.String(), "incident.correlation_override_reverse") {
+		t.Fatalf("override audit receipts missing: %d %s", auditLog.Code, auditLog.Body.String())
 	}
 }
 
@@ -198,6 +299,20 @@ func TestIncidentsAPITenantIsolation(t *testing.T) {
 	// Tenant B can.
 	if rec := apiReq(t, h, http.MethodGet, "/v1/incidents/"+inc.ID, tn.ID, nil); rec.Code != http.StatusOK {
 		t.Errorf("tenant B get = %d, want 200", rec.Code)
+	}
+}
+
+// TestIncidentAPIRejectsAbsentTenantBeforeAudit proves a syntactically valid
+// but nonexistent dev-auth tenant selector cannot reach the tenant audit
+// wrapper. The request fails closed with the same offboarded response as a
+// deleted tenant instead of leaking the audit fence's database error as a 500.
+func TestIncidentAPIRejectsAbsentTenantBeforeAudit(t *testing.T) {
+	h, _ := setupAPI(t)
+	rec := apiReq(t, h, http.MethodGet,
+		"/v1/incidents/00000000-0000-4000-8000-000000000099",
+		"20000000-0000-4000-8000-000000000002", nil)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "tenant_offboarded") {
+		t.Fatalf("absent tenant: want 403 tenant_offboarded, got %d: %s", rec.Code, rec.Body)
 	}
 }
 

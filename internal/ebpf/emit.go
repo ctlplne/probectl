@@ -132,26 +132,51 @@ type L7Record struct {
 	Destination Endpoint
 	Transport   string
 	Encrypted   bool
+	TLS         TLSMetadata
 	Call        l7.Call
+}
+
+// TLSMetadata is privacy-minimized handshake/certificate context. It carries
+// no application payload and is safe to project into the TLS posture plane.
+// Unknown visibility remains explicit instead of being guessed from a port.
+type TLSMetadata struct {
+	Visibility   string
+	Version      string
+	Cipher       string
+	ServerName   string
+	PeerCertDER  []byte
+	Verification string
+	Source       string
+	HandshakeAt  time.Time
+	Confidence   uint32
 }
 
 func (r L7Record) toProto() *ebpfv1.L7Call {
 	return &ebpfv1.L7Call{
-		TenantId:        r.TenantID,
-		AgentId:         r.AgentID,
-		Source:          r.Source.ID(),
-		Destination:     r.Destination.ID(),
-		DestinationPort: r.Destination.Port,
-		Protocol:        r.Call.Protocol,
-		Method:          r.Call.Method,
-		Resource:        r.Call.Resource,
-		Status:          r.Call.Status,
-		Error:           r.Call.Error,
-		Encrypted:       r.Encrypted,
-		StartUnixNano:   unixNano(r.Call.Start),
-		LatencyNano:     r.Call.Latency.Nanoseconds(),
-		RequestBytes:    r.Call.ReqBytes,
-		ResponseBytes:   r.Call.RespBytes,
+		TenantId:              r.TenantID,
+		AgentId:               r.AgentID,
+		Source:                r.Source.ID(),
+		Destination:           r.Destination.ID(),
+		DestinationPort:       r.Destination.Port,
+		Protocol:              r.Call.Protocol,
+		Method:                r.Call.Method,
+		Resource:              r.Call.Resource,
+		Status:                r.Call.Status,
+		Error:                 r.Call.Error,
+		Encrypted:             r.Encrypted,
+		StartUnixNano:         unixNano(r.Call.Start),
+		LatencyNano:           r.Call.Latency.Nanoseconds(),
+		RequestBytes:          r.Call.ReqBytes,
+		ResponseBytes:         r.Call.RespBytes,
+		TlsVisibility:         r.TLS.Visibility,
+		TlsVersion:            r.TLS.Version,
+		TlsCipher:             r.TLS.Cipher,
+		TlsServerName:         r.TLS.ServerName,
+		TlsPeerCertificateDer: append([]byte(nil), r.TLS.PeerCertDER...),
+		TlsVerification:       r.TLS.Verification,
+		TlsObservationSource:  r.TLS.Source,
+		TlsHandshakeUnixNano:  unixNano(r.TLS.HandshakeAt),
+		TlsConfidence:         r.TLS.Confidence,
 	}
 }
 

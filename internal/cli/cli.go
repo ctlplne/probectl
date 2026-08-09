@@ -99,6 +99,8 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		return cmdAI(cfg, rest[1:], stdout, stderr)
 	case "audit":
 		return cmdAudit(cfg, rest[1:], stdin, stdout, stderr)
+	case "incident":
+		return cmdIncident(cfg, rest[1:], stdout, stderr)
 	case "api":
 		return cmdAPI(cfg, rest[1:], stdout, stderr)
 	default:

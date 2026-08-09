@@ -76,6 +76,7 @@ const (
 // the correlation keys (a host/IP/URL and/or a CIDR); Attributes carries arbitrary
 // plane-specific context.
 type Signal struct {
+	ID         string            `json:"id,omitempty"`
 	TenantID   string            `json:"tenant_id"`
 	Plane      string            `json:"plane"` // "network" | "bgp" | "threat" | "change" | ...
 	Kind       string            `json:"kind"`  // e.g. "alert.firing", "bgp.possible_hijack"
@@ -86,6 +87,35 @@ type Signal struct {
 	Prefix     string            `json:"prefix,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 	OccurredAt time.Time         `json:"occurred_at"`
+}
+
+// CorrelationOverride is a tenant operator's durable instruction that a
+// specific signal shape must no longer be grouped into SourceIncidentID. The
+// original signal remains in the source timeline; DetachedIncidentID is the
+// independently visible incident created from it. Active remains true until an
+// explicit reversal.
+type CorrelationOverride struct {
+	ID                 string     `json:"id"`
+	TenantID           string     `json:"tenant_id"`
+	SourceIncidentID   string     `json:"source_incident_id"`
+	DetachedIncidentID string     `json:"detached_incident_id"`
+	SourceSignalID     string     `json:"source_signal_id"`
+	Plane              string     `json:"plane"`
+	Kind               string     `json:"kind"`
+	Target             string     `json:"target,omitempty"`
+	Prefix             string     `json:"prefix,omitempty"`
+	Reason             string     `json:"reason"`
+	Active             bool       `json:"active"`
+	CreatedBy          string     `json:"created_by"`
+	CreatedAt          time.Time  `json:"created_at"`
+	ReversedBy         string     `json:"reversed_by,omitempty"`
+	ReversalReason     string     `json:"reversal_reason,omitempty"`
+	ReversedAt         *time.Time `json:"reversed_at,omitempty"`
+}
+
+func (o CorrelationOverride) Matches(sig Signal) bool {
+	return o.Active && o.TenantID == sig.TenantID && o.Plane == sig.Plane && o.Kind == sig.Kind &&
+		o.Target == sig.Target && o.Prefix == sig.Prefix
 }
 
 // ErrNoCorrelationKey is returned when a signal carries neither Target nor
@@ -129,6 +159,9 @@ type Incident struct {
 	// reads. SignalsLimit states the server cap when truncation occurred.
 	SignalsTruncated bool `json:"signals_truncated"`
 	SignalsLimit     int  `json:"signals_limit,omitempty"`
+	// CorrelationOverrides makes operator intent visible in the incident room;
+	// reversed rows remain history rather than disappearing.
+	CorrelationOverrides []CorrelationOverride `json:"correlation_overrides,omitempty"`
 }
 
 // newIncident seeds an incident from the signal that opened it.

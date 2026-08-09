@@ -123,12 +123,12 @@ prepends the tenant namespace (`tenant/<id>/...` or a routed `silo/<id>/...`).
 That keeps one tenant's artifacts isolated from another's at the storage layer
 (siloed tenants get their own prefix via isolation routing; a routing failure
 stores nothing — fail closed).
-Two implementations ship today: **filesystem** (the default) and **in-memory**
-(tests). The store is a deliberately small `Store` interface
-(`Put`/`Get`/`Stat`/`List`/`DeletePrefix`), so an S3 / MinIO backend can slot
-in behind it — pluggable by design, but
-[**not shipped yet**](limitations.md#built-not-yet-served-edges); don't plan a
-deployment around S3 support that isn't there.
+Three implementations ship: **S3/MinIO** for durable deployments,
+**filesystem** for local/single-node development, and **in-memory** for tests.
+All implement the same bounded `Store` interface
+(`Put`/`Get`/`Stat`/`List`/`DeletePrefix`). Remote S3-compatible endpoints use
+verified HTTPS and SigV4; the durable decision and failure policy are recorded
+in [the artifact-storage ADR](adr/browser-artifact-storage.md).
 
 Successful runs store nothing by default (to bound storage); set
 `StoreOnSuccess` to keep them. Object-lifecycle / retention policy is applied at
@@ -145,12 +145,13 @@ browser:
   driver: http
 ```
 
-When `artifact_store.dir` (or
-`PROBECTL_AGENT_OBJECTSTORE_DIR`) is set, the agent opens that self-hosted store
-and passes its mTLS tenant into the browser fleet, so failed transaction
+When `artifact_store.mode: s3` and its S3 fields are set, the agent opens the
+operator's durable S3/MinIO store. `artifact_store.dir` (or
+`PROBECTL_AGENT_OBJECTSTORE_DIR`) selects the filesystem fallback. In both cases
+the agent passes its mTLS tenant into the browser fleet, so failed transaction
 artifacts are written under `tenant/<id>/browser/...`. Point it at the same
-mounted backend as the control plane's `PROBECTL_OBJECTSTORE_DIR` when tenant
-lifecycle export/erase must inventory and delete those artifacts. To create one
+backend, bucket, and prefix as the control plane when tenant lifecycle
+export/erase must inventory and delete those artifacts. To create one
 from the CLI, either omit `script` and let the agent create a default
 `goto target + assert HTTP 200` transaction, or pass the script JSON explicitly:
 

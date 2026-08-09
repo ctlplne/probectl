@@ -22,11 +22,11 @@ import (
 // sync. RLS confines every row to the caller's tenant (F50).
 type IncidentIntegrations struct{}
 
-const integrationCols = `tenant_id::text, incident_id::text, connector, external_ref, status, created_at, updated_at`
+const integrationCols = `tenant_id::text, incident_id::text, connector, external_ref, status, revision, created_at, updated_at`
 
 func scanLink(row interface{ Scan(...any) error }) (*notify.Link, error) {
 	var l notify.Link
-	if err := row.Scan(&l.TenantID, &l.IncidentID, &l.Connector, &l.ExternalRef, &l.Status, &l.CreatedAt, &l.UpdatedAt); err != nil {
+	if err := row.Scan(&l.TenantID, &l.IncidentID, &l.Connector, &l.ExternalRef, &l.Status, &l.Revision, &l.CreatedAt, &l.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &l, nil
@@ -69,13 +69,14 @@ func (IncidentIntegrations) Upsert(ctx context.Context, s tenancy.Scope, l notif
 		status = "open"
 	}
 	_, err := s.Q.Exec(ctx,
-		`INSERT INTO incident_integrations (tenant_id, incident_id, connector, external_ref, status, updated_at)
-		   VALUES ($1, $2, $3, $4, $5, now())
+		`INSERT INTO incident_integrations (tenant_id, incident_id, connector, external_ref, status, revision, updated_at)
+		   VALUES ($1, $2, $3, $4, $5, $6, now())
 		 ON CONFLICT (tenant_id, incident_id, connector)
 		   DO UPDATE SET external_ref = EXCLUDED.external_ref,
 		                 status       = EXCLUDED.status,
+		                 revision     = GREATEST(incident_integrations.revision, EXCLUDED.revision),
 		                 updated_at   = now()`,
-		s.Tenant.String(), l.IncidentID, l.Connector, l.ExternalRef, status)
+		s.Tenant.String(), l.IncidentID, l.Connector, l.ExternalRef, status, l.Revision)
 	return err
 }
 

@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -46,6 +47,10 @@ func (s *Server) handleTLSPosture(w http.ResponseWriter, r *http.Request) error 
 	items := s.tlsPostures.List(tid)
 	if items == nil {
 		items = []threat.Posture{}
+	}
+	now := time.Now()
+	for i := range items {
+		items[i] = items[i].WithFreshness(now)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "collector_running": true})
 	return nil

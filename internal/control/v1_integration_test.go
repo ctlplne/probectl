@@ -239,7 +239,8 @@ func setupAPIServerWithLatest(t *testing.T, latest *LatestResults) (*Server, *st
 	}
 	t.Cleanup(db.Close)
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev"}
-	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
+		WithTenantStatus(NewTenantStatusCache(db.Pool(), 0))
 	if latest != nil {
 		srv.WithLatestResults(latest)
 	}

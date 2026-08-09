@@ -54,7 +54,7 @@ func TestAttributeLayers(t *testing.T) {
 			name: "WiFi fine, high gateway RTT → local",
 			s: Sample{
 				WiFi:     wifi(-48),
-				Gateway:  Gateway{IP: "192.168.1.1", Reachable: true, RTTMs: 40},
+				Gateway:  Gateway{IP: "192.168.1.1", Reachable: true, RTTMs: 100},
 				LastMile: LastMile{ISPRTTMs: 20},
 				Sessions: []Session{sess(2000)},
 			},
@@ -73,7 +73,7 @@ func TestAttributeLayers(t *testing.T) {
 			s: Sample{
 				WiFi:     wifi(-48),
 				Gateway:  Gateway{IP: "192.168.1.1", Reachable: true, RTTMs: 6},
-				LastMile: LastMile{ISPRTTMs: 130},
+				LastMile: LastMile{ISPRTTMs: 250},
 				Sessions: []Session{sess(2000)},
 			},
 			want: CauseISP,
@@ -84,7 +84,7 @@ func TestAttributeLayers(t *testing.T) {
 				WiFi:     wifi(-48),
 				Gateway:  Gateway{IP: "192.168.1.1", Reachable: true, RTTMs: 6},
 				LastMile: LastMile{ISPRTTMs: 22},
-				Sessions: []Session{sess(2600)},
+				Sessions: []Session{sess(5000)},
 			},
 			want: CauseNetwork,
 		},
@@ -127,7 +127,7 @@ func TestAttributeLayers(t *testing.T) {
 func TestAttributeWiredHostNeverBlamesWiFi(t *testing.T) {
 	s := Sample{
 		WiFi:     WiFi{Present: false},
-		Gateway:  Gateway{IP: "10.0.0.1", Reachable: true, RTTMs: 50},
+		Gateway:  Gateway{IP: "10.0.0.1", Reachable: true, RTTMs: 100},
 		Sessions: []Session{sess(2000)},
 	}
 	if got := Attribute(s, DefaultThresholds()); got.Cause != CauseLocal {
@@ -140,10 +140,58 @@ func TestAttributeISPLoss(t *testing.T) {
 	s := Sample{
 		WiFi:     wifi(-50),
 		Gateway:  Gateway{IP: "192.168.0.1", Reachable: true, RTTMs: 5},
-		LastMile: LastMile{ISPRTTMs: 30, ISPLossPct: 6},
+		LastMile: LastMile{ISPRTTMs: 30, ISPLossPct: 20},
 		Sessions: []Session{sess(1700)},
 	}
 	if got := Attribute(s, DefaultThresholds()); got.Cause != CauseISP {
 		t.Fatalf("cause = %q, want isp (ISP-edge loss)", got.Cause)
+	}
+}
+
+func TestAttributeWithholdsBelowConfidenceFloor(t *testing.T) {
+	s := Sample{
+		WiFi: wifi(-50), Gateway: Gateway{IP: "192.168.0.1", Reachable: true, RTTMs: 30},
+		LastMile: LastMile{ISPRTTMs: 24}, Sessions: []Session{sess(1800)},
+	}
+	got := Attribute(s, DefaultThresholds())
+	if got.Cause != CauseUnknown || got.Confidence >= MinimumActionableConfidence {
+		t.Fatalf("ambiguous attribution = %+v", got)
+	}
+	if got.CalibrationStatus != AttributionCalibrationStatus || got.ConfidenceFloor != MinimumActionableConfidence {
+		t.Fatalf("calibration receipt missing: %+v", got)
+	}
+}
+
+// TestAttributionCalibrationCorpus is the declared synthetic gate, not field
+// calibration. It includes positive, negative, ambiguous, and multi-cause rows.
+// Representative design-partner data must replace the provisional label before
+// a population accuracy claim is made.
+func TestAttributionCalibrationCorpus(t *testing.T) {
+	type row struct {
+		name string
+		s    Sample
+		want Cause
+	}
+	calibrationRows := []row{
+		{"healthy-negative", Sample{WiFi: wifi(-50), Gateway: Gateway{IP: "g", Reachable: true, RTTMs: 3}, LastMile: LastMile{ISPRTTMs: 15}, Sessions: []Session{sess(200)}}, CauseNone},
+		{"wifi-positive", Sample{WiFi: wifi(-90), Gateway: Gateway{IP: "g", Reachable: true, RTTMs: 120}, LastMile: LastMile{ISPRTTMs: 300}, Sessions: []Session{sess(5000)}}, CauseWiFi},
+		{"local-positive", Sample{WiFi: wifi(-45), Gateway: Gateway{IP: "g", Reachable: false, LossPct: 100}, Sessions: []Session{sess(5000)}}, CauseLocal},
+		{"isp-positive", Sample{WiFi: wifi(-45), Gateway: Gateway{IP: "g", Reachable: true, RTTMs: 3}, LastMile: LastMile{ISPRTTMs: 300}, Sessions: []Session{sess(5000)}}, CauseISP},
+		{"network-positive", Sample{WiFi: wifi(-45), Gateway: Gateway{IP: "g", Reachable: true, RTTMs: 3}, LastMile: LastMile{ISPRTTMs: 15}, Sessions: []Session{sess(5000)}}, CauseNetwork},
+		{"ambiguous", Sample{WiFi: wifi(-45), Gateway: Gateway{IP: "g", Reachable: true, RTTMs: 30}, LastMile: LastMile{ISPRTTMs: 90}, Sessions: []Session{sess(1700)}}, CauseUnknown},
+		{"multi-cause-closest", Sample{WiFi: wifi(-90), Gateway: Gateway{IP: "g", Reachable: false, LossPct: 100}, LastMile: LastMile{ISPRTTMs: 300}, Sessions: []Session{sess(5000)}}, CauseWiFi},
+	}
+	wrongHighConfidence, total := 0, 0
+	for repeat := 0; repeat < 20; repeat++ {
+		for _, fixture := range calibrationRows {
+			total++
+			got := Attribute(fixture.s, DefaultThresholds())
+			if got.Cause != fixture.want && got.Confidence >= MinimumActionableConfidence {
+				wrongHighConfidence++
+			}
+		}
+	}
+	if rate := float64(wrongHighConfidence) / float64(total); rate > 0.01 {
+		t.Fatalf("high-confidence misattribution rate %.3f exceeds 0.01 (%d/%d)", rate, wrongHighConfidence, total)
 	}
 }

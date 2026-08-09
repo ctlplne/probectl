@@ -31,6 +31,7 @@ tooling, so the whole feature stays off unless `PROBECTL_NOTIFY_CONNECTORS` is s
 | **Teams** | chat | post "incident opened" | post "incident resolved" | — |
 | **ServiceNow** | ticket | create incident (Table API) | set state Resolved (state `6`) | native Business-Rule POST, or the portable contract |
 | **Jira** | ticket | create issue (REST v2) | transition to Done (default transition `31`) | native issue webhook, or the portable contract |
+| **PSA (vendor-neutral)** | ticket | signed `create` | signed `resolve` | portable signed status contract |
 
 Routing is **per-tenant**: a connector is registered against one tenant id and
 only ever fires for incidents of that tenant.
@@ -68,6 +69,30 @@ flowchart LR
   `POST /ingest/itsm/{provider}/{id}`; probectl verifies the delivery, maps the
   external ref back to the incident, resolves it, and syncs the *other* systems.
 
+### Vendor-neutral PSA lifecycle
+
+A PSA is the MSP's business operating system for customers, contracts, tickets,
+time, and billing. The `psa` connector deliberately does not guess whether the
+first design partner uses ConnectWise, Autotask, or HaloPSA. It sends one stable
+`probectl-psa-ticket/v1` JSON envelope for `create`, `update`, `resolve`, and
+`reopen`; the design partner maps that envelope into its PSA once, and the first
+named adapter can then be built from observed workflow evidence.
+
+Each request has `X-Probectl-Contract: probectl-psa-ticket/v1`, a stable
+`Idempotency-Key`, and `X-Probectl-Signature: sha256=<HMAC-of-exact-body>`. The
+HMAC goes through `internal/crypto`. The body contains an opaque tenant-scope
+digest, incident id, status, severity, times, and signal count. It does **not**
+contain the raw tenant id, target, incident title, signal payload, or credential;
+the ticket points to a separately authorized, signed probectl evidence export.
+A create response is `{"external_ref":"PSA-12345","status":"open"}`.
+
+Correlated signals emit idempotent `update` transitions. An explicit
+`incident.write` resolve emits `resolve`; explicitly setting the incident back
+to `open` emits `reopen` and is audited as `incident.reopen`. Provider-plane
+operators have no implicit tenant write path; they need the existing
+tenant-consented, time-bounded break-glass flow before acting as an authorized
+tenant principal.
+
 ## Idempotency
 
 Ticket creation and paging are **idempotent** — doing it twice has the same
@@ -81,6 +106,18 @@ incident id (`probectl-<id>`) — the identity the pager service itself
 deduplicates on — so even a duplicate trigger that slips past the link row
 coalesces server-side. Two layers, because a 3 a.m. double-page erodes exactly
 the trust a pager runs on.
+
+The per-tenant dispatcher queue is bounded and applies producer backpressure
+instead of dropping a committed transition when full. Provider calls have a
+deadline and retry three times; the PSA idempotency key makes an ambiguous retry
+coalesce. The queue itself is process-local, but startup and periodic
+reconciliation compare the current tenant-scoped incident with the durable link
+revision and recover a create, update, resolve, or reopen missed by a process
+crash. If the crash happened after the receiver accepted a request but before
+probectl stored the link/revision, the receiver **must** honor the supplied
+idempotency key so the replay coalesces. This provides durable final-state
+convergence; it is not a database-transactional, exactly-once event outbox and
+does not claim that every brief intermediate state is delivered.
 
 ## Bidirectional sync + loop protection
 
@@ -138,6 +175,13 @@ sync from Jira):
 ```text
 PROBECTL_NOTIFY_CONNECTORS=00000000-0000-0000-0000-000000000001|pagerduty|https://events.pagerduty.com/v2/enqueue|<routing-key>,00000000-0000-0000-0000-000000000001|jira|https://acme.atlassian.net/rest/api/2/issue?project=OPS&resolve_transition=31|alice@acme.com:<api-token>
 PROBECTL_NOTIFY_INBOUND=jira1:00000000-0000-0000-0000-000000000001:jira:<webhook-secret>
+```
+
+Vendor-neutral PSA example (still off unless explicitly configured):
+
+```text
+PROBECTL_NOTIFY_CONNECTORS=00000000-0000-0000-0000-000000000001|psa|https://psa-bridge.example/probectl|<hmac-secret>
+PROBECTL_NOTIFY_INBOUND=psa1:00000000-0000-0000-0000-000000000001:psa:<hmac-secret>
 ```
 
 ## Out of scope

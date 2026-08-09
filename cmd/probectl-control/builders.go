@@ -329,13 +329,25 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		return fail(err)
 	}
 
-	if cfg.ObjectStoreDir != "" {
+	if cfg.ObjectStoreMode == "s3" {
+		objectStore, err := objectstore.NewS3(objectstore.S3Config{
+			Endpoint: cfg.ObjectStoreS3Endpoint, Bucket: cfg.ObjectStoreS3Bucket,
+			Region: cfg.ObjectStoreS3Region, AccessKey: cfg.ObjectStoreS3AccessKey,
+			SecretKey: cfg.ObjectStoreS3SecretKey, SessionToken: cfg.ObjectStoreS3SessionToken,
+			Prefix: cfg.ObjectStoreS3Prefix,
+		})
+		if err != nil {
+			return fail(fmt.Errorf("object store: %w", err))
+		}
+		s.objectStore = objectStore
+		log.Info("tenant object store enabled", "mode", "s3", "bucket", cfg.ObjectStoreS3Bucket)
+	} else if cfg.ObjectStoreDir != "" {
 		objectStore, err := objectstore.NewFS(cfg.ObjectStoreDir)
 		if err != nil {
 			return fail(fmt.Errorf("object store: %w", err))
 		}
 		s.objectStore = objectStore
-		log.Info("tenant object store enabled", "dir", cfg.ObjectStoreDir)
+		log.Info("tenant object store enabled", "mode", "filesystem", "dir", cfg.ObjectStoreDir)
 	}
 
 	return s, closeAll, nil

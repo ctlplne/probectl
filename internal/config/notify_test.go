@@ -49,6 +49,9 @@ func TestNotifyConnectorsConfig(t *testing.T) {
 	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_CONNECTORS": "t|pagerduty||sec"})); err == nil {
 		t.Error("an empty endpoint should be a load error")
 	}
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_CONNECTORS": "t|psa|https://psa.test/hook|"})); err == nil {
+		t.Error("a PSA connector without an HMAC secret should fail closed")
+	}
 }
 
 func TestNotifyConnectorsRejectPlaintextRemoteEndpoints(t *testing.T) {

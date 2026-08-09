@@ -10,7 +10,7 @@ locals {
   values_files = concat(local.size_values, [for f in var.values_files : file(f)])
   # image_tag is a deprecated compatibility input. It accepts only the historic
   # <version>@sha256:<digest> form, then discards the mutable display tag.
-  image_digest            = var.image_digest != "" ? var.image_digest : try(split("@", var.image_tag)[1], "")
+  image_digest = var.image_digest != "" ? var.image_digest : try(split("@", var.image_tag)[1], "")
   backend_tls_server_name = (
     var.ingress_backend_tls_server_name != ""
     ? var.ingress_backend_tls_server_name
@@ -24,6 +24,7 @@ locals {
       PROBECTL_SESSION_HMAC_KEY = var.session_hmac_key
       PROBECTL_DATABASE_URL     = var.database_url
     },
+    var.database_read_url == "" ? {} : { PROBECTL_DATABASE_READ_URL = var.database_read_url },
     var.oidc_client_secret == "" ? {} : { PROBECTL_OIDC_CLIENT_SECRET = var.oidc_client_secret },
   )
 

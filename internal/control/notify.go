@@ -61,6 +61,17 @@ func (p pgLinkStore) Upsert(ctx context.Context, l notify.Link) error {
 		})
 }
 
+func (p pgLinkStore) ListIncidents(ctx context.Context, tenant string) ([]incident.Incident, error) {
+	var out []incident.Incident
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			var e error
+			out, e = (store.Incidents{}).List(c, sc)
+			return e
+		})
+	return out, err
+}
+
 // BuildDispatcher constructs the on-call/ITSM dispatcher from config. It returns
 // (nil, false) unless connectors are configured — OFF by default, since each
 // connector is an outbound connection to the operator's tooling. Per-tenant
@@ -94,10 +105,14 @@ func BuildDispatcher(cfg *config.Config, pool *pgxpool.Pool, log *slog.Logger) (
 // re-notified (avoid alert spam). A nil dispatcher is a no-op.
 func NotifyObserver(d *notify.Dispatcher, _ *slog.Logger) incident.Observer {
 	return func(ctx context.Context, inc *incident.Incident, opened bool) {
-		if d == nil || inc == nil || !opened {
+		if d == nil || inc == nil {
 			return
 		}
-		d.Opened(ctx, *inc)
+		if opened {
+			d.Opened(ctx, *inc)
+		} else {
+			d.Updated(ctx, *inc)
+		}
 	}
 }
 

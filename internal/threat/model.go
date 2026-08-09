@@ -58,7 +58,20 @@ type TLSObservation struct {
 	JA3S       string            `json:"ja3s,omitempty"`
 	Leaf       *x509.Certificate `json:"-"` // the parsed leaf, when the DER was captured
 	ObservedAt time.Time         `json:"observed_at"`
+	State      PostureState      `json:"state"`
+	Visibility string            `json:"visibility"`
+	Capture    string            `json:"capture"`
+	Confidence int               `json:"confidence"`
 }
+
+// PostureState keeps a measured handshake distinct from visibility gaps.
+type PostureState string
+
+const (
+	PostureObserved    PostureState = "observed"
+	PostureUnknown     PostureState = "unknown"
+	PostureUnsupported PostureState = "unsupported"
+)
 
 // FindingKind enumerates TLS/cert posture issues.
 type FindingKind string
@@ -115,6 +128,28 @@ type Posture struct {
 	Severity   Severity        `json:"severity"`
 	Handoff    *HandoffPayload `json:"handoff,omitempty"`
 	ObservedAt time.Time       `json:"observed_at"`
+	State      PostureState    `json:"state"`
+	Visibility string          `json:"visibility"`
+	Capture    string          `json:"capture"`
+	Confidence int             `json:"confidence"`
+	Freshness  string          `json:"freshness"`
+}
+
+// TLSPostureFreshnessWindow is the explicit recency boundary used by the API.
+// It is intentionally conservative until a per-source cadence contract exists.
+const TLSPostureFreshnessWindow = 10 * time.Minute
+
+// WithFreshness returns a copy labeled current/stale/unknown at read time.
+func (p Posture) WithFreshness(now time.Time) Posture {
+	switch {
+	case p.ObservedAt.IsZero():
+		p.Freshness = "unknown"
+	case now.Sub(p.ObservedAt) > TLSPostureFreshnessWindow:
+		p.Freshness = "stale"
+	default:
+		p.Freshness = "current"
+	}
+	return p
 }
 
 func (p *Posture) add(f Finding) {

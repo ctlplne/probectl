@@ -38,10 +38,11 @@ func (c *cymruSource) Descriptor() Descriptor {
 		Kind:    KindASN,
 		Cadence: time.Hour,
 		AUP: AUP{
-			License:       "Team Cymru community service (free)",
-			URL:           "https://team-cymru.com/community-services/ip-asn-mapping/",
-			Attribution:   "IP-to-ASN mapping by Team Cymru",
-			CommercialUse: CommercialAttribution,
+			License:        "Team Cymru community IP-to-ASN service; no redistribution grant stated",
+			URL:            "https://www.team-cymru.com/ip-asn-mapping",
+			Attribution:    "IP-to-ASN mapping by Team Cymru",
+			CommercialUse:  CommercialUnknown,
+			Redistribution: "Provider/MSP resale and redistribution require written confirmation or a commercial agreement",
 		},
 	}
 }

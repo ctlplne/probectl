@@ -52,10 +52,11 @@ func (p *peeringDBSource) Descriptor() Descriptor {
 		Kind:    KindIXP,
 		Cadence: 24 * time.Hour,
 		AUP: AUP{
-			License:       "PeeringDB data (CC BY 4.0)",
-			URL:           "https://www.peeringdb.com/aup",
-			Attribution:   "Data from PeeringDB",
-			CommercialUse: CommercialAttribution,
+			License:        "PeeringDB Acceptable Use Policy",
+			URL:            "https://www.peeringdb.com/aup",
+			Attribution:    "Data from PeeringDB",
+			CommercialUse:  CommercialRestricted,
+			Redistribution: "PeeringDB states that its AUP prevents commercial use; obtain written permission before provider/MSP use or redistribution",
 		},
 	}
 }

@@ -9,7 +9,9 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/threat"
@@ -21,6 +23,10 @@ type Incidents struct{}
 
 const incidentCols = `id::text, tenant_id::text, status, severity, title, target, prefix,
 	started_at, last_seen_at, resolved_at, signal_count`
+
+const correlationOverrideCols = `id::text, tenant_id::text, source_incident_id::text,
+	detached_incident_id::text, source_signal_id::text, plane, kind, target, prefix,
+	reason, active, created_by, created_at, reversed_by, reversal_reason, reversed_at`
 
 func scanIncident(row interface{ Scan(...any) error }, inc *incident.Incident) error {
 	var status, severity string
@@ -87,7 +93,7 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 		return nil, notFound("incident", err)
 	}
 	rows, err := s.Q.Query(ctx,
-		`SELECT plane, kind, severity, title, summary, target, prefix, attributes, occurred_at
+		`SELECT id::text, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at
 		 FROM incident_signals WHERE incident_id = $1 ORDER BY occurred_at, id LIMIT $2`,
 		id, incident.MaxSignalsPerRead+1)
 	if err != nil {
@@ -103,7 +109,7 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 		var sig incident.Signal
 		var severity string
 		var attrs []byte
-		if err := rows.Scan(&sig.Plane, &sig.Kind, &severity, &sig.Title, &sig.Summary,
+		if err := rows.Scan(&sig.ID, &sig.Plane, &sig.Kind, &severity, &sig.Title, &sig.Summary,
 			&sig.Target, &sig.Prefix, &attrs, &sig.OccurredAt); err != nil {
 			return nil, err
 		}
@@ -121,7 +127,189 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 		inc.SignalsTruncated = true
 		inc.SignalsLimit = incident.MaxSignalsPerRead
 	}
-	return &inc, rows.Err()
+	rowErr := rows.Err()
+	rows.Close()
+	if rowErr != nil {
+		return nil, rowErr
+	}
+	overrides, err := (Incidents{}).ListCorrelationOverrides(ctx, s, id)
+	if err != nil {
+		return nil, err
+	}
+	inc.CorrelationOverrides = overrides
+	return &inc, nil
+}
+
+func scanCorrelationOverride(row interface{ Scan(...any) error }, override *incident.CorrelationOverride) error {
+	return row.Scan(
+		&override.ID, &override.TenantID, &override.SourceIncidentID,
+		&override.DetachedIncidentID, &override.SourceSignalID, &override.Plane,
+		&override.Kind, &override.Target, &override.Prefix, &override.Reason,
+		&override.Active, &override.CreatedBy, &override.CreatedAt,
+		&override.ReversedBy, &override.ReversalReason, &override.ReversedAt,
+	)
+}
+
+// ActiveCorrelationOverrides returns active exclusions matching this exact
+// signal shape. RLS is the outer boundary; the explicit tenant predicate is
+// defense in depth and supports the match index.
+func (Incidents) ActiveCorrelationOverrides(ctx context.Context, s tenancy.Scope, sig incident.Signal) ([]incident.CorrelationOverride, error) {
+	rows, err := s.Q.Query(ctx, `SELECT `+correlationOverrideCols+`
+		FROM incident_correlation_overrides
+		WHERE tenant_id = $1 AND active AND plane = $2 AND kind = $3 AND target = $4 AND prefix = $5
+		ORDER BY created_at DESC`,
+		s.Tenant.String(), sig.Plane, sig.Kind, sig.Target, sig.Prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []incident.CorrelationOverride{}
+	for rows.Next() {
+		var override incident.CorrelationOverride
+		if err := scanCorrelationOverride(rows, &override); err != nil {
+			return nil, err
+		}
+		out = append(out, override)
+	}
+	return out, rows.Err()
+}
+
+// ListCorrelationOverrides returns active and reversed rows for one source
+// incident so operator intent and its reversal remain visible.
+func (Incidents) ListCorrelationOverrides(ctx context.Context, s tenancy.Scope, incidentID string) ([]incident.CorrelationOverride, error) {
+	rows, err := s.Q.Query(ctx, `SELECT `+correlationOverrideCols+`
+		FROM incident_correlation_overrides WHERE source_incident_id = $1
+		ORDER BY created_at DESC`, incidentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []incident.CorrelationOverride{}
+	for rows.Next() {
+		var override incident.CorrelationOverride
+		if err := scanCorrelationOverride(rows, &override); err != nil {
+			return nil, err
+		}
+		out = append(out, override)
+	}
+	return out, rows.Err()
+}
+
+// CreateUngroupOverride preserves the original evidence, creates a standalone
+// incident from the selected signal, and installs the durable exclusion used by
+// every later correlation run. The caller and audit append share the tenant
+// transaction.
+func (Incidents) CreateUngroupOverride(ctx context.Context, s tenancy.Scope, sourceIncidentID, sourceSignalID, reason, actor string) (*incident.CorrelationOverride, *incident.Incident, error) {
+	if _, err := s.Q.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('incident:'||$1::text, 0))`,
+		s.Tenant.String()); err != nil {
+		return nil, nil, err
+	}
+	var source incident.Signal
+	var severity string
+	var attrs []byte
+	err := s.Q.QueryRow(ctx, `SELECT id::text, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at
+		FROM incident_signals WHERE id = $1 AND incident_id = $2`, sourceSignalID, sourceIncidentID).Scan(
+		&source.ID, &source.Plane, &source.Kind, &severity, &source.Title,
+		&source.Summary, &source.Target, &source.Prefix, &attrs, &source.OccurredAt)
+	if err != nil {
+		return nil, nil, notFound("incident signal", err)
+	}
+	source.TenantID = s.Tenant.String()
+	source.Severity = incident.Severity(severity)
+	source.Attributes = map[string]string{}
+	if len(attrs) > 0 {
+		if err := json.Unmarshal(attrs, &source.Attributes); err != nil {
+			return nil, nil, err
+		}
+	}
+	var sourceCount int
+	if err := s.Q.QueryRow(ctx, `SELECT signal_count FROM incidents WHERE id = $1`, sourceIncidentID).Scan(&sourceCount); err != nil {
+		return nil, nil, notFound("incident", err)
+	}
+	if sourceCount <= 1 {
+		return nil, nil, apierror.Conflict("the only signal is already an independent incident")
+	}
+	var exists bool
+	if err := s.Q.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM incident_correlation_overrides
+		WHERE source_incident_id = $1 AND plane = $2 AND kind = $3 AND target = $4 AND prefix = $5 AND active
+	)`, sourceIncidentID, source.Plane, source.Kind, source.Target, source.Prefix).Scan(&exists); err != nil {
+		return nil, nil, err
+	}
+	if exists {
+		return nil, nil, apierror.Conflict("an active override already covers this signal shape")
+	}
+
+	child, err := (Incidents{}).Create(ctx, s, incident.Incident{
+		TenantID: s.Tenant.String(), Status: incident.StatusOpen, Severity: source.Severity,
+		Title: source.Title, Target: source.Target, Prefix: source.Prefix,
+		StartedAt: source.OccurredAt, LastSeenAt: source.OccurredAt,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	var override incident.CorrelationOverride
+	err = scanCorrelationOverride(s.Q.QueryRow(ctx, `INSERT INTO incident_correlation_overrides
+		(tenant_id, source_incident_id, detached_incident_id, source_signal_id,
+		 plane, kind, target, prefix, reason, active, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)
+		RETURNING `+correlationOverrideCols,
+		s.Tenant.String(), sourceIncidentID, child.ID, sourceSignalID,
+		source.Plane, source.Kind, source.Target, source.Prefix, strings.TrimSpace(reason), actor), &override)
+	if err != nil {
+		return nil, nil, mapWriteErr("incident correlation override", err)
+	}
+	clone := source
+	clone.ID = ""
+	clone.Attributes = copyStringMap(source.Attributes)
+	clone.Attributes["correlation.state"] = "root"
+	clone.Attributes["correlation.parent_incident_id"] = child.ID
+	clone.Attributes["correlation.reason"] = "operator_ungroup_override_created_independent_incident"
+	clone.Attributes["correlation.override_id"] = override.ID
+	clone.Attributes["correlation.excluded_parent_incident_id"] = sourceIncidentID
+	clone.Attributes["correlation.match_confidence"] = "operator_decision"
+	detached, err := (Incidents{}).AppendSignal(ctx, s, child.ID, clone)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := s.Q.Exec(ctx, `UPDATE incident_signals
+		SET attributes = attributes || jsonb_build_object(
+		  'correlation.override_id', $2::text,
+		  'correlation.detached_incident_id', $3::text,
+		  'correlation.override_state', 'active')
+		WHERE id = $1`, sourceSignalID, override.ID, child.ID); err != nil {
+		return nil, nil, err
+	}
+	return &override, detached, nil
+}
+
+// ReverseCorrelationOverride removes the exclusion for later correlation runs;
+// it never deletes either timeline.
+func (Incidents) ReverseCorrelationOverride(ctx context.Context, s tenancy.Scope, sourceIncidentID, overrideID, actor, reason string) (*incident.CorrelationOverride, error) {
+	var override incident.CorrelationOverride
+	err := scanCorrelationOverride(s.Q.QueryRow(ctx, `UPDATE incident_correlation_overrides SET
+		active = false, reversed_by = $3, reversal_reason = $4, reversed_at = now()
+		WHERE id = $1 AND source_incident_id = $2 AND active
+		RETURNING `+correlationOverrideCols,
+		overrideID, sourceIncidentID, actor, strings.TrimSpace(reason)), &override)
+	if err != nil {
+		return nil, notFound("active incident correlation override", err)
+	}
+	if _, err := s.Q.Exec(ctx, `UPDATE incident_signals
+		SET attributes = attributes || jsonb_build_object('correlation.override_state', 'reversed')
+		WHERE id = $1`, override.SourceSignalID); err != nil {
+		return nil, err
+	}
+	return &override, nil
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in)+8)
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 // ThreatDetections returns recent attributed threat signals from the durable
@@ -213,6 +401,19 @@ func (Incidents) Resolve(ctx context.Context, s tenancy.Scope, id string) (*inci
 	var inc incident.Incident
 	err := scanIncident(s.Q.QueryRow(ctx,
 		`UPDATE incidents SET status = 'resolved', resolved_at = now()
+		 WHERE id = $1 RETURNING `+incidentCols, id), &inc)
+	if err != nil {
+		return nil, notFound("incident", err)
+	}
+	return &inc, nil
+}
+
+// Reopen marks an incident open again after an explicit human decision. It does
+// not erase history; resolved_at is cleared while the original timeline stays.
+func (Incidents) Reopen(ctx context.Context, s tenancy.Scope, id string) (*incident.Incident, error) {
+	var inc incident.Incident
+	err := scanIncident(s.Q.QueryRow(ctx,
+		`UPDATE incidents SET status = 'open', resolved_at = NULL
 		 WHERE id = $1 RETURNING `+incidentCols, id), &inc)
 	if err != nil {
 		return nil, notFound("incident", err)

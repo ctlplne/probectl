@@ -15,6 +15,7 @@ import {
   CardHeader,
   EmptyState,
   ErrorState,
+  Field,
   LoadingState,
   StatusDot,
   Table,
@@ -24,11 +25,16 @@ import {
 import {
   severityTone,
   useCreateIncidentShare,
+  useCreateIncidentCorrelationOverride,
+  useExportIncidentEvidence,
   useIncident,
   useIncidentChanges,
   useResolveIncident,
+  useReopenIncident,
+  useReverseIncidentCorrelationOverride,
   type ChangeCandidate,
   type Incident,
+  type IncidentCorrelationOverride,
   type IncidentShareArtifact,
   type Signal,
 } from '../api/incidents'
@@ -145,9 +151,15 @@ export function IncidentRoom({
   const incident = useIncident(incidentSnapshot ? undefined : incidentId)
   const changes = useIncidentChanges(incidentSnapshot ? undefined : incidentId)
   const resolve = useResolveIncident(incidentId)
+  const reopen = useReopenIncident(incidentId)
   const remediations = useRemediations(!sharedArtifactID)
   const createProposal = useCreateRemediationProposal()
   const createShare = useCreateIncidentShare(incidentId)
+  const exportEvidence = useExportIncidentEvidence(incidentId)
+  const createCorrelationOverride = useCreateIncidentCorrelationOverride(incidentId)
+  const reverseCorrelationOverride = useReverseIncidentCorrelationOverride(incidentId)
+  // api-error-covered: createCorrelationOverride, reverseCorrelationOverride — CorrelationDecision
+  // supplies a distinct onError toast to each mutate call and preserves the active state on failure.
   const { push } = useToast()
   const [explanation, setExplanation] = useState<Answer | undefined>(sharedAnswer)
   const [shareLink, setShareLink] = useState<string>()
@@ -372,6 +384,44 @@ export function IncidentRoom({
     })
   }
 
+  function reopenIncident() {
+    reopen.mutate(undefined, {
+      onError: (error) =>
+        push({
+          tone: 'danger',
+          title: t('incidents.action.reopenFailed'),
+          message: error instanceof Error ? error.message : t('incidents.action.reopenFailed'),
+        }),
+    })
+  }
+
+  function downloadEvidencePackage() {
+    exportEvidence.mutate(undefined, {
+      onSuccess: (bytes) => {
+        const blob = new Blob([bytes as BlobPart], {
+          type: 'application/vnd.probectl.evidence+json',
+        })
+        const href = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        anchor.href = href
+        anchor.download = `probectl-incident-${roomIncident.id}-evidence.json`
+        anchor.click()
+        URL.revokeObjectURL(href)
+        push({
+          tone: 'success',
+          title: t('incidents.export.complete'),
+          message: t('incidents.export.verify'),
+        })
+      },
+      onError: (error) =>
+        push({
+          tone: 'danger',
+          title: t('incidents.export.failed'),
+          message: error instanceof Error ? error.message : t('incidents.export.failedDescription'),
+        }),
+    })
+  }
+
   return (
     <section className={styles.room} aria-label={t('incidents.room.aria')}>
       <Card>
@@ -492,6 +542,15 @@ export function IncidentRoom({
               >
                 {createShare.isPending ? t('incidents.share.creating') : t('incidents.share.copy')}
               </Button>
+              <Button
+                variant="secondary"
+                onClick={downloadEvidencePackage}
+                disabled={exportEvidence.isPending}
+              >
+                {exportEvidence.isPending
+                  ? t('incidents.export.creating')
+                  : t('incidents.export.download')}
+              </Button>
               {shareLink ? <a href={shareLink}>{t('incidents.share.open')}</a> : null}
             </div>
           </CardBody>
@@ -601,6 +660,17 @@ export function IncidentRoom({
           />
 
           {!sharedArtifactID ? (
+            <CorrelationDecision
+              incident={roomIncident}
+              signal={selectedSignal?.signal}
+              canWrite={canWriteJournal}
+              createOverride={createCorrelationOverride}
+              reverseOverride={reverseCorrelationOverride}
+              onToast={push}
+            />
+          ) : null}
+
+          {!sharedArtifactID ? (
             <Card>
               <CardHeader title={t('incidents.room.next.title')} />
               <CardBody>
@@ -632,7 +702,15 @@ export function IncidentRoom({
                     >
                       {t('incidents.action.resolve')}
                     </Button>
-                  ) : null}
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      onClick={reopenIncident}
+                      disabled={reopen.isPending}
+                    >
+                      {t('incidents.action.reopen')}
+                    </Button>
+                  )}
                 </div>
               </CardBody>
             </Card>
@@ -640,6 +718,169 @@ export function IncidentRoom({
         </div>
       </div>
     </section>
+  )
+}
+
+function CorrelationDecision({
+  incident,
+  signal,
+  canWrite,
+  createOverride,
+  reverseOverride,
+  onToast,
+}: {
+  incident: Incident
+  signal?: Signal
+  canWrite: boolean
+  createOverride: ReturnType<typeof useCreateIncidentCorrelationOverride>
+  reverseOverride: ReturnType<typeof useReverseIncidentCorrelationOverride>
+  onToast: ReturnType<typeof useToast>['push']
+}) {
+  const [reason, setReason] = useState('')
+  if (!signal) return null
+  const attributes = signal.attributes ?? {}
+  const parentID = attributes['correlation.parent_incident_id']
+  const activeOverride = (incident.correlation_overrides ?? []).find(
+    (item) => item.active && item.source_signal_id === signal.id,
+  )
+  const history = (incident.correlation_overrides ?? []).filter(
+    (item) => item.source_signal_id === signal.id,
+  )
+  const pending = createOverride.isPending || reverseOverride.isPending
+  const cleanReason = reason.trim()
+
+  function ungroup() {
+    if (!signal?.id || !cleanReason) return
+    createOverride.mutate(
+      { signal_id: signal.id, reason: cleanReason },
+      {
+        onSuccess: ({ detached_incident: detached }) => {
+          setReason('')
+          onToast({
+            tone: 'success',
+            title: 'Signal restored as an independent incident',
+            message: `Future exact matches will avoid this parent until reversal. Detached incident: ${detached.id}`,
+          })
+        },
+        onError: (error) =>
+          onToast({
+            tone: 'danger',
+            title: 'Ungroup failed',
+            message: error instanceof Error ? error.message : 'No correlation state changed.',
+          }),
+      },
+    )
+  }
+
+  function reverse(override: IncidentCorrelationOverride) {
+    if (!cleanReason) return
+    reverseOverride.mutate(
+      { override_id: override.id, reason: cleanReason },
+      {
+        onSuccess: () => {
+          setReason('')
+          onToast({
+            tone: 'success',
+            title: 'Grouping override reversed',
+            message:
+              'Later signals use the normal deterministic correlation rule; both timelines remain.',
+          })
+        },
+        onError: (error) =>
+          onToast({
+            tone: 'danger',
+            title: 'Reversal failed',
+            message: error instanceof Error ? error.message : 'The override remains active.',
+          }),
+      },
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Grouping decision"
+        description="Why this signal shares an incident, and the durable human decision that can override it."
+      />
+      <CardBody>
+        <dl className={styles.inspector}>
+          <div>
+            <dt>State</dt>
+            <dd>{attributes['correlation.state'] ?? 'unknown — correlation metadata missing'}</dd>
+          </div>
+          <div>
+            <dt>Parent incident</dt>
+            <dd>
+              {parentID ? (
+                <Link to={`/incidents?incident=${encodeURIComponent(parentID)}`}>{parentID}</Link>
+              ) : (
+                'unknown'
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Reason</dt>
+            <dd>
+              {attributes['correlation.reason'] ?? 'unknown — fail louder and investigate ingest'}
+            </dd>
+          </div>
+          <div>
+            <dt>Match confidence</dt>
+            <dd>
+              {attributes['correlation.match_confidence'] ?? 'unknown'} (
+              {attributes['correlation.confidence_scope'] ?? 'scope unknown'})
+            </dd>
+          </div>
+          <div>
+            <dt>Freshness</dt>
+            <dd>
+              {attributes['correlation.freshness_seconds']
+                ? `${attributes['correlation.freshness_seconds']} seconds`
+                : 'unknown'}
+            </dd>
+          </div>
+        </dl>
+        {history.map((override) => (
+          <p key={override.id} className={styles.safety}>
+            Override {override.id}: {override.active ? 'ACTIVE' : 'REVERSED'} · detached incident{' '}
+            <Link to={`/incidents?incident=${encodeURIComponent(override.detached_incident_id)}`}>
+              {override.detached_incident_id}
+            </Link>{' '}
+            · {override.reason}
+          </p>
+        ))}
+        {canWrite &&
+        signal.id &&
+        (activeOverride || attributes['correlation.state'] === 'grouped') ? (
+          <>
+            <Field
+              label={
+                activeOverride
+                  ? 'Why reverse this override?'
+                  : 'Why is this signal independently important?'
+              }
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={500}
+              hint="Required, tenant-local, and written with the audited state transition."
+            />
+            <Button
+              variant="secondary"
+              disabled={pending || !cleanReason}
+              onClick={() => (activeOverride ? reverse(activeOverride) : ungroup())}
+            >
+              {activeOverride ? 'Reverse grouping override' : 'Ungroup into independent incident'}
+            </Button>
+          </>
+        ) : (
+          <p className={styles.safety}>
+            {canWrite
+              ? 'This signal is the incident root or lacks a durable signal ID; there is nothing to ungroup.'
+              : 'incident.write is required to change grouping. Existing decisions remain visible.'}
+          </p>
+        )}
+      </CardBody>
+    </Card>
   )
 }
 

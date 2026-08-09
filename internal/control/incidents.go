@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -104,6 +105,24 @@ func (p pgIncidentTxStore) AppendSignal(ctx context.Context, tenant, incidentID 
 		return nil, err
 	}
 	return store.Incidents{}.AppendSignal(ctx, p.scope, incidentID, sig)
+}
+
+func (p pgIncidentStore) ActiveCorrelationOverrides(ctx context.Context, tenant string, sig incident.Signal) ([]incident.CorrelationOverride, error) {
+	var out []incident.CorrelationOverride
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			x, e := (store.Incidents{}).ActiveCorrelationOverrides(c, sc, sig)
+			out = x
+			return e
+		})
+	return out, err
+}
+
+func (p pgIncidentTxStore) ActiveCorrelationOverrides(ctx context.Context, tenant string, sig incident.Signal) ([]incident.CorrelationOverride, error) {
+	if err := p.requireTenant(tenant); err != nil {
+		return nil, err
+	}
+	return (store.Incidents{}).ActiveCorrelationOverrides(ctx, p.scope, sig)
 }
 
 func (p pgIncidentTxStore) requireTenant(tenant string) error {
@@ -298,17 +317,27 @@ func (s *Server) handlePatchIncident(w http.ResponseWriter, r *http.Request) err
 	if err := decodeJSON(r, &req); err != nil {
 		return err
 	}
-	if req.Status != string(incident.StatusResolved) {
-		return apierror.Validation("status must be \"resolved\"")
+	if req.Status != string(incident.StatusResolved) && req.Status != string(incident.StatusOpen) {
+		return apierror.Validation("status must be \"resolved\" or \"open\"")
 	}
 	var inc *incident.Incident
+	action := "incident.resolve"
+	if req.Status == string(incident.StatusOpen) {
+		action = "incident.reopen"
+	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		x, e := store.Incidents{}.Resolve(ctx, sc, id)
+		var x *incident.Incident
+		var e error
+		if req.Status == string(incident.StatusOpen) {
+			x, e = (store.Incidents{}).Reopen(ctx, sc, id)
+		} else {
+			x, e = (store.Incidents{}).Resolve(ctx, sc, id)
+		}
 		if e != nil {
 			return e
 		}
 		inc = x
-		return s.recordAudit(ctx, sc, r, "incident.resolve", id, nil)
+		return s.recordAudit(ctx, sc, r, action, id, nil)
 	}); err != nil {
 		return err
 	}
@@ -316,8 +345,90 @@ func (s *Server) handlePatchIncident(w http.ResponseWriter, r *http.Request) err
 	// connector, so every linked system is resolved (the inbound path uses the
 	// provider name as the source to avoid echoing back to its origin).
 	if inc != nil && s.dispatcher != nil {
-		s.dispatcher.Resolved(r.Context(), *inc, "api")
+		if inc.Status == incident.StatusOpen {
+			s.dispatcher.Reopened(r.Context(), *inc)
+		} else {
+			s.dispatcher.Resolved(r.Context(), *inc, "api")
+		}
 	}
 	writeJSON(w, http.StatusOK, inc)
+	return nil
+}
+
+type incidentUngroupRequest struct {
+	SignalID string `json:"signal_id"`
+	Reason   string `json:"reason"`
+}
+
+// handleCreateIncidentCorrelationOverride detaches one signal shape from its
+// current incident. The original evidence remains; a new independent incident
+// is created and later matching signals exclude the source until reversal.
+func (s *Server) handleCreateIncidentCorrelationOverride(w http.ResponseWriter, r *http.Request) error {
+	incidentID := r.PathValue("id")
+	var req incidentUngroupRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	req.SignalID = strings.TrimSpace(req.SignalID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.SignalID == "" {
+		return apierror.Validation("signal_id is required")
+	}
+	if req.Reason == "" || len(req.Reason) > 500 {
+		return apierror.Validation("reason must be between 1 and 500 bytes")
+	}
+	var override *incident.CorrelationOverride
+	var detached *incident.Incident
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		override, detached, err = (store.Incidents{}).CreateUngroupOverride(
+			ctx, sc, incidentID, req.SignalID, req.Reason, auditActor(r))
+		if err != nil {
+			return err
+		}
+		return s.recordAudit(ctx, sc, r, "incident.correlation_override_create", override.ID, map[string]any{
+			"source_incident_id":   incidentID,
+			"source_signal_id":     req.SignalID,
+			"detached_incident_id": detached.ID,
+			"scope":                "exact_plane_kind_target_prefix",
+		})
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"override": override, "detached_incident": detached})
+	return nil
+}
+
+type incidentOverrideReverseRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (s *Server) handleReverseIncidentCorrelationOverride(w http.ResponseWriter, r *http.Request) error {
+	incidentID := r.PathValue("id")
+	overrideID := r.PathValue("override_id")
+	var req incidentOverrideReverseRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Reason == "" || len(req.Reason) > 500 {
+		return apierror.Validation("reason must be between 1 and 500 bytes")
+	}
+	var override *incident.CorrelationOverride
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		override, err = (store.Incidents{}).ReverseCorrelationOverride(
+			ctx, sc, incidentID, overrideID, auditActor(r), req.Reason)
+		if err != nil {
+			return err
+		}
+		return s.recordAudit(ctx, sc, r, "incident.correlation_override_reverse", override.ID, map[string]any{
+			"source_incident_id":   incidentID,
+			"detached_incident_id": override.DetachedIncidentID,
+		})
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, override)
 	return nil
 }

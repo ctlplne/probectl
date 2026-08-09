@@ -1,0 +1,26 @@
+# Copy outside Git, replace every value, and provide via your secret-safe CI.
+image_repository = "registry.example.com/probectl/control"
+image_digest     = "sha256:REPLACE_WITH_64_LOWERCASE_HEX"
+database_writer_url = "postgres://probectl:REDACTED@pg-writer.example:5432/probectl?sslmode=verify-full"
+envelope_key     = "REDACTED_BASE64_32_BYTES"
+session_hmac_key = "REDACTED_64_HEX"
+
+region_a = {
+  name                 = "us-east"
+  kubeconfig           = "/secure/kubeconfigs/us-east"
+  context              = "probectl-us-east"
+  ingress_host         = "us-east.probectl.example"
+  tls_secret           = "probectl-us-east-tls"
+  backend_trust_secret = "probectl-us-east-backend-ca"
+  database_read_url    = "postgres://probectl:REDACTED@pg-read-us-east.example:5432/probectl?sslmode=verify-full"
+}
+
+region_b = {
+  name                 = "us-west"
+  kubeconfig           = "/secure/kubeconfigs/us-west"
+  context              = "probectl-us-west"
+  ingress_host         = "us-west.probectl.example"
+  tls_secret           = "probectl-us-west-tls"
+  backend_trust_secret = "probectl-us-west-backend-ca"
+  database_read_url    = "postgres://probectl:REDACTED@pg-read-us-west.example:5432/probectl?sslmode=verify-full"
+}

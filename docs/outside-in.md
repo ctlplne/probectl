@@ -219,6 +219,11 @@ That keeps the default no-phone-home posture intact. Turning feeds on is an
 operator decision, and a failed feed degrades to stale/labeled context instead of
 breaking core monitoring.
 
+The accepted external-vantage decision is deliberately narrower: public feeds
+may enrich this read-only internet-weather view, but no partner/public active
+probe may publish tenant results or make an owned-vantage coverage cell green.
+See [`adr/external-vantage-sources.md`](adr/external-vantage-sources.md).
+
 ## MSP resale pattern
 
 For an MSP, the product shape is:

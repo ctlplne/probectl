@@ -70,9 +70,17 @@ func (a *Analyzer) WithIntel(intel CertIntel) *Analyzer {
 // Analyze produces the TLS/cert posture for an observation.
 func (a *Analyzer) Analyze(ctx context.Context, obs TLSObservation) Posture {
 	now := a.cfg.Now()
+	if obs.State == "" {
+		obs.State = PostureObserved
+	}
+	if obs.Confidence == 0 && obs.State == PostureObserved {
+		obs.Confidence = 100
+	}
 	p := Posture{
 		Target: obs.Target, Source: obs.Source, TLSVersion: obs.TLSVersion,
 		Cipher: obs.Cipher, ObservedAt: obs.ObservedAt, Severity: SeverityInfo,
+		State: obs.State, Visibility: obs.Visibility, Capture: obs.Capture,
+		Confidence: obs.Confidence, Freshness: "current",
 	}
 
 	// Protocol + cipher posture (from the captured handshake).

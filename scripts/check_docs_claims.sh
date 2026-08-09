@@ -165,15 +165,13 @@ run_checks() { # run_checks <root>
   local limits="$r/docs/limitations.md"
   if ! grep -q '## Built, not yet served edges' "$limits" 2>/dev/null \
      || ! grep -q 'Chaos injector API/control-plane surface' "$limits" 2>/dev/null \
-     || ! grep -q 'eBPF TLS posture ingest' "$limits" 2>/dev/null \
-     || ! grep -q 'Raw eBPF flow retention' "$limits" 2>/dev/null \
-     || ! grep -q 'Browser artifact S3 / MinIO backend' "$limits" 2>/dev/null; then
+     || ! grep -q 'Go `crypto/tls` eBPF handshake metadata' "$limits" 2>/dev/null \
+     || ! grep -q 'Raw eBPF call/flow history' "$limits" 2>/dev/null; then
     echo "DOCS-S15: docs/limitations.md must keep the canonical built-not-yet-served table" >&2; f=1
   fi
   if ! grep -q '../limitations.md#built-not-yet-served-edges' "$r/docs/features/cost-slo-and-chaos.md" 2>/dev/null \
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/tls-observability.md" 2>/dev/null \
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/deploying-agents.md" 2>/dev/null \
-     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/browser-synthetic.md" 2>/dev/null \
      || ! grep -q '../limitations.md#built-not-yet-served-edges' "$r/docs/features/alerting-and-incidents.md" 2>/dev/null; then
     echo "DOCS-S15: built-not-yet-served feature caveats must link to docs/limitations.md" >&2; f=1
   fi
@@ -356,9 +354,8 @@ EOF
 ## Built, not yet served edges
 Chaos injector API/control-plane surface
 Alert email delivery
-eBPF TLS posture ingest
-Raw eBPF flow retention
-Browser artifact S3 / MinIO backend
+Go `crypto/tls` eBPF handshake metadata
+Raw eBPF call/flow history
 The plugin/detection marketplace is a non-goal.
 inline IPS/firewall
 autonomous remediation
@@ -574,9 +571,8 @@ EOF
       cat > "$d/docs/limitations.md" <<'EOF'
 ## Built, not yet served edges
 Chaos injector API/control-plane surface
-eBPF TLS posture ingest
-Raw eBPF flow retention
-Browser artifact S3 / MinIO backend
+Go `crypto/tls` eBPF handshake metadata
+Raw eBPF call/flow history
 The plugin/detection marketplace is a non-goal.
 inline IPS/firewall
 autonomous remediation

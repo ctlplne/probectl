@@ -34,6 +34,12 @@ func doJSON(ctx context.Context, client Doer, method, url string, headers map[st
 	if err != nil {
 		return nil, err
 	}
+	return doJSONBytes(ctx, client, method, url, headers, body)
+}
+
+// doJSONBytes sends already-canonical JSON bytes. Signed connectors use this so
+// the receiver verifies exactly the bytes covered by the HMAC.
+func doJSONBytes(ctx context.Context, client Doer, method, url string, headers map[string]string, body []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err

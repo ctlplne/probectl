@@ -1,0 +1,24 @@
+{
+  "schema": "probectl-bakeoff-profile/v1",
+  "revision": "2026-08-09-msp-design-partner-template-1",
+  "buyer_archetype": "self-hosted MSP design partner",
+  "volumes": {
+    "tenants": {"value": 100, "unit": "count", "note": "edit without changing catalog facts"},
+    "sites_per_tenant": {"value": 1, "unit": "count"},
+    "agents_per_site": {"value": 5, "unit": "count"},
+    "tests_per_agent": {"value": 4, "unit": "count"},
+    "flow_events_per_second": {"value": 200000, "unit": "events/second", "note": "replace with the buyer's measured peak"},
+    "retention_days": {"value": 30, "unit": "days"},
+    "migration_objects": {"value": 10000, "unit": "objects", "note": "tests, agents, users, policies, integrations, and dashboards"},
+    "operator_hourly_usd": {"value": 125, "unit": "USD/hour", "note": "replace with loaded labor cost"}
+  },
+  "weights": {
+    "isp-proof": 5,
+    "remote-user": 3,
+    "msp-onboarding-psa": 5,
+    "route-flow-incident": 4,
+    "alert-cascade": 4,
+    "upgrade-restore": 5,
+    "cost": 5
+  }
+}

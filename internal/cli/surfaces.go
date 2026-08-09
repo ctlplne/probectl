@@ -182,6 +182,18 @@ var surfaceCommands = map[string]surfaceCommand{
 			Method: http.MethodPost, Path: "/v1/incidents/{id}/shares", ArgName: "id",
 			Description: "create an expiring redacted cited-evidence snapshot",
 		},
+		"export": {
+			Method: http.MethodPost, Path: "/v1/incidents/{id}/exports", ArgName: "id",
+			Description: "export an immutable signed probectl-evidence/v1 package; use incident verify for offline verification",
+		},
+		"ungroup": {
+			Method: http.MethodPost, Path: "/v1/incidents/{id}/correlation-overrides", ArgName: "id",
+			Description: "detach one falsely grouped signal and persist an audited exclusion until explicit reversal",
+		},
+		"reverse-override": {
+			Method: http.MethodPost, Path: "/v1/incidents/{id}/correlation-overrides/{override_id}/reverse", ArgName: "id",
+			Description: "reverse one durable correlation override without deleting either incident timeline",
+		},
 		"shared": {
 			Method: http.MethodGet, Path: "/v1/incident-shares/{id}", ArgName: "id",
 			Description: "read an authenticated same-tenant incident snapshot",

@@ -1216,6 +1216,7 @@ export interface IRAttributionRevealRequest {
 }
 
 export interface Incident {
+  correlation_overrides?: IncidentCorrelationOverride[]
   id?: string
   last_seen_at?: string
   prefix?: string
@@ -1230,6 +1231,45 @@ export interface Incident {
   target?: string
   tenant_id?: string
   title?: string
+}
+
+export interface IncidentCorrelationOverride {
+  active: boolean
+  created_at: string
+  created_by: string
+  detached_incident_id: string
+  id: string
+  kind: string
+  plane: string
+  prefix?: string
+  reason: string
+  reversal_reason?: string
+  reversed_at?: string
+  reversed_by?: string
+  source_incident_id: string
+  source_signal_id: string
+  target?: string
+  tenant_id: string
+}
+
+export interface IncidentCorrelationOverrideCreate {
+  reason: string
+  signal_id: string
+}
+
+export interface IncidentCorrelationOverrideCreateResponse {
+  detached_incident: Incident
+  override: IncidentCorrelationOverride
+}
+
+export interface IncidentCorrelationOverrideReverse {
+  reason: string
+}
+
+export interface IncidentEvidencePackage {
+  attachments: JsonObject[]
+  manifest: JsonObject
+  signing: JsonObject
 }
 
 export interface IncidentJournalAppendRequest {
@@ -1278,7 +1318,7 @@ export interface IncidentList {
 }
 
 export interface IncidentPatch {
-  status: "resolved"
+  status: "resolved" | "open"
 }
 
 export interface IncidentShareArtifact {
@@ -1599,6 +1639,7 @@ export interface SelfMetricsSnapshot {
 
 export interface Signal {
   attributes?: { [key: string]: string }
+  id?: string
   kind?: string
   occurred_at?: string
   plane?: string
@@ -2384,6 +2425,27 @@ export interface IncidentCIsRequest {
 }
 
 export type IncidentCIsResponse = JsonObject
+
+export interface CreateIncidentCorrelationOverrideRequest {
+  id: string
+  body: IncidentCorrelationOverrideCreate
+}
+
+export type CreateIncidentCorrelationOverrideResponse = IncidentCorrelationOverrideCreateResponse
+
+export interface ReverseIncidentCorrelationOverrideRequest {
+  id: string
+  overrideId: string
+  body: IncidentCorrelationOverrideReverse
+}
+
+export type ReverseIncidentCorrelationOverrideResponse = IncidentCorrelationOverride
+
+export interface ExportIncidentEvidenceRequest {
+  id: string
+}
+
+export type ExportIncidentEvidenceResponse = IncidentEvidencePackage
 
 export interface ListIncidentJournalRequest {
   id: string
@@ -3525,6 +3587,28 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<IncidentCIsResponse>("GET", path, query, undefined)
+  }
+
+  async createIncidentCorrelationOverride(request: CreateIncidentCorrelationOverrideRequest): Promise<CreateIncidentCorrelationOverrideResponse> {
+    let path = "/v1/incidents/{id}/correlation-overrides"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateIncidentCorrelationOverrideResponse>("POST", path, query, request.body)
+  }
+
+  async reverseIncidentCorrelationOverride(request: ReverseIncidentCorrelationOverrideRequest): Promise<ReverseIncidentCorrelationOverrideResponse> {
+    let path = "/v1/incidents/{id}/correlation-overrides/{override_id}/reverse"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    path = path.replace("{override_id}", encodeURIComponent(String(request.overrideId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ReverseIncidentCorrelationOverrideResponse>("POST", path, query, request.body)
+  }
+
+  async exportIncidentEvidence(request: ExportIncidentEvidenceRequest): Promise<ExportIncidentEvidenceResponse> {
+    let path = "/v1/incidents/{id}/exports"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ExportIncidentEvidenceResponse>("POST", path, query, undefined)
   }
 
   async listIncidentJournal(request: ListIncidentJournalRequest): Promise<ListIncidentJournalResponse> {

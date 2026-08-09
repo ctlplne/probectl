@@ -96,7 +96,7 @@ identically either way — it is a deployment choice:
 | Mode (`PROBECTL_REPLICATION_MODE`) | RPO | Trade-off |
 |---|---|---|
 | `sync` | **0** — no committed data lost on failover | higher write latency (commit waits for a standby) |
-| `async` (default) | ≈ replication lag at the moment of failure | lower write latency; a small bounded data-loss window |
+| `async` (explicit alternative) | ≈ replication lag at the moment of failure | lower write latency; a small bounded data-loss window |
 
 Replica lag is observable: `/readyz` reports `cluster.reader.lag_seconds` and
 the metric `probectl_cluster_replica_lag_seconds{region=…}`. For an RPO-0
@@ -147,12 +147,15 @@ failover controller's detection + promotion times. probectl resumes writes
 automatically on the next probe once the endpoint resolves to the promoted
 primary — no probectl restart required.
 
-## The RPO/RTO targets are provisional — not yet validated
+## The RPO/RTO targets: locally rehearsed, regional proof still required
 
 RPO (how much data you can lose) and RTO (how long recovery takes) are *numeric
-SLO targets*. The values below are engineering estimates recorded so the
-failover gate is runnable end to end — they become committed numbers only once
-validated failover runs back them. They are configurable via
+SLO targets*. The synchronous PostgreSQL promotion mechanism is now rehearsed
+with real streaming replication, `remote_apply`, a hard primary loss, and zero
+lost client-acknowledged rows. That is still a single-host two-failure-domain
+fixture: the values become a regional deployment claim only when a two-region
+receipt also measures WAN, DNS/proxy re-pointing, control-plane fence release,
+and non-author execution. They are configurable via
 `PROBECTL_RPO_SECONDS` / `PROBECTL_RTO_SECONDS` (surfaced together on `/readyz`
 and in this table).
 

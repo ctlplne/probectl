@@ -11,7 +11,12 @@
  * browser), matching the backend's tenant-first boundary. Requests are
  * same-origin; the API is HTTPS-by-default at the ingress.
  */
-import { readResponseJSON, ResponseBodyTooLargeError, responseBodyLimit } from './response'
+import {
+  readResponseBytes,
+  readResponseJSON,
+  ResponseBodyTooLargeError,
+  responseBodyLimit,
+} from './response'
 
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/v1'
 
@@ -80,6 +85,33 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
   if (res.status === 204) return undefined as T
   return readResponseJSON<T>(res, responseBodyLimit(res))
+}
+
+/** apiFetchBytes preserves a signed/content-addressed response byte-for-byte.
+ * It uses the same same-origin, demo-isolation, error, and body-limit policy as
+ * apiFetch; callers must not parse and reserialize an evidence package before
+ * download because doing so would change the signed canonical bytes. */
+export async function apiFetchBytes(path: string, init?: RequestInit): Promise<Uint8Array> {
+  if (demoTransportIsolated && path !== '/me') {
+    throw new ApiError(403, 'Live tenant APIs are disabled while demo mode is active.')
+  }
+  const headers = new Headers(init?.headers)
+  if (!headers.has('Accept')) headers.set('Accept', 'application/octet-stream')
+  const res = await fetch(apiURL(path), { ...init, credentials: 'same-origin', headers })
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`
+    try {
+      const body = await readResponseJSON<{ error?: { message?: string } }>(
+        res,
+        responseBodyLimit(res),
+      )
+      if (body?.error?.message) message = body.error.message
+    } catch (err) {
+      if (err instanceof ResponseBodyTooLargeError) message = err.message
+    }
+    throw new ApiError(res.status, message)
+  }
+  return readResponseBytes(res, responseBodyLimit(res))
 }
 
 /**

@@ -536,6 +536,21 @@ export const API_CALL_CONTRACTS = [
     generated: 'GetIncidentShareResponse',
   },
   {
+    file: 'api/incidents.ts',
+    method: 'POST',
+    path: '`/incidents/${id}/correlation-overrides`',
+    response:
+      '{\n        override: IncidentCorrelationOverride\n        detached_incident: Incident\n      }',
+    generated: 'CreateIncidentCorrelationOverrideResponse',
+  },
+  {
+    file: 'api/incidents.ts',
+    method: 'POST',
+    path: '`/incidents/${id}/correlation-overrides/${request.override_id}/reverse`',
+    response: 'IncidentCorrelationOverride',
+    generated: 'ReverseIncidentCorrelationOverrideResponse',
+  },
+  {
     file: 'api/keys.ts',
     method: 'GET',
     path: '/security/keys',

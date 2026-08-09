@@ -106,7 +106,13 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
         </dd>
         <dt>Protocol</dt>
         <dd>
-          TLS {posture.tls_version} · {posture.cipher || '—'}
+          {posture.state === 'observed'
+            ? `TLS ${posture.tls_version} · ${posture.cipher || '—'}`
+            : `${posture.state} · ${posture.visibility}`}
+        </dd>
+        <dt>Evidence</dt>
+        <dd>
+          {posture.source} / {posture.capture} · {posture.freshness} · {posture.confidence}%
         </dd>
         {leaf ? (
           <>
@@ -658,7 +664,17 @@ export function SecurityPage() {
       header: 'Key',
       render: (p) => (p.leaf ? `${p.leaf.key_type} ${p.leaf.key_bits}` : '—'),
     },
-    { key: 'proto', header: 'Protocol', render: (p) => `TLS ${p.tls_version}` },
+    {
+      key: 'proto',
+      header: 'Protocol',
+      render: (p) =>
+        p.state === 'observed' ? `TLS ${p.tls_version}` : `${p.state} · ${p.visibility}`,
+    },
+    {
+      key: 'evidence',
+      header: 'Evidence',
+      render: (p) => `${p.source} · ${p.freshness} · ${p.confidence}%`,
+    },
     { key: 'flags', header: 'Flags', render: (p) => flagBadges(p) },
     {
       key: 'actions',
@@ -752,7 +768,7 @@ export function SecurityPage() {
                   empty={
                     <EmptyState
                       title="No certificates observed"
-                      description="HTTPS synthetic results feed this inventory automatically."
+                      description="HTTPS synthetic and eBPF TLS metadata feed this inventory automatically."
                     />
                   }
                 />

@@ -178,6 +178,45 @@ sounding for a while; **acknowledge is signing the station logbook** — it says
   series resolves, the engine wipes its operator state so the next episode starts
   clean.
 
+### Explainable grouping and reversible false-positive overrides
+
+Incident grouping is deliberately deterministic, not magic. Signals are grouped
+when their time window, target, and network-prefix facts match the versioned
+`time_target_prefix_v1` rule. Each signal carries a flat, machine-readable
+explanation: the grouping state, parent incident, rule, reason, window,
+freshness, and match confidence. `match_confidence=1.00` means only that the
+declared rule matched exactly; it is **not** a claim that probectl proved the
+root cause. Missing grouping metadata is shown as unknown rather than silently
+invented by the UI.
+
+An in-tenant principal with `incident.write` can mark a selected signal as a
+false grouping from the incident room. A reason is mandatory. The control plane
+keeps the original signal and incident evidence, creates a new incident for the
+detached signal, and writes a tenant-RLS-protected correlation override plus an
+immutable audit event. Future matching signals remain excluded from the named
+source incident after a control-plane restart because PostgreSQL—not process
+memory—is the production source of truth. Reversal also requires a reason; it
+deactivates the rule and records who reversed it, but never deletes the override
+history or original evidence. Reversal affects future correlation and does not
+rewrite history by silently merging the detached incident.
+
+The provider console has no ambient mutation path for these decisions. Today,
+only a tenant-authorized `incident.write` caller may create or reverse one. A
+future provider-side mutation would require a separately designed,
+tenant-consented, time-bounded, write-scoped break-glass path and provider audit
+receipt; the existing read-only break-glass path is intentionally insufficient.
+
+Maintenance and manual correlation decisions act at different stages. An active
+maintenance window prevents a matching alert from reaching the incident sink,
+so an override cannot resurrect or page on a signal that maintenance suppressed.
+If a visible signal already exists, its override remains durable independently
+of later maintenance-window changes.
+
+| Route | Perm | Meaning |
+| --- | --- | --- |
+| `POST /v1/incidents/{id}/correlation-overrides` | `incident.write` | Detach one signal with `{signal_id, reason}`; retain all evidence and return the durable override plus new incident ID. |
+| `POST /v1/incidents/{id}/correlation-overrides/{override_id}/reverse` | `incident.write` | Deactivate an active override with `{reason}`; preserve its full history. |
+
 ### Operator intent survives a restart
 
 Firing state itself is engine-derived: it re-computes on the first evaluation
@@ -230,3 +269,11 @@ vitest run` covers the surface: list + filters, deterministic evaluation
 timeline, the four-interaction alert-to-postmortem journey, durable receipts,
 expired silence, blocked connectors, tenant scoping (no client-side tenant
 selection), evaluator-off honesty, and the axe a11y pass.
+
+`go test ./internal/incident` additionally proves the grouping explanation,
+false-positive detach, explicit reversal, evidence retention, and cross-tenant
+fail-closed behavior. `TestPGIncidentCorrelationOverrideLifecycle` exercises the
+same lifecycle through forced PostgreSQL RLS, restarts the correlator against the
+durable store, proves a second tenant cannot observe or mutate the decision, and
+checks both audit receipts. The incident-room web test covers the operator
+create/reverse journey and keeps the actions behind `incident.write`.

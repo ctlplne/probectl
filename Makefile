@@ -212,13 +212,14 @@ helm-gate: ## Helm chart lint + secure-by-default hardening assertions (S35). Ne
 	bash scripts/check_helm_hardening.sh
 
 .PHONY: gitops-gate
-gitops-gate: ## GitOps (ArgoCD/Flux) manifest structural validation (S35). Needs python3 + PyYAML.
+gitops-gate: ## GitOps (ArgoCD/Flux) manifest structural validation (S35). Uses the existing Go YAML dependency.
 	bash scripts/check_gitops_manifests.sh
 
 .PHONY: terraform-gate
 terraform-gate: ## Terraform fmt + validate the probectl module (S35). Needs terraform.
 	terraform -chdir=deploy/terraform fmt -recursive -check
 	cd deploy/terraform/examples/kubernetes && terraform init -backend=false -input=false >/dev/null && terraform validate
+	cd deploy/terraform/examples/two-region && terraform init -backend=false -input=false >/dev/null && terraform validate
 
 .PHONY: browser-worker-check
 browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs node. (Real-browser smoke runs in CI's Playwright container.)
@@ -538,6 +539,10 @@ failover-drill: ## U-053 timed failover drill: kill the primary, promote the str
 .PHONY: failover-drill-isolated
 failover-drill-isolated: ## Run the destructive failover drill in a unique disposable Compose project.
 	./scripts/run_isolated_drill.sh failover
+
+.PHONY: upgrade-rollback-drill-isolated
+upgrade-rollback-drill-isolated: ## Rehearse v0.5.0 -> current -> v0.5.0 -> current against a disposable real PostgreSQL stack.
+	./scripts/run_isolated_integration.sh ./scripts/upgrade_rollback_drill.sh
 
 .PHONY: chaos-dependency-drill
 chaos-dependency-drill: ## Dependency chaos: disk-full buffer, pod-kill, dependency outage, and recovery counters.

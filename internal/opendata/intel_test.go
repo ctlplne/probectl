@@ -68,7 +68,7 @@ func TestFeedParsers(t *testing.T) {
 			parse: urlhausParse,
 			body:  "# id,dateadded,url,...\n\"123\",\"2024-01-01 00:00:00\",\"http://evil.example/x.exe\",\"online\",\"malware\",\"tag\",\"link\",\"rep\"\n\"124\",\"2024-01-01\",\"notaurl\",\"online\"\n",
 			want: []IOC{
-				{Type: IOCTypeURL, Value: "http://evil.example/x.exe", Source: "urlhaus", Category: CategoryMalware, Confidence: 85, License: "abuse.ch CC0"},
+				{Type: IOCTypeURL, Value: "http://evil.example/x.exe", Source: "urlhaus", Category: CategoryMalware, Confidence: 85, License: "URLhaus community API fair-use"},
 			},
 		},
 		{
@@ -76,8 +76,8 @@ func TestFeedParsers(t *testing.T) {
 			parse: torParse,
 			body:  "192.0.2.50\n2001:db8::1\n",
 			want: []IOC{
-				{Type: IOCTypeIP, Value: "192.0.2.50", Source: "tor_exit", Category: CategoryTorExit, Confidence: 50, License: "Tor Project CC0"},
-				{Type: IOCTypeIP, Value: "2001:db8::1", Source: "tor_exit", Category: CategoryTorExit, Confidence: 50, License: "Tor Project CC0"},
+				{Type: IOCTypeIP, Value: "192.0.2.50", Source: "tor_exit", Category: CategoryTorExit, Confidence: 50, License: "Tor Project bulk exit list"},
+				{Type: IOCTypeIP, Value: "2001:db8::1", Source: "tor_exit", Category: CategoryTorExit, Confidence: 50, License: "Tor Project bulk exit list"},
 			},
 		},
 		{
@@ -200,6 +200,33 @@ func TestLineFeedFetch(t *testing.T) {
 	}
 	if f.Descriptor().AUP.CommercialUse != CommercialAllowed {
 		t.Errorf("feodo AUP = %v", f.Descriptor().AUP.CommercialUse)
+	}
+}
+
+func TestExternalSourceCommercialPostureFailsClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		got  Permission
+		want Permission
+	}{
+		{name: "team-cymru", got: NewCymru(fakeResolver{}).Descriptor().AUP.CommercialUse, want: CommercialUnknown},
+		{name: "maxmind-geolite2", got: NewGeo(fakeGeo{}).Descriptor().AUP.CommercialUse, want: CommercialRestricted},
+		{name: "peeringdb", got: NewPeeringDB(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialRestricted},
+		{name: "rir-stats", got: NewRIRAllocations().Descriptor().AUP.CommercialUse, want: CommercialUnknown},
+		{name: "spamhaus_drop", got: NewSpamhausDROP(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialRestricted},
+		{name: "feodo_tracker", got: NewFeodoTracker(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialAllowed},
+		{name: "sslbl", got: NewSSLBLCerts(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialAllowed},
+		{name: "sslbl_ja3", got: NewSSLBLJA3(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialAllowed},
+		{name: "urlhaus", got: NewURLhaus(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialRestricted},
+		{name: "tor_exit", got: NewTorExit(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialUnknown},
+		{name: "firehol_level1", got: NewFireHOL(&fakeDoer{}).Descriptor().AUP.CommercialUse, want: CommercialRestricted},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Fatalf("commercial posture = %q, want %q", tt.got, tt.want)
+			}
+		})
 	}
 }
 

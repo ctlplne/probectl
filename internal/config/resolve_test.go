@@ -39,6 +39,7 @@ func TestResolveSecretRefs(t *testing.T) {
 		NotifyInbound: map[string]NotifyInbound{
 			"snow": {TenantID: "t1", Provider: "servicenow", Secret: "vault:kv/hooks#hmac"},
 		},
+		ObjectStoreS3SecretKey: "vault:kv/hooks#hmac",
 	}
 	if err := c.ResolveSecretRefs(context.Background(), resolve); err != nil {
 		t.Fatal(err)
@@ -51,7 +52,7 @@ func TestResolveSecretRefs(t *testing.T) {
 	}
 	if c.ChangeWebhooks["gh"].Secret != "hook-resolved" ||
 		c.NotifyConnectors[0].Secret != "hook-resolved" ||
-		c.NotifyInbound["snow"].Secret != "hook-resolved" {
+		c.NotifyInbound["snow"].Secret != "hook-resolved" || c.ObjectStoreS3SecretKey != "hook-resolved" {
 		t.Fatalf("collection secrets not resolved: %+v %+v %+v",
 			c.ChangeWebhooks["gh"], c.NotifyConnectors[0], c.NotifyInbound["snow"])
 	}

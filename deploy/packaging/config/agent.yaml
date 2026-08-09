@@ -16,6 +16,7 @@ agent:
   labels: {}                               # local region/site declarations; no geo lookup
   heartbeat_interval: 30s
 artifact_store:
+  mode: filesystem                        # s3 selects durable S3/MinIO (see docs/configuration.md)
   dir: ""                                  # optional: browser artifacts under tenant/<id>/browser/
 browser:
   driver: http                             # HTTP transaction; rendered browser needs the dedicated image/worker

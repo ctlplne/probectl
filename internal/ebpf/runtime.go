@@ -74,6 +74,7 @@ type l7conn struct {
 	transport string
 	tenant    string
 	encrypted bool
+	tls       TLSMetadata
 }
 
 // New builds an Agent from cfg. It logs the capability probe and selects the
@@ -266,6 +267,7 @@ func (a *Agent) observeL7(ev L7Event) {
 			transport: orString(ev.Transport, TransportTCP),
 			tenant:    a.cfg.TenantID,
 			encrypted: ev.Encrypted,
+			tls:       ev.TLS,
 		}
 	}
 	a.l7seen[ev.ConnID] = a.l7now(ev)
@@ -285,6 +287,7 @@ func (a *Agent) observeL7(ev L7Event) {
 			Destination: meta.dst,
 			Transport:   meta.transport,
 			Encrypted:   meta.encrypted,
+			TLS:         meta.tls,
 			Call:        c,
 		})
 	}

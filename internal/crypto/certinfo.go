@@ -13,6 +13,12 @@ import (
 	"crypto/x509"
 )
 
+// ParseCertificate parses one DER-encoded certificate through the crypto
+// boundary so ingestion/control packages never call x509 primitives directly.
+func ParseCertificate(der []byte) (*x509.Certificate, error) {
+	return x509.ParseCertificate(der)
+}
+
 // CertKeyInfo reports a certificate's public-key algorithm and strength in bits.
 // It lives in internal/crypto so the rest of the codebase (e.g. the S27 TLS/cert
 // observer) can inspect key strength WITHOUT importing crypto/rsa|ecdsa|ed25519

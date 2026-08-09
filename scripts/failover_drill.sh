@@ -9,8 +9,9 @@
 #   promoted node.
 #
 #   RTO = primary-kill → promoted replica ACCEPTING WRITES (measured).
-#   RPO = client-ACKED rows missing on the promoted replica (async
-#         streaming's honest loss window, measured in rows + seconds).
+#   RPO = client-ACKED rows missing on the promoted replica. The selected
+#         reference defaults to synchronous remote-apply replication, so any
+#         non-zero loss is a hard failure; async remains an explicit test mode.
 #
 # DESTRUCTIVE to the dev stack (kills its postgres, tears down at the end);
 # runs in CI on every pass (failover-drill job). docs/ops/dr.md is the
@@ -25,7 +26,12 @@ if [ -n "${COMPOSE_OVERRIDE_FILE}" ]; then
   DC+=(-f "${COMPOSE_OVERRIDE_FILE}")
 fi
 ACKED="$(mktemp "${TMPDIR:-/tmp}/drill-acked.XXXXXX")"
-DRILL_PROFILE="${PROBECTL_FAILOVER_PROFILE:-ci-dev-compose}"
+REPLICATION_MODE="${PROBECTL_FAILOVER_REPLICATION_MODE:-sync}"
+case "$REPLICATION_MODE" in
+  sync | async) ;;
+  *) echo "failover drill: PROBECTL_FAILOVER_REPLICATION_MODE must be sync or async" >&2; exit 64 ;;
+esac
+DRILL_PROFILE="${PROBECTL_FAILOVER_PROFILE:-ci-dev-compose-${REPLICATION_MODE}}"
 RESULT_FILE="${PROBECTL_FAILOVER_RESULT_FILE:-}"
 RUN_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
@@ -55,6 +61,25 @@ psql_primary "SELECT pg_reload_conf()" >/dev/null
 "${DC[@]}" up -d --wait pg-replica
 if [ "$(psql_replica 'SELECT pg_is_in_recovery()')" != "t" ]; then
   echo "drill: replica is not in recovery — not a standby?" >&2; exit 1
+fi
+if [ "$REPLICATION_MODE" = "sync" ]; then
+  # remote_apply is stronger than merely shipping WAL: the primary acknowledges
+  # only after the standby has replayed the transaction. '*' is safe here
+  # because this isolated fixture has exactly one registered standby.
+  psql_primary "ALTER SYSTEM SET synchronous_standby_names = '*'" >/dev/null
+  psql_primary "ALTER SYSTEM SET synchronous_commit = 'remote_apply'" >/dev/null
+  psql_primary "SELECT pg_reload_conf()" >/dev/null
+  for _ in $(seq 1 50); do
+    [ "$(psql_primary "SELECT COALESCE(max(sync_state),'') FROM pg_stat_replication")" = "sync" ] && break
+    sleep 0.2
+  done
+  if [ "$(psql_primary "SELECT COALESCE(max(sync_state),'') FROM pg_stat_replication")" != "sync" ]; then
+    echo "drill: standby did not enter synchronous state" >&2
+    exit 1
+  fi
+  echo "replication: synchronous remote_apply confirmed"
+else
+  echo "replication: explicit async test mode"
 fi
 
 step "continuous acked writes against the primary"
@@ -95,6 +120,10 @@ survived="$(psql_replica 'SELECT COALESCE(max(seq),0) FROM drill_markers WHERE s
 lost=$((last_acked - survived))
 [ "$lost" -lt 0 ] && lost=0
 rpo_s="$(awk -v l="$lost" -v r="$rate" 'BEGIN{ if (r>0) printf "%.2f", l/r; else print "0" }')"
+if [ "$REPLICATION_MODE" = "sync" ] && [ "$lost" -ne 0 ]; then
+  echo "failover drill: synchronous RPO contract failed — ${lost} client-acked rows were lost" >&2
+  exit 1
+fi
 
 if [ -n "${RESULT_FILE}" ]; then
   mkdir -p "$(dirname "${RESULT_FILE}")"
@@ -105,6 +134,6 @@ if [ -n "${RESULT_FILE}" ]; then
 fi
 
 echo
-echo "failover drill: PASS — RTO ${rto_ms}ms (kill → promoted+writable); RPO ${lost} acked rows (~${rpo_s}s at ${rate} writes/s)"
-echo "FAILOVER_RESULT run_at=${RUN_AT} git_sha=${GIT_SHA} profile=${DRILL_PROFILE} write_rate_per_s=${rate} rto_ms=${rto_ms} rpo_acked_rows=${lost} rpo_seconds=${rpo_s}"
+echo "failover drill: PASS — mode ${REPLICATION_MODE}; RTO ${rto_ms}ms (kill → promoted+writable); RPO ${lost} acked rows (~${rpo_s}s at ${rate} writes/s)"
+echo "FAILOVER_RESULT run_at=${RUN_AT} git_sha=${GIT_SHA} profile=${DRILL_PROFILE} replication_mode=${REPLICATION_MODE} write_rate_per_s=${rate} rto_ms=${rto_ms} rpo_acked_rows=${lost} rpo_seconds=${rpo_s}"
 echo "record this row in docs/ops/dr.md"

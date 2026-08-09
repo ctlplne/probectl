@@ -8,11 +8,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -225,6 +227,10 @@ func (rt *serveRuntime) buildServeEngines() error {
 	if rt.dispatcher != nil {
 		corrOpts = append(corrOpts, incident.WithObserver(control.NotifyObserver(rt.dispatcher, rt.log)))
 		rt.log.Info("on-call/itsm integration enabled", "connectors", len(rt.cfg.NotifyConnectors))
+		rt.g.Go(func() error {
+			rt.dispatcher.RunReconciler(rt.gctx, time.Minute)
+			return nil
+		})
 	}
 	rt.correlator = control.BuildCorrelator(rt.db.Pool(), rt.cfg.IncidentWindow, rt.log, corrOpts...)
 
@@ -370,6 +376,9 @@ func (rt *serveRuntime) buildAPIServer() error {
 	if err := rt.configureTestSync(); err != nil {
 		return err
 	}
+	if err := rt.configureEvidenceSigning(); err != nil {
+		return err
+	}
 	if hn, herr := os.Hostname(); herr == nil && hn != "" {
 		control.SetInstanceGroupSuffix(hn)
 	}
@@ -431,6 +440,36 @@ func (rt *serveRuntime) configureTestSync() error {
 	}
 	rt.srv.WithTestSyncKey(tsPriv)
 	rt.log.Info("central test distribution enabled (signed bundles)", "key_file", rt.cfg.TestSyncSigningKeyFile)
+	return nil
+}
+
+func (rt *serveRuntime) configureEvidenceSigning() error {
+	var privatePEM []byte
+	var publicPEM []byte
+	var generated bool
+	var err error
+	switch {
+	case strings.TrimSpace(rt.cfg.EvidenceSigningKey) != "":
+		privatePEM, err = base64.StdEncoding.DecodeString(strings.TrimSpace(rt.cfg.EvidenceSigningKey))
+		if err != nil {
+			return fmt.Errorf("evidence signing key is not valid base64: %w", err)
+		}
+		publicPEM, err = crypto.PublicPEMFromPrivate(privatePEM)
+	case rt.cfg.EvidenceSigningKeyFile != "":
+		privatePEM, publicPEM, generated, err = crypto.LoadOrGenerateEd25519KeyFile(rt.cfg.EvidenceSigningKeyFile)
+	default:
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("evidence signing key: %w", err)
+	}
+	rt.srv.WithEvidenceSigningKey(privatePEM)
+	if generated {
+		rt.log.Warn("generated incident-evidence signing key; back up and publish its public fingerprint",
+			"key_file", rt.cfg.EvidenceSigningKeyFile)
+	}
+	rt.log.Info("offline-verifiable incident evidence export enabled",
+		"public_key_fingerprint", fmt.Sprintf("sha256:%x", crypto.Hash(publicPEM)))
 	return nil
 }
 
@@ -741,6 +780,14 @@ func (rt *serveRuntime) startTLSPostureSinks() {
 	tlsView := control.NewTLSPostureConsumer(rt.resultBus, nil, tlsAnalyzer, rt.log).
 		WithPostureStore(rt.tlsPostures)
 	rt.resultViewSinks = append(rt.resultViewSinks, control.ResultSink{Name: "tls-posture-view", Fn: tlsView.SinkPosture})
+	ebpfTLSView := control.NewEBPFTLSPostureConsumer(rt.resultBus, rt.tlsPostures, tlsAnalyzer, rt.log).
+		WithTenantBinding(rt.tenantBinding).
+		WithNamespaceTenants(rt.nsTenants)
+	rt.g.Go(func() error {
+		return superviseBusLaneRestart(rt.gctx, "tls-posture-ebpf-lanes", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+			return ebpfTLSView.WithNamespaceTenants(snap.tenants).Run(ctx)
+		})
+	})
 }
 
 func (rt *serveRuntime) startEdgeTransports() error {

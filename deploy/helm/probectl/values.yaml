@@ -118,13 +118,20 @@ oidc:
 secrets:
   # Name of a pre-created Secret holding PROBECTL_ENVELOPE_KEY,
   # PROBECTL_SESSION_HMAC_KEY, PROBECTL_DATABASE_URL, and optionally
-  # PROBECTL_OIDC_CLIENT_SECRET, PROBECTL_WORM_SIGNING_KEY, and the offline
-  # PROBECTL_IR_UNLOCK_KEY. When set, the chart does NOT create its own.
+  # PROBECTL_OIDC_CLIENT_SECRET, PROBECTL_WORM_SIGNING_KEY,
+  # PROBECTL_EVIDENCE_SIGNING_KEY, and the offline PROBECTL_IR_UNLOCK_KEY. When
+  # set, the chart does NOT create its own.
   existingSecret: ""
   # base64-encoded 32-byte envelope KEK (openssl rand -base64 32). Required.
   envelopeKey: ""
   # hex-encoded 32-byte session-token HMAC key (openssl rand -hex 32). Required.
   sessionHMACKey: ""
+  # Base64 of a PKCS#8 PEM Ed25519 private key. It is shared by all replicas and
+  # provides one stable, out-of-band-pinnable evidence-export identity.
+  evidenceSigningKey: ""
+  # S3/MinIO signing material. Prefer existingSecret in production.
+  objectStoreS3SecretKey: ""
+  objectStoreS3SessionToken: ""
 
 # At-rest encryption is REQUIRED by default (SEC-002): the chart refuses to
 # template without the required keys, and the control plane refuses to start
@@ -141,8 +148,15 @@ requireAtRestEncryption: true
 # The WORM directory must be this exact mountPath or a canonical child of it.
 objectStore:
   enabled: false
+  mode: filesystem # filesystem | s3
   mountPath: /var/lib/probectl/objects
   existingClaim: "" # empty uses ephemeral emptyDir only when WORM is disabled
+  s3:
+    endpoint: "" # verified https:// S3 or MinIO endpoint
+    bucket: ""
+    region: us-east-1
+    accessKey: ""
+    prefix: probectl
 
 # SEC-009/WIRE-002: both the public ingress and the in-cluster control listener
 # serve TLS, so session/OAuth cookies remain protected on every hop.

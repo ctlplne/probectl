@@ -93,6 +93,9 @@ services:
       # live under the same operator-owned persistent volume. Lifecycle
       # export/erase inventories and deletes this exact tenant-prefixed store.
       PROBECTL_OBJECTSTORE_DIR: ${PROBECTL_OBJECTSTORE_DIR:-/var/lib/probectl/objects}
+      # Stable Ed25519 identity for immutable incident evidence packages. The
+      # key is generated once at 0600 on the persistent control volume.
+      PROBECTL_EVIDENCE_SIGNING_KEY_FILE: ${PROBECTL_EVIDENCE_SIGNING_KEY_FILE:-/var/lib/probectl/evidence-signing-ed25519.pem}
       # Fail closed (TENANT-106): refuse to start rather than silently write
       # plaintext if no key resolves.
       PROBECTL_REQUIRE_AT_REST_ENCRYPTION: ${PROBECTL_REQUIRE_AT_REST_ENCRYPTION:-true}

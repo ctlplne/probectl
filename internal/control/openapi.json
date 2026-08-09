@@ -1110,7 +1110,7 @@
       },
       "patch": {
         "operationId": "patchIncident",
-        "summary": "Resolve an incident",
+        "summary": "Resolve or explicitly reopen an incident",
         "tags": [
           "incidents"
         ],
@@ -1131,6 +1131,110 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Incident"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/incidents/{id}/correlation-overrides": {
+      "post": {
+        "operationId": "createIncidentCorrelationOverride",
+        "summary": "Detach a falsely grouped signal into an independent incident",
+        "description": "Requires incident.write. Preserves the original timeline, creates a detached incident, and durably excludes future exact plane/kind/target/prefix matches from the source incident until explicit reversal. Tenant scope is enforced by RLS and the action is audited.",
+        "tags": [
+          "incidents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentCorrelationOverrideCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Durable override and independently visible incident.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentCorrelationOverrideCreateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/incidents/{id}/correlation-overrides/{override_id}/reverse": {
+      "post": {
+        "operationId": "reverseIncidentCorrelationOverride",
+        "summary": "Explicitly reverse an active incident-correlation override",
+        "description": "Requires incident.write. Stops excluding later matching signals but preserves both incident timelines and the reversed override as audit-visible history.",
+        "tags": [
+          "incidents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdPath"
+          },
+          {
+            "name": "override_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentCorrelationOverrideReverse"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The retained, now-reversed override.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentCorrelationOverride"
                 }
               }
             }
@@ -1336,6 +1440,41 @@
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
           }
+        }
+      }
+    },
+    "/v1/incidents/{id}/exports": {
+      "post": {
+        "operationId": "exportIncidentEvidence",
+        "summary": "Export an immutable signed incident evidence package",
+        "description": "Builds a redacted probectl-evidence/v1 package whose factual statements resolve to content-addressed evidence records. The canonical manifest is signed with the deployment's stable Ed25519 evidence key and can be verified completely offline. The embedded public key proves integrity; verify its fingerprint out of band to prove operator identity. In addition to incident.read, ai.query is re-authorized tenant-first before evidence gathering.",
+        "tags": ["incidents"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Incident id.",
+            "schema": {"type": "string", "format": "uuid"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The portable signed evidence package.",
+            "content": {
+              "application/vnd.probectl.evidence+json": {
+                "schema": {"$ref": "#/components/schemas/IncidentEvidencePackage"}
+              },
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/IncidentEvidencePackage"}
+              }
+            }
+          },
+          "403": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "429": {"$ref": "#/components/responses/ErrorResponse"},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -6223,7 +6362,7 @@
         "tags": [
           "tls"
         ],
-        "description": "The caller's tenant's certificate inventory from the S27 posture pipeline: per-target leaf certificate, protocol/cipher, weakness/CT/threat-intel findings, severity, and the verbatim trustctl handoff payload. collector_running=false distinguishes an unwired collector from an empty fleet.",
+        "description": "The caller's tenant's certificate inventory from the S27 posture pipeline: HTTPS synthetic and privacy-minimized eBPF handshake/certificate metadata, per-target source/state/visibility/freshness/confidence, leaf certificate, protocol/cipher, weakness/CT/threat-intel findings, severity, and the verbatim trustctl handoff payload. Unknown encrypted/sidecar visibility is never promoted into an observed conclusion. collector_running=false distinguishes an unwired collector from an empty fleet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -6250,6 +6389,25 @@
                           },
                           "source": {
                             "type": "string"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": ["observed", "unknown", "unsupported"]
+                          },
+                          "visibility": {
+                            "type": "string"
+                          },
+                          "capture": {
+                            "type": "string"
+                          },
+                          "confidence": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "freshness": {
+                            "type": "string",
+                            "enum": ["current", "stale", "unknown"]
                           },
                           "tls_version": {
                             "type": "string"
@@ -10503,6 +10661,11 @@
         "type": "object",
         "description": "One plane's observation on an incident timeline (extensible: plane/kind are free-form, attributes is arbitrary).",
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Durable tenant-scoped signal row identifier used for an audited ungroup action."
+          },
           "plane": {
             "type": "string",
             "description": "network | bgp | threat | change | ..."
@@ -10604,7 +10767,73 @@
           "signals_limit": {
             "type": "integer",
             "description": "Maximum number of time-ordered signals returned when signals_truncated is true."
+          },
+          "correlation_overrides": {
+            "type": "array",
+            "description": "Active and reversed operator decisions for this source incident; history never disappears.",
+            "items": {
+              "$ref": "#/components/schemas/IncidentCorrelationOverride"
+            }
           }
+        }
+      },
+      "IncidentCorrelationOverride": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "source_incident_id",
+          "detached_incident_id",
+          "source_signal_id",
+          "plane",
+          "kind",
+          "reason",
+          "active",
+          "created_by",
+          "created_at"
+        ],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "source_incident_id": {"type": "string", "format": "uuid"},
+          "detached_incident_id": {"type": "string", "format": "uuid"},
+          "source_signal_id": {"type": "string", "format": "uuid"},
+          "plane": {"type": "string"},
+          "kind": {"type": "string"},
+          "target": {"type": "string"},
+          "prefix": {"type": "string"},
+          "reason": {"type": "string"},
+          "active": {"type": "boolean"},
+          "created_by": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "reversed_by": {"type": "string"},
+          "reversal_reason": {"type": "string"},
+          "reversed_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "IncidentCorrelationOverrideCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signal_id", "reason"],
+        "properties": {
+          "signal_id": {"type": "string", "format": "uuid"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "IncidentCorrelationOverrideReverse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason"],
+        "properties": {
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "IncidentCorrelationOverrideCreateResponse": {
+        "type": "object",
+        "required": ["override", "detached_incident"],
+        "properties": {
+          "override": {"$ref": "#/components/schemas/IncidentCorrelationOverride"},
+          "detached_incident": {"$ref": "#/components/schemas/Incident"}
         }
       },
       "IncidentList": {
@@ -10847,6 +11076,56 @@
           }
         }
       },
+      "IncidentEvidencePackage": {
+        "type": "object",
+        "required": ["manifest", "attachments", "signing"],
+        "properties": {
+          "manifest": {
+            "type": "object",
+            "required": ["contract", "package_id", "tenant_scope_digest", "created_at", "incident", "window", "redaction", "statements", "evidence"],
+            "properties": {
+              "contract": {"type": "string", "const": "probectl-evidence/v1"},
+              "package_id": {"type": "string", "pattern": "^pkg_[a-f0-9]{32}$"},
+              "tenant_scope_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+              "created_at": {"type": "string", "format": "date-time"},
+              "incident": {"type": "object", "additionalProperties": true},
+              "window": {
+                "type": "object",
+                "required": ["from", "to"],
+                "properties": {
+                  "from": {"type": "string", "format": "date-time"},
+                  "to": {"type": "string", "format": "date-time"}
+                }
+              },
+              "redaction": {"type": "string"},
+              "statements": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+              "evidence": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["digest", "media_type", "content"],
+              "properties": {
+                "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+                "media_type": {"type": "string", "const": "application/json"},
+                "content": {"type": "object", "additionalProperties": true}
+              }
+            }
+          },
+          "signing": {
+            "type": "object",
+            "required": ["algorithm", "public_key_pem", "public_key_fingerprint", "signature"],
+            "properties": {
+              "algorithm": {"type": "string", "const": "Ed25519"},
+              "public_key_pem": {"type": "string"},
+              "public_key_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+              "signature": {"type": "string", "format": "byte"}
+            }
+          }
+        }
+      },
       "IncidentShareArtifact": {
         "type": "object",
         "required": [
@@ -10889,7 +11168,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "resolved"
+              "resolved",
+              "open"
             ]
           }
         }

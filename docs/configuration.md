@@ -150,8 +150,18 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_IR_PRIVATE_KEY_DIR` | (none) | investigation-only absolute path to an owner-only local directory of envelope-encrypted `<tenant-uuid>.<sha256-of-key-id>.pem.enc` RSA private-key artifacts. Create them offline with `probectl audit seal-private-key`; no custom code or network access is required. Retain old versioned artifacts after public-key rotation so historical records remain revealable. The directory must not be a symlink and must deny group/other access; each artifact must be a real mode-`0600` file. Configuring it also requires `PROBECTL_IR_PUBLIC_KEY_DIR` and both unlock settings below. Leave it unmounted during routine operation; mount it for an authorized reveal or verifiable tenant deletion. Deletion first commits a signed, WORM-covered exact-artifact plan, then removes only that tenant's planned local files after all other stores succeed; missing capability or incomplete coverage fails before deletion. Reveal stays unavailable while the directory is absent. Operator backups/snapshots/escrow or external KMS handles remain the operator's destruction responsibility; the signed tombstone prevents a restored local artifact from reactivating probectl access. |
 | `PROBECTL_IR_UNLOCK_KEY_ID` | (none) | non-secret identity for the distinct operator-owned KEK that encrypts the IR private-key artifacts. Required only with `PROBECTL_IR_PRIVATE_KEY_DIR`. It is separate from the steady-state IR wrapping key and deployment envelope domain. |
 | `PROBECTL_IR_UNLOCK_KEY` | (none) | base64-encoded 32-byte investigation-artifact KEK supplied through the local secret-injection mechanism. Required only with `PROBECTL_IR_PRIVATE_KEY_DIR`; never bake it into an image, values file, or repository. It is consumed through `internal/crypto`, is omitted from logs/support bundles, and makes no external call. Destroying or withholding it keeps the encrypted private artifacts—and therefore attribution—unavailable. |
-| `PROBECTL_OBJECTSTORE_DIR` | (none) | operator-owned filesystem object store for tenant artifacts such as browser synthetic screenshots. When set, the control plane creates this directory, artifact writers store tenant-prefixed objects under it, and tenant lifecycle export/erase inventories/deletes the same namespace. Mount encrypted durable storage; this is local/self-hosted custody, not a managed probectl service |
+| `PROBECTL_OBJECTSTORE_MODE` | `filesystem` | `filesystem` local/dev backend or durable `s3`/MinIO-compatible backend. No backend is contacted unless its mode and required fields are explicitly configured. |
+| `PROBECTL_OBJECTSTORE_DIR` | (none) | filesystem-mode tenant artifact directory. Tenant lifecycle export/erase inventories/deletes the same namespace. Use this as the local/single-node fallback. |
+| `PROBECTL_OBJECTSTORE_S3_ENDPOINT` | (none) | S3/MinIO base endpoint for `s3` mode; remote endpoints must use verified HTTPS (loopback HTTP is test-only). |
+| `PROBECTL_OBJECTSTORE_S3_BUCKET` | (none) | operator-owned artifact bucket. |
+| `PROBECTL_OBJECTSTORE_S3_REGION` | `us-east-1` | SigV4 region. |
+| `PROBECTL_OBJECTSTORE_S3_ACCESS_KEY` | (none) | SigV4 access-key id; required with `s3` mode. |
+| `PROBECTL_OBJECTSTORE_S3_SECRET_KEY` | (none) | SigV4 secret; required with `s3` mode and secret-reference capable. Never place it in a ConfigMap. |
+| `PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN` | (none) | optional temporary-credential token; secret-reference capable. |
+| `PROBECTL_OBJECTSTORE_S3_PREFIX` | `probectl` | traversal-free bucket prefix shared by control plane and artifact-writing agents. |
 | `PROBECTL_TESTSYNC_SIGNING_KEY_FILE` | (none) | path to the Ed25519 test-bundle signing key (PKCS#8 PEM) — loaded, or GENERATED+persisted (0600) on first boot. When set, `GET /v1/tests/bundle` serves signed tenant-scoped test definitions for agents to verify; when unset, central test distribution is off and that route returns 503 |
+| `PROBECTL_EVIDENCE_SIGNING_KEY_FILE` | (none) | single-replica path to the stable Ed25519 incident-evidence signing key (PKCS#8 PEM). The file is generated once at mode 0600 and reused across restarts. If no evidence key resolves, `POST /v1/incidents/{id}/exports` fails closed with 503; it never mints an ephemeral per-export identity |
+| `PROBECTL_EVIDENCE_SIGNING_KEY` | (none) | base64-encoded PKCS#8 PEM Ed25519 private key for shared secret-manager injection. Use the same value on every HA replica. The package embeds the public half and fingerprint for offline integrity verification; publish/pin that fingerprint out of band to establish operator identity. This secret is omitted from support bundles and logs |
 | `PROBECTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
 | `PROBECTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
 | `PROBECTL_REMOTE_WRITE_BATCH_ENABLED` | **`true` in `prometheus` mode** (else `false`)                | SCALE-001: coalesce concurrent results into one remote-write POST instead of one POST per result. Defaults ON for `prometheus` so the production ingest path is batched by default; set explicitly to override |
@@ -356,7 +366,15 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_TLS_KEY_FILE` | `tls.key_file` | the agent's mTLS client key (PEM) |
 | `PROBECTL_AGENT_TLS_CA_FILE` | `tls.ca_file` | the CA that signed the control plane's server cert (PEM) |
 | `PROBECTL_AGENT_BUFFER_DIR` | `buffer.dir` | on-disk store-and-forward directory (see below) |
-| `PROBECTL_AGENT_OBJECTSTORE_DIR` | `artifact_store.dir` | optional operator-owned object-store directory for browser canary failure artifacts; artifacts are written under the agent certificate tenant prefix and should point at the same mounted backend as `PROBECTL_OBJECTSTORE_DIR` when lifecycle export/erase must cover them |
+| `PROBECTL_AGENT_OBJECTSTORE_MODE` | `artifact_store.mode` (`filesystem`) | `filesystem` fallback or durable `s3`/MinIO mode. |
+| `PROBECTL_AGENT_OBJECTSTORE_DIR` | `artifact_store.dir` | optional filesystem-mode directory for browser artifacts. |
+| `PROBECTL_AGENT_OBJECTSTORE_S3_ENDPOINT` | `artifact_store.endpoint` | verified-HTTPS S3/MinIO endpoint. |
+| `PROBECTL_AGENT_OBJECTSTORE_S3_BUCKET` | `artifact_store.bucket` | artifact bucket; match the control-plane configuration. |
+| `PROBECTL_AGENT_OBJECTSTORE_S3_REGION` | `artifact_store.region` (`us-east-1`) | SigV4 region. |
+| `PROBECTL_AGENT_OBJECTSTORE_S3_ACCESS_KEY` | `artifact_store.access_key` | SigV4 access-key id. |
+| `PROBECTL_AGENT_OBJECTSTORE_S3_SECRET_KEY` | `artifact_store.secret_key` | SigV4 secret; inject through a runtime Secret, never commit it. |
+| `PROBECTL_AGENT_OBJECTSTORE_S3_SESSION_TOKEN` | `artifact_store.session_token` | optional temporary-credential token. |
+| `PROBECTL_AGENT_OBJECTSTORE_S3_PREFIX` | `artifact_store.prefix` (`probectl`) | bucket prefix; match the control-plane configuration so lifecycle export/erase sees agent artifacts. |
 | `PROBECTL_AGENT_BROWSER_DRIVER` | `browser.driver` | `http` for a non-rendering HTTP transaction or `browser` for rendered Playwright; rendered mode fails startup unless its worker is usable |
 | `PROBECTL_AGENT_BROWSER_WORKER_COMMAND` | `browser.worker.command` | executable used for the listener-free rendered worker (the shipped browser-agent image uses `node`) |
 | `PROBECTL_AGENT_BROWSER_WORKER_PATH` | `browser.worker.path` | worker program passed to the command (the shipped browser-agent image uses `/worker/worker.mjs`) |
@@ -1965,7 +1983,7 @@ secrets or endpoint path/query values.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `PROBECTL_NOTIFY_CONNECTORS` | (none) | outbound connectors, comma-separated, each `tenant\|provider\|endpoint\|secret` (pipe-delimited because the endpoint is a URL). `provider` ∈ `pagerduty`/`opsgenie`/`slack`/`teams`/`servicenow`/`jira`. `endpoint` must be `https://` for remote provider URLs; plain `http://` is accepted only for loopback local dev/test doubles. `secret` is the provider credential (PagerDuty routing key, Opsgenie API key, ServiceNow `user:password`, Jira `email:token`; unused for chat). |
+| `PROBECTL_NOTIFY_CONNECTORS` | (none) | outbound connectors, comma-separated, each `tenant\|provider\|endpoint\|secret` (pipe-delimited because the endpoint is a URL). `provider` ∈ `pagerduty`/`opsgenie`/`slack`/`teams`/`servicenow`/`jira`/`psa`. `psa` is the signed vendor-neutral `probectl-psa-ticket/v1` lifecycle contract and requires an HMAC secret; the first named vendor adapter remains design-partner-selected. `endpoint` must be `https://` for remote provider URLs; plain `http://` is accepted only for loopback local dev/test doubles. |
 | `PROBECTL_NOTIFY_INBOUND` | (none) | inbound status-sync credentials, comma-separated, each `id:tenant:provider:secret` (the `id` is the URL selector for `POST /ingest/itsm/{provider}/{id}`; `secret` verifies the delivery). |
 
 **Off by default** (each connector is an outbound connection to the operator's
@@ -1982,7 +2000,7 @@ unsigned or forged delivery is rejected (`401`). Secrets are runtime config —
 inject them from a secret manager, never commit them.
 
 The Alerts page renders the same tenant-scoped connector posture: provider
-choices (`pagerduty`, `opsgenie`, `slack`, `teams`, `servicenow`, `jira`),
+choices (`pagerduty`, `opsgenie`, `slack`, `teams`, `servicenow`, `jira`, `psa`),
 sanitized endpoint host, TLS posture, credential presence, inbound webhook path,
 and redaction state. `POST /v1/oncall/test` sends an operator-triggered test
 incident through an already-configured connector id for the caller's tenant; the

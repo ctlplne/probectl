@@ -31,6 +31,10 @@ func FromCanaryAttributes(target string, attrs map[string]string, observedAt tim
 		JA3:        attrs["tls.ja3"],
 		JA3S:       attrs["tls.ja3s"],
 		ObservedAt: observedAt,
+		State:      PostureObserved,
+		Visibility: "synthetic_handshake",
+		Capture:    "http",
+		Confidence: 100,
 	}
 	if v, ok := attrs["probectl.tls.server.verified"]; ok {
 		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {

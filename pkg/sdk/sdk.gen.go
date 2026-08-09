@@ -1313,20 +1313,60 @@ type IRAttributionRevealRequest struct {
 }
 
 type Incident struct {
-	Id               string   `json:"id,omitempty"`
-	LastSeenAt       string   `json:"last_seen_at,omitempty"`
-	Prefix           string   `json:"prefix,omitempty"`
-	ResolvedAt       string   `json:"resolved_at,omitempty"`
-	Severity         string   `json:"severity,omitempty"`
-	SignalCount      int      `json:"signal_count,omitempty"`
-	Signals          []Signal `json:"signals,omitempty"`
-	SignalsLimit     int      `json:"signals_limit,omitempty"`
-	SignalsTruncated bool     `json:"signals_truncated,omitempty"`
-	StartedAt        string   `json:"started_at,omitempty"`
-	Status           string   `json:"status,omitempty"`
-	Target           string   `json:"target,omitempty"`
-	TenantId         string   `json:"tenant_id,omitempty"`
-	Title            string   `json:"title,omitempty"`
+	CorrelationOverrides []IncidentCorrelationOverride `json:"correlation_overrides,omitempty"`
+	Id                   string                        `json:"id,omitempty"`
+	LastSeenAt           string                        `json:"last_seen_at,omitempty"`
+	Prefix               string                        `json:"prefix,omitempty"`
+	ResolvedAt           string                        `json:"resolved_at,omitempty"`
+	Severity             string                        `json:"severity,omitempty"`
+	SignalCount          int                           `json:"signal_count,omitempty"`
+	Signals              []Signal                      `json:"signals,omitempty"`
+	SignalsLimit         int                           `json:"signals_limit,omitempty"`
+	SignalsTruncated     bool                          `json:"signals_truncated,omitempty"`
+	StartedAt            string                        `json:"started_at,omitempty"`
+	Status               string                        `json:"status,omitempty"`
+	Target               string                        `json:"target,omitempty"`
+	TenantId             string                        `json:"tenant_id,omitempty"`
+	Title                string                        `json:"title,omitempty"`
+}
+
+type IncidentCorrelationOverride struct {
+	Active             bool   `json:"active"`
+	CreatedAt          string `json:"created_at"`
+	CreatedBy          string `json:"created_by"`
+	DetachedIncidentId string `json:"detached_incident_id"`
+	Id                 string `json:"id"`
+	Kind               string `json:"kind"`
+	Plane              string `json:"plane"`
+	Prefix             string `json:"prefix,omitempty"`
+	Reason             string `json:"reason"`
+	ReversalReason     string `json:"reversal_reason,omitempty"`
+	ReversedAt         string `json:"reversed_at,omitempty"`
+	ReversedBy         string `json:"reversed_by,omitempty"`
+	SourceIncidentId   string `json:"source_incident_id"`
+	SourceSignalId     string `json:"source_signal_id"`
+	Target             string `json:"target,omitempty"`
+	TenantId           string `json:"tenant_id"`
+}
+
+type IncidentCorrelationOverrideCreate struct {
+	Reason   string `json:"reason"`
+	SignalId string `json:"signal_id"`
+}
+
+type IncidentCorrelationOverrideCreateResponse struct {
+	DetachedIncident Incident                    `json:"detached_incident"`
+	Override         IncidentCorrelationOverride `json:"override"`
+}
+
+type IncidentCorrelationOverrideReverse struct {
+	Reason string `json:"reason"`
+}
+
+type IncidentEvidencePackage struct {
+	Attachments []map[string]any `json:"attachments"`
+	Manifest    map[string]any   `json:"manifest"`
+	Signing     map[string]any   `json:"signing"`
 }
 
 type IncidentJournalAppendRequest struct {
@@ -1708,6 +1748,7 @@ type SelfMetricsSnapshot struct {
 // One plane's observation on an incident timeline (extensible: plane/kind are free-form, attributes is arbitrary).
 type Signal struct {
 	Attributes map[string]string `json:"attributes,omitempty"`
+	Id         string            `json:"id,omitempty"`
 	Kind       string            `json:"kind,omitempty"`
 	OccurredAt string            `json:"occurred_at,omitempty"`
 	Plane      string            `json:"plane,omitempty"`
@@ -3685,7 +3726,7 @@ func (c *Client) GetIncident(ctx context.Context, req GetIncidentRequest) (*Inci
 	return &out, nil
 }
 
-// Resolve an incident
+// Resolve or explicitly reopen an incident
 type PatchIncidentRequest struct {
 	Body *IncidentPatch `json:"-"`
 }
@@ -3731,6 +3772,70 @@ func (c *Client) IncidentCIs(ctx context.Context, req IncidentCIsRequest) (map[s
 		return nil, err
 	}
 	return out, nil
+}
+
+// Detach a falsely grouped signal into an independent incident
+type CreateIncidentCorrelationOverrideRequest struct {
+	Id   string                             `json:"-"`
+	Body *IncidentCorrelationOverrideCreate `json:"-"`
+}
+
+func (c *Client) CreateIncidentCorrelationOverride(ctx context.Context, req CreateIncidentCorrelationOverrideRequest) (*IncidentCorrelationOverrideCreateResponse, error) {
+	path := "/v1/incidents/{id}/correlation-overrides"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentCorrelationOverrideCreateResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Explicitly reverse an active incident-correlation override
+type ReverseIncidentCorrelationOverrideRequest struct {
+	Id         string                              `json:"-"`
+	OverrideId string                              `json:"-"`
+	Body       *IncidentCorrelationOverrideReverse `json:"-"`
+}
+
+func (c *Client) ReverseIncidentCorrelationOverride(ctx context.Context, req ReverseIncidentCorrelationOverrideRequest) (*IncidentCorrelationOverride, error) {
+	path := "/v1/incidents/{id}/correlation-overrides/{override_id}/reverse"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	if req.OverrideId == "" {
+		return nil, fmt.Errorf("override_id is required")
+	}
+	path = strings.ReplaceAll(path, "{override_id}", url.PathEscape(req.OverrideId))
+	query := url.Values{}
+	var out IncidentCorrelationOverride
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Export an immutable signed incident evidence package
+type ExportIncidentEvidenceRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ExportIncidentEvidence(ctx context.Context, req ExportIncidentEvidenceRequest) (*IncidentEvidencePackage, error) {
+	path := "/v1/incidents/{id}/exports"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentEvidencePackage
+	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // List one incident's tenant-local investigation journal

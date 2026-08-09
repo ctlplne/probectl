@@ -58,6 +58,7 @@ symbol github.com/ctlplne/probectl/internal/incident.NewMemoryStore — shared f
 symbol github.com/ctlplne/probectl/internal/incident.MemoryStore.Len — shared-fake assertion knob for correlation tests
 symbol github.com/ctlplne/probectl/internal/objectstore.NewMemory — shared fake object store injected across WORM/browser/report suites
 symbol github.com/ctlplne/probectl/internal/objectstore.MemStore.Len — shared-fake assertion knob for artifact suites
+symbol github.com/ctlplne/probectl/internal/opendata.CommercialAttribution — complete AUP vocabulary value protected by API serialization tests; no currently shipped source is promoted to this posture without source-specific rights review
 symbol github.com/ctlplne/probectl/internal/store/otelstore.Memory.Len — shared-fake assertion knob for OTLP pipeline tests
 symbol github.com/ctlplne/probectl/internal/threat.NewDetectionStore — shared fake detection store injected by control-plane threat API tests
 symbol github.com/ctlplne/probectl/internal/ebpf/l7.Manager.Len — assertion knob for the eBPF L7 scope tests in the parent package
