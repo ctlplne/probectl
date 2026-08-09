@@ -345,7 +345,8 @@ func runLifecycleEndToEndPG(t *testing.T, pool *pgxpool.Pool) (string, string) {
 		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
 		return err
 	}
-	e := New(pool, flows, nil, mem, sink, "backups expire after 14 days (it)", log)
+	e := New(pool, flows, nil, mem, sink, "backups expire after 14 days (it)", log).
+		WithIRAttributionLifecycle(successfulIntegrationIRLifecycle())
 
 	// EXPORT round-trip: the bundle carries the victim's tests row, counts
 	// match, and nothing of the bystander.

@@ -114,6 +114,26 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 			t.Fatalf("silo must contain %s: %v", table, err)
 		}
 	}
+	// Provider fleet capabilities are aggregate views over public agent rows,
+	// not tenant-owned base tables. Copying either view with CREATE TABLE LIKE
+	// would create an unclassified silo table and break lifecycle parity.
+	for _, providerView := range []string{
+		"provider_agent_fleet_counts",
+		"provider_agent_fleet_versions",
+	} {
+		var copied bool
+		if err := pool.QueryRow(ctx,
+			`SELECT EXISTS (
+			   SELECT 1 FROM information_schema.tables
+			    WHERE table_schema = $1 AND table_name = $2
+			      AND table_type = 'BASE TABLE'
+			 )`, schema, providerView).Scan(&copied); err != nil {
+			t.Fatalf("inspect provider view %s in silo: %v", providerView, err)
+		}
+		if copied {
+			t.Fatalf("provider aggregate view %s was copied as a tenant table", providerView)
+		}
+	}
 
 	// Route through the real registry router (fail-closed semantics included).
 	router := NewRouter(pool, nil, time.Second)

@@ -275,8 +275,14 @@ func (p *Provisioner) readCatalog(ctx context.Context, schema string) (Catalog, 
 	cat := Catalog{Columns: map[string][]Column{}, SchemaColumns: map[string][]Column{}}
 
 	rows, err := p.pool.Query(ctx, `
-		SELECT DISTINCT table_name FROM information_schema.columns
-		 WHERE table_schema = 'public' AND column_name = 'tenant_id'`)
+		SELECT DISTINCT c.table_name
+		  FROM information_schema.columns AS c
+		  JOIN information_schema.tables AS t
+		    ON t.table_schema = c.table_schema
+		   AND t.table_name = c.table_name
+		 WHERE c.table_schema = 'public'
+		   AND c.column_name = 'tenant_id'
+		   AND t.table_type = 'BASE TABLE'`)
 	if err != nil {
 		return cat, fmt.Errorf("silo: read tenant tables: %w", err)
 	}

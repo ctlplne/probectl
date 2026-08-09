@@ -28,32 +28,35 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 const (
-	apiAddr       = "127.0.0.1:18080"
-	apiBase       = "https://" + apiAddr
-	agentGRPCAddr = "127.0.0.1:19443"
-	tenantA       = "00000000-0000-0000-0000-000000000001" // the seeded default tenant
-	tenantB       = "00000000-0000-0000-0000-00000000e2e2"
-	agentAID      = "a7000000-0000-4000-8000-000000000001"
-	agentBID      = "a7000000-0000-4000-8000-000000000002"
-	canaryAgentID = "a7000000-0000-4000-8000-000000000003"
-	canaryTarget  = "e2e-mtls-noop"
-	laneA         = "t-e2e-a"
-	laneB         = "t-e2e-b"
-	ipOnlyA       = "10.77.1.9"  // appears only in tenant A's traffic
-	ipOnlyB       = "10.88.2.10" // appears only in tenant B's traffic
-	composeF      = "deploy/compose/dev.yml"
+	tenantA        = "00000000-0000-0000-0000-000000000001" // the seeded default tenant
+	tenantB        = "00000000-0000-0000-0000-00000000e2e2"
+	agentAID       = "a7000000-0000-4000-8000-000000000001"
+	agentBID       = "a7000000-0000-4000-8000-000000000002"
+	canaryAgentID  = "a7000000-0000-4000-8000-000000000003"
+	expiredAgentID = "a7000000-0000-4000-8000-000000000004"
+	plainAgentID   = "a7000000-0000-4000-8000-000000000005"
+	canaryTarget   = "e2e-mtls-noop"
+	laneA          = "t-e2e-a"
+	laneB          = "t-e2e-b"
+	ipOnlyA        = "10.77.1.9"  // appears only in tenant A's traffic
+	ipOnlyB        = "10.88.2.10" // appears only in tenant B's traffic
+	composeF       = "deploy/compose/dev.yml"
+	composeIsoF    = "deploy/compose/isolated.yml"
 )
 
 func TestE2E(t *testing.T) {
@@ -62,17 +65,25 @@ func TestE2E(t *testing.T) {
 	}
 	root := repoRoot(t)
 	work := t.TempDir()
+	composeFile := filepath.Join(root, composeF)
+	composeIsoFile := filepath.Join(root, composeIsoF)
+	composeProject := fmt.Sprintf("probectl-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
+	composeEnv := []string{"PROBECTL_ISOLATED_NETWORK=" + composeProject + "-network"}
 
 	// ── stack up ────────────────────────────────────────────────────────
 	// The black-box receipt must be repeatable on a developer workstation where
-	// the shared dev stack may already have data. Start from an empty compose
-	// volume so one run's agent CA cannot poison the next run.
-	runCmd(t, root, nil, "docker", "compose", "-f", composeF, "down", "-v", "--remove-orphans")
-	runCmd(t, root, nil, "docker", "compose", "-f", composeF, "up", "-d", "--wait", "postgres", "kafka")
+	// the shared dev stack may already have data. A unique Compose project gives
+	// this run empty, disposable volumes without ever targeting the developer's
+	// probectl-dev project during setup or teardown.
+	runCmd(t, root, composeEnv, "docker", composeArgs(composeProject, composeFile, composeIsoFile,
+		"up", "-d", "--wait", "postgres", "kafka")...)
 	t.Cleanup(func() {
-		_ = exec.Command("docker", "compose", "-f", filepath.Join(root, composeF), "down", "-v").Run()
+		cmd := exec.Command("docker", composeArgs(composeProject, composeFile, composeIsoFile,
+			"down", "-v", "--remove-orphans")...)
+		cmd.Env = append(os.Environ(), composeEnv...)
+		_ = cmd.Run()
 	})
-	createKafkaTopics(t, root,
+	createKafkaTopics(t, root, composeEnv, composeProject, composeFile, composeIsoFile,
 		"probectl."+laneA+".ebpf.flows",
 		"probectl."+laneB+".ebpf.flows",
 		"probectl."+laneA+".network.results",
@@ -113,14 +124,25 @@ func TestE2E(t *testing.T) {
 	serverCert := filepath.Join(serverTLSDir, "tls.crt")
 	serverKey := filepath.Join(serverTLSDir, "tls.key")
 	serverCA := filepath.Join(serverTLSDir, "ca.crt")
+	irPublicDir := filepath.Join(work, "ir-public")
+	wormDir := filepath.Join(work, "audit-worm")
+	for _, dir := range []string{irPublicDir, wormDir} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatalf("create e2e security directory %s: %v", dir, err)
+		}
+	}
+	wormSigningKey := filepath.Join(wormDir, "signing-key.pem")
 
 	controlEnv := []string{
 		"PROBECTL_DATABASE_URL=postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable",
-		"PROBECTL_HTTP_ADDR=" + apiAddr,
+		"PROBECTL_HTTP_ADDR=127.0.0.1:0", // loopback posture for offline CLI subcommands
 		"PROBECTL_AUTH_MODE=dev",
 		"PROBECTL_DEV_AUTH_ACK=i-understand",
 		"PROBECTL_ENVELOPE_KEY_ID=e2e",
 		"PROBECTL_ENVELOPE_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", // test-only 32-byte KEK
+		"PROBECTL_AUDIT_WORM_DIR=" + wormDir,
+		"PROBECTL_WORM_SIGNING_KEY_FILE=" + wormSigningKey,
+		"PROBECTL_IR_PUBLIC_KEY_DIR=" + irPublicDir,
 		"PROBECTL_LICENSE_FILE=" + licenseFile,
 		"PROBECTL_PATHSTORE_TENANT_SCOPING=true",
 		"PROBECTL_FLOWSTORE_TENANT_SCOPING=true",
@@ -135,15 +157,18 @@ func TestE2E(t *testing.T) {
 
 	// ── schema: the serve path checks DB-level tenant isolation before listen ─
 	runCmd(t, root, controlEnv, control, "migrate")
-	seedE2ETenants(t, root)
+	seedE2ETenants(t, root, composeEnv, composeProject, composeFile, composeIsoFile)
 	runCmd(t, root, controlEnv, control, "agent-ca", "init")
 	agentCABundle := filepath.Join(work, "agent-ca.crt")
 	runCmd(t, root, controlEnv, control, "agent-ca", "export", agentCABundle)
 	registerCollector(t, root, control, controlEnv, tenantA, agentAID, "agent-a")
 	registerCollector(t, root, control, controlEnv, tenantB, agentBID, "agent-b")
 	canaryToken := mintEnrollToken(t, root, control, controlEnv, tenantA, canaryAgentID, "e2e-canary")
+	apiAddr := freeTCPAddr(t)
+	apiBase := "https://" + apiAddr
+	agentGRPCAddr := freeTCPAddr(t)
 
-	serveEnv := append(append([]string(nil), controlEnv...),
+	serveEnv := append(setEnv(controlEnv, "PROBECTL_HTTP_ADDR", apiAddr),
 		"PROBECTL_TLS_CERT_FILE="+serverCert,
 		"PROBECTL_TLS_KEY_FILE="+serverKey,
 		"PROBECTL_AGENT_GRPC_ADDR="+agentGRPCAddr,
@@ -154,7 +179,7 @@ func TestE2E(t *testing.T) {
 	apiClient := newAPIClient(t, serverCA)
 
 	// ── control plane: public configuration surface only ────────────────
-	controlLog := startProc(t, work, "control", control, nil, serveEnv)
+	controlLog, _ := startProc(t, work, "control", control, nil, serveEnv)
 	waitFor(t, "control plane /readyz", 90*time.Second, func() bool {
 		resp, err := apiClient.Get(apiBase + "/readyz")
 		if err != nil {
@@ -163,10 +188,26 @@ func TestE2E(t *testing.T) {
 		defer resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
 	})
-	if body := isolationJSON(t, apiClient, tenantA); !strings.Contains(body, `"mode":"tenant_namespaced"`) || !strings.Contains(body, laneA) {
+	if body := isolationJSON(t, apiClient, apiBase, tenantA); !strings.Contains(body, `"mode":"tenant_namespaced"`) || !strings.Contains(body, laneA) {
 		t.Fatalf("tenant A isolation status did not report the expected namespaced lane %s:\n%s", laneA, body)
 	}
 
+	// First contact fails closed without trust and over plaintext. Neither
+	// attempt may consume its single-use token.
+	runCmdMustFail(t, root, nil, canaryAgent,
+		"enroll", "--server", apiBase, "--token", canaryToken,
+		"--dir", filepath.Join(work, "missing-ca-identity"), "--hostname", "missing-ca")
+	plainToken := mintEnrollTokenTTL(t, root, control, controlEnv, tenantA, plainAgentID, "plaintext-refused", "10m")
+	runCmdMustFail(t, root, nil, canaryAgent,
+		"enroll", "--server", "http://"+apiAddr, "--token", plainToken,
+		"--dir", filepath.Join(work, "plaintext-identity"), "--hostname", "plaintext-refused")
+	plainEnrollOut := runCmdOutput(t, root, nil, canaryAgent,
+		"enroll", "--server", apiBase, "--token", plainToken,
+		"--dir", filepath.Join(work, "plaintext-identity"), "--ca-file", serverCA,
+		"--hostname", "plaintext-refused")
+	if !strings.Contains(plainEnrollOut, cryptoSPIFFE(tenantA, plainAgentID)) {
+		t.Fatal("plaintext refusal consumed or changed the tenant-bound enrollment token")
+	}
 	// ── two fixture-mode agents, one per tenant, disjoint traffic ───────
 	// ── real canary agent: join token → SVID → mTLS → result API ──────
 	// The real canary path runs first; the fixture agents follow it.
@@ -181,7 +222,6 @@ func TestE2E(t *testing.T) {
 	if !strings.Contains(enrollOut, wantSPIFFE) {
 		t.Fatalf("agent enrollment did not return the expected tenant-bound SVID %s:\n%s", wantSPIFFE, enrollOut)
 	}
-
 	canaryConfig := filepath.Join(work, "canary-agent.yaml")
 	writeFile(t, canaryConfig, fmt.Sprintf(`apiVersion: probectl.io/agent/v1
 control_plane:
@@ -210,14 +250,63 @@ canaries:
 		serverCA,
 		filepath.Join(work, "canary-buffer"),
 		canaryTarget))
-	startProc(t, work, "canary-agent", canaryAgent, []string{"-config", canaryConfig}, nil)
+	_, stopCanary := startProc(t, work, "canary-agent", canaryAgent, []string{"-config", canaryConfig}, nil)
 
+	var firstObserved time.Time
 	waitFor(t, "tenant A's mTLS canary in /v1/results/latest", 90*time.Second, func() bool {
-		return latestResultsContains(t, apiClient, tenantA, canaryAgentID, "noop", canaryTarget)
+		var ok bool
+		firstObserved, ok = latestResultObservedAt(t, apiClient, apiBase, tenantA, canaryAgentID, "noop", canaryTarget)
+		return ok
 	})
-	if latestResultsContains(t, apiClient, tenantB, canaryAgentID, "noop", canaryTarget) {
+	if latestResultsContains(t, apiClient, apiBase, tenantB, canaryAgentID, "noop", canaryTarget) {
 		t.Fatalf("CROSS-TENANT LEAK: tenant B can read tenant A's mTLS canary result (%s/%s)", canaryAgentID, canaryTarget)
 	}
+
+	// Force a public-binary rotation, preserving the SPIFFE identity while the
+	// leaf fingerprint changes, then prove the rotated credential reconnects.
+	stopCanary()
+	beforeSerial, beforeSPIFFE := certificateIdentity(t, filepath.Join(identityDir, "cert.pem"))
+	runCmd(t, root, nil, canaryAgent, "rotate", "--server", apiBase, "--dir", identityDir, "--ca-file", serverCA)
+	afterSerial, afterSPIFFE := certificateIdentity(t, filepath.Join(identityDir, "cert.pem"))
+	if beforeSerial == afterSerial || beforeSPIFFE != afterSPIFFE || afterSPIFFE != wantSPIFFE {
+		t.Fatalf("rotation identity mismatch: before=(%s,%s) after=(%s,%s)",
+			beforeSerial, beforeSPIFFE, afterSerial, afterSPIFFE)
+	}
+	_, stopRotated := startProc(t, work, "canary-agent-rotated", canaryAgent, []string{"-config", canaryConfig}, nil)
+	var rotatedObserved time.Time
+	waitFor(t, "rotated mTLS identity to publish a newer result", 30*time.Second, func() bool {
+		var ok bool
+		rotatedObserved, ok = latestResultObservedAt(t, apiClient, apiBase, tenantA, canaryAgentID, "noop", canaryTarget)
+		return ok && rotatedObserved.After(firstObserved)
+	})
+
+	// API revocation pushes the serial/SPIFFE deny-list into the live gRPC
+	// listener. A reconnect and a further rotation both fail, and no newer
+	// result is persisted for the revoked identity.
+	revokeAgent(t, apiClient, apiBase, tenantA, canaryAgentID)
+	stopRotated()
+	runCmdMustFail(t, root, nil, canaryAgent, "rotate", "--server", apiBase, "--dir", identityDir, "--ca-file", serverCA)
+	startProc(t, work, "canary-agent-revoked", canaryAgent, []string{"-config", canaryConfig}, nil)
+	time.Sleep(3 * time.Second)
+	revokedObserved, ok := latestResultObservedAt(t, apiClient, apiBase, tenantA, canaryAgentID, "noop", canaryTarget)
+	if !ok || revokedObserved.After(rotatedObserved) {
+		t.Fatalf("revoked identity persisted a newer result: before=%s after=%s", rotatedObserved, revokedObserved)
+	}
+
+	// Deliberately failing, server-reaching enrollment cases run only after
+	// the valid lifecycle is complete. They still exercise the real auth
+	// limiter, without allowing an expected lockout to mask rotation/revocation.
+	// A redeemed token is immutable history, never a reusable credential.
+	runCmdMustFail(t, root, nil, canaryAgent,
+		"enroll", "--server", apiBase, "--token", canaryToken,
+		"--dir", filepath.Join(work, "replay-identity"), "--ca-file", serverCA,
+		"--hostname", "replay-refused")
+	expiredToken := mintEnrollTokenTTL(t, root, control, controlEnv, tenantA, expiredAgentID, "expired-token", "1ms")
+	time.Sleep(20 * time.Millisecond)
+	runCmdMustFail(t, root, nil, canaryAgent,
+		"enroll", "--server", apiBase, "--token", expiredToken,
+		"--dir", filepath.Join(work, "expired-identity"), "--ca-file", serverCA,
+		"--hostname", "expired-token")
 
 	// Two fixture-mode agents now exercise tenant-namespaced flow ingestion.
 	for _, a := range []struct{ tenant, ip, name, agentID, lane string }{
@@ -235,23 +324,23 @@ canaries:
 	}
 	t.Cleanup(func() {
 		if t.Failed() {
-			dumpKafkaDiagnostics(t, root)
+			dumpKafkaDiagnostics(t, root, composeEnv, composeProject, composeFile, composeIsoFile)
 		}
 	})
 
 	// ── ingest lands: each tenant's edge appears via the PUBLIC API ─────
 	waitFor(t, "tenant A's edge in /v1/topology", 90*time.Second, func() bool {
-		return strings.Contains(topologyJSON(t, apiClient, tenantA), ipOnlyA)
+		return strings.Contains(topologyJSON(t, apiClient, apiBase, tenantA), ipOnlyA)
 	})
 	waitFor(t, "tenant B's edge in /v1/topology", 90*time.Second, func() bool {
-		return strings.Contains(topologyJSON(t, apiClient, tenantB), ipOnlyB)
+		return strings.Contains(topologyJSON(t, apiClient, apiBase, tenantB), ipOnlyB)
 	})
 
 	// ── the tenancy boundary: no bleed in either direction ──────────────
-	if body := topologyJSON(t, apiClient, tenantA); strings.Contains(body, ipOnlyB) {
+	if body := topologyJSON(t, apiClient, apiBase, tenantA); strings.Contains(body, ipOnlyB) {
 		t.Fatalf("CROSS-TENANT LEAK: tenant A's topology contains tenant B's endpoint %s:\n%s", ipOnlyB, body)
 	}
-	if body := topologyJSON(t, apiClient, tenantB); strings.Contains(body, ipOnlyA) {
+	if body := topologyJSON(t, apiClient, apiBase, tenantB); strings.Contains(body, ipOnlyA) {
 		t.Fatalf("CROSS-TENANT LEAK: tenant B's topology contains tenant A's endpoint %s:\n%s", ipOnlyA, body)
 	}
 
@@ -286,6 +375,31 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
+func freeTCPAddr(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("allocate loopback test port: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release loopback test port %s: %v", addr, err)
+	}
+	return addr
+}
+
+func setEnv(env []string, key, value string) []string {
+	result := append([]string(nil), env...)
+	prefix := key + "="
+	for index, item := range result {
+		if strings.HasPrefix(item, prefix) {
+			result[index] = prefix + value
+			return result
+		}
+	}
+	return append(result, prefix+value)
+}
+
 func runCmd(t *testing.T, dir string, env []string, name string, args ...string) {
 	t.Helper()
 	_ = runCmdOutput(t, dir, env, name, args...)
@@ -298,12 +412,60 @@ func runCmdOutput(t *testing.T, dir string, env []string, name string, args ...s
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("%s %s: %v\n%s", name, strings.Join(args, " "), err, out)
+		t.Fatalf("%s: %v\n%s", redactedCommand(name, args), err, redactCommandOutput(out, args))
 	}
 	return string(out)
 }
 
-func seedE2ETenants(t *testing.T, root string) {
+func runCmdMustFail(t *testing.T, dir string, env []string, name string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("%s unexpectedly succeeded", redactedCommand(name, args))
+	}
+	return string(redactCommandOutput(out, args))
+}
+
+func redactedCommand(name string, args []string) string {
+	redacted := append([]string(nil), args...)
+	for i := 0; i+1 < len(redacted); i++ {
+		if redacted[i] == "--token" || redacted[i] == "-token" {
+			redacted[i+1] = "[redacted]"
+		}
+	}
+	return name + " " + strings.Join(redacted, " ")
+}
+
+func redactCommandOutput(out []byte, args []string) []byte {
+	redacted := append([]byte(nil), out...)
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--token" || args[i] == "-token" {
+			redacted = []byte(strings.ReplaceAll(string(redacted), args[i+1], "[redacted]"))
+		}
+	}
+	return redacted
+}
+
+func composeArgs(project, file, isolatedFile string, args ...string) []string {
+	base := []string{"compose", "--project-name", project, "-f", file, "-f", isolatedFile}
+	return append(base, args...)
+}
+
+func TestComposeArgsScopesDisposableProject(t *testing.T) {
+	t.Parallel()
+	got := composeArgs("probectl-e2e-123", "/tmp/dev.yml", "/tmp/isolated.yml", "down", "-v")
+	want := []string{
+		"compose", "--project-name", "probectl-e2e-123", "-f", "/tmp/dev.yml", "-f", "/tmp/isolated.yml", "down", "-v",
+	}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("compose args = %q, want %q", got, want)
+	}
+}
+
+func seedE2ETenants(t *testing.T, root string, composeEnv []string, composeProject, composeFile, composeIsoFile string) {
 	t.Helper()
 	sql := fmt.Sprintf(`INSERT INTO tenants (id, slug, name, status, isolation_model)
 VALUES
@@ -315,9 +477,9 @@ SET slug = EXCLUDED.slug,
     status = EXCLUDED.status,
     isolation_model = EXCLUDED.isolation_model,
     updated_at = now()`, tenantA, tenantB)
-	runCmd(t, root, nil, "docker", "compose", "-f", composeF, "exec", "-T",
+	runCmd(t, root, composeEnv, "docker", composeArgs(composeProject, composeFile, composeIsoFile, "exec", "-T",
 		"postgres", "psql", "-U", "probectl", "-d", "probectl",
-		"-v", "ON_ERROR_STOP=1", "-c", sql)
+		"-v", "ON_ERROR_STOP=1", "-c", sql)...)
 }
 
 func registerCollector(t *testing.T, root, control string, env []string, tenant, agentID, name string) {
@@ -331,9 +493,13 @@ func registerCollector(t *testing.T, root, control string, env []string, tenant,
 }
 
 func mintEnrollToken(t *testing.T, root, control string, env []string, tenant, agentID, name string) string {
+	return mintEnrollTokenTTL(t, root, control, env, tenant, agentID, name, "10m")
+}
+
+func mintEnrollTokenTTL(t *testing.T, root, control string, env []string, tenant, agentID, name, ttl string) string {
 	t.Helper()
 	tokenOut := runCmdOutput(t, root, env, control,
-		"enroll-token", "-tenant", tenant, "-agent", agentID, "-name", name, "-ttl", "10m")
+		"enroll-token", "-tenant", tenant, "-agent", agentID, "-name", name, "-ttl", ttl)
 	token := ""
 	for _, line := range strings.Split(tokenOut, "\n") {
 		if candidate := strings.TrimSpace(line); strings.HasPrefix(candidate, "pjt_") {
@@ -342,26 +508,26 @@ func mintEnrollToken(t *testing.T, root, control string, env []string, tenant, a
 		}
 	}
 	if token == "" {
-		t.Fatalf("enroll-token did not print a display token:\n%s", tokenOut)
+		t.Fatal("enroll-token did not print a display token")
 	}
 	return token
 }
 
-func createKafkaTopics(t *testing.T, root string, topics ...string) {
+func createKafkaTopics(t *testing.T, root string, composeEnv []string, composeProject, composeFile, composeIsoFile string, topics ...string) {
 	t.Helper()
 	for _, topic := range topics {
-		runCmd(t, root, nil, "docker", "compose", "-f", composeF, "exec", "-T", "kafka",
+		runCmd(t, root, composeEnv, "docker", composeArgs(composeProject, composeFile, composeIsoFile, "exec", "-T", "kafka",
 			"/opt/kafka/bin/kafka-topics.sh",
 			"--bootstrap-server", "localhost:9092",
 			"--create",
 			"--if-not-exists",
 			"--topic", topic,
 			"--partitions", "3",
-			"--replication-factor", "1")
+			"--replication-factor", "1")...)
 	}
 }
 
-func dumpKafkaDiagnostics(t *testing.T, root string) {
+func dumpKafkaDiagnostics(t *testing.T, root string, composeEnv []string, composeProject, composeFile, composeIsoFile string) {
 	t.Helper()
 	for _, tc := range []struct {
 		name string
@@ -374,9 +540,10 @@ func dumpKafkaDiagnostics(t *testing.T, root string) {
 		{name: "tenant-a-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneA + ".network.results"}},
 		{name: "tenant-b-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneB + ".network.results"}},
 	} {
-		args := append([]string{"compose", "-f", composeF, "exec", "-T", "kafka"}, tc.args...)
+		args := composeArgs(composeProject, composeFile, composeIsoFile, append([]string{"exec", "-T", "kafka"}, tc.args...)...)
 		cmd := exec.Command("docker", args...)
 		cmd.Dir = root
+		cmd.Env = append(os.Environ(), composeEnv...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Logf("---- kafka %s failed ----\n%v\n%s", tc.name, err, out)
@@ -388,7 +555,7 @@ func dumpKafkaDiagnostics(t *testing.T, root string) {
 
 // startProc launches a long-running binary, captures its output to a log
 // file, and guarantees teardown. Returns the log path for diagnostics.
-func startProc(t *testing.T, work, name, bin string, args, env []string) string {
+func startProc(t *testing.T, work, name, bin string, args, env []string) (string, func()) {
 	t.Helper()
 	logPath := filepath.Join(work, name+".log")
 	logf, err := os.Create(logPath)
@@ -401,10 +568,16 @@ func startProc(t *testing.T, work, name, bin string, args, env []string) string 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start %s: %v", name, err)
 	}
+	var stopOnce sync.Once
+	stop := func() {
+		stopOnce.Do(func() {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+			_ = logf.Close()
+		})
+	}
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-		_ = logf.Close()
+		stop()
 		if t.Failed() {
 			if b, err := os.ReadFile(logPath); err == nil {
 				logText := string(b)
@@ -425,7 +598,7 @@ func startProc(t *testing.T, work, name, bin string, args, env []string) string 
 			}
 		}
 	})
-	return logPath
+	return logPath, stop
 }
 
 func waitFor(t *testing.T, what string, timeout time.Duration, ok func() bool) {
@@ -461,17 +634,17 @@ func newAPIClient(t *testing.T, caFile string) *http.Client {
 
 // topologyJSON fetches /v1/topology as the given tenant (dev-auth header)
 // and returns the raw body (valid JSON asserted).
-func topologyJSON(t *testing.T, client *http.Client, tenant string) string {
+func topologyJSON(t *testing.T, client *http.Client, apiBase, tenant string) string {
 	t.Helper()
-	return getTenantJSON(t, client, tenant, "/v1/topology")
+	return getTenantJSON(t, client, apiBase, tenant, "/v1/topology")
 }
 
-func isolationJSON(t *testing.T, client *http.Client, tenant string) string {
+func isolationJSON(t *testing.T, client *http.Client, apiBase, tenant string) string {
 	t.Helper()
-	return getTenantJSON(t, client, tenant, "/v1/isolation/status")
+	return getTenantJSON(t, client, apiBase, tenant, "/v1/isolation/status")
 }
 
-func getTenantJSON(t *testing.T, client *http.Client, tenant, path string) string {
+func getTenantJSON(t *testing.T, client *http.Client, apiBase, tenant, path string) string {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, apiBase+path, nil)
 	req.Header.Set("X-Probectl-Tenant", tenant)
@@ -490,26 +663,74 @@ func getTenantJSON(t *testing.T, client *http.Client, tenant, path string) strin
 	return string(body)
 }
 
-func latestResultsContains(t *testing.T, client *http.Client, tenant, agentID, canaryType, target string) bool {
+func latestResultsContains(t *testing.T, client *http.Client, apiBase, tenant, agentID, canaryType, target string) bool {
+	_, ok := latestResultObservedAt(t, client, apiBase, tenant, agentID, canaryType, target)
+	return ok
+}
+
+func latestResultObservedAt(t *testing.T, client *http.Client, apiBase, tenant, agentID, canaryType, target string) (time.Time, bool) {
 	t.Helper()
 	var response struct {
 		Items []struct {
-			AgentID string `json:"agent_id"`
-			Type    string `json:"type"`
-			Target  string `json:"target"`
-			Success bool   `json:"success"`
+			AgentID    string    `json:"agent_id"`
+			Type       string    `json:"type"`
+			Target     string    `json:"target"`
+			Success    bool      `json:"success"`
+			ObservedAt time.Time `json:"observed_at"`
 		} `json:"items"`
 	}
-	body := getTenantJSON(t, client, tenant, "/v1/results/latest")
+	body := getTenantJSON(t, client, apiBase, tenant, "/v1/results/latest")
 	if err := json.Unmarshal([]byte(body), &response); err != nil {
 		t.Fatalf("decode /v1/results/latest for %s: %v", tenant, err)
 	}
 	for _, item := range response.Items {
 		if item.AgentID == agentID && item.Type == canaryType && item.Target == target && item.Success {
-			return true
+			return item.ObservedAt, true
 		}
 	}
-	return false
+	return time.Time{}, false
+}
+
+func certificateIdentity(t *testing.T, path string) (serial, spiffeID string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read identity certificate: %v", err)
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		t.Fatal("identity certificate has no PEM block")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse identity certificate: %v", err)
+	}
+	if len(cert.URIs) != 1 {
+		t.Fatalf("identity certificate URI SANs = %d, want 1", len(cert.URIs))
+	}
+	return cert.SerialNumber.Text(16), cert.URIs[0].String()
+}
+
+func cryptoSPIFFE(tenant, agentID string) string {
+	return "spiffe://probectl/tenant/" + tenant + "/agent/" + agentID
+}
+
+func revokeAgent(t *testing.T, client *http.Client, apiBase, tenant, agentID string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, apiBase+"/v1/agents/"+agentID+"/revoke", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Probectl-Tenant", tenant)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("revoke agent: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("revoke agent returned %d: %s", resp.StatusCode, body)
+	}
 }
 
 // writeFixture emits a small recorded-flow file whose endpoints are unique

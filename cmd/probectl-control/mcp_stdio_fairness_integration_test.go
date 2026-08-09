@@ -168,10 +168,10 @@ func TestMCPStdioUsesStoredAndDefaultFairness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertError(listTests(storedTenant.ID), fairness.ErrQueryConcurrency.Error())
+	assertError(listTests(storedTenant.ID), "tool execution failed")
 	storedRelease()
 	assertSuccess(listTests(storedTenant.ID))
-	assertError(listTests(storedTenant.ID), fairness.ErrQueryBudget.Error())
+	assertError(listTests(storedTenant.ID), "tool execution failed")
 
 	// A tenant without an override gets the configured 2-in-flight /
 	// 3-per-minute deployment defaults through the same stdio server gate.
@@ -184,9 +184,9 @@ func TestMCPStdioUsesStoredAndDefaultFairness(t *testing.T) {
 		defaultRelease1()
 		t.Fatal(err)
 	}
-	assertError(listTests(defaultTenant.ID), fairness.ErrQueryConcurrency.Error())
+	assertError(listTests(defaultTenant.ID), "tool execution failed")
 	defaultRelease1()
 	defaultRelease2()
 	assertSuccess(listTests(defaultTenant.ID))
-	assertError(listTests(defaultTenant.ID), fairness.ErrQueryBudget.Error())
+	assertError(listTests(defaultTenant.ID), "tool execution failed")
 }

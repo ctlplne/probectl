@@ -372,9 +372,15 @@ func (e *Engine) WithClock(now func() time.Time) *Engine {
 // with a tenant_id column minus the shared provider-owned deny list).
 func (e *Engine) tenantOwnedTables(ctx context.Context) ([]string, error) {
 	rows, err := e.pool.Query(ctx, `
-		SELECT DISTINCT table_name FROM information_schema.columns
-		 WHERE table_schema = 'public' AND column_name = 'tenant_id'
-		 ORDER BY table_name`)
+		SELECT DISTINCT c.table_name
+		  FROM information_schema.columns AS c
+		  JOIN information_schema.tables AS t
+		    ON t.table_schema = c.table_schema
+		   AND t.table_name = c.table_name
+		 WHERE c.table_schema = 'public'
+		   AND c.column_name = 'tenant_id'
+		   AND t.table_type = 'BASE TABLE'
+		 ORDER BY c.table_name`)
 	if err != nil {
 		return nil, fmt.Errorf("tenantlife: read tenant tables: %w", err)
 	}

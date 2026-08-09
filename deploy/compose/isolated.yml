@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+# Safety override for disposable integration/e2e projects. dev.yml gives its
+# network the stable developer-facing name "probectl-dev"; an isolated runner
+# must replace that explicit name so teardown cannot touch or join the shared
+# development network.
+networks:
+  probectl:
+    name: ${PROBECTL_ISOLATED_NETWORK:?set PROBECTL_ISOLATED_NETWORK to a disposable network name}

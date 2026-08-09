@@ -96,6 +96,43 @@ func pgPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+type integrationIRWrapKeys struct {
+	provider crypto.KeyProvider
+}
+
+func (k integrationIRWrapKeys) WrapProviderForTenant(
+	context.Context,
+	string,
+) (crypto.KeyProvider, error) {
+	return k.provider, nil
+}
+
+func newIntegrationProviderAudit(t *testing.T, pool *pgxpool.Pool) *providerAudit {
+	t.Helper()
+	_, publicPEM, err := crypto.GenerateRSAOAEPKeyPEM()
+	if err != nil {
+		t.Fatalf("generate integration IR wrapping key: %v", err)
+	}
+	provider, err := crypto.NewRSAOAEPWrapProviderPEM(publicPEM)
+	if err != nil {
+		t.Fatalf("build integration IR wrapping provider: %v", err)
+	}
+	signingPrivate, signingPublic, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatalf("generate integration IR signing key: %v", err)
+	}
+	stage, err := audit.NewIRStagePG(
+		pool,
+		integrationIRWrapKeys{provider: provider},
+		signingPrivate,
+		signingPublic,
+	)
+	if err != nil {
+		t.Fatalf("build integration IR attribution sidecar: %v", err)
+	}
+	return &providerAudit{pool: pool, ir: stage}
+}
+
 func isolatedBootstrapPGPool(t *testing.T) (*pgxpool.Pool, string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -198,7 +235,7 @@ func TestPGBootstrapConcurrentRequestsSerializeInitialOperatorAndRetry(t *testin
 	ctx := context.Background()
 	pool, schema, applicationName := isolatedBootstrapPGPool(t)
 	store := NewPGStore(pool)
-	sink := &providerAudit{pool: pool}
+	sink := newIntegrationProviderAudit(t, pool)
 	svc, err := NewService(
 		store,
 		sink,
@@ -376,7 +413,7 @@ func newPGBreakGlassRaceFixture(t *testing.T) *pgBreakGlassRaceFixture {
 	}
 	service, err := NewService(
 		pausing,
-		&providerAudit{pool: pool},
+		newIntegrationProviderAudit(t, pool),
 		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
 		telemetry,
 		testEnvelope(t),
@@ -473,7 +510,7 @@ func TestPGSiloProvisionFailureIsNonRoutableAndResumable(t *testing.T) {
 	siloOps := &fakeSilo{}
 	service, err := NewService(
 		store,
-		&providerAudit{pool: pool},
+		newIntegrationProviderAudit(t, pool),
 		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
 		fakeTelemetry{},
 		testEnvelope(t),
@@ -609,7 +646,7 @@ func TestPGSiloConcurrentCompletionHonorsTenantBand(t *testing.T) {
 	barrier := newBarrierSilo()
 	service, err := NewService(
 		store,
-		&providerAudit{pool: pool},
+		newIntegrationProviderAudit(t, pool),
 		licenseManager(t, license.TierMSP, baseline+1, 90*24*time.Hour),
 		fakeTelemetry{},
 		testEnvelope(t),
@@ -759,7 +796,7 @@ func TestPGProviderMutationAndAuditAreAtomic(t *testing.T) {
 
 	productionService, err := NewService(
 		store,
-		&providerAudit{pool: pool},
+		newIntegrationProviderAudit(t, pool),
 		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
 		fakeTelemetry{},
 		testEnvelope(t),
@@ -853,7 +890,7 @@ func TestPGEnrollStartTOTPAndAuditAreAtomic(t *testing.T) {
 
 	productionService, err := NewService(
 		store,
-		&providerAudit{pool: pool},
+		newIntegrationProviderAudit(t, pool),
 		licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
 		fakeTelemetry{},
 		testEnvelope(t),
@@ -964,8 +1001,9 @@ func TestPGStoreLifecycle(t *testing.T) {
 }
 
 // TestProviderRoleCannotReadTelemetry is the storage-layer guardrail test:
-// the probectl_provider role has NO grant on results/tests — a direct read
-// attempt fails with a permission error, no matter what the Go code does.
+// the probectl_provider role has NO grant on results/tests/agent rows — a
+// direct read fails no matter what the Go code does. Fleet summaries remain
+// available only through the sanctioned aggregate views.
 func TestProviderRoleCannotReadTelemetry(t *testing.T) {
 	pool := pgPool(t)
 	defer pool.Close()
@@ -983,13 +1021,23 @@ func TestProviderRoleCannotReadTelemetry(t *testing.T) {
 	if err == nil {
 		t.Fatal("probectl_provider must NOT be able to read the tests table")
 	}
-	// And the sanctioned read DOES work: agents via the explicit fleet policy.
+	// Raw agent identity/hostname/labels remain tenant telemetry and are denied.
 	err = tenancy.InProvider(context.Background(), pool, func(ctx context.Context, q tenancy.Querier) error {
 		var n int
 		return q.QueryRow(ctx, `SELECT count(*) FROM agents`).Scan(&n)
 	})
-	if err != nil {
-		t.Fatalf("the fleet policy read must work: %v", err)
+	if err == nil {
+		t.Fatal("probectl_provider must NOT be able to read raw agent rows")
+	}
+	// The deliberately aggregate-only provider capabilities still work.
+	for _, view := range []string{"provider_agent_fleet_counts", "provider_agent_fleet_versions"} {
+		err = tenancy.InProvider(context.Background(), pool, func(ctx context.Context, q tenancy.Querier) error {
+			var n int
+			return q.QueryRow(ctx, `SELECT count(*) FROM `+view).Scan(&n)
+		})
+		if err != nil {
+			t.Fatalf("provider aggregate view %s must be readable: %v", view, err)
+		}
 	}
 }
 

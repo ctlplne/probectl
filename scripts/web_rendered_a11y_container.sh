@@ -33,7 +33,7 @@ docker_args=(
   --env "PROBECTL_A11Y_THEMES=$A11Y_THEMES"
   "$IMAGE"
   bash -lc
-  'npm ci --no-audit --no-fund && npm run a11y:browser && node ../scripts/check_web_perf_budgets.mjs && npm run bundle:check'
+  'npm ci --no-audit --no-fund && npm run a11y:browser && node ../scripts/check_web_perf_budgets.mjs && npm run bundle:check && node ../scripts/web_journey_e2e.mjs'
 )
 
 if [ "${SELFTEST:-0}" = "1" ]; then

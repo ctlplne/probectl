@@ -12,6 +12,8 @@ export interface FixtureContractRequest {
   method: 'GET' | 'POST'
   path: string
   body?: unknown
+  /** Transitional route whose OpenAPI operation documents status but not a body schema. */
+  allowMissingResponseSchema?: string
 }
 
 interface OperationMatch {
@@ -375,9 +377,11 @@ export async function fixtureContractErrors(
   const content = objectValue(responseContract.content)
   const mediaType = objectValue(content?.['application/json'])
   if (!mediaType?.schema) {
-    errors.push(
-      `${request.method} ${request.path}: status ${response.status} has no application/json response schema`,
-    )
+    if (!request.allowMissingResponseSchema) {
+      errors.push(
+        `${request.method} ${request.path}: status ${response.status} has no application/json response schema`,
+      )
+    }
     return errors
   }
 

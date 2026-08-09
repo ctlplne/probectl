@@ -99,6 +99,21 @@ probectl-agent enroll \
   --ca-pin <hex sha256>        # for self-signed quickstarts; or --ca-file ca.crt
 ```
 
+To force the same proof-of-possession rotation used by the automatic
+two-thirds-lifetime loop (for example, during an operator drill), run:
+
+```sh
+probectl-agent rotate \
+  --server https://control.example:8443 \
+  --dir /var/lib/probectl-agent/identity \
+  --ca-file /etc/probectl/control-plane-ca.crt
+```
+
+The command verifies HTTPS with `--ca-file` (or `<dir>/ca.pem` when the same CA
+anchors both channels), keeps the private key on the agent host, preserves the
+tenant/agent SPIFFE identity, and atomically replaces the leaf certificate and
+key only after successful issuance.
+
 The agent generates its private key **locally** (it never leaves the host) and
 sends a **CSR** — a certificate signing request, which carries only the public
 key: "please sign this." Back comes the leaf SVID (SPIFFE URI

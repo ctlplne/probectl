@@ -294,12 +294,12 @@ func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
 		t.Fatalf("create tenant B: %v", err)
 	}
 
-	seedTests := func(tenantID string, count int) {
+	seedTests := func(tenantID, namePrefix string, count int) {
 		t.Helper()
 		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 			for i := 0; i < count; i++ {
 				if _, err := (store.Tests{}).Create(ctx, sc, store.TestInput{
-					Name:            fmt.Sprintf("bounded-%03d", i),
+					Name:            fmt.Sprintf("%s-bounded-%03d", namePrefix, i),
 					Type:            "tcp",
 					Target:          fmt.Sprintf("192.0.2.%d:443", i%250+1),
 					IntervalSeconds: 60,
@@ -315,8 +315,8 @@ func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
 			t.Fatalf("seed %s tests: %v", tenantID, err)
 		}
 	}
-	seedTests(tenantA.ID, mcpMaxListedTests+1)
-	seedTests(tenantB.ID, mcpMaxListedTests)
+	seedTests(tenantA.ID, "tenant-a", mcpMaxListedTests+1)
+	seedTests(tenantB.ID, "tenant-b", mcpMaxListedTests)
 
 	allowEgress := ai.NewEgressGate(
 		func(context.Context, string) (bool, error) { return true, nil },
@@ -347,7 +347,7 @@ func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
 		return structured
 	}
 
-	assertTenantRows := func(structured map[string]any, tenantID string, want int, truncated bool) {
+	assertTenantRows := func(structured map[string]any, tenantID, namePrefix string, want int, truncated bool) {
 		t.Helper()
 		rows, ok := structured["tests"].([]any)
 		if !ok {
@@ -367,14 +367,18 @@ func TestMCPListTestsBoundedAndTenantScoped(t *testing.T) {
 			if !ok {
 				t.Fatalf("tenant %s test row = %T, want object", tenantID, row)
 			}
-			if got := testRow["tenant_id"]; got != tenantID {
-				t.Fatalf("tenant %s received row scoped to %v", tenantID, got)
+			if _, exposed := testRow["tenant_id"]; exposed {
+				t.Fatalf("tenant %s MCP projection exposed redundant tenant_id: %v", tenantID, testRow)
+			}
+			name, _ := testRow["name"].(string)
+			if !strings.HasPrefix(name, namePrefix+"-") {
+				t.Fatalf("tenant %s received foreign test projection %q", tenantID, name)
 			}
 		}
 	}
 
-	assertTenantRows(call(1, tenantA.ID), tenantA.ID, mcpMaxListedTests, true)
-	assertTenantRows(call(2, tenantB.ID), tenantB.ID, mcpMaxListedTests, false)
+	assertTenantRows(call(1, tenantA.ID), tenantA.ID, "tenant-a", mcpMaxListedTests, true)
+	assertTenantRows(call(2, tenantB.ID), tenantB.ID, "tenant-b", mcpMaxListedTests, false)
 }
 
 func TestMCPAuthenticatorLoadsTenantAttributes(t *testing.T) {

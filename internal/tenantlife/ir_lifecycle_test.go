@@ -31,6 +31,11 @@ type irLifecycleFake struct {
 	failureHasDeadline bool
 }
 
+func successfulIntegrationIRLifecycle() *irLifecycleFake {
+	events := []string{}
+	return &irLifecycleFake{events: &events, planID: "integration-ir-shred-plan"}
+}
+
 func (f *irLifecycleFake) Plan(_ context.Context, tenantID, _ string) (string, error) {
 	*f.events = append(*f.events, "plan:"+tenantID)
 	return f.planID, f.planErr

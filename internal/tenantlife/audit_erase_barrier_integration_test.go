@@ -97,7 +97,8 @@ func TestPooledTenantEraseConcurrentAuditBarrier(t *testing.T) {
 		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
 		return err
 	}
-	engine := New(pool, flows, nil, nil, providerAudit, "test backups", testLog())
+	engine := New(pool, flows, nil, nil, providerAudit, "test backups", testLog()).
+		WithIRAttributionLifecycle(successfulIntegrationIRLifecycle())
 
 	type eraseResult struct {
 		att Attestation
@@ -191,7 +192,8 @@ func TestPooledTenantEraseFenceAuditFailureRollsBack(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	close(flows.release)
-	engine := New(pool, flows, nil, nil, nil, "test backups", testLog())
+	engine := New(pool, flows, nil, nil, nil, "test backups", testLog()).
+		WithIRAttributionLifecycle(successfulIntegrationIRLifecycle())
 	engine.appendProviderAuditTx = func(
 		context.Context,
 		tenancy.Querier,
@@ -261,7 +263,7 @@ func TestPooledTenantEraseFinalAuditFailureIsRetryable(t *testing.T) {
 		providerAudit,
 		"test backups",
 		testLog(),
-	)
+	).WithIRAttributionLifecycle(successfulIntegrationIRLifecycle())
 	engine.appendProviderAuditTx = func(
 		ctx context.Context,
 		q tenancy.Querier,

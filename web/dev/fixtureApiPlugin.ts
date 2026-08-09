@@ -11,7 +11,7 @@ import type { Connect, Plugin, ViteDevServer } from 'vite'
 /**
  * probectl:fixture-api — the DESIGN LOOP, dev-only, never shipped.
  *
- * Answers the SPA's API calls inside `vite dev` from the same read-only
+ * Answers the SPA's API calls inside `vite dev` from the same local
  * fixture catalog the unit suite uses (src/test/fixtureApi.ts), so design and
  * frontend iteration gets hot reload without a control plane, database, or
  * IdP on the laptop.
@@ -42,9 +42,14 @@ export function fixtureApiPlugin(): Plugin {
       const loadHandler = () =>
         (handler ??= server.ssrLoadModule(FIXTURE_MODULE).then((moduleExports) => {
           const factory = (
-            moduleExports as { fixtureFetch: (profile?: 'populated' | 'cold') => typeof fetch }
+            moduleExports as {
+              fixtureFetch: (
+                profile?: 'populated' | 'cold',
+                options?: { providerPlane?: boolean },
+              ) => typeof fetch
+            }
           ).fixtureFetch
-          return factory(profile)
+          return factory(profile, { providerPlane: true })
         }))
 
       // Editing the fixture catalog reloads it on the next request — the
@@ -54,7 +59,7 @@ export function fixtureApiPlugin(): Plugin {
       })
 
       server.config.logger.info(
-        'probectl fixture API: /v1 + /branding served from src/test/fixtureApi.ts (dev-only design loop; no control plane)',
+        'probectl fixture API: /v1 + /provider/v1 + /branding served from src/test/fixtureApi.ts (dev-only design loop; no control plane)',
       )
 
       const middleware: Connect.NextHandleFunction = (request, response, next) => {
@@ -62,6 +67,7 @@ export function fixtureApiPlugin(): Plugin {
         const isApiPath =
           url === '/v1' ||
           url.startsWith('/v1/') ||
+          url.startsWith('/provider/v1/') ||
           url.startsWith('/branding') ||
           url === '/openapi.json'
         if (!isApiPath) {

@@ -325,8 +325,8 @@ func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
 	ops := device.NewMemoryOpsStore()
 	for _, tenant := range []string{tenantA, tenantB} {
 		for i, content := range []string{
-			"hostname edge-r1\nsnmp-server community private",
-			"hostname edge-r1\nsnmp-server community public",
+			"hostname edge-r1\ninterface Ethernet1\n shutdown\nsnmp-server community private",
+			"hostname edge-r1\ninterface Ethernet1\n no shutdown\nsnmp-server community public",
 		} {
 			if _, err := ops.ArchiveConfig(context.Background(), device.ConfigVersion{
 				TenantID: tenant,

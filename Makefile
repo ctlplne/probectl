@@ -165,6 +165,10 @@ test-integration: ## Run integration tests across modules (needs a database / de
 		( cd $$d && $(GO) test -p=1 -tags=integration -count=1 ./... ) || exit 1; \
 	done'
 
+.PHONY: test-integration-isolated
+test-integration-isolated: ## Run the integration suite in a unique disposable Compose project; shared dev volumes are never targeted.
+	./scripts/run_isolated_integration.sh $(MAKE) --no-print-directory test-integration
+
 .PHONY: test-python
 test-python: ## Run the Python analyzer test suite with the coverage floor (U-094).
 	cd analyzer && $(PYTHON) -m pytest --cov=probectl_analyzer --cov-report=term
@@ -220,9 +224,14 @@ terraform-gate: ## Terraform fmt + validate the probectl module (S35). Needs ter
 browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs node. (Real-browser smoke runs in CI's Playwright container.)
 	cd browser-worker && node --check worker.mjs && node --check smoke.mjs
 
-.PHONY: web-rendered-a11y
-web-rendered-a11y: ## Run rendered a11y, J1-J6 LCP/INP, and bundle budgets in CI's Playwright container.
+.PHONY: web-rendered-a11y web-journey-e2e
+web-rendered-a11y: ## Run rendered a11y, canonical J1-J6 browser E2E, LCP/INP, and bundle budgets in pinned Chromium.
 	bash scripts/web_rendered_a11y_container.sh
+
+web-journey-e2e: web-rendered-a11y ## Alias for the pinned-Chromium canonical J1-J6 journey gate.
+
+.PHONY: journey-e2e
+journey-e2e: test-integration-isolated e2e editions-gate web-journey-e2e fips-gate evidence-receipt-gate release-claim-gate backup-restore-drill-isolated failover-drill-isolated chaos-dependency-drill ## Canonical J1-J6 browser plus real-system release journey proof.
 
 .PHONY: editions-gate third-party third-party-gate
 third-party: ## SUPPLY-009: regenerate the third-party license inventory (NOTICE + docs/third-party-licenses.md) from the module graph.
@@ -337,7 +346,15 @@ workflow-permissions-gate: ## Self-test + enforce least-privilege boundaries for
 
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
-lint: license-header-gate lint-go lint-python web-supply-policy-gate workflow-permissions-gate ## Run all linters and offline policy guards.
+lint: license-header-gate lint-go lint-python web-supply-policy-gate workflow-permissions-gate evidence-receipt-gate release-claim-gate ## Run all linters and offline policy guards.
+
+.PHONY: evidence-receipt-gate
+evidence-receipt-gate: ## Require exact-source receipt sealing, stale-SHA demotion, and artifact-integrity checks.
+	python3 scripts/evidence_receipt.py selftest
+
+.PHONY: release-claim-gate
+release-claim-gate: ## Require one owner and one strict-status catalog entry for every audited capability, need, backlog row, and governed claim.
+	python3 scripts/check_release_claim_catalog.py
 
 .PHONY: web-supply-policy-gate
 web-supply-policy-gate: ## Offline self-tests + applicability proof for exact advisory/range/version exceptions.
@@ -501,6 +518,10 @@ e2e: ## U-054 black-box e2e: join-token/SVID/mTLS canary + HTTPS API + two-tenan
 backup-restore-drill: ## U-030 restore drill vs dev compose: seed -> backup -> wipe -> restore -> verify (runs in CI).
 	./scripts/backup_restore_drill.sh
 
+.PHONY: backup-restore-drill-isolated
+backup-restore-drill-isolated: ## Run the destructive restore drill in a unique disposable Compose project.
+	./scripts/run_isolated_drill.sh backup
+
 .PHONY: backup-drill
 backup-drill: backup-restore-drill ## Alias for the CI backup-drill job.
 
@@ -513,6 +534,10 @@ backup-restore-drill-large: ## Production-shaped restore drill: require min arti
 .PHONY: failover-drill
 failover-drill: ## U-053 timed failover drill: kill the primary, promote the streaming replica, measure RTO/RPO (DESTRUCTIVE to the dev stack; runs in CI).
 	./scripts/failover_drill.sh
+
+.PHONY: failover-drill-isolated
+failover-drill-isolated: ## Run the destructive failover drill in a unique disposable Compose project.
+	./scripts/run_isolated_drill.sh failover
 
 .PHONY: chaos-dependency-drill
 chaos-dependency-drill: ## Dependency chaos: disk-full buffer, pod-kill, dependency outage, and recovery counters.

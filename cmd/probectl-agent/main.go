@@ -10,6 +10,8 @@
 // plane.
 //
 //	probectl-agent -config /etc/probectl/agent.yml
+//	probectl-agent enroll --server https://control:8443 --token pjt_... --dir /var/lib/probectl-agent/identity
+//	probectl-agent rotate --server https://control:8443 --dir /var/lib/probectl-agent/identity
 //	probectl-agent version
 package main
 
@@ -44,6 +46,15 @@ func main() {
 			// join token for a tenant-bound SVID and write the identity dir.
 			if err := runEnroll(os.Args[2:]); err != nil {
 				fmt.Fprintln(os.Stderr, "probectl-agent enroll:", err)
+				os.Exit(1)
+			}
+			return
+		case "rotate":
+			// Manual rotation uses the same proof-of-possession endpoint as the
+			// automatic ~2/3-lifetime loop. It is useful for an operator drill and
+			// gives the black-box release test a public binary surface.
+			if err := runRotate(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "probectl-agent rotate:", err)
 				os.Exit(1)
 			}
 			return

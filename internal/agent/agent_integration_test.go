@@ -104,7 +104,12 @@ func TestAgentEndToEnd(t *testing.T) {
 	mtsdb := tsdb.NewMemory()
 	consumerCtx, stopConsumer := context.WithCancel(ctx)
 	consumerDone := make(chan struct{})
-	go func() { _ = pipeline.NewConsumer(mbus, mtsdb, "e2e", log).Run(consumerCtx); close(consumerDone) }()
+	go func() {
+		_ = pipeline.NewConsumer(mbus, mtsdb, "e2e", log).
+			WithTenantBinding(pipeline.NewRegistryBinding(pool)).
+			Run(consumerCtx)
+		close(consumerDone)
+	}()
 	defer func() { stopConsumer(); <-consumerDone }()
 
 	srv, err := agenttransport.New(write("server.crt", sc), write("server.key", sk), caFile, pool, mbus, nil, log)

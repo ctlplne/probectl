@@ -33,6 +33,34 @@ import (
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
+type retentionIntegrationIRLifecycle struct{}
+
+func (retentionIntegrationIRLifecycle) Plan(
+	_ context.Context,
+	tenantID, _ string,
+) (string, error) {
+	return "retention-integration-" + tenantID, nil
+}
+
+func (retentionIntegrationIRLifecycle) Execute(
+	context.Context,
+	string,
+	string,
+	string,
+) error {
+	return nil
+}
+
+func (retentionIntegrationIRLifecycle) RecordFailure(
+	context.Context,
+	string,
+	string,
+	string,
+	string,
+) error {
+	return nil
+}
+
 func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 	pool := pgPool(t)
 	defer pool.Close()
@@ -78,7 +106,9 @@ func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 	life := tenantlife.New(pool, flows, nil, tsdb.NewMemory(), func(ctx context.Context, actor, action, target string, data map[string]any) error {
 		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
 		return err
-	}, "integration backups expire after 14 days", log).WithClock(func() time.Time { return now })
+	}, "integration backups expire after 14 days", log).
+		WithClock(func() time.Time { return now }).
+		WithIRAttributionLifecycle(retentionIntegrationIRLifecycle{})
 
 	days := 1
 	if err := life.SetRetention(

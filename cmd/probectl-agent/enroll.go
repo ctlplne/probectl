@@ -10,6 +10,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/agent"
@@ -59,5 +60,44 @@ func runEnroll(args []string) error {
 	fmt.Printf("  tls:\n    cert_file: %s/%s\n    key_file: %s/%s\n    ca_file: %s/%s\n",
 		*dir, agent.IdentityCertFile, *dir, agent.IdentityKeyFile, *dir, agent.IdentityCAFile)
 	fmt.Printf("  identity:\n    server: %s\n", *server)
+	return nil
+}
+
+// runRotate forces one proof-of-possession SVID rotation through the public
+// agent binary. The private key remains local: agent.Rotate signs the new CSR
+// with the current key and atomically replaces the identity files only after
+// the HTTPS response verifies against the enrolled CA bundle.
+func runRotate(args []string) error {
+	fs := flag.NewFlagSet("rotate", flag.ContinueOnError)
+	server := fs.String("server", "", "control-plane HTTPS base URL")
+	dir := fs.String("dir", "/var/lib/probectl-agent/identity", "identity directory")
+	caFile := fs.String("ca-file", "", "CA bundle for the control-plane HTTPS certificate (defaults to <dir>/ca.pem)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *server == "" || *dir == "" {
+		return fmt.Errorf("--server and --dir are required")
+	}
+	if err := crypto.RunPowerOnSelfTest(nil); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	rotationCA := *caFile
+	if rotationCA == "" {
+		rotationCA = filepath.Join(*dir, agent.IdentityCAFile)
+	}
+	notAfter, err := agent.Rotate(
+		ctx,
+		*server,
+		filepath.Join(*dir, agent.IdentityCertFile),
+		filepath.Join(*dir, agent.IdentityKeyFile),
+		rotationCA,
+	)
+	if err != nil {
+		return err
+	}
+	fmt.Println("rotated identity in:", *dir)
+	fmt.Println("svid expires:", notAfter.UTC().Format(time.RFC3339))
 	return nil
 }

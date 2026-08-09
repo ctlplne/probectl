@@ -33,11 +33,19 @@ const fixturePath = join(srcDir, 'test', 'fixtureApi.ts')
 const openAPI = JSON.parse(
   readFileSync(join(apiDir, '..', '..', '..', 'internal', 'control', 'openapi.json'), 'utf8'),
 ) as unknown
+const providerOpenAPI = JSON.parse(
+  readFileSync(join(apiDir, '..', '..', '..', 'ee', 'provider', 'openapi.json'), 'utf8'),
+) as unknown
 
 const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/branding' },
   { method: 'GET', path: '/v1/abac/policies' },
   { method: 'GET', path: '/v1/agents' },
+  {
+    method: 'POST',
+    path: '/v1/agents/enroll-tokens',
+    body: { name: 'fixture-agent', ttl_seconds: 3600 },
+  },
   { method: 'POST', path: '/v1/ai/ask', body: { question: 'Why is checkout slow?' } },
   { method: 'POST', path: '/v1/ai/discover', body: {} },
   { method: 'GET', path: '/v1/alerts' },
@@ -65,6 +73,8 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/directory/scim-tokens' },
   { method: 'GET', path: '/v1/editions' },
   { method: 'GET', path: '/v1/endpoints' },
+  { method: 'GET', path: '/v1/identity/settings' },
+  { method: 'GET', path: '/v1/incident-shares/share_0123456789abcdef0123456789abcdef' },
   {
     method: 'POST',
     path: '/v1/explorer/compare',
@@ -115,12 +125,27 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   },
   {
     method: 'GET',
+    path: '/v1/incidents/30000000-0000-4000-8000-000000000001/changes',
+  },
+  {
+    method: 'GET',
     path: '/v1/incidents/30000000-0000-4000-8000-000000000001/journal',
+  },
+  {
+    method: 'POST',
+    path: '/v1/incidents/30000000-0000-4000-8000-000000000001/shares',
+    body: { context: { selected_evidence_id: 'E1' } },
   },
   { method: 'GET', path: '/v1/inventory/views' },
   { method: 'GET', path: '/v1/lifecycle/retention' },
   { method: 'GET', path: '/v1/me' },
+  { method: 'GET', path: '/v1/onboarding/progress' },
   { method: 'GET', path: '/v1/outages' },
+  {
+    method: 'GET',
+    path: '/v1/remediation/proposals',
+    allowMissingResponseSchema: 'legacy remediation operation has status-only OpenAPI',
+  },
   { method: 'GET', path: '/v1/results/history' },
   { method: 'GET', path: '/v1/results/latest' },
   { method: 'GET', path: '/v1/rollouts' },
@@ -142,6 +167,45 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/tls/posture' },
   { method: 'GET', path: '/v1/topology' },
   { method: 'POST', path: '/v1/topology/whatif', body: { target: 'service:checkout' } },
+]
+
+const PROVIDER_FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
+  {
+    method: 'GET',
+    path: '/provider/v1/breakglass',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
+  { method: 'GET', path: '/provider/v1/fairness' },
+  {
+    method: 'GET',
+    path: '/provider/v1/fleet',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
+  {
+    method: 'GET',
+    path: '/provider/v1/license',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
+  {
+    method: 'GET',
+    path: '/provider/v1/me',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
+  {
+    method: 'GET',
+    path: '/provider/v1/operators',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
+  {
+    method: 'GET',
+    path: '/provider/v1/tenants',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
+  {
+    method: 'GET',
+    path: '/provider/v1/usage',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
 ]
 
 function callKey(c: APIFetchCall): string {
@@ -237,12 +301,14 @@ function generatedInterfaceMembers(name: string): Set<string> {
   return members
 }
 
-function literalFixturePaths(): string[] {
+function literalFixturePaths(scope: 'core' | 'provider'): string[] {
   const source = readFileSync(fixturePath, 'utf8')
   const paths = new Set<string>()
   const routePattern = /(?:path\s*===|case)\s*['"]([^'"]+)['"]/g
   for (let match = routePattern.exec(source); match; match = routePattern.exec(source)) {
-    if (match[1]?.startsWith('/')) paths.add(match[1])
+    if (!match[1]?.startsWith('/')) continue
+    const provider = match[1].startsWith('/provider/v1/')
+    if ((scope === 'provider') === provider) paths.add(match[1])
   }
   return [...paths].sort()
 }
@@ -318,7 +384,12 @@ describe('API wire and OpenAPI shape contracts', () => {
 
 describe('design-loop fixture to OpenAPI response contracts', () => {
   it('catalogs every literal fixture route exactly once', () => {
-    expect(FIXTURE_REQUESTS.map((request) => request.path).sort()).toEqual(literalFixturePaths())
+    expect(FIXTURE_REQUESTS.map((request) => request.path).sort()).toEqual(
+      literalFixturePaths('core'),
+    )
+    expect(PROVIDER_FIXTURE_REQUESTS.map((request) => request.path).sort()).toEqual(
+      literalFixturePaths('provider'),
+    )
   })
 
   for (const profile of ['populated', 'cold'] satisfies FixtureProfile[]) {
@@ -335,6 +406,19 @@ describe('design-loop fixture to OpenAPI response contracts', () => {
       expect(failures).toEqual([])
     })
   }
+
+  it('provider responses use the separate documented provider contract', async () => {
+    const failures: string[] = []
+    const fetchFixture = fixtureFetch('populated', { providerPlane: true })
+    for (const request of PROVIDER_FIXTURE_REQUESTS) {
+      const response = await fetchFixture(
+        `https://fixture.probectl.test${request.path}`,
+        fixtureRequestInit(request),
+      )
+      failures.push(...(await fixtureContractErrors(providerOpenAPI, request, response)))
+    }
+    expect(failures).toEqual([])
+  })
 
   it('keeps current device-neighbor rows aligned with physical topology edges', async () => {
     for (const [profile, expectedLinks] of [

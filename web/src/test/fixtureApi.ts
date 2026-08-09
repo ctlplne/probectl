@@ -542,6 +542,11 @@ export function assertNoDoublePrefix(input: RequestInfo | URL): void {
 
 export type FixtureProfile = 'populated' | 'cold'
 
+export interface FixtureOptions {
+  /** Provider routes are commercial and hidden in the ordinary core fixture. */
+  providerPlane?: boolean
+}
+
 type FlowFixtureGroupBy =
   | 'src'
   | 'dst'
@@ -1017,10 +1022,45 @@ function coldFixture(path: string): Response | null {
  *  tests install their own stateful stub. Profile 'cold' answers the data
  *  endpoints as a freshly installed deployment (the install-day design/test
  *  surface); everything else falls through to the populated catalog. */
-export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetch {
+export function fixtureFetch(
+  profile: FixtureProfile = 'populated',
+  options: FixtureOptions = {},
+): typeof fetch {
+  // The fixture-backed design loop is stateful for the write steps used by
+  // documented journeys. Every value is obviously synthetic and lives only in
+  // this factory closure; a browser refresh of the dev server cannot mutate a
+  // real control plane or another test's fixture state.
+  let fixtureTests = sampleTests.map((test) => ({ ...test }))
+  let enrollmentTokenCreated = false
+  let firstTestCreated = false
+  let scimTokenCreated = false
+  let remediationProposals: Array<Record<string, unknown>> = []
+  let lifecycleRetention: Record<string, unknown> = {
+    flow_retention_days: null,
+    isolation_model: 'pooled',
+  }
+  const providerOperator = {
+    id: 'operator-fixture',
+    email: 'operator@provider.probectl.test',
+    name: 'Fixture Provider Operator',
+    role: 'admin',
+    status: 'active',
+    enrolled: true,
+  }
+  let providerTenants = [
+    {
+      id: TENANT_ID,
+      slug: 'acme-industries',
+      name: 'Acme Industries',
+      status: 'active',
+      isolation_model: 'pooled',
+    },
+  ]
+
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
     const path = pathOf(input)
+    const method = String(init?.method ?? 'GET').toUpperCase()
     if (profile === 'cold') {
       const cold = coldFixture(path)
       if (cold) return cold
@@ -1045,7 +1085,102 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
           'metrics.write',
         ],
       })
-    if (path === '/v1/tests') return jsonResponse({ items: sampleTests })
+    if (path === '/v1/onboarding/progress') {
+      const operational = firstTestCreated
+      const producerReadiness = (
+        id: string,
+        state: 'ready' | 'quiet' | 'blocked',
+        detail: string,
+        nextAction: string,
+      ) => ({ id, state, detail, next_action: nextAction })
+      return jsonResponse({
+        agent_enroll_token_created: enrollmentTokenCreated,
+        agent_registered: operational,
+        agent_connected: operational,
+        producer_healthy: operational,
+        first_test_created: firstTestCreated,
+        first_result_received: operational,
+        first_finding_visible: operational,
+        scim_token_created: scimTokenCreated,
+        readiness_steps_complete: operational ? 4 : 0,
+        readiness_steps_total: 4,
+        ...(operational
+          ? {
+              first_finding: {
+                title: 'ICMP check healthy — 127.0.0.1',
+                type: 'icmp',
+                target: '127.0.0.1',
+                success: true,
+                observed_at: '2026-06-04T12:00:00Z',
+                href: '/targets',
+              },
+            }
+          : {}),
+        producers: [
+          producerReadiness(
+            'synthetic',
+            operational ? 'ready' : 'blocked',
+            operational ? 'fixture producer heartbeat is current' : 'producer is not registered',
+            operational ? '/targets' : '/onboarding#first-run-agent',
+          ),
+          ...['flow', 'bgp', 'device', 'ebpf', 'endpoint'].map((id) =>
+            producerReadiness(
+              id,
+              'blocked',
+              'fixture producer is not registered',
+              `/admin?register_collector=${id}`,
+            ),
+          ),
+        ],
+        engines: [
+          producerReadiness(
+            'synthetic-results',
+            operational ? 'ready' : 'quiet',
+            operational ? 'fixture engine has tenant data' : 'engine is waiting for tenant data',
+            '/targets',
+          ),
+        ],
+      })
+    }
+    if (path === '/v1/agents/enroll-tokens' && method === 'POST') {
+      enrollmentTokenCreated = true
+      return jsonResponse(
+        {
+          token: 'pjt_fixture_only_not_a_real_secret',
+          id: 'fixture-enrollment-token',
+          tenant_id: TENANT_ID,
+          expires_at: '2026-06-04T13:00:00Z',
+          server_cert_pin: 'sha256:fixture-only-pin',
+        },
+        201,
+      )
+    }
+    if (path === '/v1/tests' && method === 'POST') {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
+      const created = {
+        ...body,
+        id: '10000000-0000-4000-8000-000000000099',
+        tenant_id: TENANT_ID,
+        created_at: '2026-06-04T12:00:00Z',
+        updated_at: '2026-06-04T12:00:00Z',
+      }
+      fixtureTests = [...fixtureTests, created]
+      firstTestCreated = true
+      return jsonResponse(created, 201)
+    }
+    if (path === '/v1/directory/scim-tokens' && method === 'POST') {
+      scimTokenCreated = true
+      return jsonResponse(
+        {
+          id: 'fixture-scim-token',
+          name: 'first-run-teammates',
+          token: 'psc_fixture_only_not_a_real_secret',
+          created_at: '2026-06-04T12:00:00Z',
+        },
+        201,
+      )
+    }
+    if (path === '/v1/tests') return jsonResponse({ items: fixtureTests })
     if (path === '/v1/coverage/vantages')
       return jsonResponse({
         items: [
@@ -1336,6 +1471,48 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
       return jsonResponse(sampleIncident)
     if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001/journal')
       return jsonResponse({ items: [], truncated: false, limit: 200 })
+    if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001/changes')
+      return jsonResponse({
+        items: [
+          {
+            event: sampleChange,
+            score: 0.92,
+            reason: 'same target and immediately before the first affected signal',
+          },
+        ],
+      })
+    if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001/shares' && method === 'POST') {
+      const request = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
+      return jsonResponse(
+        {
+          id: 'share_0123456789abcdef0123456789abcdef',
+          incident: sampleIncident,
+          context: {
+            from: '2026-06-04T11:00:00Z',
+            to: '2026-06-04T12:00:00Z',
+            filters: {},
+            ...(request.context ?? {}),
+          },
+          answer: { ...sampleAnswer, tenant: '' },
+          created_at: '2026-06-04T12:06:00Z',
+          expires_at: '2026-06-11T12:06:00Z',
+        },
+        201,
+      )
+    }
+    if (path === '/v1/incident-shares/share_0123456789abcdef0123456789abcdef')
+      return jsonResponse({
+        id: 'share_0123456789abcdef0123456789abcdef',
+        incident: sampleIncident,
+        context: {
+          from: '2026-06-04T11:00:00Z',
+          to: '2026-06-04T12:00:00Z',
+          filters: {},
+        },
+        answer: { ...sampleAnswer, tenant: '' },
+        created_at: '2026-06-04T12:06:00Z',
+        expires_at: '2026-06-11T12:06:00Z',
+      })
     if (path === '/v1/alerts') return jsonResponse({ items: [] })
     if (path === '/v1/alerts/maintenance')
       return jsonResponse({ items: [], evaluator_running: true })
@@ -1403,10 +1580,30 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             title: 'Known scanner contact',
             summary: 'Flow evidence matched a locally cached threat-intel indicator.',
             observed_at: '2026-06-04T12:00:00Z',
+            incident_id: INCIDENT_ID,
           },
         ],
         detections_running: true,
       })
+    if (path === '/v1/remediation/proposals' && method === 'GET')
+      return jsonResponse({ items: remediationProposals, approvals_enabled: false })
+    if (path === '/v1/remediation/proposals' && method === 'POST') {
+      const request = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
+      const created = {
+        id: 'remediation-fixture-1',
+        tenant_id: TENANT_ID,
+        ...request,
+        dry_run: {
+          blast_radius: 0,
+          note: 'Fixture proposal records human review only; no executor exists.',
+        },
+        state: 'proposed',
+        proposed_by: 'user:operator@probectl.test',
+        created_at: '2026-06-04T12:06:00Z',
+      }
+      remediationProposals = [...remediationProposals, created]
+      return jsonResponse(created, 201)
+    }
     if (path === '/v1/endpoints')
       return jsonResponse({
         items: [
@@ -1885,11 +2082,42 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         ],
       })
     if (path === '/v1/rum') return jsonResponse({ rum_running: false })
-    if (path === '/v1/carbon') return jsonResponse({ carbon_running: false })
+    if (path === '/v1/carbon')
+      return jsonResponse({
+        carbon_running: true,
+        summary: {
+          total_bytes: 12 * 2 ** 30,
+          total_kwh: 0.22,
+          total_gco2e: 88,
+          by_class: { inter_az: { bytes: 10 * 2 ** 30, kwh: 0.1, gco2e: 40 } },
+          by_service: { checkout: { bytes: 10 * 2 ** 30, kwh: 0.1, gco2e: 40 } },
+          by_team: { payments: { bytes: 10 * 2 ** 30, kwh: 0.1, gco2e: 40 } },
+          trend: [],
+          methodology: {
+            measured: false,
+            grid_gco2e_per_kwh: 400,
+            source: 'fixture coefficient model',
+            note: 'coefficient-based estimate; not measured device power',
+          },
+        },
+      })
     if (path === '/v1/secrets/health')
       return jsonResponse({
         resolver_running: true,
         backends: [{ scheme: 'env', configured: true, resolves: 0, failures: 0, cached_leases: 0 }],
+      })
+    if (path === '/v1/identity/settings')
+      return jsonResponse({
+        source: 'environment',
+        configured: true,
+        valid: true,
+        issuer: 'https://idp.probectl.test',
+        client_id: 'probectl-fixture',
+        client_secret_configured: true,
+        redirect_url: 'https://probectl.test/auth/callback',
+        scopes: ['openid', 'email', 'profile'],
+        enabled: true,
+        flags: {},
       })
     if (path === '/v1/directory/scim-tokens') return jsonResponse({ items: [] })
     if (path === '/v1/abac/policies') return jsonResponse({ items: [] })
@@ -1939,9 +2167,22 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
       })
     if (path === '/branding') return jsonResponse({ product_name: 'probectl' })
     if (path === '/v1/security/keys')
-      return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
-    if (path === '/v1/lifecycle/retention')
-      return jsonResponse({ flow_retention_days: null, isolation_model: 'pooled' })
+      return jsonResponse({
+        items: [
+          {
+            version: 1,
+            mode: 'managed',
+            state: 'active',
+            created_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+      })
+    if (path === '/v1/lifecycle/retention' && method === 'PUT') {
+      const request = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
+      lifecycleRetention = { ...lifecycleRetention, ...request }
+      return jsonResponse(lifecycleRetention)
+    }
+    if (path === '/v1/lifecycle/retention') return jsonResponse(lifecycleRetention)
     if (path === '/v1/editions')
       return jsonResponse({
         tier: 'core',
@@ -1962,6 +2203,61 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
           { name: 'provider_plane', tier: 'msp', licensed: false, mode: 'off' },
           { name: 'metering', tier: 'msp', licensed: false, mode: 'off' },
         ],
+      })
+    if (options.providerPlane && path === '/provider/v1/me')
+      return jsonResponse({ operator: providerOperator })
+    if (options.providerPlane && path === '/provider/v1/license')
+      return jsonResponse({
+        tier: 'msp',
+        state: 'active',
+        customer: 'Fixture MSP',
+        tenant_band: 25,
+      })
+    if (options.providerPlane && path === '/provider/v1/tenants' && method === 'GET')
+      return jsonResponse({ items: providerTenants })
+    if (options.providerPlane && path === '/provider/v1/tenants' && method === 'POST') {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
+      const created = {
+        ...body,
+        id: '00000000-0000-4000-8000-000000000099',
+        status: 'active',
+      }
+      providerTenants = [...providerTenants, created]
+      return jsonResponse(created, 201)
+    }
+    if (options.providerPlane && path === '/provider/v1/fleet')
+      return jsonResponse({
+        items: providerTenants.map((tenant) => ({
+          tenant_id: tenant.id,
+          tenant_slug: tenant.slug,
+          tenant_name: tenant.name,
+          tenant_status: tenant.status,
+          agents_total: tenant.id === TENANT_ID ? 3 : 0,
+          agents_online: tenant.id === TENANT_ID ? 2 : 0,
+          agents_stale: tenant.id === TENANT_ID ? 1 : 0,
+          versions: tenant.id === TENANT_ID ? { '0.1.0': 3 } : {},
+        })),
+      })
+    if (options.providerPlane && path === '/provider/v1/breakglass')
+      return jsonResponse({ items: [] })
+    if (options.providerPlane && path === '/provider/v1/fairness') return jsonResponse({ items: [] })
+    if (options.providerPlane && path === '/provider/v1/operators')
+      return jsonResponse({ items: [providerOperator] })
+    if (
+      options.providerPlane &&
+      (path === '/provider/v1/usage' || path.startsWith('/provider/v1/usage/'))
+    )
+      return jsonResponse({
+        items: providerTenants.map((tenant) => ({
+          tenant_id: tenant.id,
+          tenant_slug: tenant.slug,
+          meter: 'agents',
+          kind: 'gauge',
+          period_start: '2026-06-01T00:00:00Z',
+          period_end: '2026-06-04T12:00:00Z',
+          value: tenant.id === TENANT_ID ? 3 : 0,
+          unit: 'count',
+        })),
       })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
   }

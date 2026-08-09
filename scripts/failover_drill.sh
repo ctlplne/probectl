@@ -17,9 +17,13 @@
 # runbook + results table.
 set -euo pipefail
 
-DEV="deploy/compose/dev.yml"
-DRILL="deploy/compose/dr-drill.yml"
+DEV="${PROBECTL_COMPOSE_DEV_FILE:-deploy/compose/dev.yml}"
+DRILL="${PROBECTL_COMPOSE_DRILL_FILE:-deploy/compose/dr-drill.yml}"
+COMPOSE_OVERRIDE_FILE="${PROBECTL_COMPOSE_OVERRIDE_FILE:-}"
 DC=(docker compose -f "$DEV" -f "$DRILL")
+if [ -n "${COMPOSE_OVERRIDE_FILE}" ]; then
+  DC+=(-f "${COMPOSE_OVERRIDE_FILE}")
+fi
 ACKED="$(mktemp "${TMPDIR:-/tmp}/drill-acked.XXXXXX")"
 DRILL_PROFILE="${PROBECTL_FAILOVER_PROFILE:-ci-dev-compose}"
 RESULT_FILE="${PROBECTL_FAILOVER_RESULT_FILE:-}"
@@ -31,7 +35,11 @@ psql_primary() { "${DC[@]}" exec -T postgres psql -U probectl -d probectl -qAt -
 psql_replica() { "${DC[@]}" exec -T pg-replica psql -U probectl -d probectl -qAt -v ON_ERROR_STOP=1 -c "$1"; }
 
 cleanup() {
-  kill "${WPID:-0}" 2>/dev/null || true
+  # PID 0 means the caller's entire process group. Never let an early setup
+  # failure (before the writer starts) turn cleanup into a broad signal.
+  if [ -n "${WPID:-}" ]; then
+    kill "${WPID}" 2>/dev/null || true
+  fi
   "${DC[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   rm -f "$ACKED"
 }

@@ -62,9 +62,10 @@ func TestObjectArtifactEraseWriteFenceTwoTenant(t *testing.T) {
 
 	published := &artifactCaptureBus{}
 	svc := &service{
-		pool: pool,
-		bus:  published,
-		log:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:  pool,
+		bus:   published,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		fence: tenancy.NewPostgresWriterFence(pool),
 	}
 	if err := svc.ingest(ctx, artifactAgentID(tenantA, "agent-a"), artifactResultRequest(t, tenantA, "before")); err != nil {
 		t.Fatalf("active tenant A artifact ingest: %v", err)

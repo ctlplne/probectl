@@ -1133,11 +1133,11 @@ func TestAuditRetentionReceiptRollbackPreservesSequenceAnchor(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		n, err := pruneProviderWithReceipt(
+		n, err := pruneProviderWithProofReceipt(
 			ctx,
 			pool,
 			RetentionPolicy{Window: 24 * time.Hour},
-			2,
+			ProviderRetentionProof{watermark: 2, verified: true},
 			now,
 			func(context.Context, tenancy.Querier, map[string]any) error {
 				return errors.New("injected provider receipt failure")

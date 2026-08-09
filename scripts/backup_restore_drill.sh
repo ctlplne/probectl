@@ -14,6 +14,11 @@ set -euo pipefail
 
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose/dev.yml}"
 export COMPOSE_FILE
+COMPOSE_OVERRIDE_FILE="${PROBECTL_COMPOSE_OVERRIDE_FILE:-}"
+DC=(docker compose -f "${COMPOSE_FILE}")
+if [ -n "${COMPOSE_OVERRIDE_FILE}" ]; then
+  DC+=(-f "${COMPOSE_OVERRIDE_FILE}")
+fi
 DRILL_PROFILE="${PROBECTL_DRILL_PROFILE:-ci-marker}"
 PG_ROWS="${PROBECTL_DRILL_PG_ROWS:-137}"
 CH_ROWS="${PROBECTL_DRILL_CH_ROWS:-251}"
@@ -47,11 +52,11 @@ for v in PG_ROWS CH_ROWS CH_OTHER_ROWS MIN_ARTIFACT_BYTES RTO_BUDGET_SECONDS RPO
 done
 
 psql_db() {
-  docker compose -f "${COMPOSE_FILE}" exec -T postgres \
+  "${DC[@]}" exec -T postgres \
     psql -U probectl -d probectl -v ON_ERROR_STOP=1 -qAt -c "$1"
 }
 ch() {
-  docker compose -f "${COMPOSE_FILE}" exec -T clickhouse \
+  "${DC[@]}" exec -T clickhouse \
     clickhouse-client --user probectl --password probectl --query "$1"
 }
 
@@ -81,7 +86,7 @@ worm_public_key_hash_before="$(file_hash "${WORM_PUBLIC_KEY}")"
 object_marker_hash_before="$(file_hash "${OBJECT_MARKER}")"
 
 step "boot postgres + clickhouse (dev compose)"
-docker compose -f "${COMPOSE_FILE}" up -d --wait postgres clickhouse
+"${DC[@]}" up -d --wait postgres clickhouse
 
 step "seed marker data (nonce ${NONCE})"
 psql_db "CREATE TABLE IF NOT EXISTS probectl_drill_marker (id int PRIMARY KEY, nonce text NOT NULL)"
@@ -137,7 +142,7 @@ if find "${OUT}" -maxdepth 1 -name 'objectstore-*.tar' ! -name '*.pbk' -print -q
 fi
 
 step "WIPE all three stores (simulated regional loss; restore only from off-box artifacts)"
-docker compose -f "${COMPOSE_FILE}" exec -T postgres \
+"${DC[@]}" exec -T postgres \
   psql -U probectl -d postgres -v ON_ERROR_STOP=1 -qAt \
   -c "DROP DATABASE IF EXISTS probectl WITH (FORCE)"
 ch "DROP DATABASE IF EXISTS probectl SYNC"

@@ -1,0 +1,861 @@
+{
+  "schema": "probectl.release-claim-catalog/v1",
+  "purpose": "Every audited F1-F57 capability, N1-N13 strategic need, BL-001-BL-048 work item, and repository governed claim has exactly one owner and receives exactly one strict status in the generated evidence index.",
+  "claims": [
+    {
+      "id": "F1",
+      "kind": "capability",
+      "owner": "agent/security"
+    },
+    {
+      "id": "F2",
+      "kind": "capability",
+      "owner": "agent/security"
+    },
+    {
+      "id": "F3",
+      "kind": "capability",
+      "owner": "web/quality"
+    },
+    {
+      "id": "F4",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F5",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F6",
+      "kind": "capability",
+      "owner": "incident/API"
+    },
+    {
+      "id": "F7",
+      "kind": "capability",
+      "owner": "product/path"
+    },
+    {
+      "id": "F8",
+      "kind": "capability",
+      "owner": "platform/release"
+    },
+    {
+      "id": "F9",
+      "kind": "capability",
+      "owner": "platform/release"
+    },
+    {
+      "id": "F10",
+      "kind": "capability",
+      "owner": "agent/security"
+    },
+    {
+      "id": "F11",
+      "kind": "capability",
+      "owner": "eBPF/quality"
+    },
+    {
+      "id": "F12",
+      "kind": "capability",
+      "owner": "eBPF/quality"
+    },
+    {
+      "id": "F13",
+      "kind": "capability",
+      "owner": "incident/API"
+    },
+    {
+      "id": "F14",
+      "kind": "capability",
+      "owner": "AI/security"
+    },
+    {
+      "id": "F15",
+      "kind": "capability",
+      "owner": "design system/domain"
+    },
+    {
+      "id": "F16",
+      "kind": "capability",
+      "owner": "web/quality"
+    },
+    {
+      "id": "F17",
+      "kind": "capability",
+      "owner": "platform/release"
+    },
+    {
+      "id": "F18",
+      "kind": "capability",
+      "owner": "product research/MSP"
+    },
+    {
+      "id": "F19",
+      "kind": "capability",
+      "owner": "product/path"
+    },
+    {
+      "id": "F20",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F21",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F22",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F23",
+      "kind": "capability",
+      "owner": "provider/security"
+    },
+    {
+      "id": "F24",
+      "kind": "capability",
+      "owner": "tenancy/provider"
+    },
+    {
+      "id": "F25",
+      "kind": "capability",
+      "owner": "tenancy/provider"
+    },
+    {
+      "id": "F26",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F27",
+      "kind": "capability",
+      "owner": "integrations/MSP"
+    },
+    {
+      "id": "F28",
+      "kind": "capability",
+      "owner": "SRE/data"
+    },
+    {
+      "id": "F29",
+      "kind": "capability",
+      "owner": "platform/IaC"
+    },
+    {
+      "id": "F30",
+      "kind": "capability",
+      "owner": "OTel/integrations"
+    },
+    {
+      "id": "F31",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F32",
+      "kind": "capability",
+      "owner": "founder/legal/product"
+    },
+    {
+      "id": "F33",
+      "kind": "capability",
+      "owner": "flow/performance"
+    },
+    {
+      "id": "F34",
+      "kind": "capability",
+      "owner": "data/governance"
+    },
+    {
+      "id": "F35",
+      "kind": "capability",
+      "owner": "product research/MSP"
+    },
+    {
+      "id": "F36",
+      "kind": "capability",
+      "owner": "eBPF/TLS"
+    },
+    {
+      "id": "F37",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F38",
+      "kind": "capability",
+      "owner": "SRE/quality"
+    },
+    {
+      "id": "F39",
+      "kind": "capability",
+      "owner": "incident/API"
+    },
+    {
+      "id": "F40",
+      "kind": "capability",
+      "owner": "platform/release"
+    },
+    {
+      "id": "F41",
+      "kind": "capability",
+      "owner": "performance/product"
+    },
+    {
+      "id": "F42",
+      "kind": "capability",
+      "owner": "incident/quality"
+    },
+    {
+      "id": "F43",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F44",
+      "kind": "capability",
+      "owner": "architecture/release"
+    },
+    {
+      "id": "F45",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F46",
+      "kind": "capability",
+      "owner": "incident/API"
+    },
+    {
+      "id": "F47",
+      "kind": "capability",
+      "owner": "architecture/release"
+    },
+    {
+      "id": "F48",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F49",
+      "kind": "capability",
+      "owner": "architecture/release"
+    },
+    {
+      "id": "F50",
+      "kind": "capability",
+      "owner": "platform/release"
+    },
+    {
+      "id": "F51",
+      "kind": "capability",
+      "owner": "web/quality"
+    },
+    {
+      "id": "F52",
+      "kind": "capability",
+      "owner": "platform/release"
+    },
+    {
+      "id": "F53",
+      "kind": "capability",
+      "owner": "product research/MSP"
+    },
+    {
+      "id": "F54",
+      "kind": "capability",
+      "owner": "founder/legal/product"
+    },
+    {
+      "id": "F55",
+      "kind": "capability",
+      "owner": "data/governance"
+    },
+    {
+      "id": "F56",
+      "kind": "capability",
+      "owner": "product/release"
+    },
+    {
+      "id": "F57",
+      "kind": "capability",
+      "owner": "release/docs"
+    },
+    {
+      "id": "N1",
+      "kind": "strategic_need",
+      "owner": "platform/release",
+      "title": "Durable, multi-vantage ISP/path proof"
+    },
+    {
+      "id": "N2",
+      "kind": "strategic_need",
+      "owner": "billing/product",
+      "title": "Predictable pricing that scales rationally"
+    },
+    {
+      "id": "N3",
+      "kind": "strategic_need",
+      "owner": "platform/release",
+      "title": "Self-hosted control and portable telemetry"
+    },
+    {
+      "id": "N4",
+      "kind": "strategic_need",
+      "owner": "platform/release",
+      "title": "Cross-signal RCA that collapses tool fragmentation"
+    },
+    {
+      "id": "N5",
+      "kind": "strategic_need",
+      "owner": "platform/release",
+      "title": "MSP-isolated central operations with complete PSA workflow"
+    },
+    {
+      "id": "N6",
+      "kind": "strategic_need",
+      "owner": "web/quality",
+      "title": "Remote-user and SaaS fault-domain diagnosis"
+    },
+    {
+      "id": "N7",
+      "kind": "strategic_need",
+      "owner": "platform/release",
+      "title": "Flow analytics with affordable, durable scale"
+    },
+    {
+      "id": "N8",
+      "kind": "strategic_need",
+      "owner": "web/quality",
+      "title": "Usable automatic topology plus change context"
+    },
+    {
+      "id": "N9",
+      "kind": "strategic_need",
+      "owner": "quality/NOC",
+      "title": "BGP route-change correlation, not flow inference"
+    },
+    {
+      "id": "N10",
+      "kind": "strategic_need",
+      "owner": "platform/release",
+      "title": "Low-noise, explainable incident grouping"
+    },
+    {
+      "id": "N11",
+      "kind": "strategic_need",
+      "owner": "eBPF/quality",
+      "title": "eBPF/OTel collection with visible blind spots"
+    },
+    {
+      "id": "N12",
+      "kind": "strategic_need",
+      "owner": "web/quality",
+      "title": "Low-toil deployment, tuning, and upkeep"
+    },
+    {
+      "id": "N13",
+      "kind": "strategic_need",
+      "owner": "path/web",
+      "title": "Independent/global outside-in vantage"
+    },
+    {
+      "id": "BL-001",
+      "kind": "backlog_item",
+      "owner": "platform/release",
+      "title": "Renew exact-SHA real-store isolation and cross-plane receipt"
+    },
+    {
+      "id": "BL-002",
+      "kind": "backlog_item",
+      "owner": "agent/security",
+      "title": "Run black-box enrollment → mTLS → result lifecycle"
+    },
+    {
+      "id": "BL-003",
+      "kind": "backlog_item",
+      "owner": "web/quality",
+      "title": "Render and exercise critical browser journeys at the release SHA"
+    },
+    {
+      "id": "BL-004",
+      "kind": "backlog_item",
+      "owner": "eBPF/quality",
+      "title": "Capture real-kernel eBPF attach and degradation receipt"
+    },
+    {
+      "id": "BL-005",
+      "kind": "backlog_item",
+      "owner": "release/docs",
+      "title": "Make evidence receipts immutable, SHA-bound, and claim-queryable"
+    },
+    {
+      "id": "BL-006",
+      "kind": "backlog_item",
+      "owner": "data/governance",
+      "title": "Prove backup, restore, export, and verifiable deletion on current stores"
+    },
+    {
+      "id": "BL-007",
+      "kind": "backlog_item",
+      "owner": "incident/API",
+      "title": "Define the canonical incident evidence-package contract"
+    },
+    {
+      "id": "BL-008",
+      "kind": "backlog_item",
+      "owner": "path/web",
+      "title": "Build before/during/after multi-vantage incident timeline"
+    },
+    {
+      "id": "BL-009",
+      "kind": "backlog_item",
+      "owner": "design system/domain",
+      "title": "Standardize source, trust, independence, and inference labels"
+    },
+    {
+      "id": "BL-010",
+      "kind": "backlog_item",
+      "owner": "incident/web/CLI",
+      "title": "Ship a carrier-ready incident export and verification workflow"
+    },
+    {
+      "id": "BL-011",
+      "kind": "backlog_item",
+      "owner": "quality/NOC",
+      "title": "Create the golden intermittent-ISP acceptance scenario"
+    },
+    {
+      "id": "BL-012",
+      "kind": "backlog_item",
+      "owner": "product/path",
+      "title": "Expose coverage gaps without building a first-party global fleet"
+    },
+    {
+      "id": "BL-013",
+      "kind": "backlog_item",
+      "owner": "incident/quality",
+      "title": "Promote one-incident cross-plane correlation to a release gate"
+    },
+    {
+      "id": "BL-014",
+      "kind": "backlog_item",
+      "owner": "AI/security",
+      "title": "Enforce citation integrity and explicit unknowns in AI/MCP RCA"
+    },
+    {
+      "id": "BL-015",
+      "kind": "backlog_item",
+      "owner": "alerting/incident",
+      "title": "Make alert grouping and suppression explainable and reversible"
+    },
+    {
+      "id": "BL-016",
+      "kind": "backlog_item",
+      "owner": "BGP/flow",
+      "title": "Prove BGP change → traffic impact correlation and feed degradation"
+    },
+    {
+      "id": "BL-017",
+      "kind": "backlog_item",
+      "owner": "topology/change",
+      "title": "Verify topology versioning, confidence, rebuild, and bounded what-if"
+    },
+    {
+      "id": "BL-018",
+      "kind": "backlog_item",
+      "owner": "tenancy/provider",
+      "title": "Run MSP two-tenant isolation with overlapping customer networks"
+    },
+    {
+      "id": "BL-019",
+      "kind": "backlog_item",
+      "owner": "integrations/MSP",
+      "title": "Close PSA ticket-field and lifecycle parity"
+    },
+    {
+      "id": "BL-020",
+      "kind": "backlog_item",
+      "owner": "provider/security",
+      "title": "Exercise tenant-consented, time-bounded break-glass"
+    },
+    {
+      "id": "BL-021",
+      "kind": "backlog_item",
+      "owner": "product research/MSP",
+      "title": "Run a representative MSP onboarding and daily-operations study"
+    },
+    {
+      "id": "BL-022",
+      "kind": "backlog_item",
+      "owner": "billing/product",
+      "title": "Reconcile export-based metering with a representative MSP invoice"
+    },
+    {
+      "id": "BL-023",
+      "kind": "backlog_item",
+      "owner": "endpoint/web",
+      "title": "Separate endpoint truth from synthetic truth in every surface"
+    },
+    {
+      "id": "BL-024",
+      "kind": "backlog_item",
+      "owner": "endpoint/security",
+      "title": "Verify endpoint consent, minimization, and redaction end to end"
+    },
+    {
+      "id": "BL-025",
+      "kind": "backlog_item",
+      "owner": "endpoint/incident/research",
+      "title": "Calibrate remote-user fault-domain attribution"
+    },
+    {
+      "id": "BL-026",
+      "kind": "backlog_item",
+      "owner": "browser/object-store",
+      "title": "Decide and implement durable browser-artifact storage beyond filesystem"
+    },
+    {
+      "id": "BL-027",
+      "kind": "backlog_item",
+      "owner": "flow/performance",
+      "title": "Execute representative L/XL/XXL flow retention and query profiles"
+    },
+    {
+      "id": "BL-028",
+      "kind": "backlog_item",
+      "owner": "performance/product",
+      "title": "Publish retention and infrastructure cost per retained TB"
+    },
+    {
+      "id": "BL-029",
+      "kind": "backlog_item",
+      "owner": "SRE/data",
+      "title": "Run representative multi-region failover and data-loss drill"
+    },
+    {
+      "id": "BL-030",
+      "kind": "backlog_item",
+      "owner": "agents/performance",
+      "title": "Measure agent and control-plane overhead on reference hosts"
+    },
+    {
+      "id": "BL-031",
+      "kind": "backlog_item",
+      "owner": "platform/IaC",
+      "title": "Produce a live IaC/GitOps deployment receipt"
+    },
+    {
+      "id": "BL-032",
+      "kind": "backlog_item",
+      "owner": "product research/SRE",
+      "title": "Run non-author first-run, tuning, and dependency-outage study"
+    },
+    {
+      "id": "BL-033",
+      "kind": "backlog_item",
+      "owner": "SRE/quality",
+      "title": "Verify graceful degradation for every critical dependency"
+    },
+    {
+      "id": "BL-034",
+      "kind": "backlog_item",
+      "owner": "SRE/release",
+      "title": "Validate upgrade, backup/restore, and rollback from runbooks"
+    },
+    {
+      "id": "BL-035",
+      "kind": "backlog_item",
+      "owner": "eBPF/docs/web",
+      "title": "Publish and surface the eBPF support/blind-spot contract"
+    },
+    {
+      "id": "BL-036",
+      "kind": "backlog_item",
+      "owner": "product/architecture",
+      "title": "Make an explicit product decision on raw eBPF history"
+    },
+    {
+      "id": "BL-037",
+      "kind": "backlog_item",
+      "owner": "eBPF/TLS",
+      "title": "Connect eBPF TLS observations to tenant-scoped TLS posture"
+    },
+    {
+      "id": "BL-038",
+      "kind": "backlog_item",
+      "owner": "OTel/integrations",
+      "title": "Prove OTel portability and tenant-safe export redirection"
+    },
+    {
+      "id": "BL-039",
+      "kind": "backlog_item",
+      "owner": "founder/product/finance",
+      "title": "Build an offline pricing and self-hosted TCO scenario calculator"
+    },
+    {
+      "id": "BL-040",
+      "kind": "backlog_item",
+      "owner": "product/sales engineering",
+      "title": "Create a representative buyer bake-off and migration scorecard"
+    },
+    {
+      "id": "BL-041",
+      "kind": "backlog_item",
+      "owner": "founder/product research",
+      "title": "Validate willingness to pay, support expectations, and buying units"
+    },
+    {
+      "id": "BL-042",
+      "kind": "backlog_item",
+      "owner": "founder/legal/product",
+      "title": "Reconcile the product contract before publishing edition claims"
+    },
+    {
+      "id": "BL-043",
+      "kind": "backlog_item",
+      "owner": "product research/NOC",
+      "title": "Measure time-to-value and MTTR impact in a bounded pilot"
+    },
+    {
+      "id": "BL-044",
+      "kind": "backlog_item",
+      "owner": "product/docs/release",
+      "title": "Gate every buyer-facing claim on strict evidence status"
+    },
+    {
+      "id": "BL-045",
+      "kind": "backlog_item",
+      "owner": "product research",
+      "title": "Close high-value Reddit evidence cells with a targeted follow-up study"
+    },
+    {
+      "id": "BL-046",
+      "kind": "backlog_item",
+      "owner": "founder/product/security",
+      "title": "Decide whether approved partner/public vantages merit integration"
+    },
+    {
+      "id": "BL-047",
+      "kind": "backlog_item",
+      "owner": "architecture/release",
+      "title": "Encode deliberate non-goals as regression checks"
+    },
+    {
+      "id": "BL-048",
+      "kind": "backlog_item",
+      "owner": "founder/counsel",
+      "title": "Land counsel-approved license and reseller artifacts"
+    },
+    {
+      "id": "CLM-NO-PHONE-HOME",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "No default outbound telemetry, beacon, or phone-home exists; telemetry never leaves the operator's network by default."
+    },
+    {
+      "id": "CLM-AIR-GAP",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "The deployment operates air-gapped: the default AI is the in-process builtin and no feature requires egress."
+    },
+    {
+      "id": "CLM-FAIL-CLOSED",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Missing channel security, credential, signature, tenant binding, or license state degrades closed, never open."
+    },
+    {
+      "id": "CLM-TAMPER-EVIDENT",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Audit streams are hash-chained and tamper-evident."
+    },
+    {
+      "id": "CLM-OBSERVE-ONLY",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Collection and detection observe; nothing mutates the observed network (eBPF observe-only, no remediation executor)."
+    },
+    {
+      "id": "CLM-HUMAN-GATED",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Remediation is human-gated: explicit approval, dry-run, blast-radius limits; never autonomous."
+    },
+    {
+      "id": "CLM-NOT-AN-IPS",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Detection is a confidence-scored signal, never inline blocking / an IPS."
+    },
+    {
+      "id": "CLM-STORAGE-LAYER-TENANCY",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Tenant isolation is enforced at the storage layer (FORCE RLS / partition / silo), not per-handler."
+    },
+    {
+      "id": "CLM-HONEST-NUMBERS",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Numbers are labeled illustrative/reference/smoke; guarantee language is bounded to what is measured or explicitly negated."
+    },
+    {
+      "id": "CLM-SEP-AUDITED",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Provider/break-glass operations are separately audited from tenant streams."
+    },
+    {
+      "id": "CLM-CONSENT-GATED",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Remote AI egress requires explicit tenant consent and redaction; denial is the default."
+    },
+    {
+      "id": "CLM-BGP-FEEDS",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "The analyzer fetches only RPKI VRP data (read-only, validated TLS, per-run, no on-disk cache; failure degrades to RPKI unknown); collector MRT archives are bring-your-own local artifacts with no fetching or decompression; RIS Live reads RIPE's public websocket."
+    },
+    {
+      "id": "CLM-EBPF-INTEGRITY",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "The embedded BPF object digest proves generator freshness and binary self-consistency (mismatch refuses to load, fail closed); tamper protection for the shipped artifact is the cosign release signature over objects + manifest + binary together."
+    },
+    {
+      "id": "CLM-INGEST-SCOPE",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Open-data/threat feeds are ingested once (shared) then scoped per tenant; BGP collector ingestion runs per tenant by decision of record (ADR bgp-ingest-model), with the shared fan-out as a recorded scaling boundary."
+    },
+    {
+      "id": "DOCS-S01",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Default AI is the air-gapped builtin gated by AIModelEnabled."
+    },
+    {
+      "id": "DOCS-S02",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "No vendor analytics/beacon SDK or hardcoded vendor egress URL in source."
+    },
+    {
+      "id": "DOCS-S03",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "AI/RCA claims are backed by the builtin no-phone-home implementation and a fail-closed egress gate."
+    },
+    {
+      "id": "DOCS-S04",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "No remediation executor exists; the product is observe-only / human-gated."
+    },
+    {
+      "id": "DOCS-S05",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "The eBPF userspace bench floor (20k eps) guard exists."
+    },
+    {
+      "id": "DOCS-S06",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Performance/scale/cost numbers stay labeled illustrative/reference/smoke, never SLAs."
+    },
+    {
+      "id": "DOCS-S07",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "NDR-lite stays confidence-scored signals."
+    },
+    {
+      "id": "DOCS-S08",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Limitations/non-goals stay explicit; no marketplace route appears."
+    },
+    {
+      "id": "DOCS-S09",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "OTLP export is operator-configured; no hardcoded telemetry endpoint."
+    },
+    {
+      "id": "DOCS-S10",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Dev auth stays build-tag-gated."
+    },
+    {
+      "id": "DOCS-S11",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Release CI proves devauth is physically absent from release binaries."
+    },
+    {
+      "id": "DOCS-S12",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "The docs-claims gate is wired into Makefile, CI, and pipeline docs."
+    },
+    {
+      "id": "DOCS-S13",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "README carries no marketing boasts."
+    },
+    {
+      "id": "DOCS-S14",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "README keeps its 'What probectl is not' section."
+    },
+    {
+      "id": "DOCS-S15",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Built-not-yet-served limitations stay canonical in docs/limitations.md with backlinks."
+    },
+    {
+      "id": "DOCS-S16",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Root LICENSE is final unmodified MPL-2.0; only commercial paper pends counsel."
+    },
+    {
+      "id": "DOCS-S17",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "Quickstart timing is readiness-based, not a stopwatch promise."
+    },
+    {
+      "id": "DOCS-S18",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "MTTI/MTTR language distinguishes design intent from measured outcomes."
+    },
+    {
+      "id": "DOCS-S19",
+      "kind": "legacy-property",
+      "owner": "release/docs",
+      "title": "The canonical PoV enumerates default posture and operator-enabled egress."
+    },
+    {
+      "id": "SEC-004",
+      "kind": "legacy-property",
+      "owner": "security/release",
+      "title": "SECURITY.md scopes provider-operator break-glass abuse as in-scope."
+    }
+  ]
+}

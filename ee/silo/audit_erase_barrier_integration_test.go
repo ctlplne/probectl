@@ -125,7 +125,7 @@ func TestSiloTenantEraseConcurrentAuditBarrier(t *testing.T) {
 		providerAudit,
 		"test backups",
 		log,
-	)
+	).WithIRAttributionLifecycle(postgresWriteFenceIRLifecycle{})
 
 	type eraseResult struct {
 		att tenantlife.Attestation
