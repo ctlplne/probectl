@@ -140,7 +140,12 @@ func TestGoldenIntermittentISPExportIsOneTenantScopedVerifiableIncident(t *testi
 
 	foreignRead := apiReq(t, h, http.MethodPost, "/v1/incidents/"+exportedIncident.ID+"/exports", tenantB.ID, nil)
 	missingRead := apiReq(t, h, http.MethodPost, "/v1/incidents/00000000-0000-4000-8000-000000000099/exports", tenantB.ID, nil)
-	if foreignRead.Code != http.StatusNotFound || missingRead.Code != http.StatusNotFound || foreignRead.Body.String() != missingRead.Body.String() {
+	var foreignErr, missingErr errorBody
+	mustJSON(t, foreignRead, &foreignErr)
+	mustJSON(t, missingRead, &missingErr)
+	if foreignRead.Code != http.StatusNotFound || missingRead.Code != http.StatusNotFound ||
+		foreignErr.Error.Code != missingErr.Error.Code || foreignErr.Error.Message != missingErr.Error.Message ||
+		foreignErr.Error.RequestID == "" || missingErr.Error.RequestID == "" {
 		t.Fatalf("cross-tenant and missing export differ: foreign=%d %s missing=%d %s",
 			foreignRead.Code, foreignRead.Body, missingRead.Code, missingRead.Body)
 	}
