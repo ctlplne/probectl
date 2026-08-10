@@ -61,3 +61,15 @@ CREATE POLICY tenant_isolation ON incident_correlation_overrides
   WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON incident_correlation_overrides TO probectl_app;
+
+-- Migration 0086 installed this trigger on every tenant-owned table that
+-- existed at that point. This table is newer, so attach the same durable
+-- lifecycle fence explicitly: once offboarding begins, even a table-owner
+-- INSERT/UPDATE must fail closed instead of racing verifiable deletion.
+DROP TRIGGER IF EXISTS tenant_write_fence ON public.incident_correlation_overrides;
+CREATE TRIGGER tenant_write_fence
+  BEFORE INSERT OR UPDATE ON public.incident_correlation_overrides
+  FOR EACH ROW
+  EXECUTE FUNCTION public.probectl_enforce_tenant_write_fence();
+ALTER TABLE public.incident_correlation_overrides
+  ENABLE ALWAYS TRIGGER tenant_write_fence;
