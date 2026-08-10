@@ -229,6 +229,11 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:flow_ingest_quality_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id", "exporter_address"},
 	},
+	"incident_correlation_overrides": {
+		plane: "postgres:incident_correlation_overrides", disposition: subjectTableDeleteMatches,
+		exact:    []string{"created_by", "reversed_by", "target", "prefix"},
+		contains: []string{"reason", "reversal_reason"},
+	},
 	"incident_integrations": {plane: "postgres:incident_integrations", disposition: subjectTableNoSubject},
 	"incident_journal_entries": {
 		plane: "incident_journal", disposition: subjectTableDeleteMatches,

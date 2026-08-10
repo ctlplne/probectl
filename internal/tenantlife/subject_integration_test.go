@@ -755,8 +755,9 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	victim := mkTenant(t, pool, "it-subject-a-"+strings.ReplaceAll(stamp, ".", "-"))
 	bystander := mkTenant(t, pool, "it-subject-b-"+strings.ReplaceAll(stamp, ".", "-"))
 
-	seedSubjectRows := func(tenantID string) {
+	seedSubjectRows := func(tenantID string) string {
 		t.Helper()
+		var overrideID string
 		tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
 		err := tenancy.InTenant(tctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx,
@@ -778,6 +779,32 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 				tenantID).Scan(&incidentID); err != nil {
 				return err
 			}
+			var detachedIncidentID string
+			if err := sc.Q.QueryRow(ctx,
+				`INSERT INTO incidents (tenant_id, title)
+				 VALUES ($1, 'subject lifecycle detached incident') RETURNING id::text`,
+				tenantID).Scan(&detachedIncidentID); err != nil {
+				return err
+			}
+			var signalID string
+			if err := sc.Q.QueryRow(ctx,
+				`INSERT INTO incident_signals
+				       (tenant_id, incident_id, plane, kind, target, occurred_at)
+				 VALUES ($1, $2, 'network', 'subject.lifecycle', '192.0.2.10', clock_timestamp())
+				 RETURNING id::text`,
+				tenantID, incidentID).Scan(&signalID); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx,
+				`INSERT INTO incident_correlation_overrides
+				       (tenant_id, source_incident_id, detached_incident_id, source_signal_id,
+				        plane, kind, target, prefix, reason, created_by)
+				 VALUES ($1, $2, $3, $4, 'network', 'subject.lifecycle', '192.0.2.10', '',
+				         'operator attribution ' || $5::text, $5)
+				 RETURNING id::text`,
+				tenantID, incidentID, detachedIncidentID, signalID, subject).Scan(&overrideID); err != nil {
+				return err
+			}
 			if _, err := sc.Q.Exec(ctx,
 				`INSERT INTO incident_journal_entries
 				       (tenant_id, id, incident_id, entry_kind, body, created_by, expires_at)
@@ -791,9 +818,10 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed subject rows: %v", err)
 		}
+		return overrideID
 	}
-	seedSubjectRows(victim)
-	seedSubjectRows(bystander)
+	victimOverrideID := seedSubjectRows(victim)
+	bystanderOverrideID := seedSubjectRows(bystander)
 
 	sink := func(ctx context.Context, actor, action, target string, data map[string]any) error {
 		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
@@ -815,6 +843,9 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	}
 	if !strings.Contains(files["postgres/incident_journal_entries.jsonl"], subject) {
 		t.Fatalf("subject export missing incident journal row: files=%v", files)
+	}
+	if !strings.Contains(files["postgres/incident_correlation_overrides.jsonl"], subject) {
+		t.Fatalf("subject export missing correlation override row: files=%v", files)
 	}
 
 	providerHead, err := audit.ProviderHeadSeq(ctx, pool)
@@ -841,6 +872,9 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	if got := countRows(t, pool, `SELECT count(*) FROM incident_journal_entries WHERE tenant_id = $1 AND body ILIKE $2`, victim, "%"+subject+"%"); got != 0 {
 		t.Fatalf("victim incident journal entry survived subject erase: %d", got)
 	}
+	if got := countRows(t, pool, `SELECT count(*) FROM incident_correlation_overrides WHERE tenant_id = $1 AND id = $2`, victim, victimOverrideID); got != 0 {
+		t.Fatalf("victim correlation override survived subject erase: %d", got)
+	}
 	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, bystander, subject); got != 1 {
 		t.Fatalf("bystander user must be untouched: %d", got)
 	}
@@ -849,6 +883,12 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	}
 	if got := countRows(t, pool, `SELECT count(*) FROM incident_journal_entries WHERE tenant_id = $1 AND body ILIKE $2`, bystander, "%"+subject+"%"); got != 1 {
 		t.Fatalf("bystander incident journal entry must be untouched: %d", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM incident_correlation_overrides WHERE tenant_id = $1 AND id = $2`, bystander, bystanderOverrideID); got != 1 {
+		t.Fatalf("bystander correlation override must be untouched: %d", got)
+	}
+	if receipt := subjectPlanesByName(report.Planes)["postgres:incident_correlation_overrides"]; receipt.Deleted != 1 || receipt.Remaining != 0 {
+		t.Fatalf("correlation override erasure receipt = %+v, want one deleted and zero remaining", receipt)
 	}
 
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(victim))

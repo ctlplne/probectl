@@ -300,6 +300,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"users",
 		"audit_events",
 		"ai_feedback",
+		"incident_correlation_overrides",
 		"roles",
 		"ir_attribution_records",
 	})
@@ -313,7 +314,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 	if byName["audit_events"] != subjectTableProjectMatches {
 		t.Fatalf("audit_events disposition = %d, want append-only projection", byName["audit_events"])
 	}
-	for _, table := range []string{"users", "ai_feedback"} {
+	for _, table := range []string{"users", "ai_feedback", "incident_correlation_overrides"} {
 		if byName[table] != subjectTableDeleteMatches {
 			t.Fatalf("%s disposition = %d, want count-verified deletion", table, byName[table])
 		}
