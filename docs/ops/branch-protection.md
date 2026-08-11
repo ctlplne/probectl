@@ -81,8 +81,8 @@ notification job rather than a merge gate:
 
 If your organization's policy instead requires listing every job by name (some
 auditors prefer the explicit list), the **complete** set of top-level `ci.yml`
-jobs is below — 40 specialist jobs plus the `verify-all` umbrella, for
-41 top-level jobs in the workflow. Keep the list in sync with the workflow —
+jobs is below — 41 specialist jobs plus the `verify-all` umbrella, for
+42 top-level jobs in the workflow. Keep the list in sync with the workflow —
 **a job you forget to list is advisory again**, so prefer the `verify-all` plus
 `commitlint`/`dco` approach unless you have a reason not to.
 
@@ -105,6 +105,7 @@ jobs is below — 40 specialist jobs plus the `verify-all` umbrella, for
 | `test-python`            | BGP analyzer tests                                                                                                                                 |
 | `browser-worker`         | Playwright worker real-browser smoke                                                                                                               |
 | `openapi-gate`           | no undocumented `/v1` routes                                                                                                                       |
+| `completeness-gate`      | every release-catalog capability has validated end-to-end wiring evidence, an explicit none-by-design disposition, or a visible partial-evidence gap that remains outside the coverage count |
 | `sdk-gate`               | generated REST SDKs are in sync with OpenAPI                                                                                                       |
 | `migration-gate`         | expand/contract (zero-downtime) migrations                                                                                                         |
 | `helm-gate`              | Helm chart lints + hardening invariants; GitOps manifests + compose config valid                                                                   |
@@ -144,8 +145,9 @@ just "wait for its own CI". The `require-green-ci` job instead **looks up** the
 `ci` run for the tagged commit via the GitHub Actions API
 (`ci.yml/runs?head_sha=<the tag's commit>`):
 
-- **completed + success** → the `images` and `binaries` jobs (which `needs:` it)
-  proceed and publish.
+- **completed + success** → the tag workflow runs the strict
+  `completeness-release-gate`; only a 100%-covered ledger unlocks the `images`
+  and `binaries` jobs.
 - **completed + failure/cancelled** → the release fails; nothing is built.
 - **still running** → it polls for up to ~30 minutes (60 tries, 30 s apart),
   then proceeds or fails based on the outcome.
@@ -153,6 +155,7 @@ just "wait for its own CI". The `require-green-ci` job instead **looks up** the
   never ran on it) → the release fails with instructions.
 
 So the only path to a release is: push to `main` → `ci` goes green on that
-commit → `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`. A tag on an
-untested or red commit produces no artifacts, with or without branch
+commit → the strict capability ledger has zero gaps →
+`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`. A tag on an untested,
+red, or incomplete commit produces no artifacts, with or without branch
 protection.

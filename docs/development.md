@@ -72,6 +72,7 @@ reach for most:
 | `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                                                                     |
 | `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`)                                               |
 | `make audit-verify-gate`           | Validate repaired audit appendices, whole-run coverage summary, and citation fabrication metrics                                |
+| `make completeness-gate`           | Validate all capability wiring cells, self-test the gate, and render deterministic HTML/JSON ledgers                            |
 | `make interop-offline`             | Hermetic offline protocol-fixture replay for OTLP, Prometheus remote-write, flow, device, and BGP MRT protocols                 |
 | `make interop-stock-offline`       | Strict stock-client proof gate; requires pinned stock executables or stock-emitted artifacts for every required protocol family |
 | `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                                                               |
@@ -86,7 +87,7 @@ reach for most:
 | `make images`                      | Multi-arch (`amd64`/`arm64`) images for every component                                                                         |
 | `make compose-up` / `compose-down` | Start / stop the local dev dependency stack                                                                                     |
 | `make tools`                       | Install pinned dev tools (golangci-lint)                                                                                        |
-| `make ci`                          | `lint` + `test` + `test-isolation` (the core gates locally)                                                                     |
+| `make ci`                          | `lint` + `test` + `test-isolation` + `completeness-gate` (the core gates locally)                                                |
 
 The central browser API client and generated TypeScript SDK buffer JSON only
 through `web/src/api/response.ts`: successful responses are capped at 32 MiB
@@ -98,7 +99,7 @@ Intentional artifact downloads remain streaming and do not use this helper.
 > suite — the integration, isolation-against-real-DBs, eBPF-kernel-matrix,
 > coverage, and supply-chain gates run in GitHub Actions (next section). Most
 > per-surface gates have an identically-named `make` target you can run
-> yourself: `editions-gate`, `fips-gate`, `openapi-gate`, `sdk-gate`, `migration-gate`,
+> yourself: `editions-gate`, `fips-gate`, `openapi-gate`, `completeness-gate`, `sdk-gate`, `migration-gate`,
 > `helm-gate`, `gitops-gate`, `terraform-gate`, `cover-gate`, `interop-offline`, `perf-smoke`,
 > `e2e`.
 
@@ -129,6 +130,7 @@ This is the full list; `ci.yml` is the source of truth.
 | `test-python`            | analyzer `pytest` (incl. Hypothesis property tests) + hash-lock drift refusal                                                                                                                                                    |
 | `browser-worker`         | the Playwright synthetic worker: real-browser scripted-login smoke inside the official Playwright image                                                                                                                          |
 | `openapi-gate`           | specs are valid OpenAPI 3.1 and the registered core `/v1` plus provider `/provider/v1` routes exactly match them (no undocumented routes)                                                                                        |
+| `completeness-gate`      | all release-catalog capabilities have validated wiring evidence, a reasoned none-by-design cell, or a visible partial-evidence gap that does not count as coverage; HTML/JSON ledgers are retained                                  |
 | `sdk-gate`               | REST SDKs regenerate from `internal/control/openapi.json` without drift, and the generated Go SDK sample compiles against `ListTests`                                                                                            |
 | `migration-gate`         | expand/contract migrations only — rejects destructive/blocking schema changes                                                                                                                                                    |
 | `helm-gate`              | chart hardening for every profile + the agent chart (`make helm-gate`), kubeconform on the rendered charts, GitOps manifest validation (`make gitops-gate`), compose config validation                                           |

@@ -23,26 +23,25 @@ The repo's other three workflows do **not** run on a normal push:
 | Workflow            | Trigger                              | Purpose                                                                                                                                                                                                                                                                        |
 | ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ci.yml`            | push to `main` + every PR            | the gate described here                                                                                                                                                                                                                                                        |
-| `release.yml`       | push of a `v*` tag                   | build/sign/publish a release — its `require-green-ci` job refuses any tag whose commit doesn't have a green `ci` run                                                                                                                                                           |
+| `release.yml`       | push of a `v*` tag                   | build/sign/publish a release — `require-green-ci` rejects untested/red commits and `completeness-release-gate` rejects any capability-ledger gap before images or binaries are built                                                                                            |
 | `nightly.yml`       | daily 03:17 UTC (+ manual)           | the slow stuff: `e2e` (black-box full stack against the real compose dependencies), `ingest-bench` (consumer hot-path benchmarks), and `scale-gate-m` (the M-profile SLO regression guard, `make scale-gate-m`, plus an M-tier full-stack run against real Kafka + Prometheus + ClickHouse) |
 | `security-scan.yml` | weekly, Mondays 05:17 UTC (+ manual) | scheduled dependency-CVE scans that upload evidence artifacts and gate — `govulncheck` fails on any _reachable_ Go vulnerability, `npm-audit` enforces Critical/no-unapproved-High policy, and `trivy-fs` fails on Critical/High findings — so a new CVE in an _unchanged_ repo still goes red |
 
 ## The shape: fan-out, then one umbrella
 
-A push is like sending the change through a checkpoint with **39 specialist
-inspectors**, each examining one thing, all in parallel. A 40th job —
-`verify-all` — is the supervisor: it `needs:` 34 of them, runs with
+A push is like sending the change through a checkpoint with **41 specialist
+inspectors**, each examining one thing, all in parallel. A 42nd job —
+`verify-all` — is the supervisor: it `needs:` 38 of them, runs with
 `if: always()`, writes a receipt artifact, and **fails loudly listing any
 non-green gate**. It is the one status you actually watch: green `verify-all` =
 the whole pipeline passed.
 
-Five jobs sit outside the roll-up and report as their own checks: `commitlint`
+Three jobs sit outside the roll-up and report as their own checks: `commitlint`
 and `dco` run only on pull requests (on a push to `main` they'd register as
-"skipped" and falsely redden the umbrella), while `device-live`,
-`path-raw-live`, and `web-rendered-a11y` are live/specialized environment gates
-kept as explicit checks. If you turn on branch protection,
-[`docs/ops/branch-protection.md`](ops/branch-protection.md) recommends requiring
-`verify-all` plus those five explicitly.
+"skipped" and falsely redden the umbrella), and `coverage-comment` is a
+write-capable best-effort PR reporting job. If you turn on branch protection,
+[`docs/ops/branch-protection.md`](ops/branch-protection.md) documents the exact
+required-check set.
 
 The guiding principle, visible throughout the repo: **every rule in the
 [Non-negotiables](../CONTRIBUTING.md#non-negotiables) has a matching CI gate,
@@ -94,6 +93,13 @@ Verification you ran, not verification you described.
   drift, no codegen poisoning).
 - **openapi-gate** — every registered core `/v1` and provider `/provider/v1`
   route exactly matches its OpenAPI 3.1 spec; no undocumented routes ship.
+- **completeness-gate** — validates that every capability in the release
+  catalog has concrete engine, binary, API, CLI, UI, docs, configuration,
+  telemetry, real-stack, and migration evidence (or an explicit reasoned
+  `none_by_design` cell, or an explicit not-done `gap` on a partial-evidence row).
+  Gaps remain outside the reported spine-coverage count. Its planted negative self-test proves a missing cell
+  turns the same production validator red, and CI retains deterministic HTML
+  and JSON ledgers. See [the capability completeness contract](quality/completeness.md).
 - **docs-claims gate** — `scripts/check_docs_claims.sh SELFTEST &&
   scripts/check_docs_claims.sh` (also `make docs-claims-gate`) enforces the
   claim register: every capability claim in a governed surface is declared
@@ -240,8 +246,10 @@ multi-tenant, source-available).
 Branch-protection _enforcement_ (making GitHub refuse to merge a red PR) is a
 server-side repository setting, not something a workflow in the tree can turn
 on. Until an admin configures it, every check above is advisory at the merge
-button — the recommended ruleset (require `verify-all`, plus the four jobs
-outside its roll-up) and the one-time console steps are in
+button — the recommended ruleset (require `verify-all` plus the two additional
+required checks outside its roll-up, `commitlint` and `dco`) and the one-time
+console steps are in
 [`docs/ops/branch-protection.md`](ops/branch-protection.md). The release path
 has its own independent backstop either way: `release.yml` refuses to publish a
-tag whose commit lacks a green `ci` run.
+tag whose commit lacks a green `ci` run or whose strict capability ledger is
+below 100% spine coverage.

@@ -29,7 +29,7 @@ jobs:
   require-green-ci:
     name: require green ci on the tagged sha
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - name: ci workflow must be green for ${{ github.sha }}
         env:
@@ -54,6 +54,23 @@ jobs:
           done
           echo "::error::timed out waiting for ci to complete on ${GITHUB_SHA}."
           exit 1
+
+  # CL-001: ordinary CI validates and renders an honest inventory even while
+  # declared not-done gaps remain. A release is stricter: no image, binary, or
+  # package may be published until every shipped capability has 100% spine
+  # coverage (concrete proof or genuine none-by-design).
+  completeness-release-gate:
+    name: capability ledger 100% complete
+    needs: require-green-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Reject every acknowledged completeness gap
+        run: make completeness-release-gate
 
   # TEST-011: the docs-vs-CI contradiction recurs the moment the Makefile grows
   # a binary that nobody adds here. This gate makes the published set cover the
@@ -84,7 +101,7 @@ jobs:
 
   images:
     name: images (${{ matrix.component }})
-    needs: [require-green-ci, components-match-makefile]
+    needs: [require-green-ci, completeness-release-gate, components-match-makefile]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -177,7 +194,7 @@ jobs:
 
   binaries:
     name: binaries + checksums + release
-    needs: require-green-ci
+    needs: [require-green-ci, completeness-release-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

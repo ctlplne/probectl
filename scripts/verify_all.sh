@@ -43,6 +43,7 @@ run_step test-python  make test-python
 run_step supply-pins  ./scripts/check_supply_pins.sh
 run_step editions     make editions-gate
 run_step openapi      make openapi-gate
+run_step completeness make completeness-gate
 
 note "govulncheck (BLOCKING)"
 ( set -o pipefail; GOVULNCHECK_VERSION=v1.1.4 bash scripts/govulncheck_packages.sh 2>&1 | tee "$RECEIPTS/govulncheck.txt" )

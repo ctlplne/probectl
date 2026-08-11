@@ -1,0 +1,1148 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+schema: probectl.capabilities/v1
+source_catalog: docs/claims/release-catalog.json
+
+# The independent completeness-denominator policy fixes every ID that must be
+# kind=capability in the canonical release catalog and appear exactly once
+# below. The exact none-by-design policy separately approves every excluded
+# cell in both directions. A spine cell is concrete repository-checked
+# evidence, a governed none-by-design disposition, or an acknowledged not-done
+# gap on a row whose evidence_status is partial. Gaps never count as coverage.
+# The gate resolves references offline.
+capabilities:
+  - id: F1
+    name: Canary agent
+    status: delivered
+    evidence_status: partial
+    owner: agent/security
+    engine: {refs: ["file:internal/canary"]}
+    binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"noop\", canary.NewNoop)"]}
+    api: {refs: ["api:GET /v1/tests", "api:GET /v1/agents"]}
+    cli: {refs: ["cli:probectl agent list", "cli:probectl test list"]}
+    ui: {refs: ["ui:F1@/targets", "ui:F1@/admin"]}
+    docs: {refs: ["file:docs/features/active-testing.md#Active / synthetic network testing"]}
+    config_keys: {refs: ["config:PROBECTL_AGENT_CONFIG"]}
+    telemetry: {refs: ["file:internal/agent"]}
+    real_stack_proof: {gap: "The black-box E2E starts real control and agent binaries over PostgreSQL and Kafka, but it does not exercise the full four-store profile or drive this capability through both CLI and rendered UI."}
+    migration: {refs: ["file:migrations/0009_agents_registry.sql", "file:migrations/0010_tests_definition.sql"]}
+
+  - id: F2
+    name: Network tests (agent-to-service and agent-to-agent)
+    status: delivered
+    evidence_status: partial
+    owner: agent/security
+    engine: {refs: ["file:internal/canary", "file:internal/a2a"]}
+    binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"icmp\", canary.NewICMP)"]}
+    api: {refs: ["api:POST /v1/tests", "api:POST /v1/a2a/mesh"]}
+    cli: {refs: ["cli:probectl test create", "cli:probectl a2a start-mesh"]}
+    ui: {refs: ["ui:F2@/targets"]}
+    docs: {refs: ["file:docs/features/active-testing.md#Agent-to-agent"]}
+    config_keys: &api_config {none_by_design: "Configured through tenant-scoped API state or shared platform settings; no capability-specific environment key exists."}
+    telemetry: {refs: ["file:internal/a2a"]}
+    real_stack_proof: {gap: "The current agent-to-agent test uses an in-process memory bus and memory TSDB rather than release binaries with Kafka, persistent stores, API, CLI, UI, and a two-tenant boundary."}
+    migration: {none_by_design: "Agent-to-agent tests reuse the existing test and result stores; they introduce no capability-specific relational schema."}
+
+  - id: F3
+    name: Path visualization
+    status: delivered
+    evidence_status: partial
+    owner: web/quality
+    engine: {refs: ["file:internal/path"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#pathstore.WithTenantWriteFence("]}
+    api: {refs: ["api:GET /v1/tests/{id}/path", "api:GET /v1/tests/{id}/path/history"]}
+    cli: {refs: ["cli:probectl test path <id>", "cli:probectl test path-history <id>"]}
+    ui: {refs: ["ui:F3@/path"]}
+    docs: {refs: ["file:docs/topology.md#Topology graph"]}
+    config_keys: {refs: ["config:PROBECTL_HOP_GEO_FILE"]}
+    telemetry: {refs: ["file:internal/store/pathstore/batching.go"]}
+    real_stack_proof: {gap: "The raw tracer loopback and path-handler isolation checks are separate component tests; no release binary through bus/store/API/CLI/rendered-UI receipt proves one tenant-scoped path outcome."}
+    migration: &no_migration {none_by_design: "Uses an existing shared store or is stateless; no capability-specific relational schema migration is required."}
+
+  - id: F4
+    name: HTTP tests
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/canary/http.go"]}
+    binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"http\", canary.NewHTTP)"]}
+    api: {refs: ["api:POST /v1/tests", "api:GET /v1/results/latest"]}
+    cli: {refs: ["cli:probectl test create", "cli:probectl result latest"]}
+    ui: {refs: ["ui:F4@/targets"]}
+    docs: {refs: ["file:docs/features/active-testing.md#HTTP"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/canary/canary.go"]}
+    real_stack_proof: {gap: "The existing HTTPS loopback test exercises the canary component directly; no full release-stack receipt drives the probe through binary, bus, stores, API, CLI, UI, and two tenant lanes."}
+    migration: *no_migration
+
+  - id: F5
+    name: DNS tests
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/canary/dns.go", "file:internal/canary/dnssec.go"]}
+    binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"dns\", canary.NewDNS)"]}
+    api: {refs: ["api:POST /v1/tests", "api:GET /v1/results/history"]}
+    cli: {refs: ["cli:probectl test create", "cli:probectl result history"]}
+    ui: {refs: ["ui:F5@/targets"]}
+    docs: {refs: ["file:docs/features/active-testing.md#DNS"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/canary/canary.go"]}
+    real_stack_proof: {gap: "The existing DNS loopback test exercises the plugin directly; no full release-stack receipt drives it through binary, bus, stores, API, CLI, UI, and two tenant lanes."}
+    migration: *no_migration
+
+  - id: F6
+    name: BGP monitoring
+    status: delivered
+    evidence_status: partial
+    owner: incident/API
+    engine: {refs: ["file:internal/bgp", "file:analyzer/probectl_analyzer"]}
+    binary: {refs: ["file:cmd/probectl-bmp-listener/main.go#func run", "file:cmd/probectl-control/bgp_analyzer.go#func runBGPAnalyzer"]}
+    api: {refs: ["api:GET /v1/bgp/events"]}
+    cli: {refs: ["cli:probectl bgp events", "cli:probectl bgp setup"]}
+    ui: {refs: ["ui:F6@/planes/bgp"]}
+    docs: {refs: ["file:docs/bgp.md#BGP & routing monitoring"]}
+    config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_CONFIG", "config:PROBECTL_BMP_LISTEN_ADDR"]}
+    telemetry: {refs: ["file:internal/bgp"]}
+    real_stack_proof: {gap: "The current analyzer receipt uses a recorded RIS fixture and an in-process server path; it does not prove the shipping full-stack BGP workflow with live input and two-tenant user-visible isolation."}
+    migration: *no_migration
+
+  - id: F7
+    name: Open-data enrichment
+    status: delivered
+    evidence_status: partial
+    owner: product/path
+    engine: {refs: ["file:internal/opendata"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildEnrichment("]}
+    api: {refs: ["api:GET /v1/opendata/enrichment"]}
+    cli: {refs: ["cli:probectl opendata enrich"]}
+    ui: {refs: ["ui:F7@/outages"]}
+    docs: {refs: ["file:docs/features/open-data-and-outage.md#Open-data enrichment"]}
+    config_keys: {refs: ["config:PROBECTL_FLOW_ENRICH_GEOIP_DB", "config:PROBECTL_FLOW_ENRICH_RIR_DIR"]}
+    telemetry: {refs: ["file:internal/opendata"]}
+    real_stack_proof: {gap: "External network access may remain hermetic, but no real-stack receipt currently proves cached enrichment through the public API and UI with two-tenant scoping."}
+    migration: *no_migration
+
+  - id: F8
+    name: Alerting
+    status: delivered
+    evidence_status: partial
+    owner: platform/release
+    engine: {refs: ["file:internal/alert"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildAlertEvaluatorSupervisor("]}
+    api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active"]}
+    cli: {refs: ["cli:probectl alert list", "cli:probectl alert active"]}
+    ui: {refs: ["ui:F8@/alerts"]}
+    docs: {refs: ["file:docs/alerting.md#Alerting"]}
+    config_keys: {refs: ["config:PROBECTL_ALERT_EVAL_INTERVAL"]}
+    telemetry: {refs: ["file:internal/alert"]}
+    real_stack_proof: {gap: "The selected test disables the query backend and proves alert CRUD/RLS only; it does not execute evaluation and delivery through the shipping API, CLI, UI, and two tenant lanes."}
+    migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql"]}
+
+  - id: F9
+    name: Dashboards and incident timeline
+    status: delivered
+    owner: platform/release
+    engine: {refs: ["file:internal/incident", "file:internal/reporting"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildDashboardReportSupervisor("]}
+    api: {refs: ["api:GET /v1/incidents", "api:GET /v1/dashboards"]}
+    cli: {refs: ["cli:probectl incident list", "cli:probectl dashboard list"]}
+    ui: {refs: ["ui:F9@/incidents", "ui:F9@/dashboards"]}
+    docs: {refs: ["file:docs/dashboard-reporting.md#Dashboards and tenant report delivery"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/incident"]}
+    real_stack_proof: {refs: ["test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E", "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation"]}
+    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql"]}
+
+  - id: F10
+    name: Control plane, REST/gRPC, and CLI
+    status: delivered
+    evidence_status: partial
+    owner: agent/security
+    engine: {refs: ["file:internal/control", "file:internal/agenttransport"]}
+    binary: {refs: ["file:cmd/probectl-control/main.go#func run", "file:cmd/probectl/main.go#cli.RunWithStdin("]}
+    api: {refs: ["api:GET /v1/me"]}
+    cli: {refs: ["cli:probectl me show"]}
+    ui: {refs: ["ui:F10@/docs/api"]}
+    docs: {refs: ["file:docs/features/control-plane.md#Control plane"]}
+    config_keys: {refs: ["config:PROBECTL_HTTP_ADDR", "config:PROBECTL_AGENT_GRPC_ADDR"]}
+    telemetry: {refs: ["file:internal/control/server.go"]}
+    real_stack_proof: {gap: "The black-box E2E omits ClickHouse and Prometheus plus the actual CLI and rendered UI, so it does not yet prove the complete shipping control-plane workflow."}
+    migration: {refs: ["file:migrations/0001_baseline.sql"]}
+
+  - id: F11
+    name: eBPF host/L7 agent
+    status: delivered
+    evidence_status: partial
+    owner: eBPF/quality
+    engine: {refs: ["file:internal/ebpf"]}
+    binary: {refs: ["file:cmd/probectl-ebpf-agent/main.go#func run"]}
+    api: {refs: ["api:GET /v1/ebpf/service-map"]}
+    cli: {refs: ["cli:probectl ebpf service-map"]}
+    ui: {refs: ["ui:F11@/planes/ebpf"]}
+    docs: {refs: ["file:docs/ebpf-agent.md#eBPF host agent"]}
+    config_keys: {refs: ["config:PROBECTL_EBPF_CONFIG", "config:PROBECTL_EBPF_L7_CAPTURE"]}
+    telemetry: {refs: ["file:internal/ebpf"]}
+    real_stack_proof: {gap: "The live-kernel smoke boots the component but does not prove the shipped eBPF agent through authenticated ingestion, real stores, tenant-scoped API, CLI, and rendered UI."}
+    migration: *no_migration
+
+  - id: F12
+    name: OTel-aligned data model and OTLP
+    status: delivered
+    evidence_status: partial
+    owner: eBPF/quality
+    engine: {refs: ["file:internal/otel", "file:internal/pipeline/otlpexport.go"]}
+    binary: {refs: ["file:cmd/probectl-control/builders.go#func startOTLPSubsystems"]}
+    api: {refs: ["api:GET /v1/otlp/traces", "api:GET /v1/otlp/logs"]}
+    cli: {refs: ["cli:probectl otlp traces", "cli:probectl otlp logs"]}
+    ui: &federated_ui {none_by_design: "The canonical web surface registry classifies this as a federated protocol or operator integration, so no native application route is promised."}
+    docs: {refs: ["file:docs/otlp.md#OTLP exposure & OBI"]}
+    config_keys: {refs: ["config:PROBECTL_OTLP_GRPC_ADDR", "config:PROBECTL_OTLP_HTTP_ADDR"]}
+    telemetry: {refs: ["file:internal/otel"]}
+    real_stack_proof: {gap: "No real-stack receipt currently sends OTLP over the shipped HTTP and gRPC listeners, persists it, and reads the listed tenant-scoped APIs; the write-fence test is not substituted."}
+    migration: {refs: ["file:migrations/0046_otlp_tokens.sql"]}
+
+  - id: F13
+    name: AI RCA and natural-language query
+    status: delivered
+    evidence_status: partial
+    owner: incident/API
+    engine: {refs: ["file:internal/ai"]}
+    binary: {refs: ["file:internal/control/server.go#s.analyzer = buildAnalyzerWithPolicyLoader"]}
+    api: {refs: ["api:POST /v1/ai/ask", "api:POST /v1/explorer/query"]}
+    cli: {refs: ["cli:probectl ai ask", "cli:probectl explorer query"]}
+    ui: {refs: ["ui:F13@/ask", "ui:F13@/explore"]}
+    docs: {refs: ["file:docs/ai-rca.md#AI root-cause analysis"]}
+    config_keys: {refs: ["config:PROBECTL_AI_MODEL_PROVIDER", "config:PROBECTL_AI_MAX_EVIDENCE"]}
+    telemetry: {refs: ["file:internal/ai"]}
+    real_stack_proof: {gap: "The PostgreSQL/API test seeds an incident directly while cross-store RCA sources remain memory-backed; no real multi-plane, two-tenant CLI/UI receipt proves the promised analysis."}
+    migration: {refs: ["file:migrations/0015_ai_feedback.sql", "file:migrations/0039_ai_answers.sql"]}
+
+  - id: F14
+    name: MCP server
+    status: delivered
+    evidence_status: partial
+    owner: AI/security
+    engine: {refs: ["file:internal/ai/mcp"]}
+    binary: {refs: ["file:cmd/probectl-control/mcp.go#func runMCPStdio"]}
+    api: {refs: ["file:internal/ai/mcp/server.go#tools/list"]}
+    cli: {none_by_design: "MCP clients use the MCP protocol directly; the control binary supplies the stdio operator transport rather than duplicating tools in the REST CLI."}
+    ui: *federated_ui
+    docs: {refs: ["file:docs/mcp.md#MCP server"]}
+    config_keys: {refs: ["config:PROBECTL_MCP_HTTP_ADDR", "config:PROBECTL_MCP_RATE_PER_MIN"]}
+    telemetry: {refs: ["file:internal/ai/mcp"]}
+    real_stack_proof: {gap: "The current test calls Server.Handle directly with a memory path store; it does not exercise the shipped stdio or HTTPS MCP transport from a human-equivalent client across real stores."}
+    migration: {refs: ["file:migrations/0016_mcp_tokens.sql", "file:migrations/0040_mcp_tokens_rls.sql"]}
+
+  - id: F15
+    name: Browser synthetic
+    status: delivered
+    evidence_status: partial
+    owner: design system/domain
+    engine: {refs: ["file:internal/browsercanary", "file:browser-worker"]}
+    binary: {refs: ["file:cmd/probectl-agent/main.go#browsercanary.NewFactory("]}
+    api: {refs: ["api:POST /v1/tests"]}
+    cli: {refs: ["cli:probectl test create"]}
+    ui: {refs: ["ui:F15@/targets"]}
+    docs: {refs: ["file:docs/browser-synthetic.md#Browser / transaction synthetic"]}
+    config_keys: {refs: ["config:PROBECTL_AGENT_BROWSER_DRIVER", "config:PROBECTL_AGENT_BROWSER_WORKER_PATH"]}
+    telemetry: {refs: ["file:internal/browser"]}
+    real_stack_proof: {gap: "The Playwright worker is real, but the receipt uses a local httptest app and in-process factory with no agent binary, bus, stores, public API, or two-tenant delivery path."}
+    migration: *no_migration
+
+  - id: F16
+    name: Endpoint agent (DEM)
+    status: delivered
+    evidence_status: partial
+    owner: web/quality
+    engine: {refs: ["file:internal/endpoint"]}
+    binary: {refs: ["file:cmd/probectl-endpoint/main.go#func run"]}
+    api: {refs: ["api:GET /v1/endpoints"]}
+    cli: {refs: ["cli:probectl endpoint list"]}
+    ui: {refs: ["ui:F16@/endpoints"]}
+    docs: {refs: ["file:docs/endpoint-dem.md#Endpoint agent"]}
+    config_keys: {refs: ["config:PROBECTL_ENDPOINT_CONFIG", "config:PROBECTL_ENDPOINT_TARGETS"]}
+    telemetry: {refs: ["file:internal/endpoint"]}
+    real_stack_proof: {gap: "No real-stack receipt currently starts probectl-endpoint, ingests its tenant-bound DEM data, and reads /v1/endpoints; the write-fence test is not substituted."}
+    migration: *no_migration
+
+  - id: F17
+    name: Flow analytics
+    status: delivered
+    evidence_status: partial
+    owner: platform/release
+    engine: {refs: ["file:internal/flow"]}
+    binary: {refs: ["file:cmd/probectl-flow-agent/main.go#func run"]}
+    api: {refs: ["api:GET /v1/flows/top", "api:GET /v1/flows/ingest-quality"]}
+    cli: {refs: ["cli:probectl flow top", "cli:probectl flow quality"]}
+    ui: {refs: ["ui:F17@/planes/flow"]}
+    docs: {refs: ["file:docs/flow.md#Flow analytics"]}
+    config_keys: {refs: ["config:PROBECTL_FLOW_CONFIG", "config:PROBECTL_FLOW_NETFLOW_LISTEN"]}
+    telemetry: {refs: ["file:internal/flow"]}
+    real_stack_proof: {gap: "The Kafka-to-ClickHouse load test is opt-in outside normal integration CI and queries the store directly; it does not prove the public API, CLI, rendered UI, and two-tenant release path."}
+    migration: *no_migration
+
+  - id: F18
+    name: Device telemetry
+    status: delivered
+    evidence_status: partial
+    owner: product research/MSP
+    engine: {refs: ["file:internal/device"]}
+    binary: {refs: ["file:cmd/probectl-device-agent/main.go#func run"]}
+    api: {refs: ["api:GET /v1/devices", "api:GET /v1/device/metrics"]}
+    cli: {refs: ["cli:probectl device list", "cli:probectl device metrics"]}
+    ui: {refs: ["ui:F18@/planes/device"]}
+    docs: {refs: ["file:docs/device-telemetry.md#Device / streaming telemetry"]}
+    config_keys: {refs: ["config:PROBECTL_DEVICE_CONFIG", "config:PROBECTL_DEVICE_TARGET"]}
+    telemetry: {refs: ["file:internal/device"]}
+    real_stack_proof: {gap: "The live SNMP test polls loopback snmpd directly but does not start the shipping device agent or prove tenant-bound bus, storage, API, CLI, and rendered UI delivery."}
+    migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql"]}
+
+  - id: F19
+    name: Internet-outage view
+    status: delivered
+    evidence_status: partial
+    owner: product/path
+    engine: {refs: ["file:internal/outage"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildOutage("]}
+    api: {refs: ["api:GET /v1/outages"]}
+    cli: {refs: ["cli:probectl outage list"]}
+    ui: {refs: ["ui:F19@/outages"]}
+    docs: {refs: ["file:docs/outage.md#Collective internet-outage view"]}
+    config_keys: {refs: ["config:PROBECTL_OUTAGE_ENABLED", "config:PROBECTL_OUTAGE_FEEDS"]}
+    telemetry: {refs: ["file:internal/outage"]}
+    real_stack_proof: {gap: "External feeds may remain hermetic, but the positive fused outage engine, cache, public API, UI, and two-tenant behavior still lacks a real-stack receipt."}
+    migration: *no_migration
+
+  - id: F20
+    name: RUM
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/rum"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildRUM("]}
+    api: {refs: ["api:GET /v1/rum"]}
+    cli: {refs: ["cli:probectl rum summary"]}
+    ui: {refs: ["ui:F20@/endpoints"]}
+    docs: {refs: ["file:docs/rum.md#RUM convergence"]}
+    config_keys: {refs: ["config:PROBECTL_RUM_ENABLED", "config:PROBECTL_RUM_APPS"]}
+    telemetry: {refs: ["file:internal/rum"]}
+    real_stack_proof: {gap: "RUM is published and consumed over the runtime bus, but current tests use a fake bus and memory incident store; no shipping full-stack, two-tenant receipt exists."}
+    migration: *no_migration
+
+  - id: F21
+    name: Voice/RTP
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/canary/voice.go"]}
+    binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"voice\", canary.NewVoice)"]}
+    api: {refs: ["api:POST /v1/tests"]}
+    cli: {refs: ["cli:probectl test create"]}
+    ui: {refs: ["ui:F21@/targets"]}
+    docs: {refs: ["file:docs/voice.md#Voice / RTP tests"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/canary/canary.go"]}
+    real_stack_proof: {gap: "The current receipt is a direct local RTP echo canary test; no shipping agent, bus, store, API, CLI, UI, or two-tenant workflow is exercised."}
+    migration: *no_migration
+
+  - id: F22
+    name: SSO and role model
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/auth"]}
+    binary: {refs: ["file:internal/control/server.go#s.providers = newOIDCFactory", "file:internal/control/server.go#s.authn = auth.NewAuthenticator"]}
+    api: {refs: ["api:GET /v1/identity/settings", "api:GET /v1/me"]}
+    cli: {refs: ["cli:probectl identity settings", "cli:probectl me show"]}
+    ui: {refs: ["ui:F22@/admin"]}
+    docs: {refs: ["file:docs/auth/self-hosted-idp.md#Self-hosted / air-gapped OIDC IdP"]}
+    config_keys: {refs: ["config:PROBECTL_AUTH_MODE", "config:PROBECTL_OIDC_CLIENT_ID"]}
+    telemetry: {refs: ["file:internal/auth"]}
+    real_stack_proof: {gap: "The current receipt uses a fake OIDC provider and direct API server; no real IdP, complete session/role flow, CLI/UI path, and two-tenant outcome are proven."}
+    migration: {refs: ["file:migrations/0003_rbac.sql", "file:migrations/0013_sessions_rbac_seed.sql", "file:migrations/0055_tenant_idp.sql"]}
+
+  - id: F23
+    name: Audit foundation
+    status: delivered
+    evidence_status: partial
+    owner: provider/security
+    engine: {refs: ["file:internal/audit"]}
+    binary: {refs: ["file:cmd/probectl-control/builders.go#buildReconciledAuditWORM("]}
+    api: {refs: ["api:GET /v1/audit", "api:GET /v1/audit/verify"]}
+    cli: {refs: ["cli:probectl audit list", "cli:probectl audit verify"]}
+    ui: {refs: ["ui:F23@/audit"]}
+    docs: {refs: ["file:docs/audit.md#Audit log"]}
+    config_keys: {refs: ["config:PROBECTL_AUDIT_WORM_DIR", "config:PROBECTL_AUDIT_RETENTION"]}
+    telemetry: {refs: ["file:internal/audit"]}
+    real_stack_proof: {gap: "The current receipt directly appends and verifies one fresh tenant's PostgreSQL chain; it lacks a second-tenant boundary and public audit API, CLI, and UI workflow."}
+    migration: {refs: ["file:migrations/0005_audit.sql", "file:migrations/0075_audit_stream_heads.sql"]}
+
+  - id: F24
+    name: Tenant to org/team/project hierarchy
+    status: delivered
+    evidence_status: partial
+    owner: tenancy/provider
+    engine: {refs: ["file:internal/store/hierarchy.go"]}
+    binary: {refs: ["file:internal/control/v1.go#s.handleGetHierarchy"]}
+    api: {refs: ["api:GET /v1/hierarchy"]}
+    cli: {refs: ["cli:probectl hierarchy show"]}
+    ui: {gap: "The hierarchy API and CLI are implemented, but no native route currently lets tenant administrators view or edit organizations, teams, and projects."}
+    docs: {refs: ["file:docs/features/tenancy.md#Tenancy & hard isolation"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/audit"]}
+    real_stack_proof: {refs: ["test:internal/control/hierarchyapi_integration_test.go#TestHierarchyAPITenantScopedTree"]}
+    migration: {refs: ["file:migrations/0001_baseline.sql"]}
+
+  - id: F25
+    name: SCIM, ABAC, and delegated admin
+    status: delivered
+    evidence_status: partial
+    owner: tenancy/provider
+    engine: {refs: ["file:internal/scim", "file:internal/auth/abac.go"]}
+    binary: {refs: ["file:cmd/probectl-control/scim.go#func runSCIMToken"]}
+    api: {refs: ["api:GET /v1/abac/policies", "api:GET /v1/directory/scim-tokens"]}
+    cli: {refs: ["cli:probectl abac list", "cli:probectl scim tokens"]}
+    ui: {refs: ["ui:F25@/admin"]}
+    docs: {refs: ["file:docs/scim-abac.md#Enterprise identity"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/control/scim.go"]}
+    real_stack_proof: {gap: "The public SCIM receipt proves token authentication and two-tenant SCIM isolation only; it does not exercise ABAC or delegated administration through the complete operator workflow."}
+    migration: {refs: ["file:migrations/0018_scim_abac.sql"]}
+
+  - id: F26
+    name: SIEM integration
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/siem"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildSIEM("]}
+    api: {refs: ["api:GET /v1/siem/status"]}
+    cli: {refs: ["cli:probectl siem status"]}
+    ui: {gap: "The SIEM status API and CLI are implemented, but no native route currently shows delivery posture or tenant-routed forwarding state."}
+    docs: {refs: ["file:docs/siem.md#SIEM export"]}
+    config_keys: {refs: ["config:PROBECTL_SIEM_ENABLED", "config:PROBECTL_SIEM_ENDPOINT"]}
+    telemetry: {refs: ["file:internal/siem"]}
+    real_stack_proof: {gap: "The PostgreSQL cursor/RLS test uses sender doubles and calls the tenant drain internally; no actual SIEM transport or public API, CLI, UI workflow is proven."}
+    migration: {refs: ["file:migrations/0019_siem_delivery.sql"]}
+
+  - id: F27
+    name: On-call and ITSM
+    status: delivered
+    evidence_status: partial
+    owner: integrations/MSP
+    engine: {refs: ["file:internal/notify"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildDispatcher("]}
+    api: {refs: ["api:GET /v1/oncall/status", "api:POST /v1/oncall/test"]}
+    cli: {refs: ["cli:probectl oncall status", "cli:probectl oncall test"]}
+    ui: {refs: ["ui:F27@/alerts"]}
+    docs: {refs: ["file:docs/oncall-itsm.md#On-call + ITSM integration"]}
+    config_keys: {refs: ["config:PROBECTL_NOTIFY_CONNECTORS"]}
+    telemetry: {refs: ["file:internal/notify"]}
+    real_stack_proof: {gap: "The capture connector performs no external HTTP and proves only dispatcher idempotency; it is not a real on-call or ITSM delivery receipt."}
+    migration: {refs: ["file:migrations/0051_webhook_deliveries.sql", "file:migrations/0090_notify_revision_reconcile.sql"]}
+
+  - id: F28
+    name: Zero-downtime lifecycle and fleet rollout
+    status: delivered
+    evidence_status: partial
+    owner: SRE/data
+    engine: {refs: ["file:internal/agent/rollout.go", "file:internal/lifecycle"]}
+    binary: {refs: ["file:cmd/probectl-control/builders.go#func startHAAndTenantLifecycle"]}
+    api: {refs: ["api:GET /v1/rollouts", "api:POST /v1/rollouts/{id}/advance"]}
+    cli: {refs: ["cli:probectl rollout list", "cli:probectl rollout advance"]}
+    ui: {refs: ["ui:F28@/admin"]}
+    docs: {refs: ["file:docs/ops/fleet-rollout.md#Staged fleet rollout"]}
+    config_keys: {refs: ["config:PROBECTL_AGENT_MIN_VERSION"]}
+    telemetry: {refs: ["file:internal/control/v1.go"]}
+    real_stack_proof: {gap: "The current receipt calls the PostgreSQL rollout store directly; no controller-to-agent rollout or API, CLI, rendered UI, and two-tenant operator path is exercised."}
+    migration: {refs: ["file:migrations/0047_rollouts.sql"]}
+
+  - id: F29
+    name: IaC and GitOps
+    status: delivered
+    owner: platform/IaC
+    engine: {refs: ["file:deploy/terraform", "file:deploy/gitops"]}
+    binary: {none_by_design: "Declarative deployment manifests are consumed by Terraform, Helm, Argo CD, or Flux; they do not introduce a probectl runtime binary seam."}
+    api: {none_by_design: "IaC renders and applies existing documented APIs and deployment resources; it does not create a second probectl control-plane API."}
+    cli: {none_by_design: "Operators use the native Terraform, Helm, Argo CD, and Flux clients for this declarative integration rather than a duplicative probectl command."}
+    ui: *federated_ui
+    docs: {refs: ["file:docs/iac-gitops.md#IaC, GitOps & Helm hardening"]}
+    config_keys: *api_config
+    telemetry: {none_by_design: "Static deployment definitions emit no runtime signal; platform reconciliation status remains in the operator's chosen IaC or GitOps controller."}
+    real_stack_proof: {none_by_design: "This static integration is release-gated by offline Terraform, Helm, and GitOps rendering; it has no independent tenant datastore path to exercise."}
+    migration: *no_migration
+
+  - id: F30
+    name: CMDB, Grafana, and Prometheus federation
+    status: delivered
+    evidence_status: partial
+    owner: OTel/integrations
+    engine: {refs: ["file:internal/cmdb", "file:internal/promapi"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCMDB("]}
+    api: {refs: ["api:GET /v1/cmdb/lookup", "api:GET /v1/grafana/api/v1/query", "api:GET /v1/prometheus/federate"]}
+    cli: {refs: ["cli:probectl cmdb lookup", "cli:probectl metric query", "cli:probectl metric federate"]}
+    ui: *federated_ui
+    docs: {refs: ["file:docs/ecosystem-integrations.md#Ecosystem integrations"]}
+    config_keys: {refs: ["config:PROBECTL_CMDB_PROVIDER", "config:PROBECTL_CMDB_URL"]}
+    telemetry: {refs: ["file:internal/control/prometheus.go"]}
+    real_stack_proof: {gap: "The existing Prometheus remote-write receipt covers only one slice; no real-stack proof currently covers CMDB lookup, Grafana querying, and Prometheus federation together."}
+    migration: {refs: ["file:migrations/0022_metrics_cmdb_permissions.sql"]}
+
+  - id: F31
+    name: Secrets integration
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/secrets"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#WithSecrets(rt.secretsResolver)"]}
+    api: {refs: ["api:GET /v1/secrets/health"]}
+    cli: {refs: ["cli:probectl secret health"]}
+    ui: {refs: ["ui:F31@/admin"]}
+    docs: {refs: ["file:docs/secrets.md#Secrets integration"]}
+    config_keys: {refs: ["config:PROBECTL_ENVELOPE_KEY_FILE"]}
+    telemetry: {refs: ["file:internal/secrets"]}
+    real_stack_proof: {gap: "Operator selection does not make backend execution inapplicable; the documented Vault, CyberArk, and cloud resolvers lack a real-backend, fail-closed shipping receipt."}
+    migration: *no_migration
+
+  - id: F32
+    name: FIPS-mode crypto
+    status: delivered
+    owner: founder/legal/product
+    engine: {refs: ["file:internal/crypto"]}
+    binary: {refs: ["file:cmd/probectl-control/main.go#crypto.RunPowerOnSelfTest("]}
+    api: {refs: ["api:GET /v1/editions"]}
+    cli: {refs: ["cli:probectl editions status"]}
+    ui: {refs: ["ui:F32@/admin"]}
+    docs: {refs: ["file:docs/compliance/fips-evidence.md#FIPS 140-3 Evidence"]}
+    config_keys: {refs: ["config:PROBECTL_LICENSE_FILE"]}
+    telemetry: {refs: ["file:internal/crypto"]}
+    real_stack_proof: {none_by_design: "FIPS correctness is a build-module and power-on self-test property; the validated local KAT gate is authoritative and no datastore stack can strengthen that proof."}
+    migration: *no_migration
+
+  - id: F33
+    name: Multi-region / HA
+    status: partial
+    evidence_status: partial
+    owner: flow/performance
+    engine: {refs: ["file:internal/cluster"]}
+    binary: {refs: ["file:cmd/probectl-control/builders.go#srv.WithCluster(clusterMgr)"]}
+    api: {none_by_design: "HA posture is exposed through readiness and deployment health rather than a tenant /v1 resource; representative multi-region measurements remain explicitly provisional."}
+    cli: {none_by_design: "Failover is an operator runbook and infrastructure-controller workflow; probectl does not ship an unsafe cross-region mutation command."}
+    ui: *federated_ui
+    docs: {refs: ["file:docs/ha.md#High availability"]}
+    config_keys: {refs: ["config:PROBECTL_DATABASE_READ_URL"]}
+    telemetry: {refs: ["file:internal/cluster"]}
+    real_stack_proof: {gap: "The test uses one PostgreSQL primary, cluster_promote, and a fake stale probe; it does not prove replica or region failover, readiness, and the operator-facing workflow."}
+    migration: {refs: ["file:migrations/0032_cluster_state.sql", "file:migrations/0054_cluster_singleton_leases.sql"]}
+
+  - id: F34
+    name: Advanced governance
+    status: delivered
+    evidence_status: partial
+    owner: data/governance
+    engine: {refs: ["file:internal/govern", "file:ee/governance"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#govern.SetSource(gstore)"]}
+    api: {refs: ["api:GET /v1/lifecycle/retention", "api:GET /provider/v1/tenants/{id}/governance"]}
+    cli: {refs: ["cli:probectl lifecycle retention", "cli:probectl governance tenant"]}
+    ui: {refs: ["ui:F34@/admin", "ui:F34@/provider"]}
+    docs: {refs: ["file:docs/governance.md#Advanced data governance"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/control/lifecycleapi.go"]}
+    real_stack_proof: {gap: "The PostgreSQL store/RLS test calls internal governance paths directly; no public API, CLI, UI, or real redacted-export outcome is exercised across two tenants."}
+    migration: {refs: ["file:migrations/0033_governance.sql", "file:migrations/0037_governance_ai_egress.sql"]}
+
+  - id: F35
+    name: Supportability
+    status: delivered
+    owner: product research/MSP
+    engine: {refs: ["file:internal/support", "file:internal/ingesthealth"]}
+    binary: {refs: ["file:cmd/probectl-control/support.go#func supportBundle"]}
+    api: {refs: ["api:GET /v1/diagnostics", "api:GET /v1/diagnostics/bundle"]}
+    cli: {refs: ["cli:probectl diagnostics status", "cli:probectl diagnostics bundle"]}
+    ui: {refs: ["ui:F35@/admin"]}
+    docs: {refs: ["file:docs/supportability.md#Supportability"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/ingesthealth"]}
+    real_stack_proof: {refs: ["test:internal/control/diagnostics_integration_test.go#TestSupportBundleTopologyTwoTenantIsolationPostgres"]}
+    migration: {refs: ["file:migrations/0034_diagnostics.sql", "file:migrations/0069_tenant_diagnostics_topology.sql"]}
+
+  - id: F36
+    name: TLS/cert observability
+    status: delivered
+    evidence_status: partial
+    owner: eBPF/TLS
+    engine: {refs: ["file:internal/threat/analyze.go"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildTLSAnalyzerWithMetrics("]}
+    api: {refs: ["api:GET /v1/tls/posture"]}
+    cli: {refs: ["cli:probectl tls posture"]}
+    ui: {refs: ["ui:F36@/security"]}
+    docs: {refs: ["file:docs/tls-observability.md#TLS / certificate observability"]}
+    config_keys: {refs: ["config:PROBECTL_CERT_HOSTS", "config:PROBECTL_CT_ENABLED"]}
+    telemetry: {refs: ["file:internal/threat"]}
+    real_stack_proof: {gap: "No real-stack receipt currently emits a certificate posture event from a real TLS exchange and reads /v1/tls/posture; merely attaching the sslsniff source is not substituted."}
+    migration: *no_migration
+
+  - id: F37
+    name: NDR-lite detection engine
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/threat/ndr.go"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildNDR("]}
+    api: {refs: ["api:GET /v1/threat/detections"]}
+    cli: {refs: ["cli:probectl threat detections"]}
+    ui: {refs: ["ui:F37@/security"]}
+    docs: {refs: ["file:docs/ndr.md#NDR-lite detection engine"]}
+    config_keys: {refs: ["config:PROBECTL_NDR_ENABLED", "config:PROBECTL_NDR_RULES_DIR"]}
+    telemetry: {refs: ["file:internal/threat"]}
+    real_stack_proof: {gap: "No dedicated real-service NDR execution proof exists yet; CL-022 owns the missing delivery-depth work."}
+    migration: {refs: ["file:migrations/0049_incident_threat_detections_idx.sql"]}
+
+  - id: F38
+    name: Threat-intel enrichment
+    status: delivered
+    evidence_status: partial
+    owner: SRE/quality
+    engine: {refs: ["file:internal/opendata/intelsource.go"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildThreatIntel("]}
+    api: {refs: ["api:GET /v1/threat/intel/status"]}
+    cli: {refs: ["cli:probectl threat intel-status"]}
+    ui: {refs: ["ui:F38@/security"]}
+    docs: {refs: ["file:docs/threat-intel.md#Threat-intel enrichment"]}
+    config_keys: {none_by_design: "The curated feed set and provenance policy are code-governed; operators do not add an undocumented arbitrary-feed environment key."}
+    telemetry: {refs: ["file:internal/opendata"]}
+    real_stack_proof: {gap: "External egress may remain hermetic, but cached ingest through match, enrichment, detection, API, and two-tenant scoping is positive runtime behavior without a real-stack receipt."}
+    migration: *no_migration
+
+  - id: F39
+    name: Change intelligence
+    status: delivered
+    owner: incident/API
+    engine: {refs: ["file:internal/change"]}
+    binary: {refs: ["file:internal/control/v1.go#s.handleListChanges"]}
+    api: {refs: ["api:GET /v1/changes"]}
+    cli: {refs: ["cli:probectl change list"]}
+    ui: {refs: ["ui:F39@/incidents", "ui:F39@/path", "ui:F39@/explore"]}
+    docs: {refs: ["file:docs/change-intel.md#Change intelligence"]}
+    config_keys: {refs: ["config:PROBECTL_CHANGE_WEBHOOKS", "config:PROBECTL_CHANGE_CORRELATION_WINDOW"]}
+    telemetry: {refs: ["file:internal/control/change.go"]}
+    real_stack_proof: {refs: ["test:internal/control/change_integration_test.go#TestChangeWebhookTenantIsolation"]}
+    migration: {refs: ["file:migrations/0017_change_events.sql"]}
+
+  - id: F40
+    name: Live topology graph
+    status: delivered
+    evidence_status: partial
+    owner: platform/release
+    engine: {refs: ["file:internal/topology"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#WithTopology(rt.topoStore)"]}
+    api: {refs: ["api:GET /v1/topology", "api:POST /v1/topology/whatif"]}
+    cli: {refs: ["cli:probectl topology show", "cli:probectl topology whatif"]}
+    ui: {refs: ["ui:F40@/topology"]}
+    docs: {refs: ["file:docs/topology.md#Topology graph"]}
+    config_keys: {refs: ["config:PROBECTL_TOPOLOGY_ENGINE", "config:PROBECTL_TOPOLOGY_WHATIF_TIMEOUT"]}
+    telemetry: {refs: ["file:internal/control/topologyapi.go"]}
+    real_stack_proof: {gap: "The black-box E2E builds topology from fixture-mode eBPF flows and omits the full four-store and human CLI/UI path, so it is not live topology delivery proof."}
+    migration: *no_migration
+
+  - id: F41
+    name: FinOps/egress cost
+    status: delivered
+    evidence_status: partial
+    owner: performance/product
+    engine: {refs: ["file:internal/cost"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCost("]}
+    api: {refs: ["api:GET /v1/cost/summary"]}
+    cli: {refs: ["cli:probectl cost summary"]}
+    ui: {refs: ["ui:F41@/cost"]}
+    docs: {refs: ["file:docs/finops.md#FinOps / egress cost observability"]}
+    config_keys: {refs: ["config:PROBECTL_COST_ENABLED", "config:PROBECTL_COST_PRICES_FILE"]}
+    telemetry: {refs: ["file:internal/control/costapi.go"]}
+    real_stack_proof: {gap: "No dedicated real-service cost-engine proof exists yet; CL-065 owns the missing capacity and FinOps delivery-depth work."}
+    migration: *no_migration
+
+  - id: F42
+    name: SLO and business impact
+    status: delivered
+    evidence_status: partial
+    owner: incident/quality
+    engine: {refs: ["file:internal/slo"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildSLO("]}
+    api: {refs: ["api:GET /v1/slos", "api:GET /v1/slos/openslo"]}
+    cli: {refs: ["cli:probectl slo list", "cli:probectl slo export"]}
+    ui: {refs: ["ui:F42@/slos"]}
+    docs: {refs: ["file:docs/slo.md#SLO + business-impact engine"]}
+    config_keys: {refs: ["config:PROBECTL_SLO_ENABLED", "config:PROBECTL_SLO_DIR"]}
+    telemetry: {refs: ["file:internal/slo"]}
+    real_stack_proof: {gap: "The SLO engine has unit and handler coverage but no dedicated real-service execution proof yet."}
+    migration: *no_migration
+
+  - id: F43
+    name: Segmentation validation
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/compliance"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCompliance("]}
+    api: {refs: ["api:GET /v1/compliance", "api:GET /v1/compliance/evidence"]}
+    cli: {refs: ["cli:probectl compliance summary", "cli:probectl compliance evidence"]}
+    ui: {refs: ["ui:F43@/compliance"]}
+    docs: {refs: ["file:docs/compliance.md#Compliance / segmentation validation"]}
+    config_keys: {refs: ["config:PROBECTL_COMPLIANCE_ENABLED", "config:PROBECTL_COMPLIANCE_POLICY_DIR"]}
+    telemetry: {refs: ["file:internal/compliance"]}
+    real_stack_proof: {gap: "Segmentation validation has unit and handler coverage but no dedicated real-service execution proof yet."}
+    migration: *no_migration
+
+  - id: F44
+    name: Guarded remediation
+    status: delivered
+    evidence_status: partial
+    owner: architecture/release
+    engine: {refs: ["file:ee/remediation"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithRemediation("]}
+    api: {refs: ["api:GET /v1/remediation/proposals", "api:POST /v1/remediation/proposals/{id}/approve"]}
+    cli: {refs: ["cli:probectl remediation list", "cli:probectl remediation approve"]}
+    ui: {refs: ["ui:F44@/admin"]}
+    docs: {refs: ["file:docs/remediation.md#Guarded agentic remediation"]}
+    config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
+    telemetry: {refs: ["file:ee/remediation"]}
+    real_stack_proof: {gap: "The PostgreSQL test calls the internal service with a fake estimator and one tenant; it omits public proposal/approval UI and CLI plus default-off, dry-run, and blast-radius rejection."}
+    migration: {refs: ["file:migrations/0035_remediation.sql"]}
+
+  - id: F45
+    name: AI authoring and discovery
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/ai/author"]}
+    binary: {refs: ["file:internal/control/server.go#s.authorEngine = buildAuthor"]}
+    api: {refs: ["api:POST /v1/ai/author", "api:POST /v1/ai/discover"]}
+    cli: {refs: ["cli:probectl ai author", "cli:probectl ai discover"]}
+    ui: {refs: ["ui:F45@/targets"]}
+    docs: {refs: ["file:docs/ai-authoring.md#AI test authoring"]}
+    config_keys: {refs: ["config:PROBECTL_AI_MODEL_PROVIDER"]}
+    telemetry: {refs: ["file:internal/ai/author"]}
+    real_stack_proof: {gap: "The PostgreSQL/public-handler test seeds incidents directly and uses only one tenant; no bidirectional tenant-isolation or complete CLI and rendered-UI authoring workflow is proven."}
+    migration: *no_migration
+
+  - id: F46
+    name: Last-mile/WiFi/ISP diagnostics
+    status: delivered
+    evidence_status: partial
+    owner: incident/API
+    engine: {refs: ["file:internal/endpoint"]}
+    binary: {refs: ["file:cmd/probectl-endpoint/main.go#func run"]}
+    api: {refs: ["api:GET /v1/endpoints"]}
+    cli: {refs: ["cli:probectl endpoint list"]}
+    ui: {refs: ["ui:F46@/endpoints"]}
+    docs: {refs: ["file:docs/endpoint-dem.md#last-mile / WiFi DEM"]}
+    config_keys: {refs: ["config:PROBECTL_ENDPOINT_COLLECT_BSSID", "config:PROBECTL_ENDPOINT_COLLECT_GATEWAY_IP"]}
+    telemetry: {refs: ["file:internal/endpoint"]}
+    real_stack_proof: {gap: "No real-stack receipt currently starts the endpoint collector, captures last-mile and WiFi attributes, ingests them tenant-bound, and reads /v1/endpoints."}
+    migration: *no_migration
+
+  - id: F47
+    name: Network chaos
+    status: delivered
+    evidence_status: partial
+    owner: architecture/release
+    engine: {refs: ["file:internal/chaos"]}
+    binary: {refs: ["file:cmd/probectl-chaos-dependency-drill/main.go#func main"]}
+    api: {none_by_design: "Chaos is a local release and operator drill harness; no remotely callable fault-injection endpoint is shipped because that would expand blast radius."}
+    cli: {none_by_design: "The dedicated local probectl-chaos-dependency-drill binary is the bounded interface; the tenant REST CLI deliberately cannot trigger faults."}
+    ui: {none_by_design: "The existing surface registry marks network chaos none-by-design until a separately approved, audited, and human-gated operator workflow exists."}
+    docs: {refs: ["file:docs/chaos.md#Network chaos / fault injection"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/chaos"]}
+    real_stack_proof: {gap: "The current drill uses real UDP packets but an in-process synthetic timeline; it does not exercise release binaries, stores, public surfaces, or two tenant lanes."}
+    migration: *no_migration
+
+  - id: F48
+    name: Carbon/power
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/carbon"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCarbon("]}
+    api: {refs: ["api:GET /v1/carbon"]}
+    cli: {refs: ["cli:probectl carbon summary"]}
+    ui: {refs: ["ui:F48@/cost"]}
+    docs: {refs: ["file:docs/carbon.md#Carbon / power observability"]}
+    config_keys: {refs: ["config:PROBECTL_CARBON_ENABLED", "config:PROBECTL_CARBON_GRID_GCO2E"]}
+    telemetry: {refs: ["file:internal/control/carbonapi.go"]}
+    real_stack_proof: {gap: "The carbon engine has unit and handler coverage but no dedicated real-service execution proof yet."}
+    migration: *no_migration
+
+  - id: F49
+    name: Plugin/detection marketplace
+    status: future
+    owner: architecture/release
+    engine: {none_by_design: "Phase-4 future capability: the current product deliberately ships no marketplace engine, and the registry keeps that absence visible."}
+    binary: {none_by_design: "Phase-4 future capability: no marketplace code is linked into a shipping binary."}
+    api: {none_by_design: "Phase-4 future capability: no marketplace API is promised in the current GA contract."}
+    cli: {none_by_design: "Phase-4 future capability: no marketplace CLI is promised in the current GA contract."}
+    ui: {none_by_design: "The existing surface registry explicitly marks the plugin/detection marketplace none-by-design and outside the current GA denominator."}
+    docs: {refs: ["file:probectl-PRD-v1.0.md#Plugin/detection marketplace"]}
+    config_keys: {none_by_design: "No marketplace implementation ships, so accepting marketplace configuration would be misleading."}
+    telemetry: {none_by_design: "No marketplace implementation ships, so it has no runtime signal to emit."}
+    real_stack_proof: {none_by_design: "No marketplace implementation ships; a real-stack receipt would falsely promote a future capability."}
+    migration: {none_by_design: "No marketplace implementation ships, so no marketplace schema is created."}
+
+  - id: F50
+    name: Tenancy and hard isolation
+    status: delivered
+    evidence_status: partial
+    owner: platform/release
+    engine: {refs: ["file:internal/tenancy"]}
+    binary: {refs: ["file:cmd/probectl-control/builders.go#func verifyServePosture"]}
+    api: {refs: ["api:GET /v1/isolation/status"]}
+    cli: {refs: ["cli:probectl isolation status"]}
+    ui: {refs: ["ui:F50@/admin"]}
+    docs: {refs: ["file:docs/isolation.md#Tenant isolation models"]}
+    config_keys: {refs: ["config:PROBECTL_DATABASE_URL", "config:PROBECTL_INGEST_STRICT_TENANT_LANES"]}
+    telemetry: {refs: ["file:internal/control/isolationapi.go"]}
+    real_stack_proof: {gap: "The pooled PostgreSQL test gives both tenants identical row counts and values, so cross-tenant substitution can pass; it also omits the full storage, API, CLI, and UI isolation path."}
+    migration: {refs: ["file:migrations/0002_tenancy_core.sql", "file:migrations/0025_tenant_isolation.sql", "file:migrations/0086_tenant_postgres_write_fence.sql"]}
+
+  - id: F51
+    name: Provider/MSP plane
+    status: delivered
+    evidence_status: partial
+    owner: web/quality
+    engine: {refs: ["file:ee/provider"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithProviderPlane(h)"]}
+    api: {refs: ["api:GET /provider/v1/tenants", "api:GET /provider/v1/breakglass"]}
+    cli: {refs: ["cli:probectl provider tenants", "cli:probectl provider breakglass"]}
+    ui: {refs: ["ui:F51@/provider"]}
+    docs: {refs: ["file:docs/provider-plane.md#Provider / management plane"]}
+    config_keys: {refs: ["config:PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", "config:PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES"]}
+    telemetry: {refs: ["file:ee/provider"]}
+    real_stack_proof: {gap: "The PostgreSQL role test denies three raw tables and permits aggregate views; it does not prove provider lifecycle, fleet, break-glass, API, CLI, and rendered-UI behavior."}
+    migration: {refs: ["file:migrations/0024_provider_plane.sql", "file:migrations/0087_break_glass_single_active_grant.sql"]}
+
+  - id: F52
+    name: Pooled/siloed/hybrid isolation
+    status: delivered
+    evidence_status: partial
+    owner: platform/release
+    engine: {refs: ["file:ee/silo"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#tenancy.SetRouter(router)"]}
+    api: {refs: ["api:GET /v1/isolation/status", "api:PATCH /provider/v1/tenants/{id}"]}
+    cli: {refs: ["cli:probectl isolation status", "cli:probectl isolation set-tenant"]}
+    ui: {refs: ["ui:F52@/provider"]}
+    docs: {refs: ["file:docs/isolation.md#Pooled"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:ee/silo"]}
+    real_stack_proof: {gap: "The PostgreSQL pooled/silo proof is useful, but its ClickHouse legs are HTTP doubles and it omits real bus/object-store hybrid isolation and the public operator path."}
+    migration: {refs: ["file:migrations/0078_silo_schema_tenant_guards.sql"]}
+
+  - id: F53
+    name: Metering/billing export
+    status: delivered
+    evidence_status: partial
+    owner: product research/MSP
+    engine: {refs: ["file:ee/billing", "file:internal/usage"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#usage.SetRecorder(recorder)"]}
+    api: {refs: ["api:GET /provider/v1/usage", "api:GET /provider/v1/usage/export"]}
+    cli: {refs: ["cli:probectl billing usage", "cli:probectl billing export"]}
+    ui: {refs: ["ui:F53@/provider"]}
+    docs: {refs: ["file:docs/metering.md#Per-tenant metering"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:ee/billing/recorder.go"]}
+    real_stack_proof: {gap: "The selected receipt is a one-tenant direct metering-store round trip; it omits two-tenant isolation, runtime counter ingestion, and invoice/export API, CLI, and UI delivery."}
+    migration: {refs: ["file:migrations/0026_metering.sql"]}
+
+  - id: F54
+    name: White-label
+    status: removed
+    owner: founder/legal/product
+    engine: {none_by_design: "Removed by design: probectl keeps its product identity and ships no per-tenant or provider-master rebranding engine."}
+    binary: {none_by_design: "Removed by design: no white-label implementation is linked into any shipping binary."}
+    api: {none_by_design: "Removed by design: no tenant or provider API can replace product identity, logos, domains, login, or email branding."}
+    cli: {none_by_design: "Removed by design: the CLI exposes no white-label mutation command."}
+    ui: {none_by_design: "The existing surface registry records per-tenant and provider-master product rebranding as none-by-design."}
+    docs: {refs: ["file:docs/white-label.md#removed by design"]}
+    config_keys: {none_by_design: "Removed by design: accepting white-label configuration would contradict the product contract."}
+    telemetry: {none_by_design: "Removed by design: no white-label runtime exists and therefore no signal is emitted."}
+    real_stack_proof: {none_by_design: "Removed by design: the release proof is the absence gate and explicit product contract, not a fabricated workflow."}
+    migration: {refs: ["file:migrations/0057_deprecate_branding_storage.sql"]}
+
+  - id: F55
+    name: Export/residency/verifiable deletion
+    status: delivered
+    evidence_status: partial
+    owner: data/governance
+    engine: {refs: ["file:internal/tenantlife", "file:internal/lifecycle"]}
+    binary: {refs: ["file:cmd/probectl-control/builders.go#srv.WithTenantLife(lifeEngine)"]}
+    api: {refs: ["api:GET /v1/lifecycle/export", "api:POST /v1/lifecycle/erase"]}
+    cli: {refs: ["cli:probectl lifecycle export", "cli:probectl lifecycle erase"]}
+    ui: {refs: ["ui:F55@/admin"]}
+    docs: {refs: ["file:docs/lifecycle.md#Zero-downtime lifecycle"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:internal/tenantlife"]}
+    real_stack_proof: {gap: "The PostgreSQL lifecycle test uses memory flow and TSDB stores and calls the engine directly; no all-store export/erase workflow through API, CLI, and UI is proven."}
+    migration: {refs: ["file:migrations/0028_tenant_lifecycle.sql", "file:migrations/0052_tenant_retention_planes.sql", "file:migrations/0077_audit_subject_erasures.sql"]}
+
+  - id: F56
+    name: Per-tenant keys/BYOK
+    status: delivered
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:ee/tenantkeys", "file:internal/tenantcrypto"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithKeyManager("]}
+    api: {refs: ["api:GET /v1/security/keys", "api:POST /v1/security/keys/rotate"]}
+    cli: {refs: ["cli:probectl key list", "cli:probectl key rotate"]}
+    ui: {refs: ["ui:F56@/admin"]}
+    docs: {refs: ["file:docs/byok.md#Per-tenant key isolation / BYOK"]}
+    config_keys: {refs: ["config:PROBECTL_ENVELOPE_KEY", "config:PROBECTL_ENVELOPE_KEY_ID"]}
+    telemetry: {refs: ["file:ee/tenantkeys"]}
+    real_stack_proof: {gap: "The selected test covers managed-mode static-master rotation only; no BYOK provider or external-key lifecycle through the public keys API, CLI, and UI is proven."}
+    migration: {refs: ["file:migrations/0030_tenant_keys.sql"]}
+
+  - id: F57
+    name: Tenant fairness
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    engine: {refs: ["file:internal/fairness"]}
+    binary: {refs: ["file:cmd/probectl-control/fairness_gate.go#fairness.NewGate("]}
+    api: {refs: ["api:GET /v1/fairness"]}
+    cli: {refs: ["cli:probectl fairness status"]}
+    ui: {refs: ["ui:F57@/provider"]}
+    docs: {refs: ["file:docs/fairness.md#Tenant fairness"]}
+    config_keys: {refs: ["config:PROBECTL_FAIRNESS_RESULTS_PER_SEC", "config:PROBECTL_FAIRNESS_QUERY_CONCURRENCY"]}
+    telemetry: {refs: ["file:internal/fairness"]}
+    real_stack_proof: {gap: "The PostgreSQL test stores two-tenant policies and calls Gate.AdmitN directly; no live ingestion/query consumers or fairness API, CLI, and UI outcome is exercised."}
+    migration: {refs: ["file:migrations/0031_fairness.sql", "file:migrations/0053_fairness_device_otlp_overrides.sql"]}
+
+  - id: CLM-NO-PHONE-HOME
+    name: No default outbound telemetry, beacon, or phone-home exists; telemetry never leaves the operator's network by default.
+    status: delivered
+    owner: release/docs
+    engine: {refs: ["file:internal/ai/egressgate.go", "file:internal/opendata/source.go"]}
+    binary: {refs: ["file:cmd/probectl-control/main.go#config.LoadFromEnv("]}
+    api: &invariant_api {none_by_design: "This is a deployment-wide safety invariant rather than a tenant resource; adding a mutation API would weaken the guarantee it records."}
+    cli: &invariant_cli {none_by_design: "This is a continuously enforced product invariant, not an operator-triggered workflow that needs a standalone CLI command."}
+    ui: &invariant_ui {none_by_design: "This cross-cutting invariant is documented and mechanically gated; it is not represented as a standalone tenant application route."}
+    docs: {refs: ["file:docs/claims/register.json#CLM-NO-PHONE-HOME"]}
+    config_keys: {refs: ["config:PROBECTL_AI_MODEL_PROVIDER", "config:PROBECTL_AI_EGRESS_ACK"]}
+    telemetry: {refs: ["file:internal/control/ai.go"]}
+    real_stack_proof: &negative_invariant_proof {none_by_design: "A finite runtime stack cannot prove the global absence of every outbound path; the authoritative proof is the offline source/import policy gate and its planted self-test."}
+    migration: *no_migration
+
+  - id: CLM-AIR-GAP
+    name: "The deployment operates air-gapped: the default AI is the in-process builtin and no feature requires egress."
+    status: delivered
+    owner: release/docs
+    engine: {refs: ["file:internal/ai/model_builtin.go"]}
+    binary: {refs: ["file:internal/control/server.go#s.analyzer = buildAnalyzerWithPolicyLoader"]}
+    api: *invariant_api
+    cli: *invariant_cli
+    ui: *invariant_ui
+    docs: {refs: ["file:docs/claims/register.json#CLM-AIR-GAP"]}
+    config_keys: {refs: ["config:PROBECTL_AI_MODEL_PROVIDER"]}
+    telemetry: {refs: ["file:internal/control/ai.go"]}
+    real_stack_proof: *negative_invariant_proof
+    migration: *no_migration
+
+  - id: CLM-FAIL-CLOSED
+    name: Missing channel security, credential, signature, tenant binding, or license state degrades closed, never open.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    engine: {refs: ["file:internal/tenancy/posture.go", "file:internal/agenttransport/peer.go"]}
+    binary: {refs: ["file:cmd/probectl-control/main.go#verifyServePosture("]}
+    api: {refs: ["api:GET /v1/isolation/status"]}
+    cli: {refs: ["cli:probectl isolation status"]}
+    ui: *invariant_ui
+    docs: {refs: ["file:docs/claims/register.json#CLM-FAIL-CLOSED"]}
+    config_keys: {refs: ["config:PROBECTL_DEPLOYMENT_PROFILE", "config:PROBECTL_INGEST_STRICT_TENANT_LANES"]}
+    telemetry: {refs: ["file:internal/agenttransport/service.go"]}
+    real_stack_proof: {gap: "The black-box E2E checks several transport and enrollment failures but not the global signature, tenant-binding, credential, and license fail-closed cases asserted by this claim."}
+    migration: {refs: ["file:migrations/0025_tenant_isolation.sql", "file:migrations/0070_strict_pretenant_auth_rls.sql"]}
+
+  - id: CLM-TAMPER-EVIDENT
+    name: Audit streams are hash-chained and tamper-evident.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    ui_aliases: {F23: "The cross-cutting audit-chain invariant is surfaced on the Audit foundation page rather than a duplicate claim-only screen."}
+    engine: {refs: ["file:internal/audit/audit.go", "file:internal/audit/worm.go"]}
+    binary: {refs: ["file:cmd/probectl-control/builders.go#buildReconciledAuditWORM("]}
+    api: {refs: ["api:GET /v1/audit/verify"]}
+    cli: {refs: ["cli:probectl audit verify"]}
+    ui: {refs: ["ui:F23@/audit"]}
+    docs: {refs: ["file:docs/claims/register.json#CLM-TAMPER-EVIDENT"]}
+    config_keys: {refs: ["config:PROBECTL_AUDIT_WORM_DIR"]}
+    telemetry: {refs: ["file:internal/audit"]}
+    real_stack_proof: {gap: "The selected receipt checks one tenant PostgreSQL chain only; it does not prove both tenant and provider streams or the public verification API, CLI, and UI path."}
+    migration: {refs: ["file:migrations/0005_audit.sql", "file:migrations/0075_audit_stream_heads.sql"]}
+
+  - id: CLM-OBSERVE-ONLY
+    name: Collection and detection observe; nothing mutates the observed network (eBPF observe-only, no remediation executor).
+    status: delivered
+    owner: release/docs
+    engine: {refs: ["file:internal/ebpf/capability_linux.go", "file:ee/remediation"]}
+    binary: {refs: ["file:cmd/probectl-ebpf-agent/main.go#func run"]}
+    api: {refs: ["api:GET /v1/threat/detections", "api:GET /v1/remediation/proposals"]}
+    cli: {refs: ["cli:probectl threat detections", "cli:probectl remediation list"]}
+    ui: *invariant_ui
+    docs: {refs: ["file:docs/claims/register.json#CLM-OBSERVE-ONLY"]}
+    config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED"]}
+    telemetry: {refs: ["file:internal/ebpf"]}
+    real_stack_proof: {none_by_design: "A finite live-kernel scenario cannot prove the global absence of network mutation; the authoritative proof is the observe-only program-type and remediation dependency policy gate."}
+    migration: {refs: ["file:migrations/0035_remediation.sql"]}
+
+  - id: CLM-HUMAN-GATED
+    name: "Remediation is human-gated: explicit approval, dry-run, blast-radius limits; never autonomous."
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    ui_aliases: {F44: "The human-approval invariant is surfaced in the guarded remediation review card rather than a duplicate claim-only screen."}
+    engine: {refs: ["file:ee/remediation"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithRemediation("]}
+    api: {refs: ["api:POST /v1/remediation/proposals/{id}/approve"]}
+    cli: {refs: ["cli:probectl remediation approve"]}
+    ui: {refs: ["ui:F44@/admin"]}
+    docs: {refs: ["file:docs/claims/register.json#CLM-HUMAN-GATED"]}
+    config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
+    telemetry: {refs: ["file:ee/remediation"]}
+    real_stack_proof: {gap: "The PostgreSQL receipt proves separate approval and audit calls but does not yet prove default-off behavior, human-only approval, dry-run, and blast-radius rejection together."}
+    migration: {refs: ["file:migrations/0035_remediation.sql"]}
+
+  - id: CLM-NOT-AN-IPS
+    name: Detection is a confidence-scored signal, never inline blocking / an IPS.
+    status: delivered
+    owner: release/docs
+    engine: {refs: ["file:internal/threat/ndr.go"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildNDR("]}
+    api: {refs: ["api:GET /v1/threat/detections"]}
+    cli: {refs: ["cli:probectl threat detections"]}
+    ui: *invariant_ui
+    docs: {refs: ["file:docs/claims/register.json#CLM-NOT-AN-IPS"]}
+    config_keys: {refs: ["config:PROBECTL_NDR_ENABLED"]}
+    telemetry: {refs: ["file:internal/threat"]}
+    real_stack_proof: {none_by_design: "A finite runtime scenario cannot prove the global absence of inline blocking; the authoritative observe-only and dependency policy gates enforce this invariant."}
+    migration: *no_migration
+
+  - id: CLM-STORAGE-LAYER-TENANCY
+    name: Tenant isolation is enforced at the storage layer (FORCE RLS / partition / silo), not per-handler.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    engine: {refs: ["file:internal/tenancy/posture.go", "file:internal/tenancy/writefence.go"]}
+    binary: {refs: ["file:cmd/probectl-control/main.go#verifyServePosture("]}
+    api: {refs: ["api:GET /v1/isolation/status"]}
+    cli: {refs: ["cli:probectl isolation status"]}
+    ui: *invariant_ui
+    docs: {refs: ["file:docs/claims/register.json#CLM-STORAGE-LAYER-TENANCY"]}
+    config_keys: {refs: ["config:PROBECTL_DATABASE_URL"]}
+    telemetry: {refs: ["file:internal/control/isolationapi.go"]}
+    real_stack_proof: {gap: "The pooled PostgreSQL test asserts only identical per-tenant counts and can miss cross-tenant substitution; no full multi-store, bidirectional isolation receipt is bound here yet."}
+    migration: {refs: ["file:migrations/0025_tenant_isolation.sql", "file:migrations/0086_tenant_postgres_write_fence.sql"]}
+
+  - id: CLM-HONEST-NUMBERS
+    name: Numbers are labeled illustrative/reference/smoke; guarantee language is bounded to what is measured or explicitly negated.
+    status: delivered
+    owner: release/docs
+    engine: {refs: ["file:internal/bakeoff"]}
+    binary: {refs: ["file:cmd/probectl-scorecard/main.go#func main"]}
+    api: *invariant_api
+    cli: *invariant_cli
+    ui: *invariant_ui
+    docs: {refs: ["file:docs/claims/register.json#CLM-HONEST-NUMBERS"]}
+    config_keys: {none_by_design: "No runtime setting can relax documentation honesty; the offline claim and wording gates enforce this invariant unconditionally."}
+    telemetry: {none_by_design: "Documentation claim bounds are static release policy; they emit no runtime telemetry and are enforced by the offline docs-claims gate."}
+    real_stack_proof: {none_by_design: "A runtime stack cannot prove documentation semantics; the authoritative proof is the offline honest-claims wording gate and its planted negative self-test."}
+    migration: *no_migration
+
+  - id: CLM-SEP-AUDITED
+    name: Provider/break-glass operations are separately audited from tenant streams.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    ui_aliases: {F51: "The provider-audit separation invariant is surfaced in the Provider management plane rather than a duplicate claim-only screen."}
+    engine: {refs: ["file:ee/provider", "file:internal/audit"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithProviderPlane(h)"]}
+    api: {refs: ["api:GET /provider/v1/breakglass"]}
+    cli: {refs: ["cli:probectl provider breakglass"]}
+    ui: {refs: ["ui:F51@/provider"]}
+    docs: {refs: ["file:docs/claims/register.json#CLM-SEP-AUDITED"]}
+    config_keys: {refs: ["config:PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES"]}
+    telemetry: {refs: ["file:ee/provider"]}
+    real_stack_proof: {gap: "Provider configure atomicity and provider-chain tamper checks do not exercise actual break-glass consent, separation from tenant-stream writes, or the public provider workflow."}
+    migration: {refs: ["file:migrations/0005_audit.sql", "file:migrations/0045_audit_provider_least_privilege.sql"]}
+
+  - id: CLM-CONSENT-GATED
+    name: Remote AI egress requires explicit tenant consent and redaction; denial is the default.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    engine: {refs: ["file:internal/ai/egressgate.go"]}
+    binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#rt.srv.AIEgressGate()"]}
+    api: {refs: ["api:GET /provider/v1/tenants/{id}/governance"]}
+    cli: {refs: ["cli:probectl governance tenant"]}
+    ui: *invariant_ui
+    docs: {refs: ["file:docs/claims/register.json#CLM-CONSENT-GATED"]}
+    config_keys: {refs: ["config:PROBECTL_AI_EGRESS_ACK", "config:PROBECTL_AI_REDACT_IPS"]}
+    telemetry: {refs: ["file:internal/control/ai.go"]}
+    real_stack_proof: {gap: "No real-stack receipt currently proves denied-by-default remote model dispatch, tenant consent, redaction, and the corresponding audit record together."}
+    migration: {refs: ["file:migrations/0037_governance_ai_egress.sql"]}
+
+  - id: CLM-BGP-FEEDS
+    name: The analyzer fetches only RPKI VRP data; MRT is bring-your-own local input; RIS Live reads RIPE's public websocket.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    ui_aliases: {F6: "The BGP feed-boundary invariant is surfaced on the BGP monitoring plane rather than a duplicate claim-only screen."}
+    engine: {refs: ["file:analyzer/probectl_analyzer", "file:internal/bgp"]}
+    binary: {refs: ["file:cmd/probectl-control/bgp_analyzer.go#func runBGPAnalyzer"]}
+    api: {refs: ["api:GET /v1/bgp/events"]}
+    cli: {refs: ["cli:probectl bgp events"]}
+    ui: {refs: ["ui:F6@/planes/bgp"]}
+    docs: {refs: ["file:docs/claims/register.json#CLM-BGP-FEEDS"]}
+    config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_SOURCE", "config:PROBECTL_BGP_ANALYZER_SOURCE_FILE"]}
+    telemetry: {refs: ["file:internal/bgp"]}
+    real_stack_proof: {gap: "The current analyzer receipt consumes a recorded RIS fixture and therefore does not prove the documented live-feed/local-input boundary in a shipping full-stack workflow."}
+    migration: *no_migration
+
+  - id: CLM-EBPF-INTEGRITY
+    name: Embedded BPF object digests prove generator freshness and binary consistency; release signatures protect shipped artifacts.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    ui_aliases: {F11: "The embedded-object integrity invariant is surfaced with eBPF agent posture rather than a duplicate claim-only screen."}
+    engine: {refs: ["file:internal/ebpf/gendigests", "file:internal/ebpf"]}
+    binary: {refs: ["file:cmd/probectl-ebpf-agent/main.go#func run"]}
+    api: {refs: ["api:GET /v1/ebpf/service-map"]}
+    cli: {refs: ["cli:probectl ebpf service-map"]}
+    ui: {refs: ["ui:F11@/planes/ebpf"]}
+    docs: {refs: ["file:docs/claims/register.json#CLM-EBPF-INTEGRITY"]}
+    config_keys: {refs: ["config:PROBECTL_EBPF_CONFIG"]}
+    telemetry: {refs: ["file:internal/ebpf"]}
+    real_stack_proof: {gap: "The live lockdown test loads and attaches programs but does not assert generator freshness, embedded-object digest consistency, and release-artifact signatures together."}
+    migration: *no_migration
+
+  - id: CLM-INGEST-SCOPE
+    name: Open-data/threat feeds ingest once then scope per tenant; BGP collector ingestion runs per tenant by decision of record.
+    status: delivered
+    evidence_status: partial
+    owner: release/docs
+    ui_aliases:
+      F7: "Shared open-data ingestion and tenant-scoped enrichment are surfaced on the open-data/outage page."
+      F6: "Per-tenant BGP collector ingestion is surfaced on the BGP monitoring plane."
+    engine: {refs: ["file:internal/opendata", "file:internal/bgp"]}
+    binary: {refs: ["file:cmd/probectl-bmp-listener/main.go#func run"]}
+    api: {refs: ["api:GET /v1/opendata/enrichment", "api:GET /v1/bgp/events"]}
+    cli: {refs: ["cli:probectl opendata enrich", "cli:probectl bgp events"]}
+    ui: {refs: ["ui:F7@/outages", "ui:F6@/planes/bgp"]}
+    docs: {refs: ["file:docs/claims/register.json#CLM-INGEST-SCOPE"]}
+    config_keys: {refs: ["config:PROBECTL_BMP_COLLECTOR", "config:PROBECTL_INGEST_STRICT_TENANT_LANES"]}
+    telemetry: {refs: ["file:internal/opendata", "file:internal/bgp"]}
+    real_stack_proof: {gap: "Public network access may remain hermetic, but shared ingest followed by per-tenant scoping is positive multi-tenant runtime behavior without a two-tenant real-store receipt."}
+    migration: *no_migration

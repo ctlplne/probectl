@@ -1,0 +1,24 @@
+{
+  "schema": "probectl.completeness-denominator/v1",
+  "feature_range": {
+    "prefix": "F",
+    "first": 1,
+    "last": 57
+  },
+  "governed_claims": [
+    "CLM-NO-PHONE-HOME",
+    "CLM-AIR-GAP",
+    "CLM-FAIL-CLOSED",
+    "CLM-TAMPER-EVIDENT",
+    "CLM-OBSERVE-ONLY",
+    "CLM-HUMAN-GATED",
+    "CLM-NOT-AN-IPS",
+    "CLM-STORAGE-LAYER-TENANCY",
+    "CLM-HONEST-NUMBERS",
+    "CLM-SEP-AUDITED",
+    "CLM-CONSENT-GATED",
+    "CLM-BGP-FEEDS",
+    "CLM-EBPF-INTEGRITY",
+    "CLM-INGEST-SCOPE"
+  ]
+}

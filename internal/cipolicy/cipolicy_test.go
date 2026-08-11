@@ -98,6 +98,72 @@ func TestReleaseRequiresGreenCI(t *testing.T) {
 	}
 }
 
+// TestReleasePublishingGraphRequiresCompletenessGate is the CL-001 release
+// backstop: every job that can build, inspect, or publish release output must
+// depend, directly or transitively, on the strict capability-ledger gate. Only
+// the two independent preflight jobs are allowed to run outside that graph.
+// Keeping the exception set deliberately small also makes a newly added release
+// job fail closed until its dependency is wired and reviewed.
+func TestReleasePublishingGraphRequiresCompletenessGate(t *testing.T) {
+	rel := readWorkflow(t, "release.yml")
+	needsByJob := jobNeeds(t, rel)
+
+	const gate = "completeness-release-gate"
+	if _, ok := needsByJob[gate]; !ok {
+		t.Fatalf("release.yml is missing the %s job (CL-001)", gate)
+	}
+
+	// These jobs execute before, or in parallel with, the completeness gate and
+	// do not produce release output. Every other job belongs to the guarded
+	// release graph. Today images and binaries depend on the gate directly;
+	// chart, package, compose-pull, and air-gap jobs inherit it transitively.
+	allowedBeforeCompleteness := map[string]bool{
+		"require-green-ci":          true,
+		"components-match-makefile": true,
+		gate:                        true,
+	}
+	for _, job := range []string{
+		"images", "compose-image-anonymous-pull", "binaries",
+		"publish-chart", "packages", "airgap-bundle",
+	} {
+		if _, ok := needsByJob[job]; !ok {
+			t.Errorf("release.yml has no guarded release-graph job %q (renamed or removed?) — update this policy test", job)
+		}
+	}
+	for _, job := range jobNames(t, rel) {
+		if allowedBeforeCompleteness[job] {
+			continue
+		}
+		if !gatesOn(job, gate, needsByJob, map[string]bool{}) {
+			t.Errorf("release job %q does not gate (directly or transitively) on %s — needs=%v; release output could bypass the strict ledger", job, gate, needsByJob[job])
+		}
+	}
+}
+
+func TestCompletenessLedgerArtifactFailsClosed(t *testing.T) {
+	workflow := readWorkflow(t, "ci.yml")
+	const marker = "\n  completeness-gate:\n"
+	start := strings.Index(workflow, marker)
+	if start < 0 {
+		t.Fatal("ci.yml is missing the completeness-gate job")
+	}
+	match := workflow[start+1:]
+	if next := regexp.MustCompile(`(?m)^  [a-zA-Z0-9_-]+:\n`).FindStringIndex(match[len("  completeness-gate:\n"):]); next != nil {
+		match = match[:len("  completeness-gate:\n")+next[0]]
+	}
+	for _, required := range []string{
+		"test -s dist/completeness/ledger.json",
+		"test -s dist/completeness/ledger.html",
+		"dist/completeness/ledger.json",
+		"dist/completeness/ledger.html",
+		"if-no-files-found: error",
+	} {
+		if !strings.Contains(match, required) {
+			t.Errorf("completeness-gate artifact retention is missing %q", required)
+		}
+	}
+}
+
 // jobNeeds maps each job name to its list of `needs:` job names (handling both
 // the inline-list `needs: [a, b]` and the block-list forms).
 func jobNeeds(t *testing.T, wf string) map[string][]string {
@@ -141,15 +207,20 @@ func jobNeeds(t *testing.T, wf string) map[string][]string {
 // gatesOnGreenCI reports whether job depends, directly or transitively, on
 // require-green-ci.
 func gatesOnGreenCI(job string, needsByJob map[string][]string, seen map[string]bool) bool {
+	return gatesOn(job, "require-green-ci", needsByJob, seen)
+}
+
+// gatesOn reports whether job depends, directly or transitively, on required.
+func gatesOn(job, required string, needsByJob map[string][]string, seen map[string]bool) bool {
 	if seen[job] {
 		return false
 	}
 	seen[job] = true
 	for _, dep := range needsByJob[job] {
-		if dep == "require-green-ci" {
+		if dep == required {
 			return true
 		}
-		if gatesOnGreenCI(dep, needsByJob, seen) {
+		if gatesOn(dep, required, needsByJob, seen) {
 			return true
 		}
 	}

@@ -201,6 +201,18 @@ cover-gate: ## Coverage profile (integration tag, service-free) + per-package fl
 openapi-gate: ## OpenAPI completeness gate (S19): valid 3.1 specs + no undocumented core/provider routes.
 	GO=$(GO) bash scripts/check_openapi.sh
 
+.PHONY: completeness-gate completeness-release-gate
+completeness-gate: ## Capability wiring-spine gate: validate registry and render deterministic HTML+JSON ledgers.
+	@mkdir -p dist/completeness
+	$(GO) test -count=1 ./internal/completeness ./cmd/probectl-completeness
+	$(GO) run ./cmd/probectl-completeness -selftest
+	$(GO) run ./cmd/probectl-completeness \
+		-ledger-json dist/completeness/ledger.json \
+		-ledger-html dist/completeness/ledger.html
+
+completeness-release-gate: ## Strict final-release variant: reject every acknowledged evidence gap.
+	$(GO) run ./cmd/probectl-completeness -require-complete
+
 .PHONY: migration-gate
 migration-gate: ## Migration gate (S34/SCHEMA-001/003): reject destructive, locking, or non-idempotent Postgres DDL AND destructive ClickHouse DDL.
 	$(GO) test -run 'TestMigrationsExpandContractCompat|TestCheckSQL' ./internal/store/migrate/...
@@ -573,4 +585,4 @@ clean: ## Remove build output.
 	rm -rf $(BIN_DIR) dist coverage.out
 
 .PHONY: ci
-ci: lint test test-isolation ## Run the core CI gates locally.
+ci: lint test test-isolation completeness-gate ## Run the core CI gates locally.

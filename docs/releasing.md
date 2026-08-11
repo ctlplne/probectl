@@ -118,6 +118,10 @@ for a tag cut off a side branch or by an admin who bypassed branch protection
 (branch protection guards the *merge*; this gate independently guards the
 *release* — two locks on two different doors, so picking one still leaves the
 other shut; see [`ops/branch-protection.md`](ops/branch-protection.md)).
+After that check, `completeness-release-gate` runs at the tagged SHA and refuses
+to build images or binaries while the capability ledger contains any declared
+not-done gap. Ordinary CI can retain an honest incomplete ledger; publishing
+requires 100% coverage.
 Practically, that means: get the commit green on `main` first, *then* tag it.
 
 1. Preview the notes from the previous release and review the visible

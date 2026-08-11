@@ -100,13 +100,14 @@ Everything in this section is backed by code in the repo and a named evidence pa
 
 ### 2.8 The verification net (the diligence centerpiece)
 
-The repo's claims are enforced by **57 workflow jobs** across `.github/workflows/` (41 in the main CI workflow plus 16 nightly/release/security jobs); the notable standing gates:
+The repo's claims are enforced by **59 workflow jobs** across `.github/workflows/` (42 in the main CI workflow plus 17 nightly/release/security jobs); the notable standing gates:
 
 | Gate | Invariant it holds |
 |---|---|
 | *cross-tenant-isolation* | a tenant-scoped caller (incl. AI/MCP) can never read another tenant — Postgres RLS + ClickHouse suites |
 | *integration* (correlation gate) | a multi-plane fault surfaces as ONE tenant-scoped incident; store integration coverage ≥ 60% (U-057) |
 | *editions-gate* + import guard | core never imports `ee/`; core-only build stays green |
+| *completeness-gate* | validates every cataloged engine→binary→API→CLI→UI→docs→telemetry→real-stack→migration cell; honest gaps remain visible and excluded from coverage, while the strict release gate rejects every remaining gap |
 | *observe-only* (in test-go) | the eBPF programs attach no enforcement hook — detection is a signal, never an IPS |
 | *ebpf-kernel-matrix* | the real BPF objects load/run on the supported kernel range under QEMU |
 | *fuzz-smoke* | 8 fuzz targets over every externally-fed parser (path/BGP/flow/SNMP/OTLP/RUM — U-082) |
