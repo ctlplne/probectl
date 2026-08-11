@@ -103,6 +103,19 @@ func NewKafka(brokers []string, maxBuffered int, extra ...kgo.Opt) (*Kafka, erro
 // ErrPublishShed means the buffer is full and the record was dropped+counted.
 // Async outcomes land in Stats.
 func (k *Kafka) Publish(ctx context.Context, topic string, key, value []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// A context canceled before Publish starts means the caller withdrew the
+	// write, so reject it synchronously. Once this check passes and the record is
+	// accepted, the async Kafka client owns delivery: an HTTP/gRPC request
+	// context is canceled as soon as its handler returns, which must not revoke a
+	// record after Publish has already returned nil. The bounded producer buffer
+	// caps retained work, Flush remains the explicit durability barrier, and the
+	// client lifecycle/Close still terminates detached delivery.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Shed BEFORE buffering when the bound is reached: the check races
 	// concurrent publishers by a handful of records at most, and kgo's own
 	// MaxBufferedRecords stays the hard bound underneath (its ErrMaxBuffered
@@ -111,7 +124,7 @@ func (k *Kafka) Publish(ctx context.Context, topic string, key, value []byte) er
 		k.shed.Add(1)
 		return ErrPublishShed
 	}
-	k.producer.TryProduce(ctx, &kgo.Record{Topic: topic, Key: key, Value: value}, func(_ *kgo.Record, err error) {
+	k.producer.TryProduce(context.WithoutCancel(ctx), &kgo.Record{Topic: topic, Key: key, Value: value}, func(_ *kgo.Record, err error) {
 		switch {
 		case err == nil:
 			k.produced.Add(1)

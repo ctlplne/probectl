@@ -60,7 +60,15 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	if err != nil {
 		return fmt.Errorf("authenticate mcp token: %w", err)
 	}
-	pathStore, err := pathstore.NewRetained(cfg.PathStoreMode, cfg.PathStoreURL, cfg.PathRetentionDays)
+	pathAuth, err := datastoreBasicAuthFactory(cfg.PathStoreMode == "clickhouse", cfg.ClickHouseBasicAuthFile)
+	if err != nil {
+		return fmt.Errorf("mcp path store credentials: %w", err)
+	}
+	pathClient, err := datastoreBasicAuthClient(cfg.PathStoreMode == "clickhouse", cfg.PathStoreURL, pathAuth)
+	if err != nil {
+		return fmt.Errorf("mcp path store credentials: %w", err)
+	}
+	pathStore, err := pathstore.NewRetainedWithClient(cfg.PathStoreMode, cfg.PathStoreURL, cfg.PathRetentionDays, pathClient)
 	if err != nil {
 		return fmt.Errorf("path store: %w", err)
 	}

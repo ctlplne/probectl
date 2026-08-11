@@ -183,12 +183,13 @@ func chParams(p chmigrate.Params) url.Values {
 	return v
 }
 
-// NewClickHouse connects, applies the versioned schema, and (retentionDays>0)
-// sets the delete-TTL.
-func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
+// NewClickHouseWithClient uses a caller-supplied hardened transport when the
+// deployment authenticates ClickHouse without URL userinfo, then applies the
+// versioned schema and optional delete-TTL.
+func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Client) (*ClickHouse, error) {
 	c := &ClickHouse{
 		base: strings.TrimRight(rawURL, "/"),
-		conn: chclient.New(30 * time.Second),
+		conn: chclient.NewWithClient(client),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

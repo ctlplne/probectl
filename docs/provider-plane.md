@@ -76,6 +76,16 @@ every operator after that enrolls:
    nothing distinguishes a wrong password from a wrong code from an unknown email,
    so an attacker can't probe which part they got right.
 
+The same flow has named CLI paths: `probectl provider bootstrap`,
+`enroll-start`, `enroll-complete`, and `login`. These four requests contain
+credentials, so the CLI deliberately refuses inline `--body`. Supply the one
+JSON object through stdin (`--body-file -`) or a real, non-symlinked mode-`0600`
+file (`--body-file /owner-only/path.json`). The login response includes the
+provider bearer token used by later `probectl provider ...`, `tenant ...`, and
+`billing ...` commands; inject it with `PROBECTL_API_TOKEN`, not the global
+`--token` argument, so it does not enter the process list or shell history.
+`logout`, `provisioning`, and `abandon-provision` are named commands too.
+
 ## Tenant lifecycle
 
 These are the actions an operator takes on tenants. Every one of them is recorded

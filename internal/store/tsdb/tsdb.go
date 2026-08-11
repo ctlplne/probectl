@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -99,6 +100,13 @@ func New(mode, url string) (Writer, error) { return NewWithLimits(mode, url, 0, 
 
 // NewWithLimits is New with explicit in-memory bounds (non-positive = defaults).
 func NewWithLimits(mode, url string, retention time.Duration, maxBytes int64) (Writer, error) {
+	return NewWithLimitsAndClient(mode, url, retention, maxBytes, nil)
+}
+
+// NewWithLimitsAndClient is NewWithLimits with an optional caller-supplied
+// hardened HTTP client for the Prometheus backend. Production wiring uses this
+// seam to add origin-bound credentials without putting secrets in TSDBURL.
+func NewWithLimitsAndClient(mode, url string, retention time.Duration, maxBytes int64, client *http.Client) (Writer, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemoryWithLimits(retention, maxBytes), nil
@@ -106,7 +114,7 @@ func NewWithLimits(mode, url string, retention time.Duration, maxBytes int64) (W
 		if url == "" {
 			return nil, errors.New("tsdb: prometheus mode requires PROBECTL_TSDB_URL")
 		}
-		return NewPrometheus(url), nil
+		return NewPrometheusWithClient(url, client), nil
 	default:
 		return nil, fmt.Errorf("tsdb: unknown mode %q (want memory|prometheus)", mode)
 	}

@@ -101,7 +101,8 @@ func TestValidatorTracksActualGenericCLIDispatch(t *testing.T) {
 	}{
 		{name: "wrong catalog", old: `surfaceCommands[rest[0]]`, replacement: `otherCommands[rest[0]]`},
 		{name: "wrong index", old: `surfaceCommands[rest[0]]`, replacement: `surfaceCommands["bgp"]`},
-		{name: "delegate removed", old: `return cmdSurface(cfg, spec, rest[1:], stdout, stderr)`, replacement: `return 2`},
+		{name: "delegate removed", old: `return cmdSurfaceWithStdin(cfg, spec, rest[1:], stdin, stdout, stderr)`, replacement: `return 2`},
+		{name: "stdin discarded", old: `return cmdSurfaceWithStdin(cfg, spec, rest[1:], stdin, stdout, stderr)`, replacement: `return cmdSurface(cfg, spec, rest[1:], stdout, stderr)`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -414,7 +415,7 @@ func TestTopLevelCommandPreludeCannotTerminateBeforeExactTail(t *testing.T) {
 func TestGenericDispatcherBodyMustBeExactDelegate(t *testing.T) {
 	root := fixtureRepo(t)
 	path := filepath.Join(root, "internal", "cli", "cli.go")
-	writeFixtureMutation(t, path, `{ return cmdSurface(cfg, spec, rest[1:], stdout, stderr) }`, `{ return 2; return cmdSurface(cfg, spec, rest[1:], stdout, stderr) }`)
+	writeFixtureMutation(t, path, `{ return cmdSurfaceWithStdin(cfg, spec, rest[1:], stdin, stdout, stderr) }`, `{ return 2; return cmdSurfaceWithStdin(cfg, spec, rest[1:], stdin, stdout, stderr) }`)
 	validator, err := NewValidator(root)
 	if err != nil {
 		t.Fatal(err)
@@ -436,45 +437,82 @@ func TestGenericCommandCalleeMustExecuteRawOperation(t *testing.T) {
 	}{
 		{
 			name:        "delegate deleted",
-			old:         `return runRawOperation(cfg, op, args[1:], stdout, stderr)`,
+			old:         `return runRawOperationWithStdin(cfg, op, args[1:], stdin, stdout, stderr)`,
 			replacement: `return 2`,
-			want:        "directly return runRawOperation",
+			want:        "directly return runRawOperationWithStdin",
 		},
 		{
 			name:        "delegate unreachable",
-			old:         `return runRawOperation(cfg, op, args[1:], stdout, stderr)`,
-			replacement: `return 2; return runRawOperation(cfg, op, args[1:], stdout, stderr)`,
-			want:        "directly return runRawOperation",
+			old:         `return runRawOperationWithStdin(cfg, op, args[1:], stdin, stdout, stderr)`,
+			replacement: `return 2; return runRawOperationWithStdin(cfg, op, args[1:], stdin, stdout, stderr)`,
+			want:        "directly return runRawOperationWithStdin",
+		},
+		{
+			name:        "sensitive stdin discarded",
+			old:         `body, err = readSensitiveRequestBody(*bodyFile, stdin)`,
+			replacement: `body, err = readSensitiveRequestBody(*bodyFile, bytes.NewReader(nil))`,
+			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "request unreachable",
 			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
 			replacement: `return 2; if err := newClient(cfg).do(op.Method, path, body, &out);`,
-			want:        "must execute the tenant-scoped HTTP client request",
+			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "operation rewritten",
-			old:         `var out any;`,
-			replacement: `op = wrongOperation; var out any;`,
-			want:        "must execute the tenant-scoped HTTP client request",
+			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			replacement: `op = wrongOperation; if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "path rewritten through pointer alias",
-			old:         `var out any;`,
-			replacement: `pathAlias := &path; *pathAlias = "/v1/wrong-operation"; var out any;`,
-			want:        "must execute the tenant-scoped HTTP client request",
+			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			replacement: `pathAlias := &path; *pathAlias = "/v1/wrong-operation"; if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "path rewritten through call side effect",
-			old:         `var out any;`,
-			replacement: `fmt.Sscan("/v1/wrong-operation", &path); var out any;`,
-			want:        "must execute the tenant-scoped HTTP client request",
+			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			replacement: `fmt.Sscan("/v1/wrong-operation", &path); if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "request arguments rewritten",
 			old:         `newClient(cfg).do(op.Method, path, body, &out)`,
 			replacement: `newClient(cfg).do(wrong.Method, "/v1/wrong", body, &out)`,
-			want:        "must execute the tenant-scoped HTTP client request",
+			want:        "securely execute the tenant-scoped HTTP client request",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fixtureRepo(t)
+			path := filepath.Join(root, "internal", "cli", "generic.go")
+			writeFixtureMutation(t, path, tc.old, tc.replacement)
+			if _, err := NewValidator(root); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("NewValidator error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestGenericCompatibilityWrappersMustReachStdinAwareSpines(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		old         string
+		replacement string
+		want        string
+	}{
+		{
+			name:        "surface wrapper disconnected",
+			old:         `return cmdSurfaceWithStdin(cfg, spec, args, bytes.NewReader(nil), stdout, stderr)`,
+			replacement: `return 2`,
+			want:        "cmdSurface must delegate to the stdin-aware dispatcher",
+		},
+		{
+			name:        "raw wrapper disconnected",
+			old:         `return runRawOperationWithStdin(cfg, op, args, bytes.NewReader(nil), stdout, stderr)`,
+			replacement: `return 2`,
+			want:        "runRawOperation must delegate to the stdin-aware request executor",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

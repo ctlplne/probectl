@@ -8,7 +8,11 @@
 #   4. runs Go checks that deprecated operations carry lifecycle metadata and
 #      that the registered core /v1 and provider /provider/v1 route tables
 #      EXACTLY match their documented operations (neither undocumented handlers
-#      nor documented phantom routes).
+#      nor documented phantom routes), and
+#   5. proves every documented core and provider operation has a named CLI
+#      command or a governed none-by-design exception. Keeping this inside the
+#      OpenAPI gate prevents CLI parity from becoming an accidental side effect
+#      of the much broader unit suite.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -67,4 +71,7 @@ ${GO:-go} test -count=1 -run '^(TestDeprecatedOperationsDeclareLifecycle|TestOpe
 echo ">> openapi: provider routes <-> spec completeness"
 ${GO:-go} test -count=1 -run '^(TestProviderOpenAPIMatchesRoutes|TestProviderOpenAPIGateCatchesPlantedDrift)$' ./ee/provider/
 
-echo "openapi gate: OK (lifecycle metadata + core/provider no undocumented routes)"
+echo ">> openapi: core/provider CLI <-> spec completeness"
+${GO:-go} test -count=1 -run '^TestCLIOpenAPIParity$' ./internal/cli/
+
+echo "openapi gate: OK (lifecycle metadata + core/provider route and named-CLI parity)"

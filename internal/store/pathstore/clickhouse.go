@@ -341,7 +341,14 @@ func newClickHouse(rawURL string) (*ClickHouse, error) { return NewClickHouseRet
 // (Sprint 16, SCALE-006 — the flowstore pattern: runtime config, not schema).
 // retentionDays > 0 ALTERs a delete-TTL onto both path tables, idempotently.
 func NewClickHouseRetained(rawURL string, retentionDays int) (*ClickHouse, error) {
-	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.New(30 * time.Second)}
+	return NewClickHouseRetainedWithClient(rawURL, retentionDays, nil)
+}
+
+// NewClickHouseRetainedWithClient uses a caller-supplied hardened transport
+// when credentials or private trust are required. A nil client retains the
+// package's certificate-verifying default.
+func NewClickHouseRetainedWithClient(rawURL string, retentionDays int, client *http.Client) (*ClickHouse, error) {
+	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.NewWithClient(client)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if _, err := chmigrate.Apply(ctx, chExec{c: c}, "pathstore", chMigrations(), nil); err != nil {

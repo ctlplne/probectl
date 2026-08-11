@@ -184,6 +184,7 @@ cover: ## Run unit tests with a coverage profile.
 COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/otel/otlp/... ./internal/version/... \
 	./internal/config/... ./internal/a2a/... ./internal/canary/... ./internal/path/... \
 	./internal/bgp/... ./internal/bus/... ./internal/pipeline/... ./internal/crypto/... \
+	./internal/deliveryaudit/... \
 	./internal/cli/... ./internal/opendata/... ./internal/alert/... ./internal/incident/... \
 	./internal/auth/... ./internal/perf/... ./internal/ebpf ./internal/ebpf/l7/... ./internal/topology/... ./internal/ai/... ./internal/ai/mcp/... ./internal/ai/author/... ./internal/testspec/... ./internal/threat/... ./internal/change/... ./internal/scim/... ./internal/siem/... ./internal/notify/... ./internal/lifecycle/... ./internal/browser/... ./internal/objectstore/... ./internal/endpoint/... \
 	./internal/flow/... ./internal/store/flowstore/... ./internal/device/... \
@@ -212,6 +213,16 @@ completeness-gate: ## Capability wiring-spine gate: validate registry and render
 
 completeness-release-gate: ## Strict final-release variant: reject every acknowledged evidence gap.
 	$(GO) run ./cmd/probectl-completeness -require-complete
+
+.PHONY: delivery-audit-gate delivery-audit
+delivery-audit-gate: ## Offline delivery-not-tests policy: receipt semantics, signer trust, and planted fixture-only rejection.
+	bash scripts/run_completeness_audit.sh static
+	$(GO) test -count=1 ./internal/deliveryaudit ./cmd/probectl-delivery-audit
+	$(GO) test -count=1 -run '^TestDeliveryAuditToolIsRepositoryOnly$$' ./internal/cipolicy
+	$(GO) run ./cmd/probectl-delivery-audit selftest
+
+delivery-audit: ## Run the exact-SHA, real-stack CLI + rendered-browser delivery audit (requires Docker).
+	bash scripts/run_completeness_audit.sh
 
 .PHONY: migration-gate
 migration-gate: ## Migration gate (S34/SCHEMA-001/003): reject destructive, locking, or non-idempotent Postgres DDL AND destructive ClickHouse DDL.
@@ -585,4 +596,4 @@ clean: ## Remove build output.
 	rm -rf $(BIN_DIR) dist coverage.out
 
 .PHONY: ci
-ci: lint test test-isolation completeness-gate ## Run the core CI gates locally.
+ci: lint test test-isolation completeness-gate delivery-audit-gate ## Run the core CI gates locally.

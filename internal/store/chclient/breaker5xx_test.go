@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/breaker"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // TestDo_5xxTripsBreaker is the RESIL-005 acceptance test: an up-but-erroring
@@ -26,7 +27,7 @@ func TestDo_5xxTripsBreaker(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(time.Second)
+	c := NewWithClient(crypto.HardenedHTTPClient(time.Second))
 	// default breaker threshold is 5 consecutive failures.
 	const threshold = 5
 	for i := 0; i < threshold; i++ {
@@ -52,7 +53,7 @@ func TestDo_429TripsBreaker(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(time.Second)
+	c := NewWithClient(crypto.HardenedHTTPClient(time.Second))
 	for i := 0; i < 5; i++ {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
 		resp, err := c.Do("", req)
@@ -73,7 +74,7 @@ func TestDo_2xxDoesNotTrip(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(time.Second)
+	c := NewWithClient(crypto.HardenedHTTPClient(time.Second))
 	for i := 0; i < 20; i++ {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
 		resp, err := c.Do("", req)

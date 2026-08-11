@@ -43,6 +43,7 @@ import (
 	"github.com/ctlplne/probectl/internal/outage"
 	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/promapi"
 	"github.com/ctlplne/probectl/internal/rum"
 	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/siem"
@@ -69,6 +70,7 @@ type serveRuntime struct {
 
 	resultBus        bus.Bus
 	tsdbWriter       tsdb.Writer
+	promUpstream     *promapi.Upstream
 	tenantTSDBWriter tsdb.Writer
 	ingestWriter     tsdb.Writer
 	pathStore        pathstore.Store
@@ -193,7 +195,7 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 	)
 	return &serveRuntime{
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
-		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter,
+		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, promUpstream: st.promUpstream,
 		tenantTSDBWriter: tenantTSDBWriter, ingestWriter: ingestWriter,
 		pathStore: pathStore, pathCH: st.pathCH, otelStore: otelStore,
 		flowStore: flowStore, ebpfStore: ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
@@ -326,6 +328,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithFlowQualityReceipts(rt.flowQualityStore).
 		WithOTelStore(rt.otelStore).
 		WithTSDB(rt.tsdbWriter).
+		WithPromUpstream(rt.promUpstream).
 		WithTSDBIngest(rt.tenantTSDBWriter).
 		WithCMDB(rt.cmdbResolver).
 		WithTLSPosture(rt.tlsPostures).

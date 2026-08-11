@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/path"
@@ -55,6 +56,13 @@ func xNew(mode, url string) (Store, error) { return NewRetained(mode, url, 0) }
 // NewRetained is xNew plus the per-deployment retention TTL (SCALE-006;
 // clickhouse mode only — the memory store is already window-bounded).
 func NewRetained(mode, url string, retentionDays int) (Store, error) {
+	return NewRetainedWithClient(mode, url, retentionDays, nil)
+}
+
+// NewRetainedWithClient is NewRetained with an optional hardened ClickHouse
+// client. It keeps credentials out of URL userinfo while preserving the same
+// storage-layer tenant enforcement and schema migration path.
+func NewRetainedWithClient(mode, url string, retentionDays int, client *http.Client) (Store, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemory(), nil
@@ -62,7 +70,7 @@ func NewRetained(mode, url string, retentionDays int) (Store, error) {
 		if url == "" {
 			return nil, errors.New("pathstore: clickhouse mode requires PROBECTL_PATHSTORE_URL")
 		}
-		return NewClickHouseRetained(url, retentionDays)
+		return NewClickHouseRetainedWithClient(url, retentionDays, client)
 	default:
 		return nil, fmt.Errorf("pathstore: unknown mode %q (want memory|clickhouse)", mode)
 	}

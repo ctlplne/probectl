@@ -1,0 +1,14 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<clickhouse>
+  <!-- The entrypoint-created `probectl` user inherits this profile. Defining
+       the custom setting here makes getSetting() fail closed to an empty
+       tenant before any request supplies its per-query tenant value. -->
+  <profiles>
+    <default>
+      <!-- ClickHouse custom settings use the serialized Field syntax. Two
+           single quotes are the typed String representation of an empty
+           value; an empty XML node has no type and makes 24.8 fail startup. -->
+      <SQL_probectl_tenant>''</SQL_probectl_tenant>
+    </default>
+  </profiles>
+</clickhouse>

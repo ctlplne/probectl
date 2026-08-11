@@ -42,6 +42,7 @@ cmd/        probectl-control · probectl-agent · probectl-ebpf-agent · probect
             probectl-cloud-metrics · probectl-license · probectl-sdkgen ·
             probectl-scorecard ·
             probectl-workflow-policy · probectl-chaos-dependency-drill ·
+            probectl-delivery-audit (repository-only independent auditor) ·
             probectl-deadseams (zero-call-site gate) ·
             terraform-provider-probectl · probectl (CLI, web-parity)
 internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agent runtime) ·
@@ -58,9 +59,11 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             chaos (local test-only fault injector) · cipolicy (CI/workflow policy tests) ·
             cli (probectl CLI) · cloudmetrics (cloud metric importers) ·
             cluster (multi-region HA) · cmdb (CMDB correlation) ·
-            compliance (segmentation validation + evidence) · config (config load/validate) ·
+            compliance (segmentation validation + evidence) ·
+            completeness (capability/surface completeness contract) · config (config load/validate) ·
             configschema (config YAML schema helpers) · control (HTTP API server) ·
             cost (FinOps/egress cost engine) · crypto (the only crypto door) ·
+            deliveryaudit (independent signed delivery evidence) ·
             device (SNMP/device telemetry plane) · docslint (doc-accuracy tests) ·
             ebpf (eBPF host agent) · endpoint (endpoint/DEM agent) ·
             evidence (signed offline incident packages) ·

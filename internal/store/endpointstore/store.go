@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"time"
 )
 
@@ -59,8 +60,9 @@ func validate(events []Event) error {
 	return nil
 }
 
-// New constructs the lightweight memory store or production ClickHouse store.
-func New(mode, rawURL string, retentionDays int) (Store, error) {
+// NewWithClient constructs the lightweight memory store or production
+// ClickHouse store with an optional hardened ClickHouse HTTP client.
+func NewWithClient(mode, rawURL string, retentionDays int, client *http.Client) (Store, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemory(), nil
@@ -68,7 +70,7 @@ func New(mode, rawURL string, retentionDays int) (Store, error) {
 		if rawURL == "" {
 			return nil, errors.New("endpointstore: clickhouse mode requires PROBECTL_ENDPOINTSTORE_URL")
 		}
-		return NewClickHouse(rawURL, retentionDays)
+		return NewClickHouseWithClient(rawURL, retentionDays, client)
 	default:
 		return nil, fmt.Errorf("endpointstore: unknown mode %q (want memory|clickhouse)", mode)
 	}

@@ -63,7 +63,7 @@ func TestClickHouseQueryResponseBound(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		c, err := NewClickHouse(srv.URL, 0)
+		c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +85,7 @@ func TestClickHouseQueryResponseBound(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		c, err := NewClickHouse(srv.URL, 0)
+		c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -134,7 +134,7 @@ func TestOtelWriteRoutesPerTarget(t *testing.T) {
 	plane := httptest.NewServer(http.HandlerFunc(h))
 	defer plane.Close()
 
-	c, err := NewClickHouse(shared.URL, 0)
+	c, err := NewClickHouseWithClient(shared.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestOtelWritesChunkLargeBatchesAndUseAsyncInsert(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestOtelWriteMetricsExposeChunksBacklogAndLatency(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestOtelQueryRoutesToTenantStore(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestOtelEnsureAndDropTenantDatabase(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[]}`)) // otel reads decode {"data":...}
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestOtelEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

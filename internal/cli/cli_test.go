@@ -1486,6 +1486,35 @@ func TestCLIVersionUsesSharedBuildStamp(t *testing.T) {
 	}
 }
 
+func TestCLIVersionJSONUsesFullSharedBuildInfo(t *testing.T) {
+	originalVersion, originalCommit, originalDate := version.Version, version.Commit, version.Date
+	t.Cleanup(func() {
+		version.Version, version.Commit, version.Date = originalVersion, originalCommit, originalDate
+	})
+	version.Version = "9.8.7-json-stamp"
+	version.Commit = "0123456789abcdef0123456789abcdef01234567"
+	version.Date = "2026-08-11T05:30:00Z"
+
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"--json", "version"}, func(string) string { return "" }, &stdout, &stderr); code != 0 {
+		t.Fatalf("version --json: code=%d out=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(stdout.Bytes()) {
+		t.Fatalf("version --json emitted invalid JSON: %q", stdout.String())
+	}
+	var got version.Info
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := version.Get()
+	if got != want {
+		t.Fatalf("version --json = %+v, want full build info %+v", got, want)
+	}
+	if got.Commit != version.Commit {
+		t.Fatalf("version --json commit = %q, want full linker stamp %q", got.Commit, version.Commit)
+	}
+}
+
 func TestCLIHelpAndUnknown(t *testing.T) {
 	srv := fakeAPI(t)
 	if out, _, code := run(t, srv, "help"); code != 0 || !strings.Contains(out, "Usage") {

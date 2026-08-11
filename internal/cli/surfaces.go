@@ -13,6 +13,10 @@ type apiOp struct {
 	Path        string
 	ArgName     string
 	Description string
+	// SensitiveBody marks credential-bearing requests whose JSON must never be
+	// supplied through --body (and therefore exposed in argv / shell history).
+	// These operations accept only --body-file, with "-" meaning stdin.
+	SensitiveBody bool
 }
 
 type surfaceCommand struct {
@@ -256,6 +260,11 @@ var surfaceCommands = map[string]surfaceCommand{
 		"test":      {Method: http.MethodPost, Path: "/v1/oncall/test", Description: "send an on-call connector test notification"},
 	}},
 	"provider": {Name: "provider", Summary: "provider/MSP operator plane", Ops: map[string]apiOp{
+		"bootstrap":          {Method: http.MethodPost, Path: "/provider/v1/auth/bootstrap", Description: "create the first provider admin from the single-use deployment bootstrap token", SensitiveBody: true},
+		"enroll-start":       {Method: http.MethodPost, Path: "/provider/v1/auth/enroll/start", Description: "exchange an operator enrollment token for the one-time TOTP binding", SensitiveBody: true},
+		"enroll-complete":    {Method: http.MethodPost, Path: "/provider/v1/auth/enroll/complete", Description: "verify TOTP, set the password, and activate the provider operator", SensitiveBody: true},
+		"login":              {Method: http.MethodPost, Path: "/provider/v1/auth/login", Description: "authenticate a provider operator with password and TOTP", SensitiveBody: true},
+		"logout":             {Method: http.MethodPost, Path: "/provider/v1/auth/logout", Description: "end the current provider operator session"},
 		"me":                 {Method: http.MethodGet, Path: "/provider/v1/me"},
 		"license":            {Method: http.MethodGet, Path: "/provider/v1/license"},
 		"operators":          {Method: http.MethodGet, Path: "/provider/v1/operators"},
@@ -269,6 +278,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"offboard-tenant":    {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/offboard", ArgName: "id"},
 		"erase-tenant":       {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/erase", ArgName: "id"},
 		"fleet":              {Method: http.MethodGet, Path: "/provider/v1/fleet"},
+		"provisioning":       {Method: http.MethodGet, Path: "/provider/v1/tenants/provisioning", Description: "list stranded tenant provisioning attempts"},
+		"abandon-provision":  {Method: http.MethodPost, Path: "/provider/v1/tenants/provisioning/{id}/abandon", ArgName: "id", Description: "tear down and abandon one stranded tenant provisioning attempt"},
 		"breakglass":         {Method: http.MethodGet, Path: "/provider/v1/breakglass"},
 		"request-breakglass": {Method: http.MethodPost, Path: "/provider/v1/breakglass"},
 		"revoke-breakglass":  {Method: http.MethodPost, Path: "/provider/v1/breakglass/{id}/revoke", ArgName: "id"},

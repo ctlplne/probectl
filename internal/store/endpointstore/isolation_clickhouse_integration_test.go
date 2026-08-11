@@ -22,7 +22,7 @@ func TestEndpointDurableClickHouseIsolation(t *testing.T) {
 	if rawURL == "" {
 		testsupport.SkipOrFatal(t, "PROBECTL_TEST_CLICKHOUSE_URL not set — endpoint isolation integration needs ClickHouse")
 	}
-	store, err := NewClickHouse(rawURL, 30)
+	store, err := NewClickHouseWithClient(rawURL, 30, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestEndpointDurableClickHouseIsolation(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = NewClickHouse(rawURL, 30)
+	store, err = NewClickHouseWithClient(rawURL, 30, nil)
 	if err != nil {
 		t.Fatalf("second migration application: %v", err)
 	}

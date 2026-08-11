@@ -192,7 +192,11 @@ func (c *client) raw(method, path string, body any, limit int64) ([]byte, error)
 		}
 		r = bytes.NewReader(encoded)
 	}
-	req, err := http.NewRequest(method, c.cfg.BaseURL+path, r)
+	target, err := resolveAPIURL(c.cfg.BaseURL, path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(method, target.String(), r)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +212,10 @@ func (c *client) raw(method, path string, body any, limit int64) ([]byte, error)
 	if c.cfg.Tenant != "" {
 		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
 	}
-	resp, err := c.hc.Do(req)
+	_, sensitiveTarget := sensitiveProviderOperationURL(method, target)
+	_, sensitivePath := sensitiveProviderOperationPath(method, path)
+	sensitive := sensitiveTarget || sensitivePath
+	resp, err := c.requestHTTPClient(target, sensitive).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

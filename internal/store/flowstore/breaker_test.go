@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
@@ -18,7 +19,7 @@ import (
 // the rest. The pooled default ("") reuses the long-lived breaker; distinct
 // BaseURLs get distinct, stable breakers (same URL -> same instance).
 func TestBreakerPerTarget(t *testing.T) {
-	conn := chclient.New(30 * time.Second)
+	conn := chclient.NewWithClient(crypto.HardenedHTTPClient(30 * time.Second))
 
 	def := conn.BreakerFor("")
 	if conn.BreakerFor("") != def {

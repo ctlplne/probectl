@@ -622,6 +622,85 @@ func TestResultPipelineConfig(t *testing.T) {
 	}
 }
 
+func TestDatastoreBasicAuthFileConfig(t *testing.T) {
+	cfg, err := Load(envFunc(map[string]string{
+		"PROBECTL_TSDB_MODE":                  "prometheus",
+		"PROBECTL_TSDB_URL":                   "https://prometheus.example",
+		"PROBECTL_TSDB_BASIC_AUTH_FILE":       "/run/secrets/prometheus-basic-auth.json",
+		"PROBECTL_OTELSTORE_MODE":             "clickhouse",
+		"PROBECTL_OTELSTORE_URL":              "https://clickhouse.example:8443",
+		"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/clickhouse-basic-auth.json",
+		"PROBECTL_OTELSTORE_TENANT_SCOPING":   "true",
+		"PROBECTL_OTELSTORE_READER_USER":      "probectl_otel_reader",
+		"PROBECTL_INGEST_STRICT_TENANT_LANES": "true",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TSDBBasicAuthFile != "/run/secrets/prometheus-basic-auth.json" {
+		t.Fatalf("TSDBBasicAuthFile = %q", cfg.TSDBBasicAuthFile)
+	}
+	if cfg.ClickHouseBasicAuthFile != "/run/secrets/clickhouse-basic-auth.json" {
+		t.Fatalf("ClickHouseBasicAuthFile = %q", cfg.ClickHouseBasicAuthFile)
+	}
+
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "tsdb auth without prometheus",
+			env:  map[string]string{"PROBECTL_TSDB_BASIC_AUTH_FILE": "/run/secrets/prom.json"},
+			want: "requires PROBECTL_TSDB_MODE=prometheus",
+		},
+		{
+			name: "clickhouse auth without clickhouse store",
+			env:  map[string]string{"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/ch.json"},
+			want: "requires at least one ClickHouse-backed store mode",
+		},
+		{
+			name: "shared clickhouse auth with routed data planes",
+			env: map[string]string{
+				"PROBECTL_OTELSTORE_MODE":             "clickhouse",
+				"PROBECTL_OTELSTORE_URL":              "https://clickhouse.example:8443",
+				"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/ch.json",
+				"PROBECTL_DATAPLANES":                 "east=https://clickhouse-east.example:8443",
+			},
+			want: "cannot be combined with PROBECTL_DATAPLANES",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(envFunc(tc.env))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProductionProfilesRequirePrometheusTLSWithoutURLCredentials(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile+" plaintext", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_TSDB_URL"] = "http://prometheus.example:9090"
+			env["PROBECTL_TSDB_BASIC_AUTH_FILE"] = "/run/secrets/prom.json"
+			_, err := Load(envFunc(env))
+			if err == nil || !strings.Contains(err.Error(), "https:// Prometheus/VictoriaMetrics") {
+				t.Fatalf("error = %v, want Prometheus TLS refusal", err)
+			}
+		})
+		t.Run(profile+" URL userinfo", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_TSDB_URL"] = "https://user:password@prometheus.example:9090"
+			_, err := Load(envFunc(env))
+			if err == nil || !strings.Contains(err.Error(), "no URL credentials") {
+				t.Fatalf("error = %v, want URL credential refusal", err)
+			}
+		})
+	}
+}
+
 func TestFlowEnrichmentCacheMaxConfig(t *testing.T) {
 	cfg, err := Load(envFunc(nil))
 	if err != nil {

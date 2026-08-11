@@ -46,7 +46,7 @@ func TestTopEdgesBoundsResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

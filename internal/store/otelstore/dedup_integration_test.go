@@ -32,7 +32,7 @@ func TestOtelDedupRealRoundTrip(t *testing.T) {
 	if url == "" {
 		testsupport.SkipOrFatal(t, "PROBECTL_OTELSTORE_URL not set — OTLP dedup gate runs in CI")
 	}
-	c, err := NewClickHouse(url, 0)
+	c, err := NewClickHouseWithClient(url, 0, nil)
 	if err != nil {
 		t.Fatalf("clickhouse: %v", err)
 	}

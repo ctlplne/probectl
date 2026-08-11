@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 )
 
@@ -64,10 +65,10 @@ type Store interface {
 // depth: the predicate can never be omitted).
 var ErrNoTenant = errors.New("ebpfstore: tenant_id is required (refusing an unscoped query)")
 
-// New selects the backend (flowstore/otelstore convention): "" | "memory" for
-// the in-process store, "clickhouse" for production. retentionDays>0 adds the
-// ClickHouse delete-TTL.
-func New(mode, url string, retentionDays int) (Store, error) {
+// NewWithClient selects the backend: "" | "memory" for the in-process store,
+// or "clickhouse" for production, using the optional hardened ClickHouse HTTP
+// client. retentionDays > 0 adds the ClickHouse delete-TTL.
+func NewWithClient(mode, url string, retentionDays int, client *http.Client) (Store, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemory(), nil
@@ -75,7 +76,7 @@ func New(mode, url string, retentionDays int) (Store, error) {
 		if url == "" {
 			return nil, errors.New("ebpfstore: clickhouse mode requires PROBECTL_EBPFSTORE_URL")
 		}
-		return NewClickHouse(url, retentionDays)
+		return NewClickHouseWithClient(url, retentionDays, client)
 	default:
 		return nil, fmt.Errorf("ebpfstore: unknown mode %q (want memory|clickhouse)", mode)
 	}

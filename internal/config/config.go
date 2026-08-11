@@ -241,6 +241,10 @@ type Config struct {
 	EvidenceSigningKeyFile string
 	TSDBMode               string
 	TSDBURL                string
+	// TSDBBasicAuthFile is a mode-0600 JSON file containing username/password
+	// for the configured Prometheus origin. Credentials never appear in URL
+	// userinfo, environment values, command arguments, or logs.
+	TSDBBasicAuthFile string
 	// RemoteWriteBatch* (SCALE-001): coalesce concurrent remote-writes into one
 	// POST per <=Series (default 500) / <=Wait (default 50ms) window, preserving
 	// per-message DLQ attribution. Enabled gates it; off = one POST per result.
@@ -321,6 +325,11 @@ type Config struct {
 	// served. memory (default) or clickhouse (a ClickHouse HTTP URL).
 	PathStoreMode string
 	PathStoreURL  string
+	// ClickHouseBasicAuthFile is a shared mode-0600 JSON credential file used
+	// to build a separate origin-bound client for each configured ClickHouse
+	// store URL. Empty preserves deployments whose data plane authenticates by
+	// another mechanism.
+	ClickHouseBasicAuthFile string
 
 	// Flow store (S38): where device/cloud flow records land and the flow
 	// analytics are served from. memory (default) or clickhouse.
@@ -829,6 +838,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.EvidenceSigningKeyFile = l.str("PROBECTL_EVIDENCE_SIGNING_KEY_FILE", "")
 	cfg.TSDBMode = l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus")
 	cfg.TSDBURL = l.str("PROBECTL_TSDB_URL", "")
+	cfg.TSDBBasicAuthFile = l.str("PROBECTL_TSDB_BASIC_AUTH_FILE", "")
 	cfg.RemoteWriteBatchEnabled = l.boolean("PROBECTL_REMOTE_WRITE_BATCH_ENABLED", false)
 	cfg.RemoteWriteBatchSeries = l.intRange("PROBECTL_REMOTE_WRITE_BATCH_SERIES", 500, 1, 100000)
 	cfg.RemoteWriteBatchWait = l.dur("PROBECTL_REMOTE_WRITE_BATCH_WAIT", 50*time.Millisecond)
@@ -837,6 +847,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.PathStoreMode = l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.PathStoreURL = l.str("PROBECTL_PATHSTORE_URL", "")
+	cfg.ClickHouseBasicAuthFile = l.str("PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE", "")
 	cfg.FlowStoreMode = l.enum("PROBECTL_FLOWSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.FlowStoreURL = l.str("PROBECTL_FLOWSTORE_URL", "")
 	cfg.OTelStoreMode = l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse")
@@ -1059,6 +1070,9 @@ func validateConfig(l *loader, cfg *Config) {
 	if cfg.TSDBMode == "prometheus" && cfg.TSDBURL == "" {
 		l.errf("PROBECTL_TSDB_MODE=prometheus requires PROBECTL_TSDB_URL")
 	}
+	if cfg.TSDBBasicAuthFile != "" && cfg.TSDBMode != "prometheus" {
+		l.errf("PROBECTL_TSDB_BASIC_AUTH_FILE requires PROBECTL_TSDB_MODE=prometheus")
+	}
 	if cfg.PathStoreMode == "clickhouse" && cfg.PathStoreURL == "" {
 		l.errf("PROBECTL_PATHSTORE_MODE=clickhouse requires PROBECTL_PATHSTORE_URL")
 	}
@@ -1073,6 +1087,13 @@ func validateConfig(l *loader, cfg *Config) {
 	}
 	if cfg.EndpointStoreMode == "clickhouse" && cfg.EndpointStoreURL == "" {
 		l.errf("PROBECTL_ENDPOINTSTORE_MODE=clickhouse requires PROBECTL_ENDPOINTSTORE_URL")
+	}
+	if cfg.ClickHouseBasicAuthFile != "" && cfg.PathStoreMode != "clickhouse" && cfg.FlowStoreMode != "clickhouse" &&
+		cfg.OTelStoreMode != "clickhouse" && cfg.EBPFStoreMode != "clickhouse" && cfg.EndpointStoreMode != "clickhouse" {
+		l.errf("PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE requires at least one ClickHouse-backed store mode")
+	}
+	if cfg.ClickHouseBasicAuthFile != "" && strings.TrimSpace(cfg.DataPlanes) != "" {
+		l.errf("PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE cannot be combined with PROBECTL_DATAPLANES: one pooled credential is pinned to each configured store origin and must never be forwarded to a routed silo/residency origin; configure datastore authentication outside this shared credential seam")
 	}
 	if cfg.ObjectStoreMode == "s3" {
 		if cfg.ObjectStoreDir != "" {
@@ -1159,6 +1180,9 @@ func validateDatastoreTLS(l *loader, c *Config) {
 	}
 	validatePostgresURLTLS(l, c.DeploymentProfile, "PROBECTL_DATABASE_URL", c.DatabaseURL)
 	validatePostgresURLTLS(l, c.DeploymentProfile, "PROBECTL_DATABASE_READ_URL", c.DatabaseReadURL)
+	if c.TSDBMode == "prometheus" && strings.TrimSpace(c.TSDBURL) != "" {
+		validatePrometheusURLTLS(l, c.DeploymentProfile, "PROBECTL_TSDB_URL", c.TSDBURL)
+	}
 	for _, lane := range []struct {
 		modeEnv string
 		mode    string
@@ -1204,8 +1228,16 @@ func validatePostgresURLTLS(l *loader, profile, name, raw string) {
 func validateClickHouseURLTLS(l *loader, profile, name, raw string) {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
-	if err != nil || u.Hostname() == "" || u.Scheme != "https" {
-		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be an https:// ClickHouse endpoint; plaintext http:// ClickHouse is single-profile dev only", profile, name)
+	if err != nil || u.Hostname() == "" || u.Scheme != "https" || u.User != nil {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be an https:// ClickHouse endpoint with no URL credentials; plaintext http:// or URL userinfo is forbidden in this profile", profile, name)
+	}
+}
+
+func validatePrometheusURLTLS(l *loader, profile, name, raw string) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || u.Scheme != "https" || u.User != nil {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be an https:// Prometheus/VictoriaMetrics endpoint with no URL credentials; plaintext http:// or URL userinfo is forbidden in this profile", profile, name)
 	}
 }
 

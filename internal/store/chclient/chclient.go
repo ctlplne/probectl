@@ -85,28 +85,18 @@ func serverFault(status int) bool {
 }
 
 // Conn is a breaker-guarded ClickHouse HTTP connection. The zero value is not
-// usable; call New.
+// usable; call NewWithClient.
 type Conn struct {
 	def      *breaker.Breaker
 	client   *http.Client
 	breakers sync.Map // baseURL -> *breaker.Breaker (per-target, SCALE-021)
 }
 
-// New builds a Conn with the hardened HTTP client (TLS 1.2+/AEAD/always-verify
-// for https endpoints; plain http loopback unaffected — U-036) and a default
-// circuit breaker for the pooled endpoint.
-func New(timeout time.Duration) *Conn {
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-	return &Conn{def: breaker.New(0, 0), client: crypto.HardenedHTTPClient(timeout)}
-}
-
-// NewWithClient builds a Conn over a caller-supplied HTTP client. It exists for
-// the one store whose transport must be injectable — the TSDB remote-write
-// writer, whose tests drive a socket-free RoundTripper to inspect the exact
-// snappy/protobuf request. A nil client falls back to the hardened one, so an
-// injection seam can never silently downgrade production TLS.
+// NewWithClient builds a Conn over a caller-supplied HTTP client. Production
+// wiring uses it for certificate-verifying, origin-bound datastore credentials;
+// tests also use it to inspect requests without a socket. A nil client falls
+// back to the hardened one, so the injection seam can never silently downgrade
+// production TLS.
 func NewWithClient(client *http.Client) *Conn {
 	if client == nil {
 		client = crypto.HardenedHTTPClient(30 * time.Second)

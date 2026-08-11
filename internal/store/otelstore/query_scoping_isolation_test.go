@@ -37,7 +37,7 @@ func otelCH(t *testing.T) *ClickHouse {
 	if u == "" {
 		testsupport.SkipOrFatal(t, "PROBECTL_OTELSTORE_URL not set — otel isolation gate runs in CI")
 	}
-	c, err := NewClickHouse(u, 0)
+	c, err := NewClickHouseWithClient(u, 0, nil)
 	if err != nil {
 		t.Fatalf("clickhouse: %v", err)
 	}

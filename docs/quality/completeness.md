@@ -69,12 +69,15 @@ handler. A branch that shadows only `ai author`, for example, invalidates that
 operation even if another `ai` operation still reaches the shared fallback.
 The top-level config/flag-parser prelude, special `test`/`agent` entry spines,
 and custom `ai ask`, `lifecycle export`, and `test create` request handlers are
-bound to canonical executable AST bodies. The shared `cmdSurface` spine is
-structurally bound to its exact operation-map lookup, raw-operation delegate,
-and tenant-scoped HTTP client call. This rejects early returns, local callee or
-catalog shadows, protected config/argument rewrites (including aliases), wrong
-endpoints, and unmodelled request-side effects; a live catalog name cannot
-conceal a dead implementation body.
+bound to canonical executable AST bodies. The shared `cmdSurface` compatibility
+wrapper, stdin-aware `cmdSurfaceWithStdin` operation lookup, and
+`runRawOperationWithStdin` request executor are each bound to their exact
+delegation or execution spine. This proves sensitive provider bodies keep the
+real caller's stdin all the way to the bounded owner-only-file/stdin reader and
+then to the tenant-scoped HTTP client. It rejects early returns, discarded
+stdin, local callee or catalog shadows, protected config/argument rewrites
+(including aliases), wrong endpoints, and unmodelled request-side effects; a
+live catalog name cannot conceal a dead implementation body.
 
 Binary reachability checks are intentionally bounded static evidence, not a
 runtime execution claim. For a shipping `cmd/` package, the gate builds the
@@ -175,5 +178,18 @@ machine-readable declaration.
 
 The registry proves static reachability. A `VERIFIED` completeness-loop claim
 also requires the independent delivery audit: release artifact, real stores,
-actual CLI, rendered UI, bidirectional tenant-isolation probes, and an
-exact-SHA receipt. A green static ledger alone is never delivery proof.
+actual CLI, rendered UI, and an exact-SHA receipt. The proof is explicit per
+boundary: the API/browser path and row-policy stores require non-vacuous
+bidirectional tenant-isolation observations; pooled Kafka requires authenticated
+SASL_SSL product-path delivery plus tenant-tag integrity; raw Prometheus requires
+authenticated TLS plus tenant-label integrity and is never mislabeled as a
+tenant-reader isolation boundary. A green static ledger alone is never delivery
+proof.
+
+Run `make delivery-audit-gate` for the offline receipt-policy and planted
+fixture-only negative. Run `make delivery-audit` for the release-artifact,
+TLS-only real-stack, CLI, and rendered-browser evidence. Promotion additionally
+requires an independently supplied signer key/fingerprint and
+`VERIFIED_CURRENT`; an envelope that trusts only its own embedded key remains
+`SIGNATURE_VALID_UNTRUSTED`. The complete operator procedure and receipt-status
+contract are in [`docs/dev/delivery-audit.md`](../dev/delivery-audit.md).

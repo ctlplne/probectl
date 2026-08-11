@@ -40,7 +40,7 @@ func TestNewClickHouseReadsPopulatedMigrationLedgerAsJSONEachRow(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := NewClickHouse(srv.URL, 0); err != nil {
+	if _, err := NewClickHouseWithClient(srv.URL, 0, nil); err != nil {
 		t.Fatalf("restart with populated migration ledger: %v", err)
 	}
 	mu.Lock()
@@ -85,7 +85,7 @@ func TestEBPFInsertRoutesPerTarget(t *testing.T) {
 	plane := httptest.NewServer(http.HandlerFunc(h))
 	defer plane.Close()
 
-	c, err := NewClickHouse(shared.URL, 0)
+	c, err := NewClickHouseWithClient(shared.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestEBPFQueryRoutesToTenantStore(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestEBPFEnsureAndDropTenantDatabase(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	c, err := NewClickHouse(srv.URL, 0)
+	c, err := NewClickHouseWithClient(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

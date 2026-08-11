@@ -30,7 +30,7 @@ func TestEBPFSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	if rawURL == "" {
 		testsupport.SkipOrFatal(t, "PROBECTL_EBPFSTORE_URL not set — ClickHouse isolation gate runs in CI")
 	}
-	c, err := NewClickHouse(rawURL, 0)
+	c, err := NewClickHouseWithClient(rawURL, 0, nil)
 	if err != nil {
 		t.Fatalf("clickhouse: %v", err)
 	}

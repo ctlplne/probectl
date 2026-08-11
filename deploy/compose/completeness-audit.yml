@@ -1,0 +1,573 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# CL-002 disposable delivery audit. The runner MUST supply a unique -p project
+# name. Nothing is published to the host and the one project network is marked
+# internal, so this stack cannot collide with or expose a developer stack.
+
+services:
+  pki-init:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        umask 077
+        install -d -m 0755 /audit/pki
+        install -m 0644 /audit/source/ca.crt /audit/pki/ca.crt
+        for service in control dex postgres kafka clickhouse prometheus; do
+          install -d -m 0755 "/audit/pki/$${service}"
+          install -m 0644 "/audit/source/$${service}/tls.crt" "/audit/pki/$${service}/tls.crt"
+          install -m 0600 "/audit/source/$${service}/tls.key" "/audit/pki/$${service}/tls.key"
+        done
+        chown -R 65532:65532 /audit/pki/control /audit/pki/dex
+        chown -R 999:999 /audit/pki/postgres
+        printf 'postgres:5432:probectl:probectl:%s\n' "$$POSTGRES_PASSWORD" > /audit/pki/postgres/pgpass
+        chown 999:999 /audit/pki/postgres/pgpass
+        chmod 0600 /audit/pki/postgres/pgpass
+        chown -R 101:101 /audit/pki/clickhouse
+        {
+          printf '%s\n' '<clickhouse>'
+          printf '%s\n' '  <host>clickhouse</host>'
+          printf '%s\n' '  <port>9440</port>'
+          printf '%s\n' '  <secure>true</secure>'
+          printf '  <user>%s</user>\n' "$$CLICKHOUSE_USER"
+          printf '  <password>%s</password>\n' "$$CLICKHOUSE_PASSWORD"
+          printf '%s\n' '  <openSSL><client>'
+          printf '%s\n' '    <caConfig>/audit/pki/ca.crt</caConfig>'
+          printf '%s\n' '    <verificationMode>strict</verificationMode>'
+          printf '%s\n' '    <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>'
+          printf '%s\n' '  </client></openSSL>'
+          printf '%s\n' '</clickhouse>'
+        } > /audit/pki/clickhouse/scope-client.xml
+        chown 101:101 /audit/pki/clickhouse/scope-client.xml
+        chmod 0600 /audit/pki/clickhouse/scope-client.xml
+        chown -R 65534:65534 /audit/pki/prometheus
+        chown -R 0:0 /audit/pki/kafka
+        install -o 65534 -g 65534 -m 0600 /audit/source-runtime/prometheus-web.yml /audit/pki/prometheus/web.yml
+        {
+          printf '%s\n' 'basic_auth:'
+          printf '  username: %s\n' "$$PROMETHEUS_USER"
+          printf '  password: %s\n' "$$PROMETHEUS_PASSWORD"
+          printf '%s\n' 'tls_config:'
+          printf '%s\n' '  ca_file: /audit/pki/ca.crt'
+          printf '%s\n' '  server_name: prometheus'
+        } > /audit/pki/prometheus/health-client.yml
+        chown 65534:65534 /audit/pki/prometheus/health-client.yml
+        chmod 0600 /audit/pki/prometheus/health-client.yml
+        chown 65532:65532 /audit/control-data
+        chmod 0700 /audit/control-data
+        install -d -o 65532 -g 65532 -m 0700 /audit/control-data/objects /audit/control-data/audit
+        printf 'postgres:5432:probectl:probectl:%s\n' "$$POSTGRES_PASSWORD" > /audit/control-data/pgpass
+        chown 65532:65532 /audit/control-data/pgpass
+        chmod 0600 /audit/control-data/pgpass
+        install -d -o 65532 -g 65532 -m 0700 /audit/control-secrets
+        printf '{"username":"%s","password":"%s"}\n' "$$PROMETHEUS_USER" "$$PROMETHEUS_PASSWORD" > /audit/control-secrets/prom-basic-auth.json
+        printf '{"username":"%s","password":"%s"}\n' "$$CLICKHOUSE_USER" "$$CLICKHOUSE_PASSWORD" > /audit/control-secrets/ch-basic-auth.json
+        chown 65532:65532 /audit/control-secrets/prom-basic-auth.json /audit/control-secrets/ch-basic-auth.json
+        chmod 0600 /audit/control-secrets/prom-basic-auth.json /audit/control-secrets/ch-basic-auth.json
+        install -d -o 65532 -g 65532 -m 0700 /audit/dex-data
+        find /audit/pki -name tls.key -exec chmod 0600 {} +
+    volumes:
+      - ${AUDIT_CERT_DIR:?AUDIT_CERT_DIR is required}:/audit/source:ro
+      - ${AUDIT_RUNTIME_DIR:?AUDIT_RUNTIME_DIR is required}:/audit/source-runtime:ro
+      - audit_pki:/audit/pki
+      - control_data:/audit/control-data
+      - control_secrets:/audit/control-secrets
+      - dex_data:/audit/dex-data
+    networks: [audit]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PROMETHEUS_USER: ${PROMETHEUS_USER:?PROMETHEUS_USER is required}
+      PROMETHEUS_PASSWORD: ${PROMETHEUS_PASSWORD:?PROMETHEUS_PASSWORD is required}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is required}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}
+    restart: "no"
+
+  postgres:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+    environment:
+      POSTGRES_USER: probectl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: probectl
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      PGPASSFILE: /audit/pki/postgres/pgpass
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
+      - -c
+      - ssl_cert_file=/audit/pki/postgres/tls.crt
+      - -c
+      - ssl_key_file=/audit/pki/postgres/tls.key
+      - -c
+      - hba_file=/etc/postgresql/audit-pg_hba.conf
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - audit_pki:/audit/pki:ro
+      - ./completeness-audit/postgres/pg_hba.conf:/etc/postgresql/audit-pg_hba.conf:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "PGSSLMODE=verify-full PGSSLROOTCERT=/audit/pki/ca.crt psql -h postgres -U probectl -d probectl -Atqc 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()' | grep -qx t",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [audit]
+
+  kafka-secrets:
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    user: "0:0"
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        umask 077
+        install -d -m 0700 /audit/kafka
+        openssl pkcs12 -export \
+          -in /audit/pki/kafka/tls.crt \
+          -inkey /audit/pki/kafka/tls.key \
+          -certfile /audit/pki/ca.crt \
+          -name kafka \
+          -out /audit/kafka/kafka.keystore.p12 \
+          -passout env:KAFKA_STORE_PASSWORD
+        keytool -importcert -noprompt -storetype PKCS12 \
+          -alias audit-ca -file /audit/pki/ca.crt \
+          -keystore /audit/kafka/kafka.truststore.p12 \
+          -storepass "$$KAFKA_STORE_PASSWORD"
+        printf '%s' "$$KAFKA_STORE_PASSWORD" > /audit/kafka/keystore_creds
+        printf '%s' "$$KAFKA_STORE_PASSWORD" > /audit/kafka/key_creds
+        printf '%s' "$$KAFKA_STORE_PASSWORD" > /audit/kafka/truststore_creds
+        {
+          printf '%s\n' 'security.protocol=SASL_SSL'
+          printf '%s\n' 'ssl.truststore.location=/etc/kafka/secrets/kafka.truststore.p12'
+          printf '%s\n' 'ssl.truststore.type=PKCS12'
+          printf 'ssl.truststore.password=%s\n' "$$KAFKA_STORE_PASSWORD"
+          printf '%s\n' 'ssl.endpoint.identification.algorithm=https'
+          printf '%s\n' 'sasl.mechanism=PLAIN'
+          printf 'sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="audit" password="%s";\n' "$$KAFKA_SASL_PASSWORD"
+        } > /audit/kafka/client.properties
+        {
+          printf '%s\n' 'security.protocol=SSL'
+          printf '%s\n' 'ssl.truststore.location=/etc/kafka/secrets/kafka.truststore.p12'
+          printf '%s\n' 'ssl.truststore.type=PKCS12'
+          printf 'ssl.truststore.password=%s\n' "$$KAFKA_STORE_PASSWORD"
+          printf '%s\n' 'ssl.endpoint.identification.algorithm=https'
+        } > /audit/kafka/tls-unauthenticated.properties
+        printf '%s\n' 'security.protocol=PLAINTEXT' > /audit/kafka/plaintext.properties
+        chown -R 1000:1000 /audit/kafka
+        find /audit/kafka -type f -exec chmod 0600 {} +
+    environment:
+      KAFKA_STORE_PASSWORD: ${KAFKA_STORE_PASSWORD:?KAFKA_STORE_PASSWORD is required}
+      KAFKA_SASL_PASSWORD: ${KAFKA_SASL_PASSWORD:?KAFKA_SASL_PASSWORD is required}
+    volumes:
+      - audit_pki:/audit/pki:ro
+      - kafka_secrets:/audit/kafka
+    networks: [audit]
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    depends_on:
+      kafka-secrets: { condition: service_completed_successfully }
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9094
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9093,CONTROLLER://localhost:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:SASL_SSL,CONTROLLER:SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_LISTENER_NAME_INTERNAL_PLAIN_SASL_JAAS_CONFIG: org.apache.kafka.common.security.plain.PlainLoginModule required username="audit" password="${KAFKA_SASL_PASSWORD:?KAFKA_SASL_PASSWORD is required}" user_audit="${KAFKA_SASL_PASSWORD:?KAFKA_SASL_PASSWORD is required}";
+      KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/kafka.keystore.p12
+      KAFKA_SSL_KEYSTORE_TYPE: PKCS12
+      KAFKA_SSL_KEYSTORE_PASSWORD: ${KAFKA_STORE_PASSWORD:?KAFKA_STORE_PASSWORD is required}
+      KAFKA_SSL_KEY_PASSWORD: ${KAFKA_STORE_PASSWORD:?KAFKA_STORE_PASSWORD is required}
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/secrets/kafka.truststore.p12
+      KAFKA_SSL_TRUSTSTORE_TYPE: PKCS12
+      KAFKA_SSL_TRUSTSTORE_PASSWORD: ${KAFKA_STORE_PASSWORD:?KAFKA_STORE_PASSWORD is required}
+      KAFKA_SSL_CLIENT_AUTH: none
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+      - kafka_secrets:/etc/kafka/secrets:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9093 --command-config /etc/kafka/secrets/client.properties >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 25s
+    networks: [audit]
+
+  # The product deliberately does not ask Kafka to auto-create topics. Create
+  # this audit's complete OTLP lane contract over the same authenticated,
+  # certificate-verified SASL_SSL channel before control is allowed to start.
+  kafka-topics-init:
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    user: "1000:1000"
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        for topic in \
+          probectl.otlp.metrics \
+          probectl.otlp.traces \
+          probectl.otlp.logs \
+          probectl.deadletter.otlp.metrics \
+          probectl.deadletter.otlp.traces \
+          probectl.deadletter.otlp.logs
+        do
+          /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server kafka:9093 \
+            --command-config /etc/kafka/secrets/client.properties \
+            --create --if-not-exists \
+            --topic "$$topic" --partitions 3 --replication-factor 1
+        done
+    volumes:
+      - kafka_secrets:/etc/kafka/secrets:ro
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+    restart: "no"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is required}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}
+      # The stock `default` database already exists. Keep CLICKHOUSE_DB unset:
+      # the 24.8 entrypoint initializes a named database through plaintext 9000,
+      # which is deliberately absent from this TLS-only service.
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - audit_pki:/audit/pki:ro
+      - ./completeness-audit/clickhouse/tls.xml:/etc/clickhouse-server/config.d/audit-tls.xml:ro
+      - ./completeness-audit/clickhouse/client.xml:/etc/clickhouse-client/config.xml:ro
+      - ./completeness-audit/clickhouse/users.xml:/etc/clickhouse-server/users.d/audit-settings.xml:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --secure --host clickhouse --port 9440 --user $$CLICKHOUSE_USER --password $$CLICKHOUSE_PASSWORD --query 'SELECT 1' >/dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks: [audit]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.config.file=/audit/pki/prometheus/web.yml
+      - --web.enable-remote-write-receiver
+    environment:
+      PROMETHEUS_USER: ${PROMETHEUS_USER:?PROMETHEUS_USER is required}
+      PROMETHEUS_PASSWORD: ${PROMETHEUS_PASSWORD:?PROMETHEUS_PASSWORD is required}
+    volumes:
+      - prometheus_data:/prometheus
+      - audit_pki:/audit/pki:ro
+      - ./completeness-audit/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/bin/promtool",
+          "check",
+          "healthy",
+          "--url=https://prometheus:9090",
+          "--http.config.file=/audit/pki/prometheus/health-client.yml",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [audit]
+
+  # The product's setting-scoped ClickHouse reader policy calls getSetting().
+  # Give the release reader an explicit empty server-side default first, so a
+  # dropped/omitted tenant setting returns no rows instead of erroring open or
+  # making startup depend on an implicit server default.
+  clickhouse-scope-init:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
+    user: "101:101"
+    depends_on:
+      clickhouse: { condition: service_healthy }
+    entrypoint: ["clickhouse-client"]
+    command:
+      - --config-file=/audit/pki/clickhouse/scope-client.xml
+      - --query
+      # The `probectl` user is users.xml-backed and therefore read-only to SQL
+      # ALTER USER. This readiness query proves the inherited profile defines
+      # the fail-closed custom setting before control installs its row policy.
+      - SELECT throwIf(getSetting('SQL_probectl_tenant') != '', 'tenant setting default must fail closed') FORMAT Null
+    volumes:
+      - audit_pki:/audit/pki:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+    restart: "no"
+
+  dex:
+    image: ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462
+    user: "65532:65532"
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+    command: ["dex", "serve", "/etc/dex/audit.yaml"]
+    environment:
+      DEX_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required}
+      DEX_AUDIT_PASSWORD_HASH: ${DEX_AUDIT_PASSWORD_HASH:?DEX_AUDIT_PASSWORD_HASH is required}
+    volumes:
+      - ./completeness-audit/dex.yaml:/etc/dex/audit.yaml:ro
+      - audit_pki:/audit/pki:ro
+      - dex_data:/var/lib/dex
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+
+  # The upstream Dex image is intentionally minimal and has no shell/curl for
+  # an in-container healthcheck. This one-shot gate performs the equivalent
+  # protocol check over verified TLS; control cannot start until it succeeds.
+  dex-ready:
+    image: ${AUDIT_BROWSER_IMAGE:?AUDIT_BROWSER_IMAGE is required}
+    depends_on:
+      dex: { condition: service_started }
+    entrypoint: ["curl"]
+    command:
+      - --cacert
+      - /audit/pki/ca.crt
+      - --fail
+      - --silent
+      - --show-error
+      - --retry
+      - "30"
+      - --retry-all-errors
+      - --retry-delay
+      - "1"
+      - https://dex:5556/dex/.well-known/openid-configuration
+    volumes:
+      - audit_pki:/audit/pki:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+    restart: "no"
+
+  control:
+    image: ${AUDIT_CONTROL_IMAGE:?AUDIT_CONTROL_IMAGE is required}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      kafka-topics-init: { condition: service_completed_successfully }
+      clickhouse: { condition: service_healthy }
+      clickhouse-scope-init: { condition: service_completed_successfully }
+      prometheus: { condition: service_healthy }
+      pki-init: { condition: service_completed_successfully }
+      dex-ready: { condition: service_completed_successfully }
+    environment:
+      PROBECTL_HTTP_ADDR: :8443
+      PROBECTL_TLS_CERT_FILE: /audit/pki/control/tls.crt
+      PROBECTL_TLS_KEY_FILE: /audit/pki/control/tls.key
+      PROBECTL_HSTS_ENABLED: "true"
+      PROBECTL_PUBLIC_TLS: "true"
+      PROBECTL_DATABASE_URL: postgres://probectl@postgres:5432/probectl?sslmode=verify-full&sslrootcert=/audit/pki/ca.crt
+      PGPASSFILE: /var/lib/probectl/pgpass
+      PROBECTL_MIGRATE_ON_BOOT: "true"
+      PROBECTL_AUTH_MODE: session
+      PROBECTL_SESSION_HMAC_KEY: ${PROBECTL_SESSION_HMAC_KEY:?PROBECTL_SESSION_HMAC_KEY is required}
+      PROBECTL_OIDC_ISSUER: https://dex:5556/dex
+      PROBECTL_OIDC_CLIENT_ID: probectl-completeness-audit
+      PROBECTL_OIDC_CLIENT_SECRET: env:DEX_CLIENT_SECRET
+      PROBECTL_OIDC_REDIRECT_URL: https://control:8443/auth/callback
+      DEX_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required}
+      SSL_CERT_FILE: /audit/pki/ca.crt
+      PROBECTL_BUS_MODE: kafka
+      PROBECTL_BUS_BROKERS: kafka:9093
+      PROBECTL_BUS_TLS_ENABLED: "true"
+      PROBECTL_BUS_TLS_CA_FILE: /audit/pki/ca.crt
+      PROBECTL_BUS_SASL_MECHANISM: plain
+      PROBECTL_BUS_SASL_USER: audit
+      PROBECTL_BUS_SASL_PASSWORD: ${KAFKA_SASL_PASSWORD:?KAFKA_SASL_PASSWORD is required}
+      PROBECTL_TSDB_MODE: prometheus
+      PROBECTL_TSDB_URL: https://prometheus:9090
+      PROBECTL_TSDB_BASIC_AUTH_FILE: /run/secrets/prom-basic-auth.json
+      PROBECTL_PATHSTORE_MODE: memory
+      PROBECTL_FLOWSTORE_MODE: memory
+      PROBECTL_OTELSTORE_MODE: clickhouse
+      PROBECTL_OTELSTORE_URL: https://clickhouse:8443
+      PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE: /run/secrets/ch-basic-auth.json
+      PROBECTL_OTELSTORE_TENANT_SCOPING: "true"
+      PROBECTL_OTELSTORE_READER_USER: probectl
+      PROBECTL_EBPFSTORE_MODE: memory
+      PROBECTL_ENDPOINTSTORE_MODE: memory
+      PROBECTL_OTLP_HTTP_ADDR: :4318
+      PROBECTL_OTLP_TLS_CERT_FILE: /audit/pki/control/tls.crt
+      PROBECTL_OTLP_TLS_KEY_FILE: /audit/pki/control/tls.key
+      PROBECTL_ENVELOPE_KEY_FILE: /var/lib/probectl/envelope.key
+      PROBECTL_OBJECTSTORE_DIR: /var/lib/probectl/objects
+      PROBECTL_EVIDENCE_SIGNING_KEY_FILE: /var/lib/probectl/evidence-signing.pem
+      PROBECTL_REQUIRE_AT_REST_ENCRYPTION: "true"
+      PROBECTL_LOG_FORMAT: json
+      PROBECTL_LOG_LEVEL: info
+    volumes:
+      - audit_pki:/audit/pki:ro
+      - control_data:/var/lib/probectl
+      - control_secrets:/run/secrets:ro
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+
+  cli:
+    profiles: [tools]
+    image: ${AUDIT_CLI_IMAGE:?AUDIT_CLI_IMAGE is required}
+    environment:
+      PROBECTL_API_URL: https://control:8443
+      PROBECTL_API_TOKEN: ${PROBECTL_API_TOKEN:-}
+      PROBECTL_TENANT: ${PROBECTL_TENANT:-}
+      SSL_CERT_FILE: /audit/pki/ca.crt
+    volumes:
+      - audit_pki:/audit/pki:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+
+  # Protocol-aware served-leaf capture uses OpenSSL from the already pinned
+  # Kafka image. It receives no service credential and writes only to its
+  # disposable tmpfs while verifying each peer against the audit CA.
+  tls-probe:
+    profiles: [tools]
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    user: "1000:1000"
+    entrypoint: ["openssl"]
+    volumes:
+      - ${AUDIT_CERT_DIR:?AUDIT_CERT_DIR is required}/ca.crt:/audit/ca.crt:ro
+    read_only: true
+    tmpfs: ["/tmp:size=4m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+
+  browser:
+    profiles: [tools]
+    image: ${AUDIT_BROWSER_IMAGE:?AUDIT_BROWSER_IMAGE is required}
+    user: "0:${AUDIT_HOST_GID:?AUDIT_HOST_GID is required}"
+    environment:
+      AUDIT_BASE_URL: https://control:8443
+      AUDIT_ARTIFACT_DIR: /audit/artifacts
+      AUDIT_CAPABILITY_MANIFEST: /audit/artifacts/capability-manifest.json
+      AUDIT_BROWSER_SCRIPT: ${AUDIT_BROWSER_SCRIPT:?AUDIT_BROWSER_SCRIPT is required}
+      AUDIT_DEX_EMAIL: audit@probectl.local
+      AUDIT_DEX_PASSWORD: ${DEX_AUDIT_PASSWORD:?DEX_AUDIT_PASSWORD is required}
+    entrypoint: ["node", "/audit/scripts/completeness_audit_browser.mjs"]
+    volumes:
+      - ../../scripts:/audit/scripts:ro
+      - ${AUDIT_DRIVER_DIR:?AUDIT_DRIVER_DIR is required}:/audit/drivers:ro
+      - ${AUDIT_ARTIFACT_DIR:?AUDIT_ARTIFACT_DIR is required}:/audit/artifacts
+      - audit_pki:/audit/pki:ro
+    shm_size: 1gb
+    networks: [audit]
+
+  store-probe:
+    profiles: [tools]
+    image: ${AUDIT_CLI_IMAGE:?AUDIT_CLI_IMAGE is required}
+    # Match the invoking host identity: the state/bin/private roots stay 0700,
+    # while the evidence directory is group-writable only for the same GID.
+    user: "${AUDIT_HOST_UID:?AUDIT_HOST_UID is required}:${AUDIT_HOST_GID:?AUDIT_HOST_GID is required}"
+    entrypoint: ["/audit/bin/completeness-store-probe"]
+    environment:
+      SSL_CERT_FILE: /audit/pki/ca.crt
+      AUDIT_CA_FILE: /audit/pki/ca.crt
+      AUDIT_ARTIFACT_DIR: /audit/artifacts
+      AUDIT_TENANT_A: ${AUDIT_TENANT_A:?AUDIT_TENANT_A is required}
+      AUDIT_TENANT_B: ${AUDIT_TENANT_B:?AUDIT_TENANT_B is required}
+      AUDIT_KAFKA_BROKER: kafka:9093
+      AUDIT_KAFKA_USER: audit
+      KAFKA_SASL_PASSWORD: ${KAFKA_SASL_PASSWORD:?KAFKA_SASL_PASSWORD is required}
+      AUDIT_PROMETHEUS_URL: https://prometheus:9090
+      AUDIT_PROMETHEUS_CREDENTIAL_FILE: /run/probe-secrets/prom-basic-auth.json
+      AUDIT_CLICKHOUSE_URL: https://clickhouse:8443
+      AUDIT_CLICKHOUSE_CREDENTIAL_FILE: /run/probe-secrets/ch-basic-auth.json
+    volumes:
+      - ${AUDIT_BIN_DIR:?AUDIT_BIN_DIR is required}:/audit/bin:ro
+      - ${AUDIT_ARTIFACT_DIR:?AUDIT_ARTIFACT_DIR is required}:/audit/artifacts
+      - audit_pki:/audit/pki:ro
+      - ${AUDIT_PRIVATE_DIR:?AUDIT_PRIVATE_DIR is required}/prom-probe-basic-auth.json:/run/probe-secrets/prom-basic-auth.json:ro
+      - ${AUDIT_PRIVATE_DIR:?AUDIT_PRIVATE_DIR is required}/ch-probe-basic-auth.json:/run/probe-secrets/ch-basic-auth.json:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+
+  # Pairs a release-CLI foreign-object failure with the actual authenticated
+  # HTTPS response status. Secrets arrive only as transient container env and
+  # are expanded inside the container, never in host argv or URL userinfo.
+  http-probe:
+    profiles: [tools]
+    image: ${AUDIT_BROWSER_IMAGE:?AUDIT_BROWSER_IMAGE is required}
+    user: "${AUDIT_HOST_UID:?AUDIT_HOST_UID is required}:${AUDIT_HOST_GID:?AUDIT_HOST_GID is required}"
+    environment:
+      PROBECTL_API_TOKEN: ${PROBECTL_API_TOKEN:-}
+      PROBECTL_TENANT: ${PROBECTL_TENANT:-}
+    volumes:
+      - ${AUDIT_PRIVATE_DIR:?AUDIT_PRIVATE_DIR is required}:/audit/private
+      - audit_pki:/audit/pki:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [audit]
+
+volumes:
+  audit_pki: {}
+  pg_data: {}
+  kafka_data: {}
+  kafka_secrets: {}
+  clickhouse_data: {}
+  prometheus_data: {}
+  dex_data: {}
+  control_data: {}
+  control_secrets: {}
+
+networks:
+  audit:
+    internal: true

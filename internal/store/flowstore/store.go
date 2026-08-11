@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -252,10 +253,11 @@ func validateInsertRows(rows []Row) error {
 	return nil
 }
 
-// New builds a Store. "memory" (or empty) is in-process; "clickhouse" persists
-// to the ClickHouse HTTP endpoint at url. retentionDays > 0 adds a delete-TTL
-// to the ClickHouse table (high-volume retention, S38).
-func New(mode, url string, retentionDays int) (Store, error) {
+// NewWithClient builds a Store with an optional hardened ClickHouse HTTP
+// client. "memory" (or empty) is in-process; "clickhouse" persists to the
+// ClickHouse HTTP endpoint at url. retentionDays > 0 adds a delete-TTL to the
+// ClickHouse table (high-volume retention, S38).
+func NewWithClient(mode, url string, retentionDays int, client *http.Client) (Store, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemory(), nil
@@ -263,7 +265,7 @@ func New(mode, url string, retentionDays int) (Store, error) {
 		if url == "" {
 			return nil, errors.New("flowstore: clickhouse mode requires PROBECTL_FLOWSTORE_URL")
 		}
-		return NewClickHouse(url, retentionDays)
+		return NewClickHouseWithClient(url, retentionDays, client)
 	default:
 		return nil, fmt.Errorf("flowstore: unknown mode %q (want memory|clickhouse)", mode)
 	}

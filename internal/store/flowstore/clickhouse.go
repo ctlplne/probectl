@@ -386,7 +386,13 @@ func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]ma
 }
 
 func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
-	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.New(30 * time.Second)}
+	return NewClickHouseWithClient(rawURL, retentionDays, nil)
+}
+
+// NewClickHouseWithClient uses a caller-supplied hardened transport when the
+// deployment authenticates ClickHouse without URL userinfo.
+func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Client) (*ClickHouse, error) {
+	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.NewWithClient(client)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	// Versioned, ledger-recorded schema (U-046). The retention TTL below

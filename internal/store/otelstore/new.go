@@ -9,11 +9,13 @@ package otelstore
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
-// New selects the Store backend (the flowstore convention): "" or "memory"
-// for the in-process store (lightweight mode), "clickhouse" for production.
-func New(mode, url string, retentionDays int) (Store, error) {
+// NewWithClient selects the Store backend with an optional hardened ClickHouse
+// HTTP client: "" or "memory" for the in-process store (lightweight mode), or
+// "clickhouse" for production.
+func NewWithClient(mode, url string, retentionDays int, client *http.Client) (Store, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemory(), nil
@@ -21,7 +23,7 @@ func New(mode, url string, retentionDays int) (Store, error) {
 		if url == "" {
 			return nil, errors.New("otelstore: clickhouse mode requires PROBECTL_OTELSTORE_URL")
 		}
-		return NewClickHouse(url, retentionDays)
+		return NewClickHouseWithClient(url, retentionDays, client)
 	default:
 		return nil, fmt.Errorf("otelstore: unknown mode %q (want memory|clickhouse)", mode)
 	}

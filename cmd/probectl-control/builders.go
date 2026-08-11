@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -40,6 +41,7 @@ import (
 	"github.com/ctlplne/probectl/internal/objectstore"
 	"github.com/ctlplne/probectl/internal/otel/otlp"
 	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/promapi"
 	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
@@ -64,6 +66,7 @@ import (
 type serveStores struct {
 	resultBus     bus.Bus
 	tsdbWriter    tsdb.Writer
+	promUpstream  *promapi.Upstream
 	ingestWriter  tsdb.Writer
 	pathStore     pathstore.Store
 	pathCH        *pathstore.ClickHouse
@@ -167,6 +170,14 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		closeAll()
 		return nil, nil, err
 	}
+	tsdbAuth, err := datastoreBasicAuthFactory(cfg.TSDBMode == "prometheus", cfg.TSDBBasicAuthFile)
+	if err != nil {
+		return fail(fmt.Errorf("tsdb credentials: %w", err))
+	}
+	clickHouseAuth, err := datastoreBasicAuthFactory(clickHouseStoreEnabled(cfg), cfg.ClickHouseBasicAuthFile)
+	if err != nil {
+		return fail(fmt.Errorf("clickhouse credentials: %w", err))
+	}
 
 	// Result pipeline: a message bus that the control plane consumes and writes
 	// to the TSDB. The bus is shared with the agent transport (the publisher).
@@ -185,11 +196,18 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	s.resultBus = resultBus
 	closers = append(closers, func() { _ = resultBus.Close() })
 
-	tsdbWriter, err := tsdb.NewWithLimits(cfg.TSDBMode, cfg.TSDBURL, cfg.TSDBMemoryRetention, int64(cfg.TSDBMemoryMaxBytes)) // U-018 bounds
+	tsdbClient, err := datastoreBasicAuthClient(cfg.TSDBMode == "prometheus", cfg.TSDBURL, tsdbAuth)
+	if err != nil {
+		return fail(fmt.Errorf("tsdb credentials: %w", err))
+	}
+	tsdbWriter, err := tsdb.NewWithLimitsAndClient(cfg.TSDBMode, cfg.TSDBURL, cfg.TSDBMemoryRetention, int64(cfg.TSDBMemoryMaxBytes), tsdbClient) // U-018 bounds
 	if err != nil {
 		return fail(fmt.Errorf("tsdb: %w", err))
 	}
 	s.tsdbWriter = tsdbWriter
+	if cfg.TSDBMode == "prometheus" {
+		s.promUpstream = promapi.NewUpstreamWithClient(cfg.TSDBURL, tsdbClient)
+	}
 	closers = append(closers, func() { _ = tsdbWriter.Close() })
 
 	// SCALE-001: the INGEST write path coalesces concurrent remote-writes into
@@ -204,7 +222,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	}
 	s.ingestWriter = ingestWriter
 
-	pathStore, err := pathstore.NewRetained(cfg.PathStoreMode, cfg.PathStoreURL, cfg.PathRetentionDays)
+	pathClient, err := datastoreBasicAuthClient(cfg.PathStoreMode == "clickhouse", cfg.PathStoreURL, clickHouseAuth)
+	if err != nil {
+		return fail(fmt.Errorf("path store credentials: %w", err))
+	}
+	pathStore, err := pathstore.NewRetainedWithClient(cfg.PathStoreMode, cfg.PathStoreURL, cfg.PathRetentionDays, pathClient)
 	if err != nil {
 		return fail(fmt.Errorf("path store: %w", err))
 	}
@@ -236,7 +258,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 
 	// OTLP traces + logs store (ARCH-001): memory in lightweight mode,
 	// ClickHouse in production (tenant_id-led partition + retention TTL).
-	otelStore, err := otelstore.New(cfg.OTelStoreMode, cfg.OTelStoreURL, cfg.OTelRetentionDays)
+	otelClient, err := datastoreBasicAuthClient(cfg.OTelStoreMode == "clickhouse", cfg.OTelStoreURL, clickHouseAuth)
+	if err != nil {
+		return fail(fmt.Errorf("otelstore credentials: %w", err))
+	}
+	otelStore, err := otelstore.NewWithClient(cfg.OTelStoreMode, cfg.OTelStoreURL, cfg.OTelRetentionDays, otelClient)
 	if err != nil {
 		return fail(fmt.Errorf("otelstore: %w", err))
 	}
@@ -259,7 +285,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		return fail(err)
 	}
 
-	flowStore, err := flowstore.New(cfg.FlowStoreMode, cfg.FlowStoreURL, cfg.FlowRetentionDays)
+	flowClient, err := datastoreBasicAuthClient(cfg.FlowStoreMode == "clickhouse", cfg.FlowStoreURL, clickHouseAuth)
+	if err != nil {
+		return fail(fmt.Errorf("flow store credentials: %w", err))
+	}
+	flowStore, err := flowstore.NewWithClient(cfg.FlowStoreMode, cfg.FlowStoreURL, cfg.FlowRetentionDays, flowClient)
 	if err != nil {
 		return fail(fmt.Errorf("flow store: %w", err))
 	}
@@ -288,7 +318,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 
 	// ARCH-008: durable eBPF flow/L7 aggregate store — the differentiator plane
 	// gets history + restart survival instead of an in-RAM-only service map.
-	ebpfStore, err := ebpfstore.New(cfg.EBPFStoreMode, cfg.EBPFStoreURL, cfg.EBPFRetentionDays)
+	ebpfClient, err := datastoreBasicAuthClient(cfg.EBPFStoreMode == "clickhouse", cfg.EBPFStoreURL, clickHouseAuth)
+	if err != nil {
+		return fail(fmt.Errorf("ebpf store credentials: %w", err))
+	}
+	ebpfStore, err := ebpfstore.NewWithClient(cfg.EBPFStoreMode, cfg.EBPFStoreURL, cfg.EBPFRetentionDays, ebpfClient)
 	if err != nil {
 		return fail(fmt.Errorf("ebpf store: %w", err))
 	}
@@ -311,7 +345,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	// W3: endpoint metrics already use the TSDB; event-shaped DEM attributes
 	// need their own durable ClickHouse history so /v1/endpoints survives a
 	// control-plane restart.
-	endpointStore, err := endpointstore.New(cfg.EndpointStoreMode, cfg.EndpointStoreURL, cfg.EndpointRetentionDays)
+	endpointClient, err := datastoreBasicAuthClient(cfg.EndpointStoreMode == "clickhouse", cfg.EndpointStoreURL, clickHouseAuth)
+	if err != nil {
+		return fail(fmt.Errorf("endpointstore credentials: %w", err))
+	}
+	endpointStore, err := endpointstore.NewWithClient(cfg.EndpointStoreMode, cfg.EndpointStoreURL, cfg.EndpointRetentionDays, endpointClient)
 	if err != nil {
 		return fail(fmt.Errorf("endpointstore: %w", err))
 	}
@@ -351,6 +389,34 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	}
 
 	return s, closeAll, nil
+}
+
+// datastoreBasicAuthFactory loads one owner-only credential file exactly once
+// per process startup. Multiple ClickHouse planes derive clients from this
+// immutable snapshot, so an atomic rotation cannot mix generations.
+func datastoreBasicAuthFactory(enabled bool, credentialFile string) (*crypto.BasicAuthClientFactory, error) {
+	if !enabled || strings.TrimSpace(credentialFile) == "" {
+		return nil, nil
+	}
+	return crypto.LoadBasicAuthClientFactory(credentialFile)
+}
+
+// datastoreBasicAuthClient derives a path/origin-bound client from the shared
+// immutable credential snapshot. A nil factory preserves each store's hardened
+// unauthenticated default.
+func datastoreBasicAuthClient(enabled bool, endpoint string, factory *crypto.BasicAuthClientFactory) (*http.Client, error) {
+	if !enabled || factory == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(endpoint) == "" {
+		return nil, fmt.Errorf("credential file configured without a datastore endpoint")
+	}
+	return factory.HTTPClient(30*time.Second, endpoint)
+}
+
+func clickHouseStoreEnabled(cfg *config.Config) bool {
+	return cfg.PathStoreMode == "clickhouse" || cfg.FlowStoreMode == "clickhouse" ||
+		cfg.OTelStoreMode == "clickhouse" || cfg.EBPFStoreMode == "clickhouse" || cfg.EndpointStoreMode == "clickhouse"
 }
 
 // installCHReaderPolicy applies DB-level tenant reader scoping to a

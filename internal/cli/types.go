@@ -53,4 +53,6 @@ type list[T any] struct {
 	Items []T `json:"items"`
 }
 
-func buildVersion() string { return version.Get().Version }
+func buildInfo() version.Info { return version.Get() }
+
+func buildVersion() string { return buildInfo().Version }

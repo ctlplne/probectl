@@ -164,6 +164,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_EVIDENCE_SIGNING_KEY` | (none) | base64-encoded PKCS#8 PEM Ed25519 private key for shared secret-manager injection. Use the same value on every HA replica. The package embeds the public half and fingerprint for offline integrity verification; publish/pin that fingerprint out of band to establish operator identity. This secret is omitted from support bundles and logs |
 | `PROBECTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
 | `PROBECTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
+| `PROBECTL_TSDB_BASIC_AUTH_FILE`     | (none)                                                           | optional owner-only (`0600`), regular non-symlink JSON credential file for the configured Prometheus URL namespace: `{"username":"...","password":"..."}`. The strict parser rejects unknown/duplicate/empty fields; the client never places the secret in URL userinfo, env values, arguments, or logs, refuses to forward it across an origin or configured path-prefix change, and requires HTTPS except for loopback development |
 | `PROBECTL_REMOTE_WRITE_BATCH_ENABLED` | **`true` in `prometheus` mode** (else `false`)                | SCALE-001: coalesce concurrent results into one remote-write POST instead of one POST per result. Defaults ON for `prometheus` so the production ingest path is batched by default; set explicitly to override |
 | `PROBECTL_REMOTE_WRITE_BATCH_SERIES`  | `500`                                                          | flush when this many series have accumulated |
 | `PROBECTL_REMOTE_WRITE_BATCH_WAIT`    | `50ms`                                                         | max time a batch waits before flushing |
@@ -787,6 +788,7 @@ Where the discovered hops/links are stored is a control-plane choice:
 | -------- | ------- | ----------- |
 | `PROBECTL_PATHSTORE_MODE` | `memory` | `memory` (in-process, for the lightweight/single-binary case and tests) \| `clickhouse` (durable hop/link rows) |
 | `PROBECTL_PATHSTORE_URL` | (none) | ClickHouse HTTP(S) endpoint (e.g. `http://localhost:8123` for single-profile dev, `https://clickhouse.example:8443` for production), partitioned by tenant; **required** when mode is `clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
+| `PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE` | (none) | optional owner-only (`0600`), regular non-symlink JSON credential file shared by pooled ClickHouse-backed planes: `{"username":"...","password":"..."}`. A separate certificate-verifying client pins that credential to each configured store URL's exact origin and path prefix; redirects/routing outside that namespace fail closed, and remote endpoints must use HTTPS. It cannot be combined with `PROBECTL_DATAPLANES`: heterogeneous silo/residency origins require per-origin credentials outside this shared seam |
 | `PROBECTL_PATH_RETENTION_DAYS` | `90` | delete-after-N-days TTL on the path/traceroute ClickHouse tables (applied at boot); `0` disables the TTL |
 
 Each stored discovery is an immutable history round. The Path UI reads a
@@ -1268,9 +1270,14 @@ terminal error output for support/debugging.
 
 The terminal-native product surface is the CLI. There is no separate committed
 TUI mode today; if one is added later it must be declared in the surface catalog
-and backed by its own parity tests. For automation, use `--json`; for newly added
-tenant `/v1` JSON APIs, the CLI parity test requires either a resource command
-or a documented none-by-design exception.
+and backed by its own parity tests. For automation, use `--json`. The OpenAPI
+gate checks both tenant `/v1` and provider `/provider/v1` JSON APIs; every
+operation requires either a named CLI command or a documented none-by-design
+exception. Provider bootstrap, enrollment, and login payloads are
+credential-bearing and therefore require `--body-file <0600-file|->`; inline
+`--body` is rejected before any request. Use `PROBECTL_API_TOKEN` rather than
+`--token` for the resulting provider bearer token so it stays out of process
+arguments.
 
 Journey-critical parity is currently served by the CLI:
 
@@ -1495,6 +1502,7 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_EBPFSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_EBPFSTORE_MODE=clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
 | `PROBECTL_ENDPOINTSTORE_MODE`     | `memory` | where event-shaped endpoint/DEM observations live: `memory` (lightweight) \| `clickhouse` (production durable history and restart recovery). Numeric endpoint metrics always use the configured TSDB |
 | `PROBECTL_ENDPOINTSTORE_URL`      | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_ENDPOINTSTORE_MODE=clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
+| `PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE` | (none) | optional strict `0600` JSON Basic-auth file used by every enabled ClickHouse store; see the path-store table above. It contains secret material and belongs in a mounted secret, never a ConfigMap |
 | `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path/endpoint), strict tenant bus lanes, durable stores, and TLS datastore URLs — defense-in-depth above app code (guardrails 7.1/7.12). In `multi-tenant`/`regulated`, ClickHouse-backed lanes may not downgrade this: startup requires each `*_TENANT_SCOPING=true` and its matching `*_READER_USER` |
 | `PROBECTL_FLOWSTORE_TENANT_SCOPING` | profile | defense-in-depth: also constrain flow reads at the **database** by attaching a per-request tenant setting that a ClickHouse row policy enforces (needs server-side `custom_settings_prefixes=SQL_` + a reader user). Defaults ON under `multi-tenant`/`regulated`, off under `single` |
 | `PROBECTL_FLOWSTORE_READER_USER` | (none) | the ClickHouse reader user the setting-scoped row policy is installed on at boot (pairs with the toggle above) |

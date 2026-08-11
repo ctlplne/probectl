@@ -90,9 +90,11 @@ type ClickHouse struct {
 	tenantScoped bool
 }
 
-// NewClickHouse applies the idempotent v1 schema and optional retention TTL.
-func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
-	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.New(30 * time.Second)}
+// NewClickHouseWithClient uses a caller-supplied hardened transport when the
+// deployment authenticates ClickHouse without URL userinfo, then applies the
+// idempotent v1 schema and optional retention TTL.
+func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Client) (*ClickHouse, error) {
+	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.NewWithClient(client)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if _, err := chmigrate.Apply(ctx, endpointCHExec{store: c}, "endpointstore", chMigrations(), nil); err != nil {

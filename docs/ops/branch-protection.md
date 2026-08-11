@@ -81,8 +81,8 @@ notification job rather than a merge gate:
 
 If your organization's policy instead requires listing every job by name (some
 auditors prefer the explicit list), the **complete** set of top-level `ci.yml`
-jobs is below — 41 specialist jobs plus the `verify-all` umbrella, for
-42 top-level jobs in the workflow. Keep the list in sync with the workflow —
+jobs is below — 42 specialist jobs plus the `verify-all` umbrella, for
+43 top-level jobs in the workflow. Keep the list in sync with the workflow —
 **a job you forget to list is advisory again**, so prefer the `verify-all` plus
 `commitlint`/`dco` approach unless you have a reason not to.
 
@@ -104,8 +104,9 @@ jobs is below — 41 specialist jobs plus the `verify-all` umbrella, for
 | `coverage-comment`       | PR-only best-effort coverage comment; no checkout or repository-code execution                                                                    |
 | `test-python`            | BGP analyzer tests                                                                                                                                 |
 | `browser-worker`         | Playwright worker real-browser smoke                                                                                                               |
-| `openapi-gate`           | no undocumented `/v1` routes                                                                                                                       |
+| `openapi-gate`           | no undocumented core/provider routes and no undocumented CLI-parity gap                                                                            |
 | `completeness-gate`      | every release-catalog capability has validated end-to-end wiring evidence, an explicit none-by-design disposition, or a visible partial-evidence gap that remains outside the coverage count |
+| `delivery-audit-gate`    | signed exact-source receipt policy, out-of-band auditor trust, repository-only tool boundary, and planted fixture-only rejection                   |
 | `sdk-gate`               | generated REST SDKs are in sync with OpenAPI                                                                                                       |
 | `migration-gate`         | expand/contract (zero-downtime) migrations                                                                                                         |
 | `helm-gate`              | Helm chart lints + hardening invariants; GitOps manifests + compose config valid                                                                   |

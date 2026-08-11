@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: MPL-2.0
+issuer: https://dex:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/lib/dex/dex.db
+
+web:
+  https: 0.0.0.0:5556
+  tlsCert: /audit/pki/dex/tls.crt
+  tlsKey: /audit/pki/dex/tls.key
+
+logger:
+  level: info
+  format: json
+
+oauth2:
+  responseTypes: ["code"]
+  skipApprovalScreen: true
+  alwaysShowLoginScreen: true
+
+expiry:
+  idTokens: 30m
+
+signer:
+  type: local
+  config:
+    keysRotationPeriod: 2h
+  authRequests: 5m
+
+enablePasswordDB: true
+
+staticClients:
+  - id: probectl-completeness-audit
+    name: probectl completeness audit
+    secretEnv: DEX_CLIENT_SECRET
+    redirectURIs:
+      - https://control:8443/auth/callback
+
+staticPasswords:
+  - email: audit@probectl.local
+    hash: '{{ .Env.DEX_AUDIT_PASSWORD_HASH }}'
+    username: completeness auditor
+    userID: 8f2a2932-37bf-4a4f-bc32-cd588fc8ffb7

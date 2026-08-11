@@ -96,6 +96,10 @@ awk -v mod="${MODULE}" '
     # Offline Ed25519 verify, the feature→tier table, and the grace→read-only
     # ladder are pure local math — fully unit-tested (S-T0).
     floor["internal/license"]        = 90
+    # Receipt signing/trust, bounded artifact verification, semantic lint, and
+    # disposable-certificate generation are service-free policy code. The
+    # remaining branches are OS/filesystem failures and git-command errors.
+    floor["internal/deliveryaudit"]  = 65
     # The provider plane (S-T1, ee/): service/handler/sessions/memstore run the
     # full named suites (lifecycle e2e, no-implicit-access, fleet, degrade,
     # SoD, auth hardening); the pgx store needs Postgres and is exercised by

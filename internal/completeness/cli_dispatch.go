@@ -44,17 +44,25 @@ func (v *Validator) validateGenericCLISpine() error {
 		functions[fn.Name.Name] = fn
 	}
 	cmdSurface := functions["cmdSurface"]
-	if cmdSurface == nil || !cmdSurfaceHasExactSpine(cmdSurface.Body) {
-		return fmt.Errorf("generic CLI dispatcher: cmdSurface must select spec.Ops[args[0]] and directly return runRawOperation")
+	if cmdSurface == nil || !cliBodyMatches(cmdSurface.Body, cmdSurfaceWrapperSpine) {
+		return fmt.Errorf("generic CLI dispatcher: cmdSurface must delegate to the stdin-aware dispatcher with an empty input stream")
+	}
+	cmdSurfaceWithStdin := functions["cmdSurfaceWithStdin"]
+	if cmdSurfaceWithStdin == nil || !cmdSurfaceWithStdinHasExactSpine(cmdSurfaceWithStdin.Body) {
+		return fmt.Errorf("generic CLI dispatcher: cmdSurfaceWithStdin must select spec.Ops[args[0]] and directly return runRawOperationWithStdin")
 	}
 	runRaw := functions["runRawOperation"]
-	if runRaw == nil || !runRawOperationExecutesRequest(runRaw.Body) {
-		return fmt.Errorf("generic CLI dispatcher: runRawOperation must execute the tenant-scoped HTTP client request")
+	if runRaw == nil || !cliBodyMatches(runRaw.Body, runRawOperationWrapperSpine) {
+		return fmt.Errorf("generic CLI dispatcher: runRawOperation must delegate to the stdin-aware request executor with an empty input stream")
+	}
+	runRawWithStdin := functions["runRawOperationWithStdin"]
+	if runRawWithStdin == nil || !runRawOperationWithStdinExecutesRequest(runRawWithStdin.Body) {
+		return fmt.Errorf("generic CLI dispatcher: runRawOperationWithStdin must securely execute the tenant-scoped HTTP client request")
 	}
 	return nil
 }
 
-func cmdSurfaceHasExactSpine(body *ast.BlockStmt) bool {
+func cmdSurfaceWithStdinHasExactSpine(body *ast.BlockStmt) bool {
 	if len(body.List) != 4 && len(body.List) != 5 {
 		return false
 	}
@@ -90,9 +98,9 @@ func cmdSurfaceHasExactSpine(body *ast.BlockStmt) bool {
 		return false
 	}
 	call, ok := returned.Results[0].(*ast.CallExpr)
-	return ok && isIdentifier(call.Fun, "runRawOperation") && len(call.Args) == 5 &&
+	return ok && isIdentifier(call.Fun, "runRawOperationWithStdin") && len(call.Args) == 6 &&
 		isIdentifier(call.Args[0], "cfg") && isIdentifier(call.Args[1], "op") && isArgsTail(call.Args[2]) &&
-		isIdentifier(call.Args[3], "stdout") && isIdentifier(call.Args[4], "stderr")
+		isIdentifier(call.Args[3], "stdin") && isIdentifier(call.Args[4], "stdout") && isIdentifier(call.Args[5], "stderr")
 }
 
 func isCLIUsageGuard(statement ast.Stmt) bool {
@@ -169,9 +177,13 @@ func isCLIArgComparison(expression ast.Expr, operator token.Token, literal strin
 	return ok && value == literal
 }
 
-func runRawOperationExecutesRequest(body *ast.BlockStmt) bool {
+func cliBodyMatches(body *ast.BlockStmt, spine string) bool {
 	canonical, ok := canonicalGoBody(body)
-	return ok && canonical == runRawOperationSpine
+	return ok && canonical == spine
+}
+
+func runRawOperationWithStdinExecutesRequest(body *ast.BlockStmt) bool {
+	return cliBodyMatches(body, runRawOperationWithStdinSpine)
 }
 
 func canonicalGoBody(body *ast.BlockStmt) (string, bool) {
@@ -182,7 +194,15 @@ func canonicalGoBody(body *ast.BlockStmt) (string, bool) {
 	return canonical.String(), true
 }
 
-const runRawOperationSpine = `{
+const cmdSurfaceWrapperSpine = `{
+	return cmdSurfaceWithStdin(cfg, spec, args, bytes.NewReader(nil), stdout, stderr)
+}`
+
+const runRawOperationWrapperSpine = `{
+	return runRawOperationWithStdin(cfg, op, args, bytes.NewReader(nil), stdout, stderr)
+}`
+
+const runRawOperationWithStdinSpine = `{
 	path := op.Path
 	if op.ArgName != "" {
 		if len(args) == 0 {
@@ -195,6 +215,7 @@ const runRawOperationSpine = `{
 	fs := flag.NewFlagSet(op.Method+" "+op.Path, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	bodyRaw := fs.String("body", "", "JSON request body")
+	bodyFile := fs.String("body-file", "", "JSON request body path; - reads stdin (sensitive bodies require a 0600 file or stdin)")
 	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -204,10 +225,49 @@ const runRawOperationSpine = `{
 		fmt.Fprintf(stderr, "unexpected args: %s\n", strings.Join(fs.Args(), " "))
 		return 2
 	}
+	var bodySet, bodyFileSet bool
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "body":
+			bodySet = true
+		case "body-file":
+			bodyFileSet = true
+		}
+	})
+	if bodySet && bodyFileSet {
+		fmt.Fprintln(stderr, "--body and --body-file cannot be combined")
+		return 2
+	}
+	if op.SensitiveBody {
+		if bodySet {
+			fmt.Fprintln(stderr, "credential-bearing request refuses --body; use --body-file <0600-file|->")
+			return 2
+		}
+		if !bodyFileSet || strings.TrimSpace(*bodyFile) == "" {
+			fmt.Fprintln(stderr, "credential-bearing request requires --body-file <0600-file|->")
+			return 2
+		}
+	}
 	path = withQueryValues(path, query)
-	body, err := parseBody(*bodyRaw)
+	if _, err := resolveAPIURL(cfg.BaseURL, path); err != nil {
+		fmt.Fprintln(stderr, "API request target is unsafe: "+err.Error())
+		return 2
+	}
+	var (
+		body any
+		err  error
+	)
+	if bodyFileSet {
+		body, err = readSensitiveRequestBody(*bodyFile, stdin)
+	} else {
+		body, err = parseBody(*bodyRaw)
+	}
 	if err != nil {
-		fmt.Fprintln(stderr, "invalid --body: "+err.Error())
+		label := "--body"
+		if bodyFileSet {
+			label = "--body-file"
+		}
+		fmt.Fprintln(stderr, "invalid "+label+": "+err.Error())
 		return 2
 	}
 	var out any
@@ -1035,11 +1095,12 @@ func hasGenericSurfaceDispatch(statements []ast.Stmt) bool {
 			continue
 		}
 		call, ok := returned.Results[0].(*ast.CallExpr)
-		if !ok || !isIdentifier(call.Fun, "cmdSurface") || len(call.Args) != 5 {
+		if !ok || !isIdentifier(call.Fun, "cmdSurfaceWithStdin") || len(call.Args) != 6 {
 			continue
 		}
 		if isIdentifier(call.Args[0], "cfg") && isIdentifier(call.Args[1], spec.Name) &&
-			isRestTail(call.Args[2]) && isIdentifier(call.Args[3], "stdout") && isIdentifier(call.Args[4], "stderr") {
+			isRestTail(call.Args[2]) && isIdentifier(call.Args[3], "stdin") &&
+			isIdentifier(call.Args[4], "stdout") && isIdentifier(call.Args[5], "stderr") {
 			return true
 		}
 	}

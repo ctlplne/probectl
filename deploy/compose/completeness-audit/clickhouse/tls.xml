@@ -1,0 +1,22 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<clickhouse>
+  <!-- Remove every stock plaintext listener before enabling the secure pair. -->
+  <http_port remove="remove"/>
+  <tcp_port remove="remove"/>
+  <interserver_http_port remove="remove"/>
+  <https_port>8443</https_port>
+  <tcp_port_secure>9440</tcp_port_secure>
+  <listen_host>0.0.0.0</listen_host>
+  <custom_settings_prefixes>SQL_</custom_settings_prefixes>
+  <openSSL>
+    <server>
+      <certificateFile>/audit/pki/clickhouse/tls.crt</certificateFile>
+      <privateKeyFile>/audit/pki/clickhouse/tls.key</privateKeyFile>
+      <caConfig>/audit/pki/ca.crt</caConfig>
+      <verificationMode>none</verificationMode>
+      <cacheSessions>true</cacheSessions>
+      <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+      <preferServerCiphers>true</preferServerCiphers>
+    </server>
+  </openSSL>
+</clickhouse>

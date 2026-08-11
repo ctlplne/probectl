@@ -115,3 +115,105 @@ func TestAsyncPublishLatencyIsolatedFromSlowBroker(t *testing.T) {
 	}
 	t.Fatalf("async completions never landed: %+v", b.Stats())
 }
+
+// Once Publish returns nil, the async producer owns the record. In particular,
+// an HTTP request context is canceled as soon as its handler returns; that
+// cancellation must not retract a record that the bus already accepted.
+func TestAsyncPublishSurvivesCallerCancellationAfterAcceptance(t *testing.T) {
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, OTLPMetricsTopic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cluster.Close()
+
+	// Keep the record buffered long enough that cancel happens before franz-go
+	// can send it. This makes the regression deterministic: passing the caller's
+	// context directly to TryProduce drops the record during this linger window.
+	b, err := NewKafka(cluster.ListenAddrs(), 0, kgo.ProducerLinger(250*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	key := []byte("tenant-a|ba")
+	value := []byte("accepted-otlp-payload")
+	if err := b.Publish(ctx, OTLPMetricsTopic, key, value); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	cancel()
+
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer flushCancel()
+	if err := b.Flush(flushCtx); err != nil {
+		t.Fatalf("flush accepted record: %v", err)
+	}
+	if got := b.Stats(); got.Produced != 1 || got.Failed != 0 || got.Buffered != 0 {
+		t.Fatalf("accepted record outcome = %+v, want one broker ack and no failure", got)
+	}
+
+	consumer, err := kgo.NewClient(
+		kgo.SeedBrokers(cluster.ListenAddrs()...),
+		kgo.ConsumeTopics(OTLPMetricsTopic),
+		kgo.ConsumeStartOffset(kgo.NewOffset().AtStart()),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer consumer.Close()
+	fetches := consumer.PollFetches(flushCtx)
+	if errs := fetches.Errors(); len(errs) > 0 {
+		t.Fatalf("consume accepted record: %v", errs)
+	}
+	if got := fetches.NumRecords(); got != 1 {
+		t.Fatalf("consumed records = %d, want 1", got)
+	}
+	fetches.EachRecord(func(record *kgo.Record) {
+		if record.Topic != OTLPMetricsTopic || string(record.Key) != string(key) || string(record.Value) != string(value) {
+			t.Errorf("record = topic %q key %q value %q", record.Topic, record.Key, record.Value)
+		}
+	})
+}
+
+// Cancellation before Publish is called is not an accepted async write. It
+// must fail synchronously and leave no buffered, acknowledged, or failed Kafka
+// record behind.
+func TestAsyncPublishRejectsPreCanceledContext(t *testing.T) {
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, OTLPMetricsTopic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cluster.Close()
+
+	b, err := NewKafka(cluster.ListenAddrs(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := b.Publish(ctx, OTLPMetricsTopic, []byte("tenant-a|ba"), []byte("must-not-exist")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("publish error = %v, want context.Canceled", err)
+	}
+	if got := b.Stats(); got.Produced != 0 || got.Failed != 0 || got.Shed != 0 || got.Buffered != 0 {
+		t.Fatalf("pre-canceled publish changed producer state: %+v", got)
+	}
+
+	consumer, err := kgo.NewClient(
+		kgo.SeedBrokers(cluster.ListenAddrs()...),
+		kgo.ConsumeTopics(OTLPMetricsTopic),
+		kgo.ConsumeStartOffset(kgo.NewOffset().AtStart()),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer consumer.Close()
+	pollCtx, pollCancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer pollCancel()
+	if got := consumer.PollFetches(pollCtx).NumRecords(); got != 0 {
+		t.Fatalf("pre-canceled publish emitted %d Kafka record(s), want 0", got)
+	}
+}

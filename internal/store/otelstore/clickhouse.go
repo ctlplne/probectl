@@ -328,13 +328,14 @@ func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]ma
 	return e.c.query(ctx, e.base, "", sql, chParams(p))
 }
 
-// NewClickHouse connects, applies the versioned schema, and (when
-// retentionDays > 0) applies the delete-TTLs — idempotently.
-func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
+// NewClickHouseWithClient uses a caller-supplied hardened transport when the
+// deployment authenticates ClickHouse without URL userinfo, then applies the
+// versioned schema and optional delete-TTLs idempotently.
+func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Client) (*ClickHouse, error) {
 	// Hardened egress (U-036): TLS 1.2+/AEAD/verify-on for an https ClickHouse
 	// URL; unused for an in-cluster http URL. (flowstore/pathstore predate the
 	// ratchet and are allowlisted; this store post-dates it, so it migrates.)
-	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.New(30 * time.Second)}
+	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.NewWithClient(client)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if _, err := chmigrate.Apply(ctx, chExec{c: c}, "otelstore", chMigrations(), nil); err != nil {

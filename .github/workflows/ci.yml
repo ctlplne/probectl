@@ -470,6 +470,26 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  delivery-audit-gate:
+    name: delivery-audit-gate
+    # CL-002: a signed receipt is promotable only with independent out-of-band
+    # signer trust, exact clean source identity, real delivery evidence, and no
+    # fixture/mock/testdata markers. The planted negative proves the policy
+    # rejects fixture-only completion. The expensive real-stack audit is the
+    # explicit `make delivery-audit` operator workflow.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Delivery receipt policy and planted fixture-only rejection
+        run: make delivery-audit-gate
+
   sdk-gate:
     name: sdk-gate
     # PRODUCT-007 / SCHEMA: generated public SDKs must stay byte-for-byte in
@@ -1329,6 +1349,7 @@ jobs:
       - browser-worker
       - openapi-gate
       - completeness-gate
+      - delivery-audit-gate
       - sdk-gate
       - migration-gate
       - helm-gate

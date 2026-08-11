@@ -738,13 +738,13 @@ func TestDDLShape(t *testing.T) {
 
 // TestStoreModeSelection covers the factory.
 func TestStoreModeSelection(t *testing.T) {
-	if s, err := New("", "", 0); err != nil || s == nil {
+	if s, err := NewWithClient("", "", 0, nil); err != nil || s == nil {
 		t.Fatalf("default mode: %v", err)
 	}
-	if _, err := New("clickhouse", "", 0); err == nil {
+	if _, err := NewWithClient("clickhouse", "", 0, nil); err == nil {
 		t.Fatal("clickhouse without URL must error")
 	}
-	if _, err := New("bogus", "", 0); err == nil {
+	if _, err := NewWithClient("bogus", "", 0, nil); err == nil {
 		t.Fatal("unknown mode must error")
 	}
 }

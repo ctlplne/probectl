@@ -76,10 +76,10 @@ func NewPrometheus(url string) *Prometheus {
 	return NewPrometheusWithClient(url, crypto.HardenedHTTPClient(30*time.Second))
 }
 
-// NewPrometheusWithClient is the test seam for the remote-write writer:
-// production callers use NewPrometheus so HTTPS still gets the hardened,
-// certificate-verifying client, while tests can inject a socket-free
-// RoundTripper and inspect the exact snappy/protobuf request.
+// NewPrometheusWithClient is the transport seam for the remote-write writer.
+// Production may inject a hardened, origin-bound credential client; tests may
+// inject a socket-free RoundTripper and inspect the exact snappy/protobuf
+// request. A nil client always falls back to the certificate-verifying policy.
 func NewPrometheusWithClient(url string, client *http.Client) *Prometheus {
 	if client == nil {
 		client = crypto.HardenedHTTPClient(30 * time.Second)

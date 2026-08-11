@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MPL-2.0
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+# The audit writes two tenant-labelled samples over authenticated HTTPS remote
+# write. It intentionally has no outbound scrape targets.
+scrape_configs: []

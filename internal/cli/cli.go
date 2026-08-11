@@ -12,10 +12,14 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
@@ -81,6 +85,9 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		usage(stdout, cfg.Locale)
 		return 0
 	case "version":
+		if cfg.JSON {
+			return printJSON(stdout, buildInfo())
+		}
 		fmt.Fprintln(stdout, "probectl "+buildVersion())
 		return 0
 	case "test":
@@ -102,10 +109,10 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 	case "incident":
 		return cmdIncident(cfg, rest[1:], stdout, stderr)
 	case "api":
-		return cmdAPI(cfg, rest[1:], stdout, stderr)
+		return cmdAPIWithStdin(cfg, rest[1:], stdin, stdout, stderr)
 	default:
 		if spec, ok := surfaceCommands[rest[0]]; ok {
-			return cmdSurface(cfg, spec, rest[1:], stdout, stderr)
+			return cmdSurfaceWithStdin(cfg, spec, rest[1:], stdin, stdout, stderr)
 		}
 		fmt.Fprintln(stderr, i18n.T(cfg.Locale, "cli.error.unknown", map[string]string{
 			"command": fmt.Sprintf("%q", rest[0]),
@@ -134,6 +141,99 @@ func newClient(cfg Config) *client {
 	return &client{cfg: cfg, hc: &http.Client{Timeout: 15 * time.Second}}
 }
 
+// composeAPIURL preserves the CLI's established base-path prefix behavior but
+// proves string concatenation cannot change the configured origin. Without
+// this check a target beginning with "@other-host" could reinterpret the
+// configured host as URL userinfo and receive tenant/auth headers.
+func composeAPIURL(baseRaw, requestTarget string) (*url.URL, error) {
+	base, err := url.Parse(strings.TrimSpace(baseRaw))
+	if err != nil || base.Scheme == "" || base.Host == "" || base.Opaque != "" {
+		return nil, errors.New("CLI API base URL must be an absolute http(s) origin")
+	}
+	if base.Scheme != "http" && base.Scheme != "https" {
+		return nil, errors.New("CLI API base URL must use http or https")
+	}
+	if base.User != nil || base.RawQuery != "" || base.Fragment != "" {
+		return nil, errors.New("CLI API base URL must not contain credentials, a query, or a fragment")
+	}
+	target, err := url.Parse(base.String() + requestTarget)
+	if err != nil || target.Scheme == "" || target.Host == "" || target.Opaque != "" || target.User != nil || target.Fragment != "" {
+		return nil, errors.New("CLI API request target is malformed or changes authority")
+	}
+	if !sameAPIOrigin(base, target) {
+		return nil, errors.New("CLI API request target must remain on the configured origin")
+	}
+	return target, nil
+}
+
+func resolveAPIURL(baseRaw, requestTarget string) (*url.URL, error) {
+	target, err := composeAPIURL(baseRaw, requestTarget)
+	if err != nil {
+		return nil, err
+	}
+	if target.Scheme != "https" && !apiLoopbackHost(target.Hostname()) {
+		return nil, errors.New("CLI API requests require HTTPS (plaintext HTTP is limited to loopback development)")
+	}
+	return target, nil
+}
+
+func apiLoopbackHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "localhost" {
+		return true
+	}
+	address, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return err == nil && address.Unmap().IsLoopback()
+}
+
+func sameAPIOrigin(left, right *url.URL) bool {
+	if left == nil || right == nil || !strings.EqualFold(left.Scheme, right.Scheme) ||
+		!strings.EqualFold(left.Hostname(), right.Hostname()) {
+		return false
+	}
+	effectivePort := func(target *url.URL) string {
+		if port := target.Port(); port != "" {
+			return port
+		}
+		if strings.EqualFold(target.Scheme, "https") {
+			return "443"
+		}
+		return "80"
+	}
+	return effectivePort(left) == effectivePort(right)
+}
+
+func (c *client) requestHTTPClient(initial *url.URL, sensitive bool) *http.Client {
+	base := c.hc
+	if base == nil {
+		base = &http.Client{Timeout: 15 * time.Second}
+	}
+	clone := *base
+	previous := clone.CheckRedirect
+	clone.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		// Passwords, enrollment tokens, and TOTP values are valid only for the
+		// exact endpoint selected by the operator. Never replay that body, even
+		// to another path on the same control-plane origin.
+		if sensitive {
+			return http.ErrUseLastResponse
+		}
+		// All other authenticated requests may follow same-origin redirects,
+		// but tenant/auth headers and request bodies never cross an origin or a
+		// TLS downgrade boundary.
+		if !sameAPIOrigin(initial, next.URL) {
+			return http.ErrUseLastResponse
+		}
+		if previous != nil {
+			return previous(next, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &clone
+}
+
 // do performs a request and returns the decoded body or a domain error message.
 func (c *client) do(method, path string, body any, out any) error {
 	var r io.Reader
@@ -144,7 +244,11 @@ func (c *client) do(method, path string, body any, out any) error {
 		}
 		r = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, c.cfg.BaseURL+path, r)
+	target, err := resolveAPIURL(c.cfg.BaseURL, path)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(method, target.String(), r)
 	if err != nil {
 		return err
 	}
@@ -164,7 +268,10 @@ func (c *client) do(method, path string, body any, out any) error {
 		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
 	}
 
-	resp, err := c.hc.Do(req)
+	_, sensitiveTarget := sensitiveProviderOperationURL(method, target)
+	_, sensitivePath := sensitiveProviderOperationPath(method, path)
+	sensitive := sensitiveTarget || sensitivePath
+	resp, err := c.requestHTTPClient(target, sensitive).Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -195,7 +302,11 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 		}
 		r = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, c.cfg.BaseURL+path, r)
+	target, err := resolveAPIURL(c.cfg.BaseURL, path)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(method, target.String(), r)
 	if err != nil {
 		return err
 	}
@@ -214,7 +325,10 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	if c.cfg.Tenant != "" {
 		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
 	}
-	resp, err := c.hc.Do(req)
+	_, sensitiveTarget := sensitiveProviderOperationURL(method, target)
+	_, sensitivePath := sensitiveProviderOperationPath(method, path)
+	sensitive := sensitiveTarget || sensitivePath
+	resp, err := c.requestHTTPClient(target, sensitive).Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

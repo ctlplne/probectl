@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 )
 
@@ -164,6 +165,10 @@ func readIRRevealReason(filename string, stdin io.Reader) (string, error) {
 }
 
 func readOwnerOnlyCLIFile(filename string, maxBytes int64) ([]byte, error) {
+	return readOwnerOnlyCLIFileWithHook(filename, maxBytes, nil)
+}
+
+func readOwnerOnlyCLIFileWithHook(filename string, maxBytes int64, afterInitialLstat func()) ([]byte, error) {
 	info, err := os.Lstat(filename)
 	if err != nil {
 		return nil, fmt.Errorf("inspect file: %w", err)
@@ -180,16 +185,24 @@ func readOwnerOnlyCLIFile(filename string, maxBytes int64) ([]byte, error) {
 	if info.Size() < 1 || info.Size() > maxBytes {
 		return nil, fmt.Errorf("file must contain 1..%d bytes", maxBytes)
 	}
-	file, err := os.Open(filename)
+	if afterInitialLstat != nil {
+		afterInitialLstat()
+	}
+	// Nonblocking open turns a raced regular-file -> FIFO replacement into a
+	// bounded error instead of hanging a credential-bearing CLI command.
+	file, err := os.OpenFile(filename, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
 	opened, err := file.Stat()
+	linkedAfterOpen, linkedErr := os.Lstat(filename)
 	if err != nil {
 		return nil, fmt.Errorf("inspect opened file: %w", err)
 	}
-	if !os.SameFile(info, opened) || !opened.Mode().IsRegular() {
+	if linkedErr != nil || !os.SameFile(info, opened) || !os.SameFile(opened, linkedAfterOpen) ||
+		!opened.Mode().IsRegular() || !linkedAfterOpen.Mode().IsRegular() ||
+		linkedAfterOpen.Mode()&os.ModeSymlink != 0 || opened.Mode().Perm() != 0o600 || linkedAfterOpen.Mode().Perm() != 0o600 {
 		return nil, errors.New("file changed while opening")
 	}
 	raw, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
@@ -199,6 +212,15 @@ func readOwnerOnlyCLIFile(filename string, maxBytes int64) ([]byte, error) {
 	if int64(len(raw)) < 1 || int64(len(raw)) > maxBytes {
 		clearBytes(raw)
 		return nil, fmt.Errorf("file changed size while reading")
+	}
+	openedAfterRead, statErr := file.Stat()
+	linkedAfterRead, lstatErr := os.Lstat(filename)
+	if statErr != nil || lstatErr != nil || !os.SameFile(opened, openedAfterRead) || !os.SameFile(opened, linkedAfterRead) ||
+		!openedAfterRead.Mode().IsRegular() || !linkedAfterRead.Mode().IsRegular() ||
+		linkedAfterRead.Mode()&os.ModeSymlink != 0 || openedAfterRead.Mode().Perm() != 0o600 || linkedAfterRead.Mode().Perm() != 0o600 ||
+		openedAfterRead.Size() != int64(len(raw)) || !openedAfterRead.ModTime().Equal(opened.ModTime()) {
+		clearBytes(raw)
+		return nil, errors.New("file changed while reading")
 	}
 	return raw, nil
 }

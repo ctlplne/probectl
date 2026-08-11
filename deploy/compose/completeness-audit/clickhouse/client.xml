@@ -1,0 +1,10 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<clickhouse>
+  <openSSL>
+    <client>
+      <caConfig>/audit/pki/ca.crt</caConfig>
+      <verificationMode>strict</verificationMode>
+      <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+    </client>
+  </openSSL>
+</clickhouse>

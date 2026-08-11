@@ -29,9 +29,9 @@ The repo's other three workflows do **not** run on a normal push:
 
 ## The shape: fan-out, then one umbrella
 
-A push is like sending the change through a checkpoint with **41 specialist
-inspectors**, each examining one thing, all in parallel. A 42nd job —
-`verify-all` — is the supervisor: it `needs:` 38 of them, runs with
+A push is like sending the change through a checkpoint with **42 specialist
+inspectors**, each examining one thing, all in parallel. A 43rd job —
+`verify-all` — is the supervisor: it `needs:` 39 of them, runs with
 `if: always()`, writes a receipt artifact, and **fails loudly listing any
 non-green gate**. It is the one status you actually watch: green `verify-all` =
 the whole pipeline passed.
@@ -92,7 +92,9 @@ Verification you ran, not verification you described.
   regenerates and asserts the committed `*.pb.go` match the `.proto` files (no
   drift, no codegen poisoning).
 - **openapi-gate** — every registered core `/v1` and provider `/provider/v1`
-  route exactly matches its OpenAPI 3.1 spec; no undocumented routes ship.
+  route exactly matches its OpenAPI 3.1 spec, and every operation has a named
+  CLI path or a reasoned none-by-design exception; no undocumented route or
+  silent provider-CLI gap ships.
 - **completeness-gate** — validates that every capability in the release
   catalog has concrete engine, binary, API, CLI, UI, docs, configuration,
   telemetry, real-stack, and migration evidence (or an explicit reasoned
@@ -100,6 +102,11 @@ Verification you ran, not verification you described.
   Gaps remain outside the reported spine-coverage count. Its planted negative self-test proves a missing cell
   turns the same production validator red, and CI retains deterministic HTML
   and JSON ledgers. See [the capability completeness contract](quality/completeness.md).
+- **delivery-audit-gate** — exercises the signed delivery-receipt policy,
+  exact-source/trusted-signer promotion rules, repository-only auditor boundary,
+  and a planted fixture-only negative. The Docker-backed human-path run remains
+  the explicit `make delivery-audit` workflow; this fast CI job proves its
+  acceptance policy cannot silently accept test-only evidence.
 - **docs-claims gate** — `scripts/check_docs_claims.sh SELFTEST &&
   scripts/check_docs_claims.sh` (also `make docs-claims-gate`) enforces the
   claim register: every capability claim in a governed surface is declared

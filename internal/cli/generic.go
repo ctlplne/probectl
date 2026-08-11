@@ -7,28 +7,42 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	pathpkg "path"
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
-func cmdAPI(cfg Config, args []string, stdout, stderr io.Writer) int {
+const maxSensitiveRequestBodyBytes int64 = 1 << 20
+
+func cmdAPIWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
 		fmt.Fprintln(stderr, "api: expected <method> <path>")
 		return 2
 	}
 	method := strings.ToUpper(args[0])
 	path := args[1]
-	return runRawOperation(cfg, apiOp{Method: method, Path: path}, args[2:], stdout, stderr)
+	op := apiOp{Method: method, Path: path}
+	if providerOp, ok := sensitiveProviderOperation(method, cfg.BaseURL, path); ok {
+		op.SensitiveBody = providerOp.SensitiveBody
+	}
+	return runRawOperationWithStdin(cfg, op, args[2:], stdin, stdout, stderr)
 }
 
 func cmdSurface(cfg Config, spec surfaceCommand, args []string, stdout, stderr io.Writer) int {
+	return cmdSurfaceWithStdin(cfg, spec, args, bytes.NewReader(nil), stdout, stderr)
+}
+
+func cmdSurfaceWithStdin(cfg Config, spec surfaceCommand, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" {
 		printSurfaceUsage(stderr, spec)
 		return 2
@@ -42,7 +56,53 @@ func cmdSurface(cfg Config, spec surfaceCommand, args []string, stdout, stderr i
 	if spec.Name == "alert" {
 		warnIfAlertingInactive(cfg, stderr)
 	}
-	return runRawOperation(cfg, op, args[1:], stdout, stderr)
+	return runRawOperationWithStdin(cfg, op, args[1:], stdin, stdout, stderr)
+}
+
+func sensitiveProviderOperation(method, baseURL, requestTarget string) (apiOp, bool) {
+	if operation, ok := sensitiveProviderOperationPath(method, requestTarget); ok {
+		return operation, true
+	}
+	target, err := composeAPIURL(baseURL, requestTarget)
+	if err != nil {
+		return apiOp{}, false
+	}
+	return sensitiveProviderOperationURL(method, target)
+}
+
+func sensitiveProviderOperationURL(method string, target *url.URL) (apiOp, bool) {
+	if target == nil {
+		return apiOp{}, false
+	}
+	return sensitiveProviderOperationPath(method, target.Path)
+}
+
+func sensitiveProviderOperationPath(method, path string) (apiOp, bool) {
+	// The generic client appends paths to its configured origin. Treat a
+	// network-path-looking spelling (//provider/...) as the same origin-relative
+	// route before classification; otherwise net/url interprets "provider" as a
+	// host and an argv body could bypass the credential-bearing operation rule.
+	// The HTTP request path may still be normalized by a server or proxy later,
+	// so the stricter classification has to happen here, before reading --body.
+	if strings.HasPrefix(path, "//") {
+		path = "/" + strings.TrimLeft(path, "/")
+	}
+	parsed, err := url.Parse(path)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" {
+		return apiOp{}, false
+	}
+	// URL.Path is percent-decoded by net/url. Make every origin-relative
+	// spelling root-relative before cleaning it: when BaseURL ends in '/', a raw
+	// path such as "provider/v1/auth/login" or "../provider/v1/auth/login"
+	// concatenates into the protected route even though it omitted the leading
+	// slash. Classify that spelling conservatively before any argv body is read.
+	canonicalPath := pathpkg.Clean("/" + strings.TrimLeft(parsed.Path, "/"))
+	for _, op := range surfaceCommands["provider"].Ops {
+		if op.SensitiveBody && strings.EqualFold(op.Method, method) && op.Path == canonicalPath {
+			return op, true
+		}
+	}
+	return apiOp{}, false
 }
 
 // warnIfAlertingInactive makes every alert-group command honest about an inert
@@ -65,6 +125,10 @@ func warnIfAlertingInactive(cfg Config, stderr io.Writer) {
 }
 
 func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writer) int {
+	return runRawOperationWithStdin(cfg, op, args, bytes.NewReader(nil), stdout, stderr)
+}
+
+func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	path := op.Path
 	if op.ArgName != "" {
 		if len(args) == 0 {
@@ -78,6 +142,7 @@ func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writ
 	fs := flag.NewFlagSet(op.Method+" "+op.Path, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	bodyRaw := fs.String("body", "", "JSON request body")
+	bodyFile := fs.String("body-file", "", "JSON request body path; - reads stdin (sensitive bodies require a 0600 file or stdin)")
 	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -87,10 +152,52 @@ func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "unexpected args: %s\n", strings.Join(fs.Args(), " "))
 		return 2
 	}
+	var bodySet, bodyFileSet bool
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "body":
+			bodySet = true
+		case "body-file":
+			bodyFileSet = true
+		}
+	})
+	if bodySet && bodyFileSet {
+		fmt.Fprintln(stderr, "--body and --body-file cannot be combined")
+		return 2
+	}
+	if op.SensitiveBody {
+		if bodySet {
+			fmt.Fprintln(stderr, "credential-bearing request refuses --body; use --body-file <0600-file|->")
+			return 2
+		}
+		if !bodyFileSet || strings.TrimSpace(*bodyFile) == "" {
+			fmt.Fprintln(stderr, "credential-bearing request requires --body-file <0600-file|->")
+			return 2
+		}
+	}
 	path = withQueryValues(path, query)
-	body, err := parseBody(*bodyRaw)
+	// Resolve and enforce the transport/origin policy before reading any request
+	// body. This keeps credentials out of memory when the target is malformed,
+	// changes authority, or would use plaintext transport off loopback.
+	if _, err := resolveAPIURL(cfg.BaseURL, path); err != nil {
+		fmt.Fprintln(stderr, "API request target is unsafe: "+err.Error())
+		return 2
+	}
+	var (
+		body any
+		err  error
+	)
+	if bodyFileSet {
+		body, err = readSensitiveRequestBody(*bodyFile, stdin)
+	} else {
+		body, err = parseBody(*bodyRaw)
+	}
 	if err != nil {
-		fmt.Fprintln(stderr, "invalid --body: "+err.Error())
+		label := "--body"
+		if bodyFileSet {
+			label = "--body-file"
+		}
+		fmt.Fprintln(stderr, "invalid "+label+": "+err.Error())
 		return 2
 	}
 	var out any
@@ -98,6 +205,46 @@ func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writ
 		return fail(stderr, err)
 	}
 	return printGeneric(stdout, out, cfg.JSON, op.Method)
+}
+
+func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
+	var (
+		raw []byte
+		err error
+	)
+	if filename == "-" {
+		if stdin == nil {
+			return nil, fmt.Errorf("stdin is unavailable")
+		}
+		raw, err = httpbody.ReadLimited(stdin, maxSensitiveRequestBodyBytes)
+		if err != nil {
+			if err == httpbody.ErrTooLarge {
+				return nil, fmt.Errorf("stdin exceeds %d-byte limit", maxSensitiveRequestBodyBytes)
+			}
+			return nil, fmt.Errorf("read stdin: %w", err)
+		}
+	} else {
+		if strings.TrimSpace(filename) == "" {
+			return nil, fmt.Errorf("path is required")
+		}
+		raw, err = readOwnerOnlyCLIFile(filename, maxSensitiveRequestBodyBytes)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer clearBytes(raw)
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("request body is empty")
+	}
+	var body any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	if _, ok := body.(map[string]any); !ok {
+		return nil, fmt.Errorf("request body must be one JSON object")
+	}
+	return body, nil
 }
 
 func parseBody(raw string) (any, error) {
@@ -327,4 +474,10 @@ func printSurfaceUsage(w io.Writer, spec surfaceCommand) {
 		fmt.Fprintf(w, "  %-18s %s %s\n", name+arg, op.Method, op.Path)
 	}
 	fmt.Fprintln(w, "\nFlags: --query k=v (repeatable), --body JSON, global --json")
+	for _, op := range spec.Ops {
+		if op.SensitiveBody {
+			fmt.Fprintln(w, "Credential-bearing operations require --body-file <0600-file|->; inline --body is refused. Stdin is preserved on this secure path.")
+			break
+		}
+	}
 }

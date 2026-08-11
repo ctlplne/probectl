@@ -54,6 +54,17 @@ func (s *Server) WithTSDB(w tsdb.Writer) *Server {
 	return s
 }
 
+// WithPromUpstream replaces the Prometheus query proxy selected by WithTSDB.
+// The serve builder uses this seam to share the same certificate-verifying,
+// origin/path-bound credential snapshot used by remote write. A nil upstream
+// is ignored so memory-mode callers keep their local query behavior.
+func (s *Server) WithPromUpstream(upstream *promapi.Upstream) *Server {
+	if upstream != nil {
+		s.promUpstream = upstream
+	}
+	return s
+}
+
 // WithTSDBIngest replaces only the tenant-owned remote-write seam. Queries keep
 // the concrete TSDB selected by WithTSDB, while production can attach the
 // durable lifecycle writer fence without hiding snapshot/upstream capabilities.
