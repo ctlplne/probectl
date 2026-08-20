@@ -1769,7 +1769,7 @@ run_audit() {
     --slurpfile manifest "${ARTIFACT_DIR}/capability-manifest.json" \
     '{schema:"probectl.delivery-audit-static-reachability/v1",source_git_sha:$git_sha,source_tree_sha:$tree_sha,capability_id:$capability,registry_path:"capabilities.yaml",registry_sha256:$registry_sha,static_gate:"internal/completeness.Validator",validator_passed:true,binary_entrypoint:$manifest[0].binary.entrypoint,default_build_command:$manifest[0].binary.default_build_command,default_build_reachable:true,api:$manifest[0].api,cli_operation:$manifest[0].cli.primary_operation,ui_route:$manifest[0].ui.primary_route,docs_path:$manifest[0].docs_path,observed_in_release:true}' \
     >"${ARTIFACT_DIR}/reachability.json"
-  jq '.activation as $activation | $activation + {schema:"probectl.delivery-audit-activation/v1",release_go_tags:$activation.build_tags,dev_auth:false}' \
+  jq '.activation as $activation | $activation + {schema:"probectl.delivery-audit-activation/v1",docs_path:.docs_path,release_go_tags:$activation.build_tags,dev_auth:false}' \
     "${ARTIFACT_DIR}/capability-manifest.json" >"${ARTIFACT_DIR}/activation.json"
 
   if [[ "$AUDIT_CAPABILITY_ID" == "F50" ]]; then

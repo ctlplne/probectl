@@ -149,6 +149,17 @@ func TestActivationAllowsEmptyDefaultTagsAndRejectsSyntheticOrTestTags(t *testin
 	}
 }
 
+func TestCompletenessAuditActivationBindsCanonicalDocsPath(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join(testSourceRoot(t), "scripts", "run_completeness_audit.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const binding = `docs_path:.docs_path`
+	if !strings.Contains(string(script), `$activation + {schema:"probectl.delivery-audit-activation/v1",`+binding) {
+		t.Fatalf("activation.json construction must bind %s from the hashed capability manifest", binding)
+	}
+}
+
 func TestArtifactSummaryMismatchCannotBeSealed(t *testing.T) {
 	root := t.TempDir()
 	receipt := mustSelfTestReceipt(t, root)

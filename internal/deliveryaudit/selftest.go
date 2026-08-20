@@ -501,7 +501,9 @@ func writeSelfTestProductPipeline(root string, receipt Receipt) ([]CLICommandObs
 			Topic: productMetricsTopic, Partition: int32(i), Offset: int64(10 + i),
 			Key: metricKeyRef, Payload: metricPayloadRef, GroupOffset: metricGroupRef,
 		}
-		metricBody, err := selfTestPrometheusBody(spec.tenant, metricFlow, false)
+		metricControlObservedAt := metricTime.Add(200 * time.Millisecond)
+		metricDirectObservedAt := metricTime.Add(300 * time.Millisecond)
+		metricBody, err := selfTestPrometheusBody(spec.tenant, metricFlow, metricControlObservedAt, false)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -519,17 +521,21 @@ func writeSelfTestProductPipeline(root string, receipt Receipt) ([]CLICommandObs
 		observations = append(observations, metricObservation)
 		artifacts = append(artifacts, selfTestCLIArtifacts(metricObservation)...)
 		metricFlow.ControlQuery = ProductControlQuery{
-			ObservedAt: metricTime.Add(200 * time.Millisecond), Command: metricCommand, Method: "GET", Path: metricPath,
+			ObservedAt: metricControlObservedAt, Command: metricCommand, Method: "GET", Path: metricPath,
 			APIObservation: ProductArtifactRef{Path: metricObservation.ResponseArtifact, SHA256: metricObservation.ResponseSHA256},
 		}
-		metricDirectRef, artifact, err := writeSelfTestProductBytes(root, prefix+"/prometheus-direct-response.json", ArtifactStoreObservation, append(metricBody, '\n'))
+		metricDirectBody, err := selfTestPrometheusBody(spec.tenant, metricFlow, metricDirectObservedAt, false)
+		if err != nil {
+			return nil, nil, err
+		}
+		metricDirectRef, artifact, err := writeSelfTestProductBytes(root, prefix+"/prometheus-direct-response.json", ArtifactStoreObservation, append(metricDirectBody, '\n'))
 		if err != nil {
 			return nil, nil, err
 		}
 		artifacts = append(artifacts, artifact)
 		directSelector := metricFlow.StoredMetricName + `{marker="` + metricFlow.CorrelationID + `",tenant_id="` + spec.tenant + `"}`
 		metricFlow.PrometheusDirect = ProductPrometheusDirectQuery{
-			ObservedAt: metricTime.Add(300 * time.Millisecond), User: "audit", Query: directSelector,
+			ObservedAt: metricDirectObservedAt, User: "audit", Query: directSelector,
 			URL: "https://prometheus:9090/api/v1/query?query=" + url.QueryEscape(directSelector), Response: metricDirectRef,
 		}
 
@@ -590,6 +596,7 @@ func writeSelfTestProductPipeline(root string, receipt Receipt) ([]CLICommandObs
 		row := otelstore.Span{
 			TenantID: spec.tenant, TraceID: traceFlow.TraceID, SpanID: traceFlow.SpanID, Name: traceFlow.SpanName,
 			Kind: "server", Service: traceFlow.ServiceName, Start: traceStart, Duration: time.Millisecond, StatusCode: "unset",
+			Attrs: map[string]string{"service.name": traceFlow.ServiceName},
 		}
 		traceBody, err := json.Marshal(map[string]any{"spans": []otelstore.Span{row}})
 		if err != nil {
@@ -672,7 +679,7 @@ func writeSelfTestForeignQueries(root string, manifest *ProductPipelineArtifact,
 	for i, spec := range specs {
 		other := manifest.Tenants[1-i]
 		foreignObservedAt := productStarted.Add(time.Duration(25+i) * time.Second)
-		emptyMetricBody, err := selfTestPrometheusBody("", other.Metrics, true)
+		emptyMetricBody, err := selfTestPrometheusBody("", other.Metrics, foreignObservedAt, true)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -768,14 +775,14 @@ func selfTestStringAttribute(key, value string) *commonpb.KeyValue {
 	return &commonpb.KeyValue{Key: key, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}}}
 }
 
-func selfTestPrometheusBody(tenant string, flow ProductMetricPipelineFlow, empty bool) (json.RawMessage, error) {
+func selfTestPrometheusBody(tenant string, flow ProductMetricPipelineFlow, observedAt time.Time, empty bool) (json.RawMessage, error) {
 	result := []any{}
 	if !empty {
 		result = append(result, map[string]any{
 			"metric": map[string]string{
 				"__name__": flow.StoredMetricName, "tenant_id": tenant, "marker": flow.CorrelationID, "service_name": flow.ServiceName,
 			},
-			"value": []any{float64(flow.TimeUnixNano) / float64(time.Second), strconv.FormatFloat(flow.Value, 'f', -1, 64)},
+			"value": []any{float64(observedAt.UnixNano()) / float64(time.Second), strconv.FormatFloat(flow.Value, 'f', -1, 64)},
 		})
 	}
 	return json.Marshal(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": result}})

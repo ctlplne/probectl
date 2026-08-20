@@ -211,14 +211,15 @@ func (c *productLintContext) lintMetricFlow(index int, tenant string, flow Produ
 		c.problem("product-pipeline-invalid", field+".kafka", "Kafka payload must decode to the same tenant-stamped OTLP metrics message as the authenticated ingest request")
 	}
 	body, controlOK := c.lintControlQuery(field+".control_query", tenant, flow.ControlQuery, event)
-	if !controlOK || !validProductMetricQuery(flow.ControlQuery.Path, flow) || !validPrometheusMarkerResponse(body, tenant, flow, false) {
+	if !controlOK || !validProductMetricQuery(flow.ControlQuery.Path, flow) ||
+		!validPrometheusMarkerResponse(body, tenant, flow, flow.ControlQuery.ObservedAt, false) {
 		c.problem("product-pipeline-invalid", field+".control_query", "tenant-authenticated release CLI/API query must return exactly the signed Prometheus marker/value")
 	}
 	directProof := flow.PrometheusDirect
 	direct, directOK := c.ref(field+".prometheus_direct.response", directProof.Response, ArtifactStoreObservation)
 	timeOK := c.observationTime(field+".prometheus_direct.observed_at", directProof.ObservedAt, event)
 	if !directOK || !timeOK || directProof.User != "audit" || !validDirectPrometheusQuery(directProof, tenant, flow) ||
-		!validPrometheusMarkerResponse(direct, tenant, flow, false) {
+		!validPrometheusMarkerResponse(direct, tenant, flow, directProof.ObservedAt, false) {
 		c.problem("product-pipeline-invalid", field+".prometheus_direct", "direct Prometheus proof must bind the real authenticated service URL, exact tenant/marker selector, and matching response")
 	}
 }
@@ -328,7 +329,8 @@ func (c *productLintContext) lintForeignMetricQuery(index int, tenant string, fo
 	field := fmt.Sprintf("product_pipeline.tenants.%d.foreign_queries.metrics", index)
 	event := time.Unix(0, int64(foreign.TimeUnixNano)).UTC()
 	body, ok := c.lintControlQuery(field, tenant, query, event)
-	if !ok || !validProductMetricQuery(query.Path, foreign) || !validPrometheusMarkerResponse(body, "", foreign, true) {
+	if !ok || !validProductMetricQuery(query.Path, foreign) ||
+		!validPrometheusMarkerResponse(body, "", foreign, query.ObservedAt, true) {
 		c.problem("product-pipeline-cross-tenant", field, "tenant query for the other tenant's exact metric marker must succeed with an empty vector")
 	}
 }
@@ -642,7 +644,7 @@ type productPrometheusResponse struct {
 	} `json:"data"`
 }
 
-func validPrometheusMarkerResponse(raw []byte, tenant string, flow ProductMetricPipelineFlow, wantEmpty bool) bool {
+func validPrometheusMarkerResponse(raw []byte, tenant string, flow ProductMetricPipelineFlow, observedAt time.Time, wantEmpty bool) bool {
 	var response productPrometheusResponse
 	if decodeStrict(raw, &response) != nil || response.Status != "success" || response.Data.ResultType != "vector" {
 		return false
@@ -663,8 +665,8 @@ func validPrometheusMarkerResponse(raw []byte, tenant string, flow ProductMetric
 		return false
 	}
 	var sampleSeconds float64
-	if json.Unmarshal(response.Data.Result[0].Value[0], &sampleSeconds) != nil || math.IsNaN(sampleSeconds) ||
-		math.IsInf(sampleSeconds, 0) || math.Abs(sampleSeconds*float64(time.Second)-float64(flow.TimeUnixNano)) > float64(productTimeTolerance) {
+	if json.Unmarshal(response.Data.Result[0].Value[0], &sampleSeconds) != nil || observedAt.IsZero() || math.IsNaN(sampleSeconds) ||
+		math.IsInf(sampleSeconds, 0) || math.Abs(sampleSeconds*float64(time.Second)-float64(observedAt.UnixNano())) > float64(productTimeTolerance) {
 		return false
 	}
 	parsed, err := strconv.ParseFloat(value, 64)
@@ -724,7 +726,8 @@ func validTraceRow(row otelstore.Span, tenant string, flow ProductTracePipelineF
 	expectedDuration := time.Duration(flow.EndTimeUnixNano - flow.StartTimeUnixNano)
 	return !expectedStart.IsZero() && row.TenantID == tenant && row.TraceID == flow.TraceID && row.SpanID == flow.SpanID &&
 		row.ParentSpanID == "" && row.Service == flow.ServiceName && row.Name == flow.SpanName && row.Kind == "server" &&
-		row.StatusCode == "unset" && len(row.Attrs) == 0 && durationAbs(row.Start.Sub(expectedStart)) <= productTimeTolerance &&
+		row.StatusCode == "unset" && len(row.Attrs) == 1 && row.Attrs["service.name"] == flow.ServiceName &&
+		durationAbs(row.Start.Sub(expectedStart)) <= productTimeTolerance &&
 		durationAbs(row.Duration-expectedDuration) <= productTimeTolerance
 }
 

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/store/otelstore"
 )
 
 func TestProductPipelineBindsCanonicalReleaseAuthorities(t *testing.T) {
@@ -281,20 +282,32 @@ func TestProductPrometheusResponseIsExactAndFresh(t *testing.T) {
 	receipt := mustSelfTestReceipt(t, root)
 	manifest := readProductArtifact(t, root, receipt)
 	flow := manifest.Tenants[0].Metrics
-	raw, err := selfTestPrometheusBody(manifest.Tenants[0].Tenant, flow, false)
-	if err != nil || !validPrometheusMarkerResponse(raw, manifest.Tenants[0].Tenant, flow, false) {
-		t.Fatal("canonical Prometheus marker response rejected")
+	raw, err := selfTestPrometheusBody(manifest.Tenants[0].Tenant, flow, flow.ControlQuery.ObservedAt, false)
+	if err != nil {
+		t.Fatal(err)
 	}
 	var response productPrometheusResponse
 	if err := json.Unmarshal(raw, &response); err != nil {
 		t.Fatal(err)
+	}
+	queryTimestamp, err := json.Marshal(float64(flow.ControlQuery.ObservedAt.UnixNano()) / float64(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Data.Result[0].Value[0] = queryTimestamp
+	raw, err = json.Marshal(response)
+	if err != nil || !validPrometheusMarkerResponse(raw, manifest.Tenants[0].Tenant, flow, flow.ControlQuery.ObservedAt, false) {
+		t.Fatal("canonical Prometheus instant-query marker response rejected")
+	}
+	if validPrometheusMarkerResponse(raw, manifest.Tenants[0].Tenant, flow, flow.ControlQuery.ObservedAt.Add(-time.Second), false) {
+		t.Fatal("Prometheus response accepted against a different query observation time")
 	}
 	response.Data.Result[0].Metric["impossible"] = "splice"
 	extraLabel, err := json.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validPrometheusMarkerResponse(extraLabel, manifest.Tenants[0].Tenant, flow, false) {
+	if validPrometheusMarkerResponse(extraLabel, manifest.Tenants[0].Tenant, flow, flow.ControlQuery.ObservedAt, false) {
 		t.Fatal("Prometheus response with an extra label accepted")
 	}
 	delete(response.Data.Result[0].Metric, "impossible")
@@ -303,8 +316,35 @@ func TestProductPrometheusResponseIsExactAndFresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validPrometheusMarkerResponse(stale, manifest.Tenants[0].Tenant, flow, false) {
+	if validPrometheusMarkerResponse(stale, manifest.Tenants[0].Tenant, flow, flow.ControlQuery.ObservedAt, false) {
 		t.Fatal("Prometheus response with a stale sample timestamp accepted")
+	}
+}
+
+func TestProductTraceResponseRequiresCanonicalServiceAttribute(t *testing.T) {
+	root := t.TempDir()
+	receipt := mustSelfTestReceipt(t, root)
+	manifest := readProductArtifact(t, root, receipt)
+	tenant := manifest.Tenants[0]
+	flow := tenant.Traces
+	row := otelstore.Span{
+		TenantID: tenant.Tenant, TraceID: flow.TraceID, SpanID: flow.SpanID,
+		Name: flow.SpanName, Kind: "server", Service: flow.ServiceName,
+		Start:      unixNanoTime(flow.StartTimeUnixNano),
+		Duration:   time.Duration(flow.EndTimeUnixNano - flow.StartTimeUnixNano),
+		StatusCode: "unset", Attrs: map[string]string{"service.name": flow.ServiceName},
+	}
+	if !validTraceRow(row, tenant.Tenant, flow) {
+		t.Fatal("canonical retained service.name trace attribute rejected")
+	}
+	row.Attrs["impossible"] = "splice"
+	if validTraceRow(row, tenant.Tenant, flow) {
+		t.Fatal("trace response with an extra attribute accepted")
+	}
+	delete(row.Attrs, "impossible")
+	row.Attrs["service.name"] = "some-other-service"
+	if validTraceRow(row, tenant.Tenant, flow) {
+		t.Fatal("trace response with a mismatched service.name attribute accepted")
 	}
 }
 
