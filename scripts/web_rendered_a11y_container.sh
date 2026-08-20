@@ -5,6 +5,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${PROBECTL_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c}"
 DOCKER_BIN="${DOCKER:-docker}"
 A11Y_THEMES="${PROBECTL_A11Y_THEMES:-dark,aurora}"
+SOURCE_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+SOURCE_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
+if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
+  SOURCE_DIRTY=true
+else
+  SOURCE_DIRTY=false
+fi
+
+[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "web-rendered-a11y: exact source SHA is unavailable" >&2
+  exit 2
+}
 
 IFS=',' read -r -a requested_themes <<< "$A11Y_THEMES"
 normalized_themes=""
@@ -31,6 +43,9 @@ docker_args=(
   --env HOME=/tmp/probectl-a11y-home
   --env npm_config_cache=/tmp/probectl-npm-cache
   --env "PROBECTL_A11Y_THEMES=$A11Y_THEMES"
+  --env "PROBECTL_JOURNEY_SOURCE_SHA=$SOURCE_SHA"
+  --env "PROBECTL_JOURNEY_SOURCE_BRANCH=$SOURCE_BRANCH"
+  --env "PROBECTL_JOURNEY_SOURCE_DIRTY=$SOURCE_DIRTY"
   "$IMAGE"
   bash -lc
   'npm ci --no-audit --no-fund && npm run a11y:browser && node ../scripts/check_web_perf_budgets.mjs && npm run bundle:check && node ../scripts/web_journey_e2e.mjs'
@@ -38,18 +53,34 @@ docker_args=(
 
 if [ "${SELFTEST:-0}" = "1" ]; then
   forwarded=0
+  identity_forwarded=0
   for ((i = 0; i < ${#docker_args[@]} - 1; i++)); do
     if [ "${docker_args[$i]}" = "--env" ] &&
       [ "${docker_args[$((i + 1))]}" = "PROBECTL_A11Y_THEMES=$A11Y_THEMES" ]; then
       forwarded=1
-      break
+    fi
+    if [ "${docker_args[$i]}" = "--env" ] &&
+      [ "${docker_args[$((i + 1))]}" = "PROBECTL_JOURNEY_SOURCE_SHA=$SOURCE_SHA" ]; then
+      identity_forwarded=$((identity_forwarded + 1))
+    fi
+    if [ "${docker_args[$i]}" = "--env" ] &&
+      [ "${docker_args[$((i + 1))]}" = "PROBECTL_JOURNEY_SOURCE_BRANCH=$SOURCE_BRANCH" ]; then
+      identity_forwarded=$((identity_forwarded + 1))
+    fi
+    if [ "${docker_args[$i]}" = "--env" ] &&
+      [ "${docker_args[$((i + 1))]}" = "PROBECTL_JOURNEY_SOURCE_DIRTY=$SOURCE_DIRTY" ]; then
+      identity_forwarded=$((identity_forwarded + 1))
     fi
   done
   if [ "$forwarded" -ne 1 ]; then
     echo "web-rendered-a11y SELFTEST: theme matrix is not forwarded to docker run" >&2
     exit 1
   fi
-  echo "web-rendered-a11y SELFTEST: OK (forwarded themes: $A11Y_THEMES)"
+  if [ "$identity_forwarded" -ne 3 ]; then
+    echo "web-rendered-a11y SELFTEST: exact source identity is not fully forwarded to docker run" >&2
+    exit 1
+  fi
+  echo "web-rendered-a11y SELFTEST: OK (forwarded themes and source identity: $A11Y_THEMES, ${SOURCE_SHA:0:12})"
   exit 0
 fi
 

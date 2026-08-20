@@ -82,6 +82,27 @@ function git(...args) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
 }
 
+function sourceIdentity() {
+  const sha = process.env.PROBECTL_JOURNEY_SOURCE_SHA;
+  const branch = process.env.PROBECTL_JOURNEY_SOURCE_BRANCH;
+  const dirty = process.env.PROBECTL_JOURNEY_SOURCE_DIRTY;
+  if (sha !== undefined || branch !== undefined || dirty !== undefined) {
+    assert(
+      /^[0-9a-f]{40}$/.test(sha ?? "") &&
+        typeof branch === "string" &&
+        branch.length > 0 &&
+        (dirty === "true" || dirty === "false"),
+      "container source identity must provide a full SHA, branch, and boolean dirty state",
+    );
+    return { sha, branch, dirty: dirty === "true" };
+  }
+  return {
+    sha: git("rev-parse", "HEAD"),
+    branch: git("rev-parse", "--abbrev-ref", "HEAD"),
+    dirty: git("status", "--porcelain").length > 0,
+  };
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -387,11 +408,7 @@ async function main() {
   const receipt = {
     schema: "probectl.canonical-browser-journeys/v1",
     generated_at: new Date().toISOString(),
-    git: {
-      sha: git("rev-parse", "HEAD"),
-      branch: git("rev-parse", "--abbrev-ref", "HEAD"),
-      dirty: git("status", "--porcelain").length > 0,
-    },
+    git: sourceIdentity(),
     fixture_boundary:
       "This receipt proves real browser/UI behavior against local deterministic API fixtures. It does not replace the named real-system gates.",
     journeys: results,
