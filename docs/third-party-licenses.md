@@ -68,11 +68,13 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/zclconf/go-cty` | v1.17.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `go.opentelemetry.io/proto/otlp` | v1.10.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/crypto` | v0.53.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/mod` | v0.37.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/net` | v0.56.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/oauth2` | v0.36.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/sync` | v0.21.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/sys` | v0.46.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/text` | v0.39.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/tools` | v0.47.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `google.golang.org/genproto/googleapis/api` | v0.0.0-20260414002931-afd174a4e478 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `google.golang.org/genproto/googleapis/rpc` | v0.0.0-20260414002931-afd174a4e478 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `google.golang.org/grpc` | v1.82.1 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
