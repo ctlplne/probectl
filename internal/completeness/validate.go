@@ -2226,10 +2226,6 @@ func (v *Validator) validateFile(cell, payload string, requireNeedle bool) error
 	return nil
 }
 
-func containsConfigKey(document, key string) bool {
-	return containsVisibleConfigKey(visibleMarkdownText(document), key)
-}
-
 func containsVisibleConfigKey(visibleDocument, key string) bool {
 	return indexVisibleConfigKeys(visibleDocument)[key]
 }
