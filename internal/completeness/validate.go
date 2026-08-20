@@ -50,7 +50,8 @@ type Validator struct {
 	operations           map[string]bool
 	commands             map[string]bool
 	surfaces             []surfaceDeclaration
-	configDoc            string
+	configDocVisible     string
+	configKeys           map[string]bool
 	proofs               map[string]proofBinding
 	reachability         map[string]*packageReachability
 	expectedCapabilities map[string]bool
@@ -136,7 +137,12 @@ func NewValidator(repoRoot string) (*Validator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read configuration docs: %w", err)
 	}
-	v.configDoc = string(configData)
+	// Markdown visibility is independent of an individual capability. Compute it
+	// once per validator instead of once for every config-key reference. Besides
+	// avoiding quadratic validation work, this keeps race-enabled release gates
+	// inside the same bounded package timeout as ordinary validation.
+	v.configDocVisible = visibleMarkdownText(string(configData))
+	v.configKeys = indexVisibleConfigKeys(v.configDocVisible)
 	if err := v.loadRealStackProofCatalog(); err != nil {
 		return nil, err
 	}
@@ -779,7 +785,7 @@ func (v *Validator) validateRef(capability, cell, ref string, uiAliases map[stri
 		if !configKeyPattern.MatchString(payload) {
 			return fmt.Errorf("config key %q must be an exact PROBECTL_* environment key", payload)
 		}
-		if !containsConfigKey(v.configDoc, payload) {
+		if !v.configKeys[payload] {
 			return fmt.Errorf("config key %q is absent from docs/configuration.md", payload)
 		}
 	case "test":
@@ -2221,11 +2227,36 @@ func (v *Validator) validateFile(cell, payload string, requireNeedle bool) error
 }
 
 func containsConfigKey(document, key string) bool {
-	if key == "" {
-		return false
+	return containsVisibleConfigKey(visibleMarkdownText(document), key)
+}
+
+func containsVisibleConfigKey(visibleDocument, key string) bool {
+	return indexVisibleConfigKeys(visibleDocument)[key]
+}
+
+func indexVisibleConfigKeys(visibleDocument string) map[string]bool {
+	keys := make(map[string]bool)
+	start := -1
+	for index := 0; index <= len(visibleDocument); index++ {
+		var character byte
+		if index < len(visibleDocument) {
+			character = visibleDocument[index]
+		}
+		isKeyCharacter := character == '_' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9'
+		if isKeyCharacter && start < 0 {
+			start = index
+			continue
+		}
+		if isKeyCharacter || start < 0 {
+			continue
+		}
+		candidate := visibleDocument[start:index]
+		if configKeyPattern.MatchString(candidate) {
+			keys[candidate] = true
+		}
+		start = -1
 	}
-	pattern := `(^|[^A-Z0-9_])` + regexp.QuoteMeta(key) + `([^A-Z0-9_]|$)`
-	return regexp.MustCompile(pattern).FindStringIndex(visibleMarkdownText(document)) != nil
+	return keys
 }
 
 func searchableEvidenceText(cell, path string, data []byte) string {

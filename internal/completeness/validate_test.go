@@ -1106,6 +1106,34 @@ func TestValidatorRejectsProtocolReachabilityAcrossInvalidPackageBoundary(t *tes
 	}
 }
 
+func TestValidatorPrecomputesVisibleConfigurationDocument(t *testing.T) {
+	root := fixtureRepo(t)
+	configuration := "# Configuration\nPROBECTL_FOO\n<!-- PROBECTL_HIDDEN -->\n[comment]: <> (PROBECTL_REFERENCE_HIDDEN)\n"
+	if err := os.WriteFile(filepath.Join(root, "docs", "configuration.md"), []byte(configuration), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	validator, err := NewValidator(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsVisibleConfigKey(validator.configDocVisible, "PROBECTL_FOO") {
+		t.Fatal("visible configuration key was not indexed")
+	}
+	if !validator.configKeys["PROBECTL_FOO"] {
+		t.Fatal("validator did not retain the exact visible-key index")
+	}
+	for _, hidden := range []string{"PROBECTL_HIDDEN", "PROBECTL_REFERENCE_HIDDEN"} {
+		if containsVisibleConfigKey(validator.configDocVisible, hidden) || validator.configKeys[hidden] {
+			t.Fatalf("hidden configuration key %s became visible", hidden)
+		}
+	}
+	for _, substring := range []string{"PROBECTL_FO", "XPROBECTL_FOO", "PROBECTL_FOO_EXTRA"} {
+		if validator.configKeys[substring] {
+			t.Fatalf("non-exact configuration key %s became visible", substring)
+		}
+	}
+}
+
 func fixtureRegistry() Registry {
 	return Registry{
 		Schema:        RegistrySchema,
