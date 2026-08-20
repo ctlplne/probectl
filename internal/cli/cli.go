@@ -63,6 +63,10 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 	}
 	// --json may appear anywhere; strip it before flag parsing.
 	args, cfg.JSON = extractBoolFlag(args, "--json")
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		usage(stdout, cfg.Locale)
+		return 0
+	}
 
 	fs := flag.NewFlagSet("probectl", flag.ContinueOnError)
 	fs.SetOutput(stderr)

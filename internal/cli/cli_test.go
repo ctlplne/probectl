@@ -98,6 +98,22 @@ func TestCLIHelpLocalizes(t *testing.T) { //nolint:misspell // Spanish locale co
 	}
 }
 
+func TestCLIRootHelpFlagsSucceedOnStdout(t *testing.T) {
+	for _, args := range [][]string{{"-h"}, {"--help"}, {"--json", "--help"}} {
+		var out, errs bytes.Buffer
+		code := runCLI(args, func(string) string { return "" }, &out, &errs)
+		if code != 0 {
+			t.Fatalf("%v exit = %d, want 0", args, code)
+		}
+		if !strings.Contains(out.String(), "Usage:") {
+			t.Fatalf("%v stdout lacks usage: %q", args, out.String())
+		}
+		if errs.Len() != 0 {
+			t.Fatalf("%v stderr = %q, want empty", args, errs.String())
+		}
+	}
+}
+
 func TestCLIUnknownCommandLocalizes(t *testing.T) { //nolint:misspell // Spanish locale copy.
 	srv := fakeAPI(t)
 	_, errs, code := runWithEnv(t, srv, map[string]string{"PROBECTL_LOCALE": "es"}, "wat")
