@@ -760,9 +760,22 @@ append_product_cli_observation() {
 }
 
 record_product_query_time() {
-  local tenant="$1" label="$2"
-  jq -nc --arg tenant "$tenant" --arg label "$label" --arg observed_at "$(utc_now)" \
+  local tenant="$1" label="$2" observed_at="${3:-$(utc_now)}"
+  jq -nc --arg tenant "$tenant" --arg label "$label" --arg observed_at "$observed_at" \
     '{tenant:$tenant,label:$label,observed_at:$observed_at}' >>"${PRIVATE_DIR}/product-query-times.ndjson"
+}
+
+prometheus_sample_time() {
+  local response="$1"
+  jq -er '
+    (.data.result[0].value[0] | tonumber) as $timestamp |
+    ($timestamp | floor) as $seconds |
+    (((($timestamp - $seconds) * 1000000000) | round)) as $nanos |
+    (($nanos / 1000000000) | floor) as $carry |
+    ($nanos % 1000000000) as $normalized_nanos |
+    (($seconds + $carry) | gmtime | strftime("%Y-%m-%dT%H:%M:%S")) + "." +
+      ((1000000000 + $normalized_nanos) | tostring)[1:] + "Z"
+  ' "$response"
 }
 
 write_product_api_observation() {
@@ -807,7 +820,12 @@ capture_product_metric_query() {
   install -m 0644 "$tmp" "$cli_file"
   write_product_api_observation "$tenant" "$command" "$path" "$cli_file" "$api_file"
   append_product_cli_observation "$tenant" "$command" "$path" "$cli_path" "$api_path"
-  record_product_query_time "$tenant" "$label"
+  local observed_at
+  observed_at="$(utc_now)"
+  if [[ "$want_empty" != "true" ]]; then
+    observed_at="$(prometheus_sample_time "$tmp")" || die "release CLI metric response lacks a canonical sample timestamp"
+  fi
+  record_product_query_time "$tenant" "$label" "$observed_at"
 }
 
 capture_product_trace_query() {

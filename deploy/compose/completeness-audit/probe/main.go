@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -642,7 +643,7 @@ func boundedHTTPResponse(client *http.Client, request *http.Request) ([]byte, in
 	return body, response.StatusCode, nil
 }
 
-func validateDirectPrometheus(body []byte, tenant, marker string, value int64) error {
+func validateDirectPrometheus(body []byte, tenant, marker string, value int64) (time.Time, error) {
 	var response struct {
 		Status string `json:"status"`
 		Data   struct {
@@ -656,41 +657,47 @@ func validateDirectPrometheus(body []byte, tenant, marker string, value int64) e
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&response); err != nil || response.Status != "success" || response.Data.ResultType != "vector" || len(response.Data.Result) != 1 {
-		return errors.New("direct Prometheus response is not one successful vector")
+		return time.Time{}, errors.New("direct Prometheus response is not one successful vector")
 	}
 	result := response.Data.Result[0]
 	if len(result.Metric) != 4 || result.Metric["__name__"] != productStoredMetricName || result.Metric["tenant_id"] != tenant ||
 		result.Metric["marker"] != marker || result.Metric["service_name"] != productService(marker) || len(result.Value) != 2 {
-		return errors.New("direct Prometheus response does not contain the exact tenant marker labels")
+		return time.Time{}, errors.New("direct Prometheus response does not contain the exact tenant marker labels")
 	}
 	var rawValue string
 	if json.Unmarshal(result.Value[1], &rawValue) != nil {
-		return errors.New("direct Prometheus response value is malformed")
+		return time.Time{}, errors.New("direct Prometheus response value is malformed")
 	}
 	parsed, err := strconv.ParseFloat(rawValue, 64)
 	if err != nil || parsed != float64(value) {
-		return errors.New("direct Prometheus response value does not match")
+		return time.Time{}, errors.New("direct Prometheus response value does not match")
 	}
-	return nil
+	var sampleSeconds float64
+	if json.Unmarshal(result.Value[0], &sampleSeconds) != nil || sampleSeconds <= 0 || math.IsNaN(sampleSeconds) || math.IsInf(sampleSeconds, 0) {
+		return time.Time{}, errors.New("direct Prometheus response timestamp is malformed")
+	}
+	seconds, fraction := math.Modf(sampleSeconds)
+	return time.Unix(int64(seconds), int64(math.Round(fraction*float64(time.Second)))).UTC(), nil
 }
 
-func queryDirectPrometheus(client *http.Client, base, tenant, marker string, value int64) ([]byte, error) {
+func queryDirectPrometheus(client *http.Client, base, tenant, marker string, value int64) ([]byte, time.Time, error) {
 	selector := productStoredMetricName + `{marker="` + marker + `",tenant_id="` + tenant + `"}`
 	query := url.Values{}
 	query.Set("query", selector)
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		strings.TrimRight(base, "/")+"/api/v1/query?"+query.Encode(), nil)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	body, _, err := boundedHTTPResponse(client, request)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
-	if err := validateDirectPrometheus(body, tenant, marker, value); err != nil {
-		return nil, err
+	observedAt, err := validateDirectPrometheus(body, tenant, marker, value)
+	if err != nil {
+		return nil, time.Time{}, err
 	}
-	return body, nil
+	return body, observedAt, nil
 }
 
 const directTraceSQL = "SELECT tenant_id, trace_id, span_id, name, service, toUnixTimestamp64Nano(start) AS start_time_unix_nano FROM default.probectl_otel_spans FINAL WHERE trace_id = {trace:String} FORMAT JSONEachRow"
@@ -914,11 +921,10 @@ func productStores(a, b string) error {
 		ClickHouse productClickHouseIsolation `json:"clickhouse_isolation"`
 	}{Tenants: make([]productStoreTenant, 0, 2)}
 	for _, in := range inputs {
-		prometheusBody, err := queryDirectPrometheus(promClient, promBase, in.tenant, in.metric, in.value)
+		prometheusBody, prometheusObservedAt, err := queryDirectPrometheus(promClient, promBase, in.tenant, in.metric, in.value)
 		if err != nil {
 			return fmt.Errorf("tenant %s direct Prometheus query: %w", in.tenant, err)
 		}
-		prometheusObservedAt := time.Now().UTC()
 		clickHouseBody, err := queryDirectClickHouse(clickHouseClient, clickHouseBase, in.tenant, in.trace, in.span)
 		if err != nil {
 			return fmt.Errorf("tenant %s direct ClickHouse query: %w", in.tenant, err)

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -64,6 +65,21 @@ func TestQueryClickHouseRawPinsNumericJSON64BitIntegers(t *testing.T) {
 	}
 	if string(body) != "{\"start_time_unix_nano\":1723377600123456789}\n" {
 		t.Fatalf("response body = %q", body)
+	}
+}
+
+func TestValidateDirectPrometheusReturnsSignedSampleTime(t *testing.T) {
+	const marker = "0123456789abcdef0123456789abcdef"
+	const tenant = "aaaaaaaa-0000-4000-8000-000000000001"
+	body := []byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"probectl_otlp_completeness_product_marker","marker":"` + marker + `","service_name":"completeness-` + marker + `","tenant_id":"` + tenant + `"},"value":[1787255481.178,"84001"]}]}}`)
+
+	got, err := validateDirectPrometheus(body, tenant, marker, productMetricValueA)
+	if err != nil {
+		t.Fatalf("validateDirectPrometheus: %v", err)
+	}
+	want := time.Unix(1787255481, 178000000).UTC()
+	if got.Sub(want) > time.Microsecond || want.Sub(got) > time.Microsecond {
+		t.Fatalf("sample time = %s, want %s", got, want)
 	}
 }
 
