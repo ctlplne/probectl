@@ -84,6 +84,22 @@ describe('path visualization', () => {
     expect(await screen.findByText(/no path discovered yet/i)).toBeInTheDocument()
   })
 
+  test('renders a real zero-link path when a legacy response encodes links as null', async () => {
+    stubPathFetch({
+      ...samplePath,
+      hops: samplePath.hops.slice(-1),
+      links: null as unknown as typeof samplePath.links,
+    })
+    renderApp('/path')
+
+    expect(
+      await screen.findByRole('group', { name: /network path to 9\.9\.9\.9/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: /path to 9\.9\.9\.9 by hop/i })).toHaveTextContent(
+      '9.9.9.9',
+    )
+  })
+
   test('does not infer precision for a legacy path snapshot', async () => {
     stubPathFetch({ ...samplePath, measurement_fidelity: undefined })
     renderApp('/path')

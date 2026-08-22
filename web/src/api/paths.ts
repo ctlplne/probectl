@@ -74,6 +74,14 @@ export interface PathHistoryOptions {
   roundIds?: string[]
 }
 
+function normalizePath(path: Path): Path {
+  return {
+    ...path,
+    hops: (path.hops ?? []).map((hop) => ({ ...hop, nodes: hop.nodes ?? [] })),
+    links: path.links ?? [],
+  }
+}
+
 /** usePath fetches the latest discovered path for a test; null when none exists. */
 export function usePath(testId: string | undefined) {
   return useQuery({
@@ -81,7 +89,7 @@ export function usePath(testId: string | undefined) {
     enabled: !!testId,
     queryFn: async (): Promise<Path | null> => {
       try {
-        return await apiFetch<Path>(`/tests/${testId}/path`)
+        return normalizePath(await apiFetch<Path>(`/tests/${testId}/path`))
       } catch (e) {
         if (e instanceof ApiError && e.status === 404) return null
         throw e
@@ -108,7 +116,12 @@ export function usePathHistory(
       for (const id of roundIds) params.append('round_id', id)
       return apiFetch<{ items: PathSnapshot[] }>(
         `/tests/${testId}/path/history?${params.toString()}`,
-      ).then((response) => response.items)
+      ).then((response) =>
+        (response.items ?? []).map((snapshot) => ({
+          ...snapshot,
+          path: normalizePath(snapshot.path),
+        })),
+      )
     },
   })
 }
@@ -117,7 +130,8 @@ export function usePathHistory(
 export function useDiscoverPath(testId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => apiFetch<Path>(`/tests/${testId}/path`, { method: 'POST' }),
+    mutationFn: () =>
+      apiFetch<Path>(`/tests/${testId}/path`, { method: 'POST' }).then(normalizePath),
     onSuccess: (p) => {
       qc.setQueryData(['path', testId], p)
       void qc.invalidateQueries({ queryKey: ['path-history', testId] })

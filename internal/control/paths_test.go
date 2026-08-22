@@ -7,10 +7,32 @@
 package control
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/path"
 )
+
+func TestNormalizePathCollectionsUsesJSONArraysForEmptyEvidence(t *testing.T) {
+	p := &path.Path{Hops: []path.Hop{{TTL: 1}}}
+	normalizePathCollections(p)
+
+	if p.Hops == nil || p.Links == nil || p.Hops[0].Nodes == nil {
+		t.Fatalf("required path collections must be non-nil: %+v", p)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal normalized path: %v", err)
+	}
+	if strings.Contains(string(raw), `"hops":null`) ||
+		strings.Contains(string(raw), `"nodes":null`) ||
+		strings.Contains(string(raw), `"links":null`) {
+		t.Fatalf("normalized path emitted null collection: %s", raw)
+	}
+}
 
 func TestPathHistoryQueryValidation(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet,

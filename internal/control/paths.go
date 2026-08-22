@@ -52,6 +52,7 @@ func (s *Server) handleGetPath(w http.ResponseWriter, r *http.Request) error {
 	if !found {
 		return apierror.NotFound("no path has been discovered for this test yet")
 	}
+	normalizePathCollections(p)
 	s.hopGeo.Enrich(p)
 	writeJSON(w, http.StatusOK, p)
 	return nil
@@ -79,6 +80,7 @@ func (s *Server) handleGetPathHistory(w http.ResponseWriter, r *http.Request) er
 		return apierror.Internal("path history lookup failed").Wrap(err)
 	}
 	for i := range rounds {
+		normalizePathCollections(&rounds[i].Path)
 		s.hopGeo.Enrich(&rounds[i].Path)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rounds})
@@ -147,6 +149,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return apierror.Internal("path discovery failed").Wrap(err)
 	}
+	normalizePathCollections(p)
 	if err := s.pathStore.Save(r.Context(), tid, p); err != nil {
 		return apierror.Internal("path save failed").Wrap(err)
 	}
@@ -161,6 +164,24 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	}
 	writeJSON(w, http.StatusOK, p)
 	return nil
+}
+
+// normalizePathCollections keeps the required OpenAPI array contract even for
+// a zero-link discovery or a legacy snapshot whose JSON/SQL round trip decoded
+// an empty collection as nil. Empty telemetry is still empty; it is never
+// synthesized into evidence.
+func normalizePathCollections(p *path.Path) {
+	if p.Hops == nil {
+		p.Hops = []path.Hop{}
+	}
+	if p.Links == nil {
+		p.Links = []path.Link{}
+	}
+	for i := range p.Hops {
+		if p.Hops[i].Nodes == nil {
+			p.Hops[i].Nodes = []path.HopNode{}
+		}
+	}
 }
 
 // testTarget resolves the path target (the host) of the test named in the route.
