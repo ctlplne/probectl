@@ -412,6 +412,22 @@ func TestTopLevelCommandPreludeCannotTerminateBeforeExactTail(t *testing.T) {
 	}
 }
 
+func TestTopLevelRootHelpPreludeMustRemainExact(t *testing.T) {
+	for _, replacement := range []string{
+		`if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") { usage(stdout, cfg.Locale); return 2 }`,
+		`if len(args) > 0 { usage(stdout, cfg.Locale); return 0 }`,
+	} {
+		root := fixtureRepo(t)
+		path := filepath.Join(root, "internal", "cli", "cli.go")
+		writeFixtureMutation(t, path,
+			`if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") { usage(stdout, cfg.Locale); return 0 }`,
+			replacement)
+		if _, err := NewValidator(root); err == nil || !strings.Contains(err.Error(), "trusted config and flag-parser spine") {
+			t.Fatalf("NewValidator error = %v, want root-help prelude rejection", err)
+		}
+	}
+}
+
 func TestGenericDispatcherBodyMustBeExactDelegate(t *testing.T) {
 	root := fixtureRepo(t)
 	path := filepath.Join(root, "internal", "cli", "cli.go")

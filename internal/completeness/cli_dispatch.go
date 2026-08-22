@@ -986,6 +986,10 @@ func canonicalGoStatements(statements []ast.Stmt) (string, bool) {
 const cliRunPreludeSpine = `{
 	cfg := Config{BaseURL: envOr(getenv, "PROBECTL_API_URL", "https://localhost:8443"), Token: getenv("PROBECTL_API_TOKEN"), Tenant: getenv("PROBECTL_TENANT"), Locale: i18n.Resolve(getenv("PROBECTL_LOCALE")), SessionCookieFile: getenv("PROBECTL_SESSION_COOKIE_FILE")}
 	args, cfg.JSON = extractBoolFlag(args, "--json")
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		usage(stdout, cfg.Locale)
+		return 0
+	}
 	fs := flag.NewFlagSet("probectl", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
