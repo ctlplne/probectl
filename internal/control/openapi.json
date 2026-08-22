@@ -9815,7 +9815,7 @@
           },
           "agent_connected": {
             "type": "boolean",
-            "description": "True once a tenant-bound producer has completed an authenticated registration or heartbeat."
+            "description": "True once a tenant-bound producer has completed an authenticated transport registration or heartbeat; identity issuance alone is not a connection."
           },
           "producer_healthy": {
             "type": "boolean",

@@ -223,12 +223,12 @@ func TestAgentsProducerReadinessTenantIsolation(t *testing.T) {
 	}
 	agentID := fmt.Sprintf("a9000000-0000-4000-8000-%012x", sfx&0xffffffffffff)
 	inTenant(ctx, t, pool, tenantA.ID, func(ctx context.Context, scope tenancy.Scope) error {
-		_, registerErr := (Agents{}).Register(ctx, scope, agentID, "flow-a", "host-a", "1.0.0",
+		_, registerErr := (Agents{}).Reserve(ctx, scope, agentID, "flow-a", "host-a", "1.0.0",
 			"spiffe://probectl/tenant/"+tenantA.ID+"/agent/"+agentID, []string{"collector", "flow"})
 		return registerErr
 	})
 
-	assertPlane := func(tenantID, plane string, wantRegistered bool) {
+	assertPlane := func(tenantID, plane string, wantRegistered, wantConnected, wantHealthy bool) {
 		t.Helper()
 		inTenant(ctx, t, pool, tenantID, func(ctx context.Context, scope tenancy.Scope) error {
 			rows, readErr := (Agents{}).ProducerReadiness(ctx, scope, time.Now().Add(-time.Hour))
@@ -237,8 +237,8 @@ func TestAgentsProducerReadinessTenantIsolation(t *testing.T) {
 			}
 			for _, row := range rows {
 				if row.ID == plane {
-					if row.Registered != wantRegistered || row.Connected != wantRegistered || row.Healthy != wantRegistered {
-						t.Fatalf("tenant %s plane %s = %+v, want registered/connected/healthy %t", tenantID, plane, row, wantRegistered)
+					if row.Registered != wantRegistered || row.Connected != wantConnected || row.Healthy != wantHealthy {
+						t.Fatalf("tenant %s plane %s = %+v, want registered=%t connected=%t healthy=%t", tenantID, plane, row, wantRegistered, wantConnected, wantHealthy)
 					}
 					return nil
 				}
@@ -247,8 +247,18 @@ func TestAgentsProducerReadinessTenantIsolation(t *testing.T) {
 			return nil
 		})
 	}
-	assertPlane(tenantA.ID, "flow", true)
-	assertPlane(tenantB.ID, "flow", false)
+	// Identity issuance creates only a tenant-bound registry reservation. It
+	// must not leak to another tenant or claim an operational connection.
+	assertPlane(tenantA.ID, "flow", true, false, false)
+	assertPlane(tenantB.ID, "flow", false, false, false)
+
+	inTenant(ctx, t, pool, tenantA.ID, func(ctx context.Context, scope tenancy.Scope) error {
+		_, registerErr := (Agents{}).Register(ctx, scope, agentID, "flow-a", "host-a", "1.0.0",
+			"spiffe://probectl/tenant/"+tenantA.ID+"/agent/"+agentID, []string{"collector", "flow"})
+		return registerErr
+	})
+	assertPlane(tenantA.ID, "flow", true, true, true)
+	assertPlane(tenantB.ID, "flow", false, false, false)
 }
 
 func TestIncidentLifecycle(t *testing.T) {

@@ -516,8 +516,10 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 	return s.issue(ctx, id.TenantID, id.AgentID, cert.Subject.CommonName, "", req.CSRPEM, id.Plane, nil, oldSerial)
 }
 
-// issue signs the CSR for (tenant, agent), records the identity, and (on
-// first issuance) registers the agent so the Sprint 4 binding vouches for it.
+// issue signs the CSR for (tenant, agent), records the identity, and (on first
+// issuance) reserves the agent so the Sprint 4 binding vouches for it. Reserve
+// deliberately does not claim an operational connection; the authenticated
+// mTLS Register RPC owns that transition.
 func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, version, csrPEM, plane string, capabilities []string, rotatedFrom string) (*Identity, error) {
 	var spiffe string
 	switch plane {
@@ -546,7 +548,7 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 				if name == "" {
 					name = agentID
 				}
-				if _, err := (store.Agents{}).Register(ctx, sc, agentID, name, hostname, version, spiffe, capabilities); err != nil {
+				if _, err := (store.Agents{}).Reserve(ctx, sc, agentID, name, hostname, version, spiffe, capabilities); err != nil {
 					return err
 				}
 			}

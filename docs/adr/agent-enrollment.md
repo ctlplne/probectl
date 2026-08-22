@@ -107,8 +107,10 @@ the channel is server-auth TLS only (HTTPS-by-default recipes make that safe);
 the request is authenticated by the join token. The server: consumes the token
 → derives `tenant` from the TOKEN (never the request) → assigns or verifies the
 agent id → signs a leaf → records the issued identity (serial, SPIFFE id,
-expiry) in the registry → returns the leaf plus the CA bundle. The agent is now
-registered, so ingest verification immediately vouches for it.
+expiry) in the registry → returns the leaf plus the CA bundle. The registry now
+vouches for the tenant/agent pair, but the row remains `registered` with no
+`last_seen_at`: operational readiness becomes true only after the holder opens
+the authenticated mTLS transport and registers or heartbeats.
 
 **Rotate (identified, HTTPS):** before expiry (at roughly 2/3 of TTL) the
 agent calls `POST /enroll/agent/rotate` on the same HTTPS bootstrap surface —

@@ -149,6 +149,22 @@ func TestEnrollHappyPathIssuesTenantBoundSVID(t *testing.T) {
 	if err := binding.Verify(ctx, other.ID, id.AgentID); err == nil {
 		t.Fatal("S4 binding vouched for the agent under a foreign tenant")
 	}
+
+	// Issuing an SVID proves identity, not liveness. The registry reservation
+	// must remain non-operational until the holder opens the authenticated mTLS
+	// transport and calls Register/Heartbeat.
+	var enrolled *store.Agent
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, scope tenancy.Scope) error {
+		var getErr error
+		enrolled, getErr = (store.Agents{}).Get(ctx, scope, id.AgentID)
+		return getErr
+	})
+	if err != nil {
+		t.Fatalf("get enrolled agent: %v", err)
+	}
+	if enrolled.Status != "registered" || enrolled.LastSeenAt != nil {
+		t.Fatalf("enrollment claimed an operational connection: %+v", enrolled)
+	}
 }
 
 func TestEnrollTokenReplayRejected(t *testing.T) {

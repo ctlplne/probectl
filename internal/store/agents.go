@@ -37,8 +37,8 @@ type Agents struct{}
 
 // ProducerReadiness is the bounded onboarding view for one shipped producer
 // plane. Registered means a tenant-scoped registry row exists; Connected means
-// that row has completed at least one authenticated registration/heartbeat;
-// Healthy additionally requires an online, recent heartbeat.
+// that row has completed at least one authenticated transport registration or
+// heartbeat; Healthy additionally requires an online, recent heartbeat.
 type ProducerReadiness struct {
 	ID         string `json:"id"`
 	Registered bool   `json:"registered"`
@@ -70,10 +70,38 @@ func scanAgent(row interface{ Scan(...any) error }, a *Agent) error {
 	return nil
 }
 
-// Register upserts an agent identified by its certificate-derived id, marking it
-// online. It is idempotent — an agent may re-register at any time. The id and
-// tenant are authoritative (from the verified certificate), so this can never
-// write into another tenant: RLS confines the row to s.Tenant.
+// Reserve records an issued tenant-bound identity without claiming that its
+// holder has connected to the mTLS transport. Enrollment calls this after SVID
+// issuance so registry binding can fail closed immediately while operational
+// readiness remains false until Register or Heartbeat observes the agent.
+func (Agents) Reserve(ctx context.Context, s tenancy.Scope, id, name, hostname, version, spiffeID string, capabilities []string) (*Agent, error) {
+	if capabilities == nil {
+		capabilities = []string{}
+	}
+	caps, err := json.Marshal(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	var a Agent
+	err = scanAgent(s.Q.QueryRow(ctx,
+		`INSERT INTO agents (id, tenant_id, name, hostname, agent_version, status, capabilities, spiffe_id, last_seen_at)
+		 VALUES ($1, $2, $3, $4, $5, 'registered', $6::jsonb, $7, NULL)
+		 ON CONFLICT (id) DO UPDATE SET
+		   name = EXCLUDED.name, hostname = EXCLUDED.hostname, agent_version = EXCLUDED.agent_version,
+		   capabilities = EXCLUDED.capabilities, spiffe_id = EXCLUDED.spiffe_id
+		 RETURNING `+agentCols,
+		id, s.Tenant.String(), name, hostname, version, string(caps), spiffeID), &a)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// Register upserts an agent identified by its certificate-derived id, marking
+// it online after an authenticated transport registration. It is idempotent —
+// an agent may re-register at any time. The id and tenant are authoritative
+// (from the verified certificate), so this can never write into another tenant:
+// RLS confines the row to s.Tenant.
 func (Agents) Register(ctx context.Context, s tenancy.Scope, id, name, hostname, version, spiffeID string, capabilities []string) (*Agent, error) {
 	return (Agents{}).RegisterWithLabels(ctx, s, id, name, hostname, version, spiffeID, capabilities, nil)
 }
