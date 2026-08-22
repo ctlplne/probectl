@@ -67,14 +67,14 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/vmihailenco/tagparser/v2` | v2.0.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/zclconf/go-cty` | v1.17.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `go.opentelemetry.io/proto/otlp` | v1.10.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/crypto` | v0.53.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/mod` | v0.37.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/net` | v0.56.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/crypto` | v0.55.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/mod` | v0.40.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/net` | v0.58.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/oauth2` | v0.36.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/sync` | v0.21.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/sys` | v0.46.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/text` | v0.39.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/tools` | v0.47.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/sync` | v0.22.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/sys` | v0.47.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/text` | v0.41.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/tools` | v0.49.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `google.golang.org/genproto/googleapis/api` | v0.0.0-20260414002931-afd174a4e478 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `google.golang.org/genproto/googleapis/rpc` | v0.0.0-20260414002931-afd174a4e478 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `google.golang.org/grpc` | v1.82.1 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
@@ -90,8 +90,8 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `loose-envify` | 1.4.0 | runtime | MIT | web/package-lock.json:node_modules/loose-envify |
 | npm:web | `react` | 18.3.1 | runtime | MIT | web/package-lock.json:node_modules/react |
 | npm:web | `react-dom` | 18.3.1 | runtime | MIT | web/package-lock.json:node_modules/react-dom |
-| npm:web | `react-router` | 7.18.1 | runtime | MIT | web/package-lock.json:node_modules/react-router |
-| npm:web | `react-router-dom` | 7.18.1 | runtime | MIT | web/package-lock.json:node_modules/react-router-dom |
+| npm:web | `react-router` | 7.18.2 | runtime | MIT | web/package-lock.json:node_modules/react-router |
+| npm:web | `react-router-dom` | 7.18.2 | runtime | MIT | web/package-lock.json:node_modules/react-router-dom |
 | npm:web | `scheduler` | 0.23.2 | runtime | MIT | web/package-lock.json:node_modules/scheduler |
 | npm:web | `set-cookie-parser` | 2.7.2 | runtime | MIT | web/package-lock.json:node_modules/set-cookie-parser |
 | npm:web | `uplot` | 1.6.32 | runtime | MIT | web/package-lock.json:node_modules/uplot |
