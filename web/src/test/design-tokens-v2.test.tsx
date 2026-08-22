@@ -197,9 +197,7 @@ describe('expert design-token contract', () => {
     expect(targetFocus).toContain('outline: var(--focus-ring-width) solid var(--color-focus)')
     expect(targetFocus).toContain('outline-offset: var(--focus-ring-offset)')
     expect(button).toContain('min-height: var(--density-control-block)')
-    expect(button).toContain(
-      'border: var(--border-width-thin) solid var(--color-border-strong)',
-    )
+    expect(button).toContain('border: var(--border-width-thin) solid var(--color-border-strong)')
     expect(button).toContain('font-weight: var(--font-weight-bold)')
     expect(buttonFocus).toContain('outline: var(--focus-ring-width) solid var(--color-focus)')
     expect(buttonFocus).toContain('outline-offset: var(--focus-ring-offset)')

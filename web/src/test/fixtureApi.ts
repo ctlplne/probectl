@@ -2240,7 +2240,8 @@ export function fixtureFetch(
       })
     if (options.providerPlane && path === '/provider/v1/breakglass')
       return jsonResponse({ items: [] })
-    if (options.providerPlane && path === '/provider/v1/fairness') return jsonResponse({ items: [] })
+    if (options.providerPlane && path === '/provider/v1/fairness')
+      return jsonResponse({ items: [] })
     if (options.providerPlane && path === '/provider/v1/operators')
       return jsonResponse({ items: [providerOperator] })
     if (

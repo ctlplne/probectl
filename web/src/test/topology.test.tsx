@@ -265,7 +265,9 @@ describe('topology + what-if (S43)', () => {
       expect(
         urls.some((u) => {
           const request = new URL(u, 'https://probectl.test')
-          return request.pathname === '/v1/topology' && request.searchParams.get('at') === expectedAt
+          return (
+            request.pathname === '/v1/topology' && request.searchParams.get('at') === expectedAt
+          )
         }),
       ).toBe(true)
     })
