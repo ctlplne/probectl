@@ -6,6 +6,7 @@
 
 import { describe, expect, test, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
@@ -59,6 +60,7 @@ function summaryFixture(): CostResponse {
         { kind: 'team', name: 'payments', monthly_usd: 0.15, spent_usd: 0.38, exceeded: true },
         { kind: 'service', name: 'analytics', monthly_usd: 100, spent_usd: 1.2, exceeded: false },
       ],
+      data_since: '2026-06-04T11:00:00Z',
     },
   }
 }
@@ -127,6 +129,28 @@ describe('cost / FinOps summary (S44)', () => {
 
     expect((await screen.findAllByText(/0,38/)).length).toBeGreaterThan(0)
     expect(screen.getByText('17,0 GiB')).toBeInTheDocument()
+  })
+
+  test('makes tenant, project limitation, accumulation boundary, and range controls explicit', async () => {
+    const resp = summaryFixture()
+    resp.summary = {
+      ...resp.summary!,
+      trend: [
+        { hour: new Date(Date.now() - 30 * 60 * 1000).toISOString(), bytes: 2 ** 30, usd: 0.1 },
+      ],
+    }
+    vi.stubGlobal('fetch', stubWith(resp))
+    renderApp('/cost')
+
+    const scope = await screen.findByRole('note', { name: /cost scope and window/i })
+    expect(within(scope).getByText(/tenant Acme Industries/i)).toBeInTheDocument()
+    expect(within(scope).getByText(/project attribution unavailable/i)).toBeInTheDocument()
+    expect(within(scope).getByText(/control restart resets/i)).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText(/cost window/i), '1h')
+    expect(screen.getAllByText('Last 1 hour')).toHaveLength(2)
+    expect(screen.getAllByText('$0.10').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /refine in explorer/i })).toBeInTheDocument()
   })
 
   test('degradation honesty: volume-only mode never invents dollars', async () => {

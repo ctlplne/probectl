@@ -33,3 +33,26 @@
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
 }
+
+.scope {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.scope strong {
+  color: var(--color-text);
+}
+
+.filters {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-4);
+}

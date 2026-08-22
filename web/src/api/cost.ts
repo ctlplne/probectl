@@ -59,6 +59,8 @@ export interface CostSummary {
   chatty_pairs: ChattyPair[]
   trend: TrendPoint[]
   budgets: BudgetStatus[]
+  /** When this tenant's in-memory accumulation window opened. */
+  data_since?: string
 }
 
 export interface CostResponse {

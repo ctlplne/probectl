@@ -4,6 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styles from './cost.module.css'
 import { Page } from './RoutePage'
@@ -17,6 +18,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  Select,
   Table,
   type Column,
 } from '../components'
@@ -27,6 +29,17 @@ import { gib, usd, useCostSummary, type BudgetStatus, type ChattyPair } from '..
 import { useCarbon, type CarbonAgg } from '../api/carbon'
 import { useI18n } from '../i18n/useI18n'
 import { formatDecimal, formatUnit } from '../i18n/number'
+import { useAuth } from '../auth/useAuth'
+import { DateTime } from '../time/DateTime'
+
+type CostWindow = 'accumulation' | '1h' | '24h' | '168h'
+
+const COST_WINDOWS: { value: CostWindow; label: string }[] = [
+  { value: 'accumulation', label: 'Accumulation window' },
+  { value: '1h', label: 'Last 1 hour' },
+  { value: '24h', label: 'Last 24 hours' },
+  { value: '168h', label: 'Last 7 days' },
+]
 
 /** CostPage (S44): the native FinOps surface — spend by team/service
  * (showback), chatty cross-AZ conversations, budget status, and an hourly
@@ -35,11 +48,29 @@ import { formatDecimal, formatUnit } from '../i18n/number'
  * estimate in below — same traffic, same owners, grams instead of dollars. */
 export function CostPage() {
   const { locale, t } = useI18n()
+  const { tenant } = useAuth()
   const navigate = useNavigate()
   const { data, isPending, isError } = useCostSummary()
+  const [window, setWindow] = useState<CostWindow>('accumulation')
   const s = data?.summary
   const fmtGiB = (bytes: number) => gib(bytes, locale)
   const fmtUSD = (value: number) => usd(value, locale)
+
+  const windowHours = window === 'accumulation' ? null : Number.parseInt(window, 10)
+  const trendInWindow =
+    windowHours == null
+      ? (s?.trend ?? [])
+      : (s?.trend ?? []).filter(
+          (point) => Date.parse(point.hour) >= Date.now() - windowHours * 60 * 60 * 1000,
+        )
+  const displayedBytes =
+    windowHours == null
+      ? (s?.total_bytes ?? 0)
+      : trendInWindow.reduce((total, point) => total + point.bytes, 0)
+  const displayedUSD =
+    windowHours == null
+      ? (s?.total_usd ?? 0)
+      : trendInWindow.reduce((total, point) => total + point.usd, 0)
 
   const owners: Array<{ name: string; agg: { bytes: number; usd: number } }> = Object.entries(
     s?.by_team ?? {},
@@ -124,6 +155,34 @@ export function CostPage() {
             />
           ) : (
             <>
+              <div className={styles.scope} role="note" aria-label="cost scope and window">
+                <div>
+                  <strong>Scope:</strong> tenant {tenant.name} · all mapped teams and services ·
+                  project attribution unavailable in this summary
+                </div>
+                <div>
+                  <strong>Accumulation opened:</strong> <DateTime value={s.data_since} /> · control
+                  restart resets this in-memory boundary
+                </div>
+                <div>
+                  <strong>Retention:</strong> exact range totals use the retained hourly trend (up
+                  to 7 days); showback is full accumulation and budgets are month-to-date
+                </div>
+              </div>
+              <div className={styles.filters} aria-label="Cost view controls">
+                <Select
+                  label="Cost window"
+                  value={window}
+                  options={COST_WINDOWS}
+                  onChange={(event) => setWindow(event.target.value as CostWindow)}
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() => void navigate('/explore?template=cross-az-cost')}
+                >
+                  Refine in Explorer
+                </Button>
+              </div>
               {!s.priced && (
                 <div className={styles.notice} role="note" aria-label="volume-only mode">
                   Volume-only mode: no price table is loaded, so byte volumes are attributed but
@@ -139,11 +198,15 @@ export function CostPage() {
               <dl className={styles.totals}>
                 <div>
                   <dt>Total egress</dt>
-                  <dd>{fmtGiB(s.total_bytes)} GiB</dd>
+                  <dd>{fmtGiB(displayedBytes)} GiB</dd>
                 </div>
                 <div>
                   <dt>Total cost</dt>
-                  <dd>{s.priced ? fmtUSD(s.total_usd) : 'volume-only'}</dd>
+                  <dd>{s.priced ? fmtUSD(displayedUSD) : 'volume-only'}</dd>
+                </div>
+                <div>
+                  <dt>Displayed window</dt>
+                  <dd>{COST_WINDOWS.find((option) => option.value === window)?.label}</dd>
                 </div>
                 <div>
                   <dt>Pricing</dt>
