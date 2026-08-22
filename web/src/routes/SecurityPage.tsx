@@ -558,6 +558,14 @@ function DetectionsCard() {
                 wired — enable the incident store plus IOC/NDR/TLS consumers to populate triage.
               </p>
             ) : null}
+            <p className={styles.notice}>
+              Every detection is a confidence-scored, suppressible signal. Source-rule tuning is
+              reversible; probectl never blocks traffic. When configured, SIEM export forwards
+              the signal without turning probectl into a SIEM.{' '}
+              <Link to="/docs/api?filter=threat">Inspect threat evidence contract</Link>
+              {' · '}
+              <Link to="/docs/api?filter=siem">Inspect SIEM export posture</Link>
+            </p>
             <Table
               caption="Threat detections"
               columns={columns}

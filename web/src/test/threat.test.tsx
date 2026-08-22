@@ -358,5 +358,14 @@ describe('threat/IOC triage surface (S-FE3)', () => {
     vi.stubGlobal('fetch', fetcher)
     renderApp('/security')
     expect(await screen.findByText(/threat detection reader is not wired/)).toBeDefined()
+    expect(screen.getByText(/every detection is a confidence-scored, suppressible signal/i)).toBeDefined()
+    expect(screen.getByRole('link', { name: 'Inspect threat evidence contract' })).toHaveAttribute(
+      'href',
+      '/docs/api?filter=threat',
+    )
+    expect(screen.getByRole('link', { name: 'Inspect SIEM export posture' })).toHaveAttribute(
+      'href',
+      '/docs/api?filter=siem',
+    )
   })
 })
