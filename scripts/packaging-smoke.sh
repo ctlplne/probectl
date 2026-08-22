@@ -26,9 +26,12 @@ rendered="$work/nfpm.rendered.yaml"
 envsubst '${AGENT} ${ARCH} ${FILE_TAG} ${PKG_VERSION}' \
   < deploy/packaging/nfpm.yaml > "$rendered"
 
-# nfpm resolves contents.src relative to CWD; run from repo root with dist there.
-ln -sfn "$work/dist" ./dist-smoke 2>/dev/null || true
-sed -i "s#\./dist/#${work}/dist/#g" "$rendered"
+# nfpm resolves contents.src relative to CWD. Render through a second file
+# instead of in-place editing: BSD sed (macOS) requires a backup suffix while
+# GNU sed (CI/Linux) does not, so that form made this gate platform-specific.
+absolute_rendered="$work/nfpm.absolute.yaml"
+sed "s#\./dist/#${work}/dist/#g" "$rendered" > "$absolute_rendered"
+mv "$absolute_rendered" "$rendered"
 
 for pkg in deb rpm; do
     nfpm package -f "$rendered" -p "$pkg" -t "$work/dist"
