@@ -1427,7 +1427,7 @@ store_probes() {
   jq '{proof_kind:"prometheus_authenticated_tls_tenant_label_integrity",product_path_configured:true,control_round_trip_observed:true,direct_query:true,unfiltered_series_query:true,tls_verified:true,authenticated:true,tenant_a,tenant_b,observed_tenant_a_series:.tenant_a_own_visible_rows,observed_tenant_b_series:.tenant_b_own_visible_rows,total_observed_series,expected_tenant_labeled_series,missing_tenant_label_series,mismatched_tenant_label_series,isolation_claimed:false,detail:(.detail + "; release control also round-tripped both exact tenant OTLP marker series through this configured Prometheus, with independent exact direct queries bound in product-pipeline.json")}' \
     "${PRIVATE_DIR}/prometheus-raw.json" >"${PRIVATE_DIR}/prometheus-proof.json"
   jq '.control_connectivity_proven=true | .product_emitted_messages_observed=true | .observed_product_messages=4 |
-      .detail += " Release consumers committed beyond four independently observed product OTLP records; typed kafka-consumer-groups provenance is bound in product-pipeline.json."' \
+      .detail = "release control was proven connected to the real SASL_SSL broker. Four product-emitted OTLP records were independently observed, with typed kafka-consumer-groups provenance bound in product-pipeline.json. A separate authenticated manual tenant-tag probe preserved both mandatory tenant tags. Kafka reader isolation is not claimed."' \
     "${PRIVATE_DIR}/kafka-proof.json" >"${PRIVATE_DIR}/kafka-proof.json.next"
   mv "${PRIVATE_DIR}/kafka-proof.json.next" "${PRIVATE_DIR}/kafka-proof.json"
 
