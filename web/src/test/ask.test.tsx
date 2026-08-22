@@ -92,7 +92,7 @@ const answer = {
   ],
 }
 
-function stubAI(response = answer, feedbackStatus = 204) {
+function stubAI(response: unknown = answer, feedbackStatus = 204) {
   const calls: Array<{ url: string; body: unknown }> = []
   vi.stubGlobal(
     'fetch',
@@ -148,6 +148,32 @@ describe('AI assistant surface', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /yes, helpful/i }))
     await screen.findByText(/thanks/i)
+  })
+
+  test('renders a server null collection as honest insufficient evidence instead of crashing', async () => {
+    stubAI({
+      ...answer,
+      root_cause:
+        'Insufficient evidence: no signals were found for this question within your scope.',
+      root_cause_citations: null,
+      root_cause_grounded: false,
+      confidence: 'low',
+      insufficient_evidence: true,
+      investigation_plan: null,
+      findings: null,
+      evidence: null,
+    })
+    renderApp('/ask')
+    await screen.findByRole('heading', { name: /ask \(ai\)/i })
+    fireEvent.change(screen.getByLabelText(/your question/i), {
+      target: { value: 'what does the latest synthetic result show?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^ask$/i }))
+
+    expect(await screen.findByText(/did not find enough evidence/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/root cause ungrounded/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/built-in · local\/air-gapped/i)).toBeInTheDocument()
+    expect(screen.queryByText(/cannot read properties of null/i)).not.toBeInTheDocument()
   })
 
   test('groups evidence by plane, links citations to evidence, and shows backlinks', async () => {

@@ -99,20 +99,20 @@ type ABACPolicyList struct {
 }
 
 type AIAnswer struct {
-	Confidence           string                `json:"confidence,omitempty"`
+	Confidence           string                `json:"confidence"`
 	Degraded             bool                  `json:"degraded,omitempty"`
-	Evidence             []AIEvidence          `json:"evidence,omitempty"`
-	Findings             []AIFinding           `json:"findings,omitempty"`
-	Id                   string                `json:"id,omitempty"`
-	InsufficientEvidence bool                  `json:"insufficient_evidence,omitempty"`
+	Evidence             []AIEvidence          `json:"evidence"`
+	Findings             []AIFinding           `json:"findings"`
+	Id                   string                `json:"id"`
+	InsufficientEvidence bool                  `json:"insufficient_evidence"`
 	InvestigationPlan    []AIInvestigationStep `json:"investigation_plan,omitempty"`
-	Model                string                `json:"model,omitempty"`
-	Question             string                `json:"question,omitempty"`
-	Reasoning            AIReasoningProvenance `json:"reasoning,omitempty"`
-	RootCause            string                `json:"root_cause,omitempty"`
+	Model                string                `json:"model"`
+	Question             string                `json:"question"`
+	Reasoning            AIReasoningProvenance `json:"reasoning"`
+	RootCause            string                `json:"root_cause"`
 	RootCauseCitations   []AICitation          `json:"root_cause_citations,omitempty"`
-	RootCauseGrounded    bool                  `json:"root_cause_grounded,omitempty"`
-	Tenant               string                `json:"tenant,omitempty"`
+	RootCauseGrounded    bool                  `json:"root_cause_grounded"`
+	Tenant               string                `json:"tenant"`
 }
 
 type AIAskRequest struct {

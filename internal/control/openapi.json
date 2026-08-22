@@ -12509,6 +12509,19 @@
       },
       "AIAnswer": {
         "type": "object",
+        "required": [
+          "id",
+          "tenant",
+          "question",
+          "root_cause",
+          "root_cause_grounded",
+          "confidence",
+          "findings",
+          "evidence",
+          "model",
+          "reasoning",
+          "insufficient_evidence"
+        ],
         "properties": {
           "id": {
             "type": "string"

@@ -24,20 +24,20 @@ export interface ABACPolicyList {
 }
 
 export interface AIAnswer {
-  confidence?: "low" | "medium" | "high"
+  confidence: "low" | "medium" | "high"
   degraded?: boolean
-  evidence?: AIEvidence[]
-  findings?: AIFinding[]
-  id?: string
-  insufficient_evidence?: boolean
+  evidence: AIEvidence[]
+  findings: AIFinding[]
+  id: string
+  insufficient_evidence: boolean
   investigation_plan?: AIInvestigationStep[]
-  model?: string
-  question?: string
-  reasoning?: AIReasoningProvenance
-  root_cause?: string
+  model: string
+  question: string
+  reasoning: AIReasoningProvenance
+  root_cause: string
   root_cause_citations?: AICitation[]
-  root_cause_grounded?: boolean
-  tenant?: string
+  root_cause_grounded: boolean
+  tenant: string
 }
 
 export interface AIAskRequest {

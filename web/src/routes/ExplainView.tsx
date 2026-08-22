@@ -6,7 +6,14 @@
 
 import { forwardRef, useRef } from 'react'
 import { Badge, Button, Card, CardBody, CardHeader, ErrorState } from '../components'
-import { confidenceTone, useAsk, type Answer, type Citation, type Evidence } from '../api/ai'
+import {
+  confidenceTone,
+  normalizeAnswer,
+  useAsk,
+  type Answer,
+  type Citation,
+  type Evidence,
+} from '../api/ai'
 import { DateTime } from '../time/DateTime'
 import type { PivotContext } from './pivotContext'
 import { resolveClaims } from './explanationGrounding'
@@ -73,7 +80,8 @@ export function ExplainView({
 }: ExplainViewProps) {
   const ask = useAsk()
   const inspector = useRef<HTMLElement>(null)
-  const displayedAnswer = ask.data ?? initialAnswer
+  const rawDisplayedAnswer = ask.data ?? initialAnswer
+  const displayedAnswer = rawDisplayedAnswer ? normalizeAnswer(rawDisplayedAnswer) : undefined
 
   function explain() {
     const range =

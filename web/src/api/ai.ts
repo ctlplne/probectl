@@ -68,6 +68,31 @@ export interface Answer {
   insufficient_evidence: boolean
 }
 
+type AnswerPayload = Omit<
+  Answer,
+  'findings' | 'evidence' | 'investigation_plan' | 'root_cause_citations'
+> & {
+  findings: Finding[] | null
+  evidence: Evidence[] | null
+  investigation_plan?: InvestigationStep[] | null
+  root_cause_citations?: Citation[] | null
+}
+
+/**
+ * Treat response collections as untrusted at the HTTP boundary. Older servers
+ * and persisted artifacts may encode a nil Go slice as null; the UI must still
+ * render the honest insufficient-evidence state instead of going blank.
+ */
+export function normalizeAnswer(answer: Answer | AnswerPayload): Answer {
+  return {
+    ...answer,
+    findings: answer.findings ?? [],
+    evidence: answer.evidence ?? [],
+    investigation_plan: answer.investigation_plan ?? [],
+    root_cause_citations: answer.root_cause_citations ?? [],
+  }
+}
+
 export type ReasoningExecution =
   | 'builtin_local'
   | 'local_adapter'
@@ -93,12 +118,14 @@ export interface AskRequest {
 /** useAsk runs an RCA: a natural-language question → a cited, RBAC-scoped answer. */
 export function useAsk() {
   return useMutation({
-    mutationFn: (req: AskRequest) =>
-      apiFetch<Answer>('/ai/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
-      }),
+    mutationFn: async (req: AskRequest) =>
+      normalizeAnswer(
+        await apiFetch<Answer>('/ai/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(req),
+        }),
+      ),
   })
 }
 

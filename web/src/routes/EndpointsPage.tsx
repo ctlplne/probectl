@@ -5,6 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useMemo, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import styles from './security.module.css'
 import { Page } from './RoutePage'
 import {
@@ -236,6 +237,7 @@ type CauseFilter = 'all' | 'impaired' | 'wifi' | 'local' | 'isp' | 'network' | '
 export function EndpointsPage() {
   const { locale } = useI18n()
   const { push } = useToast()
+  const navigate = useNavigate()
   const [cause, setCause] = useState<CauseFilter>('all')
   const [needle, setNeedle] = useState('')
   const [viewName, setViewName] = useState('')
@@ -386,7 +388,15 @@ export function EndpointsPage() {
                 empty={
                   <EmptyState
                     title="No endpoints reporting"
-                    description="Endpoint agents publish WiFi/gateway/last-mile DEM samples automatically."
+                    description="Register an endpoint collector, then deploy the generated tenant-scoped configuration. Endpoint agents publish WiFi, gateway, and last-mile DEM samples automatically."
+                    action={
+                      <Button
+                        variant="primary"
+                        onClick={() => void navigate('/admin?register_collector=endpoint')}
+                      >
+                        Set up endpoint collection
+                      </Button>
+                    }
                   />
                 }
               />

@@ -336,4 +336,15 @@ describe('endpoint / WiFi DEM surface (S-FE4)', () => {
     renderApp('/endpoints')
     expect(await screen.findByText(/endpoint-view consumer is not wired/)).toBeDefined()
   })
+
+  test('empty fleet offers the real tenant-scoped endpoint setup journey', async () => {
+    const { fetcher } = endpointsBackend([])
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/endpoints')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Set up endpoint collection' }))
+
+    const dialog = await screen.findByRole('dialog', { name: /register collector/i })
+    expect(within(dialog).getByLabelText(/collector plane/i)).toHaveValue('endpoint')
+  })
 })

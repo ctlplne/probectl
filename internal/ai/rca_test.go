@@ -8,6 +8,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -252,6 +253,13 @@ func TestAnalyzeInsufficientAndNoTenant(t *testing.T) {
 	}
 	if len(ans.Findings) != 0 {
 		t.Errorf("insufficient answer must make no claims, got %+v", ans.Findings)
+	}
+	encoded, err := json.Marshal(ans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"evidence":[]`) || !strings.Contains(string(encoded), `"findings":[]`) {
+		t.Fatalf("insufficient answer collections must encode as arrays, got %s", encoded)
 	}
 	if _, err := a.Analyze(context.Background(), principal(""), Question{Text: "x"}); err != ErrNoTenant {
 		t.Errorf("tenantless principal must fail closed, got %v", err)

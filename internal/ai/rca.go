@@ -194,7 +194,10 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	// Evidence IDs carry a per-session random nonce (U-037): non-sequential,
 	// unguessable — injected telemetry text cannot fabricate a citable ID.
 	idPrefix := sessionIDPrefix()
-	var evidence []Evidence
+	// JSON collection fields are an API contract: an authorized query with no
+	// matching rows returns [], never null. Besides being easier for every SDK,
+	// this keeps the honest insufficient-evidence path renderable in the UI.
+	evidence := make([]Evidence, 0)
 	n := 0
 	for i, query := range queries {
 		if len(evidence) >= a.maxEvidence {
