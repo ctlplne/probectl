@@ -87,7 +87,9 @@ describe('structured and natural-language Explorer', () => {
     const stable = screen.getByRole('link', { name: 'Stable view link' }).getAttribute('href') ?? ''
     const pivot = screen.getByRole('link', { name: 'Open evidence' }).getAttribute('href') ?? ''
     expect(stable).toMatch(/^\/explore\?template=service-dependencies/)
+    expect(stable).toContain('run=1')
     expect(pivot).toMatch(/^\/topology\?ctx_v=1/)
+    expect(decodeURIComponent(pivot)).toContain('run=1')
     expect(`${stable}${pivot}`).not.toMatch(/tenant|secret|token/i)
 
     await user.type(screen.getByLabelText('View name'), 'Service graph')
@@ -107,6 +109,29 @@ describe('structured and natural-language Explorer', () => {
     expect(screen.getByLabelText('Ask in natural language')).toHaveValue(
       'Show edges by kind from topology',
     )
+  })
+
+  test('re-executes an explicit stable query after history or evidence return', async () => {
+    const base = defaultFetch()
+    const requests: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/explorer/query' && init?.method === 'POST')
+          requests.push(JSON.parse(String(init.body)))
+        return base(input, init)
+      }),
+    )
+
+    renderApp(
+      '/explore?template=service-dependencies&from=2026-07-14T11%3A00%3A00.000Z&to=2026-07-14T12%3A00%3A00.000Z&filter=from%3Afrom-value&run=1',
+    )
+
+    const table = await screen.findByRole('table', { name: 'Explorer exact-value results' })
+    expect(within(table).getByText('from-value')).toBeInTheDocument()
+    expect(screen.getByLabelText('Filter exact value')).toHaveValue('from-value')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({ filters: { from: 'from-value' } })
   })
 
   test('compares two explicit windows with stable links and honest delta states', async () => {

@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Badge,
@@ -146,6 +146,7 @@ function stableHref(query: ExplorerQuery, comparison: ComparisonWindow | null) {
     params.set('previous_from', comparison.from)
     params.set('previous_to', comparison.to)
   }
+  params.set('run', '1')
   return `/explore?${params.toString()}`
 }
 
@@ -399,13 +400,14 @@ function timeSeriesFromRows(
 }
 
 export function ExplorerPage() {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const schema = useExplorerSchema()
   const run = useExplorerQuery()
   const comparisonRun = useExplorerComparison()
   const [query, setQuery] = useState<ExplorerQuery | null>(null)
   const [comparison, setComparison] = useState<ComparisonWindow | null>(null)
   const [filterKey, setFilterKey] = useState('')
+  const autoExecutedHref = useRef('')
 
   useEffect(() => {
     if (query || !schema.data?.templates.length) return
@@ -434,6 +436,25 @@ export function ExplorerPage() {
     setFilterKey(Object.keys(next.filters)[0] ?? next.dimensions[0] ?? '')
     setQuery(next)
   }, [params, query, schema.data])
+
+  useEffect(() => {
+    if (!query || params.get('run') !== '1') return
+    const requestedHref = `/explore?${params.toString()}`
+    if (stableHref(query, comparison) !== requestedHref) return
+    if (autoExecutedHref.current === requestedHref) return
+    autoExecutedHref.current = requestedHref
+    if (comparison) {
+      run.reset()
+      comparisonRun.mutate({
+        query,
+        previous_from: comparison.from,
+        previous_to: comparison.to,
+      })
+    } else {
+      comparisonRun.reset()
+      run.mutate(query)
+    }
+  }, [comparison, comparisonRun, params, query, run])
 
   const columns = useMemo<Column<Record<string, unknown>>[]>(
     () =>
@@ -589,6 +610,9 @@ export function ExplorerPage() {
             data-explorer-builder
             onSubmit={(event) => {
               event.preventDefault()
+              const href = stableHref(query, comparison)
+              autoExecutedHref.current = href
+              setParams(new URLSearchParams(href.slice(href.indexOf('?') + 1)))
               if (comparison) {
                 run.reset()
                 comparisonRun.mutate({

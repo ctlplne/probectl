@@ -101,10 +101,13 @@ indistinguishable from a missing ID (`404 saved view not found`).
 
 The stable view link contains the recipe, absolute UTC time range, exact filters, and—when
 enabled—the explicit previous UTC window. It never contains tenant identity or credentials.
-“Open evidence” uses the common short-lived pivot contract to carry the same time/filter
-context to the source screen, and “Explain this view” uses the tenant/RBAC-scoped AI evidence
-engine. The exact result table remains available beside both paths so a chart or explanation
-never hides the source values.
+Running a query pushes that stable view into browser history. Opening the link, including by
+returning from native evidence with browser Back, re-executes the same read-only query inside
+the newly authenticated tenant boundary so the result receipt is current rather than cached
+client state. “Open evidence” uses the common short-lived pivot contract to carry the same
+time/filter context to the source screen, and “Explain this view” uses the tenant/RBAC-scoped
+AI evidence engine. The exact result table remains available beside both paths so a chart or
+explanation never hides the source values.
 
 ## Operator and CLI examples
 
