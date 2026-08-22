@@ -15,13 +15,13 @@ you do not pin them yourself.
 
 | Tool            | Version              | Used for                                                                                          |
 | --------------- | -------------------- | ------------------------------------------------------------------------------------------------- |
-| Go              | 1.26.5 (exact)       | control plane, agents, CLI (the patch is pinned — see [`build/toolchain.md`](build/toolchain.md)) |
+| Go              | 1.26.7 (exact)       | control plane, agents, CLI (the patch is pinned — see [`build/toolchain.md`](build/toolchain.md)) |
 | Python          | 3.11+ (CI runs 3.12) | the BGP analyzer (`analyzer/`)                                                                    |
 | Docker + Buildx | recent               | dev stack + multi-arch images                                                                     |
 | golangci-lint   | v2.12.2              | Go linting (installed via `make tools`)                                                           |
 | buf             | v1.50.0              | protobuf lint + codegen (installed via `make proto-tools`)                                        |
 
-> The Go version is pinned to the _exact patch_ (`1.26.5`), not a loose `1.26`.
+> The Go version is pinned to the _exact patch_ (`1.26.7`), not a loose `1.26`.
 > That is intentional — it keeps `govulncheck`'s standard-library scan honest and
 > keeps the FIPS build working under `GOTOOLCHAIN=local`. Details:
 > [`build/toolchain.md`](build/toolchain.md).

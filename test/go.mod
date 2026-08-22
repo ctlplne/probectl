@@ -5,8 +5,7 @@
 // ...) from the production module added in S6+.
 module github.com/ctlplne/probectl/test
 
-go 1.26.5
+go 1.26.7
 
-// Patched toolchain (including GO-2026-5856 crypto/tls). Keep in sync with the
-// root module + go.work.
-toolchain go1.26.5
+// Patched toolchain. Keep in sync with the root module + go.work.
+toolchain go1.26.7

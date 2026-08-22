@@ -2,9 +2,9 @@
 # Rendered-browser agent: the static Go canary runtime plus the existing
 # listener-free Playwright worker in one process namespace/image.
 
-ARG GO_VERSION=1.26.5
+ARG GO_VERSION=1.26.7
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651 AS build
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:6ef6e30f0ea5c384f6d111cf856e024e3086bbdcb1779da3f3b3fbba0aea53d2 AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=0.0.0-dev
