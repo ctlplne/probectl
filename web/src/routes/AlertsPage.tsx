@@ -234,7 +234,15 @@ function linkedIncidentForAlert(alert: ActiveAlert, incidents: Incident[]): Inci
   })
 }
 
-function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: () => void }) {
+function ActiveAlertDetail({
+  alert,
+  onClose,
+  returnTo,
+}: {
+  alert: ActiveAlert
+  onClose: () => void
+  returnTo: string
+}) {
   const { push } = useToast()
   const silence = useSilenceAlert()
   const ack = useAckAlert()
@@ -282,7 +290,7 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
         from: alert.since,
         to: alert.last_seen_at,
         filters: {},
-        returnTo: '/alerts',
+        returnTo,
       })
     : undefined
 
@@ -1022,6 +1030,14 @@ function MaintenanceWindowForm({
 type StateFilter = 'all' | 'firing' | 'silenced' | 'acked'
 type SeverityFilter = 'all' | 'info' | 'warning' | 'critical'
 
+const ALERT_DETAIL_PARAM = 'alert'
+const ALERT_CONTEXT_PARAMS = [
+  'alert_q',
+  'alert_state',
+  'alert_severity',
+  ALERT_DETAIL_PARAM,
+] as const
+
 /** AlertsPage is the S16 alerting surface (S-FE1): the engine's firing alerts
  *  (filter, detail, silence, acknowledge) over the durable rule config. */
 export function AlertsPage() {
@@ -1038,7 +1054,6 @@ export function AlertsPage() {
   const severityFilter = filterValue(params, 'alert_severity', 'all') as SeverityFilter
   const setFilter = (patch: Record<string, string>) =>
     setURLFilters(params, setParams, defaults, patch)
-  const [detail, setDetail] = useState<string | null>(null) // fingerprint
   const [editing, setEditing] = useState<AlertRule | null>(null)
   const [creating, setCreating] = useState(false)
   const [editingWindow, setEditingWindow] = useState<MaintenanceWindow | null>(null)
@@ -1063,9 +1078,32 @@ export function AlertsPage() {
     })
   }, [activeItems, query, stateFilter, severityFilter])
 
-  // Keep an opened workflow available when its state changes and the current
-  // table filter would otherwise hide it (for example firing -> acknowledged).
-  const detailAlert = activeItems?.find((a) => a.fingerprint === detail) ?? null
+  // Use the tenant-neutral evaluation fingerprint as a bounded URL handle so
+  // browser history and incident return links can restore the same workflow.
+  // The raw alert fingerprint includes labels (including tenant_id), so it must
+  // never be used in browser-visible state.
+  const detailEvaluationFingerprint = params.get(ALERT_DETAIL_PARAM)
+  const detailAlert =
+    activeItems?.find((a) => a.evaluation_fingerprint === detailEvaluationFingerprint) ?? null
+  const detailReturnParams = new URLSearchParams()
+  ALERT_CONTEXT_PARAMS.forEach((key) => {
+    const value = params.get(key)
+    if (value) detailReturnParams.set(key, value)
+  })
+  const detailReturnQuery = detailReturnParams.toString()
+  const detailReturnTo = `/alerts${detailReturnQuery ? `?${detailReturnQuery}` : ''}`
+
+  const openAlertDetail = (alert: ActiveAlert) => {
+    const next = new URLSearchParams(params)
+    next.set(ALERT_DETAIL_PARAM, alert.evaluation_fingerprint)
+    setParams(next)
+  }
+
+  const closeAlertDetail = () => {
+    const next = new URLSearchParams(params)
+    next.delete(ALERT_DETAIL_PARAM)
+    setParams(next, { replace: true })
+  }
 
   useEffect(() => {
     if (params.get('task') !== 'schedule-maintenance') return
@@ -1077,9 +1115,9 @@ export function AlertsPage() {
 
   useEffect(() => {
     if (params.get('task') !== 'silence-alert' || items.length === 0) return
-    setDetail(items[0].fingerprint)
     const next = new URLSearchParams(params)
     next.delete('task')
+    next.set(ALERT_DETAIL_PARAM, items[0].evaluation_fingerprint)
     setParams(next, { replace: true })
   }, [items, params, setParams])
 
@@ -1115,7 +1153,7 @@ export function AlertsPage() {
       header: <span className="sr-only">Actions</span>,
       align: 'end',
       render: (a) => (
-        <Button size="sm" variant="ghost" onClick={() => setDetail(a.fingerprint)}>
+        <Button size="sm" variant="ghost" onClick={() => openAlertDetail(a)}>
           Details
         </Button>
       ),
@@ -1412,7 +1450,11 @@ export function AlertsPage() {
         <OncallRoutingCard />
       </div>
       {detailAlert ? (
-        <ActiveAlertDetail alert={detailAlert} onClose={() => setDetail(null)} />
+        <ActiveAlertDetail
+          alert={detailAlert}
+          onClose={closeAlertDetail}
+          returnTo={detailReturnTo}
+        />
       ) : null}
       {creating ? <RuleForm onClose={() => setCreating(false)} /> : null}
       {editing ? <RuleForm rule={editing} onClose={() => setEditing(null)} /> : null}

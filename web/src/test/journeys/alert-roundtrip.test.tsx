@@ -321,7 +321,7 @@ describe('alert-to-postmortem round trip (X11)', () => {
       incidentId: incident.id,
       from: SINCE,
       to: LAST_SEEN,
-      returnTo: '/alerts',
+      returnTo: '/alerts?alert_state=firing&alert=eval%3Aroundtrip-series',
     })
     expect(url.search.toLowerCase()).not.toContain('tenant')
     expect(
@@ -330,6 +330,28 @@ describe('alert-to-postmortem round trip (X11)', () => {
       ),
     ).toHaveLength(2)
     expect(requests.every((request) => !request.path.includes('tenant'))).toBe(true)
+  })
+
+  test('restores the same alert detail from the opaque return context', async () => {
+    const { fetcher } = roundtripBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderWithLocation('/alerts?alert=eval%3Aroundtrip-series')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Database latency' })
+    expect(dialog).toHaveTextContent('db')
+    expect(currentURL().searchParams.get('alert')).toBe('eval:roundtrip-series')
+
+    const incidentLink = await within(dialog).findByRole('link', {
+      name: 'Open incident & postmortem context',
+    })
+    const incidentURL = new URL(
+      incidentLink.getAttribute('href') ?? '/',
+      'https://probectl.invalid',
+    )
+    expect(parsePivotContext(incidentURL.searchParams).context.returnTo).toBe(
+      '/alerts?alert=eval%3Aroundtrip-series',
+    )
+    expect(incidentURL.search.toLowerCase()).not.toContain('tenant')
   })
 
   test('expired silence visibly returns to firing and a missing connector has one safe action', async () => {
