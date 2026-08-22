@@ -40,23 +40,24 @@ func TestDockerWebStageCarriesPrebuildInputs(t *testing.T) {
 	}
 }
 
-// TestDockerRuntimeSeedsNonRootCertDirectory prevents the shipped named-volume
-// quickstart from regressing to a root-owned /certs mount. Both certgen and
-// control intentionally run as distroless nonroot, so seeding the image path is
-// what lets certgen create a 0600 key that control can subsequently read.
-func TestDockerRuntimeSeedsNonRootCertDirectory(t *testing.T) {
+// TestDockerRuntimeSeedsNonRootWritableDirectories prevents the shipped named-
+// volume quickstart from regressing to root-owned /certs or /var/lib/probectl
+// mounts. Certgen, control, and the real-Dex overlay intentionally run as
+// distroless nonroot, so both writable volume roots must inherit UID/GID 65532.
+func TestDockerRuntimeSeedsNonRootWritableDirectories(t *testing.T) {
 	dockerfile, err := os.ReadFile("../../deploy/docker/Dockerfile")
 	if err != nil {
 		t.Fatalf("read deploy/docker/Dockerfile: %v", err)
 	}
 	text := string(dockerfile)
 	for _, want := range []string{
-		"RUN install -d -m 0700 -o 65532 -g 65532 /out/certs",
+		"RUN install -d -m 0700 -o 65532 -g 65532 /out/certs /out/probectl",
 		"COPY --from=build --chown=nonroot:nonroot /out/certs/ /certs/",
+		"COPY --from=build --chown=nonroot:nonroot /out/probectl/ /var/lib/probectl/",
 		"USER nonroot:nonroot",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("Docker runtime is missing non-root certificate-volume contract %q", want)
+			t.Fatalf("Docker runtime is missing non-root writable-volume contract %q", want)
 		}
 	}
 }

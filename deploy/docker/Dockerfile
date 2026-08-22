@@ -72,11 +72,12 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
         -X github.com/ctlplne/probectl/internal/version.Date=${DATE}" \
       -o /out/app ./cmd/${COMPONENT}
-# A named volume mounted over a path absent from the image is initialized as
-# root-owned. Seed an empty non-root directory so the one-shot `gen-cert`
-# process can write the shared quickstart certificate without running as root;
-# the 0600 private key remains owned by the same non-root identity as control.
-RUN install -d -m 0700 -o 65532 -g 65532 /out/certs
+# Named volumes mounted over paths absent from the image are initialized as
+# root-owned. Seed both writable runtime paths with the distroless nonroot
+# identity: certgen needs /certs for its 0600 private key, and control plus the
+# real-Dex overlay need /var/lib/probectl for the envelope/evidence keys, tenant
+# object store, and Dex SQLite state.
+RUN install -d -m 0700 -o 65532 -g 65532 /out/certs /out/probectl
 
 # Minimal, non-root runtime. distroless/static keeps the image tiny and
 # vulnerability-free for static Go binaries.
@@ -87,5 +88,6 @@ LABEL org.opencontainers.image.source="https://github.com/ctlplne/probectl" \
       org.opencontainers.image.description="probectl ${COMPONENT}"
 COPY --from=build /out/app /usr/local/bin/app
 COPY --from=build --chown=nonroot:nonroot /out/certs/ /certs/
+COPY --from=build --chown=nonroot:nonroot /out/probectl/ /var/lib/probectl/
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/app"]
