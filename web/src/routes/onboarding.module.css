@@ -185,6 +185,38 @@
   gap: var(--space-3);
 }
 
+.checkboxLabel {
+  display: flex;
+  gap: var(--space-2);
+  align-items: start;
+  color: var(--color-text);
+}
+
+.checkboxLabel input {
+  margin-block-start: var(--space-1);
+}
+
+.fieldHint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.configIntro {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.configSnippet {
+  max-width: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+}
+
 .receipt {
   margin-block-start: var(--space-4);
   padding-block-start: var(--space-4);

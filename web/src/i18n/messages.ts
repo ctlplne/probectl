@@ -828,6 +828,12 @@ const en = {
   'onboarding.test.target': 'Target',
   'onboarding.test.interval': 'Interval seconds',
   'onboarding.test.intervalHint': 'Minimum 10 seconds. Shorter values will not submit.',
+  'onboarding.test.allowPrivate': 'Allow this test to probe private or loopback addresses',
+  'onboarding.test.allowPrivateHint':
+    'Required for the default 127.0.0.1 target. Admin-only, tenant-scoped, and recorded in the audit trail for this test.',
+  'onboarding.test.configHint':
+    'Add this exact canary block to the enrolled agent configuration, then start the agent. Creating a server definition does not silently change an agent host.',
+  'onboarding.test.copyConfig': 'Copy agent config',
   'onboarding.test.creating': 'Creating...',
   'onboarding.test.create': 'Create first test',
   'onboarding.test.enabled': '{name} is enabled',
@@ -2130,6 +2136,13 @@ const es: Record<MessageKey, string> = {
   'onboarding.test.target': 'Objetivo',
   'onboarding.test.interval': 'Intervalo en segundos',
   'onboarding.test.intervalHint': 'Minimo 10 segundos. Los valores menores no se enviaran.',
+  'onboarding.test.allowPrivate':
+    'Permitir que esta prueba consulte direcciones privadas o de bucle local',
+  'onboarding.test.allowPrivateHint':
+    'Obligatorio para el objetivo 127.0.0.1 predeterminado. Solo para administradores, limitado al tenant y registrado en la auditoria de esta prueba.',
+  'onboarding.test.configHint':
+    'Agrega este bloque canary exacto a la configuracion del agente enrolado y luego inicia el agente. Crear una definicion en el servidor no cambia silenciosamente un host de agente.',
+  'onboarding.test.copyConfig': 'Copiar configuracion del agente',
   'onboarding.test.creating': 'Creando...',
   'onboarding.test.create': 'Crear primera prueba',
   'onboarding.test.enabled': '{name} esta habilitada',
@@ -3380,6 +3393,12 @@ const ar: Record<MessageKey, string> = {
   'onboarding.test.target': 'الهدف',
   'onboarding.test.interval': 'الفاصل بالثواني',
   'onboarding.test.intervalHint': 'الحد الأدنى 10 ثوانٍ. لن تُرسل القيم الأقصر.',
+  'onboarding.test.allowPrivate': 'السماح لهذا الاختبار بفحص عناوين خاصة أو محلية',
+  'onboarding.test.allowPrivateHint':
+    'مطلوب للهدف الافتراضي 127.0.0.1. للمسؤول فقط، ومقيّد بالمستأجر، ومسجل في سجل التدقيق لهذا الاختبار.',
+  'onboarding.test.configHint':
+    'أضف كتلة canary هذه إلى إعداد الوكيل المسجل ثم شغّل الوكيل. إنشاء تعريف على الخادم لا يغيّر مضيف الوكيل بصمت.',
+  'onboarding.test.copyConfig': 'نسخ إعداد الوكيل',
   'onboarding.test.creating': 'جار الإنشاء...',
   'onboarding.test.create': 'إنشاء الاختبار الأول',
   'onboarding.test.enabled': '{name} مفعّل',

@@ -154,9 +154,15 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     )
 
     const firstTest = cardByHeading(/create the first test/i)
+    expect(
+      within(firstTest).getByRole('checkbox', { name: /private or loopback addresses/i }),
+    ).toBeChecked()
     await user.clear(within(firstTest).getByLabelText(/test name/i))
     await user.type(within(firstTest).getByLabelText(/test name/i), 'checkout-health')
     await user.selectOptions(within(firstTest).getByLabelText(/type/i), 'http')
+    expect(
+      within(firstTest).getByRole('checkbox', { name: /private or loopback addresses/i }),
+    ).not.toBeChecked()
     await user.clear(within(firstTest).getByLabelText(/^target$/i))
     await user.type(
       within(firstTest).getByLabelText(/^target$/i),
@@ -177,12 +183,39 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
       target: 'https://checkout.example/health',
       interval_seconds: 60,
       timeout_seconds: 3,
+      params: {},
       enabled: true,
     })
     expect(capture.invite).toEqual({ name: 'first-run-teammates' })
     expect(capture.enroll).not.toHaveProperty('tenant_id')
     expect(capture.test).not.toHaveProperty('tenant_id')
     expect(capture.invite).not.toHaveProperty('tenant_id')
+  })
+
+  test('makes the default loopback SSRF exception explicit, tenant-scoped, and per-test', async () => {
+    const user = userEvent.setup()
+    const capture: { test?: Record<string, unknown> } = {}
+    vi.stubGlobal('fetch', onboardingFetch(capture))
+
+    renderApp('/')
+    expect(await screen.findByRole('heading', { name: /first-run setup/i })).toBeInTheDocument()
+    const firstTest = cardByHeading(/create the first test/i)
+    expect(await within(firstTest).findByDisplayValue('127.0.0.1')).toBeInTheDocument()
+    expect(within(firstTest).getByText(/admin-only, tenant-scoped/i)).toBeInTheDocument()
+
+    await user.click(within(firstTest).getByRole('button', { name: /create first test/i }))
+
+    expect(await screen.findByText(/first-loopback-check is enabled/i)).toBeInTheDocument()
+    expect(screen.getByText(/test_id: "test_onboarding"/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/creating a server definition does not silently change/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText('probectl-agent -config /etc/probectl/agent.yml')).toBeInTheDocument()
+    expect(capture.test).toMatchObject({
+      target: '127.0.0.1',
+      params: { allow_private_targets: 'true' },
+    })
+    expect(capture.test).not.toHaveProperty('tenant_id')
   })
 
   test('resumes token-created progress after a reload without browser storage', async () => {

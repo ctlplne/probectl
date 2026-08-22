@@ -110,6 +110,25 @@ function firstTestTargetPlaceholder(type: string): string {
   }
 }
 
+function agentCanaryYAML(test: Test): string {
+  const lines = [
+    'canaries:',
+    `  - test_id: ${JSON.stringify(test.id)}`,
+    `    type: ${JSON.stringify(test.type)}`,
+    `    target: ${JSON.stringify(test.target)}`,
+    `    interval: ${test.interval_seconds}s`,
+    `    timeout: ${test.timeout_seconds}s`,
+  ]
+  const params = Object.entries(test.params ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )
+  if (params.length > 0) {
+    lines.push('    params:')
+    for (const [key, value] of params) lines.push(`      ${key}: ${JSON.stringify(value)}`)
+  }
+  return lines.join('\n')
+}
+
 type ReadinessStepID = 'credential' | 'connected' | 'healthy' | 'result' | 'finding'
 
 interface ReadinessStep {
@@ -173,6 +192,10 @@ export function OnboardingPage() {
   const [testType, setTestType] = useState('icmp')
   const [testTarget, setTestTarget] = useState('127.0.0.1')
   const [testInterval, setTestInterval] = useState('60')
+  // The sovereign first-run default is loopback, so its existing per-test SSRF
+  // exception starts selected and visible. Changing probe type resets the
+  // exception: a public target must not inherit privileged access silently.
+  const [allowPrivateTargets, setAllowPrivateTargets] = useState(true)
   const [createdTest, setCreatedTest] = useState<Test | null>(null)
 
   const [inviteName, setInviteName] = useState('first-run-teammates')
@@ -275,7 +298,7 @@ export function OnboardingPage() {
         target: testTarget.trim(),
         interval_seconds: Number.isFinite(interval) && interval > 0 ? Math.round(interval) : 60,
         timeout_seconds: 3,
-        params: {},
+        params: allowPrivateTargets ? { allow_private_targets: 'true' } : {},
         enabled: true,
       },
       {
@@ -542,6 +565,7 @@ export function OnboardingPage() {
                   const next = e.target.value
                   setTestType(next)
                   setTestTarget(firstTestTargetPlaceholder(next))
+                  setAllowPrivateTargets(false)
                 }}
                 options={FIRST_TEST_TYPES.map((type) => ({ value: type, label: type }))}
               />
@@ -559,6 +583,15 @@ export function OnboardingPage() {
                 onChange={(e) => setTestInterval(e.target.value)}
                 hint={t('onboarding.test.intervalHint')}
               />
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={allowPrivateTargets}
+                  onChange={(e) => setAllowPrivateTargets(e.target.checked)}
+                />
+                <span>{t('onboarding.test.allowPrivate')}</span>
+              </label>
+              <p className={styles.fieldHint}>{t('onboarding.test.allowPrivateHint')}</p>
               <Button
                 type="submit"
                 variant="primary"
@@ -580,6 +613,17 @@ export function OnboardingPage() {
                   label={t('onboarding.test.enabled', { name: createdTest.name })}
                 />
                 <code>{createdTest.target}</code>
+                <p className={styles.configIntro}>{t('onboarding.test.configHint')}</p>
+                <pre className={styles.configSnippet}>
+                  <code>{agentCanaryYAML(createdTest)}</code>
+                </pre>
+                <Button
+                  variant="secondary"
+                  onClick={() => void navigator.clipboard?.writeText(agentCanaryYAML(createdTest))}
+                >
+                  <Icon name="check" /> {t('onboarding.test.copyConfig')}
+                </Button>
+                <code>probectl-agent -config /etc/probectl/agent.yml</code>
                 <Button variant="secondary" onClick={() => void navigate('/targets')}>
                   <Icon name="targets" /> {t('onboarding.test.openTests')}
                 </Button>

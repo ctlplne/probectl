@@ -78,9 +78,14 @@ trust its self-signed certificate by passing `--cacert ./certs/ca.crt` to `curl`
 3. **Define and run your first network / HTTP / DNS test.** The First-run setup
    page defaults to an ICMP check of `127.0.0.1`, a real loopback observation
    that does not require outbound Internet access. You may use that default or
-   create another synthetic test
-   — for example an HTTP check, an Internet Control Message Protocol (ICMP) ping, or
-   a Domain Name System (DNS) lookup — by posting to the tests route:
+   create another synthetic test. Because loopback and private addresses are
+   denied by default, the page visibly selects the existing per-test
+   `allow_private_targets` exception for this default only. The exception is
+   admin-only, tenant-scoped, and written to the audit trail; changing the probe
+   type clears it so a public target cannot inherit privileged reachability.
+   You can also create an HTTP check, an Internet Control Message Protocol
+   (ICMP) ping, or a Domain Name System (DNS) lookup — by posting to the tests
+   route:
 
    ```sh
    curl --cacert ./certs/ca.crt -X POST https://127.0.0.1:8443/v1/tests \
@@ -88,8 +93,12 @@ trust its self-signed certificate by passing `--cacert ./certs/ca.crt` to `curl`
      -d '{"name": "homepage", "type": "http", "target": "https://example.com/", "interval_seconds": 30, "params": {"method": "GET", "expect_status": "2xx,3xx"}}'
    ```
 
-   You observe the test registered. Within one interval the enrolled canary runs it
-   and streams a result back. The test types and their parameters are detailed in
+   You observe the test registered. The receipt provides the exact `canaries:`
+   YAML block, including this server definition's `test_id`, to add to the
+   enrolled agent configuration. This explicit local step is intentional: the
+   control plane never silently changes an agent host. Start the agent with the
+   shown config command; within one interval it runs the probe and streams a
+   result back. The test types and their parameters are detailed in
    [active / synthetic testing](../features/active-testing.md).
 
 4. **Read the first finding receipt, then see the path map.** First-run setup
