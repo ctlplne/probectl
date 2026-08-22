@@ -5,8 +5,8 @@ control_plane:
   grpc_addr: "127.0.0.1:9443"
 
 tls:
-  cert_file: /identity/cert.pem
-  key_file: /identity/key.pem
+  cert_file: /var/lib/probectl/identity/cert.pem
+  key_file: /var/lib/probectl/identity/key.pem
   ca_file: /certs/ca.crt
   server_name: "localhost"
 
@@ -21,10 +21,10 @@ agent:
   heartbeat_interval: 30s
 
 buffer:
-  dir: /var/lib/probectl-agent/buffer
+  dir: /var/lib/probectl/buffer
 
 artifact_store:
-  dir: /var/lib/probectl-agent/objects
+  dir: /var/lib/probectl/objects
 
 browser:
   driver: browser

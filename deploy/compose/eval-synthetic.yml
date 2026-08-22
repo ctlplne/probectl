@@ -116,7 +116,10 @@ services:
       # (already-consumed) token fails closed with a clear error.
       PROBECTL_AGENT_JOIN_TOKEN: "${PROBECTL_JOIN_TOKEN:?set PROBECTL_JOIN_TOKEN to the pjt_ token from enroll-token}"
     volumes:
-      - identity:/identity
+      # Mount at the directory the distroless image seeds as UID/GID 65532.
+      # A named volume mounted at a new root such as /identity is root-owned
+      # and prevents the non-root agent from persisting its enrolled SVID.
+      - identity:/var/lib/probectl
       - certs:/certs:ro
       - ./eval-agent.yml:/etc/probectl/agent.yml:ro
     command: ["-config", "/etc/probectl/agent.yml"]
@@ -140,8 +143,8 @@ services:
     environment:
       PROBECTL_AGENT_JOIN_TOKEN: "${PROBECTL_JOIN_TOKEN:?set PROBECTL_JOIN_TOKEN to a fresh pjt_ token from enroll-token}"
     volumes:
-      - browser-identity:/identity
-      - browser-state:/var/lib/probectl-agent
+      # One seeded non-root state root holds identity, queue, and artifacts.
+      - browser-state:/var/lib/probectl
       - certs:/certs:ro
       - ./eval-browser-agent.yml:/etc/probectl/agent.yml:ro
     command: ["-config", "/etc/probectl/agent.yml"]
@@ -150,5 +153,4 @@ services:
 
 volumes:
   identity: {}
-  browser-identity: {}
   browser-state: {}

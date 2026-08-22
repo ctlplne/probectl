@@ -61,3 +61,45 @@ func TestDockerRuntimeSeedsNonRootWritableDirectories(t *testing.T) {
 		}
 	}
 }
+
+// TestEvalSyntheticUsesSeededNonRootStateRoot protects the real first-data
+// path, not just the control-plane quickstart. Docker creates a fresh named
+// volume mounted at an otherwise absent /identity as root:root; the shipped
+// distroless agent runs as UID/GID 65532 and then consumes its one-time token
+// before failing to write key.pem. Mounting the volume at the image-seeded
+// /var/lib/probectl root makes enrollment durable without running as root.
+func TestEvalSyntheticUsesSeededNonRootStateRoot(t *testing.T) {
+	files := map[string][]string{
+		"../../deploy/compose/eval-synthetic.yml": {
+			"identity:/var/lib/probectl",
+			"browser-state:/var/lib/probectl",
+		},
+		"../../deploy/compose/eval-agent.yml": {
+			"cert_file: /var/lib/probectl/identity/cert.pem",
+			"key_file: /var/lib/probectl/identity/key.pem",
+			"dir: /var/lib/probectl/buffer",
+		},
+		"../../deploy/compose/eval-browser-agent.yml": {
+			"cert_file: /var/lib/probectl/identity/cert.pem",
+			"key_file: /var/lib/probectl/identity/key.pem",
+			"dir: /var/lib/probectl/buffer",
+		},
+	}
+	for path, wants := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := string(data)
+		for _, want := range wants {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s is missing non-root agent state contract %q", path, want)
+			}
+		}
+		for _, forbidden := range []string{"cert_file: /identity/cert.pem", "key_file: /identity/key.pem", ":/identity", ":/var/lib/probectl-agent"} {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s retains root-owned agent state path %q", path, forbidden)
+			}
+		}
+	}
+}
