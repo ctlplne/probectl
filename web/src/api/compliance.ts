@@ -58,9 +58,29 @@ export interface ComplianceResponse {
   coverage?: ComplianceCoverage
 }
 
+interface ComplianceWireResponse {
+  compliance_running: boolean
+  items?: RuleResult[] | null
+  coverage?: (Omit<ComplianceCoverage, 'notes'> & { notes?: string[] | null }) | null
+}
+
+export function normalizeComplianceResponse(response: ComplianceWireResponse): ComplianceResponse {
+  return {
+    ...response,
+    items: response.items ?? [],
+    coverage: response.coverage
+      ? {
+          ...response.coverage,
+          notes: response.coverage.notes ?? [],
+        }
+      : undefined,
+  }
+}
+
 export function useCompliance() {
   return useQuery({
     queryKey: ['compliance'],
-    queryFn: () => apiFetch<ComplianceResponse>('/compliance'),
+    queryFn: async () =>
+      normalizeComplianceResponse(await apiFetch<ComplianceWireResponse>('/compliance')),
   })
 }

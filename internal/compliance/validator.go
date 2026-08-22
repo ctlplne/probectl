@@ -255,7 +255,10 @@ func (e *Engine) Results(tenant string) []RuleResult {
 	defer e.mu.Unlock()
 	ts := e.tenant(tenant)
 
-	var out []RuleResult
+	// Keep the JSON contract stable for an enabled validator with zero declared
+	// policies. A nil slice serializes as null, while API clients are promised an
+	// array and need to be able to render the honest no-policies state.
+	out := make([]RuleResult, 0)
 	for _, p := range e.policies {
 		for _, r := range p.Rules {
 			st := e.ruleState(ts, p.Name, r.ID)

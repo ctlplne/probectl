@@ -155,3 +155,15 @@ func TestComplianceHonestyWhenUnwired(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestComplianceEnabledWithoutPoliciesReturnsArray(t *testing.T) {
+	srv := testServer(fakePinger{}).WithCompliance(compliance.NewEngine(nil))
+	rec := do(srv, http.MethodGet, "/v1/compliance")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"compliance_running":true`) ||
+		!strings.Contains(rec.Body.String(), `"items":[]`) {
+		t.Fatalf("enabled empty response must preserve the array contract: %s", rec.Body.String())
+	}
+}

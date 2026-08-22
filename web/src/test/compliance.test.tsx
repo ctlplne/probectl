@@ -77,7 +77,7 @@ function fixture(): ComplianceResponse {
   }
 }
 
-function stubWith(resp: ComplianceResponse) {
+function stubWith(resp: ComplianceResponse | Record<string, unknown>) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.endsWith('/v1/compliance')) return jsonResponse(resp)
@@ -132,6 +132,27 @@ describe('compliance / segmentation validation (S46)', () => {
     renderApp('/compliance')
     expect(await screen.findByText(/no policies declared/i)).toBeInTheDocument()
     expect(screen.getByText(/PROBECTL_COMPLIANCE_POLICY_DIR/)).toBeInTheDocument()
+  })
+
+  test('legacy null collections render the honest zero-policy state instead of a blank page', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubWith({
+        compliance_running: true,
+        items: null,
+        coverage: {
+          flow_observed: false,
+          ebpf_observed: false,
+          observations: 0,
+          zones_seen: 0,
+          zones_total: 0,
+          notes: null,
+        },
+      }),
+    )
+    renderApp('/compliance')
+    expect(await screen.findByText(/no policies declared/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /recheck declared policies/i })).toBeInTheDocument()
   })
 
   test('a11y: the compliance page passes the axe baseline', async () => {
