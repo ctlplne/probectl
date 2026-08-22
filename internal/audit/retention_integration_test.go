@@ -18,8 +18,6 @@ import (
 
 	"time"
 
-	"github.com/ctlplne/probectl/internal/testsupport"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/objectstore"
@@ -36,7 +34,9 @@ import (
 // export: history is retained for the window, then pruned safely.
 func TestProviderRetentionPrune(t *testing.T) {
 	ctx := context.Background()
-	pool := setup(ctx, t)
+	admin := setup(ctx, t)
+	defer admin.Close()
+	pool := isolatedProviderRetentionPool(t, admin)
 	defer pool.Close()
 
 	base, err := ProviderHeadSeq(ctx, pool)
@@ -44,7 +44,7 @@ func TestProviderRetentionPrune(t *testing.T) {
 		t.Fatalf("head seq: %v", err)
 	}
 	if base != 0 {
-		testsupport.SkipOrFatal(t, "provider audit stream is shared and already has %d rows; strict prefix pruning needs an isolated stream", base)
+		t.Fatalf("isolated provider audit stream starts at seq %d, want 0", base)
 	}
 
 	// Append 6 events on the provider chain.
