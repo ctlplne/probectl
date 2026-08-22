@@ -12,7 +12,38 @@ cd "$(dirname "$0")/.."
 SOURCE_REF="${PROBECTL_UPGRADE_SOURCE_REF:-v0.5.0}"
 DATABASE_URL="${PROBECTL_DATABASE_URL:-postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable}"
 RESULT_FILE="${PROBECTL_UPGRADE_RESULT_FILE:-}"
-PORT="${PROBECTL_UPGRADE_PROBE_PORT:-18443}"
+
+# A drill with an "isolated" Compose project must not still share one fixed host
+# listener. Keep the explicit override for controlled labs, otherwise scan a
+# bounded high-port window using Bash's built-in /dev/tcp support. The control
+# process remains loopback-only and the later HTTPS probe is the real oracle.
+select_probe_port() {
+  local start candidate offset
+  start=$((20000 + ($$ % 30000)))
+  for offset in $(seq 0 127); do
+    candidate=$((20000 + ((start - 20000 + offset) % 40000)))
+    if ! (exec 3<>"/dev/tcp/127.0.0.1/${candidate}") 2>/dev/null; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PORT="${PROBECTL_UPGRADE_PROBE_PORT:-}"
+if [ -z "$PORT" ]; then
+  PORT="$(select_probe_port)" || {
+    echo "upgrade drill: no free loopback probe port found in the bounded scan" >&2
+    exit 69
+  }
+fi
+case "$PORT" in
+  *[!0-9]* | "") echo "upgrade drill: invalid probe port: $PORT" >&2; exit 64 ;;
+esac
+if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  echo "upgrade drill: probe port is outside 1..65535: $PORT" >&2
+  exit 64
+fi
 RUN_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 CURRENT_SHA="$(git rev-parse HEAD)"
 SOURCE_SHA="$(git rev-parse "${SOURCE_REF}^{commit}")"
