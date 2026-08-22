@@ -121,10 +121,11 @@ describe('J1 install to first real insight', () => {
     vi.stubGlobal('fetch', fetchStub)
 
     const firstRender = renderApp('/onboarding')
-    expect(await screen.findByText(/0 of 5 readiness steps/i)).toBeInTheDocument()
+    expect(await screen.findByText(/0 of 4 operational steps/i)).toBeInTheDocument()
     expect(screen.getByText(/waiting for the enrolled producer to connect/i)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /mint enrollment token/i }))
+    expect(await screen.findByText(/0 of 4 operational steps/i)).toBeInTheDocument()
     const agentCard = screen.getByRole('heading', { name: /enroll an agent/i }).closest('section')!
     await user.click(within(agentCard).getByRole('button', { name: /copy command/i }))
 
@@ -133,15 +134,16 @@ describe('J1 install to first real insight', () => {
       .closest('section')!
     expect(within(testCard).getByLabelText(/type/i)).toHaveValue('icmp')
     expect(within(testCard).getByLabelText(/^target$/i)).toHaveValue('127.0.0.1')
+    expect(within(testCard).getByText(/minimum 10 seconds/i)).toBeInTheDocument()
     await user.click(within(testCard).getByRole('button', { name: /create first test/i }))
 
-    expect(await screen.findByText(/5 of 5 readiness steps/i)).toBeInTheDocument()
+    expect(await screen.findByText(/4 of 4 operational steps/i)).toBeInTheDocument()
     expect(screen.getByText('ICMP check healthy — 127.0.0.1')).toBeInTheDocument()
 
     firstRender.unmount()
     vi.stubGlobal('fetch', fetchStub)
     renderApp('/onboarding')
-    expect(await screen.findByText(/5 of 5 readiness steps/i)).toBeInTheDocument()
+    expect(await screen.findByText(/4 of 4 operational steps/i)).toBeInTheDocument()
     expect(screen.getByText('ICMP check healthy — 127.0.0.1')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /view first finding/i }))
     expect(await screen.findByRole('heading', { name: /targets & tests/i })).toBeInTheDocument()

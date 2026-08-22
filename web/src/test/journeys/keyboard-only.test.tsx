@@ -269,9 +269,10 @@ describe('J1-J6 keyboard-only completion', () => {
     const stopPointerWatch = watchPointerEvents()
     vi.stubGlobal('fetch', installJourneyFetch())
     renderApp('/onboarding')
-    expect(await screen.findByText(/0 of 5 readiness steps/i)).toBeInTheDocument()
+    expect(await screen.findByText(/0 of 4 operational steps/i)).toBeInTheDocument()
 
     await activate(user, screen.getByRole('button', { name: /mint enrollment token/i }))
+    expect(await screen.findByText(/0 of 4 operational steps/i)).toBeInTheDocument()
     const agentCard = screen.getByRole('heading', { name: /enroll an agent/i }).closest('section')!
     await activate(user, within(agentCard).getByRole('button', { name: /copy command/i }))
     const testCard = screen
@@ -279,7 +280,7 @@ describe('J1-J6 keyboard-only completion', () => {
       .closest('section')!
     await activate(user, within(testCard).getByRole('button', { name: /create first test/i }))
 
-    expect(await screen.findByText(/5 of 5 readiness steps/i)).toBeInTheDocument()
+    expect(await screen.findByText(/4 of 4 operational steps/i)).toBeInTheDocument()
     await activate(user, screen.getByRole('button', { name: /view first finding/i }))
     expect(await screen.findByRole('heading', { name: /targets & tests/i })).toBeInTheDocument()
     stopPointerWatch()

@@ -238,7 +238,14 @@ export function OnboardingPage() {
     t,
   ])
 
-  const progressComplete = progress.filter((item) => item.done).length
+  // The enrollment token is intentionally setup-only. Keep it visible in the
+  // checklist, but use the server's operational milestone count so minting a
+  // credential can never inflate readiness before a producer connects.
+  const operationalProgress = progress.filter((item) => item.id !== 'credential')
+  const progressTotal = persistedProgress?.readiness_steps_total ?? operationalProgress.length
+  const progressComplete =
+    persistedProgress?.readiness_steps_complete ??
+    operationalProgress.filter((item) => item.done).length
   const activeProgressIndex = progress.findIndex((item) => !item.done)
 
   function submitAgent(e: FormEvent) {
@@ -324,12 +331,11 @@ export function OnboardingPage() {
       <section className={styles.progress} aria-label={t('onboarding.progress.aria')}>
         <div className={styles.progressHeader}>
           <h2>{t('onboarding.progress.title')}</h2>
-          {/* One truth: the counter derives from the rendered steps, so it can
-              never disagree with the cards below it. */}
-          <Badge tone={progressComplete === progress.length ? 'success' : 'info'}>
+          {/* The API excludes setup artifacts from operational readiness. */}
+          <Badge tone={progressComplete === progressTotal ? 'success' : 'info'}>
             {t('onboarding.progress.count', {
               complete: progressComplete,
-              total: progress.length,
+              total: progressTotal,
             })}
           </Badge>
         </div>
@@ -551,6 +557,7 @@ export function OnboardingPage() {
                 min={10}
                 value={testInterval}
                 onChange={(e) => setTestInterval(e.target.value)}
+                hint={t('onboarding.test.intervalHint')}
               />
               <Button
                 type="submit"
