@@ -203,6 +203,21 @@ describe('expert design-token contract', () => {
     expect(buttonFocus).toContain('outline-offset: var(--focus-ring-offset)')
   })
 
+  test('long dialogs stay inside the viewport with a scrollable body', () => {
+    const modal = readFileSync(join(process.cwd(), 'src/components/Modal.module.css'), 'utf8')
+    const dialog = declarationBlock(modal, '.dialog')
+    const body = declarationBlock(modal, '.body')
+
+    expect(dialog).toContain(
+      'max-height: calc(100dvh - var(--layout-dialog-inset-block) - var(--space-4))',
+    )
+    expect(dialog).toContain('display: flex')
+    expect(dialog).toContain('overflow: hidden')
+    expect(body).toContain('min-height: 0')
+    expect(body).toContain('overflow-y: auto')
+    expect(body).toContain('overscroll-behavior: contain')
+  })
+
   test('density and theme selectors stay deployment-level, never tenant-addressed', () => {
     expect(tokens).not.toMatch(/data-tenant|tenant[_-]id|tenant[_-]slug/i)
   })

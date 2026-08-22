@@ -507,6 +507,8 @@ describe('alerting surface (S-FE1)', () => {
     ).toBeDefined()
     await userEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/probectl_probe_rtt_avg_ms/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/dots with underscores/i)).toBeInTheDocument()
     await userEvent.type(within(dialog).getByLabelText('Name'), 'loss high')
     await userEvent.type(within(dialog).getByLabelText('Metric'), 'probectl_result_loss_pct')
     await userEvent.clear(within(dialog).getByLabelText('Threshold'))

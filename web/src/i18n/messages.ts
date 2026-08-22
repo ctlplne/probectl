@@ -562,7 +562,8 @@ const en = {
   'alerts.rule.createTitle': 'Create alert rule',
   'alerts.rule.name': 'Name',
   'alerts.rule.metric': 'Metric',
-  'alerts.rule.metricHint': 'A TSDB series name, e.g. probectl_result_rtt_ms',
+  'alerts.rule.metricHint':
+    'A tenant-scoped TSDB series, e.g. probectl_probe_rtt_avg_ms or probectl_probe_loss_ratio. Probe metric keys replace dots with underscores.',
   'alerts.rule.type': 'Type',
   'alerts.rule.typeThreshold': 'Threshold',
   'alerts.rule.typeBaseline': 'Baseline (anomaly)',
@@ -1865,7 +1866,8 @@ const es: Record<MessageKey, string> = {
   'alerts.rule.createTitle': 'Crear regla de alerta',
   'alerts.rule.name': 'Nombre',
   'alerts.rule.metric': 'Metrica',
-  'alerts.rule.metricHint': 'Nombre de serie TSDB, por ejemplo probectl_result_rtt_ms',
+  'alerts.rule.metricHint':
+    'Una serie TSDB con alcance de inquilino, p. ej. probectl_probe_rtt_avg_ms o probectl_probe_loss_ratio. Las claves de métricas de sondeo reemplazan puntos por guiones bajos.',
   'alerts.rule.type': 'Tipo',
   'alerts.rule.typeThreshold': 'Umbral',
   'alerts.rule.typeBaseline': 'Linea base (anomalia)',
@@ -3131,7 +3133,8 @@ const ar: Record<MessageKey, string> = {
   'alerts.rule.createTitle': 'إنشاء قاعدة تنبيه',
   'alerts.rule.name': 'الاسم',
   'alerts.rule.metric': 'المقياس',
-  'alerts.rule.metricHint': 'اسم سلسلة TSDB، مثل probectl_result_rtt_ms',
+  'alerts.rule.metricHint':
+    'سلسلة TSDB ضمن نطاق المستأجر، مثل probectl_probe_rtt_avg_ms أو probectl_probe_loss_ratio. تستبدل مفاتيح مقاييس المجس النقاط بشرطات سفلية.',
   'alerts.rule.type': 'النوع',
   'alerts.rule.typeThreshold': 'عتبة',
   'alerts.rule.typeBaseline': 'خط أساس (شذوذ)',
