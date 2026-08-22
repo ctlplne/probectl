@@ -9,6 +9,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from '../renderApp'
 import { pathIncident, stubPathHistoryFetch } from '../pathHistoryFixture'
+import { parsePivotContext } from '../../routes/pivotContext'
 import {
   JourneyRecorder,
   assertRequestsUseSessionTenant,
@@ -16,6 +17,39 @@ import {
 } from './measurement'
 
 describe('J4 lossy ECMP path debugging', () => {
+  test('opens incident-scoped path evidence with the matching test and clock', async () => {
+    const requests: MeasuredRequest[] = []
+    stubPathHistoryFetch(requests)
+    renderApp('/incidents?incident=inc-path')
+
+    const signalButtons = await screen.findAllByRole('button', {
+      name: 'branch 10.0.0.2 is lossy',
+    })
+    await userEvent.click(signalButtons.at(-1) as HTMLElement)
+    const pathLink = await screen.findByRole('link', { name: 'Open path evidence for 9.9.9.9' })
+    const pathURL = new URL(pathLink.getAttribute('href') ?? '/', 'https://probectl.invalid')
+    expect(parsePivotContext(pathURL.searchParams).context).toMatchObject({
+      incidentId: 'inc-path',
+      from: new Date(pathIncident.started_at).toISOString(),
+      to: new Date(pathIncident.last_seen_at).toISOString(),
+      filters: {
+        path_target: '9.9.9.9',
+        path_source_evidence: 'inc-path:0',
+      },
+      returnTo: '/incidents?incident=inc-path',
+    })
+    expect(pathURL.search.toLowerCase()).not.toContain('tenant')
+
+    await userEvent.click(pathLink)
+    expect(await screen.findByText('edge → 9.9.9.9')).toBeInTheDocument()
+    expect(screen.getByText('Incident context:')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: pathIncident.title })).toHaveAttribute(
+      'href',
+      '/incidents?incident=inc-path',
+    )
+    assertRequestsUseSessionTenant(requests)
+  })
+
   test('isolates, compares, pivots to incident evidence, and shares in five interactions', async () => {
     const user = userEvent.setup()
     const requests: MeasuredRequest[] = []

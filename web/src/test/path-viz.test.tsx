@@ -12,6 +12,7 @@ import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
 import { samplePath, stubPathFetch } from './pathFixture'
 import { messages } from '../i18n/messages'
+import { parsePivotContext } from '../routes/pivotContext'
 
 describe('path visualization', () => {
   test('shows ECMP evidence inline and synchronizes keyboard selection', async () => {
@@ -66,6 +67,16 @@ describe('path visualization', () => {
       name: /hop 2 .*branch 1.*10\.0\.0\.2/i,
     })
     expect(within(dialog).getByText(/16001/)).toBeInTheDocument()
+
+    const topologyURL = new URL(
+      screen.getByRole('link', { name: 'Open in Topology' }).getAttribute('href') ?? '/',
+      'https://probectl.invalid',
+    )
+    expect(parsePivotContext(topologyURL.searchParams).context.selection).toEqual({
+      kind: 'entity',
+      id: 'hop:10.0.0.2',
+    })
+    expect(topologyURL.search.toLowerCase()).not.toContain('tenant')
   })
 
   test('exposes an accessible per-hop table alternative', async () => {

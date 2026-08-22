@@ -277,6 +277,23 @@ export function IncidentRoom({
     (row) => !knownPlanes.has(row.signal.plane.toLowerCase()) && row.signal.plane !== 'change',
   )
   const topologyEntity = topologyEntityForEvidence(selectedSignal?.signal, selectedChange)
+  const pathTarget = pathTargetForEvidence(selectedSignal?.signal)
+  const pathHref =
+    pathTarget && selectedSourceID
+      ? pivotHref('/path', {
+          ...pivotContext,
+          incidentId: roomIncident.id,
+          from: roomIncident.started_at,
+          to: roomIncident.last_seen_at,
+          filters: {
+            ...pivotContext.filters,
+            path_target: pathTarget,
+            path_source_evidence: selectedSourceID,
+          },
+          selection: undefined,
+          returnTo: `/incidents?incident=${encodeURIComponent(roomIncident.id)}`,
+        })
+      : undefined
   const topologyHref =
     topologyEntity && selectedSourceID
       ? pivotHref(
@@ -653,6 +670,8 @@ export function IncidentRoom({
           <EvidenceInspector
             signal={selectedSignal?.signal}
             change={selectedChange}
+            pathHref={pathHref}
+            pathTarget={pathTarget}
             topologyHref={topologyHref}
             topologyEntity={topologyEntity}
             configHref={configHref}
@@ -1041,9 +1060,18 @@ function topologyEntityForEvidence(signal?: Signal, change?: ChangeCandidate): s
   return undefined
 }
 
+function pathTargetForEvidence(signal?: Signal): string | undefined {
+  if (!signal) return undefined
+  const plane = signal.plane.toLowerCase()
+  if (!['network', 'synthetic', 'path', 'canary'].includes(plane)) return undefined
+  return signal.target?.trim() || undefined
+}
+
 function EvidenceInspector({
   signal,
   change,
+  pathHref,
+  pathTarget,
   topologyHref,
   topologyEntity,
   configHref,
@@ -1051,6 +1079,8 @@ function EvidenceInspector({
 }: {
   signal?: Signal
   change?: ChangeCandidate
+  pathHref?: string
+  pathTarget?: string
   topologyHref?: string
   topologyEntity?: string
   configHref?: string
@@ -1114,6 +1144,15 @@ function EvidenceInspector({
             description={t('incidents.room.inspector.emptyDescription')}
           />
         )}
+        {pathHref && pathTarget ? (
+          <div className={styles.topologyPivot}>
+            <Link to={pathHref}>Open path evidence for {pathTarget}</Link>
+            <span>
+              Read-only discovery history; incident, exact evidence, absolute time, and return
+              context travel with this pivot.
+            </span>
+          </div>
+        ) : null}
         {topologyHref && topologyEntity ? (
           <div className={styles.topologyPivot}>
             <Link to={topologyHref}>Preview blast radius for {topologyEntity}</Link>

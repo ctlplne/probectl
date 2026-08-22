@@ -109,6 +109,7 @@ export function PathPage() {
   const parsedPivot = useMemo(() => parsePivotContext(params), [params])
   const pivotContext = parsedPivot.context
   const chosen = pivotContext.filters.path_test ?? ''
+  const requestedTarget = pivotContext.filters.path_target
   const requestedRoundID = pivotContext.filters.path_round
   const requestedComparisonID = pivotContext.filters.compare_round
   const requestedRoundIDs = useMemo(
@@ -122,7 +123,10 @@ export function PathPage() {
   const [pathView, setPathView] = useState<'topology' | 'profile' | 'geo'>('topology')
   const autoCopyHandled = useRef(false)
 
-  const testId = chosen || tests.data?.[0]?.id
+  const testId =
+    chosen ||
+    tests.data?.find((candidate) => candidate.target === requestedTarget)?.id ||
+    tests.data?.[0]?.id
   const test = tests.data?.find((t) => t.id === testId)
   const path = usePath(testId)
   const history = usePathHistory(testId, { from: pivotContext.from, to: pivotContext.to })
@@ -169,6 +173,9 @@ export function PathPage() {
   const [nodeDetailOpen, setNodeDetailOpen] = useState(Boolean(requestedNodeID))
   const incidents = useIncidents(Boolean(testId))
   const changes = useChanges(Boolean(testId))
+  const contextIncident = pivotContext.incidentId
+    ? incidents.data?.find((incident) => incident.id === pivotContext.incidentId)
+    : undefined
 
   const sharedPathContext = useMemo(() => {
     const filters = { ...pivotContext.filters }
@@ -288,6 +295,8 @@ export function PathPage() {
     const filters: Record<string, string> = { ...pivotContext.filters, path_test: id }
     delete filters.path_round
     delete filters.compare_round
+    delete filters.path_target
+    delete filters.path_source_evidence
     setParams(
       replacePivotContext(params, {
         ...pivotContext,
@@ -369,7 +378,12 @@ export function PathPage() {
     ? pivotHref('/topology', {
         ...pivotContext,
         filters: { ...pivotContext.filters, ...(testId ? { path_test: testId } : {}) },
-        selection: worst ? { kind: 'entity', id: worst.id } : undefined,
+        selection: worst
+          ? {
+              kind: 'entity',
+              id: `${worst.isDestination ? 'host' : 'hop'}:${worst.ip}`,
+            }
+          : undefined,
         returnTo: '/path',
       })
     : '/topology'
@@ -465,6 +479,14 @@ export function PathPage() {
                     'Latest stored discovery'
                   )}
                 </span>
+                {contextIncident ? (
+                  <span>
+                    Incident context:{' '}
+                    <Link to={`/incidents?incident=${encodeURIComponent(contextIncident.id)}`}>
+                      {contextIncident.title}
+                    </Link>
+                  </span>
+                ) : null}
               </div>
               <div>
                 <span className={styles.triageLabel}>{t('path.fidelity.title')}</span>
