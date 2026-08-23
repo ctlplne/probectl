@@ -1078,6 +1078,9 @@ export function fixtureFetch(
         display_name: 'Test Operator',
         mfa_satisfied: true,
         permissions: [
+          'agent.write',
+          'test.write',
+          'directory.write',
           'incident.read',
           'incident.write',
           'ai.query',

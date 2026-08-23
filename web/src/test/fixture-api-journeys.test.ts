@@ -12,6 +12,13 @@ async function body(response: Response) {
 }
 
 describe('fixture-backed documented journeys', () => {
+  test('default operator fixture has the permissions exercised by J1', async () => {
+    const me = await body(await fixtureFetch()('/v1/me'))
+    expect(me.permissions).toEqual(
+      expect.arrayContaining(['agent.write', 'test.write', 'directory.write']),
+    )
+  })
+
   test('J1 progresses from credential setup to a named first finding', async () => {
     const fetch = fixtureFetch()
 
