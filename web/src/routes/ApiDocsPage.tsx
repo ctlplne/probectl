@@ -74,6 +74,133 @@ interface RequestResult {
   body: string
 }
 
+interface OperatorTopic {
+  id: string
+  title: string
+  summary: string
+  checks: string[]
+  command?: string
+}
+
+const OPERATOR_TOPICS: OperatorTopic[] = [
+  {
+    id: 'install',
+    title: 'Install',
+    summary:
+      'Choose the all-in-one Compose profile for one host or the Helm chart for Kubernetes. Both shipping profiles are HTTPS-only and require an immutable image digest in production.',
+    checks: [
+      'Set the Postgres password, envelope key, session HMAC key, TLS hosts, and OIDC settings before first boot.',
+      'Trust the deployment CA or install a CA-issued certificate; never bypass certificate verification.',
+      'Treat the envelope key and the persistent control-data volume as backup-grade key material.',
+    ],
+    command: 'curl --cacert ./ca.crt https://localhost:8443/readyz',
+  },
+  {
+    id: 'first-data',
+    title: 'First data',
+    summary:
+      'The control plane is a consumer: a green deployment stays honestly empty until a tenant-bound producer connects and sends a result.',
+    checks: [
+      'Open Get started, choose one producer plane, and satisfy the prerequisites shown for that plane.',
+      'Enroll the agent once over mTLS, create one safe test, and wait for a current heartbeat.',
+      'Confirm the same tenant sees the first result and first finding; registration alone is not evidence.',
+    ],
+  },
+  {
+    id: 'configuration',
+    title: 'Configuration',
+    summary:
+      'Control-plane settings use the PROBECTL_ prefix. Missing transport, identity, signature, or secret prerequisites fail closed instead of silently weakening the deployment.',
+    checks: [
+      'Keep secrets in an operator-managed secret source, never in URLs, shell history, logs, or committed files.',
+      'Use /readyz after every change; it reports each engine as ready, quiet, or blocked with a bounded reason.',
+      'The offline distribution includes docs/configuration.md as the exhaustive key reference.',
+    ],
+  },
+  {
+    id: 'security',
+    title: 'Security',
+    summary:
+      'Tenant isolation is the outer wall: storage scopes by tenant first, then RBAC. Every listener uses TLS and every agent identity is tenant-bound mTLS.',
+    checks: [
+      'Do not enable plaintext listeners, unverified outbound TLS, development authentication, or browser-side token storage.',
+      'Keep remediation human-gated and detections observe-only; probectl is not an inline IPS.',
+      'No telemetry phones home. Optional external feeds are read-only, cached, TLS-verified, and fail gracefully.',
+    ],
+    command: 'curl --cacert ./ca.crt https://localhost:8443/.well-known/security.txt',
+  },
+  {
+    id: 'limitations',
+    title: 'Limitations',
+    summary:
+      'probectl is self-hosted network observability, not a vendor-hosted SaaS, SIEM, log warehouse, inline firewall, or autonomous remediation system.',
+    checks: [
+      'Raw eBPF call-by-call history is not retained; durable derived service edges are the supported surface.',
+      'Go in-runtime TLS metadata is not a supported eBPF source and remains encrypted_unknown.',
+      'The chaos injector stays a local test harness and is not exposed as a production control-plane action.',
+    ],
+  },
+  {
+    id: 'backup-restore',
+    title: 'Backup & restore',
+    summary:
+      'Back up Postgres, ClickHouse, and the object store. Normal artifacts are checksum-verified and envelope-encrypted; Kafka is transit, not the system of record.',
+    checks: [
+      'Keep the original envelope key with the backup and copy the sealed artifacts plus checksums off the failed host or region.',
+      'Stop the control plane before restore: restore scripts drop and recreate stores, while agents buffer results locally.',
+      'After restore, verify /readyz, one tenant-scoped pre-incident query, the audit chain, and the scheduled restore drill.',
+    ],
+    command: 'make backup-restore-drill',
+  },
+  {
+    id: 'upgrade-rollback',
+    title: 'Upgrade & rollback',
+    summary:
+      'Upgrade by immutable digest, after a verified backup. Schema migrations are sequential and idempotent, but rollback still requires an explicit data-compatibility check.',
+    checks: [
+      'Verify the release signature/SBOM, record /version, and take a restore-tested backup before changing the image digest.',
+      'Roll agents in staged waves; probectl records decisions but your external orchestrator performs the rollout.',
+      'After upgrade or rollback, compare /version, /readyz, tenant-scoped reads, ingestion, and audit continuity before reopening writes.',
+    ],
+    command: 'curl --cacert ./ca.crt https://localhost:8443/version',
+  },
+  {
+    id: 'troubleshooting',
+    title: 'Troubleshooting',
+    summary:
+      'Start with the visible readiness reason and the Admin support panel. Fix the named dependency; never clear browser state or weaken TLS as a recovery step.',
+    checks: [
+      'For a single-host Postgres outage, confirm the run-owned Postgres service is healthy, bring that service back, then retry the visible UI.',
+      'Do not repeat a mutation while its result is unknown; first verify whether the original write committed.',
+      'If readiness stays degraded, collect the secret-stripped support bundle and bounded control/Postgres logs.',
+    ],
+    command:
+      'docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml up -d postgres',
+  },
+  {
+    id: 'editions',
+    title: 'Editions',
+    summary:
+      'Core, Enterprise, and Provider/MSP use one codebase. Commercial features are offline-license gated; an unlicensed provider plane stays inactive without interrupting tenant telemetry.',
+    checks: [
+      'Use Admin & Settings to inspect the local tier, enabled features, expiry, and read-only degradation state.',
+      'Provider operators have a separate privilege domain and never gain implicit access to tenant telemetry.',
+      'License verification is local Ed25519 math and never phones home.',
+    ],
+  },
+  {
+    id: 'support',
+    title: 'Support',
+    summary:
+      'Admin & Settings exposes deep health, exact build identity, local process posture, and a one-click secret-stripped support bundle.',
+    checks: [
+      'Include version, commit, build date, failing readiness component, UTC time window, and the support bundle.',
+      'Do not paste credentials, join tokens, private keys, raw tenant telemetry, or browser-profile data into a case.',
+      'Use the bundle before collecting broad logs; its allowlist is designed to minimize tenant and secret exposure.',
+    ],
+  },
+]
+
 async function fetchOpenAPI(): Promise<OpenAPIDoc> {
   const res = await fetch('/openapi.json', {
     credentials: 'same-origin',
@@ -470,8 +597,19 @@ export function ApiDocsPage() {
   const [searchParams] = useSearchParams()
   const spec = useQuery({ queryKey: ['openapi'], queryFn: fetchOpenAPI })
   const [query, setQuery] = useState(() => searchParams.get('filter') ?? '')
+  const [guideQuery, setGuideQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const operations = useMemo(() => operationsOf(spec.data), [spec.data])
+  const guideTopics = useMemo(() => {
+    const normalized = guideQuery.trim().toLowerCase()
+    if (!normalized) return OPERATOR_TOPICS
+    return OPERATOR_TOPICS.filter((topic) =>
+      [topic.title, topic.summary, ...topic.checks, topic.command ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(normalized),
+    )
+  }, [guideQuery])
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return operations
@@ -526,8 +664,60 @@ export function ApiDocsPage() {
   ]
 
   return (
-    <Page title="API docs" subtitle="OpenAPI served by this control plane.">
+    <Page
+      title="API docs"
+      subtitle="Offline operator guidance and OpenAPI served by this control plane."
+    >
       <div className={styles.stack}>
+        <Card>
+          <CardHeader
+            title="Operator guide"
+            description="Find the safe day-0 and day-2 path without leaving this self-hosted deployment."
+          />
+          <CardBody>
+            <div className={styles.stack}>
+              <Field
+                label="Filter operator guidance"
+                value={guideQuery}
+                onChange={(event) => setGuideQuery(event.target.value)}
+                placeholder="install, backup, rollback, troubleshooting"
+              />
+              <nav className={styles.topicNav} aria-label="Operator guide topics">
+                {OPERATOR_TOPICS.map((topic) => (
+                  <a key={topic.id} href={`#${topic.id}`}>
+                    {topic.title}
+                  </a>
+                ))}
+              </nav>
+              {guideTopics.length === 0 ? (
+                <EmptyState
+                  title="No operator topic matched"
+                  description="Try install, security, backup, rollback, troubleshooting, editions, or support."
+                />
+              ) : (
+                <div className={styles.guideGrid}>
+                  {guideTopics.map((topic) => (
+                    <article key={topic.id} id={topic.id} className={styles.guideTopic}>
+                      <h3>{topic.title}</h3>
+                      <p>{topic.summary}</p>
+                      <ul>
+                        {topic.checks.map((check) => (
+                          <li key={check}>{check}</li>
+                        ))}
+                      </ul>
+                      {topic.command ? (
+                        <div className={styles.exampleBlock}>
+                          <div className={styles.exampleLabel}>Safe checkpoint</div>
+                          <pre className={styles.codeBlock}>{topic.command}</pre>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardBody>
+        </Card>
         <Card>
           <CardHeader
             title="Alert evaluator setup"

@@ -59,6 +59,47 @@ describe('native API docs route', () => {
     vi.restoreAllMocks()
   })
 
+  test('/docs/api keeps day-0 and day-2 operator guidance findable offline', async () => {
+    const requests: string[] = []
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const path = pathnameOf(input)
+      requests.push(path)
+      if (path === '/openapi.json') return jsonResponse(openapiDoc)
+      return jsonResponse({ error: { code: 'not_found', message: `unstubbed ${path}` } }, 404)
+    }) as unknown as typeof fetch
+    vi.stubGlobal('fetch', fetcher)
+
+    renderApp('/docs/api')
+
+    expect(await screen.findByRole('heading', { name: 'API docs' })).toBeDefined()
+    const topicNav = screen.getByRole('navigation', { name: 'Operator guide topics' })
+    for (const topic of [
+      'Install',
+      'First data',
+      'Configuration',
+      'Security',
+      'Limitations',
+      'Backup & restore',
+      'Upgrade & rollback',
+      'Troubleshooting',
+      'Editions',
+      'Support',
+    ]) {
+      expect(within(topicNav).getByRole('link', { name: topic })).toBeDefined()
+      expect(screen.getByRole('heading', { name: topic })).toBeDefined()
+    }
+
+    await userEvent.type(screen.getByLabelText('Filter operator guidance'), 'postgres outage')
+    expect(screen.getByRole('heading', { name: 'Troubleshooting' })).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Install' })).toBeNull()
+
+    expect(
+      requests.every((path) =>
+        ['/branding', '/v1/me', '/v1/editions', '/openapi.json'].includes(path),
+      ),
+    ).toBe(true)
+  })
+
   test('/docs/api renders operations from same-origin /openapi.json without external assets', async () => {
     const requests: string[] = []
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {

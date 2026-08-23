@@ -109,7 +109,7 @@ const en = {
   'nav.slos': 'SLOs',
   'nav.onboarding': 'Get started',
   'nav.admin': 'Admin & Settings',
-  'nav.apiDocs': 'API docs',
+  'nav.apiDocs': 'Docs & API',
   'cost.egress.description':
     'Native attribution, showback, budgets, and hourly trends; use Dashboards or Explorer for cross-plane drilldown.',
   'cost.unwired.action': 'Open flow readiness',
@@ -1406,7 +1406,7 @@ const es: Record<MessageKey, string> = {
   'nav.slos': 'SLO',
   'nav.onboarding': 'Comenzar',
   'nav.admin': 'Admin y ajustes',
-  'nav.apiDocs': 'Docs API',
+  'nav.apiDocs': 'Guía y API',
   'cost.egress.description':
     'Atribución nativa, reparto de costos, presupuestos y tendencias por hora; usa Paneles o Explorador para profundizar entre planos.',
   'cost.unwired.action': 'Abrir estado de flujos',
@@ -2718,7 +2718,7 @@ const ar: Record<MessageKey, string> = {
   'nav.slos': 'أهداف SLO',
   'nav.onboarding': 'البدء',
   'nav.admin': 'الإدارة والإعدادات',
-  'nav.apiDocs': 'وثائق API',
+  'nav.apiDocs': 'الدليل وواجهة API',
   'cost.egress.description':
     'إسناد محلي للتكلفة، وعرض داخلي للاستهلاك، وميزانيات واتجاهات بالساعة؛ استخدم لوحات المعلومات أو المستكشف للتحليل عبر المستويات.',
   'cost.unwired.action': 'فتح جاهزية التدفق',
