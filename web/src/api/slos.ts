@@ -41,6 +41,8 @@ export interface SLOStatus {
 export interface SLOsResponse {
   slo_running: boolean
   items: SLOStatus[]
+  /** When this tenant's in-memory evaluation window opened. */
+  data_since?: string
 }
 
 export function useSLOs() {

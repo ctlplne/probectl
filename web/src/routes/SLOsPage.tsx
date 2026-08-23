@@ -26,6 +26,13 @@ import { useI18n } from '../i18n/useI18n'
 import { formatInteger, formatMultiplier } from '../i18n/number'
 import { CodeExportPanel } from './CodeExportPanel'
 import { sloAsCode } from './codeExport'
+import { DateTime } from '../time/DateTime'
+
+function sloEvidenceHref(name: string) {
+  const params = new URLSearchParams({ template: 'slo-budget-burn' })
+  params.append('filter', `slo:${name}`)
+  return `/explore?${params.toString()}`
+}
 
 /** SLOsPage (S45): the exec-grade reliability view — attainment vs objective,
  * error budgets, and multi-window burn rates per service/team. Definitions
@@ -106,17 +113,24 @@ export function SLOsPage() {
       render: (s) => formatInteger(s.total_events, locale),
     },
     {
-      key: 'code',
-      header: <span className="sr-only">Code</span>,
+      key: 'actions',
+      header: <span className="sr-only">Actions</span>,
       align: 'end',
       render: (s) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setCodeExport({ title: `Export as code: ${s.name}`, code: sloAsCode(s) })}
-        >
-          View as YAML
-        </Button>
+        <div className={styles.actions}>
+          <Button variant="ghost" size="sm" onClick={() => void navigate(sloEvidenceHref(s.name))}>
+            Inspect evidence
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              setCodeExport({ title: `Export as code: ${s.name}`, code: sloAsCode(s) })
+            }
+          >
+            View as YAML
+          </Button>
+        </div>
       ),
     },
   ]
@@ -142,27 +156,36 @@ export function SLOsPage() {
               }
             />
           ) : (
-            <Table
-              caption={t('slo.table.caption')}
-              columns={columns}
-              rows={data.items}
-              rowKey={(s) => s.name}
-              empty={
-                <EmptyState
-                  icon="slo"
-                  title={t('slo.empty.title')}
-                  description={t('slo.empty.description')}
-                  action={
-                    <Button
-                      variant="secondary"
-                      onClick={() => void navigate('/docs/api?filter=slos')}
-                    >
-                      {t('slo.setup.action')}
-                    </Button>
-                  }
-                />
-              }
-            />
+            <>
+              {data.data_since ? (
+                <div className={styles.window} role="note" aria-label="SLO evaluation window">
+                  <strong>Tenant evaluation opened:</strong> <DateTime value={data.data_since} /> ·
+                  in-memory attainment and error budgets reset on control-plane restart; cold start
+                  is not a healthy verdict
+                </div>
+              ) : null}
+              <Table
+                caption={t('slo.table.caption')}
+                columns={columns}
+                rows={data.items}
+                rowKey={(s) => s.name}
+                empty={
+                  <EmptyState
+                    icon="slo"
+                    title={t('slo.empty.title')}
+                    description={t('slo.empty.description')}
+                    action={
+                      <Button
+                        variant="secondary"
+                        onClick={() => void navigate('/docs/api?filter=slos')}
+                      >
+                        {t('slo.setup.action')}
+                      </Button>
+                    }
+                  />
+                }
+              />
+            </>
           )}
         </CardBody>
       </Card>

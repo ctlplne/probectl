@@ -17,6 +17,7 @@ import type { SLOsResponse } from '../api/slos'
 function fixture(): SLOsResponse {
   return {
     slo_running: true,
+    data_since: '2026-06-04T12:00:00Z',
     items: [
       {
         name: 'checkout-availability',
@@ -57,6 +58,23 @@ function stubWith(resp: SLOsResponse) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.endsWith('/v1/slos')) return jsonResponse(resp)
+    if (url.endsWith('/v1/explorer/schema'))
+      return jsonResponse({
+        templates: [
+          {
+            id: 'slo-budget-burn',
+            question: 'Which SLO error budgets are burning?',
+            source: 'slo',
+            dimensions: ['slo', 'service', 'team'],
+            groupings: ['service'],
+            measures: ['burn_rate', 'budget_remaining'],
+            visualization: 'bar',
+            evidence_path: '/slos',
+          },
+        ],
+        visualizations: ['table', 'bar'],
+        max_rows: 100,
+      })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
   }) as unknown as typeof fetch
 }
@@ -95,6 +113,27 @@ describe('SLO dashboard (S45)', () => {
     expect(dialog).toHaveTextContent('kind: SLO')
     expect(dialog).toHaveTextContent('target: 0.99')
     expect(dialog).toHaveTextContent('timeWindow: 30d')
+  })
+
+  test('shows the reset boundary and opens tenant-scoped filtered evidence', async () => {
+    vi.stubGlobal('fetch', stubWith(fixture()))
+    renderApp('/slos')
+
+    const note = await screen.findByRole('note', { name: /slo evaluation window/i })
+    expect(note).toHaveTextContent(/reset on control-plane restart/i)
+    expect(note).toHaveTextContent(/cold start is not a healthy verdict/i)
+
+    const table = screen.getByRole('table', { name: /slo statuses/i })
+    const checkoutRow = within(table).getByText('Checkout availability').closest('tr')
+    await userEvent.click(
+      within(checkoutRow as HTMLElement).getByRole('button', { name: /inspect evidence/i }),
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Explorer' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/ask in natural language/i)).toHaveValue(
+      'Which SLO error budgets are burning?',
+    )
+    expect(screen.getByLabelText(/filter exact value/i)).toHaveValue('checkout-availability')
   })
 
   test('cold start renders honestly, not as healthy', async () => {
