@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/ebpf/l7"
 )
 
@@ -108,7 +109,7 @@ func TestAgentWithoutConsentHasNoL7Capture(t *testing.T) {
 	cfg := Default()
 	cfg.TenantID = "t1"
 	cfg.FixturePath = "testdata/flows.json"
-	a, err := New(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a, err := New(cfg, bus.NewMemory(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

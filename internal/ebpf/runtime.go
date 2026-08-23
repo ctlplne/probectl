@@ -8,6 +8,7 @@ package ebpf
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -81,6 +82,14 @@ type l7conn struct {
 // flow Source: a FixtureSource when fixture_path is set (the no-kernel path),
 // otherwise the live eBPF source (linked only under -tags ebpf).
 func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
+	// Fail closed on a missing bus rather than deferring an unavoidable nil
+	// dereference to the first non-empty flush (§6: never panic in a
+	// production path). Emit's publish path assumes a real bus; a nil one is
+	// a wiring error at construction, and a quiet kernel that never flushes
+	// must not disguise it.
+	if b == nil {
+		return nil, fmt.Errorf("ebpf: refusing to start: a bus is required to publish flows")
+	}
 	caps := Probe()
 	log.Info("ebpf capability probe",
 		"mode", string(caps.Mode), "btf", caps.BTF, "ringbuf", caps.RingBuffer,

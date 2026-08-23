@@ -87,15 +87,22 @@ static __always_inline void count_filtered(void)
 		__sync_fetch_and_add(cnt, 1);
 }
 
-static __always_inline void fill_addrs(struct l4_event *e, struct trace_event_raw_inet_sock_set_state *ctx)
+/* Every ctx access below goes through BPF_CORE_READ (probe-read with CO-RE
+ * relocation) instead of a direct dereference: newer verifiers (observed on
+ * 7.x) reject clang's ctx+offset pointer materialization for the array and
+ * multi-field reads as "dereference of modified ctx ptr", while the
+ * probe-read path is accepted by every CO-RE kernel back to the documented
+ * >=5.8 floor. Same fields, same values — only the access instruction
+ * pattern changes. */
+static __always_inline void fill_addrs(struct l4_event *e, struct trace_event_raw_inet_sock_set_state *ctx, __u16 family)
 {
-	if (ctx->family == AF_INET) {
-		__builtin_memcpy(e->saddr, ctx->saddr, 4);
-		__builtin_memcpy(e->daddr, ctx->daddr, 4);
+	if (family == AF_INET) {
+		BPF_CORE_READ_INTO(&e->saddr, ctx, saddr);
+		BPF_CORE_READ_INTO(&e->daddr, ctx, daddr);
 		return;
 	}
-	__builtin_memcpy(e->saddr, ctx->saddr_v6, sizeof(e->saddr));
-	__builtin_memcpy(e->daddr, ctx->daddr_v6, sizeof(e->daddr));
+	BPF_CORE_READ_INTO(&e->saddr, ctx, saddr_v6);
+	BPF_CORE_READ_INTO(&e->daddr, ctx, daddr_v6);
 }
 
 static __always_inline void fill_tcp_counters(struct l4_event *e, const void *skaddr)
@@ -114,13 +121,17 @@ static __always_inline void fill_tcp_counters(struct l4_event *e, const void *sk
 SEC("tracepoint/sock/inet_sock_set_state")
 int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 {
-	if (ctx->protocol != IPPROTO_TCP)
+	__u16 protocol = BPF_CORE_READ(ctx, protocol);
+	__u16 family = BPF_CORE_READ(ctx, family);
+	int newstate = BPF_CORE_READ(ctx, newstate);
+
+	if (protocol != IPPROTO_TCP)
 		return 0;
-	if (ctx->family != AF_INET && ctx->family != AF_INET6) {
+	if (family != AF_INET && family != AF_INET6) {
 		count_filtered();
 		return 0;
 	}
-	if (ctx->newstate != BPF_TCP_ESTABLISHED && ctx->newstate != BPF_TCP_CLOSE)
+	if (newstate != BPF_TCP_ESTABLISHED && newstate != BPF_TCP_CLOSE)
 		return 0;
 
 	struct l4_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
@@ -134,12 +145,12 @@ int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 	e->pid = id >> 32;
 	bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
-	fill_addrs(e, ctx);
-	fill_tcp_counters(e, ctx->skaddr);
-	e->sport = ctx->sport; // tracepoint provides ports in host byte order
-	e->dport = ctx->dport;
-	e->family = ctx->family;
-	e->newstate = ctx->newstate;
+	fill_addrs(e, ctx, family);
+	fill_tcp_counters(e, BPF_CORE_READ(ctx, skaddr));
+	e->sport = BPF_CORE_READ(ctx, sport); // tracepoint provides ports in host byte order
+	e->dport = BPF_CORE_READ(ctx, dport);
+	e->family = family;
+	e->newstate = newstate;
 
 	bpf_ringbuf_submit(e, 0);
 	return 0;

@@ -160,8 +160,16 @@ static __always_inline void emit(__u64 conn, __u8 is_read, const void *buf, long
 		             * window < MAX_DATA always, so the D-001/U-003 invariant
 		             * (len <= bytes actually copied) holds by construction. */
 	e->len = n;
+	/* Hide n's compiler-known range BEFORE the mask, then mask: clang can
+	 * prove n <= MAX_DATA-1 and deletes a provably-no-op mask (even one
+	 * followed by a barrier), after which newer verifiers (observed on
+	 * 7.x) lose the range and reject R2 as unbounded. barrier_var first
+	 * makes the range unknown to clang, so the AND must be emitted; the
+	 * runtime value is unchanged. */
+	barrier_var(n);
+	n &= MAX_DATA - 1;
 	if (n)
-		bpf_probe_read_user(&e->data, n & (MAX_DATA - 1), buf); // mask aids the verifier
+		bpf_probe_read_user(&e->data, n, buf);
 	bpf_ringbuf_submit(e, 0);
 }
 

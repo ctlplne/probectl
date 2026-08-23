@@ -24,6 +24,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/bus"
 )
 
 // U-021 kernel-matrix smoke: actually LOAD and ATTACH every BPF program on
@@ -368,7 +370,11 @@ func TestLiveAgentBoot(t *testing.T) {
 	cfg := Default()
 	cfg.TenantID = "kernel-matrix"
 	cfg.FlushInterval = 200 * time.Millisecond
-	a, err := New(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Drive the real emit path with an in-memory bus: on a busy kernel the
+	// flush actually publishes, so a nil-bus dereference (the production
+	// emit path assumes a real bus) cannot hide behind a quiet CI kernel
+	// that never drains a flow.
+	a, err := New(cfg, bus.NewMemory(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("agent boot on this kernel: %v", err)
 	}
