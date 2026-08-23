@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import styles from './Modal.module.css'
 import { Button } from './Button'
@@ -16,19 +16,21 @@ export interface ModalProps {
   title: string
   children: ReactNode
   footer?: ReactNode
+  returnFocusRef?: RefObject<HTMLElement | null>
 }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
 
 /** An accessible modal dialog: focus trap, Escape to close, focus restoration. */
-export function Modal({ open, onClose, title, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, returnFocusRef }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
 
   useEffect(() => {
     if (!open) return
-    const previouslyFocused = document.activeElement as HTMLElement | null
+    const previouslyFocused =
+      returnFocusRef?.current ?? (document.activeElement as HTMLElement | null)
     const dialog = dialogRef.current
     dialog?.focus()
 
@@ -57,7 +59,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
       document.removeEventListener('keydown', onKeyDown)
       previouslyFocused?.focus?.()
     }
-  }, [open, onClose])
+  }, [open, onClose, returnFocusRef])
 
   if (!open) return null
 

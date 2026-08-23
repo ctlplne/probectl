@@ -134,11 +134,10 @@ describe('plane workspaces', () => {
         hidden: true,
       }),
     ).toBeInTheDocument()
-    await userEvent.click(
-      within(configVersions).getByRole('button', {
-        name: 'Compare edge-r1 version 2 with version 1',
-      }),
-    )
+    const compareConfig = within(configVersions).getByRole('button', {
+      name: 'Compare edge-r1 version 2 with version 1',
+    })
+    await userEvent.click(compareConfig)
     const comparison = await screen.findByRole('dialog', {
       name: 'edge-r1: version 1 → 2',
     })
@@ -157,8 +156,9 @@ describe('plane workspaces', () => {
     expect(within(diffTable).getByText(/community \[REDACTED\]/)).toBeInTheDocument()
     expect(diffTable.querySelectorAll('[data-config-diff-row="removed"]')).toHaveLength(2)
     expect(diffTable.querySelectorAll('[data-config-diff-row="added"]')).toHaveLength(2)
-    await userEvent.click(within(comparison).getByRole('button', { name: 'Close comparison' }))
+    await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(compareConfig).toHaveFocus())
 
     await userEvent.click(screen.getByRole('tab', { name: 'eBPF' }))
     const ebpf = await screen.findByRole('table', { name: /ebpf service edges/i })

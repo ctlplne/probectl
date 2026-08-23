@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useMemo } from 'react'
+import { useMemo, type RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Button, Modal } from '../components'
 import type { DeviceConfigVersion } from '../api/planes'
@@ -21,10 +21,12 @@ export function ConfigDiffDialog({
   comparison,
   onClose,
   returnHref,
+  returnFocusRef,
 }: {
   comparison: ConfigComparison
   onClose: () => void
   returnHref?: string
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   const { current, previous } = comparison
   const { t } = useI18n()
@@ -37,6 +39,7 @@ export function ConfigDiffDialog({
     <Modal
       open
       onClose={onClose}
+      returnFocusRef={returnFocusRef}
       title={t('planes.device.config.compare.title', {
         device: current.device,
         before: previous.version,

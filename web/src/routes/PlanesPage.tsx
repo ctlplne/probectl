@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styles from './planes.module.css'
 import { Page } from './RoutePage'
@@ -896,6 +896,7 @@ function DevicePanel({
   returnHref?: string
 }) {
   const { locale, t } = useI18n()
+  const configComparisonTriggerRef = useRef<HTMLButtonElement | null>(null)
   const configComparison = useMemo<ConfigComparison | null>(() => {
     const current = comparisonConfigs.find((config) => config.id === requestedConfigID)
     if (!current) return null
@@ -927,7 +928,10 @@ function DevicePanel({
           before: previous.version,
           after: config.version,
         })}
-        onClick={() => onRequestConfig(config.id, previous.id)}
+        onClick={(event) => {
+          configComparisonTriggerRef.current = event.currentTarget
+          onRequestConfig(config.id, previous.id)
+        }}
       >
         {t('planes.device.config.compare.action')}
       </Button>
@@ -1272,6 +1276,7 @@ function DevicePanel({
                 comparison={configComparison}
                 onClose={onCloseConfig}
                 returnHref={returnHref}
+                returnFocusRef={configComparisonTriggerRef}
               />
             ) : null}
           </CardBody>
