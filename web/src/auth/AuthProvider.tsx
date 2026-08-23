@@ -5,8 +5,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { apiFetch, publicFetch, redirectToLogin } from '../api/client'
-import { LoadingState } from '../components'
+import { apiFetch, isApiStatus, publicFetch, redirectToLogin } from '../api/client'
+import { Button, ErrorState, LoadingState } from '../components'
 import { useI18n } from '../i18n/useI18n'
 import styles from './AuthProvider.module.css'
 
@@ -69,12 +69,15 @@ const toLogin = redirectToLogin
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'unauthenticated' | 'signing-out'>(
-    'loading',
-  )
+  const [status, setStatus] = useState<
+    'loading' | 'ready' | 'unauthenticated' | 'unavailable' | 'signing-out'
+  >('loading')
+  const [identityAttempt, setIdentityAttempt] = useState(0)
 
   useEffect(() => {
     let alive = true
+    setMe(null)
+    setStatus('loading')
     apiFetch<Me>('/me')
       .then((m) => {
         if (alive) {
@@ -82,13 +85,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setStatus('ready')
         }
       })
-      .catch(() => {
-        if (alive) setStatus('unauthenticated')
+      .catch(async (err: unknown) => {
+        if (!alive) return
+        // A network or 5xx failure cannot prove the caller is unauthenticated.
+        // Some session stores also fail closed as 401 when their dependency is
+        // unavailable, so corroborate a 401 with the public local readiness
+        // endpoint before starting SSO. This never grants access: either branch
+        // keeps the protected tree unmounted.
+        if (!isApiStatus(err, 401)) {
+          setStatus('unavailable')
+          return
+        }
+        try {
+          const readiness = await publicFetch('/readyz', {
+            headers: { Accept: 'application/json' },
+          })
+          if (alive) setStatus(readiness.ok ? 'unauthenticated' : 'unavailable')
+        } catch {
+          if (alive) setStatus('unavailable')
+        }
       })
     return () => {
       alive = false
     }
-  }, [])
+  }, [identityAttempt])
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
@@ -153,10 +173,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (status === 'loading') {
     return <AuthBoot messageKey="auth.boot.signingIn" />
   }
+  if (status === 'unavailable') {
+    return (
+      <AuthUnavailable
+        onRetry={() => setIdentityAttempt((attempt) => attempt + 1)}
+        onSignIn={() => toLogin({ replace: true })}
+      />
+    )
+  }
   if (status === 'unauthenticated' || status === 'signing-out' || !value) {
     return <AuthBoot messageKey="auth.boot.redirecting" />
   }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function AuthUnavailable({ onRetry, onSignIn }: { onRetry: () => void; onSignIn: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div className={styles.boot}>
+      <span className={styles.wordmark}>probectl</span>
+      <ErrorState
+        headingLevel={2}
+        title={t('auth.unavailable.title')}
+        description={t('auth.unavailable.description')}
+        action={
+          <div className={styles.actions}>
+            <Button variant="primary" onClick={onRetry}>
+              {t('auth.unavailable.retry')}
+            </Button>
+            <Button onClick={onSignIn}>{t('auth.unavailable.signIn')}</Button>
+          </div>
+        }
+      />
+    </div>
+  )
 }
 
 /** The only thing on screen between the SSO redirect and the first

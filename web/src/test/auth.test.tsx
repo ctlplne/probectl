@@ -88,7 +88,11 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
     vi.stubGlobal('location', { assign, href: '', pathname: '/' })
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse({ error: { message: 'authentication required' } }, 401)),
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith('/readyz')
+          ? jsonResponse({ status: 'ready' })
+          : jsonResponse({ error: { message: 'authentication required' } }, 401),
+      ),
     )
     render(
       <Providers>
@@ -101,6 +105,49 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
     expect(screen.queryByText(/@/)).toBeNull() // no fallback identity ever shown
     // The moment of redirect is announced, not blank.
     expect(screen.getByRole('status')).toHaveTextContent(/redirecting to sign-in/i)
+  })
+
+  test('a control-plane failure shows a bounded tenant-safe retry instead of redirecting', async () => {
+    const assign = vi.fn()
+    const replace = vi.fn()
+    vi.stubGlobal('location', { assign, replace, reload: vi.fn(), href: '', pathname: '/' })
+    let attempts = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/readyz')) {
+          return jsonResponse({ status: 'not ready' }, 503)
+        }
+        attempts += 1
+        if (attempts === 1)
+          return jsonResponse({ error: { message: 'authentication required' } }, 401)
+        return jsonResponse({
+          tenant_id: 't-recovered',
+          user_id: 'u-recovered',
+          email: 'ops@recovered.example',
+          display_name: 'Recovered operator',
+        })
+      }),
+    )
+
+    render(
+      <Providers>
+        <AuthProvider>
+          <Identity />
+        </AuthProvider>
+      </Providers>,
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/control plane temporarily unavailable/i)
+    expect(alert).toHaveTextContent(/no tenant data is shown/i)
+    expect(screen.queryByText(/@/)).toBeNull()
+    expect(assign).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+
+    screen.getByRole('button', { name: /^retry$/i }).click()
+    expect(await screen.findByText('ops@recovered.example @ t-recovered')).toBeDefined()
+    expect(attempts).toBe(2)
   })
 
   test('signOut posts /auth/logout then redirects to login', async () => {
