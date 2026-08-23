@@ -203,7 +203,7 @@ async function main() {
     results.push(
       await runJourney(browser, baseURL, canonicalJourneys[0], async (page) => {
         await goto(page, baseURL, "/onboarding");
-        await expectText(page, "0 of 4 readiness steps");
+        await expectText(page, "0 of 4 operational steps");
         await page
           .getByRole("button", { name: "Mint enrollment token", exact: true })
           .click();
@@ -213,7 +213,7 @@ async function main() {
         await page
           .getByRole("button", { name: "Create first test", exact: true })
           .click();
-        await expectText(page, "4 of 4 readiness steps");
+        await expectText(page, "4 of 4 operational steps");
         await expectText(page, "ICMP check healthy — 127.0.0.1");
         await page
           .getByRole("button", { name: "View first finding", exact: true })
