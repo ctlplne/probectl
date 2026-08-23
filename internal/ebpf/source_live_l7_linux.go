@@ -96,7 +96,7 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 	if runtime.GOARCH == "arm64" {
 		objName = "sslsniff_arm64"
 	}
-	if err := VerifyObjectDigest(objName, _SslsniffBytes, bpfObjectDigests[objName]); err != nil {
+	if err := verifyObjectDigest(objName, _SslsniffBytes, bpfObjectDigests[objName]); err != nil {
 		return nil, err
 	}
 	// EBPF-002: size the L7 TLS chunk ring from its own config knob before

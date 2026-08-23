@@ -49,7 +49,7 @@ func newLiveSource(cfg *Config) (Source, error) {
 	// U-014: refuse an embedded object that mismatches the same-build digest
 	// manifest (swap/corruption/stale generator) before any kernel load.
 	// Artifact tampering is the cosign release signature's domain.
-	if err := VerifyObjectDigest("l4flow", _L4flowBytes, bpfObjectDigests["l4flow"]); err != nil {
+	if err := verifyObjectDigest("l4flow", _L4flowBytes, bpfObjectDigests["l4flow"]); err != nil {
 		return nil, err
 	}
 	// U-050: size the kernel ring buffer from the config (rounded to a valid

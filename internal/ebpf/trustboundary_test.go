@@ -22,7 +22,7 @@ import (
 //	  → bpf2go at build time (clang, pinned toolchain)
 //	  → EMBEDDED into the agent binary (go:embed; no filesystem load path)
 //	  → SHA-256 manifest baked at the same build (gendigests, U-014)
-//	  → VerifyObjectDigest before the kernel ever sees the bytes
+//	  → verifyObjectDigest before the kernel ever sees the bytes
 //	  → the agent BINARY (and image) is cosign-signed at release (C6/U-067)
 //
 // The binary signature covers the embedded objects and the manifest
@@ -75,15 +75,27 @@ func TestObjectDigestVerificationWiredIntoEveryLoader(t *testing.T) {
 			t.Fatalf("live loader %s missing: %v", f, err)
 		}
 		text := string(src)
-		vi := strings.Index(text, "VerifyObjectDigest(")
+		vi := strings.Index(text, "verifyObjectDigest(")
 		li := strings.Index(text, "Objects(")
 		if vi < 0 {
-			t.Errorf("%s: loader does not call VerifyObjectDigest — integrity must gate every kernel load (U-014/EBPF-003)", f)
+			t.Errorf("%s: loader does not call verifyObjectDigest — integrity must gate every kernel load (U-014/EBPF-003)", f)
 			continue
 		}
 		if li >= 0 && li < vi {
 			t.Errorf("%s: objects are loaded BEFORE digest verification — verify must come first", f)
 		}
+	}
+	// The loaders above are linux+ebpf build-tagged, so this platform-neutral
+	// test is the only local guard that their callee actually exists: a
+	// visibility rename in integrity.go (as in d1449e4, which demoted
+	// VerifyObjectDigest and silently broke every -tags ebpf build) must fail
+	// here, not first on a privileged Linux CI runner.
+	integrity, err := os.ReadFile("integrity.go")
+	if err != nil {
+		t.Fatalf("integrity.go missing: %v", err)
+	}
+	if !strings.Contains(string(integrity), "func verifyObjectDigest(") {
+		t.Error("integrity.go no longer defines func verifyObjectDigest — the tagged live loaders call exactly this name (U-014/EBPF-003)")
 	}
 	gen, err := os.ReadFile("gendigests/main.go")
 	if err != nil {
