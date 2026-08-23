@@ -4,6 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { useEffect, useRef, useState } from 'react'
 import styles from './TopBar.module.css'
 import { TenantIndicator } from './TenantIndicator'
 import { AuthorityBadge } from './AuthorityBadge'
@@ -32,7 +33,34 @@ export function TopBar({
   navigationOpen: boolean
 }) {
   const { theme, toggleTheme } = useTheme()
-  const { user } = useAuth()
+  const { user, tenant, signOut } = useAuth()
+  const [accountOpen, setAccountOpen] = useState(false)
+  const accountRef = useRef<HTMLDivElement>(null)
+  const accountButtonRef = useRef<HTMLButtonElement>(null)
+  const signOutRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!accountOpen) return
+
+    signOutRef.current?.focus()
+    function onDocumentPointerDown(event: PointerEvent) {
+      if (accountRef.current && !accountRef.current.contains(event.target as Node)) {
+        setAccountOpen(false)
+      }
+    }
+    function onDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setAccountOpen(false)
+      accountButtonRef.current?.focus()
+    }
+
+    document.addEventListener('pointerdown', onDocumentPointerDown)
+    document.addEventListener('keydown', onDocumentKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onDocumentPointerDown)
+      document.removeEventListener('keydown', onDocumentKeyDown)
+    }
+  }, [accountOpen])
 
   return (
     <header className={styles.topbar}>
@@ -74,9 +102,41 @@ export function TopBar({
         >
           <Icon name={theme === 'aurora' ? 'moon' : 'sun'} />
         </Button>
-        <span className={styles.user} title={`${user.name} · ${user.email}`} aria-hidden="true">
-          {initials(user.name)}
-        </span>
+        <div className={styles.account} ref={accountRef}>
+          <button
+            ref={accountButtonRef}
+            type="button"
+            className={styles.userButton}
+            aria-label={`Open account menu for ${user.name}`}
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+            aria-controls="account-menu"
+            onClick={() => setAccountOpen((open) => !open)}
+          >
+            <span aria-hidden="true">{initials(user.name)}</span>
+          </button>
+          {accountOpen ? (
+            <div id="account-menu" className={styles.accountMenu} role="menu" aria-label="Account">
+              <div className={styles.accountIdentity} role="presentation">
+                <strong>{user.name}</strong>
+                <span>{user.email}</span>
+                <span className={styles.accountTenant}>Tenant · {tenant.name}</span>
+              </div>
+              <button
+                ref={signOutRef}
+                type="button"
+                role="menuitem"
+                className={styles.signOut}
+                onClick={() => {
+                  setAccountOpen(false)
+                  signOut()
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </header>
   )
