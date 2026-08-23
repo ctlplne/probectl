@@ -105,7 +105,8 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
 
   test('signOut posts /auth/logout then redirects to login', async () => {
     const assign = vi.fn()
-    vi.stubGlobal('location', { assign, href: '', pathname: '/' })
+    const replace = vi.fn()
+    vi.stubGlobal('location', { assign, replace, reload: vi.fn(), href: '', pathname: '/' })
     const calls: string[] = []
     vi.stubGlobal(
       'fetch',
@@ -126,7 +127,42 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
       </Providers>,
     )
     ;(await screen.findByRole('button', { name: 'sign out' })).click()
-    await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/login'))
+    // Protected children disappear synchronously while the real logout is in
+    // flight, so a BFCache snapshot cannot retain tenant/user content.
+    expect(await screen.findByRole('status')).toHaveTextContent(/redirecting to sign-in/i)
+    expect(screen.queryByRole('button', { name: 'sign out' })).toBeNull()
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/auth/login'))
+    expect(assign).not.toHaveBeenCalled()
     expect(calls.some((c) => c === 'POST /auth/logout')).toBe(true)
+  })
+
+  test('a BFCache restore reloads before trusting an in-memory identity', async () => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', {
+      assign: vi.fn(),
+      replace: vi.fn(),
+      reload,
+      href: '',
+      pathname: '/',
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({ tenant_id: 't', user_id: 'u', email: 'e@x', display_name: 'E' }),
+      ),
+    )
+    render(
+      <Providers>
+        <AuthProvider>
+          <Identity />
+        </AuthProvider>
+      </Providers>,
+    )
+    expect(await screen.findByText('e@x @ t')).toBeDefined()
+
+    const restored = new Event('pageshow')
+    Object.defineProperty(restored, 'persisted', { value: true })
+    window.dispatchEvent(restored)
+    expect(reload).toHaveBeenCalledOnce()
   })
 })

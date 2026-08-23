@@ -69,7 +69,9 @@ const toLogin = redirectToLogin
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'unauthenticated'>('loading')
+  const [status, setStatus] = useState<'loading' | 'ready' | 'unauthenticated' | 'signing-out'>(
+    'loading',
+  )
 
   useEffect(() => {
     let alive = true
@@ -88,11 +90,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      // A full-page SSO navigation can leave an authenticated React tree in
+      // the browser's back/forward cache. Never trust that in-memory identity
+      // after a history restore: reload so /v1/me re-establishes the real
+      // server session boundary before any protected route paints again.
+      if (event.persisted) window.location.reload()
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
+
   const signOut = useCallback(() => {
     // POST the real logout (revokes the session + clears the cookie), then send
-    // the browser to the SSO login regardless of the result. /auth/logout is
-    // outside the /v1 API base, so it's a direct same-origin fetch.
-    void publicFetch(LOGOUT_PATH, { method: 'POST' }).finally(toLogin)
+    // the browser to the SSO login regardless of the result. Clear the client
+    // identity FIRST so the page captured for browser Back contains only the
+    // redirecting status, never the protected shell or tenant data. Replace the
+    // current history entry for the same reason. /auth/logout is outside the
+    // /v1 API base, so it remains a direct same-origin fetch.
+    setMe(null)
+    setStatus('signing-out')
+    void publicFetch(LOGOUT_PATH, { method: 'POST' }).finally(() => toLogin({ replace: true }))
   }, [])
 
   const value = useMemo<AuthContextValue | null>(() => {
@@ -134,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (status === 'loading') {
     return <AuthBoot messageKey="auth.boot.signingIn" />
   }
-  if (status === 'unauthenticated' || !value) {
+  if (status === 'unauthenticated' || status === 'signing-out' || !value) {
     return <AuthBoot messageKey="auth.boot.redirecting" />
   }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

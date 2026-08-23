@@ -134,8 +134,13 @@ export const LOGIN_PATH = '/auth/login'
  * session that expires MID-SESSION (a later 401, not just the first /me call)
  * also re-authenticates instead of surfacing a dead per-query error (UX-005).
  */
-export function redirectToLogin() {
-  if (typeof window !== 'undefined') window.location.assign(LOGIN_PATH)
+export function redirectToLogin({ replace = false }: { replace?: boolean } = {}) {
+  if (typeof window === 'undefined') return
+  if (replace) {
+    window.location.replace(LOGIN_PATH)
+    return
+  }
+  window.location.assign(LOGIN_PATH)
 }
 
 /** True when an error is an ApiError carrying the given HTTP status. */
