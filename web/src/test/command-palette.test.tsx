@@ -50,18 +50,23 @@ describe('command palette (keyboard-first)', () => {
     expect(trigger).toHaveFocus()
   })
 
-  test('Escape closes the palette', async () => {
+  test('Escape closes the palette and clears its search for the next invocation', async () => {
     const user = userEvent.setup()
     renderApp('/targets')
     await screen.findByRole('heading', { name: /targets & tests/i })
 
     await user.keyboard('{Meta>}k{/Meta}')
-    expect(await screen.findByRole('combobox', { name: /search commands/i })).toBeInTheDocument()
+    const input = await screen.findByRole('combobox', { name: /search commands/i })
+    await user.type(input, 'Admin & Settings')
+    expect(input).toHaveValue('Admin & Settings')
 
     await user.keyboard('{Escape}')
     await waitFor(() =>
       expect(screen.queryByRole('combobox', { name: /search commands/i })).not.toBeInTheDocument(),
     )
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    expect(await screen.findByRole('combobox', { name: /search commands/i })).toHaveValue('')
   })
 
   test('traps Tab in the combobox and restores the trigger after safe Escape', async () => {

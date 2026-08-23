@@ -260,7 +260,15 @@ export function CommandPalette({
   }, [query, open])
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      // A dismissed palette is a completed interaction, not a paused search.
+      // Reset on every close path (Escape, overlay click, or the global
+      // shortcut toggling it shut) so the next invocation always starts from
+      // the complete command set.
+      setQuery('')
+      setActive(0)
+      return
+    }
     const prev = document.activeElement as HTMLElement | null
     inputRef.current?.focus()
     return () => prev?.focus?.()
