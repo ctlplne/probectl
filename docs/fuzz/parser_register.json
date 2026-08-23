@@ -49,6 +49,9 @@
     "endpoint.parseAirportI": {
       "target": "FuzzWiFiParsers"
     },
+    "endpoint.parseChannel": {
+      "target": "FuzzWiFiParsers"
+    },
     "endpoint.parseNetshWlan": {
       "target": "FuzzWiFiParsers"
     },

@@ -53,13 +53,27 @@ func parseAirportI(text string) WiFi {
 	return w
 }
 
+// parseChannel reads a WiFi channel number from a single untrusted OS-tool
+// field. The text is whatever an OS command printed, so a malformed or
+// negative value (e.g. "-1") must not survive as a negative channel — there
+// is no such thing. Anything unparseable or below 1 collapses to 0, the
+// "unknown channel" sentinel every downstream (bandFromChannel, readback)
+// already treats as unset.
+func parseChannel(v string) int {
+	ch, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || ch < 0 {
+		return 0
+	}
+	return ch
+}
+
 // parseAirportChannel handles airport's "36,80" (channel,width) form.
 func parseAirportChannel(v string) (int, string) {
 	num := v
 	if i := strings.IndexAny(v, ","); i >= 0 {
 		num = v[:i]
 	}
-	ch, _ := strconv.Atoi(strings.TrimSpace(num))
+	ch := parseChannel(num)
 	return ch, bandFromChannel(ch)
 }
 
@@ -81,12 +95,13 @@ func parseNetshWlan(text string) WiFi {
 		case "Band":
 			w.Band = normalizeBand(val)
 		case "Channel":
-			w.Channel, _ = strconv.Atoi(val)
+			w.Channel = parseChannel(val)
 			if w.Band == "" {
 				w.Band = bandFromChannel(w.Channel)
 			}
 		case "Signal":
 			if pct, err := strconv.ParseFloat(strings.TrimSuffix(val, "%"), 64); err == nil {
+				pct = clampPct(pct) // untrusted tool text: a percentage stays within 0..100
 				w.SignalPct, w.Have.Signal = pct, true
 				w.RSSIDBm, w.Have.RSSI = signalPctToRSSI(pct), true // netsh gives %, derive an approximate dBm
 			}
@@ -142,7 +157,7 @@ func parseNmcli(text string) WiFi {
 			continue
 		}
 		w := WiFi{Present: true, Associated: true, SSID: f[1], BSSID: f[2]}
-		w.Channel, _ = strconv.Atoi(f[3])
+		w.Channel = parseChannel(f[3])
 		if mhz := firstInt(f[4]); mhz > 0 {
 			w.Band = bandFromMHz(mhz)
 		} else {
@@ -152,6 +167,7 @@ func parseNmcli(text string) WiFi {
 			w.LinkRateMbps, w.Have.LinkRate = r, true
 		}
 		if sig, err := strconv.ParseFloat(f[6], 64); err == nil {
+			sig = clampPct(sig) // untrusted tool text: a percentage stays within 0..100
 			w.SignalPct, w.Have.Signal = sig, true
 			w.RSSIDBm, w.Have.RSSI = signalPctToRSSI(sig), true
 		}
