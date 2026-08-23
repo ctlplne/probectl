@@ -94,6 +94,9 @@ describe('expert design-token contract', () => {
     const global = readFileSync(join(process.cwd(), 'src/styles/global.css'), 'utf8')
     expect(global).toContain('@media (pointer: coarse)')
     expect(global).toContain('min-block-size: var(--density-touch-target)')
+    expect(global).toContain('width: var(--density-control-block-sm)')
+    expect(global).toContain('min-width: var(--density-control-block-sm)')
+    expect(global).toContain('flex: 0 0 var(--density-control-block-sm)')
   })
 
   test('visualization, focus, selection, layer, and motion tokens are explicit', () => {

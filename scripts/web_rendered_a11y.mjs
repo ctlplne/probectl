@@ -1613,9 +1613,10 @@ async function targetsHierarchyCheck(page, viewportName) {
       for (const [index, record] of mobileTests.entries()) {
         const testName = record.getAttribute("data-test-name") ?? "";
         const recordBox = record.getBoundingClientRect();
-        const controls = Array.from(
-          record.querySelectorAll("button:not([disabled])"),
-        );
+        // Row association must include permission-aware disabled mutations: a
+        // read-only user still needs to see which action exists and why it is
+        // unavailable. Target/focus checks already exclude disabled controls.
+        const controls = Array.from(record.querySelectorAll("button"));
         const labels = controls.map(
           (control) => control.getAttribute("aria-label") ?? "",
         );

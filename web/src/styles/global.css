@@ -47,8 +47,10 @@ time {
 }
 
 input[type='checkbox'] {
-  width: 24px;
-  height: 24px;
+  width: var(--density-control-block-sm);
+  min-width: var(--density-control-block-sm);
+  height: var(--density-control-block-sm);
+  flex: 0 0 var(--density-control-block-sm);
   margin: 0;
   accent-color: var(--color-accent);
 }
