@@ -332,7 +332,14 @@ function TypedBreakdown({ r }: { r: LatestResult }) {
 export function ResultDetail({ test, onClose }: { test: Test; onClose: () => void }) {
   const latest = useLatestResults()
   const matches = (latest.data?.items ?? []).filter(
-    (r) => r.type === test.type && r.target === test.target,
+    (r) =>
+      r.type === test.type &&
+      r.target === test.target &&
+      // Current agents stamp an exact test identity. Respect it so two tests
+      // aimed at the same target never borrow each other's evidence. Legacy
+      // results without the attribute retain their historical type/target
+      // fallback until every producer has upgraded.
+      (a(r, 'probectl.test.id') === undefined || a(r, 'probectl.test.id') === test.id),
   )
 
   return (
@@ -352,7 +359,10 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
         />
       ) : (
         matches.map((r) => (
-          <div className={styles.agentBlock} key={`${r.agent_id}-${r.type}-${r.target}`}>
+          <div
+            className={styles.agentBlock}
+            key={`${a(r, 'probectl.test.id') ?? 'legacy'}-${r.agent_id}-${r.type}-${r.target}`}
+          >
             <dl className={styles.kv}>
               <dt>Agent</dt>
               <dd>

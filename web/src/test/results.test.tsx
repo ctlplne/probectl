@@ -377,6 +377,37 @@ describe('synthetic result views (S-FE5)', () => {
     expect(state.requests.every((r) => !r.includes('tenant'))).toBe(true)
   })
 
+  test('exact test identity prevents same-target evidence from crossing test definitions', async () => {
+    const at = '2026-06-04T12:00:00Z'
+    const { fetcher } = resultsBackend([
+      {
+        agent_id: 'a1',
+        type: 'icmp',
+        target: '10.0.0.7',
+        success: false,
+        error: 'belongs to another test',
+        observed_at: at,
+        attributes: { 'probectl.test.id': 'another-test' },
+      },
+      {
+        agent_id: 'a1',
+        type: 'icmp',
+        target: '10.0.0.7',
+        success: true,
+        observed_at: at,
+        attributes: { 'probectl.test.id': 't4' },
+        metrics: { 'loss.ratio': 0, 'packets.sent': 2, 'packets.received': 2 },
+      },
+    ])
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets')
+
+    const dialog = await openResults('core ping')
+
+    expect(within(dialog).getByText(/a1 ·/)).toBeDefined()
+    expect(within(dialog).queryByText(/belongs to another test/i)).not.toBeInTheDocument()
+  })
+
   test('no results yet / collector-off are stated, not guessed', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       assertNoDoublePrefix(input)
