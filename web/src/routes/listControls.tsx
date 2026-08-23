@@ -9,6 +9,7 @@ import styles from './listControls.module.css'
 import { Button, Field, Select, useToast } from '../components'
 import { useCreateSavedView, useSavedViews, type SavedViewSurface } from '../api/savedViews'
 import { useI18n } from '../i18n/useI18n'
+import { useAuth } from '../auth/useAuth'
 
 export function FilterBar({ children }: { children: ReactNode }) {
   return (
@@ -30,12 +31,15 @@ export function SavedViews({
   placeholder?: string
 }) {
   const { t } = useI18n()
+  const { permissions } = useAuth()
+  const canCreate = permissions.includes('agent.write')
   const { push } = useToast()
   const saved = useSavedViews(surface)
   const create = useCreateSavedView(surface)
   const [name, setName] = useState('')
 
   const save = () => {
+    if (!canCreate) return
     const cleanName = name.trim()
     if (!cleanName) {
       push({ tone: 'warning', title: 'Name required', message: 'Saved views need a label.' })
@@ -88,10 +92,14 @@ export function SavedViews({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={placeholder}
+          disabled={!canCreate}
         />
-        <Button type="button" onClick={save} disabled={create.isPending}>
+        <Button type="button" onClick={save} disabled={create.isPending || !canCreate}>
           Save view
         </Button>
+        {!canCreate ? (
+          <small className={styles.permissionHint}>Requires agent.write permission.</small>
+        ) : null}
       </div>
     </>
   )

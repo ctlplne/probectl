@@ -275,7 +275,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
       }),
     )
 
-    renderApp('/targets')
+    renderApp('/targets', { me: { permissions: ['test.write'] } })
     const matrix = await screen.findByRole('table', { name: /owned-vantage coverage matrix/i })
     expect(within(matrix).getByText('Non-redundant')).toBeInTheDocument()
     expect(within(matrix).getByText('Uncovered')).toBeInTheDocument()
@@ -461,6 +461,35 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     },
   )
 
+  test('makes every target mutation permission-aware for a read-only identity', async () => {
+    const base = defaultFetch()
+    const requests: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push(pathOf(input))
+        return base(input, init)
+      }),
+    )
+
+    renderApp('/targets', {
+      me: { permissions: ['agent.read', 'test.read'] },
+    })
+
+    const inventory = await screen.findByRole('table', { name: 'Synthetic tests' })
+    expect(screen.getAllByRole('button', { name: 'New test' })).not.toHaveLength(0)
+    for (const button of screen.getAllByRole('button', { name: 'New test' })) {
+      expect(button).toBeDisabled()
+    }
+    expect(within(inventory).getByRole('button', { name: 'Delete edge-dns' })).toBeDisabled()
+    expect(screen.getByLabelText('View name')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save view' })).toBeDisabled()
+    expect(screen.getByRole('heading', { name: 'Read-only access' })).toBeInTheDocument()
+    expect(screen.getAllByText(/requires test.write permission/i)).not.toHaveLength(0)
+    expect(screen.queryByText('Could not load suggestions.')).not.toBeInTheDocument()
+    expect(requests).not.toContain('/v1/ai/discover')
+  })
+
   test('lists, creates, and deletes tests through the UI', async () => {
     const user = userEvent.setup()
     let tests = [
@@ -502,7 +531,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderApp('/targets')
+    renderApp('/targets', { me: { permissions: ['test.write', 'ai.query'] } })
     const testTable = await screen.findByRole('table', { name: 'Synthetic tests' })
     expect(within(testTable).getByText('edge-dns')).toBeInTheDocument()
     const mobileInventory = document.querySelector<HTMLElement>('[data-targets-mobile-list]')

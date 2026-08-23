@@ -268,10 +268,10 @@ export const API_CALL_CONTRACTS = [
     file: 'api/compliance.ts',
     method: 'GET',
     path: '/compliance',
-    response: 'ComplianceResponse',
+    response: 'ComplianceWireResponse',
     generated: 'ListComplianceResultsResponse',
     reason:
-      'OpenAPI currently emits JsonObject for compliance results; ComplianceResponse is the explicit view model.',
+      'OpenAPI currently emits JsonObject for compliance results; ComplianceWireResponse is the explicit wire model normalized into ComplianceResponse.',
   },
   {
     file: 'api/cost.ts',

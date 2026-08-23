@@ -64,7 +64,7 @@ describe('saved list views', () => {
 
   test('Targets serialize filters in the URL and save/apply named presets', async () => {
     const { views } = stubSavedViews()
-    renderApp('/targets?q=edge&type=dns')
+    renderApp('/targets?q=edge&type=dns', { me: { permissions: ['agent.write'] } })
     const inventory = await screen.findByRole('table', { name: 'Synthetic tests' })
     expect(within(inventory).getByText('edge-dns')).toBeDefined()
     expect(within(inventory).queryByText('api-gw')).toBeNull()
@@ -103,7 +103,9 @@ describe('saved list views', () => {
 
   test('Agents save and restore URL-backed fleet filters', async () => {
     const { views } = stubSavedViews()
-    renderApp('/admin?agent_status=online&agent_capability=ebpf')
+    renderApp('/admin?agent_status=online&agent_capability=ebpf', {
+      me: { permissions: ['agent.write'] },
+    })
     expect(await screen.findByText('agent-1')).toBeDefined()
 
     await userEvent.type(screen.getByLabelText('View name'), 'Online eBPF')
@@ -127,7 +129,9 @@ describe('saved list views', () => {
 
   test('Incidents save and restore status/severity presets without losing the incident deep link', async () => {
     const { views } = stubSavedViews()
-    renderApp('/incidents?incident_status=open&incident_severity=warning')
+    renderApp('/incidents?incident_status=open&incident_severity=warning', {
+      me: { permissions: ['agent.write'] },
+    })
     expect(await screen.findByRole('button', { name: /checkout latency burn/i })).toBeDefined()
 
     await userEvent.type(screen.getByLabelText('View name'), 'Open warning')
@@ -149,7 +153,9 @@ describe('saved list views', () => {
 
   test('Alerts save and restore active-alert filters', async () => {
     const { views } = stubSavedViews()
-    renderApp('/alerts?alert_q=checkout&alert_severity=warning')
+    renderApp('/alerts?alert_q=checkout&alert_severity=warning', {
+      me: { permissions: ['agent.write'] },
+    })
     expect(await screen.findByText(/target=checkout/)).toBeDefined()
 
     await userEvent.type(screen.getByLabelText('View name'), 'Checkout warning')

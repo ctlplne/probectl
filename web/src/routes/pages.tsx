@@ -36,6 +36,7 @@ import { CodeExportPanel } from './CodeExportPanel'
 import { testAsCode } from './codeExport'
 import { Page } from './RoutePage'
 import { useI18n } from '../i18n/useI18n'
+import { useAuth } from '../auth/useAuth'
 
 // --- Targets & Tests (live /v1/tests CRUD) ---
 
@@ -68,7 +69,15 @@ function defaultBrowserScript(name: string, target: string): string {
   })
 }
 
-function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function CreateTestModal({
+  open,
+  onClose,
+  canCreate,
+}: {
+  open: boolean
+  onClose: () => void
+  canCreate: boolean
+}) {
   const { push } = useToast()
   const create = useCreateTest()
   const [name, setName] = useState('')
@@ -84,6 +93,7 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
   }
 
   function submit() {
+    if (!canCreate) return
     const driver = browserDriver(type)
     const params = driver
       ? { script: defaultBrowserScript(name, target), browser_driver: driver }
@@ -119,7 +129,11 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} disabled={create.isPending || !name}>
+          <Button
+            variant="primary"
+            onClick={submit}
+            disabled={create.isPending || !name || !canCreate}
+          >
             {create.isPending ? 'Creating…' : 'Create'}
           </Button>
         </>
@@ -186,6 +200,8 @@ export function TargetsPage() {
   const requestedTestID = filterValue(params, 'test_id')
   const exactTest = useTest(requestedTestID)
   const { t } = useI18n()
+  const { permissions } = useAuth()
+  const canCreateTest = permissions.includes('test.write')
   const registryPending = requestedTestID ? exactTest.isPending : isPending
   const registryError = requestedTestID ? exactTest.error : error
   const setFilter = (patch: Record<string, string>) =>
@@ -193,11 +209,11 @@ export function TargetsPage() {
 
   useEffect(() => {
     if (params.get('create') !== 'test') return
-    setCreating(true)
+    if (canCreateTest) setCreating(true)
     const next = new URLSearchParams(params)
     next.delete('create')
     setParams(next, { replace: true })
-  }, [params, setParams])
+  }, [canCreateTest, params, setParams])
 
   const filteredTests = useMemo(() => {
     if (requestedTestID) return exactTest.data ? [exactTest.data] : []
@@ -213,6 +229,7 @@ export function TargetsPage() {
   }, [data, enabled, exactTest.data, q, requestedTestID, type])
 
   function remove(t: Test) {
+    if (!canCreateTest) return
     del.mutate(t.id, {
       onSuccess: () => push({ tone: 'success', title: 'Test deleted', message: t.name }),
       onError: (e) => push({ tone: 'danger', title: 'Delete failed', message: e.message }),
@@ -246,6 +263,8 @@ export function TargetsPage() {
         size="sm"
         onClick={() => remove(test)}
         aria-label={`Delete ${test.name}`}
+        disabled={!canCreateTest}
+        title={!canCreateTest ? 'Requires test.write permission' : undefined}
       >
         Delete
       </Button>
@@ -301,9 +320,12 @@ export function TargetsPage() {
         lastSuccessfulIngest={null}
         coverageLimitation="No targets are configured, so no synthetic RTT, loss, DNS, HTTP, or path evidence exists yet."
         action={
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            New test
-          </Button>
+          <div className={styles.permissionAction}>
+            <Button variant="primary" onClick={() => setCreating(true)} disabled={!canCreateTest}>
+              New test
+            </Button>
+            {!canCreateTest ? <small>Requires test.write permission.</small> : null}
+          </div>
         }
       />
     )
@@ -313,9 +335,12 @@ export function TargetsPage() {
       title="Targets & Tests"
       subtitle="Active synthetic tests across your network."
       actions={
-        <Button variant="primary" onClick={() => setCreating(true)}>
-          <Icon name="targets" size={16} /> New test
-        </Button>
+        <div className={styles.permissionAction}>
+          <Button variant="primary" onClick={() => setCreating(true)} disabled={!canCreateTest}>
+            <Icon name="targets" size={16} /> New test
+          </Button>
+          {!canCreateTest ? <small>Requires test.write permission.</small> : null}
+        </div>
       }
     >
       <Card id="tests" data-targets-inventory>
@@ -468,11 +493,15 @@ export function TargetsPage() {
         </CardBody>
       </Card>
 
-      <CoveragePanel />
+      <CoveragePanel canCreateTest={canCreateTest} />
 
       <AuthoringPanel />
 
-      <CreateTestModal open={creating} onClose={() => setCreating(false)} />
+      <CreateTestModal
+        open={creating && canCreateTest}
+        onClose={() => setCreating(false)}
+        canCreate={canCreateTest}
+      />
       {codeFor ? (
         <Modal open onClose={() => setCodeFor(null)} title={`Export as code: ${codeFor.name}`}>
           <CodeExportPanel title="Test YAML" code={testAsCode(codeFor)} />

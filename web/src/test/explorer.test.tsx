@@ -40,7 +40,9 @@ describe('structured and natural-language Explorer', () => {
       }),
     )
 
-    renderApp('/explore?template=service-dependencies')
+    renderApp('/explore?template=service-dependencies', {
+      me: { permissions: ['agent.write'] },
+    })
     expect(await screen.findByRole('heading', { name: 'Explorer' })).toBeInTheDocument()
     const workspace = screen.getByRole('heading', { name: 'Query builder' }).closest('section')
     const recipes = screen.getByRole('group', { name: 'Canonical Explorer questions' })

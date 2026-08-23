@@ -73,7 +73,7 @@ function stub() {
 describe('AI test authoring', () => {
   test('lists suggestions and creates an authored test on confirmation (review-and-apply)', async () => {
     const posts = stub()
-    renderApp('/targets')
+    renderApp('/targets', { me: { permissions: ['ai.query', 'test.write'] } })
     await screen.findByRole('heading', { name: /author with ai/i })
 
     // Auto-discovery proposes an observed-but-unmonitored target.
@@ -101,7 +101,7 @@ describe('AI test authoring', () => {
 
   test('keeps a flow-derived suggestion propose-only until the operator presses Add', async () => {
     const posts = stub()
-    renderApp('/targets')
+    renderApp('/targets', { me: { permissions: ['ai.query', 'test.write'] } })
     await screen.findByText('203.0.113.10')
     expect(screen.getByText(/observed 9× on the flow plane/i)).toBeInTheDocument()
     expect(posts.some((p) => p.url.endsWith('/v1/tests'))).toBe(false)
@@ -123,7 +123,9 @@ describe('AI test authoring', () => {
 
   test('the authoring surface has no a11y violations', async () => {
     stub()
-    const { container } = renderApp('/targets')
+    const { container } = renderApp('/targets', {
+      me: { permissions: ['ai.query', 'test.write'] },
+    })
     await screen.findByRole('heading', { name: /author with ai/i })
     await screen.findByText('203.0.113.10')
     expect(await axe(container)).toHaveNoViolations()

@@ -120,7 +120,9 @@ describe('J1 install to first real insight', () => {
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', fetchStub)
 
-    const firstRender = renderApp('/onboarding')
+    const firstRender = renderApp('/onboarding', {
+      me: { permissions: ['agent.write', 'test.write', 'directory.write'] },
+    })
     expect(await screen.findByText(/0 of 4 operational steps/i)).toBeInTheDocument()
     expect(screen.getByText(/waiting for the enrolled producer to connect/i)).toBeInTheDocument()
 
@@ -142,7 +144,9 @@ describe('J1 install to first real insight', () => {
 
     firstRender.unmount()
     vi.stubGlobal('fetch', fetchStub)
-    renderApp('/onboarding')
+    renderApp('/onboarding', {
+      me: { permissions: ['agent.write', 'test.write', 'directory.write'] },
+    })
     expect(await screen.findByText(/4 of 4 operational steps/i)).toBeInTheDocument()
     expect(screen.getByText('ICMP check healthy — 127.0.0.1')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /view first finding/i }))

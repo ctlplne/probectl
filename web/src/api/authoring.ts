@@ -46,13 +46,14 @@ export function useAuthorTest() {
 }
 
 /** useDiscover proposes monitorable targets mined from observed telemetry. */
-export function useDiscover() {
+export function useDiscover(enabled = true) {
   return useQuery({
     queryKey: ['ai', 'discover'],
     queryFn: () =>
       apiFetch<{ proposals: DiscoverProposal[] }>('/ai/discover', { method: 'POST' }).then(
         (r) => r.proposals,
       ),
+    enabled,
   })
 }
 

@@ -159,7 +159,7 @@ function CadenceReceipt({ item }: { item: CoverageMatrixItem }) {
   )
 }
 
-export function CoveragePanel() {
+export function CoveragePanel({ canCreateTest }: { canCreateTest: boolean }) {
   const navigate = useNavigate()
   const { locale, t } = useI18n()
   const { data, isPending, isError, error, refetch } = useCoverageMatrix()
@@ -310,9 +310,16 @@ export function CoveragePanel() {
               lastSuccessfulIngest={null}
               coverageLimitation="Coverage cannot be measured until at least one synthetic test is enabled."
               action={
-                <Button variant="primary" onClick={() => void navigate('/targets?create=test')}>
-                  New test
-                </Button>
+                <div className={styles.permissionAction}>
+                  <Button
+                    variant="primary"
+                    onClick={() => void navigate('/targets?create=test')}
+                    disabled={!canCreateTest}
+                  >
+                    New test
+                  </Button>
+                  {!canCreateTest ? <small>Requires test.write permission.</small> : null}
+                </div>
               }
             />
           ) : (
@@ -482,7 +489,7 @@ export function CoveragePanel() {
           )}
         </CardBody>
       </Card>
-      <CoverageDebtPanel />
+      <CoverageDebtPanel canCreateTest={canCreateTest} />
     </>
   )
 }
@@ -516,7 +523,7 @@ function formatEvidenceAge(seconds: number): string {
   return `${Math.floor(seconds / 86400)}d old`
 }
 
-function CoverageDebtPanel() {
+function CoverageDebtPanel({ canCreateTest }: { canCreateTest: boolean }) {
   const navigate = useNavigate()
   const { data, isPending, isError, error, refetch } = useCoverageDebt()
   const [query, setQuery] = useState('')
@@ -660,9 +667,16 @@ function CoverageDebtPanel() {
             lastSuccessfulIngest={null}
             coverageLimitation="Coverage cannot be derived until a local test/site or topology observation exists."
             action={
-              <Button variant="primary" onClick={() => void navigate('/targets?create=test')}>
-                New test
-              </Button>
+              <div className={styles.permissionAction}>
+                <Button
+                  variant="primary"
+                  onClick={() => void navigate('/targets?create=test')}
+                  disabled={!canCreateTest}
+                >
+                  New test
+                </Button>
+                {!canCreateTest ? <small>Requires test.write permission.</small> : null}
+              </div>
             }
           />
         ) : (

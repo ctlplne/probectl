@@ -77,7 +77,7 @@ describe('API failures stay distinct from empty or unavailable states', () => {
   test('onboarding progress failure leaves setup actions available', async () => {
     failReads((input) => pathOf(input) === '/v1/onboarding/progress')
 
-    renderApp('/onboarding')
+    renderApp('/onboarding', { me: { permissions: ['agent.write'] } })
 
     expect(
       await screen.findByText(/onboarding progress unavailable/i, undefined, ERROR_WAIT),

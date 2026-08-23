@@ -68,6 +68,18 @@
   font-size: var(--font-size-sm);
 }
 
+.permissionAction {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.permissionAction small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
 .targetsFilterToolbar {
   min-width: 0;
   padding: var(--space-3) var(--density-panel-padding);

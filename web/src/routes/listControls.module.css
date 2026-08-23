@@ -15,6 +15,12 @@
   min-width: 0;
 }
 
+.permissionHint {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
 @media (max-width: 720px) {
   .filterBar {
     grid-template-columns: 1fr;

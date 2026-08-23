@@ -268,7 +268,9 @@ describe('J1-J6 keyboard-only completion', () => {
     const user = userEvent.setup()
     const stopPointerWatch = watchPointerEvents()
     vi.stubGlobal('fetch', installJourneyFetch())
-    renderApp('/onboarding')
+    renderApp('/onboarding', {
+      me: { permissions: ['agent.write', 'test.write', 'directory.write'] },
+    })
     expect(await screen.findByText(/0 of 4 operational steps/i)).toBeInTheDocument()
 
     await activate(user, screen.getByRole('button', { name: /mint enrollment token/i }))
