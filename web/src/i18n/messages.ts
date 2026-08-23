@@ -847,6 +847,8 @@ const en = {
   'onboarding.invite.create': 'Create SCIM token',
   'onboarding.invite.token': 'SCIM bearer token',
   'onboarding.invite.copyToken': 'Copy token',
+  'onboarding.permission.required':
+    'Unavailable with the current authority. Request {permission} to continue.',
   'onboarding.finding.title': 'First real finding',
   'onboarding.finding.description': 'Server-observed tenant telemetry, not sample data.',
   'onboarding.finding.healthy': 'healthy',
@@ -2157,6 +2159,8 @@ const es: Record<MessageKey, string> = {
   'onboarding.invite.create': 'Crear token SCIM',
   'onboarding.invite.token': 'Token bearer SCIM',
   'onboarding.invite.copyToken': 'Copiar token',
+  'onboarding.permission.required':
+    'No disponible con la autoridad actual. Solicita {permission} para continuar.',
   'onboarding.finding.title': 'Primer hallazgo real',
   'onboarding.finding.description':
     'Telemetria del tenant observada por el servidor, no datos de ejemplo.',
@@ -3413,6 +3417,7 @@ const ar: Record<MessageKey, string> = {
   'onboarding.invite.create': 'إنشاء رمز SCIM',
   'onboarding.invite.token': 'رمز SCIM bearer',
   'onboarding.invite.copyToken': 'نسخ الرمز',
+  'onboarding.permission.required': 'غير متاح بالصلاحية الحالية. اطلب {permission} للمتابعة.',
   'onboarding.finding.title': 'أول ملاحظة تشغيلية حقيقية',
   'onboarding.finding.description': 'قياسات مستأجر لاحظها الخادم وليست بيانات نموذجية.',
   'onboarding.finding.healthy': 'سليم',

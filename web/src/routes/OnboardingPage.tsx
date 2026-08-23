@@ -34,6 +34,7 @@ import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
 import type { BadgeTone } from '../components'
 import { useTime } from '../time/useTime'
+import { useAuth } from '../auth/useAuth'
 
 const FIRST_TEST_TYPES = ['http', 'dns', 'icmp', 'tcp']
 
@@ -178,6 +179,7 @@ export function OnboardingPage() {
   const navigate = useNavigate()
   const { t } = useI18n()
   const time = useTime()
+  const { permissions } = useAuth()
   const onboardingProgress = useOnboardingProgress()
   const mintAgent = useMintAgentEnrollToken()
   const createTest = useCreateTest()
@@ -200,6 +202,9 @@ export function OnboardingPage() {
 
   const [inviteName, setInviteName] = useState('first-run-teammates')
   const [inviteToken, setInviteToken] = useState<CreatedScimToken | null>(null)
+  const canMintAgent = permissions.includes('agent.write')
+  const canCreateTest = permissions.includes('test.write')
+  const canInvite = permissions.includes('directory.write')
 
   const persistedProgress = onboardingProgress.data
   const command = agentToken
@@ -273,6 +278,7 @@ export function OnboardingPage() {
 
   function submitAgent(e: FormEvent) {
     e.preventDefault()
+    if (!canMintAgent) return
     const ttl = Number(agentTTLMinutes)
     mintAgent.mutate(
       {
@@ -290,6 +296,7 @@ export function OnboardingPage() {
 
   function submitTest(e: FormEvent) {
     e.preventDefault()
+    if (!canCreateTest) return
     const interval = Number(testInterval)
     createTest.mutate(
       {
@@ -312,6 +319,7 @@ export function OnboardingPage() {
 
   function submitInvite(e: FormEvent) {
     e.preventDefault()
+    if (!canInvite) return
     createInvite.mutate(
       { name: inviteName.trim() || 'first-run-teammates' },
       {
@@ -518,10 +526,19 @@ export function OnboardingPage() {
                 value={controlURL}
                 onChange={(e) => setControlURL(e.target.value)}
               />
-              <Button type="submit" variant="primary" disabled={mintAgent.isPending}>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={mintAgent.isPending || !canMintAgent}
+              >
                 <Icon name="admin" />{' '}
                 {mintAgent.isPending ? t('onboarding.agent.minting') : t('onboarding.agent.mint')}
               </Button>
+              {!canMintAgent ? (
+                <p className={styles.fieldHint}>
+                  {t('onboarding.permission.required', { permission: 'agent.write' })}
+                </p>
+              ) : null}
               {mintAgent.isError ? (
                 <p className={styles.error} role="alert">
                   {mintAgent.error.message}
@@ -595,11 +612,18 @@ export function OnboardingPage() {
               <Button
                 type="submit"
                 variant="primary"
-                disabled={createTest.isPending || !testName.trim() || !testTarget.trim()}
+                disabled={
+                  createTest.isPending || !canCreateTest || !testName.trim() || !testTarget.trim()
+                }
               >
                 <Icon name="targets" />{' '}
                 {createTest.isPending ? t('onboarding.test.creating') : t('onboarding.test.create')}
               </Button>
+              {!canCreateTest ? (
+                <p className={styles.fieldHint}>
+                  {t('onboarding.permission.required', { permission: 'test.write' })}
+                </p>
+              ) : null}
               {createTest.isError ? (
                 <p className={styles.error} role="alert">
                   {createTest.error.message}
@@ -647,12 +671,21 @@ export function OnboardingPage() {
                 value={inviteName}
                 onChange={(e) => setInviteName(e.target.value)}
               />
-              <Button type="submit" variant="primary" disabled={createInvite.isPending}>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={createInvite.isPending || !canInvite}
+              >
                 <Icon name="admin" />{' '}
                 {createInvite.isPending
                   ? t('onboarding.invite.creating')
                   : t('onboarding.invite.create')}
               </Button>
+              {!canInvite ? (
+                <p className={styles.fieldHint}>
+                  {t('onboarding.permission.required', { permission: 'directory.write' })}
+                </p>
+              ) : null}
               {createInvite.isError ? (
                 <p className={styles.error} role="alert">
                   {createInvite.error.message}

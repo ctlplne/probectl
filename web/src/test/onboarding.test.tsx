@@ -124,7 +124,38 @@ function cardByHeading(name: RegExp): HTMLElement {
   return card
 }
 
+const onboardingWriter = {
+  permissions: ['agent.write', 'test.write', 'directory.write'],
+}
+
 describe('first-run onboarding journey (JOURNEY-001)', () => {
+  test('makes every write-only first-run action visibly unavailable to a read-only role', async () => {
+    const capture: {
+      enroll?: Record<string, unknown>
+      test?: Record<string, unknown>
+      invite?: Record<string, unknown>
+    } = {}
+    vi.stubGlobal('fetch', onboardingFetch(capture))
+
+    renderApp('/', {
+      me: { permissions: ['agent.read', 'test.read', 'directory.read'] },
+    })
+    expect(await screen.findByRole('heading', { name: /first-run setup/i })).toBeInTheDocument()
+
+    const agent = cardByHeading(/enroll an agent/i)
+    expect(within(agent).getByRole('button', { name: /mint enrollment token/i })).toBeDisabled()
+    expect(within(agent).getByText(/request agent\.write/i)).toBeInTheDocument()
+
+    const firstTest = cardByHeading(/create the first test/i)
+    expect(within(firstTest).getByRole('button', { name: /create first test/i })).toBeDisabled()
+    expect(within(firstTest).getByText(/request test\.write/i)).toBeInTheDocument()
+
+    const invite = cardByHeading(/invite teammates/i)
+    expect(within(invite).getByRole('button', { name: /create scim token/i })).toBeDisabled()
+    expect(within(invite).getByText(/request directory\.write/i)).toBeInTheDocument()
+    expect(capture).toEqual({})
+  })
+
   test('starts at / and completes agent, first-test, and teammate provisioning without tenant spoofing', async () => {
     const user = userEvent.setup()
     const capture: {
@@ -135,7 +166,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     } = {}
     vi.stubGlobal('fetch', onboardingFetch(capture))
 
-    renderApp('/')
+    renderApp('/', { me: onboardingWriter })
 
     expect(await screen.findByRole('heading', { name: /first-run setup/i })).toBeInTheDocument()
 
@@ -197,7 +228,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     const capture: { test?: Record<string, unknown> } = {}
     vi.stubGlobal('fetch', onboardingFetch(capture))
 
-    renderApp('/')
+    renderApp('/', { me: onboardingWriter })
     expect(await screen.findByRole('heading', { name: /first-run setup/i })).toBeInTheDocument()
     const firstTest = cardByHeading(/create the first test/i)
     expect(await within(firstTest).findByDisplayValue('127.0.0.1')).toBeInTheDocument()
@@ -229,7 +260,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     const fetchStub = onboardingFetch(capture)
     vi.stubGlobal('fetch', fetchStub)
 
-    const firstRender = renderApp('/')
+    const firstRender = renderApp('/', { me: onboardingWriter })
     expect(await screen.findByRole('heading', { name: /first-run setup/i })).toBeInTheDocument()
 
     const agent = cardByHeading(/enroll an agent/i)
@@ -240,7 +271,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
 
     firstRender.unmount()
     vi.stubGlobal('fetch', fetchStub)
-    renderApp('/')
+    renderApp('/', { me: onboardingWriter })
 
     expect(await screen.findByText(/credential exists; readiness is still 0/i)).toBeInTheDocument()
     expect(screen.queryByDisplayValue('pjt_onboarding_agent')).not.toBeInTheDocument()
@@ -257,7 +288,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     } = {}
     vi.stubGlobal('fetch', onboardingFetch(capture))
 
-    renderApp('/')
+    renderApp('/', { me: onboardingWriter })
 
     expect(
       await screen.findByRole('heading', { name: /choose a producer plane/i }),
