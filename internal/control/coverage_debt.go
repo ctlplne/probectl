@@ -15,6 +15,7 @@ import (
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/otel"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/topology"
@@ -222,9 +223,17 @@ func applyCoverageDebtEvidence(item *coverageDebtItem, evidence coverageDebtEvid
 }
 
 func buildCoverageDebtSites(candidates []store.CoverageCandidate, results []ResultView) []coverageDebtEntity {
+	seriesCounts := make(map[string]int, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.AgentID == "" {
+			continue
+		}
+		series := candidate.ProbeFamily + "\x00" + candidate.Target + "\x00" + candidate.AgentID
+		seriesCounts[series]++
+	}
 	resultBySeries := make(map[string]ResultView, len(results))
 	for _, result := range results {
-		key := result.Type + "\x00" + result.Target + "\x00" + result.AgentID
+		key := result.Attributes[otel.AttrTestID] + "\x00" + result.Type + "\x00" + result.Target + "\x00" + result.AgentID
 		if prior, ok := resultBySeries[key]; !ok || result.ObservedAt.After(prior.ObservedAt) {
 			resultBySeries[key] = result
 		}
@@ -246,7 +255,15 @@ func buildCoverageDebtSites(candidates []store.CoverageCandidate, results []Resu
 		if candidate.AgentID == "" {
 			continue
 		}
-		result, ok := resultBySeries[candidate.ProbeFamily+"\x00"+candidate.Target+"\x00"+candidate.AgentID]
+		series := candidate.ProbeFamily + "\x00" + candidate.Target + "\x00" + candidate.AgentID
+		result, ok := resultBySeries[candidate.TestID+"\x00"+series]
+		// Older producers did not stamp probectl.test.id. Their evidence is
+		// unambiguous only while exactly one candidate owns the remaining
+		// type/target/agent tuple. Duplicate definitions fail closed instead of
+		// borrowing another test's observation.
+		if !ok && seriesCounts[series] == 1 {
+			result, ok = resultBySeries["\x00"+series]
+		}
 		if !ok {
 			continue
 		}

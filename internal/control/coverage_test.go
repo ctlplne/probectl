@@ -365,6 +365,53 @@ func TestBuildCoverageDebtRequiresExactPlaneEvidence(t *testing.T) {
 	}
 }
 
+func TestBuildCoverageDebtDoesNotCrossDuplicateTestIdentity(t *testing.T) {
+	now := time.Date(2026, 8, 23, 2, 0, 0, 0, time.UTC)
+	candidates := []store.CoverageCandidate{
+		{TestID: "test-old", TestName: "old", ProbeFamily: "icmp", Target: "127.0.0.1", IntervalSeconds: 15, AgentID: "agent-a", Region: "local", Site: "lab"},
+		{TestID: "test-new", TestName: "new", ProbeFamily: "icmp", Target: "127.0.0.1", IntervalSeconds: 15, AgentID: "agent-a", Region: "local", Site: "lab"},
+	}
+	results := []ResultView{{
+		AgentID: "agent-a", Type: "icmp", Target: "127.0.0.1", ObservedAt: now,
+		Attributes: map[string]string{"probectl.test.id": "test-new"},
+	}}
+
+	built := buildCoverageDebt(candidates, results, topology.Snapshot{}, coverageDebtBuildOptions{
+		now: now, evidenceRunning: true, topologyRunning: true, entityLimit: 20,
+	})
+	for _, item := range built.items {
+		if item.EntityID == "site:local:lab" && item.Plane == "synthetic" {
+			if item.State != "covered" || item.EvidenceRef != "test-new/agent-a" {
+				t.Fatalf("duplicate-test evidence crossed identity: %+v", item)
+			}
+			return
+		}
+	}
+	t.Fatal("missing synthetic coverage-debt row")
+}
+
+func TestBuildCoverageDebtRejectsAmbiguousLegacyDuplicateEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 23, 2, 0, 0, 0, time.UTC)
+	candidates := []store.CoverageCandidate{
+		{TestID: "test-a", ProbeFamily: "icmp", Target: "127.0.0.1", AgentID: "agent-a", Region: "local", Site: "lab"},
+		{TestID: "test-b", ProbeFamily: "icmp", Target: "127.0.0.1", AgentID: "agent-a", Region: "local", Site: "lab"},
+	}
+	results := []ResultView{{AgentID: "agent-a", Type: "icmp", Target: "127.0.0.1", ObservedAt: now}}
+
+	built := buildCoverageDebt(candidates, results, topology.Snapshot{}, coverageDebtBuildOptions{
+		now: now, evidenceRunning: true, topologyRunning: true, entityLimit: 20,
+	})
+	for _, item := range built.items {
+		if item.EntityID == "site:local:lab" && item.Plane == "synthetic" {
+			if item.State != "uncovered" || item.EvidenceBasis != "no_persisted_test_result" {
+				t.Fatalf("ambiguous legacy evidence must fail closed: %+v", item)
+			}
+			return
+		}
+	}
+	t.Fatal("missing synthetic coverage-debt row")
+}
+
 func TestBuildCoverageDebtMakesIncompleteAbsenceUnknown(t *testing.T) {
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	candidates := []store.CoverageCandidate{{
