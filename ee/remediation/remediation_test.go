@@ -15,6 +15,7 @@ import (
 	"time"
 
 	rem "github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 const (
@@ -412,5 +413,83 @@ func TestProposeValidation(t *testing.T) {
 	}
 	if _, err := s.Propose(context.Background(), testTenant, "u", rem.ProposeInput{Kind: rem.KindOpenTicket, Title: "   "}); err == nil {
 		t.Fatal("want validation error for empty title")
+	}
+}
+
+// TestTenantBoundaryFailsClosedBeforePersistence proves every PostgreSQL
+// remediation path rejects a missing or mismatched tenant before it can touch
+// the database. This is deliberately a unit test with a nil pool: reaching the
+// pool would panic and expose a broken tenant-first boundary.
+func TestTenantBoundaryFailsClosedBeforePersistence(t *testing.T) {
+	ctx := context.Background()
+	if _, err := remediationTenantContext(ctx, ""); !errors.Is(err, tenancy.ErrNoTenant) {
+		t.Fatalf("empty tenant context: err=%v, want ErrNoTenant", err)
+	}
+
+	tenantBCtx := tenancy.WithTenant(ctx, tenancy.ID(testTenantB))
+	if _, err := remediationTenantContext(tenantBCtx, testTenant); err == nil {
+		t.Fatal("mismatched request and remediation tenants must fail closed")
+	}
+
+	store := NewPGStore(nil)
+	audit := NewTenantAudit(nil)
+	proposal := rem.Proposal{DryRun: rem.DryRun{BlastRadius: 1}}
+	checks := []struct {
+		name string
+		call func() error
+	}{
+		{"insert", func() error { _, err := store.insert(ctx, "", proposal); return err }},
+		{"insert audited", func() error {
+			_, err := store.InsertAudited(ctx, "", proposal, audit, AuditEvent{})
+			return err
+		}},
+		{"list", func() error { _, err := store.List(ctx, ""); return err }},
+		{"get", func() error { _, err := store.Get(ctx, "", "rem-1"); return err }},
+		{"decide", func() error {
+			_, err := store.decide(ctx, "", "rem-1", rem.StateRejected, "user", "no", fixedNow)
+			return err
+		}},
+		{"decide audited", func() error {
+			_, err := store.DecideAudited(ctx, "", "rem-1", rem.StateRejected, "user", "no", fixedNow, audit, AuditEvent{})
+			return err
+		}},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.call(); !errors.Is(err, tenancy.ErrNoTenant) {
+				t.Fatalf("err=%v, want ErrNoTenant", err)
+			}
+		})
+	}
+
+	if err := audit.Append(ctx, "", "user", "remediation.test", "rem-1", nil); !errors.Is(err, tenancy.ErrNoTenant) {
+		t.Fatalf("tenant audit with empty tenant: err=%v, want ErrNoTenant", err)
+	}
+	if err := audit.Append(ctx, testTenant, "user", "remediation.test", "rem-1", nil); !errors.Is(err, errAuditUnavailable) {
+		t.Fatalf("tenant audit with nil pool: err=%v, want mandatory-audit failure", err)
+	}
+}
+
+func TestServiceDefaultsAndList(t *testing.T) {
+	if err := (Audit)(nil).Append(context.Background(), testTenant, "user", "test", "", nil); !errors.Is(err, errAuditUnavailable) {
+		t.Fatalf("nil audit: err=%v, want mandatory-audit failure", err)
+	}
+
+	audit := (&recAudit{}).fn()
+	svc := New(NewMemStore(), nil, audit, Config{})
+	if svc.maxBlastRadius != 50 {
+		t.Fatalf("default max blast radius=%d, want 50", svc.maxBlastRadius)
+	}
+	if _, err := svc.Propose(context.Background(), testTenant, "user", rem.ProposeInput{
+		Kind: rem.KindOpenTicket, Title: "ticket without topology target",
+	}); err != nil {
+		t.Fatalf("propose without estimator: %v", err)
+	}
+	proposals, err := svc.List(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(proposals) != 1 || proposals[0].DryRun.Note != "no target to simulate" {
+		t.Fatalf("proposals=%+v, want one safe no-target dry-run", proposals)
 	}
 }
