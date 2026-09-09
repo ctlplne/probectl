@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -o /out/probectl-agent ./cmd/probectl-agent
 
 # Chromium + OS runtime are supplied by the already-pinned Playwright image.
-FROM mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+FROM mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
 WORKDIR /worker
 COPY browser-worker/package.json browser-worker/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
