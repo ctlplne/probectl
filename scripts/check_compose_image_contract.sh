@@ -259,7 +259,14 @@ services:
       PROBECTL_AGENT_TLS_KEY_FILE: /certs/tls.key
       PROBECTL_AGENT_TLS_CA_FILE: /var/lib/probectl/agent-ca.crt
 YAML
+  cat > "$tmp/deploy/compose/dex-demo.yml" <<'YAML'
+# Dex must be recreated WITH control (DPR-025)
+services:
+  dex:
+    network_mode: "service:control"
+YAML
   cat > "$tmp/docs/install.md" <<'MD'
+`docker compose ... up -d control` alone strands Dex (DPR-025).
 The shipped compose stack has no mutable image default.
 If GHCR returns 401, run `docker login ghcr.io` with read:packages.
 Set `PROBECTL_IMAGE` to use a mirror.
