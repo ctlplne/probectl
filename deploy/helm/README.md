@@ -113,7 +113,11 @@ tenant audit rows are pruned only below the SIEM delivery watermark):
 - `probectl-provider-objects-rwx`: a `ReadWriteMany` PVC backed by encrypted,
   shared storage whose WORM prefix is protected by S3 Object Lock, MinIO
   compliance mode, or an equivalent retention policy. A PVC/CSI mount provides
-  the shared filesystem; the backing object store provides immutability.
+  the shared filesystem; the backing object store provides immutability. The
+  mount must be **writable by uid/gid 65532** (the non-root runtime user):
+  not every RWX driver applies the pod's `fsGroup`, and an NFS export or a
+  pre-created directory that stays root-owned fails startup with
+  `audit worm store: … mkdir …/audit-worm: permission denied`.
 - `probectl-provider-runtime`: an externally managed Secret containing
   `PROBECTL_ENVELOPE_KEY`, `PROBECTL_SESSION_HMAC_KEY`,
   `PROBECTL_DATABASE_URL`, `PROBECTL_OIDC_CLIENT_SECRET` when OIDC needs one,
@@ -123,6 +127,21 @@ tenant audit rows are pruned only below the SIEM delivery watermark):
 The names are the reference defaults below; override
 `objectStore.existingClaim` and `secrets.existingSecret` when your operators
 create different names.
+
+The profile also **requires durable stores** — the control plane refuses to
+start the multi-tenant profile on the in-memory bus/TSDB/event stores
+("requires durable bus/store modes; volatile lightweight modes are not
+allowed", DPR-029). Have these ready and wire them through `control.extraEnv`
+(URLs and modes), `secrets.existingSecret` (the SASL password) and
+`control.credentialFiles` (the basic-auth files; see below). Every hop is TLS
+and verified through `control.trustBundle`:
+
+| Store | Keys |
+|---|---|
+| Kafka (SASL_SSL) | `PROBECTL_BUS_MODE=kafka`, `PROBECTL_BUS_BROKERS`, `PROBECTL_BUS_TLS_ENABLED=true`, `PROBECTL_BUS_TLS_CA_FILE=<trust bundle path>`, `PROBECTL_BUS_SASL_MECHANISM`, `PROBECTL_BUS_SASL_USER`, `PROBECTL_BUS_SASL_PASSWORD` (Secret) |
+| Prometheus / VictoriaMetrics | `PROBECTL_TSDB_MODE=prometheus`, `PROBECTL_TSDB_URL=https://…`, `PROBECTL_TSDB_BASIC_AUTH_FILE=<staged credential>` |
+| ClickHouse (HTTPS) | `PROBECTL_{PATHSTORE,FLOWSTORE,OTELSTORE,EBPFSTORE,ENDPOINTSTORE}_MODE=clickhouse`, the matching `…_URL=https://…`, `…_TENANT_SCOPING=true`, `…_READER_USER` (the profile file sets `probectl_reader`), `PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=<staged credential>` |
+| Postgres | `PROBECTL_DATABASE_URL` with `sslmode=verify-full&sslrootcert=<trust bundle path>` in `secrets.existingSecret` |
 
 ```sh
 helm install probectl deploy/helm/probectl \

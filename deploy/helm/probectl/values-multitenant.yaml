@@ -16,6 +16,23 @@
 #     --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
 #     --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest
 #
+# ALSO REQUIRED: durable stores. The control plane refuses this profile on the
+# in-memory bus/TSDB/event stores (DPR-029). Wire Kafka (SASL_SSL), a
+# Prometheus-compatible TSDB and ClickHouse over TLS, e.g.
+#     --set-string control.extraEnv.PROBECTL_BUS_MODE=kafka \
+#     --set-string control.extraEnv.PROBECTL_BUS_BROKERS=kafka-0.kafka.probectl.svc.cluster.local:9093 \
+#     --set-string control.extraEnv.PROBECTL_BUS_TLS_ENABLED=true \
+#     --set-string control.extraEnv.PROBECTL_BUS_TLS_CA_FILE=/etc/probectl/trust/ca-bundle.crt \
+#     --set-string control.extraEnv.PROBECTL_BUS_SASL_MECHANISM=plain \
+#     --set-string control.extraEnv.PROBECTL_BUS_SASL_USER=probectl \
+#     --set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus \
+#     --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc.cluster.local:9090 \
+#     --set-string control.extraEnv.PROBECTL_TSDB_BASIC_AUTH_FILE=/etc/probectl/credentials/prom-basic-auth.json \
+#     --set-string control.extraEnv.PROBECTL_PATHSTORE_MODE=clickhouse ... (flow/otel/ebpf/endpoint alike) \
+#     --set-string control.extraEnv.PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-basic-auth.json
+# with PROBECTL_BUS_SASL_PASSWORD in secrets.existingSecret, the two basic-auth
+# files in control.credentialFiles and the CA in control.trustBundle (README).
+#
 # Same HTTPS-by-default posture as single-tenant; the difference is scale +
 # provider operation. Postgres-resident tenant data is isolated by always-on
 # FORCE-RLS regardless of deployment shape, but the ClickHouse row-policies and
