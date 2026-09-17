@@ -100,7 +100,7 @@ Everything in this section is backed by code in the repo and a named evidence pa
 
 ### 2.8 The verification net (the diligence centerpiece)
 
-The repo's claims are enforced by **60 workflow jobs** across `.github/workflows/` (43 in the main CI workflow plus 17 nightly/release/security jobs); the notable standing gates:
+The repo's claims are enforced by **61 workflow jobs** across `.github/workflows/` (43 in the main CI workflow plus 18 nightly/release/security jobs); the notable standing gates:
 
 | Gate | Invariant it holds |
 |---|---|
