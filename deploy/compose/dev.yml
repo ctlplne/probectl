@@ -20,7 +20,10 @@ services:
       POSTGRES_PASSWORD: probectl
       POSTGRES_DB: probectl
     ports:
-      - "5432:5432"
+      # DPR-094: the published port is a variable so a disposable copy of this
+      # stack (scripts/run_isolated_integration.sh) can run beside a developer's
+      # own dev stack instead of colliding with it. Unset = the usual port.
+      - "${PROBECTL_DEV_POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -38,7 +41,7 @@ services:
   kafka:
     image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f # digest-pinned (U-061)
     ports:
-      - "9092:9092"
+      - "${PROBECTL_DEV_KAFKA_PORT:-9092}:9092"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -54,7 +57,9 @@ services:
       # PLAINTEXT (9092) is for clients on the host (localhost:9092);
       # INTERNAL (19092) is for other containers in this network (kafka:19092).
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093,INTERNAL://0.0.0.0:19092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:19092
+      # The advertised host port must match the PUBLISHED one or a client that
+      # connects on the published port is redirected to a port nobody is on.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:${PROBECTL_DEV_KAFKA_PORT:-9092},INTERNAL://kafka:19092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -73,8 +78,8 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "${PROBECTL_DEV_CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${PROBECTL_DEV_CLICKHOUSE_NATIVE_PORT:-9000}:9000"
     environment:
       CLICKHOUSE_USER: probectl
       CLICKHOUSE_PASSWORD: probectl
@@ -105,7 +110,7 @@ services:
   prometheus:
     image: prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218 # digest-pinned (U-061)
     ports:
-      - "9090:9090"
+      - "${PROBECTL_DEV_PROMETHEUS_PORT:-9090}:9090"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus

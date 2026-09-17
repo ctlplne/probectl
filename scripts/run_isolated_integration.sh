@@ -37,6 +37,35 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+# DPR-094: the disposable stack must not fight the developer's own dev stack for
+# host ports. dev.yml publishes through variables, so pick a free port for each
+# service and point the wrapped command at those ports; an isolated run then
+# works beside a running probectl-dev, and beside another isolated run. Anything
+# the caller already exported wins, so a targeted run can still aim elsewhere.
+free_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'
+}
+
+PROBECTL_DEV_POSTGRES_PORT="$(free_port)"
+PROBECTL_DEV_KAFKA_PORT="$(free_port)"
+PROBECTL_DEV_CLICKHOUSE_HTTP_PORT="$(free_port)"
+PROBECTL_DEV_CLICKHOUSE_NATIVE_PORT="$(free_port)"
+PROBECTL_DEV_PROMETHEUS_PORT="$(free_port)"
+export PROBECTL_DEV_POSTGRES_PORT PROBECTL_DEV_KAFKA_PORT \
+  PROBECTL_DEV_CLICKHOUSE_HTTP_PORT PROBECTL_DEV_CLICKHOUSE_NATIVE_PORT \
+  PROBECTL_DEV_PROMETHEUS_PORT
+
+ch="http://probectl:probectl@localhost:${PROBECTL_DEV_CLICKHOUSE_HTTP_PORT}"
+export PROBECTL_DATABASE_URL="${PROBECTL_DATABASE_URL:-postgres://probectl:probectl@localhost:${PROBECTL_DEV_POSTGRES_PORT}/probectl?sslmode=disable}"
+export PROBECTL_TEST_KAFKA="${PROBECTL_TEST_KAFKA:-localhost:${PROBECTL_DEV_KAFKA_PORT}}"
+export PROBECTL_PROM_URL="${PROBECTL_PROM_URL:-http://localhost:${PROBECTL_DEV_PROMETHEUS_PORT}}"
+export PROBECTL_TEST_CLICKHOUSE_URL="${PROBECTL_TEST_CLICKHOUSE_URL:-$ch}"
+export PROBECTL_FLOWSTORE_URL="${PROBECTL_FLOWSTORE_URL:-$ch}"
+export PROBECTL_PATHSTORE_URL="${PROBECTL_PATHSTORE_URL:-$ch}"
+export PROBECTL_OTELSTORE_URL="${PROBECTL_OTELSTORE_URL:-$ch}"
+export PROBECTL_EBPFSTORE_URL="${PROBECTL_EBPFSTORE_URL:-$ch}"
+
+echo "isolated-integration: postgres :$PROBECTL_DEV_POSTGRES_PORT kafka :$PROBECTL_DEV_KAFKA_PORT clickhouse :$PROBECTL_DEV_CLICKHOUSE_HTTP_PORT prometheus :$PROBECTL_DEV_PROMETHEUS_PORT" >&2
 echo "isolated-integration: starting disposable project $project_name" >&2
 PROBECTL_ISOLATED_NETWORK="$network_name" \
   docker compose --project-name "$project_name" \
