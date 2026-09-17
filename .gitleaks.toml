@@ -22,9 +22,14 @@ paths = [
   # The AI redaction test plants a dummy PEM block to prove masking.
   '''internal/ai/redact_test\.go''',
   # The AI egress-gate redactor test plants fake PII + a dummy Stripe-style
-  # key (sk_live_abc123def456) to prove redactText() masks them (AIRCA-002).
-  # The strings are the test's INPUT, not credentials.
+  # key (the literal lives only inside that test) to prove redactText() masks
+  # them (AIRCA-002). The strings are the test's INPUT, not credentials.
   '''internal/ai/egressgate_test\.go''',
+  # DPR-003: the shared redaction-pattern parity corpus and the AI boundary
+  # test plant a fake PEM block, bearer token, and api_key= pairs to prove the
+  # SAME shapes are masked on every egress path. Test INPUT, not credentials.
+  '''internal/redactpat/parity_test\.go''',
+  '''internal/ai/redact_boundary_test\.go''',
   # KEYS-003: this test plants a literal "fake" EC PRIVATE KEY PEM to prove
   # sealCAKey REFUSES a plaintext CA key (the bytes inside the block are
   # literally "fake"). The string is the test's INPUT, not a credential.
@@ -38,6 +43,12 @@ regexes = [
   # gosnmp protocol constants (e.g. AuthenticationProtocol = gosnmp.SHA512)
   # trip the generic-api-key rule; they are enum identifiers, not secrets.
   '''gosnmp\.(SHA|MD5|AES|DES|NoAuth|NoPriv)[0-9A-Za-z]*''',
+  # DPR-003 (matched against the detected secret): the IR attribution
+  # key-derivation DOMAIN label is public protocol vocabulary, not a key.
+  '''^probectl-ir-attribution-v1$''',
+  # DPR-003: the ClickHouse CI service container's stock default account,
+  # used by ci.yml health probes against a throwaway, job-local database.
+  '''^default:probectl$''',
 ]
 
 [[rules]]
@@ -102,3 +113,12 @@ commits = ['''ac217d7ac307a1380c4ca7c7352e22104ccfe839''']
 paths = ['''test/e2e/e2e_test\.go''']
 regexTarget = "line"
 regexes = ["PROBECTL_ENVELOPE_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="]
+
+[[rules.allowlists]]
+description = "DPR-003: the local upgrade/rollback drill exports the SAME documented throwaway KEK and session pepper as the e2e/compose fixtures; path + exact literal must both match."
+paths = ['''scripts/upgrade_rollback_drill\.sh''']
+regexTarget = "line"
+regexes = [
+  '''PROBECTL_ENVELOPE_KEY="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="''',
+  '''PROBECTL_SESSION_HMAC_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"''',
+]
