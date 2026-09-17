@@ -625,11 +625,14 @@ func (rt *serveRuntime) startSLOAndComplianceConsumers() {
 	if rt.complianceEngine != nil {
 		rt.g.Go(func() error {
 			return superviseBusLaneRestart(rt.gctx, "compliance-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
-				return control.NewComplianceConsumer(rt.resultBus, rt.complianceEngine, rt.correlator, rt.log).
+				cc := control.NewComplianceConsumer(rt.resultBus, rt.complianceEngine, rt.correlator, rt.log).
 					WithSIEM(rt.siemFwd).
 					WithTenantBinding(rt.tenantBinding).
-					WithNamespaceTenants(snap.tenants).
-					Run(ctx)
+					WithNamespaceTenants(snap.tenants)
+				if rt.db != nil && rt.db.Pool() != nil {
+					cc = cc.WithAlertGate(control.NewPGComplianceGate(rt.db.Pool())) // DPR-073
+				}
+				return cc.Run(ctx)
 			})
 		})
 	}

@@ -9,10 +9,12 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -165,5 +167,120 @@ func TestComplianceEnabledWithoutPoliciesReturnsArray(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"compliance_running":true`) ||
 		!strings.Contains(rec.Body.String(), `"items":[]`) {
 		t.Fatalf("enabled empty response must preserve the array contract: %s", rec.Body.String())
+	}
+}
+
+type fakeComplianceGate struct {
+	claims []string
+	won    bool
+	err    error
+}
+
+func (g *fakeComplianceGate) Claim(_ context.Context, tenant, policy, rule string) (bool, error) {
+	g.claims = append(g.claims, tenant+"|"+policy+"|"+rule)
+	return g.won, g.err
+}
+
+func complianceViolationBatch(t *testing.T) bus.Message {
+	t.Helper()
+	raw, err := proto.Marshal(&flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
+		TenantId: "t1", SourceAddress: "10.20.1.5", DestinationAddress: "10.10.2.9", DestinationPort: 443, Bytes: 4096,
+		EndUnixNano: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).UnixNano(),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bus.Message{Value: raw}
+}
+
+// DPR-073: every replica evaluates the same traffic (view groups), so the
+// side effects of a violation go through a cluster-wide once-only gate — the
+// replica that wins the claim files the incident, the others (and a replay
+// after a rollout) keep the verdict but stay quiet; a gate outage fails open.
+func TestComplianceExportIsGatedOnceAcrossReplicas(t *testing.T) {
+	incidentsFor := func(gate *fakeComplianceGate) (int, []string) {
+		store := incident.NewMemoryStore()
+		correlator := incident.NewCorrelator(store, time.Hour, intelTestLog())
+		cc := NewComplianceConsumer(nil, complianceTestEngine(t), correlator, intelTestLog()).WithAlertGate(gate)
+		if err := cc.handleFlow(context.Background(), complianceViolationBatch(t)); err != nil {
+			t.Fatal(err)
+		}
+		list, err := store.OpenIncidents(context.Background(), "t1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(list), gate.claims
+	}
+	if n, claims := incidentsFor(&fakeComplianceGate{won: true}); n != 1 || len(claims) != 1 || claims[0] != "t1|pci-segmentation|corp-to-cde" {
+		t.Fatalf("winning replica: incidents=%d claims=%v", n, claims)
+	}
+	if n, claims := incidentsFor(&fakeComplianceGate{won: false}); n != 0 || len(claims) != 1 {
+		t.Fatalf("losing replica must keep quiet: incidents=%d claims=%v", n, claims)
+	}
+	if n, _ := incidentsFor(&fakeComplianceGate{err: errors.New("db down")}); n != 1 {
+		t.Fatalf("a gate outage must fail open (export locally): incidents=%d", n)
+	}
+	// The verdict itself is never gated: the losing replica still serves it.
+	eng := complianceTestEngine(t)
+	cc := NewComplianceConsumer(nil, eng, nil, intelTestLog()).WithAlertGate(&fakeComplianceGate{won: false})
+	if err := cc.handleFlow(context.Background(), complianceViolationBatch(t)); err != nil {
+		t.Fatal(err)
+	}
+	if res := eng.Results("t1"); len(res) != 1 || res[0].Verdict != compliance.VerdictViolation {
+		t.Fatalf("losing replica lost the verdict: %+v", res)
+	}
+}
+
+type groupRecordingBus struct {
+	mu     sync.Mutex
+	groups []string
+}
+
+func (b *groupRecordingBus) Publish(context.Context, string, []byte, []byte) error { return nil }
+func (b *groupRecordingBus) Subscribe(ctx context.Context, _, group string, _ bus.Handler) error {
+	b.mu.Lock()
+	b.groups = append(b.groups, group)
+	b.mu.Unlock()
+	<-ctx.Done()
+	return nil
+}
+func (b *groupRecordingBus) Close() error { return nil }
+
+// DPR-073: the compliance lanes are per-replica view groups (like the topology
+// and TLS-posture views), so every replica holds the full verdict state
+// instead of one partition owner.
+func TestComplianceLanesArePerReplicaViewGroups(t *testing.T) {
+	prev := instanceGroupSuffix
+	SetInstanceGroupSuffix("control-0")
+	t.Cleanup(func() { SetInstanceGroupSuffix(prev) })
+	fb := &groupRecordingBus{}
+	cc := NewComplianceConsumer(fb, complianceTestEngine(t), nil, intelTestLog()).
+		WithNamespaceTenants(map[string]string{"t-acme": "t1"})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- cc.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		fb.mu.Lock()
+		n := len(fb.groups)
+		fb.mu.Unlock()
+		if n >= 4 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"compliance-flow-control-0": true, "compliance-flow-control-0-t-acme": true,
+		"compliance-ebpf-control-0": true, "compliance-ebpf-control-0-t-acme": true,
+	}
+	for _, g := range fb.groups {
+		delete(want, g)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing per-replica groups %v (got %v)", want, fb.groups)
 	}
 }

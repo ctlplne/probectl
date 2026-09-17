@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -30,6 +31,8 @@ import (
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/pipeline"
 	"github.com/ctlplne/probectl/internal/siem"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // BuildCompliance loads segmentation policies and builds the validator.
@@ -106,6 +109,7 @@ type ComplianceConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	siem       *siem.Forwarder
+	gate       ComplianceAlertGate // DPR-073: cluster-wide once-only export of a violation
 	log        *slog.Logger
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 	nsTenants  map[string]string
@@ -119,6 +123,36 @@ func NewComplianceConsumer(b bus.Bus, e *compliance.Engine, c *incident.Correlat
 	return &ComplianceConsumer{engine: e, bus: b, correlator: c, log: log}
 }
 
+// ComplianceAlertGate decides, cluster-wide, whether THIS replica exports a
+// violation's side effects (DPR-073). Every replica evaluates the same traffic
+// in its own view group, so without the gate three replicas would file three
+// incidents and three SIEM events per violation, and a replay after a rollout
+// would file them again.
+type ComplianceAlertGate interface {
+	Claim(ctx context.Context, tenant, policy, rule string) (bool, error)
+}
+
+// WithAlertGate installs the once-only export gate. nil (no database — the
+// single-process/lightweight shapes) exports every violation locally.
+func (cc *ComplianceConsumer) WithAlertGate(g ComplianceAlertGate) *ComplianceConsumer {
+	cc.gate = g
+	return cc
+}
+
+// pgComplianceGate backs the gate with the compliance_alerted table (FORCE RLS).
+type pgComplianceGate struct{ pool *pgxpool.Pool }
+
+func (p pgComplianceGate) Claim(ctx context.Context, tenant, policy, rule string) (won bool, err error) {
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		won, err = (store.ComplianceAlerted{}).Claim(ctx, sc, policy, rule)
+		return err
+	})
+	return won, err
+}
+
+// NewPGComplianceGate returns the Postgres-backed once-only export gate.
+func NewPGComplianceGate(pool *pgxpool.Pool) ComplianceAlertGate { return pgComplianceGate{pool: pool} }
+
 // WithSIEM forwards violation signals to the SIEM (S32). nil disables it.
 func (cc *ComplianceConsumer) WithSIEM(fw *siem.Forwarder) *ComplianceConsumer {
 	cc.siem = fw
@@ -129,10 +163,10 @@ func (cc *ComplianceConsumer) WithSIEM(fw *siem.Forwarder) *ComplianceConsumer {
 func (cc *ComplianceConsumer) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		return pipeline.RunLanes(gctx, cc.bus, bus.FlowEventsTopic, "compliance-flow", cc.nsTenants, cc.handleFlowLane)
+		return pipeline.RunLanes(gctx, cc.bus, bus.FlowEventsTopic, viewGroup("compliance-flow"), cc.nsTenants, cc.handleFlowLane)
 	})
 	g.Go(func() error {
-		return pipeline.RunLanes(gctx, cc.bus, bus.EBPFFlowsTopic, "compliance-ebpf", cc.nsTenants, cc.handleEBPFLane)
+		return pipeline.RunLanes(gctx, cc.bus, bus.EBPFFlowsTopic, viewGroup("compliance-ebpf"), cc.nsTenants, cc.handleEBPFLane)
 	})
 	return g.Wait()
 }
@@ -230,6 +264,20 @@ func (cc *ComplianceConsumer) handleEBPFLane(ctx context.Context, msg bus.Messag
 
 func (cc *ComplianceConsumer) export(ctx context.Context, sigs []incident.Signal) {
 	for _, sig := range sigs {
+		if cc.gate != nil {
+			won, err := cc.gate.Claim(ctx, sig.TenantID, sig.Attributes["compliance.policy"], sig.Attributes["compliance.rule"])
+			switch {
+			case err != nil:
+				// Fail open on the gate only: a violation is never dropped because
+				// the database blinked; a duplicate incident is the lesser harm.
+				cc.log.Warn("compliance: export gate unavailable, exporting locally", "error", err,
+					"tenant_id", sig.TenantID, "rule", sig.Attributes["compliance.rule"])
+			case !won:
+				cc.log.Debug("compliance: violation already exported by another replica",
+					"tenant_id", sig.TenantID, "rule", sig.Attributes["compliance.rule"])
+				continue
+			}
+		}
 		if cc.correlator != nil {
 			if _, err := cc.correlator.Ingest(ctx, sig); err != nil {
 				cc.log.Warn("compliance: correlate violation failed", "error", err)

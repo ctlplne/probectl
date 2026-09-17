@@ -110,6 +110,16 @@ saw any traffic there" — a quiet zone is **not** proven blocked, and probectl
 violations observed, with the stated coverage." It exports audit-grade,
 hash-chained evidence so tampering with the export is detectable.
 
+Every control replica holds the full verdict state: each one consumes the flow
+and eBPF lanes in its own view group, so `/v1/compliance` and the evidence
+document read the same on whichever replica the Service picks (before DPR-073
+one partition owner held the state and two of three reads answered "no
+observations"). A violation's side effects — the incident signal and the SIEM
+event — pass through a cluster-wide once-only gate (`compliance_alerted`,
+tenant-scoped by row-level security): the replica that wins the claim exports
+them, the others keep the verdict and stay quiet, and a replay after a rollout
+finds the row instead of filing the incident again.
+
 **Guarded remediation.** The assistant can do cross-plane root-cause analysis and
 simulate a topology change. This lets it take *one* more step — **propose** a fix
 grounded in that analysis — and then **stop**. The lifecycle is
