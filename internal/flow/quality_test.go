@@ -101,9 +101,20 @@ func TestMemoryQualityStoreIsTenantScopedMonotonicAndDerivesStaleState(t *testin
 	if err := store.UpsertQualityReceipt(context.Background(), "tenant-a", older); err != nil {
 		t.Fatal(err)
 	}
-	rows, truncated, err := store.ListQualityReceipts(context.Background(), "tenant-a", QualityFilter{})
+	// Pin the read clock to the fixture window: the store prunes receipts
+	// older than QualityReceiptRetention relative to the as-of time, and the
+	// fixture's fixed timestamps must not turn this into a time bomb (DPR-004).
+	rows, truncated, err := store.ListQualityReceipts(context.Background(), "tenant-a", QualityFilter{AsOf: a.WindowEndedAt})
 	if err != nil || truncated || len(rows) != 1 {
 		t.Fatalf("tenant-a rows=%+v truncated=%v err=%v", rows, truncated, err)
+	}
+	// And prove the retention pruning itself: read as of a day past the
+	// window and the receipt is retained; a day past retention and it is gone.
+	if kept, _, err := store.ListQualityReceipts(context.Background(), "tenant-a", QualityFilter{AsOf: a.WindowEndedAt.Add(24 * time.Hour)}); err != nil || len(kept) != 1 {
+		t.Fatalf("receipt inside retention rows=%+v err=%v", kept, err)
+	}
+	if gone, _, err := store.ListQualityReceipts(context.Background(), "tenant-a", QualityFilter{AsOf: a.WindowEndedAt.Add(QualityReceiptRetention + 24*time.Hour)}); err != nil || len(gone) != 0 {
+		t.Fatalf("receipt past retention rows=%+v err=%v", gone, err)
 	}
 	if rows[0].ExporterAddress == b.ExporterAddress || rows[0].WindowEndedAt != a.WindowEndedAt {
 		t.Fatalf("cross-tenant or stale overwrite: %+v", rows[0])
