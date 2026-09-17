@@ -29,6 +29,7 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/go-jose/go-jose/v4` | v4.1.4 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/golang/protobuf` | v1.5.4 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/google/go-cmp` | v0.7.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `github.com/google/uuid` | v1.6.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/gosnmp/gosnmp` | v1.43.2 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/grpc-ecosystem/grpc-gateway/v2` | v2.28.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/hashicorp/go-cty` | v1.5.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
@@ -57,6 +58,9 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/mitchellh/go-wordwrap` | v1.0.1 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/mitchellh/mapstructure` | v1.5.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/mitchellh/reflectwalk` | v1.0.2 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `github.com/nats-io/nats.go` | v1.53.1 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `github.com/nats-io/nkeys` | v0.4.15 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `github.com/nats-io/nuid` | v1.0.1 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/oklog/run` | v1.1.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/oschwald/maxminddb-golang` | v1.13.1 | runtime | ISC | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/pierrec/lz4/v4` | v4.1.26 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |

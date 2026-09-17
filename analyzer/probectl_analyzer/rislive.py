@@ -171,7 +171,7 @@ def iter_updates(messages: Iterable[str]) -> Iterator[BGPRoute]:
 class RISLiveClient:
     """Live RIS Live websocket adapter with reconnect/backoff.
 
-    ``websockets`` is an optional dependency; it is imported lazily so the parsing
+    ``websockets`` ships in the pinned ``rislive`` extra; it is imported lazily so the parsing
     core stays usable (and testable) without it.
     """
 
@@ -205,8 +205,9 @@ class RISLiveClient:
             from websockets.sync.client import connect
         except ImportError as err:  # pragma: no cover - exercised only in live mode
             raise RuntimeError(
-                "RIS Live live mode requires the 'websockets' package "
-                "(pip install websockets); use --replay for recorded captures"
+                "RIS Live live mode requires the pinned 'rislive' extra "
+                "(pip install -e '.[rislive]' from analyzer/); "
+                "use --replay for recorded captures"
             ) from err
 
         backoff = 1.0

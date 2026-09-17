@@ -34,9 +34,9 @@ collector fetch.
 
 ```sh
 pip install -e '.[dev]'                         # from analyzer/
-# (optional) live RIS Live streaming needs the websockets package
-# (imported lazily — MRT/replay processing works without it):
-pip install websockets
+# (optional) live RIS Live streaming — a pinned extra, imported lazily, so
+# MRT processing and recorded replay work without it:
+pip install -e '.[rislive]'
 
 # process a RouteViews / RIS MRT dump (bring-your-own artifact: download and
 # decompress it first — the analyzer reads plain MRT bytes, no bz2/gzip)

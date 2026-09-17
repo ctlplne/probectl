@@ -18,6 +18,14 @@ dependencies = [
 # time-bomb CI red unrelated to any code change. Pin to vetted published
 # versions so resolution is deterministic; bump intentionally + regenerate the
 # lock when upgrading.
+# Live RIS Live streaming (rislive.py RISLiveClient). Kept out of the base
+# dependencies because MRT processing and recorded replay need no socket, and
+# pinned for the same SUPPLY-002 reason as dev: an unpinned runtime dependency
+# documented only as "pip install websockets" resolves to whatever is newest at
+# install time and appears in no lock (DPR-129).
+rislive = [
+  "websockets==15.0.1",
+]
 dev = [
   "pytest==8.4.2",
   "pytest-cov==7.1.0",
