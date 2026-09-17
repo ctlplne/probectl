@@ -1,0 +1,31 @@
+{{- $chBackup := and .Values.backup.enabled .Values.backup.clickhouse.enabled (eq (include "probectl.backupCHSecure" .) "true") }}
+{{- $chRestore := and .Values.restore.clickhouse.enabled (eq (include "probectl.restoreCHSecure" .) "true") }}
+{{- if or $chBackup $chRestore }}
+# DPR-108: clickhouse-client takes TLS settings from a config file, not from
+# flags, so the chart's backup/restore Jobs get one. Without it the Jobs reach
+# ClickHouse on the plaintext native port (9000) — which a hardened ClickHouse
+# does not even listen on — and stream tenant telemetry unencrypted where it
+# does (§7.12: datastore TLS in transit, outbound validates certs).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "probectl.fullname" . }}-ch-client
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+data:
+  client.xml: |
+    <config>
+      <secure>1</secure>
+      <openSSL>
+        <client>
+          {{- if .Values.control.trustBundle.existingConfigMap }}
+          <caConfig>{{ include "probectl.trustBundlePath" . }}</caConfig>
+          {{- end }}
+          <verificationMode>strict</verificationMode>
+          <invalidCertificateHandler>
+            <name>RejectCertificateHandler</name>
+          </invalidCertificateHandler>
+        </client>
+      </openSSL>
+    </config>
+{{- end }}

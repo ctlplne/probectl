@@ -65,6 +65,69 @@ app.kubernetes.io/component: control
 {{- end -}}
 {{- end -}}
 
+{{/* DPR-108: TLS posture for the chart's own datastore Jobs (§7.12). The dump
+     and the restore carry the whole tenant database across the pod network, so
+     they connect at least as strictly as the control plane does. An empty
+     sslmode resolves to verify-full when a deployment trust bundle is mounted
+     into the Job, and to require otherwise (encrypted, server unverified —
+     the strongest posture available without a CA to verify against). */}}
+{{- define "probectl.trustBundlePath" -}}
+{{- printf "%s/%s" .Values.control.trustBundle.mountPath .Values.control.trustBundle.key -}}
+{{- end -}}
+
+{{- define "probectl.backupPGSSLMode" -}}
+{{- if .Values.backup.postgres.sslmode -}}
+{{- .Values.backup.postgres.sslmode -}}
+{{- else if .Values.control.trustBundle.existingConfigMap -}}
+verify-full
+{{- else -}}
+require
+{{- end -}}
+{{- end -}}
+
+{{- define "probectl.restorePGSSLMode" -}}
+{{- if .Values.restore.sslmode -}}
+{{- .Values.restore.sslmode -}}
+{{- else if .Values.control.trustBundle.existingConfigMap -}}
+verify-full
+{{- else -}}
+require
+{{- end -}}
+{{- end -}}
+
+{{/* `helm upgrade --reuse-values` carries the previous release's values and
+     drops new chart defaults (DPR-090), so an ABSENT secure flag must mean on:
+     an upgrade from a release that predates this must not keep talking
+     plaintext to ClickHouse. Empty output means plaintext, which an operator
+     has to ask for explicitly. */}}
+{{- define "probectl.backupCHSecure" -}}
+{{- if or (not (hasKey .Values.backup.clickhouse "secure")) .Values.backup.clickhouse.secure -}}true{{- end -}}
+{{- end -}}
+
+{{- define "probectl.restoreCHSecure" -}}
+{{- if or (not (hasKey .Values.restore.clickhouse "secure")) .Values.restore.clickhouse.secure -}}true{{- end -}}
+{{- end -}}
+
+{{- define "probectl.backupCHPort" -}}
+{{- if .Values.backup.clickhouse.port -}}
+{{- .Values.backup.clickhouse.port -}}
+{{- else if eq (include "probectl.backupCHSecure" .) "true" -}}
+9440
+{{- else -}}
+9000
+{{- end -}}
+{{- end -}}
+
+{{- define "probectl.restoreCHPort" -}}
+{{- if .Values.restore.clickhouse.port -}}
+{{- .Values.restore.clickhouse.port -}}
+{{- else if eq (include "probectl.restoreCHSecure" .) "true" -}}
+9440
+{{- else -}}
+9000
+{{- end -}}
+{{- end -}}
+
 {{/* ServiceAccount name. */}}
 {{- define "probectl.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}

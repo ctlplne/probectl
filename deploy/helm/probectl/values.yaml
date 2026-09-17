@@ -484,7 +484,13 @@ backup:
     enabled: true
     schedule: "0 2 * * *"
     host: probectl-postgres
+    port: 5432
     database: probectl
+    # DPR-108: TLS for the dump session. Empty resolves to verify-full when
+    # control.trustBundle.existingConfigMap is set (that bundle is mounted into
+    # the Job and used as PGSSLROOTCERT) and to require otherwise. The dump is
+    # the whole tenant metadata database; it never travels in the clear.
+    sslmode: ""
     image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
   clickhouse:
     enabled: true
@@ -500,6 +506,12 @@ backup:
     # for a smaller telemetry RPO; this is separate from Postgres metadata RPO.
     schedule: "30 2 * * *"
     host: probectl-clickhouse
+    # DPR-108: connect on the native TLS port with a verified certificate. A
+    # hardened ClickHouse does not listen on plaintext 9000 at all, so this is
+    # also what makes the backup work there. Set secure=false (and port 9000)
+    # only for a deliberately plaintext ClickHouse.
+    secure: true
+    port: 9440
     database: probectl
     serverBackupPath: /backups # server-visible path also mounted by backup/restore Jobs for .pbk seal/open
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
@@ -522,6 +534,9 @@ restore:
   backupFile: ""              # filename on the backups PVC (e.g. pg-2026-06-13.sql.sealed)
   host: probectl-postgres
   port: 5432
+  # DPR-108: TLS for the restore session, same resolution as
+  # backup.postgres.sslmode.
+  sslmode: ""
   # DPR-107: the Job restores into this database AND migrates it. Point it at a
   # scratch database (e.g. probectl_restore_drill) to rehearse a restore without
   # touching the live one; the live database is never inferred from the release.
@@ -538,5 +553,7 @@ restore:
     backupFile: ""            # filename on the ClickHouse server backup path (e.g. clickhouse-probectl-...zip.pbk)
     serverBackupPath: /backups # server-visible path shared with the restore Job for .pbk open
     host: probectl-clickhouse
+    secure: true               # DPR-108: native TLS port, verified certificate
+    port: 9440
     database: probectl
     image: ""                 # defaults to backup.clickhouse.image

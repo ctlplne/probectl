@@ -117,14 +117,14 @@ spec:
                   {{- if .Values.backup.encryption.enabled }}
                   out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump.pbk"
                   trap 'rm -f "$out.tmp"' EXIT
-                  pg_dump -h {{ .Values.backup.postgres.host }} -U "$PGUSER" -d {{ .Values.backup.postgres.database }} --format=custom --no-owner \
+                  pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" --format=custom --no-owner \
                     | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "$out.tmp"
                   test -s "$out.tmp"
                   mv "$out.tmp" "$out"
                   {{- else }}
                   out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump"
                   echo "WARNING writing PLAINTEXT tenant backup under explicit break-glass ack backup.plaintextAck=allow-plaintext-tenant-backup / PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup" >&2
-                  pg_dump -h {{ .Values.backup.postgres.host }} -U "$PGUSER" -d {{ .Values.backup.postgres.database }} --format=custom --no-owner > "$out"
+                  pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" --format=custom --no-owner > "$out"
                   {{- end }}
                   sha256sum "$out" > "$out.sha256"
                   echo "wrote $out"
@@ -135,6 +135,21 @@ spec:
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: password }
+                - name: PGHOST
+                  value: {{ .Values.backup.postgres.host | quote }}
+                - name: PGPORT
+                  value: {{ .Values.backup.postgres.port | default 5432 | quote }}
+                - name: PGDATABASE
+                  value: {{ .Values.backup.postgres.database | quote }}
+                # DPR-108: the dump is the whole tenant metadata database — it
+                # never crosses the network on an unencrypted or unverified
+                # session (§7.12).
+                - name: PGSSLMODE
+                  value: {{ include "probectl.backupPGSSLMode" . | quote }}
+                {{- if .Values.control.trustBundle.existingConfigMap }}
+                - name: PGSSLROOTCERT
+                  value: {{ include "probectl.trustBundlePath" . | quote }}
+                {{- end }}
               resources:
                 {{- toYaml .Values.backup.resources | nindent 16 }}
               volumeMounts:
@@ -142,6 +157,9 @@ spec:
                 {{- if .Values.backup.encryption.enabled }}
                 - { name: tools, mountPath: /tools, readOnly: true }
                 - { name: envelope-key, mountPath: /keys, readOnly: true }
+                {{- end }}
+                {{- if .Values.control.trustBundle.existingConfigMap }}
+                - { name: trust-bundle, mountPath: {{ .Values.control.trustBundle.mountPath | quote }}, readOnly: true }
                 {{- end }}
           volumes:
             - name: backups
@@ -155,6 +173,13 @@ spec:
                 secretName: {{ .Values.backup.encryption.keySecret }}
                 items:
                   - { key: {{ .Values.backup.encryption.keySecretKey }}, path: envelope.key }
+            {{- end }}
+            {{- if .Values.control.trustBundle.existingConfigMap }}
+            - name: trust-bundle
+              configMap:
+                name: {{ .Values.control.trustBundle.existingConfigMap | quote }}
+                items:
+                  - { key: {{ .Values.control.trustBundle.key | quote }}, path: {{ .Values.control.trustBundle.key | quote }} }
             {{- end }}
 ---
 {{- end }}
@@ -212,6 +237,10 @@ spec:
                   server_backup_path="{{ required "backup.clickhouse.serverBackupPath is required" .Values.backup.clickhouse.serverBackupPath }}"
                   echo "ACK encrypted ClickHouse backup target backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target; artifact contains tenant telemetry" >&2
                   clickhouse-client --host {{ .Values.backup.clickhouse.host }} \
+                    --port {{ include "probectl.backupCHPort" . }} \
+                    {{- if eq (include "probectl.backupCHSecure" .) "true" }}
+                    --secure --config-file=/etc/probectl/ch/client.xml \
+                    {{- end }}
                     --user "$CH_USER" --password "$CH_PASSWORD" \
                     --query "BACKUP DATABASE {{ .Values.backup.clickhouse.database }} TO File('${server_backup_path}/$name')"
                   {{- if .Values.backup.encryption.enabled }}
@@ -243,6 +272,12 @@ spec:
                 - { name: tools, mountPath: /tools, readOnly: true }
                 - { name: envelope-key, mountPath: /keys, readOnly: true }
                 {{- end }}
+                {{- if eq (include "probectl.backupCHSecure" .) "true" }}
+                - { name: ch-client, mountPath: /etc/probectl/ch, readOnly: true }
+                {{- end }}
+                {{- if .Values.control.trustBundle.existingConfigMap }}
+                - { name: trust-bundle, mountPath: {{ .Values.control.trustBundle.mountPath | quote }}, readOnly: true }
+                {{- end }}
           volumes:
             - name: backups
               persistentVolumeClaim:
@@ -255,6 +290,18 @@ spec:
                 secretName: {{ .Values.backup.encryption.keySecret }}
                 items:
                   - { key: {{ .Values.backup.encryption.keySecretKey }}, path: envelope.key }
+            {{- end }}
+            {{- if eq (include "probectl.backupCHSecure" .) "true" }}
+            - name: ch-client
+              configMap:
+                name: {{ include "probectl.fullname" . }}-ch-client
+            {{- end }}
+            {{- if .Values.control.trustBundle.existingConfigMap }}
+            - name: trust-bundle
+              configMap:
+                name: {{ .Values.control.trustBundle.existingConfigMap | quote }}
+                items:
+                  - { key: {{ .Values.control.trustBundle.key | quote }}, path: {{ .Values.control.trustBundle.key | quote }} }
             {{- end }}
 {{- end }}
 {{- if .Values.backup.objectStore.enabled }}

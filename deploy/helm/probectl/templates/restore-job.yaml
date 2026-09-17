@@ -98,12 +98,23 @@ spec:
               value: {{ .Values.restore.port | default 5432 | quote }}
             - name: PGDATABASE
               value: {{ .Values.restore.database | quote }}
+            # DPR-108: restore the tenant database over an encrypted, verified
+            # session — pg_restore and the migrate step both read this (§7.12).
+            - name: PGSSLMODE
+              value: {{ include "probectl.restorePGSSLMode" . | quote }}
+            {{- if .Values.control.trustBundle.existingConfigMap }}
+            - name: PGSSLROOTCERT
+              value: {{ include "probectl.trustBundlePath" . | quote }}
+            {{- end }}
             - name: PROBECTL_ENVELOPE_KEY
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.encryption.keySecret }}, key: {{ .Values.backup.encryption.keySecretKey }} } }
           volumeMounts:
             - { name: backups, mountPath: /backups, readOnly: true }
             - { name: shared, mountPath: /shared }
             - { name: restore-work, mountPath: /restore-work }
+            {{- if .Values.control.trustBundle.existingConfigMap }}
+            - { name: trust-bundle, mountPath: {{ .Values.control.trustBundle.mountPath | quote }}, readOnly: true }
+            {{- end }}
       volumes:
         - name: backups
           persistentVolumeClaim:
@@ -112,6 +123,13 @@ spec:
           emptyDir: {}
         - name: restore-work
           emptyDir: {}
+        {{- if .Values.control.trustBundle.existingConfigMap }}
+        - name: trust-bundle
+          configMap:
+            name: {{ .Values.control.trustBundle.existingConfigMap | quote }}
+            items:
+              - { key: {{ .Values.control.trustBundle.key | quote }}, path: {{ .Values.control.trustBundle.key | quote }} }
+        {{- end }}
 {{- end }}
 {{- if .Values.restore.clickhouse.enabled }}
 ---
@@ -175,12 +193,14 @@ spec:
                   ;;
               esac
               echo "ch-restore: dropping + restoring {{ .Values.restore.clickhouse.database }} (DESTRUCTIVE)…"
-              clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
-                --user "$CH_USER" --password "$CH_PASSWORD" \
-                --query "DROP DATABASE IF EXISTS {{ .Values.restore.clickhouse.database }} SYNC"
-              clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
-                --user "$CH_USER" --password "$CH_PASSWORD" \
-                --query "RESTORE DATABASE {{ .Values.restore.clickhouse.database }} FROM File('${server_backup_path}/${restore_file}')"
+              ch=(clickhouse-client --host "{{ .Values.restore.clickhouse.host }}"
+                  --port {{ include "probectl.restoreCHPort" . }}
+                  {{- if eq (include "probectl.restoreCHSecure" .) "true" }}
+                  --secure --config-file=/etc/probectl/ch/client.xml
+                  {{- end }}
+                  --user "$CH_USER" --password "$CH_PASSWORD")
+              "${ch[@]}" --query "DROP DATABASE IF EXISTS {{ .Values.restore.clickhouse.database }} SYNC"
+              "${ch[@]}" --query "RESTORE DATABASE {{ .Values.restore.clickhouse.database }} FROM File('${server_backup_path}/${restore_file}')"
               case "${restore_file}" in
                 *.restore-open) rm -f "${server_backup_path}/${restore_file}" ;;
               esac
@@ -197,6 +217,12 @@ spec:
             - { name: tools, mountPath: /tools, readOnly: true }
             - { name: envelope-key, mountPath: /keys, readOnly: true }
             {{- end }}
+            {{- if eq (include "probectl.restoreCHSecure" .) "true" }}
+            - { name: ch-client, mountPath: /etc/probectl/ch, readOnly: true }
+            {{- end }}
+            {{- if .Values.control.trustBundle.existingConfigMap }}
+            - { name: trust-bundle, mountPath: {{ .Values.control.trustBundle.mountPath | quote }}, readOnly: true }
+            {{- end }}
       volumes:
         - name: backups
           persistentVolumeClaim:
@@ -209,5 +235,17 @@ spec:
             secretName: {{ .Values.backup.encryption.keySecret }}
             items:
               - { key: {{ .Values.backup.encryption.keySecretKey }}, path: envelope.key }
+        {{- end }}
+        {{- if eq (include "probectl.restoreCHSecure" .) "true" }}
+        - name: ch-client
+          configMap:
+            name: {{ include "probectl.fullname" . }}-ch-client
+        {{- end }}
+        {{- if .Values.control.trustBundle.existingConfigMap }}
+        - name: trust-bundle
+          configMap:
+            name: {{ .Values.control.trustBundle.existingConfigMap | quote }}
+            items:
+              - { key: {{ .Values.control.trustBundle.key | quote }}, path: {{ .Values.control.trustBundle.key | quote }} }
         {{- end }}
 {{- end }}

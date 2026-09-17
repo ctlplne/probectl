@@ -238,6 +238,24 @@ then runs the destructive restore. Plain `.dump` or `.zip` artifacts should
 exist only from explicit raw-backup acknowledgements; treat them as exposed
 tenant data.
 
+### How the Jobs reach the datastores (TLS)
+
+The backup CronJobs and the restore Jobs carry the entire tenant metadata
+database and all tenant telemetry across the pod network, so they connect at
+least as strictly as the control plane does (§7.12):
+
+* **Postgres** — `backup.postgres.sslmode` and `restore.sslmode`. Left empty
+  they resolve to `verify-full` when `control.trustBundle.existingConfigMap` is
+  set (that bundle is mounted into the Job and used as `PGSSLROOTCERT`), and to
+  `require` otherwise — encrypted, but with no CA there is nothing to verify
+  against. The connection host must match a name in the server certificate.
+* **ClickHouse** — `backup.clickhouse.secure` / `restore.clickhouse.secure`
+  (default on) use the native TLS port 9440 with a verified certificate.
+  `clickhouse-client` takes TLS settings from a config file rather than flags,
+  so the chart mounts one that sets strict verification against the same trust
+  bundle. A hardened ClickHouse does not listen on plaintext 9000 at all; set
+  `secure=false` and `port=9000` only for a deliberately plaintext server.
+
 ### Restoring on Kubernetes (chart-managed restore Jobs)
 
 The compose scripts above are the host/dev path. On Kubernetes the chart ships

@@ -190,6 +190,7 @@
         "backupFile": { "type": "string" },
         "host": { "type": "string" },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "sslmode": { "type": "string" },
         "database": { "type": "string" },
         "image": { "type": "string" },
         "clickhouse": {
@@ -200,6 +201,8 @@
             "backupFile": { "type": "string" },
             "serverBackupPath": { "type": "string", "minLength": 1 },
             "host": { "type": "string" },
+            "secure": { "type": "boolean" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
             "database": { "type": "string" },
             "image": { "type": "string" }
           }
@@ -244,6 +247,8 @@
             "enabled": { "type": "boolean" },
             "schedule": { "type": "string" },
             "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "sslmode": { "type": "string" },
             "database": { "type": "string" },
             "image": { "type": "string" }
           }
@@ -259,6 +264,8 @@
             },
             "schedule": { "type": "string" },
             "host": { "type": "string" },
+            "secure": { "type": "boolean" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
             "database": { "type": "string" },
             "serverBackupPath": { "type": "string", "minLength": 1 },
             "image": { "type": "string" }
