@@ -140,6 +140,14 @@ its script under `bash -euo pipefail`, so a producer that fails — a refused
 `backup-seal` refuses to seal empty input. An empty artifact is never published
 as a successful backup; a failed job is the signal to act on.
 
+When the chart creates the backups claim (`backup.persistence.create=true`), a
+one-shot `<release>-backups-bind-<revision>` Job mounts it in the same release
+so it binds immediately. Most storage classes (GKE, EKS, AKS, kind) bind a
+volume on its first consumer, and a CronJob is no consumer until it first
+fires, so `helm install/upgrade --wait` would otherwise wait on a Pending claim
+and fail the release. Set `backup.persistence.bind=false` on a class that binds
+immediately.
+
 ## Telemetry regional DR profile: off-region ClickHouse backups
 
 The shipped, default telemetry DR profile is **off-region ClickHouse backups**,

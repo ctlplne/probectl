@@ -232,7 +232,8 @@
             "create": { "type": "boolean" },
             "claimName": { "type": "string" },
             "size": { "type": "string" },
-            "storageClass": { "type": "string" }
+            "storageClass": { "type": "string" },
+            "bind": { "type": "boolean" }
           }
         },
         "postgres": {

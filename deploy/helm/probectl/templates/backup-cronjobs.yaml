@@ -29,6 +29,44 @@ spec:
   storageClassName: {{ . }}
   {{- end }}
 ---
+{{- if .Values.backup.persistence.bind }}
+# DPR-090: bind the backups claim now. Storage classes that bind on first
+# consumer leave a chart-created claim Pending until the first CronJob run, and
+# `helm --wait` fails the release on a Pending claim. This one-shot Job mounts
+# the claim once per release revision; the control-plane image's `version`
+# command needs no database and no shell.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "probectl.fullname" . }}-backups-bind-{{ .Release.Revision }}
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: bind
+          image: {{ include "probectl.image" . }}
+          command: ["/usr/local/bin/app"]
+          args: ["version"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: backups, mountPath: /backups }
+      volumes:
+        - name: backups
+          persistentVolumeClaim:
+            claimName: {{ include "probectl.fullname" . }}-backups
+---
+{{- end }}
 {{- end }}
 {{- if .Values.backup.postgres.enabled }}
 apiVersion: batch/v1

@@ -32,6 +32,7 @@ func TestBackupAndRestorePodsAreHardened(t *testing.T) {
 	for _, tmpl := range []string{"templates/backup-cronjobs.yaml", "templates/restore-job.yaml"} {
 		out, err := renderHelmAgentListener(t, tmpl,
 			"--set", "backup.enabled=true",
+			"--set", "backup.persistence.create=true",
 			"--set", "backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target",
 			"--set", "restore.enabled=true",
 			"--set-string", "restore.backupFile=postgres-probectl.dump.pbk",
@@ -107,10 +108,11 @@ func TestBackupAndRestorePodsAreHardened(t *testing.T) {
 			t.Errorf("%s: no containers rendered", name)
 		}
 	}
-	// Three chart CronJobs (postgres, clickhouse, object store), two restore
-	// Jobs (postgres, clickhouse) and the two standalone CronJob manifests.
-	if checked != 7 {
-		t.Fatalf("expected 7 backup/restore pod specs, checked %d", checked)
+	// Three chart CronJobs (postgres, clickhouse, object store), the claim
+	// bind Job (DPR-090), two restore Jobs (postgres, clickhouse) and the two
+	// standalone CronJob manifests.
+	if checked != 8 {
+		t.Fatalf("expected 8 backup/restore pod specs, checked %d", checked)
 	}
 }
 

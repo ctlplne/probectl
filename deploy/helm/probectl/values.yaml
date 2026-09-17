@@ -474,6 +474,12 @@ backup:
     claimName: ""        # else point at an existing PVC (default: <release>-backups)
     size: 50Gi
     storageClass: ""
+    # DPR-090: with create=true, a one-shot Job mounts the new claim once per
+    # release revision so it binds immediately. Most storage classes (GKE, EKS,
+    # AKS, kind) bind on first consumer and a CronJob is no consumer until it
+    # first fires, so `helm install/upgrade --wait` would otherwise wait on a
+    # Pending claim and fail the release.
+    bind: true
   postgres:
     enabled: true
     schedule: "0 2 * * *"
