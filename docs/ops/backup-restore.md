@@ -262,6 +262,15 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
   --set restore.clickhouse.backupFile=clickhouse-probectl-<ts>.zip.pbk \
   --set restore.clickhouse.serverBackupPath=/backups
 
+# Rehearse without touching the live database: restore into a scratch database
+# on the same server (create it first). The Job restores AND migrates that
+# database — restore.host/restore.port/restore.database are the single target
+# for both steps, so a drill can never migrate production (DPR-107):
+helm upgrade probectl deploy/helm/probectl --reuse-values \
+  --set restore.enabled=true \
+  --set restore.backupFile=postgres-probectl-<ts>.dump.pbk \
+  --set restore.database=probectl_restore_drill
+
 # Each is a Job with backoffLimit 0 (fail loud, never silently retry-and-clobber).
 # Watch it to completion, then DISABLE it again so a later upgrade doesn't re-run it:
 kubectl logs -f job/probectl-clickhouse-restore

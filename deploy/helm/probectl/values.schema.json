@@ -189,6 +189,7 @@
         "enabled": { "type": "boolean" },
         "backupFile": { "type": "string" },
         "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "database": { "type": "string" },
         "image": { "type": "string" },
         "clickhouse": {

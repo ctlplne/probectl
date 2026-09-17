@@ -521,6 +521,10 @@ restore:
   enabled: false
   backupFile: ""              # filename on the backups PVC (e.g. pg-2026-06-13.sql.sealed)
   host: probectl-postgres
+  port: 5432
+  # DPR-107: the Job restores into this database AND migrates it. Point it at a
+  # scratch database (e.g. probectl_restore_drill) to rehearse a restore without
+  # touching the live one; the live database is never inferred from the release.
   database: probectl
   image: ""                   # SUPPLY-006: defaults to the digest-pinned backup.postgres.image
   # OPS-007: chart-managed ClickHouse restore (mirrors the PG restore Job and the

@@ -71,11 +71,18 @@ spec:
               # from PROBECTL_ENVELOPE_KEY (env, below) — it has NO --in/--out flags.
               /shared/probectl-control backup-open < "${backup}" > "${work}"
               test -s "${work}"
-              echo "restore: restoring into {{ .Values.restore.database }}…"
+              echo "restore: restoring into ${PGDATABASE} on ${PGHOST}:${PGPORT}…"
               pg_restore --clean --if-exists --no-owner \
-                -h "{{ .Values.restore.host }}" -U "$PGUSER" -d "{{ .Values.restore.database }}" \
+                -h "${PGHOST}" -p "${PGPORT}" -U "$PGUSER" -d "${PGDATABASE}" \
                 "${work}"
-              echo "restore: applying migrations (idempotent)…"
+              echo "restore: applying migrations to ${PGDATABASE} (idempotent)…"
+              # DPR-107: migrate the database this Job just restored, never the
+              # release's live DSN — restore.host/restore.database exist so a
+              # rehearsal can land in a scratch database, and a migrate against
+              # the live URL would both miss the restored copy and touch
+              # production. Credentials stay in PGUSER/PGPASSWORD, never in the
+              # URL (§7.6); the driver reads them from the environment.
+              export PROBECTL_DATABASE_URL="postgres://${PGHOST}:${PGPORT}/${PGDATABASE}"
               /shared/probectl-control migrate
               echo "restore: done. Verify /readyz on the control plane before resuming traffic."
           env:
@@ -83,8 +90,14 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: username } }
             - name: PGPASSWORD
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: password } }
-            - name: PROBECTL_DATABASE_URL
-              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "probectl.fullname" .)) }}, key: PROBECTL_DATABASE_URL } }
+            # The restore target, as libpq environment: pg_restore and the
+            # migrate step both read it, so they can never disagree.
+            - name: PGHOST
+              value: {{ .Values.restore.host | quote }}
+            - name: PGPORT
+              value: {{ .Values.restore.port | default 5432 | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.restore.database | quote }}
             - name: PROBECTL_ENVELOPE_KEY
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.encryption.keySecret }}, key: {{ .Values.backup.encryption.keySecretKey }} } }
           volumeMounts:
