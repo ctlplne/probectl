@@ -7,7 +7,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -107,11 +106,13 @@ func irKeyInstall(args []string, stdin io.Reader, getenv func(string) string, st
 // (uid 65532 in the shipped image) must be able to read a key an operator
 // installed, and nothing secret is in it.
 func writeIRPublicKeyAtomically(target string, raw []byte) error {
-	var nonce [8]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
+	// §7.3: primitives come from internal/crypto so a FIPS module can be
+	// compiled in — including the randomness that names a staging file.
+	nonce, err := crypto.Random(8)
+	if err != nil {
 		return fmt.Errorf("stage temp name: %w", err)
 	}
-	tmp := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".tmp-"+hex.EncodeToString(nonce[:]))
+	tmp := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".tmp-"+hex.EncodeToString(nonce))
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("stage %s: %w", tmp, err)

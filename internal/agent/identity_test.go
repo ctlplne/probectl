@@ -9,7 +9,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -210,7 +209,7 @@ func TestEnrollRefusesUnwritableDirBeforeRedeemingToken(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	pin := fmt.Sprintf("%x", sha256.Sum256(srv.Certificate().Raw))
+	pin := fmt.Sprintf("%x", crypto.Hash(srv.Certificate().Raw))
 	// A regular file where the directory should be: MkdirAll fails.
 	blocker := filepath.Join(t.TempDir(), "not-a-dir")
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
