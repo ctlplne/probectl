@@ -143,6 +143,15 @@ All routes are tenant-scoped and hidden (404) when the feature is unlicensed.
 | `POST /v1/remediation/proposals/{id}/approve` | `remediation.approve` | the ONLY path to `approved`; fails closed |
 | `POST /v1/remediation/proposals/{id}/reject` | `remediation.approve` | records a decline |
 
+Request bodies (DPR-070 — they are in the OpenAPI spec, so the generated Go
+and TypeScript SDKs carry typed `ProposeRemediation`, `ApproveRemediationProposal`
+and `RejectRemediationProposal` calls and a typed `RemediationProposal` response):
+
+| Operation | Body |
+|---|---|
+| propose | `{"kind": "reroute_suggestion" \| "traffic_shift_suggestion" \| "open_ticket" \| "trustctl_renewal", "title": "…", "rationale": "…", "target": "hop:10.0.0.1", "incident_id": "…"}` — `kind` and `title` are required; `target` names the topology element the dry-run sizes |
+| approve / reject | `{"note": "…"}` (optional) — the human's decision note, written to the audit trail |
+
 Fail-closed approval errors map to `409 Conflict` with a machine code:
 `approvals_disabled`, `blast_radius_exceeded`, `blast_radius_unknown`,
 `not_proposed`.

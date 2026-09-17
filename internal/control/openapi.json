@@ -7507,9 +7507,16 @@
     "/v1/lifecycle/erase": {
       "post": {
         "summary": "IRREVERSIBLE verifiable erasure across every store; requires confirm=<tenant slug>; returns the deletion attestation (also appended to the provider audit chain)",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleEraseRequest"}}}
+        },
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -7537,9 +7544,16 @@
     "/v1/security/keys/rotate": {
       "post": {
         "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation \u2014 the lockout guard); retired versions stay decrypt-only (no downtime). A license that transitions past grace denies rotation with license_read_only while status and decrypt remain available",
+        "requestBody": {
+          "required": false,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KeyRotateRequest"}}}
+        },
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "403": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7586,10 +7600,14 @@
     },
     "/v1/remediation/proposals": {
       "get": {
+        "operationId": "listRemediationProposals",
         "summary": "List guarded-remediation proposals (S-EE5). Hidden 404 when the remediation feature is unlicensed",
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposalList"}}}
           }
         },
         "x-probectl-pagination": {
@@ -7599,10 +7617,21 @@
         }
       },
       "post": {
+        "operationId": "proposeRemediation",
         "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed \u2014 probectl never executes; a human must approve. A license that transitions past grace denies the mutation with license_read_only while proposal review remains available",
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposalRequest"}}}
+        },
         "responses": {
           "201": {
-            "description": "Created"
+            "description": "Created \u2014 the proposal, in state proposed, with its read-only dry-run",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "403": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7612,36 +7641,73 @@
     },
     "/v1/remediation/proposals/{id}": {
       "get": {
+        "operationId": "getRemediationProposal",
         "summary": "Get one remediation proposal + its dry-run/blast-radius",
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}, {"name": "id", "in": "path", "required": true, "description": "Proposal id.", "schema": {"type": "string"}}],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
     },
     "/v1/remediation/proposals/{id}/approve": {
       "post": {
+        "operationId": "approveRemediationProposal",
         "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING \u2014 operators carry it out. Read-only license mode denies the mutation with license_read_only",
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}, {"name": "id", "in": "path", "required": true, "description": "Proposal id.", "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": false,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationDecisionRequest"}}}
+        },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "The proposal in state approved (a recorded, audited human authorization \u2014 nothing was executed)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
           },
           "403": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "description": "Fails closed: approvals_disabled, blast_radius_exceeded, blast_radius_unknown or not_proposed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
       }
     },
     "/v1/remediation/proposals/{id}/reject": {
       "post": {
+        "operationId": "rejectRemediationProposal",
         "summary": "Record a human's rejection of a remediation proposal (audited). Read-only license mode denies the mutation with license_read_only",
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}, {"name": "id", "in": "path", "required": true, "description": "Proposal id.", "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": false,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationDecisionRequest"}}}
+        },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "The proposal in state rejected",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
           },
           "403": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "description": "not_proposed \u2014 only a proposal in state proposed can be decided",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
       }
@@ -8996,6 +9062,80 @@
       }
     },
     "schemas": {
+      "RemediationProposalRequest": {
+        "type": "object",
+        "required": ["kind", "title"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["reroute_suggestion", "traffic_shift_suggestion", "open_ticket", "trustctl_renewal"],
+            "description": "What is being suggested. probectl never executes any of them."
+          },
+          "title": {"type": "string", "description": "One-line statement of the suggested change."},
+          "rationale": {"type": "string", "description": "The RCA / topology reasoning that grounds the suggestion."},
+          "target": {
+            "type": "string",
+            "description": "The affected topology element (a node id such as hop:10.0.0.1, service:<id> or prefix:<cidr>). When set, the read-only dry-run sizes its blast radius through the what-if simulation; an unknown target yields an unknown blast radius, which cannot be approved."
+          },
+          "incident_id": {"type": "string", "description": "The grounding incident, when any."}
+        }
+      },
+      "RemediationDecisionRequest": {
+        "type": "object",
+        "properties": {
+          "note": {"type": "string", "description": "The human's decision note, written to the audit trail."}
+        }
+      },
+      "RemediationDryRun": {
+        "type": "object",
+        "properties": {
+          "blast_radius": {"type": "integer", "description": "Impacted services + prefixes + newly-disconnected hosts. Above PROBECTL_REMEDIATION_MAX_BLAST_RADIUS the proposal cannot be approved."},
+          "impacted_services": {"type": "array", "items": {"type": "string"}},
+          "impacted_prefixes": {"type": "array", "items": {"type": "string"}},
+          "disconnected": {"type": "array", "items": {"type": "string"}},
+          "note": {"type": "string", "description": "e.g. \"topology unavailable \u2014 blast radius unknown\""}
+        }
+      },
+      "RemediationProposal": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "tenant_id": {"type": "string"},
+          "kind": {"type": "string", "enum": ["reroute_suggestion", "traffic_shift_suggestion", "open_ticket", "trustctl_renewal"]},
+          "title": {"type": "string"},
+          "rationale": {"type": "string"},
+          "target": {"type": "string"},
+          "incident_id": {"type": "string"},
+          "dry_run": {"$ref": "#/components/schemas/RemediationDryRun"},
+          "state": {"type": "string", "enum": ["proposed", "approved", "rejected", "applied"], "description": "proposed \u2192 approved | rejected by a human; applied is recorded by an operator after carrying the change out themselves."},
+          "proposed_by": {"type": "string", "description": "user:<email> or ai:propose_remediation"},
+          "decided_by": {"type": "string"},
+          "decision_note": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "decided_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "RemediationProposalList": {
+        "type": "object",
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/RemediationProposal"}},
+          "approvals_enabled": {"type": "boolean", "description": "PROBECTL_REMEDIATION_APPROVALS_ENABLED \u2014 false means review-only: Approve is unavailable."}
+        }
+      },
+      "LifecycleEraseRequest": {
+        "type": "object",
+        "required": ["confirm"],
+        "properties": {
+          "confirm": {"type": "string", "description": "Must equal the tenant's slug (case-insensitive). Anything else is refused."}
+        }
+      },
+      "KeyRotateRequest": {
+        "type": "object",
+        "properties": {
+          "mode": {"type": "string", "enum": ["managed", "byok"], "default": "managed"},
+          "byok_ref": {"type": "string", "description": "Secret-backend reference of the customer key (required when mode=byok); resolved before activation."}
+        }
+      },
       "DashboardDefinition": {
         "type": "object",
         "additionalProperties": false,

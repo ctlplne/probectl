@@ -1452,6 +1452,15 @@ export interface IsolationStatus {
   tenant_id: string
 }
 
+export interface KeyRotateRequest {
+  byok_ref?: string
+  mode?: "managed" | "byok"
+}
+
+export interface LifecycleEraseRequest {
+  confirm: string
+}
+
 export interface LifecycleRetentionInput {
   ai_answer_retention_days?: number | null
   audit_retention_days?: number | null
@@ -1626,6 +1635,48 @@ export interface RegisteredSVID {
   serial: string
   spiffe_id: string
   tenant_id: string
+}
+
+export interface RemediationDecisionRequest {
+  note?: string
+}
+
+export interface RemediationDryRun {
+  blast_radius?: number
+  disconnected?: string[]
+  impacted_prefixes?: string[]
+  impacted_services?: string[]
+  note?: string
+}
+
+export interface RemediationProposal {
+  created_at?: string
+  decided_at?: string
+  decided_by?: string
+  decision_note?: string
+  dry_run?: RemediationDryRun
+  id?: string
+  incident_id?: string
+  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal"
+  proposed_by?: string
+  rationale?: string
+  state?: "proposed" | "approved" | "rejected" | "applied"
+  target?: string
+  tenant_id?: string
+  title?: string
+}
+
+export interface RemediationProposalList {
+  approvals_enabled?: boolean
+  items?: RemediationProposal[]
+}
+
+export interface RemediationProposalRequest {
+  incident_id?: string
+  kind: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal"
+  rationale?: string
+  target?: string
+  title: string
 }
 
 export interface SCIMToken {
@@ -2564,6 +2615,7 @@ export interface GetIsolationStatusRequest {
 export type GetIsolationStatusResponse = IsolationStatus
 
 export interface PostV1LifecycleEraseRequest {
+  body: LifecycleEraseRequest
 }
 
 export type PostV1LifecycleEraseResponse = void
@@ -2677,30 +2729,36 @@ export interface PromRemoteWriteRequest {
 
 export type PromRemoteWriteResponse = void
 
-export interface GetV1RemediationProposalsRequest {
+export interface ListRemediationProposalsRequest {
 }
 
-export type GetV1RemediationProposalsResponse = void
+export type ListRemediationProposalsResponse = RemediationProposalList
 
-export interface PostV1RemediationProposalsRequest {
+export interface ProposeRemediationRequest {
+  body: RemediationProposalRequest
 }
 
-export type PostV1RemediationProposalsResponse = void
+export type ProposeRemediationResponse = RemediationProposal
 
-export interface GetV1RemediationProposalsIdRequest {
+export interface GetRemediationProposalRequest {
+  id: string
 }
 
-export type GetV1RemediationProposalsIdResponse = void
+export type GetRemediationProposalResponse = RemediationProposal
 
-export interface PostV1RemediationProposalsIdApproveRequest {
+export interface ApproveRemediationProposalRequest {
+  id: string
+  body?: RemediationDecisionRequest
 }
 
-export type PostV1RemediationProposalsIdApproveResponse = void
+export type ApproveRemediationProposalResponse = RemediationProposal
 
-export interface PostV1RemediationProposalsIdRejectRequest {
+export interface RejectRemediationProposalRequest {
+  id: string
+  body?: RemediationDecisionRequest
 }
 
-export type PostV1RemediationProposalsIdRejectResponse = void
+export type RejectRemediationProposalResponse = RemediationProposal
 
 export interface ListResultsHistoryRequest {
   window?: string
@@ -2772,6 +2830,7 @@ export interface GetV1SecurityKeysRequest {
 export type GetV1SecurityKeysResponse = TenantKeyList
 
 export interface PostV1SecurityKeysRotateRequest {
+  body?: KeyRotateRequest
 }
 
 export type PostV1SecurityKeysRotateResponse = void
@@ -3761,10 +3820,10 @@ export class ProbectlSDKClient {
     return this.requestJSON<GetIsolationStatusResponse>("GET", path, query, undefined)
   }
 
-  async postV1LifecycleErase(): Promise<PostV1LifecycleEraseResponse> {
+  async postV1LifecycleErase(request: PostV1LifecycleEraseRequest): Promise<PostV1LifecycleEraseResponse> {
     let path = "/v1/lifecycle/erase"
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request("POST", path, query, request.body)
   }
 
   async getV1LifecycleExport(): Promise<GetV1LifecycleExportResponse> {
@@ -3889,34 +3948,37 @@ export class ProbectlSDKClient {
     await this.request("POST", path, query, undefined)
   }
 
-  async getV1RemediationProposals(): Promise<GetV1RemediationProposalsResponse> {
+  async listRemediationProposals(): Promise<ListRemediationProposalsResponse> {
     let path = "/v1/remediation/proposals"
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    return this.requestJSON<ListRemediationProposalsResponse>("GET", path, query, undefined)
   }
 
-  async postV1RemediationProposals(): Promise<PostV1RemediationProposalsResponse> {
+  async proposeRemediation(request: ProposeRemediationRequest): Promise<ProposeRemediationResponse> {
     let path = "/v1/remediation/proposals"
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    return this.requestJSON<ProposeRemediationResponse>("POST", path, query, request.body)
   }
 
-  async getV1RemediationProposalsId(): Promise<GetV1RemediationProposalsIdResponse> {
+  async getRemediationProposal(request: GetRemediationProposalRequest): Promise<GetRemediationProposalResponse> {
     let path = "/v1/remediation/proposals/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    return this.requestJSON<GetRemediationProposalResponse>("GET", path, query, undefined)
   }
 
-  async postV1RemediationProposalsIdApprove(): Promise<PostV1RemediationProposalsIdApproveResponse> {
+  async approveRemediationProposal(request: ApproveRemediationProposalRequest): Promise<ApproveRemediationProposalResponse> {
     let path = "/v1/remediation/proposals/{id}/approve"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    return this.requestJSON<ApproveRemediationProposalResponse>("POST", path, query, request.body)
   }
 
-  async postV1RemediationProposalsIdReject(): Promise<PostV1RemediationProposalsIdRejectResponse> {
+  async rejectRemediationProposal(request: RejectRemediationProposalRequest): Promise<RejectRemediationProposalResponse> {
     let path = "/v1/remediation/proposals/{id}/reject"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    return this.requestJSON<RejectRemediationProposalResponse>("POST", path, query, request.body)
   }
 
   async listResultsHistory(request: ListResultsHistoryRequest = {}): Promise<ListResultsHistoryResponse> {
@@ -3997,10 +4059,10 @@ export class ProbectlSDKClient {
     return this.requestJSON<GetV1SecurityKeysResponse>("GET", path, query, undefined)
   }
 
-  async postV1SecurityKeysRotate(): Promise<PostV1SecurityKeysRotateResponse> {
+  async postV1SecurityKeysRotate(request: PostV1SecurityKeysRotateRequest = {}): Promise<PostV1SecurityKeysRotateResponse> {
     let path = "/v1/security/keys/rotate"
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request("POST", path, query, request.body)
   }
 
   async getSiemStatus(): Promise<GetSiemStatusResponse> {

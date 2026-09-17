@@ -719,27 +719,21 @@ export const API_CALL_CONTRACTS = [
     method: 'GET',
     path: '/remediation/proposals',
     response: 'RemediationList',
-    generated: 'GetV1RemediationProposalsResponse',
-    reason:
-      'OpenAPI currently emits void for remediation proposal lists; RemediationList is the explicit view model.',
+    generated: 'ListRemediationProposalsResponse',
   },
   {
     file: 'api/remediation.ts',
     method: 'POST',
     path: '/remediation/proposals',
     response: 'Proposal',
-    generated: 'PostV1RemediationProposalsResponse',
-    reason:
-      'OpenAPI currently emits void for remediation proposal creation; Proposal is the explicit view model.',
+    generated: 'ProposeRemediationResponse',
   },
   {
     file: 'api/remediation.ts',
     method: 'POST',
     path: '`/remediation/proposals/${id}/${decision}`',
     response: 'Proposal',
-    generated: 'PostV1RemediationProposalsIdApproveResponse',
-    reason:
-      'OpenAPI currently emits void for remediation decisions; Proposal is the explicit view model.',
+    generated: 'ApproveRemediationProposalResponse',
   },
   {
     file: 'api/results.ts',

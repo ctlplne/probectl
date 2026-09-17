@@ -1551,6 +1551,15 @@ type IsolationStatus struct {
 	TenantId       string                 `json:"tenant_id"`
 }
 
+type KeyRotateRequest struct {
+	ByokRef string `json:"byok_ref,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+}
+
+type LifecycleEraseRequest struct {
+	Confirm string `json:"confirm"`
+}
+
 type LifecycleRetentionInput struct {
 	AiAnswerRetentionDays        *int `json:"ai_answer_retention_days,omitempty"`
 	AuditRetentionDays           *int `json:"audit_retention_days,omitempty"`
@@ -1732,6 +1741,48 @@ type RegisteredSVID struct {
 	Serial   string `json:"serial"`
 	SpiffeId string `json:"spiffe_id"`
 	TenantId string `json:"tenant_id"`
+}
+
+type RemediationDecisionRequest struct {
+	Note string `json:"note,omitempty"`
+}
+
+type RemediationDryRun struct {
+	BlastRadius      int      `json:"blast_radius,omitempty"`
+	Disconnected     []string `json:"disconnected,omitempty"`
+	ImpactedPrefixes []string `json:"impacted_prefixes,omitempty"`
+	ImpactedServices []string `json:"impacted_services,omitempty"`
+	Note             string   `json:"note,omitempty"`
+}
+
+type RemediationProposal struct {
+	CreatedAt    string            `json:"created_at,omitempty"`
+	DecidedAt    string            `json:"decided_at,omitempty"`
+	DecidedBy    string            `json:"decided_by,omitempty"`
+	DecisionNote string            `json:"decision_note,omitempty"`
+	DryRun       RemediationDryRun `json:"dry_run,omitempty"`
+	Id           string            `json:"id,omitempty"`
+	IncidentId   string            `json:"incident_id,omitempty"`
+	Kind         string            `json:"kind,omitempty"`
+	ProposedBy   string            `json:"proposed_by,omitempty"`
+	Rationale    string            `json:"rationale,omitempty"`
+	State        string            `json:"state,omitempty"`
+	Target       string            `json:"target,omitempty"`
+	TenantId     string            `json:"tenant_id,omitempty"`
+	Title        string            `json:"title,omitempty"`
+}
+
+type RemediationProposalList struct {
+	ApprovalsEnabled bool                  `json:"approvals_enabled,omitempty"`
+	Items            []RemediationProposal `json:"items,omitempty"`
+}
+
+type RemediationProposalRequest struct {
+	IncidentId string `json:"incident_id,omitempty"`
+	Kind       string `json:"kind"`
+	Rationale  string `json:"rationale,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Title      string `json:"title"`
 }
 
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.
@@ -4081,12 +4132,13 @@ func (c *Client) GetIsolationStatus(ctx context.Context, req GetIsolationStatusR
 
 // IRREVERSIBLE verifiable erasure across every store; requires confirm=<tenant slug>; returns the deletion attestation (also appended to the provider audit chain)
 type PostV1LifecycleEraseRequest struct {
+	Body *LifecycleEraseRequest `json:"-"`
 }
 
 func (c *Client) PostV1LifecycleErase(ctx context.Context, req PostV1LifecycleEraseRequest) error {
 	path := "/v1/lifecycle/erase"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
+	return c.doJSON(ctx, http.MethodPost, path, query, req.Body, nil)
 }
 
 // Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + flows.jsonl; S-T5 — export is a compliance right, core)
@@ -4380,53 +4432,91 @@ func (c *Client) PromRemoteWrite(ctx context.Context, req PromRemoteWriteRequest
 }
 
 // List guarded-remediation proposals (S-EE5). Hidden 404 when the remediation feature is unlicensed
-type GetV1RemediationProposalsRequest struct {
+type ListRemediationProposalsRequest struct {
 }
 
-func (c *Client) GetV1RemediationProposals(ctx context.Context, req GetV1RemediationProposalsRequest) error {
+func (c *Client) ListRemediationProposals(ctx context.Context, req ListRemediationProposalsRequest) (*RemediationProposalList, error) {
 	path := "/v1/remediation/proposals"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
+	var out RemediationProposalList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed — probectl never executes; a human must approve. A license that transitions past grace denies the mutation with license_read_only while proposal review remains available
-type PostV1RemediationProposalsRequest struct {
+type ProposeRemediationRequest struct {
+	Body *RemediationProposalRequest `json:"-"`
 }
 
-func (c *Client) PostV1RemediationProposals(ctx context.Context, req PostV1RemediationProposalsRequest) error {
+func (c *Client) ProposeRemediation(ctx context.Context, req ProposeRemediationRequest) (*RemediationProposal, error) {
 	path := "/v1/remediation/proposals"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Get one remediation proposal + its dry-run/blast-radius
-type GetV1RemediationProposalsIdRequest struct {
+type GetRemediationProposalRequest struct {
+	Id string `json:"-"`
 }
 
-func (c *Client) GetV1RemediationProposalsId(ctx context.Context, req GetV1RemediationProposalsIdRequest) error {
+func (c *Client) GetRemediationProposal(ctx context.Context, req GetRemediationProposalRequest) (*RemediationProposal, error) {
 	path := "/v1/remediation/proposals/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING — operators carry it out. Read-only license mode denies the mutation with license_read_only
-type PostV1RemediationProposalsIdApproveRequest struct {
+type ApproveRemediationProposalRequest struct {
+	Id   string                      `json:"-"`
+	Body *RemediationDecisionRequest `json:"-"`
 }
 
-func (c *Client) PostV1RemediationProposalsIdApprove(ctx context.Context, req PostV1RemediationProposalsIdApproveRequest) error {
+func (c *Client) ApproveRemediationProposal(ctx context.Context, req ApproveRemediationProposalRequest) (*RemediationProposal, error) {
 	path := "/v1/remediation/proposals/{id}/approve"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Record a human's rejection of a remediation proposal (audited). Read-only license mode denies the mutation with license_read_only
-type PostV1RemediationProposalsIdRejectRequest struct {
+type RejectRemediationProposalRequest struct {
+	Id   string                      `json:"-"`
+	Body *RemediationDecisionRequest `json:"-"`
 }
 
-func (c *Client) PostV1RemediationProposalsIdReject(ctx context.Context, req PostV1RemediationProposalsIdRejectRequest) error {
+func (c *Client) RejectRemediationProposal(ctx context.Context, req RejectRemediationProposalRequest) (*RemediationProposal, error) {
 	path := "/v1/remediation/proposals/{id}/reject"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Recent synthetic results inside a trailing window, oldest first
@@ -4631,12 +4721,13 @@ func (c *Client) GetV1SecurityKeys(ctx context.Context, req GetV1SecurityKeysReq
 
 // Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation — the lockout guard); retired versions stay decrypt-only (no downtime). A license that transitions past grace denies rotation with license_read_only while status and decrypt remain available
 type PostV1SecurityKeysRotateRequest struct {
+	Body *KeyRotateRequest `json:"-"`
 }
 
 func (c *Client) PostV1SecurityKeysRotate(ctx context.Context, req PostV1SecurityKeysRotateRequest) error {
 	path := "/v1/security/keys/rotate"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
+	return c.doJSON(ctx, http.MethodPost, path, query, req.Body, nil)
 }
 
 // Get SIEM export status
