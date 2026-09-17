@@ -187,6 +187,12 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/directory/scim-tokens", s.handleSCIMTokenList, permDirectoryRead},
 		{http.MethodPost, "/v1/directory/scim-tokens", s.handleSCIMTokenCreate, permDirectoryWrite},
 		{http.MethodDelete, "/v1/directory/scim-tokens/{id}", s.handleSCIMTokenRevoke, permDirectoryWrite},
+		// DPR-027: tenant-scoped people & roles (the non-SCIM grant/revoke path).
+		{http.MethodGet, "/v1/directory/users", s.handleDirectoryUserList, permDirectoryRead},
+		{http.MethodPost, "/v1/directory/users", s.handleDirectoryUserCreate, permDirectoryWrite},
+		{http.MethodGet, "/v1/directory/roles", s.handleDirectoryRoleList, permDirectoryRead},
+		{http.MethodPost, "/v1/directory/users/{id}/roles", s.handleDirectoryRoleBind, permDirectoryWrite},
+		{http.MethodDelete, "/v1/directory/users/{id}/roles/{role}", s.handleDirectoryRoleUnbind, permDirectoryWrite},
 		{http.MethodPost, "/v1/a2a/sessions", s.handleStartA2ASession, permAgentWrite},
 		{http.MethodPost, "/v1/a2a/mesh", s.handleStartA2AMesh, permAgentWrite},
 		// OPS-002: staged rollout operator surface over the rollout engine.

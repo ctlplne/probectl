@@ -773,6 +773,51 @@ export interface DeviceSyslogRequest {
   source_address?: string
 }
 
+export interface DirectoryRole {
+  created_at?: string
+  description?: string
+  id: string
+  is_system?: boolean
+  members: number
+  name: string
+  permissions: string[]
+  slug: string
+  tenant_id: string
+  updated_at?: string
+}
+
+export interface DirectoryRoleBind {
+  role: string
+}
+
+export interface DirectoryRoleList {
+  items: DirectoryRole[]
+}
+
+export interface DirectoryUser {
+  created_at: string
+  display_name: string
+  email: string
+  external_id?: string
+  id: string
+  roles: string[]
+  status: string
+  tenant_id: string
+  updated_at: string
+  user_name?: string
+}
+
+export interface DirectoryUserCreate {
+  display_name?: string
+  email: string
+  role?: string
+}
+
+export interface DirectoryUserList {
+  items: DirectoryUser[]
+  total: number
+}
+
 export interface DiscoverProposal {
   rationale?: string
   score?: number
@@ -2189,6 +2234,11 @@ export interface GetV1DiagnosticsBundleRequest {
 
 export type GetV1DiagnosticsBundleResponse = void
 
+export interface ListDirectoryRolesRequest {
+}
+
+export type ListDirectoryRolesResponse = DirectoryRoleList
+
 export interface ListScimTokensRequest {
 }
 
@@ -2204,6 +2254,28 @@ export interface RevokeScimTokenRequest {
 }
 
 export type RevokeScimTokenResponse = void
+
+export interface ListDirectoryUsersRequest {
+}
+
+export type ListDirectoryUsersResponse = DirectoryUserList
+
+export interface CreateDirectoryUserRequest {
+  body: DirectoryUserCreate
+}
+
+export type CreateDirectoryUserResponse = DirectoryUser
+
+export interface BindDirectoryRoleRequest {
+  body: DirectoryRoleBind
+}
+
+export type BindDirectoryRoleResponse = DirectoryUser
+
+export interface UnbindDirectoryRoleRequest {
+}
+
+export type UnbindDirectoryRoleResponse = void
 
 export interface ListEbpfServiceMapRequest {
   source?: string
@@ -3323,6 +3395,12 @@ export class ProbectlSDKClient {
     await this.request("GET", path, query, undefined)
   }
 
+  async listDirectoryRoles(): Promise<ListDirectoryRolesResponse> {
+    let path = "/v1/directory/roles"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListDirectoryRolesResponse>("GET", path, query, undefined)
+  }
+
   async listScimTokens(): Promise<ListScimTokensResponse> {
     let path = "/v1/directory/scim-tokens"
     const query = new URLSearchParams()
@@ -3337,6 +3415,30 @@ export class ProbectlSDKClient {
 
   async revokeScimToken(): Promise<RevokeScimTokenResponse> {
     let path = "/v1/directory/scim-tokens/{id}"
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
+  }
+
+  async listDirectoryUsers(): Promise<ListDirectoryUsersResponse> {
+    let path = "/v1/directory/users"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListDirectoryUsersResponse>("GET", path, query, undefined)
+  }
+
+  async createDirectoryUser(request: CreateDirectoryUserRequest): Promise<CreateDirectoryUserResponse> {
+    let path = "/v1/directory/users"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateDirectoryUserResponse>("POST", path, query, request.body)
+  }
+
+  async bindDirectoryRole(request: BindDirectoryRoleRequest): Promise<BindDirectoryRoleResponse> {
+    let path = "/v1/directory/users/{id}/roles"
+    const query = new URLSearchParams()
+    return this.requestJSON<BindDirectoryRoleResponse>("POST", path, query, request.body)
+  }
+
+  async unbindDirectoryRole(): Promise<UnbindDirectoryRoleResponse> {
+    let path = "/v1/directory/users/{id}/roles/{role}"
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }

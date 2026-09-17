@@ -214,6 +214,17 @@ tokens, ABAC policies, and the user/group lifecycle — i.e. delegated admin
 - **Audited** — every provision/update/deprovision and every policy change
   writes an audit event.
 
+## Without SCIM: in-product people & roles
+
+Tenants without an IdP push still manage membership inside the product (DPR-027):
+Admin → Identity → People & roles, `/v1/directory/users` and `/v1/directory/roles`,
+and `probectl directory …` list users with their roles, create a person before
+their first login, and grant or revoke a role — all tenant-scoped, RBAC-gated
+by `directory.read`/`directory.write`, audited, and refusing to remove a
+tenant's last administrator. SCIM group sync and manual bindings share the same
+`role_bindings` rows, so a SCIM re-add of a group member simply restores the
+binding. See [`admin.md`](admin.md#roles).
+
 ## Out of scope (deferred)
 
 LDAP/AD **pull** connectors and **SAML** (OIDC is implemented; Entra/Okta use

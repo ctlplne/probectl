@@ -40,14 +40,32 @@ Seeded system roles (one set per tenant):
 | `viewer` | Read-only across the planes (no audit access). |
 
 A **new SSO user is created with no roles** (the secure default) and is denied
-scoped resources until an admin grants one. Inspect your own effective access at
-`GET /v1/me`. Role bindings live in the `role_bindings` table. The very first
-admin of a deployment (or of a new tenant with no directory sync yet) is granted
-from the control host with `probectl-control bootstrap-admin -tenant <uuid>
--email <sso-email> [-role admin|editor|viewer]` — idempotent, audited as
-`rbac.bind`, and it creates the user row if the person has not logged in yet
-(see the first-run checklist in [`install.md`](install.md)). Users and roles
-within a tenant are provisioned by your IdP over **SCIM 2.0** — the standard
+scoped resources until an admin grants one; the shell tells them so and names
+the way out. Inspect your own effective access at `GET /v1/me`. Role bindings
+live in the `role_bindings` table. The very first admin of a deployment (or of
+a new tenant with no directory sync yet) is granted from the control host with
+`probectl-control bootstrap-admin -tenant <uuid> -email <sso-email>
+[-role admin|editor|viewer]` — idempotent, audited as `rbac.bind`, and it
+creates the user row if the person has not logged in yet (see the first-run
+checklist in [`install.md`](install.md)).
+
+From then on a tenant administrator (`directory.write`) manages **people and
+roles inside the product** (DPR-027) — no SCIM, no control-host access, no SQL:
+
+| Surface | What |
+|---|---|
+| UI | **Admin → Identity → People & roles**: list users with their roles, add a teammate (optionally with a role) before their first login, grant or revoke a role |
+| API | `GET/POST /v1/directory/users`, `GET /v1/directory/roles`, `POST /v1/directory/users/{id}/roles`, `DELETE /v1/directory/users/{id}/roles/{role}` |
+| CLI | `probectl directory users` · `roles` · `create-user` · `grant <id>` · `revoke <id> <role>` |
+
+Every grant and revocation is written to the tenant audit stream
+(`directory.user_create`, `directory.role_bind`, `directory.role_unbind`), the
+tenant's **last administrator cannot be removed** (a locked-out tenant would
+need the control host to recover), and RBAC stays deny-by-default: a person
+whose last role is removed can read nothing. Manual bindings and SCIM group
+sync coexist — a SCIM group re-add restores a role a SCIM-managed deployment
+removed by hand. Users and roles within a tenant can also be provisioned by
+your IdP over **SCIM 2.0** — the standard
 user-provisioning protocol, where the IdP *pushes* user create/update/delete to
 probectl instead of probectl polling the IdP (the `/scim/v2/...`
 endpoints, authenticated by a per-tenant SCIM bearer token — a secret string

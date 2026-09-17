@@ -3365,6 +3365,185 @@
         }
       }
     },
+    "/v1/directory/users": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        }
+      ],
+      "get": {
+        "operationId": "listDirectoryUsers",
+        "summary": "List the tenant's users with their bound roles",
+        "tags": [
+          "directory"
+        ],
+        "responses": {
+          "200": {
+            "description": "Every user of the caller's tenant with the role slugs bound at tenant scope (DPR-027).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryUserList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 500,
+          "reason": "Tenant directories are SQL-limited to 500 users; SCIM and the IdP remain the system of record for larger estates."
+        }
+      },
+      "post": {
+        "operationId": "createDirectoryUser",
+        "summary": "Create a user before first login and optionally bind a role",
+        "tags": [
+          "directory"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryUserCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created user with its roles; the grant is written to the tenant audit stream.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryUser"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/directory/roles": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        }
+      ],
+      "get": {
+        "operationId": "listDirectoryRoles",
+        "summary": "List the tenant's roles with permissions and member counts",
+        "tags": [
+          "directory"
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's roles (system and custom) with their permission keys and how many users hold each.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryRoleList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 500,
+          "reason": "Role catalogs are small and SQL-limited to 500 rows."
+        }
+      }
+    },
+    "/v1/directory/users/{id}/roles": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "operationId": "bindDirectoryRole",
+        "summary": "Bind a role to a user (idempotent, audited)",
+        "tags": [
+          "directory"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryRoleBind"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The user with its updated roles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryUser"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/directory/users/{id}/roles/{role}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        },
+        {
+          "name": "role",
+          "in": "path",
+          "required": true,
+          "description": "role slug",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "unbindDirectoryRole",
+        "summary": "Remove a role from a user (the tenant's last administrator is refused)",
+        "tags": [
+          "directory"
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed. RBAC is deny-by-default, so a user with no remaining role can read nothing."
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/flows/ingest-quality": {
       "get": {
         "operationId": "listFlowIngestQuality",
@@ -14038,6 +14217,167 @@
             }
           }
         }
+      },
+      "DirectoryUser": {
+        "type": "object",
+        "description": "A user of the caller's tenant with the role slugs bound at tenant scope.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "user_name": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "email",
+          "display_name",
+          "status",
+          "roles",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "DirectoryUserList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryUser"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ]
+      },
+      "DirectoryUserCreate": {
+        "type": "object",
+        "description": "Create a person before their first SSO login so a role is waiting for them; role is a slug (admin, editor, viewer or a custom role).",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "DirectoryRole": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_system": {
+            "type": "boolean"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "members": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "slug",
+          "name",
+          "permissions",
+          "members"
+        ]
+      },
+      "DirectoryRoleList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryRole"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "DirectoryRoleBind": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "role slug"
+          }
+        },
+        "required": [
+          "role"
+        ]
       },
       "SCIMTokenCreate": {
         "type": "object",

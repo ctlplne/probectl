@@ -130,12 +130,14 @@ func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writ
 
 func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	path := op.Path
-	if op.ArgName != "" {
+	// ArgName names the positional path parameters in order ("id" or
+	// "id,role"); each consumes one leading argument (DPR-027).
+	for _, name := range op.argNames() {
 		if len(args) == 0 {
-			fmt.Fprintf(stderr, "%s: missing <%s>\n", op.Path, op.ArgName)
+			fmt.Fprintf(stderr, "%s: missing <%s>\n", op.Path, name)
 			return 2
 		}
-		path = strings.ReplaceAll(path, "{"+op.ArgName+"}", url.PathEscape(args[0]))
+		path = strings.ReplaceAll(path, "{"+name+"}", url.PathEscape(args[0]))
 		args = args[1:]
 	}
 
@@ -468,8 +470,8 @@ func printSurfaceUsage(w io.Writer, spec surfaceCommand) {
 	for _, name := range names {
 		op := spec.Ops[name]
 		arg := ""
-		if op.ArgName != "" {
-			arg = " <" + op.ArgName + ">"
+		for _, name := range op.argNames() {
+			arg += " <" + name + ">"
 		}
 		fmt.Fprintf(w, "  %-18s %s %s\n", name+arg, op.Method, op.Path)
 	}

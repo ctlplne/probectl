@@ -857,6 +857,53 @@ type DeviceSyslogRequest struct {
 	SourceAddress string            `json:"source_address,omitempty"`
 }
 
+type DirectoryRole struct {
+	CreatedAt   string   `json:"created_at,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Id          string   `json:"id"`
+	IsSystem    bool     `json:"is_system,omitempty"`
+	Members     int      `json:"members"`
+	Name        string   `json:"name"`
+	Permissions []string `json:"permissions"`
+	Slug        string   `json:"slug"`
+	TenantId    string   `json:"tenant_id"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+}
+
+type DirectoryRoleBind struct {
+	Role string `json:"role"`
+}
+
+type DirectoryRoleList struct {
+	Items []DirectoryRole `json:"items"`
+}
+
+// A user of the caller's tenant with the role slugs bound at tenant scope.
+type DirectoryUser struct {
+	CreatedAt   string   `json:"created_at"`
+	DisplayName string   `json:"display_name"`
+	Email       string   `json:"email"`
+	ExternalId  string   `json:"external_id,omitempty"`
+	Id          string   `json:"id"`
+	Roles       []string `json:"roles"`
+	Status      string   `json:"status"`
+	TenantId    string   `json:"tenant_id"`
+	UpdatedAt   string   `json:"updated_at"`
+	UserName    string   `json:"user_name,omitempty"`
+}
+
+// Create a person before their first SSO login so a role is waiting for them; role is a slug (admin, editor, viewer or a custom role).
+type DirectoryUserCreate struct {
+	DisplayName string `json:"display_name,omitempty"`
+	Email       string `json:"email"`
+	Role        string `json:"role,omitempty"`
+}
+
+type DirectoryUserList struct {
+	Items []DirectoryUser `json:"items"`
+	Total int             `json:"total"`
+}
+
 type DiscoverProposal struct {
 	Rationale string   `json:"rationale,omitempty"`
 	Score     int      `json:"score,omitempty"`
@@ -3073,6 +3120,20 @@ func (c *Client) GetV1DiagnosticsBundle(ctx context.Context, req GetV1Diagnostic
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
 }
 
+// List the tenant's roles with permissions and member counts
+type ListDirectoryRolesRequest struct {
+}
+
+func (c *Client) ListDirectoryRoles(ctx context.Context, req ListDirectoryRolesRequest) (*DirectoryRoleList, error) {
+	path := "/v1/directory/roles"
+	query := url.Values{}
+	var out DirectoryRoleList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List SCIM bearer-token metadata
 type ListScimTokensRequest struct {
 }
@@ -3108,6 +3169,60 @@ type RevokeScimTokenRequest struct {
 
 func (c *Client) RevokeScimToken(ctx context.Context, req RevokeScimTokenRequest) error {
 	path := "/v1/directory/scim-tokens/{id}"
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// List the tenant's users with their bound roles
+type ListDirectoryUsersRequest struct {
+}
+
+func (c *Client) ListDirectoryUsers(ctx context.Context, req ListDirectoryUsersRequest) (*DirectoryUserList, error) {
+	path := "/v1/directory/users"
+	query := url.Values{}
+	var out DirectoryUserList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create a user before first login and optionally bind a role
+type CreateDirectoryUserRequest struct {
+	Body *DirectoryUserCreate `json:"-"`
+}
+
+func (c *Client) CreateDirectoryUser(ctx context.Context, req CreateDirectoryUserRequest) (*DirectoryUser, error) {
+	path := "/v1/directory/users"
+	query := url.Values{}
+	var out DirectoryUser
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Bind a role to a user (idempotent, audited)
+type BindDirectoryRoleRequest struct {
+	Body *DirectoryRoleBind `json:"-"`
+}
+
+func (c *Client) BindDirectoryRole(ctx context.Context, req BindDirectoryRoleRequest) (*DirectoryUser, error) {
+	path := "/v1/directory/users/{id}/roles"
+	query := url.Values{}
+	var out DirectoryUser
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Remove a role from a user (the tenant's last administrator is refused)
+type UnbindDirectoryRoleRequest struct {
+}
+
+func (c *Client) UnbindDirectoryRole(ctx context.Context, req UnbindDirectoryRoleRequest) error {
+	path := "/v1/directory/users/{id}/roles/{role}"
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }

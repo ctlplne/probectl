@@ -1022,6 +1022,35 @@ function coldFixture(path: string): Response | null {
  *  tests install their own stateful stub. Profile 'cold' answers the data
  *  endpoints as a freshly installed deployment (the install-day design/test
  *  surface); everything else falls through to the populated catalog. */
+/** DPR-027: tenant people & roles, mutable so a test can add, grant and revoke. */
+let fixtureDirectoryUsers = [
+  {
+    id: 'fixture-user-operator',
+    tenant_id: '00000000-0000-0000-0000-000000000001',
+    email: 'operator@probectl.test',
+    display_name: 'Test Operator',
+    status: 'active',
+    roles: ['admin'],
+    created_at: '2026-06-04T12:00:00Z',
+    updated_at: '2026-06-04T12:00:00Z',
+  },
+  {
+    id: 'fixture-user-viewer',
+    tenant_id: '00000000-0000-0000-0000-000000000001',
+    email: 'viewer@probectl.test',
+    display_name: 'Read Only',
+    status: 'active',
+    roles: ['viewer'],
+    created_at: '2026-06-04T12:00:00Z',
+    updated_at: '2026-06-04T12:00:00Z',
+  },
+]
+const fixtureDirectoryRoles = [
+  { id: 'role-admin', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'admin', name: 'Administrator', description: 'Full access within the tenant', is_system: true, permissions: ['agent.read', 'agent.write', 'directory.write'], members: 1 },
+  { id: 'role-editor', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'editor', name: 'Editor', description: 'Manage tests, alerts, incidents', is_system: true, permissions: ['test.read', 'test.write'], members: 0 },
+  { id: 'role-viewer', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'viewer', name: 'Viewer', description: 'Read-only', is_system: true, permissions: ['test.read'], members: 1 },
+]
+
 export function fixtureFetch(
   profile: FixtureProfile = 'populated',
   options: FixtureOptions = {},
@@ -1170,6 +1199,38 @@ export function fixtureFetch(
       fixtureTests = [...fixtureTests, created]
       firstTestCreated = true
       return jsonResponse(created, 201)
+    }
+    if (path === '/v1/directory/users' && method === 'POST') {
+      const body = init?.body ? (JSON.parse(String(init.body)) as { email: string; display_name?: string; role?: string }) : { email: '' }
+      const created = {
+        id: `fixture-user-${fixtureDirectoryUsers.length + 1}`,
+        tenant_id: '00000000-0000-0000-0000-000000000001',
+        email: body.email.toLowerCase(),
+        display_name: body.display_name || body.email,
+        status: 'active',
+        roles: body.role ? [body.role] : [],
+        created_at: '2026-06-04T12:00:00Z',
+        updated_at: '2026-06-04T12:00:00Z',
+      }
+      fixtureDirectoryUsers = [...fixtureDirectoryUsers, created]
+      return jsonResponse(created, 201)
+    }
+    const bindMatch = /^\/v1\/directory\/users\/([^/]+)\/roles$/.exec(path)
+    if (bindMatch && method === 'POST') {
+      const body = init?.body ? (JSON.parse(String(init.body)) as { role: string }) : { role: '' }
+      const user = fixtureDirectoryUsers.find((u) => u.id === bindMatch[1])
+      if (!user) return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
+      if (!user.roles.includes(body.role)) user.roles = [...user.roles, body.role].sort()
+      return jsonResponse(user)
+    }
+    const unbindMatch = /^\/v1\/directory\/users\/([^/]+)\/roles\/([^/]+)$/.exec(path)
+    if (unbindMatch && method === 'DELETE') {
+      const user = fixtureDirectoryUsers.find((u) => u.id === unbindMatch[1])
+      if (!user) return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
+      if (unbindMatch[2] === 'admin' && fixtureDirectoryUsers.filter((u) => u.roles.includes('admin')).length === 1)
+        return jsonResponse({ error: { code: 'conflict', message: 'cannot remove the last administrator of the tenant; grant another administrator first' } }, 409)
+      user.roles = user.roles.filter((r) => r !== unbindMatch[2])
+      return new Response(null, { status: 204 })
     }
     if (path === '/v1/directory/scim-tokens' && method === 'POST') {
       scimTokenCreated = true
@@ -2123,6 +2184,9 @@ export function fixtureFetch(
         flags: {},
       })
     if (path === '/v1/directory/scim-tokens') return jsonResponse({ items: [] })
+    if (path === '/v1/directory/users')
+      return jsonResponse({ items: fixtureDirectoryUsers, total: fixtureDirectoryUsers.length })
+    if (path === '/v1/directory/roles') return jsonResponse({ items: fixtureDirectoryRoles })
     if (path === '/v1/abac/policies') return jsonResponse({ items: [] })
     if (path === '/v1/diagnostics')
       return jsonResponse({

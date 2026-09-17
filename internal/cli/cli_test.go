@@ -125,18 +125,21 @@ func TestCLIUnknownCommandLocalizes(t *testing.T) { //nolint:misspell // Spanish
 	}
 }
 
+// The default base URL is asserted from the resolved flag set, not by dialing
+// it: a control plane listening on the developer's :8443 (the lab, a local
+// stack) used to turn this into an authentication error (DPR-031).
 func TestCLIDefaultAPIURLIsHTTPS(t *testing.T) {
 	var out, errb bytes.Buffer
-	code := runCLI([]string{"test", "list"}, func(string) string { return "" }, &out, &errb)
-	if code != 1 {
-		t.Fatalf("exit = %d, stdout=%s stderr=%s", code, out.String(), errb.String())
+	code := runCLI([]string{"-h"}, func(string) string { return "" }, &out, &errb)
+	usage := out.String() + errb.String()
+	if code == 1 && !strings.Contains(usage, "-url") {
+		t.Fatalf("usage exit = %d, stdout=%s stderr=%s", code, out.String(), errb.String())
 	}
-	stderr := errb.String()
-	if !strings.Contains(stderr, "https://localhost:8443/v1/tests") {
-		t.Fatalf("default API URL was not HTTPS :8443, stderr=%s", stderr)
+	if !strings.Contains(usage, "default https://localhost:8443") {
+		t.Fatalf("default API URL was not HTTPS :8443, usage=%s", usage)
 	}
-	if strings.Contains(stderr, "http://localhost:8080") {
-		t.Fatalf("default API URL regressed to plaintext :8080, stderr=%s", stderr)
+	if strings.Contains(usage, "http://localhost:8080") {
+		t.Fatalf("default API URL regressed to plaintext :8080, usage=%s", usage)
 	}
 }
 
@@ -1622,5 +1625,49 @@ func TestCLISurfaceUsageAndDetailPrinters(t *testing.T) {
 	})
 	if got := out.String(); !strings.Contains(got, "agent_version: 0.4.0") || !strings.Contains(got, "icmp, dns") {
 		t.Fatalf("agent detail output wrong:\n%s", got)
+	}
+}
+
+// DPR-027: the directory surface lets a tenant administrator manage people and
+// roles without SCIM or control-host access; revoke names two positional path
+// parameters, which the runner substitutes in order.
+func TestCLIDirectorySurfaceCoversPeopleAndRoles(t *testing.T) {
+	spec, ok := surfaceCommands["directory"]
+	if !ok {
+		t.Fatal("directory CLI surface is not registered")
+	}
+	cases := map[string]apiOp{
+		"users":       {Method: http.MethodGet, Path: "/v1/directory/users"},
+		"roles":       {Method: http.MethodGet, Path: "/v1/directory/roles"},
+		"create-user": {Method: http.MethodPost, Path: "/v1/directory/users"},
+		"grant":       {Method: http.MethodPost, Path: "/v1/directory/users/{id}/roles", ArgName: "id"},
+		"revoke":      {Method: http.MethodDelete, Path: "/v1/directory/users/{id}/roles/{role}", ArgName: "id,role"},
+	}
+	for name, want := range cases {
+		got, ok := spec.Ops[name]
+		if !ok {
+			t.Fatalf("directory CLI missing %q", name)
+		}
+		if got.Method != want.Method || got.Path != want.Path || got.ArgName != want.ArgName {
+			t.Fatalf("directory %s = %+v, want %+v", name, got, want)
+		}
+	}
+	var gotPath, gotMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	cfg := Config{BaseURL: srv.URL, Token: "t"}
+	var out, errOut bytes.Buffer
+	if code := runRawOperation(cfg, spec.Ops["revoke"], []string{"u-42", "editor"}, &out, &errOut); code != 0 {
+		t.Fatalf("revoke exit %d: %s", code, errOut.String())
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/v1/directory/users/u-42/roles/editor" {
+		t.Fatalf("revoke sent %s %s, want DELETE /v1/directory/users/u-42/roles/editor", gotMethod, gotPath)
+	}
+	errOut.Reset()
+	if code := runRawOperation(cfg, spec.Ops["revoke"], []string{"u-42"}, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "missing <role>") {
+		t.Fatalf("revoke without the role must fail with usage, got %d %q", code, errOut.String())
 	}
 }

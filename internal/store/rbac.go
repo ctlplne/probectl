@@ -242,3 +242,49 @@ func (RoleBindings) MembersOfRole(ctx context.Context, s tenancy.Scope, roleID s
 	}
 	return out, rows.Err()
 }
+
+// RolesOfUser returns the roles bound to one user at tenant scope (DPR-027:
+// what a tenant administrator sees and edits in the directory).
+func (RoleBindings) RolesOfUser(ctx context.Context, s tenancy.Scope, userID string) ([]Role, error) {
+	rows, err := s.Q.Query(ctx,
+		`SELECT `+roleCols+` FROM roles
+		 WHERE id IN (SELECT role_id FROM role_bindings
+		              WHERE subject_type = 'user' AND subject_id = $1 AND scope_type = 'tenant')
+		 ORDER BY slug`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Role{}
+	for rows.Next() {
+		var r Role
+		if err := scanRole(rows, &r); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// RoleSlugsByUser returns, for every user with a tenant-scope binding, the
+// sorted slugs of the roles bound to them — one query for a directory listing.
+func (RoleBindings) RoleSlugsByUser(ctx context.Context, s tenancy.Scope) (map[string][]string, error) {
+	rows, err := s.Q.Query(ctx,
+		`SELECT b.subject_id::text, r.slug FROM role_bindings b
+		 JOIN roles r ON r.id = b.role_id
+		 WHERE b.subject_type = 'user' AND b.scope_type = 'tenant'
+		 ORDER BY b.subject_id, r.slug`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var userID, slug string
+		if err := rows.Scan(&userID, &slug); err != nil {
+			return nil, err
+		}
+		out[userID] = append(out[userID], slug)
+	}
+	return out, rows.Err()
+}

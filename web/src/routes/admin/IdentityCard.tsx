@@ -23,14 +23,20 @@ import {
 } from '../../components'
 import {
   useABACPolicies,
+  useBindDirectoryRole,
   useCreateABACPolicy,
+  useCreateDirectoryUser,
   useCreateScimToken,
   useDeleteABACPolicy,
+  useDirectoryRoles,
+  useDirectoryUsers,
   useRevokeScimToken,
   useScimTokens,
   useTenantIdPSettings,
+  useUnbindDirectoryRole,
   useUpdateTenantIdPSettings,
   type ABACPolicy,
+  type DirectoryUser,
   type ScimToken,
 } from '../../api/identity'
 import { DateTime } from '../../time/DateTime'
@@ -93,6 +99,17 @@ export function IdentityCard() {
   const policies = useABACPolicies()
   const createPolicy = useCreateABACPolicy()
   const deletePolicy = useDeleteABACPolicy()
+  // DPR-027: people & roles without SCIM — list, add a teammate, grant, revoke.
+  const people = useDirectoryUsers()
+  const roles = useDirectoryRoles()
+  const createPerson = useCreateDirectoryUser()
+  const bindRole = useBindDirectoryRole()
+  const unbindRole = useUnbindDirectoryRole()
+  const [personEmail, setPersonEmail] = useState('')
+  const [personName, setPersonName] = useState('')
+  const [personRole, setPersonRole] = useState('viewer')
+  const [personError, setPersonError] = useState('')
+  const [grantChoice, setGrantChoice] = useState<Record<string, string>>({})
 
   const [tokenName, setTokenName] = useState('okta')
   const [createdToken, setCreatedToken] = useState('')
@@ -209,6 +226,106 @@ export function IdentityCard() {
         ) : (
           <StatusDot tone="warning" label="Needs SCIM token" />
         ),
+    },
+  ]
+
+  const roleOptions = (roles.data ?? []).map((r) => ({ value: r.slug, label: r.name }))
+  const submitPerson = async (e: FormEvent) => {
+    e.preventDefault()
+    setPersonError('')
+    try {
+      await createPerson.mutateAsync({
+        email: personEmail.trim(),
+        display_name: personName.trim() || undefined,
+        role: personRole || undefined,
+      })
+      setPersonEmail('')
+      setPersonName('')
+    } catch (err) {
+      setPersonError(err instanceof Error ? err.message : 'Could not add the teammate.')
+    }
+  }
+  const grant = async (user: DirectoryUser) => {
+    setPersonError('')
+    const role = grantChoice[user.id] || roleOptions[0]?.value
+    if (!role) return
+    try {
+      await bindRole.mutateAsync({ id: user.id, role })
+    } catch (err) {
+      setPersonError(err instanceof Error ? err.message : 'Could not grant the role.')
+    }
+  }
+  const revoke = async (user: DirectoryUser, role: string) => {
+    setPersonError('')
+    try {
+      await unbindRole.mutateAsync({ id: user.id, role })
+    } catch (err) {
+      setPersonError(err instanceof Error ? err.message : 'Could not remove the role.')
+    }
+  }
+  const peopleColumns: Column<DirectoryUser>[] = [
+    {
+      key: 'person',
+      header: 'Person',
+      render: (u) => (
+        <span>
+          {u.display_name && u.display_name !== u.email ? <strong>{u.display_name} </strong> : null}
+          <code>{u.email}</code>
+        </span>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (u) => <StatusDot tone={u.status === 'active' ? 'success' : 'neutral'} label={u.status} /> },
+    {
+      key: 'roles',
+      header: 'Roles',
+      render: (u) =>
+        u.roles.length === 0 ? (
+          <Badge tone="warning">No role yet</Badge>
+        ) : (
+          <span className={styles.actions}>
+            {u.roles.map((r) => (
+              <span key={r}>
+                <Badge>{r}</Badge>{' '}
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label={`Remove ${r} from ${u.email}`}
+                  disabled={unbindRole.isPending}
+                  onClick={() => {
+                    void revoke(u, r)
+                  }}
+                >
+                  Remove
+                </Button>
+              </span>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: 'grant',
+      header: 'Grant a role',
+      render: (u) => (
+        <span className={styles.actions}>
+          <Select
+            label={`Role for ${u.email}`}
+            value={grantChoice[u.id] ?? roleOptions[0]?.value ?? ''}
+            onChange={(e) => setGrantChoice((prev) => ({ ...prev, [u.id]: e.target.value }))}
+            options={roleOptions}
+          />
+          <Button
+            type="button"
+            size="sm"
+            aria-label={`Grant role to ${u.email}`}
+            disabled={bindRole.isPending || roleOptions.length === 0}
+            onClick={() => {
+              void grant(u)
+            }}
+          >
+            Grant
+          </Button>
+        </span>
+      ),
     },
   ]
 
@@ -348,6 +465,61 @@ export function IdentityCard() {
           rows={directorySurfaces}
           rowKey={(s) => s.endpoint}
         />
+
+        <form
+          className={styles.actions}
+          aria-label="Add a teammate"
+          onSubmit={(e) => {
+            void submitPerson(e)
+          }}
+        >
+          <Field
+            label="Teammate email"
+            value={personEmail}
+            onChange={(e) => setPersonEmail(e.target.value)}
+            placeholder="ada@example.com"
+            required
+          />
+          <Field
+            label="Display name"
+            value={personName}
+            onChange={(e) => setPersonName(e.target.value)}
+            placeholder="Ada Lovelace"
+          />
+          <Select
+            label="Role"
+            value={personRole}
+            onChange={(e) => setPersonRole(e.target.value)}
+            options={[{ value: '', label: 'No role yet' }, ...roleOptions]}
+          />
+          <Button type="submit" variant="primary" disabled={createPerson.isPending}>
+            Add teammate
+          </Button>
+        </form>
+        {personError ? (
+          <p role="alert" className={styles.editionsLede}>
+            {personError}
+          </p>
+        ) : null}
+        {people.isPending ? (
+          <LoadingState label="Loading people…" />
+        ) : people.isError ? (
+          <ErrorState description="Could not load the tenant's people." />
+        ) : (
+          <Table
+            caption="People & roles"
+            columns={peopleColumns}
+            rows={people.data ?? []}
+            rowKey={(u) => u.id}
+            empty={
+              <EmptyState
+                icon="admin"
+                title="No people yet"
+                description="Add a teammate above, or let your IdP push users and groups over SCIM."
+              />
+            }
+          />
+        )}
 
         <form
           className={styles.actions}

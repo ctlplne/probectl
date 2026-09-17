@@ -41,6 +41,31 @@ export interface CreatedScimToken {
   token: string
 }
 
+/** DPR-027: a tenant user with the role slugs bound at tenant scope. */
+export interface DirectoryUser {
+  id: string
+  tenant_id: string
+  email: string
+  display_name: string
+  status: string
+  external_id?: string
+  user_name?: string
+  roles: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface DirectoryRole {
+  id: string
+  tenant_id: string
+  slug: string
+  name: string
+  description?: string
+  is_system: boolean
+  permissions: string[]
+  members: number
+}
+
 export interface ABACPolicy {
   id?: string
   name?: string
@@ -117,6 +142,53 @@ export function useRevokeScimToken() {
     mutationFn: (id: string) =>
       apiFetch<void>(`/directory/scim-tokens/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['identity', 'scim-tokens'] }),
+  })
+}
+
+export function useDirectoryUsers() {
+  return useQuery({
+    queryKey: ['identity', 'directory-users'],
+    queryFn: () =>
+      apiFetch<{ items: DirectoryUser[]; total: number }>('/directory/users').then((r) => r.items),
+  })
+}
+
+export function useDirectoryRoles() {
+  return useQuery({
+    queryKey: ['identity', 'directory-roles'],
+    queryFn: () => apiFetch<{ items: DirectoryRole[] }>('/directory/roles').then((r) => r.items),
+  })
+}
+
+function invalidateDirectory(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ['identity', 'directory-users'] })
+  void qc.invalidateQueries({ queryKey: ['identity', 'directory-roles'] })
+}
+
+export function useCreateDirectoryUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { email: string; display_name?: string; role?: string }) =>
+      apiFetch<DirectoryUser>('/directory/users', jsonInit('POST', input)),
+    onSuccess: () => invalidateDirectory(qc),
+  })
+}
+
+export function useBindDirectoryRole() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) =>
+      apiFetch<DirectoryUser>(`/directory/users/${id}/roles`, jsonInit('POST', { role })),
+    onSuccess: () => invalidateDirectory(qc),
+  })
+}
+
+export function useUnbindDirectoryRole() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) =>
+      apiFetch<void>(`/directory/users/${id}/roles/${role}`, { method: 'DELETE' }),
+    onSuccess: () => invalidateDirectory(qc),
   })
 }
 

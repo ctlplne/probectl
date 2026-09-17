@@ -6,7 +6,10 @@
 
 package cli
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 type apiOp struct {
 	Method      string
@@ -17,6 +20,20 @@ type apiOp struct {
 	// supplied through --body (and therefore exposed in argv / shell history).
 	// These operations accept only --body-file, with "-" meaning stdin.
 	SensitiveBody bool
+}
+
+// argNames splits ArgName into the ordered positional path parameters.
+func (op apiOp) argNames() []string {
+	if op.ArgName == "" {
+		return nil
+	}
+	var out []string
+	for _, n := range strings.Split(op.ArgName, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 type surfaceCommand struct {
@@ -317,6 +334,13 @@ var surfaceCommands = map[string]surfaceCommand{
 	}},
 	"siem": {Name: "siem", Summary: "SIEM export status", Ops: map[string]apiOp{
 		"status": {Method: http.MethodGet, Path: "/v1/siem/status", Description: "show SIEM export posture"},
+	}},
+	"directory": {Name: "directory", Summary: "people and roles (tenant RBAC without SCIM)", Ops: map[string]apiOp{
+		"users":       {Method: http.MethodGet, Path: "/v1/directory/users", Description: "list the tenant's users with their bound roles"},
+		"roles":       {Method: http.MethodGet, Path: "/v1/directory/roles", Description: "list roles with permissions and member counts"},
+		"create-user": {Method: http.MethodPost, Path: "/v1/directory/users", Description: "create a person before first login; --body '{\"email\":\"a@x\",\"role\":\"editor\"}'"},
+		"grant":       {Method: http.MethodPost, Path: "/v1/directory/users/{id}/roles", ArgName: "id", Description: "bind a role: --body '{\"role\":\"editor\"}'"},
+		"revoke":      {Method: http.MethodDelete, Path: "/v1/directory/users/{id}/roles/{role}", ArgName: "id,role", Description: "remove a role from a user (the last administrator is refused)"},
 	}},
 	"scim": {Name: "scim", Summary: "SCIM identity-provider tokens", Ops: map[string]apiOp{
 		"tokens":       {Method: http.MethodGet, Path: "/v1/directory/scim-tokens"},
