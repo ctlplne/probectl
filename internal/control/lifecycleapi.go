@@ -191,7 +191,7 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 		AIAnswerRetentionDays:        in.AIAnswerRetentionDays,
 		ObjectRetentionDays:          in.ObjectRetentionDays,
 		DerivedIdentityRetentionDays: in.DerivedIdentityRetentionDays,
-		UpdatedBy:                    "tenant:" + tid,
+		UpdatedBy:                    auditActor(r), // DPR-083: the principal who set the clocks, not the tenant id
 	}
 	if err := validateLifecycleRetentionPolicy(policy); err != nil {
 		return err

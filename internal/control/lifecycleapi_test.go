@@ -117,7 +117,7 @@ func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	fake := &fakeTenantLifecycle{policy: tenantlife.RetentionPolicy{
 		FlowRetentionDays: &days,
 		OtelRetentionDays: &otelDays,
-		UpdatedBy:         "tenant:" + tid,
+		UpdatedBy:         "dev@probectl.local", // DPR-083: attributed to the principal
 	}}
 	srv := testServer(fakePinger{})
 	srv.tenantLife = fake
@@ -141,7 +141,7 @@ func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	if string(putBody["otel_retention_days"]) != "7" {
 		t.Fatalf("PUT otel_retention_days = %s, want 7", putBody["otel_retention_days"])
 	}
-	if fake.set.TenantID != tid || fake.set.UpdatedBy != "tenant:"+tid || fake.set.EBPFRetentionDays == nil || *fake.set.EBPFRetentionDays != 7 {
+	if fake.set.TenantID != tid || fake.set.UpdatedBy != "dev@probectl.local" || fake.set.EBPFRetentionDays == nil || *fake.set.EBPFRetentionDays != 7 {
 		t.Fatalf("set policy = %+v, want tenant-bound policy", fake.set)
 	}
 	if fake.setActor != "dev@probectl.local" {
