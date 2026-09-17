@@ -77,6 +77,7 @@ type FlowObservation struct {
 // signals. Safe for concurrent use.
 type Engine struct {
 	mu      sync.Mutex
+	all     []DetectionRule // merged set incl. disabled (DPR-075 read-back)
 	rules   map[RuleKind][]DetectionRule
 	intel   IntelSource
 	topo    NeighborSource
@@ -96,6 +97,8 @@ const DefaultMaxEntitiesPerTenant = 4096
 // errors — graceful degradation, guardrail 10).
 func NewEngine(rules []DetectionRule, intel IntelSource, topo NeighborSource) *Engine {
 	byKind := map[RuleKind][]DetectionRule{}
+	all := append([]DetectionRule(nil), rules...)
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	for _, r := range rules {
 		if r.On() {
 			byKind[r.Kind] = append(byKind[r.Kind], r)
@@ -103,6 +106,7 @@ func NewEngine(rules []DetectionRule, intel IntelSource, topo NeighborSource) *E
 	}
 	return &Engine{
 		rules:       byKind,
+		all:         all,
 		intel:       intel,
 		topo:        topo,
 		tenants:     map[string]*tenantState{},
@@ -110,6 +114,11 @@ func NewEngine(rules []DetectionRule, intel IntelSource, topo NeighborSource) *E
 		maxEntities: DefaultMaxEntitiesPerTenant,
 	}
 }
+
+// AllRules returns the merged rule set INCLUDING rules the overlay switched
+// off (enabled: false), sorted by ID — so an operator can read back that a
+// default is off by their own tuning rather than missing (DPR-075).
+func (e *Engine) AllRules() []DetectionRule { return append([]DetectionRule(nil), e.all...) }
 
 // Rules returns the active (enabled) rules, sorted by ID — the engine's
 // effective configuration for logs/docs.

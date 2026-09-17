@@ -6672,6 +6672,11 @@
             "description": "The live rule set.",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThreatRuleList"}}}
           }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 200,
+          "reason": "The live rule set is deployment-level configuration (embedded defaults merged with the operator overlay), a few dozen entries at most, not a data collection."
         }
       }
     },

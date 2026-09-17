@@ -691,7 +691,7 @@ function DetectionRulesCard() {
           <Table
             caption="Live NDR detection rules (defaults merged with the detection-as-code overlay)"
             columns={columns}
-            rows={rules.data.rules}
+            rows={rules.data.rules ?? []}
             rowKey={(r) => r.id}
             empty={
               <EmptyState

@@ -607,3 +607,21 @@ func TestInternalBeaconIsScoredDown(t *testing.T) {
 		t.Errorf("internal destination must be scored down by internal_penalty (30): external=%d internal=%d", extConf, intConf)
 	}
 }
+
+// DPR-075: the read-back surface must show a rule the overlay switched off as
+// enabled:false, not drop it — evaluation still ignores it.
+func TestAllRulesKeepsDisabledRulesForReadBack(t *testing.T) {
+	off := false
+	rules := []DetectionRule{
+		{ID: "ndr-dns-dga-default", Version: 2, Kind: KindDNSDGA, Name: "DGA (off)", Severity: "warning", BaseConfidence: 50, Enabled: &off},
+		{ID: "ndr-beaconing-default", Version: 2, Kind: KindBeaconing, Name: "beacon", Severity: "warning", BaseConfidence: 45},
+	}
+	e := NewEngine(rules, nil, nil)
+	if got := e.Rules(); len(got) != 1 || got[0].ID != "ndr-beaconing-default" {
+		t.Fatalf("Rules() must hold only enabled rules: %+v", got)
+	}
+	all := e.AllRules()
+	if len(all) != 2 || all[0].ID != "ndr-beaconing-default" || all[1].ID != "ndr-dns-dga-default" || all[1].On() {
+		t.Fatalf("AllRules() must keep the disabled rule, sorted, reported off: %+v", all)
+	}
+}
