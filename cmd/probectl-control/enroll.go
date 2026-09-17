@@ -10,10 +10,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/control"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/store"
@@ -105,7 +107,7 @@ func runEnrollToken(ctx context.Context, cfg *config.Config, db *store.DB, args 
 // stamp on its records (ARCH-011). Bus collectors authenticate to the broker;
 // plane=bmp additionally signs the router-owned CSR and records the resulting
 // SVID in the same authoritative identity registry.
-func runRegisterCollector(ctx context.Context, db *store.DB, args []string) error {
+func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("register-collector", flag.ContinueOnError)
 	token := fs.String("token", "", "one-time enroll token (pjt_...; REQUIRED)")
 	plane := fs.String("plane", "", "collector plane: bgp | bmp | ebpf | flow | device | endpoint (REQUIRED)")
@@ -133,6 +135,14 @@ func runRegisterCollector(ctx context.Context, db *store.DB, args []string) erro
 	svc, err := enroll.Load(ctx, db.Pool(), nil)
 	if err != nil {
 		return err
+	}
+	// DPR-081: the control-host CLI registers through the same quota seam as
+	// the API; a licensed metering deployment refuses a collector past the
+	// tenant's agent cap here too.
+	if lic, lerr := control.BuildLicense(cfg, log); lerr == nil {
+		attachQuotaChecker(lic, db.Pool())
+	} else {
+		log.Warn("register-collector: license unavailable, quota not enforced", "error", lerr.Error())
 	}
 	id, err := svc.RegisterCollector(ctx, *token, *hostname, *plane, csrPEM)
 	if err != nil {

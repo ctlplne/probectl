@@ -46,3 +46,6 @@ func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 // attachEETenancyRouter is the core-only no-op twin (DPR-045): a core build
 // has no siloed tenants, so every tenant already routes to the pooled schema.
 func attachEETenancyRouter(*config.Config, *pgxpool.Pool, *slog.Logger) error { return nil }
+
+// attachQuotaChecker is inert in the core-only build: no metering, no quotas.
+func attachQuotaChecker(*license.Manager, *pgxpool.Pool) any { return nil }

@@ -168,8 +168,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		bstore := billing.NewPGStore(pool)
 		recorder := billing.NewRecorder(bstore, log)
 		usage.SetRecorder(recorder)
-		checker := billing.NewQuotaChecker(bstore, billing.PGTenantCounter(pool), 30*time.Second)
-		usage.SetQuotaChecker(checker)
+		checker := attachQuotaChecker(lic, pool)
 		collector := billing.NewCollector(bstore, billing.PGTenantLister(pool), billing.PGTenantCounter(pool), log)
 		go recorder.Run(ctx, time.Minute)
 		go collector.Run(ctx, 15*time.Minute)
@@ -387,4 +386,18 @@ func attachEETenancyRouter(cfg *config.Config, pool *pgxpool.Pool, _ *slog.Logge
 	}
 	tenancy.SetRouter(silo.NewRouter(pool, planes, 0))
 	return nil
+}
+
+// attachQuotaChecker installs the per-tenant quota seam when the license
+// grants metering and returns the checker (nil when unlicensed). It is the one
+// place the quota checker is built, so the serving process and the control-host
+// CLI (`register-collector`) enforce the same cap: before DPR-081 the CLI built
+// its enrollment service without it and registered collectors past the quota.
+func attachQuotaChecker(lic *license.Manager, pool *pgxpool.Pool) *billing.QuotaChecker {
+	if lic == nil || !lic.Has(license.FeatureMetering) {
+		return nil
+	}
+	checker := billing.NewQuotaChecker(billing.NewPGStore(pool), billing.PGTenantCounter(pool), 30*time.Second)
+	usage.SetQuotaChecker(checker)
+	return checker
 }

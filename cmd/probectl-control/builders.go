@@ -600,7 +600,7 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 	case "register-collector":
 		// ARCH-011: register a bus-publishing collector (eBPF/flow/device) and
 		// print its UUID identity; no cert (bus auth is separate).
-		return true, runRegisterCollector(context.Background(), db, os.Args[2:])
+		return true, runRegisterCollector(context.Background(), cfg, db, log, os.Args[2:])
 	case "replay-deadletter":
 		// ARCH-001: drain a probectl.deadletter.* topic and re-ingest each parked
 		// record onto its source topic (operator-driven recovery after a store
