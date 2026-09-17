@@ -345,10 +345,14 @@ func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request, tenantI
 
 func (s *Server) scimListGroups(w http.ResponseWriter, r *http.Request, tenantID string) {
 	start, count := scimPage(r)
+	// DPR-041: ServiceProviderConfig advertises filtering, and an IdP looks a
+	// group up by `displayName eq "…"` before it binds members — answering
+	// with every role bound users to whichever role came first.
+	filter := scimEqFilter(r.URL.Query().Get("filter"), "displayName")
 	var resources []any
 	total := 0
 	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		roles, n, e := store.Roles{}.ListPage(ctx, sc, start, count)
+		roles, n, e := store.Roles{}.ListPageFiltered(ctx, sc, filter, start, count)
 		if e != nil {
 			return e
 		}

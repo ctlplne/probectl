@@ -11,6 +11,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -685,5 +686,64 @@ func TestSCIMGroupRenameAndAtomicPatch(t *testing.T) {
 	}
 	if !strings.Contains(after.Body.String(), uid) {
 		t.Errorf("pre-existing membership must be untouched by the failed PATCH: %s", after.Body)
+	}
+}
+
+// TestSCIMGroupFilterAndDuplicateConflict (DPR-041/DPR-042): an IdP looks a
+// group up by displayName before binding members, so the filter must select
+// exactly that role — not the whole list — and pushing a group whose slug
+// already exists is a 409 uniqueness conflict the IdP resolves by lookup, not
+// a 400 schema error it gives up on.
+func TestSCIMGroupFilterAndDuplicateConflict(t *testing.T) {
+	h, db := setupAPI(t)
+	tenant := freshTenant(t, db, "scimfilter")
+	token := scimToken(t, db, tenant, "okta")
+
+	ids := map[string]string{}
+	for _, name := range []string{"Engineers", "Auditors"} {
+		rec := scimReq(t, h, http.MethodPost, "/scim/v2/Groups", token,
+			`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"displayName":"`+name+`"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", name, rec.Code, rec.Body)
+		}
+		ids[name] = scimID(t, rec)
+	}
+
+	rec := scimReq(t, h, http.MethodGet, "/scim/v2/Groups?filter=displayName%20eq%20%22Auditors%22", token, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("filtered list: %d %s", rec.Code, rec.Body)
+	}
+	var page struct {
+		TotalResults int `json:"totalResults"`
+		Resources    []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+		} `json:"Resources"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.TotalResults != 1 || len(page.Resources) != 1 || page.Resources[0].ID != ids["Auditors"] || page.Resources[0].DisplayName != "Auditors" {
+		t.Fatalf("filter must select only Auditors: %s", rec.Body)
+	}
+	rec = scimReq(t, h, http.MethodGet, "/scim/v2/Groups?filter=displayName%20eq%20%22Nobody%22", token, "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.TotalResults != 0 || len(page.Resources) != 0 {
+		t.Fatalf("unknown name must match nothing: %s", rec.Body)
+	}
+	rec = scimReq(t, h, http.MethodGet, "/scim/v2/Groups", token, "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.TotalResults < 2 {
+		t.Fatalf("unfiltered list must still return every group: %s", rec.Body)
+	}
+
+	dup := scimReq(t, h, http.MethodPost, "/scim/v2/Groups", token,
+		`{"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"displayName":"Engineers"}`)
+	if dup.Code != http.StatusConflict || !strings.Contains(dup.Body.String(), `"uniqueness"`) {
+		t.Fatalf("duplicate group must be 409 uniqueness, got %d %s", dup.Code, dup.Body)
 	}
 }

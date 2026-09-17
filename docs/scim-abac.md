@@ -60,7 +60,8 @@ Endpoints — twelve routes, mounted at `/scim/v2`, outside the `/v1` API, in
 
 - **Users** — `POST` (provision), `GET` (list with a `userName eq` filter plus
   `startIndex`/`count`), `GET/{id}`, `PUT/{id}`, `PATCH/{id}`, `DELETE/{id}`.
-- **Groups** — `POST`, `GET`, `GET/{id}`, `PATCH/{id}` (member
+- **Groups** — `POST`, `GET` (list with a `displayName eq` filter, the lookup an
+  IdP runs before binding members — DPR-041), `GET/{id}`, `PATCH/{id}` (member
   add/remove/replace, plus `displayName` rename — the role's display name
   changes while its slug, the stable identity bindings join on, does not),
   `DELETE`. A group PATCH is **atomic**: it runs in one database transaction,
@@ -73,7 +74,9 @@ Endpoints — twelve routes, mounted at `/scim/v2`, outside the `/v1` API, in
 
 Conformance details, because IdPs are strict: responses use the
 `application/scim+json` media type and the SCIM error envelope
-(`urn:…:Error`, with the HTTP status carried *as a string*); `201` on create,
+(`urn:…:Error`, with the HTTP status carried *as a string*); a group or user
+pushed over an existing name is `409` with `scimType` `uniqueness` (never a
+`400`, which an IdP treats as a permanent schema error — DPR-042); `201` on create,
 `409`/`uniqueness` on a duplicate `userName`, `404` for an unknown id, `204` on
 delete. PATCH deliberately tolerates the divergent ways IdPs encode
 "deactivate" — Okta's valueless `replace` carrying `{"active":false}`, and

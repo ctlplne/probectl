@@ -11,6 +11,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -50,6 +51,12 @@ func (Roles) CreateLimited(ctx context.Context, s tenancy.Scope, slug, name, des
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.Validation("tenant SCIM group limit reached").WithCode(string(apierror.CodeQuotaExceeded))
+		}
+		// DPR-042: a slug collision is a conflict the caller can act on (an
+		// IdP looks the existing group up), not an invalid attribute set.
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && pg.Code == "23505" {
+			return nil, apierror.Conflict("role already exists")
 		}
 		return nil, err
 	}
@@ -123,15 +130,34 @@ func (Roles) Count(ctx context.Context, s tenancy.Scope) (int, error) {
 // ListPage returns a SQL-bounded role page plus the total count. startIndex is
 // SCIM's 1-based cursor; count=0 is an empty page.
 func (Roles) ListPage(ctx context.Context, s tenancy.Scope, startIndex, count int) ([]Role, int, error) {
-	total, err := (Roles{}).Count(ctx, s)
-	if err != nil {
+	return (Roles{}).ListPageFiltered(ctx, s, "", startIndex, count)
+}
+
+// ListPageFiltered is ListPage narrowed to roles whose display name equals
+// nameFilter — the SCIM `displayName eq "…"` lookup an IdP runs before it
+// binds members (DPR-041). An empty filter lists every role.
+func (Roles) ListPageFiltered(ctx context.Context, s tenancy.Scope, nameFilter string, startIndex, count int) ([]Role, int, error) {
+	var total int
+	countSQL, countArgs := `SELECT count(*) FROM roles`, []any{}
+	if nameFilter != "" {
+		countSQL += ` WHERE name = $1`
+		countArgs = append(countArgs, nameFilter)
+	}
+	if err := s.Q.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	if startIndex < 1 {
 		startIndex = 1
 	}
 	offset := startIndex - 1
-	rows, err := s.Q.Query(ctx, `SELECT `+roleCols+` FROM roles ORDER BY created_at, id LIMIT $1 OFFSET $2`, count, offset)
+	sql := `SELECT ` + roleCols + ` FROM roles`
+	args := []any{count, offset}
+	if nameFilter != "" {
+		sql += ` WHERE name = $3`
+		args = append(args, nameFilter)
+	}
+	sql += ` ORDER BY created_at, id LIMIT $1 OFFSET $2`
+	rows, err := s.Q.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, 0, err
 	}
