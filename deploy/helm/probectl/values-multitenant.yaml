@@ -50,6 +50,11 @@ control:
     # pruning. The WORM directory is a child of the shared objectStore mount.
     # The signing key comes only from secrets.existingSecret in this HA profile.
     PROBECTL_AUDIT_WORM_DIR: "/var/lib/probectl/objects/audit-worm"
+    # DPR-011: provider-plane admission also needs the operator-owned IR public
+    # keyring (<tenant-uuid>.pem per tenant, created empty on first start). It
+    # lives on the same shared mount so every replica seals break-glass
+    # attribution to the same keys.
+    PROBECTL_IR_PUBLIC_KEY_DIR: "/var/lib/probectl/objects/ir-keys"
     # PROBECTL_SIEM_ENABLED: "true"
     # PROBECTL_SIEM_ENDPOINT: "https://siem.example/ingest"
     # RED-001: every ClickHouse-backed lane needs the scoped reader user whose

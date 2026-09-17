@@ -139,8 +139,12 @@ docker compose --env-file deploy/compose/.env \
   -f deploy/compose/probectl.yml -f deploy/compose/license.yml up -d
 ```
 
-Verification is local math against the trust anchors compiled into the
-binary — nothing phones home. A forged or corrupt file stops the control plane
+For an **MSP** license, also layer `deploy/compose/provider.yml`: the provider
+plane refuses admission until it has signed WORM audit export and an IR
+public keyring, and that overlay wires both onto the persistent volume (see
+[`provider-plane.md`](provider-plane.md)); the first operator's bootstrap
+token goes in `deploy/compose/control.env`. Verification is local math against
+the trust anchors compiled into the binary — nothing phones home. A forged or corrupt file stops the control plane
 at startup; an expired one loads and degrades per the grace ladder. **Admin →
 Editions** (`GET /v1/editions`) shows the loaded tier, customer, and expiry —
 see [`editions.md`](editions.md).

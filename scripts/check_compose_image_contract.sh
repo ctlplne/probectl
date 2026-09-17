@@ -132,6 +132,13 @@ run_checks() {
     || err "deploy/compose/license.yml must require PROBECTL_LICENSE_PATH (no silent Community fallback)"
   grep -Eq '^PROBECTL_LICENSE_PATH=' "$root/deploy/compose/.env.example" \
     || err "deploy/compose/.env.example must document PROBECTL_LICENSE_PATH"
+  # DPR-011: an MSP license must be startable on the shipped stack.
+  [ -f "$root/deploy/compose/provider.yml" ] \
+    || err "deploy/compose/provider.yml (provider-plane overlay) must exist"
+  for key in PROBECTL_AUDIT_WORM_DIR PROBECTL_IR_PUBLIC_KEY_DIR; do
+    grep -Fq "$key:" "$root/deploy/compose/provider.yml" \
+      || err "deploy/compose/provider.yml must set $key (provider-plane admission requirement)"
+  done
   grep -Fq 'PROBECTL_COMPOSE_OVERLAYS' "$root/Makefile" \
     || err "Makefile compose-prod-up must accept PROBECTL_COMPOSE_OVERLAYS (license.yml)"
   grep -Fq 'license.yml' "$root/docs/install.md" \
@@ -220,6 +227,13 @@ services:
       PROBECTL_LICENSE_FILE: /etc/probectl/license.json
     volumes:
       - ${PROBECTL_LICENSE_PATH:?set PROBECTL_LICENSE_PATH}:/etc/probectl/license.json:ro
+YAML
+  cat > "$tmp/deploy/compose/provider.yml" <<'YAML'
+services:
+  control:
+    environment:
+      PROBECTL_AUDIT_WORM_DIR: /var/lib/probectl/audit-worm
+      PROBECTL_IR_PUBLIC_KEY_DIR: /var/lib/probectl/ir-keys
 YAML
   cat > "$tmp/docs/install.md" <<'MD'
 The shipped compose stack has no mutable image default.

@@ -199,8 +199,23 @@ provider-plane smoke. The minimum runtime preconditions are:
 - `PROBECTL_ENVELOPE_KEY` is set, because provider TOTP secrets are sealed at
   rest.
 - `PROBECTL_PROVIDER_BOOTSTRAP_TOKEN` is set for the first operator bootstrap.
+- `PROBECTL_AUDIT_WORM_DIR` points at a durable absolute directory: the plane
+  refuses admission until provider/break-glass audit rows have a signed WORM
+  export (the signing key is generated at `PROBECTL_WORM_SIGNING_KEY_FILE` on
+  first start unless `PROBECTL_WORM_SIGNING_KEY` is injected).
+- `PROBECTL_IR_PUBLIC_KEY_DIR` points at the operator-owned IR public keyring
+  (absolute path; created empty on first start). Break-glass attribution is
+  sealed to `<tenant-uuid>.pem` in that directory, and a grant for a tenant
+  whose key is absent is refused until the key exists — see
+  [`audit.md`](audit.md).
 - The database migrations have run, including the provider tables and
   `probectl_provider` role grants.
+
+The shipped deploys wire the last two for you: Compose with
+`deploy/compose/provider.yml` layered over `probectl.yml` + `license.yml`
+(evaluation-grade, on the persistent volume), and the Helm multitenant profile
+(`values-multitenant.yaml`, on the shared object-lock mount). A missing setting
+is reported by name at startup instead of a crash loop.
 
 The quick smoke has two halves:
 

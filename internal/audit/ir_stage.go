@@ -85,17 +85,30 @@ type LocalIRPublicKeyResolver struct {
 	directory string
 }
 
-// NewLocalIRPublicKeyResolver validates the local operator-owned key directory.
+// NewLocalIRPublicKeyResolver validates the local operator-owned key directory
+// (PROBECTL_IR_PUBLIC_KEY_DIR). An absent directory is created owner-only: an
+// empty keyring is a legal steady state in which every break-glass grant fails
+// closed with ErrIRKeyUnavailable until the operator drops the tenant's public
+// key in (DPR-011). A relative or unset path is refused with the key named,
+// because "must be an absolute path" alone sent operators grepping the source.
 func NewLocalIRPublicKeyResolver(directory string) (*LocalIRPublicKeyResolver, error) {
-	directory = filepath.Clean(strings.TrimSpace(directory))
+	trimmed := strings.TrimSpace(directory)
+	if trimmed == "" {
+		return nil, errors.New("audit: PROBECTL_IR_PUBLIC_KEY_DIR is not set; the provider plane needs the absolute path of the operator-owned IR public keyring (docs/provider-plane.md)")
+	}
+	directory = filepath.Clean(trimmed)
 	if directory == "." || !filepath.IsAbs(directory) {
-		return nil, errors.New("audit: IR public-key directory must be an absolute path")
+		return nil, fmt.Errorf("audit: PROBECTL_IR_PUBLIC_KEY_DIR must be an absolute path, got %q", trimmed)
 	}
 	info, err := os.Stat(directory)
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return nil, fmt.Errorf("audit: create IR public-key directory %s: %w", directory, err)
+		}
+	case err != nil:
 		return nil, fmt.Errorf("audit: inspect IR public-key directory: %w", err)
-	}
-	if !info.IsDir() {
+	case !info.IsDir():
 		return nil, errors.New("audit: IR public-key path is not a directory")
 	}
 	return &LocalIRPublicKeyResolver{directory: directory}, nil

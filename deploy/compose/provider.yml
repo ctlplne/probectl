@@ -1,0 +1,29 @@
+# MSP / provider-plane overlay for the shipped all-in-one stack (DPR-011).
+#
+# An MSP-tier license attaches the provider plane, and the provider plane
+# refuses admission until two audit guarantees exist: provider/break-glass
+# audit rows have a signed WORM (write-once) export, and break-glass
+# attribution can be sealed to a tenant's operator-owned IR public key. This
+# overlay wires both onto the persistent controldata volume so a licensed
+# evaluation starts on one host:
+#
+#   make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/license.yml -f deploy/compose/provider.yml'
+#   # plus PROBECTL_PROVIDER_BOOTSTRAP_TOKEN in deploy/compose/control.env for the
+#   # first operator (docs/provider-plane.md)
+#
+# Evaluation-grade on purpose: a Docker volume is durable but not immutable.
+# Production MSP deployments use the Helm multitenant profile, where the WORM
+# directory lives on object-lock / compliance-mode storage shared by every
+# replica (deploy/helm/README.md).
+services:
+  control:
+    environment:
+      # Signed WORM export of provider/break-glass audit rows.
+      PROBECTL_AUDIT_WORM_DIR: /var/lib/probectl/audit-worm
+      # Generated once at 0600 on the persistent volume; back it up like key
+      # material (losing it forfeits cross-restart chain verification).
+      PROBECTL_WORM_SIGNING_KEY_FILE: /var/lib/probectl/worm-signing-ed25519.pem
+      # Operator-owned IR public keyring: <tenant-uuid>.pem per tenant. Created
+      # empty on first start; break-glass fails closed per tenant until its key
+      # is present (docs/audit.md, docs/configuration.md).
+      PROBECTL_IR_PUBLIC_KEY_DIR: /var/lib/probectl/ir-keys

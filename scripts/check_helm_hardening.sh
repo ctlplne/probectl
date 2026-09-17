@@ -740,6 +740,7 @@ done
 for env in PROBECTL_AUDIT_WORM_DIR PROBECTL_SIEM_ENABLED PROBECTL_SIEM_ENDPOINT; do
   need_fixed "$env:" "$multitenant" "multi-tenant profile did not render $env audit-retention watermark config (PRIVACY-001)"
 done
+need_fixed 'PROBECTL_IR_PUBLIC_KEY_DIR: "/var/lib/probectl/objects/ir-keys"' "$multitenant" "multi-tenant profile did not render the IR public keyring the provider plane requires for admission (DPR-011)"
 need_fixed "name: $RUNTIME_SECRET" "$multitenant" "multi-tenant profile did not reference the shared runtime Secret (CONFIG-09e06212)"
 need_fixed "claimName: \"$OBJECTSTORE_CLAIM\"" "$multitenant" "multi-tenant profile did not mount the shared WORM claim (CONFIG-09e06212)"
 if grep -q "PROBECTL_WORM_SIGNING_KEY_FILE" <<<"$multitenant"; then

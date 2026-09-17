@@ -310,8 +310,10 @@ func attachProviderIRDurability(
 	sidecar *audit.IRStagePG,
 ) error {
 	if worm == nil {
+		// DPR-011: provider/break-glass audit rows must have a signed WORM
+		// export before any operator is admitted. Name the setting.
 		return errors.New(
-			"provider IR sidecar requires signed WORM export before admission",
+			"provider plane admission requires signed WORM audit export: set PROBECTL_AUDIT_WORM_DIR to a durable absolute directory (deploy/compose/provider.yml or Helm control.extraEnv; docs/provider-plane.md)",
 		)
 	}
 	if sidecar == nil {

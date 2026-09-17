@@ -41,7 +41,9 @@ func buildIRInvestigator(
 ) (*audit.IRStagePG, *irInvestigator, error) {
 	irKeys, err := audit.NewLocalIRPublicKeyResolver(cfg.IRPublicKeyDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("provider IR public keyring: %w", err)
+		// DPR-011: name the setting and the fix; a licensed MSP install used to
+		// crash-loop on "must be an absolute path" with nothing to grep for.
+		return nil, nil, fmt.Errorf("provider plane admission requires the IR public keyring (set PROBECTL_IR_PUBLIC_KEY_DIR, e.g. /var/lib/probectl/ir-keys; deploy/compose/provider.yml or Helm control.extraEnv): %w", err)
 	}
 	wormPrivate, wormPublic, generated, err := audit.ResolveWormSigningKey(
 		cfg.WormSigningKey,
