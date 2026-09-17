@@ -111,3 +111,16 @@ DPR-046: agent listener values with defaults, so `helm upgrade --reuse-values
 {{- define "probectl.agentListener.serviceType" -}}
 {{- default "ClusterIP" (dig "service" "type" "" .Values.control.agentListener) -}}
 {{- end -}}
+
+{{/*
+probectl.jobContainerSecurityContext (DPR-088): the container hardening every
+backup CronJob and restore Job container carries — the same posture as the
+control-plane container. These pods write only to their mounted volumes, so
+the root filesystem stays read-only; the pod-level uid/gid stays per image.
+*/}}
+{{- define "probectl.jobContainerSecurityContext" -}}
+allowPrivilegeEscalation: false
+readOnlyRootFilesystem: true
+capabilities:
+  drop: ["ALL"]
+{{- end }}

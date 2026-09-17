@@ -47,6 +47,9 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 999 # the postgres image's postgres uid
+            runAsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
           {{- if .Values.backup.encryption.enabled }}
           # OPS-002: stage the probectl-control binary so the dump can be
           # piped straight through envelope encryption — plaintext never
@@ -54,6 +57,8 @@ spec:
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
+              securityContext:
+                {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/usr/local/bin/app"]
               args: ["stage-binary", "/tools/probectl-control"]
               volumeMounts:
@@ -62,6 +67,8 @@ spec:
           containers:
             - name: pg-dump
               image: {{ .Values.backup.postgres.image | quote }}
+              securityContext:
+                {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/bin/sh", "-ec"]
               args:
                 - |
@@ -126,10 +133,15 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 101 # the clickhouse image's clickhouse uid
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
           {{- if .Values.backup.encryption.enabled }}
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
+              securityContext:
+                {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/usr/local/bin/app"]
               args: ["stage-binary", "/tools/probectl-control"]
               volumeMounts:
@@ -138,6 +150,8 @@ spec:
           containers:
             - name: ch-backup
               image: {{ .Values.backup.clickhouse.image | quote }}
+              securityContext:
+                {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/bin/sh", "-ec"]
               args:
                 - |
@@ -220,10 +234,15 @@ spec:
             runAsNonRoot: true
             runAsUser: 65532
             fsGroup: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
           {{- if .Values.backup.encryption.enabled }}
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
+              securityContext:
+                {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/usr/local/bin/app"]
               args: ["stage-binary", "/tools/probectl-control"]
               volumeMounts:
@@ -232,6 +251,8 @@ spec:
           containers:
             - name: objectstore-backup
               image: {{ .Values.backup.objectStore.image | default .Values.backup.postgres.image | quote }}
+              securityContext:
+                {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/bin/sh", "-ec"]
               args:
                 - |

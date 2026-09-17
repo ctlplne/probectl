@@ -22,12 +22,21 @@ spec:
       restartPolicy: Never
       securityContext:
         runAsNonRoot: true
+        # DPR-088: runAsNonRoot alone cannot start the root-default postgres image;
+        # pin the image's postgres uid, as the backup CronJob does.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         # Stage the control-plane binary so backup-open can decrypt the sealed
         # dump into the restore-only emptyDir after checksum verification —
         # plaintext never lands on the backups PVC (OPS-002 symmetry).
         - name: stage-probectl
           image: {{ include "probectl.image" . }}
+          securityContext:
+            {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
           # The control-plane image installs its single static binary at
           # /usr/local/bin/app (deploy/docker/Dockerfile); stage it under a
           # stable name the restore container invokes.
@@ -42,6 +51,8 @@ spec:
              postgres:16 — a mutable tag drifts the restore tool out from under a
              sealed dump. An operator override is still honoured. */}}
           image: {{ .Values.restore.image | default .Values.backup.postgres.image }}
+          securityContext:
+            {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
           command: ["/bin/sh", "-ec"]
           args:
             - |
@@ -112,10 +123,15 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 101 # the clickhouse image's clickhouse uid
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       {{- if .Values.backup.encryption.enabled }}
       initContainers:
         - name: stage-probectl
           image: {{ include "probectl.image" . }}
+          securityContext:
+            {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
           command: ["/usr/local/bin/app"]
           args: ["stage-binary", "/tools/probectl-control"]
           volumeMounts:
@@ -124,6 +140,8 @@ spec:
       containers:
         - name: ch-restore
           image: {{ .Values.restore.clickhouse.image | default .Values.backup.clickhouse.image | quote }}
+          securityContext:
+            {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
           command: ["/bin/sh", "-ec"]
           args:
             - |
