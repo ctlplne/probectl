@@ -24,6 +24,7 @@ import (
 	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/siem"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -267,6 +268,7 @@ func bgpSeverity(s bgpv1.Severity) incident.Severity {
 type BGPIncidentConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
+	siem       *siem.Forwarder // DPR-079: routing signals are exported like every other threat-plane signal
 	log        *slog.Logger
 	nsTenants  map[string]string
 }
@@ -280,6 +282,16 @@ func NewBGPIncidentConsumer(b bus.Bus, c *incident.Correlator, log *slog.Logger)
 }
 
 // WithNamespaceTenants subscribes BGP incident correlation to siloed tenant lanes.
+// WithSIEM forwards every routing signal (possible_hijack, possible_leak,
+// rpki_invalid, origin_change) to the SIEM (DPR-079). Before this the journey's
+// "export the incident to your SIEM" held for NDR, IOC, TLS and segmentation
+// signals but a BGP hijack — the headline routing threat — never left the
+// incident timeline. nil disables it.
+func (cs *BGPIncidentConsumer) WithSIEM(fw *siem.Forwarder) *BGPIncidentConsumer {
+	cs.siem = fw
+	return cs
+}
+
 func (cs *BGPIncidentConsumer) WithNamespaceTenants(ns map[string]string) *BGPIncidentConsumer {
 	cs.nsTenants = ns
 	return cs
@@ -304,7 +316,13 @@ func (cs *BGPIncidentConsumer) handleLane(ctx context.Context, msg bus.Message, 
 			"key_tenant", string(msg.Key), "lane_tenant", laneTenant, "payload_tenant", ev.GetTenantId(), "error", err.Error())
 		return nil
 	}
-	if _, err := cs.correlator.Ingest(ctx, signalFromBGPEvent(&ev)); err != nil {
+	sig := signalFromBGPEvent(&ev)
+	if cs.siem != nil {
+		if err := cs.siem.Enqueue(ctx, signalToSIEM(sig)); err != nil {
+			cs.log.Warn("bgp: forward routing signal to siem failed", "error", err, "tenant_id", sig.TenantID, "kind", sig.Kind)
+		}
+	}
+	if _, err := cs.correlator.Ingest(ctx, sig); err != nil {
 		cs.log.Warn("correlate bgp event into incident failed", "error", err)
 		return fmt.Errorf("bgp incident correlation: %w", err)
 	}

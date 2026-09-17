@@ -683,6 +683,7 @@ func (rt *serveRuntime) startBGPIncidentConsumer() {
 	rt.g.Go(func() error {
 		return superviseBusLaneRestart(rt.gctx, "bgp-incident-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return control.NewBGPIncidentConsumer(rt.resultBus, rt.correlator, rt.log).
+				WithSIEM(rt.siemFwd). // DPR-079
 				WithNamespaceTenants(snap.tenants).
 				Run(ctx)
 		})

@@ -218,6 +218,13 @@ the certificate inventory (filterable, with an expiring-soon worklist), with the
 segmentation results and evidence export alongside. Each detection links to its
 correlated incident on the timeline.
 
+Every threat-plane signal reaches the SIEM through the same forwarder: NDR
+detections, threat-intel matches, TLS findings, segmentation violations — and,
+since DPR-079, the routing signals (`bgp.possible_hijack`, `bgp.possible_leak`,
+`bgp.rpki_invalid`, `bgp.origin_change`) that the BGP analyzer and the router
+BMP feed raise. A hijack of your prefix is therefore in your SIEM within the
+forwarder's drain cadence, not only on the incident timeline.
+
 ## Pitfalls & limits
 
 - **It is a signal, never an IPS.** This is the load-bearing limit. probectl does
