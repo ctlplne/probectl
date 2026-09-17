@@ -967,7 +967,7 @@ path is introduced.
 | `PROBECTL_BMP_IDLE_TIMEOUT` | `0` | how long an authenticated router session may wait for its next frame; `0` = unbounded (BGP tables are quiet most of the time; TCP keepalive every 30 s detects a dead peer). The earlier behavior — dropping a quiet session after the read timeout, which made the router reconnect and re-dump its table — is `PROBECTL_BMP_IDLE_TIMEOUT=2m` (DPR-060) |
 | `PROBECTL_BMP_EVENT_SUPPRESSION` | `5m` | an unchanged route observation from the same peer of the same router is published at most once per window (a reconnecting router re-sends its whole Adj-RIB-In); `0` publishes every observation. The peer inventory still counts every announcement (DPR-060) |
 | `PROBECTL_BMP_MAX_SESSIONS` | `256` | process-wide concurrent BMP session limit; excess sockets are refused |
-| `PROBECTL_BMP_BUS_MODE` | `memory` | `memory` \| `kafka` |
+| `PROBECTL_BMP_BUS_MODE` | `memory` | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka` |
 | `PROBECTL_BMP_BUS_BROKERS` | (none) | comma-separated Kafka brokers (required for kafka mode) |
 | `PROBECTL_BMP_BUS_TLS_ENABLED` | `false` | TLS to Kafka brokers; required in kafka mode unless the explicit dev-only plaintext flag is set |
 | `PROBECTL_BMP_BUS_TLS_CA_FILE` | (none) | private CA bundle for Kafka |
@@ -1394,7 +1394,7 @@ fail-closed posture for the most sensitive thing this agent can do.
 | `PROBECTL_EBPF_TENANT_ID`      | (required)  | the tenant every flow is stamped with — the agent refuses to start without it |
 | `PROBECTL_EBPF_HOST`           | OS hostname | observing host name — each record's `host`; also the `agent_id` fallback when no collector identity is set (single-node lightweight mode only) |
 | `PROBECTL_EBPF_AGENT_ID`       | (none)      | the registered collector identity every record carries as `agent_id` (DPR-051): the id minted by `register-collector -plane ebpf` / `POST /v1/collectors/register`. The control plane verifies the (tenant, agent_id) pair against the tenant's registry before accepting a batch (TENANT-101), so an unregistered identity means every batch is rejected. Printable, no whitespace, at most 128 bytes |
-| `PROBECTL_EBPF_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                            |
+| `PROBECTL_EBPF_BUS_MODE`       | `memory`    | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka`                                            |
 | `PROBECTL_EBPF_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                     |
 | `PROBECTL_EBPF_BUS_NAMESPACE`  | (none)      | publish on this tenant's siloed bus lane (`probectl.<ns>.ebpf.flows`) instead of the shared topic; for per-tenant-namespaced (siloed) deployments |
 | `PROBECTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path); maximum 8 MiB, with oversized fixtures rejected at startup |
@@ -1467,7 +1467,7 @@ YAML decoding; `PROBECTL_ENDPOINT_*` env vars override it. See
 | `PROBECTL_ENDPOINT_CONFIG`              | (none)         | path to the YAML config (`-config` flag overrides)               |
 | `PROBECTL_ENDPOINT_TENANT_ID`           | (required)     | the tenant every result is stamped with — refuses to start without it |
 | `PROBECTL_ENDPOINT_AGENT_ID`            | OS hostname    | device identifier in the fleet                                   |
-| `PROBECTL_ENDPOINT_BUS_MODE`            | `memory`       | `memory` \| `kafka`                                              |
+| `PROBECTL_ENDPOINT_BUS_MODE`            | `memory`       | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka`                                              |
 | `PROBECTL_ENDPOINT_BUS_BROKERS`         | (none)         | comma-separated Kafka brokers (kafka mode)                       |
 | `PROBECTL_ENDPOINT_BUS_NAMESPACE`       | (none)         | publish on this tenant's siloed bus lane instead of the shared topic (siloed deployments) |
 | `PROBECTL_ENDPOINT_INTERVAL`            | `60s`          | how often a sample is collected                                  |
@@ -1511,7 +1511,7 @@ design, so every datagram is treated as untrusted and the collector should sit
 | `PROBECTL_FLOW_TENANT`             | (required)  | the tenant every flow record is stamped with — refuses to start without it |
 | `PROBECTL_FLOW_BUS_NAMESPACE`      | (none)      | publish this agent's batches on its tenant's siloed bus lane (`probectl.<ns>.flow.events`) instead of the shared topic; a malformed value refuses start. The same key exists for the other agents: `PROBECTL_DEVICE_BUS_NAMESPACE`, `PROBECTL_EBPF_BUS_NAMESPACE`, `PROBECTL_ENDPOINT_BUS_NAMESPACE` |
 | `PROBECTL_FLOW_AGENT_ID`           | OS hostname | collector identifier                                            |
-| `PROBECTL_FLOW_BUS_MODE`           | `memory`    | `memory` \| `kafka`                                             |
+| `PROBECTL_FLOW_BUS_MODE`           | `memory`    | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka`                                             |
 | `PROBECTL_FLOW_BUS_BROKERS`        | (none)      | comma-separated Kafka brokers (kafka mode)                      |
 | `PROBECTL_FLOW_NETFLOW_ENABLED`    | `true`      | serve NetFlow v5 **and** v9 (version-sniffed) on one socket     |
 | `PROBECTL_FLOW_NETFLOW_LISTEN`     | `:2055`     | NetFlow UDP listen address                                      |
@@ -1647,7 +1647,7 @@ connection.
 | `PROBECTL_DEVICE_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)                |
 | `PROBECTL_DEVICE_TENANT`         | (required)  | the tenant every device metric is stamped with — refuses to start without it |
 | `PROBECTL_DEVICE_AGENT_ID`       | OS hostname | agent identifier                                                  |
-| `PROBECTL_DEVICE_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                               |
+| `PROBECTL_DEVICE_BUS_MODE`       | `memory`    | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka`                                               |
 | `PROBECTL_DEVICE_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                        |
 | `PROBECTL_DEVICE_BUS_NAMESPACE`  | (none)      | publish on this tenant's siloed bus lane instead of the shared topic (siloed deployments) |
 | `PROBECTL_DEVICE_PROFILE`        | (none)      | optional compiled profile: `minimal` \| `standard` \| `topology-rich`; empty preserves legacy explicit config |

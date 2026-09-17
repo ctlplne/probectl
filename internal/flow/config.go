@@ -34,7 +34,8 @@ type ListenerConfig struct {
 	AllowedSources []string `yaml:"allowed_sources"`
 }
 
-// BusConfig selects the bus backend for emission (memory | kafka).
+// BusConfig selects the bus backend for emission: memory (VOLATILE, dev only),
+// nats (the DURABLE lightweight bus — NATS with JetStream) or kafka (DPR-119).
 type BusConfig struct {
 	Mode    string   `yaml:"mode"`
 	Brokers []string `yaml:"brokers"`

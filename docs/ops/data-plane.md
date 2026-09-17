@@ -13,13 +13,37 @@ triggers.
 The tiers match the scale-gate profiles (`docs/scale-gate.md`). "Agents" is
 enrolled agents; "events/s" is sustained bus throughput across all planes.
 
-| Tier | Agents | Events/s | Kafka | ClickHouse | Postgres | TSDB |
+| Tier | Agents | Events/s | Bus | ClickHouse | Postgres | TSDB |
 |---|---|---|---|---|---|---|
 | S (small/all-in-one) | ≤ 25 | ≤ 2k | 1 Kafka broker, or one NATS server with JetStream (the durable lightweight mode, `PROBECTL_BUS_MODE=nats`) | 1 node, 4 vCPU / 16 GiB / 200 GiB SSD | 2 vCPU / 4 GiB | in-process or 1 small VM |
 | M | ≤ 250 | ≤ 20k | 3 brokers, RF=3 | 3 nodes, 8 vCPU / 32 GiB / 1 TiB NVMe each | 4 vCPU / 16 GiB + replica | VictoriaMetrics 1 node, 8 vCPU / 32 GiB |
 | L | ≤ 2.5k | ≤ 200k | 5+ brokers, RF=3, tiered storage | sharded, 6+ nodes, 16 vCPU / 64 GiB / 2 TiB NVMe | 8 vCPU / 32 GiB + HA replica | VM cluster, 3+ nodes |
 | XL | 10k+ | 1M+ | 9+ brokers, dedicated ZK/KRaft quorum | sharded + replicated, 12+ nodes | 16 vCPU / 64 GiB + HA | VM cluster, sharded |
 | XXL | 100k | 5M+ | 15+ brokers, dedicated KRaft quorum, tiered storage | multi-shard replicated cluster, 24+ nodes | horizontally sharded / silo-aware HA | VM cluster, sharded |
+
+### The durable lightweight bus, measured (DPR-119)
+
+The S-tier NATS option is not an estimate. A two-tenant install with three
+planes producing (browser beacons, OTLP metrics from a collector, NetFlow v5)
+ran on one NATS 2.11 server with JetStream file storage:
+
+| | |
+|---|---|
+| Streams / durable consumers | 54 / 304 — one stream per topic, one durable per view group per tenant |
+| Subscriptions on the broker | 1,145 |
+| Broker memory | 45 MiB RSS (42.8 MiB cgroup) |
+| Broker CPU | 1% of a core at this rate |
+| Stored bytes | 1.03 MiB for 224 retained records |
+| Slow consumers | 0 |
+
+What that says about sizing: at S-tier rates the broker is not the constraint —
+one small container carries it. What grows is the CONSUMER count, because each
+control-plane replica takes its own durable consumer per view lane per tenant:
+budget roughly `planes x tenants x replicas` durable consumers and keep
+`PROBECTL_BUS_CONSUMER_IDLE` at a value that retires the ones a rolling upgrade
+abandons. A single JetStream stream is ordered as a whole, which is the reason
+this option stops at S: above it, partitioned Kafka topics are what let one
+tenant's lane scale past one consumer's throughput.
 
 Reference operators (manage the stores on Kubernetes):
 
