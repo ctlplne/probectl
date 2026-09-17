@@ -366,6 +366,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	"threat": {Name: "threat", Summary: "threat detections and intel status", Ops: map[string]apiOp{
 		"detections":   {Method: http.MethodGet, Path: "/v1/threat/detections"},
 		"intel-status": {Method: http.MethodGet, Path: "/v1/threat/intel/status"},
+		"rules":        {Method: http.MethodGet, Path: "/v1/threat/rules", Description: "the live NDR rule set (embedded defaults merged with the detection-as-code overlay)"},
 	}},
 	"opendata": {Name: "opendata", Summary: "open-data enrichment lookup", Ops: map[string]apiOp{
 		"enrich": {Method: http.MethodGet, Path: "/v1/opendata/enrichment", Description: "open-data context for one IP (--query ip=<addr>)"},

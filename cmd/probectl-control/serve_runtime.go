@@ -761,6 +761,7 @@ func (rt *serveRuntime) startNDR() error {
 	if !ndrOn {
 		return nil
 	}
+	rt.srv.WithThreatRules(ndrEngine.Rules, rt.cfg.NDRRulesDir) // DPR-075: the live rule set is an API answer, not a log line
 	ndrc := control.NewNDRConsumer(rt.resultBus, ndrEngine, rt.correlator, rt.log).
 		WithTenantBinding(rt.tenantBinding).
 		WithNamespaceTenants(rt.nsTenants).

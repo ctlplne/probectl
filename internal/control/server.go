@@ -155,6 +155,9 @@ type Server struct {
 	// the durable incident_signals table via pool/RLS. WithDetections remains as
 	// the lightweight in-memory fallback for tests and DB-less profiles.
 	detections *threat.DetectionStore
+	// DPR-075: the live NDR rule set (defaults + overlay) for GET /v1/threat/rules.
+	threatRules    func() []threat.DetectionRule
+	threatRulesDir string
 
 	// Open-data / threat-intel AUP + health matrix (THREAT-003). External feeds
 	// are shared infrastructure, so this status is operator metadata, not tenant

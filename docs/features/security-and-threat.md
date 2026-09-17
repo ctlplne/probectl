@@ -151,6 +151,11 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
 ```
 
 ```sh
+# Which detectors are live, at which thresholds (defaults merged with your
+# detection-as-code overlay) — the read-back that makes tuning auditable.
+curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
+  https://probectl.example.com/v1/threat/rules
+
 # Threat detections — NDR-lite behavior plus any threat-intel matches, newest first.
 curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
   https://probectl.example.com/v1/threat/detections

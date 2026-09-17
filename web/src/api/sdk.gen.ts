@@ -1828,6 +1828,26 @@ export interface TestSpec {
   type?: "icmp" | "tcp" | "udp" | "dns" | "http" | "browser" | "a2a" | "noop" | "voice"
 }
 
+export interface ThreatRule {
+  base_confidence?: number
+  description?: string
+  enabled?: boolean
+  id?: string
+  kind?: "dns_dga" | "dns_exfil" | "beaconing" | "egress_volume" | "egress_intel" | "lateral"
+  lists?: { [key: string]: string[] }
+  name?: string
+  severity?: string
+  suppress?: string
+  thresholds?: { [key: string]: number }
+  version?: number
+}
+
+export interface ThreatRuleList {
+  overlay_dir?: string
+  rules?: ThreatRule[]
+  rules_running?: boolean
+}
+
 export interface Version {
   arch: string
   commit: string
@@ -2910,6 +2930,11 @@ export interface GetThreatIntelStatusRequest {
 }
 
 export type GetThreatIntelStatusResponse = JsonObject
+
+export interface ListThreatRulesRequest {
+}
+
+export type ListThreatRulesResponse = ThreatRuleList
 
 export interface ListTlsPostureRequest {
 }
@@ -4151,6 +4176,12 @@ export class ProbectlSDKClient {
     let path = "/v1/threat/intel/status"
     const query = new URLSearchParams()
     return this.requestJSON<GetThreatIntelStatusResponse>("GET", path, query, undefined)
+  }
+
+  async listThreatRules(): Promise<ListThreatRulesResponse> {
+    let path = "/v1/threat/rules"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListThreatRulesResponse>("GET", path, query, undefined)
   }
 
   async listTlsPosture(): Promise<ListTlsPostureResponse> {

@@ -89,6 +89,38 @@ export function useDetections() {
   })
 }
 
+/** ThreatRule is one live NDR detection rule: the embedded default merged with
+ *  the operator's detection-as-code overlay (DPR-075). */
+export interface ThreatRule {
+  id: string
+  version: number
+  kind: string
+  name: string
+  description?: string
+  severity: string
+  base_confidence: number
+  suppress: string
+  enabled: boolean
+  thresholds?: Record<string, number>
+  lists?: Record<string, string[]>
+}
+
+export interface ThreatRulesResponse {
+  rules_running: boolean
+  overlay_dir: string
+  rules: ThreatRule[]
+}
+
+/** useThreatRules reads the live rule set — the answer to "which detections
+ *  are in force, at which thresholds" without reading a startup log. */
+export function useThreatRules() {
+  return useQuery({
+    queryKey: ['threat', 'rules'],
+    queryFn: () => apiFetch<ThreatRulesResponse>('/threat/rules'),
+    staleTime: 60_000,
+  })
+}
+
 /** useThreatIntelStatus polls the shared feed AUP + last-good health matrix. */
 export function useThreatIntelStatus() {
   return useQuery({

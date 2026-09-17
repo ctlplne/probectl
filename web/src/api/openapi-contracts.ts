@@ -820,6 +820,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/threat.ts',
     method: 'GET',
+    path: '/threat/rules',
+    response: 'ThreatRulesResponse',
+    generated: 'ListThreatRulesResponse',
+  },
+  {
+    file: 'api/threat.ts',
+    method: 'GET',
     path: '/threat/intel/status',
     response: 'ThreatIntelStatusResponse',
     generated: 'GetThreatIntelStatusResponse',

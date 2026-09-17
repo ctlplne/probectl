@@ -143,6 +143,23 @@ sharing one ID *in a single file* is treated as an operator mistake and
 rejected, not guessed at — silently picking one would mean some tuning the
 operator wrote is not in force.
 
+**Read back what is live (DPR-075).** The merged rule set — embedded defaults
+with the overlay applied, each rule's version, kind, severity, base confidence,
+suppression window, thresholds and whether it is enabled — is an API answer,
+not a startup log line: `GET /v1/threat/rules` (`threat.read`), `probectl threat
+rules` on the CLI, and the *Detection rules* card on the Security page. The
+answer also names the overlay directory it was merged from, so "is my tuning
+in force?" is a read, not a `kubectl logs`.
+
+```sh
+curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
+  https://probectl.example.com/v1/threat/rules
+# Observe: rules_running, overlay_dir, and one entry per rule, e.g.
+# {"id":"ndr-beaconing-default","version":2,"kind":"beaconing","enabled":true,
+#  "severity":"warning","base_confidence":45,"suppress":"30m0s",
+#  "thresholds":{"min_samples":8,"max_jitter":0.1,...}}
+```
+
 ## Pipeline
 
 ```mermaid

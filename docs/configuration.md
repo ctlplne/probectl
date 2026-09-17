@@ -1317,6 +1317,7 @@ Journey-critical parity is currently served by the CLI:
 | Topology and path investigation | `probectl topology show|whatif` plus `probectl test path <id>` | `/v1/topology*`, `/v1/tests/{id}/path` |
 | Ask/RCA answer and local Markdown handoff | `probectl ai ask --body JSON`; add `--handoff` for the versioned point-in-time artifact | `/v1/ai/ask` |
 | Human-gated remediation review | `probectl remediation list|get|create|approve|reject` | `/v1/remediation/proposals*` |
+| Live detection rules (defaults + overlay) | `probectl threat rules` | `/v1/threat/rules` |
 | SLO and cost posture | `probectl slo list|export`, `probectl cost summary` | `/v1/slos*`, `/v1/cost/summary` |
 | Tenant lifecycle portability and erasure | `probectl lifecycle export --redact`, `probectl lifecycle erase --body JSON` | `/v1/lifecycle*` |
 | Tenant identity-provider settings | `probectl identity settings|set-settings` | `/v1/identity/settings` |

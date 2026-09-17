@@ -6660,6 +6660,21 @@
         }
       }
     },
+    "/v1/threat/rules": {
+      "get": {
+        "operationId": "listThreatRules",
+        "summary": "The live NDR detection rule set: embedded defaults merged with the detection-as-code overlay",
+        "tags": ["threat"],
+        "description": "Which behavioral detectors are live, at which thresholds, severity, base confidence and suppression window \u2014 the merged result of the embedded defaults and PROBECTL_NDR_RULES_DIR (a rule with the same id replaces the default; a new id adds a detector; enabled=false switches one off). Rules are deployment-level configuration, identical for every tenant. rules_running=false means the NDR engine is off (PROBECTL_NDR_ENABLED=false).",
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "responses": {
+          "200": {
+            "description": "The live rule set.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThreatRuleList"}}}
+          }
+        }
+      }
+    },
     "/v1/threat/detections": {
       "get": {
         "operationId": "listThreatDetections",
@@ -9062,6 +9077,30 @@
       }
     },
     "schemas": {
+      "ThreatRule": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "Stable identity, e.g. ndr-beaconing-default."},
+          "version": {"type": "integer", "description": "Bumped on every behavioral change of the rule."},
+          "kind": {"type": "string", "enum": ["dns_dga", "dns_exfil", "beaconing", "egress_volume", "egress_intel", "lateral"]},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "severity": {"type": "string"},
+          "base_confidence": {"type": "integer"},
+          "suppress": {"type": "string", "description": "Re-raise suppression window per entity, Go duration (e.g. 1h0m0s)."},
+          "enabled": {"type": "boolean"},
+          "thresholds": {"type": "object", "additionalProperties": {"type": "number"}},
+          "lists": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+        }
+      },
+      "ThreatRuleList": {
+        "type": "object",
+        "properties": {
+          "rules_running": {"type": "boolean"},
+          "overlay_dir": {"type": "string", "description": "PROBECTL_NDR_RULES_DIR as loaded; empty when only the embedded defaults are in force."},
+          "rules": {"type": "array", "items": {"$ref": "#/components/schemas/ThreatRule"}}
+        }
+      },
       "RemediationProposalRequest": {
         "type": "object",
         "required": ["kind", "title"],

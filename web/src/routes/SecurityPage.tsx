@@ -31,9 +31,11 @@ import {
   formatThreatConfidence,
   useDetections,
   useThreatIntelStatus,
+  useThreatRules,
   type Detection,
   type OpenDataSourceStatus,
   type ThreatIntelFeedStatus,
+  type ThreatRule,
 } from '../api/threat'
 import {
   useCreateRemediationProposal,
@@ -560,8 +562,8 @@ function DetectionsCard() {
             ) : null}
             <p className={styles.notice}>
               Every detection is a confidence-scored, suppressible signal. Source-rule tuning is
-              reversible; probectl never blocks traffic. When configured, SIEM export forwards
-              the signal without turning probectl into a SIEM.{' '}
+              reversible; probectl never blocks traffic. When configured, SIEM export forwards the
+              signal without turning probectl into a SIEM.{' '}
               <Link to="/docs/api?filter=threat">Inspect threat evidence contract</Link>
               {' · '}
               <Link to="/docs/api?filter=siem">Inspect SIEM export posture</Link>
@@ -631,6 +633,79 @@ function matchesFlag(p: TLSPosture, f: FlagFilter): boolean {
 /** SecurityPage is the security-plane surface: threat/IOC triage (S-FE3,
  *  fed by S28 + later S42) over the TLS/cert posture inventory, worklist, and
  *  trustctl handoff (S-FE2). */
+function thresholdsLabel(t?: Record<string, number>): string {
+  if (!t) return '—'
+  return Object.entries(t)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ')
+}
+
+/** DetectionRulesCard answers "which detectors are live, at which thresholds"
+ *  — the merged defaults + overlay the engine actually loaded (DPR-075). */
+function DetectionRulesCard() {
+  const rules = useThreatRules()
+  const columns: Column<ThreatRule>[] = [
+    { key: 'id', header: 'Rule', render: (r) => `${r.id} @v${r.version}` },
+    { key: 'kind', header: 'Kind', render: (r) => r.kind },
+    {
+      key: 'enabled',
+      header: 'State',
+      render: (r) => (
+        <Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? 'live' : 'off'}</Badge>
+      ),
+    },
+    { key: 'severity', header: 'Severity', render: (r) => r.severity },
+    {
+      key: 'confidence',
+      header: 'Base confidence',
+      numeric: true,
+      render: (r) => r.base_confidence,
+    },
+    { key: 'suppress', header: 'Suppress', render: (r) => r.suppress },
+    { key: 'thresholds', header: 'Thresholds', render: (r) => thresholdsLabel(r.thresholds) },
+  ]
+  return (
+    <Card>
+      <CardHeader
+        title="Detection rules"
+        actions={
+          rules.data ? (
+            <div className={styles.actionsRow}>
+              <Badge tone={rules.data.rules_running ? 'success' : 'neutral'}>
+                NDR {rules.data.rules_running ? 'on' : 'off'}
+              </Badge>
+              <Badge tone="neutral">
+                {rules.data.overlay_dir ? `overlay ${rules.data.overlay_dir}` : 'embedded defaults'}
+              </Badge>
+            </div>
+          ) : null
+        }
+      />
+      <CardBody>
+        {rules.isLoading ? (
+          <LoadingState label="Loading detection rules…" />
+        ) : rules.isError ? (
+          <ErrorState description="Could not load the detection rules." />
+        ) : rules.data ? (
+          <Table
+            caption="Live NDR detection rules (defaults merged with the detection-as-code overlay)"
+            columns={columns}
+            rows={rules.data.rules}
+            rowKey={(r) => r.id}
+            empty={
+              <EmptyState
+                title="No detection rules"
+                description="The NDR engine is off (PROBECTL_NDR_ENABLED=false) or no rule loaded."
+              />
+            }
+          />
+        ) : null}
+      </CardBody>
+    </Card>
+  )
+}
+
 export function SecurityPage() {
   const posture = useTLSPosture()
   const [text, setText] = useState('')
@@ -703,6 +778,7 @@ export function SecurityPage() {
     >
       <div className={styles.stack}>
         <ThreatIntelStatusCard />
+        <DetectionRulesCard />
         <DetectionsCard />
         <Card>
           <CardHeader title={`Expiring soon (${worklist.length})`} />

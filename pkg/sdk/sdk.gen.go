@@ -1942,6 +1942,26 @@ type TestSpec struct {
 	Type            string            `json:"type,omitempty"`
 }
 
+type ThreatRule struct {
+	BaseConfidence int                 `json:"base_confidence,omitempty"`
+	Description    string              `json:"description,omitempty"`
+	Enabled        bool                `json:"enabled,omitempty"`
+	Id             string              `json:"id,omitempty"`
+	Kind           string              `json:"kind,omitempty"`
+	Lists          map[string][]string `json:"lists,omitempty"`
+	Name           string              `json:"name,omitempty"`
+	Severity       string              `json:"severity,omitempty"`
+	Suppress       string              `json:"suppress,omitempty"`
+	Thresholds     map[string]float64  `json:"thresholds,omitempty"`
+	Version        int                 `json:"version,omitempty"`
+}
+
+type ThreatRuleList struct {
+	OverlayDir   string       `json:"overlay_dir,omitempty"`
+	Rules        []ThreatRule `json:"rules,omitempty"`
+	RulesRunning bool         `json:"rules_running,omitempty"`
+}
+
 type Version struct {
 	Arch      string `json:"arch"`
 	Commit    string `json:"commit"`
@@ -4934,6 +4954,20 @@ func (c *Client) GetThreatIntelStatus(ctx context.Context, req GetThreatIntelSta
 		return nil, err
 	}
 	return out, nil
+}
+
+// The live NDR detection rule set: embedded defaults merged with the detection-as-code overlay
+type ListThreatRulesRequest struct {
+}
+
+func (c *Client) ListThreatRules(ctx context.Context, req ListThreatRulesRequest) (*ThreatRuleList, error) {
+	path := "/v1/threat/rules"
+	query := url.Values{}
+	var out ThreatRuleList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // TLS/certificate posture inventory (latest analyzed posture per target)
