@@ -20,7 +20,14 @@ type apiOp struct {
 	// supplied through --body (and therefore exposed in argv / shell history).
 	// These operations accept only --body-file, with "-" meaning stdin.
 	SensitiveBody bool
+	// Columns (DPR-040) names the item keys the human table shows, in order,
+	// for collections whose items are not id/name/status objects (audit
+	// events, for one). Empty keeps the generic ID/NAME/STATUS/SUMMARY table.
+	Columns []string
 }
+
+// auditColumns is the table shape of an audit event (tenant or provider stream).
+var auditColumns = []string{"seq", "created_at", "actor", "action", "target"}
 
 // argNames splits ArgName into the ordered positional path parameters.
 func (op apiOp) argNames() []string {
@@ -83,7 +90,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"test-channel":        {Method: http.MethodPost, Path: "/v1/alerts/test-channel", Description: "send a tenant-scoped test alert through one channel"},
 	}},
 	"audit": {Name: "audit", Summary: "audit log and verification", Ops: map[string]apiOp{
-		"list":   {Method: http.MethodGet, Path: "/v1/audit"},
+		"list":   {Method: http.MethodGet, Path: "/v1/audit", Columns: auditColumns},
 		"reveal": {Method: http.MethodPost, Path: "/v1/audit/ir/{event_ref}/reveal", ArgName: "event_ref", Description: "reveal one encrypted IR attribution with a reason read from stdin or an owner-only file"},
 		"verify": {Method: http.MethodGet, Path: "/v1/audit/verify"},
 	}},
@@ -301,7 +308,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"request-breakglass": {Method: http.MethodPost, Path: "/provider/v1/breakglass"},
 		"revoke-breakglass":  {Method: http.MethodPost, Path: "/provider/v1/breakglass/{id}/revoke", ArgName: "id"},
 		"breakglass-results": {Method: http.MethodGet, Path: "/provider/v1/breakglass/{id}/results", ArgName: "id"},
-		"audit":              {Method: http.MethodGet, Path: "/provider/v1/audit", Description: "page the provider audit stream (admin): every operator action, break-glass step and provisioning outcome; ?order=desc for newest first, after=/before= cursors, actor=/action=/target= filters"},
+		"audit":              {Method: http.MethodGet, Path: "/provider/v1/audit", Description: "page the provider audit stream (admin): every operator action, break-glass step and provisioning outcome; ?order=desc for newest first, after=/before= cursors, actor=/action=/target= filters", Columns: auditColumns},
 		"consent":            {Method: http.MethodGet, Path: "/provider/v1/consent"},
 		"decide-consent":     {Method: http.MethodPost, Path: "/provider/v1/consent/{id}", ArgName: "id"},
 		"fairness":           {Method: http.MethodGet, Path: "/provider/v1/fairness"},

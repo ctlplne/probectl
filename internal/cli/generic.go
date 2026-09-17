@@ -16,6 +16,7 @@ import (
 	"net/url"
 	pathpkg "path"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -206,7 +207,7 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 	if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
 		return fail(stderr, err)
 	}
-	return printGeneric(stdout, out, cfg.JSON, op.Method)
+	return printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns)
 }
 
 func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
@@ -325,6 +326,12 @@ func withQueryValues(path string, params queryFlag) string {
 }
 
 func printGeneric(w io.Writer, v any, jsonOut bool, method string) int {
+	return printGenericColumns(w, v, jsonOut, method, nil)
+}
+
+// printGenericColumns renders a collection with the operation's declared
+// columns (DPR-040) or, without any, the generic ID/NAME/STATUS/SUMMARY table.
+func printGenericColumns(w io.Writer, v any, jsonOut bool, method string, columns []string) int {
 	if v == nil {
 		if method == http.MethodDelete {
 			fmt.Fprintln(w, "ok")
@@ -336,11 +343,61 @@ func printGeneric(w io.Writer, v any, jsonOut bool, method string) int {
 	}
 	if m, ok := v.(map[string]any); ok {
 		if items, ok := m["items"].([]any); ok {
-			printGenericItems(w, items)
+			if len(columns) > 0 {
+				printColumnItems(w, items, columns)
+			} else {
+				printGenericItems(w, items)
+			}
 			return 0
 		}
 	}
 	return printJSON(w, v)
+}
+
+// printColumnItems prints one row per item with exactly the declared keys;
+// nested values are JSON so nothing is silently dropped.
+func printColumnItems(w io.Writer, items []any, columns []string) {
+	if len(items) == 0 {
+		fmt.Fprintln(w, "No items.")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	headers := make([]string, len(columns))
+	for i, c := range columns {
+		headers[i] = strings.ToUpper(strings.TrimSuffix(c, "_at"))
+	}
+	fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	for _, item := range items {
+		m, _ := item.(map[string]any)
+		cells := make([]string, len(columns))
+		for i, c := range columns {
+			cells[i] = cellString(m[c])
+		}
+		fmt.Fprintln(tw, strings.Join(cells, "\t"))
+	}
+	_ = tw.Flush()
+}
+
+func cellString(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case float64:
+		if x == float64(int64(x)) {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(x)
+	default:
+		b, err := json.Marshal(x)
+		if err != nil {
+			return fmt.Sprint(x)
+		}
+		return string(b)
+	}
 }
 
 func printGenericItems(w io.Writer, items []any) {

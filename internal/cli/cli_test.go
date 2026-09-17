@@ -1671,3 +1671,46 @@ func TestCLIDirectorySurfaceCoversPeopleAndRoles(t *testing.T) {
 		t.Fatalf("revoke without the role must fail with usage, got %d %q", code, errOut.String())
 	}
 }
+
+// TestCLIAuditStreamsRenderTheirOwnColumns (DPR-040): audit events are not
+// id/name/status objects, so both audit surfaces declare their table shape
+// and the human output shows what an auditor needs — sequence, time, actor,
+// action, target — instead of one bare id per row and three empty columns.
+func TestCLIAuditStreamsRenderTheirOwnColumns(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/provider/v1/audit" && r.URL.Path != "/v1/audit" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"items":[{"seq":27,"created_at":"2026-09-17T05:11:18Z","actor":"acme.admin@probectl.local","action":"provider.breakglass_consent","target":"a0a08496-79ad-4aa3-836e-da6a65848bdd","data":{"tenant":"88929fbe"},"prev_hash":"x","hash":"y"}],"next":27,"order":"desc"}`))
+	}))
+	defer srv.Close()
+	cfg := Config{BaseURL: srv.URL, Token: "t"}
+	for _, tc := range []struct {
+		surface, op string
+	}{{"provider", "audit"}, {"audit", "list"}} {
+		var out, errOut bytes.Buffer
+		op := surfaceCommands[tc.surface].Ops[tc.op]
+		if code := runRawOperation(cfg, op, nil, &out, &errOut); code != 0 {
+			t.Fatalf("%s %s exit %d: %s", tc.surface, tc.op, code, errOut.String())
+		}
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("%s %s: want header + 1 row, got %q", tc.surface, tc.op, out.String())
+		}
+		header := strings.Fields(lines[0])
+		if strings.Join(header, " ") != "SEQ CREATED ACTOR ACTION TARGET" {
+			t.Fatalf("%s %s header = %q", tc.surface, tc.op, lines[0])
+		}
+		row := strings.Fields(lines[1])
+		want := []string{"27", "2026-09-17T05:11:18Z", "acme.admin@probectl.local", "provider.breakglass_consent", "a0a08496-79ad-4aa3-836e-da6a65848bdd"}
+		if strings.Join(row, " ") != strings.Join(want, " ") {
+			t.Fatalf("%s %s row = %q, want %q", tc.surface, tc.op, lines[1], strings.Join(want, " "))
+		}
+	}
+	// The generic table is untouched for surfaces without declared columns.
+	if len(surfaceCommands["provider"].Ops["tenants"].Columns) != 0 {
+		t.Fatal("tenants must keep the generic id/name/status table")
+	}
+}
