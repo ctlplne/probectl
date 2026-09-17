@@ -529,3 +529,43 @@ func TestSignalsCarryNoActionFields(t *testing.T) {
 		}
 	}
 }
+
+// DPR-072: on the lab the shipped beaconing rule fired on ClickHouse's own
+// liveness probe (::1 → ::1:9440 every 5s, jitter 0.2%) — a 64%-confidence
+// "C2-heartbeat pattern", an incident and a SIEM event for a pod talking to
+// itself. Loopback and same-host flows are not callbacks and never beacon; a
+// metronome to ANOTHER host on the same port still does.
+func TestSelfTrafficNeverBeacons(t *testing.T) {
+	fire := func(e *Engine, src, dst string, port uint16) []incident.Signal {
+		var out []incident.Signal
+		for i := 0; i < 24; i++ {
+			out = append(out, e.ObserveFlow("t1", FlowObservation{
+				Src: src, Dst: dst, DstPort: port, Bytes: 128,
+				At: t0.Add(time.Duration(i) * 5 * time.Second)})...)
+		}
+		return out
+	}
+	beacons := func(sigs []incident.Signal) int {
+		n := 0
+		for _, s := range sigs {
+			if s.Kind == "ndr.beaconing" {
+				n++
+			}
+		}
+		return n
+	}
+	for _, tc := range []struct{ src, dst string }{
+		{"::1", "::1"},
+		{"127.0.0.1", "127.0.0.1"},
+		{"10.244.0.27", "10.244.0.27"},
+		{"10.244.0.27", "127.0.0.1"},
+		{"clickhouse-0", "clickhouse-0"},
+	} {
+		if n := beacons(fire(testEngine(t, nil, nil), tc.src, tc.dst, 9440)); n != 0 {
+			t.Errorf("%s → %s:9440 raised %d beaconing signal(s); self-traffic is never a callback", tc.src, tc.dst, n)
+		}
+	}
+	if n := beacons(fire(testEngine(t, nil, nil), "10.244.0.27", "10.244.0.9", 9440)); n == 0 {
+		t.Fatal("a metronome to another host must still beacon (the detector was not disabled)")
+	}
+}

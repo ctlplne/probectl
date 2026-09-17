@@ -403,6 +403,9 @@ func (e *Engine) ObserveFlow(tenant string, obs FlowObservation) []incident.Sign
 }
 
 func (e *Engine) observeBeacon(tenant string, ts *tenantState, obs FlowObservation) []incident.Signal {
+	if selfTraffic(obs) { // DPR-072: a host calling itself is never a C2 callback
+		return nil
+	}
 	var out []incident.Signal
 	key := obs.Src + "→" + obs.Dst + ":" + strconv.Itoa(int(obs.DstPort))
 	for _, rule := range e.rules[KindBeaconing] {
@@ -739,15 +742,34 @@ var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
 // Non-IP entities (hostnames from eBPF edges) are treated as internal —
 // they are resolved service names inside the cluster.
 func isInternal(addr string) bool {
-	host := addr
-	if h, _, ok := strings.Cut(addr, ":"); ok && !strings.Contains(addr, "::") {
-		host = h
-	}
-	ip, err := netip.ParseAddr(host)
+	ip, err := netip.ParseAddr(hostOf(addr))
 	if err != nil {
 		return true
 	}
 	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || cgnatPrefix.Contains(ip.Unmap())
+}
+
+// hostOf strips a trailing ":port" from an IPv4/hostname entity (an IPv6
+// literal, which contains "::", is returned whole).
+func hostOf(addr string) string {
+	if h, _, ok := strings.Cut(addr, ":"); ok && !strings.Contains(addr, "::") {
+		return h
+	}
+	return addr
+}
+
+// selfTraffic reports a flow whose two ends are the same host, or whose
+// destination is a loopback address: a process talking to itself — liveness
+// probes, sidecars, a local datastore listener — cannot be a command-and-control
+// callback however metronomic it is. Before DPR-072 the lab's ClickHouse pod
+// probing its own TLS port every 5s produced a 64%-confidence "C2-heartbeat
+// pattern" detection, an incident, and a SIEM event.
+func selfTraffic(obs FlowObservation) bool {
+	if obs.Src == obs.Dst {
+		return true
+	}
+	ip, err := netip.ParseAddr(hostOf(obs.Dst))
+	return err == nil && ip.Unmap().IsLoopback()
 }
 
 func firstGenerated(entries []dnsEntry) string {
