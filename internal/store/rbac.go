@@ -288,3 +288,40 @@ func (RoleBindings) RoleSlugsByUser(ctx context.Context, s tenancy.Scope) (map[s
 	}
 	return out, rows.Err()
 }
+
+// EnsureSystemRoles seeds the tenant's admin/editor/viewer roles and their
+// permission sets, idempotently, mirroring migration 0013's rules: admin holds
+// every catalog permission, viewer every read, editor reads plus test/alert/
+// incident writes. Provisioning calls it when a tenant is published and
+// bootstrap-admin calls it before its first grant (DPR-035).
+func (Roles) EnsureSystemRoles(ctx context.Context, s tenancy.Scope) error {
+	tid := s.Tenant.String()
+	if _, err := s.Q.Exec(ctx,
+		`INSERT INTO roles (tenant_id, slug, name, description, is_system) VALUES
+		   ($1, 'admin',  'Administrator', 'Full access within the tenant', true),
+		   ($1, 'editor', 'Editor',        'Read everything; manage tests, alerts, incidents', true),
+		   ($1, 'viewer', 'Viewer',        'Read-only', true)
+		 ON CONFLICT (tenant_id, slug) DO NOTHING`, tid); err != nil {
+		return err
+	}
+	for _, q := range []string{
+		`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
+		   SELECT r.tenant_id, r.id, p.key FROM roles r CROSS JOIN permissions p
+		   WHERE r.tenant_id = $1 AND r.slug = 'admin' AND r.is_system
+		 ON CONFLICT (role_id, permission_key) DO NOTHING`,
+		`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
+		   SELECT r.tenant_id, r.id, p.key FROM roles r CROSS JOIN permissions p
+		   WHERE r.tenant_id = $1 AND r.slug = 'viewer' AND r.is_system AND p.key LIKE '%.read'
+		 ON CONFLICT (role_id, permission_key) DO NOTHING`,
+		`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
+		   SELECT r.tenant_id, r.id, p.key FROM roles r CROSS JOIN permissions p
+		   WHERE r.tenant_id = $1 AND r.slug = 'editor' AND r.is_system
+		     AND (p.key LIKE '%.read' OR p.key IN ('test.write', 'alert.write', 'incident.write'))
+		 ON CONFLICT (role_id, permission_key) DO NOTHING`,
+	} {
+		if _, err := s.Q.Exec(ctx, q, tid); err != nil {
+			return err
+		}
+	}
+	return nil
+}

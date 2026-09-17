@@ -83,6 +83,12 @@ func bootstrapAdmin(ctx context.Context, db *store.DB, log *slog.Logger, tenant,
 			created = true
 		}
 		userID = u.ID
+		// DPR-035: a tenant provisioned before system roles were seeded at
+		// publication has no role to bind; seeding is idempotent, so do it
+		// here rather than fail the very first grant.
+		if err := (store.Roles{}).EnsureSystemRoles(ctx, sc); err != nil {
+			return fmt.Errorf("seed system roles: %w", err)
+		}
 		r, err := store.Roles{}.GetBySlug(ctx, sc, role)
 		if err != nil {
 			return fmt.Errorf("role %q: %w (seeded roles are admin, editor, viewer)", role, err)

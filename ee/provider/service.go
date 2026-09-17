@@ -94,6 +94,9 @@ type Service struct {
 	// routerInvalidate drops the isolation router's registry cache after a
 	// lifecycle change, so new/changed tenants route correctly at once.
 	routerInvalidate func()
+	// seedRoles publishes the tenant's system roles at activation (DPR-035);
+	// nil in unit tests that never activate a tenant.
+	seedRoles func(ctx context.Context, tenantID string) error
 }
 
 // NewService wires the provider service. envelope is required (TOTP secrets
@@ -121,6 +124,14 @@ func (s *Service) withClock(now func() time.Time) *Service {
 // WithSilo attaches the S-T2 isolation capability (the attach seam passes it
 // only when the license grants siloed_isolation) and the router-cache
 // invalidation hook.
+// WithRoleSeeder installs the function that seeds admin/editor/viewer inside a
+// newly published tenant. Without it a provisioned tenant has no role to bind
+// and cannot be administered (DPR-035).
+func (s *Service) WithRoleSeeder(fn func(ctx context.Context, tenantID string) error) *Service {
+	s.seedRoles = fn
+	return s
+}
+
 func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
 	s.silo = ops
 	s.routerInvalidate = invalidate
@@ -439,6 +450,9 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 			return Tenant{}, err
 		}
 		s.invalidateRouter()
+		if err := s.seedSystemRoles(ctx, t); err != nil {
+			return Tenant{}, err
+		}
 		return t, nil
 	}
 
@@ -542,6 +556,9 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 	}
 	if published {
 		s.invalidateRouter()
+		if err := s.seedSystemRoles(ctx, t); err != nil {
+			return Tenant{}, err
+		}
 	}
 	return t, nil
 }
@@ -953,4 +970,18 @@ func randomToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// seedSystemRoles runs the installed role seeder for a tenant that just became
+// active. Failing here is loud on purpose: an active tenant nobody can be
+// granted access to is worse than a provisioning error the operator can retry
+// (bootstrap-admin also self-heals a tenant without system roles).
+func (s *Service) seedSystemRoles(ctx context.Context, t Tenant) error {
+	if s.seedRoles == nil {
+		return nil
+	}
+	if err := s.seedRoles(ctx, t.ID); err != nil {
+		return fmt.Errorf("provider: tenant %s published but its system roles could not be seeded: %w", t.ID, err)
+	}
+	return nil
 }

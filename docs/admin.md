@@ -39,6 +39,10 @@ Seeded system roles (one set per tenant):
 | `editor` | Read everything; manage tests, alerts, and incidents. |
 | `viewer` | Read-only across the planes (no audit access). |
 
+Every tenant carries these three system roles from the moment it is published
+(the provider plane seeds them; `bootstrap-admin` re-seeds an older tenant that
+lacks them, DPR-035).
+
 A **new SSO user is created with no roles** (the secure default) and is denied
 scoped resources until an admin grants one; the shell tells them so and names
 the way out. Inspect your own effective access at `GET /v1/me`. Role bindings

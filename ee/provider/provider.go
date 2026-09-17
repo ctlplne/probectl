@@ -123,6 +123,14 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if d.Silo != nil {
 		svc.WithSilo(d.Silo, d.SiloInvalidate)
 	}
+	// DPR-035: a published tenant must carry admin/editor/viewer, or nobody can
+	// ever be granted access to it. Seeded inside the tenant's own scope so the
+	// storage layer, not this code, decides which store the rows land in.
+	svc.WithRoleSeeder(func(ctx context.Context, tenantID string) error {
+		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), d.Pool, func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.Roles{}).EnsureSystemRoles(ctx, sc)
+		})
+	})
 
 	var tenantAuth TenantAuth
 	if d.Sessions != nil && d.Perms != nil {
