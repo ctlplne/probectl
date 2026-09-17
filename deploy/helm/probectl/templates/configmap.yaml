@@ -143,8 +143,10 @@ data:
   PROBECTL_OTLP_GRPC_ADDR: ":{{ int . }}"
   {{- end }}
   {{- end }}
-  PROBECTL_OTLP_TLS_CERT_FILE: "{{ .Values.control.tls.mountPath }}/tls.crt"
-  PROBECTL_OTLP_TLS_KEY_FILE: "{{ .Values.control.tls.mountPath }}/tls.key"
+  {{- $otlpTLS := (.Values.control.otlp.tls | default dict) }}
+  {{- $otlpTLSPath := ternary (default "/etc/probectl/otlp-tls" $otlpTLS.mountPath) .Values.control.tls.mountPath (not (empty $otlpTLS.existingSecret)) }}
+  PROBECTL_OTLP_TLS_CERT_FILE: "{{ $otlpTLSPath }}/tls.crt"
+  PROBECTL_OTLP_TLS_KEY_FILE: "{{ $otlpTLSPath }}/tls.key"
   {{- end }}
   # Fail closed (TENANT-106/SEC-002): never silently write plaintext at rest.
   PROBECTL_REQUIRE_AT_REST_ENCRYPTION: {{ .Values.requireAtRestEncryption | quote }}

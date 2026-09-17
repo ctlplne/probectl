@@ -157,6 +157,21 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
 The per-tenant bearer token is still the authentication; the policy is the
 network boundary around it.
 
+One sharp edge, worth knowing before a collector tells you about it: the
+receiver's Service has a name of its own, so the certificate it serves must
+carry that name. Reusing the control listener's certificate (the default) means
+adding `<release>-otlp.<namespace>.svc` and
+`<release>-otlp.<namespace>.svc.cluster.local` to its SANs. If that certificate
+cannot carry them, give the receiver its own with
+`control.otlp.tls.existingSecret`. A collector that dials a certificate without
+the name fails verification and retries forever, which is correct and looks
+exactly like a broken endpoint:
+
+```
+tls: failed to verify certificate: x509: certificate is valid for
+probectl.probectl.svc.cluster.local, not probectl-otlp.probectl.svc.cluster.local
+```
+
 ## Token rotation & revocation
 
 Bearer tokens map to tenants. DB-backed OTLP tokens are the normal operational

@@ -131,6 +131,15 @@ control:
     ingressFrom: []
     service:
       type: ClusterIP
+    tls:
+      # The receiver serves TLS. By default it reuses the control listener's
+      # certificate, which then MUST also name the receiver's Service
+      # (<release>-otlp.<namespace>.svc[.cluster.local]) or every collector
+      # fails hostname verification — as it should. Give the receiver its own
+      # certificate here instead when the API certificate cannot carry that
+      # name; the secret holds tls.crt and tls.key.
+      existingSecret: ""
+      mountPath: /etc/probectl/otlp-tls
   trustBundle:
     existingConfigMap: ""
     key: ca-bundle.crt

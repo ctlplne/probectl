@@ -340,6 +340,14 @@
               "type": "object",
               "additionalProperties": false,
               "properties": { "type": { "type": "string" } }
+            },
+            "tls": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "existingSecret": { "type": "string" },
+                "mountPath": { "type": "string", "minLength": 1 }
+              }
             }
           }
         },

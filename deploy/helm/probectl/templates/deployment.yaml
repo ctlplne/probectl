@@ -187,11 +187,18 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) (((.Values.audit | default dict).worm | default dict).enabled) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumeMounts }}
+          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) (((.Values.audit | default dict).worm | default dict).enabled) ((.Values.control.otlp.tls | default dict).existingSecret) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumeMounts }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
               mountPath: {{ .Values.control.tls.mountPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if (.Values.control.otlp.tls | default dict).existingSecret }}
+            # DPR-117: the receiver's own certificate, when the API certificate
+            # cannot name the receiver's Service.
+            - name: otlp-tls
+              mountPath: {{ default "/etc/probectl/otlp-tls" .Values.control.otlp.tls.mountPath | quote }}
               readOnly: true
             {{- end }}
             {{- if .Values.control.agentListener.enabled }}
@@ -232,7 +239,7 @@ spec:
               readOnly: true
             {{- end }}
           {{- end }}
-      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) (((.Values.audit | default dict).worm | default dict).enabled) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumes }}
+      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) (((.Values.audit | default dict).worm | default dict).enabled) ((.Values.control.otlp.tls | default dict).existingSecret) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumes }}
       volumes:
         {{- if (.Values.control.slo | default dict).existingConfigMap }}
         # DPR-064: OpenSLO definitions (every key of the ConfigMap is a file).
@@ -292,6 +299,11 @@ spec:
                 path: tls.crt
               - key: {{ .Values.control.tls.keyKey | quote }}
                 path: tls.key
+        {{- end }}
+        {{- if (.Values.control.otlp.tls | default dict).existingSecret }}
+        - name: otlp-tls
+          secret:
+            secretName: {{ .Values.control.otlp.tls.existingSecret | quote }}
         {{- end }}
         {{- if and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem") }}
         - name: tenant-objects

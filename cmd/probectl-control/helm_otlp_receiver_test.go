@@ -93,6 +93,27 @@ func TestTheChartCanExposeTheOTLPReceiver(t *testing.T) {
 		})
 	}
 
+	// The receiver's Service has a name of its own, so the certificate must
+	// carry it. When the API certificate cannot, the receiver takes its own —
+	// a lab collector proved the failure first: "certificate is valid for
+	// probectl.probectl.svc.cluster.local, not probectl-otlp...".
+	own, err := renderHelmAgentListener(t, "templates/configmap.yaml", append(append([]string{}, on...),
+		"--set", "control.otlp.tls.existingSecret=probectl-otlp-tls")...)
+	if err != nil {
+		t.Fatalf("render with a dedicated receiver certificate: %v\n%s", err, own)
+	}
+	if !strings.Contains(own, `PROBECTL_OTLP_TLS_CERT_FILE: "/etc/probectl/otlp-tls/tls.crt"`) {
+		t.Error("a dedicated receiver certificate must be the one the receiver serves")
+	}
+	ownDep, err := renderHelmAgentListener(t, "templates/deployment.yaml", append(append([]string{}, on...),
+		"--set", "control.otlp.tls.existingSecret=probectl-otlp-tls")...)
+	if err != nil {
+		t.Fatalf("render deployment: %v\n%s", err, ownDep)
+	}
+	if !strings.Contains(ownDep, `secretName: "probectl-otlp-tls"`) {
+		t.Error("the dedicated receiver certificate must be mounted")
+	}
+
 	// Off by default: nothing about the receiver appears.
 	off, err := renderHelmAgentListener(t, "templates/configmap.yaml")
 	if err != nil {
