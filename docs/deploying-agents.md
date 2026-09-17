@@ -106,6 +106,12 @@ probectl-agent enroll \
   # ...or, with a CA-issued control-plane cert:  --ca-file ca.crt
 ```
 
+In the shipped container images the agent runs as the distroless non-root user,
+and only `/var/lib/probectl` and `/var/lib/probectl-agent` are pre-created for
+it — mount the identity volume under one of those (`--dir
+/var/lib/probectl-agent/identity`); any other fresh volume is root-owned and
+the enrollment refuses it before touching the token.
+
 The agent generates its private key **locally** (it never leaves the host), sends
 a CSR — a certificate signing request: the public half of the keypair, packaged
 for the CA to sign — and writes the issued cert, the intermediate, and the

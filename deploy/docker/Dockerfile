@@ -89,7 +89,10 @@ RUN if [ -n "${LICENSE_PUBKEYS_B64}" ]; then \
 # identity: certgen needs /certs for its 0600 private key, and control plus the
 # real-Dex overlay need /var/lib/probectl for the envelope/evidence keys, tenant
 # object store, and Dex SQLite state.
-RUN install -d -m 0700 -o 65532 -g 65532 /out/certs /out/probectl
+# DPR-019: agents document /var/lib/probectl-agent as their state directory;
+# seed it non-root-owned as well so a fresh named volume mounted there is
+# writable by the distroless nonroot user.
+RUN install -d -m 0700 -o 65532 -g 65532 /out/certs /out/probectl /out/probectl-agent
 
 # Minimal, non-root runtime. distroless/static keeps the image tiny and
 # vulnerability-free for static Go binaries.
@@ -101,5 +104,6 @@ LABEL org.opencontainers.image.source="https://github.com/ctlplne/probectl" \
 COPY --from=build /out/app /usr/local/bin/app
 COPY --from=build --chown=nonroot:nonroot /out/certs/ /certs/
 COPY --from=build --chown=nonroot:nonroot /out/probectl/ /var/lib/probectl/
+COPY --from=build --chown=nonroot:nonroot /out/probectl-agent/ /var/lib/probectl-agent/
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/app"]
