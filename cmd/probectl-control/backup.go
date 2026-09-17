@@ -7,10 +7,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -54,6 +56,11 @@ func backupRewrap(args []string) error {
 }
 
 func runBackup(args []string, seal bool) error {
+	return runBackupIO(args, seal, os.Stdin, os.Stdout)
+}
+
+// runBackupIO is runBackup over explicit streams (tests).
+func runBackupIO(args []string, seal bool, stdin io.Reader, stdout io.Writer) error {
 	name := "backup-open"
 	if seal {
 		name = "backup-seal"
@@ -76,12 +83,23 @@ func runBackup(args []string, seal bool) error {
 
 	ctx := context.Background()
 	if seal {
-		if err := backup.Seal(ctx, os.Stdout, os.Stdin, keys); err != nil {
+		// DPR-091: a backup of nothing is never a backup. The CronJobs pipe
+		// pg_dump / clickhouse-client / tar into this command; if that producer
+		// wrote nothing, refuse before a single byte of container is emitted so
+		// the job fails instead of publishing an empty sealed artifact.
+		src := bufio.NewReader(stdin)
+		if _, err := src.Peek(1); err != nil {
+			if errors.Is(err, io.EOF) {
+				return fmt.Errorf("%s: refusing to seal empty input — the producer (pg_dump, clickhouse BACKUP, tar) wrote nothing", name)
+			}
+			return fmt.Errorf("%s: read input: %w", name, err)
+		}
+		if err := backup.Seal(ctx, stdout, src, keys); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
 	}
-	if err := backup.Open(ctx, os.Stdout, os.Stdin, keys); err != nil {
+	if err := backup.Open(ctx, stdout, stdin, keys); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil

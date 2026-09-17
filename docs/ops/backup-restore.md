@@ -134,6 +134,12 @@ A reasonable cadence: nightly, retain 7 daily + 4 weekly, and stagger all three
 so they don't contend (the shipped chart schedules Postgres at 02:00,
 ClickHouse at 02:30, and the object store at 02:45).
 
+A failed backup fails loudly. Every chart CronJob and standalone manifest runs
+its script under `bash -euo pipefail`, so a producer that fails — a refused
+`pg_dump`, a ClickHouse `BACKUP` error, a `tar` error — fails the job, and
+`backup-seal` refuses to seal empty input. An empty artifact is never published
+as a successful backup; a failed job is the signal to act on.
+
 ## Telemetry regional DR profile: off-region ClickHouse backups
 
 The shipped, default telemetry DR profile is **off-region ClickHouse backups**,

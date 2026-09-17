@@ -5,6 +5,10 @@
 {{- if and .Values.backup.clickhouse.enabled (ne .Values.backup.clickhouse.encryptedTargetAck "encrypted-clickhouse-backup-target") }}
 {{- fail "backup.clickhouse writes server-side .zip artifacts and requires backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target" }}
 {{- end }}
+# DPR-091: every job script runs under bash with pipefail. Under `sh -ec` a
+# failed producer (pg_dump refused, clickhouse-client error, tar error) piped
+# into backup-seal still exited 0, so the CronJob sealed nothing and reported
+# a successful backup. The pinned postgres/clickhouse images ship bash.
 # OPS-009/H8: chart-managed PG + CH + object-store/WORM backup CronJobs (folded in from
 # deploy/backup/, U-030). Behind backup.enabled — off by default; an operator
 # opts in and supplies the backups PVC + db-credentials secret (or lets the
@@ -69,7 +73,7 @@ spec:
               image: {{ .Values.backup.postgres.image | quote }}
               securityContext:
                 {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
-              command: ["/bin/sh", "-ec"]
+              command: ["/bin/bash", "-euo", "pipefail", "-c"]
               args:
                 - |
                   {{- if .Values.backup.encryption.enabled }}
@@ -152,7 +156,7 @@ spec:
               image: {{ .Values.backup.clickhouse.image | quote }}
               securityContext:
                 {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
-              command: ["/bin/sh", "-ec"]
+              command: ["/bin/bash", "-euo", "pipefail", "-c"]
               args:
                 - |
                   # OPS-002/CRYPTO-001: ClickHouse BACKUP TO File runs
@@ -253,7 +257,7 @@ spec:
               image: {{ .Values.backup.objectStore.image | default .Values.backup.postgres.image | quote }}
               securityContext:
                 {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
-              command: ["/bin/sh", "-ec"]
+              command: ["/bin/bash", "-euo", "pipefail", "-c"]
               args:
                 - |
                   bad="$(find {{ .Values.backup.objectStore.mountPath | quote }} -mindepth 1 \( -type l -o \( ! -type d ! -type f \) \) -print -quit)"

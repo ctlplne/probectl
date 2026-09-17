@@ -53,7 +53,7 @@ spec:
           image: {{ .Values.restore.image | default .Values.backup.postgres.image }}
           securityContext:
             {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
-          command: ["/bin/sh", "-ec"]
+          command: ["/bin/bash", "-euo", "pipefail", "-c"]
           args:
             - |
               echo "restore: verifying backup is readable…"
@@ -142,7 +142,7 @@ spec:
           image: {{ .Values.restore.clickhouse.image | default .Values.backup.clickhouse.image | quote }}
           securityContext:
             {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
-          command: ["/bin/sh", "-ec"]
+          command: ["/bin/bash", "-euo", "pipefail", "-c"]
           args:
             - |
               server_backup_path="{{ required "restore.clickhouse.serverBackupPath is required" .Values.restore.clickhouse.serverBackupPath }}"
