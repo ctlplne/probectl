@@ -75,9 +75,9 @@ duty in `docs/opendata-aup.md`).
 | go | `golang.org/x/sys` | v0.47.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/text` | v0.41.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/tools` | v0.49.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `google.golang.org/genproto/googleapis/api` | v0.0.0-20260414002931-afd174a4e478 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `google.golang.org/genproto/googleapis/rpc` | v0.0.0-20260414002931-afd174a4e478 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `google.golang.org/grpc` | v1.82.1 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `google.golang.org/genproto/googleapis/api` | v0.0.0-20260526163538-3dc84a4a5aaa | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `google.golang.org/genproto/googleapis/rpc` | v0.0.0-20260526163538-3dc84a4a5aaa | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `google.golang.org/grpc` | v1.83.2 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `google.golang.org/protobuf` | v1.36.11 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `gopkg.in/yaml.v3` | v3.0.1 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | npm:browser-worker | `fsevents` | 2.3.2 | runtime | MIT | browser-worker/package-lock.json:node_modules/fsevents |
