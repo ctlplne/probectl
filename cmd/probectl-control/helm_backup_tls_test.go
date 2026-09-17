@@ -118,6 +118,8 @@ func TestBackupAndRestoreReachTheDatastoresOverTLS(t *testing.T) {
 		"<secure>1</secure>",
 		"<caConfig>/etc/probectl/trust/ca-bundle.crt</caConfig>",
 		"<verificationMode>strict</verificationMode>",
+		// strict alone validates the chain but not the name on the certificate.
+		"<extendedVerification>true</extendedVerification>",
 		"RejectCertificateHandler",
 	} {
 		if !strings.Contains(cfg, want) {

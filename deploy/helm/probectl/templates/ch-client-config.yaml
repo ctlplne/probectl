@@ -22,6 +22,12 @@ data:
           <caConfig>{{ include "probectl.trustBundlePath" . }}</caConfig>
           {{- end }}
           <verificationMode>strict</verificationMode>
+          <!-- strict validates the chain but NOT the name on the certificate;
+               extendedVerification is what makes this the equivalent of
+               Postgres sslmode=verify-full (proved by probe: without it, a
+               connection by IP to a certificate that names only DNS SANs is
+               accepted). -->
+          <extendedVerification>true</extendedVerification>
           <invalidCertificateHandler>
             <name>RejectCertificateHandler</name>
           </invalidCertificateHandler>
