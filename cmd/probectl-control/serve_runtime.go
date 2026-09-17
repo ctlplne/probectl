@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/ctlplne/probectl/internal/a2a"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/carbon"
 	"github.com/ctlplne/probectl/internal/cluster"
@@ -377,6 +378,15 @@ func (rt *serveRuntime) buildAPIServer() error {
 	// DPR-101: sensitive-read audit events deferred during a failover are
 	// appended once the writer is usable again.
 	rt.g.Go(func() error { rt.srv.RunDeferredAudit(rt.gctx); return nil })
+	// DPR-102: the loaded license and every state transition (active -> grace
+	// -> read-only, or a swapped file) land in the provider audit stream.
+	rt.g.Go(func() error {
+		control.RunLicenseAudit(rt.gctx, rt.lic, func(ctx context.Context, action, target string, data map[string]any) error {
+			_, err := audit.ProviderAppend(ctx, rt.db.Pool(), "system", action, target, data)
+			return err
+		}, 0, rt.log)
+		return nil
+	})
 	rt.configureFairness()
 	rt.srv.WithA2ABroker(rt.a2aBroker)
 	if err := rt.configureTestSync(); err != nil {

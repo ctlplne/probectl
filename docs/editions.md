@@ -240,6 +240,12 @@ Compose takes `PROBECTL_LICENSE_PATH` in `.env` plus the
 | `grace` | 0–30 days past expiry | Features stay `enabled`; the UI banners the deadline. |
 | `read_only` | >30 days past expiry | Granted features degrade to `read_only`: existing views still render, but **no new tenants or config**; **telemetry pipelines never break**. Expired is not the same as broken observability. |
 
+The loaded license and every state transition — `active` → `grace` →
+`read_only`, or a swapped license file — are recorded in the **provider audit
+stream** as `license.loaded` and `license.state_changed` (tier, state, license
+id, customer, expiry and read-only dates; never the license contents), so an
+MSP can reconstruct when commercial features degraded and when they came back.
+
 In code, this is why there are two methods: `Manager.Has(f)` stays true in
 `read_only` (so read paths still construct and serve), while `Manager.Mode(f)`
 distinguishes `enabled` / `read_only` / `off` for *write* gating.

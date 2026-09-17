@@ -93,7 +93,7 @@ provider bearer token used by later `probectl provider ...`, `tenant ...`, and
 ## Tenant lifecycle
 
 These are the actions an operator takes on tenants. Every one of them is recorded
-on the provider audit stream with the acting operator's identity.
+on the provider audit stream with the acting operator's identity. The deployment's license lifecycle lands on the same stream as `license.loaded` and `license.state_changed` (actor `system`).
 
 | Action | Effect |
 |---|---|
