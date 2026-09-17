@@ -85,7 +85,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     version="${VERSION}"; build_date="${DATE}"; \
     if [ "${version}" = "0.0.0-dev" ] && [ -s VERSION ]; then version="$(tr -d '[:space:]' < VERSION)-local"; fi; \
     if [ "${build_date}" = "unknown" ]; then build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi; \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 GOTOOLCHAIN=local ${GOFIPS140:+GOFIPS140=${GOFIPS140}} \
+    if [ -n "${GOFIPS140}" ]; then export GOFIPS140; fi; \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 GOTOOLCHAIN=local \
     go build -trimpath ${GO_TAGS:+-tags ${GO_TAGS}} \
       -ldflags "-s -w \
         -X github.com/ctlplne/probectl/internal/version.Version=${version} \
