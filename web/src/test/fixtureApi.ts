@@ -1022,8 +1022,10 @@ function coldFixture(path: string): Response | null {
  *  tests install their own stateful stub. Profile 'cold' answers the data
  *  endpoints as a freshly installed deployment (the install-day design/test
  *  surface); everything else falls through to the populated catalog. */
-/** DPR-027: tenant people & roles, mutable so a test can add, grant and revoke. */
-let fixtureDirectoryUsers = [
+/** DPR-027: tenant people & roles. Each fixtureFetch instance gets its own copy so a
+ * test that adds, grants or revokes never leaks into another test. */
+function seedDirectoryUsers() {
+  return [
   {
     id: 'fixture-user-operator',
     tenant_id: '00000000-0000-0000-0000-000000000001',
@@ -1045,6 +1047,7 @@ let fixtureDirectoryUsers = [
     updated_at: '2026-06-04T12:00:00Z',
   },
 ]
+}
 const fixtureDirectoryRoles = [
   { id: 'role-admin', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'admin', name: 'Administrator', description: 'Full access within the tenant', is_system: true, permissions: ['agent.read', 'agent.write', 'directory.write'], members: 1 },
   { id: 'role-editor', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'editor', name: 'Editor', description: 'Manage tests, alerts, incidents', is_system: true, permissions: ['test.read', 'test.write'], members: 0 },
@@ -1055,6 +1058,7 @@ export function fixtureFetch(
   profile: FixtureProfile = 'populated',
   options: FixtureOptions = {},
 ): typeof fetch {
+  let fixtureDirectoryUsers = seedDirectoryUsers()
   // The fixture-backed design loop is stateful for the write steps used by
   // documented journeys. Every value is obviously synthetic and lives only in
   // this factory closure; a browser refresh of the dev server cannot mutate a
