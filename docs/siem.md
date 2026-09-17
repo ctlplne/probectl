@@ -69,6 +69,23 @@ endpoint):
 | `chronicle` | `Authorization: Bearer <token>` | otlp |
 | `generic` | `Authorization: Bearer <token>` (if set) | cef |
 
+The scheme in that table is the preset's default, not a fixed property of the
+preset: `PROBECTL_SIEM_AUTH_SCHEME` pins `apikey`, `bearer`, `basic`, `splunk`
+or `none` when your target disagrees. The case that matters in practice is
+**OpenSearch**, the Elastic-compatible engine most self-hosters run: it speaks
+ECS and the same ingest API, but it authenticates with HTTP Basic, not with an
+Elasticsearch API key. Point it at
+
+```
+PROBECTL_SIEM_PRESET=elastic
+PROBECTL_SIEM_AUTH_SCHEME=basic
+PROBECTL_SIEM_TOKEN=<user>:<password>     # encoded for you; inject it as a secret
+PROBECTL_SIEM_ENDPOINT=https://opensearch.example:9200/probectl-events/_doc
+```
+
+The token is never logged and never appears in a response; `basic` base64-encodes
+it so an operator does not have to pre-encode a credential into configuration.
+
 ## Delivery guarantees (no drops)
 
 A SIEM is a security audit destination, so the design rule is: **never silently

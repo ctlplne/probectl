@@ -1987,6 +1987,7 @@ formats, delivery guarantees, and per-SIEM setup.
 | `PROBECTL_SIEM_FORMAT` | (preset) | wire format: `syslog` (RFC 5424), `cef`, `ecs`, `otlp`; empty ⇒ the preset's native default (Elastic⇒ecs, Chronicle⇒otlp, else cef) |
 | `PROBECTL_SIEM_ENDPOINT` | (none) | HTTPS ingest URL (e.g. the Splunk HEC / Sentinel / Chronicle / Elasticsearch endpoint). Enabled without it ⇒ a startup warning and the export stays disabled (the control plane still runs) |
 | `PROBECTL_SIEM_TOKEN` | (none) | ingest credential (Splunk ⇒ `Splunk <tok>`, Elastic ⇒ `ApiKey <tok>`, others ⇒ `Bearer <tok>`). Inject from a secret manager |
+| `PROBECTL_SIEM_AUTH_SCHEME` | (preset) | pins the `Authorization` scheme when your target does not use the preset's default: `apikey`, `bearer`, `basic` (the token is `user:password`, encoded for you), `splunk`, or `none`. OpenSearch — the self-hosted Elastic-compatible target most operators run — authenticates with Basic where Elasticsearch takes ApiKey, so `PROBECTL_SIEM_PRESET=elastic` with `_AUTH_SCHEME=basic` is the OpenSearch combination (DPR-115) |
 | `PROBECTL_SIEM_POLL_INTERVAL` | `30s` | audit-stream drain cadence |
 | `PROBECTL_SIEM_BUFFER` | `1024` | threat-signal buffer; full ⇒ producers block (backpressure, never drop) |
 | `PROBECTL_SIEM_REDACT_KEYS` | (none) | extra audit `data` keys to scrub (on top of the built-in secret/PII denylist) |

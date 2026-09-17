@@ -66,7 +66,7 @@ func BuildSIEM(cfg *config.Config, log *slog.Logger) (*siem.Forwarder, bool) {
 		log.Warn("siem: unknown format; export disabled", "format", format)
 		return nil, false
 	}
-	sender := siem.NewHTTPSender(preset, cfg.SIEMEndpoint, cfg.SIEMToken, formatter.ContentType(), nil)
+	sender := siem.NewHTTPSender(preset, cfg.SIEMEndpoint, cfg.SIEMToken, cfg.SIEMAuthScheme, formatter.ContentType(), nil)
 	fw := siem.NewForwarder(formatter, sender, siem.Config{BufferSize: cfg.SIEMBufferSize}, log)
 	return fw, true
 }

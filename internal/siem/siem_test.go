@@ -256,12 +256,12 @@ func TestPreset(t *testing.T) {
 		PresetSentinel:  "Bearer tok",
 		PresetChronicle: "Bearer tok",
 	} {
-		name, got := preset.authHeader("tok")
+		name, got := preset.authHeader("tok", AuthSchemeDefault)
 		if name != "Authorization" || got != want {
 			t.Fatalf("%s auth = %q/%q, want Authorization/%q", preset, name, got, want)
 		}
 	}
-	name, value := PresetGeneric.authHeader("")
+	name, value := PresetGeneric.authHeader("", AuthSchemeDefault)
 	if name != "" || value != "" {
 		t.Fatalf("empty token should not set auth header, got %q/%q", name, value)
 	}
@@ -594,7 +594,7 @@ func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
 
 func TestHTTPSenderHeadersAndAuth(t *testing.T) {
 	fd := &fakeDoer{}
-	s := NewHTTPSender(PresetSplunk, "https://hec.example/services/collector", "tok123", "application/json", fd)
+	s := NewHTTPSender(PresetSplunk, "https://hec.example/services/collector", "tok123", AuthSchemeDefault, "application/json", fd)
 	if err := s.Send(context.Background(), []byte("payload")); err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -611,7 +611,7 @@ func TestHTTPSenderHeadersAndAuth(t *testing.T) {
 
 func TestHTTPSenderElasticAuthAndNon2xx(t *testing.T) {
 	fd := &fakeDoer{status: 503}
-	s := NewHTTPSender(PresetElastic, "https://es.example/_bulk", "apikey", "application/json", fd)
+	s := NewHTTPSender(PresetElastic, "https://es.example/_bulk", "apikey", AuthSchemeDefault, "application/json", fd)
 	err := s.Send(context.Background(), []byte("x"))
 	if err == nil {
 		t.Fatal("non-2xx should error (so the forwarder retries)")

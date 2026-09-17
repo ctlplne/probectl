@@ -30,6 +30,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/cluster"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/siem"
 )
 
 const productionAuditRetentionDefault = 365 * 24 * time.Hour
@@ -703,11 +704,15 @@ type Config struct {
 	// wire format (syslog/cef/ecs/otlp; empty → the preset's native default).
 	// SIEMPollInterval is the audit-drain cadence; SIEMRedactKeys are audit data keys
 	// scrubbed before export (PII/secret governance) on top of the built-in denylist.
-	SIEMEnabled      bool
-	SIEMPreset       string
-	SIEMFormat       string
-	SIEMEndpoint     string
-	SIEMToken        string
+	SIEMEnabled  bool
+	SIEMPreset   string
+	SIEMFormat   string
+	SIEMEndpoint string
+	SIEMToken    string
+	// SIEMAuthScheme (DPR-115) pins the Authorization scheme when the target
+	// does not use the preset's default — OpenSearch takes Basic where
+	// Elasticsearch takes ApiKey. Empty keeps the preset's own.
+	SIEMAuthScheme   string
 	SIEMPollInterval time.Duration
 	SIEMBufferSize   int
 	SIEMRedactKeys   []string
@@ -1068,6 +1073,9 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.SIEMFormat = l.enum("PROBECTL_SIEM_FORMAT", "", "", "syslog", "cef", "ecs", "otlp")
 	cfg.SIEMEndpoint = l.str("PROBECTL_SIEM_ENDPOINT", "")
 	cfg.SIEMToken = l.str("PROBECTL_SIEM_TOKEN", "")
+	cfg.SIEMAuthScheme = l.enum("PROBECTL_SIEM_AUTH_SCHEME", siem.AuthSchemeDefault,
+		siem.AuthSchemeDefault, siem.AuthSchemeAPIKey, siem.AuthSchemeBearer,
+		siem.AuthSchemeBasic, siem.AuthSchemeSplunk, siem.AuthSchemeNone)
 	cfg.SIEMPollInterval = l.dur("PROBECTL_SIEM_POLL_INTERVAL", 30*time.Second)
 	cfg.SIEMBufferSize = l.intRange("PROBECTL_SIEM_BUFFER", 1024, 1, 1_000_000)
 	cfg.SIEMRedactKeys = l.list("PROBECTL_SIEM_REDACT_KEYS")

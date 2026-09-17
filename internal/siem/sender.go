@@ -9,6 +9,7 @@ package siem
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -65,11 +66,39 @@ func (p Preset) DefaultFormat() string {
 	}
 }
 
+// Auth schemes an operator can pin with PROBECTL_SIEM_AUTH_SCHEME when their
+// target does not use the preset's default (DPR-115). The reason this exists:
+// the elastic preset always sent "ApiKey", which Elasticsearch understands and
+// OpenSearch — the self-hosted target most operators actually run, and the one
+// this project's own docs name — does not. It authenticates with HTTP Basic,
+// so an unconfigurable scheme meant the shipped preset could not reach it.
+const (
+	AuthSchemeDefault = ""       // the preset's own scheme
+	AuthSchemeAPIKey  = "apikey" // Authorization: ApiKey <token>
+	AuthSchemeBearer  = "bearer" // Authorization: Bearer <token>
+	AuthSchemeSplunk  = "splunk" // Authorization: Splunk <token>
+	AuthSchemeBasic   = "basic"  // Authorization: Basic base64(token); token is user:password
+	AuthSchemeNone    = "none"   // no Authorization header, whatever the token is
+)
+
 // authHeader returns the Authorization header for a preset's token (Splunk HEC
-// uses "Splunk", Elastic uses "ApiKey", the rest use Bearer).
-func (p Preset) authHeader(token string) (name, value string) {
-	if token == "" {
+// uses "Splunk", Elastic uses "ApiKey", the rest use Bearer), unless the
+// operator pinned a scheme.
+func (p Preset) authHeader(token, scheme string) (name, value string) {
+	if token == "" || scheme == AuthSchemeNone {
 		return "", ""
+	}
+	switch strings.ToLower(scheme) {
+	case AuthSchemeAPIKey:
+		return "Authorization", "ApiKey " + token
+	case AuthSchemeBearer:
+		return "Authorization", "Bearer " + token
+	case AuthSchemeSplunk:
+		return "Authorization", "Splunk " + token
+	case AuthSchemeBasic:
+		// The token is user:password; it is base64'd here so an operator never
+		// has to pre-encode a credential into their configuration.
+		return "Authorization", "Basic " + base64.StdEncoding.EncodeToString([]byte(token))
 	}
 	switch p {
 	case PresetSplunk:
@@ -92,11 +121,12 @@ type HTTPSender struct {
 
 // NewHTTPSender builds a preset-aware HTTP sender. A nil client uses the hardened
 // (cert-validating) HTTP client.
-func NewHTTPSender(preset Preset, endpoint, token, contentType string, client Doer) *HTTPSender {
+// scheme pins the Authorization scheme (DPR-115); empty keeps the preset's own.
+func NewHTTPSender(preset Preset, endpoint, token, scheme, contentType string, client Doer) *HTTPSender {
 	if client == nil {
 		client = crypto.HardenedHTTPClient(15 * time.Second)
 	}
-	name, value := preset.authHeader(token)
+	name, value := preset.authHeader(token, scheme)
 	return &HTTPSender{url: endpoint, contentType: contentType, authName: name, authValue: value, client: client}
 }
 
