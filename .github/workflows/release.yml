@@ -99,9 +99,27 @@ jobs:
           fi
           echo "all $(echo "$expected" | wc -l | tr -d ' ') release components are published"
 
+  # DPR-001: a release that carries no license trust anchor ships control
+  # planes that refuse every commercial license file. Fail closed before any
+  # artifact is built. Anchors are the committed internal/license/trusted_keys/*.pub
+  # files plus the optional PROBECTL_LICENSE_PUBKEYS_B64 repository variable.
+  license-trust-anchor:
+    name: license trust anchor present
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: At least one valid Ed25519 license public key must ship
+        env:
+          PROBECTL_LICENSE_PUBKEYS_B64: ${{ vars.PROBECTL_LICENSE_PUBKEYS_B64 }}
+        run: |
+          set -euo pipefail
+          bash scripts/check_license_trust_anchor.sh SELFTEST
+          bash scripts/check_license_trust_anchor.sh --release
+
   images:
     name: images (${{ matrix.component }})
-    needs: [require-green-ci, completeness-release-gate, components-match-makefile]
+    needs: [require-green-ci, completeness-release-gate, components-match-makefile, license-trust-anchor]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -156,6 +174,7 @@ jobs:
             COMPONENT=${{ matrix.component }}
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
+            LICENSE_PUBKEYS_B64=${{ vars.PROBECTL_LICENSE_PUBKEYS_B64 }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -194,7 +213,7 @@ jobs:
 
   binaries:
     name: binaries + checksums + release
-    needs: [require-green-ci, completeness-release-gate]
+    needs: [require-green-ci, completeness-release-gate, license-trust-anchor]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -204,6 +223,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Cross-compile release binaries in pinned eBPF toolchain
+        env:
+          # DPR-001: link-time license trust anchor (on top of the committed
+          # internal/license/trusted_keys/*.pub files); passed through
+          # scripts/run-ebpf-toolchain.sh into the build container.
+          PROBECTL_LICENSE_PUBKEYS_B64: ${{ vars.PROBECTL_LICENSE_PUBKEYS_B64 }}
         run: |
           set -euo pipefail
           # SUPPLY-003: probectl-ebpf-agent downloads are produced inside the
@@ -214,6 +238,15 @@ jobs:
             DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             bash scripts/run-ebpf-toolchain.sh bash scripts/build-release-binaries.sh
           test -s "dist/probectl_${GITHUB_REF_NAME}_ebpf-toolchain.txt"
+      - name: Assert the shipped control plane carries a license trust anchor (DPR-001)
+        run: |
+          set -euo pipefail
+          bin="dist/probectl-control_${GITHUB_REF_NAME}_linux_amd64"
+          chmod +x "$bin"
+          out="$("$bin" version)"
+          echo "$out"
+          grep -Eq 'license trust anchors: [1-9][0-9]*' <<<"$out" \
+            || { echo "::error::release probectl-control carries no license trust anchor — it would refuse every license file (DPR-001)"; exit 1; }
       # U-068: publish the SBOM as a real release artifact (SPDX JSON via
       # syft over the source tree + go.mod/lockfiles). It is written into
       # dist/ BEFORE the signing loop below, so it ships signed and

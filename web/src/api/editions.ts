@@ -45,6 +45,8 @@ export interface EditionsInfo {
   read_only_at?: string
   tenant_band?: number
   meters?: string[]
+  /** How many license signing keys this build trusts; 0 = keyless build (DPR-001). */
+  trust_anchors?: number
   features: FeatureInfo[]
   fips?: FIPSStatus
 }

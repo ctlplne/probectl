@@ -23,6 +23,26 @@ TOOLCHAIN_RECEIPT="${TOOLCHAIN_RECEIPT:-/usr/local/share/probectl/ebpf-toolchain
 
 ldflags="-s -w -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} -X github.com/ctlplne/probectl/internal/version.Date=${DATE}"
 
+# DPR-001: link-time license trust anchors on top of the committed
+# internal/license/trusted_keys/*.pub anchors. Empty is legal for a dev build;
+# the release workflow's license-trust-anchor job refuses a keyless release.
+LICENSE_PUBKEYS_B64="${PROBECTL_LICENSE_PUBKEYS_B64:-}"
+if [ -n "$LICENSE_PUBKEYS_B64" ]; then
+	ldflags="$ldflags -X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=${LICENSE_PUBKEYS_B64}"
+fi
+
+assert_license_anchor() {
+	# When a link-time anchor was requested, the binary must carry it: the -X
+	# payload is stored verbatim as string data, so grep the (cross-compiled)
+	# binary instead of running it.
+	local bin="$1"
+	[ -n "$LICENSE_PUBKEYS_B64" ] || return 0
+	if ! grep -qaF -- "$LICENSE_PUBKEYS_B64" "$bin"; then
+		echo "::error::${bin} did not link the requested license trust anchor (DPR-001)"
+		exit 1
+	fi
+}
+
 find_bpftool() {
 	local tool
 	tool="$(find /usr/lib -path '*linux-tools*' -name bpftool -type f 2>/dev/null | sort -V | tail -n1)"
@@ -54,6 +74,9 @@ build_plain_binary() {
 	GOOS=linux GOARCH="$arch" CGO_ENABLED=0 "$GO" build -trimpath \
 		-ldflags "$ldflags" \
 		-o "$out" "./cmd/${component}"
+	if [ "$component" = "probectl-control" ]; then
+		assert_license_anchor "$out"
+	fi
 }
 
 build_ebpf_binary() {

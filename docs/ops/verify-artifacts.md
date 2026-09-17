@@ -81,6 +81,20 @@ to the workflow `release.yml` in `ctlplne/probectl`, running for a
 workflow in the same repo, or a re-signed binary all fail that regexp match —
 which is exactly the guarantee you want.
 
+## License trust anchor
+
+A control plane can only accept a commercial license file if the build carries
+the vendor's public key. Confirm it on the binary you are about to deploy:
+
+```sh
+./probectl-control_v0.6.0_linux_amd64 version
+# probectl-control 0.6.0 (commit …)
+# license trust anchors: 1      ← 0 means a keyless build: Community only
+```
+
+The same number is served as `trust_anchors` by `GET /v1/editions` once the
+control plane is running (Admin → Editions in the UI).
+
 ## Helm chart
 
 The release also signs the packaged Helm chart as a blob and signs the pushed OCI

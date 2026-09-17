@@ -51,6 +51,10 @@ ARG DATE=unknown
 # (deploy/compose/eval.yml) passes GO_TAGS=devauth to compile the LOCAL-ONLY
 # dev-auth control plane (RED-001) — release pipelines must never set it.
 ARG GO_TAGS=""
+# DPR-001: optional link-time license trust anchors (comma-separated base64
+# PEMs) on top of the committed internal/license/trusted_keys/*.pub anchors.
+# Empty leaves the committed anchors as the only trust. See docs/editions.md.
+ARG LICENSE_PUBKEYS_B64=""
 WORKDIR /src
 
 # Cache dependencies first for faster rebuilds.
@@ -70,8 +74,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -ldflags "-s -w \
         -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} \
         -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
-        -X github.com/ctlplne/probectl/internal/version.Date=${DATE}" \
+        -X github.com/ctlplne/probectl/internal/version.Date=${DATE} \
+        ${LICENSE_PUBKEYS_B64:+-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=${LICENSE_PUBKEYS_B64}}" \
       -o /out/app ./cmd/${COMPONENT}
+# DPR-001: a requested link-time trust anchor must actually be in the binary.
+# The -X payload is stored verbatim as string data, so a silent drop (a typo'd
+# variable path, a stripped flag) is caught here for any target architecture.
+RUN if [ -n "${LICENSE_PUBKEYS_B64}" ]; then \
+      grep -qaF -- "${LICENSE_PUBKEYS_B64}" /out/app \
+        || { echo "DPR-001: license trust anchor was not linked into ${COMPONENT}"; exit 1; }; \
+    fi
 # Named volumes mounted over paths absent from the image are initialized as
 # root-owned. Seed both writable runtime paths with the distroless nonroot
 # identity: certgen needs /certs for its 0600 private key, and control plus the

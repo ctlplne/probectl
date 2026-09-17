@@ -149,22 +149,40 @@ The claims inside:
 
 ## Trust anchor: build-time only
 
-Trusted public keys are **baked at build time** via ldflags — the Go linker's
-`-X` flag, which stamps a string value into a variable as the binary is linked —
-into `internal/license.builtinPubKeysB64` (comma-separated base64 PEMs, so keys
-can rotate by baking two). The trust anchor is **never** an env var, config key,
-or file — otherwise anyone could point a build at their own key. The lock is
-cast into the door at the factory; a key slot the operator could swap would let
-anyone bring their own lock.
+A build verifies license files only against the **trust anchors it carries**,
+and that set is fixed when the binary is linked — never an env var, config key,
+or runtime file, because an operator-supplied public key would let anyone sign
+their own licenses. The lock is cast into the door at the factory; a key slot
+the operator could swap would let anyone bring their own lock. Two sources feed
+the anchor set, in this order:
+
+1. **Committed public keys.** Every `internal/license/trusted_keys/*.pub` file
+   (an Ed25519 public-key PEM) is compiled into every binary with `go:embed`, so
+   a release image, a source build, and an offline install bundle all trust the
+   same vendor keys with no build-time plumbing. Rotation is committing the next key
+   beside the current one. The public key is not a secret; only the private
+   signing key is, and it never enters the repository.
+2. **Link-time keys.** `PROBECTL_LICENSE_PUBKEYS_B64` (comma-separated base64
+   PEMs) is linked into `internal/license.builtinPubKeysB64` by the Makefile,
+   by the `LICENSE_PUBKEYS_B64` Docker build-arg, and by the release binary
+   builder. This path serves vendor pipelines that keep keys out of the tree
+   and lab builds that mint their own throwaway licenses.
 
 ```sh
+# the hand-rolled equivalent of the link-time path
 go build -ldflags "-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=<base64 PEM>[,<base64 PEM>]" ./cmd/probectl-control
 ```
 
-Dev builds bake no keys: unconfigured deployments run Core; a
-*configured* license file against a keyless build fails startup loudly
-(fail closed — a license you cannot verify is a misconfiguration, not a
-shrug).
+A **keyless build** — no `.pub` committed and nothing linked — runs Community
+only: an unconfigured deployment works, and a *configured* license file fails
+startup loudly (fail closed — a license you cannot verify is a misconfiguration,
+not a shrug). Three surfaces say which case you are in: `probectl-control
+version` prints `license trust anchors: N`; the control plane logs a warning
+at startup when `N` is `0`; and `GET /v1/editions` (Admin → Editions) reports
+`trust_anchors`. The release workflow refuses to publish a keyless tree
+(`scripts/check_license_trust_anchor.sh --release`, the `license-trust-anchor`
+job), so "the shipped image will not accept our license" cannot happen
+silently.
 
 ## Signing CLI (`cmd/probectl-license`)
 

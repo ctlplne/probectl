@@ -95,6 +95,13 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   verified fails the build. Verifiers pin the workflow identity — see
   [`ops/verify-artifacts.md`](ops/verify-artifacts.md).
 - An auto-generated **release notes** entry on the GitHub Release.
+- A **license trust anchor** in every control-plane artifact: the committed
+  `internal/license/trusted_keys/*.pub` keys (plus the optional
+  `PROBECTL_LICENSE_PUBKEYS_B64` repository variable) are what let a shipped
+  binary accept a commercial license file. The `license-trust-anchor` job
+  refuses to build anything from a keyless tree, and the binaries job runs the
+  built `probectl-control version` and requires `license trust anchors: N` with
+  `N ≥ 1` (see [`editions.md`](editions.md), "Trust anchor: build-time only").
 
 Image tags follow `ghcr.io/ctlplne/probectl-control:<version>` (and
 `:latest`) for discovery. Production deploys use immutable references: Compose
@@ -123,6 +130,11 @@ to build images or binaries while the capability ledger contains any declared
 not-done gap. Ordinary CI can retain an honest incomplete ledger; publishing
 requires 100% coverage.
 Practically, that means: get the commit green on `main` first, *then* tag it.
+A release also needs a **license trust anchor**: at least one
+`internal/license/trusted_keys/*.pub` committed (or the
+`PROBECTL_LICENSE_PUBKEYS_B64` repository variable set). Check locally with
+`bash scripts/check_license_trust_anchor.sh --release` before tagging; a keyless
+tree is refused before any artifact is built.
 
 1. Preview the notes from the previous release and review the visible
    `Other changes` section for any commit that does not use a recognized

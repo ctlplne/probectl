@@ -43,6 +43,15 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/version.Commit=$(COMMIT) \
 	-X $(MODULE)/internal/version.Date=$(DATE)
 
+# DPR-001: link-time license trust anchors (comma-separated base64 PEMs) on
+# top of the committed internal/license/trusted_keys/*.pub anchors. Empty is
+# the normal dev case; vendor pipelines and lab builds that mint their own
+# licenses set it (docs/editions.md, "Trust anchor: build-time only").
+PROBECTL_LICENSE_PUBKEYS_B64 ?=
+ifneq ($(strip $(PROBECTL_LICENSE_PUBKEYS_B64)),)
+LDFLAGS += -X $(MODULE)/internal/license.builtinPubKeysB64=$(PROBECTL_LICENSE_PUBKEYS_B64)
+endif
+
 # Container / dev-stack settings.
 IMAGE_REGISTRY ?= ghcr.io/ctlplne
 IMAGE_TAG      ?= $(VERSION)
@@ -520,6 +529,7 @@ images: ## Build multi-arch images for all components (Buildx).
 		docker buildx build --platform $(PLATFORMS) \
 			-f $(DOCKERFILE) --build-arg COMPONENT=$$b \
 			--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
+			--build-arg LICENSE_PUBKEYS_B64=$(PROBECTL_LICENSE_PUBKEYS_B64) \
 			-t $(IMAGE_REGISTRY)/$$b:$(IMAGE_TAG) -t $(IMAGE_REGISTRY)/$$b:latest \
 			. || exit 1; \
 	done

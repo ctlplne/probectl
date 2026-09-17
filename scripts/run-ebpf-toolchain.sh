@@ -29,6 +29,7 @@ docker run --rm \
   -e VERSION="${VERSION:-}" \
   -e COMMIT="${COMMIT:-}" \
   -e DATE="${DATE:-}" \
+  -e PROBECTL_LICENSE_PUBKEYS_B64="${PROBECTL_LICENSE_PUBKEYS_B64:-}" \
   -e DIST_DIR="${DIST_DIR:-}" \
   -e ARCHES="${ARCHES:-}" \
   -e BINARIES="${BINARIES:-}" \

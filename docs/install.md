@@ -37,7 +37,9 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
   # or:
   PROBECTL_IMAGE='registry.internal/probectl-control:v0.6.0@sha256:<release-digest>'
-  # or build from this checkout:
+  # or build from this checkout (it trusts the committed license public keys
+  # under internal/license/trusted_keys/, so a vendor license file works —
+  # docs/editions.md, "Trust anchor"):
   docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control -t probectl-control:local .
   PROBECTL_IMAGE=probectl-control:local
   PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable

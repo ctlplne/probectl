@@ -672,6 +672,20 @@ export function EditionsCard() {
                 </>
               ) : null}
               {data?.tenant_band ? <> · tenant band {data.tenant_band}</> : null}
+              {typeof data?.trust_anchors === 'number' ? (
+                data.trust_anchors > 0 ? (
+                  <>
+                    {' '}
+                    · build trusts {data.trust_anchors} license signing{' '}
+                    {data.trust_anchors === 1 ? 'key' : 'keys'}
+                  </>
+                ) : (
+                  <>
+                    {' '}
+                    · <Badge tone="warning">keyless build</Badge> — license files cannot be verified
+                  </>
+                )
+              ) : null}
             </p>
             {data?.meters?.length ? (
               <p className={styles.editionsLede}>

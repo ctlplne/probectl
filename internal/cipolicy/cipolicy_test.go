@@ -120,6 +120,7 @@ func TestReleasePublishingGraphRequiresCompletenessGate(t *testing.T) {
 	allowedBeforeCompleteness := map[string]bool{
 		"require-green-ci":          true,
 		"components-match-makefile": true,
+		"license-trust-anchor":      true, // DPR-001 pre-gate: produces no output, refuses keyless releases
 		gate:                        true,
 	}
 	for _, job := range []string{
@@ -863,4 +864,80 @@ func verifyAllNeeds(t *testing.T, ci string) []string {
 		}
 	}
 	return out
+}
+
+// TestReleaseArtifactsBakeLicenseTrustAnchor (DPR-001): every shipped
+// control plane must carry a license trust anchor, or it refuses every
+// commercial license file. The committed internal/license/trusted_keys/*.pub
+// files are embedded into every build; the release workflow refuses to
+// publish a keyless tree; and every build path can additionally link the
+// PROBECTL_LICENSE_PUBKEYS_B64 payload.
+func TestReleaseArtifactsBakeLicenseTrustAnchor(t *testing.T) {
+	rel := readWorkflow(t, "release.yml")
+	needs := jobNeeds(t, rel)
+	if _, ok := needs["license-trust-anchor"]; !ok {
+		t.Fatal("release.yml is missing the license-trust-anchor job (DPR-001)")
+	}
+	for _, job := range []string{"images", "binaries"} {
+		found := false
+		for _, n := range needs[job] {
+			if n == "license-trust-anchor" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("release job %q does not need license-trust-anchor — a keyless release could publish (DPR-001); needs=%v", job, needs[job])
+		}
+	}
+	for _, want := range []string{
+		"bash scripts/check_license_trust_anchor.sh SELFTEST",
+		"bash scripts/check_license_trust_anchor.sh --release",
+		"LICENSE_PUBKEYS_B64=${{ vars.PROBECTL_LICENSE_PUBKEYS_B64 }}",
+		"PROBECTL_LICENSE_PUBKEYS_B64: ${{ vars.PROBECTL_LICENSE_PUBKEYS_B64 }}",
+		"license trust anchors: [1-9][0-9]*",
+	} {
+		if !strings.Contains(rel, want) {
+			t.Errorf("release.yml is missing %q from the license trust-anchor gate (DPR-001)", want)
+		}
+	}
+	dockerfile := readRepoFile(t, "deploy", "docker", "Dockerfile")
+	for _, want := range []string{
+		"ARG LICENSE_PUBKEYS_B64",
+		"internal/license.builtinPubKeysB64=${LICENSE_PUBKEYS_B64}",
+		"license trust anchor was not linked",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Errorf("deploy/docker/Dockerfile is missing %q (DPR-001)", want)
+		}
+	}
+	makefile := readRepoFile(t, "Makefile")
+	for _, want := range []string{
+		"PROBECTL_LICENSE_PUBKEYS_B64 ?=",
+		"internal/license.builtinPubKeysB64=$(PROBECTL_LICENSE_PUBKEYS_B64)",
+		"--build-arg LICENSE_PUBKEYS_B64=$(PROBECTL_LICENSE_PUBKEYS_B64)",
+	} {
+		if !strings.Contains(makefile, want) {
+			t.Errorf("Makefile is missing %q (DPR-001)", want)
+		}
+	}
+	script := readRepoFile(t, "scripts", "build-release-binaries.sh")
+	for _, want := range []string{
+		"internal/license.builtinPubKeysB64=${LICENSE_PUBKEYS_B64}",
+		`assert_license_anchor "$out"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("scripts/build-release-binaries.sh is missing %q (DPR-001)", want)
+		}
+	}
+	toolchain := readRepoFile(t, "scripts", "run-ebpf-toolchain.sh")
+	if !strings.Contains(toolchain, `-e PROBECTL_LICENSE_PUBKEYS_B64="${PROBECTL_LICENSE_PUBKEYS_B64:-}"`) {
+		t.Error("scripts/run-ebpf-toolchain.sh does not pass PROBECTL_LICENSE_PUBKEYS_B64 into the release build container (DPR-001)")
+	}
+	keys := readRepoFile(t, "internal", "license", "keys.go")
+	if !strings.Contains(keys, "//go:embed trusted_keys") {
+		t.Error("internal/license/keys.go no longer embeds trusted_keys/ — source builds would be keyless (DPR-001)")
+	}
+	if readme := readRepoFile(t, "internal", "license", "trusted_keys", "README.md"); !strings.Contains(readme, "probectl-license gen-key") {
+		t.Error("internal/license/trusted_keys/README.md must tell the vendor how to issue and commit the anchor")
+	}
 }

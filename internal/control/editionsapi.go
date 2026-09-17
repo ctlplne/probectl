@@ -31,7 +31,14 @@ func BuildLicense(cfg *config.Config, log *slog.Logger) (*license.Manager, error
 	if cfg != nil {
 		path = cfg.LicenseFile
 	}
-	m, err := license.Load(path, license.TrustedKeys())
+	anchors := license.TrustedKeys()
+	if log != nil && len(anchors) == 0 {
+		// DPR-001: a keyless build silently caps every deployment at Community.
+		// Say so at startup instead of waiting for the first license file to fail.
+		log.Warn("license: this build carries no trust anchors; commercial license files cannot be verified (Community only)",
+			"fix", "commit the vendor public key under internal/license/trusted_keys/ or link PROBECTL_LICENSE_PUBKEYS_B64 (docs/editions.md)")
+	}
+	m, err := license.Load(path, anchors)
 	if err != nil {
 		return nil, err
 	}

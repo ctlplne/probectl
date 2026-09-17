@@ -24,6 +24,7 @@ function licensedFixture(): EditionsInfo {
     expires_at: '2026-09-03T23:59:59Z',
     read_only_at: '2026-10-03T23:59:59Z',
     tenant_band: 25,
+    trust_anchors: 1,
     meters: ['agents', 'tests', 'results_ingested', 'ingest_bytes', 'flow_events', 'ai_calls'],
     features: [
       { name: 'fips', tier: 'enterprise', licensed: true, mode: 'enabled' },
@@ -78,6 +79,7 @@ describe('editions card (S-T0)', () => {
     expect(screen.getByText(/licensed to Reseller GmbH/)).toBeInTheDocument()
     expect(screen.getByText(/consumption pricing/)).toBeInTheDocument()
     expect(screen.getByText(/tenant band 25/)).toBeInTheDocument()
+    expect(screen.getByText(/build trusts 1 license signing key/)).toBeInTheDocument()
     expect(screen.getByText(/results_ingested/)).toBeInTheDocument()
     expect(screen.getByText(/operator-run export only; never phone-home/)).toBeInTheDocument()
     const table = await screen.findByRole('table', {
@@ -115,6 +117,17 @@ describe('editions card (S-T0)', () => {
     renderApp('/admin')
     await screen.findByText('MSP')
     expect(screen.queryByText(/FIPS mode active/)).toBeNull()
+  })
+
+  test('keyless build is loud: Admin → Editions says license files cannot be verified (DPR-001)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubWith({ tier: 'core', state: 'community', trust_anchors: 0, features: [] }),
+    )
+    renderApp('/admin')
+    expect(await screen.findByText('CORE')).toBeInTheDocument()
+    expect(screen.getByText('keyless build')).toBeInTheDocument()
+    expect(screen.getByText(/license files cannot be verified/)).toBeInTheDocument()
   })
 
   test('expiry ladder renders: read-only state is loud, never silent', async () => {

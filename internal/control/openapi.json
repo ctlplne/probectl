@@ -4423,6 +4423,10 @@
                     "tenant_band": {
                       "type": "integer"
                     },
+                    "trust_anchors": {
+                      "type": "integer",
+                      "description": "How many license trust anchors (Ed25519 public keys) this build carries. 0 is a keyless build: Community works and every license file is refused at startup (DPR-001)."
+                    },
                     "meters": {
                       "type": "array",
                       "description": "Canonical local usage meters, present for MSP licenses only.",

@@ -36,6 +36,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/lifecycle"
 	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/objectstore"
@@ -464,6 +465,9 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 	switch cmd {
 	case "version", "-version", "--version":
 		fmt.Println("probectl-control", version.Get())
+		// DPR-001: a keyless build cannot verify any license file; make that
+		// visible before an operator reaches for PROBECTL_LICENSE_FILE.
+		fmt.Printf("license trust anchors: %d\n", license.TrustAnchorCount())
 		return true, nil
 	case "gen-cert":
 		// Self-signed TLS cert for the HTTPS-by-default quickstart; no DB needed.

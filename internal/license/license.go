@@ -445,21 +445,24 @@ type FeatureInfo struct {
 // Info is the Admin → Editions payload — the one place tiers appear when
 // unlicensed (the hidden-unlicensed UX, ratified).
 type Info struct {
-	Tier         Tier          `json:"tier"`
-	PricingModel PricingModel  `json:"pricing_model,omitempty"`
-	State        State         `json:"state"`
-	Customer     string        `json:"customer,omitempty"`
-	LicenseID    string        `json:"license_id,omitempty"`
-	ExpiresAt    *time.Time    `json:"expires_at,omitempty"`
-	ReadOnlyAt   *time.Time    `json:"read_only_at,omitempty"` // when grace ends
-	TenantBand   int           `json:"tenant_band,omitempty"`
-	Meters       []string      `json:"meters,omitempty"`
+	Tier         Tier         `json:"tier"`
+	PricingModel PricingModel `json:"pricing_model,omitempty"`
+	State        State        `json:"state"`
+	Customer     string       `json:"customer,omitempty"`
+	LicenseID    string       `json:"license_id,omitempty"`
+	ExpiresAt    *time.Time   `json:"expires_at,omitempty"`
+	ReadOnlyAt   *time.Time   `json:"read_only_at,omitempty"` // when grace ends
+	TenantBand   int          `json:"tenant_band,omitempty"`
+	Meters       []string     `json:"meters,omitempty"`
+	// TrustAnchors is how many license public keys this build carries (DPR-001).
+	// 0 is a keyless build: Community works, every license file is refused.
+	TrustAnchors int           `json:"trust_anchors"`
 	Features     []FeatureInfo `json:"features"`
 }
 
 // Info renders the editions view.
 func (m *Manager) Info() Info {
-	info := Info{Tier: m.Tier(), PricingModel: m.PricingModel(), State: m.State(), Features: []FeatureInfo{}}
+	info := Info{Tier: m.Tier(), PricingModel: m.PricingModel(), State: m.State(), Features: []FeatureInfo{}, TrustAnchors: TrustAnchorCount()}
 	if m != nil && m.claims != nil {
 		info.Customer = m.claims.Customer
 		info.LicenseID = m.claims.ID
