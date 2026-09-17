@@ -48,6 +48,14 @@
   font-size: var(--font-size-md);
 }
 
+/* DPR-105: a native select must stay a usable pointer target (WCAG 2.2 SC 2.5.8)
+   even when its options are short or empty — text inputs keep min-width: 0 so
+   they can shrink inside dense rows, selects never collapse below the touch
+   target width. */
+select.input {
+  min-inline-size: var(--density-touch-target);
+}
+
 .input:focus-visible {
   outline: var(--focus-ring-width) solid var(--color-focus);
   outline-offset: var(--focus-ring-offset);
