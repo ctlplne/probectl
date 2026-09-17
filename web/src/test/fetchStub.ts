@@ -13,8 +13,11 @@ import { fixtureFetch, jsonResponse, pathOf } from './fixtureApi'
 // importing vitest. This module adds the test-only mock wrapper.
 export * from './fixtureApi'
 
-function fixtureWithOpenAPI(profile?: 'populated' | 'cold'): typeof fetch {
-  const fixture = fixtureFetch(profile)
+function fixtureWithOpenAPI(
+  profile?: 'populated' | 'cold',
+  options?: Parameters<typeof fixtureFetch>[1],
+): typeof fetch {
+  const fixture = fixtureFetch(profile, options)
   return async (input, init) =>
     pathOf(input) === '/openapi.json' ? jsonResponse(openapiSpec) : fixture(input, init)
 }
@@ -23,6 +26,12 @@ function fixtureWithOpenAPI(profile?: 'populated' | 'cold'): typeof fetch {
  *  with data in tests. CRUD tests install their own stateful stub. */
 export function defaultFetch(): typeof fetch {
   return vi.fn(fixtureWithOpenAPI())
+}
+
+/** The populated stub with the commercial provider plane licensed, so the
+ * tenant-side surfaces that talk to /provider/v1 (break-glass consent) render. */
+export function providerFetch(): typeof fetch {
+  return vi.fn(fixtureWithOpenAPI('populated', { providerPlane: true }))
 }
 
 /** The install-day stub: a freshly deployed control plane before any agent

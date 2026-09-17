@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Badge,
@@ -43,6 +43,12 @@ import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
 import { RolloutCard } from './RolloutCard'
+
+// DPR-038: the tenant's break-glass consent screen. Commercial UI source lives
+// behind the ee/web seam; the card hides itself when /provider/v1 is 404.
+const BreakGlassConsentCard = lazy(() =>
+  import('@ee/provider/ConsentCard').then((module) => ({ default: module.ConsentCard })),
+)
 import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
 import { FilterBar, SavedViews } from '../listControls'
@@ -948,6 +954,9 @@ export function AdminPage() {
       <KeysCard />
       <LifecycleCard />
       <RemediationCard />
+      <Suspense fallback={null}>
+        <BreakGlassConsentCard />
+      </Suspense>
       <SupportCard />
       <EditionsCard />
     </Page>

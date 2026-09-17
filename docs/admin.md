@@ -82,6 +82,24 @@ SSO/SCIM endpoints, mints/revokes
 per-tenant SCIM bearer tokens (plaintext shown once; only the hash is stored),
 and manages ABAC policies through `/v1/abac/policies`.
 
+## Break-glass requests (MSP-hosted tenants)
+
+If your probectl is hosted by an MSP, its operators have **no standing access**
+to your telemetry. When one of them needs to look — an incident you asked for
+help with, say — they request a time-bounded, read-only grant, and *you*
+decide. **Admin → Break-glass requests** lists every pending request with the
+operator's email, their stated reason, the scope (`read`), when it was
+requested and when it would expire; **Approve** or **Deny** records your
+decision on the provider's tamper-evident audit stream and on the encrypted
+attribution sidecar. An approved grant only ever reaches the latest-results
+read model, every read is written to the audit trail *before* data is returned,
+and it ends on expiry or when the operator revokes it. Deciding needs the
+`directory.write` permission (administrators hold it); the card does not appear
+at all on a deployment without a provider plane. The API behind it is
+`GET /provider/v1/consent` and `POST /provider/v1/consent/{id}` with
+`{"decision":"approve"|"deny"}`, authenticated by your tenant session — see
+[provider-plane.md](provider-plane.md#break-glass-the-only-path-to-tenant-telemetry).
+
 ## The audit trail
 
 Every configuration change (creating, updating, or deleting a test, agent,

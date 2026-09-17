@@ -177,6 +177,11 @@ const PROVIDER_FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
     path: '/provider/v1/breakglass',
     allowMissingResponseSchema: 'provider contract currently documents status only',
   },
+  {
+    method: 'GET',
+    path: '/provider/v1/consent',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
   { method: 'GET', path: '/provider/v1/fairness' },
   {
     method: 'GET',

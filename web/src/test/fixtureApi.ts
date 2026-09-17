@@ -1080,6 +1080,21 @@ export function fixtureFetch(
     status: 'active',
     enrolled: true,
   }
+  // DPR-038: one operator request awaiting THIS tenant's decision.
+  let pendingConsent = [
+    {
+      id: 'grant-fixture-1',
+      operator_id: 'operator-fixture',
+      operator_email: 'operator@provider.probectl.test',
+      tenant_id: TENANT_ID,
+      reason: 'INC-4821: cross-plane RCA for the checkout latency incident',
+      scope: 'read',
+      granted_by: 'operator@provider.probectl.test',
+      granted_at: '2026-06-04T11:40:00Z',
+      expires_at: '2026-06-04T12:40:00Z',
+      use_count: 0,
+    },
+  ]
   let providerTenants = [
     {
       id: TENANT_ID,
@@ -2311,6 +2326,23 @@ export function fixtureFetch(
       })
     if (options.providerPlane && path === '/provider/v1/breakglass')
       return jsonResponse({ items: [] })
+    if (options.providerPlane && path === '/provider/v1/consent')
+      return jsonResponse({ items: pendingConsent })
+    if (options.providerPlane && path.startsWith('/provider/v1/consent/') && method === 'POST') {
+      const id = path.slice('/provider/v1/consent/'.length)
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
+      const grant = pendingConsent.find((g) => g.id === id)
+      if (!grant) return jsonResponse({ error: { code: 'not_found', message: 'grant not found' } }, 404)
+      if (body.decision !== 'approve' && body.decision !== 'deny')
+        return jsonResponse({ error: { code: 'bad_request', message: 'decision must be approve or deny' } }, 400)
+      pendingConsent = pendingConsent.filter((g) => g.id !== id)
+      const decidedAt = '2026-06-04T11:45:00Z'
+      return jsonResponse(
+        body.decision === 'approve'
+          ? { ...grant, consented_by: 'admin@probectl.test', consented_at: decidedAt }
+          : { ...grant, denied_by: 'admin@probectl.test', denied_at: decidedAt },
+      )
+    }
     if (options.providerPlane && path === '/provider/v1/fairness')
       return jsonResponse({ items: [] })
     if (options.providerPlane && path === '/provider/v1/operators')

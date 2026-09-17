@@ -129,8 +129,11 @@ tenant-consented, operator-bound, and audited on every single access**:
    the request is refused with `409 ir_key_unavailable`, the response says
    exactly which file and commands are missing, and nothing is recorded.
 2. **The tenant decides — not the operator.** A tenant admin (holding the
-   `directory.write` permission) approves or denies it via the consent endpoints,
-   authenticated by the **tenant** session, not an operator session. The consent
+   `directory.write` permission) approves or denies it in the tenant app under
+   **Admin → Break-glass requests** (operator, reason, scope, requested and
+   expiry times, Approve/Deny; the card is absent on deployments without a
+   provider plane) or via the consent endpoints — either way authenticated by
+   the **tenant** session, not an operator session. The consent
    check resolves the tenant first, then requires that RBAC permission, then
    applies the tenant's ABAC deny policies to the user's current subject
    attributes. A policy/attribute-store failure denies the decision rather than
