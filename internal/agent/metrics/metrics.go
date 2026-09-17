@@ -74,6 +74,8 @@ func ConfigFromEnv(getenv func(string) string, prefix, defaultAddr string) Confi
 
 // Runtime owns both the metrics values and their HTTP(S) listener.
 type Runtime struct {
+	// reg is retained so a component can publish its own signals (WatchGauge).
+	reg *basemetrics.Registry
 	cfg Config
 	srv *http.Server
 
@@ -105,6 +107,7 @@ func New(component, version, commit string, cfg Config) (*Runtime, error) {
 	reg := basemetrics.New(version, commit)
 	r := &Runtime{
 		cfg:         cfg,
+		reg:         reg,
 		collections: reg.Counter("probectl_agent_collections_total", "Probe or collector batches attempted by this agent process."),
 		published:   reg.Counter("probectl_agent_published_total", "Results or batches accepted by this agent process's output transport."),
 		errors:      reg.Counter("probectl_agent_errors_total", "Probe, collection, buffer, or publish errors observed by this agent process."),
@@ -180,6 +183,18 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// WatchGauge publishes a component-specific signal on this agent's /metrics
+// endpoint, read live at scrape time. The generic counters above describe any
+// agent; this is how a component exports what only it knows — the eBPF agent's
+// delivery-verification signals, for instance, which drive its readiness and
+// were otherwise visible only in its logs. Call it before the runtime starts.
+func (r *Runtime) WatchGauge(name, help string, read func() float64) {
+	if r == nil || r.reg == nil || read == nil {
+		return
+	}
+	r.reg.Gauge(name, help, read)
 }
 
 func (r *Runtime) usesTLS() bool { return r.cfg.TLSCertFile != "" }

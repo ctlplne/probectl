@@ -91,6 +91,21 @@ func run() error {
 		return err
 	}
 
+	// DPR-071's delivery verification drove readiness and the agent log, but
+	// nothing on the metrics endpoint: an operator could not alert on "this
+	// agent says it is emitting while the bus is rejecting every record".
+	metricsRuntime.WatchGauge("probectl_ebpf_publish_failures_total",
+		"eBPF records the bus reported undelivered, plus flushes never acknowledged (DPR-071).",
+		func() float64 { return float64(agent.PublishFailures()) })
+	metricsRuntime.WatchGauge("probectl_ebpf_publish_degraded",
+		"1 while the most recent eBPF flush failed to deliver; the agent's readiness follows it.",
+		func() float64 {
+			if agent.PublishDegraded() {
+				return 1
+			}
+			return 0
+		})
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
