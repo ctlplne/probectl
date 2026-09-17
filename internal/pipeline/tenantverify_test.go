@@ -286,3 +286,33 @@ func FuzzVerifyBatchTenant(f *testing.F) {
 		}
 	})
 }
+
+// TestAMalformedIdentityIsRejectedWithoutTouchingTheDatabase (DPR-114): a
+// producer sending a pod name where an agent id belongs made the registry cast
+// it to uuid IN POSTGRES, so every batch came back SQLSTATE 22P02 and was
+// classified as "tenant binding lookup unavailable (fail closed)". The record
+// was correctly dropped, but the log told an MSP operator their database was
+// unavailable, and because only a NEGATIVE lookup is cached, each batch opened
+// another tenant transaction that could only fail — a fail-closed path that is
+// also a free amplifier against Postgres.
+func TestAMalformedIdentityIsRejectedWithoutTouchingTheDatabase(t *testing.T) {
+	// A nil pool proves the point: any query at all would panic.
+	b := NewRegistryBinding(nil)
+	tenant := "88929fbe-28e5-4f0a-898e-6c4302c55e57"
+	for _, tc := range []struct{ name, tenant, agent string }{
+		{"pod name as the agent id", tenant, "probectl-qa-flow-agent-695c65c68f-bgxd8"},
+		{"hostname as the agent id", tenant, "laptop-linux-1"},
+		{"malformed tenant id", "acme-industries", "0f8fad5b-d9cb-469f-a165-70867728950e"},
+		{"sql fragment as the agent id", tenant, "' OR 1=1 --"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := b.Verify(context.Background(), tc.tenant, tc.agent)
+			if !errors.Is(err, ErrTenantNotBound) {
+				t.Fatalf("a malformed identity must be rejected as not bound, got %v", err)
+			}
+			if errors.Is(err, ErrBindingUnavailable) {
+				t.Error("an identity that cannot exist is not a datastore outage")
+			}
+		})
+	}
+}

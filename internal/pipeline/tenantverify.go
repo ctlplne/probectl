@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/store"
@@ -155,6 +156,13 @@ func (b *RegistryBinding) RecordVersion(ctx context.Context, tenantID, agentID, 
 	}
 }
 
+// isUUID reports whether id is a canonical UUID, the shape every tenant and
+// agent id has in the registry.
+func isUUID(id string) bool {
+	_, err := uuid.Parse(id)
+	return err == nil
+}
+
 // Verify implements TenantBinding.
 func (b *RegistryBinding) Verify(ctx context.Context, tenantID, agentID string) error {
 	if tenantID == "" {
@@ -162,6 +170,16 @@ func (b *RegistryBinding) Verify(ctx context.Context, tenantID, agentID string) 
 	}
 	if agentID == "" {
 		return ErrTenantNotBound // an unattributable record is never authoritative
+	}
+	// DPR-114: agent and tenant ids are UUIDs in the registry, so an id that is
+	// not one cannot be bound to anything — it is a rejection, not an outage.
+	// Deciding that here also keeps a producer sending malformed ids from
+	// driving one failing tenant transaction per batch against the database:
+	// the lookup below only ever ran, and failed, because the cast happened in
+	// Postgres. Both ids are checked; a malformed tenant id would fail the same
+	// cast inside the tenant fence.
+	if !isUUID(agentID) || !isUUID(tenantID) {
+		return ErrTenantNotBound
 	}
 	k := bindingKey{tenantID, agentID}
 
@@ -195,7 +213,9 @@ func (b *RegistryBinding) Verify(ctx context.Context, tenantID, agentID string) 
 			return nil
 		})
 	if err != nil {
-		// Lookup failure ≠ "not bound", but both REJECT: fail closed.
+		// Lookup failure ≠ "not bound", but both REJECT: fail closed. The
+		// distinction is what an operator acts on — "unavailable" sends them to
+		// the database — so only a real lookup failure can reach here (DPR-114).
 		return fmt.Errorf("%w: %v", ErrBindingUnavailable, err)
 	}
 
