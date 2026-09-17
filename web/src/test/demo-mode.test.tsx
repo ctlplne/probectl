@@ -163,3 +163,28 @@ describe('transport-isolated demo mode', () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
 })
+
+// DPR-146: the demo workspace exists so a screenshot can be shared. Sample data
+// that uses real private address space defeats that: a reader cannot tell a
+// demo 10.0.2.1 from a customer's, and neither can a secret/PII scanner. RFC
+// 5737 reserves three ranges for exactly this purpose, and the demo fixtures
+// must stay inside them.
+describe('demo fixtures are safe to publish', () => {
+  it('uses documentation address space, never private or loopback', async () => {
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const dir = path.resolve(__dirname, '..', 'demo')
+    const entries = await fs.readdir(dir)
+    const offenders: string[] = []
+    // RFC1918 and loopback. RFC 5737 (192.0.2.0/24, 198.51.100.0/24,
+    // 203.0.113.0/24) is what these fixtures should use instead.
+    const banned =
+      /\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|127(?:\.\d{1,3}){3})\b/g
+    for (const name of entries) {
+      if (!/\.(ts|tsx)$/.test(name)) continue
+      const body = await fs.readFile(path.join(dir, name), 'utf8')
+      for (const m of body.matchAll(banned)) offenders.push(`${name}: ${m[0]}`)
+    }
+    expect(offenders).toEqual([])
+  })
+})
