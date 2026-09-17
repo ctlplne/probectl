@@ -374,6 +374,9 @@ func (rt *serveRuntime) buildAPIServer() error {
 		rt.srv.WithRUM(rt.rumEngine, rt.rumApps, rt.publishRUMEvent, rt.cfg.RUMRatePerMin)
 	}
 	rt.srv.WithLicense(rt.lic)
+	// DPR-101: sensitive-read audit events deferred during a failover are
+	// appended once the writer is usable again.
+	rt.g.Go(func() error { rt.srv.RunDeferredAudit(rt.gctx); return nil })
 	rt.configureFairness()
 	rt.srv.WithA2ABroker(rt.a2aBroker)
 	if err := rt.configureTestSync(); err != nil {

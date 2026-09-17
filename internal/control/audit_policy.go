@@ -7,11 +7,8 @@
 package control
 
 import (
-	"context"
 	"net/http"
 	"strings"
-
-	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type auditFacet string
@@ -120,16 +117,24 @@ func auditRequiredFacet(method, pattern string) (auditFacet, bool) {
 func (s *Server) auditRoute(rt apiRoute, p auditRoutePolicy, next apiHandler) apiHandler {
 	p = p.withDefaults(rt.Pattern)
 	return func(w http.ResponseWriter, r *http.Request) error {
-		if s.pool != nil {
+		if s.pool != nil || s.routeAudit != nil {
 			data := map[string]any{
 				"facet":  string(p.Facet),
 				"method": rt.Method,
 				"path":   rt.Pattern,
 			}
-			if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-				return s.recordAudit(ctx, sc, r, p.Action, p.Target, data)
-			}); err != nil {
-				return err
+			if err := s.appendRouteAudit(r, p.Action, p.Target, data); err != nil {
+				if !writesRefused(err) {
+					return err
+				}
+				// DPR-101: the database is read-only (failover). A sensitive
+				// read still serves — its event is deferred and replayed —
+				// while anything that exports, operates or mutates stays
+				// fail-closed with an honest retryable status.
+				if p.Facet != auditFacetSensitiveRead {
+					return auditWritesRefused(w)
+				}
+				s.deferRouteAudit(r, p.Action, p.Target, data)
 			}
 		}
 		return next(w, r)

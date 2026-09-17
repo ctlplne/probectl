@@ -95,6 +95,12 @@ type Server struct {
 	// is exactly the kind of event guardrail 7 wants tamper-evident. Tests
 	// inject a recorder; shipping wiring appends to the tenant chain.
 	identityAudit func(ctx context.Context, tenantID, agentID, action string, data map[string]any) error
+	// routeAudit / routeAuditReplay are the wrapped-route audit seams (DPR-101):
+	// nil = the tenant chain; tests inject recorders. deferredAudit holds the
+	// sensitive-read events that could not be appended during a failover.
+	routeAudit       func(r *http.Request, action, target string, data map[string]any) error
+	routeAuditReplay func(ctx context.Context, tenantID, actor, action, target string, data map[string]any) error
+	deferredAudit    deferredAuditQueue
 	// revokePush feeds the live handshake deny-list (Sprint 12, WIRE-003).
 	revokePush func(serials, spiffeIDs []string)
 

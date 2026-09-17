@@ -149,6 +149,14 @@ so those background writers fail closed exactly as they would on a standby.
 `writer pool fenced read-only`; the fence lifts on the next probe once the
 endpoint resolves to the current primary. Reads keep serving throughout.
 
+Reads keep serving even though their audit events cannot be written: a
+sensitive read (`access.read.*`) is served and its event is kept in a bounded
+per-replica queue that is appended, stamped with `deferred_at` and the reason,
+once writes are usable again (`probectl_audit_deferred_total` counts the
+deferrals, `probectl_audit_deferred_dropped_total` any overflow). Exports,
+operational actions and mutations whose audit event cannot be written are
+refused with `503 writer_unavailable` and a `Retry-After`, never a `500`.
+
 ## RTO
 
 **RTO** — recovery time objective — is how long until writes flow again after a
