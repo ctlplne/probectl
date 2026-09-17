@@ -172,6 +172,14 @@ deployment (DPR-039). Forwarded headers from any peer outside that set are
 ignored, and ingress-nginx sets the header itself (it does not need
 `use-forwarded-headers`).
 
+Siloed or residency-pinned tenants need a credential for each ClickHouse data
+plane: put one `{"username","password"}` file per plane in the
+`control.credentialFiles` Secret (it is staged mode-0600 like the pooled
+`ch-basic-auth.json`) and name them with
+`control.extraEnv.PROBECTL_DATAPLANE_BASIC_AUTH_FILES=eu=/etc/probectl/credentials/ch-eu.json`
+next to `PROBECTL_DATAPLANES=eu=https://ch-eu:8443`. A plane that shares the
+pooled ClickHouse names the pooled file (DPR-044).
+
 Tenant isolation is enforced by the control plane (pooled RLS scoping) regardless
 of deployment shape; the multi-tenant values only size the runtime and spread
 replicas. Provider profiles also need audit-retention watermarks at install time:

@@ -199,3 +199,36 @@ func TestBuildServeStoresSharesAuthenticatedPrometheusQueryUpstream(t *testing.T
 		t.Fatalf("query upstream Basic auth = %q/%q, want configured credential", observedUser, observedPassword)
 	}
 }
+
+// TestAttachDataPlaneCredentialsPinsEachPlane (DPR-044): every named plane's
+// file is registered on the shared factory, planes without a file are left
+// alone, and a contradiction for one origin surfaces as an error.
+func TestAttachDataPlaneCredentialsPinsEachPlane(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	pooled := write("ch.json", `{"username":"pooled","password":"p"}`)
+	east := write("east.json", `{"username":"east","password":"e"}`)
+	factory, err := datastoreBasicAuthFactory(true, pooled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := attachDataPlaneCredentials(nil, "east=https://ch-east.example:8443", map[string]string{"east": east}); err != nil {
+		t.Fatalf("nil factory must be a no-op: %v", err)
+	}
+	planes := "east=https://ch-east.example:8443;dev=http://127.0.0.1:8123"
+	if err := attachDataPlaneCredentials(factory, planes, map[string]string{"east": east}); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	if err := attachDataPlaneCredentials(factory, planes, map[string]string{"east": pooled}); err == nil || !strings.Contains(err.Error(), "conflicting") {
+		t.Fatalf("a second, different credential for the east origin must fail, got %v", err)
+	}
+	if err := attachDataPlaneCredentials(factory, "bad=https://user:pw@ch.example:8443", map[string]string{"bad": east}); err == nil || !strings.Contains(err.Error(), "URL credentials") {
+		t.Fatalf("URL credentials in a plane endpoint must be refused, got %v", err)
+	}
+}

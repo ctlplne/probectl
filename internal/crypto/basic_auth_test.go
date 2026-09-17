@@ -295,3 +295,56 @@ func writeBasicAuthTestFile(t *testing.T, body string) string {
 	}
 	return path
 }
+
+// TestBasicAuthFactoryPinsARoutedOriginToItsOwnCredential (DPR-044): a client
+// derived from the shared factory reaches the pooled origin with the pooled
+// credential, a registered data-plane origin with that plane's credential,
+// still refuses any other origin, and a contradictory registration for one
+// origin is refused rather than resolved.
+func TestBasicAuthFactoryPinsARoutedOriginToItsOwnCredential(t *testing.T) {
+	pooled := writeBasicAuthTestFile(t, `{"username":"pooled","password":"pooled-secret"}`)
+	plane := writeBasicAuthTestFile(t, `{"username":"eu","password":"eu-secret"}`)
+	factory, err := LoadBasicAuthClientFactory(pooled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := factory.WithOriginCredentialFile("https://ch-eu.example:8443", plane); err != nil {
+		t.Fatalf("register plane: %v", err)
+	}
+	if err := factory.WithOriginCredentialFile("https://ch-eu.example:8443", pooled); err == nil || !strings.Contains(err.Error(), "conflicting") {
+		t.Fatalf("a different credential for the same origin must be refused, got %v", err)
+	}
+	if err := factory.WithOriginCredentialFile("https://ch-eu.example:8443", plane); err != nil {
+		t.Fatalf("re-registering the same credential must be idempotent: %v", err)
+	}
+	client, err := factory.HTTPClient(time.Second, "https://clickhouse.example:8443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := client.Transport.(*originBasicAuthTransport)
+	seen := map[string]string{}
+	transport.base = basicAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		seen[req.URL.Host] = req.Header.Get("Authorization")
+		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+	})
+	for _, target := range []string{"https://clickhouse.example:8443/?query=1", "https://ch-eu.example:8443/?query=1"} {
+		req, _ := http.NewRequest(http.MethodGet, target, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+		_ = resp.Body.Close()
+	}
+	if want := "Basic " + base64.StdEncoding.EncodeToString([]byte("pooled:pooled-secret")); seen["clickhouse.example:8443"] != want {
+		t.Fatalf("pooled origin got %q", seen["clickhouse.example:8443"])
+	}
+	if want := "Basic " + base64.StdEncoding.EncodeToString([]byte("eu:eu-secret")); seen["ch-eu.example:8443"] != want {
+		t.Fatalf("plane origin got %q, want the plane credential", seen["ch-eu.example:8443"])
+	}
+	other, _ := http.NewRequest(http.MethodGet, "https://ch-us.example:8443/?query=1", nil)
+	if err := basicAuthRequestError(client, other); err == nil || !strings.Contains(err.Error(), "different origin") {
+		t.Fatalf("unregistered origin must be refused, got %v", err)
+	} else if strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error leaked a credential: %v", err)
+	}
+}

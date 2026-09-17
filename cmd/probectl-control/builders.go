@@ -176,6 +176,9 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		return fail(fmt.Errorf("tsdb credentials: %w", err))
 	}
 	clickHouseAuth, err := datastoreBasicAuthFactory(clickHouseStoreEnabled(cfg), cfg.ClickHouseBasicAuthFile)
+	if err == nil {
+		err = attachDataPlaneCredentials(clickHouseAuth, cfg.DataPlanes, cfg.DataPlaneBasicAuthFiles)
+	}
 	if err != nil {
 		return fail(fmt.Errorf("clickhouse credentials: %w", err))
 	}
@@ -400,6 +403,34 @@ func datastoreBasicAuthFactory(enabled bool, credentialFile string) (*crypto.Bas
 		return nil, nil
 	}
 	return crypto.LoadBasicAuthClientFactory(credentialFile)
+}
+
+// attachDataPlaneCredentials (DPR-044) pins each residency data plane's
+// credential file to that plane's ClickHouse origin on the shared factory, so
+// the clients every ClickHouse-backed store derives from it reach a routed
+// silo origin with the plane's own credential and never with the pooled one.
+// Config validation already required a file per non-loopback plane; a plane
+// without one here is a loopback development target that stays
+// unauthenticated on purpose.
+func attachDataPlaneCredentials(factory *crypto.BasicAuthClientFactory, dataPlanes string, files map[string]string) error {
+	if factory == nil || strings.TrimSpace(dataPlanes) == "" {
+		return nil
+	}
+	for _, item := range strings.Split(dataPlanes, ";") {
+		name, endpoint, ok := strings.Cut(strings.TrimSpace(item), "=")
+		name, endpoint = strings.TrimSpace(name), strings.TrimSpace(endpoint)
+		if !ok || name == "" || endpoint == "" {
+			continue
+		}
+		file, ok := files[name]
+		if !ok {
+			continue
+		}
+		if err := factory.WithOriginCredentialFile(endpoint, file); err != nil {
+			return fmt.Errorf("data plane %q credential: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // datastoreBasicAuthClient derives a path/origin-bound client from the shared

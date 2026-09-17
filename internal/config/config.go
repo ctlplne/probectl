@@ -19,6 +19,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -662,6 +663,13 @@ type Config struct {
 	// Residency pins a tenant's ClickHouse data plane; see docs/isolation.md
 	// for exactly what is and is not pinned in this release.
 	DataPlanes string
+	// DataPlaneBasicAuthFiles (DPR-044) pins one owner-only credential file
+	// to each named data plane ("name=/abs/file[;name=/abs/file...]") so a
+	// siloed or residency-pinned tenant's ClickHouse is reached with THAT
+	// plane's credential, never with the pooled one. Every non-loopback plane
+	// must have one; a plane that shares the pooled ClickHouse origin must
+	// name the same file as PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE.
+	DataPlaneBasicAuthFiles map[string]string
 
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
@@ -1009,6 +1017,7 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.ProviderBootstrapToken = l.str("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", "")
 	cfg.ProviderBreakGlassMaxTTLMinutes = l.intRange("PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES", 240, 5, 1440)
 	cfg.DataPlanes = l.str("PROBECTL_DATAPLANES", "")
+	cfg.DataPlaneBasicAuthFiles = parseNamedValues(l.str("PROBECTL_DATAPLANE_BASIC_AUTH_FILES", ""))
 	cfg.BackupRetentionNote = l.str("PROBECTL_BACKUP_RETENTION_NOTE", "")
 	cfg.BackupRetentionDays = l.intRange("PROBECTL_BACKUP_RETENTION_DAYS", 0, 0, 3650)
 	cfg.RemediationApprovalsEnabled = l.boolean("PROBECTL_REMEDIATION_APPROVALS_ENABLED", false)
@@ -1106,9 +1115,7 @@ func validateConfig(l *loader, cfg *Config) {
 		cfg.OTelStoreMode != "clickhouse" && cfg.EBPFStoreMode != "clickhouse" && cfg.EndpointStoreMode != "clickhouse" {
 		l.errf("PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE requires at least one ClickHouse-backed store mode")
 	}
-	if cfg.ClickHouseBasicAuthFile != "" && strings.TrimSpace(cfg.DataPlanes) != "" {
-		l.errf("PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE cannot be combined with PROBECTL_DATAPLANES: one pooled credential is pinned to each configured store origin and must never be forwarded to a routed silo/residency origin; configure datastore authentication outside this shared credential seam")
-	}
+	validateDataPlaneCredentials(l, cfg)
 	if cfg.ObjectStoreMode == "s3" {
 		if cfg.ObjectStoreDir != "" {
 			l.errf("PROBECTL_OBJECTSTORE_MODE=s3 cannot be combined with PROBECTL_OBJECTSTORE_DIR")
@@ -2013,4 +2020,74 @@ func (l *loader) hexBytes(key string, wantLen int) []byte {
 		return nil
 	}
 	return b
+}
+
+// parseNamedValues reads the "name=value[;name=value...]" grammar shared by
+// PROBECTL_DATAPLANES and PROBECTL_DATAPLANE_BASIC_AUTH_FILES. Malformed
+// entries are dropped here and reported by the validators that know what the
+// value must be.
+func parseNamedValues(raw string) map[string]string {
+	out := map[string]string{}
+	for _, item := range strings.Split(raw, ";") {
+		name, value, ok := strings.Cut(strings.TrimSpace(item), "=")
+		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+		if !ok || name == "" || value == "" {
+			continue
+		}
+		out[name] = value
+	}
+	return out
+}
+
+// validateDataPlaneCredentials (DPR-044) makes the credential model for routed
+// ClickHouse origins explicit: the pooled credential file stays pinned to the
+// pooled store origins, every data plane names its own owner-only file, and a
+// plane that shares the pooled origin names the same file. Before this the
+// pooled file was simply refused next to PROBECTL_DATAPLANES, which left a
+// siloed tenant no way to authenticate at all.
+func validateDataPlaneCredentials(l *loader, cfg *Config) {
+	planes := parseNamedValues(cfg.DataPlanes)
+	for name := range cfg.DataPlaneBasicAuthFiles {
+		if _, ok := planes[name]; !ok {
+			l.errf("PROBECTL_DATAPLANE_BASIC_AUTH_FILES names data plane %q which is not in PROBECTL_DATAPLANES", name)
+		}
+	}
+	if len(planes) == 0 {
+		return
+	}
+	if len(cfg.DataPlaneBasicAuthFiles) > 0 && cfg.ClickHouseBasicAuthFile == "" {
+		l.errf("PROBECTL_DATAPLANE_BASIC_AUTH_FILES requires PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE: the pooled ClickHouse stores share the client the data-plane credentials attach to")
+	}
+	pooledOrigins := map[string]bool{}
+	for _, raw := range []string{cfg.PathStoreURL, cfg.FlowStoreURL, cfg.OTelStoreURL, cfg.EBPFStoreURL, cfg.EndpointStoreURL} {
+		if u, err := url.Parse(strings.TrimSpace(raw)); err == nil && u.Host != "" {
+			pooledOrigins[strings.ToLower(u.Scheme)+"://"+strings.ToLower(u.Host)] = true
+		}
+	}
+	for name, raw := range planes {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			continue // validateDataPlaneURLTLS reports the malformed URL
+		}
+		file, ok := cfg.DataPlaneBasicAuthFiles[name]
+		origin := strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
+		loopbackDev := u.Scheme == "http" && isLoopbackHost(u.Hostname())
+		switch {
+		case !ok && !loopbackDev:
+			l.errf("PROBECTL_DATAPLANES plane %q has no credential file: add %s=/path/to/credential.json to PROBECTL_DATAPLANE_BASIC_AUTH_FILES (a routed ClickHouse origin is never reached with the pooled credential)", name, name)
+		case ok && !filepath.IsAbs(file):
+			l.errf("PROBECTL_DATAPLANE_BASIC_AUTH_FILES entry %q must be an absolute path", name)
+		case ok && pooledOrigins[origin] && cfg.ClickHouseBasicAuthFile != "" && filepath.Clean(file) != filepath.Clean(cfg.ClickHouseBasicAuthFile):
+			l.errf("PROBECTL_DATAPLANES plane %q shares the pooled ClickHouse origin %s, so its credential file must be PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE (%s), not %s", name, origin, cfg.ClickHouseBasicAuthFile, file)
+		}
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return err == nil && addr.Unmap().IsLoopback()
 }

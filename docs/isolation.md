@@ -192,6 +192,7 @@ to another tenant.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_DATAPLANES` | (none) | named residency planes: `name=clickhouseURL[;…]` |
+| `PROBECTL_DATAPLANE_BASIC_AUTH_FILES` | (none) | one owner-only credential file per plane: `name=/abs/file[;…]`; required for every non-loopback plane, pinned to that plane's origin only (DPR-044) |
 
 Everything else rides existing keys (`PROBECTL_FLOWSTORE_*`, and
 `PROBECTL_FLOW_RETENTION_DAYS` applies to per-tenant databases too). Siloed and

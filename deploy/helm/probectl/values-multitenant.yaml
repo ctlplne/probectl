@@ -33,6 +33,12 @@
 # with PROBECTL_BUS_SASL_PASSWORD in secrets.existingSecret, the two basic-auth
 # files in control.credentialFiles and the CA in control.trustBundle (README).
 #
+# SILOED / RESIDENCY TENANTS: each ClickHouse data plane needs its own
+# credential file in control.credentialFiles, named by
+#     --set-string control.extraEnv.PROBECTL_DATAPLANES=eu=https://ch-eu.example:8443 \
+#     --set-string control.extraEnv.PROBECTL_DATAPLANE_BASIC_AUTH_FILES=eu=/etc/probectl/credentials/ch-eu.json
+# (a plane on the pooled ClickHouse names the pooled ch-basic-auth.json; DPR-044).
+#
 # ALSO SET control.trustedProxies to the ingress controller's pod CIDR (e.g.
 #     --set 'control.trustedProxies={10.244.0.0/16}'
 # ) so login rate limiting keys on real clients, not on the ingress pod

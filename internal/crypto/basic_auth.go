@@ -43,6 +43,65 @@ type basicAuthCredentialFile struct {
 type BasicAuthClientFactory struct {
 	username string
 	password string
+	// origins (DPR-044) holds additional credentials pinned to other
+	// datastore origins — a siloed tenant's residency ClickHouse plane, for
+	// one — so a client derived from this factory can reach a routed origin
+	// with THAT origin's credential and never with the pooled one.
+	origins map[string]originCredential
+}
+
+type originCredential struct {
+	pathPrefix string
+	username   string
+	password   string
+}
+
+// WithOriginCredentialFile pins the credential in credentialFile to
+// endpoint's exact origin (DPR-044). A second registration for the same
+// origin must carry the same credential; anything else is a configuration
+// contradiction and is refused rather than silently resolved.
+func (f *BasicAuthClientFactory) WithOriginCredentialFile(endpoint, credentialFile string) error {
+	if f == nil {
+		return errors.New("crypto: basic-auth client factory is not initialized")
+	}
+	endpointURL, err := parseBasicAuthEndpoint(endpoint)
+	if err != nil {
+		return err
+	}
+	credential, err := readBasicAuthCredentialFile(credentialFile)
+	if err != nil {
+		return err
+	}
+	origin := canonicalOrigin(endpointURL)
+	next := originCredential{pathPrefix: canonicalPath(endpointURL.Path), username: credential.Username, password: credential.Password}
+	if existing, ok := f.origins[origin]; ok && (existing.username != next.username || existing.password != next.password) {
+		return fmt.Errorf("crypto: conflicting basic-auth credentials registered for origin %s", origin)
+	}
+	if f.origins == nil {
+		f.origins = map[string]originCredential{}
+	}
+	f.origins[origin] = next
+	return nil
+}
+
+func parseBasicAuthEndpoint(endpoint string) (*url.URL, error) {
+	endpointURL, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || endpointURL.Scheme == "" || endpointURL.Host == "" {
+		return nil, errors.New("crypto: basic-auth endpoint must be an absolute http(s) URL")
+	}
+	if endpointURL.Scheme != "http" && endpointURL.Scheme != "https" {
+		return nil, fmt.Errorf("crypto: basic-auth endpoint has unsupported scheme %q", endpointURL.Scheme)
+	}
+	if endpointURL.Scheme == "http" && !basicAuthLoopbackHost(endpointURL.Hostname()) {
+		return nil, errors.New("crypto: basic-auth endpoint must use HTTPS (plaintext HTTP is allowed only for loopback development)")
+	}
+	if endpointURL.User != nil {
+		return nil, errors.New("crypto: basic-auth endpoint must not contain URL credentials")
+	}
+	if endpointURL.RawQuery != "" || endpointURL.Fragment != "" {
+		return nil, errors.New("crypto: basic-auth endpoint must not contain a query or fragment")
+	}
+	return endpointURL, nil
 }
 
 // LoadBasicAuthClientFactory validates and snapshots one credential file.
@@ -73,21 +132,9 @@ func (f *BasicAuthClientFactory) HTTPClient(timeout time.Duration, endpoint stri
 	if f == nil || f.username == "" || f.password == "" {
 		return nil, errors.New("crypto: basic-auth client factory is not initialized")
 	}
-	endpointURL, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil || endpointURL.Scheme == "" || endpointURL.Host == "" {
-		return nil, errors.New("crypto: basic-auth endpoint must be an absolute http(s) URL")
-	}
-	if endpointURL.Scheme != "http" && endpointURL.Scheme != "https" {
-		return nil, fmt.Errorf("crypto: basic-auth endpoint has unsupported scheme %q", endpointURL.Scheme)
-	}
-	if endpointURL.Scheme == "http" && !basicAuthLoopbackHost(endpointURL.Hostname()) {
-		return nil, errors.New("crypto: basic-auth endpoint must use HTTPS (plaintext HTTP is allowed only for loopback development)")
-	}
-	if endpointURL.User != nil {
-		return nil, errors.New("crypto: basic-auth endpoint must not contain URL credentials")
-	}
-	if endpointURL.RawQuery != "" || endpointURL.Fragment != "" {
-		return nil, errors.New("crypto: basic-auth endpoint must not contain a query or fragment")
+	endpointURL, err := parseBasicAuthEndpoint(endpoint)
+	if err != nil {
+		return nil, err
 	}
 
 	client := HardenedHTTPClient(timeout)
@@ -97,6 +144,7 @@ func (f *BasicAuthClientFactory) HTTPClient(timeout time.Duration, endpoint stri
 		pathPrefix: canonicalPath(endpointURL.Path),
 		username:   f.username,
 		password:   f.password,
+		origins:    f.origins,
 	}
 	return client, nil
 }
@@ -116,6 +164,9 @@ type originBasicAuthTransport struct {
 	pathPrefix string
 	username   string
 	password   string
+	// origins are the additional pinned credentials (DPR-044); a request to
+	// any origin that is neither the primary nor one of these is refused.
+	origins map[string]originCredential
 }
 
 func (t *originBasicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -128,18 +179,24 @@ func (t *originBasicAuthTransport) RoundTrip(req *http.Request) (*http.Response,
 	if req.Host != "" && !strings.EqualFold(req.Host, req.URL.Host) {
 		return nil, errors.New("crypto: refusing a datastore request with a mismatched Host override")
 	}
-	if canonicalOrigin(req.URL) != t.origin {
-		return nil, fmt.Errorf("crypto: refusing to send datastore credential to a different origin (%s)", canonicalOrigin(req.URL))
+	origin := canonicalOrigin(req.URL)
+	username, password, pathPrefix := t.username, t.password, t.pathPrefix
+	if origin != t.origin {
+		routed, ok := t.origins[origin]
+		if !ok {
+			return nil, fmt.Errorf("crypto: refusing to send datastore credential to a different origin (%s)", origin)
+		}
+		username, password, pathPrefix = routed.username, routed.password, routed.pathPrefix
 	}
-	if !withinPathPrefix(canonicalPath(req.URL.Path), t.pathPrefix) {
-		return nil, fmt.Errorf("crypto: refusing to send datastore credential outside its configured path prefix (%s)", t.pathPrefix)
+	if !withinPathPrefix(canonicalPath(req.URL.Path), pathPrefix) {
+		return nil, fmt.Errorf("crypto: refusing to send datastore credential outside its configured path prefix (%s)", pathPrefix)
 	}
 	if req.URL.User != nil {
 		return nil, errors.New("crypto: refusing a datastore request containing URL credentials")
 	}
 	clone := req.Clone(req.Context())
 	clone.Header = req.Header.Clone()
-	clone.SetBasicAuth(t.username, t.password)
+	clone.SetBasicAuth(username, password)
 	return t.base.RoundTrip(clone)
 }
 

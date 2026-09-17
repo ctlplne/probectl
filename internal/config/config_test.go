@@ -407,6 +407,12 @@ func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
 			env := durableTenantProfileEnv(profile)
 			env["PROBECTL_DATABASE_READ_URL"] = "postgres://probectl_reader:secret@pg-ro.example:5432/probectl?sslmode=verify-full"
 			env["PROBECTL_DATAPLANES"] = "us=https://clickhouse-us.example:8443;eu=https://clickhouse-eu.example:8443"
+			// DPR-044: routed planes carry their own credential files; the
+			// pooled file stays pinned to the pooled origins.
+			env["PROBECTL_DATAPLANE_BASIC_AUTH_FILES"] = "us=/run/secrets/ch-us.json;eu=/run/secrets/ch-eu.json"
+			if env["PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE"] == "" {
+				env["PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE"] = "/run/secrets/ch.json"
+			}
 			if _, err := Load(envFunc(env)); err != nil {
 				t.Fatalf("secure datastore URLs should load: %v", err)
 			}
@@ -660,14 +666,46 @@ func TestDatastoreBasicAuthFileConfig(t *testing.T) {
 			want: "requires at least one ClickHouse-backed store mode",
 		},
 		{
-			name: "shared clickhouse auth with routed data planes",
+			name: "routed data plane without its own credential file (DPR-044)",
 			env: map[string]string{
 				"PROBECTL_OTELSTORE_MODE":             "clickhouse",
 				"PROBECTL_OTELSTORE_URL":              "https://clickhouse.example:8443",
 				"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/ch.json",
 				"PROBECTL_DATAPLANES":                 "east=https://clickhouse-east.example:8443",
 			},
-			want: "cannot be combined with PROBECTL_DATAPLANES",
+			want: `plane "east" has no credential file`,
+		},
+		{
+			name: "data plane credential for an unknown plane",
+			env: map[string]string{
+				"PROBECTL_OTELSTORE_MODE":             "clickhouse",
+				"PROBECTL_OTELSTORE_URL":              "https://clickhouse.example:8443",
+				"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/ch.json",
+				"PROBECTL_DATAPLANES":                 "east=https://clickhouse-east.example:8443",
+				"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "east=/run/secrets/ch-east.json;west=/run/secrets/ch-west.json",
+			},
+			want: `names data plane "west" which is not in PROBECTL_DATAPLANES`,
+		},
+		{
+			name: "data plane on the pooled origin must reuse the pooled file",
+			env: map[string]string{
+				"PROBECTL_OTELSTORE_MODE":             "clickhouse",
+				"PROBECTL_OTELSTORE_URL":              "https://clickhouse.example:8443",
+				"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/ch.json",
+				"PROBECTL_DATAPLANES":                 "lab=https://clickhouse.example:8443",
+				"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "lab=/run/secrets/other.json",
+			},
+			want: "shares the pooled ClickHouse origin",
+		},
+		{
+			name: "data plane credential files need the pooled file",
+			env: map[string]string{
+				"PROBECTL_OTELSTORE_MODE":             "clickhouse",
+				"PROBECTL_OTELSTORE_URL":              "https://clickhouse.example:8443",
+				"PROBECTL_DATAPLANES":                 "east=https://clickhouse-east.example:8443",
+				"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "east=/run/secrets/ch-east.json",
+			},
+			want: "requires PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1396,5 +1434,42 @@ func TestDurableS3ObjectStoreConfig(t *testing.T) {
 		"PROBECTL_OBJECTSTORE_S3_ACCESS_KEY": "a", "PROBECTL_OBJECTSTORE_S3_SECRET_KEY": "s",
 	})); err == nil {
 		t.Fatal("ambiguous filesystem+S3 object-store config must fail closed")
+	}
+}
+
+// TestDataPlaneCredentialFilesAcceptedShapes (DPR-044): the pooled file now
+// coexists with routed planes when every plane names its own file, a plane on
+// the pooled origin names the pooled file, and a loopback development plane
+// may go without one.
+func TestDataPlaneCredentialFilesAcceptedShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+	}{
+		{"own file per routed plane", map[string]string{
+			"PROBECTL_OTELSTORE_MODE": "clickhouse", "PROBECTL_OTELSTORE_URL": "https://clickhouse.example:8443",
+			"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/ch.json",
+			"PROBECTL_DATAPLANES":                 "east=https://clickhouse-east.example:8443;west=https://clickhouse-west.example:8443",
+			"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "east=/run/secrets/ch-east.json;west=/run/secrets/ch-west.json",
+		}},
+		{"plane on the pooled origin reuses the pooled file", map[string]string{
+			"PROBECTL_OTELSTORE_MODE": "clickhouse", "PROBECTL_OTELSTORE_URL": "https://clickhouse.example:8443",
+			"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE": "/run/secrets/ch.json",
+			"PROBECTL_DATAPLANES":                 "lab=https://clickhouse.example:8443",
+			"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "lab=/run/secrets/ch.json",
+		}},
+		{"loopback development plane without a file", map[string]string{
+			"PROBECTL_DATAPLANES": "dev=http://127.0.0.1:8123",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(envFunc(tc.env))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if files := cfg.DataPlaneBasicAuthFiles; len(tc.env["PROBECTL_DATAPLANE_BASIC_AUTH_FILES"]) > 0 && len(files) == 0 {
+				t.Fatal("credential files were not parsed")
+			}
+		})
 	}
 }
