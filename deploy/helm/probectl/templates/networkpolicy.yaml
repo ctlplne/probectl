@@ -11,7 +11,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      {{- include "probectl.selectorLabels" . | nindent 6 }}
+      {{- include "probectl.controlSelectorLabels" . | nindent 6 }}
   # Default-deny: selecting both policy types with the rules below means anything
   # not explicitly allowed is dropped.
   policyTypes:

@@ -9,7 +9,7 @@ spec:
   # TLS ingress, and this Service targets the pod's HTTPS listener.
   type: {{ .Values.service.type }}
   selector:
-    {{- include "probectl.selectorLabels" . | nindent 4 }}
+    {{- include "probectl.controlSelectorLabels" . | nindent 4 }}
   ports:
     - name: {{ include "probectl.servicePortName" . }}
       port: {{ .Values.service.port }}
@@ -33,7 +33,7 @@ metadata:
 spec:
   type: {{ include "probectl.agentListener.serviceType" . }}
   selector:
-    {{- include "probectl.selectorLabels" . | nindent 4 }}
+    {{- include "probectl.controlSelectorLabels" . | nindent 4 }}
   ports:
     - name: agent-grpc
       port: {{ include "probectl.agentListener.port" . }}

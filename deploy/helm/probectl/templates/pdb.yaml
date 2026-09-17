@@ -13,5 +13,5 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "probectl.selectorLabels" . | nindent 6 }}
+      {{- include "probectl.controlSelectorLabels" . | nindent 6 }}
 {{- end }}

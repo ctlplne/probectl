@@ -32,6 +32,21 @@ app.kubernetes.io/name: {{ include "probectl.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{/*
+DPR-085: the control plane's OWN selector. The chart's browser-agent DaemonSet
+and BGP-analyzer Job carry the same name/instance labels, so anything that
+selected by "probectl.selectorLabels" alone — the API Service, the
+PodDisruptionBudget, the control NetworkPolicy — also selected those pods: the
+budget counted agent pods as control replicas and the control policy's egress
+allow-all was unioned onto the browser agent's tight policy. The Deployment's
+spec.selector is immutable and stays name/instance; every other control-owned
+selector uses this one, and the control pod template carries the component.
+*/}}
+{{- define "probectl.controlSelectorLabels" -}}
+{{ include "probectl.selectorLabels" . }}
+app.kubernetes.io/component: control
+{{- end -}}
+
 {{/* The immutable control-plane image reference. */}}
 {{- define "probectl.image" -}}
 {{- $digest := required "image.digest is required: use the sha256 digest from the signed release or approved mirror" .Values.image.digest -}}

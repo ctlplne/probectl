@@ -298,7 +298,11 @@ Don't follow a one-off recipe here — the canonical journey is already written:
    docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml \
      exec control /usr/local/bin/app bootstrap-admin -email you@example.com
    # Helm:
-   kubectl -n probectl exec deploy/probectl -- /usr/local/bin/app bootstrap-admin -email you@example.com
+   # select a control-plane pod by component: the chart's browser-agent and
+   # analyzer pods share the release's name/instance labels (DPR-085)
+   kubectl -n probectl exec -c control \
+     "$(kubectl -n probectl get pod -l app.kubernetes.io/component=control -o jsonpath='{.items[0].metadata.name}')" \
+     -- /usr/local/bin/app bootstrap-admin -email you@example.com
    ```
 
    The grant is tenant-scoped (`-tenant`, default the built-in tenant),
