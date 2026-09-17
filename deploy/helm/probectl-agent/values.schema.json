@@ -198,6 +198,17 @@
             "pattern": "^(pid:[0-9]+|exe:/.*|cgroup:/.*)$"
           }
         },
+        "hostRoot": {
+          "type": "string",
+          "pattern": "^(|/.*)$"
+        },
+        "hostLibraryPaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^/.+$"
+          }
+        },
         "redaction": {
           "type": "string",
           "enum": [

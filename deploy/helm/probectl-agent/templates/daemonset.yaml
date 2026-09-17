@@ -257,6 +257,16 @@ spec:
             - name: tracefs
               mountPath: {{ .Values.tracefs.hostPath }}
               readOnly: true
+            {{- if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot }}
+            # DPR-124: the node's shared-library tree, read-only. TLS uprobes
+            # attach to an inode and this image is distroless, so without these
+            # the consented L7 capture can never resolve a libssl to attach to.
+            {{- range $i, $lib := .Values.l7Capture.hostLibraryPaths }}
+            - name: node-lib-{{ $i }}
+              mountPath: {{ printf "%s%s" $.Values.l7Capture.hostRoot $lib | quote }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
             {{- if and .Values.bus.tls.enabled .Values.bus.tls.existingSecret }}
             - name: bus-tls
               mountPath: /etc/probectl/bus-tls
@@ -297,6 +307,18 @@ spec:
           hostPath:
             path: {{ .Values.tracefs.hostPath }}
             type: Directory
+        {{- if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot }}
+        # DPR-124: node shared-library directories, read-only and narrow — the
+        # uprobe target, never the whole node root filesystem. Directory (not
+        # DirectoryOrCreate): a node missing one must fail to schedule rather
+        # than have the agent silently attach to nothing.
+        {{- range $i, $lib := .Values.l7Capture.hostLibraryPaths }}
+        - name: node-lib-{{ $i }}
+          hostPath:
+            path: {{ $lib | quote }}
+            type: Directory
+        {{- end }}
+        {{- end }}
         {{- if and .Values.health.enabled (eq .Values.health.mode "exec") }}
         # WIRE-004: writable state for exec health probes; avoids a plaintext
         # pod listener while the root filesystem stays read-only.

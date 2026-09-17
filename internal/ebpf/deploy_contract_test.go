@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func repoRootForDeployContract(t *testing.T) string {
@@ -507,5 +508,154 @@ func TestEBPFCaptureFollowupContract(t *testing.T) {
 		if !strings.Contains(policyTest, want) {
 			t.Errorf("l7policy_test.go missing redaction regression %q (TRACE-OMIT-F11)", want)
 		}
+	}
+}
+
+// DPR-124: a consented L7 capture in Kubernetes must come with a read-only view
+// of the node's shared-library tree. TLS uprobes attach to an inode and the
+// agent image is distroless, so without that mount the advertised
+// encrypted-traffic capability can never attach — which is exactly how it
+// shipped. The mount is gated on l7Capture.enabled: an agent without capture
+// consent gets no view of the node filesystem at all.
+func TestAgentHelmL7CaptureMountsTheNodeLibraryTree(t *testing.T) {
+	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
+	configmap := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/configmap.yaml")
+	daemonset := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/daemonset.yaml")
+	schema := readDeployContractFile(t, "deploy/helm/probectl-agent/values.schema.json")
+
+	for _, want := range []string{"hostRoot: /host", "hostLibraryPaths:", "- /usr/lib"} {
+		if !strings.Contains(values, want) {
+			t.Errorf("agent values.yaml missing node-library default %q (DPR-124)", want)
+		}
+	}
+	if !strings.Contains(configmap, "l7_capture_host_root:") {
+		t.Error("agent ConfigMap does not pass l7_capture_host_root to the agent (DPR-124)")
+	}
+	for _, want := range []string{
+		"if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot",
+		"node-lib-",
+		".Values.l7Capture.hostLibraryPaths",
+		"type: Directory",
+	} {
+		if !strings.Contains(daemonset, want) {
+			t.Errorf("agent DaemonSet missing node-library mount contract %q (DPR-124)", want)
+		}
+	}
+	// The mount must be read-only: the agent reads an inode to attach a uprobe,
+	// it never writes to the node's libraries.
+	libBlock := daemonset
+	if i := strings.Index(libBlock, "node-lib-{{ $i }}"); i >= 0 {
+		tail := libBlock[i:]
+		if j := strings.Index(tail, "{{- end }}"); j > 0 {
+			if !strings.Contains(tail[:j], "readOnly: true") {
+				t.Error("node-library mount is not readOnly (DPR-124)")
+			}
+		}
+	}
+	for _, want := range []string{"\"hostRoot\"", "\"hostLibraryPaths\""} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("agent values.schema.json missing %q (DPR-124)", want)
+		}
+	}
+}
+
+// The host root is an in-container mount point, so a relative value is an
+// operator error that must be refused at config time, not at attach time.
+func TestL7CaptureHostRootMustBeAbsolute(t *testing.T) {
+	base := func() *Config {
+		return &Config{
+			TenantID:               "00000000-0000-0000-0000-000000000001",
+			FlushInterval:          time.Second,
+			L7CaptureEnabled:       true,
+			L7CaptureConsentTenant: "00000000-0000-0000-0000-000000000001",
+			L7CaptureScope:         []string{"exe:/usr/bin/curl"},
+			Bus:                    BusConfig{Mode: "memory"},
+		}
+	}
+	c := base()
+	c.L7CaptureHostRoot = "host"
+	err := c.validate()
+	if err == nil {
+		t.Fatal("a relative l7_capture_host_root must be refused")
+	}
+	if !strings.Contains(err.Error(), "l7_capture_host_root") {
+		t.Errorf("refusal must name the key: %v", err)
+	}
+
+	c = base()
+	c.L7CaptureHostRoot = "/host"
+	if err := c.validate(); err != nil {
+		t.Errorf("an absolute host root must be accepted: %v", err)
+	}
+	c = base()
+	c.L7CaptureHostRoot = ""
+	if err := c.validate(); err != nil {
+		t.Errorf("an empty host root (host-installed agent) must be accepted: %v", err)
+	}
+}
+
+// DPR-128: "the product reports success while delivering nothing" — a consented
+// L7 capture that fails to attach left the pod Ready, flows emitting, and only a
+// single startup WARN behind. The capture state must be on the metrics endpoint,
+// where an operator can alert on requested==1 AND active==0, and the attach
+// counter must be there with it.
+func TestEBPFAgentExposesL7CaptureStateOnMetrics(t *testing.T) {
+	main := readDeployContractFile(t, "cmd/probectl-ebpf-agent/main.go")
+	for _, want := range []string{
+		"probectl_ebpf_l7_capture_requested",
+		"probectl_ebpf_l7_capture_active",
+		"probectl_ebpf_l7_attach_failures_total",
+		"agent.L7CaptureRequested()",
+		"agent.L7CaptureActive()",
+		"agent.L7AttachFailures()",
+	} {
+		if !strings.Contains(main, want) {
+			t.Errorf("eBPF agent does not expose %q on /metrics (DPR-128)", want)
+		}
+	}
+	// The DPR-071 delivery gauges must stay wired alongside them.
+	for _, want := range []string{"probectl_ebpf_publish_failures_total", "probectl_ebpf_publish_degraded"} {
+		if !strings.Contains(main, want) {
+			t.Errorf("eBPF agent lost delivery gauge %q (DPR-071)", want)
+		}
+	}
+	docs := readDeployContractFile(t, "docs/ebpf-agent.md")
+	for _, want := range []string{"probectl_ebpf_l7_capture_requested", "probectl_ebpf_l7_capture_active"} {
+		if !strings.Contains(docs, want) {
+			t.Errorf("docs/ebpf-agent.md does not document %q (DPR-128)", want)
+		}
+	}
+}
+
+// A requested capture that is not attached must be distinguishable from one that
+// was never requested: both are "no L7 data", and only the first is a fault.
+func TestL7CaptureRequestedIsSeparateFromActive(t *testing.T) {
+	cfg := &Config{
+		TenantID:               "88929fbe-28e5-4f0a-898e-6c4302c55e57",
+		FlushInterval:          time.Second,
+		L7CaptureEnabled:       true,
+		L7CaptureConsentTenant: "88929fbe-28e5-4f0a-898e-6c4302c55e57",
+		L7CaptureScope:         []string{"exe:/usr/bin/curl"},
+	}
+	a := &Agent{cfg: cfg, agg: NewAggregator()}
+	if !a.L7CaptureRequested() {
+		t.Error("an enabled + consented capture must report requested")
+	}
+	if a.L7CaptureActive() {
+		t.Error("no attached source must report inactive")
+	}
+
+	// Consent naming another tenant is not a request for THIS agent.
+	other := *cfg
+	other.L7CaptureConsentTenant = "00000000-0000-0000-0000-000000000009"
+	b := &Agent{cfg: &other, agg: NewAggregator()}
+	if b.L7CaptureRequested() {
+		t.Error("consent for a different tenant must not count as requested")
+	}
+
+	// A recorded fixture replay is not live encrypted-traffic visibility.
+	c := &Agent{cfg: cfg, agg: NewAggregator(), l7source: &FixtureL7Source{}}
+	if c.L7CaptureActive() {
+		t.Error("a fixture replay must not report live capture active")
 	}
 }

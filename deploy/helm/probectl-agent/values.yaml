@@ -110,6 +110,22 @@ l7Capture:
   # Host-wide capture is not expressible; the template fails when enabled
   # without at least one scoped workload.
   scope: []
+  # DPR-124: TLS uprobes attach to an INODE, and this agent image is distroless
+  # — it carries no libssl and no ldconfig of its own, so in-container discovery
+  # finds nothing and the documented "attaches to the system TLS libraries"
+  # capability is unreachable. hostRoot is the in-pod mount point for the node's
+  # library tree (mounted read-only from hostLibraryPaths below), so discovery
+  # resolves the node's real libssl. Set "" only for a host-installed agent.
+  # Mounted ONLY when l7Capture.enabled — an agent without TLS capture consent
+  # gets no view of the node filesystem at all.
+  hostRoot: /host
+  # Node directories mounted read-only under hostRoot. Narrow by design: the
+  # uprobe target is the shared-library tree, never the whole root filesystem.
+  # Trim this on a node that lacks one of them (each is mounted type:Directory,
+  # so a missing path would keep the pod unscheduled).
+  hostLibraryPaths:
+    - /usr/lib
+    - /lib
   # headers = keep protocol metadata but zero bodies + secret-bearing header
   # values and identity-like header values; length = no payload bytes; full =
   # consented debugging only.

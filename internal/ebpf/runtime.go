@@ -93,6 +93,32 @@ func (a *Agent) PublishFailures() uint64 { return a.publishFailed.Load() }
 // PublishDegraded reports whether the latest flush failed to deliver.
 func (a *Agent) PublishDegraded() bool { return a.publishDegrade.Load() }
 
+// L7CaptureRequested reports whether the config asked for live TLS-plaintext
+// capture (enabled + consented for this agent's tenant). Paired with
+// L7CaptureActive on the metrics endpoint so an operator can alert on
+// "requested but not capturing" — the state DPR-124/125/126 all land in, which
+// until now showed up only as one WARN at startup (DPR-128).
+func (a *Agent) L7CaptureRequested() bool {
+	if a.cfg == nil {
+		return false
+	}
+	ok, _ := l7CaptureAuthorized(a.cfg)
+	return ok
+}
+
+// L7CaptureActive reports whether a live L7 source is attached and can deliver
+// encrypted-traffic visibility. A recorded fixture replay is not live capture.
+func (a *Agent) L7CaptureActive() bool {
+	if a.l7source == nil {
+		return false
+	}
+	_, fixture := a.l7source.(*FixtureL7Source)
+	return !fixture
+}
+
+// L7AttachFailures counts TLS-uprobe attach failures (U-015).
+func (a *Agent) L7AttachFailures() uint64 { return a.agg.Stats().L7AttachFailures }
+
 // withPublishVerification wires the bus capabilities the agent uses to confirm
 // delivery after each emit; a bus without them is treated as synchronous.
 func (a *Agent) withPublishVerification(b bus.Bus, timeout time.Duration) *Agent {

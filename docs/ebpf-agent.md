@@ -261,7 +261,7 @@ not papered over:
 
 | TLS stack | Symbols | Coverage |
 |---|---|---|
-| OpenSSL | `SSL_write` / `SSL_read` (read at return) | ✅ |
+| OpenSSL | `SSL_write` / `SSL_read` (read at return) | ✅ **where the library carries an execute bit** — see below |
 | BoringSSL | same `SSL_*` API | ✅ if symbols resolvable / ⚠️ if stripped/static |
 | GnuTLS | `gnutls_record_send` / `gnutls_record_recv` | ✅ (attaches the same way) |
 | **Go `crypto/tls`** | no libssl — pure Go; `uretprobe` unsafe on Go | ⛔ **post-GA / out of scope for GA** (ret-offset disassembly + goroutine tracking — see [`ebpf-feasibility.md`](ebpf-feasibility.md)) |
@@ -270,6 +270,62 @@ not papered over:
 Two limits carry over from the feasibility study: **stripped or statically-linked
 binaries** break uprobe symbol resolution (the agent falls back to socket
 cleartext for those), and **Go-encrypted** traffic needs its own capture path.
+
+### Where the agent looks for those libraries (`l7_capture_host_root`)
+
+A uprobe attaches to an **inode**, so the agent has to open the very library
+file its target uses. Discovery walks the `ldconfig` cache and then the
+per-arch/per-distro candidate paths (`libssl.so.3`/`.1.1`,
+`libgnutls.so.30`/`.28`) — all of it **inside the agent's own mount namespace**.
+
+That is fine for a host-installed agent and useless for the DaemonSet, whose
+image is **distroless**: it carries no libssl and no `ldconfig` at all, so
+discovery found nothing and consented capture came up with `l7:false` on every
+Kubernetes node (DPR-124). `l7_capture_host_root` names an in-pod mount point
+for the node's library tree, and every candidate path is resolved under it:
+
+| Deployment | `l7_capture_host_root` | Attaches to |
+|---|---|---|
+| DaemonSet (chart default) | `/host` | the node's `libssl`/`libgnutls`, mounted read-only |
+| Host-installed binary | empty | the agent's own namespace, i.e. the host itself |
+
+The chart mounts `l7Capture.hostLibraryPaths` (default `/usr/lib`, `/lib`)
+read-only under that root, and **only when `l7Capture.enabled`** — an agent
+without capture consent gets no view of the node filesystem. Trim the list on a
+node that lacks one of those directories: each is mounted `type: Directory`, so
+a missing path leaves the pod unscheduled rather than attaching to nothing.
+`PROBECTL_EBPF_LIBSSL` still overrides discovery and is taken **literally** —
+under a host root, name the path as the pod sees it (`/host/...`).
+
+Because the probe attaches to the inode it resolved, this instruments processes
+that use **that** library file: the node's own binaries, and containers that
+share the node's library tree. A container carrying its **own** libssl in its
+image is a different inode and is not covered by the node-rooted attach; scope
+such a workload with `cgroup:`/`pid:` and give the agent that image's library
+path. A failed resolution is always a loud `WARN` plus
+`l7_attach_failures` — never a silent gap.
+
+#### The execute-bit limit (`DPR-125`)
+
+The uprobe loader (`cilium/ebpf` `link.OpenExecutable`) **refuses a target with
+no execute bit**, and the two library families split on exactly that:
+
+| Node distro family | Packaged `libssl.so.3` mode | OpenSSL uprobes |
+|---|---|---|
+| RHEL / Fedora / SUSE (`/usr/lib64`) | `0755` | ✅ attach |
+| Debian / Ubuntu (multiarch dir) | `0644` | ⛔ **refused — `l7:false`** |
+
+Discovery therefore checks attachability, not just presence: an unattachable
+candidate is skipped and the search continues, so a node carrying both an
+unattachable and an attachable copy uses the attachable one. When nothing
+attachable is found, the agent names the mode, the path and this limit instead of
+claiming the library is missing. Everything downstream of the attach — consent,
+scoping, redaction, the kernel window, `l7_calls` — is verified working against
+an attachable library; on a Debian-family node **treat L7/TLS plaintext as
+unavailable** until the loader accepts a `0644` target. Do not chmod a
+package-managed library to work around it: the mode belongs to the inode, so that
+edits the distro's file for every process on the node. L4 flow, the service map
+and TLS *metadata* are unaffected.
 
 ## Privileges and the observe-only guarantee
 
@@ -357,6 +413,26 @@ acknowledged … context deadline exceeded` — and the readiness probe reports
 not-ready until a later flush delivers cleanly, so `kubectl get pods` shows
 `0/1 READY` on a host whose flows are not arriving instead of a healthy agent
 publishing into the void.
+
+### The metrics endpoint
+
+`metrics.enabled` serves a tenant-labelled Prometheus endpoint. Four gauges say
+whether the agent is *delivering* rather than merely running:
+
+| Metric | Meaning |
+|---|---|
+| `probectl_ebpf_publish_failures_total` | records the bus reported undelivered, plus flushes never acknowledged (DPR-071) |
+| `probectl_ebpf_publish_degraded` | 1 while the most recent flush did not deliver; readiness follows it |
+| `probectl_ebpf_l7_capture_requested` | 1 while TLS-plaintext capture is enabled **and** consented for this agent's tenant |
+| `probectl_ebpf_l7_capture_active` | 1 while the TLS uprobes are actually attached |
+| `probectl_ebpf_l7_attach_failures_total` | TLS-uprobe attach failures (U-015) |
+
+**Alert on `probectl_ebpf_l7_capture_requested == 1 and
+probectl_ebpf_l7_capture_active == 0`.** That is a consented, scoped capture
+delivering nothing — the state every attach limit above lands in — and until
+DPR-128 it was visible only as one `WARN` at startup, with the pod Ready and L4
+flows emitting normally. A fixture replay never sets `_active`: recorded L7 is
+not encrypted-traffic visibility.
 
 ## Tuning and kernel lockdown
 
@@ -522,7 +598,10 @@ generic `<5.8` escape hatch. The chart also declares a **seccomp** profile (a
 kernel syscall filter — the process may invoke only the listed system calls;
 `RuntimeDefault`, or point `seccomp.type: Localhost` at the installed
 default-deny profile for tighter filtering), read-only root, the BTF and tracefs
-host mounts (`tracefs.hostPath`, DPR-054), and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture without
+host mounts (`tracefs.hostPath`, DPR-054), the read-only node library mounts
+that consented L7 capture needs to attach at all (`l7Capture.hostRoot` /
+`l7Capture.hostLibraryPaths`, DPR-124 — present only when
+`l7Capture.enabled`), and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture without
 `l7Capture.scope`, or plaintext kafka without the explicit `bus.allowPlaintext`,
 refuses to template. CI helm-lints, hardening-asserts, and kubeconform-validates
 the chart on every run.

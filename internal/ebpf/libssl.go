@@ -19,6 +19,15 @@ import (
 // -> well-known per-arch/per-distro candidates. A failure returns an error
 // listing everything tried; the agent runtime logs it as a WARN and counts it
 // (never a silent gap).
+//
+// All of that search runs in the AGENT's mount namespace. The DaemonSet agent
+// image is distroless, so in Kubernetes there is no libssl and no ldconfig
+// there at all and discovery could never succeed, even though docs advertise
+// attaching to "the system TLS libraries" (DPR-124). l7_capture_host_root
+// names a read-only mount of the NODE's library tree; every candidate and
+// every ldconfig-derived path is resolved under it, so a containerised agent
+// attaches to the node's real libssl inode. Empty = the agent's own namespace
+// (a host-installed agent, unchanged).
 
 // archAlias maps GOARCH to the CPU component of the Debian/Ubuntu multiarch
 // triplet directory ("<alias>-linux-gnu").
@@ -40,6 +49,16 @@ type tlsProbeLibrary struct {
 	path        string
 	writeSymbol string
 	readSymbol  string
+}
+
+// underHostRoot resolves p inside root. An empty or "/" root returns p
+// unchanged, so a host-installed agent keeps searching its own namespace.
+func underHostRoot(root, p string) string {
+	root = strings.TrimRight(strings.TrimSpace(root), "/")
+	if root == "" {
+		return p
+	}
+	return root + p
 }
 
 func sharedLibraryCandidates(goarch string, names []string) []string {
@@ -106,25 +125,58 @@ func parseLdconfigForNames(out []byte, names []string) []string {
 	return ordered
 }
 
-func discoverSharedLibrary(goarch string, names []string, candidates []string, label string, hint string, ldconfig func() ([]byte, error), exists func(string) bool) (string, error) {
-	var tried []string
+// discoverSharedLibrary walks ldconfig then the candidate list and returns the
+// first path that is present AND attachable. attachable is separate from exists
+// because a present-but-unattachable library is a DIFFERENT operator problem
+// with a different fix, and silently "finding" one only to fail at attach is
+// what DPR-125 was: the search stopped at the first Debian-packaged 0644 libssl
+// and gave up, even on a node that also carried an attachable copy.
+func discoverSharedLibrary(goarch string, names []string, candidates []string, label string, hint string, hostRoot string, ldconfig func() ([]byte, error), exists func(string) bool, attachable func(string) bool) (string, error) {
+	if attachable == nil {
+		attachable = func(string) bool { return true }
+	}
+	var tried, present []string
+	consider := func(p string) bool {
+		if !exists(p) {
+			tried = append(tried, p)
+			return false
+		}
+		if !attachable(p) {
+			present = append(present, p)
+			return false
+		}
+		return true
+	}
 	if ldconfig != nil {
 		if out, err := ldconfig(); err == nil {
 			for _, p := range parseLdconfigForNames(out, names) {
-				if exists(p) {
+				if p = underHostRoot(hostRoot, p); consider(p) {
 					return p, nil
 				}
-				tried = append(tried, p)
 			}
 		}
 	}
 	for _, p := range candidates {
-		if exists(p) {
+		if p = underHostRoot(hostRoot, p); consider(p) {
 			return p, nil
 		}
-		tried = append(tried, p)
 	}
-	msg := fmt.Sprintf("%s not found for %s (tried ldconfig cache + %s)", label, goarch, strings.Join(tried, ", "))
+
+	// Present but unattachable is the more specific diagnosis, so it wins the
+	// message: the operator has the library, just not in a form the uprobe
+	// loader accepts (DPR-125).
+	if len(present) > 0 {
+		return "", fmt.Errorf("%s found but not attachable for %s: %s carries no execute bit, and the uprobe loader refuses a non-executable target. Debian/Ubuntu package shared libraries 0644 (RHEL-family ships 0755), so OpenSSL uprobes cannot attach to a Debian-packaged %s — see docs/ebpf-agent.md#tls-library-uprobe-coverage (DPR-125)",
+			label, goarch, strings.Join(present, ", "), label)
+	}
+
+	where := "tried ldconfig cache + " + strings.Join(tried, ", ")
+	if root := strings.TrimRight(strings.TrimSpace(hostRoot), "/"); root != "" {
+		where += fmt.Sprintf(" (searched under host root %s — is the node library mount present?)", root)
+	} else {
+		where += " (searched the agent's OWN mount namespace; a containerised agent needs l7_capture_host_root pointing at a read-only mount of the node library tree — DPR-124)"
+	}
+	msg := fmt.Sprintf("%s not found for %s (%s)", label, goarch, where)
 	if hint != "" {
 		msg += "; " + hint
 	}
@@ -134,19 +186,22 @@ func discoverSharedLibrary(goarch string, names []string, candidates []string, l
 // discoverLibssl resolves the OpenSSL-compatible libssl shared object to
 // attach uprobes to. ldconfig and exists are injectable for tests; see
 // discoverLibsslDefault.
-func discoverLibssl(goarch string, ldconfig func() ([]byte, error), exists func(string) bool) (string, error) {
+func discoverLibssl(goarch string, hostRoot string, ldconfig func() ([]byte, error), exists, attachable func(string) bool) (string, error) {
 	return discoverSharedLibrary(goarch, libsslNames, libsslCandidates(goarch), "libssl",
-		"set PROBECTL_EBPF_LIBSSL to the libssl path", ldconfig, exists)
+		"set PROBECTL_EBPF_LIBSSL to the libssl path", hostRoot, ldconfig, exists, attachable)
 }
 
 // discoverLibgnutls resolves the GnuTLS shared object to attach uprobes to.
 // It has no override knob: PROBECTL_EBPF_LIBSSL remains specific to OpenSSL-
 // compatible libraries, while GnuTLS is auto-discovered when present.
-func discoverLibgnutls(goarch string, ldconfig func() ([]byte, error), exists func(string) bool) (string, error) {
-	return discoverSharedLibrary(goarch, libgnutlsNames, libgnutlsCandidates(goarch), "libgnutls", "", ldconfig, exists)
+func discoverLibgnutls(goarch string, hostRoot string, ldconfig func() ([]byte, error), exists, attachable func(string) bool) (string, error) {
+	return discoverSharedLibrary(goarch, libgnutlsNames, libgnutlsCandidates(goarch), "libgnutls", "", hostRoot, ldconfig, exists, attachable)
 }
 
-func discoverTLSProbeLibraries(goarch string, libsslOverride string, ldconfig func() ([]byte, error), exists func(string) bool) ([]tlsProbeLibrary, error) {
+// discoverTLSProbeLibraries resolves every TLS library to attach to.
+// libsslOverride is taken LITERALLY (an operator naming one path means that
+// path, host-root prefixing included); discovery resolves under hostRoot.
+func discoverTLSProbeLibraries(goarch string, libsslOverride string, hostRoot string, ldconfig func() ([]byte, error), exists, attachable func(string) bool) ([]tlsProbeLibrary, error) {
 	var libs []tlsProbeLibrary
 	var failures []error
 	if libsslOverride != "" {
@@ -156,7 +211,7 @@ func discoverTLSProbeLibraries(goarch string, libsslOverride string, ldconfig fu
 			writeSymbol: "SSL_write",
 			readSymbol:  "SSL_read",
 		})
-	} else if p, err := discoverLibssl(goarch, ldconfig, exists); err == nil {
+	} else if p, err := discoverLibssl(goarch, hostRoot, ldconfig, exists, attachable); err == nil {
 		libs = append(libs, tlsProbeLibrary{
 			name:        "openssl",
 			path:        p,
@@ -167,7 +222,7 @@ func discoverTLSProbeLibraries(goarch string, libsslOverride string, ldconfig fu
 		failures = append(failures, err)
 	}
 
-	if p, err := discoverLibgnutls(goarch, ldconfig, exists); err == nil {
+	if p, err := discoverLibgnutls(goarch, hostRoot, ldconfig, exists, attachable); err == nil {
 		libs = append(libs, tlsProbeLibrary{
 			name:        "gnutls",
 			path:        p,

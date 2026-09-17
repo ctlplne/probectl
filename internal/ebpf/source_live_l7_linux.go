@@ -125,7 +125,7 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 		return nil, err
 	}
 
-	libs, err := tlsProbeLibraries()
+	libs, err := tlsProbeLibraries(cfg.L7CaptureHostRoot)
 	if err != nil {
 		_ = s.objs.Close()
 		return nil, fmt.Errorf("ebpf: %w", err)
@@ -350,7 +350,9 @@ func (s *liveL7Source) Close() error {
 // tlsProbeLibraries are the shared TLS objects to attach to: the
 // PROBECTL_EBPF_LIBSSL override for OpenSSL-compatible stacks, then multi-arch
 // discovery (ldconfig cache + per-arch candidates — U-015/EBPF-001; see
-// libssl.go) for OpenSSL-compatible libssl and GnuTLS.
-func tlsProbeLibraries() ([]tlsProbeLibrary, error) {
-	return discoverTLSProbeLibrariesDefault(os.Getenv("PROBECTL_EBPF_LIBSSL"))
+// libssl.go) for OpenSSL-compatible libssl and GnuTLS. hostRoot resolves
+// discovery inside a mounted node filesystem for a containerised agent
+// (l7_capture_host_root, DPR-124).
+func tlsProbeLibraries(hostRoot string) ([]tlsProbeLibrary, error) {
+	return discoverTLSProbeLibrariesDefault(os.Getenv("PROBECTL_EBPF_LIBSSL"), hostRoot)
 }

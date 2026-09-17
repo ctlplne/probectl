@@ -106,6 +106,30 @@ func run() error {
 			return 0
 		})
 
+	// DPR-128: the encrypted-traffic capability could be requested, consented
+	// and scoped, come up NOT attached, and the only sign was one WARN at
+	// startup — pod Ready, flows emitting, L7 silently absent. Alert on
+	// requested == 1 AND active == 0.
+	metricsRuntime.WatchGauge("probectl_ebpf_l7_capture_requested",
+		"1 while live TLS-plaintext capture is enabled and consented for this agent's tenant.",
+		func() float64 {
+			if agent.L7CaptureRequested() {
+				return 1
+			}
+			return 0
+		})
+	metricsRuntime.WatchGauge("probectl_ebpf_l7_capture_active",
+		"1 while TLS uprobes are attached and encrypted-traffic visibility is actually on.",
+		func() float64 {
+			if agent.L7CaptureActive() {
+				return 1
+			}
+			return 0
+		})
+	metricsRuntime.WatchGauge("probectl_ebpf_l7_attach_failures_total",
+		"TLS-uprobe attach failures (U-015): an encrypted-traffic visibility gap, never a silent no-op.",
+		func() float64 { return float64(agent.L7AttachFailures()) })
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

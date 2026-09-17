@@ -37,6 +37,11 @@ data:
     l7_capture_consent_tenant: {{ required "l7Capture.consentTenant is required when l7Capture.enabled=true" .Values.l7Capture.consentTenant | quote }}
     l7_capture_scope:
 {{ toYaml .Values.l7Capture.scope | nindent 6 }}
+    {{- with .Values.l7Capture.hostRoot }}
+    # DPR-124: resolve the node's TLS libraries through the read-only node
+    # mount; the distroless agent image has none of its own.
+    l7_capture_host_root: {{ . | quote }}
+    {{- end }}
     l7_capture_redaction: {{ .Values.l7Capture.redaction | quote }}
     l7_capture_kernel_window: {{ .Values.l7Capture.kernelWindow }}
     {{- with .Values.l7Capture.identityHeaderFragments }}

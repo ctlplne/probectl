@@ -24,7 +24,7 @@ func existsSet(paths ...string) func(string) bool {
 // discovery finds the aarch64 libssl — the old hard-coded x86_64 path is gone.
 func TestDiscoverLibsslAarch64(t *testing.T) {
 	want := "/usr/lib/aarch64-linux-gnu/libssl.so.3"
-	got, err := discoverLibssl("arm64", nil, existsSet(want))
+	got, err := discoverLibssl("arm64", "", nil, existsSet(want), nil)
 	if err != nil {
 		t.Fatalf("discover arm64: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestDiscoverLibsslAmd64AndDistroFallbacks(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := discoverLibssl(tc.goarch, nil, existsSet(tc.want))
+			got, err := discoverLibssl(tc.goarch, "", nil, existsSet(tc.want), nil)
 			if err != nil {
 				t.Fatalf("discover: %v", err)
 			}
@@ -59,7 +59,7 @@ func TestDiscoverLibsslAmd64AndDistroFallbacks(t *testing.T) {
 func TestDiscoverLibsslPrefersSo3(t *testing.T) {
 	so3 := "/usr/lib/aarch64-linux-gnu/libssl.so.3"
 	so11 := "/usr/lib/aarch64-linux-gnu/libssl.so.1.1"
-	got, err := discoverLibssl("arm64", nil, existsSet(so3, so11))
+	got, err := discoverLibssl("arm64", "", nil, existsSet(so3, so11), nil)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestDiscoverLibsslViaLdconfig(t *testing.T) {
 	libssl.so.3 (libc6,AArch64) => /opt/custom/lib/libssl.so.3
 	libssl.so.1.1 (libc6,AArch64) => /usr/lib/aarch64-linux-gnu/libssl.so.1.1`)
 	ld := func() ([]byte, error) { return out, nil }
-	got, err := discoverLibssl("arm64", ld, existsSet("/opt/custom/lib/libssl.so.3"))
+	got, err := discoverLibssl("arm64", "", ld, existsSet("/opt/custom/lib/libssl.so.3"), nil)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestDiscoverLibgnutlsViaLdconfig(t *testing.T) {
 	libgnutls.so.30 (libc6,AArch64) => /opt/custom/lib/libgnutls.so.30
 	libgnutls.so.28 (libc6,AArch64) => /usr/lib/aarch64-linux-gnu/libgnutls.so.28`)
 	ld := func() ([]byte, error) { return out, nil }
-	got, err := discoverLibgnutls("arm64", ld, existsSet("/opt/custom/lib/libgnutls.so.30"))
+	got, err := discoverLibgnutls("arm64", "", ld, existsSet("/opt/custom/lib/libgnutls.so.30"), nil)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestDiscoverLibgnutlsViaLdconfig(t *testing.T) {
 func TestDiscoverTLSProbeLibrariesFindsOpenSSLAndGnuTLS(t *testing.T) {
 	libssl := "/usr/lib/x86_64-linux-gnu/libssl.so.3"
 	libgnutls := "/usr/lib/x86_64-linux-gnu/libgnutls.so.30"
-	got, err := discoverTLSProbeLibraries("amd64", "", nil, existsSet(libssl, libgnutls))
+	got, err := discoverTLSProbeLibraries("amd64", "", "", nil, existsSet(libssl, libgnutls), nil)
 	if err != nil {
 		t.Fatalf("discover TLS probe libraries: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestDiscoverTLSProbeLibrariesFindsOpenSSLAndGnuTLS(t *testing.T) {
 func TestDiscoverTLSProbeLibrariesUsesLibsslOverrideAndGnuTLS(t *testing.T) {
 	override := "/opt/boringssl/lib/libssl.so"
 	libgnutls := "/usr/lib/aarch64-linux-gnu/libgnutls.so.30"
-	got, err := discoverTLSProbeLibraries("arm64", override, nil, existsSet(libgnutls))
+	got, err := discoverTLSProbeLibraries("arm64", override, "", nil, existsSet(libgnutls), nil)
 	if err != nil {
 		t.Fatalf("discover TLS probe libraries: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestDiscoverTLSProbeLibrariesUsesLibsslOverrideAndGnuTLS(t *testing.T) {
 
 func TestDiscoverTLSProbeLibrariesFailureMentionsBothStacks(t *testing.T) {
 	ld := func() ([]byte, error) { return nil, errors.New("no ldconfig") }
-	_, err := discoverTLSProbeLibraries("arm64", "", ld, existsSet())
+	_, err := discoverTLSProbeLibraries("arm64", "", "", ld, existsSet(), nil)
 	if err == nil {
 		t.Fatal("want an error when no supported TLS library is found")
 	}
@@ -176,7 +176,7 @@ func probeLibraryByName(libs []tlsProbeLibrary, name string) (tlsProbeLibrary, b
 // loud error that names what was tried and the override knob.
 func TestDiscoverLibsslFailureIsLoud(t *testing.T) {
 	ld := func() ([]byte, error) { return nil, errors.New("no ldconfig") }
-	_, err := discoverLibssl("arm64", ld, existsSet())
+	_, err := discoverLibssl("arm64", "", ld, existsSet(), nil)
 	if err == nil {
 		t.Fatal("want an error when nothing is found")
 	}
@@ -190,9 +190,10 @@ func TestDiscoverLibsslFailureIsLoud(t *testing.T) {
 // The host-shaped discovery seam must return either a usable path or the loud,
 // actionable error.
 func TestDiscoverLibsslHostShapeIsLoudEitherWay(t *testing.T) {
-	p, err := discoverLibssl("amd64",
+	p, err := discoverLibssl("amd64", "",
 		func() ([]byte, error) { return nil, errors.New("no ldconfig in unit seam") },
 		func(string) bool { return false },
+		nil,
 	)
 	if err == nil {
 		if p == "" {
@@ -215,5 +216,150 @@ func TestAggregatorL7AttachFailureCounter(t *testing.T) {
 	a.RecordL7AttachFailure()
 	if got := a.Stats().L7AttachFailures; got != 1 {
 		t.Fatalf("L7AttachFailures = %d, want 1", got)
+	}
+}
+
+// DPR-124: the DaemonSet agent image is distroless, so discovery running in the
+// agent's own mount namespace finds nothing and the documented "attaches to the
+// system TLS libraries" capability is unreachable as packaged. With
+// l7_capture_host_root naming a read-only mount of the node filesystem, the
+// same candidate list resolves to the NODE's libssl inode.
+func TestDiscoverLibsslResolvesUnderHostRoot(t *testing.T) {
+	// Only the host-rooted copy exists: the distroless agent has no libssl.
+	node := "/host/usr/lib/aarch64-linux-gnu/libssl.so.3"
+	got, err := discoverLibssl("arm64", "/host", nil, existsSet(node), nil)
+	if err != nil {
+		t.Fatalf("discover under host root: %v", err)
+	}
+	if got != node {
+		t.Errorf("got %q, want the host-rooted node library %q", got, node)
+	}
+	// The same lookup without the host root must fail: that IS the bug the
+	// host root fixes, so a regression here would hide it.
+	if _, err := discoverLibssl("arm64", "", nil, existsSet(node), nil); err == nil {
+		t.Error("discovery without a host root must NOT reach the node library")
+	}
+}
+
+// A trailing slash on the mount point is an operator typo, not a different
+// configuration: /host/ and /host must resolve identically.
+func TestHostRootTrailingSlashIsTheSameMount(t *testing.T) {
+	node := "/host/usr/lib64/libssl.so.3"
+	for _, root := range []string{"/host", "/host/", " /host/ "} {
+		got, err := discoverLibssl("amd64", root, nil, existsSet(node), nil)
+		if err != nil {
+			t.Fatalf("host root %q: %v", root, err)
+		}
+		if got != node {
+			t.Errorf("host root %q: got %q, want %q", root, got, node)
+		}
+	}
+}
+
+// ldconfig reports paths in the namespace it ran in; under a host root those
+// paths must be re-resolved inside the mount, not trusted as-is.
+func TestHostRootRewritesLdconfigPaths(t *testing.T) {
+	ld := func() ([]byte, error) {
+		return []byte("\tlibssl.so.3 (libc6,AArch64) => /usr/lib/aarch64-linux-gnu/libssl.so.3\n"), nil
+	}
+	node := "/host/usr/lib/aarch64-linux-gnu/libssl.so.3"
+	got, err := discoverLibssl("arm64", "/host", ld, existsSet(node), nil)
+	if err != nil {
+		t.Fatalf("host-rooted ldconfig path: %v", err)
+	}
+	if got != node {
+		t.Errorf("got %q, want the host-rooted path %q", got, node)
+	}
+}
+
+// The failure must tell the operator which of the two situations they are in:
+// a containerised agent with no node mount, or a mount that is present but
+// carries no TLS library. A silent or generic failure is what DPR-124 was.
+func TestDiscoveryFailureNamesTheDeploymentShape(t *testing.T) {
+	ld := func() ([]byte, error) { return nil, errors.New("no ldconfig") }
+
+	_, err := discoverLibssl("arm64", "", ld, existsSet(), nil)
+	if err == nil {
+		t.Fatal("want an error when nothing is found")
+	}
+	if !strings.Contains(err.Error(), "l7_capture_host_root") {
+		t.Errorf("a namespace-local miss must name the host-root remedy: %v", err)
+	}
+
+	_, err = discoverLibssl("arm64", "/host", ld, existsSet(), nil)
+	if err == nil {
+		t.Fatal("want an error when the mount carries no library")
+	}
+	if !strings.Contains(err.Error(), "/host") {
+		t.Errorf("a host-rooted miss must name the root it searched: %v", err)
+	}
+	if strings.Contains(err.Error(), "needs l7_capture_host_root") {
+		t.Errorf("a host root IS configured; do not advise setting it: %v", err)
+	}
+}
+
+// An explicit PROBECTL_EBPF_LIBSSL override is taken literally — an operator
+// naming one path means that path, whatever the host root is.
+func TestLibsslOverrideIsNotHostRootPrefixed(t *testing.T) {
+	override := "/host/opt/boringssl/lib/libssl.so"
+	libs, err := discoverTLSProbeLibraries("arm64", override, "/host", nil, existsSet(), nil)
+	if err != nil {
+		t.Fatalf("override with host root: %v", err)
+	}
+	if len(libs) != 1 || libs[0].path != override {
+		t.Fatalf("got %+v, want exactly the override path %q", libs, override)
+	}
+}
+
+// DPR-125: cilium/ebpf's uprobe loader refuses a target with no execute bit, and
+// Debian/Ubuntu package shared libraries 0644 — so the OpenSSL uprobe path could
+// never attach on the two distros the candidate list is built around. Discovery
+// must SKIP an unattachable candidate and keep looking, and say precisely what
+// it found when nothing is attachable.
+func TestDiscoverySkipsUnattachableLibraries(t *testing.T) {
+	debian := "/usr/lib/aarch64-linux-gnu/libssl.so.3" // 0644, present, unusable
+	rhel := "/usr/lib64/libssl.so.3"                   // 0755, the one to use
+	got, err := discoverLibssl("arm64", "", nil,
+		existsSet(debian, rhel),
+		existsSet(rhel), // only the RHEL-style copy carries the execute bit
+	)
+	if err != nil {
+		t.Fatalf("an attachable candidate exists and must be found: %v", err)
+	}
+	if got != rhel {
+		t.Errorf("got %q, want the attachable library %q", got, rhel)
+	}
+}
+
+// When every library present is unattachable, the error must diagnose THAT —
+// naming the mode, the distro split and the doc anchor — rather than claiming
+// the library was not found, which sends the operator hunting the wrong thing.
+func TestUnattachableLibraryErrorNamesTheModeProblem(t *testing.T) {
+	debian := "/host/usr/lib/aarch64-linux-gnu/libssl.so.3"
+	_, err := discoverLibssl("arm64", "/host", nil,
+		existsSet(debian),
+		existsSet(), // nothing attachable
+	)
+	if err == nil {
+		t.Fatal("want an error when the only library present is unattachable")
+	}
+	for _, frag := range []string{"not attachable", "execute bit", debian, "DPR-125"} {
+		if !strings.Contains(err.Error(), frag) {
+			t.Errorf("error should mention %q: %v", frag, err)
+		}
+	}
+	if strings.Contains(err.Error(), "not found") {
+		t.Errorf("a present-but-unattachable library must not be reported as missing: %v", err)
+	}
+}
+
+// Attachability is checked during discovery for GnuTLS on the same terms.
+func TestGnutlsDiscoveryAlsoRequiresAttachability(t *testing.T) {
+	lib := "/usr/lib/aarch64-linux-gnu/libgnutls.so.30"
+	if _, err := discoverLibgnutls("arm64", "", nil, existsSet(lib), existsSet()); err == nil {
+		t.Error("an unattachable libgnutls must not be returned as usable")
+	}
+	if _, err := discoverLibgnutls("arm64", "", nil, existsSet(lib), existsSet(lib)); err != nil {
+		t.Errorf("an attachable libgnutls must be found: %v", err)
 	}
 }

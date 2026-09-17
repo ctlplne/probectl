@@ -128,6 +128,14 @@ type Config struct {
 	// scoping is the cgroup form (a container IS a cgroup).
 	L7CaptureScope []string `yaml:"l7_capture_scope"`
 
+	// L7CaptureHostRoot names a read-only mount of the NODE's filesystem
+	// inside a containerised agent (DPR-124). TLS uprobes attach to an inode,
+	// and the distroless agent image has no libssl of its own, so without this
+	// a DaemonSet agent can never resolve "the system TLS libraries" it is
+	// documented to attach to. Empty = search the agent's own namespace
+	// (correct for a host-installed agent). Must be absolute when set.
+	L7CaptureHostRoot string `yaml:"l7_capture_host_root"`
+
 	// L7CaptureKernelWindow bounds plaintext bytes per chunk that may
 	// transit the kernel ring under "headers" redaction (EBPF-002).
 	// 0 = default (1024). Bounds: 128..4095. "length" forces 0; "full"
@@ -303,6 +311,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_EBPF_L7_SCOPE"); v != "" {
 		c.L7CaptureScope = splitComma(v)
 	}
+	if v := getenv("PROBECTL_EBPF_L7_HOST_ROOT"); v != "" {
+		c.L7CaptureHostRoot = v
+	}
 	if v := getenv("PROBECTL_EBPF_L7_KERNEL_WINDOW"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.L7CaptureKernelWindow = n
@@ -352,6 +363,9 @@ func (c *Config) validate() error {
 	}
 	if _, err := ParseScopeEntries(c.L7CaptureScope); err != nil {
 		return err
+	}
+	if r := c.L7CaptureHostRoot; r != "" && !strings.HasPrefix(r, "/") {
+		return fmt.Errorf("ebpf: l7_capture_host_root %q must be an absolute path (the in-container mount point of the node filesystem, e.g. /host)", r)
 	}
 	if w := c.L7CaptureKernelWindow; w != 0 && (w < minKernelWindow || w > maxKernelWindow) {
 		return fmt.Errorf("ebpf: l7_capture_kernel_window %d out of bounds (%d..%d, 0 = default %d)", w, minKernelWindow, maxKernelWindow, defaultKernelWindow)
