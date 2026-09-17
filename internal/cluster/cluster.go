@@ -125,6 +125,11 @@ type Manager struct {
 
 	fencer WriteFencer  // optional (DPR-089): the writer pool's connection-level fence
 	log    *slog.Logger // optional: fence transitions
+	// probeTimeout bounds every probe (DPR-095). A vanished primary leaves
+	// pooled sessions hanging on dead TCP peers; without a deadline the probe
+	// blocked until the kernel gave up (~2 minutes on the lab) and the fence
+	// engaged only then. Bounded, a lost primary is detected within one cycle.
+	probeTimeout time.Duration
 
 	mu           sync.RWMutex
 	writerState  NodeStatus
@@ -142,12 +147,26 @@ func NewManager(topo Topology, writer, reader Prober) *Manager {
 		topo.ReplicationMode = ReplicationAsync
 	}
 	return &Manager{
-		topo:        topo,
-		writer:      writer,
-		reader:      reader,
-		now:         time.Now,
-		writerState: NodeStatus{Role: RoleUnknown, Error: "initial cluster probe has not completed"},
+		topo:         topo,
+		writer:       writer,
+		reader:       reader,
+		now:          time.Now,
+		probeTimeout: DefaultProbeTimeout,
+		writerState:  NodeStatus{Role: RoleUnknown, Error: "initial cluster probe has not completed"},
 	}
+}
+
+// DefaultProbeTimeout bounds one probe of one endpoint (DPR-095): the probe
+// interval is 5s, so a hung probe must fail within it.
+const DefaultProbeTimeout = 5 * time.Second
+
+// WithProbeTimeout overrides the per-probe deadline; non-positive keeps the
+// default.
+func (m *Manager) WithProbeTimeout(d time.Duration) *Manager {
+	if d > 0 {
+		m.probeTimeout = d
+	}
+	return m
 }
 
 // WriteFencer is the connection-level side of the split-brain fence (DPR-089):
@@ -186,10 +205,10 @@ func (m *Manager) withNow(now func() time.Time) *Manager {
 // epoch high-water mark only ever advances (monotonic): once a promotion to a
 // newer epoch is seen anywhere, a node on an older epoch is fenced as stale.
 func (m *Manager) Refresh(ctx context.Context) {
-	wp := m.writer.Probe(ctx)
+	wp := m.probe(ctx, m.writer)
 	var rp *Probe
 	if m.reader != nil {
-		p := m.reader.Probe(ctx)
+		p := m.probe(ctx, m.reader)
 		rp = &p
 	}
 
@@ -226,6 +245,25 @@ func (m *Manager) Refresh(ctx context.Context) {
 		m.log.Warn("writer pool fenced read-only: the writer endpoint resolves to a stale ex-primary; background writes fail closed until it is rebuilt or the endpoint moves", "epoch", epoch, "highest_epoch", highest)
 	} else {
 		m.log.Info("writer pool fence released: the writer endpoint is the current primary again", "epoch", epoch)
+	}
+}
+
+// probe runs one bounded observation (DPR-095): a probe that outlives the
+// deadline is reported as unreachable instead of stalling the fence.
+func (m *Manager) probe(ctx context.Context, p Prober) Probe {
+	timeout := m.probeTimeout
+	if timeout <= 0 {
+		timeout = DefaultProbeTimeout
+	}
+	pctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	done := make(chan Probe, 1)
+	go func() { done <- p.Probe(pctx) }()
+	select {
+	case r := <-done:
+		return r
+	case <-pctx.Done():
+		return Probe{Err: fmt.Errorf("cluster: probe exceeded %s: %w", timeout, pctx.Err())}
 	}
 }
 

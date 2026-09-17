@@ -153,8 +153,10 @@ endpoint resolves to the current primary. Reads keep serving throughout.
 
 **RTO** — recovery time objective — is how long until writes flow again after a
 failure. Here, RTO = failover detection + standby promotion + writer-endpoint repoint +
-probectl re-probe (≤ one 5s cycle). The dominant terms are your Postgres
-failover controller's detection + promotion times. probectl resumes writes
+probectl re-probe (≤ one 5s cycle). Each probe is itself bounded to 5 seconds,
+so a primary that vanishes without closing its connections is detected within
+one cycle rather than after the kernel's TCP give-up. The dominant terms are
+your Postgres failover controller's detection + promotion times. probectl resumes writes
 automatically on the next probe once the endpoint resolves to the promoted
 primary — no probectl restart required.
 
