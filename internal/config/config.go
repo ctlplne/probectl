@@ -166,6 +166,15 @@ type Config struct {
 	BusSASLUser       string
 	BusSASLPassword   string
 	BusAllowPlaintext bool
+	// BusCreateTopics (DPR-047): the control plane creates the bus topics it
+	// publishes and consumes (shared lanes at startup, tenant lanes as
+	// siloed tenants appear) instead of relying on broker auto-creation,
+	// which production brokers disable and which the client never asked for.
+	// false = the operator pre-creates them; startup then only verifies and
+	// fails closed on a missing topic.
+	BusCreateTopics     bool
+	BusTopicPartitions  int
+	BusTopicReplication int
 	// BusMaxBuffered bounds the async producer's in-flight buffer (U-004);
 	// 0 = the bus default (65536). Full buffer = shed + counted, never block.
 	BusMaxBuffered int
@@ -822,6 +831,9 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.BusSASLMechanism = l.str("PROBECTL_BUS_SASL_MECHANISM", "")
 	cfg.BusSASLUser = l.str("PROBECTL_BUS_SASL_USER", "")
 	cfg.BusSASLPassword = l.str("PROBECTL_BUS_SASL_PASSWORD", "")
+	cfg.BusCreateTopics = l.boolean("PROBECTL_BUS_CREATE_TOPICS", true)
+	cfg.BusTopicPartitions = l.intRange("PROBECTL_BUS_TOPIC_PARTITIONS", 3, 1, 1024)
+	cfg.BusTopicReplication = l.intRange("PROBECTL_BUS_TOPIC_REPLICATION", -1, -1, 32)
 	cfg.BusAllowPlaintext = l.boolean("PROBECTL_BUS_ALLOW_PLAINTEXT", false)
 	cfg.BusMaxBuffered = l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000)
 	cfg.IngestMaxSeriesPerAgent = l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_AGENT", 0, 0, 10_000_000)

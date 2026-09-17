@@ -56,7 +56,7 @@ func TestOneShotCommandsRouteSiloedTenants(t *testing.T) {
 		return path
 	}
 
-	// Without the router (the old one-shot behaviour) the siloed tenant is
+	// Without the router (the old one-shot behavior) the siloed tenant is
 	// served from the pooled schema.
 	tenancy.SetRouter(nil)
 	if p := searchPath(siloed); strings.Contains(p, "t_") {

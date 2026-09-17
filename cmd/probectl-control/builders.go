@@ -197,6 +197,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	if err != nil {
 		return fail(fmt.Errorf("result bus: %w", err))
 	}
+	// DPR-047: the lanes must exist before the first agent batch is flushed.
+	if err := ensureBusTopics(context.Background(), resultBus, cfg, log, busSharedTopics()); err != nil {
+		return fail(err)
+	}
+	installLaneTopicEnsurer(resultBus, cfg, log)
 	s.resultBus = resultBus
 	closers = append(closers, func() { _ = resultBus.Close() })
 

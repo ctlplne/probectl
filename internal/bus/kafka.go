@@ -10,11 +10,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 // Kafka is a franz-go-backed Bus (pure Go, CGO-free). TLS in transit is supported
@@ -51,6 +54,17 @@ type Kafka struct {
 	// measure a fresh namespace on a shared topic. Production defaults to
 	// AtStart so a brand-new group never skips buffered telemetry.
 	consumeFromEnd bool
+
+	// lastFailure is the most recent asynchronous produce failure (DPR-047).
+	// Flush only sees "context deadline exceeded" when records cannot be
+	// delivered; the underlying broker reason (unknown topic, authorization,
+	// ...) lives here so the operator-facing error can name it.
+	lastFailure atomic.Pointer[produceFailure]
+}
+
+type produceFailure struct {
+	topic string
+	err   error
 }
 
 // WithSubscribeWorkers sets the per-subscription parallelism (PROBECTL_BUS_WORKERS).
@@ -90,6 +104,9 @@ func NewKafka(brokers []string, maxBuffered int, extra ...kgo.Opt) (*Kafka, erro
 		kgo.SeedBrokers(brokers...),
 		kgo.MaxBufferedRecords(maxBuffered),
 		kgo.ProducerLinger(5 * time.Millisecond), // micro-batching on the hot path
+		// DPR-047: ask brokers that permit auto-creation to create a lane on
+		// first use; brokers that do not are covered by EnsureTopics at startup.
+		kgo.AllowAutoTopicCreation(),
 	}, extra...)
 	cl, err := kgo.NewClient(opts...)
 	if err != nil {
@@ -132,6 +149,7 @@ func (k *Kafka) Publish(ctx context.Context, topic string, key, value []byte) er
 			k.shed.Add(1) // lost the race for the last slot — still a counted shed
 		default:
 			k.failed.Add(1) // accepted, failed after the client's retries
+			k.recordFailure(topic, err)
 		}
 	})
 	return nil
@@ -155,7 +173,104 @@ func (k *Kafka) Stats() PublishStats {
 // agent, so a result is only acked once it is broker-durable (CORRECT-004) —
 // never acked-then-lost in the in-flight buffer if the process dies.
 func (k *Kafka) Flush(ctx context.Context) error {
-	return k.producer.Flush(ctx)
+	return k.flushError(k.producer.Flush(ctx))
+}
+
+// flushError decorates a failed flush with the last asynchronous produce
+// failure, so "context deadline exceeded" is never the whole story.
+func (k *Kafka) flushError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if f := k.lastFailure.Load(); f != nil {
+		return fmt.Errorf("%w (last produce failure on %s: %v)", err, f.topic, f.err)
+	}
+	return err
+}
+
+func (k *Kafka) recordFailure(topic string, err error) {
+	k.lastFailure.Store(&produceFailure{topic: topic, err: err})
+}
+
+// TopicsMissing returns the subset of topics the brokers do not know
+// (DPR-047). It never creates anything.
+func (k *Kafka) TopicsMissing(ctx context.Context, topics []string) ([]string, error) {
+	if len(topics) == 0 {
+		return nil, nil
+	}
+	req := kmsg.NewPtrMetadataRequest()
+	req.AllowAutoTopicCreation = false
+	for _, t := range topics {
+		topic := kmsg.NewMetadataRequestTopic()
+		name := t
+		topic.Topic = &name
+		req.Topics = append(req.Topics, topic)
+	}
+	resp, err := req.RequestWith(ctx, k.producer)
+	if err != nil {
+		return nil, fmt.Errorf("bus: kafka metadata: %w", err)
+	}
+	var missing []string
+	for _, t := range resp.Topics {
+		if t.Topic == nil {
+			continue
+		}
+		if kerr.ErrorForCode(t.ErrorCode) != nil {
+			missing = append(missing, *t.Topic)
+		}
+	}
+	sort.Strings(missing)
+	return missing, nil
+}
+
+// EnsureTopics creates the given topics when they are missing (DPR-047):
+// partitions per topic, replication -1 for the broker default. It returns the
+// topics it created; TOPIC_ALREADY_EXISTS is not an error. Any other broker
+// refusal (authorization, invalid replication) is returned so the plane can
+// fail closed with the reason instead of refusing every result batch later.
+func (k *Kafka) EnsureTopics(ctx context.Context, topics []string, partitions int32, replication int16) ([]string, error) {
+	missing, err := k.TopicsMissing(ctx, topics)
+	if err != nil {
+		return nil, err
+	}
+	if len(missing) == 0 {
+		return nil, nil
+	}
+	if partitions <= 0 {
+		partitions = 1
+	}
+	if replication == 0 {
+		replication = -1
+	}
+	req := kmsg.NewPtrCreateTopicsRequest()
+	req.TimeoutMillis = 15000
+	for _, t := range missing {
+		topic := kmsg.NewCreateTopicsRequestTopic()
+		topic.Topic = t
+		topic.NumPartitions = partitions
+		topic.ReplicationFactor = replication
+		req.Topics = append(req.Topics, topic)
+	}
+	resp, err := req.RequestWith(ctx, k.producer)
+	if err != nil {
+		return nil, fmt.Errorf("bus: kafka create topics: %w", err)
+	}
+	var created []string
+	for _, t := range resp.Topics {
+		switch e := kerr.ErrorForCode(t.ErrorCode); {
+		case e == nil:
+			created = append(created, t.Topic)
+		case errors.Is(e, kerr.TopicAlreadyExists):
+		default:
+			msg := e.Error()
+			if t.ErrorMessage != nil && *t.ErrorMessage != "" {
+				msg = *t.ErrorMessage
+			}
+			return created, fmt.Errorf("bus: kafka refused to create topic %s: %s", t.Topic, msg)
+		}
+	}
+	sort.Strings(created)
+	return created, nil
 }
 
 // Subscribe consumes topic in a consumer group until ctx is canceled.

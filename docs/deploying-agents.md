@@ -169,6 +169,29 @@ inventing a second unsupported key. BGP returns BMP listener hints, including
 `source_type: bmp`, `PROBECTL_BMP_COLLECTOR=<collector-id>`, and the startup
 command `probectl-bmp-listener`.
 
+## Bus topics
+
+The control plane creates the topics it publishes and consumes
+(`PROBECTL_BUS_CREATE_TOPICS=true`, the default; DPR-047): the shared lanes at
+startup and a siloed tenant's namespaced lanes as that tenant appears. If your
+broker user may not create topics, set it to `false` and pre-create these —
+startup then verifies them and fails closed naming any that is missing:
+
+| Topic | Producer → consumer |
+|---|---|
+| `probectl.network.results` | canary/synthetic agents (via the gRPC listener) → result pipeline |
+| `probectl.endpoint.results` | `probectl-endpoint` → result pipeline |
+| `probectl.rum.events` | RUM beacons → result pipeline |
+| `probectl.flow.events` | `probectl-flow-agent` → flow consumer |
+| `probectl.device.metrics` | `probectl-device-agent` → device consumer |
+| `probectl.bgp.events` | BMP listener / analyzer → BGP consumer |
+| `probectl.otlp.metrics` | OTLP ingest → metrics consumer |
+| `probectl.deadletter.results` | consumers → replay tooling |
+| `probectl.<namespace>.<lane>` | the same lanes, one namespace per siloed tenant |
+
+Partitions and replication for created topics: `PROBECTL_BUS_TOPIC_PARTITIONS`
+(3) and `PROBECTL_BUS_TOPIC_REPLICATION` (`-1` = the broker default).
+
 ## The producers
 
 ### Canary / synthetic — `probectl-agent`

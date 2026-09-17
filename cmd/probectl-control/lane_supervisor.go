@@ -31,6 +31,9 @@ func loadBusLaneSnapshot(ctx context.Context) (busLaneSnapshot, error) {
 		return busLaneSnapshot{}, fmt.Errorf("bus namespace registry unavailable: namespaces=%v tenants=%v", nsErr, ntErr)
 	}
 	sort.Strings(namespaces)
+	// DPR-047: a siloed tenant's lanes are created the moment its namespace
+	// is seen, so its producers are never refused for a missing topic.
+	ensureLaneTopics(ctx, slog.Default(), namespaces)
 	return busLaneSnapshot{namespaces: namespaces, tenants: cloneTenantMap(tenants)}, nil
 }
 

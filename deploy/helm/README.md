@@ -186,6 +186,12 @@ replicas. Provider profiles also need audit-retention watermarks at install time
 tenant audit rows prune only below the SIEM cursor, and provider/break-glass rows
 prune only below the signed WORM segment watermark.
 
+The control plane creates its Kafka topics itself at startup (and a siloed
+tenant's lanes when that tenant appears); give the bus user `CREATE` on
+`probectl.*`, or pre-create the list in
+[`docs/deploying-agents.md`](../../docs/deploying-agents.md#bus-topics) and set
+`PROBECTL_BUS_CREATE_TOPICS=false` (DPR-047).
+
 Each tenant also needs its IR public key in the shared keyring
 (`PROBECTL_IR_PUBLIC_KEY_DIR/<tenant-uuid>.pem`) before an operator can request
 break-glass into it; until then the request is refused with
