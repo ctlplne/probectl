@@ -407,6 +407,8 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 		bad=$$(gofmt -l $$files); \
 		test -z "$$bad" || { echo "gofmt needed on:"; echo "$$bad"; exit 1; }
 	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet ./... ) || exit 1; done
+	@# DPR-097: integration-tagged tests (the chaos self-test, the store suite) must at least compile on every change.
+	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet -tags integration ./... ) || exit 1; done
 	golangci-lint run
 	./scripts/check_crypto_imports.sh
 	./scripts/check_repo_hygiene.sh SELFTEST && ./scripts/check_repo_hygiene.sh

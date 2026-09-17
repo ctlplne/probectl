@@ -87,7 +87,7 @@ func TestChaosRunDetectedBySLO(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "chaos.yaml"), yaml, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	slos, err := slo.LoadDir(dir)
+	slos, err := slo.LoadDir(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestChaosRunDetectedBySLO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sigs := engine.ObserveResult("chaos-tenant", "udp", proxy.Addr(), res.Success, tick)
+			sigs := engine.ObserveResult("chaos-tenant", "udp", proxy.Addr(), "chaos-selftest", res.Success, tick)
 			for _, s := range sigs {
 				if s.Kind == "slo.burn_rate" || s.Plane == "slo" {
 					fired = true
