@@ -132,6 +132,15 @@ run_checks() {
     || err "deploy/compose/license.yml must require PROBECTL_LICENSE_PATH (no silent Community fallback)"
   grep -Eq '^PROBECTL_LICENSE_PATH=' "$root/deploy/compose/.env.example" \
     || err "deploy/compose/.env.example must document PROBECTL_LICENSE_PATH"
+  # DPR-017: the production stack must be able to accept an agent.
+  [ -f "$root/deploy/compose/agents.yml" ] \
+    || err "deploy/compose/agents.yml (agent listener overlay) must exist"
+  for key in PROBECTL_AGENT_GRPC_ADDR PROBECTL_AGENT_TLS_CERT_FILE PROBECTL_AGENT_TLS_KEY_FILE PROBECTL_AGENT_TLS_CA_FILE; do
+    grep -Fq "$key:" "$root/deploy/compose/agents.yml" \
+      || err "deploy/compose/agents.yml must set $key (the listener is all-or-nothing)"
+  done
+  grep -Fq 'agent-ca init' "$root/docs/install.md" \
+    || err "docs/install.md must walk through agent-ca init/export before enabling agents.yml"
   # DPR-011: an MSP license must be startable on the shipped stack.
   [ -f "$root/deploy/compose/provider.yml" ] \
     || err "deploy/compose/provider.yml (provider-plane overlay) must exist"
@@ -235,6 +244,15 @@ services:
       PROBECTL_AUDIT_WORM_DIR: /var/lib/probectl/audit-worm
       PROBECTL_IR_PUBLIC_KEY_DIR: /var/lib/probectl/ir-keys
 YAML
+  cat > "$tmp/deploy/compose/agents.yml" <<'YAML'
+services:
+  control:
+    environment:
+      PROBECTL_AGENT_GRPC_ADDR: ":9443"
+      PROBECTL_AGENT_TLS_CERT_FILE: /certs/tls.crt
+      PROBECTL_AGENT_TLS_KEY_FILE: /certs/tls.key
+      PROBECTL_AGENT_TLS_CA_FILE: /var/lib/probectl/agent-ca.crt
+YAML
   cat > "$tmp/docs/install.md" <<'MD'
 The shipped compose stack has no mutable image default.
 If GHCR returns 401, run `docker login ghcr.io` with read:packages.
@@ -242,6 +260,7 @@ Set `PROBECTL_IMAGE` to use a mirror.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
 Set PROBECTL_TLS_DIR for a CA-issued certificate. Install a license with license.yml.
 Other PROBECTL_* keys go in deploy/compose/control.env.
+Run agent-ca init and agent-ca export, then enable agents.yml.
 MD
   echo '# example' > "$tmp/deploy/compose/control.env.example"
   cat > "$tmp/deploy/compose/README.md" <<'MD'

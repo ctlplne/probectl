@@ -1,0 +1,31 @@
+# Agent listener overlay for the shipped all-in-one stack (DPR-017).
+#
+# The production stack ships with no agent gRPC/mTLS listener, so no
+# producer can attach to it. This overlay turns the listener on, using the
+# same server certificate the HTTPS API serves and the agent CA trust bundle
+# you export once per deployment:
+#
+#   # 1. one-time, while the stack is running WITHOUT this overlay:
+#   docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml \
+#     exec control /usr/local/bin/app agent-ca init          # prints the ROOT key ONCE — keep it offline
+#   docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml \
+#     exec control /usr/local/bin/app agent-ca export /var/lib/probectl/agent-ca.crt
+#   # 2. restart with the listener on (add your other overlays as usual):
+#   make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/agents.yml'
+#   # 3. mint a join token (Admin & Settings → Agents → Enroll agent, or
+#   #    exec control /usr/local/bin/app enroll-token -tenant <uuid>) and run
+#   #    probectl-agent on the probe host pointing at <host>:9443 (docs/deploying-agents.md).
+#
+# The control plane reads the certificate files at startup and the listener
+# is all-or-nothing: without the exported agent-ca.crt it refuses to start,
+# which is why step 1 runs first. Agents present an mTLS SVID; there is no
+# plaintext or token-only agent transport.
+services:
+  control:
+    environment:
+      PROBECTL_AGENT_GRPC_ADDR: ":9443"
+      PROBECTL_AGENT_TLS_CERT_FILE: /certs/tls.crt
+      PROBECTL_AGENT_TLS_KEY_FILE: /certs/tls.key
+      PROBECTL_AGENT_TLS_CA_FILE: /var/lib/probectl/agent-ca.crt
+    ports:
+      - "9443:9443" # agent gRPC/mTLS — the only agent transport

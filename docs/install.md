@@ -222,6 +222,26 @@ because the things that actually watch the network — synthetic probes, the eBP
 host agent, flow collectors — are separate **producers** you deploy next. No
 producers, no data; that is expected, not a bug.
 
+**Turn on the agent listener of this stack first.** The production stack ships
+with the agent gRPC/mTLS listener off, because it needs the deployment's agent
+certificate authority. Create that CA once (the root key is printed exactly
+once — put it in offline custody), export its public trust bundle onto the
+persistent volume, then restart with the `agents.yml` overlay, which enables
+the listener on port 9443 with the same server certificate the API serves:
+
+```sh
+docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml \
+  exec control /usr/local/bin/app agent-ca init
+docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml \
+  exec control /usr/local/bin/app agent-ca export /var/lib/probectl/agent-ca.crt
+make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/agents.yml'
+```
+
+Then mint a join token (**Admin & Settings → Agents → Enroll agent**, or
+`exec control /usr/local/bin/app enroll-token -tenant <uuid>`) and enroll the
+agent from its host against `https://<host>:8443` with gRPC at `<host>:9443`
+([`deploying-agents.md`](deploying-agents.md)).
+
 Don't follow a one-off recipe here — the canonical journey is already written:
 
 - **See data in one command (no Go toolchain, any OS):** the **evaluation stack**
