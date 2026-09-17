@@ -83,6 +83,29 @@ The bundle contains:
    ```
    Use the digest produced by the internal registry after the verified image is
    pushed. The chart rejects a tag-only or missing digest.
+
+   **What `your-values.yaml` must contain.** The chart fails closed on every
+   security-critical value, so an install missing one refuses rather than
+   starting weakened — and on the far side of an air gap you cannot look the list
+   up. This is the minimum (DPR-142):
+
+   ```yaml
+   database:
+     url: postgres://probectl@postgres.internal:5432/probectl?sslmode=verify-full
+   control:
+     tls:
+       existingSecret: probectl-tls        # tls.crt / tls.key / ca.crt
+   ingress:
+     backendTLS:
+       serverName: probectl.internal       # must match a SAN on that certificate
+       trustSecret: probectl-internal-ca
+   secrets:
+     existingSecret: probectl-secrets      # or secrets.envelopeKey, a base64 32-byte KEK
+   ```
+
+   With those plus the two `--set` flags above, the chart renders and installs
+   with **no network access at all** — verified by rendering it inside a
+   container with no route to anywhere.
 4. **Install agents** from `packaging/` (deb/rpm via the Ansible role, or the
    binaries in `bin/`), then enroll them against the control plane. The Ansible
    `airgap` method verifies the local package's `.sig` and `.pem` before the

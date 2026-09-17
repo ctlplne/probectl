@@ -222,6 +222,7 @@
     "docs/mcp.md",
     "docs/multi-region.md",
     "docs/ndr.md",
+    "docs/ops/air-gap.md",
     "docs/ops/backup-restore.md",
     "docs/ops/branch-protection.md",
     "docs/ops/fleet-rollout.md",
