@@ -116,7 +116,11 @@ spec:
                 - |
                   {{- if .Values.backup.encryption.enabled }}
                   out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump.pbk"
-                  pg_dump -h {{ .Values.backup.postgres.host }} -U "$PGUSER" -d {{ .Values.backup.postgres.database }} --format=custom --no-owner                     | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "$out"
+                  trap 'rm -f "$out.tmp"' EXIT
+                  pg_dump -h {{ .Values.backup.postgres.host }} -U "$PGUSER" -d {{ .Values.backup.postgres.database }} --format=custom --no-owner \
+                    | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "$out.tmp"
+                  test -s "$out.tmp"
+                  mv "$out.tmp" "$out"
                   {{- else }}
                   out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump"
                   echo "WARNING writing PLAINTEXT tenant backup under explicit break-glass ack backup.plaintextAck=allow-plaintext-tenant-backup / PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup" >&2
