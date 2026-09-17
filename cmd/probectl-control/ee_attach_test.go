@@ -44,7 +44,7 @@ func TestProviderIRAdmissionRequiresSignedWORM(t *testing.T) {
 	err := attachProviderIRDurability(context.Background(), nil, nil)
 	if err == nil || !strings.Contains(
 		err.Error(),
-		"requires signed WORM export",
+		"requires signed WORM audit export",
 	) {
 		t.Fatalf("nil-WORM provider IR admission error = %v, want fail-closed", err)
 	}
