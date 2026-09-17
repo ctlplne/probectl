@@ -7,6 +7,7 @@
 package cipolicy
 
 import (
+	"github.com/ctlplne/probectl/internal/agent"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,5 +34,32 @@ func TestPackagingSmokeUsesPortableSed(t *testing.T) {
 		if !strings.Contains(script, required) {
 			t.Fatalf("packaging smoke is missing portable render contract %q", required)
 		}
+	}
+}
+
+// DPR-034: the packaged agent conffile must point at exactly the files
+// `probectl-agent enroll` writes into the unit's state directory and at the
+// gRPC listener without a scheme; a fresh package that disagrees with the
+// enrollment receipt cannot start after the documented enrollment.
+func TestPackagedAgentConffileMatchesEnrollment(t *testing.T) {
+	conf := readRepoFile(t, "deploy", "packaging", "config", "agent.yaml")
+	for _, want := range []string{
+		"cert_file: /var/lib/probectl-agent/identity/" + agent.IdentityCertFile,
+		"key_file: /var/lib/probectl-agent/identity/" + agent.IdentityKeyFile,
+		"ca_file: /var/lib/probectl-agent/identity/" + agent.IdentityServerCAFile,
+		`grpc_addr: "CONTROL-HOST:9443"`,
+		"identity:",
+		"server: https://CONTROL-HOST:8443",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("deploy/packaging/config/agent.yaml is missing %q (DPR-034)", want)
+		}
+	}
+	if strings.Contains(conf, `grpc_addr: "https://`) {
+		t.Error("grpc_addr must be host:port without a scheme; the agent dials gRPC over mTLS, not HTTPS (DPR-034)")
+	}
+	unit := readRepoFile(t, "deploy", "packaging", "systemd", "probectl-agent.service")
+	if !strings.Contains(unit, "StateDirectory=probectl-agent") || !strings.Contains(unit, "ReadWritePaths=/var/lib/probectl-agent") {
+		t.Error("the unit must keep /var/lib/probectl-agent writable: that is where enroll lands the identity (DPR-034)")
 	}
 }

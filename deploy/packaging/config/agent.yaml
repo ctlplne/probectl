@@ -4,12 +4,19 @@
 # Full key reference: docs/configuration.md.
 apiVersion: probectl.io/agent/v1
 control_plane:
-  grpc_addr: "https://CONTROL-HOST:8443"   # mTLS agent transport (never plaintext)
+  # The control plane's agent gRPC/mTLS listener (PROBECTL_AGENT_GRPC_ADDR,
+  # 9443 in the shipped stacks): host:port, no scheme. Never plaintext.
+  grpc_addr: "CONTROL-HOST:9443"
 tls:
-  cert_file: /var/lib/probectl-agent/identity/agent.crt
-  key_file: /var/lib/probectl-agent/identity/agent.key
-  ca_file: /var/lib/probectl-agent/identity/ca.crt
+  # Exactly what `probectl-agent enroll --dir /var/lib/probectl-agent/identity`
+  # writes (DPR-034): the SVID, its key, and the trust the enrollment verified
+  # the control plane with (server-ca.pem) — NOT ca.pem, the agent-CA bundle.
+  cert_file: /var/lib/probectl-agent/identity/cert.pem
+  key_file: /var/lib/probectl-agent/identity/key.pem
+  ca_file: /var/lib/probectl-agent/identity/server-ca.pem
   server_name: ""                          # SNI/cert name if it differs from the host
+identity:
+  server: https://CONTROL-HOST:8443        # the API; enables automatic SVID rotation
 agent:
   hostname: ""                             # defaults to the OS hostname
   capabilities: []
