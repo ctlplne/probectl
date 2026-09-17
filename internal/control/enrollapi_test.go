@@ -22,6 +22,8 @@ import (
 type forensicEnrollmentService struct {
 	enrollErr error
 	rotateErr error
+	// collectorErr is what RegisterCollectorForTenant fails with (DPR-048).
+	collectorErr error
 }
 
 func (f forensicEnrollmentService) Enroll(context.Context, enroll.Request) (*enroll.Identity, error) {
@@ -32,7 +34,10 @@ func (forensicEnrollmentService) MintToken(context.Context, string, string, stri
 	return "", "", nil
 }
 
-func (forensicEnrollmentService) RegisterCollectorForTenant(context.Context, string, string, string, string, string) (*enroll.CollectorIdentity, error) {
+func (f forensicEnrollmentService) RegisterCollectorForTenant(context.Context, string, string, string, string, string) (*enroll.CollectorIdentity, error) {
+	if f.collectorErr != nil {
+		return nil, f.collectorErr
+	}
 	return nil, nil
 }
 

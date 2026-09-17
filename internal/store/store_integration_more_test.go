@@ -11,10 +11,12 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -695,6 +697,36 @@ func TestSIEMCursorAndIntegrationLinks(t *testing.T) {
 		}
 		if list, err := (IncidentIntegrations{}).ListForIncident(ctx, s, inc.ID); err != nil || len(list) != 1 {
 			t.Fatalf("list links: %v / %d", err, len(list))
+		}
+		return nil
+	})
+}
+
+// TestAgentsRegisterDuplicateNameIsAConflict (DPR-048): a second registration
+// under a name the tenant already uses is a conflict the operator can act on,
+// not a raw unique-constraint error.
+func TestAgentsRegisterDuplicateNameIsAConflict(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	tn, err := NewTenants(pool).Create(ctx, fmt.Sprintf("agdup-%d", time.Now().UnixNano()), "Agents dup")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	first := fmt.Sprintf("a8000000-0000-4000-8000-%012x", time.Now().UnixNano()&0xffffffffffff)
+	second := fmt.Sprintf("a8000000-0000-4000-8001-%012x", time.Now().UnixNano()&0xffffffffffff)
+	inTenant(ctx, t, pool, tn.ID, func(ctx context.Context, s tenancy.Scope) error {
+		if _, err := (Agents{}).Register(ctx, s, first, "helm-flow-1", "host-1", "1.0.0", "", []string{"collector", "flow"}); err != nil {
+			t.Fatalf("first register: %v", err)
+		}
+		_, err := (Agents{}).Register(ctx, s, second, "helm-flow-1", "host-2", "1.0.0", "", []string{"collector", "flow"})
+		ae, ok := apierror.As(err)
+		if !ok || ae.Kind != apierror.KindConflict || !strings.Contains(err.Error(), `"helm-flow-1"`) {
+			t.Fatalf("duplicate name must be a named conflict, got %v", err)
+		}
+		// The same id re-registering is still the idempotent upsert.
+		if _, err := (Agents{}).Register(ctx, s, first, "helm-flow-1", "host-1", "1.0.1", "", []string{"collector", "flow"}); err != nil {
+			t.Fatalf("re-register same id: %v", err)
 		}
 		return nil
 	})

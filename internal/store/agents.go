@@ -9,7 +9,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -136,6 +140,13 @@ func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name,
 		 RETURNING `+agentCols,
 		id, s.Tenant.String(), name, hostname, version, string(caps), string(labelJSON), spiffeID), &a)
 	if err != nil {
+		// DPR-048: the (tenant, name) uniqueness is a conflict the operator can
+		// act on — reuse the existing registration or pick another name — not
+		// a raw SQLSTATE 23505 for the CLI to print.
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && pg.Code == "23505" {
+			return nil, apierror.Conflict(fmt.Sprintf("an agent or collector named %q is already registered in this tenant: reuse its agent_id, or register with another name", name))
+		}
 		return nil, err
 	}
 	return &a, nil

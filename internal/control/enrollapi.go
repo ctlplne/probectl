@@ -250,6 +250,11 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceCollector, tenantID)
 			return apierror.Unauthorized("collector registration refused")
 		}
+		// DPR-048: a name the tenant already uses is a 409 the caller can act
+		// on, not an opaque 500.
+		if ae, ok := apierror.As(err); ok && ae.Kind == apierror.KindConflict {
+			return err
+		}
 		s.log.Error("collector registration failed", "error", err.Error())
 		return apierror.Internal("collector registration failed")
 	}

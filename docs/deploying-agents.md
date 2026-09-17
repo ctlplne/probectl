@@ -161,6 +161,10 @@ probectl collector register --body '{"token":"pjt_...","plane":"flow","hostname"
 probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc00"}'
 ```
 
+Registering a second collector under a name the tenant already uses answers
+`409 conflict` naming the collision: reuse the existing `agent_id` or pick
+another name (DPR-048).
+
 The response includes `tenant_id`, `agent_id`, `capabilities`, and concrete
 config hints — including the tenant's **bus lane**
 (`PROBECTL_<PLANE>_BUS_NAMESPACE=t-<tenant-slug>`). Every active tenant, pooled
