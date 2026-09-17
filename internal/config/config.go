@@ -41,6 +41,10 @@ type Config struct {
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
+	// DrainGrace (DPR-103) keeps the listener open after readiness flips to
+	// draining so probes and load balancers observe the 503 and stop routing
+	// before connections are refused; 0 disables the window.
+	DrainGrace time.Duration
 
 	// Database.
 	DatabaseURL         string
@@ -780,6 +784,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.WriteTimeout = l.dur("PROBECTL_HTTP_WRITE_TIMEOUT", 15*time.Second)
 	cfg.IdleTimeout = l.dur("PROBECTL_HTTP_IDLE_TIMEOUT", 60*time.Second)
 	cfg.ShutdownTimeout = l.dur("PROBECTL_SHUTDOWN_TIMEOUT", 15*time.Second)
+	cfg.DrainGrace = l.dur("PROBECTL_DRAIN_GRACE", 5*time.Second)
 	cfg.DatabaseURL = strings.TrimSpace(l.getenv("PROBECTL_DATABASE_URL"))
 	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
 	cfg.HopGeoFile = l.str("PROBECTL_HOP_GEO_FILE", "")

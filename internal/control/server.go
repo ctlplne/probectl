@@ -330,6 +330,8 @@ type Server struct {
 	// off — single-factor deployments are unaffected.
 	requireMFA bool
 
+	// listener, when set, is served instead of binding cfg.HTTPAddr (tests).
+	listener net.Listener
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool
@@ -688,11 +690,16 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		s.log.Info("control-plane listening", "addr", s.cfg.HTTPAddr, "tls", tlsEnabled)
 		var err error
-		if tlsEnabled {
+		switch {
+		case s.listener != nil:
+			// A caller-owned socket (tests, embedders): the TLS posture is
+			// whatever the listener carries.
+			err = s.http.Serve(s.listener)
+		case tlsEnabled:
 			// Certificates live in TLSConfig, so the file arguments are empty.
 			// The server listens HTTPS only — plaintext is refused.
 			err = s.http.ListenAndServeTLS("", "")
-		} else {
+		default:
 			err = s.http.ListenAndServe()
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -709,11 +716,39 @@ func (s *Server) Run(ctx context.Context) error {
 		// Flip readiness to draining FIRST so the load balancer stops routing new
 		// requests here, then drain in-flight requests within the timeout (S34).
 		s.draining.Store(true)
+		// DPR-103: keep the listener open for the drain grace so a fresh
+		// readiness probe actually observes the 503 (healthz stays 200) and the
+		// load balancer removes this replica BEFORE connections are refused;
+		// closing the listener in the same instant made the drain unobservable.
+		if grace := s.drainGrace(); grace > 0 {
+			s.log.Info("draining: readiness reports 503 while the listener stays open", "grace", grace.String(), "timeout", s.cfg.ShutdownTimeout.String())
+			time.Sleep(grace)
+		}
 		s.log.Info("draining and shutting down", "timeout", s.cfg.ShutdownTimeout.String())
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 		defer cancel()
 		return s.http.Shutdown(shutdownCtx)
 	}
+}
+
+// WithListener serves on ln instead of binding cfg.HTTPAddr (tests and
+// embedders that own the socket).
+func (s *Server) WithListener(ln net.Listener) *Server {
+	s.listener = ln
+	return s
+}
+
+// drainGrace bounds the configured drain window to half the shutdown timeout
+// so in-flight requests always keep at least half of it.
+func (s *Server) drainGrace() time.Duration {
+	g := s.cfg.DrainGrace
+	if g <= 0 {
+		return 0
+	}
+	if limit := s.cfg.ShutdownTimeout / 2; limit > 0 && g > limit {
+		return limit
+	}
+	return g
 }
 
 // plaintextAllowed decides whether a non-TLS control listener may start
