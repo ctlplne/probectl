@@ -180,6 +180,10 @@ const en = {
     'probectl could not verify your session, so no tenant data is shown. Check the local control plane and retry.',
   'auth.unavailable.retry': 'Retry',
   'auth.unavailable.signIn': 'Start a new sign-in',
+  'norole.label': 'Access status',
+  'norole.badge': 'No role yet',
+  'norole.message':
+    'You are signed in as {email}, but this account holds no role in this tenant yet, so screens stay read-only or unavailable. Ask a tenant administrator to grant a role. On a brand-new deployment the operator grants the first one from the control host:',
   'edition.banner.label': 'License status',
   'edition.banner.badge.grace': 'License grace',
   'edition.banner.badge.readOnly': 'Read-only',
@@ -1479,6 +1483,10 @@ const es: Record<MessageKey, string> = {
     'probectl no pudo verificar tu sesion, por lo que no se muestran datos del tenant. Revisa el plano de control local y vuelve a intentarlo.',
   'auth.unavailable.retry': 'Volver a intentar',
   'auth.unavailable.signIn': 'Iniciar una nueva sesion',
+  'norole.label': 'Estado de acceso',
+  'norole.badge': 'Sin rol todavía',
+  'norole.message':
+    'Has iniciado sesión como {email}, pero esta cuenta aún no tiene ningún rol en este inquilino, así que las pantallas quedan en solo lectura o no disponibles. Pide a un administrador del inquilino que te asigne un rol. En un despliegue nuevo, el operador concede el primero desde el host de control:',
   'edition.banner.label': 'Estado de la licencia',
   'edition.banner.badge.grace': 'Gracia de licencia',
   'edition.banner.badge.readOnly': 'Solo lectura',
@@ -2628,6 +2636,10 @@ const es: Record<MessageKey, string> = {
 
 const ar: Record<MessageKey, string> = {
   ...en,
+  'norole.label': 'حالة الوصول',
+  'norole.badge': 'لا يوجد دور بعد',
+  'norole.message':
+    'لقد سجّلت الدخول باسم {email}، لكن هذا الحساب لا يملك أي دور في هذا المستأجر بعد، لذلك تبقى الشاشات للقراءة فقط أو غير متاحة. اطلب من مسؤول المستأجر منحك دوراً. في نشر جديد تماماً يمنح المشغّل الدور الأول من مضيف التحكم:',
   'nav.group.monitor': 'المراقبة',
   'nav.group.analyze': 'التحليل',
   'nav.group.secure': 'الأمان',

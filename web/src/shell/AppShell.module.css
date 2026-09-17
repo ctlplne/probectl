@@ -20,6 +20,16 @@
     'main sidebar';
 }
 
+/* The banner row hosts every shell-level notice (demo, license, no-role);
+ * stacking them here keeps each notice a plain block instead of three
+ * elements fighting over one grid area (DPR-016). */
+.banners {
+  grid-area: banner;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .main {
   grid-area: main;
   overflow-y: auto;
