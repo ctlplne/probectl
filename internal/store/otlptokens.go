@@ -88,15 +88,22 @@ func (o OTLPTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantI
 		o.pool,
 		func(ctx context.Context, s tenancy.Scope) error {
 			var resolved string
-			return s.Q.QueryRow(ctx,
-				`UPDATE otlp_tokens
-				    SET last_used_at = now()
+			// DPR-096: verify by reading; the last-used stamp is best-effort so
+			// OTLP ingest never pauses on a read-only standby or a fenced pool.
+			if err := s.Q.QueryRow(ctx,
+				`SELECT tenant_id::text FROM otlp_tokens
 				  WHERE token_hash = $1
 				    AND tenant_id = $2
-				    AND revoked_at IS NULL
-				 RETURNING tenant_id::text`,
+				    AND revoked_at IS NULL`,
 				tokenHash, tenantID,
-			).Scan(&resolved)
+			).Scan(&resolved); err != nil {
+				return err
+			}
+			touchCredential(ctx, s.Q,
+				`UPDATE otlp_tokens SET last_used_at = now()
+				  WHERE token_hash = $1 AND tenant_id = $2 AND revoked_at IS NULL`,
+				tokenHash, tenantID)
+			return nil
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

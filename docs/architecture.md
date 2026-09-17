@@ -808,7 +808,7 @@ authorization fingerprint; Postgres preserves the source row's identity, MFA
 claim, preferences, and absolute lifetime. Authenticated replacement locks the
 predecessor locator, preserving one-successor concurrency across physical
 silos. The cookie is **HttpOnly + SameSite=Lax**, and **Secure** on HTTPS.
-Postgres enforces both absolute and idle expiry during lookup. Successful login
+Postgres enforces both absolute and idle expiry during lookup. The activity stamp taken on each lookup is best-effort: on a read-only standby or a fenced writer pool a session, API token, OTLP token or SCIM token still resolves — reads keep serving during a failover — and only the idle clock pauses until writes return. Successful login
 and effective-permission changes rotate the opaque ID; a composite
 `(tenant_id, user_id)` foreign key prevents cross-tenant user/session pairing at
 the storage layer.

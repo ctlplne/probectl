@@ -172,3 +172,21 @@ func invalidCredential(err error, invalid error) error {
 	}
 	return err
 }
+
+// touchCredential stamps a credential's last-used activity as a best-effort
+// side effect of authentication (DPR-096). Authentication itself is a read:
+// while the writer endpoint is a read-only standby or the writer pool is
+// fenced, the stamp fails with a read-only error and MUST NOT fail the
+// login — the documented failover promise is that reads keep serving. The
+// update runs under a savepoint so a refused stamp leaves the surrounding
+// tenant transaction usable; every error is swallowed by design.
+func touchCredential(ctx context.Context, q tenancy.Querier, sql string, args ...any) {
+	if _, err := q.Exec(ctx, "SAVEPOINT credential_touch"); err != nil {
+		return
+	}
+	if _, err := q.Exec(ctx, sql, args...); err != nil {
+		_, _ = q.Exec(ctx, "ROLLBACK TO SAVEPOINT credential_touch")
+		return
+	}
+	_, _ = q.Exec(ctx, "RELEASE SAVEPOINT credential_touch")
+}

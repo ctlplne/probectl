@@ -75,15 +75,21 @@ func (s ScimTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantI
 		s.pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
 			var resolved string
-			return sc.Q.QueryRow(ctx,
-				`UPDATE scim_tokens
-				    SET last_used_at = now()
+			// DPR-096: verify by reading; the last-used stamp is best-effort.
+			if err := sc.Q.QueryRow(ctx,
+				`SELECT tenant_id::text FROM scim_tokens
 				  WHERE token_hash = $1
 				    AND tenant_id = $2
-				    AND revoked_at IS NULL
-				 RETURNING tenant_id::text`,
+				    AND revoked_at IS NULL`,
 				tokenHash, tenantID,
-			).Scan(&resolved)
+			).Scan(&resolved); err != nil {
+				return err
+			}
+			touchCredential(ctx, sc.Q,
+				`UPDATE scim_tokens SET last_used_at = now()
+				  WHERE token_hash = $1 AND tenant_id = $2 AND revoked_at IS NULL`,
+				tokenHash, tenantID)
+			return nil
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

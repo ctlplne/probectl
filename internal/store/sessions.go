@@ -57,9 +57,12 @@ func (s Sessions) Create(ctx context.Context, tokenHash []byte, sess auth.Sessio
 	})
 }
 
-// LookupByHash atomically verifies absolute + idle expiry and touches activity.
-// Returning no row deliberately conflates unknown, absolute-expired, and
-// idle-expired tokens so the caller cannot use the endpoint as a session oracle.
+// LookupByHash verifies absolute + idle expiry and touches activity. Returning
+// no row deliberately conflates unknown, absolute-expired, and idle-expired
+// tokens so the caller cannot use the endpoint as a session oracle. The
+// activity touch is best-effort (DPR-096): on a read-only standby or a fenced
+// writer pool the session still resolves, its idle clock merely does not
+// advance for the duration of the failover.
 func (s Sessions) LookupByHash(ctx context.Context, tokenHash []byte, idleTimeout time.Duration) (*auth.Session, error) {
 	if idleTimeout <= 0 {
 		idleTimeout = auth.DefaultSessionIdleTimeout
@@ -76,18 +79,17 @@ func (s Sessions) LookupByHash(ctx context.Context, tokenHash []byte, idleTimeou
 		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 		s.pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
-			return sc.Q.QueryRow(ctx,
-				`UPDATE sessions
-				    SET last_activity_at = now()
+			if err := sc.Q.QueryRow(ctx,
+				`SELECT id::text, tenant_id::text, user_id::text, email,
+				        display_name, mfa_satisfied, time_zone, locale,
+				        tenant_time_zone, tenant_locale, expires_at,
+				        created_at, last_activity_at, authorization_hash
+				   FROM sessions
 				  WHERE token_hash = $1
 				    AND tenant_id = $2
 				    AND replaced_at IS NULL
 				    AND expires_at > now()
-				    AND last_activity_at > now() - $3::interval
-				 RETURNING id::text, tenant_id::text, user_id::text, email,
-				           display_name, mfa_satisfied, time_zone, locale,
-				           tenant_time_zone, tenant_locale, expires_at,
-				           created_at, last_activity_at, authorization_hash`,
+				    AND last_activity_at > now() - $3::interval`,
 				tokenHash, tenantID, idleTimeout.String(),
 			).Scan(
 				&sess.ID, &sess.TenantID, &sess.UserID, &sess.Email,
@@ -95,7 +97,14 @@ func (s Sessions) LookupByHash(ctx context.Context, tokenHash []byte, idleTimeou
 				&sess.Locale, &sess.TenantTimeZone, &sess.TenantLocale,
 				&sess.ExpiresAt, &sess.CreatedAt, &sess.LastActivityAt,
 				&sess.AuthorizationHash,
-			)
+			); err != nil {
+				return err
+			}
+			touchCredential(ctx, sc.Q,
+				`UPDATE sessions SET last_activity_at = now()
+				  WHERE token_hash = $1 AND tenant_id = $2 AND replaced_at IS NULL`,
+				tokenHash, tenantID)
+			return nil
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

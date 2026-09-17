@@ -99,15 +99,22 @@ func (m MCPTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantID
 		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 		m.pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
-			return sc.Q.QueryRow(ctx,
-				`UPDATE mcp_tokens
-				    SET last_used_at = now()
+			// DPR-096: verify by reading; the last-used stamp is best-effort so
+			// a read-only standby or a fenced writer pool never turns into 401s.
+			if err := sc.Q.QueryRow(ctx,
+				`SELECT user_id::text FROM mcp_tokens
 				  WHERE token_hash = $1
 				    AND tenant_id = $2
-				    AND revoked_at IS NULL
-				 RETURNING user_id::text`,
+				    AND revoked_at IS NULL`,
 				tokenHash, tenantID,
-			).Scan(&userID)
+			).Scan(&userID); err != nil {
+				return err
+			}
+			touchCredential(ctx, sc.Q,
+				`UPDATE mcp_tokens SET last_used_at = now()
+				  WHERE token_hash = $1 AND tenant_id = $2 AND revoked_at IS NULL`,
+				tokenHash, tenantID)
+			return nil
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
