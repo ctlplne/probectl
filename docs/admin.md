@@ -54,7 +54,7 @@ roles inside the product** (DPR-027) — no SCIM, no control-host access, no SQL
 
 | Surface | What |
 |---|---|
-| UI | **Admin → Identity → People & roles**: list users with their roles, add a teammate (optionally with a role) before their first login, grant or revoke a role |
+| UI | **Admin → Identity → People & roles**: list users with their roles; grant a role to an existing person or to a new email (the person is created before their first login); remove a role |
 | API | `GET/POST /v1/directory/users`, `GET /v1/directory/roles`, `POST /v1/directory/users/{id}/roles`, `DELETE /v1/directory/users/{id}/roles/{role}` |
 | CLI | `probectl directory users` · `roles` · `create-user` · `grant <id>` · `revoke <id> <role>` |
 

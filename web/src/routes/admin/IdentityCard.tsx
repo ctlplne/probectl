@@ -106,10 +106,8 @@ export function IdentityCard() {
   const bindRole = useBindDirectoryRole()
   const unbindRole = useUnbindDirectoryRole()
   const [personEmail, setPersonEmail] = useState('')
-  const [personName, setPersonName] = useState('')
   const [personRole, setPersonRole] = useState('viewer')
   const [personError, setPersonError] = useState('')
-  const [grantChoice, setGrantChoice] = useState<Record<string, string>>({})
 
   const [tokenName, setTokenName] = useState('okta')
   const [createdToken, setCreatedToken] = useState('')
@@ -230,27 +228,21 @@ export function IdentityCard() {
   ]
 
   const roleOptions = (roles.data ?? []).map((r) => ({ value: r.slug, label: r.name }))
-  const submitPerson = async (e: FormEvent) => {
+  // One form grants a role to an existing person or creates the person with
+  // that role: fewer controls in the tab order, one obvious action.
+  const submitGrant = async (e: FormEvent) => {
     e.preventDefault()
     setPersonError('')
+    const email = personEmail.trim().toLowerCase()
+    if (!email) return
     try {
-      await createPerson.mutateAsync({
-        email: personEmail.trim(),
-        display_name: personName.trim() || undefined,
-        role: personRole || undefined,
-      })
+      const existing = (people.data ?? []).find((u) => u.email.toLowerCase() === email)
+      if (existing) {
+        await bindRole.mutateAsync({ id: existing.id, role: personRole })
+      } else {
+        await createPerson.mutateAsync({ email, role: personRole })
+      }
       setPersonEmail('')
-      setPersonName('')
-    } catch (err) {
-      setPersonError(err instanceof Error ? err.message : 'Could not add the teammate.')
-    }
-  }
-  const grant = async (user: DirectoryUser) => {
-    setPersonError('')
-    const role = grantChoice[user.id] || roleOptions[0]?.value
-    if (!role) return
-    try {
-      await bindRole.mutateAsync({ id: user.id, role })
     } catch (err) {
       setPersonError(err instanceof Error ? err.message : 'Could not grant the role.')
     }
@@ -301,31 +293,6 @@ export function IdentityCard() {
             ))}
           </span>
         ),
-    },
-    {
-      key: 'grant',
-      header: 'Grant a role',
-      render: (u) => (
-        <span className={styles.actions}>
-          <Select
-            label={`Role for ${u.email}`}
-            value={grantChoice[u.id] ?? roleOptions[0]?.value ?? ''}
-            onChange={(e) => setGrantChoice((prev) => ({ ...prev, [u.id]: e.target.value }))}
-            options={roleOptions}
-          />
-          <Button
-            type="button"
-            size="sm"
-            aria-label={`Grant role to ${u.email}`}
-            disabled={bindRole.isPending || roleOptions.length === 0}
-            onClick={() => {
-              void grant(u)
-            }}
-          >
-            Grant
-          </Button>
-        </span>
-      ),
     },
   ]
 
@@ -468,38 +435,36 @@ export function IdentityCard() {
 
         <form
           className={styles.actions}
-          aria-label="Add a teammate"
+          aria-label="Grant a role"
           onSubmit={(e) => {
-            void submitPerson(e)
+            void submitGrant(e)
           }}
         >
           <Field
             label="Teammate email"
+            hint="An existing person gets the role; a new address is created before their first login."
             value={personEmail}
             onChange={(e) => setPersonEmail(e.target.value)}
             placeholder="ada@example.com"
             required
           />
-          <Field
-            label="Display name"
-            value={personName}
-            onChange={(e) => setPersonName(e.target.value)}
-            placeholder="Ada Lovelace"
-          />
           <Select
             label="Role"
             value={personRole}
             onChange={(e) => setPersonRole(e.target.value)}
-            options={[{ value: '', label: 'No role yet' }, ...roleOptions]}
+            options={roleOptions}
           />
-          <Button type="submit" variant="primary" disabled={createPerson.isPending}>
-            Add teammate
+          <Button type="submit" variant="primary" disabled={createPerson.isPending || bindRole.isPending || roleOptions.length === 0}>
+            Grant
           </Button>
         </form>
         {personError ? (
           <p role="alert" className={styles.editionsLede}>
             {personError}
           </p>
+        ) : null}
+        {roles.isError ? (
+          <ErrorState description="Could not load the tenant's roles; grants are unavailable until they load." />
         ) : null}
         {people.isPending ? (
           <LoadingState label="Loading people…" />
@@ -515,7 +480,7 @@ export function IdentityCard() {
               <EmptyState
                 icon="admin"
                 title="No people yet"
-                description="Add a teammate above, or let your IdP push users and groups over SCIM."
+                description="Grant a role above, or let your IdP push users and groups over SCIM."
               />
             }
           />
