@@ -160,12 +160,27 @@ type Config struct {
 	AgentSkewWindow int
 	AgentMinVersion string
 
-	// Result pipeline (S6): message bus + time-series writer. BusMode is memory
-	// (default, lightweight) or kafka; TSDBMode is memory (default) or prometheus
-	// (remote-write to TSDBURL). The control plane consumes the result bus and
-	// writes to the TSDB.
+	// Result pipeline (S6): message bus + time-series writer.
+	//
+	// BusMode names one of three transports, and the difference between the
+	// first two is the whole point (DPR-119):
+	//
+	//	memory  VOLATILE lightweight — in-process, nothing survives a restart.
+	//	        The default because it needs no infrastructure, and development
+	//	        and test ONLY.
+	//	nats    DURABLE lightweight — one small NATS server with JetStream.
+	//	        Records on disk, consumer positions that survive a restart and a
+	//	        rolling upgrade. Production-supportable for small deployments.
+	//	kafka   the default at scale.
+	//
+	// TSDBMode is memory (default) or prometheus (remote-write to TSDBURL). The
+	// control plane consumes the result bus and writes to the TSDB.
 	BusMode    string
 	BusBrokers []string
+	// Durable lightweight mode (nats) tuning (DPR-119); zero = package default.
+	BusStreamMaxAge   time.Duration
+	BusStreamReplicas int
+	BusConsumerIdle   time.Duration
 	// In-memory bus tuning (lightweight mode, U-079): per-subscriber channel
 	// depth and the overflow policy (block | drop) when a subscriber lags.
 	// RESIL-002: the default is "block" so the agent is never ACKed after a
@@ -845,7 +860,10 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.AgentTLSCertFile = l.str("PROBECTL_AGENT_TLS_CERT_FILE", "")
 	cfg.AgentTLSKeyFile = l.str("PROBECTL_AGENT_TLS_KEY_FILE", "")
 	cfg.AgentTLSCAFile = l.str("PROBECTL_AGENT_TLS_CA_FILE", "")
-	cfg.BusMode = l.enum("PROBECTL_BUS_MODE", "memory", "memory", "kafka")
+	cfg.BusMode = l.enum("PROBECTL_BUS_MODE", "memory", "memory", "nats", "kafka")
+	cfg.BusStreamMaxAge = l.dur("PROBECTL_BUS_STREAM_MAX_AGE", 168*time.Hour)
+	cfg.BusStreamReplicas = l.intRange("PROBECTL_BUS_STREAM_REPLICAS", 1, 1, 5)
+	cfg.BusConsumerIdle = l.dur("PROBECTL_BUS_CONSUMER_IDLE", 168*time.Hour)
 	cfg.BusBrokers = l.list("PROBECTL_BUS_BROKERS")
 	cfg.BusMemoryBuffer = l.intRange("PROBECTL_BUS_MEMORY_BUFFER", 1024, 1, 1<<20)
 	cfg.BusMemoryOverflow = l.enum("PROBECTL_BUS_MEMORY_OVERFLOW", "block", "block", "drop")
@@ -1098,6 +1116,28 @@ func auditRetentionDefault(profile string) time.Duration {
 	return 0
 }
 
+// validateBusTransport holds every networked transport to the same fail-closed
+// policy (DPR-119): a server list, TLS, and credentials. "Lightweight" changes
+// how much infrastructure a deployment runs, never whether its telemetry
+// crosses the network in the clear.
+func validateBusTransport(l *loader, cfg *Config) {
+	switch cfg.BusMode {
+	case "kafka":
+		if len(cfg.BusBrokers) == 0 {
+			l.errf("PROBECTL_BUS_MODE=kafka requires PROBECTL_BUS_BROKERS (a comma-separated host:port list)")
+		}
+	case "nats":
+		if len(cfg.BusBrokers) == 0 {
+			l.errf("PROBECTL_BUS_MODE=nats requires PROBECTL_BUS_BROKERS (one or more nats:// or tls:// server URLs)")
+		}
+	default:
+		return
+	}
+	if err := cfg.BusSecurity().Validate(); err != nil {
+		l.errf("%s", err.Error())
+	}
+}
+
 func validateConfig(l *loader, cfg *Config) {
 	if err := branding.ValidateOverrides(cfg.ThemeOverrides); err != nil {
 		l.errf("PROBECTL_THEME_OVERRIDES: %v", err)
@@ -1122,14 +1162,7 @@ func validateConfig(l *loader, cfg *Config) {
 	if cfg.AgentGRPCAddr != "" && !cfg.AgentTransportEnabled() {
 		l.errf("PROBECTL_AGENT_GRPC_ADDR requires mTLS: also set PROBECTL_AGENT_TLS_CERT_FILE, PROBECTL_AGENT_TLS_KEY_FILE, and PROBECTL_AGENT_TLS_CA_FILE")
 	}
-	if cfg.BusMode == "kafka" && len(cfg.BusBrokers) == 0 {
-		l.errf("PROBECTL_BUS_MODE=kafka requires PROBECTL_BUS_BROKERS (a comma-separated host:port list)")
-	}
-	if cfg.BusMode == "kafka" {
-		if err := cfg.BusSecurity().Validate(); err != nil {
-			l.errf("%s", err.Error())
-		}
-	}
+	validateBusTransport(l, cfg)
 	if cfg.TSDBMode == "prometheus" && cfg.TSDBURL == "" {
 		l.errf("PROBECTL_TSDB_MODE=prometheus requires PROBECTL_TSDB_URL")
 	}
@@ -1403,6 +1436,11 @@ func (c *Config) BusSecurity() bus.Security {
 		SASLPassword:       c.BusSASLPassword,
 		AllowPlaintext:     c.BusAllowPlaintext,
 		MaxBufferedRecords: c.BusMaxBuffered,
+		Stream: bus.StreamPolicy{
+			MaxAge:            c.BusStreamMaxAge,
+			Replicas:          c.BusStreamReplicas,
+			InactiveThreshold: c.BusConsumerIdle,
+		},
 	}
 }
 

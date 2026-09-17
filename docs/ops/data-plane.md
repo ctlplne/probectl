@@ -15,7 +15,7 @@ enrolled agents; "events/s" is sustained bus throughput across all planes.
 
 | Tier | Agents | Events/s | Kafka | ClickHouse | Postgres | TSDB |
 |---|---|---|---|---|---|---|
-| S (small/all-in-one) | ≤ 25 | ≤ 2k | 1 broker (or NATS/Redis lightweight mode) | 1 node, 4 vCPU / 16 GiB / 200 GiB SSD | 2 vCPU / 4 GiB | in-process or 1 small VM |
+| S (small/all-in-one) | ≤ 25 | ≤ 2k | 1 Kafka broker, or one NATS server with JetStream (the durable lightweight mode, `PROBECTL_BUS_MODE=nats`) | 1 node, 4 vCPU / 16 GiB / 200 GiB SSD | 2 vCPU / 4 GiB | in-process or 1 small VM |
 | M | ≤ 250 | ≤ 20k | 3 brokers, RF=3 | 3 nodes, 8 vCPU / 32 GiB / 1 TiB NVMe each | 4 vCPU / 16 GiB + replica | VictoriaMetrics 1 node, 8 vCPU / 32 GiB |
 | L | ≤ 2.5k | ≤ 200k | 5+ brokers, RF=3, tiered storage | sharded, 6+ nodes, 16 vCPU / 64 GiB / 2 TiB NVMe | 8 vCPU / 32 GiB + HA replica | VM cluster, 3+ nodes |
 | XL | 10k+ | 1M+ | 9+ brokers, dedicated ZK/KRaft quorum | sharded + replicated, 12+ nodes | 16 vCPU / 64 GiB + HA | VM cluster, sharded |

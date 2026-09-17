@@ -190,9 +190,12 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		memOpts = append(memOpts, bus.WithOverflowDrop())
 	}
 	resultBus, err := bus.New(cfg.BusMode, cfg.BusBrokers, cfg.BusSecurity(), memOpts...)
-	if k, ok := resultBus.(*bus.Kafka); ok {
+	switch b := resultBus.(type) {
+	case *bus.Kafka:
 		// SCALE-001: key-sharded parallel consume per subscription.
-		k.WithSubscribeWorkers(cfg.BusWorkers)
+		b.WithSubscribeWorkers(cfg.BusWorkers)
+	case *bus.NATS:
+		b.WithSubscribeWorkers(cfg.BusWorkers)
 	}
 	if err != nil {
 		return fail(fmt.Errorf("result bus: %w", err))
@@ -1041,17 +1044,20 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 	m.Gauge("probectl_pipeline_tenant_rejected_total",
 		"Records dropped fail-closed by tenant verification (cross-tenant injection attempts / shared-lane refusals, WIRE-001).",
 		func() float64 { return float64(pipeline.TenantRejectedTotal()) })
-	if kb, ok := resultBus.(*bus.Kafka); ok {
+	// Every transport that can report its counters reports them, not just
+	// Kafka: an operator who moves to the durable lightweight bus keeps the
+	// same dashboard (DPR-119).
+	if sb, ok := resultBus.(bus.StatsReporter); ok {
 		m.Gauge("probectl_bus_produced", "Broker-acked records published to the bus.",
-			func() float64 { return float64(kb.Stats().Produced) })
+			func() float64 { return float64(sb.Stats().Produced) })
 		m.Gauge("probectl_bus_failed", "Records accepted into the producer buffer that failed asynchronously after retries.",
-			func() float64 { return float64(kb.Stats().Failed) })
+			func() float64 { return float64(sb.Stats().Failed) })
 		m.Gauge("probectl_bus_shed", "Records shed at the full in-flight buffer (broker degraded backpressure drop).",
-			func() float64 { return float64(kb.Stats().Shed) })
-		m.Gauge("probectl_bus_handler_errors", "Consumed records whose handler errored, leaving the offset uncommitted for redelivery (SCALE-007/CODE-007).",
-			func() float64 { return float64(kb.Stats().HandlerErrors) })
+			func() float64 { return float64(sb.Stats().Shed) })
+		m.Gauge("probectl_bus_handler_errors", "Consumed records whose handler errored, leaving the record unacknowledged for redelivery (SCALE-007/CODE-007).",
+			func() float64 { return float64(sb.Stats().HandlerErrors) })
 		m.Gauge("probectl_bus_buffered", "Records currently buffered in the async producer (in flight).",
-			func() float64 { return float64(kb.Stats().Buffered) })
+			func() float64 { return float64(sb.Stats().Buffered) })
 	}
 	// RESIL-002: the lightweight in-memory bus defaults to backpressure. If an
 	// operator explicitly selects drop isolation, drops are counted and Publish

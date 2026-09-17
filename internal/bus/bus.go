@@ -168,6 +168,17 @@ type SubscriberWaiter interface {
 	WaitForSubscribers(ctx context.Context, topic string, n int) bool
 }
 
+// StatsReporter is an optional Bus capability: the producer/consumer counters
+// a deployment watches on /metrics. It exists as an INTERFACE rather than a
+// concrete type because the metrics used to be registered only for the Kafka
+// bus: any other transport silently published no bus counters at all, so the
+// dashboard an operator relies on would have gone blank when they changed
+// transports (DPR-119/P5 — readiness and observability must not depend on
+// which implementation happens to be wired).
+type StatsReporter interface {
+	Stats() PublishStats
+}
+
 // PublishFailureReporter is an optional Bus capability: the cumulative count of
 // records that Publish ACCEPTED but that never reached the broker (failed after
 // the client's retries, or shed at a full buffer), plus the last such error.
@@ -207,14 +218,33 @@ func TopicFor(namespace, base string) (string, error) {
 	return "probectl." + namespace + "." + rest, nil
 }
 
-// New builds a Bus for the given mode. "memory" (or empty) is the lightweight
-// in-process bus; "kafka" requires brokers and enforces the transport policy
-// (U-010): TLS (+ optional SASL) unless the explicit dev-only AllowPlaintext
-// flag is set.
+// New builds a Bus for the given mode.
+//
+//	memory  VOLATILE lightweight: in-process, nothing survives a restart.
+//	        Development and tests ONLY — never a production transport.
+//	nats    DURABLE lightweight (DPR-119): one small NATS server with
+//	        JetStream. Records are on disk and a consumer's position survives a
+//	        restart and a rolling upgrade.
+//	kafka   the default at scale.
+//
+// Both networked modes enforce the same transport policy (U-010): TLS and
+// credentials, unless the explicit dev-only AllowPlaintext flag is set.
 func New(mode string, brokers []string, sec Security, memOpts ...MemoryOption) (Bus, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemory(memOpts...), nil
+	case "nats":
+		if len(brokers) == 0 {
+			return nil, errors.New("bus: nats mode requires PROBECTL_BUS_BROKERS (one or more nats:// or tls:// server URLs)")
+		}
+		if err := sec.Validate(); err != nil {
+			return nil, err
+		}
+		opts, err := sec.natsOpts()
+		if err != nil {
+			return nil, err
+		}
+		return NewNATS(brokers, sec.Stream, sec.MaxBufferedRecords, opts...)
 	case "kafka":
 		if len(brokers) == 0 {
 			return nil, errors.New("bus: kafka mode requires PROBECTL_BUS_BROKERS")
@@ -228,7 +258,7 @@ func New(mode string, brokers []string, sec Security, memOpts ...MemoryOption) (
 		}
 		return NewKafka(brokers, sec.MaxBufferedRecords, opts...)
 	default:
-		return nil, fmt.Errorf("bus: unknown mode %q (want memory|kafka)", mode)
+		return nil, fmt.Errorf("bus: unknown mode %q (want memory|nats|kafka)", mode)
 	}
 }
 

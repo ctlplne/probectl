@@ -132,7 +132,10 @@ create different names.
 The profile also **requires durable stores** — the control plane refuses to
 start the multi-tenant profile on the in-memory bus/TSDB/event stores
 ("requires durable bus/store modes; volatile lightweight modes are not
-allowed", DPR-029). Have these ready and wire them through `control.extraEnv`
+allowed", DPR-029). Note which word does the work there: *volatile*. The
+durable lightweight bus (`PROBECTL_BUS_MODE=nats`, one NATS server with
+JetStream) is a supported production transport and passes this check; the
+in-process `memory` bus is the one that does not (DPR-119). Have these ready and wire them through `control.extraEnv`
 (URLs and modes), `secrets.existingSecret` (the SASL password) and
 `control.credentialFiles` (the basic-auth files; see below). Every hop is TLS
 and verified through `control.trustBundle`:

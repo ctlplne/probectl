@@ -28,7 +28,7 @@ The admission check happens **before** the expensive work
 in O(1) — constant time, however large the burst — and never stalls the shared
 pipeline: the cost of saying "no" is tiny.
 Because the gate wraps the *consumer* (not the bus), it behaves identically
-whether the bus is Kafka or one of the lightweight modes. The meter names match
+whether the bus is Kafka, the durable lightweight mode (NATS/JetStream) or the volatile in-process one. The meter names match
 the metering vocabulary — `results_ingested`, `flow_events`, `ingest_bytes` —
 so metering, quotas, and fairness all agree on what one "unit" is; fairness adds
 a fourth meter of its own, `device_metrics` (the SNMP/gNMI device plane), which

@@ -616,8 +616,28 @@ func TestResultPipelineConfig(t *testing.T) {
 	if _, err := Load(envFunc(map[string]string{
 		"PROBECTL_BUS_MODE":    "kafka",
 		"PROBECTL_BUS_BROKERS": "b1:9092",
-	})); err == nil || !strings.Contains(err.Error(), "kafka without TLS") {
+	})); err == nil || !strings.Contains(err.Error(), "without TLS is refused") {
 		t.Errorf("plaintext kafka should be refused, got %v", err)
+	}
+	// DPR-119: the durable lightweight transport is held to the same rule —
+	// a "smaller" bus is not a plaintext bus.
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_BUS_MODE":    "nats",
+		"PROBECTL_BUS_BROKERS": "nats://b1:4222",
+	})); err == nil || !strings.Contains(err.Error(), "without TLS is refused") {
+		t.Errorf("plaintext nats should be refused, got %v", err)
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_BUS_MODE": "nats",
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_BUS_BROKERS") {
+		t.Errorf("nats without servers should be refused, got %v", err)
+	}
+	if cfg, err := Load(envFunc(map[string]string{
+		"PROBECTL_BUS_MODE":        "nats",
+		"PROBECTL_BUS_BROKERS":     "tls://b1:4222,tls://b2:4222",
+		"PROBECTL_BUS_TLS_ENABLED": "true",
+	})); err != nil || cfg.BusMode != "nats" || len(cfg.BusBrokers) != 2 {
+		t.Errorf("nats with TLS should load, got cfg=%v err=%v", cfg, err)
 	}
 	if _, err := Load(envFunc(map[string]string{
 		"PROBECTL_BUS_MODE":            "kafka",
@@ -1469,6 +1489,45 @@ func TestDataPlaneCredentialFilesAcceptedShapes(t *testing.T) {
 			}
 			if files := cfg.DataPlaneBasicAuthFiles; len(tc.env["PROBECTL_DATAPLANE_BASIC_AUTH_FILES"]) > 0 && len(files) == 0 {
 				t.Fatal("credential files were not parsed")
+			}
+		})
+	}
+}
+
+// TestDurableLightweightBusPassesTheProductionProfiles (DPR-119): the
+// production-like profiles refuse VOLATILE modes, and the word doing the work
+// there is "volatile", not "lightweight". The durable lightweight transport is
+// a supported production bus and must load in multi-tenant and regulated
+// profiles exactly as Kafka does; the in-process one must still be refused.
+func TestDurableLightweightBusPassesTheProductionProfiles(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile, func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_BUS_MODE"] = "nats"
+			env["PROBECTL_BUS_BROKERS"] = "tls://nats.example:4222"
+			env["PROBECTL_INGEST_STRICT_TENANT_LANES"] = "true"
+			cfg, err := Load(envFunc(env))
+			if err != nil {
+				t.Fatalf("the durable lightweight bus must be accepted by %s: %v", profile, err)
+			}
+			if cfg.BusMode != "nats" {
+				t.Fatalf("bus mode = %q", cfg.BusMode)
+			}
+			// Its stream policy carries the documented defaults.
+			if cfg.BusStreamMaxAge != 168*time.Hour || cfg.BusStreamReplicas != 1 || cfg.BusConsumerIdle != 168*time.Hour {
+				t.Errorf("stream policy defaults = %v / %d / %v", cfg.BusStreamMaxAge, cfg.BusStreamReplicas, cfg.BusConsumerIdle)
+			}
+			if p := cfg.BusSecurity().Stream; p.MaxAge != cfg.BusStreamMaxAge || p.Replicas != cfg.BusStreamReplicas {
+				t.Errorf("stream policy did not reach the bus: %+v", p)
+			}
+
+			// The volatile one is still refused by the same profile.
+			volatile := durableTenantProfileEnv(profile)
+			volatile["PROBECTL_BUS_MODE"] = "memory"
+			volatile["PROBECTL_INGEST_STRICT_TENANT_LANES"] = "true"
+			if _, err := Load(envFunc(volatile)); err == nil ||
+				!strings.Contains(err.Error(), "PROBECTL_BUS_MODE=memory") {
+				t.Errorf("the volatile bus must stay refused in %s, got %v", profile, err)
 			}
 		})
 	}

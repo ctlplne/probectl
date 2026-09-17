@@ -75,6 +75,29 @@ services:
       start_period: 20s
     networks: [probectl]
 
+  # DPR-119: the DURABLE lightweight bus. NATS with JetStream is what
+  # PROBECTL_BUS_MODE=nats talks to — records on disk, consumer positions that
+  # survive a restart. It is not started by the default integration runner; ask
+  # for it by name (docker compose -f dev.yml up -d nats) and point the control
+  # plane or `go test -tags integration ./internal/bus` at it with
+  # PROBECTL_TEST_NATS. DEV ONLY: plaintext on loopback, exactly like the kafka
+  # service above — production refuses a bus without TLS (U-010).
+  nats:
+    image: nats:2.11-alpine@sha256:e4bf19f15fd3218814a4e3c9e0064e1334bd8aa20d5984b9f1a0afd084f8cc00 # digest-pinned (U-061)
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "${PROBECTL_DEV_NATS_PORT:-4222}:4222"
+      - "${PROBECTL_DEV_NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+    networks: [probectl]
+
   clickhouse:
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
     ports:
@@ -133,6 +156,7 @@ services:
     networks: [probectl]
 
 volumes:
+  natsdata:
   pgdata:
   chdata:
   chbackups:

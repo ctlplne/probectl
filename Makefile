@@ -169,6 +169,7 @@ test-integration: ## Run integration tests across modules (needs a database / de
 		PROBECTL_OTELSTORE_URL="$(or $(PROBECTL_OTELSTORE_URL),http://probectl:probectl@localhost:8123)" \
 		PROBECTL_EBPFSTORE_URL="$(or $(PROBECTL_EBPFSTORE_URL),http://probectl:probectl@localhost:8123)" \
 		PROBECTL_TEST_CLICKHOUSE_URL="$(or $(PROBECTL_TEST_CLICKHOUSE_URL),http://probectl:probectl@localhost:8123)" \
+		PROBECTL_TEST_NATS="$(or $(PROBECTL_TEST_NATS),nats://localhost:4222)" \
 		./scripts/with_integration_stack_lock.sh test-integration bash -c 'set -euo pipefail; for d in $(GO_MODULE_DIRS); do \
 		echo ">> integration tests ($$d)"; \
 		( cd $$d && $(GO) test -p=1 -tags=integration -count=1 ./... ) || exit 1; \

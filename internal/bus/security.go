@@ -10,12 +10,16 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
@@ -48,13 +52,20 @@ type Security struct {
 	// (U-004); 0 = DefaultMaxBuffered. When full, new records are shed
 	// with ErrPublishShed and counted.
 	MaxBufferedRecords int
+
+	// Stream is the durability policy for the nats mode's JetStream streams
+	// and durable consumers (DPR-119); zero values take the defaults. It is
+	// ignored by the other modes.
+	Stream StreamPolicy
 }
 
-// Validate enforces the fail-closed policy for kafka mode.
+// Validate enforces the fail-closed policy for every networked bus mode
+// (kafka and nats — the durable lightweight transport is held to the same
+// rule, DPR-119).
 func (s Security) Validate() error {
 	if !s.TLSEnabled && !s.AllowPlaintext {
-		return errors.New("bus: kafka without TLS is refused (U-010) — enable TLS " +
-			"(BUS_TLS_ENABLED=true, optionally BUS_TLS_CA_FILE / client cert + SASL) " +
+		return errors.New("bus: a networked bus without TLS is refused (U-010) — enable TLS " +
+			"(BUS_TLS_ENABLED=true, optionally BUS_TLS_CA_FILE / client cert + credentials) " +
 			"or set the explicit dev-only BUS_ALLOW_PLAINTEXT=true flag")
 	}
 	switch strings.ToLower(s.SASLMechanism) {
@@ -88,6 +99,32 @@ func (s Security) kgoOpts() ([]kgo.Opt, error) {
 		return nil, err
 	} else if mech != nil {
 		opts = append(opts, kgo.SASL(mech))
+	}
+	return opts, nil
+}
+
+// natsOpts renders the same policy as NATS options (DPR-119). NATS
+// authenticates with a user and password rather than a SASL mechanism, so a
+// SCRAM mechanism is refused here instead of being silently ignored: a
+// credential the server will not see is the same as no credential.
+func (s Security) natsOpts() ([]nats.Option, error) {
+	var opts []nats.Option
+	if s.TLSEnabled {
+		cfg, err := s.tlsConfig()
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, nats.Secure(cfg))
+	}
+	switch strings.ToLower(s.SASLMechanism) {
+	case "", "plain":
+		if s.SASLUser != "" {
+			opts = append(opts, nats.UserInfo(s.SASLUser, s.SASLPassword))
+		}
+	default:
+		return nil, fmt.Errorf("bus: nats mode authenticates with a user and password; "+
+			"BUS_SASL_MECHANISM=%q is a Kafka mechanism NATS cannot use — set it to plain (or leave it empty) "+
+			"with BUS_SASL_USER / BUS_SASL_PASSWORD, or use client-certificate authentication", s.SASLMechanism)
 	}
 	return opts, nil
 }
@@ -143,6 +180,11 @@ func SecurityFromEnv(getenv func(string) string, prefix string) Security {
 		SASLPassword:       getenv(prefix + "_SASL_PASSWORD"),
 		AllowPlaintext:     getenv(prefix+"_ALLOW_PLAINTEXT") == "true",
 		MaxBufferedRecords: MaxBufferedFromEnv(getenv, prefix),
+		Stream: StreamPolicy{
+			MaxAge:            durationFromEnv(getenv, prefix+"_STREAM_MAX_AGE"),
+			Replicas:          intFromEnv(getenv, prefix+"_STREAM_REPLICAS"),
+			InactiveThreshold: durationFromEnv(getenv, prefix+"_CONSUMER_IDLE"),
+		},
 	}
 }
 
@@ -158,6 +200,33 @@ func MaxBufferedFromEnv(getenv func(string) string, prefix string) int {
 		if n > 10_000_000 {
 			return 10_000_000
 		}
+	}
+	return n
+}
+
+// durationFromEnv reads an optional Go duration; anything unset or unparseable
+// leaves the zero value, which means "the package default".
+func durationFromEnv(getenv func(string) string, key string) time.Duration {
+	v := strings.TrimSpace(getenv(key))
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
+}
+
+// intFromEnv reads an optional positive integer; 0 means "the package default".
+func intFromEnv(getenv func(string) string, key string) int {
+	v := strings.TrimSpace(getenv(key))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0
 	}
 	return n
 }

@@ -51,9 +51,11 @@ PROBECTL_DEV_KAFKA_PORT="$(free_port)"
 PROBECTL_DEV_CLICKHOUSE_HTTP_PORT="$(free_port)"
 PROBECTL_DEV_CLICKHOUSE_NATIVE_PORT="$(free_port)"
 PROBECTL_DEV_PROMETHEUS_PORT="$(free_port)"
+PROBECTL_DEV_NATS_PORT="$(free_port)"
+PROBECTL_DEV_NATS_MONITOR_PORT="$(free_port)"
 export PROBECTL_DEV_POSTGRES_PORT PROBECTL_DEV_KAFKA_PORT \
   PROBECTL_DEV_CLICKHOUSE_HTTP_PORT PROBECTL_DEV_CLICKHOUSE_NATIVE_PORT \
-  PROBECTL_DEV_PROMETHEUS_PORT
+  PROBECTL_DEV_PROMETHEUS_PORT PROBECTL_DEV_NATS_PORT PROBECTL_DEV_NATS_MONITOR_PORT
 
 ch="http://probectl:probectl@localhost:${PROBECTL_DEV_CLICKHOUSE_HTTP_PORT}"
 export PROBECTL_DATABASE_URL="${PROBECTL_DATABASE_URL:-postgres://probectl:probectl@localhost:${PROBECTL_DEV_POSTGRES_PORT}/probectl?sslmode=disable}"
@@ -64,12 +66,14 @@ export PROBECTL_FLOWSTORE_URL="${PROBECTL_FLOWSTORE_URL:-$ch}"
 export PROBECTL_PATHSTORE_URL="${PROBECTL_PATHSTORE_URL:-$ch}"
 export PROBECTL_OTELSTORE_URL="${PROBECTL_OTELSTORE_URL:-$ch}"
 export PROBECTL_EBPFSTORE_URL="${PROBECTL_EBPFSTORE_URL:-$ch}"
+# DPR-119: the durable lightweight bus, for `go test -tags integration ./internal/bus`.
+export PROBECTL_TEST_NATS="${PROBECTL_TEST_NATS:-nats://localhost:${PROBECTL_DEV_NATS_PORT}}"
 
 echo "isolated-integration: postgres :$PROBECTL_DEV_POSTGRES_PORT kafka :$PROBECTL_DEV_KAFKA_PORT clickhouse :$PROBECTL_DEV_CLICKHOUSE_HTTP_PORT prometheus :$PROBECTL_DEV_PROMETHEUS_PORT" >&2
 echo "isolated-integration: starting disposable project $project_name" >&2
 PROBECTL_ISOLATED_NETWORK="$network_name" \
   docker compose --project-name "$project_name" \
   -f "$compose_file" -f "$compose_override" \
-  up -d --wait postgres kafka clickhouse prometheus
+  up -d --wait postgres kafka clickhouse prometheus nats
 
 "$@"

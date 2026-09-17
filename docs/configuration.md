@@ -124,8 +124,11 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_AGENT_TLS_CERT_FILE`      | (none)                                                            | agent-transport server certificate (PEM)                   |
 | `PROBECTL_AGENT_TLS_KEY_FILE`       | (none)                                                            | agent-transport server private key (PEM)                   |
 | `PROBECTL_AGENT_TLS_CA_FILE`        | (none)                                                            | CA bundle that signs agent client certificates (PEM)       |
-| `PROBECTL_BUS_MODE`                 | `memory`                                                         | result bus: `memory` (lightweight, in-process) \| `kafka`  |
-| `PROBECTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers (required for `kafka`) |
+| `PROBECTL_BUS_MODE`                 | `memory`                                                         | result bus: `memory` (**volatile** lightweight — in-process, nothing survives a restart; development and tests only) \| `nats` (**durable** lightweight — one NATS server with JetStream; records on disk, consumer positions survive a restart and a rolling upgrade; production-supportable for small deployments, DPR-119) \| `kafka` (the default at scale) |
+| `PROBECTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers, or `nats://`/`tls://` server URLs for `nats`. Required for both networked modes |
+| `PROBECTL_BUS_STREAM_MAX_AGE`       | `168h`                                                           | `nats` only: how long a record stays on the broker (JetStream stream `MaxAge`, the equivalent of Kafka's retention) |
+| `PROBECTL_BUS_STREAM_REPLICAS`      | `1`                                                              | `nats` only: JetStream replica count. `1` is the single-broker lightweight shape; raise it on a NATS cluster |
+| `PROBECTL_BUS_CONSUMER_IDLE`        | `168h`                                                           | `nats` only: a durable consumer nobody has used for this long is retired by the server — the server-side half of the abandoned-view-group sweep (DPR-109) |
 | `PROBECTL_BUS_MEMORY_BUFFER`        | `1024`                                                           | in-memory bus: per-subscriber channel depth (lightweight mode) |
 | `PROBECTL_BUS_MEMORY_OVERFLOW`      | `block`                                                          | in-memory bus overflow policy (RESIL-002): `block` (default — back-pressure the publisher so an agent is not ACKed after a known in-process drop) \| `drop` (explicit isolation mode; drops are counted at `probectl_bus_memory_dropped` and `Publish` returns an error so upstream retries) |
 | `PROBECTL_BUS_TLS_ENABLED`          | `false`     | TLS to the Kafka brokers. **Required in kafka mode** unless the explicit dev flag below is set |
@@ -463,12 +466,32 @@ certificate** before publishing, so a result is always attributed to the sending
 agent's tenant regardless of payload contents — the tenant boundary is
 cryptographic, never self-asserted. The bus key is the `tenant_id`.
 
-`PROBECTL_BUS_MODE` selects the bus: `memory` (default; in-process, for the
-lightweight <5-agent deployment and single-binary runs) or `kafka` (set
-`PROBECTL_BUS_BROKERS`). In memory mode, `Flush` waits for current subscriber
-handlers to finish before the agent stream is ACKed. That makes the lightweight
-path at-least-once with respect to the in-process store/DLQ handlers, but it is
-still not a broker log; use Kafka for crash-replayable production transit.
+`PROBECTL_BUS_MODE` selects the bus, and there are **three** of them. Two of
+them used to be described by one word, "lightweight", which is how a deployment
+could end up on a transport that loses everything it holds when the process
+exits (DPR-119). They are named separately now:
+
+| Mode | What it is | Survives a restart? | Use it for |
+|---|---|---|---|
+| `memory` | **volatile lightweight** — in-process pub/sub, no broker | **No.** Everything in flight is gone | development, tests, single-binary runs |
+| `nats` | **durable lightweight** — one NATS server with JetStream | **Yes** — records are on disk and each consumer's position lives on the server | small production deployments that do not want Kafka |
+| `kafka` | the default at scale | Yes | everything larger |
+
+In `memory` mode, `Flush` waits for current subscriber handlers to finish before
+the agent stream is ACKed. That makes the volatile path at-least-once with
+respect to the in-process store/DLQ handlers, but it is still not a broker log:
+a crash loses what it held, which is why it is not a production transport.
+
+In `nats` mode each topic is a JetStream stream of its own (so a siloed tenant's
+lane stays its own lane), each consumer group is a durable consumer whose
+position survives restarts and rolling upgrades, a message is acknowledged only
+after its handler returns nil, and `Flush` waits for the server's
+acknowledgement — the same delivery contract Kafka carries. Set
+`PROBECTL_BUS_BROKERS` to one or more `nats://`/`tls://` URLs. The transport
+policy is identical to Kafka's: TLS and credentials are required, and a bus
+without TLS is refused unless the explicit dev-only
+`PROBECTL_BUS_ALLOW_PLAINTEXT=true` flag is set. "Lightweight" never meant
+"plaintext".
 `PROBECTL_TSDB_MODE` selects the writer: `memory` (default; in-process) or
 `prometheus` remote-write to `PROBECTL_TSDB_URL` (Prometheus with
 `--web.enable-remote-write-receiver`, or VictoriaMetrics; use an `https://` URL
