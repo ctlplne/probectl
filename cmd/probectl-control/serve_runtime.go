@@ -378,6 +378,14 @@ func (rt *serveRuntime) buildAPIServer() error {
 	// DPR-101: sensitive-read audit events deferred during a failover are
 	// appended once the writer is usable again.
 	rt.g.Go(func() error { rt.srv.RunDeferredAudit(rt.gctx); return nil })
+	// DPR-109: the per-replica view consumer groups abandoned by processes that
+	// are gone (every restart and every rolling upgrade leaves a full set) are
+	// deleted, so they stop piling up on the broker and stop reading as huge
+	// permanent backlogs on every consumer-lag view.
+	rt.g.Go(func() error {
+		control.RunViewGroupSweep(rt.gctx, rt.resultBus, rt.cfg.ViewGroupSweep, rt.srv.Metrics(), rt.log)
+		return nil
+	})
 	// DPR-102: the loaded license and every state transition (active -> grace
 	// -> read-only, or a swapped file) land in the provider audit stream.
 	rt.g.Go(func() error {
@@ -643,7 +651,7 @@ func (rt *serveRuntime) startSLOAndComplianceConsumers() {
 					WithTenantBinding(rt.tenantBinding).
 					WithNamespaceTenants(snap.tenants)
 				if rt.db != nil && rt.db.Pool() != nil {
-					cc = cc.WithAlertGate(control.NewPGComplianceGate(rt.db.Pool())) // DPR-073
+					cc = cc.WithAlertGate(control.NewPGComplianceGate(rt.db.Pool(), rt.cfg.ComplianceRealert)) // DPR-073, DPR-110
 				}
 				return cc.Run(ctx)
 			})

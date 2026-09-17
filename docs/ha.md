@@ -34,6 +34,20 @@ tenant-partitioned view. Consumers that create external side effects, such as
 incident correlation and SIEM export, keep shared groups so a signal is emitted
 once for the cluster.
 
+A per-replica group is named after the process that owns it, so every restart
+and every rolling upgrade leaves a full set of groups behind — one per view lane
+per tenant — each still holding the offsets it had committed. Kafka keeps them
+until its offset retention expires (7 days by default), so they pile up on the
+broker, and because their offsets never move again, consumer-lag dashboards and
+alerts read them as enormous permanent backlogs. Each instance therefore sweeps
+them: every `PROBECTL_VIEW_GROUP_SWEEP` (default 15 minutes) it deletes the view
+groups the broker reports as EMPTY — nobody is consuming them — and that do not
+belong to it. This is safe for exactly the reason the groups are per-replica:
+they carry no side effects, and a fresh process rebuilds its view from the start
+of the stream regardless of what was committed. Shared durable groups are never
+touched, and a broker that does not grant group administration simply logs the
+refusal. Watch `probectl_view_groups_swept_total`.
+
 Threat detections (`/v1/threat/detections`) do not depend on per-replica RAM in
 production. The IOC/NDR/TLS consumers write their attributed threat signals into
 the tenant-scoped `incident_signals` table while opening/correlating incidents.

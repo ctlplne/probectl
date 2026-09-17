@@ -140,6 +140,20 @@ type Flusher interface {
 	Flush(ctx context.Context) error
 }
 
+// GroupJanitor is an optional Bus capability: list the consumer groups nobody
+// is consuming and delete them (DPR-109). The per-replica view groups are named
+// after the process that owns them, so every restart and every rolling upgrade
+// abandons a full set of them; without a sweep they accumulate on the broker
+// and every lag dashboard reads them as enormous, permanent backlogs. A bus
+// that cannot introspect groups simply does not implement this.
+type GroupJanitor interface {
+	// ListEmptyGroups returns groups the broker reports with no members.
+	ListEmptyGroups(ctx context.Context) ([]string, error)
+	// DeleteGroups removes groups and their committed offsets, returning the
+	// ones actually deleted.
+	DeleteGroups(ctx context.Context, groups []string) ([]string, error)
+}
+
 // SubscriberWaiter is an optional Bus capability: block until at least n
 // subscribers are registered on a topic (or ctx is done). The in-memory bus is
 // a LIVE pub/sub — it only delivers to subscribers present at publish time — so

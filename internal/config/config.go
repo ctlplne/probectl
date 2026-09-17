@@ -28,6 +28,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/cluster"
 	"github.com/ctlplne/probectl/internal/crypto"
 )
 
@@ -45,6 +46,17 @@ type Config struct {
 	// draining so probes and load balancers observe the 503 and stop routing
 	// before connections are refused; 0 disables the window.
 	DrainGrace time.Duration
+	// ViewGroupSweep (DPR-109) is how often this instance deletes the
+	// per-replica view consumer groups left behind by control-plane processes
+	// that are gone; 0 disables the sweep.
+	ViewGroupSweep time.Duration
+	// ClusterProbeTimeout (DPR-095) bounds each multi-region role probe so one
+	// unreachable endpoint cannot stall the refresh loop that drives the write
+	// fence; 0 uses the package default.
+	ClusterProbeTimeout time.Duration
+	// ComplianceRealert (DPR-110) is how long a claimed segmentation violation
+	// stays claimed before the pair re-arms; 0 uses the package default.
+	ComplianceRealert time.Duration
 
 	// Database.
 	DatabaseURL         string
@@ -785,6 +797,9 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.IdleTimeout = l.dur("PROBECTL_HTTP_IDLE_TIMEOUT", 60*time.Second)
 	cfg.ShutdownTimeout = l.dur("PROBECTL_SHUTDOWN_TIMEOUT", 15*time.Second)
 	cfg.DrainGrace = l.dur("PROBECTL_DRAIN_GRACE", 5*time.Second)
+	cfg.ViewGroupSweep = l.dur("PROBECTL_VIEW_GROUP_SWEEP", 15*time.Minute)
+	cfg.ClusterProbeTimeout = l.dur("PROBECTL_CLUSTER_PROBE_TIMEOUT", cluster.DefaultProbeTimeout)
+	cfg.ComplianceRealert = l.dur("PROBECTL_COMPLIANCE_REALERT", 24*time.Hour)
 	cfg.DatabaseURL = strings.TrimSpace(l.getenv("PROBECTL_DATABASE_URL"))
 	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
 	cfg.HopGeoFile = l.str("PROBECTL_HOP_GEO_FILE", "")

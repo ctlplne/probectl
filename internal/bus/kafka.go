@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -282,6 +283,63 @@ func (k *Kafka) EnsureTopics(ctx context.Context, topics []string, partitions in
 	}
 	sort.Strings(created)
 	return created, nil
+}
+
+// ListEmptyGroups returns the consumer groups the brokers report with no
+// members — nobody is consuming them (DPR-109). A group whose state the broker
+// does not report is never included: an old broker that answers ListGroups
+// without a state must not be read as "everything is abandoned".
+func (k *Kafka) ListEmptyGroups(ctx context.Context) ([]string, error) {
+	req := kmsg.NewPtrListGroupsRequest()
+	req.StatesFilter = []string{"Empty", "Dead"}
+	resp, err := req.RequestWith(ctx, k.producer)
+	if err != nil {
+		return nil, fmt.Errorf("bus: kafka list groups: %w", err)
+	}
+	if e := kerr.ErrorForCode(resp.ErrorCode); e != nil {
+		return nil, fmt.Errorf("bus: kafka list groups: %w", e)
+	}
+	var empty []string
+	for _, g := range resp.Groups {
+		switch strings.ToLower(g.GroupState) {
+		case "empty", "dead":
+			empty = append(empty, g.Group)
+		}
+	}
+	sort.Strings(empty)
+	return empty, nil
+}
+
+// DeleteGroups removes consumer groups and the committed offsets they hold,
+// returning the ones actually deleted. A group that is no longer there, or that
+// gained a member since it was listed, is not an error — the next sweep sees it
+// again. Any other refusal (authorization) is returned so the caller can say so
+// once instead of retrying blindly.
+func (k *Kafka) DeleteGroups(ctx context.Context, groups []string) ([]string, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	req := kmsg.NewPtrDeleteGroupsRequest()
+	req.Groups = append(req.Groups, groups...)
+	resp, err := req.RequestWith(ctx, k.producer)
+	if err != nil {
+		return nil, fmt.Errorf("bus: kafka delete groups: %w", err)
+	}
+	var deleted []string
+	var refused error
+	for _, g := range resp.Groups {
+		switch e := kerr.ErrorForCode(g.ErrorCode); {
+		case e == nil:
+			deleted = append(deleted, g.Group)
+		case errors.Is(e, kerr.GroupIDNotFound), errors.Is(e, kerr.NonEmptyGroup):
+		default:
+			if refused == nil {
+				refused = fmt.Errorf("bus: kafka refused to delete group %s: %w", g.Group, e)
+			}
+		}
+	}
+	sort.Strings(deleted)
+	return deleted, refused
 }
 
 // Subscribe consumes topic in a consumer group until ctx is canceled.
