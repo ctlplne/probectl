@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/httpbody"
 	"github.com/ctlplne/probectl/internal/i18n"
 )
@@ -39,6 +40,11 @@ type Config struct {
 	// token. SessionCookie exists only in memory after that file is read.
 	SessionCookieFile string
 	SessionCookie     string
+	// CAFile is a PEM bundle that verifies the control plane's certificate
+	// (DPR-077). Enterprises front probectl with a private CA; Go on macOS
+	// ignores SSL_CERT_FILE, so without this knob the CLI could only reach a
+	// control plane whose issuer is in the OS trust store.
+	CAFile string
 }
 
 // run executes one CLI invocation and returns a process exit code. It is pure
@@ -60,6 +66,7 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		SessionCookieFile: getenv(
 			"PROBECTL_SESSION_COOKIE_FILE",
 		),
+		CAFile: getenv("PROBECTL_CA_FILE"),
 	}
 	// --json may appear anywhere; strip it before flag parsing.
 	args, cfg.JSON = extractBoolFlag(args, "--json")
@@ -74,6 +81,7 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 	fs.StringVar(&cfg.BaseURL, "url", cfg.BaseURL, "control-plane API base URL (env PROBECTL_API_URL)")
 	fs.StringVar(&cfg.Token, "token", cfg.Token, "API auth token, sent as Bearer (env PROBECTL_API_TOKEN)")
 	fs.StringVar(&cfg.Tenant, "tenant", cfg.Tenant, "tenant UUID, sent as X-Probectl-Tenant (env PROBECTL_TENANT)")
+	fs.StringVar(&cfg.CAFile, "ca-file", cfg.CAFile, "PEM CA bundle that verifies the control plane's certificate (env PROBECTL_CA_FILE); default: the OS trust store")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -142,8 +150,27 @@ const (
 )
 
 func newClient(cfg Config) *client {
-	return &client{cfg: cfg, hc: &http.Client{Timeout: 15 * time.Second}}
+	return &client{cfg: cfg, hc: &http.Client{Timeout: 15 * time.Second, Transport: clientTransport(cfg)}}
 }
+
+// clientTransport verifies the control plane against the OS trust store, or
+// against the operator's private CA bundle when PROBECTL_CA_FILE / --ca-file
+// is set (DPR-077). Verification is never disabled; an unreadable or
+// non-PEM bundle fails at the first request with the reason, not silently.
+func clientTransport(cfg Config) http.RoundTripper {
+	if cfg.CAFile == "" {
+		return &http.Transport{TLSClientConfig: crypto.HardenedClientTLSConfig(), Proxy: http.ProxyFromEnvironment}
+	}
+	tlsCfg, err := crypto.HardenedClientTLSConfigWithCAFile(cfg.CAFile)
+	if err != nil {
+		return failingTransport{err: fmt.Errorf("cli: PROBECTL_CA_FILE: %w", err)}
+	}
+	return &http.Transport{TLSClientConfig: tlsCfg, Proxy: http.ProxyFromEnvironment}
+}
+
+type failingTransport struct{ err error }
+
+func (f failingTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, f.err }
 
 // composeAPIURL preserves the CLI's established base-path prefix behavior but
 // proves string concatenation cannot change the configured origin. Without
