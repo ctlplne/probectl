@@ -353,22 +353,26 @@ func (tc *TopologyConsumer) handleEBPFLane(ctx context.Context, msg bus.Message,
 	}
 	receivedAt := tc.receivedAt()
 	var durable []ebpfstore.Edge
+	graphs := map[string]topology.TenantStore{}
+	pending := map[string][]func(topology.TenantStore){}
 	for _, e := range batch.GetEdges() {
 		if e.GetTenantId() == "" {
 			tc.ledger.addUnscoped("ebpf", 1)
 			continue
 		}
 		firstSeen, lastSeen := serviceEdgeTimes(e, receivedAt)
-		graph, err := tc.store.ForTenant(e.GetTenantId())
-		if err != nil {
+		if _, err := tc.graphFor(graphs, e.GetTenantId()); err != nil {
 			tc.ledger.addUnscoped("ebpf", 1)
 			tc.log.Error("topology: rejecting ebpf edge with invalid tenant scope", "tenant_id", e.GetTenantId(), "error", err.Error())
 			continue
 		}
-		graph.ObserveServiceEdge(topology.FromServiceEdge(e), firstSeen)
-		if !lastSeen.Equal(firstSeen) {
-			graph.ObserveServiceEdge(topology.FromServiceEdge(e), lastSeen)
-		}
+		edge := topology.FromServiceEdge(e)
+		pending[e.GetTenantId()] = append(pending[e.GetTenantId()], func(g topology.TenantStore) {
+			g.ObserveServiceEdge(edge, firstSeen)
+			if !lastSeen.Equal(firstSeen) {
+				g.ObserveServiceEdge(edge, lastSeen)
+			}
+		})
 		if tc.ebpf != nil {
 			durable = append(durable, ebpfstore.Edge{
 				TenantID: e.GetTenantId(), AgentID: e.GetSource(),
@@ -380,6 +384,11 @@ func (tc *TopologyConsumer) handleEBPFLane(ctx context.Context, msg bus.Message,
 		}
 		tc.ledger.addStored("ebpf", 1)
 	}
+	// DPR-106: one write fence per tenant per batch. A flush carries the
+	// cumulative service map (hundreds of edges); fencing each edge in its own
+	// provider transaction cost seconds per record and the consumer never
+	// caught up with the bus.
+	tc.applyPending(graphs, pending)
 	// SPINE-001: persist the aggregates before acknowledging the bus message.
 	// The in-RAM graph update above is idempotent enough for redelivery; a
 	// durable-store failure must return an error so Kafka/NATS/direct mode does
@@ -446,6 +455,8 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 	}
 	stampDeviceBatchLaneTenant(&batch, laneTenant)
 	ids := make([]pipeline.Identity, 0, len(batch.GetMetrics()))
+	devGraphs := map[string]topology.TenantStore{}
+	devPending := map[string][]func(topology.TenantStore){}
 	for _, m := range batch.GetMetrics() {
 		ids = append(ids, pipeline.Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId()})
 	}
@@ -462,8 +473,7 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 			tc.ledger.addMalformed("device", 1)
 			continue
 		}
-		graph, err := tc.store.ForTenant(m.GetTenantId())
-		if err != nil {
+		if _, err := tc.graphFor(devGraphs, m.GetTenantId()); err != nil {
 			tc.ledger.addUnscoped("device", 1)
 			tc.log.Error("topology: rejecting device metric with invalid tenant scope", "tenant_id", m.GetTenantId(), "error", err.Error())
 			continue
@@ -471,7 +481,7 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 		// Interface addresses are additive replayable identity metadata. Older
 		// producers omit them and still yield device nodes without device→hop
 		// links; the what-if API reports that coverage gap explicitly.
-		graph.ObserveDevice(topology.DeviceInput{
+		input := topology.DeviceInput{
 			Address: m.GetDeviceAddress(),
 			Name:    m.GetDeviceName(),
 			Source:  m.GetSource(),
@@ -482,10 +492,42 @@ func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Messag
 				[]string(nil),
 				m.GetInterfaceAddresses()...,
 			),
-		}, pipeline.NormalizeEventTimeUnixNano(m.GetTimeUnixNano(), receivedAt))
+		}
+		at := pipeline.NormalizeEventTimeUnixNano(m.GetTimeUnixNano(), receivedAt)
+		devPending[m.GetTenantId()] = append(devPending[m.GetTenantId()], func(g topology.TenantStore) { g.ObserveDevice(input, at) })
 		tc.ledger.addStored("device", 1)
 	}
+	tc.applyPending(devGraphs, devPending) // DPR-106: one fence per tenant per batch
 	return nil
+}
+
+// graphFor resolves a tenant's graph once per batch.
+func (tc *TopologyConsumer) graphFor(graphs map[string]topology.TenantStore, tenant string) (topology.TenantStore, error) {
+	if g, ok := graphs[tenant]; ok {
+		return g, nil
+	}
+	g, err := tc.store.ForTenant(tenant)
+	if err != nil {
+		return nil, err
+	}
+	graphs[tenant] = g
+	return g, nil
+}
+
+// applyPending applies every collected observation of a tenant under one
+// write fence (DPR-106); unfenced stores run the observations directly.
+func (tc *TopologyConsumer) applyPending(graphs map[string]topology.TenantStore, pending map[string][]func(topology.TenantStore)) {
+	for tenant, writes := range pending {
+		g, ok := graphs[tenant]
+		if !ok || len(writes) == 0 {
+			continue
+		}
+		topology.ObserveBatched(g, func(store topology.TenantStore) {
+			for _, w := range writes {
+				w(store)
+			}
+		})
+	}
 }
 
 func (tc *TopologyConsumer) handleDeviceNeighbors(ctx context.Context, msg bus.Message) error {

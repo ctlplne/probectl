@@ -96,6 +96,33 @@ func (s *writeFencedTenantStore) mutate(write func()) {
 	}
 }
 
+// BatchWriter is implemented by tenant stores that can apply many
+// observations under one write fence (DPR-106). The eBPF plane delivers a
+// cumulative service-map snapshot with every flush — hundreds of edges — and
+// fencing each edge in its own provider-role transaction cost the topology
+// consumer seconds per record on the lab, so it fell behind the bus for good.
+type BatchWriter interface {
+	// Batch runs write against the unfenced tenant store inside ONE fence
+	// check: the lease is taken once, the tenant's status is read once, and
+	// every observation in write lands or the whole batch is dropped loudly.
+	Batch(write func(TenantStore))
+}
+
+// Batch implements BatchWriter: one fence round trip for the whole batch.
+func (s *writeFencedTenantStore) Batch(write func(TenantStore)) {
+	s.mutate(func() { write(s.next) })
+}
+
+// ObserveBatched applies write through the store's BatchWriter when it has
+// one, or directly otherwise (unfenced stores need no batching).
+func ObserveBatched(store TenantStore, write func(TenantStore)) {
+	if bw, ok := store.(BatchWriter); ok {
+		bw.Batch(write)
+		return
+	}
+	write(store)
+}
+
 func (s *writeFencedTenantStore) ObservePath(in PathInput, at time.Time) {
 	s.mutate(func() { s.next.ObservePath(in, at) })
 }
