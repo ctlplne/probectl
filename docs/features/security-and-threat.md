@@ -118,7 +118,11 @@ observations"). A violation's side effects — the incident signal and the SIEM
 event — pass through a cluster-wide once-only gate (`compliance_alerted`,
 tenant-scoped by row-level security): the replica that wins the claim exports
 them, the others keep the verdict and stay quiet, and a replay after a rollout
-finds the row instead of filing the incident again.
+finds the row instead of filing the incident again. The claim is scoped to a
+window (`PROBECTL_COMPLIANCE_REALERT`, 24 hours by default), so the gate
+de-duplicates rather than mutes: a violation that is still happening says so
+again next window, and one that returns after remediation is reported instead
+of meeting a gate that was closed forever.
 
 **Guarded remediation.** The assistant can do cross-plane root-cause analysis and
 simulate a topology change. This lets it take *one* more step — **propose** a fix

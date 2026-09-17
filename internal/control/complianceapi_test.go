@@ -176,7 +176,7 @@ type fakeComplianceGate struct {
 	err    error
 }
 
-func (g *fakeComplianceGate) Claim(_ context.Context, tenant, policy, rule string) (bool, error) {
+func (g *fakeComplianceGate) Claim(_ context.Context, tenant, policy, rule string, _ time.Time) (bool, error) {
 	g.claims = append(g.claims, tenant+"|"+policy+"|"+rule)
 	return g.won, g.err
 }
@@ -282,5 +282,34 @@ func TestComplianceLanesArePerReplicaViewGroups(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing per-replica groups %v (got %v)", want, fb.groups)
+	}
+}
+
+// TestTheComplianceGateReArmsWhenTheWindowRollsOver (DPR-110): keyed by the
+// (policy, rule) pair alone, a segmentation violation could raise its incident
+// and SIEM event exactly once for the life of the deployment — remediate, watch
+// the same traffic come back, hear nothing. The claim is keyed by period, so
+// replicas and replays inside the window still collapse to one export and the
+// next window re-arms the pair.
+func TestTheComplianceGateReArmsWhenTheWindowRollsOver(t *testing.T) {
+	at := time.Date(2026, 9, 17, 13, 40, 0, 0, time.UTC)
+	day := compliancePeriod(at, 24*time.Hour)
+	if same := compliancePeriod(at.Add(9*time.Hour), 24*time.Hour); same != day {
+		t.Errorf("two observations on the same UTC day must share a claim period: %q vs %q", day, same)
+	}
+	if next := compliancePeriod(at.Add(24*time.Hour), 24*time.Hour); next == day {
+		t.Error("the next window must re-arm the pair")
+	}
+	// A shorter window re-arms sooner; the bucket is UTC so replicas in
+	// different zones race for the same claim.
+	if a, b := compliancePeriod(at, time.Hour), compliancePeriod(at.Add(70*time.Minute), time.Hour); a == b {
+		t.Error("a one-hour window must re-arm within the same day")
+	}
+	if compliancePeriod(at, 0) != compliancePeriod(at, DefaultComplianceRealert) {
+		t.Error("a zero window must mean the default, never a claim per nanosecond")
+	}
+	local := at.In(time.FixedZone("UTC+9", 9*3600))
+	if compliancePeriod(local, 24*time.Hour) != day {
+		t.Error("the period must be computed in UTC so every replica agrees")
 	}
 }

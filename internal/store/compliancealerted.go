@@ -22,23 +22,22 @@ import (
 type ComplianceAlerted struct{}
 
 // Claim records that the tenant's (policy, rule) violation has been exported
-// and reports whether THIS call won the claim.
-func (ComplianceAlerted) Claim(ctx context.Context, s tenancy.Scope, policy, rule string) (bool, error) {
+// for period and reports whether THIS call won the claim.
+//
+// The period is what makes the gate a de-duplicator rather than a mute button
+// (DPR-110). Keyed by the pair alone, a violation's incident and SIEM event
+// could fire exactly once for the life of the deployment: an operator who
+// remediated and later saw the same traffic return was told nothing. Keyed by
+// pair AND period, replicas and replays inside the window still collapse to one
+// export, and the next window re-arms — the same shape the cost gate uses for
+// budget breaches.
+func (ComplianceAlerted) Claim(ctx context.Context, s tenancy.Scope, policy, rule, period string) (bool, error) {
 	tag, err := s.Q.Exec(ctx, `
-		INSERT INTO compliance_alerted (tenant_id, policy, rule)
-		VALUES (current_setting('probectl.tenant_id')::uuid, $1, $2)
-		ON CONFLICT (tenant_id, policy, rule) DO NOTHING`, policy, rule)
+		INSERT INTO compliance_alerted (tenant_id, policy, rule, period)
+		VALUES (current_setting('probectl.tenant_id')::uuid, $1, $2, $3)
+		ON CONFLICT (tenant_id, policy, rule, period) DO NOTHING`, policy, rule, period)
 	if err != nil {
 		return false, fmt.Errorf("compliance alerted: claim: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
-}
-
-// Release forgets a claim so the next observed violation of the pair is
-// exported again (an operator re-arming a rule after remediation).
-func (ComplianceAlerted) Release(ctx context.Context, s tenancy.Scope, policy, rule string) error {
-	if _, err := s.Q.Exec(ctx, `DELETE FROM compliance_alerted WHERE policy = $1 AND rule = $2`, policy, rule); err != nil {
-		return fmt.Errorf("compliance alerted: release: %w", err)
-	}
-	return nil
 }

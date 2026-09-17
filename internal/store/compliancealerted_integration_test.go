@@ -17,8 +17,9 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// DPR-073: exactly one claim wins per tenant × policy × rule; a second replica
-// (or a replay) loses; tenants never see each other's claims.
+// DPR-073: exactly one claim wins per tenant × policy × rule × period; a
+// second replica (or a replay) loses; tenants never see each other's claims.
+// DPR-110: the next period re-arms the pair.
 func TestComplianceAlertedClaimIsOnceOnlyAndIsolated(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
@@ -32,30 +33,34 @@ func TestComplianceAlertedClaimIsOnceOnlyAndIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim := func(tenant string) (won bool) {
+	claim := func(tenant, period string) (won bool) {
 		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			won, err = (ComplianceAlerted{}).Claim(ctx, sc, "pci-segmentation", "corp-to-cde")
+			won, err = (ComplianceAlerted{}).Claim(ctx, sc, "pci-segmentation", "corp-to-cde", period)
 			return err
 		})
 		return won
 	}
-	if !claim(a.ID) {
+	today, tomorrow := "2026-09-17T00:00:00Z", "2026-09-18T00:00:00Z"
+	if !claim(a.ID, today) {
 		t.Fatal("first claim must win")
 	}
-	if claim(a.ID) {
+	if claim(a.ID, today) {
 		t.Fatal("second claim (another replica, or a replay) must lose")
 	}
-	if !claim(b.ID) {
+	if !claim(b.ID, today) {
 		t.Fatal("another tenant's identical pair is its own claim (isolation)")
 	}
-	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
-		return (ComplianceAlerted{}).Release(ctx, sc, "pci-segmentation", "corp-to-cde")
-	})
-	if !claim(a.ID) {
-		t.Fatal("a released pair can be claimed again")
+	// DPR-110: the next window re-arms the pair, so a violation that returns
+	// after remediation is reported instead of meeting a permanently closed
+	// gate — and it re-arms per tenant, not globally.
+	if !claim(a.ID, tomorrow) {
+		t.Fatal("the next period must re-arm the pair")
 	}
-	if claim(b.ID) {
-		t.Fatal("releasing tenant A must not touch tenant B's claim")
+	if claim(a.ID, tomorrow) {
+		t.Fatal("the new period is itself once-only")
+	}
+	if !claim(b.ID, tomorrow) {
+		t.Fatal("tenant B's re-arm is its own claim")
 	}
 }

@@ -130,7 +130,7 @@ func NewComplianceConsumer(b bus.Bus, e *compliance.Engine, c *incident.Correlat
 // incidents and three SIEM events per violation, and a replay after a rollout
 // would file them again.
 type ComplianceAlertGate interface {
-	Claim(ctx context.Context, tenant, policy, rule string) (bool, error)
+	Claim(ctx context.Context, tenant, policy, rule string, at time.Time) (bool, error)
 }
 
 // WithAlertGate installs the once-only export gate. nil (no database — the
@@ -141,18 +141,45 @@ func (cc *ComplianceConsumer) WithAlertGate(g ComplianceAlertGate) *ComplianceCo
 }
 
 // pgComplianceGate backs the gate with the compliance_alerted table (FORCE RLS).
-type pgComplianceGate struct{ pool *pgxpool.Pool }
+type pgComplianceGate struct {
+	pool   *pgxpool.Pool
+	window time.Duration
+}
 
-func (p pgComplianceGate) Claim(ctx context.Context, tenant, policy, rule string) (won bool, err error) {
+// DefaultComplianceRealert is how long a claimed violation stays claimed
+// (DPR-110): inside the window every replica and every replay collapses to the
+// one export that won the claim; the next window re-arms the pair, so an
+// ongoing violation keeps saying so and a remediated one that returns is
+// reported again instead of meeting a gate that was closed forever.
+const DefaultComplianceRealert = 24 * time.Hour
+
+func (p pgComplianceGate) Claim(ctx context.Context, tenant, policy, rule string, at time.Time) (won bool, err error) {
+	period := compliancePeriod(at, p.window)
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		won, err = (store.ComplianceAlerted{}).Claim(ctx, sc, policy, rule)
+		won, err = (store.ComplianceAlerted{}).Claim(ctx, sc, policy, rule, period)
 		return err
 	})
 	return won, err
 }
 
-// NewPGComplianceGate returns the Postgres-backed once-only export gate.
-func NewPGComplianceGate(pool *pgxpool.Pool) ComplianceAlertGate { return pgComplianceGate{pool: pool} }
+// compliancePeriod buckets an observation time into the re-alert window. A
+// non-positive window means the default; the bucket is UTC so replicas in
+// different zones agree on which claim they are racing for.
+func compliancePeriod(at time.Time, window time.Duration) string {
+	if window <= 0 {
+		window = DefaultComplianceRealert
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	return at.UTC().Truncate(window).Format(time.RFC3339)
+}
+
+// NewPGComplianceGate returns the Postgres-backed once-only export gate. window
+// is how long a claim holds (0 = DefaultComplianceRealert).
+func NewPGComplianceGate(pool *pgxpool.Pool, window time.Duration) ComplianceAlertGate {
+	return pgComplianceGate{pool: pool, window: window}
+}
 
 // WithSIEM forwards violation signals to the SIEM (S32). nil disables it.
 func (cc *ComplianceConsumer) WithSIEM(fw *siem.Forwarder) *ComplianceConsumer {
@@ -267,7 +294,7 @@ func (cc *ComplianceConsumer) handleEBPFLane(ctx context.Context, msg bus.Messag
 func (cc *ComplianceConsumer) export(ctx context.Context, sigs []incident.Signal) {
 	for _, sig := range sigs {
 		if cc.gate != nil {
-			won, err := cc.gate.Claim(ctx, sig.TenantID, sig.Attributes["compliance.policy"], sig.Attributes["compliance.rule"])
+			won, err := cc.gate.Claim(ctx, sig.TenantID, sig.Attributes["compliance.policy"], sig.Attributes["compliance.rule"], sig.OccurredAt)
 			switch {
 			case err != nil:
 				// Fail open on the gate only: a violation is never dropped because
