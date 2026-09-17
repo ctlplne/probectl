@@ -888,8 +888,11 @@ not receive Kafka/DB credentials — the Go bridge alone owns the bus connection
 | `PROBECTL_BGP_ANALYZER_WORKDIR` | (none; image uses `/opt/probectl/analyzer`) | child working directory |
 | `PROBECTL_BUS_*` | see result-bus table | must select Kafka; the same TLS/mTLS/SASL fail-closed policy applies |
 
-Helm renders this as an optional one-replica Deployment with no Service and an
-explicit egress NetworkPolicy. Compose's `bgp-analyzer` profile replays a
+Helm renders this with no Service and an explicit egress NetworkPolicy: a
+one-replica Deployment for `ris-live`, and — because an MRT dump or a recorded
+replay is a finite artifact that must not be re-processed on every container
+restart — a one-shot Job per release revision for `mrt`/`replay`
+(`bgpAnalyzer.job.*`, DPR-059). Compose's `bgp-analyzer` profile replays a
 recorded RIS fixture end to end for evaluation.
 
 For operators who run routers that export **BMP** (BGP Monitoring Protocol), run

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import ssl
+import time
 import urllib.request
 from collections.abc import Iterable
 from typing import BinaryIO
@@ -19,7 +20,7 @@ from .log import get_logger
 from .monitor import PrefixMonitor
 from .mrt import BGPRoute, stream_mrt
 from .rislive import iter_updates
-from .rpki import VRPSet
+from .rpki import VRPSet, overlapping
 
 _log = get_logger("probectl.analyzer.pipeline")
 
@@ -29,22 +30,40 @@ def load_vrp(config: AnalyzerConfig) -> VRPSet | None:
 
     A missing/unreachable source degrades to ``None`` (→ RPKI ``unknown``) rather
     than breaking analysis (CLAUDE.md §7 guardrail 10). The URL fetch validates
-    TLS certificates (guardrail 12) and treats the response as untrusted.
+    TLS certificates (guardrail 12) and treats the response as untrusted. The
+    export is streamed and reduced to the ROAs that overlap the monitored
+    prefixes as it arrives (DPR-055): a full validator export (~100 MB, 600k
+    ROAs) used to be materialized whole and OOM-killed the sidecar.
     """
-    if config.rpki_vrp_file:
-        return VRPSet.from_file(config.rpki_vrp_file)
-    if config.rpki_vrp_url:
-        try:
+    source = config.rpki_vrp_file or config.rpki_vrp_url
+    if not source:
+        return None
+    keep = overlapping(p.prefix for p in config.monitored_prefixes)
+    started = time.monotonic()
+    _log.info(
+        "loading RPKI VRP export",
+        source=source,
+        monitored_prefixes=len(config.monitored_prefixes),
+    )
+    try:
+        if config.rpki_vrp_file:
+            vrp = VRPSet.from_file(config.rpki_vrp_file, keep=keep)
+        else:
             ctx = ssl.create_default_context()
-            req = urllib.request.Request(
-                config.rpki_vrp_url, headers={"Accept": "application/json"}
-            )
+            req = urllib.request.Request(source, headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-                return VRPSet.from_json(resp.read().decode("utf-8"))
-        except Exception as err:  # degrade gracefully on any fetch/parse failure
-            _log.warning("RPKI VRP fetch failed; degrading to unknown", error=str(err))
-            return None
-    return None
+                vrp = VRPSet.from_stream(resp, keep=keep)
+    except Exception as err:  # degrade gracefully on any fetch/parse failure
+        _log.warning("RPKI VRP load failed; degrading to unknown", source=source, error=str(err))
+        return None
+    _log.info(
+        "RPKI VRP export loaded",
+        source=source,
+        roas_scanned=vrp.scanned,
+        roas_kept=len(vrp),
+        seconds=round(time.monotonic() - started, 1),
+    )
+    return vrp
 
 
 class Analyzer:
@@ -55,6 +74,11 @@ class Analyzer:
         self._sink = sink
         self._monitor = PrefixMonitor(config, vrp)
         self._log = get_logger("probectl.analyzer")
+
+    @property
+    def suppressed(self) -> int:
+        """Repeat anomalies dropped by the suppression window (DPR-056)."""
+        return self._monitor.suppressed
 
     def process_routes(self, routes: Iterable[BGPRoute]) -> int:
         count = 0

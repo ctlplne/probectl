@@ -15,11 +15,15 @@ the MRT parser or RIS Live, so the source is irrelevant to detection.
 from __future__ import annotations
 
 import ipaddress
+import time
 
 from .config import AnalyzerConfig, MonitoredPrefix
 from .events import BGPEvent, EventType, RPKIStatus, Severity
 from .mrt import BGPRoute
 from .rpki import VRPSet
+
+# Upper bound on remembered (prefix, kind, detail) keys for repeat suppression.
+_MAX_SUPPRESSION_KEYS = 100_000
 
 _Net = ipaddress.IPv4Network | ipaddress.IPv6Network
 
@@ -36,6 +40,11 @@ class PrefixMonitor:
         ]
         self._origin: dict[str, int] = {}
         self._path: dict[str, list[int]] = {}
+        # DPR-056: repeat suppression. Keyed by (prefix, kind, detail); the
+        # value is the data time (ns) of the last emitted event for that key.
+        self._suppress_ns = int(config.event_suppression_seconds * 1_000_000_000)
+        self._last_emitted: dict[tuple[str, str, object], int] = {}
+        self.suppressed = 0
 
     def _match(self, prefix: str) -> MonitoredPrefix | None:
         """Return the most-specific monitored prefix that covers ``prefix``."""
@@ -53,7 +62,52 @@ class PrefixMonitor:
                     best, best_len = mp, mon_net.prefixlen
         return best
 
+    def _suppress(self, key: tuple[str, str, object], now_ns: int) -> bool:
+        """True when an equal anomaly was emitted less than the window ago.
+
+        The window is measured in data time (the route's timestamp), so MRT
+        replays and live streams behave the same. A first sighting, a sighting
+        after the window, or a sighting with an earlier timestamp (out-of-order
+        data) is emitted and resets the window.
+        """
+        if self._suppress_ns <= 0:
+            return False
+        last = self._last_emitted.get(key)
+        if last is not None and 0 <= now_ns - last < self._suppress_ns:
+            self.suppressed += 1
+            return True
+        if len(self._last_emitted) >= _MAX_SUPPRESSION_KEYS:
+            # Bounded memory on a hostile or enormous feed: drop expired keys,
+            # and if nothing expired, start over (worst case: one extra event).
+            self._last_emitted = {
+                k: t for k, t in self._last_emitted.items() if now_ns - t < self._suppress_ns
+            }
+            if len(self._last_emitted) >= _MAX_SUPPRESSION_KEYS:
+                self._last_emitted.clear()
+        self._last_emitted[key] = now_ns
+        return False
+
     def observe(self, route: BGPRoute) -> list[BGPEvent]:
+        emitted = self._observe(route)
+        if not emitted:
+            return []
+        now_ns = route.event_time_unix_nano or time.time_ns()
+        kept: list[BGPEvent] = []
+        for event in emitted:
+            detail: object = event.new_origin_asn
+            if event.event_type == EventType.POSSIBLE_LEAK:
+                detail = tuple(
+                    a for a in event.new_as_path[:-1] if a in self._match_no_transit(event)
+                )
+            if not self._suppress((event.prefix, event.event_type.value, detail), now_ns):
+                kept.append(event)
+        return kept
+
+    def _match_no_transit(self, event: BGPEvent) -> set[int]:
+        mp = self._match(event.prefix)
+        return set(mp.no_transit) if mp else set()
+
+    def _observe(self, route: BGPRoute) -> list[BGPEvent]:
         mp = self._match(route.prefix)
         if mp is None:
             return []

@@ -276,8 +276,11 @@ that investigation key in `control.extraEnv` or a ConfigMap.
 
 ## Optional public-feed BGP analyzer
 
-`bgpAnalyzer.enabled=true` adds one listener-free Deployment containing the
-Python analyzer and its tenant-bound Go Kafka bridge. Create a Secret whose
+`bgpAnalyzer.enabled=true` adds one listener-free workload containing the
+Python analyzer and its tenant-bound Go Kafka bridge: a Deployment for the
+`ris-live` stream, a one-shot Job per release revision for a finite `mrt` or
+`replay` artifact (Kubernetes would otherwise restart a completed run and
+re-publish the same events; DPR-059). Create a Secret whose
 `analyzer.json` key contains exactly one tenant's analyzer config, use an
 immutable `probectl-bgp-analyzer` image digest, and set the existing Kafka TLS
 variables under `bgpAnalyzer.extraEnv`. Put SASL credentials in the dedicated

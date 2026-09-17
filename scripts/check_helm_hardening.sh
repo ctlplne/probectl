@@ -232,6 +232,20 @@ need_fixed "ghcr.io/ctlplne/probectl-bgp-analyzer@sha256:00000000000000000000000
 need_fixed "automountServiceAccountToken: false" "$analyzer_render" "BGP analyzer received a Kubernetes API token (W1)"
 need_fixed "PROBECTL_BGP_ANALYZER_CONFIG" "$analyzer_render" "BGP analyzer has no tenant config binding (W1)"
 need_fixed "ingress: []" "$analyzer_render" "BGP analyzer NetworkPolicy admits inbound traffic despite having no listener (W1)"
+# DPR-059: a finite artifact (mrt/replay) runs once as a Job; only the live
+# stream is a Deployment that Kubernetes keeps running.
+need_fixed "kind: Job"               "$analyzer_render" "BGP analyzer with an MRT artifact did not render as a Job (DPR-059)"
+need_fixed "restartPolicy: Never"    "$analyzer_render" "BGP analyzer Job pod may be restarted and would re-publish the artifact (DPR-059)"
+grep -q "kind: Deployment" <<<"$(awk '/bgp-analyzer/' <<<"$analyzer_render")" && fail "BGP analyzer with an MRT artifact also rendered a Deployment (DPR-059)"
+analyzer_live="$(render \
+  --set bgpAnalyzer.enabled=true \
+  --set bgpAnalyzer.configSecret=bgp-config \
+  --set bgpAnalyzer.source=ris-live \
+  --set bgpAnalyzer.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  --set-string bgpAnalyzer.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
+  --set-json 'bgpAnalyzer.networkPolicy.egressTo=[{"to":[{"ipBlock":{"cidr":"10.0.0.0/8"}}],"ports":[{"protocol":"TCP","port":9093}]}]')"
+need_fixed "name: probectl-bgp-analyzer" "$analyzer_live" "BGP analyzer live Deployment did not render (DPR-059)"
+grep -q "kind: Job" <<<"$analyzer_live" && fail "BGP analyzer live stream rendered as a one-shot Job (DPR-059)"
 
 # W2: the rendered-browser agent is a listener-free, tenant-bound DaemonSet.
 # Exercise the enabled branch and require explicit egress rather than letting a

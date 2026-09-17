@@ -39,11 +39,18 @@ class AnalyzerConfig:
     rpki_vrp_file: str | None = None
     rpki_vrp_url: str | None = None
     log_level: str = "INFO"
+    # DPR-056: a routing anomaly is re-announced by every collector peer on
+    # every update; one event per (prefix, kind, origin) per window keeps the
+    # tenant's event surface and the bus readable. 0 disables suppression.
+    event_suppression_seconds: float = 300.0
 
     @classmethod
     def from_dict(cls, d: dict) -> AnalyzerConfig:
         if not d.get("tenant_id"):
             raise ValueError("config: tenant_id is required (tenant is the outermost scope)")
+        suppression = float(d.get("event_suppression_seconds", 300))
+        if suppression < 0:
+            raise ValueError("config: event_suppression_seconds must be >= 0")
         prefixes = [
             MonitoredPrefix(
                 prefix=p["prefix"],
@@ -59,6 +66,7 @@ class AnalyzerConfig:
             rpki_vrp_file=d.get("rpki_vrp_file"),
             rpki_vrp_url=d.get("rpki_vrp_url"),
             log_level=str(d.get("log_level", "INFO")),
+            event_suppression_seconds=suppression,
         )
 
     @classmethod

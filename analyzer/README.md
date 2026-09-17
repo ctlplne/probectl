@@ -75,10 +75,19 @@ and publishes into the same `probectl.bgp.events` topic.
 
 `tenant_id` is required — every emitted event carries it, and the bridge rejects
 any event without one (fail closed: an unattributable event is dropped, never
-guessed). `rpki_vrp_file` (or `rpki_vrp_url`) points at a `rpki-client` /
+guessed). `event_suppression_seconds` (default `300`, `0` disables) emits one
+event per (prefix, event type, observed origin) per window instead of one per
+BGP update — a real anomaly is re-announced by every collector peer on every
+update, thousands of times per five minutes (DPR-056); the run summary logs
+how many repeats were suppressed. `rpki_vrp_file` (or `rpki_vrp_url`) points at a `rpki-client` /
 Routinator VRP JSON export (a **VRP**, Validated ROA Payload, is one
 prefix→origin-AS authorization an RPKI validator has verified); omit it and
-RPKI status degrades to `unknown` rather than blocking analysis.
+RPKI status degrades to `unknown` rather than blocking analysis. Either source
+is streamed and filtered to the ROAs overlapping `monitored_prefixes` while it
+loads (a full public export such as `https://rpki.cloudflare.com/rpki.json`,
+~100 MB, stays at a few MB of memory; exports over 1 GiB are refused and
+degrade to `unknown`; DPR-055). The load logs `loading RPKI VRP export` /
+`RPKI VRP export loaded` with the scanned and kept counts.
 
 ## Conventions
 

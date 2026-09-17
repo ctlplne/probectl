@@ -84,3 +84,73 @@ def test_rpki_invalid_emits_event_and_attaches_status():
     events = mon.observe(BGPRoute(prefix="192.0.2.0/24", as_path=[64511, 64502]))
     assert any(e.event_type == EventType.RPKI_INVALID for e in events)
     assert all(e.rpki_status == RPKIStatus.INVALID for e in events)
+
+
+# DPR-056: a real anomaly is re-announced by every collector peer on every
+# update; the monitor emits one event per (prefix, kind, origin) per window.
+def make_suppressing_monitor(seconds: float) -> PrefixMonitor:
+    config = AnalyzerConfig.from_dict(
+        {
+            "tenant_id": "t1",
+            "event_suppression_seconds": seconds,
+            "monitored_prefixes": [
+                {"prefix": "192.0.2.0/24", "expected_origins": [64496], "no_transit": [64666]}
+            ],
+        }
+    )
+    return PrefixMonitor(config)
+
+
+def hijack(peer: int, t_s: float, origin: int = 64500) -> BGPRoute:
+    return BGPRoute(
+        prefix="192.0.2.0/24", as_path=[peer, origin], event_time_unix_nano=int(t_s * 1e9)
+    )
+
+
+def test_repeat_announcements_are_suppressed_within_the_window():
+    mon = make_suppressing_monitor(300)
+    first = mon.observe(hijack(64511, 1000))
+    assert [e.event_type for e in first] == [EventType.POSSIBLE_HIJACK]
+    # Other peers re-announce the same anomaly seconds later: suppressed.
+    assert mon.observe(hijack(64512, 1001)) == []
+    assert mon.observe(hijack(64513, 1299)) == []
+    assert mon.suppressed == 2
+    # After the window it is worth another event.
+    assert [e.event_type for e in mon.observe(hijack(64514, 1300))] == [EventType.POSSIBLE_HIJACK]
+
+
+def test_a_different_origin_is_a_different_anomaly():
+    mon = make_suppressing_monitor(300)
+    assert len(mon.observe(hijack(64511, 1000, origin=64500))) == 1
+    events = mon.observe(hijack(64511, 1001, origin=64501))
+    # origin_change (64500 -> 64501) plus a hijack by the new unexpected origin.
+    assert sorted(e.event_type for e in events) == sorted(
+        [EventType.ORIGIN_CHANGE, EventType.POSSIBLE_HIJACK]
+    )
+    assert mon.observe(hijack(64512, 1002, origin=64501)) == []
+
+
+def test_suppression_can_be_disabled():
+    mon = make_suppressing_monitor(0)
+    assert len(mon.observe(hijack(64511, 1000))) == 1
+    assert len(mon.observe(hijack(64512, 1001))) == 1
+    assert mon.suppressed == 0
+
+
+def test_leak_suppression_keys_on_the_leaking_ases():
+    mon = make_suppressing_monitor(300)
+    leak = BGPRoute(
+        prefix="192.0.2.0/24", as_path=[64511, 64666, 64496], event_time_unix_nano=10**12
+    )
+    assert [e.event_type for e in mon.observe(leak)] == [EventType.POSSIBLE_LEAK]
+    again = BGPRoute(
+        prefix="192.0.2.0/24", as_path=[64512, 64666, 64496], event_time_unix_nano=10**12 + 10**9
+    )
+    assert mon.observe(again) == []
+
+
+def test_rejects_negative_suppression_window():
+    import pytest
+
+    with pytest.raises(ValueError):
+        AnalyzerConfig.from_dict({"tenant_id": "t1", "event_suppression_seconds": -1})

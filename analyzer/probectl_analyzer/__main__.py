@@ -46,11 +46,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.mrt:
             with open(args.mrt, "rb") as fp:
                 events = analyzer.process_mrt(fp)
-            log.info("processed MRT dump", file=args.mrt, events=events)
+            log.info(
+                "processed MRT dump", file=args.mrt, events=events, suppressed=analyzer.suppressed
+            )
         elif args.replay:
             with open(args.replay, encoding="utf-8") as fp:
                 events = analyzer.process_ris_replay(fp)
-            log.info("processed RIS Live replay", file=args.replay, events=events)
+            log.info(
+                "processed RIS Live replay",
+                file=args.replay,
+                events=events,
+                suppressed=analyzer.suppressed,
+            )
         else:
             from .rislive import RISLiveClient
 

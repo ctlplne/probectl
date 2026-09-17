@@ -195,12 +195,45 @@ func signalFromBGPEvent(e *bgpv1.BGPEvent) incident.Signal {
 		Target:     e.GetPrefix(),
 		Prefix:     e.GetPrefix(),
 		OccurredAt: occurred,
-		Attributes: map[string]string{
-			"collector":      e.GetCollector(),
-			"new_origin_asn": strconv.FormatUint(uint64(e.GetNewOriginAsn()), 10),
-			"rpki_status":    e.GetRpkiStatus().String(),
-		},
+		Attributes: bgpSignalAttributes(e),
 	}
+}
+
+// bgpSignalAttributes carries the detection context the analyzer produced
+// onto the tenant's event read model (DPR-057): confidence, the configured
+// expected origins, the previous origin and the observed path used to be
+// visible only inside the title text.
+func bgpSignalAttributes(e *bgpv1.BGPEvent) map[string]string {
+	attrs := map[string]string{
+		"collector":      e.GetCollector(),
+		"new_origin_asn": strconv.FormatUint(uint64(e.GetNewOriginAsn()), 10),
+		"rpki_status":    e.GetRpkiStatus().String(),
+		"confidence":     strconv.FormatFloat(e.GetConfidence(), 'f', 2, 64),
+	}
+	if asn := e.GetOldOriginAsn(); asn != 0 {
+		attrs["old_origin_asn"] = strconv.FormatUint(uint64(asn), 10)
+	}
+	if origins := e.GetExpectedOrigins(); len(origins) > 0 {
+		attrs["expected_origins"] = joinASNs(origins)
+	}
+	if path := e.GetNewAsPath(); len(path) > 0 {
+		attrs["new_as_path"] = joinASNs(path)
+	}
+	if asn := e.GetPeerAsn(); asn != 0 {
+		attrs["peer_asn"] = strconv.FormatUint(uint64(asn), 10)
+	}
+	if addr := e.GetPeerAddress(); addr != "" {
+		attrs["peer_address"] = addr
+	}
+	return attrs
+}
+
+func joinASNs(asns []uint32) string {
+	parts := make([]string, 0, len(asns))
+	for _, a := range asns {
+		parts = append(parts, strconv.FormatUint(uint64(a), 10))
+	}
+	return strings.Join(parts, ",")
 }
 
 func bgpKind(t bgpv1.EventType) string {

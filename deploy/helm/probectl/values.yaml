@@ -32,6 +32,12 @@ bgpAnalyzer:
   source: "" # required when enabled: ris-live | mrt | replay
   sourceFile: "" # required by the runner for mrt/replay; mount it below
   restart: true
+  # DPR-059: mrt/replay are finite artifacts and render as a Job (one run per
+  # release revision, never restarted by Kubernetes); ris-live renders as the
+  # long-running Deployment.
+  job:
+    backoffLimit: 2
+    ttlSecondsAfterFinished: 86400
   # Optional Secret containing ONLY PROBECTL_BUS_* auth/TLS environment keys.
   busSecret: ""
   # Non-secret PROBECTL_BUS_* settings, e.g. mode=kafka, brokers, TLS CA path.

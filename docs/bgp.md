@@ -58,11 +58,16 @@ What probectl guarantees you:
 
 - **It only watches — it never touches routing.** probectl does not announce, withdraw,
   or filter a single route. Detections are *signals*: confidence-scored, tunable,
-  suppressible, and exported to your SIEM. It is not an inline blocker (an **IPS**) and
+  suppressible (one event per prefix, kind and origin per `event_suppression_seconds`
+  window, 5 minutes by default — a real anomaly is otherwise re-announced by every
+  collector peer on every update; DPR-056), and exported to your SIEM. It is not an inline blocker (an **IPS**) and
   will never "fix" BGP for you.
 - **The feeds are read-only and degrade gracefully.** The only feed the analyzer
   fetches itself is RPKI VRP data — read-only over validated TLS, refreshed per run,
-  never cached to disk — and a failed fetch degrades that run to RPKI *unknown*
+  never cached to disk, **streamed** and reduced to the ROAs that overlap your
+  monitored prefixes as it arrives (a full validator export, ~100 MB and 600k
+  ROAs, costs the sidecar a few MB of memory and is bounded at 1 GiB; DPR-055) —
+  and a failed fetch degrades that run to RPKI *unknown*
   instead of stopping analysis. Collector archives (RouteViews / RIS MRT dumps) are
   bring-your-own artifacts you download and decompress yourself; RIS Live streaming
   reads RIPE's public websocket. A flaky upstream never takes your monitoring down.
@@ -97,17 +102,29 @@ A clean result reads like:
 > `198.51.100.0/24` in the last 6h. Last collector update 41s ago (RouteViews, RIS).
 
 When something is wrong, probectl emits a routing event you'll also see on the incident
-timeline:
+timeline. `GET /v1/bgp/events` (filters `prefix`, `asn`, `limit`) lists them in the
+shape the API really returns — the event is an incident signal, so it carries its
+incident id and the correlation verdict next to the detection context (DPR-057):
 
 ```json
 {
-  "event_type": "origin_change",
+  "id": "4031a404-aca0-4e8a-b2c9-12a215dba519",
+  "incident_id": "4031a404-aca0-4e8a-b2c9-12a215dba519",
+  "kind": "bgp.possible_hijack",
+  "severity": "critical",
+  "title": "203.0.113.0/24 announced by unexpected AS65021 (expected [64500])",
   "prefix": "203.0.113.0/24",
-  "expected_origin": "AS64500",
-  "observed_origin": "AS65021",
-  "rpki": "invalid",
-  "confidence": 0.94,
-  "first_seen": "2026-06-22T14:03:11Z"
+  "attributes": {
+    "collector": "rrc00",
+    "confidence": "0.85",
+    "expected_origins": "64500",
+    "new_origin_asn": "65021",
+    "new_as_path": "64511,65021",
+    "peer_asn": "64511",
+    "rpki_status": "RPKI_STATUS_INVALID",
+    "correlation.state": "grouped"
+  },
+  "occurred_at": "2026-06-22T14:03:11Z"
 }
 ```
 

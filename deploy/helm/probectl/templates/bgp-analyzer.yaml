@@ -5,6 +5,26 @@
 {{- if and (or (eq $source "mrt") (eq $source "replay")) (empty .Values.bgpAnalyzer.sourceFile) -}}
 {{- fail "bgpAnalyzer.sourceFile is required for mrt/replay sources" -}}
 {{- end -}}
+{{- $finite := or (eq $source "mrt") (eq $source "replay") -}}
+{{- if $finite }}
+# DPR-059: an MRT dump or a recorded replay is a finite artifact. Rendered as a
+# Deployment, the run completed, Kubernetes restarted the container and the same
+# artifact was re-processed and its events re-published on every restart until
+# CrashLoopBackOff. A Job runs it exactly once per release revision; a new
+# revision (new artifact, new config) gets a new Job, finished ones expire.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "probectl.fullname" . }}-bgp-analyzer-r{{ .Release.Revision }}
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bgp-analyzer
+{{- /* --reuse-values upgrades from releases that predate the job block must keep rendering: defaults live here, not only in values.yaml. */ -}}
+{{- $job := .Values.bgpAnalyzer.job | default dict }}
+spec:
+  backoffLimit: {{ $job.backoffLimit | default 2 }}
+  ttlSecondsAfterFinished: {{ $job.ttlSecondsAfterFinished | default 86400 }}
+{{- else }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +38,7 @@ spec:
     matchLabels:
       {{- include "probectl.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: bgp-analyzer
+{{- end }}
   template:
     metadata:
       labels:
@@ -26,6 +47,10 @@ spec:
     spec:
       serviceAccountName: {{ include "probectl.serviceAccountName" . }}
       automountServiceAccountToken: false
+      {{- if $finite }}
+      # DPR-059: a finite artifact run must not be restarted by Kubernetes.
+      restartPolicy: Never
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

@@ -80,8 +80,13 @@ class _FakeResponse:
     def __init__(self, body: bytes):
         self._body = body
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, amt: int | None = -1) -> bytes:
+        # http.client.HTTPResponse.read(amt): the streaming loader reads in chunks.
+        if amt is None or amt < 0:
+            out, self._body = self._body, b""
+        else:
+            out, self._body = self._body[:amt], self._body[amt:]
+        return out
 
     def __enter__(self):
         return self

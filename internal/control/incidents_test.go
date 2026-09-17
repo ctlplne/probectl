@@ -43,9 +43,23 @@ func TestSignalFromBGPEvent(t *testing.T) {
 		TenantId: "t1", EventType: bgpv1.EventType_EVENT_TYPE_POSSIBLE_HIJACK,
 		Severity: bgpv1.Severity_SEVERITY_CRITICAL, Prefix: "192.0.2.0/24",
 		Message: "possible hijack", DetectedAtUnixNano: 100 * 1_000_000_000,
-		Collector: "rrc00", NewOriginAsn: 64500,
+		Collector: "rrc00", NewOriginAsn: 64500, OldOriginAsn: 64496, Confidence: 0.85,
+		ExpectedOrigins: []uint32{64496, 64497}, NewAsPath: []uint32{64511, 64500},
+		PeerAsn: 64511, PeerAddress: "192.0.2.1",
 	}
 	s := signalFromBGPEvent(e)
+	// DPR-057: the detection context reaches the tenant's event read model.
+	for k, want := range map[string]string{
+		"confidence": "0.85", "old_origin_asn": "64496", "expected_origins": "64496,64497",
+		"new_as_path": "64511,64500", "peer_asn": "64511", "peer_address": "192.0.2.1",
+	} {
+		if got := s.Attributes[k]; got != want {
+			t.Errorf("attribute %s = %q, want %q", k, got, want)
+		}
+	}
+	if minimal := signalFromBGPEvent(&bgpv1.BGPEvent{TenantId: "t1", Prefix: "p"}); minimal.Attributes["old_origin_asn"] != "" || minimal.Attributes["expected_origins"] != "" {
+		t.Errorf("absent context must not render empty attributes: %+v", minimal.Attributes)
+	}
 	if s.TenantID != "t1" || s.Plane != "bgp" || s.Kind != "bgp.possible_hijack" {
 		t.Errorf("signal = %+v", s)
 	}
