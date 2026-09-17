@@ -231,7 +231,7 @@ func (h *Handler) handle(pattern string, fn providerHandler) {
 // requires that role (admins pass every role check — SoD is admin ⊃ operator).
 func (h *Handler) asOperator(role string, fn func(w http.ResponseWriter, r *http.Request, op Operator) error) providerHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		op := h.sessions.Resolve(tokenFromRequest(r))
+		op := h.sessions.ResolveContext(r.Context(), tokenFromRequest(r))
 		if op == nil {
 			return errUnauthorized
 		}
@@ -395,8 +395,8 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	// Successful authentication always changes the provider-domain session ID.
 	// Consume the browser/CLI's prior token before minting its replacement; if
 	// minting fails, losing the old high-privilege session is the safe outcome.
-	h.sessions.Revoke(tokenFromRequest(r))
-	token, err := h.sessions.Issue(op)
+	h.sessions.RevokeContext(r.Context(), tokenFromRequest(r))
+	token, err := h.sessions.IssueContext(r.Context(), op)
 	if err != nil {
 		return err
 	}
@@ -405,7 +405,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) error {
-	h.sessions.Revoke(tokenFromRequest(r))
+	h.sessions.RevokeContext(r.Context(), tokenFromRequest(r))
 	clearCookie(w, h.secureCookies)
 	return h.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -452,7 +452,7 @@ func (h *Handler) handleOperatorStatus(w http.ResponseWriter, r *http.Request, a
 		return err
 	}
 	if in.Status != "active" {
-		h.sessions.RevokeOperator(id) // disablement ends sessions immediately
+		h.sessions.RevokeOperatorContext(r.Context(), id) // disablement ends sessions immediately, on every replica
 	}
 	return h.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

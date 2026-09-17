@@ -9,6 +9,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -44,6 +45,9 @@ type Sessions struct {
 	now     func() time.Time
 	idle    time.Duration
 	hmacKey []byte // PROBECTL_SESSION_HMAC_KEY (KEYS-002); must be 32 bytes
+	// store, when set, is the source of truth shared by every replica; the
+	// map above is then unused. Nil keeps the single-process behavior.
+	store SessionStore
 }
 
 // NewSessions returns an empty operator-session store. hmacKey should be the
@@ -66,30 +70,84 @@ func (s *Sessions) WithIdleTimeout(idle time.Duration) *Sessions {
 	return s
 }
 
-// Issue mints an opaque session token for an authenticated operator.
+// SessionStore persists operator sessions so that every control replica
+// validates the same session and a revocation reaches all of them (DPR-033).
+// Only the keyed token hash is stored; GetSession returns the operator row as
+// it is NOW, so a disabled operator's session dies on every replica at once.
+type SessionStore interface {
+	PutSession(ctx context.Context, tokenHash, operatorID string, expires, lastActivity time.Time) error
+	GetSession(ctx context.Context, tokenHash string) (op Operator, expires, lastActivity time.Time, found bool, err error)
+	TouchSession(ctx context.Context, tokenHash string, lastActivity time.Time) error
+	DeleteSession(ctx context.Context, tokenHash string) error
+	DeleteOperatorSessions(ctx context.Context, operatorID string) error
+}
+
+// touchInterval bounds how often an active session's last-activity row is
+// rewritten; idle timeouts are minutes to hours, so second-level precision is
+// wasted writes.
+const touchInterval = time.Minute
+
+// WithStore makes the sessions replica-safe: issued, resolved and revoked
+// through the shared store instead of this process's memory (DPR-033).
+func (s *Sessions) WithStore(store SessionStore) *Sessions {
+	s.store = store
+	return s
+}
+
 func (s *Sessions) Issue(op Operator) (string, error) {
+	return s.IssueContext(context.Background(), op)
+}
+
+func (s *Sessions) IssueContext(ctx context.Context, op Operator) (string, error) {
 	raw, err := crypto.Random(32)
 	if err != nil {
 		return "", err
 	}
 	token := hex.EncodeToString(raw)
+	now := s.now()
+	if s.store != nil {
+		if err := s.store.PutSession(ctx, s.hashKey(token), op.ID, now.Add(sessionTTL), now); err != nil {
+			return "", err
+		}
+		return token, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.now()
 	s.byH[s.hashKey(token)] = opSession{op: op, expires: now.Add(sessionTTL), lastActivity: now}
 	return token, nil
 }
 
-// Resolve returns the operator for a token, or nil when absent/expired.
 func (s *Sessions) Resolve(token string) *Operator {
+	return s.ResolveContext(context.Background(), token)
+}
+
+// ResolveContext returns the operator behind a live session, or nil. A store
+// failure denies (fail closed) rather than falling back to process memory.
+func (s *Sessions) ResolveContext(ctx context.Context, token string) *Operator {
 	if token == "" {
 		return nil
 	}
+	h := s.hashKey(token)
+	now := s.now()
+	if s.store != nil {
+		op, expires, last, found, err := s.store.GetSession(ctx, h)
+		if err != nil || !found {
+			return nil
+		}
+		if now.After(expires) || !last.After(now.Add(-s.idle)) {
+			_ = s.store.DeleteSession(ctx, h)
+			return nil
+		}
+		if now.Sub(last) >= touchInterval {
+			if err := s.store.TouchSession(ctx, h, now); err != nil {
+				return nil
+			}
+		}
+		return &op
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	h := s.hashKey(token)
 	sess, ok := s.byH[h]
-	now := s.now()
 	if !ok || now.After(sess.expires) || !sess.lastActivity.After(now.Add(-s.idle)) {
 		delete(s.byH, h)
 		return nil
@@ -100,9 +158,14 @@ func (s *Sessions) Resolve(token string) *Operator {
 	return &op
 }
 
-// Revoke deletes a session (logout).
-func (s *Sessions) Revoke(token string) {
+func (s *Sessions) Revoke(token string) { s.RevokeContext(context.Background(), token) }
+
+func (s *Sessions) RevokeContext(ctx context.Context, token string) {
 	if token == "" {
+		return
+	}
+	if s.store != nil {
+		_ = s.store.DeleteSession(ctx, s.hashKey(token))
 		return
 	}
 	s.mu.Lock()
@@ -110,9 +173,15 @@ func (s *Sessions) Revoke(token string) {
 	delete(s.byH, s.hashKey(token))
 }
 
-// RevokeOperator deletes every session belonging to an operator (used when an
-// admin disables an account — access ends immediately, not at TTL).
 func (s *Sessions) RevokeOperator(operatorID string) {
+	s.RevokeOperatorContext(context.Background(), operatorID)
+}
+
+func (s *Sessions) RevokeOperatorContext(ctx context.Context, operatorID string) {
+	if s.store != nil {
+		_ = s.store.DeleteOperatorSessions(ctx, operatorID)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for h, sess := range s.byH {
@@ -122,9 +191,6 @@ func (s *Sessions) RevokeOperator(operatorID string) {
 	}
 }
 
-// hashKey returns the keyed-HMAC (or unkeyed-SHA256 fallback) of token as a
-// hex string for use as the map key. Production always has hmacKey set
-// (PROBECTL_SESSION_HMAC_KEY; KEYS-002); the fallback exists for tests only.
 func (s *Sessions) hashKey(token string) string {
 	if len(s.hmacKey) == crypto.KeySize {
 		return hex.EncodeToString(crypto.Sign(s.hmacKey, []byte(token)))

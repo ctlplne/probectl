@@ -782,3 +782,51 @@ func (s *PGStore) UseGrant(ctx context.Context, id, operatorID string, at time.T
 	}
 	return &g, nil
 }
+
+// --- operator sessions (DPR-033) ---
+
+// PutSession records a freshly issued session by its keyed token hash.
+func (s *PGStore) PutSession(ctx context.Context, tokenHash, operatorID string, expires, lastActivity time.Time) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO provider_sessions (token_hash, operator_id, expires_at, last_activity_at)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (token_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at, last_activity_at = EXCLUDED.last_activity_at`,
+		tokenHash, operatorID, expires, lastActivity)
+	return err
+}
+
+// GetSession returns the session's operator AS STORED NOW (status included),
+// so a disabled operator's session is refused on every replica at once.
+func (s *PGStore) GetSession(ctx context.Context, tokenHash string) (Operator, time.Time, time.Time, bool, error) {
+	var (
+		op            Operator
+		expires, last time.Time
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT s.expires_at, s.last_activity_at, o.id::text, o.email, o.name, o.role, o.status, o.password_hash <> '', o.created_at
+		 FROM provider_sessions s JOIN provider_operators o ON o.id = s.operator_id
+		 WHERE s.token_hash = $1`, tokenHash).
+		Scan(&expires, &last, &op.ID, &op.Email, &op.Name, &op.Role, &op.Status, &op.Enrolled, &op.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Operator{}, time.Time{}, time.Time{}, false, nil
+	}
+	if err != nil {
+		return Operator{}, time.Time{}, time.Time{}, false, err
+	}
+	return op, expires, last, true, nil
+}
+
+func (s *PGStore) TouchSession(ctx context.Context, tokenHash string, lastActivity time.Time) error {
+	_, err := s.pool.Exec(ctx, `UPDATE provider_sessions SET last_activity_at = $2 WHERE token_hash = $1`, tokenHash, lastActivity)
+	return err
+}
+
+func (s *PGStore) DeleteSession(ctx context.Context, tokenHash string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM provider_sessions WHERE token_hash = $1`, tokenHash)
+	return err
+}
+
+func (s *PGStore) DeleteOperatorSessions(ctx context.Context, operatorID string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM provider_sessions WHERE operator_id = $1`, operatorID)
+	return err
+}

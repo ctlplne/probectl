@@ -74,7 +74,11 @@ every operator after that enrolls:
    characters), and activates the account.
 3. **Log in** with email + password + TOTP. Failures are deliberately *uniform* —
    nothing distinguishes a wrong password from a wrong code from an unknown email,
-   so an attacker can't probe which part they got right.
+   so an attacker can't probe which part they got right. The session that comes
+   back is **persisted in Postgres** (`provider_sessions`, keyed token hash only,
+   4-hour lifetime, idle timeout), so every control replica behind the ingress
+   honours it and a logout, an idle expiry, or disabling the operator ends it on
+   all replicas at once (DPR-033).
 
 The same flow has named CLI paths: `probectl provider bootstrap`,
 `enroll-start`, `enroll-complete`, and `login`. These four requests contain

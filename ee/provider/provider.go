@@ -140,7 +140,10 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 		d.Reaper(svc)
 	}
 
-	return NewHandler(svc, NewSessions(cfg.SessionHMACKey).WithIdleTimeout(cfg.SessionIdleTimeout), tenantAuth, log,
+	// DPR-033: sessions live in Postgres so every replica behind the ingress
+	// honors the same operator session and revocation.
+	sessions := NewSessions(cfg.SessionHMACKey).WithIdleTimeout(cfg.SessionIdleTimeout).WithStore(st)
+	return NewHandler(svc, sessions, tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
 		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).
 		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
