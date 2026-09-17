@@ -285,6 +285,15 @@ tenant-scoped bearer token. Think of the browser session as your interactive
 login, and the bearer token as a script badge for one already-provisioned user:
 the token inherits that user's tenant and RBAC permissions.
 
+A brand-new deployment has no administrator yet: every SSO login lands with no
+roles. Grant the first admin from the control host (idempotent, audited; it
+creates the user row if the person has not logged in yet):
+
+```sh
+PROBECTL_DATABASE_URL='postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable' \
+  ./bin/probectl-control bootstrap-admin -tenant 00000000-0000-0000-0000-000000000001 -email operator@example.com
+```
+
 After the user has logged in once through OIDC, or has been provisioned by SCIM,
 mint a one-time-visible control-plane bearer token on the control host. The token
 uses the same hash-only `mcp_tokens` store as the MCP server, but it also works

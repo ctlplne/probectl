@@ -41,7 +41,12 @@ Seeded system roles (one set per tenant):
 
 A **new SSO user is created with no roles** (the secure default) and is denied
 scoped resources until an admin grants one. Inspect your own effective access at
-`GET /v1/me`. Role bindings live in the `role_bindings` table. Users and roles
+`GET /v1/me`. Role bindings live in the `role_bindings` table. The very first
+admin of a deployment (or of a new tenant with no directory sync yet) is granted
+from the control host with `probectl-control bootstrap-admin -tenant <uuid>
+-email <sso-email> [-role admin|editor|viewer]` — idempotent, audited as
+`rbac.bind`, and it creates the user row if the person has not logged in yet
+(see the first-run checklist in [`install.md`](install.md)). Users and roles
 within a tenant are provisioned by your IdP over **SCIM 2.0** — the standard
 user-provisioning protocol, where the IdP *pushes* user create/update/delete to
 probectl instead of probectl polling the IdP (the `/scim/v2/...`

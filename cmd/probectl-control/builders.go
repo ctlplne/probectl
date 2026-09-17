@@ -495,11 +495,11 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 	case "bgp-analyzer":
 		// W1: optional Python analyzer supervisor + tenant-bound Kafka bridge.
 		return true, runBGPAnalyzer(os.Getenv)
-	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap":
+	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "bootstrap-admin", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap":
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
 	}
 }
 
@@ -544,6 +544,9 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 		return true, runRevokeEnrollToken(context.Background(), db, os.Args[2:])
 	case "scim-token":
 		return true, runSCIMToken(log, db, os.Args[2:])
+	case "bootstrap-admin":
+		// DPR-013: the first explicit role grant on a fresh deployment.
+		return true, runBootstrapAdmin(context.Background(), db, log, os.Args[2:])
 	case "register-collector":
 		// ARCH-011: register a bus-publishing collector (eBPF/flow/device) and
 		// print its UUID identity; no cert (bus auth is separate).

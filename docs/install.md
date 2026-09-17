@@ -251,7 +251,22 @@ Don't follow a one-off recipe here — the canonical journey is already written:
    your identity provider — Okta, Entra ID, Keycloak, …). A brand-new SSO user
    is provisioned with **no roles** — an admin must
    grant access (see [`admin.md`](admin.md)). This is intentional: access is
-   default-deny, not default-allow.
+   default-deny, not default-allow. On a fresh deployment there is no admin
+   yet, so grant the first one from the control host (the same trust as
+   `migrate`); the person does not need to have logged in first:
+
+   ```sh
+   # Compose (the control image is distroless; its entrypoint is the binary):
+   docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml \
+     exec control /usr/local/bin/app bootstrap-admin -email you@example.com
+   # Helm:
+   kubectl -n probectl exec deploy/probectl -- /usr/local/bin/app bootstrap-admin -email you@example.com
+   ```
+
+   The grant is tenant-scoped (`-tenant`, default the built-in tenant),
+   idempotent, and recorded in the audit trail as `rbac.bind`; `-role` accepts
+   `admin`, `editor`, `viewer`, or a custom role slug. From then on, roles come
+   from SCIM group sync or from an admin.
 2. **Envelope key.** Set `PROBECTL_ENVELOPE_KEY` to a real 32-byte base64 key
    (KEK) and keep it safe; secrets at rest are sealed with it. probectl encrypts
    the values *it* manages — encrypting the bulk telemetry volumes (Postgres,
