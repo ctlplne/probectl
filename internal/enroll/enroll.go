@@ -37,6 +37,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 const (
@@ -67,6 +68,9 @@ var (
 	// ErrRevoked refuses any issuance for an operator-revoked agent identity
 	// (Sprint 12, WIRE-003): no resurrection by re-enrollment or rotation.
 	ErrRevoked = errors.New("enroll: agent identity is revoked")
+	// ErrQuotaExceeded: the tenant's agent quota (the MSP's commercial cap) is
+	// full; a bus collector counts like any other agent (DPR-081).
+	ErrQuotaExceeded = errors.New("enroll: tenant agent quota exceeded")
 )
 
 // tenantRefusal preserves a tenant identity only after the service has resolved
@@ -420,6 +424,12 @@ func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostn
 		name = agentID
 	}
 	caps := []string{"collector", plane}
+	// DPR-081: a collector is a metered agent. The gRPC registration path
+	// consulted the quota seam; this path minted a fresh identity every time
+	// and never did, so an MSP tenant capped at five agents ran twelve.
+	if qerr := usage.AllowCreate(ctx, tenantID, usage.MeterAgents); qerr != nil {
+		return nil, fmt.Errorf("%w: %v", ErrQuotaExceeded, qerr)
+	}
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
 			_, e := (store.Agents{}).Register(ctx, sc, agentID, name, hostname, "", spiffe, caps)

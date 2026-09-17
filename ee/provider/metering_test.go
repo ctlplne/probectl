@@ -214,3 +214,42 @@ func TestQuotaWriteReadOnlyDegrade(t *testing.T) {
 		t.Fatalf("quota write in read-only: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// DPR-081: the usage surface says "12 of 5" itself — the agents and tests
+// meters carry the tenant's cap and an over_quota flag; other meters and
+// unlimited tenants stay unannotated.
+func TestUsageCarriesQuotaContext(t *testing.T) {
+	f, store, token := meteredFixture(t)
+	two := 2
+	if err := store.SetQuota(context.Background(), billing.Quota{TenantID: "tnA", MaxAgents: &two}); err != nil {
+		t.Fatal(err)
+	}
+	rec := f.doAuthed(t, token, http.MethodGet, "/provider/v1/usage", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("usage: %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Items []billing.UsageRecord `json:"items"`
+	}
+	mustDecode(t, rec, &out)
+	var agentsA, resultsA, agentsB int
+	for _, r := range out.Items {
+		switch {
+		case r.TenantID == "tnA" && r.Meter == usage.MeterAgents:
+			agentsA++
+			if r.Quota == nil || *r.Quota != 2 || !r.OverQuota || r.Value != 3 {
+				t.Fatalf("acme agents must read 3 of 2, over quota: %+v", r)
+			}
+		case r.TenantID == "tnA" && r.Meter == usage.MeterResultsIngested:
+			resultsA++
+			if r.Quota != nil || r.OverQuota {
+				t.Fatalf("an unquota'd meter must stay unannotated: %+v", r)
+			}
+		case r.TenantID == "tnB" && r.Meter == usage.MeterAgents:
+			agentsB++
+		}
+	}
+	if agentsA == 0 || resultsA == 0 {
+		t.Fatalf("fixture rows missing: agentsA=%d resultsA=%d", agentsA, resultsA)
+	}
+}

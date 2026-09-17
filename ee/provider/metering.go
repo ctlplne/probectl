@@ -7,10 +7,12 @@
 package provider
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	"github.com/ctlplne/probectl/ee/billing"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 // The S-T3 metering surface on the provider plane: per-tenant usage/showback,
@@ -72,10 +74,45 @@ func (h *Handler) handleUsage(w http.ResponseWriter, r *http.Request, _ Operator
 	if err != nil {
 		return err
 	}
+	h.annotateQuotas(r.Context(), records)
 	return h.writeJSON(w, http.StatusOK, map[string]any{
 		"items":  records,
 		"meters": billing.Meters(),
 	})
+}
+
+// annotateQuotas stamps the agents/tests meters with the tenant's cap and
+// whether the metered value exceeds it (DPR-081). A quota lookup failure leaves
+// the record unannotated — showback truth never depends on the quota read.
+func (h *Handler) annotateQuotas(ctx context.Context, records []billing.UsageRecord) {
+	if h.metering == nil || h.metering.Store == nil {
+		return
+	}
+	quotas := map[string]billing.Quota{}
+	for i := range records {
+		rec := &records[i]
+		if rec.Meter != usage.MeterAgents && rec.Meter != usage.MeterTests {
+			continue
+		}
+		q, ok := quotas[rec.TenantID]
+		if !ok {
+			loaded, err := h.metering.Store.QuotaFor(ctx, rec.TenantID)
+			if err != nil {
+				continue
+			}
+			q, quotas[rec.TenantID] = loaded, loaded
+		}
+		limit := q.MaxAgents
+		if rec.Meter == usage.MeterTests {
+			limit = q.MaxTests
+		}
+		if limit == nil {
+			continue
+		}
+		ceiling := int64(*limit)
+		rec.Quota = &ceiling
+		rec.OverQuota = rec.Value > ceiling
+	}
 }
 
 func (h *Handler) handleUsageExport(w http.ResponseWriter, r *http.Request, _ Operator) error {

@@ -252,6 +252,10 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceCollector, tenantID)
 			return apierror.Unauthorized("collector registration refused")
+		case errors.Is(err, enroll.ErrQuotaExceeded):
+			// DPR-081: the same code the test-creation path uses, so an MSP
+			// customer at its plan's cap sees one vocabulary everywhere.
+			return apierror.Forbidden(err.Error()).WithCode("quota_exceeded")
 		}
 		// DPR-048: a name the tenant already uses is a 409 the caller can act
 		// on, not an opaque 500.

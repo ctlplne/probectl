@@ -108,9 +108,17 @@ the license has lapsed into read-only degrade, quota writes are blocked) via
 What a quota does — and deliberately does not do:
 
 - It gates **control-plane resource creation only**: creating a test (denied
-  with `403 quota_exceeded`) and registering a **new** agent (denied with the
-  gRPC `ResourceExhausted` status). An *existing* agent re-registering is never
-  rejected — a running fleet must not break on a restart.
+  with `403 quota_exceeded`) and registering a **new** agent — over the gRPC
+  transport (denied with the `ResourceExhausted` status) and, since DPR-081,
+  through `POST /v1/collectors/register` for the bus collectors (eBPF, flow,
+  device, endpoint, BMP; denied with `403 quota_exceeded`). Before DPR-081 the
+  collector path minted a fresh identity every time and never consulted the
+  quota, so a tenant capped at five agents could run twelve. An *existing* agent
+  re-registering is never rejected — a running fleet must not break on a restart.
+- The usage surface says so itself: the `agents` and `tests` meters on
+  `GET /provider/v1/usage` carry `quota` and `over_quota` (DPR-081), so a
+  provider operator reads "12 of 5" on one page instead of a bare gauge next to
+  a cap on another.
 - **Telemetry is never quota-dropped.** Observability must not silently lose
   data; throttling pooled ingest is the fairness layer's job, not the quota
   layer's (see [`docs/fairness.md`](fairness.md)).

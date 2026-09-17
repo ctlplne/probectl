@@ -404,10 +404,21 @@
     },
     "/provider/v1/usage": {
       "get": {
-        "summary": "Per-tenant usage (showback): UsageRecords for [from,to) with rollup=hour|day (default day); counters sum, gauges peak",
+        "summary": "Per-tenant usage (showback): UsageRecords for [from,to) with rollup=hour|day (default day); counters sum, gauges peak. The agents and tests meters carry the tenant's quota and an over_quota flag (DPR-081)",
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {
+              "meters": {"type": "array", "items": {"type": "string"}},
+              "items": {"type": "array", "items": {"type": "object", "properties": {
+                "tenant_id": {"type": "string"}, "tenant_slug": {"type": "string"},
+                "meter": {"type": "string"}, "kind": {"type": "string", "enum": ["counter", "gauge"]},
+                "period_start": {"type": "string", "format": "date-time"}, "period_end": {"type": "string", "format": "date-time"},
+                "value": {"type": "integer"}, "unit": {"type": "string"},
+                "quota": {"type": "integer", "description": "The tenant's cap for this meter (agents, tests); absent when unlimited."},
+                "over_quota": {"type": "boolean", "description": "true when value exceeds quota \u2014 the cap is enforced at agent/collector registration and test creation, never by dropping telemetry."}
+              }}}
+            }}}}
           }
         }
       }

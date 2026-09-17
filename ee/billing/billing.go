@@ -61,6 +61,11 @@ type UsageRecord struct {
 	PeriodEnd   time.Time `json:"period_end"`
 	Value       int64     `json:"value"`
 	Unit        string    `json:"unit"`
+	// Quota / OverQuota annotate the agents and tests meters with the tenant's
+	// cap on the usage surface (DPR-081): a provider operator sees "12 of 5"
+	// instead of a bare gauge next to a quota on another page. nil = unlimited.
+	Quota     *int64 `json:"quota,omitempty"`
+	OverQuota bool   `json:"over_quota,omitempty"`
 }
 
 // Quota is a tenant's creation limits. nil fields = unlimited.
