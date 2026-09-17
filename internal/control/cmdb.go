@@ -65,14 +65,49 @@ func (s *Server) handleCMDBLookup(w http.ResponseWriter, r *http.Request) error 
 	if key == "" {
 		return apierror.BadRequest("key must be an IP address or hostname")
 	}
-	cis, err := s.cmdb.Lookup(r.Context(), key)
+	// DPR-118: the CMDB is ONE deployment-level system shared by every tenant,
+	// so an arbitrary key from the query string is not the caller's to ask
+	// about. This route used to hand any tenant admin the operator's whole CMDB
+	// — on the lab, tenant globex-eu read acme-industries' seeded device. A key
+	// is answerable only when the caller already owns something by that name:
+	// an agent it enrolled, a device it collects, or a target on one of its own
+	// incidents (the contract internal/cmdb documents for every correlation).
+	owns, err := s.tenantOwnsCMDBKey(r, key)
 	if err != nil {
+		return err
+	}
+	if !owns {
+		// Not 403: the answer must not confirm that the key exists somewhere.
+		return apierror.NotFound("no configuration item for that key in this tenant")
+	}
+	cis, lookupErr := s.cmdb.Lookup(r.Context(), key)
+	if lookupErr != nil {
 		return apierror.Unavailable("CMDB lookup failed (provider unreachable)")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"provider": s.cmdb.ProviderName(), "key": key, "cis": emptyCIs(cis),
 	})
 	return nil
+}
+
+// tenantOwnsCMDBKey reports whether the caller's tenant has an agent, a device
+// or an incident target by that name (DPR-118). cmdbKeyOwner is the test seam;
+// with no database there is exactly one tenant and nothing to share, so the
+// question does not arise.
+func (s *Server) tenantOwnsCMDBKey(r *http.Request, key string) (bool, error) {
+	if s.cmdbKeyOwner != nil {
+		return s.cmdbKeyOwner(r, key)
+	}
+	if s.pool == nil {
+		return true, nil
+	}
+	var owns bool
+	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var e error
+		owns, e = (store.CMDBKeys{}).TenantOwns(ctx, sc, key)
+		return e
+	})
+	return owns, err
 }
 
 // handleIncidentCIs serves GET /v1/incidents/{id}/cis — the incident's

@@ -4469,7 +4469,7 @@
             }
           }
         },
-        "description": "Read-only CI lookup against the configured CMDB provider (ServiceNow). 503 when no provider is configured."
+        "description": "Read-only CI lookup against the configured CMDB provider (ServiceNow or NetBox). The CMDB is one deployment-level system shared by every tenant, so a key is answerable only when the caller's own tenant has an agent, a device or an incident target by that name (DPR-118); anything else is 404, which deliberately does not reveal whether the CI exists elsewhere. 503 when no provider is configured."
       }
     },
     "/v1/secrets/health": {

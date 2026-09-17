@@ -137,3 +137,39 @@ func TestCMDBLookupThroughServiceNowShape(t *testing.T) {
 		t.Fatalf("servicenow-shaped lookup = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestCMDBLookupOnlyAnswersForKeysTheTenantOwns (DPR-118): the CMDB is ONE
+// deployment-level system shared by every tenant on an MSP-hosted install, and
+// this route took an arbitrary key from the query string. On the lab, tenant
+// globex-eu read tenant acme-industries' seeded device straight out of the
+// operator's NetBox — a tenant could enumerate another tenant's device names,
+// sites and IP assignments by guessing. internal/cmdb's own contract says every
+// correlation request resolves keys from the caller's own tenant; this route
+// did not, and now does.
+func TestCMDBLookupOnlyAnswersForKeysTheTenantOwns(t *testing.T) {
+	srv := cmdbServer()
+	var asked []string
+	srv.cmdbKeyOwner = func(_ *http.Request, key string) (bool, error) {
+		asked = append(asked, key)
+		return key == "10.0.0.1", nil
+	}
+
+	if rec := do(srv, http.MethodGet, "/v1/cmdb/lookup?key=10.0.0.1"); rec.Code != http.StatusOK {
+		t.Fatalf("a key the tenant owns must answer: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := do(srv, http.MethodGet, "/v1/cmdb/lookup?key=db.acme.example")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("another tenant's key must be 404, got %d %s", rec.Code, rec.Body.String())
+	}
+	// The refusal must not confirm that the CI exists somewhere.
+	if body := rec.Body.String(); strings.Contains(body, "db01") || strings.Contains(body, "forbidden") {
+		t.Errorf("the refusal leaks whether the key exists: %s", body)
+	}
+	// The ownership question is asked with the canonical key, not the raw one.
+	if rec := do(srv, http.MethodGet, "/v1/cmdb/lookup?key=DB.ACME.EXAMPLE:5432"); rec.Code != http.StatusNotFound {
+		t.Fatalf("canonicalized key = %d", rec.Code)
+	}
+	if len(asked) != 3 || asked[2] != "db.acme.example" {
+		t.Errorf("ownership must be checked with the canonical key, got %v", asked)
+	}
+}

@@ -274,7 +274,12 @@ with stale material.
   /v1/incidents/{id}/cis`, `GET /v1/agents/{id}/ci` against ServiceNow or
   NetBox. `probectl-cloud-metrics` imports local AWS/Azure/GCP metric exports to
   `/v1/prometheus/write`. Reads need a metrics-read permission; remote-write
-  needs metrics-write; CMDB needs a cmdb-read permission.
+  needs metrics-write; CMDB needs a cmdb-read permission. The CMDB is ONE
+  deployment-level system shared by every tenant, so `/v1/cmdb/lookup` answers
+  only for keys the caller's own tenant already has — an agent it enrolled, a
+  device it collects, or a target on one of its own incidents. Anything else is
+  404 and does not say whether the CI exists elsewhere (DPR-118). Incident and
+  agent correlation were always scoped this way; the direct lookup is now too.
 - **Secrets:** reference schemes `env:`, `vault:`, `cyberark:`, `aws:`, `azure:`,
   `gcp:`, and a `literal:` escape hatch. Health at `GET /v1/secrets/health`
   (redacted). The same machinery loads agent mutual-TLS identities and picks up

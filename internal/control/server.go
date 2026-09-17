@@ -321,6 +321,10 @@ type Server struct {
 	// startedAt is the process start (S-EE4): the support bundle reports uptime.
 	startedAt time.Time
 
+	// cmdbKeyOwner overrides the tenant-ownership check for CMDB lookups
+	// (DPR-118); nil uses the store-backed check.
+	cmdbKeyOwner func(*http.Request, string) (bool, error)
+
 	// metrics is the self-observability registry exposed at /metrics
 	// (OPS-005). Process/aggregate health only — never tenant data.
 	metrics *metrics.Registry
