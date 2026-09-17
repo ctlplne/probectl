@@ -27,7 +27,7 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if or .Values.migrateOnBoot .Values.control.credentialFiles.existingSecret (and .Values.control.agentListener.enabled (not .Values.control.agentListener.ca.existingSecret)) }}
+      {{- if or .Values.migrateOnBoot .Values.control.credentialFiles.existingSecret (and .Values.control.agentListener.enabled (not (include "probectl.agentListener.caSecret" .))) }}
       initContainers:
         {{- if .Values.control.credentialFiles.existingSecret }}
         # DPR-030: stage operator credential files as private mode-0600 regular
@@ -83,14 +83,14 @@ spec:
             {{- end }}
           {{- end }}
         {{- end }}
-        {{- if and .Values.control.agentListener.enabled (not .Values.control.agentListener.ca.existingSecret) }}
+        {{- if and .Values.control.agentListener.enabled (not (include "probectl.agentListener.caSecret" .)) }}
         # DPR-046: export the agent CA's PUBLIC trust bundle from the database
         # into a memory volume so the listener can verify enrolling agents.
         # Fails (and keeps the pod from serving) until `agent-ca init` has run.
         - name: export-agent-ca
           image: {{ include "probectl.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["agent-ca", "export", {{ printf "%s/%s" .Values.control.agentListener.ca.mountPath .Values.control.agentListener.ca.key | quote }}]
+          args: ["agent-ca", "export", {{ include "probectl.agentListener.caFile" . | quote }}]
           envFrom:
             - configMapRef:
                 name: {{ include "probectl.fullname" . }}-config
@@ -105,7 +105,7 @@ spec:
           {{- end }}
           volumeMounts:
             - name: agent-ca
-              mountPath: {{ .Values.control.agentListener.ca.mountPath | quote }}
+              mountPath: {{ include "probectl.agentListener.caMountPath" . | quote }}
             {{- if .Values.control.trustBundle.existingConfigMap }}
             - name: trust-bundle
               mountPath: {{ .Values.control.trustBundle.mountPath | quote }}
@@ -128,7 +128,7 @@ spec:
               containerPort: 8080
             {{- if .Values.control.agentListener.enabled }}
             - name: agent-grpc
-              containerPort: {{ int .Values.control.agentListener.port }}
+              containerPort: {{ include "probectl.agentListener.port" . }}
               protocol: TCP
             {{- end }}
           envFrom:
@@ -176,7 +176,7 @@ spec:
             {{- end }}
             {{- if .Values.control.agentListener.enabled }}
             - name: agent-ca
-              mountPath: {{ .Values.control.agentListener.ca.mountPath | quote }}
+              mountPath: {{ include "probectl.agentListener.caMountPath" . | quote }}
               readOnly: true
             {{- end }}
             {{- if .Values.control.trustBundle.existingConfigMap }}
@@ -203,12 +203,12 @@ spec:
       volumes:
         {{- if .Values.control.agentListener.enabled }}
         - name: agent-ca
-          {{- if .Values.control.agentListener.ca.existingSecret }}
+          {{- if (include "probectl.agentListener.caSecret" .) }}
           secret:
-            secretName: {{ .Values.control.agentListener.ca.existingSecret | quote }}
+            secretName: {{ include "probectl.agentListener.caSecret" . | quote }}
             items:
-              - key: {{ .Values.control.agentListener.ca.key | quote }}
-                path: {{ .Values.control.agentListener.ca.key | quote }}
+              - key: {{ include "probectl.agentListener.caKey" . | quote }}
+                path: {{ include "probectl.agentListener.caKey" . | quote }}
           {{- else }}
           emptyDir:
             medium: Memory

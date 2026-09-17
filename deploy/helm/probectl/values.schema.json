@@ -315,8 +315,7 @@
                 "existingSecret": { "type": "string" },
                 "key": { "type": "string", "minLength": 1 },
                 "mountPath": { "type": "string", "minLength": 1, "pattern": "^/" }
-              },
-              "required": ["existingSecret", "key", "mountPath"]
+              }
             },
             "service": {
               "type": "object",
@@ -325,12 +324,10 @@
                 "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
                 "nodePort": { "type": ["integer", "null"], "minimum": 30000, "maximum": 32767 },
                 "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
-              },
-              "required": ["type"]
+              }
             },
             "ingressFrom": { "type": "array", "items": { "type": "object" } }
-          },
-          "required": ["enabled", "port", "ca", "service", "ingressFrom"]
+          }
         },
         "credentialFiles": {
           "type": "object",

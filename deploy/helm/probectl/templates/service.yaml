@@ -26,20 +26,20 @@ metadata:
   name: {{ include "probectl.fullname" . }}-agents
   labels:
     {{- include "probectl.labels" . | nindent 4 }}
-  {{- with .Values.control.agentListener.service.annotations }}
+  {{- with (dig "service" "annotations" nil .Values.control.agentListener) }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ .Values.control.agentListener.service.type }}
+  type: {{ include "probectl.agentListener.serviceType" . }}
   selector:
     {{- include "probectl.selectorLabels" . | nindent 4 }}
   ports:
     - name: agent-grpc
-      port: {{ int .Values.control.agentListener.port }}
+      port: {{ include "probectl.agentListener.port" . }}
       targetPort: agent-grpc
       protocol: TCP
-      {{- with .Values.control.agentListener.service.nodePort }}
+      {{- with (dig "service" "nodePort" nil .Values.control.agentListener) }}
       nodePort: {{ int . }}
       {{- end }}
 {{- end }}

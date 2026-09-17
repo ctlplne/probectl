@@ -73,3 +73,26 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "probectl.serviceScheme" -}}
 {{- if .Values.control.tls.enabled -}}https{{- else -}}http{{- end -}}
 {{- end -}}
+
+{{/*
+DPR-046: agent listener values with defaults, so `helm upgrade --reuse-values
+--set control.agentListener.enabled=true` works without restating the block.
+*/}}
+{{- define "probectl.agentListener.port" -}}
+{{- int (default 9443 .Values.control.agentListener.port) -}}
+{{- end -}}
+{{- define "probectl.agentListener.caMountPath" -}}
+{{- default "/etc/probectl/agent-ca" (dig "ca" "mountPath" "" .Values.control.agentListener) -}}
+{{- end -}}
+{{- define "probectl.agentListener.caKey" -}}
+{{- default "agent-ca.crt" (dig "ca" "key" "" .Values.control.agentListener) -}}
+{{- end -}}
+{{- define "probectl.agentListener.caSecret" -}}
+{{- dig "ca" "existingSecret" "" .Values.control.agentListener -}}
+{{- end -}}
+{{- define "probectl.agentListener.caFile" -}}
+{{- printf "%s/%s" (include "probectl.agentListener.caMountPath" .) (include "probectl.agentListener.caKey" .) -}}
+{{- end -}}
+{{- define "probectl.agentListener.serviceType" -}}
+{{- default "ClusterIP" (dig "service" "type" "" .Values.control.agentListener) -}}
+{{- end -}}

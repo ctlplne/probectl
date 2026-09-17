@@ -159,10 +159,10 @@ data:
   {{- end }}
   # DPR-046: agent gRPC/mTLS listener — same server certificate as the API,
   # agents verified against the deployment's agent CA trust bundle.
-  PROBECTL_AGENT_GRPC_ADDR: {{ printf ":%d" (int .Values.control.agentListener.port) | quote }}
+  PROBECTL_AGENT_GRPC_ADDR: {{ printf ":%s" (include "probectl.agentListener.port" .) | quote }}
   PROBECTL_AGENT_TLS_CERT_FILE: {{ printf "%s/tls.crt" .Values.control.tls.mountPath | quote }}
   PROBECTL_AGENT_TLS_KEY_FILE: {{ printf "%s/tls.key" .Values.control.tls.mountPath | quote }}
-  PROBECTL_AGENT_TLS_CA_FILE: {{ printf "%s/%s" .Values.control.agentListener.ca.mountPath .Values.control.agentListener.ca.key | quote }}
+  PROBECTL_AGENT_TLS_CA_FILE: {{ include "probectl.agentListener.caFile" . | quote }}
   {{- end }}
   {{- with .Values.control.trustedProxies }}
   # DPR-039: the ingress/load-balancer addresses whose forwarded client

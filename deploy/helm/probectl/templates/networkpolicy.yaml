@@ -30,7 +30,7 @@ spec:
     # SVID handshake is the authentication, so the default source is any.
     - ports:
         - protocol: TCP
-          port: {{ int .Values.control.agentListener.port }}
+          port: {{ include "probectl.agentListener.port" . }}
       {{- with .Values.control.agentListener.ingressFrom }}
       from:
         {{- toYaml . | nindent 8 }}
