@@ -15,6 +15,9 @@ write_files:
   - path: /etc/probectl/agent.yaml
     permissions: "0640"
     content: |
+      # apiVersion is required: the agent refuses to parse a config without it
+      # (DPR-137).
+      apiVersion: probectl.io/agent/v1
       control_plane:
         grpc_addr: "https://CONTROL-HOST:8443"
       tls:

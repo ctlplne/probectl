@@ -131,6 +131,20 @@ func sealCAKey(ctx context.Context, interKey []byte) (string, error) {
 	return sealed, nil
 }
 
+// CAInitialized reports whether the agent CA hierarchy already exists, so a
+// repeatable bootstrap can tell "already done" from "failed" without asking
+// InitCA to overwrite anything (DPR-136).
+func CAInitialized(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	_, _, err := store.NewAgentCA(pool).Load(ctx, "root")
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, store.ErrAgentCANotInitialized) {
+		return false, nil
+	}
+	return false, err
+}
+
 func InitCA(ctx context.Context, pool *pgxpool.Pool) (rootKeyPEM []byte, err error) {
 	cas := store.NewAgentCA(pool)
 	if _, _, err := cas.Load(ctx, "root"); err == nil {

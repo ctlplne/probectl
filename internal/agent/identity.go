@@ -160,7 +160,14 @@ func EnsureIdentity(ctx context.Context, o EnrollOptions, log *slog.Logger) erro
 		return nil
 	}
 	if o.Token == "" {
-		return nil
+		// DPR-131: no identity AND no join token is a misconfiguration, not a
+		// pre-seeded identity. Returning nil here let the agent start and fail
+		// later inside the mTLS dial, reporting a missing certificate file
+		// rather than the missing enrolment it actually needs. There is no
+		// plaintext or token-less agent transport, so say so now.
+		return fmt.Errorf("enroll-on-boot: no agent identity in %s and no join token — mint one with "+
+			"`probectl-control enroll-token -tenant <uuid>` and pass it as PROBECTL_AGENT_JOIN_TOKEN "+
+			"(or enroll.token_file), or provision the SVID out of band", o.Dir)
 	}
 	if o.Server == "" {
 		return fmt.Errorf("enroll-on-boot: a join token was provided but no control-plane server is set (set identity.server or enroll.server)")

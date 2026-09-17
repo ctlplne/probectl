@@ -40,3 +40,38 @@ func TestAgentCAInitRefusesToLogTheRootKey(t *testing.T) {
 		t.Errorf("the refusal must name both safe paths: %v", err)
 	}
 }
+
+// DPR-136: `agent-ca init` refusing to overwrite the trust root is correct, and
+// it made every bootstrap one-shot single-use — a second `compose up`, a
+// re-applied Job or a re-run pipeline step failed on a deployment that was
+// already correct and took everything downstream with it. -if-missing is the
+// repeatable form, and it must never overwrite.
+func TestAgentCAInitIfMissingIsTheRepeatableForm(t *testing.T) {
+	src, err := os.ReadFile("enroll.go")
+	if err != nil {
+		t.Fatalf("read enroll.go: %v", err)
+	}
+	s := string(src)
+	start := strings.Index(s, "func runAgentCAInit")
+	if start < 0 {
+		t.Fatal("runAgentCAInit not found")
+	}
+	body := s[start:]
+	if end := strings.Index(body[1:], "\nfunc "); end > 0 {
+		body = body[:end]
+	}
+	if !strings.Contains(body, `fs.Bool("if-missing"`) {
+		t.Error("agent-ca init must offer -if-missing for automated bootstraps")
+	}
+	// The check must happen BEFORE any key material is generated, or a repeat
+	// run would mint a root key it then throws away.
+	initIdx := strings.Index(body, "enroll.CAInitialized")
+	genIdx := strings.Index(body, "enroll.InitCA")
+	if initIdx < 0 || genIdx < 0 || initIdx > genIdx {
+		t.Error("-if-missing must short-circuit before InitCA generates key material")
+	}
+	// And the refusal must stay the DEFAULT: silence on an existing CA is opt-in.
+	if !strings.Contains(body, "*ifMissing") {
+		t.Error("the no-op must be gated on the flag, not unconditional")
+	}
+}

@@ -167,6 +167,18 @@ func (failureReportingBus) PublishFailures() (uint64, uint64, error) {
 	return 3, 1, errors.New("last produce failure on t: MESSAGE_TOO_LARGE")
 }
 
+// plainBus hides the wrapped bus's optional capabilities, so a transport that
+// genuinely cannot report undelivered records can be tested (DPR-140).
+type plainBus struct{ inner bus.Bus }
+
+func (p plainBus) Publish(ctx context.Context, topic string, key, value []byte) error {
+	return p.inner.Publish(ctx, topic, key, value)
+}
+func (p plainBus) Subscribe(ctx context.Context, topic, group string, h bus.Handler) error {
+	return p.inner.Subscribe(ctx, topic, group, h)
+}
+func (p plainBus) Close() error { return p.inner.Close() }
+
 // DPR-071: the metrics wrapper must not hide the wrapped bus's asynchronous
 // failure counters from the agent that reads them after each flush.
 func TestObservedBusForwardsPublishFailures(t *testing.T) {
@@ -186,5 +198,66 @@ func TestObservedBusForwardsPublishFailures(t *testing.T) {
 	plain := ObserveBus(bus.NewMemory(), rt).(bus.PublishFailureReporter)
 	if f, s, last := plain.PublishFailures(); f != 0 || s != 0 || last != nil {
 		t.Errorf("a bus without the capability must report nothing, got %d/%d/%v", f, s, last)
+	}
+}
+
+// DPR-140: published_total counts what the transport accepted, which for an
+// async producer is intent. Every agent whose transport can report undelivered
+// records must expose that on its own endpoint, or "delivering nothing" is
+// indistinguishable from "idle".
+func TestObservedBusExposesUndeliveredOnTheEndpoint(t *testing.T) {
+	rt, err := New("probectl-flow-agent", "v-test", "abc123", Config{Addr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ObserveBus(failureReportingBus{Bus: bus.NewMemory()}, rt)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- rt.Serve(ctx) }()
+	waitReady(t, rt)
+	resp, err := http.Get("http://" + rt.boundAddr() + "/metrics") // #nosec G107 -- loopback-only test listener
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	text := string(body)
+	for _, want := range []string{
+		"probectl_agent_bus_publish_failed_total 3",
+		"probectl_agent_bus_publish_shed_total 1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("metrics endpoint missing %q", want)
+		}
+	}
+	// The counters describe records ALREADY counted as published, so the help
+	// text has to say that or an operator reads them as ordinary errors.
+	if !strings.Contains(text, "never reached the broker") {
+		t.Error("the failed counter must explain that these records were counted as published first")
+	}
+}
+
+// A transport that cannot report undelivered records must not grow empty series
+// that look like a healthy zero.
+func TestObservedBusOmitsUndeliveredSeriesWithoutTheCapability(t *testing.T) {
+	rt, err := New("probectl-device-agent", "v-test", "abc123", Config{Addr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ObserveBus(plainBus{inner: bus.NewMemory()}, rt)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = rt.Serve(ctx) }()
+	waitReady(t, rt)
+	resp, err := http.Get("http://" + rt.boundAddr() + "/metrics") // #nosec G107 -- loopback-only test listener
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if strings.Contains(string(body), "probectl_agent_bus_publish_failed_total") {
+		t.Error("a transport that cannot report undelivered records must expose no such series")
 	}
 }

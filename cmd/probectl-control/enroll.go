@@ -31,8 +31,23 @@ func runAgentCAInit(ctx context.Context, db *store.DB, args []string) error {
 	fs := flag.NewFlagSet("agent-ca init", flag.ContinueOnError)
 	keyOut := fs.String("key-out", "", "write the root private key to this file (0600) instead of stdout")
 	printKey := fs.Bool("print-key", false, "print the root private key to stdout even when stdout is not a terminal (it will be stored wherever that output goes)")
+	ifMissing := fs.Bool("if-missing", false, "succeed and change nothing when the agent CA already exists (for repeatable bootstrap one-shots)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	// DPR-136: refusing to overwrite the trust root is right, but a bootstrap
+	// one-shot that has to run exactly once is not repeatable — a second
+	// `compose up`, a re-applied Job or a re-run pipeline step fails on a
+	// deployment that is already correct, and takes everything downstream of it
+	// with it. The refusal stays the default; -if-missing is the `certgen
+	// --if-missing` idiom for the automated caller, and it never overwrites.
+	if *ifMissing {
+		if initialized, err := enroll.CAInitialized(ctx, db.Pool()); err != nil {
+			return err
+		} else if initialized {
+			fmt.Println("agent CA already initialized — left untouched (-if-missing)")
+			return nil
+		}
 	}
 	// DPR-121: "shown once, never stored" is true of the DATABASE, and it used
 	// to depend entirely on how the command was run. Through `kubectl exec` the

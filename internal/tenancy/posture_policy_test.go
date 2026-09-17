@@ -225,3 +225,40 @@ func TestAppGrantCheckNamesTheCauseNotJustTheSymptom(t *testing.T) {
 		t.Error("the check must be part of the startup posture assertion")
 	}
 }
+
+// TestAppGrantCheckExemptsProviderManagedTables (DPR-135): migration 0044 added
+// a defense-in-depth tenant policy to break_glass_grants targeting the
+// application role, which has no grant on the provider plane's break-glass
+// ledger and must never be given one (§7.1). The grant check read that as a
+// missing privilege and refused EVERY fresh install — and the only way to
+// satisfy it would have been to hand the app role exactly the privilege the
+// guardrail forbids. The exemption must come from providerManagedTables, so a
+// new provider table is classified once and both checks agree.
+func TestAppGrantCheckExemptsProviderManagedTables(t *testing.T) {
+	if _, ok := providerManagedTables["break_glass_grants"]; !ok {
+		t.Fatal("break_glass_grants must be classified as provider-managed")
+	}
+	src, err := os.ReadFile("posture.go")
+	if err != nil {
+		t.Fatalf("read posture.go: %v", err)
+	}
+	q := string(src)
+	start := strings.Index(q, "func assertAppGrantsMatchPolicies")
+	if start < 0 {
+		t.Fatal("assertAppGrantsMatchPolicies not found")
+	}
+	body := q[start:]
+	if end := strings.Index(body[1:], "\nfunc "); end > 0 {
+		body = body[:end]
+	}
+	if !strings.Contains(body, "providerManagedTables[table]") {
+		t.Error("the grant check must exempt provider-managed tables by consulting the classification, not a second hardcoded list")
+	}
+	// The exemption must be a skip, not a weakening of the refusal itself: a
+	// non-provider table with a policy and no grant still has to fail.
+	for _, want := range []string{"ALTER DEFAULT PRIVILEGES", "refusing to start"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the refusal for real cases must survive the exemption: missing %q", want)
+		}
+	}
+}

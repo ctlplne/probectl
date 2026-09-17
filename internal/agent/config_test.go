@@ -9,11 +9,14 @@ package agent
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestConfigRejectsPlaintextIdentityServer(t *testing.T) {
@@ -258,11 +261,61 @@ tls:
 	}
 }
 
+// DPR-137: this test existed and named two files, so the agent config the
+// evaluation canary actually mounts was never loaded by it — and it shipped
+// without apiVersion, which is fatal. The canary crash-looped on config parse
+// with no data and nothing pointing at the config file. The cloud-init
+// packaging config had the same defect, on the production path.
+//
+// The list is now DISCOVERED: any YAML under deploy/ whose top level has
+// control_plane is an agent config and gets loaded with the real loader, so a
+// new one is covered the day it is added rather than the day someone remembers
+// to extend a list.
 func TestShippedAgentConfigsLoadStrictly(t *testing.T) {
-	for _, path := range []string{
-		filepath.Join("..", "..", "deploy", "agent", "probectl-agent.example.yml"),
-		filepath.Join("..", "..", "deploy", "packaging", "config", "agent.yaml"),
-	} {
+	// The rendered-browser config needs its worker paths faked on a host, and
+	// TestShippedRenderedBrowserConfigLoadsStrictly covers it properly.
+	skip := map[string]bool{"eval-browser-agent.yml": true}
+
+	var found []string
+	root := filepath.Join("..", "..", "deploy")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if ext := filepath.Ext(path); ext != ".yml" && ext != ".yaml" {
+			return nil
+		}
+		if skip[filepath.Base(path)] || strings.Contains(path, string(filepath.Separator)+"templates"+string(filepath.Separator)) {
+			return nil
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		var top map[string]any
+		if yaml.Unmarshal(b, &top) != nil {
+			return nil // not a mapping (multi-doc manifests, etc.)
+		}
+		if _, ok := top["control_plane"]; !ok {
+			return nil
+		}
+		found = append(found, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk deploy/: %v", err)
+	}
+	// A discovery that silently finds nothing is the failure mode this replaces.
+	// control_plane is what a CANARY agent config has; the device, flow and eBPF
+	// agents have their own shapes and their own loaders, so they are not here.
+	if len(found) < 3 {
+		t.Fatalf("discovered only %d shipped agent configs (%v) — discovery is broken, not the tree", len(found), found)
+	}
+	var sawEval bool
+	for _, path := range found {
+		if filepath.Base(path) == "eval-agent.yml" {
+			sawEval = true
+		}
 		t.Run(path, func(t *testing.T) {
 			cfg, err := Load(path)
 			if err != nil {
@@ -272,6 +325,49 @@ func TestShippedAgentConfigsLoadStrictly(t *testing.T) {
 				t.Fatalf("apiVersion = %q, want %q", cfg.APIVersion, ConfigAPIVersion)
 			}
 		})
+	}
+	if !sawEval {
+		t.Error("the evaluation canary's own config must be among the discovered ones — it is the config a new reader runs first")
+	}
+}
+
+// The cloud-init packaging file embeds an agent config inside write_files, so
+// discovery cannot see it as YAML. It is a production path and shipped without
+// apiVersion too (DPR-137), so it gets loaded from its embedded content.
+func TestCloudInitEmbeddedAgentConfigLoadsStrictly(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "packaging", "cloud-init", "probectl-agent.yaml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read cloud-init: %v", err)
+	}
+	var doc struct {
+		WriteFiles []struct {
+			Path    string `yaml:"path"`
+			Content string `yaml:"content"`
+		} `yaml:"write_files"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("parse cloud-init: %v", err)
+	}
+	var embedded string
+	for _, f := range doc.WriteFiles {
+		if strings.Contains(f.Path, "agent.yaml") || strings.Contains(f.Path, "agent.yml") {
+			embedded = f.Content
+		}
+	}
+	if embedded == "" {
+		t.Fatal("cloud-init no longer writes an agent config; update this test with it")
+	}
+	out := filepath.Join(t.TempDir(), "agent.yml")
+	if err := os.WriteFile(out, []byte(embedded), 0o600); err != nil {
+		t.Fatalf("write embedded config: %v", err)
+	}
+	cfg, err := Load(out)
+	if err != nil {
+		t.Fatalf("the config cloud-init writes must load: %v", err)
+	}
+	if cfg.APIVersion != ConfigAPIVersion {
+		t.Fatalf("apiVersion = %q, want %q", cfg.APIVersion, ConfigAPIVersion)
 	}
 }
 

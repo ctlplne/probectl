@@ -41,6 +41,26 @@ flowchart LR
 
 ---
 
+## One command, if you just want to see it work
+
+```sh
+make first-data
+```
+
+That drives the evaluation stack plus its synthetic overlay end to end: Postgres, Kafka, the
+control plane, the agent CA, an enrolled canary, and a probe whose result travels the same path
+production uses — agent, mutual TLS over gRPC, the bus, the consumer, the tenant-scoped API. It
+waits on readiness rather than a clock, prints the first measurement it receives, and names the
+commands for reading more. It generates the one secret this path needs into
+`deploy/compose/.env.eval` and reuses it on later runs.
+
+It is **evaluation only**, for the reasons the next section explains, and it ends at the API rather
+than the web UI: dev auth is refused on anything but a loopback bind, so nothing on this stack is
+reachable from a browser. For the UI, use the production-shaped stack with real SSO
+([`install.md`](install.md) plus `deploy/compose/dex-demo.yml`).
+
+The rest of this section is the same path by hand, which is worth reading once.
+
 ## The fastest way to first data: the evaluation stack
 
 If you just want to *watch probectl collect data* with one command and no Go
@@ -89,7 +109,16 @@ The `--no-deps` flag is intentional: the preceding `up` command already started
 the stack, and this prevents Compose from rerunning the one-shot certificate
 generator underneath the live control plane.
 
-Tear it all down with `docker compose -f deploy/compose/eval.yml down -v`.
+Tear it all down with `docker compose -f deploy/compose/eval.yml down -v`. If you
+also layered the synthetic overlay below, name it and its profile too, or
+`down` leaves the canary container and its identity volume behind (DPR-138) —
+and the next run reuses an agent certificate signed by a CA that no longer
+exists, which surfaces much later as `tls: unknown certificate authority`:
+
+```sh
+docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+  --profile synthetic --profile browser-synthetic down -v
+```
 
 ### Add synthetic probes — the canary, with enrollment
 

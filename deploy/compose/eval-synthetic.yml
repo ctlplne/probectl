@@ -14,6 +14,11 @@
 #     # 3) read its synthetic results:
 #     docker compose -f deploy/compose/eval.yml --profile tools run --rm \
 #         -e URL=/v1/results/latest viewer
+#     # 4) tear down — the profiles MUST be named or the canary and its identity
+#     #    volume survive, and the next run reuses an SVID from a CA that no
+#     #    longer exists (DPR-138):
+#     docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+#         --profile synthetic --profile browser-synthetic down -v
 #
 # This overlay provisions the agent CA and turns ON the control plane's agent
 # gRPC listener. It is the most intricate part of the eval and is AUTHORED-UNRUN
@@ -36,6 +41,24 @@
 # via the `controldata` volume (where the control plane persists the key file).
 # ============================================================================
 
+# DPR-132: the three one-shots below run the SAME binary as `control`, so they
+# are held to the same at-rest-encryption contract — with only a database URL
+# they refuse to start ("no envelope key is resolvable") and nothing downstream
+# of them ever runs. eval.yml grants the escape hatch to `control`; its one-shots
+# need it too. Eval-only, exactly as in eval.yml.
+x-eval-oneshot-env: &eval-oneshot-env
+  PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+  PROBECTL_REQUIRE_AT_REST_ENCRYPTION: "false"  # eval-only: skip envelope-key setup
+  PROBECTL_ALLOW_KEYLESS_DEV: "true"            # eval-only: explicit plaintext secret-at-rest escape hatch
+  # DPR-133: `agent-ca init` will NOT accept the keyless-dev hatch — it refuses
+  # to seal the agent-CA intermediate key with nothing (KEYS-003), and rightly
+  # so. `control` must then unseal with the SAME key, so one explicit value is
+  # shared by both. `make first-data` generates it once into
+  # deploy/compose/.env.eval (gitignored) and passes it with --env-file; set it
+  # yourself if you drive these files by hand. Empty means agent-ca init stops
+  # with the KEYS-003 refusal and nothing downstream runs.
+  PROBECTL_ENVELOPE_KEY: "${PROBECTL_EVAL_ENVELOPE_KEY:-}"
+
 services:
   # ---- one-shots that provision the agent CA before `control` starts --------
   # Explicit migrate first, so `agent-ca init` finds the agent_ca table (0041).
@@ -46,18 +69,24 @@ services:
     # referenced from this document.)
     image: probectl-control-eval:dev
     command: ["migrate"]
-    environment:
-      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+    environment: *eval-oneshot-env
     depends_on:
       postgres: { condition: service_healthy }
     networks: [probectl]
     restart: "no"
 
+  # DPR-130: `agent-ca init` refuses to print the root private key to a
+  # non-terminal (DPR-121), and a compose one-shot's stdout is a pipe — without
+  # -key-out this service exits non-zero and nothing downstream starts. The key
+  # is written 0600 onto the controldata volume. For a real deployment, move it
+  # to offline custody and delete it from the volume; runtime never needs it.
   agent-ca-init:
     image: probectl-control-eval:dev
-    command: ["agent-ca", "init"]
-    environment:
-      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+    # -if-missing (DPR-136) makes a repeat `up` a no-op instead of a failure:
+    # refusing to overwrite the trust root is right, but it must not break a
+    # second bring-up of a deployment that is already correct.
+    command: ["agent-ca", "init", "-if-missing", "-key-out", "/var/lib/probectl/agent-ca-root.key"]
+    environment: *eval-oneshot-env
     depends_on:
       migrate: { condition: service_completed_successfully }
     volumes:
@@ -73,8 +102,7 @@ services:
   ca-export:
     image: probectl-control-eval:dev
     command: ["agent-ca", "export", "/certs/agent-ca.crt"]
-    environment:
-      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+    environment: *eval-oneshot-env
     depends_on:
       agent-ca-init: { condition: service_completed_successfully }
     volumes:
@@ -88,6 +116,9 @@ services:
   # container's network namespace. control now also waits for the CA file.
   control:
     environment:
+      # DPR-133: the same explicit key agent-ca-init sealed the intermediate
+      # with — control unseals it on every enrollment.
+      PROBECTL_ENVELOPE_KEY: "${PROBECTL_EVAL_ENVELOPE_KEY:-}"
       PROBECTL_AGENT_GRPC_ADDR: "127.0.0.1:9443"
       PROBECTL_AGENT_TLS_CERT_FILE: /certs/tls.crt        # server presents the quickstart cert
       PROBECTL_AGENT_TLS_KEY_FILE: /certs/tls.key
@@ -114,7 +145,18 @@ services:
       # First-boot enrollment: redeemed once, then the identity persists on the
       # `identity` volume so a restart does NOT re-enroll (idempotent). A reused
       # (already-consumed) token fails closed with a clear error.
-      PROBECTL_AGENT_JOIN_TOKEN: "${PROBECTL_JOIN_TOKEN:?set PROBECTL_JOIN_TOKEN to the pjt_ token from enroll-token}"
+      # DPR-131: Compose interpolates EVERY service in the file regardless of
+      # profiles, so a `:?` required-variable here made the documented sequence
+      # impossible — `up` (the command that lets you mint a token) refused to
+      # parse until you already had one, and so did `ps`, `logs` and `down`.
+      # Defaulted instead; the agent refuses at startup with a named remedy when
+      # it has neither an identity nor a token.
+      PROBECTL_AGENT_JOIN_TOKEN: "${PROBECTL_JOIN_TOKEN:-}"
+      # DPR-134: let a probe TARGET be verified against the quickstart CA too,
+      # so first data can be a local HTTPS endpoint instead of depending on
+      # reaching the public internet. Go still loads the system roots as well,
+      # so probing a public URL keeps working.
+      SSL_CERT_FILE: /certs/ca.crt
     volumes:
       # Mount at the directory the distroless image seeds as UID/GID 65532.
       # A named volume mounted at a new root such as /identity is root-owned
@@ -141,7 +183,7 @@ services:
     network_mode: "service:control"
     depends_on: [control]
     environment:
-      PROBECTL_AGENT_JOIN_TOKEN: "${PROBECTL_JOIN_TOKEN:?set PROBECTL_JOIN_TOKEN to a fresh pjt_ token from enroll-token}"
+      PROBECTL_AGENT_JOIN_TOKEN: "${PROBECTL_JOIN_TOKEN:-}"   # DPR-131, as above
     volumes:
       # One seeded non-root state root holds identity, queue, and artifacts.
       - browser-state:/var/lib/probectl

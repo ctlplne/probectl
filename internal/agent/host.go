@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math/rand/v2"
 	"strconv"
 	"time"
 
@@ -74,10 +75,33 @@ type Host struct {
 // .md, "Concurrency idioms"): every goroutine is joined before Run returns, and
 // there is a single place a future error return can be threaded through. The
 // raw WaitGroup this replaced did the same job with a second vocabulary.
+// firstProbeJitter bounds the random delay before a canary's FIRST probe.
+// Probing immediately is what makes first data arrive in seconds instead of one
+// full interval (DPR-139) — an agent with a five-minute check used to show an
+// empty screen for five minutes — but firing every canary at t=0 would burst a
+// host with many of them, and every agent in a fleet restarted together would
+// burst the control plane. A short random offset gives both.
+const firstProbeJitter = 3 * time.Second
+
 func (h *Host) Run(ctx context.Context) {
 	var g errgroup.Group
 	for _, s := range h.scheduled {
 		g.Go(func() error {
+			// The first probe is immediate, modulo jitter that never exceeds the
+			// interval itself — a 5ms canary must not wait 3s for its first run.
+			jitter := firstProbeJitter
+			if s.interval < jitter {
+				jitter = s.interval
+			}
+			first := time.NewTimer(time.Duration(rand.Int64N(int64(jitter) + 1)))
+			defer first.Stop()
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-first.C:
+				h.probe(ctx, s)
+			}
+
 			t := time.NewTicker(s.interval)
 			defer t.Stop()
 			for {

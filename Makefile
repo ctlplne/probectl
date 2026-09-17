@@ -267,6 +267,10 @@ web-journey-e2e: web-rendered-a11y ## Alias for the pinned-Chromium canonical J1
 .PHONY: journey-e2e
 journey-e2e: test-integration-isolated e2e editions-gate web-journey-e2e fips-gate evidence-receipt-gate release-claim-gate backup-restore-drill-isolated failover-drill-isolated chaos-dependency-drill ## Canonical J1-J6 browser plus real-system release journey proof.
 
+.PHONY: first-data
+first-data: ## One command from a clean checkout to a real measurement through the real pipeline (EVAL ONLY — dev auth, loopback).
+	./scripts/first_data.sh
+
 .PHONY: editions-gate third-party third-party-gate
 third-party: ## SUPPLY-009: regenerate the third-party license inventory (NOTICE + docs/third-party-licenses.md) from the module graph.
 	./scripts/gen_third_party.sh

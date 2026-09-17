@@ -4,6 +4,11 @@
 # server-side first). See deploy/agent/probectl-agent.example.yml for the full
 # set of probe types and parameters.
 
+# DPR-137: required, and its absence is fatal — the agent refuses to parse a
+# config without it, so a canary shipped without this line crash-loops on
+# startup with no data and no clue that the config file is the problem.
+apiVersion: probectl.io/agent/v1
+
 control_plane:
   # The canary shares the control plane's network namespace, so the loopback
   # gRPC listener (PROBECTL_AGENT_GRPC_ADDR=127.0.0.1:9443) is reachable here.

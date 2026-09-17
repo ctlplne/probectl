@@ -507,6 +507,15 @@ func assertProviderPoliciesAreScoped(ctx context.Context, q postureQuerier) erro
 //
 // This says it once, at boot, in the operator's words: these tables, this
 // cause, this fix.
+//
+// DPR-135: provider-managed tables are exempt. Migration 0044 added a
+// defense-in-depth tenant policy to break_glass_grants targeting probectl_app,
+// but the application role has no grant on the provider plane's break-glass
+// ledger and must not have one — the policy there is inert by construction, not
+// a missing grant. Requiring one refused every FRESH install, and the only way
+// to satisfy it would have been to hand the app role a privilege §7.1 says it
+// should never hold. The exemption reads from providerManagedTables, whose own
+// staleness check keeps it from rotting into a list of yesterday's exceptions.
 func assertAppGrantsMatchPolicies(ctx context.Context, q postureQuerier) error {
 	rows, err := q.Query(ctx, `
 		SELECT DISTINCT p.tablename
@@ -526,6 +535,9 @@ func assertAppGrantsMatchPolicies(ctx context.Context, q postureQuerier) error {
 		var table string
 		if err := rows.Scan(&table); err != nil {
 			return fmt.Errorf("isolation posture: scan application grant: %w", err)
+		}
+		if _, providerOwned := providerManagedTables[table]; providerOwned {
+			continue // DPR-135: the app role neither has nor needs a grant here.
 		}
 		ungranted = append(ungranted, table)
 	}

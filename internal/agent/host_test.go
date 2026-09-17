@@ -111,3 +111,74 @@ func TestHostProbeEnqueuesFailedResultEnvelope(t *testing.T) {
 		t.Fatalf("failed canary result was not preserved: %+v", env.Result)
 	}
 }
+
+// DPR-139: the scheduler waited a full interval before a canary's first probe,
+// so an agent with a five-minute check showed an empty screen for five minutes
+// and "time to first data" carried one whole interval of dead time for no
+// reason. The first probe is immediate now, jittered so a host with many
+// canaries — or a fleet restarted together — does not burst.
+func TestFirstProbeDoesNotWaitAFullInterval(t *testing.T) {
+	buf, err := openBuffer(t.TempDir(), 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noop, err := canary.NewNoop(canary.Config{Type: "noop", Target: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An interval far longer than the test's patience: if the first probe waited
+	// for the ticker, nothing would ever be buffered here.
+	h := &Host{
+		scheduled: []scheduled{{canary: noop, interval: time.Hour, testID: "test-local-1"}},
+		buffer:    buf,
+		tenantID:  "tenant-1",
+		agentID:   "agent-1",
+		log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { h.Run(ctx); close(done) }()
+
+	deadline := time.Now().Add(15 * time.Second) // jitter is bounded well under this
+	for time.Now().Before(deadline) && buf.Len() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	if buf.Len() == 0 {
+		t.Fatal("the first probe must not wait for the first tick of a long interval")
+	}
+}
+
+// The jitter must never exceed the interval: a sub-second canary in a test or a
+// tight monitoring loop cannot be delayed by the fleet-friendly offset.
+func TestFirstProbeJitterNeverExceedsTheInterval(t *testing.T) {
+	buf, err := openBuffer(t.TempDir(), 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noop, err := canary.NewNoop(canary.Config{Type: "noop", Target: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{
+		scheduled: []scheduled{{canary: noop, interval: 5 * time.Millisecond, testID: "test-local-1"}},
+		buffer:    buf,
+		tenantID:  "tenant-1",
+		agentID:   "agent-1",
+		log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { h.Run(ctx); close(done) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && buf.Len() < 3 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if buf.Len() < 3 {
+		t.Fatalf("a 5ms canary must keep its cadence, got %d results in 2s", buf.Len())
+	}
+}

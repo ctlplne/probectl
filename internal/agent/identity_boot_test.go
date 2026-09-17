@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,15 +49,27 @@ func TestEnsureIdentityNoOpWhenPresent(t *testing.T) {
 	}
 }
 
-func TestEnsureIdentityNoOpWhenNoToken(t *testing.T) {
+// DPR-131: no identity AND no join token is a misconfiguration, not a
+// pre-seeded identity. This used to return nil, so the agent started and failed
+// later inside the mTLS dial reporting a missing certificate file — the reader
+// then went hunting for a certificate instead of minting the token they needed.
+// TestEnsureIdentityNoOpWhenPresent covers the real out-of-band case.
+func TestEnsureIdentityRefusesWithNoIdentityAndNoToken(t *testing.T) {
 	dir := t.TempDir()
-	if err := EnsureIdentity(context.Background(), EnrollOptions{
+	err := EnsureIdentity(context.Background(), EnrollOptions{
 		Server: "https://127.0.0.1:1", Token: "", Dir: dir,
-	}, nil); err != nil {
-		t.Fatalf("no token must be a no-op, got %v", err)
+	}, nil)
+	if err == nil {
+		t.Fatal("no identity and no token must refuse, not start an agent that cannot authenticate")
+	}
+	// The refusal has to name the remedy, or it is just a different dead end.
+	for _, frag := range []string{"PROBECTL_AGENT_JOIN_TOKEN", "enroll-token", dir} {
+		if !strings.Contains(err.Error(), frag) {
+			t.Errorf("refusal should mention %q: %v", frag, err)
+		}
 	}
 	if identityPresent(dir) {
-		t.Fatal("a no-op must not write an identity")
+		t.Fatal("a refusal must not write an identity")
 	}
 }
 
