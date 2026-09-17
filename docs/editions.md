@@ -192,7 +192,9 @@ Vendor-side tooling; never shipped in customer images.
 # 1) Generate the signing pair (private key 0600; prints the ldflags bake line)
 probectl-license gen-key -out-priv signing.key -out-pub signing.pub
 
-# 2) Sign a license (expiry = end-of-day UTC)
+# 2) Sign a license (expiry = end-of-day UTC; -issued defaults to now and
+#    lets you re-issue with the original date or mint an already-expired
+#    file to drill the grace / read-only ladder below)
 probectl-license sign -key signing.key -customer "Reseller GmbH" \
   -tier msp -pricing-model consumption -tenant-band 25 \
   -expires 2027-06-05 -out license.json

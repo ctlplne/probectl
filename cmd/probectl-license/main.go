@@ -99,6 +99,7 @@ func sign(args []string) error {
 	features := fs.String("features", "", "comma-separated explicit extras (bespoke deals)")
 	band := fs.Int("tenant-band", 0, "MSP tenant band (0 = unlimited)")
 	expires := fs.String("expires", "", "expiry date YYYY-MM-DD (UTC end of day)")
+	issued := fs.String("issued", "", "issue date YYYY-MM-DD (UTC start of day; default: now) — re-issue with the original date, or mint an already-expired file for a grace/read-only drill")
 	out := fs.String("out", "probectl-license.json", "license file output path")
 	_ = fs.Parse(args)
 
@@ -124,6 +125,20 @@ func sign(args []string) error {
 	if err != nil {
 		return fmt.Errorf("parse -expires: %w", err)
 	}
+	issuedAt := time.Now().UTC().Truncate(time.Second)
+	if *issued != "" {
+		day, err := time.Parse("2006-01-02", *issued)
+		if err != nil {
+			return fmt.Errorf("parse -issued: %w", err)
+		}
+		issuedAt = day.UTC()
+	}
+	expiresAt := exp.Add(24*time.Hour - time.Second).UTC()
+	if !expiresAt.After(issuedAt) {
+		// Verify() rejects an inverted window anyway; say it at signing time so
+		// the vendor never hands out a file that fails to load.
+		return fmt.Errorf("-expires (%s) must be after -issued (%s)", expiresAt.Format("2006-01-02"), issuedAt.Format("2006-01-02"))
+	}
 	c := license.Claims{
 		V:            1,
 		ID:           *id,
@@ -131,8 +146,8 @@ func sign(args []string) error {
 		Tier:         licenseTier,
 		PricingModel: model,
 		TenantBand:   *band,
-		IssuedAt:     time.Now().UTC().Truncate(time.Second),
-		ExpiresAt:    exp.Add(24*time.Hour - time.Second).UTC(),
+		IssuedAt:     issuedAt,
+		ExpiresAt:    expiresAt,
 	}
 	if c.ID == "" {
 		c.ID = fmt.Sprintf("lic_%d", time.Now().Unix())
@@ -149,7 +164,7 @@ func sign(args []string) error {
 	if err := os.WriteFile(*out, raw, 0o600); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s — %s · %s · %s · expires %s\n", *out, c.Customer, c.Tier, c.PricingModel, c.ExpiresAt.Format(time.RFC3339))
+	fmt.Printf("wrote %s — %s · %s · %s · issued %s · expires %s\n", *out, c.Customer, c.Tier, c.PricingModel, c.IssuedAt.Format(time.RFC3339), c.ExpiresAt.Format(time.RFC3339))
 	return nil
 }
 
