@@ -59,8 +59,11 @@ func TestHelmControlSelectorsExcludeAgentPods(t *testing.T) {
 	if !strings.Contains(out, component) {
 		t.Errorf("the control pod template must carry the component label:\n%s", out)
 	}
-	sel := out[strings.Index(out, "  selector:"):]
-	sel = sel[:strings.Index(sel, "  template:")]
+	start, end := strings.Index(out, "  selector:"), strings.Index(out, "  template:")
+	if start < 0 || end < start {
+		t.Fatalf("deployment render has no selector/template blocks:\n%s", out)
+	}
+	sel := out[start:end]
 	if strings.Contains(sel, "component") {
 		t.Errorf("the Deployment selector is immutable and must stay name/instance for in-place upgrades:\n%s", sel)
 	}

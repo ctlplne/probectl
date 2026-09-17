@@ -138,6 +138,17 @@ This fence is the application-layer complement to whatever failover controller y
 actually run (Patroni, a managed database, etc.): even if your endpoint briefly
 resolves to the wrong node mid-flip, probectl will not write to it.
 
+The fence is enforced at two layers. Requests that would write get the `503`
+above. Everything else the control plane writes on its own — agent heartbeats,
+incident signals, alert state, once-only export gates, audit — goes through the
+same writer pool, and while the writer endpoint resolves to a **stale
+ex-primary** that pool is switched to read-only sessions
+(`default_transaction_read_only = on`; the existing connections are recycled),
+so those background writers fail closed exactly as they would on a standby.
+`/readyz` reports it as `cluster.pool_fenced: true` and the control plane logs
+`writer pool fenced read-only`; the fence lifts on the next probe once the
+endpoint resolves to the current primary. Reads keep serving throughout.
+
 ## RTO
 
 **RTO** — recovery time objective — is how long until writes flow again after a
@@ -224,7 +235,7 @@ region.
   `writes_usable`, replica lag). The node stays **ready (200) for reads** during a
   failover; `writes_usable: false` tells operators and automation that writes
   paused.
-- **Metrics:** `probectl_cluster_writes_usable`, `probectl_cluster_writer_role`
+- **Metrics:** `probectl_cluster_writes_usable`, `probectl_cluster_pool_fenced`, `probectl_cluster_writer_role`
   (writer=1 / reader=0 / stale=-1 / unknown=-2 — alert on `< 1`),
   `probectl_cluster_epoch`, and `probectl_cluster_replica_lag_seconds`, all
   labeled by `region`. Background-loop leadership additionally exposes

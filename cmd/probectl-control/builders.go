@@ -880,7 +880,10 @@ func startHAAndTenantLifecycle(
 		if db.ReadPool() != db.Pool() {
 			readProbe = cluster.NewPGProber(db.ReadPool())
 		}
-		clusterMgr := cluster.NewManager(topo, cluster.NewPGProber(db.Pool()), readProbe)
+		// DPR-089: the writer pool is fenced read-only while the endpoint is a
+		// stale ex-primary, so background writers fail closed like the API.
+		clusterMgr := cluster.NewManager(topo, cluster.NewPGProber(db.Pool()), readProbe).
+			WithWriteFencer(db).WithLogger(log)
 		srv.WithCluster(clusterMgr)
 		g.Go(func() error { clusterMgr.Run(ctx, 5*time.Second); return nil })
 		g.Go(func() error { cluster.RunMetrics(ctx, tsdbWriter, clusterMgr, 30*time.Second, log); return nil })

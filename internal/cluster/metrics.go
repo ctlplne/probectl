@@ -47,6 +47,7 @@ func WriteSeries(ctx context.Context, w tsdb.Writer, m *Manager) error {
 	}
 	series := []tsdb.Series{
 		{Metric: "probectl_cluster_writes_usable", Labels: labels, Value: b2f(st.WritesUsable), TimeMillis: now},
+		{Metric: "probectl_cluster_pool_fenced", Labels: labels, Value: b2f(st.PoolFenced), TimeMillis: now},
 		{Metric: "probectl_cluster_writer_role", Labels: labels, Value: role2f(st.Writer.Role), TimeMillis: now},
 		{Metric: "probectl_cluster_epoch", Labels: labels, Value: float64(st.HighestEpoch), TimeMillis: now},
 	}

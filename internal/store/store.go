@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,10 +30,16 @@ type Pinger interface {
 // readPool defaults to the writer pool, so every existing call site keeps
 // working unchanged; read-heavy paths can opt into ReadPool() for locality.
 // Writes always go through Pool() (the writer endpoint), guarded by the
-// cluster split-brain fence at the API layer.
+// cluster split-brain fence at the API layer and — while the endpoint resolves
+// to a stale ex-primary — by FenceWrites at the connection level (DPR-089), so
+// the control plane's own background writers fail closed as well.
 type DB struct {
 	pool     *pgxpool.Pool
 	readPool *pgxpool.Pool
+
+	// writeFence mirrors the cluster fence on the writer pool: while set,
+	// every session the pool opens starts read-only.
+	writeFence atomic.Bool
 }
 
 // Open parses dsn, applies pool sizing, and creates the PostgreSQL pool. The
@@ -39,14 +47,16 @@ type DB struct {
 // unreachable — the readiness probe reports that instead. TLS-in-transit is
 // honored when the DSN requests it via sslmode (CLAUDE.md §7 guardrail 12).
 func Open(ctx context.Context, dsn string, maxConns, minConns int32, connectTimeout time.Duration) (*DB, error) {
-	pool, err := openPool(ctx, dsn, maxConns, minConns, connectTimeout)
+	db := &DB{}
+	pool, err := openPool(ctx, dsn, maxConns, minConns, connectTimeout, db.afterConnect)
 	if err != nil {
 		return nil, err
 	}
-	return &DB{pool: pool, readPool: pool}, nil
+	db.pool, db.readPool = pool, pool
+	return db, nil
 }
 
-func openPool(ctx context.Context, dsn string, maxConns, minConns int32, connectTimeout time.Duration) (*pgxpool.Pool, error) {
+func openPool(ctx context.Context, dsn string, maxConns, minConns int32, connectTimeout time.Duration, afterConnect func(context.Context, *pgx.Conn) error) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		// pgx's parse error redacts URL userinfo, but it retains arbitrary
@@ -65,6 +75,7 @@ func openPool(ctx context.Context, dsn string, maxConns, minConns int32, connect
 	if connectTimeout > 0 {
 		cfg.ConnConfig.ConnectTimeout = connectTimeout
 	}
+	cfg.AfterConnect = afterConnect
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create connection pool: %w", err)
@@ -79,12 +90,43 @@ func (db *DB) WithReadReplica(ctx context.Context, readDSN string, maxConns, min
 	if readDSN == "" {
 		return nil
 	}
-	pool, err := openPool(ctx, readDSN, maxConns, minConns, connectTimeout)
+	pool, err := openPool(ctx, readDSN, maxConns, minConns, connectTimeout, nil)
 	if err != nil {
 		return fmt.Errorf("open read replica: %w", err)
 	}
 	db.readPool = pool
 	return nil
+}
+
+// FenceWrites (DPR-089) switches the writer pool between normal and read-only
+// sessions. The cluster manager sets it while the writer endpoint resolves to
+// a stale ex-primary (a node a promotion elsewhere has fenced off): every
+// pooled connection is recycled so no session keeps writing, and every new
+// session starts with default_transaction_read_only = on, so any write from
+// any path — heartbeats, incident signals, alert state, audit — fails closed
+// with SQLSTATE 25006 exactly as it would on a standby, while reads keep
+// serving. Idempotent; reports whether the state changed.
+func (db *DB) FenceWrites(on bool) bool {
+	if db == nil || db.pool == nil {
+		return false
+	}
+	if db.writeFence.Swap(on) == on {
+		return false
+	}
+	db.pool.Reset()
+	return true
+}
+
+// WritesFenced reports whether the writer pool is currently fenced read-only.
+func (db *DB) WritesFenced() bool { return db.writeFence.Load() }
+
+// afterConnect applies the fence to every session the writer pool opens.
+func (db *DB) afterConnect(ctx context.Context, conn *pgx.Conn) error {
+	if !db.writeFence.Load() {
+		return nil
+	}
+	_, err := conn.Exec(ctx, "SET default_transaction_read_only = on")
+	return err
 }
 
 // Ping verifies connectivity; used by the readiness probe.

@@ -32,6 +32,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -107,6 +108,10 @@ type Status struct {
 	WritesUsable bool        `json:"writes_usable"`
 	WritesReason string      `json:"writes_reason,omitempty"`
 	HighestEpoch int64       `json:"highest_epoch"`
+	// PoolFenced (DPR-089): the writer pool opens read-only sessions because the
+	// writer endpoint resolves to a stale ex-primary; background writers fail
+	// closed like the API.
+	PoolFenced bool `json:"pool_fenced,omitempty"`
 }
 
 // Manager tracks cluster state and answers the write-fencing question. It is
@@ -118,12 +123,16 @@ type Manager struct {
 	reader Prober // optional (a local read replica)
 	now    func() time.Time
 
+	fencer WriteFencer  // optional (DPR-089): the writer pool's connection-level fence
+	log    *slog.Logger // optional: fence transitions
+
 	mu           sync.RWMutex
 	writerState  NodeStatus
 	readerState  *NodeStatus
 	highestEpoch int64
 	checkedAt    time.Time
 	started      bool
+	poolFenced   bool // the fencer's current state (stale writer endpoint)
 }
 
 // NewManager builds a Manager. writer is required (the primary endpoint);
@@ -139,6 +148,30 @@ func NewManager(topo Topology, writer, reader Prober) *Manager {
 		now:         time.Now,
 		writerState: NodeStatus{Role: RoleUnknown, Error: "initial cluster probe has not completed"},
 	}
+}
+
+// WriteFencer is the connection-level side of the split-brain fence (DPR-089):
+// the store's writer pool. While the writer endpoint resolves to a stale
+// ex-primary, FenceWrites(true) turns every new database session read-only and
+// recycles the existing ones, so the control plane's background writers
+// (heartbeats, incident signals, alert state, once-only export gates, audit)
+// fail closed exactly as they would on a standby — the API-layer 503 alone
+// only covers requests. It reports whether the state changed.
+type WriteFencer interface {
+	FenceWrites(on bool) bool
+}
+
+// WithWriteFencer attaches the writer pool's fence; nil leaves the fence at
+// the API layer only.
+func (m *Manager) WithWriteFencer(f WriteFencer) *Manager {
+	m.fencer = f
+	return m
+}
+
+// WithLogger logs fence transitions.
+func (m *Manager) WithLogger(log *slog.Logger) *Manager {
+	m.log = log
+	return m
 }
 
 // withNow injects a clock (tests).
@@ -161,7 +194,6 @@ func (m *Manager) Refresh(ctx context.Context) {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.checkedAt = m.now()
 	m.started = true
 
@@ -178,6 +210,22 @@ func (m *Manager) Refresh(ctx context.Context) {
 	if rp != nil {
 		rs := m.classify(*rp)
 		m.readerState = &rs
+	}
+	// DPR-089: a stale ex-primary is fenced at the connection level too, so
+	// the control plane's own background writers fail closed like the API.
+	stale := m.writerState.Role == RoleStale
+	epoch, highest := m.writerState.Epoch, m.highestEpoch
+	if m.fencer != nil {
+		m.poolFenced = stale
+	}
+	m.mu.Unlock()
+	if m.fencer == nil || !m.fencer.FenceWrites(stale) || m.log == nil {
+		return
+	}
+	if stale {
+		m.log.Warn("writer pool fenced read-only: the writer endpoint resolves to a stale ex-primary; background writes fail closed until it is rebuilt or the endpoint moves", "epoch", epoch, "highest_epoch", highest)
+	} else {
+		m.log.Info("writer pool fence released: the writer endpoint is the current primary again", "epoch", epoch)
 	}
 }
 
@@ -235,6 +283,7 @@ func (m *Manager) Status() Status {
 		WritesUsable: usable,
 		WritesReason: reason,
 		HighestEpoch: m.highestEpoch,
+		PoolFenced:   m.poolFenced,
 	}
 	if m.readerState != nil {
 		rs := *m.readerState

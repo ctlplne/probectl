@@ -108,6 +108,12 @@ lower epoch or in recovery).
 - **Never promote two standbys for the same cluster** — there is only ever one
   primary. `cluster_promote` makes the winner unambiguous (highest epoch wins); a
   second promotion that does not also win the endpoint is fenced anyway.
+- **If the writer endpoint flaps back to the ex-primary before step 6**, probectl
+  fences it at both layers: API writes answer `503` and its own background
+  writers (heartbeats, incident signals, alert state, audit) run on read-only
+  sessions — `/readyz` shows `writes_reason: … stale primary …` and
+  `cluster.pool_fenced: true`. Nothing is written to the stale node; rebuild it
+  (step 6) before pointing anything at it.
 - **Data residency:** do not fail a residency-restricted tenant's data into a
   region its policy forbids. Strict tenants run **siloed** with region-pinned
   stores rather than global replication.
