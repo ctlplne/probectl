@@ -1732,6 +1732,7 @@ export interface TenantKeyList {
 }
 
 export interface Test {
+  config?: JsonObject
   created_at: string
   enabled?: boolean
   id: string

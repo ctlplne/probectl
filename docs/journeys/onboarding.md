@@ -94,8 +94,9 @@ trust its self-signed certificate by passing `--cacert ./certs/ca.crt` to `curl`
    ```
 
    You observe the test registered. The receipt provides the exact `canaries:`
-   YAML block, including this server definition's `test_id`, to add to the
-   enrolled agent configuration. This explicit local step is intentional: the
+   entry (`config.canary` in the JSON receipt, in the agent's own keys),
+   including this server definition's `test_id`, to add to the enrolled agent
+   configuration. This explicit local step is intentional: the
    control plane never silently changes an agent host. Start the agent with the
    shown config command; within one interval it runs the probe and streams a
    result back. The test types and their parameters are detailed in

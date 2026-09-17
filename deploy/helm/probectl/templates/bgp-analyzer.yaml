@@ -10,12 +10,15 @@
 # DPR-059: an MRT dump or a recorded replay is a finite artifact. Rendered as a
 # Deployment, the run completed, Kubernetes restarted the container and the same
 # artifact was re-processed and its events re-published on every restart until
-# CrashLoopBackOff. A Job runs it exactly once per release revision; a new
-# revision (new artifact, new config) gets a new Job, finished ones expire.
+# CrashLoopBackOff. A Job runs it exactly once per analyzer configuration: the
+# name carries a digest of what the run depends on, so an unrelated upgrade
+# leaves the finished Job alone, a new artifact/config/image gets a new Job,
+# and finished ones expire. Delete the Job to re-run the same artifact.
+{{- $jobKey := printf "%s|%s|%s|%s|%s|%s|%s" $digest $source .Values.bgpAnalyzer.sourceFile $configSecret .Values.bgpAnalyzer.busSecret (toJson .Values.bgpAnalyzer.extraEnv) .Chart.Version | sha256sum | trunc 10 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "probectl.fullname" . }}-bgp-analyzer-r{{ .Release.Revision }}
+  name: {{ include "probectl.fullname" . }}-bgp-analyzer-{{ $jobKey }}
   labels:
     {{- include "probectl.labels" . | nindent 4 }}
     app.kubernetes.io/component: bgp-analyzer

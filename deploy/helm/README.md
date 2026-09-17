@@ -274,13 +274,26 @@ particular, inject the offline `PROBECTL_IR_UNLOCK_KEY` only through the
 operator-managed `secrets.existingSecret`; the chart rejects attempts to place
 that investigation key in `control.extraEnv` or a ConfigMap.
 
+## OpenSLO definitions and other operator files
+
+The SLO engine reads OpenSLO v1 YAML from a directory (`PROBECTL_SLO_DIR`,
+[`docs/slo.md`](../../docs/slo.md)). Put the definitions in a ConfigMap and name
+it in `control.slo.existingConfigMap`; the chart mounts it read-only at
+`control.slo.mountPath` (`/etc/probectl/slo`) and sets the variable, which is
+chart-owned and refused in `control.extraEnv` (DPR-064). Any other file the
+control plane must read goes through `control.extraVolumes` /
+`control.extraVolumeMounts`, the same typed passthrough the analyzer and
+browser workloads offer.
+
 ## Optional public-feed BGP analyzer
 
 `bgpAnalyzer.enabled=true` adds one listener-free workload containing the
 Python analyzer and its tenant-bound Go Kafka bridge: a Deployment for the
-`ris-live` stream, a one-shot Job per release revision for a finite `mrt` or
+`ris-live` stream, a one-shot Job per analyzer configuration for a finite `mrt` or
 `replay` artifact (Kubernetes would otherwise restart a completed run and
-re-publish the same events; DPR-059). Create a Secret whose
+re-publish the same events; the Job name digests the image, source, config and
+bus settings, so an unrelated upgrade leaves a finished run alone — delete the
+Job to re-run the same artifact; DPR-059). Create a Secret whose
 `analyzer.json` key contains exactly one tenant's analyzer config, use an
 immutable `probectl-bgp-analyzer` image digest, and set the existing Kafka TLS
 variables under `bgpAnalyzer.extraEnv`. Put SASL credentials in the dedicated

@@ -891,7 +891,9 @@ not receive Kafka/DB credentials — the Go bridge alone owns the bus connection
 Helm renders this with no Service and an explicit egress NetworkPolicy: a
 one-replica Deployment for `ris-live`, and — because an MRT dump or a recorded
 replay is a finite artifact that must not be re-processed on every container
-restart — a one-shot Job per release revision for `mrt`/`replay`
+restart — a one-shot Job per analyzer configuration for `mrt`/`replay` — its name
+carries a digest of the image, source, config and bus settings, so an unrelated
+upgrade does not re-run the artifact and a new one gets a new Job
 (`bgpAnalyzer.job.*`, DPR-059). Compose's `bgp-analyzer` profile replays a
 recorded RIS fixture end to end for evaluation.
 

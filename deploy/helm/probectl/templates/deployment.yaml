@@ -136,8 +136,13 @@ spec:
                 name: {{ include "probectl.fullname" . }}-config
             - secretRef:
                 name: {{ include "probectl.secretName" . }}
-          {{- if or .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap }}
+          {{- if or .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.slo.existingConfigMap }}
           env:
+            {{- if .Values.control.slo.existingConfigMap }}
+            # DPR-064: OpenSLO definitions, mounted from the operator's ConfigMap.
+            - name: PROBECTL_SLO_DIR
+              value: {{ .Values.control.slo.mountPath | quote }}
+            {{- end }}
             {{- if .Values.license.existingSecret }}
             # DPR-006: the offline-signed Enterprise/MSP license, verified locally.
             - name: PROBECTL_LICENSE_FILE
@@ -167,7 +172,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled }}
+          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled .Values.control.slo.existingConfigMap .Values.control.extraVolumeMounts }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
@@ -178,6 +183,14 @@ spec:
             - name: agent-ca
               mountPath: {{ include "probectl.agentListener.caMountPath" . | quote }}
               readOnly: true
+            {{- end }}
+            {{- if .Values.control.slo.existingConfigMap }}
+            - name: slo-definitions
+              mountPath: {{ .Values.control.slo.mountPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.control.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
             {{- if .Values.control.trustBundle.existingConfigMap }}
             - name: trust-bundle
@@ -199,8 +212,17 @@ spec:
               readOnly: true
             {{- end }}
           {{- end }}
-      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled }}
+      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled .Values.control.slo.existingConfigMap .Values.control.extraVolumes }}
       volumes:
+        {{- if .Values.control.slo.existingConfigMap }}
+        # DPR-064: OpenSLO definitions (every key of the ConfigMap is a file).
+        - name: slo-definitions
+          configMap:
+            name: {{ .Values.control.slo.existingConfigMap | quote }}
+        {{- end }}
+        {{- with .Values.control.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         {{- if .Values.control.agentListener.enabled }}
         - name: agent-ca
           {{- if (include "probectl.agentListener.caSecret" .) }}

@@ -1011,6 +1011,22 @@ pod_sc="$(awk '/^    spec:$/,/initContainers:|containers:/' <<<"$(awk '/kind: Da
 grep -q "seccompProfile" <<<"$pod_sc" && fail "agent: pod-level seccompProfile would govern the installer initContainer too (DPR-052)"
 
 
+# DPR-064: OpenSLO definitions reach the control plane through a typed
+# ConfigMap mount (PROBECTL_SLO_DIR had no chart-level counterpart, so the
+# documented SLO engine could not be configured on Kubernetes), and the control
+# container accepts operator volumes like the other workloads.
+slo_render="$(render --set control.slo.existingConfigMap=slo-defs)"
+need 'name: PROBECTL_SLO_DIR'            "$slo_render" "control: PROBECTL_SLO_DIR not rendered for the SLO ConfigMap (DPR-064)"
+need 'value: "/etc/probectl/slo"'        "$slo_render" "control: SLO definitions mount path not named to the control plane (DPR-064)"
+need 'mountPath: "/etc/probectl/slo"'    "$slo_render" "control: SLO definitions not mounted (DPR-064)"
+need 'name: "slo-defs"'                  "$slo_render" "control: SLO ConfigMap not referenced (DPR-064)"
+extra_render="$(render --set-json 'control.extraVolumes=[{"name":"ops","configMap":{"name":"ops-files"}}]' --set-json 'control.extraVolumeMounts=[{"name":"ops","mountPath":"/etc/probectl/ops","readOnly":true}]')"
+need 'mountPath: /etc/probectl/ops'      "$extra_render" "control: extraVolumeMounts not rendered (DPR-064)"
+need 'name: ops-files'                   "$extra_render" "control: extraVolumes not rendered (DPR-064)"
+if render --set-string control.extraEnv.PROBECTL_SLO_DIR=/tmp >/dev/null 2>&1; then
+  fail "control.extraEnv accepted the chart-owned PROBECTL_SLO_DIR (DPR-064)"
+fi
+
 # DPR-026: an operator CA bundle for OUTBOUND TLS (private-PKI IdP, SIEM, CMDB,
 # managed Postgres with sslmode=verify-*) is a typed value, mounted read-only
 # into both the migrate init container and control, and absent by default.

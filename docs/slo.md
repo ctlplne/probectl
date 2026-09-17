@@ -198,5 +198,17 @@ the alert evaluation.
 | `PROBECTL_SLO_ENABLED` | `true` | the engine + result consumer (local-only) |
 | `PROBECTL_SLO_DIR` | (none) | directory of OpenSLO YAML definitions; each file is limited to 1 MiB; empty means zero SLOs, honestly reported |
 
+On Kubernetes the definitions are a ConfigMap (one key per OpenSLO file) named
+in `control.slo.existingConfigMap`; the chart mounts it read-only at
+`control.slo.mountPath` (`/etc/probectl/slo`) and sets `PROBECTL_SLO_DIR` for
+you (DPR-064) — nothing else in the chart could carry an operator file to the
+control plane, so the engine was unreachable on that deploy path.
+
+```sh
+kubectl -n probectl create configmap probectl-slo --from-file=slos.yaml
+helm upgrade probectl deploy/helm/probectl --reuse-values \
+  --set control.slo.existingConfigMap=probectl-slo
+```
+
 Out of scope by design: application-level SLOs. probectl correlates the network
 planes; it does not own application instrumentation.

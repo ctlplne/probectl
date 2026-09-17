@@ -1845,6 +1845,7 @@ type TenantKeyList struct {
 }
 
 type Test struct {
+	Config          map[string]any    `json:"config,omitempty"`
 	CreatedAt       string            `json:"created_at"`
 	Enabled         bool              `json:"enabled,omitempty"`
 	Id              string            `json:"id"`

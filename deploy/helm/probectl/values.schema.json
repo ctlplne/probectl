@@ -279,6 +279,15 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "slo": {
+          "type": "object",
+          "properties": {
+            "existingConfigMap": { "type": "string" },
+            "mountPath": { "type": "string", "pattern": "^/" }
+          }
+        },
+        "extraVolumes": { "type": "array" },
+        "extraVolumeMounts": { "type": "array" },
         "authMode": { "type": "string", "enum": ["session", "dev"] },
         "logFormat": { "type": "string", "enum": ["json", "text"] },
         "logLevel": { "type": "string", "enum": ["debug", "info", "warn", "error"] },

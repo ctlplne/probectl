@@ -119,6 +119,17 @@ control:
     existingConfigMap: ""
     key: ca-bundle.crt
     mountPath: /etc/probectl/trust
+  # OpenSLO definitions for the SLO engine (docs/slo.md): a ConfigMap whose
+  # keys are OpenSLO v1 YAML files, mounted read-only and named to the control
+  # plane through PROBECTL_SLO_DIR (DPR-064). Empty = zero SLOs, honestly
+  # reported. A malformed definition fails the control plane closed at start.
+  slo:
+    existingConfigMap: ""
+    mountPath: /etc/probectl/slo
+  # Operator-provided volumes for the control container — any other file the
+  # control plane must read — mirroring the analyzer and browser workloads.
+  extraVolumes: []
+  extraVolumeMounts: []
   # Proxies whose X-Forwarded-For / X-Real-IP the authentication limiters may
   # believe (DPR-039): the ingress controller pods or the load balancer in
   # front of the control plane, as CIDRs or addresses. Behind an ingress the

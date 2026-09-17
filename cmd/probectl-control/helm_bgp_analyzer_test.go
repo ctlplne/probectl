@@ -8,9 +8,12 @@ package main
 
 import (
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+var jobNameRE = regexp.MustCompile(`name: probectl-bgp-analyzer-[0-9a-f]{10}\n`)
 
 func renderHelmBGPAnalyzer(t *testing.T, source string, extra ...string) (string, error) {
 	t.Helper()
@@ -55,13 +58,33 @@ func TestHelmBGPAnalyzerFiniteSourcesRunOnce(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s render: %v\n%s", source, err, out)
 		}
-		for _, want := range []string{"kind: Job", "restartPolicy: Never", "backoffLimit: 2", "ttlSecondsAfterFinished: 86400", "-bgp-analyzer-r1", "PROBECTL_BGP_ANALYZER_SOURCE_FILE"} {
+		for _, want := range []string{"kind: Job", "restartPolicy: Never", "backoffLimit: 2", "ttlSecondsAfterFinished: 86400", "PROBECTL_BGP_ANALYZER_SOURCE_FILE"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%s: rendered analyzer lacks %q:\n%s", source, want, out)
 			}
 		}
 		if strings.Contains(out, "kind: Deployment") {
 			t.Errorf("%s: finite source must not render a Deployment", source)
+		}
+		// The Job is keyed by what the run depends on, not by the release
+		// revision: an unrelated upgrade must not re-run the artifact.
+		name := jobNameRE.FindString(out)
+		if name == "" {
+			t.Fatalf("%s: Job name is not digest-keyed:\n%s", source, out)
+		}
+		again, err := renderHelmBGPAnalyzer(t, source, "--set", "bgpAnalyzer.sourceFile=/fixtures/routes."+source, "--set", "resources.requests.cpu=250m")
+		if err != nil {
+			t.Fatalf("%s re-render: %v\n%s", source, err, out)
+		}
+		if jobNameRE.FindString(again) != name {
+			t.Errorf("%s: an unrelated value change renamed the Job (would re-run the artifact)", source)
+		}
+		other, err := renderHelmBGPAnalyzer(t, source, "--set", "bgpAnalyzer.sourceFile=/fixtures/other."+source)
+		if err != nil {
+			t.Fatalf("%s other-artifact render: %v\n%s", source, err, out)
+		}
+		if jobNameRE.FindString(other) == name {
+			t.Errorf("%s: a new artifact must get a new Job", source)
 		}
 	}
 	out, err := renderHelmBGPAnalyzer(t, "ris-live")

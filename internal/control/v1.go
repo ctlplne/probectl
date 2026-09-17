@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -294,6 +295,38 @@ func (s *Server) handleListTests(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// testReceipt (DPR-065): registering a test hands back the exact canaries:
+// entry — including the server test_id that ties results to this definition —
+// for the operator to add to the enrolled agent's config, as the onboarding
+// journey promises (the control plane never edits an agent host). The stored
+// test alone left operators to reconstruct the block by hand.
+type testReceipt struct {
+	*store.Test
+	Config testConfigHint `json:"config"`
+}
+
+type testConfigHint struct {
+	// Canary is one entry of the agent's canaries: list, in the agent's own
+	// keys (type, target, interval, timeout, params, test_id).
+	Canary map[string]any `json:"canary"`
+}
+
+func newTestReceipt(t *store.Test) testReceipt {
+	canary := map[string]any{
+		"type":     t.Type,
+		"interval": fmt.Sprintf("%ds", t.IntervalSeconds),
+		"timeout":  fmt.Sprintf("%ds", t.TimeoutSeconds),
+		"test_id":  t.ID,
+	}
+	if t.Target != "" {
+		canary["target"] = t.Target
+	}
+	if len(t.Params) > 0 {
+		canary["params"] = t.Params
+	}
+	return testReceipt{Test: t, Config: testConfigHint{Canary: canary}}
+}
+
 func (s *Server) handleCreateTest(w http.ResponseWriter, r *http.Request) error {
 	var req testRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -331,7 +364,7 @@ func (s *Server) handleCreateTest(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	w.Header().Set("Location", "/v1/tests/"+created.ID)
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, http.StatusCreated, newTestReceipt(created))
 	return nil
 }
 
@@ -345,7 +378,7 @@ func (s *Server) handleGetTest(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, newTestReceipt(t))
 	return nil
 }
 
@@ -379,7 +412,7 @@ func (s *Server) handleUpdateTest(w http.ResponseWriter, r *http.Request) error 
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, newTestReceipt(t))
 	return nil
 }
 

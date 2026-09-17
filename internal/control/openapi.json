@@ -9656,6 +9656,16 @@
           {
             "type": "object",
             "properties": {
+              "config": {
+                "type": "object",
+                "description": "The receipt for the enrolled agent (DPR-065): the exact canaries: entry to add to the agent config, in the agent's own keys, including this definition's test_id.",
+                "properties": {
+                  "canary": {
+                    "type": "object",
+                    "description": "One entry of the agent's canaries: list (type, target, interval, timeout, params, test_id); render it as YAML."
+                  }
+                }
+              },
               "id": {
                 "type": "string",
                 "format": "uuid"
