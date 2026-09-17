@@ -12,6 +12,10 @@
   "PROBECTL_LOG_LEVEL"
   "PROBECTL_AUTH_MODE"
   "PROBECTL_TRUSTED_PROXIES"
+  "PROBECTL_AGENT_GRPC_ADDR"
+  "PROBECTL_AGENT_TLS_CERT_FILE"
+  "PROBECTL_AGENT_TLS_KEY_FILE"
+  "PROBECTL_AGENT_TLS_CA_FILE"
   "PROBECTL_SECURITY_CONTACT"
   "PROBECTL_OBJECTSTORE_DIR"
   "PROBECTL_OBJECTSTORE_MODE"
@@ -149,6 +153,17 @@ data:
   PROBECTL_LOG_FORMAT: {{ .Values.control.logFormat | quote }}
   PROBECTL_LOG_LEVEL: {{ .Values.control.logLevel | quote }}
   PROBECTL_AUTH_MODE: {{ .Values.control.authMode | quote }}
+  {{- if .Values.control.agentListener.enabled }}
+  {{- if not .Values.control.tls.enabled }}
+  {{- fail "control.agentListener.enabled requires control.tls.enabled: the agent gRPC/mTLS listener serves the control plane's own certificate (DPR-046)" }}
+  {{- end }}
+  # DPR-046: agent gRPC/mTLS listener — same server certificate as the API,
+  # agents verified against the deployment's agent CA trust bundle.
+  PROBECTL_AGENT_GRPC_ADDR: {{ printf ":%d" (int .Values.control.agentListener.port) | quote }}
+  PROBECTL_AGENT_TLS_CERT_FILE: {{ printf "%s/tls.crt" .Values.control.tls.mountPath | quote }}
+  PROBECTL_AGENT_TLS_KEY_FILE: {{ printf "%s/tls.key" .Values.control.tls.mountPath | quote }}
+  PROBECTL_AGENT_TLS_CA_FILE: {{ printf "%s/%s" .Values.control.agentListener.ca.mountPath .Values.control.agentListener.ca.key | quote }}
+  {{- end }}
   {{- with .Values.control.trustedProxies }}
   # DPR-039: the ingress/load-balancer addresses whose forwarded client
   # address the authentication limiters key on.

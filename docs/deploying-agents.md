@@ -77,7 +77,10 @@ it; runtime operation never needs it. Re-running refuses to overwrite the trust
 root. `export` writes the CA's **public** trust bundle (root + intermediate
 certificates — never a key) to a file; point the control plane's
 `PROBECTL_AGENT_TLS_CA_FILE` at it so the gRPC listener can verify enrolling
-agents.
+agents. (Helm: `kubectl exec deploy/<release> -- /usr/local/bin/app agent-ca
+init`, then `--set control.agentListener.enabled=true`; the chart's init
+container runs the export for you and the listener is the `<release>-agents`
+Service — [Helm README](../deploy/helm/README.md#the-agent-listener-producers-attach-here).)
 
 **2. Mint a join token (one per agent; the *token* names the tenant):**
 

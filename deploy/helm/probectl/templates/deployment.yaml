@@ -27,7 +27,7 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if or .Values.migrateOnBoot .Values.control.credentialFiles.existingSecret }}
+      {{- if or .Values.migrateOnBoot .Values.control.credentialFiles.existingSecret (and .Values.control.agentListener.enabled (not .Values.control.agentListener.ca.existingSecret)) }}
       initContainers:
         {{- if .Values.control.credentialFiles.existingSecret }}
         # DPR-030: stage operator credential files as private mode-0600 regular
@@ -83,6 +83,40 @@ spec:
             {{- end }}
           {{- end }}
         {{- end }}
+        {{- if and .Values.control.agentListener.enabled (not .Values.control.agentListener.ca.existingSecret) }}
+        # DPR-046: export the agent CA's PUBLIC trust bundle from the database
+        # into a memory volume so the listener can verify enrolling agents.
+        # Fails (and keeps the pod from serving) until `agent-ca init` has run.
+        - name: export-agent-ca
+          image: {{ include "probectl.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["agent-ca", "export", {{ printf "%s/%s" .Values.control.agentListener.ca.mountPath .Values.control.agentListener.ca.key | quote }}]
+          envFrom:
+            - configMapRef:
+                name: {{ include "probectl.fullname" . }}-config
+            - secretRef:
+                name: {{ include "probectl.secretName" . }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.control.trustBundle.existingConfigMap }}
+          env:
+            - name: SSL_CERT_FILE
+              value: {{ printf "%s/%s" .Values.control.trustBundle.mountPath .Values.control.trustBundle.key | quote }}
+          {{- end }}
+          volumeMounts:
+            - name: agent-ca
+              mountPath: {{ .Values.control.agentListener.ca.mountPath | quote }}
+            {{- if .Values.control.trustBundle.existingConfigMap }}
+            - name: trust-bundle
+              mountPath: {{ .Values.control.trustBundle.mountPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.control.credentialFiles.existingSecret }}
+            - name: credentials
+              mountPath: {{ .Values.control.credentialFiles.mountPath | quote }}
+              readOnly: true
+            {{- end }}
+        {{- end }}
       {{- end }}
       containers:
         - name: control
@@ -92,6 +126,11 @@ spec:
           ports:
             - name: {{ include "probectl.servicePortName" . }}
               containerPort: 8080
+            {{- if .Values.control.agentListener.enabled }}
+            - name: agent-grpc
+              containerPort: {{ int .Values.control.agentListener.port }}
+              protocol: TCP
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "probectl.fullname" . }}-config
@@ -128,11 +167,16 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret }}
+          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
               mountPath: {{ .Values.control.tls.mountPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.control.agentListener.enabled }}
+            - name: agent-ca
+              mountPath: {{ .Values.control.agentListener.ca.mountPath | quote }}
               readOnly: true
             {{- end }}
             {{- if .Values.control.trustBundle.existingConfigMap }}
@@ -155,8 +199,22 @@ spec:
               readOnly: true
             {{- end }}
           {{- end }}
-      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret }}
+      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled }}
       volumes:
+        {{- if .Values.control.agentListener.enabled }}
+        - name: agent-ca
+          {{- if .Values.control.agentListener.ca.existingSecret }}
+          secret:
+            secretName: {{ .Values.control.agentListener.ca.existingSecret | quote }}
+            items:
+              - key: {{ .Values.control.agentListener.ca.key | quote }}
+                path: {{ .Values.control.agentListener.ca.key | quote }}
+          {{- else }}
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+          {{- end }}
+        {{- end }}
         {{- if .Values.control.credentialFiles.existingSecret }}
         - name: credentials-source
           secret:

@@ -302,6 +302,36 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1, "pattern": "^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$" }
         },
+        "agentListener": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "ca": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "existingSecret": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 },
+                "mountPath": { "type": "string", "minLength": 1, "pattern": "^/" }
+              },
+              "required": ["existingSecret", "key", "mountPath"]
+            },
+            "service": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+                "nodePort": { "type": ["integer", "null"], "minimum": 30000, "maximum": 32767 },
+                "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+              },
+              "required": ["type"]
+            },
+            "ingressFrom": { "type": "array", "items": { "type": "object" } }
+          },
+          "required": ["enabled", "port", "ca", "service", "ingressFrom"]
+        },
         "credentialFiles": {
           "type": "object",
           "additionalProperties": false,
@@ -328,6 +358,10 @@
                 "PROBECTL_LOG_LEVEL",
                 "PROBECTL_AUTH_MODE",
                 "PROBECTL_TRUSTED_PROXIES",
+                "PROBECTL_AGENT_GRPC_ADDR",
+                "PROBECTL_AGENT_TLS_CERT_FILE",
+                "PROBECTL_AGENT_TLS_KEY_FILE",
+                "PROBECTL_AGENT_TLS_CA_FILE",
                 "PROBECTL_SECURITY_CONTACT",
                 "PROBECTL_OBJECTSTORE_DIR",
                 "PROBECTL_OBJECTSTORE_MODE",

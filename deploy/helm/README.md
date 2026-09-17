@@ -288,6 +288,37 @@ and the pod receives no Kubernetes API token. See
 [`docs/bgp.md`](../../docs/bgp.md) and
 [`docs/configuration.md`](../../docs/configuration.md) for the config schema.
 
+## The agent listener (producers attach here)
+
+Every producer — `probectl-agent`, and the flow, device, eBPF and endpoint
+collectors' control channel — reaches the control plane over **one transport:
+gRPC with mTLS SVIDs** on the agent listener. The chart ships it **off**
+(`control.agentListener.enabled=false`) because it needs the deployment's agent
+CA, which is created once and prints its root key a single time. Turn it on in
+two steps (DPR-046):
+
+```sh
+# 1. once per deployment, with the release already running:
+kubectl -n probectl exec deploy/probectl -- /usr/local/bin/app agent-ca init   # prints the ROOT key ONCE; keep it offline
+# 2. enable the listener; an init container exports the PUBLIC trust bundle
+#    from the database on every start, so no Secret is needed:
+helm upgrade probectl deploy/helm/probectl --reuse-values \
+  --set control.agentListener.enabled=true \
+  --set control.agentListener.service.type=LoadBalancer      # or NodePort / ClusterIP for in-cluster agents
+```
+
+The listener serves the control plane's own certificate (`control.tls`) on
+`control.agentListener.port` (9443), gets a dedicated `<release>-agents`
+Service so probe hosts in customer networks can reach it without widening the
+API Service, and a NetworkPolicy rule for that port (`ingressFrom` narrows the
+sources; the SVID handshake is the authentication). Prefer a bundle you
+exported yourself? `kubectl exec deploy/probectl -- /usr/local/bin/app agent-ca
+export - > agent-ca.crt`, put it in a Secret and name it in
+`control.agentListener.ca.existingSecret`. Then mint join tokens (Admin →
+Agents → Enroll agent, or `enroll-token -tenant <uuid>`) and enroll agents
+against the API host with gRPC at the `-agents` address
+([`docs/deploying-agents.md`](../../docs/deploying-agents.md)).
+
 ## Optional rendered-browser synthetic agent
 
 `browserAgent.enabled=true` adds a listener-free DaemonSet using the dedicated

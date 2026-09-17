@@ -33,6 +33,11 @@
 # with PROBECTL_BUS_SASL_PASSWORD in secrets.existingSecret, the two basic-auth
 # files in control.credentialFiles and the CA in control.trustBundle (README).
 #
+# PRODUCERS: turn the agent gRPC/mTLS listener on after the one-time
+#     kubectl -n probectl exec deploy/probectl -- /usr/local/bin/app agent-ca init
+# with  --set control.agentListener.enabled=true --set control.agentListener.service.type=LoadBalancer
+# (DPR-046; README "The agent listener").
+#
 # SILOED / RESIDENCY TENANTS: each ClickHouse data plane needs its own
 # credential file in control.credentialFiles, named by
 #     --set-string control.extraEnv.PROBECTL_DATAPLANES=eu=https://ch-eu.example:8443 \

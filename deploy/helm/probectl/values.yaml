@@ -137,6 +137,33 @@ control:
   credentialFiles:
     existingSecret: ""
     mountPath: /etc/probectl/credentials
+  # The agent gRPC/mTLS listener (DPR-046) — the ONLY transport a producer
+  # (probectl-agent, flow/device/eBPF collectors' control channel) can use.
+  # Off by default exactly like the compose stack: it needs the deployment's
+  # agent CA trust bundle, which exists only after the one-time
+  #   kubectl -n <ns> exec deploy/<release> -- /usr/local/bin/app agent-ca init
+  # (prints the ROOT key once — keep it offline). With `enabled: true` the
+  # chart adds an init container that exports the public bundle from the
+  # database into a memory volume on every start, so no Secret is needed;
+  # `ca.existingSecret` instead mounts a bundle you exported yourself. The
+  # listener presents the same certificate as the HTTPS API (control.tls).
+  agentListener:
+    enabled: false
+    port: 9443
+    ca:
+      existingSecret: ""
+      key: agent-ca.crt
+      mountPath: /etc/probectl/agent-ca
+    # A dedicated Service for the listener: ClusterIP for in-cluster agents,
+    # NodePort or LoadBalancer for probe hosts outside the cluster (agents
+    # authenticate with mTLS SVIDs, so exposure is safe by construction).
+    service:
+      type: ClusterIP
+      nodePort: null
+      annotations: {}
+    # NetworkPolicy peers allowed to reach the listener. Empty = any source,
+    # because producers live in customer networks, not in the cluster.
+    ingressFrom: []
   # Extra PROBECTL_* env vars, as a map of name: value. Names owned by typed
   # chart values or the chart Secret are rejected so this map cannot override
   # TLS, authentication, encryption, HSTS, listener, or credential settings.

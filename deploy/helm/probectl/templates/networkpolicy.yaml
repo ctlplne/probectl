@@ -25,6 +25,17 @@ spec:
       from:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+    {{- if .Values.control.agentListener.enabled }}
+    # DPR-046: producers reach the mTLS listener from customer networks; the
+    # SVID handshake is the authentication, so the default source is any.
+    - ports:
+        - protocol: TCP
+          port: {{ int .Values.control.agentListener.port }}
+      {{- with .Values.control.agentListener.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
   egress:
     # DNS is always required (cluster service discovery).
     - ports:

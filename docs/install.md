@@ -253,6 +253,13 @@ Then mint a join token (**Admin & Settings → Agents → Enroll agent**, or
 agent from its host against `https://<host>:8443` with gRPC at `<host>:9443`
 ([`deploying-agents.md`](deploying-agents.md)).
 
+On **Kubernetes** the chart ships the same listener off; run `agent-ca init`
+once through `kubectl exec`, then `helm upgrade --set
+control.agentListener.enabled=true` (plus a `NodePort`/`LoadBalancer` service
+type for probe hosts outside the cluster) — the chart exports the public trust
+bundle itself on every start. See the
+[Helm README](../deploy/helm/README.md#the-agent-listener-producers-attach-here).
+
 Don't follow a one-off recipe here — the canonical journey is already written:
 
 - **See data in one command (no Go toolchain, any OS):** the **evaluation stack**

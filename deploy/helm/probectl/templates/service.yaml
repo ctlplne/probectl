@@ -15,3 +15,31 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: {{ include "probectl.servicePortName" . }}
       protocol: TCP
+{{- if .Values.control.agentListener.enabled }}
+---
+# DPR-046: the agent gRPC/mTLS listener gets its own Service so it can be
+# exposed to probe hosts outside the cluster (NodePort/LoadBalancer) without
+# widening the API Service, which stays behind the TLS ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "probectl.fullname" . }}-agents
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+  {{- with .Values.control.agentListener.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.control.agentListener.service.type }}
+  selector:
+    {{- include "probectl.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: agent-grpc
+      port: {{ int .Values.control.agentListener.port }}
+      targetPort: agent-grpc
+      protocol: TCP
+      {{- with .Values.control.agentListener.service.nodePort }}
+      nodePort: {{ int . }}
+      {{- end }}
+{{- end }}
