@@ -38,6 +38,10 @@
   "PROBECTL_EVIDENCE_SIGNING_KEY_FILE"
   "PROBECTL_IR_UNLOCK_KEY"
   "PROBECTL_LICENSE_FILE"
+  "PROBECTL_OTLP_GRPC_ADDR"
+  "PROBECTL_OTLP_HTTP_ADDR"
+  "PROBECTL_OTLP_TLS_CERT_FILE"
+  "PROBECTL_OTLP_TLS_KEY_FILE"
   "PROBECTL_SLO_DIR"
   "SSL_CERT_FILE"
   "SSL_CERT_DIR"
@@ -125,6 +129,22 @@ data:
   # DPR-116: signed, write-once audit segments on their own object-lock volume,
   # independent of where tenant artifacts live.
   PROBECTL_AUDIT_WORM_DIR: {{ default "/var/lib/probectl/audit-worm" (.Values.audit.worm).mountPath | quote }}
+  {{- end }}
+  {{- if eq (include "probectl.otlp.enabled" .) "true" }}
+  # DPR-117: OTLP ingest from collectors, TLS-only, authenticated per tenant
+  # through the tokens minted at POST /v1/otlp-tokens (docs/otlp.md).
+  {{- with .Values.control.otlp.httpPort }}
+  {{- if . }}
+  PROBECTL_OTLP_HTTP_ADDR: ":{{ int . }}"
+  {{- end }}
+  {{- end }}
+  {{- with .Values.control.otlp.grpcPort }}
+  {{- if . }}
+  PROBECTL_OTLP_GRPC_ADDR: ":{{ int . }}"
+  {{- end }}
+  {{- end }}
+  PROBECTL_OTLP_TLS_CERT_FILE: "{{ .Values.control.tls.mountPath }}/tls.crt"
+  PROBECTL_OTLP_TLS_KEY_FILE: "{{ .Values.control.tls.mountPath }}/tls.key"
   {{- end }}
   # Fail closed (TENANT-106/SEC-002): never silently write plaintext at rest.
   PROBECTL_REQUIRE_AT_REST_ENCRYPTION: {{ .Values.requireAtRestEncryption | quote }}

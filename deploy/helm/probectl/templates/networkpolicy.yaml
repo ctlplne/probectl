@@ -36,6 +36,24 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     {{- end }}
+    {{- if eq (include "probectl.otlp.enabled" .) "true" }}
+    {{- if empty .Values.control.otlp.ingressFrom }}
+    {{- fail "control.otlp.ingressFrom must name at least one collector source when the OTLP receiver is enabled with networkPolicy.enabled=true — the ingest surface is not the API and its sources are named deliberately (DPR-117)" }}
+    {{- end }}
+    # DPR-117: OTLP ingest from the named collectors only. The per-tenant token
+    # is the authentication; this is the network boundary around it.
+    - ports:
+        {{- if .Values.control.otlp.httpPort }}
+        - protocol: TCP
+          port: {{ int .Values.control.otlp.httpPort }}
+        {{- end }}
+        {{- if .Values.control.otlp.grpcPort }}
+        - protocol: TCP
+          port: {{ int .Values.control.otlp.grpcPort }}
+        {{- end }}
+      from:
+        {{- toYaml .Values.control.otlp.ingressFrom | nindent 8 }}
+    {{- end }}
   egress:
     # DNS is always required (cluster service discovery).
     - ports:

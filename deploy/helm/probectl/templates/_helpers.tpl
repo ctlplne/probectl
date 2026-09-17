@@ -128,6 +128,24 @@ require
 {{- end -}}
 {{- end -}}
 
+{{/* DPR-117: the OTLP receiver. It serves TLS with the control listener's own
+     certificate, so it cannot be enabled without it (§7.12). */}}
+{{- define "probectl.otlp" -}}
+{{- (.Values.control.otlp | default dict) | toJson -}}
+{{- end -}}
+
+{{- define "probectl.otlp.enabled" -}}
+{{- if (.Values.control.otlp | default dict).enabled -}}
+{{- if not .Values.control.tls.enabled -}}
+{{- fail "control.otlp.enabled requires control.tls.enabled: the OTLP receiver serves TLS with the control listener's certificate and there is no plaintext ingest (§7 guardrail 12)" -}}
+{{- end -}}
+{{- if and (not (.Values.control.otlp.httpPort | int)) (not (.Values.control.otlp.grpcPort | int)) -}}
+{{- fail "control.otlp.enabled needs at least one of control.otlp.httpPort / control.otlp.grpcPort" -}}
+{{- end -}}
+true
+{{- end -}}
+{{- end -}}
+
 {{/* ServiceAccount name. */}}
 {{- define "probectl.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}

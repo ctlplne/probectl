@@ -115,6 +115,22 @@ control:
   # roots only.
   #   kubectl -n probectl create configmap probectl-trust-bundle --from-file=ca-bundle.crt=./corp-ca.pem
   #   --set control.trustBundle.existingConfigMap=probectl-trust-bundle
+  # DPR-117: the OTLP receiver. The control plane can accept OTLP/HTTP and
+  # OTLP/gRPC from collectors (docs/otlp.md), but the chart shipped no way to
+  # expose it: no container ports, no Service, and a default-deny NetworkPolicy
+  # that drops the traffic even if an operator writes the Service by hand.
+  # TLS is not optional here (§7.12) — the receiver reuses the control
+  # listener's certificate, so control.tls.enabled is required.
+  otlp:
+    enabled: false
+    httpPort: 4318            # 0 disables the HTTP receiver
+    grpcPort: 4317            # 0 disables the gRPC receiver
+    # Who may reach the receiver. Empty means nobody: the ingest surface is not
+    # the API, and its sources are named deliberately, exactly like
+    # networkPolicy.ingressFrom.
+    ingressFrom: []
+    service:
+      type: ClusterIP
   trustBundle:
     existingConfigMap: ""
     key: ca-bundle.crt

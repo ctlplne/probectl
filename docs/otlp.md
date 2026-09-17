@@ -132,6 +132,31 @@ off by default and **fails config validation** if an address is set without TLS.
 Create DB-backed tokens through the API, or use `PROBECTL_OTLP_TOKENS` only as
 an explicit bootstrap/legacy source.
 
+### On Kubernetes (DPR-117)
+
+The chart owns the receiver; do not set the addresses by hand. Three things have
+to line up, and before DPR-117 the chart supplied none of them, so a collector
+following this page could not deliver a single span:
+
+```sh
+helm upgrade probectl deploy/helm/probectl --reuse-values \
+  --set control.otlp.enabled=true \
+  --set 'control.otlp.ingressFrom[0].podSelector.matchLabels.app=otel-collector'
+```
+
+* the receiver's addresses and TLS material (it reuses the control listener's
+  certificate, so `control.tls.enabled` is required — there is no plaintext
+  ingest);
+* a Service of its own, `<release>-otlp`, with `otlp-http` (4318) and
+  `otlp-grpc` (4317). The API Service is never widened;
+* a NetworkPolicy rule. The control pod is default-deny, so the collectors that
+  may reach the ingest surface are named in `control.otlp.ingressFrom` —
+  the same shape as `networkPolicy.ingressFrom`, and enabling the receiver with
+  no sources is refused rather than silently dropping traffic.
+
+The per-tenant bearer token is still the authentication; the policy is the
+network boundary around it.
+
 ## Token rotation & revocation
 
 Bearer tokens map to tenants. DB-backed OTLP tokens are the normal operational

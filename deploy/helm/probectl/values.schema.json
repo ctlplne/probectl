@@ -328,6 +328,21 @@
           },
           "required": ["enabled", "existingSecret", "certKey", "keyKey", "mountPath"]
         },
+        "otlp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "httpPort": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "grpcPort": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "ingressFrom": { "type": "array" },
+            "service": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "type": { "type": "string" } }
+            }
+          }
+        },
         "trustBundle": {
           "type": "object",
           "additionalProperties": false,

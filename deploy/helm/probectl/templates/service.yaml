@@ -55,3 +55,32 @@ spec:
       nodePort: {{ int . }}
       {{- end }}
 {{- end }}
+{{- if eq (include "probectl.otlp.enabled" .) "true" }}
+---
+# DPR-117: the OTLP receiver gets its own Service so collectors can reach the
+# ingest surface without widening the API Service, which stays behind the TLS
+# ingress. Named targetPorts keep agent/analyzer pods out of the endpoints.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "probectl.fullname" . }}-otlp
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  type: {{ (.Values.control.otlp.service | default dict).type | default "ClusterIP" }}
+  selector:
+    {{- include "probectl.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- if .Values.control.otlp.httpPort }}
+    - name: otlp-http
+      port: {{ int .Values.control.otlp.httpPort }}
+      targetPort: otlp-http
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.control.otlp.grpcPort }}
+    - name: otlp-grpc
+      port: {{ int .Values.control.otlp.grpcPort }}
+      targetPort: otlp-grpc
+      protocol: TCP
+    {{- end }}
+{{- end }}

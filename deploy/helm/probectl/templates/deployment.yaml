@@ -132,6 +132,18 @@ spec:
               containerPort: {{ include "probectl.agentListener.port" . }}
               protocol: TCP
             {{- end }}
+            {{- if eq (include "probectl.otlp.enabled" .) "true" }}
+            {{- if .Values.control.otlp.httpPort }}
+            - name: otlp-http
+              containerPort: {{ int .Values.control.otlp.httpPort }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.control.otlp.grpcPort }}
+            - name: otlp-grpc
+              containerPort: {{ int .Values.control.otlp.grpcPort }}
+              protocol: TCP
+            {{- end }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "probectl.fullname" . }}-config
