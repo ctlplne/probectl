@@ -10,16 +10,41 @@
   "CONTRIBUTING.md",
   "docs/**/*.md",
   "web/src/i18n/messages.ts",
-  "analyzer/README.md"
+  "analyzer/README.md",
+  "CLAUDE.md",
+  "AGENTS.md"
  ],
- "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant",
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant|durable lightweight|volatile lightweight|durable bus mode",
  "claims": [
+  {
+   "id": "CLM-DURABLE-LIGHTWEIGHT-BUS",
+   "kind": "capability",
+   "statement": "The lightweight bus for small deployments is DURABLE (NATS with JetStream): records are on disk and a consumer's position survives a restart and a rolling upgrade. The in-process memory bus is VOLATILE and is development-only. Both networked transports are held to the same TLS-and-credentials policy.",
+   "pattern": "durable lightweight|volatile lightweight|durable bus mode",
+   "surfaces": [
+    "CLAUDE.md",
+    "docs/configuration.md",
+    "docs/fairness.md",
+    "docs/ops/data-plane.md"
+   ],
+   "code": [
+    "internal/bus/nats.go",
+    "internal/bus/memory.go",
+    "internal/bus/bus.go"
+   ],
+   "proof": [
+    "test:internal/bus/nats_test.go#TestDurableLightweightModeIsRefusedInTheClear",
+    "test:internal/bus/nats_integration_test.go#TestNATSConsumerPositionSurvivesAReconnect",
+    "test:internal/config/config_test.go#TestDurableLightweightBusPassesTheProductionProfiles"
+   ]
+  },
   {
    "id": "CLM-NO-PHONE-HOME",
    "kind": "capability",
    "statement": "No default outbound telemetry, beacon, or phone-home exists; telemetry never leaves the operator's network by default.",
    "pattern": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress",
    "surfaces": [
+    "CLAUDE.md",
     "CONTRIBUTING.md",
     "README.md",
     "docs/admin.md",
@@ -80,38 +105,39 @@
    "statement": "The deployment operates air-gapped: the default AI is the in-process builtin and no feature requires egress.",
    "pattern": "air-gap",
    "surfaces": [
+   "CLAUDE.md",
    "README.md",
    "SECURITY.md",
    "docs/adr/agent-enrollment.md",
-    "docs/adr/browser-artifact-storage.md",
-    "docs/adr/external-vantage-sources.md",
+   "docs/adr/browser-artifact-storage.md",
+   "docs/adr/external-vantage-sources.md",
    "docs/ai-authoring.md",
-    "docs/ai-egress.md",
-    "docs/ai-quickstart.md",
-    "docs/ai-rca.md",
-    "docs/auth/self-hosted-idp.md",
-    "docs/browser-synthetic.md",
-    "docs/build/toolchain.md",
-    "docs/compliance/control-evidence.md",
-    "docs/configuration.md",
-    "docs/dependency-policy.md",
-    "docs/deploying-agents.md",
-    "docs/development.md",
-    "docs/ebpf-agent.md",
-    "docs/features/ai-assistant.md",
-    "docs/features/digital-experience.md",
-    "docs/features/identity-and-access.md",
-    "docs/flow.md",
-    "docs/hardening.md",
-    "docs/ops/air-gap.md",
-    "docs/ops/verify-artifacts.md",
-    "docs/pov-demo-script.md",
-    "docs/pricing.md",
-    "docs/security/agent-whitepaper.md",
-    "docs/security/threat-model.md",
-    "docs/ux/design-principles.md",
-    "docs/ux/teardown.md",
-    "probectl-PRD-v1.0.md"
+   "docs/ai-egress.md",
+   "docs/ai-quickstart.md",
+   "docs/ai-rca.md",
+   "docs/auth/self-hosted-idp.md",
+   "docs/browser-synthetic.md",
+   "docs/build/toolchain.md",
+   "docs/compliance/control-evidence.md",
+   "docs/configuration.md",
+   "docs/dependency-policy.md",
+   "docs/deploying-agents.md",
+   "docs/development.md",
+   "docs/ebpf-agent.md",
+   "docs/features/ai-assistant.md",
+   "docs/features/digital-experience.md",
+   "docs/features/identity-and-access.md",
+   "docs/flow.md",
+   "docs/hardening.md",
+   "docs/ops/air-gap.md",
+   "docs/ops/verify-artifacts.md",
+   "docs/pov-demo-script.md",
+   "docs/pricing.md",
+   "docs/security/agent-whitepaper.md",
+   "docs/security/threat-model.md",
+   "docs/ux/design-principles.md",
+   "docs/ux/teardown.md",
+   "probectl-PRD-v1.0.md"
    ],
    "code": [
     "internal/ai/model_builtin.go",
@@ -127,6 +153,7 @@
    "statement": "Missing channel security, credential, signature, tenant binding, or license state degrades closed, never open.",
    "pattern": "fail[- ]closed|fails? closed",
    "surfaces": [
+    "CLAUDE.md",
     "CONTRIBUTING.md",
     "analyzer/README.md",
     "docs/adr/bgp-ingest-model.md",
@@ -214,6 +241,7 @@
    "statement": "Audit streams are hash-chained and tamper-evident.",
    "pattern": "tamper-evident|hash-chained",
    "surfaces": [
+    "CLAUDE.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
     "docs/admin.md",
@@ -262,6 +290,7 @@
    "statement": "Collection and detection observe; nothing mutates the observed network (eBPF observe-only, no remediation executor).",
    "pattern": "observe-only",
    "surfaces": [
+    "CLAUDE.md",
     "CONTRIBUTING.md",
     "docs/architecture.md",
     "docs/buyer-memo.md",
@@ -279,8 +308,8 @@
     "docs/getting-started.md",
     "docs/glossary.md",
     "docs/hardening.md",
-    "docs/limitations.md",
     "docs/legal/counsel-readiness-2026-08-09.md",
+    "docs/limitations.md",
     "docs/pov-demo-script.md",
     "docs/remediation.md",
     "docs/security/agent-whitepaper.md",
@@ -307,6 +336,7 @@
    "statement": "Remediation is human-gated: explicit approval, dry-run, blast-radius limits; never autonomous.",
    "pattern": "human-gated",
    "surfaces": [
+    "CLAUDE.md",
     "CONTRIBUTING.md",
     "README.md",
     "docs/ai-authoring.md",
@@ -351,6 +381,7 @@
    "statement": "Detection is a confidence-scored signal, never inline blocking / an IPS.",
    "pattern": "never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)",
    "surfaces": [
+    "CLAUDE.md",
     "CONTRIBUTING.md",
     "README.md",
     "analyzer/README.md",
@@ -387,6 +418,7 @@
    "statement": "Tenant isolation is enforced at the storage layer (FORCE RLS / partition / silo), not per-handler.",
    "pattern": "enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security",
    "surfaces": [
+    "CLAUDE.md",
     "docs/admin.md",
     "docs/adr/volatile-stores.md",
     "docs/ai-rca.md",
@@ -466,6 +498,7 @@
    "statement": "Provider/break-glass operations are separately audited from tenant streams.",
    "pattern": "separately audited",
    "surfaces": [
+    "CLAUDE.md",
     "README.md",
     "docs/audit.md",
     "docs/legal/counsel-readiness-2026-08-09.md",
@@ -487,6 +520,7 @@
    "statement": "Remote AI egress requires explicit tenant consent and redaction; denial is the default.",
    "pattern": "consent-gated",
    "surfaces": [
+    "CLAUDE.md",
     "docs/compliance/control-evidence.md",
     "docs/configuration.md",
     "docs/mcp.md",
@@ -527,6 +561,7 @@
    "statement": "The embedded BPF object digest proves generator freshness and binary self-consistency (mismatch refuses to load, fail closed); tamper protection for the shipped artifact is the cosign release signature over objects + manifest + binary together.",
    "pattern": "same-build manifest|generator freshness|refuses to load|digest-verified|cosign release signature|cosign-signed",
    "surfaces": [
+    "CLAUDE.md",
     "docs/ebpf-agent.md"
    ],
    "code": [
@@ -544,6 +579,7 @@
    "statement": "Open-data/threat feeds are ingested once (shared) then scoped per tenant; BGP collector ingestion runs per tenant by decision of record (ADR bgp-ingest-model), with the shared fan-out as a recorded scaling boundary.",
    "pattern": "ingested once|ingest-once|ingest once|per-tenant ingest|per tenant ingest|Collector ingestion is per tenant",
    "surfaces": [
+    "CLAUDE.md",
     "docs/adr/bgp-ingest-model.md",
     "docs/architecture.md",
     "docs/bgp.md",
