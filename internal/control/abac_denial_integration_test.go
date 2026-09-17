@@ -73,11 +73,37 @@ func TestABACDenialIsAuditedOncePerWindow(t *testing.T) {
 		t.Fatalf("denial row must name actor, permission and user: %+v", rows[0])
 	}
 
-	// The window elapsed: the next denial is a new row.
+	// The window elapsed (the last row is older than the window on every
+	// replica, and this replica's fast path is cold): the next denial is a
+	// new row.
 	srv.abacDenials.Delete(tenant + "|" + uid + "|test.write")
+	backdate := func() {
+		t.Helper()
+		ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
+		if _, err := db.Pool().Exec(ctx,
+			`UPDATE audit_events SET created_at = created_at - interval '2 minutes'
+			  WHERE tenant_id = $1 AND action = 'abac.denied'`, tenant); err != nil {
+			t.Fatalf("backdate: %v", err)
+		}
+	}
+	backdate()
 	deny()
 	if rows = abacDenialRows(t, db, tenant); len(rows) != 2 {
 		t.Fatalf("a denial after the window must append again, got %d rows", len(rows))
+	}
+
+	// A second replica (fresh in-memory state, same database) folds a repeat
+	// inside the window into the row the first replica wrote.
+	srv2, _ := setupSessionAPI(t, auth.Identity{})
+	sess2r, err := srv2.sessions.Issue(context.Background(), auth.Session{TenantID: tenant, UserID: uid, Email: "con@x.com", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := sessionReq(t, srv2.Handler(), http.MethodPost, "/v1/tests", &http.Cookie{Name: auth.SessionCookie, Value: sess2r}, testBody); rec.Code != http.StatusForbidden {
+		t.Fatalf("replica 2 policy deny: %d %s", rec.Code, rec.Body)
+	}
+	if rows = abacDenialRows(t, db, tenant); len(rows) != 2 {
+		t.Fatalf("a repeat on another replica inside the window must not add a row, got %d", len(rows))
 	}
 
 	// An RBAC miss (no test.write at all) is a different 403 and not a policy denial.

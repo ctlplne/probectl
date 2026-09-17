@@ -243,7 +243,7 @@ func (s *Server) authorize(ctx context.Context, p *auth.Principal, perm string, 
 }
 
 // abacDenialWindow is how long one tenant/user/permission denial stays
-// represented by a single audit row.
+// represented by a single audit row, across every replica.
 const abacDenialWindow = time.Minute
 
 // auditABACDenial (DPR-043) records that an attribute policy stopped an
@@ -257,16 +257,28 @@ func (s *Server) auditABACDenial(ctx context.Context, p *auth.Principal, perm st
 	}
 	key := p.TenantID + "|" + p.UserID + "|" + perm
 	now := time.Now()
+	// Fast path: this replica already recorded the denial inside the window.
 	if last, ok := s.abacDenials.Load(key); ok && now.Sub(last.(time.Time)) < abacDenialWindow {
 		return
 	}
-	s.abacDenials.Store(key, now)
 	actor := p.Email
 	if actor == "" {
 		actor = p.UserID
 	}
 	err := s.inTenantID(ctx, p.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := audit.TenantAppend(ctx, sc, actor, "abac.denied", perm, map[string]any{
+		// Cluster-wide check: another replica may have recorded it already
+		// (the window is one row per tenant/user/permission, not per pod).
+		var last time.Time
+		err := sc.Q.QueryRow(ctx,
+			`SELECT created_at FROM audit_events
+			  WHERE action = 'abac.denied' AND actor = $1 AND target = $2
+			  ORDER BY seq DESC LIMIT 1`, actor, perm).Scan(&last)
+		if err == nil && now.Sub(last) < abacDenialWindow {
+			s.abacDenials.Store(key, last)
+			return nil
+		}
+		s.abacDenials.Store(key, now)
+		_, err = audit.TenantAppend(ctx, sc, actor, "abac.denied", perm, map[string]any{
 			"permission": perm, "user_id": p.UserID, "window": abacDenialWindow.String(),
 		})
 		return err
