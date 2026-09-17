@@ -154,6 +154,11 @@ verified** it — an unattested artifact refuses to plan.
 Snapshot the fleet from the registry (`GET /v1/agents`) and plan. Waves render
 like `canary[3]=pending early[11]=pending main[46]=pending`. The wave
 membership — the exact agent ids in each wave — is the orchestrator's worklist.
+Agents whose last heartbeat is older than the heartbeat SLO at planning time —
+offline before the rollout, or never connected — are left out of the waves and
+listed under `skipped_offline` (they take the target on the next rollout once
+they are back) instead of blocking a wave they can never verify. A rollout
+artifact digest must be the exact `sha256:<64 hex>` the orchestrator deploys.
 Planning remains deliberately **CLI + API + runbook**: an operator verifies the
 artifact and fixes cohort membership before anything appears in the web console.
 The console controls only an existing plan's audited state machine; ordinary
@@ -219,6 +224,11 @@ Missing API credentials or a stale registry row fail the play closed.
 probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
   rollout verify "$ROLLOUT_ID"
 ```
+
+While the verify window runs, `POST /v1/rollouts/{id}/verify`, `GET
+/v1/rollouts/{id}` and the console list the wave's **stragglers** — the agents
+that have not yet reported the target version with a fresh heartbeat — so the
+orchestrator's remaining worklist is explicit rather than inferred from a count.
 
 ### 4. Halt-on-error
 

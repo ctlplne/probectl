@@ -34,8 +34,8 @@ func agentID(i int) string { return "agent-" + string(rune('a'+i/26)) + string(r
 func goodArtifact() VerifiedArtifact {
 	return VerifiedArtifact{
 		Version:    "v0.2.0",
-		Digest:     "sha256:abc123",
-		Method:     "cosign verify ghcr.io/ctlplne/probectl-ebpf-agent@sha256:abc123",
+		Digest:     "sha256:abababababababababababababababababababababababababababababababab",
+		Method:     "cosign verify ghcr.io/ctlplne/probectl-ebpf-agent@sha256:abababababababababababababababababababababababababababababababab",
 		VerifiedBy: "ops@example.com",
 	}
 }
@@ -267,5 +267,102 @@ func TestRolloutResumeIsExplicitAndRecovers(t *testing.T) {
 	}
 	if err := p.Resume("nothing is halted", now); err == nil {
 		t.Fatal("resume on a healthy rollout must refuse")
+	}
+}
+
+// TestPlanRolloutAtSkipsAgentsOfflineBeforeTheRollout (DPR-099): on the lab
+// every registered-but-dead probe and the never-connected router landed in a
+// wave they could never verify, so the wave would halt on them. Agents whose
+// last heartbeat is older than the SLO at planning time are left out and
+// listed; the zero time keeps the old everyone-in behavior.
+func TestPlanRolloutAtSkipsAgentsOfflineBeforeTheRollout(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	fleet := []FleetAgent{
+		{ID: "live-1", Version: "v0.1.0", LastSeen: now.Add(-time.Minute)},
+		{ID: "live-2", Version: "v0.1.0", LastSeen: now.Add(-2 * time.Minute)},
+		{ID: "dead-1", Version: "v0.1.0", LastSeen: now.Add(-3 * time.Hour)},
+		{ID: "never", Version: ""},
+		{ID: "done", Version: "v0.2.0", LastSeen: now.Add(-40 * time.Hour)},
+	}
+	p, err := PlanRolloutAt(fleet, goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.SkippedOffline; len(got) != 2 || got[0] != "dead-1" || got[1] != "never" {
+		t.Fatalf("offline and never-connected agents must be skipped and listed, got %v", got)
+	}
+	planned := 0
+	for _, w := range p.Waves {
+		for _, id := range w.AgentIDs {
+			if id == "dead-1" || id == "never" || id == "done" {
+				t.Fatalf("%s must not be in a wave", id)
+			}
+			planned++
+		}
+	}
+	if planned != 2 {
+		t.Fatalf("expected the two live agents planned, got %d", planned)
+	}
+
+	// All offline: the refusal names them instead of planning a dead wave.
+	if _, err := PlanRolloutAt(fleet[2:4], goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), now); err == nil || !strings.Contains(err.Error(), "dead-1") {
+		t.Fatalf("all-offline fleet must refuse and name the agents, got %v", err)
+	}
+
+	// The zero time plans everyone (existing callers and tests).
+	all, err := PlanRolloutAt(fleet, goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.SkippedOffline) != 0 {
+		t.Fatalf("zero time must skip nobody, got %v", all.SkippedOffline)
+	}
+}
+
+// TestVerifyListsStragglers (DPR-099): while the verify window runs, the
+// operator needs the exact agents still on the old version, not only a
+// "not complete" — the list is kept on the plan and cleared when the wave
+// completes.
+func TestVerifyListsStragglers(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	fleet := []FleetAgent{
+		{ID: "a", Version: "v0.1.0", LastSeen: now},
+		{ID: "b", Version: "v0.1.0", LastSeen: now},
+	}
+	p, err := PlanRolloutAt(fleet, goodArtifact(), lifecycle.Split{CanaryPercent: 100}, "v0.2.0", lifecycle.DefaultPolicy(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Advance(now); err != nil {
+		t.Fatal(err)
+	}
+	fleet[0].Version = "v0.2.0"
+	complete, err := p.Verify(fleet, now.Add(time.Minute))
+	if err != nil || complete {
+		t.Fatalf("one straggler must keep the wave applying: complete=%v err=%v", complete, err)
+	}
+	if len(p.Stragglers) != 1 || !strings.HasPrefix(p.Stragglers[0], "b (still on v0.1.0)") {
+		t.Fatalf("stragglers must name the lagging agent and its version, got %v", p.Stragglers)
+	}
+	fleet[1].Version = "v0.2.0"
+	if complete, err := p.Verify(fleet, now.Add(2*time.Minute)); err != nil || !complete {
+		t.Fatalf("converged wave must complete: complete=%v err=%v", complete, err)
+	}
+	if len(p.Stragglers) != 0 {
+		t.Fatalf("a completed wave has no stragglers, got %v", p.Stragglers)
+	}
+}
+
+// TestArtifactDigestMustBeAnExactSHA256 (DPR-099): the lab drill planned a
+// rollout to "sha256:sha256:…" — a doubled prefix nobody could deploy or
+// verify. Only sha256:<64 hex> is an artifact digest.
+func TestArtifactDigestMustBeAnExactSHA256(t *testing.T) {
+	good := goodArtifact()
+	for _, bad := range []string{"sha256:abc", "sha256:" + good.Digest, strings.ToUpper(good.Digest), "sha512:" + strings.TrimPrefix(good.Digest, "sha256:")} {
+		a := good
+		a.Digest = bad
+		if _, err := PlanRollout(testFleet(3, "v0.1.0"), a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy()); err == nil {
+			t.Errorf("digest %q must be refused", bad)
+		}
 	}
 }

@@ -319,6 +319,40 @@ export function RolloutCard({ available }: { available: boolean | undefined }) {
                       <dd>{selected.halt_reason}</dd>
                     </div>
                   ) : null}
+                  {selected.stragglers && selected.stragglers.length > 0 ? (
+                    <div>
+                      <dt>{t('admin.rollout.detail.stragglers')}</dt>
+                      <dd>
+                        <ul
+                          className={styles.rolloutAgentList}
+                          aria-label={t('admin.rollout.detail.stragglers')}
+                        >
+                          {selected.stragglers.map((item) => (
+                            <li key={item}>
+                              <code>{item}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {selected.skipped_offline && selected.skipped_offline.length > 0 ? (
+                    <div>
+                      <dt>{t('admin.rollout.detail.skippedOffline')}</dt>
+                      <dd>
+                        <ul
+                          className={styles.rolloutAgentList}
+                          aria-label={t('admin.rollout.detail.skippedOffline')}
+                        >
+                          {selected.skipped_offline.map((item) => (
+                            <li key={item}>
+                              <code>{item}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt>{t('admin.rollout.detail.receipt')}</dt>
                     <dd>

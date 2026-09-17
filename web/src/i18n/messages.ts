@@ -1157,6 +1157,9 @@ const en = {
   'admin.rollout.detail.target': 'Verified target',
   'admin.rollout.detail.digest': 'Digest pin',
   'admin.rollout.detail.haltReason': 'Halt evidence',
+  'admin.rollout.detail.stragglers':
+    'Still converging (not yet on the target with a fresh heartbeat)',
+  'admin.rollout.detail.skippedOffline': 'Left out at planning time (offline or never connected)',
   'admin.rollout.detail.receipt': 'Latest console receipt',
   'admin.rollout.wave.aria': 'Rollout waves',
   'admin.rollout.wave.pending': 'Pending',
@@ -2481,6 +2484,10 @@ const es: Record<MessageKey, string> = {
   'admin.rollout.detail.target': 'Objetivo verificado',
   'admin.rollout.detail.digest': 'Digest fijado',
   'admin.rollout.detail.haltReason': 'Evidencia de detencion',
+  'admin.rollout.detail.stragglers':
+    'Aun convergiendo (todavia sin la version objetivo con latido reciente)',
+  'admin.rollout.detail.skippedOffline':
+    'Excluidos al planificar (sin conexion o nunca conectados)',
   'admin.rollout.detail.receipt': 'Ultimo recibo de consola',
   'admin.rollout.wave.aria': 'Olas del despliegue',
   'admin.rollout.wave.pending': 'Pendiente',
@@ -3741,6 +3748,9 @@ const ar: Record<MessageKey, string> = {
   'admin.rollout.detail.target': 'الهدف المتحقق منه',
   'admin.rollout.detail.digest': 'بصمة المحتوى المثبتة',
   'admin.rollout.detail.haltReason': 'دليل الإيقاف',
+  'admin.rollout.detail.stragglers':
+    'لا تزال قيد المواءمة (لم تصل بعد إلى الإصدار المستهدف بنبضة حديثة)',
+  'admin.rollout.detail.skippedOffline': 'استُبعدت عند التخطيط (غير متصلة أو لم تتصل قط)',
   'admin.rollout.detail.receipt': 'أحدث إيصال من الواجهة',
   'admin.rollout.wave.aria': 'موجات الطرح',
   'admin.rollout.wave.pending': 'معلقة',

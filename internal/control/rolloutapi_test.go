@@ -29,7 +29,7 @@ func TestRolloutManagerLifecycle(t *testing.T) {
 		{ID: "a2", TenantID: "t", Version: "v0.1.0", LastSeen: time.Now()},
 		{ID: "a3", TenantID: "t", Version: "v0.1.0", LastSeen: time.Now()},
 	}
-	art := agent.VerifiedArtifact{Version: "v0.2.0", Digest: "sha256:abc", Method: "cosign ...", VerifiedBy: "op"}
+	art := agent.VerifiedArtifact{Version: "v0.2.0", Digest: "sha256:abababababababababababababababababababababababababababababababab", Method: "cosign ...", VerifiedBy: "op"}
 	plan, err := agent.PlanRollout(fleet, art, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy())
 	if err != nil {
 		t.Fatal(err)

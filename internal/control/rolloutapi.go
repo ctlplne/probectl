@@ -188,7 +188,7 @@ func (s *Server) handleCreateRollout(w http.ResponseWriter, r *http.Request) err
 			Version: req.Version, Digest: req.Digest, Method: req.VerifyMethod,
 			VerifiedBy: auditActor(r),
 		}
-		p, perr := agent.PlanRollout(fleet, artifact, split, version.Get().Version, lifecycle.DefaultPolicy())
+		p, perr := agent.PlanRolloutAt(fleet, artifact, split, version.Get().Version, lifecycle.DefaultPolicy(), time.Now())
 		if perr != nil {
 			return apierror.BadRequest(perr.Error())
 		}
@@ -281,7 +281,7 @@ func (s *Server) handleVerifyRollout(w http.ResponseWriter, r *http.Request) err
 			return nil, err
 		}
 		complete, err := p.Verify(fleet, time.Now())
-		return map[string]any{"complete": complete, "progress": p.Progress()}, err
+		return map[string]any{"complete": complete, "progress": p.Progress(), "stragglers": p.Stragglers}, err
 	})
 }
 
@@ -433,5 +433,8 @@ func rolloutView(id string, p *agent.RolloutPlan) map[string]any {
 		"done":        p.Done(),
 		"progress":    p.Progress(),
 		"waves":       waves,
+		// DPR-099: the operator's worklist and the agents deliberately left out.
+		"stragglers":      p.Stragglers,
+		"skipped_offline": p.SkippedOffline,
 	}
 }

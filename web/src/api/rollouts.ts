@@ -24,6 +24,10 @@ export interface Rollout {
   done: boolean
   progress: string
   waves: RolloutWave[]
+  /** DPR-099: agents in the applying wave not yet on the target with a fresh heartbeat. */
+  stragglers?: string[]
+  /** DPR-099: agents left out at planning time because they were offline or never connected. */
+  skipped_offline?: string[]
 }
 
 export interface RolloutList {

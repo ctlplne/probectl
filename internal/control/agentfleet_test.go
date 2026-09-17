@@ -27,7 +27,7 @@ func TestFleetHealthTenantJoinUsesOnlyScopedRows(t *testing.T) {
 		{ID: "tenant-a-never", TenantID: "tenant-a", Name: "never", AgentVersion: "v1.1.0", Status: "registered", Capabilities: nil},
 	}
 	plan := &agent.RolloutPlan{
-		Target: agent.VerifiedArtifact{Version: "v1.4.2", Digest: "sha256:a", Method: "cosign verify", VerifiedBy: "operator"},
+		Target: agent.VerifiedArtifact{Version: "v1.4.2", Digest: "sha256:abababababababababababababababababababababababababababababababab", Method: "cosign verify", VerifiedBy: "operator"},
 		Waves:  []agent.Wave{{Cohort: lifecycle.CohortCanary, AgentIDs: []string{"tenant-a-stale"}, Status: agent.WaveApplying}},
 	}
 	raw, err := json.Marshal(plan)

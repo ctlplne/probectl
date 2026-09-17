@@ -27,6 +27,7 @@ package agent
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -42,6 +43,11 @@ type FleetAgent struct {
 	Version  string
 	LastSeen time.Time
 }
+
+// digestRE is the only artifact digest shape a rollout accepts: the exact
+// image/binary digest the orchestrator deploys (DPR-099; a doubled prefix or
+// a truncated hash used to plan a rollout nobody could verify).
+var digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // VerifiedArtifact records the signed artifact a rollout deploys and WHO
 // verified its signature HOW (C6 — cosign keyless; see
@@ -60,6 +66,8 @@ func (a VerifiedArtifact) validate() error {
 		return fmt.Errorf("agent: rollout artifact needs a version")
 	case a.Digest == "":
 		return fmt.Errorf("agent: rollout artifact needs the exact digest being deployed (U-006)")
+	case !digestRE.MatchString(a.Digest):
+		return fmt.Errorf("agent: rollout artifact digest must be sha256:<64 hex> (got %q)", a.Digest)
 	case a.Method == "":
 		return fmt.Errorf("agent: rollout artifact needs the signature-verification method (C6 — how was cosign run?)")
 	case a.VerifiedBy == "":
@@ -100,6 +108,14 @@ type RolloutPlan struct {
 
 	Halted     bool
 	HaltReason string
+	// SkippedOffline lists the agents left out at planning time because they
+	// were offline or had never connected (DPR-099); they take the target on
+	// the next rollout once they are back.
+	SkippedOffline []string `json:"skipped_offline,omitempty"`
+	// Stragglers is the last verification's list of agents in the applying
+	// wave that have not yet reported the target version with a fresh
+	// heartbeat (DPR-099) — the operator's worklist while the window runs.
+	Stragglers []string `json:"stragglers,omitempty"`
 }
 
 const (
@@ -113,8 +129,33 @@ const (
 // against the control plane, and on an empty fleet. Agents already running
 // the target are excluded — there is nothing to apply to them.
 func PlanRollout(fleet []FleetAgent, target VerifiedArtifact, split lifecycle.Split, controlVersion string, pol lifecycle.Policy) (*RolloutPlan, error) {
+	return PlanRolloutAt(fleet, target, split, controlVersion, pol, time.Time{})
+}
+
+// PlanRolloutAt is PlanRollout as of now (DPR-099): an agent whose last
+// heartbeat is older than the heartbeat SLO at planning time — offline before
+// the rollout started, or never connected — is left out of the waves and
+// listed in SkippedOffline instead of blocking a wave it can never verify.
+// The zero time plans every agent (the pre-DPR-099 behavior, used by tests
+// that model no clock).
+func PlanRolloutAt(fleet []FleetAgent, target VerifiedArtifact, split lifecycle.Split, controlVersion string, pol lifecycle.Policy, now time.Time) (*RolloutPlan, error) {
 	if err := target.validate(); err != nil {
 		return nil, err
+	}
+	var skipped []string
+	if !now.IsZero() {
+		live := fleet[:0:0]
+		for _, a := range fleet {
+			if a.LastSeen.IsZero() || now.Sub(a.LastSeen) > defaultHeartbeatSLO {
+				if a.ID != "" && a.Version != target.Version {
+					skipped = append(skipped, a.ID)
+				}
+				continue
+			}
+			live = append(live, a)
+		}
+		fleet = live
+		sort.Strings(skipped)
 	}
 	if ok, reason := pol.Check(controlVersion, target.Version); !ok {
 		return nil, fmt.Errorf("agent: rollout target %s would break the version-skew gate: %s", target.Version, reason)
@@ -131,10 +172,13 @@ func PlanRollout(fleet []FleetAgent, target VerifiedArtifact, split lifecycle.Sp
 		pending++
 	}
 	if pending == 0 {
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("agent: nothing to roll out — the %d agent(s) below %s were all offline at planning time (%s)", len(skipped), target.Version, strings.Join(skipped, ", "))
+		}
 		return nil, fmt.Errorf("agent: nothing to roll out — no live agents below %s", target.Version)
 	}
 
-	p := &RolloutPlan{Target: target, VerifyWindow: defaultVerifyWindow, HeartbeatSLO: defaultHeartbeatSLO}
+	p := &RolloutPlan{Target: target, VerifyWindow: defaultVerifyWindow, HeartbeatSLO: defaultHeartbeatSLO, SkippedOffline: skipped}
 	for _, c := range []lifecycle.Cohort{lifecycle.CohortCanary, lifecycle.CohortEarly, lifecycle.CohortMain} {
 		ids := byCohort[c]
 		if len(ids) == 0 {
@@ -220,6 +264,7 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 			stragglers = append(stragglers, fmt.Sprintf("%s (no heartbeat for %s — dark after upgrade?)", id, now.Sub(a.LastSeen).Round(time.Second)))
 		}
 	}
+	p.Stragglers = stragglers
 	if len(stragglers) == 0 {
 		w.Status = WaveComplete
 		return true, nil
