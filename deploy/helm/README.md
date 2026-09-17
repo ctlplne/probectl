@@ -32,7 +32,8 @@ one contract—the ingress controller authenticates the backend certificate with
 `ingress.backendTLS.trustSecret` (a same-namespace ingress-nginx proxy-ssl Secret
 containing `tls.crt`, `tls.key`, and `ca.crt`) and
 `ingress.backendTLS.serverName` (a DNS SAN on the control listener certificate);
-Helm also refuses to render if either is missing. `probectl/values-strict.yaml`
+Helm also refuses to render if either is missing. The backend hop is pinned to
+TLS 1.3, the only version the control listener accepts (DPR-032). `probectl/values-strict.yaml`
 keeps that transport posture and
 additionally closes the default egress hole. The database migration runs as an
 init container; the pod runs non-root with a read-only root filesystem.

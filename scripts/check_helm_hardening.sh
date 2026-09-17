@@ -976,6 +976,11 @@ if render --set-string control.extraEnv.SSL_CERT_FILE=/tmp/x >/dev/null 2>&1; th
   fail "control.extraEnv.SSL_CERT_FILE must be rejected: the trust bundle is a typed value (DPR-026)"
 fi
 
+# DPR-032: the backend hop must negotiate TLS 1.3, the only version the control
+# listener accepts; without the annotation ingress-nginx offers TLS 1.2 and
+# every request through the chart's own ingress is a 502.
+need_fixed 'nginx.ingress.kubernetes.io/proxy-ssl-protocols: "TLSv1.3"' "$base_tb" "ingress must pin the backend hop to TLS 1.3, the control listener minimum (DPR-032)"
+
 # DPR-030: credential FILES (basic-auth JSON, broker client keys) are staged by
 # the binary into a private in-memory volume as 0600 regular files before
 # migrate and control start; absent by default.
