@@ -105,6 +105,10 @@ type Server struct {
 	// ABAC policy cache (S31). nil when pool is nil (operational-only tests). The
 	// per-request deny-override check (requirePermission) reads tenant policies here.
 	abac *abacCache
+	// abacDenials bounds the audit trail of policy denials (DPR-043): one
+	// abac.denied row per tenant/user/permission per window, so a looping
+	// client cannot grow the tamper-evident chain without limit.
+	abacDenials sync.Map
 
 	// On-call/ITSM dispatcher (S33). nil unless connectors are configured; set via
 	// WithDispatcher so the inbound status-sync webhook + the resolve handler can

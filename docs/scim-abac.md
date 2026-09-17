@@ -153,7 +153,13 @@ flowchart TD
 A **Policy** applies to a permission (or `*` for any) and matches when **every**
 listed subject attribute and **every** listed resource attribute equals the
 request's value. Among matching policies the highest `priority` decides, and a
-`deny` wins ties. Subject attributes come from the user's SCIM-provisioned
+`deny` wins ties. Every denial an attribute policy produces is written to the
+tenant's tamper-evident audit stream as `abac.denied` (target = the
+permission, data = permission, user id) — the audit page and the SIEM export
+show who a policy stopped, not only that a policy exists. Repeats by the same
+user for the same permission within one minute fold into the first row so a
+looping client cannot grow the chain without limit (DPR-043). Subject
+attributes come from the user's SCIM-provisioned
 `attributes` (e.g. `department`) plus a derived `mfa` flag — both attached to
 the principal at request time (`loadSubjectAttributes` in
 `internal/control/auth.go`). The `mfa` key is reserved: probectl assigns it

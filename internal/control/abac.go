@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/store"
@@ -236,7 +237,42 @@ func (s *Server) authorize(ctx context.Context, p *auth.Principal, perm string, 
 	case auth.DecisionRBAC:
 		return apierror.Forbidden("missing permission: " + perm)
 	default:
+		s.auditABACDenial(ctx, p, perm)
 		return apierror.Forbidden("denied by an attribute policy: " + perm)
+	}
+}
+
+// abacDenialWindow is how long one tenant/user/permission denial stays
+// represented by a single audit row.
+const abacDenialWindow = time.Minute
+
+// auditABACDenial (DPR-043) records that an attribute policy stopped an
+// otherwise-authorized action on the tenant's tamper-evident stream — the one
+// event a deny policy exists to produce, and what the audit page and the SIEM
+// feed need to show. It never changes the caller's 403: an append failure is
+// logged, and repeats inside abacDenialWindow are folded into the first row.
+func (s *Server) auditABACDenial(ctx context.Context, p *auth.Principal, perm string) {
+	if s == nil || s.pool == nil || p == nil || p.TenantID == "" {
+		return
+	}
+	key := p.TenantID + "|" + p.UserID + "|" + perm
+	now := time.Now()
+	if last, ok := s.abacDenials.Load(key); ok && now.Sub(last.(time.Time)) < abacDenialWindow {
+		return
+	}
+	s.abacDenials.Store(key, now)
+	actor := p.Email
+	if actor == "" {
+		actor = p.UserID
+	}
+	err := s.inTenantID(ctx, p.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := audit.TenantAppend(ctx, sc, actor, "abac.denied", perm, map[string]any{
+			"permission": perm, "user_id": p.UserID, "window": abacDenialWindow.String(),
+		})
+		return err
+	})
+	if err != nil {
+		s.log.Warn("failed to audit ABAC denial", "tenant_id", p.TenantID, "permission", perm, "error", err.Error())
 	}
 }
 
