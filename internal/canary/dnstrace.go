@@ -9,6 +9,7 @@ package canary
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -48,7 +49,13 @@ func (c *dnsCanary) runTrace(ctx context.Context, res Result) Result {
 }
 
 func (c *dnsCanary) trace(ctx context.Context) (chain []string, total time.Duration, err error) {
-	client := &dns.Client{Timeout: c.timeout, Net: "udp"}
+	// Every hop's address comes from DNS data (root hints, then the glue each
+	// zone hands back), so each dial is vetted like any resolved target
+	// (DPR-023): a delegation that points at loopback, RFC1918, link-local or
+	// the cloud-metadata address is refused unless the test carries the
+	// audited allow_private_targets override.
+	client := &dns.Client{Timeout: c.timeout, Net: "udp",
+		Dialer: &net.Dialer{Timeout: c.timeout, Control: c.guard.DialControl(nil)}}
 	servers := rootServers
 	chain = []string{"."}
 
