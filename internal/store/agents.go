@@ -53,12 +53,41 @@ type ProducerReadiness struct {
 const agentCols = `id::text, tenant_id::text, name, hostname, agent_version, status,
 	capabilities, labels, spiffe_id, registered_at, last_seen_at, created_at`
 
+// AgentOnlineWindow is how long after its last heartbeat or verified batch an
+// agent still reads "online" (DPR-082). gRPC agents heartbeat every 30 s and a
+// bus collector is touched at most once a minute by the ingest path, so five
+// minutes tolerates a missed beat without letting a dead agent stay "online"
+// for hours.
+const AgentOnlineWindow = 5 * time.Minute
+
+// agentNow is the clock the status derivation reads; tests override it.
+var agentNow = time.Now
+
+// deriveStatus turns the stored status into the truth the fleet view owes
+// the operator (DPR-082): "online" is a claim about NOW, so it holds only
+// while the last heartbeat or verified batch is inside AgentOnlineWindow; an
+// agent seen longer ago reads "offline", one never seen reads "registered".
+// The stored column is untouched — revoked/registered states pass through.
+func deriveStatus(stored string, lastSeen *time.Time, now time.Time) string {
+	if stored != "online" {
+		return stored
+	}
+	if lastSeen == nil {
+		return "registered"
+	}
+	if now.Sub(*lastSeen) > AgentOnlineWindow {
+		return "offline"
+	}
+	return "online"
+}
+
 func scanAgent(row interface{ Scan(...any) error }, a *Agent) error {
 	var caps, labels []byte
 	if err := row.Scan(&a.ID, &a.TenantID, &a.Name, &a.Hostname, &a.AgentVersion, &a.Status,
 		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt); err != nil {
 		return err
 	}
+	a.Status = deriveStatus(a.Status, a.LastSeenAt, agentNow())
 	a.Capabilities = []string{}
 	a.Labels = map[string]string{}
 	if len(caps) > 0 {

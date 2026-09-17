@@ -146,6 +146,15 @@ func (b *RegistryBinding) Verify(ctx context.Context, tenantID, agentID string) 
 				return err
 			}
 			bound = a != nil
+			if bound {
+				// DPR-082: a verified batch IS the collector's heartbeat. This
+				// runs once per positive-cache TTL (a minute) per agent, so the
+				// fleet view can say "online" about a bus collector — and
+				// "offline" when its batches stop — instead of freezing the
+				// status at registration time. Best effort: liveness never
+				// gates ingest.
+				_, _ = (store.Agents{}).Heartbeat(ctx, sc, agentID)
+			}
 			return nil
 		})
 	if err != nil {

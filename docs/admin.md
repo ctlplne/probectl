@@ -218,6 +218,17 @@ behaves like a hotel keycard system: a card that expires every 24 hours, a
 runtime that re-issues it before checkout, and a front desk that can put any
 card — or any *guest* — on the deny-list instantly.
 
+**What the fleet view's `status` means (DPR-082).** `online` is a claim about
+*now*: an agent reads `online` only while its last heartbeat — or, for a bus
+collector (eBPF, flow, device, endpoint, BMP), its last tenant-verified batch —
+is inside a five-minute window; an agent seen longer ago reads `offline`, and one
+that never checked in after enrolment reads `registered`. gRPC agents heartbeat
+every 30 s; a collector's verified batches count as its heartbeat (touched at
+most once a minute by the ingest path). Before DPR-082 the stored status froze at
+whatever the agent last set, so one-off enrolment probes read `online` for hours
+and collectors publishing every 10 s showed a `last_seen` equal to their
+registration time.
+
 ### Enrolling an agent
 
 Two steps, on two different hosts.
