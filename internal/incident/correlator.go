@@ -296,6 +296,7 @@ type MemoryStore struct {
 	seq       int
 	incidents map[string]*Incident
 	overrides map[string]CorrelationOverride
+	seen      map[string]map[string]struct{} // incident id -> signal fingerprints (DPR-078)
 }
 
 // NewMemoryStore returns an empty in-memory store.
@@ -356,6 +357,17 @@ func (m *MemoryStore) AppendSignal(_ context.Context, tenant, incidentID string,
 	if !ok || inc.TenantID != tenant {
 		return nil, errors.New("incident: not found")
 	}
+	fp := sig.Fingerprint()
+	if m.seen == nil {
+		m.seen = map[string]map[string]struct{}{}
+	}
+	if _, dup := m.seen[incidentID][fp]; dup {
+		return inc, nil // DPR-078: the timeline already holds this event
+	}
+	if m.seen[incidentID] == nil {
+		m.seen[incidentID] = map[string]struct{}{}
+	}
+	m.seen[incidentID][fp] = struct{}{}
 	inc.Signals = append(inc.Signals, sig)
 	inc.SignalCount++
 	inc.Severity = Max(inc.Severity, sig.Severity)

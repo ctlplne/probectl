@@ -17,9 +17,15 @@
 package incident
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // MaxSignalsPerRead bounds one incident-room response. SignalCount remains the
@@ -87,6 +93,36 @@ type Signal struct {
 	Prefix     string            `json:"prefix,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 	OccurredAt time.Time         `json:"occurred_at"`
+}
+
+// Fingerprint identifies THIS event: the same tenant, plane, kind, target,
+// prefix, occurrence time, text and attributes always hash the same, so a
+// re-delivered or re-published signal is recognized as the one already on the
+// timeline (DPR-078). The bus is at-least-once and analyzers re-run, so
+// duplicates are a normal condition, not a fault; the lab's first BGP incident
+// held 20,389 signals of which 18,020 were byte-identical copies.
+func (s Signal) Fingerprint() string {
+	keys := make([]string, 0, len(s.Attributes))
+	for k := range s.Attributes {
+		if strings.HasPrefix(k, "correlation.") {
+			continue // derived by the correlator, not part of the event
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, part := range []string{s.TenantID, s.Plane, s.Kind, s.Target, s.Prefix,
+		strconv.FormatInt(s.OccurredAt.UTC().UnixNano(), 10), s.Title, s.Summary} {
+		b.WriteString(part)
+		b.WriteByte(0)
+	}
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(s.Attributes[k])
+		b.WriteByte(0)
+	}
+	return hex.EncodeToString(crypto.Default.Hash([]byte(b.String())))
 }
 
 // CorrelationOverride is a tenant operator's durable instruction that a

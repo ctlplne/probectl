@@ -370,17 +370,29 @@ func (Incidents) AppendSignal(ctx context.Context, s tenancy.Scope, incidentID s
 		}
 		attrs = string(b)
 	}
-	if _, err := s.Q.Exec(ctx,
+	tag, err := s.Q.Exec(ctx,
 		`INSERT INTO incident_signals
-		   (tenant_id, incident_id, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)`,
+		   (tenant_id, incident_id, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at, fingerprint)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+		 ON CONFLICT (incident_id, fingerprint) WHERE fingerprint <> '' DO NOTHING`,
 		s.Tenant.String(), incidentID, sig.Plane, sig.Kind, string(sig.Severity),
-		sig.Title, sig.Summary, sig.Target, sig.Prefix, attrs, sig.OccurredAt); err != nil {
+		sig.Title, sig.Summary, sig.Target, sig.Prefix, attrs, sig.OccurredAt, sig.Fingerprint())
+	if err != nil {
 		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		// DPR-078: an identical signal (re-delivered by the at-least-once bus or
+		// re-published by an analyzer re-run) is already on the timeline; the
+		// aggregates must not count it twice.
+		var inc incident.Incident
+		if err := scanIncident(s.Q.QueryRow(ctx, `SELECT `+incidentCols+` FROM incidents WHERE id = $1`, incidentID), &inc); err != nil {
+			return nil, notFound("incident", err)
+		}
+		return &inc, nil
 	}
 
 	var inc incident.Incident
-	err := scanIncident(s.Q.QueryRow(ctx,
+	err = scanIncident(s.Q.QueryRow(ctx,
 		`UPDATE incidents SET
 		   signal_count  = signal_count + 1,
 		   last_seen_at  = GREATEST(last_seen_at, $2),

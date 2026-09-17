@@ -175,6 +175,15 @@ was bounded. Candidate changes use the separately tenant-authorized
 `/v1/incidents/<id>/changes` read and report unavailable or empty data as another
 coverage gap.
 
+**The timeline is idempotent (DPR-078).** Every signal carries a content
+fingerprint (tenant, plane, kind, target, prefix, occurrence time, text and
+evidence attributes — never the correlator's own annotations). The bus delivers
+at least once and the BGP analyzer re-runs, so the same event arrives again as a
+matter of course; a duplicate inside the same incident is a no-op — one row, one
+count, no change to severity or last-seen — while an event that differs in when
+it occurred or in its evidence is its own signal. Before this the lab's first
+routing incident held 20,389 signals of which 18,020 were byte-identical copies.
+
 ## Use it
 
 Alert rules and active alerts are managed through the versioned REST API under

@@ -8,6 +8,7 @@ package incident
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -28,16 +29,19 @@ func TestConcurrentIngestOpensOneIncident(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
+			// Distinct samples: byte-identical deliveries are ONE signal since
+			// DPR-078, and this test is about the read-then-create race.
 			_, err := c.Ingest(context.Background(), Signal{
 				TenantID: "t-a", Plane: "threat", Kind: "ndr.beacon",
 				Severity: SeverityWarning, Target: "10.0.0.9", OccurredAt: now,
+				Attributes: map[string]string{"sample": fmt.Sprint(i)},
 			})
 			if err != nil {
 				t.Errorf("ingest: %v", err)
 			}
-		}()
+		}(i)
 	}
 	wg.Wait()
 
