@@ -122,3 +122,15 @@ regexes = [
   '''PROBECTL_ENVELOPE_KEY="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="''',
   '''PROBECTL_SESSION_HMAC_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"''',
 ]
+
+[[rules.allowlists]]
+description = "DPR-087: the compose env preflight self-test planted the SAME documented throwaway 64-hex pepper (and a 48-hex slice of it as the Postgres password) in one historical commit; commit + path + exact literal must all match. The fixture no longer uses key-shaped values."
+condition = "AND"
+commits = ['''2d7d7703b39cfc2733d485c1e2423c99408be6b5''']
+paths = ['''scripts/compose_env_preflight\.sh''']
+regexTarget = "line"
+regexes = [
+  '''POSTGRES_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef\s*$''',
+  '''PROBECTL_SESSION_HMAC_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\s*$''',
+  '''PROBECTL_SESSION_HMAC_KEY=zz23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\|'\s*$''',
+]
