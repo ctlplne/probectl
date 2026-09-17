@@ -14,6 +14,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
@@ -27,6 +28,7 @@ import (
 	probectlc "github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/version"
 )
 
@@ -55,6 +57,8 @@ func run() error {
 	collector := fs.String("collector", envOr("PROBECTL_BMP_COLLECTOR", "bmp"), "collector id written on BGP events")
 	busMode := fs.String("bus-mode", envOr("PROBECTL_BMP_BUS_MODE", "memory"), "result bus mode: memory|kafka")
 	busBrokers := fs.String("bus-brokers", os.Getenv("PROBECTL_BMP_BUS_BROKERS"), "comma-separated Kafka brokers")
+	agentID := fs.String("agent-id", os.Getenv("PROBECTL_BMP_AGENT_ID"), "this listener's registered collector id (DPR-084): with -tenant-id, the listener heartbeats its own fleet entry so the fleet view can say online/offline about it; empty = no heartbeat")
+	tenantID := fs.String("tenant-id", os.Getenv("PROBECTL_BMP_TENANT_ID"), "the tenant that registered this listener as a collector (DPR-084); required with -agent-id")
 	handshakeTimeoutRaw := fs.String("handshake-timeout", envOr("PROBECTL_BMP_HANDSHAKE_TIMEOUT", bgp.DefaultBMPHandshakeTimeout.String()), "maximum unauthenticated mTLS handshake time")
 	readTimeoutRaw := fs.String("read-timeout", envOr("PROBECTL_BMP_READ_TIMEOUT", bgp.DefaultBMPReadTimeout.String()), "maximum time for a BMP frame in progress (header + payload once its first byte arrived)")
 	idleTimeoutRaw := fs.String("idle-timeout", envOr("PROBECTL_BMP_IDLE_TIMEOUT", bgp.DefaultBMPIdleTimeout.String()), "maximum quiet time between frames on an authenticated session; 0 = unbounded (TCP keepalive detects dead peers)")
@@ -207,10 +211,24 @@ func run() error {
 		"revocation_refresh", revocationRefresh,
 		"revocations_loaded", revocations.Size(),
 	)
+	if (*agentID == "") != (*tenantID == "") {
+		return fmt.Errorf("bgp bmp: -agent-id and -tenant-id must be set together")
+	}
+	if *agentID != "" {
+		log.Info("bmp listener heartbeat enabled (DPR-084)", "agent_id", *agentID, "tenant_id", *tenantID, "interval", bmpHeartbeatInterval.String())
+	}
 	return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
 		go func() {
 			_ = feed.Run(ctx)
 		}()
+		if *agentID != "" {
+			go heartbeatLoop(ctx, bmpHeartbeatInterval, func(ctx context.Context) error {
+				return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(*tenantID)), registryDB.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+					_, err := (store.Agents{}).Heartbeat(ctx, sc, *agentID)
+					return err
+				})
+			}, log)
+		}
 		return bgp.NewBMPListener(ln, b, *collector, log,
 			bgp.WithBMPHandshakeTimeout(handshakeTimeout),
 			bgp.WithBMPReadTimeout(readTimeout),
@@ -276,4 +294,27 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// bmpHeartbeatInterval is how often the listener touches its own fleet entry
+// (DPR-084). The fleet view calls an agent online while its last heartbeat is
+// inside a five-minute window, so once a minute leaves room for a missed beat.
+const bmpHeartbeatInterval = time.Minute
+
+// heartbeatLoop runs beat immediately and then every interval until ctx ends.
+// A failed beat is logged and retried on the next tick — liveness reporting
+// never stops the listener from serving routers.
+func heartbeatLoop(ctx context.Context, interval time.Duration, beat func(context.Context) error, log *slog.Logger) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		if err := beat(ctx); err != nil && ctx.Err() == nil {
+			log.Warn("bmp listener heartbeat failed", "error", err.Error())
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

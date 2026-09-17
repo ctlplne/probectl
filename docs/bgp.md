@@ -168,6 +168,8 @@ probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc00"}'
 
 ```sh
 PROBECTL_BMP_LISTEN_ADDR=:1179 \
+PROBECTL_BMP_AGENT_ID=<collector id from register-collector> \
+PROBECTL_BMP_TENANT_ID=<tenant id> \
 PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
 PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
 PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \

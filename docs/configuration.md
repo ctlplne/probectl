@@ -925,6 +925,8 @@ path is introduced.
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `PROBECTL_BMP_LISTEN_ADDR` | (none) | BMP TCP listen address, for example `:1179`; required |
+| `PROBECTL_BMP_AGENT_ID` | (none) | this listener's registered collector id (`register-collector -plane bmp` output). With `PROBECTL_BMP_TENANT_ID` the listener heartbeats its own fleet entry once a minute through its registry connection, so the fleet view says `online`/`offline` about it instead of freezing at registration time (DPR-084). Empty = no heartbeat |
+| `PROBECTL_BMP_TENANT_ID` | (none) | the tenant that registered the listener as a collector; required together with `PROBECTL_BMP_AGENT_ID`. The registry login must be able to update `agents.last_seen_at` under that tenant's row-level security (the `probectl_app` membership the registry role already needs) |
 | `PROBECTL_BMP_TLS_CERT_FILE` | (none) | server certificate PEM; required |
 | `PROBECTL_BMP_TLS_KEY_FILE` | (none) | server private key PEM; required |
 | `PROBECTL_BMP_TLS_CA_FILE` | (none) | CA bundle that signs router/client certificates; required |
