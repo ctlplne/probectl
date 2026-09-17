@@ -108,6 +108,12 @@ helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-medium
   --set secrets.envelopeKey="$(openssl rand -base64 32)"
 ```
 
+**Private PKI.** `control.trustBundle.existingConfigMap` names a ConfigMap holding
+the operator's CA bundle; the chart mounts it read-only into both containers and
+sets `SSL_CERT_FILE`, so an IdP, SIEM, CMDB or `sslmode=verify-full` database
+behind an enterprise CA verifies without any skip-verify switch (DPR-026). See
+the [chart README](../deploy/helm/README.md#private-ca-for-the-identity-provider-database-siem-or-cmdb).
+
 ## Config-as-code
 
 The declarative config **is** the Helm values: `control.*`, `oidc.*`,

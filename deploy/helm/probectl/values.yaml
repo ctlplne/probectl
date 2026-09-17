@@ -99,6 +99,20 @@ control:
     certKey: tls.crt
     keyKey: tls.key
     mountPath: /etc/probectl/http-tls
+  # Extra CA certificates the control plane trusts for OUTBOUND TLS (DPR-026):
+  # a private-PKI identity provider, SIEM, CMDB, secrets backend, or a managed
+  # Postgres reached with sslmode=verify-ca/verify-full. Name a ConfigMap in the
+  # release namespace holding one PEM bundle; the chart mounts it read-only into
+  # the migrate init container and the control container and points
+  # SSL_CERT_FILE at it. Go keeps loading the image's system roots from
+  # /etc/ssl/certs as well, so public endpoints stay verifiable. Empty = system
+  # roots only.
+  #   kubectl -n probectl create configmap probectl-trust-bundle --from-file=ca-bundle.crt=./corp-ca.pem
+  #   --set control.trustBundle.existingConfigMap=probectl-trust-bundle
+  trustBundle:
+    existingConfigMap: ""
+    key: ca-bundle.crt
+    mountPath: /etc/probectl/trust
   # Extra PROBECTL_* env vars, as a map of name: value. Names owned by typed
   # chart values or the chart Secret are rejected so this map cannot override
   # TLS, authentication, encryption, HSTS, listener, or credential settings.

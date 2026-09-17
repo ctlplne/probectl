@@ -33,6 +33,8 @@
   "PROBECTL_EVIDENCE_SIGNING_KEY_FILE"
   "PROBECTL_IR_UNLOCK_KEY"
   "PROBECTL_LICENSE_FILE"
+  "SSL_CERT_FILE"
+  "SSL_CERT_DIR"
 -}}
 {{- range $envName := $reservedControlEnv -}}
 {{- if hasKey $extraEnv $envName -}}

@@ -955,4 +955,25 @@ if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9092}' \
   fail "agent chart rendered plaintext kafka without bus.allowPlaintext"
 fi
 
+
+# DPR-026: an operator CA bundle for OUTBOUND TLS (private-PKI IdP, SIEM, CMDB,
+# managed Postgres with sslmode=verify-*) is a typed value, mounted read-only
+# into both the migrate init container and control, and absent by default.
+base_tb="$(render)"
+if grep -q 'SSL_CERT_FILE' <<<"$base_tb"; then
+  fail "SSL_CERT_FILE must not be set unless control.trustBundle.existingConfigMap is named (DPR-026)"
+fi
+tb="$(render --set control.trustBundle.existingConfigMap=probectl-trust-bundle)"
+[ "$(grep -c 'name: SSL_CERT_FILE' <<<"$tb")" -eq 2 ] \
+  || fail "control.trustBundle must set SSL_CERT_FILE on the migrate init container AND the control container (DPR-026)"
+need_fixed 'value: "/etc/probectl/trust/ca-bundle.crt"' "$tb" "control.trustBundle must point SSL_CERT_FILE at <mountPath>/<key> (DPR-026)"
+[ "$(grep -c 'name: trust-bundle' <<<"$tb")" -eq 3 ] \
+  || fail "control.trustBundle must render two mounts and one ConfigMap volume named trust-bundle (DPR-026)"
+need_fixed 'name: "probectl-trust-bundle"' "$tb" "control.trustBundle volume must reference the named ConfigMap (DPR-026)"
+[ "$(grep -c 'mountPath: "/etc/probectl/trust"' <<<"$tb")" -eq 2 ] \
+  || fail "control.trustBundle mounts must use the configured mountPath on both containers (DPR-026)"
+if render --set-string control.extraEnv.SSL_CERT_FILE=/tmp/x >/dev/null 2>&1; then
+  fail "control.extraEnv.SSL_CERT_FILE must be rejected: the trust bundle is a typed value (DPR-026)"
+fi
+
 echo "helm hardening gate: OK (control plane + agent charts)"

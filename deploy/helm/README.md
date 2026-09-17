@@ -161,6 +161,25 @@ generated independently by each pod would create competing signing identities.
 For a one-replica sovereign install, a stable key file remains supported when
 both the WORM directory and key file live on the persistent claim.
 
+### Private CA for the identity provider, database, SIEM or CMDB
+
+Most enterprise IdPs (Keycloak, ADFS, an internal Okta gateway), managed
+Postgres endpoints reached with `sslmode=verify-ca`/`verify-full`, SIEM
+collectors and CMDBs sit behind a private PKI. Give the control plane that
+trust as a typed value (DPR-026): put the PEM bundle in a ConfigMap and name it.
+The chart mounts it read-only into the migrate init container and the control
+container and points `SSL_CERT_FILE` at it; Go keeps loading the image's system
+roots from `/etc/ssl/certs`, so public endpoints stay verifiable. There is no
+skip-verify anywhere.
+
+```sh
+kubectl -n probectl create configmap probectl-trust-bundle --from-file=ca-bundle.crt=./corp-ca.pem
+helm upgrade --install probectl deploy/helm/probectl ... \
+  --set control.trustBundle.existingConfigMap=probectl-trust-bundle
+# then, e.g. in probectl-provider-runtime:
+#   PROBECTL_DATABASE_URL=postgres://...?sslmode=verify-full&sslrootcert=/etc/probectl/trust/ca-bundle.crt
+```
+
 `control.extraEnv` is only for settings without a typed chart value. The chart
 rejects names it already owns—including listener TLS, authentication, HSTS,
 at-rest encryption, database, OIDC, and chart-Secret keys—so a generic map
