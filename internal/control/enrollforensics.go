@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -141,6 +142,47 @@ func (s *Server) recordEnrollmentFailure(r *http.Request, class enrollmentFailur
 		attrs = append(attrs, "tenant_id", tenantID)
 	}
 	s.log.Warn("enrollment rejected", attrs...)
+}
+
+// Identity lifecycle audit actions (DPR-098): a first SVID and every rotation
+// land in the agent's tenant stream, attributed to the agent itself.
+const (
+	agentEnrolledAuditAction        = "agent.enrolled"
+	agentIdentityRotatedAuditAction = "agent.identity.rotated"
+)
+
+// recordIdentityAudit appends a successful issuance/rotation to the tenant's
+// audit stream. Best effort with a bounded deadline: the SVID has already been
+// issued, so a failed append is logged, never surfaced as a rotation failure.
+func (s *Server) recordIdentityAudit(r *http.Request, action string, id *enroll.Identity, extra map[string]any) {
+	if s.identityAudit == nil || id == nil || id.TenantID == "" || id.AgentID == "" {
+		return
+	}
+	data := map[string]any{
+		"spiffe_id": id.SPIFFEID,
+		"serial":    id.Serial,
+		"not_after": id.NotAfter.UTC().Format(time.RFC3339),
+		"plane":     id.Plane,
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), enrollmentFailureAuditTimeout)
+	defer cancel()
+	if err := s.identityAudit(auditCtx, id.TenantID, id.AgentID, action, data); err != nil {
+		s.log.Warn("failed to persist agent identity audit", "action", action, "agent_id", id.AgentID, "error", err.Error())
+	}
+}
+
+// persistIdentityAudit is the shipping identityAudit: the agent is the actor.
+func (s *Server) persistIdentityAudit(ctx context.Context, tenantID, agentID, action string, data map[string]any) error {
+	if s.pool == nil {
+		return nil
+	}
+	return s.inTenantID(ctx, tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := audit.TenantAppend(ctx, sc, "agent:"+agentID, action, agentID, data)
+		return err
+	})
 }
 
 func (s *Server) persistEnrollmentFailure(ctx context.Context, event enrollmentFailureEvent) error {

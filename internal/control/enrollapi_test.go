@@ -9,6 +9,8 @@ package control
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -24,10 +26,12 @@ type forensicEnrollmentService struct {
 	rotateErr error
 	// collectorErr is what RegisterCollectorForTenant fails with (DPR-048).
 	collectorErr error
+	// identity is what a successful Enroll/Rotate returns (DPR-098).
+	identity *enroll.Identity
 }
 
 func (f forensicEnrollmentService) Enroll(context.Context, enroll.Request) (*enroll.Identity, error) {
-	return nil, f.enrollErr
+	return f.identity, f.enrollErr
 }
 
 func (forensicEnrollmentService) MintToken(context.Context, string, string, string, string, time.Duration) (string, string, error) {
@@ -42,7 +46,7 @@ func (f forensicEnrollmentService) RegisterCollectorForTenant(context.Context, s
 }
 
 func (f forensicEnrollmentService) Rotate(context.Context, enroll.RotateRequest) (*enroll.Identity, error) {
-	return nil, f.rotateErr
+	return f.identity, f.rotateErr
 }
 
 func (forensicEnrollmentService) Revoke(context.Context, string, string, string) ([]string, string, error) {
@@ -283,5 +287,72 @@ func TestDeviceCollectorConfigIncludesCompiledProfile(t *testing.T) {
 	// DPR-051: eBPF carries the registered identity as agent_id, not host.
 	if h := collectorConfig("ebpf", "tenant-a", "agent-a", "", "t-acme"); h.Env["PROBECTL_EBPF_AGENT_ID"] != "agent-a" || h.YAML["agent_id"] != "agent-a" || h.Env["PROBECTL_EBPF_HOST"] != "" || h.YAML["host"] != nil {
 		t.Fatalf("ebpf hint must name the registered collector as agent_id: %+v", h)
+	}
+}
+
+// TestSuccessfulIssuanceAndRotationAreAudited (DPR-098): the lab rotated an
+// agent's SVID twice and the tenant audit stream showed nothing — only token
+// minting and collector registration were audited. A first SVID and every
+// rotation now land in the agent's tenant stream, attributed to the agent,
+// with the serial and expiry an investigator needs; a failed append never
+// turns into a rotation failure.
+func TestSuccessfulIssuanceAndRotationAreAudited(t *testing.T) {
+	identity := &enroll.Identity{
+		SPIFFEID: "spiffe://probectl/tenant/11111111-1111-4111-8111-111111111111/agent/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		TenantID: "11111111-1111-4111-8111-111111111111", AgentID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		Plane: "synthetic", Serial: "0a1b2c", NotAfter: time.Date(2026, 9, 18, 6, 11, 26, 0, time.UTC),
+	}
+	const (
+		csrPEM  = "-----BEGIN CERTIFICATE REQUEST-----\\nZmFrZS1jc3ItZm9yLWF1ZGl0LXRlc3Q=\\n-----END CERTIFICATE REQUEST-----\\n"
+		certPEM = "-----BEGIN CERTIFICATE-----\\nZmFrZS1jZXJ0LWZvci1hdWRpdC10ZXN0\\n-----END CERTIFICATE-----\\n"
+	)
+	for _, tc := range []struct {
+		name, path, body, wantAction string
+	}{
+		{"enroll", "/enroll/agent", `{"token":"join-token","csr_pem":"` + csrPEM + `"}`, agentEnrolledAuditAction},
+		{"rotate", "/enroll/agent/rotate", `{"cert_pem":"` + certPEM + `","csr_pem":"` + csrPEM + `","proof":"00ff"}`, agentIdentityRotatedAuditAction},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := testServer(nil)
+			srv.enrollSvc = forensicEnrollmentService{identity: identity}
+			type call struct {
+				tenant, agent, action string
+				data                  map[string]any
+			}
+			var calls []call
+			srv.identityAudit = func(_ context.Context, tenantID, agentID, action string, data map[string]any) error {
+				calls = append(calls, call{tenantID, agentID, action, data})
+				return nil
+			}
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+			}
+			if len(calls) != 1 {
+				t.Fatalf("audit calls = %d, want 1", len(calls))
+			}
+			c := calls[0]
+			if c.tenant != identity.TenantID || c.agent != identity.AgentID || c.action != tc.wantAction {
+				t.Fatalf("audited %+v, want %s for %s/%s", c, tc.wantAction, identity.TenantID, identity.AgentID)
+			}
+			if c.data["serial"] != identity.Serial || c.data["not_after"] != "2026-09-18T06:11:26Z" || c.data["spiffe_id"] != identity.SPIFFEID {
+				t.Fatalf("audit data must carry serial, expiry and identity: %v", c.data)
+			}
+			if strings.Contains(fmt.Sprint(c.data), "PRIVATE KEY") || strings.Contains(fmt.Sprint(c.data), "ZmFrZS1jc3It") {
+				t.Fatal("audit data must never carry key material or the CSR")
+			}
+
+			// The append failing must not fail the issuance.
+			srv.identityAudit = func(context.Context, string, string, string, map[string]any) error {
+				return errors.New("audit store down")
+			}
+			rec = httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("a failed audit append must not fail the issuance: %d", rec.Code)
+			}
+		})
 	}
 }

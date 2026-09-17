@@ -117,6 +117,7 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) error
 		s.log.Error("agent enrollment failed", "error", err.Error())
 		return apierror.Internal("enrollment failed")
 	}
+	s.recordIdentityAudit(r, agentEnrolledAuditAction, id, nil)
 	writeJSON(w, http.StatusOK, id)
 	return nil
 }
@@ -387,6 +388,7 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) error
 		s.log.Error("agent rotation failed", "error", err.Error())
 		return apierror.Internal("rotation failed")
 	}
+	s.recordIdentityAudit(r, agentIdentityRotatedAuditAction, id, nil)
 	writeJSON(w, http.StatusOK, id)
 	return nil
 }

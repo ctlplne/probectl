@@ -90,6 +90,11 @@ type Server struct {
 	// event. New wires the tamper-evident tenant/provider audit implementation;
 	// the seam keeps rejection behavior unit-testable without a database.
 	enrollmentFailureAudit func(context.Context, enrollmentFailureEvent) error
+	// identityAudit records a successful SVID issuance or rotation in the
+	// tenant's audit stream (DPR-098): credentials being minted for an agent
+	// is exactly the kind of event guardrail 7 wants tamper-evident. Tests
+	// inject a recorder; shipping wiring appends to the tenant chain.
+	identityAudit func(ctx context.Context, tenantID, agentID, action string, data map[string]any) error
 	// revokePush feeds the live handshake deny-list (Sprint 12, WIRE-003).
 	revokePush func(serials, spiffeIDs []string)
 
@@ -460,6 +465,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	s.registerAuditRetentionMetrics()
 	s.registerEnrollmentFailureMetrics()
 	s.enrollmentFailureAudit = s.persistEnrollmentFailure
+	s.identityAudit = s.persistIdentityAudit
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).

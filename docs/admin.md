@@ -316,6 +316,10 @@ current SVID is still valid, logging loudly. As an operator you mostly watch for
 two things in the agent logs:
 
 - `agent SVID rotated` — the healthy steady-state heartbeat of rotation working.
+- On the control plane, the first SVID and every rotation are audited in the
+  agent's tenant stream as `agent.enrolled` and `agent.identity.rotated`
+  (actor `agent:<id>`, with the serial and expiry, never key material), so a
+  credential's issuance history is tamper-evident.
 - `identity rotation FAILED (will retry; ingest stops if the SVID expires)` —
   the warning that matters. If you see this persisting, fix it (reachability to
   `identity.server`, a not-yet-revoked identity) **before** the 24-hour SVID
