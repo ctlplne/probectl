@@ -9,6 +9,13 @@
 #     --set-string image.digest='sha256:<release-digest>' \
 #     --set database.url=...
 #
+# REQUIRED with this profile (the chart refuses to render without it, PRIVACY-001):
+# a SIEM export endpoint. Provider profiles prune tenant audit rows only below
+# the SIEM delivery watermark, so pass BOTH on the command line — the two keys
+# are left unset here because no default endpoint can be right:
+#     --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
+#     --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest
+#
 # Same HTTPS-by-default posture as single-tenant; the difference is scale +
 # provider operation. Postgres-resident tenant data is isolated by always-on
 # FORCE-RLS regardless of deployment shape, but the ClickHouse row-policies and

@@ -99,7 +99,10 @@ supplies a digest.
 
 ## Install (multi-tenant / provider, MSP)
 
-Before installing, pre-create two shared resources (three with the license):
+Before installing, pre-create two shared resources (three with the license),
+and have your SIEM endpoint ready — the multi-tenant profile refuses to render
+without `PROBECTL_SIEM_ENABLED=true` and `PROBECTL_SIEM_ENDPOINT` (PRIVACY-001:
+tenant audit rows are pruned only below the SIEM delivery watermark):
 
 - `probectl-license`: a Secret holding the offline-signed MSP license file
   (`kubectl -n probectl create secret generic probectl-license
