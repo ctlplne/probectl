@@ -676,6 +676,10 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "forbidden", http.StatusForbidden
 	case errors.Is(err, ErrNotConsented):
 		code, status = "breakglass_not_active", http.StatusForbidden
+	case errors.Is(err, ErrTenantIRKeyMissing):
+		// DPR-036: a deployment precondition the operator can fix (install
+		// the tenant's IR public key), not an internal failure — say so.
+		code, status = "ir_key_unavailable", http.StatusConflict
 	case errors.Is(err, ErrReadOnly):
 		code, status = "license_read_only", http.StatusForbidden
 	case errors.Is(err, ErrBandExhausted):

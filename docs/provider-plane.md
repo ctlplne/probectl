@@ -100,6 +100,7 @@ on the provider audit stream with the acting operator's identity.
 | Provision | Creates the tenant (slug + name). Pooled tenants publish atomically. A siloed/hybrid tenant first appears in the provider inventory as **`provisioning`**, outside the routable tenant registry, while its isolated stores are created. A failed attempt stays non-routable and does not consume the tenant band; posting the same slug, name, model, and residency resumes the same tenant ID. Only the atomic `active` publication consumes the license's **tenant band**, and that final transition rechecks the band under a database lock. Provisioning past the band fails loudly with `tenant_band_exhausted`; a suspended tenant still occupies a slot and an offboarded one does not. Attempt, failure category, and completion are separately recorded on the provider audit stream. |
 | Configure | Rename the tenant. |
 | (on publication) | Every tenant is published **with its system roles** — `admin` (every permission), `editor` (reads plus test/alert/incident writes) and `viewer` (reads) — so the first administrator can be granted immediately with `probectl-control bootstrap-admin -tenant <uuid> -email …` or through SCIM group mapping (DPR-035). Seeding is idempotent and `bootstrap-admin` repeats it, so tenants created before this rule are healed on their first grant. |
+| (after publication) | Install the tenant's IR public key (`probectl audit ir-keygen <uuid>` offline, then `probectl-control ir-key-install <uuid>` on the control plane) so break-glass into it can be requested; until then a request is refused with `409 ir_key_unavailable` (DPR-036, [`audit.md`](audit.md)). |
 | Suspend | The tenant's **users are rejected at the API** (`tenant_suspended`, via the core lifecycle gate in `requirePermission`). Data, agents, and ingestion are left untouched — suspend is a reversible billing/lifecycle state, never destruction. |
 | Resume | Reactivates a suspended tenant. |
 | Offboard | Marks the tenant `offboarding`: API access stops and the band slot frees. Offboarding **never silently destroys data** — the actual data export and verifiable deletion is a separate compliance flow (deliberately core/free). |
@@ -122,7 +123,11 @@ tenant-consented, operator-bound, and audited on every single access**:
 
 1. **An operator requests access** to a tenant: a reason (required) and a TTL
    (capped by `PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES`, default 4 hours).
-   The grant starts in state `pending`.
+   The grant starts in state `pending`. The tenant's IR public key must
+   already be in the keyring (`probectl audit ir-keygen` then
+   `probectl-control ir-key-install`, see [`audit.md`](audit.md)); otherwise
+   the request is refused with `409 ir_key_unavailable`, the response says
+   exactly which file and commands are missing, and nothing is recorded.
 2. **The tenant decides — not the operator.** A tenant admin (holding the
    `directory.write` permission) approves or denies it via the consent endpoints,
    authenticated by the **tenant** session, not an operator session. The consent
@@ -211,8 +216,11 @@ provider-plane smoke. The minimum runtime preconditions are:
 - `PROBECTL_IR_PUBLIC_KEY_DIR` points at the operator-owned IR public keyring
   (absolute path; created empty on first start). Break-glass attribution is
   sealed to `<tenant-uuid>.pem` in that directory, and a grant for a tenant
-  whose key is absent is refused until the key exists — see
-  [`audit.md`](audit.md).
+  whose key is absent is refused with `409 ir_key_unavailable` until the key
+  exists. Mint the pair with `probectl audit ir-keygen <tenant-id>` and
+  install the public half with `probectl-control ir-key-install <tenant-id>`
+  (it reads stdin, so it works through `kubectl exec -i` on the shell-less
+  image) — see [`audit.md`](audit.md).
 - The database migrations have run, including the provider tables and
   `probectl_provider` role grants.
 

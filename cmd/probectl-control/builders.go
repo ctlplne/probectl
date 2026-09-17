@@ -479,6 +479,10 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 		// DPR-030: shell-free init-container helper that turns a projected
 		// Secret volume into private 0600 regular credential files.
 		return true, stageCredentials(os.Args[2:])
+	case "ir-key-install":
+		// DPR-036: install a tenant's IR public key into the break-glass
+		// keyring from stdin (works through kubectl exec -i on distroless).
+		return true, irKeyInstall(os.Args[2:], os.Stdin, os.Getenv, os.Stdout)
 	case "support-bundle":
 		// S-EE4: offline, secret-stripped diagnostics bundle.
 		return true, supportBundle(os.Args[2:])
@@ -503,7 +507,7 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | stage-credentials | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | stage-credentials | ir-key-install | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
 	}
 }
 

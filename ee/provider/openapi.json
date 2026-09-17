@@ -307,6 +307,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "409": {
+            "description": "ir_key_unavailable: the tenant's IR public key (<tenant-uuid>.pem in PROBECTL_IR_PUBLIC_KEY_DIR) is absent; generate it with `probectl audit ir-keygen` and install it with `probectl-control ir-key-install`, then retry"
           }
         }
       }

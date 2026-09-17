@@ -198,6 +198,32 @@ mode-`0600` file. The reason is never accepted as a command-line
 value, so it does not appear in process arguments. A terminal never needs
 UI-specific links to preserve evidence parity.
 
+Mint a tenant's IR wrapping-key pair offline and install its public half in
+the control plane's keyring (`PROBECTL_IR_PUBLIC_KEY_DIR/<tenant-uuid>.pem`).
+A break-glass request for that tenant is refused with `409 ir_key_unavailable`
+until this is done, and tenant provisioning deliberately does not do it for
+you: the key is operator-owned, and the control plane never holds the private
+half.
+
+```sh
+probectl audit ir-keygen "$TENANT_ID" \
+  --public-key-dir /operator/ir/public \
+  --private-key-file /operator/escrow/tenant-ir-private.pem
+# Helm (the image has no shell, so the PEM travels over stdin, not kubectl cp):
+kubectl -n probectl exec -i deploy/probectl -- /usr/local/bin/app ir-key-install "$TENANT_ID" \
+  < "/operator/ir/public/$TENANT_ID.pem"
+# Compose:
+docker compose exec -T control /usr/local/bin/app ir-key-install "$TENANT_ID" \
+  < "/operator/ir/public/$TENANT_ID.pem"
+```
+
+`ir-keygen` writes the public key as `<tenant-uuid>.pem` (world-readable public
+material) and the private key owner-only, and refuses to overwrite either.
+`ir-key-install` validates the PEM exactly as the runtime sealer would, writes
+it atomically into the keyring every replica shares, and refuses to replace an
+existing key unless `-replace` (rotation) is passed; both print the key ID so
+the public half, the sealed private artifact, and later reveals can be matched.
+
 Provision the encrypted investigation artifact locally, without calling the
 control plane or any network service:
 

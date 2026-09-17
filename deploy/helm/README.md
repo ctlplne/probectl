@@ -169,6 +169,23 @@ replicas. Provider profiles also need audit-retention watermarks at install time
 tenant audit rows prune only below the SIEM cursor, and provider/break-glass rows
 prune only below the signed WORM segment watermark.
 
+Each tenant also needs its IR public key in the shared keyring
+(`PROBECTL_IR_PUBLIC_KEY_DIR/<tenant-uuid>.pem`) before an operator can request
+break-glass into it; until then the request is refused with
+`409 ir_key_unavailable`. Mint the pair offline and pipe the public half over
+stdin — the image has no shell, so `kubectl cp` cannot place it:
+
+```sh
+probectl audit ir-keygen "$TENANT_ID" \
+  --public-key-dir "$PWD/ir-public" --private-key-file "/operator/escrow/$TENANT_ID.pem"
+kubectl -n probectl exec -i deploy/probectl -- /usr/local/bin/app ir-key-install "$TENANT_ID" \
+  < "$PWD/ir-public/$TENANT_ID.pem"
+```
+
+The keyring lives on the RWX object-store claim, so one install serves every
+replica; pass `-replace` only for a deliberate rotation and keep the previous
+sealed private artifact so historical records stay revealable.
+
 `database.url` remains a render-time TLS-posture declaration for the
 multi-tenant profile; the actual credential is read from
 `PROBECTL_DATABASE_URL` in `secrets.existingSecret`. Keep their endpoint and

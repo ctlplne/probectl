@@ -52,6 +52,11 @@ var (
 	ErrBandExhausted = errors.New("provider: licensed tenant band exhausted")
 	ErrNotConsented  = errors.New("provider: break-glass grant is not active (missing consent, expired, denied, or revoked)")
 	ErrNotGrantee    = errors.New("provider: break-glass grants are operator-bound — only the requesting operator may use one")
+	// ErrTenantIRKeyMissing (DPR-036): the break-glass transaction seals its
+	// attribution to the tenant's IR public key and fails closed when that
+	// key is absent. Before this sentinel the operator saw a bare 500 with
+	// no hint that a per-tenant key had to exist, let alone how to make one.
+	ErrTenantIRKeyMissing = errors.New("provider: tenant IR public key is absent")
 	// ErrGrantDecided is returned when a consent/deny/revoke loses a race to
 	// another decision on the same grant. The storage-layer predicates refuse
 	// the second writer rather than letting it clobber the first (S-ae06d833).
@@ -689,6 +694,21 @@ func (s *Service) Fleet(ctx context.Context) ([]TenantFleet, error) { return s.s
 
 // RequestBreakGlass opens a PENDING grant. It is unusable until a tenant
 // admin consents; TTLs are capped; the request itself is audited.
+// tenantIRKeyError turns the audit layer's "IR key unavailable" failure into
+// the actionable, tenant-specific ErrTenantIRKeyMissing (DPR-036). Any other
+// error passes through unchanged so a real audit outage still surfaces as one.
+func tenantIRKeyError(tenantID string, err error) error {
+	if err == nil || !errors.Is(err, coreaudit.ErrIRKeyUnavailable) {
+		return err
+	}
+	return fmt.Errorf(
+		"%w: break-glass for tenant %s is refused until %s.pem exists in PROBECTL_IR_PUBLIC_KEY_DIR; "+
+			"generate the pair with `probectl audit ir-keygen %s --public-key-dir <dir> --private-key-file <escrow>` "+
+			"and install the public half with `probectl-control ir-key-install %s < %s.pem` (docs/provider-plane.md)",
+		ErrTenantIRKeyMissing, tenantID, tenantID, tenantID, tenantID, tenantID,
+	)
+}
+
 func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, reason string, ttl time.Duration) (Grant, error) {
 	if err := s.writable(); err != nil {
 		return Grant{}, err
@@ -733,7 +753,7 @@ func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, 
 		)
 	})
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, tenantIRKeyError(tenantID, err)
 	}
 	return g, nil
 }
@@ -863,7 +883,7 @@ func (s *Service) Consent(ctx context.Context, tenantID, grantID, by string, app
 		)
 	})
 	if err != nil {
-		return Grant{}, err
+		return Grant{}, tenantIRKeyError(tenantID, err)
 	}
 	return *out, nil
 }
@@ -895,6 +915,9 @@ func (s *Service) Revoke(ctx context.Context, actor, grantID string) (Grant, err
 		)
 	})
 	if err != nil {
+		if g != nil {
+			err = tenantIRKeyError(g.TenantID, err)
+		}
 		return Grant{}, err
 	}
 	return *g, nil

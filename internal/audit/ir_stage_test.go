@@ -218,3 +218,20 @@ func TestLocalIRPublicKeyResolverLoadsOnlyTenantPublicKey(t *testing.T) {
 		}
 	}
 }
+
+// TestIRPublicKeyFilenameIsTheKeyringContract (DPR-036): keygen, install, and
+// the resolver all derive the keyring entry from this one helper.
+func TestIRPublicKeyFilenameIsTheKeyringContract(t *testing.T) {
+	name, err := IRPublicKeyFilename("88929fbe-28e5-4f0a-898e-6c4302c55e57")
+	if err != nil || name != "88929fbe-28e5-4f0a-898e-6c4302c55e57.pem" {
+		t.Fatalf("name = %q, err = %v", name, err)
+	}
+	for _, bad := range []string{"", "acme", "88929FBE-28E5-4F0A-898E-6C4302C55E57", "../88929fbe-28e5-4f0a-898e-6c4302c55e57"} {
+		if _, err := IRPublicKeyFilename(bad); err == nil {
+			t.Fatalf("%q must be rejected", bad)
+		}
+	}
+	if MaxIRPublicKeyBytes != maxIRPublicKeyBytes {
+		t.Fatal("exported limit must equal the resolver's limit")
+	}
+}

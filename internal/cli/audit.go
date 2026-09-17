@@ -30,11 +30,18 @@ func cmdAudit(
 		printSurfaceUsage(stderr, surfaceCommands["audit"])
 		fmt.Fprintln(
 			stderr,
+			"  ir-keygen <tenant-id>         mint a tenant's IR wrapping-key pair offline (public half for the break-glass keyring)",
+		)
+		fmt.Fprintln(
+			stderr,
 			"  seal-private-key <tenant-id>  create one offline encrypted IR private-key artifact",
 		)
 		return 2
 	}
-	if len(args) > 0 && args[0] == "seal-private-key" {
+	if args[0] == "ir-keygen" {
+		return cmdIRKeygen(args[1:], stdout, stderr)
+	}
+	if args[0] == "seal-private-key" {
 		return cmdSealIRPrivateKey(args[1:], stdout, stderr)
 	}
 	if args[0] != "reveal" {

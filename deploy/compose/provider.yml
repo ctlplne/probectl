@@ -24,6 +24,9 @@ services:
       # material (losing it forfeits cross-restart chain verification).
       PROBECTL_WORM_SIGNING_KEY_FILE: /var/lib/probectl/worm-signing-ed25519.pem
       # Operator-owned IR public keyring: <tenant-uuid>.pem per tenant. Created
-      # empty on first start; break-glass fails closed per tenant until its key
-      # is present (docs/audit.md, docs/configuration.md).
+      # empty on first start; break-glass fails closed per tenant (409
+      # ir_key_unavailable) until its key is present. Mint and install one with
+      #   probectl audit ir-keygen <tenant-id> --public-key-dir ... --private-key-file ...
+      #   docker compose exec -T control /usr/local/bin/app ir-key-install <tenant-id> < <tenant-id>.pem
+      # (docs/audit.md, docs/configuration.md).
       PROBECTL_IR_PUBLIC_KEY_DIR: /var/lib/probectl/ir-keys
