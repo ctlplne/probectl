@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/logging"
 )
@@ -98,5 +99,57 @@ func TestSplitAcctKey(t *testing.T) {
 		if _, _, ok := splitAcctKey(bad); ok {
 			t.Errorf("splitAcctKey(%q) should fail", bad)
 		}
+	}
+}
+
+// TestAuthLimiterKeysOnTheForwardedClientBehindATrustedProxy (DPR-039): behind
+// the shipped ingress every request arrives from the ingress pod, so without
+// trusted proxies one client's failures locked SSO for the whole deployment.
+// With the ingress declared trusted the limiter keys on X-Forwarded-For; a
+// peer outside the trusted set cannot spoof its way onto someone else's key.
+func TestAuthLimiterKeysOnTheForwardedClientBehindATrustedProxy(t *testing.T) {
+	trusted, err := auth.ParseTrustedProxies([]string{"10.244.0.0/16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		HTTPAddr: ":0", AuthMode: "session",
+		HSTSEnabled: true, HSTSMaxAge: time.Hour,
+		AuthRateMaxFailures: 2, AuthRateWindow: time.Minute, AuthRateLockout: time.Minute,
+		TrustedProxies: trusted,
+	}
+	s := New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil)
+	hit := func(remote, forwarded string) int {
+		req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+		req.RemoteAddr = remote
+		if forwarded != "" {
+			req.Header.Set("X-Forwarded-For", forwarded)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// Client A behind the ingress trips its own lockout...
+	if c := hit("10.244.0.7:1", "203.0.113.9"); c != http.StatusServiceUnavailable {
+		t.Fatalf("A first: %d", c)
+	}
+	if c := hit("10.244.0.7:2", "203.0.113.9"); c != http.StatusTooManyRequests {
+		t.Fatalf("A second (threshold 2): %d, want 429", c)
+	}
+	// ...and client B, arriving through the same ingress pod, is unaffected.
+	if c := hit("10.244.0.7:3", "198.51.100.4"); c != http.StatusServiceUnavailable {
+		t.Fatalf("B behind the same ingress must not inherit A's lockout: %d", c)
+	}
+	// A cannot escape by appending a fake hop: the ingress's own append is
+	// the rightmost entry, and A's forged hop sits to its left.
+	if c := hit("10.244.0.7:4", "198.51.100.200, 203.0.113.9"); c != http.StatusTooManyRequests {
+		t.Fatalf("A with a forged left-hand hop must stay locked: %d", c)
+	}
+	// A direct peer outside the trusted set is keyed on itself, header or not.
+	if c := hit("192.0.2.77:5", "198.51.100.4"); c != http.StatusServiceUnavailable {
+		t.Fatalf("untrusted peer first: %d", c)
+	}
+	if c := hit("192.0.2.77:6", "198.51.100.5"); c != http.StatusTooManyRequests {
+		t.Fatalf("untrusted peer must be keyed on its own address regardless of the header: %d", c)
 	}
 }

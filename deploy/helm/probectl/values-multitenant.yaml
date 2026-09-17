@@ -33,6 +33,11 @@
 # with PROBECTL_BUS_SASL_PASSWORD in secrets.existingSecret, the two basic-auth
 # files in control.credentialFiles and the CA in control.trustBundle (README).
 #
+# ALSO SET control.trustedProxies to the ingress controller's pod CIDR (e.g.
+#     --set 'control.trustedProxies={10.244.0.0/16}'
+# ) so login rate limiting keys on real clients, not on the ingress pod
+# (DPR-039): otherwise one misbehaving client locks SSO for every tenant.
+#
 # Same HTTPS-by-default posture as single-tenant; the difference is scale +
 # provider operation. Postgres-resident tenant data is isolated by always-on
 # FORCE-RLS regardless of deployment shape, but the ClickHouse row-policies and

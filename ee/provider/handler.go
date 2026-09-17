@@ -13,8 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -73,7 +73,8 @@ type Handler struct {
 	// governance (S-EE3): the data-governance policy + composed view.
 	governance *Governance
 
-	mux *http.ServeMux
+	mux            *http.ServeMux
+	trustedProxies []netip.Prefix // DPR-039
 }
 
 // RouteDecl is one provider route (kept as a table so the provider OpenAPI
@@ -379,7 +380,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	}
 	// SEC-003: throttle BEFORE authentication — per source IP and per
 	// account. A locked dimension refuses even a correct password.
-	keys := []string{"pip:" + providerClientIP(r), "pacct:" + strings.ToLower(strings.TrimSpace(in.Email))}
+	keys := []string{"pip:" + h.clientIP(r), "pacct:" + strings.ToLower(strings.TrimSpace(in.Email))}
 	for _, k := range keys {
 		if ok, retry := h.limiter.Allow(k); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
@@ -711,16 +712,20 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) error {
 	return json.NewEncoder(w).Encode(v)
 }
 
-// providerClientIP is the throttle key source: the transport RemoteAddr.
-// Forwarded headers are deliberately NOT trusted (spoofable) — same stance as
-// the tenant limiter (U-024); a fronting ingress that should count real client
-// IPs must rewrite the connection source (PROXY protocol), not a header.
-func providerClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+// clientIP is the login throttle key source: the transport peer, or — when
+// that peer is one of the deployment's trusted proxies (PROBECTL_TRUSTED_PROXIES,
+// DPR-039) — the nearest untrusted X-Forwarded-For hop. Same stance as the
+// tenant limiter: forwarded headers from any other peer are spoofable and
+// ignored.
+func (h *Handler) clientIP(r *http.Request) string {
+	return auth.ClientIP(r.RemoteAddr, r.Header, h.trustedProxies)
+}
+
+// WithTrustedProxies declares the proxies whose forwarded client address the
+// operator login limiter may believe (DPR-039).
+func (h *Handler) WithTrustedProxies(prefixes []netip.Prefix) *Handler {
+	h.trustedProxies = prefixes
+	return h
 }
 
 // writeErr maps service errors onto the core error envelope shape

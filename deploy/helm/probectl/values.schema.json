@@ -298,6 +298,10 @@
           },
           "required": ["existingConfigMap", "key", "mountPath"]
         },
+        "trustedProxies": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": "^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$" }
+        },
         "credentialFiles": {
           "type": "object",
           "additionalProperties": false,
@@ -323,6 +327,7 @@
                 "PROBECTL_LOG_FORMAT",
                 "PROBECTL_LOG_LEVEL",
                 "PROBECTL_AUTH_MODE",
+                "PROBECTL_TRUSTED_PROXIES",
                 "PROBECTL_SECURITY_CONTACT",
                 "PROBECTL_OBJECTSTORE_DIR",
                 "PROBECTL_OBJECTSTORE_MODE",

@@ -684,7 +684,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	// Successful login ends both backoff chains (U-024).
-	s.authLimiter.Success("ip:" + clientIP(r))
+	s.authLimiter.Success("ip:" + s.clientIP(r))
 	s.authLimiter.Success(acctKey(tid.String(), ident.Email))
 	s.clearOAuthCookie(w, oauthStateCookie)
 	s.clearOAuthCookie(w, oauthTenantCookie)

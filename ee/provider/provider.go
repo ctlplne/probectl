@@ -153,6 +153,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	sessions := NewSessions(cfg.SessionHMACKey).WithIdleTimeout(cfg.SessionIdleTimeout).WithStore(st)
 	return NewHandler(svc, sessions, tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
+		WithTrustedProxies(cfg.TrustedProxies).
 		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).
 		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
 }

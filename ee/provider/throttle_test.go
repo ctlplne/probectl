@@ -7,10 +7,12 @@
 package provider
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/license"
 )
 
@@ -81,5 +83,46 @@ func TestProviderLoginThrottlePerIP(t *testing.T) {
 	}
 	if !saw429 {
 		t.Fatal("account rotation from one IP was never throttled (SEC-003)")
+	}
+}
+
+// TestProviderLoginThrottleKeysOnForwardedClientBehindTrustedProxy (DPR-039):
+// behind the ingress every operator login arrives from the ingress pod; with
+// the ingress declared trusted, one operator's failures lock only that
+// operator's client address, and a forged hop cannot move a client onto a
+// different key.
+func TestProviderLoginThrottleKeysOnForwardedClientBehindTrustedProxy(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
+	trusted, err := auth.ParseTrustedProxies([]string{"10.244.0.0/16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.h.WithTrustedProxies(trusted)
+	attempt := func(email, forwarded string) int {
+		req := newReq(http.MethodPost, "/provider/v1/auth/login",
+			map[string]string{"email": email, "password": "wrong-password"})
+		req.RemoteAddr = "10.244.0.7:4000"
+		req.Header.Set("X-Forwarded-For", forwarded)
+		rec := doReq(f.h, req)
+		resp := rec.Result()
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	// Client A (203.0.113.9) hammers distinct accounts so only the IP
+	// dimension can trip.
+	var locked bool
+	for i := 0; i < 12 && !locked; i++ {
+		locked = attempt(fmt.Sprintf("victim-%d@msp.example", i), "203.0.113.9") == http.StatusTooManyRequests
+	}
+	if !locked {
+		t.Fatal("client A behind the trusted ingress was never throttled on its own address")
+	}
+	// Client B through the same ingress pod is not locked out with A.
+	if got := attempt("someone-else@msp.example", "198.51.100.4"); got == http.StatusTooManyRequests {
+		t.Fatal("client B must not inherit client A's lockout just because both arrive via the ingress")
+	}
+	// A cannot escape by forging a left-hand hop; the ingress appends the real one last.
+	if got := attempt("victim-x@msp.example", "198.51.100.200, 203.0.113.9"); got != http.StatusTooManyRequests {
+		t.Fatalf("forged hop must not unlock client A: %d", got)
 	}
 }

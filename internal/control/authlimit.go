@@ -8,8 +8,8 @@ package control
 
 import (
 	"context"
-	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -64,23 +64,23 @@ func splitAcctKey(key string) (tenantID, email string, ok bool) {
 	return tenantID, email, found && tenantID != "" && email != ""
 }
 
-// clientIP is the throttle key source: the transport RemoteAddr. Forwarded
-// headers are deliberately NOT trusted (spoofable); a fronting ingress that
-// should count real client IPs must rewrite the connection source (e.g.
-// PROXY protocol) rather than a header.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+// clientIP is the throttle key source. It is the transport peer unless that
+// peer is one of the operator-declared trusted proxies (PROBECTL_TRUSTED_PROXIES,
+// DPR-039), in which case the nearest untrusted X-Forwarded-For hop is the
+// client. Forwarded headers from any other peer are spoofable and ignored.
+func (s *Server) clientIP(r *http.Request) string {
+	var trusted []netip.Prefix
+	if s != nil && s.cfg != nil {
+		trusted = s.cfg.TrustedProxies
 	}
-	return host
+	return auth.ClientIP(r.RemoteAddr, r.Header, trusted)
 }
 
 // throttleAuth wraps an auth endpoint with the per-IP attempt gate. A locked
 // source gets 429 + Retry-After without the handler running.
 func (s *Server) throttleAuth(h apiHandler) apiHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		ok, retry := s.authLimiter.Attempt("ip:" + clientIP(r))
+		ok, retry := s.authLimiter.Attempt("ip:" + s.clientIP(r))
 		if !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds()+0.5)))
 			return apierror.RateLimited("too many authentication attempts — retry later")

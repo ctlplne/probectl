@@ -98,7 +98,7 @@ func requestContext(base *slog.Logger) func(http.Handler) http.Handler {
 
 // accessLog records one structured line per request. Health/readiness probes log
 // at debug to avoid flooding logs under frequent polling.
-func accessLog(next http.Handler) http.Handler {
+func (s *Server) accessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
@@ -115,6 +115,7 @@ func accessLog(next http.Handler) http.Handler {
 			"bytes", rec.bytes,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"remote", r.RemoteAddr,
+			"client", s.clientIP(r),
 		)
 	})
 }

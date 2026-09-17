@@ -188,6 +188,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_AUTH_RATE_MAX_FAILURES`   | `5`         | auth brute-force guard: failures per window before lockout |
 | `PROBECTL_AUTH_RATE_WINDOW`         | `1m`        | failure-counting window for the auth throttle |
 | `PROBECTL_AUTH_RATE_LOCKOUT`        | `1m`        | base lockout; doubles per consecutive lockout, capped at 1h; lockouts are audited |
+| `PROBECTL_TRUSTED_PROXIES`          | (none)      | comma-separated CIDRs or addresses of the proxies in front of the control plane (ingress controller, load balancer). When the TCP peer is one of them, the tenant SSO and provider login limiters key on the nearest untrusted `X-Forwarded-For` hop (or `X-Real-IP`) instead of the peer; forwarded headers from any other peer stay ignored. Without it, every user behind an ingress shares the ingress pod's address, so five failed logins by anyone lock SSO for the whole deployment (DPR-039). Helm: `control.trustedProxies`. |
 | `PROBECTL_OIDC_ISSUER`              | (none)                                                           | OIDC issuer URL; SSO discovery is performed against it |
 | `PROBECTL_OIDC_CLIENT_ID`          | (none)                                                           | OIDC client ID registered with the IdP               |
 | `PROBECTL_OIDC_CLIENT_SECRET`      | (none)                                                           | OIDC client secret (kept out of logs/URLs)            |

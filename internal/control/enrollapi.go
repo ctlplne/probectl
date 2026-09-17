@@ -102,14 +102,14 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) error
 		case errors.Is(err, enroll.ErrInvalidToken):
 			// Count the failure against the caller's IP dimension and refuse
 			// uninformatively (replay / expiry / unknown look identical).
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidToken, enrollmentSurfaceAgent, tenantID)
 			return apierror.Unauthorized("invalid enrollment token")
 		case errors.Is(err, enroll.ErrBadCSR):
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceAgent, tenantID)
 			return apierror.BadRequest("invalid CSR")
 		case errors.Is(err, enroll.ErrRevoked):
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceAgent, tenantID)
 			return apierror.Unauthorized("enrollment refused")
 		}
@@ -234,7 +234,7 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		switch {
 		case errors.Is(err, enroll.ErrInvalidToken):
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidToken, enrollmentSurfaceCollector, tenantID)
 			return apierror.Unauthorized("invalid enrollment token")
 		case errors.Is(err, enroll.ErrInvalidCollectorPlane):
@@ -244,7 +244,7 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceCollector, tenantID)
 			return apierror.BadRequest("bmp registration requires a valid csr_pem")
 		case errors.Is(err, enroll.ErrRevoked):
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceCollector, tenantID)
 			return apierror.Unauthorized("collector registration refused")
 		}
@@ -338,19 +338,19 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) error
 		tenantID, _ := enroll.RefusalTenant(err)
 		switch {
 		case errors.Is(err, enroll.ErrInvalidProof):
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidRotationProof, enrollmentSurfaceRotation, tenantID)
 			return apierror.Unauthorized("rotation refused")
 		case errors.Is(err, enroll.ErrNotOurs), errors.Is(err, enroll.ErrIdentityFixed):
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidRotationIdentity, enrollmentSurfaceRotation, tenantID)
 			return apierror.Unauthorized("rotation refused")
 		case errors.Is(err, enroll.ErrBadCSR):
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceRotation, tenantID)
 			return apierror.Unauthorized("rotation refused")
 		case errors.Is(err, enroll.ErrRevoked):
-			s.authLimiter.Fail("ip:" + clientIP(r))
+			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceRotation, tenantID)
 			return apierror.Unauthorized("rotation refused")
 		}

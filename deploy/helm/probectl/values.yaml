@@ -113,6 +113,15 @@ control:
     existingConfigMap: ""
     key: ca-bundle.crt
     mountPath: /etc/probectl/trust
+  # Proxies whose X-Forwarded-For / X-Real-IP the authentication limiters may
+  # believe (DPR-039): the ingress controller pods or the load balancer in
+  # front of the control plane, as CIDRs or addresses. Behind an ingress the
+  # control plane otherwise sees every user as the ingress pod's IP, so five
+  # failed logins by anyone lock SSO and provider login for the whole
+  # deployment. Set it to the ingress controller's pod CIDR, e.g.
+  #   --set 'control.trustedProxies={10.244.0.0/16}'
+  # Forwarded headers from any other peer stay ignored.
+  trustedProxies: []
   # Operator credential FILES the control plane must read as private, regular,
   # mode-0600 files (DPR-030): PROBECTL_TSDB_BASIC_AUTH_FILE,
   # PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE, broker mTLS client keys. A Kubernetes

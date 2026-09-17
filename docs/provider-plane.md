@@ -278,6 +278,7 @@ is what keeps the "core never imports `ee/`" rule intact.
 |---|---|---|
 | `PROBECTL_PROVIDER_BOOTSTRAP_TOKEN` | (none) | single-use first-admin bootstrap |
 | `PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES` | `240` | break-glass TTL cap (5–1440) |
+| `PROBECTL_TRUSTED_PROXIES` | (none) | ingress/load-balancer CIDRs whose `X-Forwarded-For` the operator login limiter keys on; otherwise every operator behind the ingress shares one lockout key (DPR-039, see [configuration.md](configuration.md)) |
 | `PROBECTL_ENVELOPE_KEY` | (none) | **required** for the provider plane (TOTP secrets are sealed at rest) |
 
 Plus an MSP-tier license (`PROBECTL_LICENSE_FILE`) granting

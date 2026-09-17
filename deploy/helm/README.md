@@ -160,8 +160,17 @@ helm install probectl deploy/helm/probectl \
   --set oidc.issuer=... --set oidc.clientId=... \
   --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/objects/audit-worm \
   --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
-  --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest
+  --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest \
+  --set 'control.trustedProxies={10.244.0.0/16}'
 ```
+
+`control.trustedProxies` names the ingress controller's pod CIDR (or the load
+balancer addresses) so the tenant SSO and provider login limiters key on the
+real client from `X-Forwarded-For` instead of the ingress pod: without it every
+user shares one limiter key and five failed logins by anyone lock out the whole
+deployment (DPR-039). Forwarded headers from any peer outside that set are
+ignored, and ingress-nginx sets the header itself (it does not need
+`use-forwarded-headers`).
 
 Tenant isolation is enforced by the control plane (pooled RLS scoping) regardless
 of deployment shape; the multi-tenant values only size the runtime and spread

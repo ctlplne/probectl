@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -316,10 +317,16 @@ type Config struct {
 	AuthRateMaxFailures int
 	AuthRateWindow      time.Duration
 	AuthRateLockout     time.Duration
-	OIDCIssuer          string
-	OIDCClientID        string
-	OIDCClientSecret    string
-	OIDCRedirectURL     string
+	// TrustedProxies (DPR-039) are the peers whose X-Forwarded-For /
+	// X-Real-IP the authentication limiters may believe: the ingress
+	// controller or load balancer in front of the control plane. Empty means
+	// the transport peer is the client, which behind an ingress makes every
+	// user share one limiter key.
+	TrustedProxies   []netip.Prefix
+	OIDCIssuer       string
+	OIDCClientID     string
+	OIDCClientSecret string
+	OIDCRedirectURL  string
 
 	// Path store (S10/S11): where discovered network paths are persisted and
 	// served. memory (default) or clickhouse (a ClickHouse HTTP URL).
@@ -920,6 +927,13 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.AuthRateMaxFailures = l.intRange("PROBECTL_AUTH_RATE_MAX_FAILURES", 5, 1, 1000)
 	cfg.AuthRateWindow = l.dur("PROBECTL_AUTH_RATE_WINDOW", time.Minute)
 	cfg.AuthRateLockout = l.dur("PROBECTL_AUTH_RATE_LOCKOUT", time.Minute)
+	if entries := l.list("PROBECTL_TRUSTED_PROXIES"); len(entries) > 0 {
+		prefixes, err := auth.ParseTrustedProxies(entries)
+		if err != nil {
+			l.errf("PROBECTL_TRUSTED_PROXIES must be a comma-separated list of CIDRs or IP addresses: %v", err)
+		}
+		cfg.TrustedProxies = prefixes
+	}
 	cfg.OIDCIssuer = l.str("PROBECTL_OIDC_ISSUER", "")
 	cfg.OIDCClientID = l.str("PROBECTL_OIDC_CLIENT_ID", "")
 	cfg.OIDCClientSecret = l.str("PROBECTL_OIDC_CLIENT_SECRET", "")

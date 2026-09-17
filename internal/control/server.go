@@ -633,7 +633,7 @@ func (s *Server) routes() http.Handler {
 	return chain(mux,
 		securityHeaders(s.cfg),
 		requestContext(s.log),
-		accessLog,
+		s.accessLog,
 		recoverer,
 		s.authenticate,
 		s.writeFence, // S-EE2: fence mutating requests during a failover / split-brain
