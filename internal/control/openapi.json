@@ -5864,6 +5864,36 @@
         }
       }
     },
+    "/v1/compliance/auditor-bundle": {
+      "get": {
+        "operationId": "exportAuditorBundle",
+        "summary": "Signed auditor evidence bundle (P7)",
+        "tags": [
+          "compliance"
+        ],
+        "description": "One signed, tenant-scoped document instead of seven separate downloads an auditor has to correlate by hand: isolation posture, segmentation evidence, audit-chain verification, retention receipts, deletion proofs, build provenance, and the cryptographic self-test. Each section is gathered LIVE at export time \u2014 the isolation assertion is re-run, the audit chain is re-verified \u2014 because the question is whether the control holds now. A section that cannot be gathered is present and marked unavailable with its reason, and a control that FAILED is present with its evidence, so a reader can never mistake an ungathered or failing control for a passing one. Framework mappings (NIS2, DORA, GAIA-X) name the requirement area each section speaks to and are an interpretation, not a legal opinion; the bundle says so in its own signed bytes. Verify it offline with `probectl compliance verify-bundle`. Refused with 409 when the deployment has no evidence signing key, because an unsigned auditor bundle is worthless for its purpose. Requires audit read.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The signed bundle (probectl-auditor-bundle/v1).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/incidents/{id}/cis": {
       "get": {
         "operationId": "incidentCIs",

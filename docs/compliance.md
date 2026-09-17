@@ -154,6 +154,56 @@ The hashing goes through the internal crypto provider (`crypto.Default.Hash`),
 never a raw primitive — the same FIPS-swappable abstraction the rest of probectl
 uses (all crypto routes through `internal/crypto`).
 
+## The auditor bundle: one signed document instead of seven downloads
+
+`GET /v1/compliance/auditor-bundle` (RBAC `audit.read`, format
+`probectl-auditor-bundle/v1`) is the evidence above **plus six more sections**,
+signed as a single Ed25519-signed document:
+
+| Section | What it is |
+| ------- | ---------- |
+| `isolation-posture` | the boot-time tenant-isolation assertion, **re-run at export time** |
+| `segmentation-evidence` | the hash-chained document described above |
+| `audit-chain-verification` | the tenant's audit stream re-verified end to end |
+| `retention-receipts` | the retention policy and the status reported against it |
+| `deletion-proofs` | the tenant's verifiable-deletion receipts, subjects as salted hashes only |
+| `build-provenance` | the version, commit and which release artifact carries the SBOM |
+| `crypto-self-test` | the cryptographic module's self-test status, read live |
+
+Three properties are the point of the format:
+
+- **Every section is gathered live.** The isolation assertion is re-run and the
+  audit chain re-verified when you ask, because an auditor's question is whether
+  the control holds *now*, not whether it held when something last wrote it down.
+- **A section that could not be gathered is present and marked `unavailable`
+  with its reason**, and a control that **failed** is present *with its
+  evidence*. An auditor must never have to notice an absence: a missing section
+  reads as a passing one, which is the dishonesty this format exists to prevent.
+  The same caveats are listed inside the signed bytes, so no tooling can drop
+  them.
+- **It verifies offline.** `probectl verify-bundle <file>` checks the signature,
+  that every attachment matches the digest the manifest commits to, and that
+  every section is accounted for — with no server, no network and no
+  credentials. An auditor who must ask the producing server whether its own
+  export is genuine has verified nothing.
+
+The bundle is tenant-scoped: the tenant is bound by digest and its identifier is
+never serialized, no configured secret appears in it, and the signing key's
+public half travels with the document while the private half never does. A
+deployment with no evidence signing key is **refused** rather than served an
+unsigned bundle.
+
+### Framework mappings are an interpretation
+
+Each section declares which **requirement area** it speaks to under NIS2, DORA
+and GAIA-X — access control and segmentation, cryptography policy, incident
+records, retention and disposal, supply-chain and third-party risk, data
+sovereignty, portability and erasure. They are stated as requirement *themes*,
+not article numbers, and the bundle says so in its own signed text: an article
+citation is a legal interpretation, and probectl is not in a position to assert
+one on your behalf. Supply your own reference — from counsel, or from your
+auditor's workpapers — and the bundle carries it alongside the area.
+
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR

@@ -146,6 +146,9 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/slos", s.handleSLOs, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/compliance", s.handleCompliance, permThreatRead},
 		{http.MethodGet, "/v1/compliance/evidence", s.handleComplianceEvidence, permAuditRead},
+		// P7: the signed auditor bundle. Same permission as the evidence export
+		// it contains — it is that document plus six more, not a wider grant.
+		{http.MethodGet, "/v1/compliance/auditor-bundle", s.handleAuditorBundle, permAuditRead},
 		{http.MethodGet, "/v1/slos/openslo", s.handleSLOExport, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/outages", s.handleOutages, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/rum", s.handleRUM, ai.PermMetricsRead},

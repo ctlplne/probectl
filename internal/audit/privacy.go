@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -225,4 +226,43 @@ func minimizeEventForWORM(ev Event) Event {
 		},
 	}
 	return out
+}
+
+// SubjectErasureReceipt is one recorded verifiable deletion, as an auditor reads
+// it: the subject is present only as its salted hash, never as an identifier.
+type SubjectErasureReceipt struct {
+	SubjectHash string    `json:"subject_hash"`
+	RecordedAt  time.Time `json:"recorded_at"`
+}
+
+// SubjectErasureReceipts lists the tenant's durable deletion receipts, newest
+// first and bounded. It exists so the auditor bundle can carry proof that a
+// deletion happened without the caller reaching into this package's tables
+// (P7). The subject hash is the proof: it is derived from the tenant and the
+// subject, so a receipt binds to one subject in one tenant and to nothing else.
+func SubjectErasureReceipts(ctx context.Context, s tenancy.Scope, limit int) ([]SubjectErasureReceipt, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	rows, err := s.Q.Query(ctx,
+		`SELECT subject_hash, created_at
+		   FROM audit_subject_erasures
+		  ORDER BY created_at DESC
+		  LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list subject erasure receipts: %w", err)
+	}
+	defer rows.Close()
+	var out []SubjectErasureReceipt
+	for rows.Next() {
+		var r SubjectErasureReceipt
+		if err := rows.Scan(&r.SubjectHash, &r.RecordedAt); err != nil {
+			return nil, err
+		}
+		if !validSubjectErasureHash(r.SubjectHash) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

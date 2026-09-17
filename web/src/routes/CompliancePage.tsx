@@ -141,7 +141,24 @@ export function CompliancePage() {
                 >
                   Download audit evidence
                 </Button>
+                {/* P7: the whole auditor package in one signed document, so an
+                    auditor does not have to correlate seven downloads by hand. */}
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    window.location.assign(apiURL('/compliance/auditor-bundle'))
+                  }}
+                >
+                  Download auditor bundle (signed)
+                </Button>
               </div>
+              <p className={styles.coverage} role="note">
+                The auditor bundle adds isolation posture, audit-chain verification, retention
+                receipts, deletion proofs, build provenance and the cryptographic self-test to the
+                evidence above, signed as one document. Verify it offline with{' '}
+                <code>probectl verify-bundle</code>. Sections it could not gather are listed with
+                their reasons rather than left out.
+              </p>
               <Table
                 caption="Segmentation verdicts"
                 columns={columns}

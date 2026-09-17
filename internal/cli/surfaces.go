@@ -133,6 +133,11 @@ var surfaceCommands = map[string]surfaceCommand{
 	"compliance": {Name: "compliance", Summary: "segmentation and evidence", Ops: map[string]apiOp{
 		"summary":  {Method: http.MethodGet, Path: "/v1/compliance"},
 		"evidence": {Method: http.MethodGet, Path: "/v1/compliance/evidence"},
+		// P7: the whole auditor package in one signed document. `verify-bundle`
+		// checks it OFFLINE, which is the point — an auditor must not have to
+		// trust the server that produced it.
+		"auditor-bundle": {Method: http.MethodGet, Path: "/v1/compliance/auditor-bundle",
+			Description: "download the signed auditor evidence bundle"},
 	}},
 	"collector": {Name: "collector", Summary: "collector registration", Ops: map[string]apiOp{
 		"register": {Method: http.MethodPost, Path: "/v1/collectors/register", Description: "register a bus collector from a one-time token"},

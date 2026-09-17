@@ -122,6 +122,8 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		return cmdIncident(cfg, rest[1:], stdout, stderr)
 	case "api":
 		return cmdAPIWithStdin(cfg, rest[1:], stdin, stdout, stderr)
+	case "verify-bundle":
+		return cmdVerifyBundle(cfg, rest[1:], stdout, stderr)
 	default:
 		if spec, ok := surfaceCommands[rest[0]]; ok {
 			return cmdSurfaceWithStdin(cfg, spec, rest[1:], stdin, stdout, stderr)
