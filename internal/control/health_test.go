@@ -7,6 +7,7 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/cluster"
 )
 
 func do(srv *Server, method, path string) *httptest.ResponseRecorder {
@@ -162,5 +165,47 @@ func TestOpenAPIEndpoint(t *testing.T) {
 	}
 	if doc["openapi"] != "3.1.0" {
 		t.Errorf("openapi = %v, want 3.1.0", doc["openapi"])
+	}
+}
+
+// probeError is a cluster prober whose endpoint is unreachable.
+type probeError struct{}
+
+func (probeError) Probe(context.Context) cluster.Probe {
+	return cluster.Probe{Err: errors.New("dial tcp: connection refused")}
+}
+
+// TestReadyzCarriesTheClusterViewWhileTheDatabaseIsDown (DPR-100): during the
+// lab's primary loss every /readyz answer was a bare error envelope, so the
+// writes_usable / writer role / epoch view vanished exactly when it mattered.
+// The not-ready answer keeps the envelope and adds the cluster view.
+func TestReadyzCarriesTheClusterViewWhileTheDatabaseIsDown(t *testing.T) {
+	srv := testServer(fakePinger{err: errors.New("connection refused")})
+	mgr := cluster.NewManager(cluster.Topology{Region: "eu", Regions: []string{"eu", "us"}}, probeError{}, nil)
+	mgr.Refresh(context.Background())
+	srv.WithCluster(mgr)
+	rec := do(srv, http.MethodGet, "/readyz")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	var body struct {
+		Status  string      `json:"status"`
+		Error   errorDetail `json:"error"`
+		Cluster *struct {
+			WritesUsable bool   `json:"writes_usable"`
+			WritesReason string `json:"writes_reason"`
+			Writer       struct {
+				Role string `json:"role"`
+			} `json:"writer"`
+		} `json:"cluster"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Status != "not_ready" || body.Error.Code != "unavailable" || body.Error.RequestID == "" {
+		t.Fatalf("envelope must be kept: %+v", body)
+	}
+	if body.Cluster == nil || body.Cluster.WritesUsable || body.Cluster.Writer.Role != "unknown" || body.Cluster.WritesReason == "" {
+		t.Fatalf("the not-ready answer must carry the cluster view: %+v", body.Cluster)
 	}
 }

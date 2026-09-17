@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/version"
 )
 
@@ -34,7 +35,21 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) error {
 	defer cancel()
 	if s.pinger != nil {
 		if err := s.pinger.Ping(ctx); err != nil {
-			return apierror.Unavailable("database not ready").Wrap(err)
+			// DPR-100: the cluster view rides the not-ready answer too. An
+			// operator (or a failover drill) diagnosing a lost writer needs
+			// writes_usable / the writer's role / the epoch exactly while the
+			// database is unreachable, not a bare error envelope.
+			reqID, _ := logging.RequestIDFromContext(r.Context())
+			body := map[string]any{
+				"status": "not_ready",
+				"error":  errorDetail{Code: "unavailable", Message: "database not ready", RequestID: reqID},
+			}
+			if cs := s.clusterStatus(); cs != nil {
+				body["cluster"] = cs
+			}
+			s.log.Debug("readiness: database not ready", "error", err.Error())
+			writeJSON(w, http.StatusServiceUnavailable, body)
+			return nil
 		}
 	}
 	// Multi-region (S-EE2): the cluster view rides /readyz — region, the
