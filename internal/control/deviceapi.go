@@ -7,6 +7,7 @@
 package control
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strings"
@@ -314,8 +315,26 @@ func (s *Server) handleDeviceMetrics(w http.ResponseWriter, r *http.Request) err
 	if limit > deviceMaxLimit {
 		limit = deviceMaxLimit
 	}
+	deviceFilter := strings.TrimSpace(r.URL.Query().Get("device"))
+	metricFilter := normalizeDeviceMetricFilter(r.URL.Query().Get("metric"))
 	snap, ok := s.tsdbWriter.(promSnapshotter)
 	if s.tsdbWriter == nil || !ok {
+		// DPR-050: the production TSDB (Prometheus remote write) keeps no local
+		// snapshot; ask it for the tenant's latest device samples instead of
+		// answering "not running" while the metrics sit in the TSDB.
+		if q, qok := s.tsdbWriter.(deviceMetricQuerier); qok && s.tsdbWriter != nil {
+			series, err := deviceMetricSeriesFromTSDB(r.Context(), q, tid, deviceFilter, metricFilter)
+			if err != nil {
+				return err
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"items":           latestDeviceMetricSummaries(series, tid, deviceFilter, metricFilter, limit),
+				"metrics_running": true,
+				"effective_limit": limit,
+				"source":          "tsdb",
+			})
+			return nil
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"items":           []deviceMetricSummary{},
 			"metrics_running": false,
@@ -323,10 +342,7 @@ func (s *Server) handleDeviceMetrics(w http.ResponseWriter, r *http.Request) err
 		})
 		return nil
 	}
-	items := latestDeviceMetricSummaries(snap.Snapshot(), tid,
-		strings.TrimSpace(r.URL.Query().Get("device")),
-		normalizeDeviceMetricFilter(r.URL.Query().Get("metric")),
-		limit)
+	items := latestDeviceMetricSummaries(snap.Snapshot(), tid, deviceFilter, metricFilter, limit)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":           items,
 		"metrics_running": true,
@@ -550,4 +566,50 @@ func sanitizePromName(s string) string {
 			return '_'
 		}
 	}, s)
+}
+
+// deviceMetricQuerier is what the Prometheus-backed writer offers for reading
+// the tenant's device metrics back (DPR-050).
+type deviceMetricQuerier interface {
+	InstantVector(ctx context.Context, promql string) ([]tsdb.LabeledSample, error)
+}
+
+// deviceMetricSeriesFromTSDB fetches the latest sample of every device metric
+// of one tenant from the backing TSDB as an instant vector, scoped by tenant
+// in the selector itself (never filtered client-side only), and shapes it
+// like a memory snapshot so the summary logic is shared.
+func deviceMetricSeriesFromTSDB(ctx context.Context, q deviceMetricQuerier, tenantID, deviceFilter, metricFilter string) ([]tsdb.Series, error) {
+	for _, v := range []string{tenantID, deviceFilter, metricFilter} {
+		if strings.ContainsAny(v, "\"\\\n") {
+			return nil, apierror.BadRequest("device metrics filter contains characters that cannot appear in a label value")
+		}
+	}
+	var sel strings.Builder
+	sel.WriteString("{")
+	if metricFilter != "" {
+		sel.WriteString(`__name__="` + metricFilter + `",`)
+	} else {
+		sel.WriteString(`__name__=~"` + deviceMetricPrefix + `.+",`)
+	}
+	sel.WriteString(`tenant_id="` + tenantID + `"`)
+	if deviceFilter != "" {
+		sel.WriteString(`,device="` + deviceFilter + `"`)
+	}
+	sel.WriteString("}")
+	samples, err := q.InstantVector(ctx, sel.String())
+	if err != nil {
+		return nil, apierror.Unavailable("device metrics are temporarily unavailable from the TSDB").Wrap(err)
+	}
+	now := time.Now().UnixMilli()
+	out := make([]tsdb.Series, 0, len(samples))
+	for _, sm := range samples {
+		labels := make(map[string]string, len(sm.Labels))
+		for k, v := range sm.Labels {
+			if k != "__name__" {
+				labels[k] = v
+			}
+		}
+		out = append(out, tsdb.Series{Metric: sm.Labels["__name__"], Labels: labels, Value: sm.Value, TimeMillis: now})
+	}
+	return out, nil
 }

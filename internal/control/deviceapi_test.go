@@ -264,3 +264,64 @@ func postJSONAsTenant(t *testing.T, srv *Server, method, path, tenant, body stri
 	}
 	return rec
 }
+
+// TestDeviceMetricsAPIReadsBackFromPrometheus (DPR-050): with the production
+// TSDB (Prometheus remote write) there is no local snapshot; the API asks the
+// TSDB for the tenant's latest device samples — tenant-scoped in the selector
+// itself — instead of answering metrics_running=false.
+func TestDeviceMetricsAPIReadsBackFromPrometheus(t *testing.T) {
+	def := tenancy.DefaultTenantID.String()
+	var gotQuery string
+	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/query" {
+			http.NotFound(w, r)
+			return
+		}
+		gotQuery = r.URL.Query().Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+		  {"metric":{"__name__":"probectl_device_cpu_utilization","tenant_id":"` + def + `","agent_id":"collector-1","device":"10.0.0.1","device_name":"edge-r1","source":"snmp"},"value":[1780000000,"42"]},
+		  {"metric":{"__name__":"probectl_device_if_in_octets","tenant_id":"` + def + `","agent_id":"collector-1","device":"10.0.0.1","if_index":"1","if_name":"xe-0/0/0"},"value":[1780000000,"1000"]}
+		]}}`))
+	}))
+	defer prom.Close()
+	srv := testServer(fakePinger{}).WithTSDB(tsdb.NewPrometheusWithClient(prom.URL, prom.Client()))
+
+	rec := do(srv, http.MethodGet, "/v1/device/metrics?device=10.0.0.1&limit=5")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		MetricsRunning bool                  `json:"metrics_running"`
+		Source         string                `json:"source"`
+		Items          []deviceMetricSummary `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.MetricsRunning || resp.Source != "tsdb" || len(resp.Items) != 2 {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if !strings.Contains(gotQuery, `tenant_id="`+def+`"`) || !strings.Contains(gotQuery, `device="10.0.0.1"`) || !strings.Contains(gotQuery, `__name__=~"probectl_device_.+"`) {
+		t.Fatalf("selector must be tenant- and device-scoped: %q", gotQuery)
+	}
+	var cpu *deviceMetricSummary
+	for i := range resp.Items {
+		if resp.Items[i].Metric == "probectl_device_cpu_utilization" {
+			cpu = &resp.Items[i]
+		}
+	}
+	if cpu == nil || cpu.Device != "10.0.0.1" || cpu.DeviceName != "edge-r1" || cpu.Value != 42 {
+		t.Fatalf("cpu summary = %+v", resp.Items)
+	}
+
+	// A metric filter narrows the selector to that exact series name.
+	rec = do(srv, http.MethodGet, "/v1/device/metrics?metric=probectl.device.cpu.utilization")
+	if rec.Code != http.StatusOK || !strings.Contains(gotQuery, `__name__="probectl_device_cpu_utilization"`) {
+		t.Fatalf("metric filter selector = %q (status %d)", gotQuery, rec.Code)
+	}
+	// Label values that could break out of the selector are refused.
+	if rec = do(srv, http.MethodGet, `/v1/device/metrics?device=10.0.0.1"}or{tenant_id=~".%2B`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("selector injection must be a 400, got %d %s", rec.Code, rec.Body.String())
+	}
+}

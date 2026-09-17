@@ -1,5 +1,10 @@
 # Device / streaming telemetry — SNMP + gNMI
 
+> With the production TSDB (`PROBECTL_TSDB_MODE=prometheus`) the device
+> metrics API reads the tenant's latest samples back from the TSDB itself
+> (`source: "tsdb"` in the response; `last_seen` is the query time), so
+> **Planes › Device** shows the same telemetry as in memory mode (DPR-050).
+
 ## What it is
 
 The **device plane** is probectl's "how are the switches and routers themselves
