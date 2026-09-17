@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -41,6 +42,12 @@ const (
 	IdentityCertFile = "cert.pem"
 	IdentityKeyFile  = "key.pem"
 	IdentityCAFile   = "ca.pem"
+	// IdentityServerCAFile is the trust the agent uses to verify the CONTROL
+	// PLANE (its gRPC listener presents the API's server certificate). It is
+	// captured at enrollment from --ca-file, or from the pinned certificate
+	// when --ca-pin was used, so the printed config snippet is correct as-is
+	// (DPR-021). ca.pem stays the agent-CA bundle for SVID rotation.
+	IdentityServerCAFile = "server-ca.pem"
 )
 
 // issuedIdentity mirrors the control plane's response shape.
@@ -88,7 +95,7 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	hc, err := enrollHTTPClient(o.CAPin, o.CAFile)
+	hc, serverTrust, err := enrollHTTPClientCapturing(o.CAPin, o.CAFile)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -107,6 +114,14 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	}
 	if err := writeIdentityDir(o.Dir, []byte(id.CertPEM), keyPEM, []byte(id.CABundle)); err != nil {
 		return "", time.Time{}, err
+	}
+	// DPR-021: persist the server trust the enrollment itself verified against
+	// (the CA bundle, or the pinned certificate) so the runtime can verify
+	// the gRPC listener with the same trust and the receipt is correct as-is.
+	if pemBytes := serverTrust(); len(pemBytes) > 0 {
+		if err := writeOwnerOnly(filepath.Join(o.Dir, IdentityServerCAFile), pemBytes); err != nil {
+			return "", time.Time{}, err
+		}
 	}
 	return id.SPIFFEID, id.NotAfter, nil
 }
@@ -294,6 +309,45 @@ func RotationDue(notBefore, notAfter, now time.Time) bool {
 
 // --- plumbing ---------------------------------------------------------------
 
+// enrollHTTPClientCapturing is enrollHTTPClient plus a function that returns
+// the server trust material to persist: the --ca-file bytes, or — under a pin
+// — the certificate the server actually presented (PEM), captured during the
+// pinned handshake. Neither: nothing (system roots verify the gRPC server too).
+func enrollHTTPClientCapturing(caPin, caFile string) (*http.Client, func() []byte, error) {
+	var (
+		mu       sync.Mutex
+		captured []byte
+	)
+	hc, err := enrollHTTPClient(caPin, caFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	if caPin != "" {
+		inner := hc.Transport.(*http.Transport).TLSClientConfig.VerifyPeerCertificate
+		hc.Transport.(*http.Transport).TLSClientConfig.VerifyPeerCertificate = func(raw [][]byte, chains [][]*x509.Certificate) error {
+			if err := inner(raw, chains); err != nil {
+				return err
+			}
+			mu.Lock()
+			captured = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: raw[0]})
+			mu.Unlock()
+			return nil
+		}
+	}
+	return hc, func() []byte {
+		if caFile != "" {
+			b, err := os.ReadFile(caFile)
+			if err != nil {
+				return nil
+			}
+			return b
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return captured
+	}, nil
+}
+
 // enrollHTTPClient verifies the server by pin (first contact, self-signed
 // quickstarts) or CA bundle; with neither, the system roots apply. A pin
 // mismatch fails closed — there is no trust-on-first-use fallback.
@@ -409,6 +463,15 @@ func ensureWritableIdentityDir(dir string) error {
 	_ = probe.Close()
 	_ = os.Remove(name)
 	return nil
+}
+
+// writeOwnerOnly lands one file atomically with owner-only mode.
+func writeOwnerOnly(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // writeIdentityDir lands key/cert/bundle atomically with owner-only modes —

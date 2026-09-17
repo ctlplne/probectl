@@ -109,7 +109,8 @@ probectl-agent rotate \
   --ca-file /etc/probectl/control-plane-ca.crt
 ```
 
-The command verifies HTTPS with `--ca-file` (or `<dir>/ca.pem` when the same CA
+The command verifies HTTPS with `--ca-file`, or by default with the server trust
+`enroll` captured (`<dir>/server-ca.pem`; `<dir>/ca.pem` only when the same CA
 anchors both channels), keeps the private key on the agent host, preserves the
 tenant/agent SPIFFE identity, and atomically replaces the leaf certificate and
 key only after successful issuance.
@@ -149,20 +150,26 @@ loopback IP addresses.
 tls:
   cert_file: /var/lib/probectl-agent/identity/cert.pem
   key_file:  /var/lib/probectl-agent/identity/key.pem
-  ca_file:   /var/lib/probectl-agent/identity/ca.pem
+  ca_file:   /var/lib/probectl-agent/identity/server-ca.pem
 identity:
   server: https://control.example:8443   # enables automatic rotation
 ```
 
-One subtlety about `tls.ca_file`: it is what the **agent** uses to verify the
-**control plane's** server certificates (the gRPC listener, and the HTTPS
-endpoint that rotation calls). The enrollment-written `ca.pem` — the agent CA
-bundle — verifies them only if you issued those server certificates from the
-agent CA. If they come from a different CA (for example the `gen-cert`
-quickstart CA), point `ca_file` at *that* CA instead. Two trust checks, two
-CAs: the agent verifies the server against `tls.ca_file`; the server verifies
-the agent against `PROBECTL_AGENT_TLS_CA_FILE`. The worked laptop example is
-in [`getting-started.md`](../getting-started.md).
+Two trust checks, two CAs. `tls.ca_file` is what the **agent** uses to verify
+the **control plane's** server certificates (the gRPC listener, and the HTTPS
+endpoint that rotation calls); `PROBECTL_AGENT_TLS_CA_FILE` is what the
+**server** uses to verify the agent. `enroll` writes the server side of that
+pair for you: `server-ca.pem` is the trust the enrollment itself verified the
+control plane against — the `--ca-file` bundle, or the certificate a `--ca-pin`
+matched — so the printed snippet works as-is. The other bundle it writes,
+`ca.pem`, is the **agent CA** trust bundle: it vouches for agents, and verifies
+the control plane only in deployments that issue the server certificates from
+that same agent CA. If you enrolled with neither flag (a publicly issued
+control-plane certificate), no `server-ca.pem` is written and the snippet points
+`ca_file` at the system bundle instead. When the control plane's certificate
+is later replaced by one a pinned enrollment did not see, update `ca_file` to
+the new issuing CA. The worked laptop example is in
+[`getting-started.md`](../getting-started.md).
 
 ### Enroll on first boot (token-on-boot)
 

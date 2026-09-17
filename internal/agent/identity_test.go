@@ -7,10 +7,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -77,6 +79,16 @@ func TestEnrollWritesIdentityWithPin(t *testing.T) {
 	key, _ := os.ReadFile(filepath.Join(dir, IdentityKeyFile))
 	if len(key) == 0 || string(key[:5]) != "-----" {
 		t.Fatal("local key missing/garbled")
+	}
+	// DPR-021: the pinned server certificate is persisted as the server trust
+	// the runtime verifies the gRPC listener with.
+	serverCA, err := os.ReadFile(filepath.Join(dir, IdentityServerCAFile))
+	if err != nil {
+		t.Fatalf("server trust not persisted: %v", err)
+	}
+	block, _ := pem.Decode(serverCA)
+	if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, srv.Certificate().Raw) {
+		t.Fatal("server-ca.pem must hold the certificate the pinned enrollment verified")
 	}
 }
 
@@ -193,7 +205,7 @@ func TestRotateRejectsPlaintextServerBeforeReadingIdentity(t *testing.T) {
 // must be refused BEFORE the control plane is asked to redeem it.
 func TestEnrollRefusesUnwritableDirBeforeRedeemingToken(t *testing.T) {
 	var requests int32
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requests, 1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -215,5 +227,34 @@ func TestEnrollRefusesUnwritableDirBeforeRedeemingToken(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&requests); n != 0 {
 		t.Fatalf("the control plane must not be contacted before the directory is proven writable (got %d requests)", n)
+	}
+}
+
+// DPR-021: with --ca-file the same bundle is persisted as the server trust,
+// so the printed config snippet points the runtime at a file that verifies
+// the control plane rather than at the agent-CA bundle.
+func TestEnrollPersistsServerTrustFromCAFile(t *testing.T) {
+	srv, _ := fakeControl(t)
+	caFile := filepath.Join(t.TempDir(), "server-ca.crt")
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	if err := os.WriteFile(caFile, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "identity")
+	if _, _, err := Enroll(context.Background(), EnrollOptions{
+		Server: srv.URL, Token: "pjt_good", Dir: dir, Hostname: "h1", CAFile: caFile,
+	}); err != nil {
+		t.Fatalf("enroll with --ca-file: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, IdentityServerCAFile))
+	if err != nil {
+		t.Fatalf("server trust not persisted: %v", err)
+	}
+	if !bytes.Equal(got, caPEM) {
+		t.Fatal("server-ca.pem must be the --ca-file bundle")
+	}
+	agentCA, _ := os.ReadFile(filepath.Join(dir, IdentityCAFile))
+	if bytes.Equal(agentCA, caPEM) {
+		t.Fatal("the agent-CA bundle and the server trust are different files with different jobs")
 	}
 }

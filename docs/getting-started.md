@@ -402,9 +402,11 @@ Copy the token.
 ### 2. Enroll the agent
 
 `enroll` generates the agent's private key **locally** (it never leaves the host),
-redeems the token over HTTPS, and writes three files into `--dir`:
-`cert.pem` (the SVID), `key.pem`, and `ca.pem` (the agent CA trust bundle — the
-same public bundle `agent-ca export` wrote, delivered to the agent side).
+redeems the token over HTTPS, and writes four files into `--dir`:
+`cert.pem` (the SVID), `key.pem`, `ca.pem` (the agent CA trust bundle — the
+same public bundle `agent-ca export` wrote, delivered to the agent side), and
+`server-ca.pem` (the trust it verified the control plane with — here a copy of
+`./certs/ca.crt` — so the agent can verify the server the same way).
 
 ```sh
 ./bin/probectl-agent enroll \
@@ -441,8 +443,8 @@ control_plane:
 tls:
   cert_file: ./identity/cert.pem   # the agent's SVID (proves the agent to the server)
   key_file:  ./identity/key.pem
-  ca_file:   ./certs/ca.crt         # verifies the SERVER to the agent (the quickstart
-                                     # server CA — see the note below, NOT identity/ca.pem)
+  ca_file:   ./identity/server-ca.pem  # verifies the SERVER to the agent: the trust
+                                        # enroll captured (a copy of ./certs/ca.crt), NOT ca.pem
   server_name: "localhost"         # must match a SAN on the server cert
 
 agent:
@@ -464,14 +466,15 @@ The full set of probe types and per-probe parameters is in
 and [`configuration.md`](configuration.md). **Probes run straight from this config
 — you do not have to create anything server-side first.**
 
-> **One subtlety the `enroll` output glosses over.** The snippet `enroll` prints
-> suggests `ca_file: <dir>/ca.pem`. That is correct in a *production* setup, where
-> the gRPC server certificate is itself issued by the agent CA — so the agent CA
-> bundle (`ca.pem`) verifies both directions. On this laptop we are reusing the
-> quickstart **server** cert for the gRPC listener, which is signed by a *different*
-> CA (`./certs/ca.crt`). So here the agent's `ca_file` must be `./certs/ca.crt`
-> (the server CA), while the *control plane* trusts the agent CA (`agent-ca.crt`)
-> via `PROBECTL_AGENT_TLS_CA_FILE`. Same handshake, two CAs, two jobs.
+> **Why `server-ca.pem` and not `ca.pem`.** The gRPC listener presents the
+> control plane's **server** certificate — here the quickstart cert signed by
+> `./certs/ca.crt` — so the agent must verify it with *that* CA. `enroll`
+> captured exactly that trust (the `--ca-file` you passed, or the certificate a
+> `--ca-pin` matched) into `server-ca.pem`, which is why the snippet it prints
+> works as-is. `ca.pem` is the **agent CA** bundle: it is what the *control
+> plane* trusts (`PROBECTL_AGENT_TLS_CA_FILE`) to verify agents, and it verifies
+> the server only in deployments that issue the gRPC server certificate from
+> the agent CA itself. Same handshake, two CAs, two jobs.
 
 ### 4. Run the agent
 
