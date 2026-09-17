@@ -253,3 +253,69 @@ func TestTenantSubjectErasureProjectsAuditList(t *testing.T) {
 		t.Fatalf("subject erasure projection: %v", err)
 	}
 }
+
+// TestProviderAuditStreamPagesBothWays (DPR-037): the provider stream's read
+// side pages oldest-first after a cursor and newest-first before one, filters
+// by substring, and returns exactly what was appended — without appending.
+func TestProviderAuditStreamPagesBothWays(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	head, err := ProviderHeadSeq(ctx, pool)
+	if err != nil {
+		t.Fatalf("head: %v", err)
+	}
+	actor := fmt.Sprintf("dpr037-%d@msp.example", time.Now().UnixNano())
+	actions := []string{"provider.tenant_provision", "provider.breakglass_request", "provider.breakglass_revoke"}
+	for i, action := range actions {
+		if _, err := ProviderAppend(ctx, pool, actor, action, fmt.Sprintf("t-%d", i), map[string]any{"i": i}); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	mine := Filter{Actor: actor}
+
+	asc, err := ProviderListFiltered(ctx, pool, head, 1000, mine)
+	if err != nil {
+		t.Fatalf("asc: %v", err)
+	}
+	if len(asc) != 3 || asc[0].Action != actions[0] || asc[2].Action != actions[2] || asc[0].Seq != head+1 {
+		t.Fatalf("asc = %+v", asc)
+	}
+	if asc[1].Data["i"] != float64(1) || asc[1].Hash == "" || asc[1].CreatedAt.IsZero() {
+		t.Fatalf("row fields not populated: %+v", asc[1])
+	}
+
+	desc, err := ProviderListRecent(ctx, pool, 0, 2, mine)
+	if err != nil {
+		t.Fatalf("desc: %v", err)
+	}
+	if len(desc) != 2 || desc[0].Seq != head+3 || desc[1].Seq != head+2 {
+		t.Fatalf("desc from head = %+v", desc)
+	}
+	older, err := ProviderListRecent(ctx, pool, desc[1].Seq, 10, mine)
+	if err != nil {
+		t.Fatalf("desc older: %v", err)
+	}
+	if len(older) != 1 || older[0].Seq != head+1 {
+		t.Fatalf("desc before %d = %+v", desc[1].Seq, older)
+	}
+
+	filtered, err := ProviderListFiltered(ctx, pool, head, 1000, Filter{Actor: actor, Action: "BREAKGLASS"})
+	if err != nil {
+		t.Fatalf("filtered: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("action filter: want 2 break-glass rows, got %d", len(filtered))
+	}
+	after, err := ProviderHeadSeq(ctx, pool)
+	if err != nil {
+		t.Fatalf("head after reads: %v", err)
+	}
+	if after != head+3 {
+		t.Fatalf("reads must not append: head moved to %d, want %d", after, head+3)
+	}
+	if err := ProviderVerifyFrom(ctx, pool, head); err != nil {
+		t.Fatalf("chain after reads: %v", err)
+	}
+}

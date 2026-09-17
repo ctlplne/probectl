@@ -165,6 +165,14 @@ type providerAudit struct {
 	ir   audit.IRStageAppender
 }
 
+// ListAudit (DPR-037) pages the same stream Append writes.
+func (a *providerAudit) ListAudit(ctx context.Context, cursor int64, limit int, filter audit.Filter, newestFirst bool) ([]audit.Event, error) {
+	if newestFirst {
+		return audit.ProviderListRecent(ctx, a.pool, cursor, limit, filter)
+	}
+	return audit.ProviderListFiltered(ctx, a.pool, cursor, limit, filter)
+}
+
 func (a *providerAudit) Append(ctx context.Context, actor, action, target string, data map[string]any) error {
 	_, err := audit.ProviderAppend(ctx, a.pool, actor, action, target, data)
 	return err

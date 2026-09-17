@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	coreaudit "github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/httpbody"
 )
@@ -108,6 +109,7 @@ func routes() []RouteDecl {
 		{http.MethodPost, "/provider/v1/breakglass"},
 		{http.MethodPost, "/provider/v1/breakglass/{id}/revoke"},
 		{http.MethodGet, "/provider/v1/breakglass/{id}/results"},
+		{http.MethodGet, "/provider/v1/audit"},
 		{http.MethodGet, "/provider/v1/consent"},
 		{http.MethodPost, "/provider/v1/consent/{id}"},
 	}
@@ -166,6 +168,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("POST /provider/v1/breakglass", h.asOperator("", h.handleRequestGrant))
 	h.handle("POST /provider/v1/breakglass/{id}/revoke", h.asOperator("", h.handleRevokeGrant))
 	h.handle("GET /provider/v1/breakglass/{id}/results", h.asOperator("", h.handleGrantResults))
+	// DPR-037: the plane's own activity log — a governance view, admin-only.
+	h.handle("GET /provider/v1/audit", h.asOperator(RoleAdmin, h.handleListAudit))
 
 	// Metering / usage / quotas (S-T3). Registered unconditionally; the
 	// handlers answer not_found until WithMetering attaches the capability.
@@ -583,6 +587,62 @@ func (h *Handler) handleGrantResults(w http.ResponseWriter, r *http.Request, op 
 
 // --- tenant consent ---
 
+// handleListAudit (DPR-037) pages the provider/break-glass audit stream: every
+// bootstrap, login, lockout, operator change, tenant lifecycle step,
+// break-glass request/consent/access/revoke and provisioning outcome this
+// plane recorded. Default is oldest-first after `after`; `order=desc` walks
+// newest-first before `before` (0 = head), which is what an activity view
+// wants. actor/action/target are case-insensitive substring filters. Reads
+// never append to the stream they page.
+func (h *Handler) handleListAudit(w http.ResponseWriter, r *http.Request, _ Operator) error {
+	q := r.URL.Query()
+	newestFirst := q.Get("order") == "desc"
+	cursorParam := "after"
+	if newestFirst {
+		cursorParam = "before"
+	}
+	cursor, err := auditQueryInt64(q.Get(cursorParam))
+	if err != nil {
+		return validationError("provider: " + cursorParam + " must be a non-negative integer")
+	}
+	limit, err := auditQueryInt64(q.Get("limit"))
+	if err != nil {
+		return validationError("provider: limit must be a non-negative integer")
+	}
+	if limit == 0 {
+		limit = 50
+	}
+	filter := coreaudit.Filter{
+		Actor:  q.Get("actor"),
+		Action: q.Get("action"),
+		Target: q.Get("target"),
+	}
+	events, err := h.svc.ListAudit(r.Context(), cursor, int(min(limit, coreaudit.MaxExportPageSize)), filter, newestFirst)
+	if err != nil {
+		return err
+	}
+	var next int64
+	if n := len(events); n > 0 {
+		next = events[n-1].Seq
+	}
+	order := "asc"
+	if newestFirst {
+		order = "desc"
+	}
+	return h.writeJSON(w, http.StatusOK, map[string]any{"items": events, "next": next, "order": order})
+}
+
+func auditQueryInt64(raw string) (int64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || n < 0 {
+		return 0, errors.New("not a non-negative integer")
+	}
+	return n, nil
+}
+
 func (h *Handler) handleConsentList(w http.ResponseWriter, r *http.Request, tenantID, _ string) error {
 	gs, err := h.svc.PendingForTenant(r.Context(), tenantID)
 	if err != nil {
@@ -690,6 +750,8 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "conflict", http.StatusConflict
 	case errors.Is(err, errConsentNotConfigured):
 		code, status = "not_configured", http.StatusServiceUnavailable
+	case errors.Is(err, ErrAuditReadUnavailable):
+		code, status = "audit_read_unavailable", http.StatusServiceUnavailable
 	case errors.Is(err, errConsentAuthorizationUnavailable):
 		code, status = "authorization_unavailable", http.StatusServiceUnavailable
 	default:

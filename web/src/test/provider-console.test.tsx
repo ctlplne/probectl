@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
@@ -125,6 +125,33 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
       return jsonResponse({ items: grants })
     if (url.endsWith('/provider/v1/operators') && method === 'GET')
       return jsonResponse({ items: [operator] })
+    if (url.includes('/provider/v1/audit') && method === 'GET')
+      return jsonResponse({
+        items: [
+          {
+            seq: 42,
+            actor: 'root@msp.example',
+            action: 'provider.breakglass_request',
+            target: 'g_1',
+            data: { tenant: 'tn_1', reason: 'incident #42' },
+            prev_hash: 'a',
+            hash: 'b',
+            created_at: '2026-06-05T09:00:00Z',
+          },
+          {
+            seq: 41,
+            actor: 'root@msp.example',
+            action: 'provider.tenant_provision',
+            target: 'tn_2',
+            data: {},
+            prev_hash: '0',
+            hash: 'a',
+            created_at: '2026-06-05T08:00:00Z',
+          },
+        ],
+        next: 41,
+        order: 'desc',
+      })
     if (url.includes('/provider/v1/usage') && method === 'GET')
       return jsonResponse({
         items: [
@@ -435,6 +462,7 @@ describe('provider console (S-T1)', () => {
       expect.stringContaining('05Break-glass'),
       expect.stringContaining('06Governance'),
       expect.stringContaining('07Operators'),
+      expect.stringContaining('08Activity'),
       expect.stringContaining('Export usage CSV'),
     ])
     expect(within(nav).getByRole('link', { name: /fleet exceptions/i })).toHaveAttribute(
@@ -483,6 +511,29 @@ describe('provider console (S-T1)', () => {
     expect(screen.getByRole('link', { name: /export jsonl/i })).toHaveAttribute(
       'href',
       '/provider/v1/usage/export?format=jsonl&rollup=day',
+    )
+  })
+
+  test('DPR-037 activity: an admin pages the provider audit stream newest-first and filters it', async () => {
+    const fetchStub = providerStub({ loggedIn: true })
+    vi.stubGlobal('fetch', fetchStub)
+    renderApp('/provider')
+    const table = await screen.findByRole('table', { name: 'Provider activity' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows[0]).toHaveTextContent('provider.breakglass_request')
+    expect(rows[0]).toHaveTextContent('tenant=tn_1')
+    expect(rows[1]).toHaveTextContent('provider.tenant_provision')
+    expect(screen.getByRole('link', { name: /Activity/ })).toHaveAttribute('href', '#provider-activity')
+
+    const form = screen.getByRole('form', { name: 'Filter activity' })
+    await userEvent.type(within(form).getByLabelText('Action contains'), 'breakglass')
+    await userEvent.click(within(form).getByRole('button', { name: 'Filter' }))
+    await waitFor(() =>
+      expect(
+        (fetchStub as ReturnType<typeof vi.fn>).mock.calls.some(([input]) =>
+          String(input).includes('/provider/v1/audit?order=desc&limit=50&action=breakglass'),
+        ),
+      ).toBe(true),
     )
   })
 

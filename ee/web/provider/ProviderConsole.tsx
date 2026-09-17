@@ -325,6 +325,15 @@ function Dashboard({ operator }: { operator: Operator }) {
             <OperatorsCard readOnly={readOnly} />
           </div>
         ) : null}
+        {operator.role === "admin" ? (
+          <div
+            id="provider-activity"
+            className={styles.taskSection}
+            tabIndex={-1}
+          >
+            <ActivityCard />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -390,6 +399,12 @@ function ProviderTaskNavigation({
             href: "#provider-operators",
             key: "o",
             label: t("provider.tasks.operators"),
+          },
+          {
+            rank: "08",
+            href: "#provider-activity",
+            key: "a",
+            label: t("provider.tasks.activity"),
           },
         ]
       : []),
@@ -1444,6 +1459,97 @@ function OperatorsCard({ readOnly }: { readOnly: boolean }) {
                 icon="admin"
                 title="No operators"
                 description="Bootstrap the first admin with the deployment token."
+              />
+            }
+          />
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+interface ActivityRow {
+  seq: number;
+  actor: string;
+  action: string;
+  target: string;
+  data: Record<string, unknown>;
+  created_at: string;
+}
+
+/** ActivityCard (DPR-037): the plane's own audit stream, newest-first — every
+ *  bootstrap, login, lockout, operator change, tenant lifecycle step,
+ *  break-glass request/consent/access/revoke and provisioning outcome. It is
+ *  the same tamper-evident stream the WORM export and SIEM feed carry; reading
+ *  it never appends to it. Admin-only (a governance view). */
+function ActivityCard() {
+  const [actionFilter, setActionFilter] = useState("");
+  const [applied, setApplied] = useState("");
+  const query = useProviderData<{ items: ActivityRow[]; next: number }>(
+    ["audit", applied],
+    `/provider/v1/audit?order=desc&limit=50${applied ? `&action=${encodeURIComponent(applied)}` : ""}`,
+  );
+  const rows = query.data?.items ?? [];
+  const queryError = query.error ? (query.error as Error).message : "";
+  const columns: Column<ActivityRow>[] = [
+    { key: "when", header: "When", render: (r) => <time dateTime={r.created_at}>{r.created_at}</time> },
+    { key: "actor", header: "Actor", render: (r) => <code>{r.actor}</code> },
+    { key: "action", header: "Action", render: (r) => <code>{r.action}</code> },
+    { key: "target", header: "Target", render: (r) => <code>{r.target || "—"}</code> },
+    {
+      key: "detail",
+      header: "Detail",
+      render: (r) => {
+        const keys = Object.keys(r.data ?? {});
+        if (keys.length === 0) return "—";
+        return keys
+          .slice(0, 4)
+          .map((k) => `${k}=${String(r.data[k])}`)
+          .join(" · ");
+      },
+    },
+  ];
+  return (
+    <Card>
+      <CardHeader
+        title="Activity"
+        description="What this provider plane recorded about its own operators: bootstrap, logins and lockouts, operator changes, tenant lifecycle, break-glass request → consent → audited access → revoke, provisioning outcomes. Newest first; the same tamper-evident rows the WORM export and SIEM feed carry."
+      />
+      <CardBody>
+        <form
+          className={styles.row}
+          aria-label="Filter activity"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setApplied(actionFilter.trim());
+          }}
+        >
+          <Field
+            label="Action contains"
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            placeholder="breakglass, tenant, operator…"
+          />
+          <Button type="submit">Filter</Button>
+        </form>
+        {queryError ? (
+          <p role="alert" className={styles.note}>
+            {queryError}
+          </p>
+        ) : null}
+        {query.isPending ? (
+          <LoadingState label="Loading activity…" />
+        ) : (
+          <Table
+            caption="Provider activity"
+            columns={columns}
+            rows={rows}
+            rowKey={(r) => String(r.seq)}
+            empty={
+              <EmptyState
+                icon="admin"
+                title="No activity yet"
+                description="Nothing has been recorded on the provider audit stream that matches."
               />
             }
           />

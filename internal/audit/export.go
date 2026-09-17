@@ -9,6 +9,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -259,4 +260,71 @@ func Drain(ctx context.Context, s tenancy.Scope, sink Sink, afterSeq int64, limi
 		cursor = ev.Seq
 	}
 	return cursor, nil
+}
+
+// ProviderListFiltered pages the provider/break-glass audit stream oldest-first
+// after afterSeq (DPR-037). It is the read side of ProviderAppend: the stream
+// always existed as WORM segments and SIEM export, but an MSP operator had no
+// in-product way to see what their own plane recorded. No subject-erasure
+// projection applies — actors here are provider operators, not tenant users.
+func ProviderListFiltered(ctx context.Context, q tenancy.Querier, afterSeq int64, limit int, filter Filter) ([]Event, error) {
+	return providerList(ctx, q, afterSeq, limit, filter, false)
+}
+
+// ProviderListRecent pages the provider audit stream newest-first before
+// beforeSeq (0 = from the head), which is what an activity view wants.
+func ProviderListRecent(ctx context.Context, q tenancy.Querier, beforeSeq int64, limit int, filter Filter) ([]Event, error) {
+	return providerList(ctx, q, beforeSeq, limit, filter, true)
+}
+
+func providerList(ctx context.Context, q tenancy.Querier, cursor int64, limit int, filter Filter, newestFirst bool) ([]Event, error) {
+	if q == nil {
+		return nil, errors.New("audit: provider stream querier is nil")
+	}
+	if limit <= 0 {
+		limit = DefaultExportPageSize
+	}
+	if limit > MaxExportPageSize {
+		limit = MaxExportPageSize
+	}
+	filter.Actor = normalizeFilter(filter.Actor)
+	filter.Action = normalizeFilter(filter.Action)
+	filter.Target = normalizeFilter(filter.Target)
+	where, order := `seq > $1`, `seq`
+	if newestFirst {
+		order = `seq DESC`
+		if cursor > 0 {
+			where = `seq < $1`
+		} else {
+			where = `$1 = 0`
+		}
+	}
+	rows, err := q.Query(ctx,
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
+		   FROM provider_audit_events
+		  WHERE `+where+`
+		    AND ($3 = '' OR actor ILIKE '%' || $3 || '%')
+		    AND ($4 = '' OR action ILIKE '%' || $4 || '%')
+		    AND ($5 = '' OR target ILIKE '%' || $5 || '%')
+		  ORDER BY `+order+`
+		  LIMIT $2`, cursor, limit, filter.Actor, filter.Action, filter.Target)
+	if err != nil {
+		return nil, fmt.Errorf("list provider audit events: %w", err)
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var (
+			ev        Event
+			dataBytes []byte
+		)
+		if err := rows.Scan(&ev.Seq, &ev.Actor, &ev.Action, &ev.Target, &dataBytes, &ev.PrevHash, &ev.Hash, &ev.CreatedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(dataBytes, &ev.Data); err != nil {
+			return nil, fmt.Errorf("provider seq %d: decode data: %w", ev.Seq, err)
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
 }

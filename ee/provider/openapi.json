@@ -335,6 +335,31 @@
         }
       }
     },
+    "/provider/v1/audit": {
+      "get": {
+        "summary": "Page the provider/break-glass audit stream (admin): every operator action, tenant lifecycle step, break-glass request/consent/access/revoke and provisioning outcome; oldest-first after `after`, or newest-first before `before` with order=desc (0 = head). Reads never append to the stream.",
+        "parameters": [
+          {"name": "after", "in": "query", "schema": {"type": "integer", "minimum": 0}, "description": "return events with seq greater than this (ascending pages)"},
+          {"name": "before", "in": "query", "schema": {"type": "integer", "minimum": 0}, "description": "with order=desc: return events with seq lower than this; 0 or absent starts at the head"},
+          {"name": "order", "in": "query", "schema": {"type": "string", "enum": ["asc", "desc"]}, "description": "asc (default, oldest-first) or desc (newest-first)"},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 1000}, "description": "page size (default 50, capped at the audit export page maximum)"},
+          {"name": "actor", "in": "query", "schema": {"type": "string"}, "description": "case-insensitive substring filter on the acting operator"},
+          {"name": "action", "in": "query", "schema": {"type": "string"}, "description": "case-insensitive substring filter, e.g. breakglass or tenant_provision"},
+          {"name": "target", "in": "query", "schema": {"type": "string"}, "description": "case-insensitive substring filter on the target (tenant id, grant id, operator id)"}
+        ],
+        "responses": {
+          "200": {
+            "description": "OK: {items: [{seq, actor, action, target, data, prev_hash, hash, created_at}], next: cursor for the following page (last seq returned), order}"
+          },
+          "403": {
+            "description": "Forbidden: operator is not a provider admin"
+          },
+          "503": {
+            "description": "audit_read_unavailable: this deployment's sink has no read side"
+          }
+        }
+      }
+    },
     "/provider/v1/consent": {
       "get": {
         "summary": "Pending grants for the caller's tenant (tenant session)",

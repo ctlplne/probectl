@@ -38,6 +38,26 @@ type AuditSink interface {
 	) error
 }
 
+// AuditReader is the optional read side of an AuditSink (DPR-037): the
+// provider plane's own activity log. The production sink reads the
+// provider_audit_events stream; fakes may implement it over their memory.
+type AuditReader interface {
+	ListAudit(ctx context.Context, cursor int64, limit int, filter coreaudit.Filter, newestFirst bool) ([]coreaudit.Event, error)
+}
+
+// ErrAuditReadUnavailable reports a sink without a read side.
+var ErrAuditReadUnavailable = errors.New("provider: the provider audit stream cannot be read on this deployment")
+
+// ListAudit pages the provider audit stream: oldest-first after cursor, or
+// newest-first before cursor (0 = from the head) when newestFirst is set.
+func (s *Service) ListAudit(ctx context.Context, cursor int64, limit int, filter coreaudit.Filter, newestFirst bool) ([]coreaudit.Event, error) {
+	reader, ok := s.audit.(AuditReader)
+	if !ok || reader == nil {
+		return nil, ErrAuditReadUnavailable
+	}
+	return reader.ListAudit(ctx, cursor, limit, filter, newestFirst)
+}
+
 // TelemetryReader is the ONLY telemetry surface break-glass can reach in S-T1:
 // the latest-results read model. The production adapter wraps
 // control.LatestResults; the interface keeps the service unit-testable and the

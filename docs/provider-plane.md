@@ -188,7 +188,12 @@ pointing at `ee/web`, is the web seam). When the API returns 404 (unlicensed), t
 console honestly renders "Provider plane not enabled." The screens: MFA login;
 tenant inventory with lifecycle actions and a provision form; a
 fleet-across-tenants table (counts and versions only — no telemetry);
-break-glass request/list/revoke with per-grant audited-use counts; usage,
+break-glass request/list/revoke with per-grant audited-use counts; an
+**Activity** card (admins) that pages the plane's own audit stream newest-first
+— every bootstrap, login, lockout, operator change, tenant lifecycle step,
+break-glass request/consent/access/revoke and provisioning outcome, with
+actor/action/target filters (DPR-037; the same rows the WORM export and the
+SIEM feed carry, and reading never appends to the stream); usage,
 fairness, and governance cards (each documented on its own page —
 [`metering.md`](metering.md), [`fairness.md`](fairness.md),
 [`governance.md`](governance.md)); and operator management with one-time
@@ -252,7 +257,11 @@ the operator onboarding/lifecycle surfaces when the provider API is available.
 
 ## API
 
-The provider API is `/provider/v1/*`, documented in `ee/provider/openapi.json`,
+The provider API is `/provider/v1/*`, documented in `ee/provider/openapi.json`.
+`GET /provider/v1/audit` (admin) pages the provider audit stream —
+`?after=<seq>` oldest-first, or `?order=desc&before=<seq>` newest-first, with
+`actor`/`action`/`target` substring filters and `limit` up to the audit export
+page maximum; the CLI equivalent is `probectl provider audit`. The spec is
 with a route-vs-spec parity self-test (`TestProviderOpenAPIMatchesRoutes`) that
 mirrors the core OpenAPI gate — so the spec can't drift from the handlers. Core
 mounts the whole surface as an **opaque `http.Handler`** via

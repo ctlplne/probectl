@@ -177,6 +177,11 @@ provider-stream targets remain inert text. The audit page does not prefetch the
 object, infer a route from arbitrary strings, or turn a link into authority to
 read or change anything.
 
+The provider stream has its own read surface for MSP admins:
+`GET /provider/v1/audit` / `probectl provider audit` and the provider console's
+Activity card (see [provider-plane.md](provider-plane.md#api)); a tenant never
+sees it, and reading it never appends to it.
+
 The CLI equivalents are `probectl audit list` (page through the same canonical
 `action` and `target` evidence), `probectl audit verify` (check the hash chain),
 and the separation-of-duty reveal path:

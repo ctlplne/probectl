@@ -89,6 +89,42 @@ func (a *memAudit) AppendBreakGlass(
 	return nil
 }
 
+// ListAudit gives the in-memory sink the read side the handler pages
+// (DPR-037): sequence = append order, filters are case-insensitive substrings.
+func (a *memAudit) ListAudit(_ context.Context, cursor int64, limit int, filter coreaudit.Filter, newestFirst bool) ([]coreaudit.Event, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	match := func(value, want string) bool {
+		return want == "" || strings.Contains(strings.ToLower(value), strings.ToLower(want))
+	}
+	var out []coreaudit.Event
+	for i, e := range a.events {
+		seq := int64(i + 1)
+		if newestFirst && cursor > 0 && seq >= cursor {
+			continue
+		}
+		if !newestFirst && seq <= cursor {
+			continue
+		}
+		if !match(e.Actor, filter.Actor) || !match(e.Action, filter.Action) || !match(e.Target, filter.Target) {
+			continue
+		}
+		out = append(out, coreaudit.Event{Seq: seq, Actor: e.Actor, Action: e.Action, Target: e.Target, Data: e.Data})
+	}
+	if newestFirst {
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	if out == nil {
+		out = []coreaudit.Event{}
+	}
+	return out, nil
+}
+
 func (a *memAudit) count(action string) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()

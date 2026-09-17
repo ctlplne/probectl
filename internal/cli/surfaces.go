@@ -301,6 +301,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"request-breakglass": {Method: http.MethodPost, Path: "/provider/v1/breakglass"},
 		"revoke-breakglass":  {Method: http.MethodPost, Path: "/provider/v1/breakglass/{id}/revoke", ArgName: "id"},
 		"breakglass-results": {Method: http.MethodGet, Path: "/provider/v1/breakglass/{id}/results", ArgName: "id"},
+		"audit":              {Method: http.MethodGet, Path: "/provider/v1/audit", Description: "page the provider audit stream (admin): every operator action, break-glass step and provisioning outcome; ?order=desc for newest first, after=/before= cursors, actor=/action=/target= filters"},
 		"consent":            {Method: http.MethodGet, Path: "/provider/v1/consent"},
 		"decide-consent":     {Method: http.MethodPost, Path: "/provider/v1/consent/{id}", ArgName: "id"},
 		"fairness":           {Method: http.MethodGet, Path: "/provider/v1/fairness"},
