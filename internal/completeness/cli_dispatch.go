@@ -204,12 +204,12 @@ const runRawOperationWrapperSpine = `{
 
 const runRawOperationWithStdinSpine = `{
 	path := op.Path
-	if op.ArgName != "" {
+	for _, name := range op.argNames() {
 		if len(args) == 0 {
-			fmt.Fprintf(stderr, "%s: missing <%s>\n", op.Path, op.ArgName)
+			fmt.Fprintf(stderr, "%s: missing <%s>\n", op.Path, name)
 			return 2
 		}
-		path = strings.ReplaceAll(path, "{"+op.ArgName+"}", url.PathEscape(args[0]))
+		path = strings.ReplaceAll(path, "{"+name+"}", url.PathEscape(args[0]))
 		args = args[1:]
 	}
 	fs := flag.NewFlagSet(op.Method+" "+op.Path, flag.ContinueOnError)
@@ -274,7 +274,7 @@ const runRawOperationWithStdinSpine = `{
 	if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
 		return fail(stderr, err)
 	}
-	return printGeneric(stdout, out, cfg.JSON, op.Method)
+	return printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns)
 }`
 
 var customCLIHandlerSpines = map[string]string{
