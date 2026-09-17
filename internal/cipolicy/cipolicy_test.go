@@ -941,3 +941,25 @@ func TestReleaseArtifactsBakeLicenseTrustAnchor(t *testing.T) {
 		t.Error("internal/license/trusted_keys/README.md must tell the vendor how to issue and commit the anchor")
 	}
 }
+
+// DPR-018: the documented "build from this checkout" docker build passes no
+// VERSION/COMMIT/DATE; the image must still identify itself (the checkout's
+// VERSION file suffixed -local, and the build time) instead of reporting
+// 0.0.0-dev / unknown / unknown, which is indistinguishable from a stale build.
+func TestDockerfileStampsVersionWithoutBuildArgs(t *testing.T) {
+	dockerfile := readRepoFile(t, "deploy", "docker", "Dockerfile")
+	for _, want := range []string{
+		`if [ "${version}" = "0.0.0-dev" ] && [ -s VERSION ]; then version="$(tr -d '[:space:]' < VERSION)-local"; fi;`,
+		`if [ "${build_date}" = "unknown" ]; then build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi;`,
+		"internal/version.Version=${version}",
+		"internal/version.Date=${build_date}",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Errorf("deploy/docker/Dockerfile is missing %q — an unparameterized build would report 0.0.0-dev (DPR-018)", want)
+		}
+	}
+	install := readRepoFile(t, "docs", "install.md")
+	if !strings.Contains(install, "--build-arg COMMIT=$(git rev-parse --short HEAD)") {
+		t.Error("docs/install.md build-from-checkout command must pass the commit, which the build context cannot derive (DPR-018)")
+	}
+}

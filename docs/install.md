@@ -40,7 +40,11 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
   # or build from this checkout (it trusts the committed license public keys
   # under internal/license/trusted_keys/, so a vendor license file works —
   # docs/editions.md, "Trust anchor"):
-  docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control -t probectl-control:local .
+  docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control \
+    --build-arg COMMIT=$(git rev-parse --short HEAD) -t probectl-control:local .
+  # The image stamps the checkout's VERSION file (as <version>-local) and the build
+  # time by itself; only the commit needs passing, because .git is not in the build
+  # context. `probectl-control version` (or /v1/version) then identifies the build.
   PROBECTL_IMAGE=probectl-control:local
   PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
   ```

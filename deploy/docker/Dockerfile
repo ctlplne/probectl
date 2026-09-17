@@ -68,13 +68,24 @@ RUN test -n "$COMPONENT" || { echo "COMPONENT build-arg is required"; exit 1; }
 # always runs, so the shipped image can never silently serve the stub.
 COPY --from=web /web/dist/ ./internal/webui/dist/
 RUN test -d ./internal/webui/dist/assets || { echo "UX-002: web bundle missing — internal/webui/dist has no assets/"; exit 1; }
+# DPR-018: the documented "build from this checkout" command passes no
+# VERSION/COMMIT/DATE, and a control plane that reports 0.0.0-dev / unknown /
+# unknown cannot be told apart from a stale one in a support bundle. Without
+# build-args, stamp the checkout's VERSION file (suffixed -local: not a release)
+# and the build time; the commit stays "unknown" because .git is excluded from
+# the build context (pass --build-arg COMMIT=$(git rev-parse --short HEAD)).
+# Release builds set all three explicitly and are byte-for-byte unaffected.
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    set -eu; \
+    version="${VERSION}"; build_date="${DATE}"; \
+    if [ "${version}" = "0.0.0-dev" ] && [ -s VERSION ]; then version="$(tr -d '[:space:]' < VERSION)-local"; fi; \
+    if [ "${build_date}" = "unknown" ]; then build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi; \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath ${GO_TAGS:+-tags ${GO_TAGS}} \
       -ldflags "-s -w \
-        -X github.com/ctlplne/probectl/internal/version.Version=${VERSION} \
+        -X github.com/ctlplne/probectl/internal/version.Version=${version} \
         -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
-        -X github.com/ctlplne/probectl/internal/version.Date=${DATE} \
+        -X github.com/ctlplne/probectl/internal/version.Date=${build_date} \
         ${LICENSE_PUBKEYS_B64:+-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=${LICENSE_PUBKEYS_B64}}" \
       -o /out/app ./cmd/${COMPONENT}
 # DPR-001: a requested link-time trust anchor must actually be in the binary.
