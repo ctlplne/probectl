@@ -18,6 +18,7 @@
 //	    [-features byok,...] [-tenant-band 25] \
 //	    -out probectl-license.json
 //	probectl-license verify   -file probectl-license.json -pub license-signing.pub
+//	probectl-license verify   -file probectl-license.json   # against THIS build's baked anchors
 //	probectl-license inspect  -file probectl-license.json
 package main
 
@@ -171,24 +172,37 @@ func sign(args []string) error {
 func verify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	file := fs.String("file", "probectl-license.json", "license file")
-	pub := fs.String("pub", "", "public key (PEM) to verify against")
+	pub := fs.String("pub", "", "public key (PEM) to verify against; omitted = the trust anchors baked into THIS probectl-license build (answers: will a control plane from the same build accept the file?)")
 	_ = fs.Parse(args)
-	if *pub == "" {
-		return fmt.Errorf("verify requires -pub")
-	}
 	raw, err := os.ReadFile(*file)
 	if err != nil {
 		return err
 	}
-	pubPEM, err := os.ReadFile(*pub)
+	var (
+		anchors [][]byte
+		against string
+	)
+	if *pub != "" {
+		pubPEM, err := os.ReadFile(*pub)
+		if err != nil {
+			return err
+		}
+		anchors, against = [][]byte{pubPEM}, "-pub "+*pub
+	} else {
+		// DPR-024: the vendor CLI is built with the same anchors as the
+		// control plane, so a customer can check a file against exactly what
+		// the shipped build trusts, without extracting a public key first.
+		anchors = license.TrustedKeys()
+		if len(anchors) == 0 {
+			return fmt.Errorf("verify: no -pub given and this probectl-license build carries no license trust anchors (keyless build); pass -pub <signing.pub>, or build with the committed trusted_keys/*.pub or PROBECTL_LICENSE_PUBKEYS_B64")
+		}
+		against = fmt.Sprintf("%d baked trust anchor(s)", len(anchors))
+	}
+	c, err := license.Verify(raw, anchors)
 	if err != nil {
 		return err
 	}
-	c, err := license.Verify(raw, [][]byte{pubPEM})
-	if err != nil {
-		return err
-	}
-	fmt.Printf("VALID — %s · %s · %s · expires %s\n", c.Customer, c.Tier, c.PricingModel, c.ExpiresAt.Format(time.RFC3339))
+	fmt.Printf("VALID — %s · %s · %s · expires %s (verified against %s)\n", c.Customer, c.Tier, c.PricingModel, c.ExpiresAt.Format(time.RFC3339), against)
 	return nil
 }
 

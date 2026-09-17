@@ -9,6 +9,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,5 +70,30 @@ func TestSignIssuedFlagBackdatesTheLicense(t *testing.T) {
 	}
 	if c.IssuedAt.Before(before) || c.IssuedAt.After(time.Now().UTC().Add(time.Minute)) {
 		t.Fatalf("default issued_at = %s, want ≈ now", c.IssuedAt)
+	}
+}
+
+// DPR-024: verify without -pub checks the file against the anchors baked into
+// this build. The test binary is keyless, so that path must refuse clearly,
+// while an explicit -pub keeps working.
+func TestVerifyWithoutPubUsesBakedAnchors(t *testing.T) {
+	if license.TrustAnchorCount() != 0 {
+		t.Skip("this test binary carries trust anchors; the keyless refusal cannot be observed")
+	}
+	dir := t.TempDir()
+	priv, pub := filepath.Join(dir, "k.key"), filepath.Join(dir, "k.pub")
+	if err := genKey([]string{"-out-priv", priv, "-out-pub", pub}); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "lic.json")
+	if err := sign([]string{"-key", priv, "-customer", "Anchors", "-tier", "enterprise", "-expires", "2099-01-01", "-out", out}); err != nil {
+		t.Fatal(err)
+	}
+	err := verify([]string{"-file", out})
+	if err == nil || !strings.Contains(err.Error(), "no license trust anchors") {
+		t.Fatalf("keyless build must refuse verify without -pub and say why, got %v", err)
+	}
+	if err := verify([]string{"-file", out, "-pub", pub}); err != nil {
+		t.Fatalf("verify with -pub: %v", err)
 	}
 }

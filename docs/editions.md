@@ -173,6 +173,13 @@ the anchor set, in this order:
 go build -ldflags "-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=<base64 PEM>[,<base64 PEM>]" ./cmd/probectl-control
 ```
 
+Only the binaries that **verify** license files carry the anchors and are
+asserted to carry them: `internal/license/anchored_binaries.txt` lists them
+(`probectl-control`, `probectl-license`). Agents and collectors never verify a
+license; the Go linker drops the unused anchor string from them, so the image
+build's "anchor was linked" assertion is scoped to that list and a keyed
+`make images` builds every component (DPR-024).
+
 A **keyless build** — no `.pub` committed and nothing linked — runs Community
 only: an unconfigured deployment works, and a *configured* license file fails
 startup loudly (fail closed — a license you cannot verify is a misconfiguration,
@@ -199,8 +206,11 @@ probectl-license sign -key signing.key -customer "Reseller GmbH" \
   -tier msp -pricing-model consumption -tenant-band 25 \
   -expires 2027-06-05 -out license.json
 
-# 3) Verify against a public key (what the control plane does at startup)
+# 3) Verify against a public key (what the control plane does at startup) —
+#    or omit -pub on a build that bakes the anchors to answer the customer's
+#    real question: will a control plane from THIS build accept the file?
 probectl-license verify -file license.json -pub signing.pub
+probectl-license verify -file license.json
 
 # 4) Inspect WITHOUT verifying (clearly labeled as unverified)
 probectl-license inspect -file license.json

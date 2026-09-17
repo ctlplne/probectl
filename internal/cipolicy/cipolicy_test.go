@@ -905,9 +905,11 @@ func TestReleaseArtifactsBakeLicenseTrustAnchor(t *testing.T) {
 		"ARG LICENSE_PUBKEYS_B64",
 		"internal/license.builtinPubKeysB64=${LICENSE_PUBKEYS_B64}",
 		"license trust anchor was not linked",
+		// DPR-024: asserted only for the binaries that verify licenses.
+		`grep -qx -- "${COMPONENT}" internal/license/anchored_binaries.txt`,
 	} {
 		if !strings.Contains(dockerfile, want) {
-			t.Errorf("deploy/docker/Dockerfile is missing %q (DPR-001)", want)
+			t.Errorf("deploy/docker/Dockerfile is missing %q (DPR-001/DPR-024)", want)
 		}
 	}
 	makefile := readRepoFile(t, "Makefile")

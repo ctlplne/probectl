@@ -91,7 +91,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # DPR-001: a requested link-time trust anchor must actually be in the binary.
 # The -X payload is stored verbatim as string data, so a silent drop (a typo'd
 # variable path, a stripped flag) is caught here for any target architecture.
-RUN if [ -n "${LICENSE_PUBKEYS_B64}" ]; then \
+# DPR-024: only for the binaries that verify license files
+# (internal/license/anchored_binaries.txt); agents and collectors never call
+# TrustedKeys, so the linker drops the unused string from them by design.
+RUN if [ -n "${LICENSE_PUBKEYS_B64}" ] && grep -qx -- "${COMPONENT}" internal/license/anchored_binaries.txt; then \
       grep -qaF -- "${LICENSE_PUBKEYS_B64}" /out/app \
         || { echo "DPR-001: license trust anchor was not linked into ${COMPONENT}"; exit 1; }; \
     fi

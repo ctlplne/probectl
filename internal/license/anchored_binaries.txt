@@ -1,0 +1,12 @@
+# Binaries that VERIFY license files, and therefore must carry the license trust
+# anchors (the committed trusted_keys/*.pub files plus any link-time
+# LICENSE_PUBKEYS_B64 key). One name per line; comments start with '#'.
+#
+# The image build (deploy/docker/Dockerfile) asserts that a requested link-time
+# anchor is present in the binary ONLY for the components listed here. Every
+# other binary links internal/license transitively (through tenantcrypto) but
+# never calls TrustedKeys, so the Go linker drops the unused anchor string and
+# the assertion would fail for no reason (DPR-024). A Go test keeps this list
+# equal to the set of cmd/ packages that import internal/license directly.
+probectl-control
+probectl-license
