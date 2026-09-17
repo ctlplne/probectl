@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -33,6 +34,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
 	"github.com/ctlplne/probectl/internal/topology"
+	"github.com/ctlplne/probectl/internal/usage"
 )
 
 func collectorEnrollService(t *testing.T, db *store.DB) *enroll.Service {
@@ -434,5 +436,51 @@ func TestBMPCollectorRegistrationIssuesRegistrySVIDTwoTenant(t *testing.T) {
 	}
 	if knownB {
 		t.Fatal("tenant B saw tenant A's BMP SVID in its identity registry")
+	}
+}
+
+type denyCollectorQuota struct{}
+
+func (denyCollectorQuota) AllowCreate(_ context.Context, _ string, resource string) error {
+	if resource == usage.MeterAgents {
+		return errors.New("agents quota exceeded (5/5)")
+	}
+	return nil
+}
+
+// DPR-081: registering a bus collector at the tenant's agent cap is refused
+// with 403 quota_exceeded — the vocabulary the test-creation path uses — and
+// admitted once the cap is lifted.
+func TestCollectorRegistrationRefusedAtTheAgentQuota(t *testing.T) {
+	db := changeDB(t)
+	svc := collectorEnrollService(t, db)
+	tenant := freshTenant(t, db, "collector-quota")
+	srv := New(&config.Config{AuthMode: "dev"}, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
+	srv.SetEnrollService(svc)
+	h := srv.Handler()
+	t.Cleanup(func() { usage.SetQuotaChecker(nil) })
+	usage.SetQuotaChecker(denyCollectorQuota{})
+
+	token, _, err := svc.MintToken(context.Background(), tenant, uuid(t), "flow-6", "test", time.Hour)
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	refused := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenant, map[string]any{
+		"token": token, "plane": "flow", "hostname": "flow-6",
+	})
+	if refused.Code != http.StatusForbidden || !strings.Contains(refused.Body.String(), "quota_exceeded") {
+		t.Fatalf("registration at the cap = %d %s, want 403 quota_exceeded", refused.Code, refused.Body)
+	}
+
+	usage.SetQuotaChecker(nil)
+	token2, _, err := svc.MintToken(context.Background(), tenant, uuid(t), "flow-6", "test", time.Hour)
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	ok := apiReq(t, h, http.MethodPost, "/v1/collectors/register", tenant, map[string]any{
+		"token": token2, "plane": "flow", "hostname": "flow-6",
+	})
+	if ok.Code != http.StatusCreated {
+		t.Fatalf("registration under the cap = %d %s, want 201", ok.Code, ok.Body)
 	}
 }
