@@ -242,6 +242,12 @@ docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml \
 make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/agents.yml'
 ```
 
+> **Restarting or upgrading later:** re-run `make compose-prod-up` with the same
+> overlays. Bring the stack up as a whole rather than one service at a time —
+> the demo Dex shares the control container's network namespace, so
+> `docker compose ... up -d control` alone strands Dex and every login answers
+> "tenant SSO provider is unavailable" until Dex is recreated too.
+
 Then mint a join token (**Admin & Settings → Agents → Enroll agent**, or
 `exec control /usr/local/bin/app enroll-token -tenant <uuid>`) and enroll the
 agent from its host against `https://<host>:8443` with gRPC at `<host>:9443`

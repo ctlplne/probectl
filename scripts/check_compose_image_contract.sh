@@ -82,6 +82,12 @@ run_checks() {
       || err "deploy/compose/.env.example must document the explicit tag-only acknowledgement"
   fi
 
+  # DPR-025: the demo Dex shares control's network namespace; the overlay and
+  # the install guide must say the two are recreated together.
+  grep -Fq 'must be recreated WITH control' "$root/deploy/compose/dex-demo.yml" \
+    || { echo "compose-image-contract: deploy/compose/dex-demo.yml header must state that Dex is recreated WITH control (DPR-025)" >&2; fail=1; }
+  grep -Fq 'strands Dex' "$root/docs/install.md" \
+    || { echo "compose-image-contract: docs/install.md must warn that 'up -d control' alone strands the demo Dex (DPR-025)" >&2; fail=1; }
   grep -Fq 'docker login ghcr.io' "$root/docs/install.md" \
     || err "docs/install.md must document GHCR registry authentication"
   grep -Fq 'read:packages' "$root/docs/install.md" \

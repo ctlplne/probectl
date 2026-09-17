@@ -4,6 +4,12 @@
 # probectl resolve the issuer as https://localhost:5556/dex. It reuses the
 # quickstart TLS certificate and never opens a plaintext listener.
 #
+# Because of that shared namespace, Dex must be recreated WITH control: always
+# bring the stack up as a whole (`make compose-prod-up`, or `docker compose ...
+# up -d` with no service name). `docker compose ... up -d control` alone leaves
+# Dex attached to the old, deleted namespace and every login fails with
+# "tenant SSO provider is unavailable" until Dex is recreated (DPR-025).
+#
 # Required runtime secrets (generate them; never commit them):
 #   DEX_CLIENT_SECRET       openssl rand -hex 32
 #   DEX_DEMO_PASSWORD_HASH  htpasswd -bnBC 12 demo '<password>' | cut -d: -f2
