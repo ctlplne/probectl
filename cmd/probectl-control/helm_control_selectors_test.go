@@ -25,9 +25,8 @@ func TestHelmControlSelectorsExcludeAgentPods(t *testing.T) {
 		t.Skip("helm is not installed")
 	}
 	const component = "app.kubernetes.io/component: control"
-	for _, tpl := range []string{"templates/service.yaml", "templates/pdb.yaml", "templates/networkpolicy.yaml"} {
+	for _, tpl := range []string{"templates/pdb.yaml", "templates/networkpolicy.yaml"} {
 		out, err := renderHelmAgentListener(t, tpl,
-			"--set", "control.agentListener.enabled=true",
 			"--set", "podDisruptionBudget.enabled=true",
 			"--set", "networkPolicy.enabled=true",
 			"--set-json", `networkPolicy.ingressFrom=[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ingress-nginx"}}}]`)
@@ -37,9 +36,21 @@ func TestHelmControlSelectorsExcludeAgentPods(t *testing.T) {
 		if !strings.Contains(out, component) {
 			t.Errorf("%s must select the control component only:\n%s", tpl, out)
 		}
-		if tpl == "templates/service.yaml" && strings.Count(out, component) < 2 {
-			t.Errorf("both the API and the agent-listener Service must select the control component:\n%s", out)
-		}
+	}
+	// The Services deliberately keep the release-wide selector: a selector
+	// narrowed to a label the running pods lack is applied before any new pod
+	// exists and orphans every old replica for the length of the rollout (the
+	// lab measured 14 s / 27 failed requests). The named targetPort already
+	// excludes the agent pods.
+	svc, err := renderHelmAgentListener(t, "templates/service.yaml", "--set", "control.agentListener.enabled=true")
+	if err != nil {
+		t.Fatalf("render service: %v\n%s", err, svc)
+	}
+	if strings.Contains(svc, component) {
+		t.Errorf("a Service selector must never require a label that running pods lack (zero-downtime upgrade):\n%s", svc)
+	}
+	if strings.Count(svc, "targetPort: ") < 2 || !strings.Contains(svc, "targetPort: agent-grpc") {
+		t.Errorf("the Services must target NAMED ports so agent pods stay out of the endpoints:\n%s", svc)
 	}
 	out, err := renderHelmAgentListener(t, "templates/deployment.yaml")
 	if err != nil {

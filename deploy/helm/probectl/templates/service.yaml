@@ -8,8 +8,14 @@ spec:
   # ClusterIP by default: the API is reachable externally only through the
   # TLS ingress, and this Service targets the pod's HTTPS listener.
   type: {{ .Values.service.type }}
+  # DPR-085 follow-up: the Services keep the release-wide selector on purpose.
+  # A Service selector is applied the instant `helm upgrade` runs, before a
+  # single new pod exists; narrowing it to a label the RUNNING pods lack
+  # orphaned every old replica for 14 s on the lab (27 failed requests). The
+  # named targetPort already keeps the agent pods out of the endpoints — they
+  # expose no port by that name — so the Service needs no component selector.
   selector:
-    {{- include "probectl.controlSelectorLabels" . | nindent 4 }}
+    {{- include "probectl.selectorLabels" . | nindent 4 }}
   ports:
     - name: {{ include "probectl.servicePortName" . }}
       port: {{ .Values.service.port }}
@@ -32,8 +38,14 @@ metadata:
   {{- end }}
 spec:
   type: {{ include "probectl.agentListener.serviceType" . }}
+  # DPR-085 follow-up: the Services keep the release-wide selector on purpose.
+  # A Service selector is applied the instant `helm upgrade` runs, before a
+  # single new pod exists; narrowing it to a label the RUNNING pods lack
+  # orphaned every old replica for 14 s on the lab (27 failed requests). The
+  # named targetPort already keeps the agent pods out of the endpoints — they
+  # expose no port by that name — so the Service needs no component selector.
   selector:
-    {{- include "probectl.controlSelectorLabels" . | nindent 4 }}
+    {{- include "probectl.selectorLabels" . | nindent 4 }}
   ports:
     - name: agent-grpc
       port: {{ include "probectl.agentListener.port" . }}
