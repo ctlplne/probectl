@@ -7,11 +7,12 @@
 package cipolicy
 
 import (
-	"github.com/ctlplne/probectl/internal/agent"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctlplne/probectl/internal/agent"
 )
 
 func TestPackagingSmokeUsesPortableSed(t *testing.T) {

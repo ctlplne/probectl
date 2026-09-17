@@ -14,7 +14,6 @@ package github.com/ctlplne/probectl/internal/testsupport — its declared role i
 # ---- the crypto door's test-fixture surface (§7.3) --------------------------
 symbol github.com/ctlplne/probectl/internal/crypto.CA.IssueClientCert — §7.3 forbids test packages minting their own primitives; dependent suites obtain client SVIDs here
 symbol github.com/ctlplne/probectl/internal/crypto.GenerateRSAKeyPEM — crypto-door test fixture: RSA material for SCIM/JWKS suites, never minted outside internal/crypto
-symbol github.com/ctlplne/probectl/internal/crypto.GenerateRSAOAEPKeyPEM — crypto-door test fixture: OAEP wrap material for BYOK suites, never minted outside internal/crypto
 symbol github.com/ctlplne/probectl/internal/crypto.GenerateTestCert — crypto-door test fixture: TLS certs for listener suites, never minted outside internal/crypto
 symbol github.com/ctlplne/probectl/internal/crypto.NewStaticKeyProvider — crypto-door test fixture: deterministic key provider for envelope suites
 symbol github.com/ctlplne/probectl/internal/crypto.TOTPNow — crypto-door test fixture: provider-console TOTP enrollment tests compute expected codes here
@@ -41,7 +40,6 @@ symbol github.com/ctlplne/probectl/internal/store.Tenants.UpdateStatus — integ
 symbol github.com/ctlplne/probectl/internal/store.Tests.List — integration fixture: suites read back seeded synthetic tests through RLS
 symbol github.com/ctlplne/probectl/internal/store.Users.CreateSCIM — integration fixture: SCIM suites seed directory users through the RLS path
 symbol github.com/ctlplne/probectl/internal/store.Roles.Create — integration fixture: RBAC suites seed roles through the RLS path
-symbol github.com/ctlplne/probectl/internal/store.Roles.Permissions — integration fixture: RBAC suites read effective permissions through RLS
 symbol github.com/ctlplne/probectl/internal/store.RoleBindings.Create — integration fixture: RBAC suites bind subjects through the RLS path
 symbol github.com/ctlplne/probectl/internal/store.OTLPTokens.Create — integration fixture: OTLP ingest suites mint tenant tokens through RLS
 symbol github.com/ctlplne/probectl/internal/store.OTLPTokens.Revoke — integration fixture: OTLP ingest suites revoke tenant tokens through RLS
@@ -139,3 +137,6 @@ symbol github.com/ctlplne/probectl/internal/topology.MemoryStore.Latest — pre-
 # ---- wire-vocabulary completeness ------------------------------------------
 symbol github.com/ctlplne/probectl/internal/ebpf.TransportUDP — OTel network.transport wire vocabulary: documents the value set result.proto carries; the TCP sibling is produced today
 symbol github.com/ctlplne/probectl/internal/ebpf.DirectionIngress — OTel network.io.direction wire vocabulary: documents the value set; the egress sibling is produced today
+
+# ---- test seams -------------------------------------------------------------
+symbol github.com/ctlplne/probectl/internal/control.Server.WithListener — DPR-103 drain seam: lets a test hand the server a listener on a known port so the drain window can be observed deterministically; production always binds from config

@@ -42,7 +42,7 @@ func goodArtifact() VerifiedArtifact {
 
 func mustPlan(t *testing.T, fleet []FleetAgent) *RolloutPlan {
 	t.Helper()
-	p, err := PlanRollout(fleet, goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy())
+	p, err := PlanRolloutAt(fleet, goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestPlanRolloutExcludesAgentsAlreadyOnTarget(t *testing.T) {
 		}
 	}
 	// A fully-upgraded fleet has nothing to do.
-	if _, err := PlanRollout(testFleet(5, "v0.2.0"), goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy()); err == nil {
+	if _, err := PlanRolloutAt(testFleet(5, "v0.2.0"), goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {
 		t.Fatal("planning over an up-to-date fleet must refuse")
 	}
 }
@@ -128,7 +128,7 @@ func TestPlanRolloutRefusesUnattestedArtifacts(t *testing.T) {
 	} {
 		a := goodArtifact()
 		mutate(&a)
-		if _, err := PlanRollout(fleet, a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy()); err == nil {
+		if _, err := PlanRolloutAt(fleet, a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {
 			t.Fatalf("%s: unattested artifact must refuse to plan (C6)", name)
 		}
 	}
@@ -138,7 +138,7 @@ func TestPlanRolloutKeepsTheSkewGateGreen(t *testing.T) {
 	fleet := testFleet(5, "v0.1.0")
 	a := goodArtifact()
 	a.Version = "v0.4.0" // two minors past the control plane: outside N/N-1
-	if _, err := PlanRollout(fleet, a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy()); err == nil ||
+	if _, err := PlanRolloutAt(fleet, a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil ||
 		!strings.Contains(err.Error(), "skew") {
 		t.Fatalf("skew-breaking target must refuse, got %v", err)
 	}
@@ -361,7 +361,7 @@ func TestArtifactDigestMustBeAnExactSHA256(t *testing.T) {
 	for _, bad := range []string{"sha256:abc", "sha256:" + good.Digest, strings.ToUpper(good.Digest), "sha512:" + strings.TrimPrefix(good.Digest, "sha256:")} {
 		a := good
 		a.Digest = bad
-		if _, err := PlanRollout(testFleet(3, "v0.1.0"), a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy()); err == nil {
+		if _, err := PlanRolloutAt(testFleet(3, "v0.1.0"), a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {
 			t.Errorf("digest %q must be refused", bad)
 		}
 	}

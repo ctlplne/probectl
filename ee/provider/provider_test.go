@@ -677,7 +677,7 @@ func (f *fixture) activateAndIssue(t *testing.T, op Operator) string {
 	}
 	op.Enrolled = true
 	op.Status = "active"
-	token, err := f.h.sessions.Issue(op)
+	token, err := f.h.sessions.IssueContext(context.Background(), op)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -94,10 +94,6 @@ func (s *Sessions) WithStore(store SessionStore) *Sessions {
 	return s
 }
 
-func (s *Sessions) Issue(op Operator) (string, error) {
-	return s.IssueContext(context.Background(), op)
-}
-
 func (s *Sessions) IssueContext(ctx context.Context, op Operator) (string, error) {
 	raw, err := crypto.Random(32)
 	if err != nil {
@@ -115,10 +111,6 @@ func (s *Sessions) IssueContext(ctx context.Context, op Operator) (string, error
 	defer s.mu.Unlock()
 	s.byH[s.hashKey(token)] = opSession{op: op, expires: now.Add(sessionTTL), lastActivity: now}
 	return token, nil
-}
-
-func (s *Sessions) Resolve(token string) *Operator {
-	return s.ResolveContext(context.Background(), token)
 }
 
 // ResolveContext returns the operator behind a live session, or nil. A store
@@ -158,8 +150,6 @@ func (s *Sessions) ResolveContext(ctx context.Context, token string) *Operator {
 	return &op
 }
 
-func (s *Sessions) Revoke(token string) { s.RevokeContext(context.Background(), token) }
-
 func (s *Sessions) RevokeContext(ctx context.Context, token string) {
 	if token == "" {
 		return
@@ -171,10 +161,6 @@ func (s *Sessions) RevokeContext(ctx context.Context, token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.byH, s.hashKey(token))
-}
-
-func (s *Sessions) RevokeOperator(operatorID string) {
-	s.RevokeOperatorContext(context.Background(), operatorID)
 }
 
 func (s *Sessions) RevokeOperatorContext(ctx context.Context, operatorID string) {

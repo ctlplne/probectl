@@ -123,21 +123,17 @@ const (
 	defaultHeartbeatSLO = 5 * time.Minute
 )
 
-// PlanRollout partitions the live fleet into deterministic waves (the
-// lifecycle cohorts: canary → early → main) for target. It fails closed on
-// an unattested artifact, on a target that violates the version-skew policy
-// against the control plane, and on an empty fleet. Agents already running
-// the target are excluded — there is nothing to apply to them.
-func PlanRollout(fleet []FleetAgent, target VerifiedArtifact, split lifecycle.Split, controlVersion string, pol lifecycle.Policy) (*RolloutPlan, error) {
-	return PlanRolloutAt(fleet, target, split, controlVersion, pol, time.Time{})
-}
-
-// PlanRolloutAt is PlanRollout as of now (DPR-099): an agent whose last
-// heartbeat is older than the heartbeat SLO at planning time — offline before
-// the rollout started, or never connected — is left out of the waves and
-// listed in SkippedOffline instead of blocking a wave it can never verify.
-// The zero time plans every agent (the pre-DPR-099 behavior, used by tests
-// that model no clock).
+// PlanRolloutAt partitions the live fleet into deterministic waves (the
+// lifecycle cohorts: canary → early → main) for target. It fails closed on an
+// unattested artifact, on a target that violates the version-skew policy
+// against the control plane, and on an empty fleet; agents already running the
+// target are excluded because there is nothing to apply to them.
+//
+// Planning happens as of now (DPR-099): an agent whose last heartbeat is older
+// than the heartbeat SLO — offline before the rollout started, or never
+// connected — is left out of the waves and listed in SkippedOffline instead of
+// blocking a wave it can never verify. The zero time plans every agent (the
+// pre-DPR-099 behavior, used by tests that model no clock).
 func PlanRolloutAt(fleet []FleetAgent, target VerifiedArtifact, split lifecycle.Split, controlVersion string, pol lifecycle.Policy, now time.Time) (*RolloutPlan, error) {
 	if err := target.validate(); err != nil {
 		return nil, err

@@ -33,16 +33,16 @@ func TestSessionsIdleTimeout(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	s := NewSessions(nil).WithIdleTimeout(30 * time.Minute)
 	s.now = func() time.Time { return now }
-	token, err := s.Issue(Operator{ID: "op1", Email: "op@example.com"})
+	token, err := s.IssueContext(context.Background(), Operator{ID: "op1", Email: "op@example.com"})
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
 	now = now.Add(29 * time.Minute)
-	if got := s.Resolve(token); got == nil {
+	if got := s.ResolveContext(context.Background(), token); got == nil {
 		t.Fatal("active provider session expired before idle timeout")
 	}
 	now = now.Add(31 * time.Minute)
-	if got := s.Resolve(token); got != nil {
+	if got := s.ResolveContext(context.Background(), token); got != nil {
 		t.Fatalf("idle provider session resolved: %+v", got)
 	}
 }
@@ -53,7 +53,7 @@ func TestSessionsKeyedIssueResolveRevoke(t *testing.T) {
 		key[i] = byte(i + 5)
 	}
 	s := NewSessions(key)
-	token, err := s.Issue(Operator{ID: "op1", Email: "op@example.com"})
+	token, err := s.IssueContext(context.Background(), Operator{ID: "op1", Email: "op@example.com"})
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -63,11 +63,11 @@ func TestSessionsKeyedIssueResolveRevoke(t *testing.T) {
 	if _, ok := s.byH[s.hashKey(token)]; !ok {
 		t.Fatal("provider token not stored under keyed digest")
 	}
-	if op := s.Resolve(token); op == nil || op.ID != "op1" {
+	if op := s.ResolveContext(context.Background(), token); op == nil || op.ID != "op1" {
 		t.Fatalf("resolve = %+v", op)
 	}
-	s.Revoke(token)
-	if op := s.Resolve(token); op != nil {
+	s.RevokeContext(context.Background(), token)
+	if op := s.ResolveContext(context.Background(), token); op != nil {
 		t.Fatalf("revoked provider session resolved: %+v", op)
 	}
 }
@@ -144,25 +144,25 @@ func TestSessionsSharedStoreServesEveryReplica(t *testing.T) {
 	}
 	a, b := replica(), replica()
 
-	token, err := a.Issue(op)
+	token, err := a.IssueContext(context.Background(), op)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
 	if _, inMemory := a.byH[a.hashKey(token)]; inMemory {
 		t.Fatal("a stored session must not also live in the issuing replica's memory")
 	}
-	if got := b.Resolve(token); got == nil || got.ID != op.ID {
+	if got := b.ResolveContext(context.Background(), token); got == nil || got.ID != op.ID {
 		t.Fatalf("replica B must honor a session issued by replica A, got %+v", got)
 	}
 	// The operator row is read fresh: disabling it ends the session at once.
 	store.operators[op.ID] = Operator{ID: "op-1", Email: op.Email, Role: RoleAdmin, Status: "disabled"}
-	if got := b.Resolve(token); got == nil || got.Status != "disabled" {
+	if got := b.ResolveContext(context.Background(), token); got == nil || got.Status != "disabled" {
 		t.Fatalf("resolution must surface the CURRENT operator status, got %+v", got)
 	}
 	store.operators[op.ID] = op
 	// Idle timeout is judged from the shared last-activity timestamp.
 	now = now.Add(31 * time.Minute)
-	if got := a.Resolve(token); got != nil {
+	if got := a.ResolveContext(context.Background(), token); got != nil {
 		t.Fatalf("idle session must expire across replicas, got %+v", got)
 	}
 	if _, still := store.rows[a.hashKey(token)]; still {
@@ -170,14 +170,14 @@ func TestSessionsSharedStoreServesEveryReplica(t *testing.T) {
 	}
 	// Revocation on one replica is revocation everywhere.
 	now = now.Add(time.Minute)
-	token2, _ := a.Issue(op)
-	b.Revoke(token2)
-	if got := a.Resolve(token2); got != nil {
+	token2, _ := a.IssueContext(context.Background(), op)
+	b.RevokeContext(context.Background(), token2)
+	if got := a.ResolveContext(context.Background(), token2); got != nil {
 		t.Fatal("a session revoked on replica B still resolved on replica A")
 	}
-	token3, _ := a.Issue(op)
-	b.RevokeOperator(op.ID)
-	if got := a.Resolve(token3); got != nil {
+	token3, _ := a.IssueContext(context.Background(), op)
+	b.RevokeOperatorContext(context.Background(), op.ID)
+	if got := a.ResolveContext(context.Background(), token3); got != nil {
 		t.Fatal("disabling an operator on replica B left its session alive on replica A")
 	}
 }

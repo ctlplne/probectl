@@ -105,3 +105,28 @@ func TestNoFencerKeepsTheAPIFenceOnly(t *testing.T) {
 		t.Fatal("no fencer attached: pool_fenced must stay false")
 	}
 }
+
+// TestStatusReportsThePoolsOwnFenceState (DPR-089): the status used to carry
+// the manager's last instruction to the fencer. A pool that can report its
+// actual state is asked instead, so /readyz cannot describe a fence that is no
+// longer there (or miss one applied by another path).
+func TestStatusReportsThePoolsOwnFenceState(t *testing.T) {
+	f := &reportingFencer{}
+	m := NewManager(Topology{}, nil, nil).WithWriteFencer(f)
+	if m.Status().PoolFenced {
+		t.Error("an unfenced pool must report pool_fenced false")
+	}
+	f.fenced = true
+	if !m.Status().PoolFenced {
+		t.Error("the status must follow the pool's own answer, not the manager's last instruction")
+	}
+}
+
+type reportingFencer struct{ fenced bool }
+
+func (r *reportingFencer) FenceWrites(on bool) bool {
+	changed := r.fenced != on
+	r.fenced = on
+	return changed
+}
+func (r *reportingFencer) WritesFenced() bool { return r.fenced }

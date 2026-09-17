@@ -180,6 +180,14 @@ type WriteFencer interface {
 	FenceWrites(on bool) bool
 }
 
+// WriteFenceReporter is an optional WriteFencer capability: report what the
+// pool is ACTUALLY doing. Without it the status carries the manager's last
+// instruction, which is not the same thing — a fence applied or lifted by any
+// other path would leave /readyz describing a pool state that no longer holds.
+type WriteFenceReporter interface {
+	WritesFenced() bool
+}
+
 // WithWriteFencer attaches the writer pool's fence; nil leaves the fence at
 // the API layer only.
 func (m *Manager) WithWriteFencer(f WriteFencer) *Manager {
@@ -310,6 +318,15 @@ func (m *Manager) WriterUsable() (bool, string) {
 	}
 }
 
+// poolFencedLocked prefers the pool's own answer over the manager's last
+// instruction to it (DPR-089).
+func (m *Manager) poolFencedLocked() bool {
+	if r, ok := m.fencer.(WriteFenceReporter); ok {
+		return r.WritesFenced()
+	}
+	return m.poolFenced
+}
+
 // Status returns the full cluster view for health/status + metrics.
 func (m *Manager) Status() Status {
 	m.mu.RLock()
@@ -321,7 +338,7 @@ func (m *Manager) Status() Status {
 		WritesUsable: usable,
 		WritesReason: reason,
 		HighestEpoch: m.highestEpoch,
-		PoolFenced:   m.poolFenced,
+		PoolFenced:   m.poolFencedLocked(),
 	}
 	if m.readerState != nil {
 		rs := *m.readerState

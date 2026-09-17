@@ -19,7 +19,11 @@ import (
 // integration tests cannot rot silently, whatever the CI database matrix runs.
 func TestLintCompilesIntegrationTaggedTests(t *testing.T) {
 	mk := readRepoFile(t, "Makefile")
-	lintGo := mk[strings.Index(mk, "\nlint-go:"):]
+	start := strings.Index(mk, "\nlint-go:")
+	if start < 0 {
+		t.Fatal("Makefile has no lint-go target")
+	}
+	lintGo := mk[start:]
 	if end := strings.Index(lintGo[1:], "\n\n"); end > 0 {
 		lintGo = lintGo[:end+1]
 	}

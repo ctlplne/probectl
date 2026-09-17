@@ -173,6 +173,7 @@
     "docs/isolation.md",
     "docs/journeys/production-operations.md",
     "docs/mcp.md",
+    "docs/multi-region.md",
     "docs/ndr.md",
     "docs/ops/backup-restore.md",
     "docs/ops/branch-protection.md",
@@ -242,6 +243,7 @@
     "docs/provider-plane.md",
     "docs/remediation.md",
     "docs/runbooks/tenant-offboarding.md",
+    "docs/scim-abac.md",
     "docs/security/threat-model.md",
     "docs/siem.md",
     "probectl-PRD-v1.0.md"
@@ -394,6 +396,7 @@
     "docs/diligence-register.md",
     "docs/features/ai-assistant.md",
     "docs/features/identity-and-access.md",
+    "docs/features/security-and-threat.md",
     "docs/features/tenancy.md",
     "docs/flow.md",
     "docs/glossary.md",
