@@ -29,7 +29,7 @@ spec:
   storageClassName: {{ . }}
   {{- end }}
 ---
-{{- if .Values.backup.persistence.bind }}
+{{- if or (not (hasKey .Values.backup.persistence "bind")) .Values.backup.persistence.bind }}
 # DPR-090: bind the backups claim now. Storage classes that bind on first
 # consumer leave a chart-created claim Pending until the first CronJob run, and
 # `helm --wait` fails the release on a Pending claim. This one-shot Job mounts

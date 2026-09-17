@@ -51,6 +51,11 @@ func TestHelmBackupsClaimIsBoundOnInstall(t *testing.T) {
 	if strings.Contains(on, "/bin/sh") {
 		t.Error("the bind Job runs on the distroless control image and must not need a shell")
 	}
+	// `helm upgrade --reuse-values` carries the previous release's values and
+	// drops new chart defaults: an absent bind value must still mean on.
+	if absent := render("--set", "backup.persistence.create=true", "--set", "backup.persistence.bind=null"); !strings.Contains(absent, "backups-bind") {
+		t.Error("an absent backup.persistence.bind (reused values) must keep the bind Job")
+	}
 	if off := render("--set", "backup.persistence.create=true", "--set", "backup.persistence.bind=false"); strings.Contains(off, "backups-bind") {
 		t.Error("backup.persistence.bind=false must drop the bind Job")
 	}
