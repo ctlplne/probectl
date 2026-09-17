@@ -265,7 +265,7 @@ func TestLoadDir(t *testing.T) {
 		[]byte(checkoutSLO+"\n---\n"+second), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	slos, err := LoadDir(dir)
+	slos, err := LoadDir(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,13 +276,13 @@ func TestLoadDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "dup.yaml"), []byte(checkoutSLO), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadDir(dir); err == nil || !strings.Contains(err.Error(), "duplicate") {
+	if _, err := LoadDir(dir, false); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("duplicate accepted: %v", err)
 	}
-	if _, err := LoadDir("/does/not/exist"); err == nil {
+	if _, err := LoadDir("/does/not/exist", false); err == nil {
 		t.Fatal("missing dir accepted")
 	}
-	if got, err := LoadDir(""); err != nil || got != nil {
+	if got, err := LoadDir("", false); err != nil || got != nil {
 		t.Fatalf("empty dir config: %v %v", got, err)
 	}
 }
@@ -306,7 +306,7 @@ func TestLoadDirBoundsDefinitionFile(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		definitions, err := LoadDir(dir)
+		definitions, err := LoadDir(dir, false)
 		if err != nil || len(definitions) != 1 {
 			t.Fatalf("maximum-valid definition: definitions=%d err=%v", len(definitions), err)
 		}
@@ -321,7 +321,7 @@ func TestLoadDirBoundsDefinitionFile(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := LoadDir(dir); err == nil ||
+		if _, err := LoadDir(dir, false); err == nil ||
 			!strings.Contains(err.Error(), "exceeds 1048576-byte limit") {
 			t.Fatalf("one-past definition error = %v, want explicit size refusal", err)
 		}
@@ -347,4 +347,62 @@ func ExampleSLO_Matches() {
 	s := SLO{Target: "api.*", CanaryType: "http"}
 	fmt.Println(s.Matches("http", "api.acme.example", ""), s.Matches("dns", "api.acme.example", ""))
 	// Output: true false
+}
+
+// DPR-068: definitions are tenant-bound. Another tenant neither feeds nor
+// sees them, and the multi-tenant loader refuses an unbound definition.
+func TestTenantBoundDefinitionsStayWithTheirTenant(t *testing.T) {
+	mk := func(name, tenant string) SLO {
+		doc := strings.Replace(checkoutSLO, "name: checkout-availability", "name: "+name, 1)
+		if tenant != "" {
+			doc = strings.Replace(doc, "labels:", "labels:\n    tenant: "+tenant, 1)
+		}
+		s, err := Parse([]byte(doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.TenantID != tenant {
+			t.Fatalf("tenant = %q, want %q", s.TenantID, tenant)
+		}
+		return s
+	}
+	acme, globex, shared := mk("acme-checkout", "t-acme"), mk("globex-checkout", "t-globex"), mk("shared-checkout", "")
+	e := NewEngine([]SLO{acme, globex, shared})
+	names := func(list []SLO) []string {
+		out := []string{}
+		for _, s := range list {
+			out = append(out, s.Name)
+		}
+		return out
+	}
+	if got := names(e.SLOsFor("t-acme")); strings.Join(got, ",") != "acme-checkout,shared-checkout" {
+		t.Fatalf("acme sees %v", got)
+	}
+	if got := names(e.SLOsFor("t-globex")); strings.Join(got, ",") != "globex-checkout,shared-checkout" {
+		t.Fatalf("globex sees %v", got)
+	}
+	at := time.Now()
+	e.ObserveResult("t-acme", "http", "checkout.acme.example", "", false, at)
+	for _, st := range e.Statuses("t-globex") {
+		if st.Name == "acme-checkout" {
+			t.Fatal("globex lists acme's definition")
+		}
+		if st.TotalEvents != 0 && st.Name == "shared-checkout" {
+			t.Fatalf("acme's result fed globex's view of the shared definition: %+v", st)
+		}
+	}
+	if imp := e.ImpactedSLOs("t-globex", []string{"service:checkout"}, nil); strings.Contains(strings.Join(imp, ","), "acme-checkout") {
+		t.Fatalf("globex what-if lists acme's definition: %v", imp)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "shared.yaml"), []byte(checkoutSLO), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadDir(dir, true); err == nil || !strings.Contains(err.Error(), "labels.tenant") {
+		t.Fatalf("multi-tenant load must refuse an unbound definition, got %v", err)
+	}
+	if _, err := LoadDir(dir, false); err != nil {
+		t.Fatalf("single-tenant load: %v", err)
+	}
 }

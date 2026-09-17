@@ -138,6 +138,19 @@ func (e *Engine) SLOs() []SLO {
 	return out
 }
 
+// SLOsFor returns the definitions that apply to tenant (DPR-068): the ones
+// bound to it plus any deployment-wide ones.
+func (e *Engine) SLOsFor(tenant string) []SLO {
+	var out []SLO
+	for _, s := range e.slos {
+		if s.ForTenant(tenant) {
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 func (e *Engine) state(tenant, name string) *sloState {
 	ts, ok := e.tenants[tenant]
 	if !ok {
@@ -167,7 +180,7 @@ func (e *Engine) ObserveResult(tenant, canaryType, target, testID string, succes
 
 	var sigs []incident.Signal
 	for _, s := range e.slos {
-		if !s.Matches(canaryType, target, testID) {
+		if !s.ForTenant(tenant) || !s.Matches(canaryType, target, testID) {
 			continue
 		}
 		st := e.state(tenant, s.Name)
@@ -286,7 +299,7 @@ func (e *Engine) Statuses(tenant string) []Status {
 	now := e.clock()
 
 	out := make([]Status, 0, len(e.slos))
-	for _, s := range e.SLOs() {
+	for _, s := range e.SLOsFor(tenant) {
 		st := e.state(tenant, s.Name)
 		good, total := st.rates(s.Window, now)
 		attainment := 1.0
@@ -336,10 +349,11 @@ func (e *Engine) Statuses(tenant string) []Status {
 func (e *Engine) ImpactedSLOs(tenant string, serviceIDs, hostIDs []string) []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_ = tenant // definitions are deployment-level; status is tenant-scoped
-
 	names := map[string]bool{}
 	for _, s := range e.slos {
+		if !s.ForTenant(tenant) { // DPR-068: another tenant's definition is not this tenant's impact
+			continue
+		}
 		for _, id := range serviceIDs {
 			if trimPrefix(id, "service:") == s.Service {
 				names[s.Name] = true

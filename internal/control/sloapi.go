@@ -36,7 +36,10 @@ func BuildSLO(cfg *config.Config, log *slog.Logger) (*slo.Engine, bool, error) {
 	if cfg == nil || !cfg.SLOEnabled {
 		return nil, false, nil
 	}
-	defs, err := slo.LoadDir(cfg.SLODir)
+	// DPR-068: in the multi-tenant and regulated profiles every definition
+	// must name its tenant; a deployment-wide definition is single-tenant only.
+	requireTenant := cfg.DeploymentProfile == "multi-tenant" || cfg.DeploymentProfile == "regulated"
+	defs, err := slo.LoadDir(cfg.SLODir, requireTenant)
 	if err != nil {
 		return nil, false, err
 	}
@@ -85,7 +88,8 @@ func (s *Server) handleSLOs(w http.ResponseWriter, r *http.Request) error {
 // OpenSLO v1 YAML stream (lossless round-trip with other OpenSLO tooling).
 // Definitions are deployment-level configuration; statuses are tenant-scoped.
 func (s *Server) handleSLOExport(w http.ResponseWriter, r *http.Request) error {
-	if _, err := s.principalTenant(r); err != nil {
+	tid, err := s.principalTenant(r)
+	if err != nil {
 		return err
 	}
 	if s.sloEngine == nil {
@@ -94,7 +98,7 @@ func (s *Server) handleSLOExport(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.Header().Set("Content-Type", "application/yaml")
 	first := true
-	for _, d := range s.sloEngine.SLOs() {
+	for _, d := range s.sloEngine.SLOsFor(tid) { // DPR-068: the caller's definitions only
 		out, err := d.Export()
 		if err != nil {
 			return err

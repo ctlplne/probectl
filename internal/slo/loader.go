@@ -23,7 +23,11 @@ const maxDefinitionFileBytes = 1 << 20
 // LoadDir parses every *.yaml/*.yml in dir (each file may hold multiple
 // YAML documents separated by ---). dir "" loads nothing (the engine runs
 // with zero SLOs and the API says so honestly).
-func LoadDir(dir string) ([]SLO, error) {
+// LoadDir loads every OpenSLO document under dir. requireTenant (the
+// multi-tenant and regulated profiles) refuses a definition without
+// metadata.labels.tenant: a deployment-wide definition would feed on every
+// tenant's results and show up in every tenant's SLO list (DPR-068).
+func LoadDir(dir string, requireTenant bool) ([]SLO, error) {
 	if dir == "" {
 		return nil, nil
 	}
@@ -47,10 +51,14 @@ func LoadDir(dir string) ([]SLO, error) {
 			if err != nil {
 				return nil, fmt.Errorf("slo: %s: %w", name, err)
 			}
-			if seen[s.Name] {
+			if requireTenant && s.TenantID == "" {
+				return nil, fmt.Errorf("slo: %s: %q has no metadata.labels.tenant — every definition must belong to one tenant in the multi-tenant and regulated profiles (DPR-068)", name, s.Name)
+			}
+			key := s.TenantID + "/" + s.Name
+			if seen[key] {
 				return nil, fmt.Errorf("slo: duplicate SLO name %q (file %s)", s.Name, name)
 			}
-			seen[s.Name] = true
+			seen[key] = true
 			out = append(out, s)
 		}
 	}

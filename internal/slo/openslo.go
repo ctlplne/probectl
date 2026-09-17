@@ -108,8 +108,12 @@ type SLO struct {
 	CanaryType string // "" = any
 	Target     string // probe target; trailing '*' = prefix match ("" when test_id selects)
 	TestID     string // exact server test definition id (DPR-066); "" = any
-	Objective  float64
-	Window     time.Duration
+	// TenantID binds the definition to one tenant (metadata.labels.tenant,
+	// DPR-068): only that tenant's results feed it and only that tenant sees
+	// it. "" = deployment-wide, allowed in the single-tenant profile only.
+	TenantID  string
+	Objective float64
+	Window    time.Duration
 
 	doc Document // the source document (lossless export)
 }
@@ -178,6 +182,7 @@ func fromDocument(d Document) (SLO, error) {
 		DisplayName: d.Metadata.DisplayName,
 		Service:     d.Spec.Service,
 		Team:        d.Metadata.Labels["team"],
+		TenantID:    strings.TrimSpace(d.Metadata.Labels["tenant"]),
 		Description: d.Spec.Description,
 		CanaryType:  totalSpec["canary_type"],
 		Target:      probeTarget,
@@ -196,6 +201,13 @@ func (s SLO) Export() ([]byte, error) {
 		return nil, fmt.Errorf("slo: export %s: %w", s.Name, err)
 	}
 	return out, nil
+}
+
+// ForTenant reports whether the definition applies to tenant: bound
+// definitions apply to their own tenant only, unbound ones to every tenant
+// (single-tenant deployments).
+func (s SLO) ForTenant(tenant string) bool {
+	return s.TenantID == "" || s.TenantID == tenant
 }
 
 // Matches reports whether a synthetic result feeds this SLI. A definition that

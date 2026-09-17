@@ -148,3 +148,22 @@ func TestInvestigationPlanIsBoundedAndReadOnly(t *testing.T) {
 		t.Fatalf("plan selector aliases query map: %+v", steps[0].Selector)
 	}
 }
+
+// DPR-069: signals carry the host, so a URL subject (pasted from a test
+// definition) or a URL in the question must resolve to that host.
+func TestSubjectURLIsReducedToItsHost(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		q    Question
+		want string
+	}{
+		{"url subject", Question{Text: "why is checkout failing?", Subject: map[string]string{"target": "https://example.com/checkout"}}, "example.com"},
+		{"host:port subject", Question{Text: "why?", Subject: map[string]string{"target": "example.com:443"}}, "example.com"},
+		{"host subject unchanged", Question{Text: "why?", Subject: map[string]string{"target": "checkout.eu.acme.example"}}, "checkout.eu.acme.example"},
+		{"url in the question", Question{Text: "why is https://api.example/health slow?"}, "api.example"},
+	} {
+		if got := extractSubject(tc.q)["target"]; got != tc.want {
+			t.Errorf("%s: target = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

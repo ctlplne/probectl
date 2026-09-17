@@ -71,7 +71,8 @@ enforcing the same rule.
 **RCA is a four-step pipeline, and each step buys one guarantee:**
 
 1. **Plan (deterministic).** probectl code — never a model — reads your question,
-   extracts the subject (a host, IP, address range, hostname, or URL), picks a time
+   extracts the subject (a host, IP, address range, hostname, or URL — a URL
+   is reduced to its host, the key every signal carries; DPR-069), picks a time
    window, and selects which planes to gather from based on keywords. Untrusted
    question text cannot widen the query scope, because the thing that decides scope
    is a fixed switchboard, not an operator who can be sweet-talked into dialing

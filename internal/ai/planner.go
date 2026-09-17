@@ -7,6 +7,8 @@
 package ai
 
 import (
+	"net"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -192,7 +194,25 @@ func extractSubject(q Question) map[string]string {
 			subj["target"] = reHost.FindString(strings.ToLower(text))
 		}
 	}
+	// DPR-069: signals carry the host (server.address), so a URL subject —
+	// the natural thing to paste from a test definition — matched nothing.
+	subj["target"] = subjectHost(subj["target"])
 	return subj
+}
+
+// subjectHost reduces a URL or host:port target to the host the signals are
+// keyed by; anything else is returned unchanged.
+func subjectHost(target string) string {
+	t := strings.TrimSpace(target)
+	if strings.Contains(t, "://") {
+		if u, err := url.Parse(t); err == nil && u.Hostname() != "" {
+			return u.Hostname()
+		}
+	}
+	if h, _, err := net.SplitHostPort(t); err == nil && h != "" {
+		return h
+	}
+	return t
 }
 
 // planRange defaults to the last hour ending now. It does not invent a topology

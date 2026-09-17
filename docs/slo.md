@@ -57,6 +57,7 @@ metadata:
   displayName: Checkout availability
   labels:
     team: payments            # the business-unit mapping (showback)
+    tenant: 88929fbe-28e5-4f0a-898e-6c4302c55e57   # the tenant this SLO belongs to (id)
 spec:
   service: checkout
   indicator:
@@ -80,6 +81,13 @@ A few matching rules worth knowing:
 
 - `target` (the probe target) accepts a trailing `*` as a prefix wildcard
   (`api.*` matches `api.acme.example`, `api-internal.example`, …).
+- `metadata.labels.tenant` binds the definition to one tenant (its id): only
+  that tenant's results feed it and only that tenant lists or exports it. In
+  the multi-tenant and regulated profiles every definition must carry it —
+  loading refuses one that does not — because a deployment-wide definition
+  would feed on every tenant's results and appear, with its service, team,
+  target and test id, in every tenant's `/v1/slos` (DPR-068). Single-tenant
+  deployments may omit it.
 - `canary_type` left empty matches **any** probe type.
 - `target` is the probe's `server.address` — for HTTP canaries that is the
   **host** (`checkout.acme.example`), not the URL, so two HTTP definitions
