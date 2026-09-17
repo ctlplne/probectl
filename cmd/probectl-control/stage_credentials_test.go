@@ -75,6 +75,19 @@ func TestStageCredentialsProducesReaderAcceptableFiles(t *testing.T) {
 	if err := stageCredentials([]string{src, dst}); err != nil {
 		t.Fatalf("second stage-credentials: %v", err)
 	}
+	// A pre-existing destination (a volume mount point the process cannot
+	// chmod, as in the Helm init container) is used as-is; the files still
+	// come out 0600.
+	mount := t.TempDir()
+	if err := os.Chmod(mount, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := stageCredentials([]string{src, mount}); err != nil {
+		t.Fatalf("stage into an existing mount point: %v", err)
+	}
+	if info, err := os.Lstat(filepath.Join(mount, "ch-basic-auth.json")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("staged file in mount point: %v %v", info, err)
+	}
 }
 
 func TestStageCredentialsRefusesEmptyAndOversized(t *testing.T) {

@@ -41,11 +41,20 @@ func stageCredentialDir(source, destination string) error {
 	if err != nil {
 		return fmt.Errorf("read credential source directory: %w", err)
 	}
-	if err := os.MkdirAll(destination, 0o700); err != nil {
-		return fmt.Errorf("create credential staging directory %s: %w", destination, err)
-	}
-	if err := os.Chmod(destination, 0o700); err != nil {
-		return fmt.Errorf("restrict credential staging directory %s: %w", destination, err)
+	// The destination is usually a volume mount point the pod already owns
+	// (root-owned, private to the pod), which a non-root process may write
+	// but not chmod; only a directory this helper creates gets 0700. The
+	// files themselves are always 0600, which is what the readers check.
+	if info, err := os.Stat(destination); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("credential staging destination %s is not a directory", destination)
+		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(destination, 0o700); err != nil {
+			return fmt.Errorf("create credential staging directory %s: %w", destination, err)
+		}
+	} else {
+		return fmt.Errorf("inspect credential staging directory %s: %w", destination, err)
 	}
 	staged := 0
 	for _, entry := range entries {
