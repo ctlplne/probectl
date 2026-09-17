@@ -145,6 +145,16 @@ at startup; an expired one loads and degrades per the grace ladder. **Admin →
 Editions** (`GET /v1/editions`) shows the loaded tier, customer, and expiry —
 see [`editions.md`](editions.md).
 
+**Any other control-plane key.** `probectl.yml` sets the security-critical
+keys explicitly and forwards nothing else from `.env`. For every other
+`PROBECTL_*` key in [`configuration.md`](configuration.md) — the provider
+bootstrap token, the deployment profile, log level, bus and store settings —
+copy `deploy/compose/control.env.example` to `deploy/compose/control.env` and
+put the keys there; the control service loads that file when it exists
+(`env_file`, `required: false`) and never commits it. The explicit keys in
+`probectl.yml` always win over it, so the file cannot downgrade TLS, auth, or
+encryption.
+
 Tear down with `docker compose -f deploy/compose/probectl.yml down` (add `-v` to
 also drop the database and certs).
 

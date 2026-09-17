@@ -107,6 +107,21 @@ check_env() { # check_env <file> -> 0 ok, 2 on any failure; messages on stderr
     fi
   fi
 
+  # DPR-010: the optional control.env beside .env is loaded by the control
+  # service; every assignment there must be a PROBECTL_* key so a stray
+  # POSTGRES_* or shell line cannot leak into the control plane environment.
+  local ctl="$(dirname "$file")/control.env" line
+  if [ -f "$ctl" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="$(trim "${line%%#*}")"
+      [ -n "$line" ] || continue
+      case "$line" in
+        PROBECTL_[A-Z0-9_]*=*) ;;
+        *) echo "compose env preflight: control.env may only contain PROBECTL_* assignments; found: ${line%%=*}" >&2; fail=1 ;;
+      esac
+    done <"$ctl"
+  fi
+
   if [ "$fail" -ne 0 ]; then
     return 2
   fi
@@ -153,6 +168,14 @@ GOOD
   if PROBECTL_COMPOSE_ENV_FILE="$tmp/does-not-exist.env" bash "$0" >/dev/null 2>&1; then
     echo "selftest: a missing .env must fail" >&2; exit 1
   fi
+  # DPR-010: control.env beside .env may only carry PROBECTL_* keys
+  printf 'PROBECTL_LOG_LEVEL=debug\n# comment\n\n' >"$tmp/control.env"
+  PROBECTL_COMPOSE_ENV_FILE="$good" bash "$0" >/dev/null || { echo "selftest: a PROBECTL_*-only control.env must pass" >&2; exit 1; }
+  printf 'PROBECTL_LOG_LEVEL=debug\nPOSTGRES_PASSWORD=leak\n' >"$tmp/control.env"
+  if PROBECTL_COMPOSE_ENV_FILE="$good" bash "$0" >/dev/null 2>&1; then
+    echo "selftest: a non-PROBECTL key in control.env must be rejected" >&2; exit 1
+  fi
+  rm -f "$tmp/control.env"
   echo "compose env preflight selftest: OK"
 }
 

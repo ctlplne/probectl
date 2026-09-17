@@ -72,6 +72,13 @@ services:
 
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}" # SUPPLY-001: digest required, never a mutable default
+    # DPR-010: any other PROBECTL_* key from docs/configuration.md (provider
+    # bootstrap token, deployment profile, log level, bus/store settings, …)
+    # goes in deploy/compose/control.env — an optional, operator-owned file that
+    # is never committed. The explicit keys below always win over it.
+    env_file:
+      - path: ./control.env
+        required: false
     depends_on:
       postgres:
         condition: service_healthy

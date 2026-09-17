@@ -55,6 +55,7 @@ internal/webui/dist/*.del.*
 .env
 .env.*
 !.env.example
+/deploy/compose/control.env
 *.local
 
 # Locally generated TLS material — never commit private keys (S3)

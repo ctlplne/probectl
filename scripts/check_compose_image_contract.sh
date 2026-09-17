@@ -136,6 +136,17 @@ run_checks() {
     || err "Makefile compose-prod-up must accept PROBECTL_COMPOSE_OVERLAYS (license.yml)"
   grep -Fq 'license.yml' "$root/docs/install.md" \
     || err "docs/install.md must show how to install a license with deploy/compose/license.yml"
+  # DPR-010: every other documented PROBECTL_* key has a shipped, optional,
+  # never-committed home (control.env) instead of a hand-edited compose file.
+  control_block="$(sed -n '/^  control:[[:space:]]*$/,/^volumes:[[:space:]]*$/p' "$root/deploy/compose/probectl.yml")"
+  grep -Fq 'path: ./control.env' <<<"$control_block" \
+    || err "deploy/compose/probectl.yml control service must load the optional ./control.env"
+  grep -Fq 'required: false' <<<"$control_block" \
+    || err "deploy/compose/probectl.yml control.env must be optional (required: false)"
+  [ -f "$root/deploy/compose/control.env.example" ] \
+    || err "deploy/compose/control.env.example must exist"
+  grep -Fq 'control.env' "$root/docs/install.md" \
+    || err "docs/install.md must explain deploy/compose/control.env for extra PROBECTL_* keys"
 
   if [ "${PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL:-0}" = "1" ]; then
     if [ -z "$image" ]; then
@@ -194,8 +205,13 @@ services:
       - ${PROBECTL_TLS_DIR:-certs}:/certs
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    env_file:
+      - path: ./control.env
+        required: false
     volumes:
       - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+volumes:
+  certs: {}
 YAML
   cat > "$tmp/deploy/compose/license.yml" <<'YAML'
 services:
@@ -211,7 +227,9 @@ If GHCR returns 401, run `docker login ghcr.io` with read:packages.
 Set `PROBECTL_IMAGE` to use a mirror.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
 Set PROBECTL_TLS_DIR for a CA-issued certificate. Install a license with license.yml.
+Other PROBECTL_* keys go in deploy/compose/control.env.
 MD
+  echo '# example' > "$tmp/deploy/compose/control.env.example"
   cat > "$tmp/deploy/compose/README.md" <<'MD'
 Use `docker login ghcr.io` if the release package is not anonymous.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
@@ -264,8 +282,13 @@ services:
       - ${PROBECTL_TLS_DIR:-certs}:/certs
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    env_file:
+      - path: ./control.env
+        required: false
     volumes:
       - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+volumes:
+  certs: {}
 YAML
 
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
@@ -295,8 +318,13 @@ services:
       - certs:/certs
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    env_file:
+      - path: ./control.env
+        required: false
     volumes:
       - certs:/certs:ro
+volumes:
+  certs: {}
 YAML
   expect_fixture_failure "hardwired-certs-volume"
 
@@ -313,8 +341,13 @@ services:
       - ${PROBECTL_TLS_DIR:-certs}:/certs
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    env_file:
+      - path: ./control.env
+        required: false
     volumes:
       - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+volumes:
+  certs: {}
 YAML
   mv "$tmp/deploy/compose/license.yml" "$tmp/deploy/compose/license.yml.off"
   expect_fixture_failure "missing-license-overlay"
