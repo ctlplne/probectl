@@ -50,7 +50,8 @@ func TestHelmRenderedHSTSConfigLoads(t *testing.T) {
 		"--set", "objectStore.enabled=true",
 		"--set-string", "objectStore.mountPath=/var/lib/probectl/objects",
 		"--set-string", "objectStore.existingClaim=probectl-render-objects-rwx",
-		"--set-string", "control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/objects/audit-worm",
+		"--set", "audit.worm.enabled=true",
+		"--set-string", "audit.worm.existingClaim=probectl-render-audit-worm",
 		"--set-string", "control.extraEnv.PROBECTL_SIEM_ENABLED=true",
 		"--set-string", "control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest",
 	}

@@ -241,6 +241,19 @@ requireAtRestEncryption: true
 # the tenant-prefixed object namespace. Setting PROBECTL_AUDIT_WORM_DIR makes
 # enabled=true and a non-empty existingClaim mandatory; WORM never uses emptyDir.
 # The WORM directory must be this exact mountPath or a canonical child of it.
+# DPR-116: signed, write-once audit segments get their OWN durable volume.
+# They are not the tenant artifact store and must not share its setting: an
+# operator running artifacts on S3/MinIO still needs WORM segments on an
+# object-lock filesystem, and the two used to be one switch — turning on S3
+# made the chart refuse to render at all.
+audit:
+  worm:
+    enabled: false
+    mountPath: /var/lib/probectl/audit-worm
+    # Object-lock / WORM-capable claim. Required when enabled: an emptyDir is
+    # never durable write-once storage.
+    existingClaim: ""
+
 objectStore:
   enabled: false
   mode: filesystem # filesystem | s3

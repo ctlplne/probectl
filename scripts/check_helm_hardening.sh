@@ -29,6 +29,10 @@ CONTROL_IMAGE_DIGEST="sha256:000000000000000000000000000000000000000000000000000
 RUNTIME_SECRET="probectl-provider-runtime"
 OBJECTSTORE_CLAIM="probectl-provider-objects-rwx"
 OBJECTSTORE_MOUNT="/var/lib/probectl/objects"
+# DPR-116: WORM segments have their own object-lock claim, independent of the
+# tenant artifact store (which may be S3).
+WORM_MOUNT="/var/lib/probectl/audit-worm"
+WORM_CLAIM="probectl-audit-worm"
 
 fail() {
   echo "helm hardening gate: FAIL — $*" >&2
@@ -48,7 +52,9 @@ render() {
     --set objectStore.enabled=true \
     --set-string objectStore.mountPath="$OBJECTSTORE_MOUNT" \
     --set-string objectStore.existingClaim="$OBJECTSTORE_CLAIM" \
-    --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="$OBJECTSTORE_MOUNT/audit-worm" \
+    --set audit.worm.enabled=true \
+    --set-string audit.worm.mountPath="$WORM_MOUNT" \
+    --set-string audit.worm.existingClaim="$WORM_CLAIM" \
     --set-string control.extraEnv.PROBECTL_SIEM_ENABLED="true" \
     --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT="https://siem.example/ingest" \
     "$@"
@@ -466,7 +472,7 @@ s3_args=(
   --set-string objectStore.s3.region=us-east-1
   --set-string objectStore.s3.accessKey=AKID
   --set-string objectStore.s3.prefix=probectl
-  --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=
+  --set audit.worm.enabled=false
 )
 s3_cm="$(render --show-only templates/configmap.yaml "${s3_args[@]}")"
 s3_deploy="$(render --show-only templates/deployment.yaml "${s3_args[@]}")"
@@ -689,12 +695,17 @@ fi
 # 3c. CONFIG-09e06212: enabling WORM export always means one persistent claim
 # mounted at a canonical path. HA additionally means one externally managed
 # signing key shared through the runtime Secret; a per-pod key file is invalid.
-if render --set objectStore.enabled=false >/dev/null 2>&1; then
-  fail "chart rendered PROBECTL_AUDIT_WORM_DIR without objectStore.enabled=true (CONFIG-09e06212)"
+if render --set-string audit.worm.existingClaim= >/dev/null 2>&1; then
+  fail "chart rendered WORM export with no claim (CONFIG-09e06212)"
 fi
-if render --set objectStore.enabled=true --set-string objectStore.existingClaim= >/dev/null 2>&1; then
-  fail "chart rendered WORM export onto objectStore emptyDir (CONFIG-09e06212)"
-fi
+# DPR-116: WORM is independent of where tenant artifacts live — an S3
+# artifact store must still render signed write-once segments onto their claim.
+s3_worm="$(render --set objectStore.mode=s3 \
+  --set-string objectStore.s3.endpoint=https://minio.example:9000 \
+  --set-string objectStore.s3.bucket=artifacts \
+  --set-string objectStore.s3.accessKey=key \
+  --set-string secrets.objectStoreS3SecretKey=secret 2>&1)" || fail "chart refused an S3 artifact store with WORM audit segments (DPR-116)"
+need_fixed "claimName: \"$WORM_CLAIM\"" "$s3_worm" "S3 artifact store must still mount the WORM claim (DPR-116)"
 if render --set replicaCount=3 \
     --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="$OBJECTSTORE_MOUNT/audit-worm/worm-ed25519.pem" \
     >/dev/null 2>&1; then
@@ -711,12 +722,12 @@ if render --set replicaCount=3 --set-string secrets.existingSecret= >/dev/null 2
   fail "chart rendered multi-replica WORM without secrets.existingSecret (CONFIG-09e06212)"
 fi
 if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm >/dev/null 2>&1; then
-  fail "chart rendered WORM directory outside objectStore.mountPath (CONFIG-09e06212)"
+  fail "chart accepted a hand-set PROBECTL_AUDIT_WORM_DIR (DPR-116: audit.worm.* owns it)"
 fi
-if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="$OBJECTSTORE_MOUNT/../escape" >/dev/null 2>&1; then
+if render --set-string audit.worm.mountPath="$WORM_MOUNT/../escape" >/dev/null 2>&1; then
   fail "chart rendered a traversal-bearing WORM directory (CONFIG-09e06212)"
 fi
-if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=audit-worm >/dev/null 2>&1; then
+if render --set-string audit.worm.mountPath=audit-worm >/dev/null 2>&1; then
   fail "chart rendered a relative WORM directory (CONFIG-09e06212)"
 fi
 
@@ -726,7 +737,8 @@ ha_worm_cm="$(awk '/kind: ConfigMap$/,/^---/' <<<"$ha_worm")"
 need_fixed "name: $RUNTIME_SECRET" "$ha_worm_dep" "HA WORM Deployment did not read the shared runtime Secret (CONFIG-09e06212)"
 need_fixed "mountPath: \"$OBJECTSTORE_MOUNT\"" "$ha_worm_dep" "HA WORM Deployment did not mount objectStore.mountPath (CONFIG-09e06212)"
 need_fixed "claimName: \"$OBJECTSTORE_CLAIM\"" "$ha_worm_dep" "HA WORM Deployment did not mount objectStore.existingClaim (CONFIG-09e06212)"
-need_fixed "PROBECTL_AUDIT_WORM_DIR: \"$OBJECTSTORE_MOUNT/audit-worm\"" "$ha_worm_cm" "HA WORM ConfigMap path escaped the shared claim (CONFIG-09e06212)"
+need_fixed "PROBECTL_AUDIT_WORM_DIR: \"$WORM_MOUNT\"" "$ha_worm_cm" "HA WORM ConfigMap did not name the WORM volume (CONFIG-09e06212)"
+need_fixed "claimName: \"$WORM_CLAIM\"" "$ha_worm_dep" "HA WORM Deployment did not mount the WORM claim (CONFIG-09e06212/DPR-116)"
 if grep -q "PROBECTL_WORM_SIGNING_KEY_FILE" <<<"$ha_worm_cm"; then
   fail "HA WORM ConfigMap still contains a per-pod signing-key file (CONFIG-09e06212)"
 fi
@@ -757,7 +769,10 @@ for env in PROBECTL_AUDIT_WORM_DIR PROBECTL_SIEM_ENABLED PROBECTL_SIEM_ENDPOINT;
 done
 need_fixed 'PROBECTL_IR_PUBLIC_KEY_DIR: "/var/lib/probectl/objects/ir-keys"' "$multitenant" "multi-tenant profile did not render the IR public keyring the provider plane requires for admission (DPR-011)"
 need_fixed "name: $RUNTIME_SECRET" "$multitenant" "multi-tenant profile did not reference the shared runtime Secret (CONFIG-09e06212)"
-need_fixed "claimName: \"$OBJECTSTORE_CLAIM\"" "$multitenant" "multi-tenant profile did not mount the shared WORM claim (CONFIG-09e06212)"
+# The render helper pins the WORM claim, so assert the mount exists here and
+# that the profile itself ships a WORM claim of its own (DPR-116).
+need_fixed "claimName: \"$WORM_CLAIM\"" "$multitenant" "multi-tenant profile did not mount a WORM claim (CONFIG-09e06212/DPR-116)"
+need_fixed "existingClaim: probectl-provider-audit-worm" "$(cat "$CHART/values-multitenant.yaml")" "multi-tenant profile must declare its own WORM claim (DPR-116)"
 if grep -q "PROBECTL_WORM_SIGNING_KEY_FILE" <<<"$multitenant"; then
   fail "multi-tenant profile rendered a per-pod WORM signing-key file (CONFIG-09e06212)"
 fi
@@ -813,7 +828,8 @@ for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
     --set objectStore.enabled=true \
     --set-string objectStore.mountPath="$OBJECTSTORE_MOUNT" \
     --set-string objectStore.existingClaim="$OBJECTSTORE_CLAIM" \
-    --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="$OBJECTSTORE_MOUNT/audit-worm" \
+    --set audit.worm.enabled=true \
+    --set-string audit.worm.existingClaim="$WORM_CLAIM" \
     --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
     --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest \
     >/dev/null || fail "$f failed helm lint"

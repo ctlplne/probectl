@@ -47,27 +47,17 @@
 {{- fail (printf "control.extraEnv.%s is reserved; configure it through the chart's typed value or Secret" $envName) -}}
 {{- end -}}
 {{- end -}}
-{{- $wormDirValue := get $extraEnv "PROBECTL_AUDIT_WORM_DIR" -}}
-{{- if $wormDirValue -}}
-{{- $wormDir := printf "%v" $wormDirValue -}}
-{{- $objectStoreMount := printf "%v" .Values.objectStore.mountPath -}}
-{{- if not .Values.objectStore.enabled -}}
-{{- fail "PROBECTL_AUDIT_WORM_DIR requires objectStore.enabled=true so signed audit segments have a mounted durable store (CONFIG-09e06212)" -}}
+{{- if get $extraEnv "PROBECTL_AUDIT_WORM_DIR" -}}
+{{- fail "control.extraEnv.PROBECTL_AUDIT_WORM_DIR is reserved; set audit.worm.enabled=true with audit.worm.existingClaim (DPR-116) — signed audit segments have their own object-lock volume and no longer ride on the tenant artifact store" -}}
 {{- end -}}
-{{- if ne .Values.objectStore.mode "filesystem" -}}
-{{- fail "PROBECTL_AUDIT_WORM_DIR requires objectStore.mode=filesystem; the WORM path is a mounted object-lock filesystem" -}}
-{{- end -}}
-{{- if not (trim .Values.objectStore.existingClaim) -}}
-{{- fail "PROBECTL_AUDIT_WORM_DIR requires a non-empty objectStore.existingClaim; emptyDir is never durable WORM storage (CONFIG-09e06212)" -}}
+{{- $worm := (.Values.audit | default dict).worm | default dict -}}
+{{- if $worm.enabled -}}
+{{- $wormDir := printf "%v" (default "/var/lib/probectl/audit-worm" $worm.mountPath) -}}
+{{- if not (trim (default "" $worm.existingClaim)) -}}
+{{- fail "audit.worm.enabled requires a non-empty audit.worm.existingClaim; emptyDir is never durable WORM storage (CONFIG-09e06212)" -}}
 {{- end -}}
 {{- if or (not (isAbs $wormDir)) (ne (clean $wormDir) $wormDir) -}}
-{{- fail "PROBECTL_AUDIT_WORM_DIR must be an absolute, canonical, traversal-free path (CONFIG-09e06212)" -}}
-{{- end -}}
-{{- if or (not (isAbs $objectStoreMount)) (ne (clean $objectStoreMount) $objectStoreMount) -}}
-{{- fail "objectStore.mountPath must be an absolute, canonical, traversal-free path when WORM export is enabled (CONFIG-09e06212)" -}}
-{{- end -}}
-{{- if and (ne $wormDir $objectStoreMount) (not (hasPrefix (printf "%s/" $objectStoreMount) $wormDir)) -}}
-{{- fail "PROBECTL_AUDIT_WORM_DIR must equal objectStore.mountPath or be contained beneath it (CONFIG-09e06212)" -}}
+{{- fail "audit.worm.mountPath must be an absolute, canonical, traversal-free path (CONFIG-09e06212)" -}}
 {{- end -}}
 {{- $haWorm := gt (int .Values.replicaCount) 1 -}}
 {{- if and .Values.autoscaling.enabled (gt (int .Values.autoscaling.maxReplicas) 1) -}}
@@ -111,8 +101,8 @@
 {{- if eq (printf "%v" (get $extraEnv "PROBECTL_AUDIT_RETENTION")) "0" -}}
 {{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires finite PROBECTL_AUDIT_RETENTION; omit it for the 8760h default or set a positive duration (PRIVACY-001)" $profile) -}}
 {{- end -}}
-{{- if not (get $extraEnv "PROBECTL_AUDIT_WORM_DIR") -}}
-{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_AUDIT_WORM_DIR so provider audit retention has a WORM export watermark (PRIVACY-001)" $profile) -}}
+{{- if not ((.Values.audit | default dict).worm | default dict).enabled -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires audit.worm.enabled=true (with audit.worm.existingClaim) so provider audit retention has a WORM export watermark (PRIVACY-001)" $profile) -}}
 {{- end -}}
 {{- if and (not (get $extraEnv "PROBECTL_WORM_SIGNING_KEY_FILE")) (not .Values.secrets.existingSecret) -}}
 {{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_WORM_SIGNING_KEY_FILE or a secrets.existingSecret containing PROBECTL_WORM_SIGNING_KEY for stable WORM watermarks (PRIVACY-001)" $profile) -}}
@@ -131,6 +121,11 @@ metadata:
   labels:
     {{- include "probectl.labels" . | nindent 4 }}
 data:
+  {{- if ((.Values.audit | default dict).worm | default dict).enabled }}
+  # DPR-116: signed, write-once audit segments on their own object-lock volume,
+  # independent of where tenant artifacts live.
+  PROBECTL_AUDIT_WORM_DIR: {{ default "/var/lib/probectl/audit-worm" (.Values.audit.worm).mountPath | quote }}
+  {{- end }}
   # Fail closed (TENANT-106/SEC-002): never silently write plaintext at rest.
   PROBECTL_REQUIRE_AT_REST_ENCRYPTION: {{ .Values.requireAtRestEncryption | quote }}
   # SEC-009: both the public ingress and the app listener serve TLS, so cookies

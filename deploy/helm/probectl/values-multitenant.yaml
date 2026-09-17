@@ -73,6 +73,18 @@ objectStore:
   mountPath: /var/lib/probectl/objects
   existingClaim: probectl-provider-objects-rwx
 
+# PRIVACY-001: provider profiles default audit retention to 8760h and fail
+# closed unless raw in-DB audit rows have durable export watermarks before
+# pruning. DPR-116: the WORM segments have their own object-lock claim, so this
+# profile keeps them whatever the tenant artifact store above is set to — point
+# existingClaim at a WORM/object-lock volume. The signing key comes only from
+# secrets.existingSecret in this HA profile.
+audit:
+  worm:
+    enabled: true
+    mountPath: /var/lib/probectl/audit-worm
+    existingClaim: probectl-provider-audit-worm
+
 control:
   authMode: session      # provider deployments always use real SSO
   # AIRCA-003: in a multi-tenant/MSP deployment, mask hostnames before any
@@ -85,11 +97,6 @@ control:
     # RED-001: enable ClickHouse row-policies + bus strict-lane for multi-tenant.
     # Without this the single-profile default leaves them OFF and boot fails closed.
     PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"
-    # PRIVACY-001: provider profiles default audit retention to 8760h and fail
-    # closed unless raw in-DB audit rows have durable export watermarks before
-    # pruning. The WORM directory is a child of the shared objectStore mount.
-    # The signing key comes only from secrets.existingSecret in this HA profile.
-    PROBECTL_AUDIT_WORM_DIR: "/var/lib/probectl/objects/audit-worm"
     # DPR-011: provider-plane admission also needs the operator-owned IR public
     # keyring (<tenant-uuid>.pem per tenant, created empty on first start). It
     # lives on the same shared mount so every replica seals break-glass

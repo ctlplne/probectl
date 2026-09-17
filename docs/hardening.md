@@ -46,7 +46,12 @@ does not mean the rows cannot be destroyed: a database *owner* can still
 truncate a table. WORM ("Write Once, Read Many") export defends against that:
 the record exists somewhere the database owner cannot reach.
 
-**How.** Set `PROBECTL_AUDIT_WORM_DIR` to a mount backed by an **object-lock
+These segments are not the tenant artifact store and do not share its volume:
+an operator can keep exports and evidence on S3/MinIO and still write signed
+WORM segments to an object-lock claim (DPR-116).
+
+**How.** Turn it on in the chart with `audit.worm.enabled=true` and point
+`audit.worm.existingClaim` at a mount backed by an **object-lock
 bucket** (S3 Object Lock or MinIO in compliance mode — the actual immutability
 guarantee lives in the bucket, not in probectl). The provider audit chain then
 exports hourly as Ed25519-signed segments (Ed25519 is a compact, fast signature

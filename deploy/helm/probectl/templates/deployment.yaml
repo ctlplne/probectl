@@ -175,7 +175,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumeMounts }}
+          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) (((.Values.audit | default dict).worm | default dict).enabled) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumeMounts }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
@@ -209,13 +209,18 @@ spec:
             - name: tenant-objects
               mountPath: {{ .Values.objectStore.mountPath | quote }}
             {{- end }}
+            {{- if ((.Values.audit | default dict).worm | default dict).enabled }}
+            # DPR-116: the WORM segments' own object-lock claim.
+            - name: audit-worm
+              mountPath: {{ default "/var/lib/probectl/audit-worm" .Values.audit.worm.mountPath | quote }}
+            {{- end }}
             {{- if .Values.license.existingSecret }}
             - name: license
               mountPath: {{ .Values.license.mountPath | quote }}
               readOnly: true
             {{- end }}
           {{- end }}
-      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumes }}
+      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) (((.Values.audit | default dict).worm | default dict).enabled) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumes }}
       volumes:
         {{- if (.Values.control.slo | default dict).existingConfigMap }}
         # DPR-064: OpenSLO definitions (every key of the ConfigMap is a file).
@@ -284,6 +289,13 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- end }}
+        {{- if ((.Values.audit | default dict).worm | default dict).enabled }}
+        # DPR-116: WORM segments live on their own object-lock claim, whatever
+        # the tenant artifact store is doing.
+        - name: audit-worm
+          persistentVolumeClaim:
+            claimName: {{ required "audit.worm.existingClaim is required when audit.worm.enabled=true" .Values.audit.worm.existingClaim | quote }}
         {{- end }}
       {{- end }}
       {{- with .Values.topologySpreadConstraints }}
