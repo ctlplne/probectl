@@ -394,6 +394,7 @@ var providerManagedTables = map[string]string{
 	"usage_records":              "consumption metering: the MSP's own billing input, aggregated across tenants",
 	"credential_locators":        "pre-tenant credential routing the provider maintains during lifecycle operations",
 	"agent_identity_revocations": "deployment-wide revocation list the provider maintains for the handshake deny-list",
+	"break_glass_grants":         "the provider plane's own break-glass ledger: who was granted time-bounded access to which tenant, which the provider console issues, displays and expires. It records the audited cross-tenant capability rather than any tenant telemetry (DPR-122 — it was invisible to this guard until the catalog query replaced the privilege-filtered one)",
 }
 
 // assertProviderPoliciesAreScoped refuses to start when the PROVIDER role
@@ -411,17 +412,39 @@ var providerManagedTables = map[string]string{
 // erase mutation, which deletes by an explicit WHERE tenant_id = $1) is not a
 // read capability and is left alone.
 func assertProviderPoliciesAreScoped(ctx context.Context, q postureQuerier) error {
+	// DPR-122, two corrections that changed what this guard actually sees:
+	//
+	//  1. The tenant_id test reads the CATALOG, not information_schema.
+	//     information_schema.columns is filtered by the CONNECTED ROLE's
+	//     privileges, so any table the app role happened to lack a grant on
+	//     was invisible here and its provider policy went unchecked. On the QA
+	//     lab that hid break_glass_grants, which carries a `USING (true)`
+	//     provider policy — the exact shape this guard exists to refuse. A
+	//     safety check whose reach depends on a GRANT is not a safety check.
+	//
+	//  2. Only PERMISSIVE policies grant access. A RESTRICTIVE policy further
+	//     CONSTRAINS what a permissive one allows, so reading one as an
+	//     unconstrained grant is backwards: it would refuse to start on a
+	//     database that is more locked down, not less. ir_attribution_records'
+	//     public-route policy is exactly that — a restrictive guard keeping
+	//     siloed tenants out of the pooled table.
 	rows, err := q.Query(ctx, `
 		SELECT p.tablename, p.policyname, p.cmd, p.qual
 		  FROM pg_policies p
 		 WHERE p.schemaname = current_schema()
 		   AND p.cmd IN ('SELECT', 'ALL')
+		   AND p.permissive = 'PERMISSIVE'
 		   AND 'probectl_provider' = ANY(p.roles)
 		   AND EXISTS (
-		       SELECT 1 FROM information_schema.columns c
-		        WHERE c.table_schema = p.schemaname
-		          AND c.table_name   = p.tablename
-		          AND c.column_name  = 'tenant_id'
+		       SELECT 1
+		         FROM pg_catalog.pg_attribute a
+		         JOIN pg_catalog.pg_class     c ON c.oid = a.attrelid
+		         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		        WHERE n.nspname  = p.schemaname
+		          AND c.relname  = p.tablename
+		          AND a.attname  = 'tenant_id'
+		          AND a.attnum   > 0
+		          AND NOT a.attisdropped
 		   )
 		 ORDER BY p.tablename, p.policyname`)
 	if err != nil {
