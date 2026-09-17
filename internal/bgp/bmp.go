@@ -7,6 +7,7 @@
 package bgp
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -53,6 +54,17 @@ const (
 	DefaultBMPHandshakeTimeout = 10 * time.Second
 	DefaultBMPReadTimeout      = 2 * time.Minute
 	DefaultBMPMaxSessions      = 256
+	// DefaultBMPIdleTimeout is 0: an authenticated router session may stay
+	// quiet indefinitely (BGP tables are quiet most of the time); TCP
+	// keepalive detects a dead peer. The read timeout bounds a frame in
+	// progress only (DPR-060).
+	DefaultBMPIdleTimeout = time.Duration(0)
+	// DefaultBMPEventSuppression republishes an unchanged route from the same
+	// peer at most once per window: a reconnecting router re-dumps its whole
+	// table (DPR-060).
+	DefaultBMPEventSuppression = 5 * time.Minute
+	bmpKeepAlivePeriod         = 30 * time.Second
+	bmpMaxSuppressionKeys      = 100_000
 )
 
 var (
@@ -73,6 +85,10 @@ type BMPListener struct {
 	inventory        *BMPPeerInventory
 	handshakeTimeout time.Duration
 	readTimeout      time.Duration
+	idleTimeout      time.Duration
+	suppression      time.Duration
+	seenMu           sync.Mutex
+	seen             map[bmpRouteKey]int64
 	maxSessions      int
 	sessionSlots     chan struct{}
 	sessionMetrics   BMPSessionMetrics
@@ -141,6 +157,28 @@ func WithBMPReadTimeout(timeout time.Duration) BMPOption {
 	}
 }
 
+// WithBMPIdleTimeout bounds how long an authenticated session may wait for
+// its next frame. 0 (the default) leaves quiet sessions open and relies on
+// TCP keepalive to detect dead peers; the read timeout still bounds any frame
+// once its first byte arrived (DPR-060).
+func WithBMPIdleTimeout(timeout time.Duration) BMPOption {
+	return func(l *BMPListener) {
+		if timeout >= 0 {
+			l.idleTimeout = timeout
+		}
+	}
+}
+
+// WithBMPEventSuppression republishes an unchanged route observation from the
+// same peer at most once per window; 0 publishes every observation (DPR-060).
+func WithBMPEventSuppression(window time.Duration) BMPOption {
+	return func(l *BMPListener) {
+		if window >= 0 {
+			l.suppression = window
+		}
+	}
+}
+
 // WithBMPMaxSessions bounds process-wide concurrent BMP sessions.
 func WithBMPMaxSessions(maxSessions int) BMPOption {
 	return func(l *BMPListener) {
@@ -176,6 +214,9 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 		inventory:        NewBMPPeerInventory(),
 		handshakeTimeout: DefaultBMPHandshakeTimeout,
 		readTimeout:      DefaultBMPReadTimeout,
+		idleTimeout:      DefaultBMPIdleTimeout,
+		suppression:      DefaultBMPEventSuppression,
+		seen:             make(map[bmpRouteKey]int64),
 		maxSessions:      DefaultBMPMaxSessions,
 		revocations:      probectlc.NewRevocationList(),
 	}
@@ -206,6 +247,7 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 	}()
 	for {
 		conn, err := l.ln.Accept()
+		enableTCPKeepAlive(conn)
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return nil
@@ -318,8 +360,16 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return fmt.Errorf("bgp bmp: clear mtls handshake deadline: %w", err)
 	}
+	l.log.Info("bmp peer session admitted",
+		"tenant_id", id.TenantID, "agent_id", id.AgentID, "spiffe_id", id.SPIFFEID, "remote", bmpRemoteAddr(conn))
+	var published, suppressed uint64
+	defer func() {
+		l.log.Info("bmp peer session ended",
+			"tenant_id", id.TenantID, "agent_id", id.AgentID, "remote", bmpRemoteAddr(conn),
+			"routes_published", published, "routes_suppressed", suppressed)
+	}()
 	for {
-		msgType, payload, err := readBMPMessageWithDeadline(conn, l.readTimeout)
+		msgType, payload, err := readBMPMessageWithDeadline(conn, l.idleTimeout, l.readTimeout)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -350,6 +400,10 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 		})
 
 		for _, route := range obs.routes {
+			if l.repeated(id, obs.peer, route, detectedAt) {
+				suppressed++
+				continue
+			}
 			ev := Event{
 				TenantID:           id.TenantID,
 				EventType:          "origin_change",
@@ -368,6 +422,7 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 			if err := PublishEvent(ctx, l.pub, ev); err != nil {
 				return err
 			}
+			published++
 			l.log.Info("bmp route event published",
 				"tenant_id", ev.TenantID,
 				"agent_id", id.AgentID,
@@ -441,14 +496,33 @@ func readBMPMessage(r io.Reader) (uint8, []byte, error) {
 	return msgType, payload, nil
 }
 
-func readBMPMessageWithDeadline(conn net.Conn, timeout time.Duration) (uint8, []byte, error) {
-	if timeout <= 0 {
+// readBMPMessageWithDeadline reads one BMP frame. Waiting for the frame is
+// idle time bounded by idleTimeout only (0 = unbounded; TCP keepalive detects
+// a dead peer). Once the first byte arrives the rest of the header and the
+// payload must complete within frameTimeout, so a stalled or slow-dripping
+// peer still cannot pin a session goroutine (DPR-060).
+func readBMPMessageWithDeadline(conn net.Conn, idleTimeout, frameTimeout time.Duration) (uint8, []byte, error) {
+	if frameTimeout <= 0 {
 		return 0, nil, errors.New("bgp bmp: read timeout must be positive")
 	}
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+	idleDeadline := time.Time{}
+	if idleTimeout > 0 {
+		idleDeadline = time.Now().Add(idleTimeout)
+	}
+	if err := conn.SetReadDeadline(idleDeadline); err != nil {
+		return 0, nil, fmt.Errorf("bgp bmp: set idle read deadline: %w", err)
+	}
+	var header [bmpCommonHeaderLen]byte
+	if _, err := io.ReadFull(conn, header[:1]); err != nil {
+		return 0, nil, err
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(frameTimeout)); err != nil {
 		return 0, nil, fmt.Errorf("bgp bmp: set header read deadline: %w", err)
 	}
-	msgType, payloadLen, err := readBMPHeader(conn)
+	if _, err := io.ReadFull(conn, header[1:]); err != nil {
+		return 0, nil, err
+	}
+	msgType, payloadLen, err := readBMPHeader(bytes.NewReader(header[:]))
 	if err != nil {
 		return 0, nil, err
 	}
@@ -456,13 +530,67 @@ func readBMPMessageWithDeadline(conn net.Conn, timeout time.Duration) (uint8, []
 	if payloadLen == 0 {
 		return msgType, payload, nil
 	}
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(frameTimeout)); err != nil {
 		return 0, nil, fmt.Errorf("bgp bmp: set payload read deadline: %w", err)
 	}
 	if _, err := io.ReadFull(conn, payload); err != nil {
 		return 0, nil, err
 	}
 	return msgType, payload, nil
+}
+
+// enableTCPKeepAlive lets the kernel notice a router that vanished without a
+// FIN while the session waits, unbounded, for its next frame (DPR-060).
+func enableTCPKeepAlive(conn net.Conn) {
+	if conn == nil {
+		return
+	}
+	if tlsConn, ok := conn.(*tls.Conn); ok {
+		conn = tlsConn.NetConn()
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetKeepAlive(true)
+		_ = tcp.SetKeepAlivePeriod(bmpKeepAlivePeriod)
+	}
+}
+
+// bmpRouteKey identifies one unchanged route observation from one peer of one
+// router: the unit of repeat suppression.
+type bmpRouteKey struct {
+	tenantID, agentID, peerAddress, prefix, asPath string
+	peerASN, originASN                             uint32
+}
+
+// repeated reports whether the same observation was published less than the
+// suppression window ago (by data time), remembering it otherwise. The map is
+// bounded: past bmpMaxSuppressionKeys expired keys are swept, and if nothing
+// expired it starts over (worst case: one extra event per key).
+func (l *BMPListener) repeated(id bmpIdentity, peer bmpPeer, route bmpRouteAnnouncement, nowNano int64) bool {
+	if l.suppression <= 0 {
+		return false
+	}
+	key := bmpRouteKey{
+		tenantID: id.TenantID, agentID: id.AgentID, peerAddress: peer.Address, prefix: route.Prefix,
+		asPath: fmt.Sprint(route.ASPath), peerASN: peer.ASN, originASN: route.OriginASN,
+	}
+	window := l.suppression.Nanoseconds()
+	l.seenMu.Lock()
+	defer l.seenMu.Unlock()
+	if last, ok := l.seen[key]; ok && nowNano-last >= 0 && nowNano-last < window {
+		return true
+	}
+	if len(l.seen) >= bmpMaxSuppressionKeys {
+		for k, t := range l.seen {
+			if nowNano-t >= window {
+				delete(l.seen, k)
+			}
+		}
+		if len(l.seen) >= bmpMaxSuppressionKeys {
+			l.seen = make(map[bmpRouteKey]int64)
+		}
+	}
+	l.seen[key] = nowNano
+	return false
 }
 
 func readBMPHeader(r io.Reader) (uint8, int, error) {

@@ -929,7 +929,9 @@ path is introduced.
 | `PROBECTL_BMP_REVOCATION_TIMEOUT` | `5s` | deadline for initial and periodic revocation snapshot reads; must be positive |
 | `PROBECTL_BMP_COLLECTOR` | `bmp` | collector label written on published BGP events |
 | `PROBECTL_BMP_HANDSHAKE_TIMEOUT` | `10s` | maximum time for an unauthenticated mTLS handshake; must be positive |
-| `PROBECTL_BMP_READ_TIMEOUT` | `2m` | rolling maximum for each authenticated BMP header and payload read; must be positive |
+| `PROBECTL_BMP_READ_TIMEOUT` | `2m` | maximum for a BMP frame in progress: once its first byte arrived, the rest of the header and the payload must complete within this; must be positive. Idle time between frames is governed by `PROBECTL_BMP_IDLE_TIMEOUT` (DPR-060) |
+| `PROBECTL_BMP_IDLE_TIMEOUT` | `0` | how long an authenticated router session may wait for its next frame; `0` = unbounded (BGP tables are quiet most of the time; TCP keepalive every 30 s detects a dead peer). The earlier behavior — dropping a quiet session after the read timeout, which made the router reconnect and re-dump its table — is `PROBECTL_BMP_IDLE_TIMEOUT=2m` (DPR-060) |
+| `PROBECTL_BMP_EVENT_SUPPRESSION` | `5m` | an unchanged route observation from the same peer of the same router is published at most once per window (a reconnecting router re-sends its whole Adj-RIB-In); `0` publishes every observation. The peer inventory still counts every announcement (DPR-060) |
 | `PROBECTL_BMP_MAX_SESSIONS` | `256` | process-wide concurrent BMP session limit; excess sockets are refused |
 | `PROBECTL_BMP_BUS_MODE` | `memory` | `memory` \| `kafka` |
 | `PROBECTL_BMP_BUS_BROKERS` | (none) | comma-separated Kafka brokers (required for kafka mode) |
@@ -962,13 +964,24 @@ PROBECTL_BMP_BUS_TLS_ENABLED=true \
   probectl-bmp-listener
 ```
 
-Create the revocation login in the operator's own PostgreSQL credential/key
-domain, then grant only the migration-created execute-only role:
+Create both logins in the operator's own PostgreSQL credential/key domain
+(DPR-058). The registry login verifies a router's issued identity through the
+same tenant-scoped lookup the control plane uses — the query runs after
+`SET LOCAL ROLE probectl_app` under forced row-level security — so it must be a
+member of the migration-created `probectl_app` role. The revocation login is
+granted only the execute-only role:
 
 ```sql
-CREATE ROLE bmp_revocation LOGIN;
+CREATE ROLE bmp_registry LOGIN NOSUPERUSER NOBYPASSRLS;
+GRANT probectl_app TO bmp_registry;
+CREATE ROLE bmp_revocation LOGIN NOSUPERUSER NOBYPASSRLS;
 GRANT probectl_bmp_revocation_reader TO bmp_revocation;
+GRANT CONNECT ON DATABASE probectl TO bmp_registry, bmp_revocation;
 ```
+
+Both URLs take the usual libpq TLS parameters, e.g.
+`?sslmode=verify-full&sslrootcert=/etc/probectl/trust/ca-bundle.crt` for a
+private PostgreSQL CA.
 
 Set its password or client-certificate authentication outside probectl. The
 listener assumes `probectl_bmp_revocation_reader`, which can execute only

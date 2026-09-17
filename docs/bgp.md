@@ -179,6 +179,12 @@ PROBECTL_BMP_BUS_TLS_ENABLED=true \
   probectl-bmp-listener
 ```
 
+The two PostgreSQL logins the listener needs — `bmp_registry`, a member of
+`probectl_app` so the tenant-scoped identity lookup can assume that role, and
+`bmp_revocation`, granted only the execute-only revocation role — are created
+by the operator as shown in
+[`configuration.md`](configuration.md#bgp-routing-intelligence) (DPR-058).
+
 Register each router through the existing collector enrollment surface with a
 router-owned CSR:
 
@@ -196,6 +202,37 @@ agent-plane SVID both fail closed. Rotation uses the existing
 `POST /v1/agents/{id}/revoke` uses the existing identity/serial revocation
 lifecycle. There is no separate BMP identity system.
 
+**Routers without native BMP-over-TLS.** Most BMP exporters — FRR among them —
+speak BMP over plain TCP, and the listener refuses plaintext by design. Run a
+TLS client sidecar next to the router that presents the router's registry-issued
+SVID and forwards to the listener; the router's BMP target is the sidecar's
+loopback port. Verified with FRR 8.4 and [ghostunnel](https://github.com/ghostunnel/ghostunnel)
+(DPR-058):
+
+```text
+! frr.conf (the router that exports BMP; bgpd started with -M bmp)
+router bgp 65010
+ bmp targets probectl
+  bmp connect 127.0.0.1 port 11790 min-retry 1000 max-retry 5000
+  bmp monitor ipv4 unicast pre-policy
+  bmp monitor ipv4 unicast post-policy
+ exit-bmp
+```
+
+```sh
+# sidecar: plaintext on loopback only, mTLS to the listener with the router SVID
+ghostunnel client --listen 127.0.0.1:11790 \
+  --target bmp.probectl.example:1179 \
+  --cert /etc/probectl/bmp/router.crt --key /etc/probectl/bmp/router.key \
+  --cacert /etc/probectl/bmp/listener-ca.crt
+```
+
+`router.crt` is the `cert_pem` returned by the registration above (its private
+key never left the router), and `listener-ca.crt` is whatever CA issued the
+listener's server certificate. The listener still derives the tenant from the
+router SVID, so the sidecar adds no trust: a sidecar without a registered SVID,
+or with another tenant's, is refused exactly like a direct plaintext peer.
+
 The standalone listener loads the existing registry's authoritative revocation
 snapshot before it binds and refreshes it every 30 seconds. The revocation DSN
 must use PostgreSQL `sslmode=verify-full` and a login granted only the
@@ -204,11 +241,20 @@ startup fails closed; if a later bounded refresh fails, the last valid list is
 retained. This is a local intra-deployment connection and never phones home.
 
 The listener bounds peer-controlled resources by default: an mTLS handshake has
-10 seconds, each complete BMP header and payload has 2 minutes, and at most 256
-sessions are admitted concurrently. Override these limits with
-`PROBECTL_BMP_HANDSHAKE_TIMEOUT`, `PROBECTL_BMP_READ_TIMEOUT`, and
-`PROBECTL_BMP_MAX_SESSIONS` (or the matching command-line flags). Values must be
-positive. A full listener refuses excess sockets immediately and exports
+10 seconds, a BMP frame in progress (header and payload, once its first byte
+arrived) has 2 minutes, and at most 256 sessions are admitted concurrently. An
+authenticated session may stay quiet indefinitely — BGP tables are quiet most
+of the time, and TCP keepalive (30 s) detects a dead router — unless
+`PROBECTL_BMP_IDLE_TIMEOUT` bounds it; an unchanged route from the same peer
+is published at most once per `PROBECTL_BMP_EVENT_SUPPRESSION` (5 minutes), so
+a reconnecting router that re-dumps its table does not re-emit every route
+(DPR-060). Override these limits with `PROBECTL_BMP_HANDSHAKE_TIMEOUT`,
+`PROBECTL_BMP_READ_TIMEOUT`, `PROBECTL_BMP_IDLE_TIMEOUT`,
+`PROBECTL_BMP_EVENT_SUPPRESSION` and `PROBECTL_BMP_MAX_SESSIONS` (or the
+matching command-line flags). Timeouts must be positive; the idle timeout and
+the suppression window may be `0`. Every admitted session is logged with its
+tenant, router id and SPIFFE id, and every session end with the routes it
+published and suppressed. A full listener refuses excess sockets immediately and exports
 `probectl_agent_active_sessions`,
 `probectl_agent_session_timeouts_total`, and
 `probectl_agent_session_rejections_total` without tenant or peer labels.

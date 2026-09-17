@@ -56,7 +56,9 @@ func run() error {
 	busMode := fs.String("bus-mode", envOr("PROBECTL_BMP_BUS_MODE", "memory"), "result bus mode: memory|kafka")
 	busBrokers := fs.String("bus-brokers", os.Getenv("PROBECTL_BMP_BUS_BROKERS"), "comma-separated Kafka brokers")
 	handshakeTimeoutRaw := fs.String("handshake-timeout", envOr("PROBECTL_BMP_HANDSHAKE_TIMEOUT", bgp.DefaultBMPHandshakeTimeout.String()), "maximum unauthenticated mTLS handshake time")
-	readTimeoutRaw := fs.String("read-timeout", envOr("PROBECTL_BMP_READ_TIMEOUT", bgp.DefaultBMPReadTimeout.String()), "maximum time for each authenticated BMP header or payload read")
+	readTimeoutRaw := fs.String("read-timeout", envOr("PROBECTL_BMP_READ_TIMEOUT", bgp.DefaultBMPReadTimeout.String()), "maximum time for a BMP frame in progress (header + payload once its first byte arrived)")
+	idleTimeoutRaw := fs.String("idle-timeout", envOr("PROBECTL_BMP_IDLE_TIMEOUT", bgp.DefaultBMPIdleTimeout.String()), "maximum quiet time between frames on an authenticated session; 0 = unbounded (TCP keepalive detects dead peers)")
+	eventSuppressionRaw := fs.String("event-suppression", envOr("PROBECTL_BMP_EVENT_SUPPRESSION", bgp.DefaultBMPEventSuppression.String()), "publish an unchanged route from the same peer at most once per window; 0 = every observation")
 	maxSessionsRaw := fs.String("max-sessions", envOr("PROBECTL_BMP_MAX_SESSIONS", strconv.Itoa(bgp.DefaultBMPMaxSessions)), "maximum concurrent BMP sessions")
 	revocationRefreshRaw := fs.String("revocation-refresh", envOr("PROBECTL_BMP_REVOCATION_REFRESH", defaultBMPRevocationRefresh.String()), "authoritative revocation snapshot refresh interval")
 	revocationTimeoutRaw := fs.String("revocation-timeout", envOr("PROBECTL_BMP_REVOCATION_TIMEOUT", defaultBMPRevocationTimeout.String()), "maximum time for one revocation snapshot")
@@ -68,6 +70,14 @@ func run() error {
 		return err
 	}
 	readTimeout, err := parsePositiveBMPDuration("read timeout", *readTimeoutRaw)
+	if err != nil {
+		return err
+	}
+	idleTimeout, err := parseNonNegativeBMPDuration("idle timeout", *idleTimeoutRaw)
+	if err != nil {
+		return err
+	}
+	eventSuppression, err := parseNonNegativeBMPDuration("event suppression", *eventSuppressionRaw)
 	if err != nil {
 		return err
 	}
@@ -191,6 +201,8 @@ func run() error {
 		"bus_mode", *busMode,
 		"handshake_timeout", handshakeTimeout,
 		"read_timeout", readTimeout,
+		"idle_timeout", idleTimeout,
+		"event_suppression", eventSuppression,
 		"max_sessions", maxSessions,
 		"revocation_refresh", revocationRefresh,
 		"revocations_loaded", revocations.Size(),
@@ -202,6 +214,8 @@ func run() error {
 		return bgp.NewBMPListener(ln, b, *collector, log,
 			bgp.WithBMPHandshakeTimeout(handshakeTimeout),
 			bgp.WithBMPReadTimeout(readTimeout),
+			bgp.WithBMPIdleTimeout(idleTimeout),
+			bgp.WithBMPEventSuppression(eventSuppression),
 			bgp.WithBMPMaxSessions(maxSessions),
 			bgp.WithBMPSessionMetrics(metricsRuntime),
 			bgp.WithBMPRevocationList(revocations),
@@ -217,6 +231,17 @@ func parsePositiveBMPDuration(label, raw string) (time.Duration, error) {
 	}
 	if value <= 0 {
 		return 0, fmt.Errorf("BMP %s must be positive", label)
+	}
+	return value, nil
+}
+
+func parseNonNegativeBMPDuration(label, raw string) (time.Duration, error) {
+	value, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("BMP %s %q is invalid: %w", label, raw, err)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("BMP %s must not be negative", label)
 	}
 	return value, nil
 }
