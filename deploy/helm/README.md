@@ -183,6 +183,28 @@ helm upgrade --install probectl deploy/helm/probectl ... \
 #   PROBECTL_DATABASE_URL=postgres://...?sslmode=verify-full&sslrootcert=/etc/probectl/trust/ca-bundle.crt
 ```
 
+### Credential files (Prometheus / ClickHouse basic auth, broker client keys)
+
+The control plane reads datastore credentials from **private, regular,
+mode-0600 files** (`PROBECTL_TSDB_BASIC_AUTH_FILE`,
+`PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE`, `PROBECTL_BUS_TLS_KEY_FILE`); it refuses
+symlinks and group-readable modes, which is exactly what a Kubernetes Secret
+volume looks like from inside a non-root pod. `control.credentialFiles` names a
+Secret whose keys the chart stages into a memory-backed volume with
+`probectl-control stage-credentials` (a shell-free init container, the image
+has no `cp`) before `migrate` and `control` start; point the file settings at
+`<mountPath>/<key>` (DPR-030):
+
+```sh
+kubectl -n probectl create secret generic probectl-store-credentials \
+  --from-file=prom-basic-auth.json=./prom-basic-auth.json \
+  --from-file=ch-basic-auth.json=./ch-basic-auth.json
+helm upgrade --install probectl deploy/helm/probectl ... \
+  --set control.credentialFiles.existingSecret=probectl-store-credentials \
+  --set-string control.extraEnv.PROBECTL_TSDB_BASIC_AUTH_FILE=/etc/probectl/credentials/prom-basic-auth.json \
+  --set-string control.extraEnv.PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-basic-auth.json
+```
+
 `control.extraEnv` is only for settings without a typed chart value. The chart
 rejects names it already owns—including listener TLS, authentication, HSTS,
 at-rest encryption, database, OIDC, and chart-Secret keys—so a generic map

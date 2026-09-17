@@ -976,4 +976,20 @@ if render --set-string control.extraEnv.SSL_CERT_FILE=/tmp/x >/dev/null 2>&1; th
   fail "control.extraEnv.SSL_CERT_FILE must be rejected: the trust bundle is a typed value (DPR-026)"
 fi
 
+# DPR-030: credential FILES (basic-auth JSON, broker client keys) are staged by
+# the binary into a private in-memory volume as 0600 regular files before
+# migrate and control start; absent by default.
+if grep -q 'stage-credentials' <<<"$base_tb"; then
+  fail "stage-credentials must not render unless control.credentialFiles.existingSecret is named (DPR-030)"
+fi
+cf="$(render --set control.credentialFiles.existingSecret=probectl-store-credentials)"
+need_fixed 'args: ["stage-credentials", "/etc/probectl/credentials-source", "/etc/probectl/credentials"]' "$cf" "control.credentialFiles must render the stage-credentials init container (DPR-030)"
+need_fixed 'secretName: "probectl-store-credentials"' "$cf" "control.credentialFiles must mount the named Secret as the staging source (DPR-030)"
+need_fixed 'medium: Memory' "$cf" "staged credentials must live in a memory-backed volume (DPR-030)"
+[ "$(grep -c 'mountPath: "/etc/probectl/credentials"' <<<"$cf")" -eq 3 ] \
+  || fail "credential volume must be mounted by stage-credentials (rw), migrate and control (ro) (DPR-030)"
+if ! grep -B4 'name: stage-credentials' <<<"$cf" | grep -q 'initContainers:'; then
+  fail "stage-credentials must be the first init container so migrate can already read the files (DPR-030)"
+fi
+
 echo "helm hardening gate: OK (control plane + agent charts)"

@@ -475,6 +475,10 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 	case "stage-binary":
 		// Shell-free distroless init-container helper for backup/restore Jobs.
 		return true, stageBinary(os.Args[2:])
+	case "stage-credentials":
+		// DPR-030: shell-free init-container helper that turns a projected
+		// Secret volume into private 0600 regular credential files.
+		return true, stageCredentials(os.Args[2:])
 	case "support-bundle":
 		// S-EE4: offline, secret-stripped diagnostics bundle.
 		return true, supportBundle(os.Args[2:])
@@ -499,7 +503,7 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | stage-credentials | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
 	}
 }
 

@@ -27,8 +27,26 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if .Values.migrateOnBoot }}
+      {{- if or .Values.migrateOnBoot .Values.control.credentialFiles.existingSecret }}
       initContainers:
+        {{- if .Values.control.credentialFiles.existingSecret }}
+        # DPR-030: stage operator credential files as private mode-0600 regular
+        # files owned by the runtime user; a projected Secret volume cannot be.
+        - name: stage-credentials
+          image: {{ include "probectl.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/app"]
+          args: ["stage-credentials", "/etc/probectl/credentials-source", {{ .Values.control.credentialFiles.mountPath | quote }}]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: credentials-source
+              mountPath: /etc/probectl/credentials-source
+              readOnly: true
+            - name: credentials
+              mountPath: {{ .Values.control.credentialFiles.mountPath | quote }}
+        {{- end }}
+        {{- if .Values.migrateOnBoot }}
         - name: migrate
           image: {{ include "probectl.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -46,7 +64,7 @@ spec:
             - name: SSL_CERT_FILE
               value: {{ printf "%s/%s" .Values.control.trustBundle.mountPath .Values.control.trustBundle.key | quote }}
           {{- end }}
-          {{- if or .Values.control.tls.enabled .Values.control.trustBundle.existingConfigMap }}
+          {{- if or .Values.control.tls.enabled .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
@@ -58,7 +76,13 @@ spec:
               mountPath: {{ .Values.control.trustBundle.mountPath | quote }}
               readOnly: true
             {{- end }}
+            {{- if .Values.control.credentialFiles.existingSecret }}
+            - name: credentials
+              mountPath: {{ .Values.control.credentialFiles.mountPath | quote }}
+              readOnly: true
+            {{- end }}
           {{- end }}
+        {{- end }}
       {{- end }}
       containers:
         - name: control
@@ -104,7 +128,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap }}
+          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
@@ -114,6 +138,11 @@ spec:
             {{- if .Values.control.trustBundle.existingConfigMap }}
             - name: trust-bundle
               mountPath: {{ .Values.control.trustBundle.mountPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.control.credentialFiles.existingSecret }}
+            - name: credentials
+              mountPath: {{ .Values.control.credentialFiles.mountPath | quote }}
               readOnly: true
             {{- end }}
             {{- if and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem") }}
@@ -126,8 +155,18 @@ spec:
               readOnly: true
             {{- end }}
           {{- end }}
-      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap }}
+      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret }}
       volumes:
+        {{- if .Values.control.credentialFiles.existingSecret }}
+        - name: credentials-source
+          secret:
+            secretName: {{ .Values.control.credentialFiles.existingSecret | quote }}
+            defaultMode: 0400
+        - name: credentials
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        {{- end }}
         {{- if .Values.control.trustBundle.existingConfigMap }}
         - name: trust-bundle
           configMap:

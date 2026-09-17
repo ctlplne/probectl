@@ -113,6 +113,21 @@ control:
     existingConfigMap: ""
     key: ca-bundle.crt
     mountPath: /etc/probectl/trust
+  # Operator credential FILES the control plane must read as private, regular,
+  # mode-0600 files (DPR-030): PROBECTL_TSDB_BASIC_AUTH_FILE,
+  # PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE, broker mTLS client keys. A Kubernetes
+  # Secret volume cannot satisfy that shape (projected symlinks, group-readable
+  # under fsGroup), so name a Secret here: the chart stages every key of it
+  # into a private in-memory volume with `probectl-control stage-credentials`
+  # before migrate and control start, then mounts that volume read-only. Point
+  # the file settings at <mountPath>/<key> through control.extraEnv, e.g.
+  #   kubectl -n probectl create secret generic probectl-store-credentials \
+  #     --from-file=prom-basic-auth.json --from-file=ch-basic-auth.json
+  #   --set control.credentialFiles.existingSecret=probectl-store-credentials \
+  #   --set-string control.extraEnv.PROBECTL_TSDB_BASIC_AUTH_FILE=/etc/probectl/credentials/prom-basic-auth.json
+  credentialFiles:
+    existingSecret: ""
+    mountPath: /etc/probectl/credentials
   # Extra PROBECTL_* env vars, as a map of name: value. Names owned by typed
   # chart values or the chart Secret are rejected so this map cannot override
   # TLS, authentication, encryption, HSTS, listener, or credential settings.
