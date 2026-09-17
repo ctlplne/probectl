@@ -984,7 +984,7 @@ func canonicalGoStatements(statements []ast.Stmt) (string, bool) {
 }
 
 const cliRunPreludeSpine = `{
-	cfg := Config{BaseURL: envOr(getenv, "PROBECTL_API_URL", "https://localhost:8443"), Token: getenv("PROBECTL_API_TOKEN"), Tenant: getenv("PROBECTL_TENANT"), Locale: i18n.Resolve(getenv("PROBECTL_LOCALE")), SessionCookieFile: getenv("PROBECTL_SESSION_COOKIE_FILE")}
+	cfg := Config{BaseURL: envOr(getenv, "PROBECTL_API_URL", "https://localhost:8443"), Token: getenv("PROBECTL_API_TOKEN"), Tenant: getenv("PROBECTL_TENANT"), Locale: i18n.Resolve(getenv("PROBECTL_LOCALE")), SessionCookieFile: getenv("PROBECTL_SESSION_COOKIE_FILE"), CAFile: getenv("PROBECTL_CA_FILE")}
 	args, cfg.JSON = extractBoolFlag(args, "--json")
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		usage(stdout, cfg.Locale)
@@ -998,6 +998,7 @@ const cliRunPreludeSpine = `{
 	fs.StringVar(&cfg.BaseURL, "url", cfg.BaseURL, "control-plane API base URL (env PROBECTL_API_URL)")
 	fs.StringVar(&cfg.Token, "token", cfg.Token, "API auth token, sent as Bearer (env PROBECTL_API_TOKEN)")
 	fs.StringVar(&cfg.Tenant, "tenant", cfg.Tenant, "tenant UUID, sent as X-Probectl-Tenant (env PROBECTL_TENANT)")
+	fs.StringVar(&cfg.CAFile, "ca-file", cfg.CAFile, "PEM CA bundle that verifies the control plane's certificate (env PROBECTL_CA_FILE); default: the OS trust store")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
