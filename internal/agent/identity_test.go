@@ -8,14 +8,17 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -183,5 +186,34 @@ func TestRotateRejectsPlaintextServerBeforeReadingIdentity(t *testing.T) {
 	if _, err := Rotate(context.Background(), "http://127.0.0.1:1", "missing-cert", "missing-key", "missing-ca"); err == nil ||
 		!strings.Contains(err.Error(), "plaintext http:// enrollment is refused") {
 		t.Fatalf("rotation should reject plaintext server before reading identity files, got %v", err)
+	}
+}
+
+// DPR-020: the join token is single-use, so an unwritable identity directory
+// must be refused BEFORE the control plane is asked to redeem it.
+func TestEnrollRefusesUnwritableDirBeforeRedeemingToken(t *testing.T) {
+	var requests int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	pin := fmt.Sprintf("%x", sha256.Sum256(srv.Certificate().Raw))
+	// A regular file where the directory should be: MkdirAll fails.
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Enroll(context.Background(), EnrollOptions{
+		Server: srv.URL, Token: "pjt_single_use", Dir: filepath.Join(blocker, "identity"), CAPin: pin,
+	})
+	if err == nil {
+		t.Fatal("an unusable identity directory must be refused")
+	}
+	if !strings.Contains(err.Error(), "nothing was redeemed") {
+		t.Fatalf("refusal must say the token was not consumed, got: %v", err)
+	}
+	if n := atomic.LoadInt32(&requests); n != 0 {
+		t.Fatalf("the control plane must not be contacted before the directory is proven writable (got %d requests)", n)
 	}
 }

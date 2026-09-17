@@ -92,6 +92,13 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	// DPR-020: the join token is single-use and is consumed by the POST below.
+	// Prove the identity directory is writable BEFORE redeeming it, so a
+	// read-only volume or a wrong --dir costs a clear error, not a burned
+	// token plus an identity that was issued and then lost.
+	if err := ensureWritableIdentityDir(o.Dir); err != nil {
+		return "", time.Time{}, err
+	}
 	id, err := postIdentity(ctx, hc, endpoint, map[string]string{
 		"token": o.Token, "csr_pem": string(csrPEM), "hostname": o.Hostname, "version": o.Version,
 	})
@@ -386,6 +393,22 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// ensureWritableIdentityDir creates dir (owner-only) and proves a file can be
+// created in it, without touching any existing identity material.
+func ensureWritableIdentityDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("enroll: identity dir %s is not usable (nothing was redeemed): %w", dir, err)
+	}
+	probe, err := os.CreateTemp(dir, ".enroll-probe-*")
+	if err != nil {
+		return fmt.Errorf("enroll: identity dir %s is not writable (nothing was redeemed; fix the mount/permissions and reuse the token): %w", dir, err)
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	_ = os.Remove(name)
+	return nil
 }
 
 // writeIdentityDir lands key/cert/bundle atomically with owner-only modes —
