@@ -99,7 +99,13 @@ supplies a digest.
 
 ## Install (multi-tenant / provider, MSP)
 
-Before installing, pre-create two shared resources:
+Before installing, pre-create two shared resources (three with the license):
+
+- `probectl-license`: a Secret holding the offline-signed MSP license file
+  (`kubectl -n probectl create secret generic probectl-license
+  --from-file=license.json=./license.json`), referenced below as
+  `license.existingSecret`. The control plane verifies it locally — never
+  phone-home — and Admin → Editions shows the result ([`docs/editions.md`](../../docs/editions.md)).
 
 - `probectl-provider-objects-rwx`: a `ReadWriteMany` PVC backed by encrypted,
   shared storage whose WORM prefix is protected by S3 Object Lock, MinIO
@@ -125,6 +131,7 @@ helm install probectl deploy/helm/probectl \
   --set control.tls.existingSecret=probectl-msp-tls \
   --set-string image.digest='sha256:<release-digest>' \
   --set secrets.existingSecret=probectl-provider-runtime \
+  --set license.existingSecret=probectl-license \
   --set objectStore.existingClaim=probectl-provider-objects-rwx \
   --set database.url='postgres://declaration-only@db:5432/probectl?sslmode=verify-full' \
   --set oidc.issuer=... --set oidc.clientId=... \

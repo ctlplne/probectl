@@ -38,7 +38,7 @@ services:
       DEX_DEMO_PASSWORD_HASH: ${DEX_DEMO_PASSWORD_HASH:?DEX_DEMO_PASSWORD_HASH is required for the local Dex demo}
     volumes:
       - ./dex-demo.yaml:/etc/dex/config.demo.yaml:ro
-      - certs:/certs:ro
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
       - controldata:/var/lib/probectl
     read_only: true
     tmpfs:

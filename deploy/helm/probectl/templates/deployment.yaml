@@ -60,6 +60,12 @@ spec:
                 name: {{ include "probectl.fullname" . }}-config
             - secretRef:
                 name: {{ include "probectl.secretName" . }}
+          {{- if .Values.license.existingSecret }}
+          env:
+            # DPR-006: the offline-signed Enterprise/MSP license, verified locally.
+            - name: PROBECTL_LICENSE_FILE
+              value: {{ printf "%s/%s" .Values.license.mountPath .Values.license.key | quote }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /readyz
@@ -78,7 +84,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) }}
+          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
@@ -89,9 +95,22 @@ spec:
             - name: tenant-objects
               mountPath: {{ .Values.objectStore.mountPath | quote }}
             {{- end }}
+            {{- if .Values.license.existingSecret }}
+            - name: license
+              mountPath: {{ .Values.license.mountPath | quote }}
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) }}
+      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret }}
       volumes:
+        {{- if .Values.license.existingSecret }}
+        - name: license
+          secret:
+            secretName: {{ .Values.license.existingSecret | quote }}
+            items:
+              - key: {{ .Values.license.key | quote }}
+                path: {{ .Values.license.key | quote }}
+        {{- end }}
         {{- if .Values.control.tls.enabled }}
         - name: control-tls
           secret:

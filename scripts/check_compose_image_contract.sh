@@ -113,6 +113,30 @@ run_checks() {
       || err "certgen must directly invoke gen-cert --if-missing /certs"
   fi
 
+  # DPR-008: the certificate directory is env-selectable on every /certs mount
+  # (certgen, postgres, control) and documented; a hard-wired named volume
+  # would send operators back to "somehow copy files into a Docker volume".
+  tls_mounts="$(grep -c '\${PROBECTL_TLS_DIR:-certs}:/certs' "$root/deploy/compose/probectl.yml" || true)"
+  [ "$tls_mounts" -ge 3 ] \
+    || err "deploy/compose/probectl.yml must mount \${PROBECTL_TLS_DIR:-certs}:/certs for certgen, postgres and control (found $tls_mounts)"
+  grep -Eq '^PROBECTL_TLS_DIR=' "$root/deploy/compose/.env.example" \
+    || err "deploy/compose/.env.example must document PROBECTL_TLS_DIR (bring-your-own certificate directory)"
+  grep -Fq 'PROBECTL_TLS_DIR' "$root/docs/install.md" \
+    || err "docs/install.md must explain PROBECTL_TLS_DIR for CA-issued certificates"
+  # DPR-006: a licensed (Enterprise/MSP) deployment has a shipped install path.
+  [ -f "$root/deploy/compose/license.yml" ] \
+    || err "deploy/compose/license.yml (license overlay) must exist"
+  grep -Fq 'PROBECTL_LICENSE_FILE: /etc/probectl/license.json' "$root/deploy/compose/license.yml" \
+    || err "deploy/compose/license.yml must set PROBECTL_LICENSE_FILE for the control service"
+  grep -Fq '${PROBECTL_LICENSE_PATH:?' "$root/deploy/compose/license.yml" \
+    || err "deploy/compose/license.yml must require PROBECTL_LICENSE_PATH (no silent Community fallback)"
+  grep -Eq '^PROBECTL_LICENSE_PATH=' "$root/deploy/compose/.env.example" \
+    || err "deploy/compose/.env.example must document PROBECTL_LICENSE_PATH"
+  grep -Fq 'PROBECTL_COMPOSE_OVERLAYS' "$root/Makefile" \
+    || err "Makefile compose-prod-up must accept PROBECTL_COMPOSE_OVERLAYS (license.yml)"
+  grep -Fq 'license.yml' "$root/docs/install.md" \
+    || err "docs/install.md must show how to install a license with deploy/compose/license.yml"
+
   if [ "${PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL:-0}" = "1" ]; then
     if [ -z "$image" ]; then
       err "anonymous pull smoke requested, but production Compose has no default image; set PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL only for digest-default releases"
@@ -160,17 +184,33 @@ YAML
   fail=0
   cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
 services:
+  postgres:
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
   certgen:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
     command: ["gen-cert", "--if-missing", "/certs"]
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+YAML
+  cat > "$tmp/deploy/compose/license.yml" <<'YAML'
+services:
+  control:
+    environment:
+      PROBECTL_LICENSE_FILE: /etc/probectl/license.json
+    volumes:
+      - ${PROBECTL_LICENSE_PATH:?set PROBECTL_LICENSE_PATH}:/etc/probectl/license.json:ro
 YAML
   cat > "$tmp/docs/install.md" <<'MD'
 The shipped compose stack has no mutable image default.
 If GHCR returns 401, run `docker login ghcr.io` with read:packages.
 Set `PROBECTL_IMAGE` to use a mirror.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
+Set PROBECTL_TLS_DIR for a CA-issued certificate. Install a license with license.yml.
 MD
   cat > "$tmp/deploy/compose/README.md" <<'MD'
 Use `docker login ghcr.io` if the release package is not anonymous.
@@ -179,8 +219,11 @@ MD
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
 # PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.7@sha256:<release-digest>
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+PROBECTL_TLS_DIR=
+PROBECTL_LICENSE_PATH=
 ENV
   cat > "$tmp/Makefile" <<'MAKE'
+PROBECTL_COMPOSE_OVERLAYS ?=
 compose-prod-up: compose-prod-preflight
 MAKE
   run_checks "$tmp"
@@ -211,18 +254,71 @@ YAML
 
   cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
 services:
+  postgres:
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
   certgen:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
     command: ["gen-cert", "--if-missing", "/certs"]
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
 YAML
 
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
 # PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.6@sha256:<release-digest>
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+PROBECTL_TLS_DIR=
+PROBECTL_LICENSE_PATH=
 ENV
   expect_fixture_failure "wrong-version"
+
+  # DPR-008: a hard-wired named certs volume must fail the contract.
+  cat > "$tmp/deploy/compose/.env.example" <<'ENV'
+# PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.7@sha256:<release-digest>
+# PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+PROBECTL_TLS_DIR=
+PROBECTL_LICENSE_PATH=
+ENV
+  cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
+services:
+  postgres:
+    volumes:
+      - certs:/certs:ro
+  certgen:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    command: ["gen-cert", "--if-missing", "/certs"]
+    volumes:
+      - certs:/certs
+  control:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    volumes:
+      - certs:/certs:ro
+YAML
+  expect_fixture_failure "hardwired-certs-volume"
+
+  # DPR-006: a missing license overlay must fail the contract.
+  cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
+services:
+  postgres:
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+  certgen:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    command: ["gen-cert", "--if-missing", "/certs"]
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs
+  control:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+    volumes:
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+YAML
+  mv "$tmp/deploy/compose/license.yml" "$tmp/deploy/compose/license.yml.off"
+  expect_fixture_failure "missing-license-overlay"
+  mv "$tmp/deploy/compose/license.yml.off" "$tmp/deploy/compose/license.yml"
 
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
 # PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.7
@@ -238,6 +334,8 @@ ENV
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
 # PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v9.8.7@sha256:<release-digest>
 # PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
+PROBECTL_TLS_DIR=
+PROBECTL_LICENSE_PATH=
 ENV
   fail=0
   run_checks "$tmp"

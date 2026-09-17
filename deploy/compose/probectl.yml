@@ -4,8 +4,9 @@
 # is exposed ONLY over HTTPS (port 8443) — there is no plaintext listener
 # (CLAUDE.md §7 guardrail 12). A self-signed certificate is generated on first
 # boot by `probectl-control gen-cert` (the `certgen` one-shot) for an immediate
-# quickstart; production operators replace it with a CA-issued certificate by
-# mounting their own /certs and pointing PROBECTL_TLS_HOSTS at real hostnames.
+# quickstart; production operators bring a CA-issued certificate by setting
+# PROBECTL_TLS_DIR in .env to a directory holding tls.crt, tls.key and the
+# issuing chain as ca.crt (DPR-008). certgen keeps a complete bundle untouched.
 #
 #   cp deploy/compose/.env.example deploy/compose/.env   # then edit
 #   make compose-prod-up   # runs the image preflight before docker compose up
@@ -39,7 +40,7 @@ services:
       -c ssl_key_file=/var/lib/postgresql/server.key"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - certs:/certs:ro
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U probectl -d probectl"]
       interval: 5s
@@ -62,7 +63,10 @@ services:
     environment:
       PROBECTL_CERT_HOSTS: ${PROBECTL_TLS_HOSTS:-localhost,127.0.0.1}
     volumes:
-      - certs:/certs
+      # A named volume by default; an operator certificate directory when
+      # PROBECTL_TLS_DIR is set (gen-cert --if-missing leaves a complete
+      # tls.crt/tls.key/ca.crt bundle untouched).
+      - ${PROBECTL_TLS_DIR:-certs}:/certs
     networks: [probectl]
     restart: "no"
 
@@ -115,7 +119,7 @@ services:
     ports:
       - "8443:8443" # HTTPS ONLY — no plaintext API port is published.
     volumes:
-      - certs:/certs:ro
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
       - controldata:/var/lib/probectl
     networks: [probectl]
     restart: unless-stopped

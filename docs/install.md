@@ -67,7 +67,8 @@ which is exactly what step 3 (copy out `ca.crt`) and `--cacert` in step 4 do.
 # 1. Configure.
 cp deploy/compose/.env.example deploy/compose/.env
 # Edit deploy/compose/.env:
-#   - POSTGRES_PASSWORD      (required; the stack refuses to start empty)
+#   - POSTGRES_PASSWORD      (required; openssl rand -hex 24 — URL-safe, because
+#                             it is spliced into PROBECTL_DATABASE_URL)
 #   - PROBECTL_ENVELOPE_KEY  (openssl rand -base64 32 — the at-rest encryption key)
 #   - PROBECTL_SESSION_HMAC_KEY (openssl rand -hex 32 — the session-token pepper)
 #   - PROBECTL_TLS_HOSTS     (the hostname(s)/IP(s) the self-signed cert is valid for)
@@ -78,9 +79,12 @@ cp deploy/compose/.env.example deploy/compose/.env
 # with a clear error (not a warning). For a no-IdP local evaluation, use the eval
 # stack (deploy/compose/eval.yml) — see docs/getting-started.md — not this stack.
 
-# 2. Preflight the image, then start.
-#    This fails before Compose starts if the pinned image is private/unreachable,
-#    and prints the exact docker login, mirror override, or local-build command.
+# 2. Preflight the .env and the image, then start.
+#    The env preflight refuses a password that is not URL-safe or a malformed
+#    key BEFORE the control plane can crash-loop on it; the image preflight fails
+#    if the pinned image is private/unreachable and prints the exact docker
+#    login, mirror override, or local-build command. make compose-prod-up runs both.
+bash scripts/compose_env_preflight.sh
 bash scripts/compose_image_preflight.sh
 make compose-prod-up
 
@@ -109,9 +113,37 @@ volume (mode 0600) — back that volume up like key material. Supplying your own
 Either way, at-rest encryption stays on; if no key resolves, the control plane
 **fails closed** rather than writing plaintext.
 
-There is **no** plaintext port: `http://localhost:8443` will not connect. To use a
-real (CA-issued) certificate, place `tls.crt` / `tls.key` in the `certs` volume
-(or mount your own) and remove the `certgen` service.
+There is **no** plaintext port: `http://localhost:8443` will not connect.
+
+**Bring your own (CA-issued) certificate.** Put three files in a directory on
+the host — `tls.crt` (the server certificate with intermediates appended),
+`tls.key` (its private key, readable by the container user: `chown 65532
+tls.key && chmod 600 tls.key`), and `ca.crt` (the issuing chain, which the
+`curl --cacert` examples and the Dex overlay use) — and set
+`PROBECTL_TLS_DIR=/absolute/path` in `.env`. Every service that needs the
+certificate (control, Postgres, the one-shot `certgen`) then mounts that
+directory instead of the named `certs` volume; `certgen --if-missing` keeps a
+complete bundle untouched and refuses to touch a partial one, so it never
+overwrites your files. Leave `PROBECTL_TLS_DIR` empty to keep the self-signed
+quickstart certificate.
+
+**Install your license (Enterprise / MSP).** The free core needs no license.
+To unlock commercial features, set `PROBECTL_LICENSE_PATH=/absolute/path/to/license.json`
+in `.env` (the offline-signed file your vendor issued) and layer the license
+overlay:
+
+```sh
+make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/license.yml'
+# equivalent:
+docker compose --env-file deploy/compose/.env \
+  -f deploy/compose/probectl.yml -f deploy/compose/license.yml up -d
+```
+
+Verification is local math against the trust anchors compiled into the
+binary — nothing phones home. A forged or corrupt file stops the control plane
+at startup; an expired one loads and degrades per the grace ladder. **Admin →
+Editions** (`GET /v1/editions`) shows the loaded tier, customer, and expiry —
+see [`editions.md`](editions.md).
 
 Tear down with `docker compose -f deploy/compose/probectl.yml down` (add `-v` to
 also drop the database and certs).

@@ -497,15 +497,20 @@ release-notes-gate: ## Release-note preview accounts for every non-merge commit 
 	bash scripts/check_release_notes.sh
 
 .PHONY: compose-prod-preflight
-compose-prod-preflight: ## OPS-001: fail fast with login/mirror/local-build guidance before production compose pulls.
+compose-prod-preflight: ## OPS-001/DPR-007: validate .env (URL-safe password, key shapes) and fail fast with login/mirror/local-build guidance before production compose pulls.
+	bash scripts/compose_env_preflight.sh
 	bash scripts/compose_image_preflight.sh
 
 .PHONY: compose-prod-up
-compose-prod-up: compose-prod-preflight ## OPS-001: start the shipped all-in-one compose stack after image preflight.
-	docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml up -d
+# Extra `-f` overlays for the shipped stack, e.g. the Enterprise/MSP license
+# (DPR-006): make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/license.yml'
+PROBECTL_COMPOSE_OVERLAYS ?=
+compose-prod-up: compose-prod-preflight ## OPS-001: start the shipped all-in-one compose stack after image preflight (PROBECTL_COMPOSE_OVERLAYS adds -f overlays).
+	docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml $(PROBECTL_COMPOSE_OVERLAYS) up -d
 
 .PHONY: compose-image-gate
 compose-image-gate: ## OPS-001: shipped compose image, preflight, GHCR auth docs, and optional anonymous-pull smoke stay in lockstep.
+	bash scripts/compose_env_preflight.sh SELFTEST
 	bash scripts/compose_image_preflight.sh SELFTEST
 	bash scripts/check_compose_image_contract.sh SELFTEST
 	bash scripts/check_compose_image_contract.sh

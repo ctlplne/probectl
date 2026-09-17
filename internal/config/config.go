@@ -1121,7 +1121,11 @@ func validateConfig(l *loader, cfg *Config) {
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
 		l.errf("PROBECTL_DATABASE_URL is required (postgres:// or postgresql:// URL); no default credential ships")
 	} else if _, err := parseDatabaseURL(cfg.DatabaseURL); err != nil {
-		l.errf("PROBECTL_DATABASE_URL must be a postgres:// or postgresql:// URL")
+		// DPR-007: the parse error itself is withheld because url.Error echoes
+		// the whole connection string, credentials included. Name the cause an
+		// operator actually hits instead: a password with URL-reserved bytes
+		// spliced in raw (the compose stack interpolates POSTGRES_PASSWORD).
+		l.errf("PROBECTL_DATABASE_URL is not a usable postgres:// or postgresql:// URL (parse error withheld: it would echo credentials); the usual cause is a user or password containing '/', '+', '=', '@', ':', '?', '#', '%%' or a space that is not percent-encoded — generate URL-safe values (openssl rand -hex 24) or percent-encode them")
 	}
 	if strings.TrimSpace(cfg.DatabaseReadURL) != "" {
 		if _, err := parseDatabaseURL(cfg.DatabaseReadURL); err != nil {

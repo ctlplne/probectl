@@ -215,7 +215,11 @@ degrades commercial *write* paths gradually and leaves the telemetry pipeline
 untouched.
 
 `PROBECTL_LICENSE_FILE` points the control plane at the license (see
-[`configuration.md`](configuration.md)). The states, in order:
+[`configuration.md`](configuration.md)). The shipped deploys wire it for you:
+Compose takes `PROBECTL_LICENSE_PATH` in `.env` plus the
+`deploy/compose/license.yml` overlay, and Helm takes
+`license.existingSecret` (a Secret holding `license.json`) — see
+[`install.md`](install.md). The states, in order:
 
 | State | When | Behavior |
 |---|---|---|

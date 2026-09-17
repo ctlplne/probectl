@@ -1299,11 +1299,30 @@ jobs:
           export PROBECTL_JOIN_TOKEN="pjt_ci-render-only"
           export PROBECTL_SESSION_HMAC_KEY="0000000000000000000000000000000000000000000000000000000000000000"
           export PROBECTL_IMAGE="ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          export PROBECTL_LICENSE_PATH="/ci-render-only/license.json"
+          export DEX_CLIENT_SECRET="ci-render-only"
+          export DEX_DEMO_PASSWORD_HASH="ci-render-only"
+          # completeness-audit.yml is normally driven by
+          # scripts/run_completeness_audit.sh, which generates every one of
+          # these; render-only placeholders let the gate parse it too (DPR-009).
+          for v in AUDIT_ARTIFACT_DIR AUDIT_BIN_DIR AUDIT_BROWSER_SCRIPT AUDIT_CERT_DIR \
+                   AUDIT_DRIVER_DIR AUDIT_PRIVATE_DIR AUDIT_RUNTIME_DIR; do
+            export "$v=/ci-render-only/$v"
+          done
+          export AUDIT_BROWSER_IMAGE="probectl/browser:ci-render-only"
+          export AUDIT_CLI_IMAGE="probectl/cli:ci-render-only"
+          export AUDIT_CONTROL_IMAGE="probectl/control:ci-render-only"
+          export AUDIT_HOST_UID=1000 AUDIT_HOST_GID=1000
+          export AUDIT_TENANT_A=tenant-a AUDIT_TENANT_B=tenant-b
+          export CLICKHOUSE_USER=ci CLICKHOUSE_PASSWORD=ci-render-only
+          export DEX_AUDIT_PASSWORD=ci-render-only DEX_AUDIT_PASSWORD_HASH=ci-render-only
+          export KAFKA_SASL_PASSWORD=ci-render-only KAFKA_STORE_PASSWORD=ci-render-only
+          export PROMETHEUS_USER=ci PROMETHEUS_PASSWORD=ci-render-only
           cd deploy/compose
           # Overlays are validated MERGED with the base they extend (each file's
           # header documents the `-f <base> -f <overlay>` invocation): they
           # reference the base's networks/services and CANNOT render standalone.
-          declare -A OVERLAY_BASE=( [dr-drill.yml]=dev.yml [eval-synthetic.yml]=eval.yml )
+          declare -A OVERLAY_BASE=( [dr-drill.yml]=dev.yml [eval-synthetic.yml]=eval.yml [license.yml]=probectl.yml [dex-demo.yml]=probectl.yml )
           for f in *.yml; do
             # Only real docker-compose files have a top-level `services:` key.
             # eval-agent.yml (agent canary config) and prometheus.yml (prometheus

@@ -19,6 +19,7 @@ stack bundles a producer; for the others, attach one next
 | `probectl.yml`                   | **Shipped all-in-one deploy** — control plane (HTTPS-only) + Postgres, with a one-shot self-signed-cert generator                                                                  |
 | `.env.example`                   | template for the `.env` `probectl.yml` reads (Postgres password, envelope key, session-HMAC key, TLS hosts, OIDC)                                                                  |
 | `dex-demo.yml` + `dex-demo.yaml` | **Local demo-only OIDC overlay** — digest-pinned Dex, HTTPS-only, one generated-password user; never use as a production directory                                                 |
+| `license.yml`                    | **Enterprise / MSP license overlay** — mounts the offline-signed file at `PROBECTL_LICENSE_PATH` and points `PROBECTL_LICENSE_FILE` at it; `make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/license.yml'` |
 | `eval.yml`                       | **Evaluation stack (local only, never production)** — control plane + Postgres + Kafka + an eBPF agent replaying SAMPLE flows, so one command shows real data end-to-end           |
 | `eval-synthetic.yml`             | overlay on `eval.yml` that adds the agent CA + gRPC listener + a self-enrolling canary (synthetic probes)                                                                          |
 | `eval-agent.yml`                 | the canary config the `eval-synthetic.yml` overlay mounts (one inline HTTP probe)                                                                                                  |
@@ -46,7 +47,11 @@ cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD +
 # If GHCR returns 401, run `docker login ghcr.io` with a token that has
 # read:packages, or point PROBECTL_IMAGE at an internal mirror. Tag-only local
 # or mirror refs require PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable.
-# The preflight fails before Compose starts and prints exact repair commands.
+# The preflights fail before Compose starts and print exact repair commands:
+# compose_env_preflight.sh checks the .env shapes (URL-safe POSTGRES_PASSWORD,
+# 64-hex session key, 32-byte envelope key); compose_image_preflight.sh checks
+# the image reference. make compose-prod-up runs both.
+bash scripts/compose_env_preflight.sh
 bash scripts/compose_image_preflight.sh
 make compose-prod-up
 docker compose -f deploy/compose/probectl.yml cp control:/certs/ca.crt ./ca.crt

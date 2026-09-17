@@ -1,0 +1,22 @@
+# Enterprise / MSP license overlay for the shipped all-in-one stack (DPR-006).
+#
+# The control plane verifies an offline-signed license file locally against
+# the trust anchors compiled into its binary — never phone-home. Point
+# PROBECTL_LICENSE_PATH (in deploy/compose/.env or the environment) at the
+# file your vendor issued, then layer this overlay over probectl.yml:
+#
+#   PROBECTL_LICENSE_PATH=/etc/probectl/license.json   # in .env
+#   make compose-prod-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/license.yml'
+#   # equivalent:
+#   docker compose --env-file deploy/compose/.env \
+#     -f deploy/compose/probectl.yml -f deploy/compose/license.yml up -d
+#
+# A forged, corrupt, or unverifiable file makes the control plane refuse to
+# start (fail closed); an EXPIRED file loads and degrades per the grace ladder
+# in docs/editions.md. Admin → Editions (GET /v1/editions) shows the result.
+services:
+  control:
+    environment:
+      PROBECTL_LICENSE_FILE: /etc/probectl/license.json
+    volumes:
+      - ${PROBECTL_LICENSE_PATH:?set PROBECTL_LICENSE_PATH to the offline-signed license file from your vendor (docs/editions.md)}:/etc/probectl/license.json:ro

@@ -111,6 +111,19 @@ oidc:
   clientSecret: ""
   redirectUrl: ""
 
+# Enterprise / MSP license (DPR-006). The control plane verifies the
+# offline-signed file locally against the trust anchors compiled into its
+# binary — never phone-home. Empty = Community (the full core, free forever).
+#   kubectl -n probectl create secret generic probectl-license --from-file=license.json=./license.json
+#   --set license.existingSecret=probectl-license
+license:
+  # Name of a pre-created Secret holding the license file.
+  existingSecret: ""
+  # Key inside that Secret that carries the file.
+  key: license.json
+  # Where the file is mounted read-only; PROBECTL_LICENSE_FILE points here.
+  mountPath: /etc/probectl/license
+
 # Secret material. Prefer existingSecret in production (managed externally).
 # Multi-replica WORM export requires it: every replica must receive the same
 # PROBECTL_WORM_SIGNING_KEY from this Secret; a per-pod signing-key file is

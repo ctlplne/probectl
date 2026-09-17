@@ -147,6 +147,26 @@ if [[ -z "$local_line" || -z "$registry_line" || "$registry_line" -le "$local_li
   fail "Ansible registry heartbeat proof must run after the local liveness precheck (OPS-005)"
 fi
 
+# DPR-006: a licensed (Enterprise/MSP) install has a first-class chart path —
+# the offline-signed file arrives from an operator-created Secret, mounted
+# read-only, and PROBECTL_LICENSE_FILE points at it. Community renders no
+# license plumbing at all, and extraEnv cannot smuggle a different path in.
+licensed="$(render --set license.existingSecret=probectl-license)"
+need_fixed 'name: PROBECTL_LICENSE_FILE' "$licensed" "licensed render must set PROBECTL_LICENSE_FILE (DPR-006)"
+need_fixed 'value: "/etc/probectl/license/license.json"' "$licensed" "licensed render must point PROBECTL_LICENSE_FILE at the mounted Secret key (DPR-006)"
+need_fixed 'secretName: "probectl-license"' "$licensed" "licensed render must mount the operator-created license Secret (DPR-006)"
+license_mount="$(grep -A2 -F -- '- name: license' <<<"$licensed" | grep -F 'mountPath: "/etc/probectl/license"' || true)"
+[ -n "$license_mount" ] || fail "licensed render must mount the license Secret at /etc/probectl/license (DPR-006)"
+grep -A3 -F -- '- name: license' <<<"$licensed" | grep -Fq 'readOnly: true' \
+  || fail "the license mount must be read-only (DPR-006)"
+community="$(render)"
+if grep -Fq 'PROBECTL_LICENSE_FILE' <<<"$community"; then
+  fail "Community render must carry no license plumbing (DPR-006)"
+fi
+if render --set-string control.extraEnv.PROBECTL_LICENSE_FILE=/tmp/x >/dev/null 2>&1; then
+  fail "control.extraEnv.PROBECTL_LICENSE_FILE must be rejected as reserved (DPR-006)"
+fi
+
 # OPS-003: kubeconform must render the same fail-closed chart shape the hardening
 # gate renders. The chart requires envelope, session-HMAC, and database DSN
 # values; CI cannot omit two of them and still claim Kubernetes manifest proof.
