@@ -238,6 +238,17 @@ then runs the destructive restore. Plain `.dump` or `.zip` artifacts should
 exist only from explicit raw-backup acknowledgements; treat them as exposed
 tenant data.
 
+### One database user, all the way through
+
+Run every migration as the SAME database user that bootstrapped the schema.
+Migration 0007 grants the application role DML on future tables through
+`ALTER DEFAULT PRIVILEGES`, and Postgres records that for the role that
+executed it: tables created later by a DIFFERENT user carry their row-level
+policies without the grant behind them. Nothing complains at migration time —
+the control plane refuses to start afterwards and names the tables (DPR-122).
+This bites most easily in a restore into a scratch database under another
+login, or after a migration-user rotation.
+
 ### How the Jobs reach the datastores (TLS)
 
 The backup CronJobs and the restore Jobs carry the entire tenant metadata

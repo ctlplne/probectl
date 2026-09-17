@@ -185,3 +185,43 @@ func TestProviderPolicyQueryIsCatalogBasedAndPermissiveOnly(t *testing.T) {
 		t.Errorf("the classification needs a real reason, got %q", reason)
 	}
 }
+
+// TestAppGrantCheckNamesTheCauseNotJustTheSymptom (DPR-122): the failure this
+// catches is a database whose tables carry policies for the application role
+// and no privilege behind them, which happens when migrations run under a
+// different role than the one that executed ALTER DEFAULT PRIVILEGES. The
+// symptom an operator hits otherwise is a confusing isolation-posture error or
+// a "permission denied" on an unrelated path, so the message has to carry the
+// cause and the fix.
+func TestAppGrantCheckNamesTheCauseNotJustTheSymptom(t *testing.T) {
+	src, err := os.ReadFile("posture.go")
+	if err != nil {
+		t.Fatalf("read posture.go: %v", err)
+	}
+	q := string(src)
+	start := strings.Index(q, "func assertAppGrantsMatchPolicies")
+	if start < 0 {
+		t.Fatal("assertAppGrantsMatchPolicies not found")
+	}
+	body := q[start:]
+	if end := strings.Index(body[1:], "\nfunc "); end > 0 {
+		body = body[:end]
+	}
+	// has_table_privilege is catalog truth: it does not depend on what the
+	// connected role can see, which is the mistake the sibling check made.
+	if !strings.Contains(body, "has_table_privilege('probectl_app'") {
+		t.Error("the grant test must use has_table_privilege, not a privilege-filtered view")
+	}
+	if !strings.Contains(body, "p.permissive = 'PERMISSIVE'") {
+		t.Error("only permissive policies imply the role is meant to use the table")
+	}
+	for _, want := range []string{"ALTER DEFAULT PRIVILEGES", "the role that RAN it", "refusing to start"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the refusal must explain the cause: missing %q", want)
+		}
+	}
+	// And it must actually run at boot.
+	if !strings.Contains(q, "return assertAppGrantsMatchPolicies(ctx, q)") {
+		t.Error("the check must be part of the startup posture assertion")
+	}
+}

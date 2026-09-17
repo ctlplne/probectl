@@ -181,7 +181,10 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	if err := assertStrictPreTenantPolicies(ctx, q); err != nil {
 		return err
 	}
-	return assertProviderPoliciesAreScoped(ctx, q)
+	if err := assertProviderPoliciesAreScoped(ctx, q); err != nil {
+		return err
+	}
+	return assertAppGrantsMatchPolicies(ctx, q)
 }
 
 type siloPostureTable struct {
@@ -485,6 +488,56 @@ func assertProviderPoliciesAreScoped(ctx context.Context, q postureQuerier) erro
 		sort.Strings(stale)
 		return fmt.Errorf("isolation posture: providerManagedTables lists %s, which no longer carries a provider policy — remove the stale classification (refusing to start)",
 			strings.Join(stale, ", "))
+	}
+	return nil
+}
+
+// assertAppGrantsMatchPolicies refuses to start when a table's row-level
+// policy says the APPLICATION role may use it and the role has no privilege to
+// (DPR-122).
+//
+// Migration 0007 grants DML on future tables through ALTER DEFAULT PRIVILEGES,
+// and Postgres records that for the ROLE THAT RAN IT. Run a later migration as
+// a different role — a rotated migration user, a restore into a scratch
+// database under another login, a partially-applied bootstrap — and every table
+// created from then on carries its policy without the grant the policy assumes.
+// Nothing complains at migration time. The deployment then fails much later and
+// somewhere else: a confusing isolation-posture error, or a runtime "permission
+// denied for table" on a path nobody associated with the database user.
+//
+// This says it once, at boot, in the operator's words: these tables, this
+// cause, this fix.
+func assertAppGrantsMatchPolicies(ctx context.Context, q postureQuerier) error {
+	rows, err := q.Query(ctx, `
+		SELECT DISTINCT p.tablename
+		  FROM pg_policies p
+		 WHERE p.schemaname = current_schema()
+		   AND p.permissive = 'PERMISSIVE'
+		   AND p.cmd IN ('ALL', 'SELECT')
+		   AND 'probectl_app' = ANY(p.roles)
+		   AND NOT has_table_privilege('probectl_app', format('%I.%I', p.schemaname, p.tablename), 'SELECT')
+		 ORDER BY 1`)
+	if err != nil {
+		return fmt.Errorf("isolation posture: enumerate application grants: %w", err)
+	}
+	defer rows.Close()
+	var ungranted []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			return fmt.Errorf("isolation posture: scan application grant: %w", err)
+		}
+		ungranted = append(ungranted, table)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("isolation posture: iterate application grants: %w", err)
+	}
+	if len(ungranted) > 0 {
+		return fmt.Errorf("isolation posture: probectl_app has a row-level policy but no privilege on %s — "+
+			"migration 0007 grants DML on later tables through ALTER DEFAULT PRIVILEGES, which Postgres records for the role that RAN it, "+
+			"so these tables were created by a different database user than the one that bootstrapped the schema. "+
+			"Re-run the migrations as that user, or GRANT SELECT, INSERT, UPDATE, DELETE on those tables to probectl_app (refusing to start)",
+			strings.Join(ungranted, ", "))
 	}
 	return nil
 }
