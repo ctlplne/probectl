@@ -96,6 +96,18 @@ enforcing the same rule.
    evidence" rather than a guess. Because the evidence identifiers are randomized per
    request, injected text cannot pre-write a citation to an identifier that will
    exist later.
+5. **Silence is not health.** A root cause is ranked across planes, and corroboration
+   across two of them raises confidence. That arithmetic used to treat a plane with no
+   evidence identically to a plane that was checked and clean — so a verdict resting on
+   one plane, with four others saying nothing at all, read exactly like one resting on
+   five. It no longer does. The answer names the cause-bearing planes that contributed
+   nothing, in `silent_planes` and in the headline text, calls those layers
+   **unverified rather than clean**, and refuses to claim high confidence for a
+   single-plane verdict while others were silent. A silent plane may genuinely have
+   nothing wrong, or it may not be deployed on that tenant; the verdict cannot tell
+   those apart, and says so instead of choosing the flattering reading. This is the
+   same rule the endpoint attribution follows for an unmeasured last-mile segment
+   (DPR-061, DPR-143).
 
 **The MCP server applies the same order in five steps:** tenant first (a caller with
 no tenant is rejected, and no tool takes a tenant argument), then role (the tool list

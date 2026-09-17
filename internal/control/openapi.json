@@ -12924,6 +12924,13 @@
           "degraded": {
             "type": "boolean"
           },
+          "silent_planes": {
+            "type": "array",
+            "description": "Cause-bearing planes that contributed no evidence to this verdict. A silent plane is unverified, not clean: it may have nothing wrong, or it may not be deployed. The root_cause text says so as well, and confidence is capped when the verdict rests on a single plane while others were silent.",
+            "items": {
+              "type": "string"
+            }
+          },
           "confidence": {
             "type": "string",
             "enum": [

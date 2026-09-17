@@ -39,7 +39,12 @@ type Answer struct {
 	RootCauseGrounded  bool       `json:"root_cause_grounded"`
 	// Degraded: the remote model was unavailable and the air-gapped builtin
 	// answered (AIRCA-004) — the root cause carries the banner.
-	Degraded             bool                `json:"degraded,omitempty"`
+	Degraded bool `json:"degraded,omitempty"`
+	// SilentPlanes names the cause-bearing planes that contributed no evidence
+	// (DPR-143). Following DPR-061's rule for the endpoint verdict: a layer that
+	// was not seen is reported as unverified, never as clean, and the headline
+	// says so in words as well.
+	SilentPlanes         []string            `json:"silent_planes,omitempty"`
 	Confidence           Confidence          `json:"confidence"`
 	InvestigationPlan    []InvestigationStep `json:"investigation_plan,omitempty"`
 	Findings             []Finding           `json:"findings"`
@@ -284,6 +289,7 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		RootCauseGrounded:    rootCauseGrounded && !insufficient,
 		Degraded:             syn.Degraded,
 		Confidence:           syn.Confidence,
+		SilentPlanes:         syn.Silent, // DPR-143: named, not implied clean
 		InvestigationPlan:    investigationPlan,
 		Findings:             syn.Findings,
 		Evidence:             evidence,

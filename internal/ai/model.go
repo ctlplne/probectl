@@ -54,8 +54,15 @@ type Synthesis struct {
 	// pipeline validates them like finding citations, and an uncited
 	// root_cause is REJECTED on every path — a prompt-injected headline
 	// cannot ride along on one valid finding.
-	RootCauseCitations   []Citation
-	Confidence           Confidence
+	RootCauseCitations []Citation
+	Confidence         Confidence
+	// Silent names the cause-bearing planes that contributed NO evidence to this
+	// verdict (DPR-143). DPR-061 established the rule on the endpoint verdict:
+	// an unmeasured layer reported as healthy is a guess, and must be reported
+	// as one. A cross-plane root cause built from one plane while four others
+	// said nothing read exactly like one built from five where four were clean.
+	// It no longer does: the silent planes are named and confidence is capped.
+	Silent               []string
 	Findings             []Finding
 	InsufficientEvidence bool
 	// Degraded marks an answer served by the FALLBACK (air-gapped builtin)

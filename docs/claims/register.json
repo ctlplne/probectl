@@ -14,7 +14,7 @@
   "CLAUDE.md",
   "AGENTS.md"
  ],
- "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant|durable lightweight|volatile lightweight|durable bus mode|acceptance, not delivery|delivering nothing",
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant|durable lightweight|volatile lightweight|durable bus mode|acceptance, not delivery|delivering nothing|unverified rather than clean|unmeasured layers|silent planes",
  "claims": [
   {
    "id": "CLM-DURABLE-LIGHTWEIGHT-BUS",
@@ -472,6 +472,24 @@
    ],
    "proof": [
     "make:test-isolation"
+   ]
+  },
+  {
+   "id": "CLM-UNMEASURED-NOT-CLEAN",
+   "kind": "capability",
+   "statement": "A layer, plane or segment that was NOT measured is reported as unverified, never as healthy. Every verdict surface names what it could not see, in a machine-readable field and in the text a human reads, and lowers its own confidence rather than presenting an unmeasured gap as corroboration. The endpoint attribution names unmeasured layers and drops to a fixed lower confidence; the cross-plane root cause names the cause-bearing planes that contributed nothing and refuses high confidence for a single-plane verdict while others were silent; the topology graph ships its coverage counts and says which planes are missing from an impact answer.",
+   "pattern": "unverified rather than clean|unmeasured layers|silent planes",
+   "surfaces": [
+    "docs/features/ai-assistant.md"
+   ],
+   "code": [
+    "internal/ai/model_builtin.go",
+    "internal/endpoint/attribution.go"
+   ],
+   "proof": [
+    "test:internal/ai/model_builtin_test.go#TestBuiltinNamesThePlanesThatSaidNothing",
+    "test:internal/ai/model_builtin_test.go#TestBuiltinSaysNothingWhenEveryPlaneSpoke",
+    "selftest-label:DOCS-S06"
    ]
   },
   {

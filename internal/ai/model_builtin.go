@@ -119,12 +119,68 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 		planes[strings.ToLower(e.Plane)] = true
 	}
 
+	// DPR-143: name the cause-bearing planes that said nothing, and cap
+	// confidence when the verdict rests on a single plane while others were
+	// silent. A silent plane is not a clean plane — it may be clean, or it may
+	// not be deployed — and a verdict that cannot tell the difference has to say
+	// so rather than present itself as corroborated.
+	silent := silentPlanes(planes)
+	if len(silent) > 0 {
+		fmt.Fprintf(&b, " No signal from the %s plane%s in this window, so those layers are unverified rather than clean.",
+			strings.Join(silent, ", "), plural(len(silent)))
+	}
+	confidence := confidenceFor(primary, len(planes))
+	if len(planes) < 2 && len(silent) > 0 && confidence == ConfidenceHigh {
+		confidence = ConfidenceMedium
+	}
+
 	return Synthesis{
 		RootCause:          b.String(),
 		RootCauseCitations: []Citation{{EvidenceID: primary.ID}}, // RED-005: the headline cites its evidence
-		Confidence:         confidenceFor(primary, len(planes)),
+		Confidence:         confidence,
+		Silent:             silent,
 		Findings:           findings,
 	}, nil
+}
+
+// causeBearingPlanes are the planes a root cause can come FROM, in the order a
+// reader expects them. Planes that only carry symptoms (metrics, entities,
+// topology) are excluded: their silence says nothing about a cause.
+var causeBearingPlanes = []string{"change", "bgp", "path", "threat", "events"}
+
+// silentPlanes returns the cause-bearing planes with no evidence in this verdict.
+// bgp/routing and path/network are the same plane under two labels, so either
+// label counts as that plane speaking.
+func silentPlanes(seen map[string]bool) []string {
+	alias := map[string][]string{
+		"bgp":  {"bgp", "routing"},
+		"path": {"path", "network"},
+	}
+	var out []string
+	for _, p := range causeBearingPlanes {
+		names := alias[p]
+		if names == nil {
+			names = []string{p}
+		}
+		spoke := false
+		for _, n := range names {
+			if seen[n] {
+				spoke = true
+				break
+			}
+		}
+		if !spoke {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // confidenceFor: corroboration across planes + a strong, cause-likely primary
