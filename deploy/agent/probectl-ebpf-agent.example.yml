@@ -13,11 +13,18 @@
 # for the lightweight / single-tenant deploy.
 apiVersion: probectl.io/ebpf-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001"
+# agent_id: the collector identity this tenant registered for the host
+# (register-collector -plane ebpf / POST /v1/collectors/register). Every record
+# carries it and the control plane verifies it against the tenant's registry
+# before accepting a batch (TENANT-101); unset falls back to host, which only
+# the single-node lightweight mode (no registry binding) accepts. (DPR-051)
+# agent_id: "e1b3987a-3dbf-4458-8726-9db9224c7af6"
 # host: defaults to the OS hostname.
 
 bus:
   mode: memory # memory | kafka
   # brokers: ["kafka:9092"]    # required for kafka mode
+  # namespace: t-<tenant-slug> # the tenant's bus lane printed by the registration (DPR-049)
 
 # Replay recorded flows instead of loading eBPF (CI / macOS / unprivileged).
 # Leave empty in production to use the live CO-RE source (requires -tags ebpf).

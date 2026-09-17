@@ -171,10 +171,12 @@ config hints — including the tenant's **bus lane**
 or siloed, owns a namespaced lane; in the multi-tenant and regulated profiles
 the shared lane is refused for agent-published planes
 (`PROBECTL_INGEST_STRICT_TENANT_LANES`), so the collector must carry that
-setting or every batch is rejected at the control plane (DPR-049). Flow, device, and endpoint use `agent_id` in YAML/env. eBPF's
-current runtime uses `host` as its bus `agent_id`, so the eBPF hint returns
-`host: <collector-id>` and `PROBECTL_EBPF_HOST=<collector-id>` instead of
-inventing a second unsupported key. BGP returns BMP listener hints, including
+setting or every batch is rejected at the control plane (DPR-049). Flow,
+device, endpoint and eBPF all read the identity as `agent_id`
+(`PROBECTL_<PLANE>_AGENT_ID`) and the lane as `bus.namespace`
+(`PROBECTL_<PLANE>_BUS_NAMESPACE`); the YAML hints are the collectors' real
+keys, nested where the collector nests them, so they paste straight into the
+config file (DPR-051/DPR-053). BGP returns BMP listener hints, including
 `source_type: bmp`, `PROBECTL_BMP_COLLECTOR=<collector-id>`, and the startup
 command `probectl-bmp-listener`.
 
@@ -353,7 +355,9 @@ capabilities that permit loading BPF programs and attaching to perf events,
 granted without root — and a
 **BTF-exposing kernel** (`/sys/kernel/btf/vmlinux`, mainstream from 5.8 — BTF
 is the kernel's embedded type catalog, which lets one compiled agent adapt to
-any kernel). Generic kernels older than 5.8 are unsupported by default;
+any kernel) with its **tracefs** visible (`/sys/kernel/tracing`; a container
+must have the node's tracefs mounted in read-only — the Helm chart does,
+DPR-054). Generic kernels older than 5.8 are unsupported by default;
 `CAP_SYS_ADMIN` is only an explicit legacy break-glass when the runtime probe
 confirms BTF plus BPF ring-buffer support but split caps cannot be granted. On
 macOS/Windows, run it inside a Linux VM. The shipped image is the live build;
@@ -444,8 +448,8 @@ with your tooling.
   observer needs). The supported chart is
   [`deploy/helm/probectl-agent`](../deploy/helm/probectl-agent). It declares the
   privilege contract in the manifest (drop **all** capabilities, add back only
-  `CAP_BPF`/`CAP_PERFMON`, a seccomp profile, read-only root, the BTF host mount,
-  resource limits) and **renders fail-closed** — no `tenantID`, or plaintext
+  `CAP_BPF`/`CAP_PERFMON`, a seccomp profile, read-only root, the BTF and tracefs
+  host mounts, resource limits) and **renders fail-closed** — no `tenantID`, or plaintext
   Kafka without an explicit opt-in, refuses to template. It also renders the
   Kyverno image-integrity policy by default so admission requires the digest and
   the keyless cosign signature from the tagged `release.yml` workflow before the
@@ -455,10 +459,21 @@ with your tooling.
   ```sh
   helm install probectl-agent deploy/helm/probectl-agent \
     --set tenantID=<tenant> \
+    --set agentID=<collector-id> \
+    --set bus.namespace=t-<tenant-slug> \
     --set 'bus.brokers={kafka.probectl.svc:9093}' \
     --set bus.tls.existingSecret=probectl-bus-tls \
+    --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=probectl-bus-sasl \
     --set-string image.tag='0.6.0@sha256:<digest>'
   ```
+
+  `agentID` is the collector identity the tenant registered for these nodes
+  (previous section) and `bus.namespace` the lane the registration printed;
+  the chart refuses to render without the identity, because the control
+  plane would reject every batch (DPR-051). Bus client auth is a Secret:
+  `bus.sasl.*` (keys `username`/`password` by default) or
+  `bus.tls.clientAuth=true` to present `tls.crt`/`tls.key` from
+  `bus.tls.existingSecret`.
 
   > **Naming heads-up:** the chart is named `probectl-agent` but it deploys the
   > **eBPF host agent** (`probectl-ebpf-agent` image) — it is the per-node flow

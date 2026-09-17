@@ -39,7 +39,12 @@ type Capabilities struct {
 	// (observe-only) — no TC/XDP — so it never needs it (the systemd unit
 	// documents the same pair).
 	CapPerfmon bool
-	Compiled   bool // built with -tags ebpf (the live source is linked in)
+	// TraceFS: the kernel's tracefs is visible (/sys/kernel/tracing, or the
+	// legacy /sys/kernel/debug/tracing). Attaching the sock:inet_sock_set_state
+	// tracepoint reads the event id there, and a container does not see the
+	// host's tracefs unless it is mounted in (DPR-054).
+	TraceFS  bool
+	Compiled bool // built with -tags ebpf (the live source is linked in)
 	// Lockdown is the kernel lockdown mode ("", "none", "integrity",
 	// "confidentiality"); confidentiality mode blocks bpf() even with
 	// CAP_BPF (U-075).
@@ -48,6 +53,6 @@ type Capabilities struct {
 
 // String renders a one-line summary for logs.
 func (c Capabilities) String() string {
-	return fmt.Sprintf("mode=%s os=%s arch=%s kernel=%q btf=%t ringbuf=%t cap_bpf=%t cap_perfmon=%t lockdown=%q compiled=%t reason=%q",
-		c.Mode, c.OS, c.Arch, c.KernelVersion, c.BTF, c.RingBuffer, c.CapBPF, c.CapPerfmon, c.Lockdown, c.Compiled, c.Reason)
+	return fmt.Sprintf("mode=%s os=%s arch=%s kernel=%q btf=%t ringbuf=%t cap_bpf=%t cap_perfmon=%t tracefs=%t lockdown=%q compiled=%t reason=%q",
+		c.Mode, c.OS, c.Arch, c.KernelVersion, c.BTF, c.RingBuffer, c.CapBPF, c.CapPerfmon, c.TraceFS, c.Lockdown, c.Compiled, c.Reason)
 }

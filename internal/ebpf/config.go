@@ -39,6 +39,15 @@ type Config struct {
 	TenantID string `yaml:"tenant_id"`
 	Host     string `yaml:"host"`
 
+	// AgentID is the registry identity every published record carries as
+	// agent_id: the collector id the tenant minted with register-collector /
+	// POST /v1/collectors/register (DPR-051). The control plane verifies the
+	// (tenant_id, agent_id) pair against the tenant's registry before it
+	// accepts a batch (TENANT-101), so an unregistered identity means every
+	// batch is rejected. Empty falls back to Host, the single-node lightweight
+	// mode where the pipeline runs without a registry binding.
+	AgentID string `yaml:"agent_id"`
+
 	// Bus is where flow + service-edge batches are published (probectl.ebpf.flows).
 	Bus BusConfig `yaml:"bus"`
 
@@ -206,6 +215,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_EBPF_HOST"); v != "" {
 		c.Host = v
 	}
+	if v := getenv("PROBECTL_EBPF_AGENT_ID"); v != "" {
+		c.AgentID = v
+	}
 	if v := getenv("PROBECTL_EBPF_BUS_MODE"); v != "" {
 		c.Bus.Mode = v
 	}
@@ -285,9 +297,25 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 }
 
+// identity is the agent_id stamped on every emitted record: the registered
+// collector id when configured, else the host name (DPR-051).
+func (c *Config) identity() string {
+	if c.AgentID != "" {
+		return c.AgentID
+	}
+	return c.Host
+}
+
+// maxAgentIDBytes bounds agent_id: the registry mints UUIDs, and the value is
+// a bus record key and a log field, so it is kept short and printable.
+const maxAgentIDBytes = 128
+
 func (c *Config) validate() error {
 	if c.TenantID == "" {
 		return fmt.Errorf("ebpf: tenant_id is required (PROBECTL_EBPF_TENANT_ID or config)")
+	}
+	if len(c.AgentID) > maxAgentIDBytes || strings.ContainsFunc(c.AgentID, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return fmt.Errorf("ebpf: agent_id must be the registered collector id (printable, no whitespace, at most %d bytes)", maxAgentIDBytes)
 	}
 	switch c.Bus.Mode {
 	case "memory", "kafka":

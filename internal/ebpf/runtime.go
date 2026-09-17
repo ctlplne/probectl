@@ -93,7 +93,7 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	caps := Probe()
 	log.Info("ebpf capability probe",
 		"mode", string(caps.Mode), "btf", caps.BTF, "ringbuf", caps.RingBuffer,
-		"cap_bpf", caps.CapBPF, "cap_perfmon", caps.CapPerfmon, "compiled", caps.Compiled,
+		"cap_bpf", caps.CapBPF, "cap_perfmon", caps.CapPerfmon, "tracefs", caps.TraceFS, "compiled", caps.Compiled,
 		"kernel", caps.KernelVersion, "reason", caps.Reason)
 
 	var (
@@ -176,9 +176,12 @@ func newAgentWith(cfg *Config, log *slog.Logger, src Source, enr Enricher, em Em
 // Run reads flows until ctx is canceled or the source is exhausted, emitting a
 // batch every FlushInterval and a final batch on shutdown.
 func (a *Agent) Run(ctx context.Context) error {
+	// DPR-051: log the identity every record carries and the lane it really
+	// publishes on (the namespace was validated when the emitter was built).
+	topic, _ := bus.TopicFor(a.cfg.Bus.Namespace, bus.EBPFFlowsTopic)
 	a.log.Info("ebpf agent starting",
-		"tenant", a.cfg.TenantID, "host", a.cfg.Host,
-		"flush", a.cfg.FlushInterval.String(), "topic", bus.EBPFFlowsTopic,
+		"tenant", a.cfg.TenantID, "agent_id", a.cfg.identity(), "host", a.cfg.Host,
+		"flush", a.cfg.FlushInterval.String(), "topic", topic,
 		"l7", a.l7source != nil)
 
 	a.started.Store(true)
@@ -241,7 +244,7 @@ func (a *Agent) observe(f Flow) {
 	}
 	f.TenantID = a.cfg.TenantID
 	if f.AgentID == "" {
-		f.AgentID = a.cfg.Host
+		f.AgentID = a.cfg.identity()
 	}
 	if f.Host == "" {
 		f.Host = a.cfg.Host
@@ -291,7 +294,7 @@ func (a *Agent) observeL7(ev L7Event) {
 	for _, c := range a.l7man.OnData(ev.ConnID, port, ev.Data) {
 		a.agg.ObserveL7(L7Record{
 			TenantID:    meta.tenant,
-			AgentID:     a.cfg.Host,
+			AgentID:     a.cfg.identity(),
 			Source:      meta.src,
 			Destination: meta.dst,
 			Transport:   meta.transport,

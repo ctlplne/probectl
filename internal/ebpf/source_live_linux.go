@@ -67,6 +67,10 @@ func newLiveSource(cfg *Config) (Source, error) {
 	tp, err := link.Tracepoint("sock", "inet_sock_set_state", s.objs.HandleSetState, nil)
 	if err != nil {
 		_ = s.objs.Close()
+		if !traceFSVisible() {
+			// DPR-054: say what to mount, not just that nothing was mounted.
+			return nil, fmt.Errorf("ebpf: attach tracepoint: %w — %s", err, traceFSReason)
+		}
 		return nil, fmt.Errorf("ebpf: attach tracepoint: %w", err)
 	}
 	s.tp = tp

@@ -8,7 +8,10 @@
 
 package ebpf
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestKernelAtLeast(t *testing.T) {
 	cases := []struct {
@@ -73,5 +76,26 @@ func TestProbeCapabilityReasons(t *testing.T) {
 	}
 	if c.Compiled && c.BTF && c.RingBuffer && c.CapBPF && !c.CapPerfmon && c.Mode == ModeLive {
 		t.Fatal("EBPF-005: ready-without-CAP_PERFMON must NOT report live")
+	}
+}
+
+// DPR-054: a container that cannot see the node's tracefs must be told what to
+// mount before anything loads, instead of dying at attach with "neither
+// debugfs nor tracefs are mounted".
+func TestDecideRequiresTraceFS(t *testing.T) {
+	ready := Capabilities{Compiled: true, BTF: true, RingBuffer: true, CapBPF: true, CapPerfmon: true, TraceFS: true, KernelVersion: "6.6.0"}
+	ready.decide()
+	if ready.Mode != ModeLive || ready.Reason != "ready" {
+		t.Fatalf("all preconditions met: mode=%s reason=%q", ready.Mode, ready.Reason)
+	}
+	noTraceFS := ready
+	noTraceFS.TraceFS = false
+	noTraceFS.decide()
+	if noTraceFS.Mode != ModeUnavailable || !strings.Contains(noTraceFS.Reason, "/sys/kernel/tracing") || !strings.Contains(noTraceFS.Reason, "tracefs.hostPath") {
+		t.Fatalf("missing tracefs must name the mount and the chart value: mode=%s reason=%q", noTraceFS.Mode, noTraceFS.Reason)
+	}
+	// The probe on this host reports the same dimension it decides on.
+	if c := Probe(); c.TraceFS != traceFSVisible() {
+		t.Fatalf("probe tracefs=%t, visible=%t", c.TraceFS, traceFSVisible())
 	}
 }

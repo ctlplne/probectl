@@ -34,7 +34,9 @@
                 "pattern": "@sha256:[A-Fa-f0-9]{64}$"
               }
             },
-            "required": ["tag"]
+            "required": [
+              "tag"
+            ]
           }
         }
       ]
@@ -57,7 +59,10 @@
             },
             "validationFailureAction": {
               "type": "string",
-              "enum": ["Enforce", "Audit"]
+              "enum": [
+                "Enforce",
+                "Audit"
+              ]
             },
             "background": {
               "type": "boolean"
@@ -92,12 +97,88 @@
             },
             "validationFailureAction": {
               "type": "string",
-              "enum": ["Enforce", "Audit"]
+              "enum": [
+                "Enforce",
+                "Audit"
+              ]
             },
             "background": {
               "type": "boolean"
             }
           }
+        }
+      }
+    },
+    "tenantID": {
+      "type": "string"
+    },
+    "agentID": {
+      "type": "string",
+      "description": "The registered collector identity (agent_id) every record carries (DPR-051). Required: rendering fails closed without it."
+    },
+    "bus": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "kafka",
+            "memory"
+          ]
+        },
+        "brokers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,62})?$|^$",
+          "description": "The tenant's bus lane, t-<tenant-slug> (DPR-049)."
+        },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "clientAuth": {
+              "type": "boolean"
+            }
+          }
+        },
+        "sasl": {
+          "type": "object",
+          "properties": {
+            "mechanism": {
+              "type": "string",
+              "enum": [
+                "",
+                "plain",
+                "scram-sha-256",
+                "scram-sha-512"
+              ]
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "userKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "passwordKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "allowPlaintext": {
+          "type": "boolean"
         }
       }
     },
@@ -119,7 +200,11 @@
         },
         "redaction": {
           "type": "string",
-          "enum": ["headers", "length", "full"]
+          "enum": [
+            "headers",
+            "length",
+            "full"
+          ]
         },
         "kernelWindow": {
           "type": "integer",
@@ -152,7 +237,10 @@
     },
     "capabilityMode": {
       "type": "string",
-      "enum": ["modern", "legacy"]
+      "enum": [
+        "modern",
+        "legacy"
+      ]
     },
     "legacyKernelRingBufferAck": {
       "type": "string"
@@ -170,7 +258,10 @@
         },
         "mode": {
           "type": "string",
-          "enum": ["exec", "http"]
+          "enum": [
+            "exec",
+            "http"
+          ]
         },
         "stateDir": {
           "type": "string",
@@ -212,6 +303,15 @@
               "type": "string"
             }
           }
+        }
+      }
+    },
+    "tracefs": {
+      "type": "object",
+      "properties": {
+        "hostPath": {
+          "type": "string",
+          "pattern": "^/"
         }
       }
     }

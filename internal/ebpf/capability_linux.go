@@ -45,8 +45,36 @@ func Probe() Capabilities {
 	// the agent failed later at attach. CAP_NET_ADMIN is NOT required: the
 	// agent attaches no TC/XDP programs (observe-only guardrail).
 	c.CapPerfmon = caps.has(capPerfmon) || caps.has(capSysAdmin)
+	c.TraceFS = traceFSVisible()
 	c.Lockdown = lockdownMode()
+	c.decide()
+	return c
+}
 
+// traceFSPaths are where the kernel exposes tracepoint metadata: tracefs
+// proper, then the legacy debugfs mount point.
+var traceFSPaths = []string{"/sys/kernel/tracing", "/sys/kernel/debug/tracing"}
+
+// traceFSVisible reports whether a tracefs with tracepoint events is visible
+// to this process.
+func traceFSVisible() bool {
+	for _, p := range traceFSPaths {
+		if fileExists(p + "/events") {
+			return true
+		}
+	}
+	return false
+}
+
+// traceFSReason is the remediation the agent prints when tracefs is missing
+// (DPR-054): the failure used to surface only at attach time as "neither
+// debugfs nor tracefs are mounted", with nothing saying what to mount.
+const traceFSReason = "tracefs is not visible (/sys/kernel/tracing or /sys/kernel/debug/tracing): attaching the sock:inet_sock_set_state tracepoint reads its event id there. " +
+	"Mount the node's /sys/kernel/tracing read-only into the agent (the Helm chart does: tracefs.hostPath; compose: a :ro volume) or keep tracefs mounted on the VM (systemd sys-kernel-tracing.mount) (DPR-054)"
+
+// decide derives Mode and Reason from the probed facts. It is separate from
+// the probing so every reason is unit-testable without a kernel.
+func (c *Capabilities) decide() {
 	switch {
 	case !c.Compiled:
 		c.Mode, c.Reason = ModeUnavailable, "eBPF live source not compiled in (build with -tags ebpf)"
@@ -58,12 +86,13 @@ func Probe() Capabilities {
 		c.Mode, c.Reason = ModeUnavailable, "process lacks CAP_BPF / CAP_SYS_ADMIN to LOAD eBPF programs (grant the CAP_BPF + CAP_PERFMON pair, e.g. AmbientCapabilities in the shipped unit)"
 	case !c.CapPerfmon:
 		c.Mode, c.Reason = ModeUnavailable, "process lacks CAP_PERFMON / CAP_SYS_ADMIN to ATTACH tracepoints/uprobes (perf_event_open) — programs would load and then fail at attach; grant CAP_PERFMON alongside CAP_BPF (EBPF-005)"
+	case !c.TraceFS:
+		c.Mode, c.Reason = ModeUnavailable, traceFSReason
 	case lockdownBlocksBPF(c.Lockdown):
 		c.Mode, c.Reason = ModeUnavailable, "kernel lockdown is in CONFIDENTIALITY mode — bpf() is blocked even with CAP_BPF; boot without lockdown=confidentiality (or use integrity mode) to run the eBPF agent (U-075)"
 	default:
 		c.Mode, c.Reason = ModeLive, "ready"
 	}
-	return c
 }
 
 func unameRelease() string {

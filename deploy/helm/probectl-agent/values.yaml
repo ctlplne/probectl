@@ -43,18 +43,50 @@ admission:
 # REQUIRED: the tenant every flow from these nodes belongs to (guardrail 1).
 tenantID: ""
 
+# REQUIRED: the collector identity this tenant registered for these nodes
+# (DPR-051) — the agent_id printed by `register-collector -plane ebpf`,
+# POST /v1/collectors/register, or Admin & Settings > Agents > Register
+# collector. Every record the DaemonSet publishes carries it, and the control
+# plane verifies the (tenant, agent_id) pair against the tenant's registry
+# before accepting a batch (TENANT-101): an unregistered identity means every
+# batch is rejected. One release = one registered collector; the node name
+# still rides along as each record's host.
+agentID: ""
+
 bus:
   # kafka is the production mode. The agent REFUSES plaintext kafka unless
   # allowPlaintext is set (U-010).
   mode: kafka
   brokers: []  # REQUIRED for kafka mode, e.g. ["kafka.probectl.svc:9093"]
+  # The tenant's bus lane, `t-<tenant-slug>`, printed by the registration
+  # (DPR-049). Required wherever the control plane refuses the shared lane
+  # (PROBECTL_INGEST_STRICT_TENANT_LANES: the multi-tenant and regulated
+  # profiles); empty publishes on the shared pooled topic.
+  namespace: ""
   tls:
     enabled: true
-    # Secret with ca.crt (+ optional tls.crt/tls.key for mTLS to the bus).
+    # Secret with ca.crt for the brokers' CA (+ tls.crt/tls.key when
+    # clientAuth is on).
     existingSecret: ""
+    # Present the Secret's tls.crt/tls.key to the brokers (broker mTLS).
+    clientAuth: false
+  # SASL client authentication (plain | scram-sha-256 | scram-sha-512), the
+  # user and password read from an existing Secret — never from values.
+  sasl:
+    mechanism: ""
+    existingSecret: ""
+    userKey: username
+    passwordKey: password
   # Dev-only escape hatch: lab clusters without bus TLS must opt in
   # EXPLICITLY; production kafka requires TLS.
   allowPlaintext: false
+
+# The node's tracefs, mounted read-only at the same path: attaching the
+# sock:inet_sock_set_state tracepoint reads its event id there, and a container
+# does not see the host's tracefs on its own (DPR-054). The legacy
+# /sys/kernel/debug/tracing works for kernels that only expose it there.
+tracefs:
+  hostPath: /sys/kernel/tracing
 
 # L4 kernel ring buffer. L7 TLS/plaintext chunks have their own ring under
 # l7Capture.ringBufferBytes, because L4 flow bursts and L7 chunk bursts are

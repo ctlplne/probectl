@@ -57,6 +57,7 @@ render() {
 render_agent() {
   helm template probectl-agent "$AGENT_CHART" "$@" \
     --set-string tenantID=t-hardening \
+    --set-string agentID=a-hardening \
     --set-string image.tag="0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000" \
     --set-json 'bus.brokers=["kafka.probectl.svc:9093"]'
 }
@@ -809,10 +810,10 @@ echo "helm hardening gate: OK (default + every values-* profile)"
 # ── Agent chart (U-016): the eBPF agent's privilege contract is EXPLICIT ────
 AGENT="${AGENT_CHART:-deploy/helm/probectl-agent}"
 AGENT_IMAGE_TAG="0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-helm lint "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null \
+helm lint "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null \
   || fail "agent chart does not lint"
 
-arender() { helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" "$@"; }
+arender() { helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" "$@"; }
 agent="$(arender)"
 need "kind: DaemonSet"                  "$agent" "agent: not a DaemonSet"
 need "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$agent" "agent: digest-pinned image did not render"
@@ -842,13 +843,14 @@ need "type: Localhost"                  "$agent" "agent: seccomp not Localhost b
 need "localhostProfile: probectl/seccomp.json" "$agent" "agent: strict seccomp profile path missing"
 need "install-seccomp-profile"          "$agent" "agent: no initContainer installing the strict seccomp profile (EBPF-003)"
 need "kind: ConfigMap"                  "$agent" "agent: bundled seccomp ConfigMap missing"
-grep -q "type: RuntimeDefault" <<<"$agent" && fail "agent: RuntimeDefault in the DEFAULT profile — strict Localhost is the hardened default (EBPF-003)"
+grep -q "type: RuntimeDefault" <<<"$(awk '/- name: agent$/,/volumeMounts:/' <<<"$agent")" && fail "agent: RuntimeDefault on the agent container in the DEFAULT profile — strict Localhost is the hardened default (EBPF-003)"
 # The opt-out portable baseline still renders cleanly.
-need "type: RuntimeDefault" "$(arender --set seccomp.type=RuntimeDefault)" "agent: RuntimeDefault opt-out broken"
+need "type: RuntimeDefault" "$(awk '/- name: agent$/,/volumeMounts:/' <<<"$(arender --set seccomp.type=RuntimeDefault)")" "agent: RuntimeDefault opt-out broken"
 need "readOnlyRootFilesystem: true"     "$agent" "agent: root filesystem not read-only"
 need "allowPrivilegeEscalation: false"  "$agent" "agent: privilege escalation not disabled"
 need "automountServiceAccountToken: false" "$agent" "agent: SA token automounted"
 need "/sys/kernel/btf/vmlinux"          "$agent" "agent: BTF host mount missing"
+need "mountPath: /sys/kernel/tracing"   "$agent" "agent: tracefs host mount missing — tracepoint attach reads the event id there (DPR-054)"
 need "limits:"                          "$agent" "agent: no resource limits"
 # OPS-001/WIRE-004: the DaemonSet ships real liveness + readiness probes
 # without opening a plaintext health listener by default.
@@ -865,7 +867,7 @@ fi
 if grep -q "containerPort: 9090" <<<"$agent"; then
   fail "agent: default chart opens plaintext health port 9090 (WIRE-004)"
 fi
-if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set health.mode=http >/dev/null 2>&1; then
   fail "agent chart rendered HTTP health mode without health.allowPlaintextHTTP=true (WIRE-004)"
 fi
@@ -877,7 +879,7 @@ need "path: /readyz"                    "$http_agent" "agent: acknowledged HTTP 
 if grep -q "prometheus.io/scrape" <<<"$agent"; then
   fail "agent: default chart advertises a pod-network metrics scrape without TLS opt-in (H6/WIRE-004)"
 fi
-if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set metrics.enabled=true >/dev/null 2>&1; then
   fail "agent chart rendered pod-network metrics without metrics.tls.existingSecret (H6/WIRE-004)"
 fi
@@ -891,7 +893,7 @@ need 'PROBECTL_EBPF_METRICS_TLS_KEY_FILE' "$metrics_agent" "agent: metrics TLS k
 need 'secretName: agent-metrics-tls'      "$metrics_agent" "agent: metrics TLS Secret not mounted (H6)"
 # EBPF-002: L7 capture must render the full runtime contract, and enabled
 # capture without scope must fail at template time.
-if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" \
      --set l7Capture.enabled=true \
      --set l7Capture.consentTenant=gate >/dev/null 2>&1; then
@@ -908,7 +910,7 @@ need "l7_capture_kernel_window: 0"      "$l7" "agent: L7 kernel window not rende
 # EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgement.
 agent_ds="$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")"
 grep -q "SYS_ADMIN" <<<"$agent_ds" && fail "agent: SYS_ADMIN in the DEFAULT DaemonSet (legacy mode only)"
-if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set capabilityMode=legacy >/dev/null 2>&1; then
   fail "agent chart rendered legacy SYS_ADMIN without legacyKernelRingBufferAck (EBPF-004)"
 fi
@@ -919,21 +921,26 @@ need "validationFailureAction: Audit" "$legacy" "agent: acknowledged legacy mode
 
 # fail-closed rendering: no tenant, or plaintext kafka without the explicit
 # dev override, must refuse (guardrail 1 / U-010).
-if helm template agent "$AGENT" --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
+if helm template agent "$AGENT" --set agentID=t --set 'bus.brokers={k:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
   fail "agent chart rendered WITHOUT a tenantID"
 fi
-if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' --set-string image.tag="0.4.0" >/dev/null 2>&1; then
+# DPR-051: without the registered collector identity the control plane
+# rejects every batch (TENANT-101), so the chart must refuse to render.
+if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
+  fail "agent chart rendered WITHOUT an agentID (DPR-051)"
+fi
+if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9093}' --set-string image.tag="0.4.0" >/dev/null 2>&1; then
   fail "agent chart rendered a privileged tag-only image without image.allowTagOnly=true (RED-003)"
 fi
-if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' \
+if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9093}' \
      --set image.allowTagOnly=true --set-string image.tag=0.4.0 >/dev/null 2>&1; then
   fail "agent chart rendered tag-only break-glass while image-integrity admission stayed enabled (SUPPLY-001)"
 fi
-if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' \
+if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9093}' \
      --set admission.imageIntegrity.enabled=false --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
   fail "agent chart disabled image-integrity admission without admission.imageIntegrity.acceptedRisk (SUPPLY-001)"
 fi
-if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' \
+if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9093}' \
      --set admission.imageIntegrity.validationFailureAction=Audit \
      --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
   fail "agent chart rendered non-enforcing image-integrity admission without admission.imageIntegrity.acceptedRisk (RED-003)"
@@ -950,10 +957,44 @@ audit_break_glass="$(arender \
   --set admission.imageIntegrity.validationFailureAction=Audit \
   --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
 need "validationFailureAction: Audit" "$audit_break_glass" "agent: accepted non-enforcing image-integrity render failed"
-if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9092}' \
+if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9092}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.tls.enabled=false >/dev/null 2>&1; then
   fail "agent chart rendered plaintext kafka without bus.allowPlaintext"
 fi
+
+# DPR-051: the DaemonSet carries the registered identity, the tenant's bus
+# lane and bus client auth (SASL from a Secret / broker mTLS) — the three
+# settings a production control plane needs before it accepts a batch.
+need 'PROBECTL_EBPF_AGENT_ID'            "$agent" "agent: registered collector identity not rendered (DPR-051)"
+need 'agent_id: "gate"'                  "$agent" "agent: agent_id missing from the agent ConfigMap (DPR-051)"
+lane="$(arender --set bus.namespace=t-acme)"
+need 'PROBECTL_EBPF_BUS_NAMESPACE'       "$lane"  "agent: bus lane env not rendered (DPR-049/051)"
+need 'namespace: "t-acme"'               "$lane"  "agent: bus lane missing from the agent ConfigMap (DPR-049/051)"
+sasl="$(arender --set bus.tls.existingSecret=bus-ca --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=bus-sasl)"
+need 'PROBECTL_EBPF_BUS_SASL_MECHANISM'  "$sasl"  "agent: SASL mechanism not rendered (DPR-051)"
+need 'name: "bus-sasl"'                  "$sasl"  "agent: SASL credentials not read from the Secret (DPR-051)"
+grep -A1 'name: PROBECTL_EBPF_BUS_SASL_PASSWORD$' <<<"$sasl" | grep -q 'value:' && fail "agent: SASL password rendered inline (DPR-051)"
+if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.sasl.mechanism=plain >/dev/null 2>&1; then
+  fail "agent chart rendered SASL without bus.sasl.existingSecret (DPR-051)"
+fi
+mtls="$(arender --set bus.tls.existingSecret=bus-tls --set bus.tls.clientAuth=true)"
+need 'PROBECTL_EBPF_BUS_TLS_CERT_FILE'   "$mtls"  "agent: broker mTLS client certificate not wired (DPR-051)"
+need 'PROBECTL_EBPF_BUS_TLS_KEY_FILE'    "$mtls"  "agent: broker mTLS client key not wired (DPR-051)"
+if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.tls.clientAuth=true >/dev/null 2>&1; then
+  fail "agent chart rendered bus.tls.clientAuth without a Secret to read the client pair from (DPR-051)"
+fi
+# DPR-052: the seccomp profile governs the agent container; the installer
+# initContainer that writes the Localhost profile must not run under it, or
+# a fresh node can never start the pod.
+agent_ctr="$(awk '/- name: agent$/,/volumeMounts:/' <<<"$agent")"
+need "type: Localhost"                   "$agent_ctr" "agent: the agent container does not carry the strict Localhost seccomp profile (EBPF-003/DPR-052)"
+installer_ctr="$(awk '/- name: install-seccomp-profile$/,/volumeMounts:/' <<<"$agent")"
+need "type: RuntimeDefault"              "$installer_ctr" "agent: the seccomp installer initContainer runs under the profile it installs (DPR-052)"
+grep -q "type: Localhost" <<<"$installer_ctr" && fail "agent: installer initContainer carries the Localhost profile it has not written yet (DPR-052)"
+pod_sc="$(awk '/^    spec:$/,/initContainers:|containers:/' <<<"$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")")"
+grep -q "seccompProfile" <<<"$pod_sc" && fail "agent: pod-level seccompProfile would govern the installer initContainer too (DPR-052)"
 
 
 # DPR-026: an operator CA bundle for OUTBOUND TLS (private-PKI IdP, SIEM, CMDB,

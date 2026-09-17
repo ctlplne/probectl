@@ -545,7 +545,7 @@ jobs:
           echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  /tmp/kubeconform.tar.gz" | sha256sum -c -
           tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
           helm template agent deploy/helm/probectl-agent \
-            --set tenantID=ci --set 'bus.brokers={kafka:9093}' \
+            --set tenantID=ci --set agentID=ci --set 'bus.brokers={kafka:9093}' \
             | /tmp/kubeconform -strict -summary
           helm template probectl deploy/helm/probectl \
             --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \

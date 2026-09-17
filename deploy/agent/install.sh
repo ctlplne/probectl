@@ -109,9 +109,11 @@ elif [ ! -f /etc/probectl/ebpf-agent.yaml ]; then
 # plaintext kafka without the explicit dev-only override (U-010).
 apiVersion: probectl.io/ebpf-agent/v1
 tenant_id: ""           # REQUIRED: the tenant these flows belong to
+agent_id: ""            # REQUIRED in production: the collector id the tenant registered for this host (DPR-051)
 bus:
   mode: kafka
   brokers: []           # e.g. ["kafka.internal:9093"]
+  # namespace: t-<tenant-slug>   # the tenant's bus lane printed by the registration (DPR-049)
 ring_buffer_bytes: 16777216     # L4 flow ring; rounded/capped by the agent
 l7_ring_buffer_bytes: 16777216  # TLS/plaintext L7 chunk ring; separate from L4
 # Bus TLS via env in the unit: PROBECTL_EBPF_BUS_TLS_ENABLED=true,

@@ -1338,7 +1338,8 @@ fail-closed posture for the most sensitive thing this agent can do.
 | ---------------------------- | ----------- | -------------------------------------------------------------- |
 | `PROBECTL_EBPF_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)             |
 | `PROBECTL_EBPF_TENANT_ID`      | (required)  | the tenant every flow is stamped with — the agent refuses to start without it |
-| `PROBECTL_EBPF_HOST`           | OS hostname | observing host name                                            |
+| `PROBECTL_EBPF_HOST`           | OS hostname | observing host name — each record's `host`; also the `agent_id` fallback when no collector identity is set (single-node lightweight mode only) |
+| `PROBECTL_EBPF_AGENT_ID`       | (none)      | the registered collector identity every record carries as `agent_id` (DPR-051): the id minted by `register-collector -plane ebpf` / `POST /v1/collectors/register`. The control plane verifies the (tenant, agent_id) pair against the tenant's registry before accepting a batch (TENANT-101), so an unregistered identity means every batch is rejected. Printable, no whitespace, at most 128 bytes |
 | `PROBECTL_EBPF_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                            |
 | `PROBECTL_EBPF_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                     |
 | `PROBECTL_EBPF_BUS_NAMESPACE`  | (none)      | publish on this tenant's siloed bus lane (`probectl.<ns>.ebpf.flows`) instead of the shared topic; for per-tenant-namespaced (siloed) deployments |

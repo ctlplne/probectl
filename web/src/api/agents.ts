@@ -88,7 +88,8 @@ export interface CollectorRegistration {
   capabilities: string[]
   config: {
     env: Record<string, string>
-    yaml: Record<string, string>
+    /** A string, or a nested mapping for a nested collector key (bus: {namespace}). */
+    yaml: Record<string, unknown>
     startup_command?: string
   }
 }

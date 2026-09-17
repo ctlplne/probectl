@@ -41,7 +41,7 @@ func (e l4eventC) toFlow(cfg *Config) Flow {
 	src, dst, networkType := e.addresses()
 	return Flow{
 		TenantID:    cfg.TenantID,
-		AgentID:     cfg.Host,
+		AgentID:     cfg.identity(),
 		Host:        cfg.Host,
 		Source:      Endpoint{Address: src, Port: uint32(e.Sport), PID: e.PID, Process: nullTerm(e.Comm[:])},
 		Destination: Endpoint{Address: dst, Port: uint32(e.Dport)},

@@ -325,7 +325,7 @@ export interface ChannelSpec {
 export interface CollectorConfigHint {
   env: { [key: string]: string }
   startup_command?: string
-  yaml: { [key: string]: string }
+  yaml: { [key: string]: JsonValue }
 }
 
 export interface CollectorRegisterRequest {

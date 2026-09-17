@@ -18,6 +18,17 @@
 {{- if and .Values.metrics.enabled (not .Values.metrics.tls.existingSecret) -}}
 {{- fail "metrics.enabled exposes the agent listener on the pod network and requires metrics.tls.existingSecret (keys tls.crt and tls.key)" -}}
 {{- end -}}
+{{- $agentID := include "probectl-agent.agentID" . -}}
+{{- $sasl := .Values.bus.sasl | default dict -}}
+{{- if and $sasl.mechanism (not $sasl.existingSecret) -}}
+{{- fail "bus.sasl.mechanism is set but bus.sasl.existingSecret is empty: SASL credentials come from a Secret (keys bus.sasl.userKey / bus.sasl.passwordKey), never from values" -}}
+{{- end -}}
+{{- if and $sasl.mechanism (not (has (lower $sasl.mechanism) (list "plain" "scram-sha-256" "scram-sha-512"))) -}}
+{{- fail "bus.sasl.mechanism must be plain, scram-sha-256 or scram-sha-512" -}}
+{{- end -}}
+{{- if and .Values.bus.tls.clientAuth (not (and .Values.bus.tls.enabled .Values.bus.tls.existingSecret)) -}}
+{{- fail "bus.tls.clientAuth presents tls.crt/tls.key from bus.tls.existingSecret, so bus.tls.enabled=true and bus.tls.existingSecret are required" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -56,12 +67,10 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      securityContext:
-        seccompProfile:
-          type: {{ .Values.seccomp.type }}
-          {{- if eq .Values.seccomp.type "Localhost" }}
-          localhostProfile: {{ .Values.seccomp.localhostProfile }}
-          {{- end }}
+      # The seccomp profile is declared on the agent container (below), not
+      # on the pod: a pod-level Localhost profile also applied to the
+      # installer initContainer, which could then never start on a node that
+      # did not have the profile yet (DPR-052).
       {{- if and (eq .Values.seccomp.type "Localhost") .Values.seccomp.installProfile }}
       # EBPF-003: install the strict default-deny profile onto this node's
       # kubelet seccomp root BEFORE the agent starts, so the Localhost profile
@@ -83,6 +92,11 @@ spec:
             runAsUser: 0
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
+            # DPR-052: the installer runs under the runtime's default profile;
+            # the strict Localhost profile it writes cannot govern the
+            # container that installs it.
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop: ["ALL"]
               add: ["DAC_OVERRIDE", "CHOWN", "FOWNER"] # write under the kubelet dir
@@ -159,6 +173,11 @@ spec:
             runAsUser: 0
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
+            seccompProfile:
+              type: {{ .Values.seccomp.type }}
+              {{- if eq .Values.seccomp.type "Localhost" }}
+              localhostProfile: {{ .Values.seccomp.localhostProfile }}
+              {{- end }}
             capabilities:
               drop: ["ALL"]
               {{- if eq .Values.capabilityMode "legacy" }}
@@ -174,6 +193,15 @@ spec:
               value: {{ .Values.logLevel | quote }}
             - name: PROBECTL_EBPF_LOG_FORMAT
               value: {{ .Values.logFormat | quote }}
+            # DPR-051: the registered collector identity every record carries
+            # (also in the ConfigMap; env wins over a stale mounted file).
+            - name: PROBECTL_EBPF_AGENT_ID
+              value: {{ $agentID | quote }}
+            {{- with .Values.bus.namespace }}
+            # DPR-049: publish on the tenant's namespaced bus lane.
+            - name: PROBECTL_EBPF_BUS_NAMESPACE
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.metrics.enabled }}
             - name: PROBECTL_EBPF_METRICS_ADDR
               value: {{ printf "%s:%v" .Values.metrics.bindAddress .Values.metrics.port | quote }}
@@ -189,6 +217,28 @@ spec:
             - name: PROBECTL_EBPF_BUS_TLS_CA_FILE
               value: /etc/probectl/bus-tls/ca.crt
             {{- end }}
+            {{- if .Values.bus.tls.clientAuth }}
+            # DPR-051: broker mTLS — present the Secret's client pair.
+            - name: PROBECTL_EBPF_BUS_TLS_CERT_FILE
+              value: /etc/probectl/bus-tls/tls.crt
+            - name: PROBECTL_EBPF_BUS_TLS_KEY_FILE
+              value: /etc/probectl/bus-tls/tls.key
+            {{- end }}
+            {{- end }}
+            {{- if $sasl.mechanism }}
+            # DPR-051: SASL client auth; the credentials stay in the Secret.
+            - name: PROBECTL_EBPF_BUS_SASL_MECHANISM
+              value: {{ $sasl.mechanism | quote }}
+            - name: PROBECTL_EBPF_BUS_SASL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $sasl.existingSecret | quote }}
+                  key: {{ $sasl.userKey | default "username" | quote }}
+            - name: PROBECTL_EBPF_BUS_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $sasl.existingSecret | quote }}
+                  key: {{ $sasl.passwordKey | default "password" | quote }}
             {{- end }}
             {{- if .Values.bus.allowPlaintext }}
             - name: PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT
@@ -202,6 +252,10 @@ spec:
               readOnly: true
             - name: btf
               mountPath: /sys/kernel/btf/vmlinux
+              readOnly: true
+            # DPR-054: tracepoint metadata (event ids) lives in tracefs.
+            - name: tracefs
+              mountPath: {{ .Values.tracefs.hostPath }}
               readOnly: true
             {{- if and .Values.bus.tls.enabled .Values.bus.tls.existingSecret }}
             - name: bus-tls
@@ -237,6 +291,12 @@ spec:
           hostPath:
             path: /sys/kernel/btf/vmlinux
             type: File
+        # DPR-054: the node's tracefs, read-only (Directory: a node without
+        # it cannot attach anyway, so the pod fails closed at scheduling).
+        - name: tracefs
+          hostPath:
+            path: {{ .Values.tracefs.hostPath }}
+            type: Directory
         {{- if and .Values.health.enabled (eq .Values.health.mode "exec") }}
         # WIRE-004: writable state for exec health probes; avoids a plaintext
         # pod listener while the root filesystem stays read-only.

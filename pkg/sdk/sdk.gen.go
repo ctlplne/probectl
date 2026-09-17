@@ -406,7 +406,7 @@ type ChannelSpec struct {
 type CollectorConfigHint struct {
 	Env            map[string]string `json:"env"`
 	StartupCommand string            `json:"startup_command,omitempty"`
-	Yaml           map[string]string `json:"yaml"`
+	Yaml           map[string]any    `json:"yaml"`
 }
 
 type CollectorRegisterRequest struct {

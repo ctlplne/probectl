@@ -282,6 +282,13 @@ kernel that the runtime probe marks unavailable. A `CAP_SYS_ADMIN` legacy
 exception is only for hosts where the runtime probe can still confirm BTF + ring
 buffer support but the platform cannot grant the split capability pair. The
 capability probe and the enrichment lookups are read-only and need no privileges.
+The attach step also reads the tracepoint's event id from **tracefs**
+(`/sys/kernel/tracing`, or the legacy `/sys/kernel/debug/tracing`), which a
+container does not see unless the node's tracefs is mounted in read-only — the
+Helm chart mounts it (`tracefs.hostPath`), the compose snippet in
+[`deploy/agent/README.md`](../deploy/agent/README.md) adds the volume, and the
+probe reports `tracefs=false` with the remediation before anything loads
+(DPR-054).
 
 The observe-only guarantee is enforced in code, not just by convention. The agent
 attaches only tracepoints / kprobes / uprobes and calls no traffic-altering
@@ -485,8 +492,8 @@ after the runtime probe has confirmed BTF + BPF ring-buffer support; it is not a
 generic `<5.8` escape hatch. The chart also declares a **seccomp** profile (a
 kernel syscall filter — the process may invoke only the listed system calls;
 `RuntimeDefault`, or point `seccomp.type: Localhost` at the installed
-default-deny profile for tighter filtering), read-only root, the BTF host mount,
-and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture without
+default-deny profile for tighter filtering), read-only root, the BTF and tracefs
+host mounts (`tracefs.hostPath`, DPR-054), and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture without
 `l7Capture.scope`, or plaintext kafka without the explicit `bus.allowPlaintext`,
 refuses to template. CI helm-lints, hardening-asserts, and kubeconform-validates
 the chart on every run.
@@ -515,11 +522,36 @@ policy reports are the operational alert surface for capability posture; the
 default is Audit so the documented legacy exception remains human-gated instead
 of silently blocked.
 
+**Identity, lane and bus auth (DPR-051).** The DaemonSet publishes straight
+to the bus, so it carries a *registered* identity rather than an SVID: register
+one collector for the release (`register-collector -plane ebpf`,
+`POST /v1/collectors/register`, or **Admin & Settings > Agents > Register
+collector**) and pass its id as `agentID`. Every record carries it as
+`agent_id` — the node name stays each record's `host` — and the control plane
+verifies the (tenant, agent_id) pair against the tenant's registry before it
+accepts a batch (TENANT-101). The chart refuses to render without it, because
+an unregistered identity means every batch is rejected. `bus.namespace` is the
+tenant's lane printed by the registration (`t-<tenant-slug>`), required
+wherever the control plane refuses the shared lane (the multi-tenant and
+regulated profiles). Bus client auth comes from a Secret: `bus.sasl.mechanism`
++ `bus.sasl.existingSecret` (keys `username`/`password`, or set
+`bus.sasl.userKey`/`passwordKey`), or `bus.tls.clientAuth=true` to present
+`tls.crt`/`tls.key` from `bus.tls.existingSecret`.
+
+The seccomp profile is declared on the agent container, and the
+`install-seccomp-profile` initContainer runs under `RuntimeDefault`: a
+pod-level `Localhost` profile would have governed the installer too, and a
+fresh node that did not have the profile yet could never start the pod
+(DPR-052).
+
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \
   --set tenantID=acme \
+  --set agentID=<collector-id> \
+  --set bus.namespace=t-acme \
   --set 'bus.brokers={kafka.probectl.svc:9093}' \
   --set bus.tls.existingSecret=probectl-bus-tls \
+  --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=probectl-bus-sasl \
   --set-string image.tag='0.6.0@sha256:<digest>'
 ```
 

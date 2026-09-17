@@ -8,6 +8,7 @@ data:
   ebpf-agent.yaml: |
     apiVersion: probectl.io/ebpf-agent/v1
     tenant_id: {{ required "tenantID is required" .Values.tenantID | quote }}
+    agent_id: {{ include "probectl-agent.agentID" . | quote }} # DPR-051: the registered collector identity (TENANT-101)
     {{- if and .Values.health.enabled (eq .Values.health.mode "exec") }}
     health_state_dir: {{ required "health.stateDir is required when health.mode=exec" .Values.health.stateDir | quote }} # WIRE-004: exec probes; no plaintext listener
     {{- else if and .Values.health.enabled (eq .Values.health.mode "http") }}
@@ -18,6 +19,9 @@ data:
       {{- with .Values.bus.brokers }}
       brokers:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.bus.namespace }}
+      namespace: {{ . | quote }} # DPR-049: the tenant's bus lane
       {{- end }}
     ring_buffer_bytes: {{ .Values.ringBufferBytes }}
     l7_ring_buffer_bytes: {{ .Values.l7Capture.ringBufferBytes }}

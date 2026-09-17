@@ -49,7 +49,7 @@ SystemCallErrorNumber=EPERM
 # --- filesystem / namespace hardening ---
 ProtectSystem=strict
 ProtectHome=yes
-ReadOnlyPaths=/sys/kernel/btf
+ReadOnlyPaths=/sys/kernel/btf -/sys/kernel/tracing
 ReadWritePaths=/var/lib/probectl
 PrivateTmp=yes
 ProtectKernelModules=yes

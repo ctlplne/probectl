@@ -84,6 +84,7 @@ services:
     ulimits: { memlock: -1 }
     volumes:
       - /sys/kernel/btf/vmlinux:/sys/kernel/btf/vmlinux:ro
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro   # tracepoint event ids (DPR-054)
 ```
 
 ## Kubernetes (DaemonSet securityContext)

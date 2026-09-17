@@ -173,9 +173,12 @@ func (s *Server) handleMintEnrollToken(w http.ResponseWriter, r *http.Request) e
 }
 
 type collectorConfigHint struct {
-	Env            map[string]string `json:"env"`
-	YAML           map[string]string `json:"yaml"`
-	StartupCommand string            `json:"startup_command,omitempty"`
+	Env map[string]string `json:"env"`
+	// YAML values are strings, or a nested mapping for a nested config key
+	// (bus: {namespace: …}); rendered as-is, it is the collector's own YAML
+	// (DPR-053).
+	YAML           map[string]any `json:"yaml"`
+	StartupCommand string         `json:"startup_command,omitempty"`
 }
 
 type collectorRegistrationResponse struct {
@@ -280,15 +283,16 @@ func collectorCollectionProfile(plane, raw string) (string, error) {
 }
 
 func collectorConfig(plane, tenantID, agentID, collectionProfile, busNamespace string) collectorConfigHint {
-	h := collectorConfigHint{Env: map[string]string{}, YAML: map[string]string{"tenant_id": tenantID}}
+	h := collectorConfigHint{Env: map[string]string{}, YAML: map[string]any{"tenant_id": tenantID}}
 	// DPR-049: agent-published planes publish on the tenant's namespaced lane
-	// (strict-lane mode refuses the shared lane); say which one.
+	// (strict-lane mode refuses the shared lane); say which one. Every
+	// collector reads it as bus.namespace in YAML (DPR-053).
 	lane := func(envKey string) {
 		if busNamespace == "" {
 			return
 		}
 		h.Env[envKey] = busNamespace
-		h.YAML["bus_namespace"] = busNamespace
+		h.YAML["bus"] = map[string]string{"namespace": busNamespace}
 	}
 	switch plane {
 	case "bgp":
@@ -337,9 +341,11 @@ func collectorConfig(plane, tenantID, agentID, collectionProfile, busNamespace s
 		h.YAML["agent_id"] = agentID
 		lane("PROBECTL_ENDPOINT_BUS_NAMESPACE")
 	case "ebpf":
+		// DPR-051: the eBPF agent carries the registered identity as agent_id
+		// like every other collector; host stays the observing node's name.
 		h.Env["PROBECTL_EBPF_TENANT_ID"] = tenantID
-		h.Env["PROBECTL_EBPF_HOST"] = agentID
-		h.YAML["host"] = agentID
+		h.Env["PROBECTL_EBPF_AGENT_ID"] = agentID
+		h.YAML["agent_id"] = agentID
 		lane("PROBECTL_EBPF_BUS_NAMESPACE")
 	}
 	return h

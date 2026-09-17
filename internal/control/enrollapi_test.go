@@ -265,7 +265,8 @@ func TestDeviceCollectorConfigIncludesCompiledProfile(t *testing.T) {
 	}
 	// DPR-049: the tenant's namespaced lane rides along for every
 	// agent-published plane, and BGP/BMP (listener-fed) get none.
-	if hint.Env["PROBECTL_DEVICE_BUS_NAMESPACE"] != "t-acme" || hint.YAML["bus_namespace"] != "t-acme" {
+	// DPR-053: the YAML form is the collector's real nested key, bus.namespace.
+	if bus, _ := hint.YAML["bus"].(map[string]string); hint.Env["PROBECTL_DEVICE_BUS_NAMESPACE"] != "t-acme" || bus["namespace"] != "t-acme" {
 		t.Fatalf("device hint lacks the bus namespace: %+v", hint)
 	}
 	for plane, key := range map[string]string{"flow": "PROBECTL_FLOW_BUS_NAMESPACE", "endpoint": "PROBECTL_ENDPOINT_BUS_NAMESPACE", "ebpf": "PROBECTL_EBPF_BUS_NAMESPACE"} {
@@ -273,10 +274,14 @@ func TestDeviceCollectorConfigIncludesCompiledProfile(t *testing.T) {
 			t.Fatalf("%s hint lacks %s: %+v", plane, key, h)
 		}
 	}
-	if h := collectorConfig("bgp", "tenant-a", "agent-a", "", "t-acme"); h.YAML["bus_namespace"] != "" {
+	if h := collectorConfig("bgp", "tenant-a", "agent-a", "", "t-acme"); h.YAML["bus"] != nil {
 		t.Fatalf("bgp must not advertise a collector lane: %+v", h)
 	}
-	if h := collectorConfig("flow", "tenant-a", "agent-a", "", ""); h.YAML["bus_namespace"] != "" {
+	if h := collectorConfig("flow", "tenant-a", "agent-a", "", ""); h.YAML["bus"] != nil {
 		t.Fatalf("no slug, no lane hint: %+v", h)
+	}
+	// DPR-051: eBPF carries the registered identity as agent_id, not host.
+	if h := collectorConfig("ebpf", "tenant-a", "agent-a", "", "t-acme"); h.Env["PROBECTL_EBPF_AGENT_ID"] != "agent-a" || h.YAML["agent_id"] != "agent-a" || h.Env["PROBECTL_EBPF_HOST"] != "" || h.YAML["host"] != nil {
+		t.Fatalf("ebpf hint must name the registered collector as agent_id: %+v", h)
 	}
 }

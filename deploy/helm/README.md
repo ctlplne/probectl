@@ -411,9 +411,19 @@ invisible.
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \
   --set tenantID=<tenant> \
+  --set agentID=<collector-id> \
+  --set bus.namespace=t-<tenant-slug> \
   --set 'bus.brokers={kafka.internal.example:9093}' \
+  --set bus.tls.existingSecret=probectl-bus-tls \
+  --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=probectl-bus-sasl \
   --set-string image.tag='0.6.0@sha256:<digest>'
 ```
+
+`agentID` is the collector identity the tenant registered for these nodes and
+`bus.namespace` the lane the registration printed; the chart refuses to render
+without the identity because the control plane rejects batches from an
+unregistered one (TENANT-101, DPR-051). Bus client auth is read from a Secret
+(`bus.sasl.*`, or `bus.tls.clientAuth=true` for broker mTLS).
 
 Because this is a privileged node agent, the chart also renders the Kyverno
 `ClusterPolicy` that verifies the eBPF-agent image digest and keyless cosign

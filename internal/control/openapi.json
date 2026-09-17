@@ -15655,8 +15655,9 @@
           },
           "yaml": {
             "type": "object",
+            "description": "Keys and values to put in the collector's YAML config.",
             "additionalProperties": {
-              "type": "string"
+              "description": "A string value, or a nested mapping when the collector reads the key nested (for example bus: {namespace: t-<slug>}); render it as-is into the collector YAML (DPR-053)."
             }
           },
           "startup_command": {

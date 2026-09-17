@@ -145,7 +145,7 @@ func runRegisterCollector(ctx context.Context, db *store.DB, args []string) erro
 	// DPR-049: agent-published planes publish on the tenant's namespaced lane.
 	if ns, nerr := store.NewTenants(db.Pool()).BusNamespace(ctx, id.TenantID); nerr == nil {
 		if env := collectorLaneEnv(id.Plane); env != "" {
-			fmt.Println("  bus_namespace:", ns, "  ("+env+"; required in the multi-tenant/regulated profiles, where the shared lane is refused)")
+			fmt.Println("  bus: {namespace: " + ns + "}   (" + env + "; required in the multi-tenant/regulated profiles, where the shared lane is refused)")
 		}
 	}
 	if id.SVID != nil {
