@@ -51,6 +51,11 @@ ARG DATE=unknown
 # (deploy/compose/eval.yml) passes GO_TAGS=devauth to compile the LOCAL-ONLY
 # dev-auth control plane (RED-001) — release pipelines must never set it.
 ARG GO_TAGS=""
+# GOFIPS140: EMPTY for the standard build. Set to the validated Go Cryptographic
+# Module version (e.g. v1.0.0) together with GO_TAGS=probectl_fips to produce
+# the FIPS 140-3 artifact from this Dockerfile — the same pair `make build-fips`
+# uses — so an operator gets a FIPS image without a second build recipe.
+ARG GOFIPS140=""
 # DPR-001: optional link-time license trust anchors (comma-separated base64
 # PEMs) on top of the committed internal/license/trusted_keys/*.pub anchors.
 # Empty leaves the committed anchors as the only trust. See docs/editions.md.
@@ -80,7 +85,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     version="${VERSION}"; build_date="${DATE}"; \
     if [ "${version}" = "0.0.0-dev" ] && [ -s VERSION ]; then version="$(tr -d '[:space:]' < VERSION)-local"; fi; \
     if [ "${build_date}" = "unknown" ]; then build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi; \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 GOTOOLCHAIN=local ${GOFIPS140:+GOFIPS140=${GOFIPS140}} \
     go build -trimpath ${GO_TAGS:+-tags ${GO_TAGS}} \
       -ldflags "-s -w \
         -X github.com/ctlplne/probectl/internal/version.Version=${version} \

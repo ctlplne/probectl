@@ -94,7 +94,9 @@ replace the probectl product name or create tenant-specific presentation.
 **`fips` is the one exception to runtime gating.** The FIPS 140-3 build is gated by
 the **artifact**, not by a `lic.Has(fips)` check — there is *no* runtime license
 gate for FIPS anywhere in the binary. The validated distribution is what you build
-with `make build-fips` (which sets `GOFIPS140` and the `probectl_fips` tag); that
+with `make build-fips` (which sets `GOFIPS140` and the `probectl_fips` tag) — or, for
+an image, with the shipped Dockerfile and the same pair as build arguments
+(`--build-arg GO_TAGS=probectl_fips --build-arg GOFIPS140=v1.0.0`, DPR-086); that
 build embeds the FIPS 140-3-validated Go Cryptographic Module, and *being that
 build* is the entitlement. The `fips` row in the table simply documents which tier
 that distribution belongs to. A running binary reports its FIPS posture on
