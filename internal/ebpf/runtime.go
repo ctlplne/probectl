@@ -43,6 +43,19 @@ type Agent struct {
 	lastDropStats  DropStats
 	lastFilteredV6 uint64
 
+	// Publish verification (DPR-071): the bus accepts records asynchronously,
+	// so after every emit the agent flushes (bounded) and reads the bus's
+	// failure counters; a failed or unacknowledged flush is logged at ERROR,
+	// counted, and turns readiness off until a later flush delivers cleanly.
+	flusher        bus.Flusher
+	failures       bus.PublishFailureReporter
+	publishTimeout time.Duration
+	lastFailed     uint64
+	lastShed       uint64
+	publishFailed  atomic.Uint64 // records the bus reported undelivered + unacknowledged flushes
+	publishBatches atomic.Uint64 // flushes that were acknowledged clean
+	publishDegrade atomic.Bool   // the most recent flush did not deliver
+
 	// ready flips true once the flow source is streaming — the readiness
 	// probe's signal (OPS-001). started records process liveness.
 	ready   atomic.Bool
@@ -53,6 +66,9 @@ type Agent struct {
 // k8s readiness probe). Live reports process liveness (the liveness probe).
 func (a *Agent) Ready() bool {
 	if !a.ready.Load() {
+		return false
+	}
+	if a.publishDegrade.Load() { // DPR-071: flows are not being delivered
 		return false
 	}
 	if h, ok := a.l7source.(l7ScopeHealthReporter); ok && h.L7ScopeSyncDegraded() {
@@ -67,6 +83,40 @@ func (a *Agent) Live() bool { return a.started.Load() }
 // L7Evicted reports how many L7 connection identities the agent has evicted
 // (cap or idle-TTL) — the FUZZ-001 observability signal that the bound is live.
 func (a *Agent) L7Evicted() uint64 { return a.l7Evicted.Load() }
+
+// PublishFailures reports how many records the bus reported undelivered (plus
+// flushes that were never acknowledged) — the DPR-071 signal that "emitted"
+// actually means "delivered". PublishDegraded is true while the most recent
+// flush failed to deliver; Ready() follows it.
+func (a *Agent) PublishFailures() uint64 { return a.publishFailed.Load() }
+
+// PublishDegraded reports whether the latest flush failed to deliver.
+func (a *Agent) PublishDegraded() bool { return a.publishDegrade.Load() }
+
+// withPublishVerification wires the bus capabilities the agent uses to confirm
+// delivery after each emit; a bus without them is treated as synchronous.
+func (a *Agent) withPublishVerification(b bus.Bus, timeout time.Duration) *Agent {
+	if f, ok := b.(bus.Flusher); ok {
+		a.flusher = f
+	}
+	if r, ok := b.(bus.PublishFailureReporter); ok {
+		a.failures = r
+		a.lastFailed, a.lastShed, _ = r.PublishFailures()
+	}
+	a.publishTimeout = timeout
+	return a
+}
+
+// publishVerifyTimeout bounds the post-emit flush: half the flush interval,
+// capped at 5s, so a broker outage costs a bounded wait per flush and never
+// stalls observation.
+func publishVerifyTimeout(flushInterval time.Duration) time.Duration {
+	t := flushInterval / 2
+	if t > 5*time.Second || t <= 0 {
+		t = 5 * time.Second
+	}
+	return t
+}
 
 // l7conn remembers a connection's client→server identity so a call (which may be
 // completed by a response event) is attributed to the request-direction edge.
@@ -136,13 +186,14 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	if eerr != nil {
 		return nil, eerr // RED-006: malformed silo namespace refuses start
 	}
+	emitter.WithMaxBatchBytes(cfg.MaxBatchBytes) // DPR-071: bounded records
 	// EBPF-001/SCALE-003/FUZZ-001: wire the bounded maps into the LIVE runtime.
 	// The bounded service map and the L7 connection caps existed but nothing in
 	// the production path enabled them — so the default agent now sets them.
 	agg.ServiceMap().SetBounds(cfg.MaxServiceEdges, cfg.L7ConnIdleTTL)
 	l7man := l7.NewManager()
 	l7man.SetBounds(cfg.MaxL7Conns, cfg.L7ConnIdleTTL)
-	return &Agent{
+	a := &Agent{
 		cfg:        cfg,
 		log:        log,
 		source:     src,
@@ -155,7 +206,8 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		l7seen:     map[uint64]time.Time{},
 		l7connsCap: cfg.MaxL7Conns,
 		l7connsTTL: cfg.L7ConnIdleTTL,
-	}, nil
+	}
+	return a.withPublishVerification(b, publishVerifyTimeout(cfg.FlushInterval)), nil
 }
 
 // newAgentWith is a test seam: build an Agent from explicit collaborators. It
@@ -368,10 +420,63 @@ func (a *Agent) flush(ctx context.Context) {
 		return
 	}
 	if err := a.emitter.Emit(ctx, flows, edges, l7calls); err != nil {
+		a.publishFailed.Add(1)
+		a.publishDegrade.Store(true)
 		a.log.Error("ebpf emit failed", "error", err, "flows", len(flows), "edges", len(edges), "l7_calls", len(l7calls))
 		return
 	}
+	if !a.verifyPublished(ctx, len(flows), len(edges), len(l7calls)) {
+		return
+	}
 	a.logFlushStats("ebpf flows emitted", len(flows), len(edges), len(l7calls))
+}
+
+// verifyPublished turns "accepted by the bus" into "delivered" (DPR-071): it
+// flushes the async producer within publishTimeout and reads the bus's failure
+// counters. Anything undelivered is logged at ERROR with the bus's own reason
+// (e.g. MESSAGE_TOO_LARGE), counted, and marks the agent not-ready; a clean
+// flush clears the degraded state. A bus without the capabilities is
+// synchronous and counts as delivered.
+func (a *Agent) verifyPublished(ctx context.Context, flows, edges, l7calls int) bool {
+	if a.flusher != nil {
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.publishTimeout)
+		err := a.flusher.Flush(fctx)
+		cancel()
+		if err != nil {
+			a.publishFailed.Add(1)
+			a.publishDegrade.Store(true)
+			a.log.Error("ebpf publish NOT acknowledged — flows were not delivered to the bus",
+				"error", err, "timeout", a.publishTimeout.String(),
+				"flows", flows, "edges", edges, "l7_calls", l7calls,
+				"publish_failures_total", a.publishFailed.Load())
+			return false
+		}
+	}
+	if a.failures != nil {
+		failed, shed, last := a.failures.PublishFailures()
+		if failed > a.lastFailed || shed > a.lastShed {
+			lost := (failed - a.lastFailed) + (shed - a.lastShed)
+			a.lastFailed, a.lastShed = failed, shed
+			a.publishFailed.Add(lost)
+			a.publishDegrade.Store(true)
+			a.log.Error("ebpf publish FAILED — the bus rejected flow records after accepting them",
+				"records_lost", lost, "error", errString(last),
+				"flows", flows, "edges", edges, "l7_calls", l7calls,
+				"max_batch_bytes", a.cfg.MaxBatchBytes,
+				"publish_failures_total", a.publishFailed.Load())
+			return false
+		}
+	}
+	a.publishBatches.Add(1)
+	a.publishDegrade.Store(false)
+	return true
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (a *Agent) logFlushStats(msg string, flows, edges, l7calls int) {
@@ -388,7 +493,9 @@ func (a *Agent) logFlushStats(msg string, flows, edges, l7calls int) {
 		"l7_evicted_total", a.L7Evicted(),
 		"service_map_evicted_total", a.agg.ServiceMap().Evicted(),
 		"l7_manager_evicted_total", a.l7man.Evicted(),
-		"l7_attach_failures", st.L7AttachFailures, "filtered_non_ipv4_total", st.FilteredNonIPv4)
+		"l7_attach_failures", st.L7AttachFailures, "filtered_non_ipv4_total", st.FilteredNonIPv4,
+		"publish_batches_total", a.publishBatches.Load(), "publish_failures_total", a.publishFailed.Load(),
+		"publish_degraded", a.publishDegrade.Load())
 }
 
 // syncDrops folds cumulative L4 + L7 source drop stats into the aggregator so

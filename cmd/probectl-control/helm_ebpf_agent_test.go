@@ -153,3 +153,29 @@ func TestHelmEBPFAgentMountsTraceFS(t *testing.T) {
 		}
 	}
 }
+
+// DPR-071: the chart pins the per-record bound so a busy host's cumulative
+// service map is split across records instead of outgrowing Kafka's message
+// limit; the schema refuses to switch the bound off.
+func TestHelmEBPFAgentBoundsPublishedRecords(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	out, err := renderHelmEBPFAgent(t, "--set", "agentID=a")
+	if err != nil {
+		t.Fatalf("render: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "max_batch_bytes: 786432") {
+		t.Errorf("default render must bound records at 786432 bytes:\n%s", out)
+	}
+	out, err = renderHelmEBPFAgent(t, "--set", "agentID=a", "--set", "maxBatchBytes=524288")
+	if err != nil {
+		t.Fatalf("render: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "max_batch_bytes: 524288") {
+		t.Errorf("maxBatchBytes must reach the agent config:\n%s", out)
+	}
+	if out, err := renderHelmEBPFAgent(t, "--set", "agentID=a", "--set", "maxBatchBytes=0"); err == nil {
+		t.Errorf("maxBatchBytes=0 (unbounded) must be refused by the schema:\n%s", out)
+	}
+}

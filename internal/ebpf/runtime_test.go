@@ -7,11 +7,16 @@
 package ebpf
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/bus"
 
 	"github.com/ctlplne/probectl/internal/ebpf/l7"
 )
@@ -231,5 +236,119 @@ func TestAgentRunEmitsL7Calls(t *testing.T) {
 	}
 	if edge == nil || edge.L7Calls != 2 || edge.L7Errors != 1 || edge.L7Protocol != "http1" {
 		t.Errorf("edge L7 rollup = %+v", edge)
+	}
+}
+
+// verifyingBus is an asynchronous bus: Publish accepts every record, and the
+// rejection (if any) only ever shows up in the failure counters or as a flush
+// error — exactly how the Kafka bus behaves (DPR-071).
+type verifyingBus struct {
+	publishes int
+	rejectAll bool // every accepted record is reported failed afterwards
+	flushErr  error
+	failed    uint64
+}
+
+func (v *verifyingBus) Publish(context.Context, string, []byte, []byte) error {
+	v.publishes++
+	if v.rejectAll {
+		v.failed++
+	}
+	return nil
+}
+func (v *verifyingBus) Subscribe(context.Context, string, string, bus.Handler) error { return nil }
+func (v *verifyingBus) Close() error                                                 { return nil }
+func (v *verifyingBus) Flush(context.Context) error                                  { return v.flushErr }
+func (v *verifyingBus) PublishFailures() (uint64, uint64, error) {
+	if v.failed == 0 {
+		return 0, 0, nil
+	}
+	return v.failed, 0, errors.New("last produce failure on probectl.t-acme.ebpf.flows: MESSAGE_TOO_LARGE (uncompressed_bytes=1048600)")
+}
+
+func newVerifyingAgent(t *testing.T, vb *verifyingBus, logs *bytes.Buffer) *Agent {
+	t.Helper()
+	cfg := &Config{TenantID: "t1", Host: "node-1", FlushInterval: time.Hour, MaxBatchBytes: DefaultMaxBatchBytes}
+	a := newAgentWith(cfg, slog.New(slog.NewTextHandler(logs, nil)), &sliceSource{}, NopEnricher{}, NewBusEmitter(vb, "t1"))
+	a.withPublishVerification(vb, time.Second)
+	a.ready.Store(true) // as if the flow source were streaming
+	return a
+}
+
+func observeOne(a *Agent, port uint32) {
+	a.observe(Flow{Source: Endpoint{Address: "10.0.0.1"}, Destination: Endpoint{Address: "10.0.0.2", Port: port}, Transport: "tcp"})
+}
+
+// DPR-071: on the lab every batch after the first 22 was rejected by the bus
+// (MESSAGE_TOO_LARGE) for hours while the agent logged "ebpf flows emitted"
+// with dropped_total=0. The agent now confirms delivery after every emit: a
+// record the bus reports undelivered is logged at ERROR with the bus's reason,
+// counted, and takes readiness down until a flush delivers cleanly.
+func TestAgentFlushSurfacesAsyncPublishRejections(t *testing.T) {
+	var logs bytes.Buffer
+	vb := &verifyingBus{rejectAll: true}
+	a := newVerifyingAgent(t, vb, &logs)
+
+	observeOne(a, 443)
+	a.flush(context.Background())
+	if vb.publishes != 1 {
+		t.Fatalf("publishes = %d, want 1", vb.publishes)
+	}
+	if got := a.PublishFailures(); got != 1 {
+		t.Errorf("PublishFailures = %d, want 1", got)
+	}
+	if !a.PublishDegraded() || a.Ready() {
+		t.Errorf("degraded=%v ready=%v; an undelivered flush must take readiness down", a.PublishDegraded(), a.Ready())
+	}
+	out := logs.String()
+	if !strings.Contains(out, "ebpf publish FAILED") || !strings.Contains(out, "MESSAGE_TOO_LARGE") {
+		t.Errorf("the rejection and its reason must be logged at ERROR, got:\n%s", out)
+	}
+	if strings.Contains(out, "ebpf flows emitted") {
+		t.Errorf("a rejected flush must not be reported as emitted:\n%s", out)
+	}
+
+	// The next flush delivers cleanly: readiness recovers, the counter keeps history.
+	vb.rejectAll = false
+	logs.Reset()
+	observeOne(a, 8443)
+	a.flush(context.Background())
+	if a.PublishDegraded() || !a.Ready() {
+		t.Errorf("degraded=%v ready=%v after a clean flush", a.PublishDegraded(), a.Ready())
+	}
+	if got := a.PublishFailures(); got != 1 {
+		t.Errorf("PublishFailures = %d after recovery, want the historical 1", got)
+	}
+	if !strings.Contains(logs.String(), "ebpf flows emitted") || !strings.Contains(logs.String(), "publish_batches_total=1") {
+		t.Errorf("a delivered flush is reported with its publish counters, got:\n%s", logs.String())
+	}
+}
+
+func TestAgentFlushSurfacesUnacknowledgedPublish(t *testing.T) {
+	var logs bytes.Buffer
+	vb := &verifyingBus{flushErr: context.DeadlineExceeded}
+	a := newVerifyingAgent(t, vb, &logs)
+	observeOne(a, 443)
+	a.flush(context.Background())
+	if got := a.PublishFailures(); got != 1 || !a.PublishDegraded() || a.Ready() {
+		t.Errorf("failures=%d degraded=%v ready=%v; an unacknowledged flush must be surfaced", got, a.PublishDegraded(), a.Ready())
+	}
+	if !strings.Contains(logs.String(), "ebpf publish NOT acknowledged") {
+		t.Errorf("expected the unacknowledged-publish error, got:\n%s", logs.String())
+	}
+}
+
+func TestPublishVerifyTimeoutIsBounded(t *testing.T) {
+	for _, tc := range []struct {
+		in, want time.Duration
+	}{
+		{10 * time.Second, 5 * time.Second},
+		{2 * time.Second, time.Second},
+		{time.Hour, 5 * time.Second},
+		{0, 5 * time.Second},
+	} {
+		if got := publishVerifyTimeout(tc.in); got != tc.want {
+			t.Errorf("publishVerifyTimeout(%s) = %s, want %s", tc.in, got, tc.want)
+		}
 	}
 }

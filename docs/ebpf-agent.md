@@ -308,6 +308,23 @@ them rather than remapping. `internal/otel.FlowAttributes` is the canonical
 mapping and is held to the same "no invented attribute names" conformance bar as
 results.
 
+
+**One flush, bounded records (DPR-071).** The service map is a *cumulative*
+snapshot: every flush carries every live edge, so on a busy host one record
+grows with the map. Kafka rejects a record above its 1,000,012-byte client
+batch limit (the broker's `message.max.bytes` defaults to 1 MiB) — and it does
+so *asynchronously*, after `Publish` has already returned nil. The design-partner
+lab hit exactly this: the first 22 batches landed (285 KB → 981 KB), the 23rd
+crossed the limit, and for the next three hours the agent logged
+`ebpf flows emitted` with `dropped_total=0` while nothing reached the bus and
+every downstream view (topology, compliance, NDR) went quietly blind. Two
+changes close that: a flush larger than `max_batch_bytes` (default 768 KiB,
+`PROBECTL_EBPF_MAX_BATCH_BYTES`, chart `maxBatchBytes`) is split into several
+`FlowBatch` records that together carry exactly the flush — edges packed first,
+flows dealt across those records so none is edges-only (the topology view cannot
+tenant-verify an edges-only batch) — and after every emit the agent *flushes
+the producer and reads its failure counters* before it says "emitted".
+
 ### Self-observation (drops are never silent)
 
 A dropped flow is a correctness gap in an observability tool, so it is never
@@ -328,6 +345,18 @@ The flush log carries both the roll-up and the reason labels:
 changed and there is no flow batch to emit, the agent still logs
 `ebpf counters updated` so an all-dropped window is visible — probectl observes
 probectl.
+
+
+Delivery is observed the same way (DPR-071): every `ebpf flows emitted` line
+carries `publish_batches_total` (flushes the bus acknowledged), `publish_failures_total`
+(records the bus reported undelivered, plus flushes it never acknowledged within
+the bounded wait — half the flush interval, at most 5 s) and `publish_degraded`
+(the most recent flush did not deliver). A failure is logged at ERROR with the
+bus's own reason — `ebpf publish FAILED … MESSAGE_TOO_LARGE`, `ebpf publish NOT
+acknowledged … context deadline exceeded` — and the readiness probe reports
+not-ready until a later flush delivers cleanly, so `kubectl get pods` shows
+`0/1 READY` on a host whose flows are not arriving instead of a healthy agent
+publishing into the void.
 
 ## Tuning and kernel lockdown
 

@@ -24,6 +24,9 @@ data:
       namespace: {{ . | quote }} # DPR-049: the tenant's bus lane
       {{- end }}
     ring_buffer_bytes: {{ .Values.ringBufferBytes }}
+    {{- if hasKey .Values "maxBatchBytes" }}
+    max_batch_bytes: {{ .Values.maxBatchBytes }} # DPR-071: one flush never outgrows the bus record limit
+    {{- end }}
     l7_ring_buffer_bytes: {{ .Values.l7Capture.ringBufferBytes }}
     {{- if .Values.l7Capture.enabled }}
     {{- if not .Values.l7Capture.scope }}

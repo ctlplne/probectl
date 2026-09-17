@@ -42,6 +42,16 @@ func (b *observedBus) Flush(ctx context.Context) error {
 	return nil
 }
 
+// PublishFailures forwards the wrapped bus's asynchronous failure counters
+// (bus.PublishFailureReporter) so agents can surface undelivered records
+// (DPR-071); a bus without the capability reports nothing.
+func (b *observedBus) PublishFailures() (failed, shed uint64, last error) {
+	if r, ok := b.Bus.(bus.PublishFailureReporter); ok {
+		return r.PublishFailures()
+	}
+	return 0, 0, nil
+}
+
 func (b *observedBus) WaitForSubscribers(ctx context.Context, topic string, n int) bool {
 	if w, ok := b.Bus.(bus.SubscriberWaiter); ok {
 		return w.WaitForSubscribers(ctx, topic, n)

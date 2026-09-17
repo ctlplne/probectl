@@ -93,6 +93,14 @@ tracefs:
 # separate kernel queues.
 ringBufferBytes: 16777216
 
+# Per-record bound (bytes) for one published FlowBatch. The service map is a
+# CUMULATIVE snapshot that travels with every flush, so an unbounded record
+# outgrows Kafka's 1 MiB message limit on a busy host within minutes — after
+# which the broker rejects every flush while the agent logs "emitted" (DPR-071).
+# A flush above the bound is split into several records; keep the value under
+# the broker's message.max.bytes (default 1048588) with headroom.
+maxBatchBytes: 786432
+
 # TLS-plaintext L7 capture stays OFF unless enable, per-tenant consent naming
 # this agent's tenant, and explicit workload scope are all set (U-003/EBPF-002).
 l7Capture:

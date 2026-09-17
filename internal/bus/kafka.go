@@ -155,6 +155,17 @@ func (k *Kafka) Publish(ctx context.Context, topic string, key, value []byte) er
 	return nil
 }
 
+// PublishFailures implements PublishFailureReporter: accepted-but-undelivered
+// records (failed after retries / shed at the full buffer) and the last
+// asynchronous produce error, so a producer can surface what Publish's nil
+// return hid (DPR-071).
+func (k *Kafka) PublishFailures() (failed, shed uint64, last error) {
+	if f := k.lastFailure.Load(); f != nil {
+		last = fmt.Errorf("last produce failure on %s: %w", f.topic, f.err)
+	}
+	return k.failed.Load(), k.shed.Load(), last
+}
+
 // Stats reports the cumulative async-producer counters.
 func (k *Kafka) Stats() PublishStats {
 	return PublishStats{

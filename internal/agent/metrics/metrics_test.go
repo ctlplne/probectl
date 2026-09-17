@@ -9,6 +9,7 @@ package agentmetrics
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
 )
 
@@ -154,5 +156,35 @@ func waitReady(t *testing.T, r *Runtime) {
 	case <-r.readyChan():
 	case <-time.After(3 * time.Second):
 		t.Fatal("metrics listener did not become ready")
+	}
+}
+
+type failureReportingBus struct {
+	bus.Bus
+}
+
+func (failureReportingBus) PublishFailures() (uint64, uint64, error) {
+	return 3, 1, errors.New("last produce failure on t: MESSAGE_TOO_LARGE")
+}
+
+// DPR-071: the metrics wrapper must not hide the wrapped bus's asynchronous
+// failure counters from the agent that reads them after each flush.
+func TestObservedBusForwardsPublishFailures(t *testing.T) {
+	rt, err := New("probectl-ebpf-agent", "test", "test", Config{Addr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := ObserveBus(failureReportingBus{Bus: bus.NewMemory()}, rt)
+	r, ok := observed.(bus.PublishFailureReporter)
+	if !ok {
+		t.Fatal("observed bus does not forward PublishFailureReporter")
+	}
+	f, s, last := r.PublishFailures()
+	if f != 3 || s != 1 || last == nil {
+		t.Errorf("forwarded failed=%d shed=%d last=%v", f, s, last)
+	}
+	plain := ObserveBus(bus.NewMemory(), rt).(bus.PublishFailureReporter)
+	if f, s, last := plain.PublishFailures(); f != 0 || s != 0 || last != nil {
+		t.Errorf("a bus without the capability must report nothing, got %d/%d/%v", f, s, last)
 	}
 }

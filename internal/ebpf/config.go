@@ -75,6 +75,13 @@ type Config struct {
 	MaxL7Conns      int           `yaml:"max_l7_conns"`
 	L7ConnIdleTTL   time.Duration `yaml:"l7_conn_idle_ttl"`
 
+	// MaxBatchBytes bounds one published FlowBatch record (DPR-071): a flush
+	// larger than this is split into several records, so the cumulative
+	// service map can never grow a record past the bus's per-message limit
+	// (Kafka: 1,000,012 bytes client-side, 1 MiB broker default). 0 =
+	// unbounded (one record per flush; lightweight/test only).
+	MaxBatchBytes int `yaml:"max_batch_bytes"`
+
 	// HealthAddr binds the compatibility liveness/readiness HTTP probe server
 	// (OPS-001), e.g. ":9090". Empty disables it. Kubernetes uses
 	// HealthStateDir by default so no plaintext listener is opened.
@@ -154,6 +161,7 @@ func Default() *Config {
 		MaxServiceEdges: 50_000,
 		MaxL7Conns:      8192,
 		L7ConnIdleTTL:   5 * time.Minute,
+		MaxBatchBytes:   DefaultMaxBatchBytes,
 	}
 }
 
@@ -254,6 +262,11 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_EBPF_MAX_SERVICE_EDGES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.MaxServiceEdges = n
+		}
+	}
+	if v := getenv("PROBECTL_EBPF_MAX_BATCH_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			c.MaxBatchBytes = n
 		}
 	}
 	if v := getenv("PROBECTL_EBPF_MAX_L7_CONNS"); v != "" {

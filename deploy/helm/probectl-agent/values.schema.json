@@ -250,6 +250,11 @@
       "minimum": 0,
       "maximum": 268435456
     },
+    "maxBatchBytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 8388608
+    },
     "health": {
       "type": "object",
       "properties": {

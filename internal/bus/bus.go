@@ -154,6 +154,17 @@ type SubscriberWaiter interface {
 	WaitForSubscribers(ctx context.Context, topic string, n int) bool
 }
 
+// PublishFailureReporter is an optional Bus capability: the cumulative count of
+// records that Publish ACCEPTED but that never reached the broker (failed after
+// the client's retries, or shed at a full buffer), plus the last such error.
+// An asynchronous bus returns nil from Publish long before the broker answers,
+// so a producer that wants to know its records were delivered flushes and then
+// reads these counters (DPR-071: the eBPF agent published oversized batches for
+// hours while logging "emitted" — the rejections were only ever counted here).
+type PublishFailureReporter interface {
+	PublishFailures() (failed, shed uint64, last error)
+}
+
 // namespaceRe is the shape a per-tenant topic namespace must have (S-T2,
 // siloed bus isolation): lowercase alphanumerics and hyphens, no dots — it
 // becomes one topic segment.
