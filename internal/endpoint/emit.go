@@ -16,6 +16,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/canary"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // Emitter publishes a sample's DEM results. The seam lets a test capture results
@@ -72,6 +73,7 @@ func (e *BusEmitter) toProto(r canary.Result) *resultv1.Result {
 	return &resultv1.Result{
 		TenantId:          e.tenant,
 		AgentId:           e.agent,
+		AgentVersion:      version.Get().Version, // DPR-093
 		CanaryType:        r.Type,
 		ServerAddress:     r.Target,
 		Success:           r.Success,

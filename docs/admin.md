@@ -331,6 +331,10 @@ Upgrading the whole fleet at once is how one bad version takes everything down.
 probectl instead moves a fleet to a new version in **waves** — a small canary
 first, then early, then the rest — from **signed** artifacts, with the agent
 registry **verifying** each wave and any failure **halting the train**.
+Every agent reports its own build version for that verification — the gRPC
+agent at enrollment, bus collectors (flow, device, eBPF, endpoint) in every
+batch they publish, the BMP listener in its heartbeat — so the fleet view
+shows the version each producer actually runs, not one an operator typed.
 Crucially, there is **no agent self-update**: agents never fetch or run new code
 on their own (that would be a fleet-wide remote-code-execution primitive); the
 control plane only *plans* and *verifies* waves while your orchestrator (Helm /

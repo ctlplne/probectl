@@ -56,6 +56,11 @@ message Result {
   // do key their ReplacingMergeTrees on their natural identity; that is where
   // merge-time dedup applies.) Additive field — tag 14.
   string result_id = 14;
+
+  // The producing agent's build version (DPR-093): bus-published endpoint
+  // results carry it so the fleet view and staged rollouts can see it.
+  // Additive field — tag 15; empty = unreported.
+  string agent_version = 15;
 }
 
 message ResultBatch {

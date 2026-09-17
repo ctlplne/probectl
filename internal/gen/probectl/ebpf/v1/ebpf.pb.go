@@ -610,10 +610,12 @@ func (x *L7Call) GetTlsConfidence() uint32 {
 
 // FlowBatch is the payload published to probectl.ebpf.flows (tenant-keyed).
 type FlowBatch struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Flows         []*Flow                `protobuf:"bytes,1,rep,name=flows,proto3" json:"flows,omitempty"`
-	Edges         []*ServiceEdge         `protobuf:"bytes,2,rep,name=edges,proto3" json:"edges,omitempty"`
-	L7Calls       []*L7Call              `protobuf:"bytes,3,rep,name=l7_calls,json=l7Calls,proto3" json:"l7_calls,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Flows   []*Flow                `protobuf:"bytes,1,rep,name=flows,proto3" json:"flows,omitempty"`
+	Edges   []*ServiceEdge         `protobuf:"bytes,2,rep,name=edges,proto3" json:"edges,omitempty"`
+	L7Calls []*L7Call              `protobuf:"bytes,3,rep,name=l7_calls,json=l7Calls,proto3" json:"l7_calls,omitempty"`
+	// The agent's build version (DPR-093); additive, empty = unreported.
+	AgentVersion  string `protobuf:"bytes,4,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -667,6 +669,13 @@ func (x *FlowBatch) GetL7Calls() []*L7Call {
 		return x.L7Calls
 	}
 	return nil
+}
+
+func (x *FlowBatch) GetAgentVersion() string {
+	if x != nil {
+		return x.AgentVersion
+	}
+	return ""
 }
 
 var File_probectl_ebpf_v1_ebpf_proto protoreflect.FileDescriptor
@@ -740,11 +749,12 @@ const file_probectl_ebpf_v1_ebpf_proto_rawDesc = "" +
 	"\x10tls_verification\x18\x15 \x01(\tR\x0ftlsVerification\x124\n" +
 	"\x16tls_observation_source\x18\x16 \x01(\tR\x14tlsObservationSource\x125\n" +
 	"\x17tls_handshake_unix_nano\x18\x17 \x01(\x03R\x14tlsHandshakeUnixNano\x12%\n" +
-	"\x0etls_confidence\x18\x18 \x01(\rR\rtlsConfidence\"\xa3\x01\n" +
+	"\x0etls_confidence\x18\x18 \x01(\rR\rtlsConfidence\"\xc8\x01\n" +
 	"\tFlowBatch\x12,\n" +
 	"\x05flows\x18\x01 \x03(\v2\x16.probectl.ebpf.v1.FlowR\x05flows\x123\n" +
 	"\x05edges\x18\x02 \x03(\v2\x1d.probectl.ebpf.v1.ServiceEdgeR\x05edges\x123\n" +
-	"\bl7_calls\x18\x03 \x03(\v2\x18.probectl.ebpf.v1.L7CallR\al7CallsBBZ@github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1;ebpfv1b\x06proto3"
+	"\bl7_calls\x18\x03 \x03(\v2\x18.probectl.ebpf.v1.L7CallR\al7Calls\x12#\n" +
+	"\ragent_version\x18\x04 \x01(\tR\fagentVersionBBZ@github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1;ebpfv1b\x06proto3"
 
 var (
 	file_probectl_ebpf_v1_ebpf_proto_rawDescOnce sync.Once

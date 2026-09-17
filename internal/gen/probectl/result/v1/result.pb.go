@@ -67,7 +67,11 @@ type Result struct {
 	// idempotent across replay. (The row-store planes — flow row_id, eBPF, OTLP —
 	// do key their ReplacingMergeTrees on their natural identity; that is where
 	// merge-time dedup applies.) Additive field — tag 14.
-	ResultId      string `protobuf:"bytes,14,opt,name=result_id,json=resultId,proto3" json:"result_id,omitempty"`
+	ResultId string `protobuf:"bytes,14,opt,name=result_id,json=resultId,proto3" json:"result_id,omitempty"`
+	// The producing agent's build version (DPR-093): bus-published endpoint
+	// results carry it so the fleet view and staged rollouts can see it.
+	// Additive field — tag 15; empty = unreported.
+	AgentVersion  string `protobuf:"bytes,15,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -200,6 +204,13 @@ func (x *Result) GetResultId() string {
 	return ""
 }
 
+func (x *Result) GetAgentVersion() string {
+	if x != nil {
+		return x.AgentVersion
+	}
+	return ""
+}
+
 type ResultBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Results       []*Result              `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
@@ -248,7 +259,7 @@ var File_probectl_result_v1_result_proto protoreflect.FileDescriptor
 
 const file_probectl_result_v1_result_proto_rawDesc = "" +
 	"\n" +
-	"\x1fprobectl/result/v1/result.proto\x12\x12probectl.result.v1\"\xc6\x05\n" +
+	"\x1fprobectl/result/v1/result.proto\x12\x12probectl.result.v1\"\xeb\x05\n" +
 	"\x06Result\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1f\n" +
@@ -268,7 +279,8 @@ const file_probectl_result_v1_result_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\r \x03(\v2*.probectl.result.v1.Result.AttributesEntryR\n" +
 	"attributes\x12\x1b\n" +
-	"\tresult_id\x18\x0e \x01(\tR\bresultId\x1a:\n" +
+	"\tresult_id\x18\x0e \x01(\tR\bresultId\x12#\n" +
+	"\ragent_version\x18\x0f \x01(\tR\fagentVersion\x1a:\n" +
 	"\fMetricsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\x1a=\n" +

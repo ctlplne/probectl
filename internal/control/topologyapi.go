@@ -322,7 +322,7 @@ func (tc *TopologyConsumer) handleEBPFLane(ctx context.Context, msg bus.Message,
 	// only; emitters always batch flows alongside edges in practice.
 	ids := make([]pipeline.Identity, 0, len(batch.GetFlows()))
 	for _, f := range batch.GetFlows() {
-		ids = append(ids, pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()})
+		ids = append(ids, pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId(), Version: batch.GetAgentVersion()})
 	}
 	if tc.rejectBatch(ctx, "ebpf", laneTenant, ids) {
 		return nil

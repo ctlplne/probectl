@@ -72,6 +72,10 @@ message FlowRecord {
 // tenant-keyed. Batching amortizes publish overhead at NetFlow volumes.
 message FlowBatch {
   repeated FlowRecord flows = 1;
+  // The collector's build version (DPR-093): the fleet view and staged
+  // rollouts learn a bus collector's version from its batches, since the
+  // registration path never carried one. Additive; empty = unreported.
+  string agent_version = 2;
 }
 
 // FlowIngestQualityReceipt is a bounded, secret-free current summary for one

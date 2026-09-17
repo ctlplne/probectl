@@ -181,6 +181,30 @@ func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name,
 	return &a, nil
 }
 
+// RecordVersion stores the build version a verified batch reported for an
+// agent (DPR-093). A no-op when the registry already holds it.
+func (Agents) RecordVersion(ctx context.Context, s tenancy.Scope, id, version string) error {
+	if version == "" {
+		return nil
+	}
+	_, err := s.Q.Exec(ctx,
+		`UPDATE agents SET agent_version = $2 WHERE id = $1 AND agent_version IS DISTINCT FROM $2`, id, version)
+	return err
+}
+
+// HeartbeatVersion is Heartbeat for a producer that knows its own build
+// version (the BMP listener, DPR-093): liveness and version in one touch.
+func (Agents) HeartbeatVersion(ctx context.Context, s tenancy.Scope, id, version string) (*Agent, error) {
+	var a Agent
+	if err := scanAgent(s.Q.QueryRow(ctx,
+		`UPDATE agents SET status = 'online', last_seen_at = now(),
+		        agent_version = CASE WHEN $2 = '' THEN agent_version ELSE $2 END
+		  WHERE id = $1 RETURNING `+agentCols, id, version), &a); err != nil {
+		return nil, notFound("agent", err)
+	}
+	return &a, nil
+}
+
 // Heartbeat marks an agent online and records the time it was last seen.
 func (Agents) Heartbeat(ctx context.Context, s tenancy.Scope, id string) (*Agent, error) {
 	var a Agent

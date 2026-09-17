@@ -47,6 +47,8 @@ message DeviceMetric {
 // collector flush, tenant-keyed.
 message DeviceMetricBatch {
   repeated DeviceMetric metrics = 1;
+  // The collector's build version (DPR-093); additive, empty = unreported.
+  string agent_version = 2;
 }
 
 // One directly observed LLDP/CDP physical adjacency. Values come only from a

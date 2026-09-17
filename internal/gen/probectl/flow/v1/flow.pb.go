@@ -333,8 +333,12 @@ func (x *FlowRecord) GetDestinationCountry() string {
 // FlowBatch is the bus payload on probectl.flow.events: one collector flush,
 // tenant-keyed. Batching amortizes publish overhead at NetFlow volumes.
 type FlowBatch struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Flows         []*FlowRecord          `protobuf:"bytes,1,rep,name=flows,proto3" json:"flows,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Flows []*FlowRecord          `protobuf:"bytes,1,rep,name=flows,proto3" json:"flows,omitempty"`
+	// The collector's build version (DPR-093): the fleet view and staged
+	// rollouts learn a bus collector's version from its batches, since the
+	// registration path never carried one. Additive; empty = unreported.
+	AgentVersion  string `protobuf:"bytes,2,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -374,6 +378,13 @@ func (x *FlowBatch) GetFlows() []*FlowRecord {
 		return x.Flows
 	}
 	return nil
+}
+
+func (x *FlowBatch) GetAgentVersion() string {
+	if x != nil {
+		return x.AgentVersion
+	}
+	return ""
 }
 
 // FlowIngestQualityReceipt is a bounded, secret-free current summary for one
@@ -664,9 +675,10 @@ const file_probectl_flow_v1_flow_proto_rawDesc = "" +
 	"\x0esource_country\x18\x1c \x01(\tR\rsourceCountry\x12'\n" +
 	"\x0fdestination_asn\x18\x1d \x01(\rR\x0edestinationAsn\x12.\n" +
 	"\x13destination_as_name\x18\x1e \x01(\tR\x11destinationAsName\x12/\n" +
-	"\x13destination_country\x18\x1f \x01(\tR\x12destinationCountry\"?\n" +
+	"\x13destination_country\x18\x1f \x01(\tR\x12destinationCountry\"d\n" +
 	"\tFlowBatch\x122\n" +
-	"\x05flows\x18\x01 \x03(\v2\x1c.probectl.flow.v1.FlowRecordR\x05flows\"\xc7\x06\n" +
+	"\x05flows\x18\x01 \x03(\v2\x1c.probectl.flow.v1.FlowRecordR\x05flows\x12#\n" +
+	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\"\xc7\x06\n" +
 	"\x18FlowIngestQualityReceipt\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12)\n" +

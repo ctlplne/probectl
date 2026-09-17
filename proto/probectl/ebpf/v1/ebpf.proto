@@ -106,4 +106,6 @@ message FlowBatch {
   repeated Flow flows = 1;
   repeated ServiceEdge edges = 2;
   repeated L7Call l7_calls = 3;
+  // The agent's build version (DPR-093); additive, empty = unreported.
+  string agent_version = 4;
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/bus"
 	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // Emitter receives normalized metric batches (the bus emitter in production,
@@ -65,7 +66,8 @@ func (e *BusEmitter) Emit(ctx context.Context, ms []Metric) error {
 	if len(ms) == 0 {
 		return nil
 	}
-	batch := &devicev1.DeviceMetricBatch{Metrics: make([]*devicev1.DeviceMetric, 0, len(ms))}
+	// DPR-093: the batch names the collector's build version.
+	batch := &devicev1.DeviceMetricBatch{Metrics: make([]*devicev1.DeviceMetric, 0, len(ms)), AgentVersion: version.Get().Version}
 	for i := range ms {
 		batch.Metrics = append(batch.Metrics, ms[i].ToProto())
 	}

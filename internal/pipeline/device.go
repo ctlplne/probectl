@@ -194,7 +194,7 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTo
 	}
 	ids := make([]Identity, len(batch.Metrics))
 	for i, m := range batch.Metrics {
-		ids[i] = Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId()}
+		ids[i] = Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId(), Version: batch.GetAgentVersion()}
 	}
 	tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, c.binding, laneTenant, c.strictLane, ids)
 	if verr != nil {

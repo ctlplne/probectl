@@ -17,6 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/ebpf/l7"
 	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // Emitter publishes a batch of observed flows + the current service edges. The
@@ -97,7 +98,9 @@ func (e *BusEmitter) Emit(ctx context.Context, flows []Flow, edges []ServiceEdge
 		entropy = flows[0].AgentID
 	}
 	key := bus.TenantKey(e.tenant, entropy)
-	chunks := chunkFlowBatches(pflows, pedges, pl7, e.maxBytes)
+	// DPR-093: every record names the agent's build version so the fleet view
+	// and staged rollouts learn it from the batches themselves.
+	chunks := chunkFlowBatches(pflows, pedges, pl7, e.maxBytes, version.Get().Version)
 	for i, batch := range chunks {
 		value, err := proto.Marshal(batch)
 		if err != nil {
@@ -125,9 +128,15 @@ func encodedSize(m proto.Message) int {
 // edges-only batch under strict binding (TENANT-006), so an edges-only record
 // must never be manufactured by the split. Elements that do not fit alongside
 // the edges spill into additional records.
-func chunkFlowBatches(flows []*ebpfv1.Flow, edges []*ebpfv1.ServiceEdge, l7 []*ebpfv1.L7Call, limit int) []*ebpfv1.FlowBatch {
+func chunkFlowBatches(flows []*ebpfv1.Flow, edges []*ebpfv1.ServiceEdge, l7 []*ebpfv1.L7Call, limit int, agentVersion string) []*ebpfv1.FlowBatch {
 	if limit <= 0 {
-		return []*ebpfv1.FlowBatch{{Flows: flows, Edges: edges, L7Calls: l7}}
+		return []*ebpfv1.FlowBatch{{Flows: flows, Edges: edges, L7Calls: l7, AgentVersion: agentVersion}}
+	}
+	// DPR-093: every record carries the agent's build version; its wire bytes
+	// count against the bound like any other field.
+	overhead := 0
+	if agentVersion != "" {
+		overhead = 1 + protowire.SizeVarint(uint64(len(agentVersion))) + len(agentVersion)
 	}
 	// Reserve room in every edge record for at least one flow and one L7 call.
 	reserve := 0
@@ -153,7 +162,7 @@ func chunkFlowBatches(flows []*ebpfv1.Flow, edges []*ebpfv1.ServiceEdge, l7 []*e
 	}
 	var chunks []*chunk
 	newChunk := func() *chunk {
-		c := &chunk{batch: &ebpfv1.FlowBatch{}}
+		c := &chunk{batch: &ebpfv1.FlowBatch{AgentVersion: agentVersion}, size: overhead}
 		chunks = append(chunks, c)
 		return c
 	}

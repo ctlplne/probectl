@@ -235,7 +235,7 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopi
 	}
 	ids := make([]Identity, len(batch.Flows))
 	for i, f := range batch.Flows {
-		ids[i] = Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
+		ids[i] = Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId(), Version: batch.GetAgentVersion()}
 	}
 	tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, c.binding, laneTenant, c.strictLane, ids)
 	if verr != nil {

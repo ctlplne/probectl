@@ -466,7 +466,7 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 			binding = nil // control-published lane: re-stamp only, no agent check
 		}
 		tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, binding, lane.laneTenant, c.strictLane,
-			[]Identity{{Tenant: r.GetTenantId(), Agent: r.GetAgentId()}})
+			[]Identity{{Tenant: r.GetTenantId(), Agent: r.GetAgentId(), Version: r.GetAgentVersion()}})
 		if verr != nil {
 			c.rejectedTenant.Add(1)
 			c.ledger.addTenantRejected(1)

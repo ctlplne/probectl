@@ -224,7 +224,9 @@ func run() error {
 		if *agentID != "" {
 			go heartbeatLoop(ctx, bmpHeartbeatInterval, func(ctx context.Context) error {
 				return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(*tenantID)), registryDB.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
-					_, err := (store.Agents{}).Heartbeat(ctx, sc, *agentID)
+					// DPR-093: the listener knows its own build version; the fleet view
+					// and staged rollouts read it from this heartbeat.
+					_, err := (store.Agents{}).HeartbeatVersion(ctx, sc, *agentID, version.Get().Version)
 					return err
 				})
 			}, log)

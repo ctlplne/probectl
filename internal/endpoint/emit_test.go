@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/bus"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 // captureBus records every Publish for assertions.
@@ -74,6 +75,9 @@ func TestBusEmitterPublishesTenantTaggedResults(t *testing.T) {
 		}
 		if r.TenantId != "tenant-A" || r.AgentId != "laptop-7" {
 			t.Errorf("identity not stamped: %+v", &r)
+		}
+		if r.GetAgentVersion() != version.Get().Version {
+			t.Errorf("DPR-093: result must carry the agent build version %q, got %q", version.Get().Version, r.GetAgentVersion())
 		}
 		if r.CanaryType == TypeAttribution {
 			sawAttribution = true

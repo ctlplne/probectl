@@ -15,7 +15,9 @@ deploying by content hash (`@sha256:…`) instead of by tag: a tag is a movable
 label that can be repointed at different bytes, while a digest names exactly
 one artifact, forever. The **agent registry** is the control plane's
 per-tenant record of agents, their versions, and their last **heartbeat** (the
-periodic "still alive" check-in). **Skew** is the version distance between the
+periodic "still alive" check-in). Versions come from the agents themselves: the gRPC
+agent reports it at enrollment, bus collectors (flow, device, eBPF, endpoint) in
+every batch they publish, the BMP listener in its heartbeat. **Skew** is the version distance between the
 control plane and an agent. The shape of the whole process is a railway
 timetable: each wave is a train that departs alone, the next never leaves
 until every car of the previous one is confirmed arrived, and one missing car

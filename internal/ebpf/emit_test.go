@@ -213,7 +213,7 @@ func TestChunkFlowBatchesDealsFlowsAcrossEveryEdgeRecord(t *testing.T) {
 	for i := range edges {
 		pe = append(pe, edges[i].toProto())
 	}
-	chunks := chunkFlowBatches(pf, pe, nil, 4096)
+	chunks := chunkFlowBatches(pf, pe, nil, 4096, "0.6.1-test")
 	if len(chunks) < 4 {
 		t.Fatalf("got %d chunks, want several under a 4 KiB bound", len(chunks))
 	}
@@ -227,7 +227,7 @@ func TestChunkFlowBatchesDealsFlowsAcrossEveryEdgeRecord(t *testing.T) {
 	}
 	// A limit smaller than a single element still yields one element per
 	// record rather than an infinite loop or a dropped element.
-	tiny := chunkFlowBatches(pf[:3], pe[:3], nil, 8)
+	tiny := chunkFlowBatches(pf[:3], pe[:3], nil, 8, "0.6.1-test")
 	var n int
 	for _, c := range tiny {
 		n += len(c.Flows) + len(c.Edges)

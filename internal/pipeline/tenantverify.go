@@ -91,6 +91,10 @@ type TenantBinding interface {
 // the lookup itself cannot cross tenants), with a small TTL cache so the hot
 // path stays off Postgres.
 type RegistryBinding struct {
+	// versions remembers the last version recorded per (tenant, agent) so a
+	// steady fleet costs no writes: only a change reaches the registry.
+	versions map[bindingKey]string
+
 	pool *pgxpool.Pool
 
 	mu    sync.Mutex
@@ -115,6 +119,39 @@ func NewRegistryBinding(pool *pgxpool.Pool) *RegistryBinding {
 	return &RegistryBinding{
 		pool: pool, cache: map[bindingKey]bindingEntry{}, now: time.Now,
 		posTTL: 60 * time.Second, negTTL: 10 * time.Second, maxEntries: 65536,
+	}
+}
+
+// RecordVersion implements VersionRecorder: a verified batch that names its
+// producer's build version keeps agents.agent_version current (DPR-093). One
+// write per change per replica; never an error for the caller.
+func (b *RegistryBinding) RecordVersion(ctx context.Context, tenantID, agentID, version string) {
+	if tenantID == "" || agentID == "" || version == "" {
+		return
+	}
+	k := bindingKey{tenantID, agentID}
+	b.mu.Lock()
+	if b.versions == nil {
+		b.versions = map[bindingKey]string{}
+	}
+	if b.versions[k] == version {
+		b.mu.Unlock()
+		return
+	}
+	if len(b.versions) >= b.maxEntries {
+		b.versions = map[bindingKey]string{} // bounded like the binding cache
+	}
+	b.versions[k] = version
+	b.mu.Unlock()
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), b.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.Agents{}).RecordVersion(ctx, sc, agentID, version)
+		})
+	if err != nil {
+		// Forget the optimistic entry so the next verified batch retries.
+		b.mu.Lock()
+		delete(b.versions, k)
+		b.mu.Unlock()
 	}
 }
 
@@ -184,7 +221,30 @@ func (b *RegistryBinding) Verify(ctx context.Context, tenantID, agentID string) 
 type laneSub struct{ topic, group, laneTenant string }
 
 // Identity is one record's claimed (tenant, agent) pair.
-type Identity struct{ Tenant, Agent string }
+// Identity is one record's (tenant, agent) claim. Version is the producing
+// agent's build version when the batch envelope carries one (DPR-093): the
+// lane copies it onto every record's identity so a batch stays homogeneous,
+// and a verified batch records it against the fleet entry.
+type Identity struct{ Tenant, Agent, Version string }
+
+// VersionRecorder is the optional side of a TenantBinding that keeps the fleet
+// view's agent_version current from what verified batches report (DPR-093).
+// Bus collectors never carried a version at registration; their batches are
+// the only truthful source, and the staged fleet rollout verifies against it.
+type VersionRecorder interface {
+	RecordVersion(ctx context.Context, tenantID, agentID, version string)
+}
+
+// recordVersion forwards a verified batch's version to the binding when it
+// can record one. Best effort: a failed stamp never gates ingest.
+func recordVersion(ctx context.Context, binding TenantBinding, tenantID, agentID, version string) {
+	if version == "" || binding == nil {
+		return
+	}
+	if r, ok := binding.(VersionRecorder); ok {
+		r.RecordVersion(ctx, tenantID, agentID, version)
+	}
+}
 
 // VerifyBatchTenant decides the AUTHORITATIVE tenant for a batch, or rejects
 // it. ids must be the (tenant, agent) of every record in the batch —
@@ -233,6 +293,7 @@ func VerifyBatchTenantStrict(ctx context.Context, binding TenantBinding, laneTen
 			if err := binding.Verify(ctx, laneTenant, first.Agent); err != nil {
 				return "", false, err
 			}
+			recordVersion(ctx, binding, laneTenant, first.Agent, first.Version)
 		}
 		return laneTenant, overwritten, nil
 	}
@@ -250,6 +311,7 @@ func VerifyBatchTenantStrict(ctx context.Context, binding TenantBinding, laneTen
 		if err := binding.Verify(ctx, first.Tenant, first.Agent); err != nil {
 			return "", false, err
 		}
+		recordVersion(ctx, binding, first.Tenant, first.Agent, first.Version)
 	}
 	return first.Tenant, false, nil
 }

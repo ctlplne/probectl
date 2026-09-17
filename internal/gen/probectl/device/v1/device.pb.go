@@ -176,8 +176,10 @@ func (x *DeviceMetric) GetInterfaceAddresses() []string {
 // DeviceMetricBatch is the bus payload on probectl.device.metrics: one
 // collector flush, tenant-keyed.
 type DeviceMetricBatch struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Metrics       []*DeviceMetric        `protobuf:"bytes,1,rep,name=metrics,proto3" json:"metrics,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Metrics []*DeviceMetric        `protobuf:"bytes,1,rep,name=metrics,proto3" json:"metrics,omitempty"`
+	// The collector's build version (DPR-093); additive, empty = unreported.
+	AgentVersion  string `protobuf:"bytes,2,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -217,6 +219,13 @@ func (x *DeviceMetricBatch) GetMetrics() []*DeviceMetric {
 		return x.Metrics
 	}
 	return nil
+}
+
+func (x *DeviceMetricBatch) GetAgentVersion() string {
+	if x != nil {
+		return x.AgentVersion
+	}
+	return ""
 }
 
 // One directly observed LLDP/CDP physical adjacency. Values come only from a
@@ -655,9 +664,10 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\x04unit\x18\n" +
 	" \x01(\tR\x04unit\x12$\n" +
 	"\x0etime_unix_nano\x18\v \x01(\x03R\ftimeUnixNano\x12/\n" +
-	"\x13interface_addresses\x18\f \x03(\tR\x12interfaceAddresses\"O\n" +
+	"\x13interface_addresses\x18\f \x03(\tR\x12interfaceAddresses\"t\n" +
 	"\x11DeviceMetricBatch\x12:\n" +
-	"\ametrics\x18\x01 \x03(\v2 .probectl.device.v1.DeviceMetricR\ametrics\"\xa3\x05\n" +
+	"\ametrics\x18\x01 \x03(\v2 .probectl.device.v1.DeviceMetricR\ametrics\x12#\n" +
+	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\"\xa3\x05\n" +
 	"\x16DeviceNeighborEvidence\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x120\n" +
