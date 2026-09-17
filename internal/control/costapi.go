@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/bus"
@@ -26,6 +27,8 @@ import (
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // BuildCost builds the engine from config. Returns (nil, false, nil) when
@@ -100,7 +103,36 @@ type CostConsumer struct {
 	rejections *rejectionLogger       // DPR-074: fail-closed rejections, loud once per window
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 	nsTenants  map[string]string
+	gate       CostBudgetGate // DPR-080: once-only export of a budget breach across replicas
 }
+
+// CostBudgetGate decides, cluster-wide, whether THIS replica exports a
+// budget-breach signal (DPR-080). Every replica evaluates the same flow stream
+// in its own view group, so without the gate three replicas would file three
+// incidents per breach and a replay after a rollout would file it again.
+type CostBudgetGate interface {
+	Claim(ctx context.Context, tenant, budgetKey, month string) (bool, error)
+}
+
+// WithBudgetGate installs the once-only export gate. nil (no database — the
+// single-process/lightweight shapes) exports every breach locally.
+func (cc *CostConsumer) WithBudgetGate(g CostBudgetGate) *CostConsumer {
+	cc.gate = g
+	return cc
+}
+
+type pgCostBudgetGate struct{ pool *pgxpool.Pool }
+
+func (p pgCostBudgetGate) Claim(ctx context.Context, tenant, budgetKey, month string) (won bool, err error) {
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		won, err = (store.CostBudgetAlerted{}).Claim(ctx, sc, budgetKey, month)
+		return err
+	})
+	return won, err
+}
+
+// NewPGCostBudgetGate returns the Postgres-backed once-only export gate.
+func NewPGCostBudgetGate(pool *pgxpool.Pool) CostBudgetGate { return pgCostBudgetGate{pool: pool} }
 
 // NewCostConsumer builds the consumer over a non-nil engine.
 func NewCostConsumer(b bus.Bus, e *cost.Engine, c *incident.Correlator, log *slog.Logger) *CostConsumer {
@@ -112,7 +144,8 @@ func NewCostConsumer(b bus.Bus, e *cost.Engine, c *incident.Correlator, log *slo
 
 // Run subscribes to the shared flow topic plus every siloed-tenant lane until ctx ends.
 func (cc *CostConsumer) Run(ctx context.Context) error {
-	return pipeline.RunLanes(ctx, cc.bus, bus.FlowEventsTopic, "cost-flow", cc.nsTenants, cc.handleLane)
+	// DPR-080: a per-replica view group — every replica holds the full totals.
+	return pipeline.RunLanes(ctx, cc.bus, bus.FlowEventsTopic, viewGroup("cost-flow"), cc.nsTenants, cc.handleLane)
 }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101).
@@ -169,6 +202,20 @@ func (cc *CostConsumer) handleLane(ctx context.Context, msg bus.Message, laneTen
 			At:    at,
 		})
 		for _, sig := range sigs {
+			if cc.gate != nil {
+				won, err := cc.gate.Claim(ctx, sig.TenantID, sig.Target, sig.Attributes["cost.month"])
+				switch {
+				case err != nil:
+					// Fail open on the gate only: a breach is never dropped because
+					// the database blinked; a duplicate incident is the lesser harm.
+					cc.log.Warn("cost: budget gate unavailable, exporting locally", "error", err,
+						"tenant_id", sig.TenantID, "target", sig.Target)
+				case !won:
+					cc.log.Debug("cost: budget breach already exported by another replica",
+						"tenant_id", sig.TenantID, "target", sig.Target, "month", sig.Attributes["cost.month"])
+					continue
+				}
+			}
 			if cc.correlator != nil {
 				if _, err := cc.correlator.Ingest(ctx, sig); err != nil {
 					cc.log.Warn("cost: correlate budget signal failed", "error", err)

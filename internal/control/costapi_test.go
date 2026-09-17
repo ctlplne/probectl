@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -128,5 +129,99 @@ func TestCostSummaryHonestyWhenUnwired(t *testing.T) {
 	rec := do(srv, http.MethodGet, "/v1/cost/summary")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"cost_running":false`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+type fakeCostGate struct {
+	claims []string
+	won    bool
+	err    error
+}
+
+func (g *fakeCostGate) Claim(_ context.Context, tenant, budgetKey, month string) (bool, error) {
+	g.claims = append(g.claims, tenant+"|"+budgetKey+"|"+month)
+	return g.won, g.err
+}
+
+func costBreachBatch(t *testing.T) bus.Message {
+	t.Helper()
+	raw, err := proto.Marshal(&flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
+		TenantId: "t1", SourceAddress: "10.0.1.5", DestinationAddress: "10.0.2.7", Bytes: 10 << 30,
+		EndUnixNano: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).UnixNano(),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bus.Message{Value: raw}
+}
+
+// DPR-080: every replica evaluates the same flow stream (view groups), so a
+// budget breach passes through a cluster-wide once-only gate — the winning
+// replica files the incident, the others keep the budget status and stay
+// quiet; a gate outage fails open.
+func TestCostBudgetBreachIsExportedOnceAcrossReplicas(t *testing.T) {
+	run := func(gate *fakeCostGate) (incidents int, exceeded bool, claims []string) {
+		eng, on, err := BuildCost(costTestConfig(), intelTestLog())
+		if err != nil || !on {
+			t.Fatalf("BuildCost: %v", err)
+		}
+		store := incident.NewMemoryStore()
+		cc := NewCostConsumer(nil, eng, incident.NewCorrelator(store, time.Hour, intelTestLog()), intelTestLog()).WithBudgetGate(gate)
+		if err := cc.handle(context.Background(), costBreachBatch(t)); err != nil {
+			t.Fatal(err)
+		}
+		open, err := store.OpenIncidents(context.Background(), "t1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := eng.Summary("t1")
+		return len(open), len(s.Budgets) == 1 && s.Budgets[0].Exceeded, gate.claims
+	}
+	if n, exceeded, claims := run(&fakeCostGate{won: true}); n != 1 || !exceeded || len(claims) != 1 || !strings.HasSuffix(claims[0], "|2026-06") {
+		t.Fatalf("winning replica: incidents=%d exceeded=%v claims=%v", n, exceeded, claims)
+	}
+	if n, exceeded, claims := run(&fakeCostGate{won: false}); n != 0 || !exceeded || len(claims) != 1 {
+		t.Fatalf("losing replica must keep the budget status but file nothing: incidents=%d exceeded=%v claims=%v", n, exceeded, claims)
+	}
+	if n, _, _ := run(&fakeCostGate{err: errors.New("db down")}); n != 1 {
+		t.Fatalf("a gate outage must fail open (export locally): incidents=%d", n)
+	}
+}
+
+// DPR-080: the cost and carbon lanes are per-replica view groups, so every
+// replica answers the same totals instead of one partition owner.
+func TestCostAndCarbonLanesArePerReplicaViewGroups(t *testing.T) {
+	prev := instanceGroupSuffix
+	SetInstanceGroupSuffix("control-0")
+	t.Cleanup(func() { SetInstanceGroupSuffix(prev) })
+	eng, on, err := BuildCost(costTestConfig(), intelTestLog())
+	if err != nil || !on {
+		t.Fatalf("BuildCost: %v", err)
+	}
+	fb := &groupRecordingBus{}
+	cc := NewCostConsumer(fb, eng, nil, intelTestLog()).WithNamespaceTenants(map[string]string{"t-acme": "t1"})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- cc.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		fb.mu.Lock()
+		n := len(fb.groups)
+		fb.mu.Unlock()
+		if n >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"cost-flow-control-0": true, "cost-flow-control-0-t-acme": true}
+	for _, g := range fb.groups {
+		delete(want, g)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing per-replica cost groups %v (got %v)", want, fb.groups)
 	}
 }

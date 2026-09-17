@@ -143,6 +143,16 @@ attribution and trends, never an audited absolute footprint. The engine never
 pretends otherwise, and like everything else here it is fully local — nothing is
 fetched and nothing leaves your network.
 
+**Every replica holds the totals (DPR-080).** The cost and carbon engines keep
+their per-tenant totals in memory, and each control replica consumes the flow
+lanes in its own view group, so `/v1/cost/summary` and `/v1/carbon` answer the
+same on whichever replica the Service picks (before DPR-080 one partition owner
+held the totals and four of six reads answered zeros). A budget breach is still
+ONE signal per tenant × budget × month: the replicas pass it through a
+cluster-wide once-only gate (`cost_budget_alerted`, tenant-scoped by row-level
+security); the replica that wins the claim files the incident, the others keep
+the budget status and stay quiet, and a replay after a rollout finds the row.
+
 ## Use it
 
 **Wire up cost classification and attribution** with operator-declared rules, then

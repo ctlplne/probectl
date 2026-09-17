@@ -106,7 +106,8 @@ func (cc *CarbonConsumer) LaneFanoutEnabled() bool { return true }
 // Run subscribes to the shared flow topic plus every siloed-tenant lane until
 // ctx ends (CORRECT-005).
 func (cc *CarbonConsumer) Run(ctx context.Context) error {
-	return pipeline.RunLanes(ctx, cc.bus, bus.FlowEventsTopic, "carbon-flow", cc.nsTenants, cc.handleLane)
+	// DPR-080: a per-replica view group — every replica holds the full totals.
+	return pipeline.RunLanes(ctx, cc.bus, bus.FlowEventsTopic, viewGroup("carbon-flow"), cc.nsTenants, cc.handleLane)
 }
 
 func (cc *CarbonConsumer) handleLane(_ context.Context, msg bus.Message, laneTenant string) error {

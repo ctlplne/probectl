@@ -642,10 +642,13 @@ func (rt *serveRuntime) startCostCarbonConsumers() {
 	if rt.costEngine != nil {
 		rt.g.Go(func() error {
 			return superviseBusLaneRestart(rt.gctx, "cost-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
-				return control.NewCostConsumer(rt.resultBus, rt.costEngine, rt.correlator, rt.log).
+				cc := control.NewCostConsumer(rt.resultBus, rt.costEngine, rt.correlator, rt.log).
 					WithTenantBinding(rt.tenantBinding).
-					WithNamespaceTenants(snap.tenants).
-					Run(ctx)
+					WithNamespaceTenants(snap.tenants)
+				if rt.db != nil && rt.db.Pool() != nil {
+					cc = cc.WithBudgetGate(control.NewPGCostBudgetGate(rt.db.Pool())) // DPR-080
+				}
+				return cc.Run(ctx)
 			})
 		})
 	}
