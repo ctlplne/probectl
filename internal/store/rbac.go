@@ -66,6 +66,12 @@ func (Roles) Get(ctx context.Context, s tenancy.Scope, id string) (*Role, error)
 }
 
 // getBySlug returns a role by slug within the tenant.
+// GetBySlug resolves a tenant role by its stable slug (the seeded system roles
+// are admin, editor and viewer).
+func (r Roles) GetBySlug(ctx context.Context, s tenancy.Scope, slug string) (*Role, error) {
+	return r.getBySlug(ctx, s, slug)
+}
+
 func (Roles) getBySlug(ctx context.Context, s tenancy.Scope, slug string) (*Role, error) {
 	var r Role
 	if err := scanRole(s.Q.QueryRow(ctx, `SELECT `+roleCols+` FROM roles WHERE slug = $1`, slug), &r); err != nil {
@@ -192,12 +198,17 @@ func (RoleBindings) countForSubject(ctx context.Context, s tenancy.Scope, subjec
 }
 
 // Bind idempotently binds a subject to a role at tenant scope — the SCIM
-// group-membership "add member" operation.
+// group-membership "add member" operation and the bootstrap-admin grant. The
+// conflict target is the partial unique index on the tenant-scope shape
+// (migration 0092): the table's full UNIQUE constraint includes the NULL
+// scope_id, which PostgreSQL treats as distinct, so it never deduplicated
+// (DPR-015).
 func (RoleBindings) Bind(ctx context.Context, s tenancy.Scope, subjectType, subjectID, roleID string) error {
 	_, err := s.Q.Exec(ctx,
 		`INSERT INTO role_bindings (tenant_id, subject_type, subject_id, role_id, scope_type)
 		 VALUES ($1, $2, $3, $4, 'tenant')
-		 ON CONFLICT (tenant_id, subject_type, subject_id, role_id, scope_type, scope_id) DO NOTHING`,
+		 ON CONFLICT (tenant_id, subject_type, subject_id, role_id)
+		 WHERE scope_type = 'tenant' AND scope_id IS NULL DO NOTHING`,
 		s.Tenant.String(), subjectType, subjectID, roleID)
 	return err
 }
