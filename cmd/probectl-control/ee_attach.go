@@ -368,3 +368,23 @@ func siloCatchUpTenants(ctx context.Context, ids []string, prov siloCatchUpper, 
 	}
 	return errors.Join(errs...)
 }
+
+// attachEETenancyRouter (DPR-045) installs, for the one-shot DB commands, the
+// same tenancy router the serving process installs in attachEE: it maps a
+// siloed tenant to its own Postgres schema (and bus lanes / object prefixes).
+// Without it `bootstrap-admin`, `mcp-token`, `scim-token`, `enroll-token` and
+// `register-collector` wrote a siloed tenant's rows into the pooled public
+// schema, where the serving control plane never looks — the documented
+// first-admin path left a siloed tenant with no admin and every token minted
+// for it answered 401. The core build is a no-op: siloed isolation is ee/.
+func attachEETenancyRouter(cfg *config.Config, pool *pgxpool.Pool, _ *slog.Logger) error {
+	if pool == nil {
+		return nil
+	}
+	planes, err := silo.ParseDataPlanes(cfg.DataPlanes)
+	if err != nil {
+		return err
+	}
+	tenancy.SetRouter(silo.NewRouter(pool, planes, 0))
+	return nil
+}

@@ -42,3 +42,7 @@ func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*cluster.Coordinator) error {
 	return nil
 }
+
+// attachEETenancyRouter is the core-only no-op twin (DPR-045): a core build
+// has no siloed tenants, so every tenant already routes to the pooled schema.
+func attachEETenancyRouter(*config.Config, *pgxpool.Pool, *slog.Logger) error { return nil }

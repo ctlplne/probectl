@@ -549,9 +549,15 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 // owned by run() (its `defer db.Close()` fires after this returns). Extracted
 // verbatim from run()'s second switch (CODE-001).
 func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.Logger) (handled bool, err error) {
-	switch cmd {
-	case "migrate":
+	if cmd == "migrate" {
 		return true, runMigrations(context.Background(), db, log)
+	}
+	// DPR-045: every other DB-backed one-shot command must see siloed tenants
+	// exactly as the serving process does, or its rows land in the wrong schema.
+	if err := attachEETenancyRouter(cfg, db.Pool(), log); err != nil {
+		return true, fmt.Errorf("tenancy router: %w", err)
+	}
+	switch cmd {
 	case "mcp-stdio":
 		return true, runMCPStdio(cfg, log, db)
 	case "mcp-token":

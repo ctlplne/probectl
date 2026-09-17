@@ -53,6 +53,12 @@ rather than another tenant's rows, and writes would be rejected. The boot
 posture check refuses any canonical silo table without this exact guard. The
 defenses stack; they don't replace each other.
 
+Every `probectl-control` one-shot command that touches tenant rows —
+`bootstrap-admin`, `mcp-token`, `scim-token`, `enroll-token`,
+`register-collector`, `revoke-agent` — installs the same tenancy router the
+serving process uses, so a siloed tenant's first administrator, tokens and
+registrations land in *its* schema and authenticate immediately (DPR-045).
+
 **Fail closed on routing — everywhere, including the bus.** ("Fail closed":
 when the system cannot prove the safe answer, it refuses the operation rather
 than guessing.) The isolation router
