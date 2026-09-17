@@ -545,7 +545,7 @@ optional DNSSEC verdict**. The `target` is the **query name**. Parameters:
 | ----- | ------ | ------- | ------- |
 | `type` | `A`, `AAAA`, `MX`, `TXT`, `NS`, … | `A` | record type to query |
 | `transport` | `udp` \| `tcp` \| `dot` \| `doh` | `udp` | how the query is sent |
-| `server` | `host[:port]` or a DoH URL | per-transport | resolver to query |
+| `server` | `host[:port]` or a DoH URL | per-transport | resolver to query. Omitted = the host's default resolver from `/etc/resolv.conf` (`1.1.1.1:53` when none is configured). A resolver you name here is request input and is SSRF-guarded like any target (a loopback or private resolver needs `allow_private_targets`); the host's default resolver is operator infrastructure and is deliberately exempt, so Docker's `127.0.0.11` and systemd-resolved's `127.0.0.53` stubs work out of the box |
 | `mode` | `resolver` \| `trace` | `resolver` | single query vs. delegation walk |
 | `dnssec` | `true` \| `false` | `false` | validate the zone signature |
 

@@ -28,14 +28,17 @@ const dnsType = "dns"
 // optionally validating DNSSEC. The crypto lives entirely in miekg/dns (FIPS
 // enabler intact — CLAUDE.md §7 guardrail 3).
 type dnsCanary struct {
-	guard     *TargetGuard
-	name      string
-	server    string
-	qtype     uint16
-	transport string // udp | tcp | dot | doh
-	mode      string // resolver | trace
-	dnssec    bool
-	timeout   time.Duration
+	guard *TargetGuard
+	name  string
+	// server is the resolver actually queried; explicitServer records whether
+	// the test supplied it (SSRF-vetted) or it is the host's default (DPR-022).
+	server         string
+	explicitServer bool
+	qtype          uint16
+	transport      string // udp | tcp | dot | doh
+	mode           string // resolver | trace
+	dnssec         bool
+	timeout        time.Duration
 }
 
 // NewDNS builds a DNS canary. Target is the query name. Params: server (resolver
@@ -52,6 +55,7 @@ func NewDNS(cfg Config) (Canary, error) {
 	}
 	p := cfg.Params
 	c.server = p["server"]
+	c.explicitServer = c.server != ""
 	c.guard = GuardFromParams(cfg.Params)
 	// SSRF guard (U-002): an EXPLICIT resolver target is validated (and
 	// enforced again at dial time). The system default from /etc/resolv.conf
@@ -164,7 +168,7 @@ func (c *dnsCanary) query(ctx context.Context, server, name string, qtype uint16
 		return c.queryDoH(ctx, server, m)
 	}
 	client := &dns.Client{Timeout: c.timeout}
-	if c.server != "" { // explicit resolver: enforce the guard at dial time too
+	if c.guardsResolverDial() { // request-supplied resolver: enforce the guard at dial time too
 		client.Dialer = &net.Dialer{Timeout: c.timeout, Control: c.guard.DialControl(nil)}
 	}
 	addr := withDefaultPort(server, "53")
@@ -193,7 +197,7 @@ func (c *dnsCanary) queryDoH(ctx context.Context, endpoint string, m *dns.Msg) (
 
 	start := time.Now()
 	dohClient := &http.Client{Timeout: c.timeout}
-	if c.server != "" {
+	if c.guardsResolverDial() {
 		dohClient.Transport = &http.Transport{DialContext: (&net.Dialer{
 			Timeout: c.timeout,
 			Control: c.guard.DialControl(nil),
@@ -268,6 +272,27 @@ func hostOnly(server string) string {
 	return server
 }
 
+// guardsResolverDial reports whether the SSRF guard must vet the address a
+// query dials. A request-supplied resolver is vetted (U-002), and so is every
+// delegation hop in trace mode, whose addresses come from DNS data the target
+// zone controls. The host's own default resolver is operator infrastructure,
+// not request input: on Docker (127.0.0.11) and systemd-resolved (127.0.0.53)
+// hosts it is a loopback stub, and vetting it made every DNS test that named no
+// server fail with an SSRF denial (DPR-022).
+func (c *dnsCanary) guardsResolverDial() bool {
+	return c.explicitServer || c.mode == "trace"
+}
+
+// systemResolverAddr returns the host's default resolver as host:port from
+// /etc/resolv.conf, or "" when none is configured. A variable so tests can
+// stand in a loopback resolver without touching the host's file.
+var systemResolverAddr = func() string {
+	if cc, err := dns.ClientConfigFromFile("/etc/resolv.conf"); err == nil && len(cc.Servers) > 0 {
+		return net.JoinHostPort(cc.Servers[0], cc.Port)
+	}
+	return ""
+}
+
 func defaultServer(transport string) string {
 	switch transport {
 	case "doh":
@@ -275,8 +300,8 @@ func defaultServer(transport string) string {
 	case "dot":
 		return "1.1.1.1:853"
 	default:
-		if cc, err := dns.ClientConfigFromFile("/etc/resolv.conf"); err == nil && len(cc.Servers) > 0 {
-			return net.JoinHostPort(cc.Servers[0], cc.Port)
+		if addr := systemResolverAddr(); addr != "" {
+			return addr
 		}
 		return "1.1.1.1:53"
 	}

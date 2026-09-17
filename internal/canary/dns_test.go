@@ -7,8 +7,10 @@
 package canary
 
 import (
+	"context"
 	"crypto"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -226,5 +228,71 @@ func TestAddressHelpers(t *testing.T) {
 	}
 	if boolFloat(true) != 1 || boolFloat(false) != 0 {
 		t.Error("boolFloat mapping wrong")
+	}
+}
+
+// loopbackResolver serves A records for any name from 127.0.0.1 on a random
+// UDP port — a stand-in for the loopback stub resolvers hosts commonly run.
+func loopbackResolver(t *testing.T) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("93.184.216.34"),
+		})
+		_ = w.WriteMsg(m)
+	})}
+	go func() { _ = srv.ActivateAndServe() }()
+	t.Cleanup(func() { _ = srv.Shutdown() })
+	return pc.LocalAddr().String()
+}
+
+// DPR-022: the host's default resolver is frequently a loopback stub
+// (Docker's 127.0.0.11, systemd-resolved's 127.0.0.53). It is operator
+// infrastructure, not request input, so a DNS test that names no server must
+// reach it — while the SAME loopback address named explicitly on the test stays
+// an SSRF-guarded, audited opt-in (U-002).
+func TestDNSDefaultLoopbackResolverIsNotAnSSRFTarget(t *testing.T) {
+	addr := loopbackResolver(t)
+	prev := systemResolverAddr
+	systemResolverAddr = func() string { return addr }
+	t.Cleanup(func() { systemResolverAddr = prev })
+
+	c, err := NewDNS(Config{Target: "example.com", Timeout: 2 * time.Second, Params: map[string]string{"type": "A"}})
+	if err != nil {
+		t.Fatalf("NewDNS (default resolver): %v", err)
+	}
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("a DNS test using the host's loopback default resolver must succeed, got error %q", res.Error)
+	}
+	if res.Attributes["probectl.dns.server"] != addr {
+		t.Fatalf("resolver attribute = %q, want the default resolver %q", res.Attributes["probectl.dns.server"], addr)
+	}
+	if strings.Contains(res.Error, "SSRF") {
+		t.Fatalf("the default resolver must not be treated as an SSRF target: %q", res.Error)
+	}
+
+	// Explicitly naming that loopback resolver is request input: refused
+	// without the audited allow_private_targets override, accepted with it.
+	if _, err := NewDNS(Config{Target: "example.com", Params: map[string]string{"server": addr}}); err == nil {
+		t.Fatal("an explicit loopback resolver must be refused without allow_private_targets")
+	}
+	allowed, err := NewDNS(Config{Target: "example.com", Timeout: 2 * time.Second, Params: map[string]string{"server": addr, "allow_private_targets": "true"}})
+	if err != nil {
+		t.Fatalf("NewDNS (explicit loopback, allowed): %v", err)
+	}
+	res2, _ := allowed.Run(context.Background())
+	if !res2.Success {
+		t.Fatalf("explicit loopback resolver with allow_private_targets must succeed, got %q", res2.Error)
 	}
 }
