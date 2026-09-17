@@ -26,11 +26,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Chromium + OS runtime are supplied by the already-pinned Playwright image.
 FROM mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
 WORKDIR /worker
-COPY browser-worker/package.json browser-worker/package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
-COPY --chown=pwuser:pwuser browser-worker/worker.mjs ./worker.mjs
-COPY --from=build /out/probectl-agent /usr/local/bin/probectl-agent
-RUN node --check /worker/worker.mjs
+# DPR-062: explicit modes — COPY otherwise inherits the build host's file
+# modes, and a 0600 checkout produced a worker the chart's uid could not read
+# (every rendered transaction failed with EACCES).
+COPY --chmod=0644 browser-worker/package.json browser-worker/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && chmod -R a+rX /worker
+COPY --chown=pwuser:pwuser --chmod=0644 browser-worker/worker.mjs ./worker.mjs
+COPY --from=build --chmod=0755 /out/probectl-agent /usr/local/bin/probectl-agent
+RUN node --check /worker/worker.mjs && test -r /worker/worker.mjs
 
 ENV PROBECTL_AGENT_BROWSER_DRIVER=browser \
     PROBECTL_AGENT_BROWSER_WORKER_COMMAND=node \

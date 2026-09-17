@@ -183,8 +183,10 @@ canaries:
 ```
 
 The image is built from `deploy/docker/Dockerfile.browser-agent`, runs as
-Playwright's non-root `pwuser`, and is included in release and air-gap component
-manifests. Its worker is configuration-time required: missing command/script or
+Playwright's non-root `pwuser` (uid 1001 in the pinned base; the Helm DaemonSet
+runs as that uid), ships its worker files with explicit world-readable modes
+regardless of the build host's checkout (DPR-062), and is included in release
+and air-gap component manifests. Its worker is configuration-time required: missing command/script or
 an invalid timeout prevents agent startup. Compose exposes it only through the
 opt-in `browser-synthetic` profile in `eval-synthetic.yml`. Helm exposes it as
 the opt-in `browserAgent` DaemonSet in the main chart; enabling it requires an

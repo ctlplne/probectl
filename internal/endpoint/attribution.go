@@ -6,7 +6,10 @@
 
 package endpoint
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Cause names the layer an endpoint slowdown is attributed to. The whole point
 // of the endpoint agent is to answer "is it us, or the user's WiFi/ISP?", so the
@@ -41,16 +44,20 @@ type LayerState struct {
 // Attribution is the verdict: the closest impaired layer owns the slowdown,
 // because a weak near link inflates everything measured downstream of it.
 type Attribution struct {
-	Cause             Cause      `json:"cause"`
-	Confidence        float64    `json:"confidence"` // 0..1
-	ConfidenceFloor   float64    `json:"confidence_floor"`
-	CalibrationStatus string     `json:"calibration_status"`
-	Summary           string     `json:"summary"`
-	Slow              bool       `json:"slow"` // whether a user-visible slowdown was observed at all
-	WiFi              LayerState `json:"wifi"`
-	Local             LayerState `json:"local"`
-	ISP               LayerState `json:"isp"`
-	Network           LayerState `json:"network"`
+	Cause             Cause   `json:"cause"`
+	Confidence        float64 `json:"confidence"` // 0..1
+	ConfidenceFloor   float64 `json:"confidence_floor"`
+	CalibrationStatus string  `json:"calibration_status"`
+	Summary           string  `json:"summary"`
+	Slow              bool    `json:"slow"` // whether a user-visible slowdown was observed at all
+	// Unmeasured names the layers this verdict could not see (DPR-061): a
+	// "no impairment" verdict over an unmeasured local or ISP segment is a
+	// guess, and is reported as one (confidence lowered, summary says so).
+	Unmeasured []string   `json:"unmeasured,omitempty"`
+	WiFi       LayerState `json:"wifi"`
+	Local      LayerState `json:"local"`
+	ISP        LayerState `json:"isp"`
+	Network    LayerState `json:"network"`
 }
 
 // Thresholds are the (configurable) cutoffs the attribution engine uses. Defaults
@@ -115,6 +122,10 @@ func Attribute(s Sample, t Thresholds) Attribution {
 		}
 	default:
 		a.Cause, a.Confidence, a.Summary = CauseNone, 1, "no impairment detected"
+		if a.Unmeasured = unmeasuredLayers(s); len(a.Unmeasured) > 0 {
+			a.Confidence = UnmeasuredLayerConfidence
+			a.Summary = "no impairment detected in the measured layers; unmeasured: " + strings.Join(a.Unmeasured, ", ")
+		}
 	}
 
 	// A corroborating clean downstream raises confidence in a near-layer verdict;
@@ -128,6 +139,25 @@ func Attribute(s Sample, t Thresholds) Attribution {
 			candidate, a.Confidence, MinimumActionableConfidence, reason)
 	}
 	return a
+}
+
+// UnmeasuredLayerConfidence is the confidence of a "no impairment" verdict
+// that could not see every layer (DPR-061). Wi-Fi is not counted: no wireless
+// link means a wired device, not a gap.
+const UnmeasuredLayerConfidence = 0.5
+
+func unmeasuredLayers(s Sample) []string {
+	var out []string
+	if s.Gateway.IP == "" && s.Gateway.RTTMs == 0 && !s.Gateway.Reachable {
+		out = append(out, "local")
+	}
+	if s.LastMile.ISPRTTMs == 0 && s.LastMile.ISPLossPct == 0 {
+		out = append(out, "isp")
+	}
+	if len(s.Sessions) == 0 {
+		out = append(out, "sessions")
+	}
+	return out
 }
 
 func assessWiFi(w WiFi, t Thresholds) LayerState {

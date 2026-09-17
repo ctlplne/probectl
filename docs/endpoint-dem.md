@@ -106,6 +106,20 @@ high-confidence misattribution, but it is not a field-accuracy claim.
 The measurement cutoffs are configurable (`thresholds:` in config, defaulting
 to `DefaultThresholds` — where the −75 dBm and 35% values above come from).
 
+**Coverage is part of the verdict (DPR-061).** A "no impairment detected"
+verdict is only as good as the layers it saw. When the local gateway, the
+ISP edge or the session probes could not be measured — the trace never left
+the LAN, `traceroute` is missing, the device is wired — the verdict lists them
+(`attribution.unmeasured`, e.g. `isp, sessions`), its confidence drops to
+0.5, the summary reads "no impairment detected in the measured layers;
+unmeasured: …", and the sample carries the reasons (`unavailable`, e.g.
+`last_mile: traceroute: exit status 2`). The agent logs a warning whenever the
+set of unavailable signals changes and an info line when every layer is
+measured again. The last-mile trace targets the **host** of the first
+configured target (`https://1.1.1.1` → `1.1.1.1`), and a hop that never
+answered (`* * *`) is silence, not a 100%-loss ISP edge: the ISP segment is the
+first *answering* public hop, or unmeasured.
+
 ## Privacy — it runs on someone's personal device
 
 Because the agent lives on an end user's device, **data minimization is a hard

@@ -9,6 +9,7 @@ package endpoint
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/bus"
@@ -19,10 +20,11 @@ import (
 // canary/eBPF agents (New + Run), and like them it never phones home — results go
 // only to the operator's own bus, tenant-tagged.
 type Runtime struct {
-	cfg       *Config
-	collector *Collector
-	emitter   Emitter
-	log       *slog.Logger
+	cfg             *Config
+	collector       *Collector
+	emitter         Emitter
+	log             *slog.Logger
+	lastUnavailable string // last "unavailable" set logged (DPR-061)
 }
 
 // New builds the runtime with the real platform collectors (per-OS WiFi reader,
@@ -55,9 +57,10 @@ func newWith(cfg *Config, collector *Collector, emitter Emitter, log *slog.Logge
 // not stop monitoring).
 func (r *Runtime) Run(ctx context.Context) error {
 	r.discloseCollection()
+	topic, _ := bus.TopicFor(r.cfg.Bus.Namespace, bus.EndpointResultsTopic) // validated when the emitter was built
 	r.log.Info("endpoint agent starting",
 		"tenant", r.cfg.TenantID, "agent", r.cfg.AgentID,
-		"interval", r.cfg.Interval.String(), "topic", bus.EndpointResultsTopic,
+		"interval", r.cfg.Interval.String(), "topic", topic,
 		"targets", len(r.cfg.Targets))
 
 	r.tick(ctx) // emit one sample immediately, then on the interval
@@ -77,6 +80,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 // tick collects one sample, logs the attribution verdict, and emits it.
 func (r *Runtime) tick(ctx context.Context) {
 	s := r.collector.Collect(ctx)
+	r.noteUnavailable(s.Unavailable)
 	a := s.Attribution
 	r.log.Info("endpoint sample",
 		"cause", string(a.Cause), "confidence", a.Confidence, "slow", a.Slow, "summary", a.Summary)
@@ -91,4 +95,21 @@ func (r *Runtime) discloseCollection() {
 	for _, line := range r.cfg.Privacy.Disclosure() {
 		r.log.Info("endpoint data-collection disclosure", "collects", line)
 	}
+}
+
+// noteUnavailable warns once whenever the set of signals a sample could not
+// collect changes, and says when every layer is measured again (DPR-061): a
+// device that silently never traces its last mile reports "no impairment"
+// forever otherwise.
+func (r *Runtime) noteUnavailable(unavailable []string) {
+	joined := strings.Join(unavailable, "; ")
+	if joined == r.lastUnavailable {
+		return
+	}
+	if joined == "" {
+		r.log.Info("endpoint signals recovered: every layer is measured again")
+	} else {
+		r.log.Warn("endpoint signals unavailable: the verdict covers the measured layers only", "unavailable", joined)
+	}
+	r.lastUnavailable = joined
 }

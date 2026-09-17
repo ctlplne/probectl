@@ -8,6 +8,7 @@ package endpoint
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ctlplne/probectl/internal/canary"
 )
@@ -55,6 +56,8 @@ func (s Sample) ToResults() []canary.Result {
 			"endpoint.cause":              string(a.Cause),
 			"endpoint.summary":            a.Summary,
 			"endpoint.calibration_status": a.CalibrationStatus,
+			"endpoint.unmeasured":         strings.Join(a.Unmeasured, ","),
+			"endpoint.unavailable":        strings.Join(s.Unavailable, "; "),
 		}),
 	})
 

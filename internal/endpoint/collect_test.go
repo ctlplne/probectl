@@ -9,8 +9,11 @@ package endpoint
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -161,5 +164,135 @@ func TestCmdLastMileCollectorSeam(t *testing.T) {
 	bad := cmdLastMileCollector{run: func(context.Context, string) (string, error) { return "", errors.New("missing") }}
 	if _, err := bad.Collect(context.Background(), "x"); err == nil {
 		t.Errorf("empty output + error should be unavailable")
+	}
+}
+
+// DPR-061: targets are URLs; the path trace needs the host. The URL used to be
+// handed to traceroute verbatim ("Name does not resolve"), so the documented
+// default configuration never traced anything.
+func TestTraceHostReducesTargetsToTheHost(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"https://1.1.1.1", "1.1.1.1"},
+		{"https://www.google.com/", "www.google.com"},
+		{"http://app.example:8443/health", "app.example"},
+		{"https://[2606:4700:4700::1111]/", "2606:4700:4700::1111"},
+		{"example.com:443", "example.com"},
+		{"example.com", "example.com"},
+		{" 9.9.9.9 ", "9.9.9.9"},
+	} {
+		if got := traceHost(tc.in); got != tc.want {
+			t.Errorf("traceHost(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+type stubLastMile struct {
+	out string
+	err error
+}
+
+func (f stubLastMile) Collect(_ context.Context, target string) (LastMile, error) {
+	if f.err != nil {
+		return LastMile{Target: target}, f.err
+	}
+	hops, reached := parseTraceHops(f.out)
+	return LastMile{Target: target, Hops: hops, Reached: reached}, nil
+}
+
+// DPR-061: a sample that could not measure a layer says so, and the verdict
+// over the measured layers is reported at reduced confidence instead of
+// "no impairment, confidence 1.0".
+func TestCollectRecordsUnavailableSignalsAndVerdictCoverage(t *testing.T) {
+	cfg := Default()
+	cfg.TenantID, cfg.AgentID = "t1", "dev-1"
+	cfg.Targets = []string{"https://1.1.1.1"}
+	sess := sessionFunc(func(context.Context, string) (Session, error) {
+		return Session{Target: "https://1.1.1.1", Success: true, Status: 200, TotalMs: 90}, nil
+	})
+
+	t.Run("trace failed entirely", func(t *testing.T) {
+		c := NewCollector(cfg, nil, stubLastMile{err: errors.New("traceroute: exit status 2")}, sess)
+		s := c.Collect(context.Background())
+		if len(s.Unavailable) != 1 || !strings.HasPrefix(s.Unavailable[0], "last_mile: traceroute") {
+			t.Fatalf("unavailable = %v", s.Unavailable)
+		}
+		a := s.Attribution
+		if a.Cause != CauseNone || a.Confidence != UnmeasuredLayerConfidence || strings.Join(a.Unmeasured, ",") != "local,isp" {
+			t.Fatalf("attribution = %+v", a)
+		}
+		if !strings.Contains(a.Summary, "unmeasured: local, isp") {
+			t.Fatalf("summary = %q", a.Summary)
+		}
+		if got := s.ToResults()[0].Attributes["endpoint.unmeasured"]; got != "local,isp" {
+			t.Fatalf("bus attribute endpoint.unmeasured = %q", got)
+		}
+	})
+
+	t.Run("trace answered on the LAN only", func(t *testing.T) {
+		partial := "traceroute to 1.1.1.1 (1.1.1.1), 12 hops max\n 1  10.244.0.1  0.209 ms  0.201 ms\n 2  172.24.0.1  0.152 ms  0.160 ms\n 3  * *\n 4  * *\n"
+		c := NewCollector(cfg, nil, stubLastMile{out: partial}, sess)
+		s := c.Collect(context.Background())
+		if s.Gateway.IP != "10.244.0.1" || !s.Gateway.Reachable {
+			t.Fatalf("gateway not derived from the answering LAN hop: %+v", s.Gateway)
+		}
+		if strings.Join(s.Attribution.Unmeasured, ",") != "isp" || s.Attribution.Confidence != UnmeasuredLayerConfidence {
+			t.Fatalf("attribution = %+v", s.Attribution)
+		}
+		if len(s.Unavailable) != 1 || !strings.HasPrefix(s.Unavailable[0], "isp_edge:") {
+			t.Fatalf("unavailable = %v", s.Unavailable)
+		}
+	})
+
+	t.Run("a public hop that answered with partial loss is a measured ISP edge", func(t *testing.T) {
+		lossy := " 1  192.168.1.1  3.1 ms  2.9 ms\n 2  *  9.4 ms\n 3  203.0.113.9  18.0 ms  17.6 ms\n"
+		c := NewCollector(cfg, nil, stubLastMile{out: lossy}, sess)
+		s := c.Collect(context.Background())
+		if s.LastMile.ISPRTTMs == 0 || s.LastMile.ISPLossPct != 0 || s.Attribution.Cause != CauseNone || s.Attribution.Confidence != 1 {
+			t.Fatalf("lossy-but-answering path: last_mile=%+v attribution=%+v", s.LastMile, s.Attribution)
+		}
+		if s.LastMile.Hops[1].LossPct != 50 {
+			t.Fatalf("hop 2 answered one of two probes, loss=%v", s.LastMile.Hops[1].LossPct)
+		}
+	})
+
+	t.Run("every layer measured keeps full confidence", func(t *testing.T) {
+		full := " 1  192.168.1.1  3.1 ms  2.9 ms\n 2  100.64.0.1  9.0 ms  9.4 ms\n 3  203.0.113.9  18.0 ms  17.6 ms\n 4  1.1.1.1  19.0 ms  19.2 ms\n"
+		c := NewCollector(cfg, nil, stubLastMile{out: full}, sess)
+		s := c.Collect(context.Background())
+		if len(s.Unavailable) != 0 || s.Attribution.Confidence != 1 || len(s.Attribution.Unmeasured) != 0 {
+			t.Fatalf("fully measured sample = unavailable %v attribution %+v", s.Unavailable, s.Attribution)
+		}
+	})
+}
+
+type sessionFunc func(context.Context, string) (Session, error)
+
+func (f sessionFunc) Collect(ctx context.Context, target string) (Session, error) {
+	return f(ctx, target)
+}
+
+// DPR-063: each sample dials afresh so DNS/connect/TLS are measured every
+// interval instead of reading 0 on a kept-alive connection.
+func TestHTTPSessionCollectorDialsFreshPerSample(t *testing.T) {
+	var newConns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			newConns.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	sc := NewHTTPSessionCollector(0)
+	for i := 0; i < 3; i++ {
+		if _, err := sc.Collect(context.Background(), srv.URL); err != nil {
+			t.Fatalf("collect %d: %v", i, err)
+		}
+	}
+	if got := newConns.Load(); got != 3 {
+		t.Fatalf("new connections = %d, want 3 (one per sample)", got)
 	}
 }

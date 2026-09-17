@@ -25,6 +25,11 @@ type Sample struct {
 	Sessions []Session `json:"sessions,omitempty"`
 
 	Attribution Attribution `json:"attribution"`
+
+	// Unavailable lists the signals this sample could not collect and why
+	// (DPR-061): "last_mile: traceroute: exit status 2", "wifi: no wireless
+	// interface". An empty list means every layer was measured.
+	Unavailable []string `json:"unavailable,omitempty"`
 }
 
 // WiFi is the local wireless link's health. Every numeric field is best-effort:
@@ -119,8 +124,12 @@ func (lm *LastMile) classify() {
 		return
 	}
 	for _, h := range lm.Hops {
-		if h.RTTMs == 0 && h.LossPct == 0 && h.IP == "" {
-			continue // an unresponsive hop ("* * *") — carries no segment signal
+		if h.IP == "" {
+			// An unresponsive hop ("* * *") carries no segment signal: nothing
+			// answered, so its 100% "loss" is silence, not a loss measurement
+			// of a known ISP edge (DPR-061). Loss is meaningful only on a hop
+			// that answered at least one probe.
+			continue
 		}
 		if h.Private {
 			lm.LocalRTTMs = h.RTTMs // last private hop wins (closest to the ISP edge)

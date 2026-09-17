@@ -30,9 +30,12 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+        # DPR-062: pwuser in the pinned Playwright base (v1.55.1-noble) is uid
+        # 1001 — noble's default user takes 1000. Run as the image's own user so
+        # HOME, the browser cache and the worker files line up.
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
       {{- with .Values.imagePullSecrets }}
@@ -97,7 +100,7 @@ spec:
                 path: cert.pem
               - key: key.pem
                 path: key.pem
-                # Projected Secrets are owned by root; fsGroup=1000 makes this
+                # Projected Secrets are owned by root; fsGroup=1001 makes this
                 # group-readable by the non-root worker without making it public.
                 mode: 0440
               - key: ca.pem

@@ -8,9 +8,13 @@ package endpoint
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -79,12 +83,23 @@ func (c *Collector) Collect(ctx context.Context) Sample {
 	if c.wifi != nil {
 		if w, err := c.wifi.Collect(ctx); err == nil {
 			s.WiFi = w
+		} else {
+			s.Unavailable = append(s.Unavailable, "wifi: "+err.Error())
 		}
 	}
 	if c.lastmile != nil && c.target != "" {
-		if lm, err := c.lastmile.Collect(ctx, c.target); err == nil {
+		// DPR-061: targets are URLs ("https://1.1.1.1"); traceroute wants the
+		// host. The URL used to be handed over verbatim, so the last-mile trace
+		// never ran with the documented configuration.
+		if lm, err := c.lastmile.Collect(ctx, traceHost(c.target)); err == nil {
+			lm.Target = c.target
 			lm.classify()
 			s.LastMile = lm
+			if lm.ISPRTTMs == 0 && lm.ISPLossPct == 0 {
+				s.Unavailable = append(s.Unavailable, fmt.Sprintf("isp_edge: no public hop answered within %d hops (reached=%t)", len(lm.Hops), lm.Reached))
+			}
+		} else {
+			s.Unavailable = append(s.Unavailable, "last_mile: "+err.Error())
 		}
 	}
 	s.Gateway = gatewayFromLastMile(s.LastMile)
@@ -99,6 +114,22 @@ func (c *Collector) Collect(ctx context.Context) Sample {
 	s.Attribution = Attribute(s, c.thresholds)
 	c.privacy.Apply(&s) // redact identifiers AFTER attribution has seen the full path
 	return s
+}
+
+// traceHost reduces a session target to what a path trace needs: the host of
+// a URL (scheme, port and path stripped; IPv6 brackets removed), the host of a
+// host:port pair, or the value itself.
+func traceHost(target string) string {
+	t := strings.TrimSpace(target)
+	if strings.Contains(t, "://") {
+		if u, err := url.Parse(t); err == nil && u.Hostname() != "" {
+			return u.Hostname()
+		}
+	}
+	if h, _, err := net.SplitHostPort(t); err == nil && h != "" {
+		return h
+	}
+	return strings.Trim(t, "[]")
 }
 
 // HTTPSessionCollector measures a browser-session timing breakdown with httptrace
@@ -146,6 +177,9 @@ func (h *HTTPSessionCollector) Collect(ctx context.Context, target string) (Sess
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
+	// DPR-063: every sample must dial afresh, or DNS/connect/TLS read 0 on a
+	// kept-alive connection and only TTFB/total are measured per interval.
+	defer h.client.CloseIdleConnections()
 	resp, err := h.client.Do(req)
 	if err != nil {
 		out.Error = err.Error()

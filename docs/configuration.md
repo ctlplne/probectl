@@ -1432,7 +1432,7 @@ YAML decoding; `PROBECTL_ENDPOINT_*` env vars override it. See
 | `PROBECTL_ENDPOINT_BUS_BROKERS`         | (none)         | comma-separated Kafka brokers (kafka mode)                       |
 | `PROBECTL_ENDPOINT_BUS_NAMESPACE`       | (none)         | publish on this tenant's siloed bus lane instead of the shared topic (siloed deployments) |
 | `PROBECTL_ENDPOINT_INTERVAL`            | `60s`          | how often a sample is collected                                  |
-| `PROBECTL_ENDPOINT_TARGETS`             | `https://1.1.1.1,https://www.google.com` | comma-separated targets (first = last-mile trace; all = session probes) |
+| `PROBECTL_ENDPOINT_TARGETS`             | `https://1.1.1.1,https://www.google.com` | comma-separated targets (the first target's host drives the last-mile trace — a URL is reduced to its host (DPR-061); all = session probes) |
 | `PROBECTL_ENDPOINT_MAX_HOPS`            | `20`           | last-mile trace hop cap                                          |
 | `PROBECTL_ENDPOINT_COLLECT_SSID`        | `true`         | retain the WiFi network name (SSID)                              |
 | `PROBECTL_ENDPOINT_COLLECT_BSSID`       | `false`        | retain the access-point MAC (BSSID) — geolocatable PII, off by default |
