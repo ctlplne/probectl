@@ -119,7 +119,7 @@ func TestSLIComputationAndBudget(t *testing.T) {
 	at := sloT
 	for i := 0; i < 100; i++ {
 		ok := i%25 != 0 // 4 failures
-		e.ObserveResult("t1", "http", "checkout.acme.example", ok, at.Add(time.Duration(i)*time.Minute))
+		e.ObserveResult("t1", "http", "checkout.acme.example", "", ok, at.Add(time.Duration(i)*time.Minute))
 	}
 	sts := e.Statuses("t1")
 	if len(sts) != 1 {
@@ -137,8 +137,8 @@ func TestSLIComputationAndBudget(t *testing.T) {
 		t.Fatalf("budget remaining = %.4f, want 0", st.ErrorBudgetRemaining)
 	}
 	// Mismatched streams never count.
-	e.ObserveResult("t1", "dns", "checkout.acme.example", false, sloT)
-	e.ObserveResult("t1", "http", "other.example", false, sloT)
+	e.ObserveResult("t1", "dns", "checkout.acme.example", "", false, sloT)
+	e.ObserveResult("t1", "http", "other.example", "", false, sloT)
 	if got := e.Statuses("t1")[0].TotalEvents; got != 100 {
 		t.Fatalf("non-matching results counted: %d", got)
 	}
@@ -154,7 +154,7 @@ func TestSLIComputationAndBudget(t *testing.T) {
 // feed pushes n results at a per-minute cadence ending at `end`.
 func feed(e *Engine, tenant string, ok bool, n int, end time.Time, gap time.Duration) {
 	for i := n - 1; i >= 0; i-- {
-		e.ObserveResult(tenant, "http", "checkout.acme.example", ok, end.Add(-time.Duration(i)*gap))
+		e.ObserveResult(tenant, "http", "checkout.acme.example", "", ok, end.Add(-time.Duration(i)*gap))
 	}
 }
 
@@ -169,8 +169,7 @@ func TestBurnRateAlertingMultiWindow(t *testing.T) {
 	// window (1h+5m @14.4x) must fire: 100% errors / 1% budget = burn 100.
 	var fired []incident.Signal
 	for i := 0; i < 30; i++ {
-		fired = append(fired, e.ObserveResult("t1", "http", "checkout.acme.example", false,
-			end.Add(time.Duration(i)*time.Minute))...)
+		fired = append(fired, e.ObserveResult("t1", "http", "checkout.acme.example", "", false, end.Add(time.Duration(i)*time.Minute))...)
 	}
 	if len(fired) == 0 {
 		t.Fatal("hard outage raised no burn alert")
@@ -222,8 +221,7 @@ func TestBurnRateNoNoiseAndColdStart(t *testing.T) {
 	// Cold start: 10 hard failures with no baseline → silent.
 	var sigs []incident.Signal
 	for i := 0; i < 10; i++ {
-		sigs = append(sigs, e.ObserveResult("t1", "http", "checkout.acme.example", false,
-			end.Add(time.Duration(i)*time.Second))...)
+		sigs = append(sigs, e.ObserveResult("t1", "http", "checkout.acme.example", "", false, end.Add(time.Duration(i)*time.Second))...)
 	}
 	if len(sigs) != 0 {
 		t.Fatalf("cold start alerted: %+v", sigs)
@@ -236,7 +234,7 @@ func TestBurnRateNoNoiseAndColdStart(t *testing.T) {
 	// against the 1% budget) → quiet on every window.
 	e2 := NewEngine([]SLO{parsed(t)})
 	feed(e2, "t1", true, 199, end, time.Minute)
-	if got := e2.ObserveResult("t1", "http", "checkout.acme.example", false, end.Add(time.Minute)); len(got) != 0 {
+	if got := e2.ObserveResult("t1", "http", "checkout.acme.example", "", false, end.Add(time.Minute)); len(got) != 0 {
 		t.Fatalf("single blip alerted: %+v", got)
 	}
 }
@@ -347,6 +345,6 @@ func TestParseWindow(t *testing.T) {
 
 func ExampleSLO_Matches() {
 	s := SLO{Target: "api.*", CanaryType: "http"}
-	fmt.Println(s.Matches("http", "api.acme.example"), s.Matches("dns", "api.acme.example"))
+	fmt.Println(s.Matches("http", "api.acme.example", ""), s.Matches("dns", "api.acme.example", ""))
 	// Output: true false
 }

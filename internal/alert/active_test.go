@@ -253,3 +253,41 @@ func TestPersistedOpsRestoreSurvivesRestart(t *testing.T) {
 		t.Fatal("resolve hook never fired (persisted row would leak)")
 	}
 }
+
+// DPR-067: operator state persisted by another control replica reaches the
+// evaluator through ApplyOps on its next pass — a silence lands, a lifted
+// silence clears, an acknowledgement sticks — and a maintenance window created
+// elsewhere becomes the engine's window.
+func TestApplyOpsReconcilesPersistedOperatorState(t *testing.T) {
+	h, rule := newActiveHarness(t)
+	h.value = 250
+	h.eval(t, rule)
+	fp := h.en.Active()[0].Fingerprint
+
+	until := h.now.Add(30 * time.Minute)
+	h.en.ApplyOps(map[string]RestoredOp{fp: {SilencedUntil: until, AckedBy: "oncall@acme.example", AckedAt: h.now}})
+	a := h.en.Active()[0]
+	if a.SilencedUntil == nil || !a.SilencedUntil.Equal(until) || a.AckedBy != "oncall@acme.example" {
+		t.Fatalf("persisted ops not applied: %+v", a)
+	}
+	h.en.ApplyOps(map[string]RestoredOp{fp: {AckedBy: "oncall@acme.example", AckedAt: h.now}})
+	if a := h.en.Active()[0]; a.SilencedUntil != nil || a.AckedBy == "" {
+		t.Fatalf("lifted silence must clear and the ack must stick: %+v", a)
+	}
+
+	w := MaintenanceWindow{ID: "w1", Name: "db rollout", StartsAt: h.now, EndsAt: h.now.Add(time.Hour), RuleIDs: []string{rule.ID}}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	h.en.ReplaceMaintenanceWindows([]MaintenanceWindow{w})
+	if got := h.en.MaintenanceWindows(); len(got) != 1 || got[0].ID != "w1" {
+		t.Fatalf("maintenance windows = %+v", got)
+	}
+	if prev := h.en.PreviewMaintenance(rule, nil, h.now, h.now.Add(2*time.Hour)); len(prev) != 1 || prev[0].WindowID != "w1" {
+		t.Fatalf("preview = %+v", prev)
+	}
+	h.en.ReplaceMaintenanceWindows(nil)
+	if got := h.en.MaintenanceWindows(); len(got) != 0 {
+		t.Fatalf("windows not replaced: %+v", got)
+	}
+}

@@ -241,9 +241,19 @@ func (en *Engine) MaintenanceWindows() []MaintenanceWindow {
 
 func (en *Engine) PreviewMaintenance(rule Rule, labels map[string]string, from, to time.Time) []MaintenancePreview {
 	en.mu.Lock()
-	defer en.mu.Unlock()
-	var out []MaintenancePreview
+	windows := make([]MaintenanceWindow, 0, len(en.maintenance))
 	for _, w := range en.maintenance {
+		windows = append(windows, w)
+	}
+	en.mu.Unlock()
+	return PreviewWindows(windows, rule, labels, from, to)
+}
+
+// PreviewWindows is the maintenance preview over any window set — the engine's
+// own, or the persisted set a non-evaluating replica serves (DPR-067).
+func PreviewWindows(windows []MaintenanceWindow, rule Rule, labels map[string]string, from, to time.Time) []MaintenancePreview {
+	var out []MaintenancePreview
+	for _, w := range windows {
 		if !w.matches(rule, labels) {
 			continue
 		}

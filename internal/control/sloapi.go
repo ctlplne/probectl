@@ -24,6 +24,7 @@ import (
 	"github.com/ctlplne/probectl/internal/config"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/otel"
 	"github.com/ctlplne/probectl/internal/pipeline"
 	"github.com/ctlplne/probectl/internal/slo"
 )
@@ -168,7 +169,7 @@ func (sc *SLOConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 		return nil // unscoped records are dropped (guardrail 1)
 	}
 	at := pipeline.ResultEventTime(&r, sc.receivedAt())
-	sigs := sc.engine.ObserveResult(tenant, r.GetCanaryType(), r.GetServerAddress(), r.GetSuccess(), at)
+	sigs := sc.engine.ObserveResult(tenant, r.GetCanaryType(), r.GetServerAddress(), r.GetAttributes()[otel.AttrTestID], r.GetSuccess(), at)
 	for _, sig := range sigs {
 		if sc.correlator != nil {
 			if _, err := sc.correlator.Ingest(ctx, sig); err != nil {

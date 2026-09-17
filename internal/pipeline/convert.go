@@ -25,6 +25,12 @@ var labelNames = map[string]string{
 	otel.AttrAgentID:       "agent_id",
 	otel.AttrCanaryType:    "canary_type",
 	otel.AttrServerAddress: "server_address",
+	// DPR-066: server.address is the host (OTel), so two test definitions
+	// against one host — /checkout and / on example.com — collapsed into one
+	// series whose values interleaved, and no rule or SLO could tell them
+	// apart. test_id is bounded by the number of definitions (one series per
+	// agent and definition, exactly what the agent already emits).
+	otel.AttrTestID: "test_id",
 }
 
 // ResultToSeries converts a probe Result into time series with OTel-aligned,

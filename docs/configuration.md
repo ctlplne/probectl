@@ -470,7 +470,10 @@ still not a broker log; use Kafka for crash-replayable production transit.
 `--web.enable-remote-write-receiver`, or VictoriaMetrics; use an `https://` URL
 for TLS in transit). Each probe emits `probectl_probe_success`,
 `probectl_probe_duration_seconds`, and one `probectl_probe_<metric>` per custom
-metric, labeled `tenant_id`, `agent_id`, `canary_type`, and `server_address`. The
+metric, labeled `tenant_id`, `agent_id`, `canary_type`, `server_address` and,
+when the canary carries a server definition id, `test_id` (DPR-066: the
+address is the host, so two definitions against one host need the id to stay
+separate series). The
 canonical signal→OTel mapping is in [`otel-mapping.md`](otel-mapping.md).
 
 ### ICMP test

@@ -192,7 +192,7 @@ func TestSLOEndpointsAndIsolation(t *testing.T) {
 	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	eng.WithClock(func() time.Time { return at.Add(60 * time.Minute) })
 	for i := 0; i < 60; i++ {
-		eng.ObserveResult(tid, "http", "web.acme.example", true, at.Add(time.Duration(i)*time.Minute))
+		eng.ObserveResult(tid, "http", "web.acme.example", "", true, at.Add(time.Duration(i)*time.Minute))
 	}
 
 	srv := testServer(fakePinger{}).WithSLO(eng)

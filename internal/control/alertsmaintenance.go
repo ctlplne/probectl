@@ -105,7 +105,7 @@ func (s *Server) handleListMaintenanceWindows(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusOK, map[string]any{"items": []alert.MaintenanceWindow{}, "evaluator_running": false})
 		return nil
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": src.MaintenanceWindows(), "evaluator_running": true})
+	writeJSON(w, http.StatusOK, map[string]any{"items": src.MaintenanceWindows(), "evaluator_running": alertStateRunning(src)})
 	return nil
 }
 

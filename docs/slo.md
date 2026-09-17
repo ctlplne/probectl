@@ -81,9 +81,15 @@ A few matching rules worth knowing:
 - `target` (the probe target) accepts a trailing `*` as a prefix wildcard
   (`api.*` matches `api.acme.example`, `api-internal.example`, …).
 - `canary_type` left empty matches **any** probe type.
+- `target` is the probe's `server.address` — for HTTP canaries that is the
+  **host** (`checkout.acme.example`), not the URL, so two HTTP definitions
+  against one host (`/` and `/checkout`) are indistinguishable by target. Name
+  the server test definition instead: `test_id: <id>` (the id the test receipt
+  returns; results carry it as `probectl.test.id`) selects exactly that
+  definition, with or without a `target` (DPR-066).
 - The `good` metric must declare `outcome: success`; `good` and `total` must
-  share the same non-empty `target` and the same `canary_type` — otherwise the
-  ratio would compare two different things.
+  share the same `target`/`test_id` (at least one non-empty) and the same
+  `canary_type` — otherwise the ratio would compare two different things.
 
 Definitions load from the directory named by `PROBECTL_SLO_DIR` (each file may
 hold multiple YAML documents separated by `---`). A malformed file, an invalid

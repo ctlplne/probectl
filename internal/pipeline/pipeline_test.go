@@ -50,6 +50,22 @@ func TestResultToSeries(t *testing.T) {
 	}
 }
 
+// DPR-066: a result stamped with the server test id carries it as a series
+// label, so two definitions against the same host never share a series.
+func TestResultToSeriesCarriesTestID(t *testing.T) {
+	r := &resultv1.Result{TenantId: "t1", AgentId: "a1", CanaryType: "http", ServerAddress: "example.com", Success: true,
+		Attributes: map[string]string{"probectl.test.id": "98bbc817-d2f0-403b-b067-fae2ca28de1e"}}
+	for _, s := range ResultToSeries(r) {
+		if s.Labels["test_id"] != "98bbc817-d2f0-403b-b067-fae2ca28de1e" || s.Labels["server_address"] != "example.com" {
+			t.Fatalf("labels = %v", s.Labels)
+		}
+	}
+	plain := ResultToSeries(&resultv1.Result{TenantId: "t1", AgentId: "a1", CanaryType: "http", ServerAddress: "example.com"})
+	if _, ok := plain[0].Labels["test_id"]; ok {
+		t.Fatal("an unstamped result must not mint an empty test_id label")
+	}
+}
+
 // TestConsumerWritesToTSDB proves the S6 Done-when at the unit level: a result
 // published to the bus is converted and becomes queryable in the TSDB.
 func TestConsumerWritesToTSDB(t *testing.T) {

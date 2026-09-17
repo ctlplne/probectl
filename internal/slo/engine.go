@@ -158,8 +158,8 @@ func (e *Engine) state(tenant, name string) *sloState {
 // ObserveResult feeds one synthetic result into every matching SLI and
 // returns burn-rate signals raised by the transition into a firing state
 // (latched: one signal per window per episode, re-armed when it clears).
-func (e *Engine) ObserveResult(tenant, canaryType, target string, success bool, at time.Time) []incident.Signal {
-	if tenant == "" || target == "" {
+func (e *Engine) ObserveResult(tenant, canaryType, target, testID string, success bool, at time.Time) []incident.Signal {
+	if tenant == "" || (target == "" && testID == "") {
 		return nil
 	}
 	e.mu.Lock()
@@ -167,7 +167,7 @@ func (e *Engine) ObserveResult(tenant, canaryType, target string, success bool, 
 
 	var sigs []incident.Signal
 	for _, s := range e.slos {
-		if !s.Matches(canaryType, target) {
+		if !s.Matches(canaryType, target, testID) {
 			continue
 		}
 		st := e.state(tenant, s.Name)

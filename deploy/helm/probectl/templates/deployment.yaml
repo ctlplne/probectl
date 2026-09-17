@@ -136,12 +136,14 @@ spec:
                 name: {{ include "probectl.fullname" . }}-config
             - secretRef:
                 name: {{ include "probectl.secretName" . }}
-          {{- if or .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.slo.existingConfigMap }}
+          {{- if or .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap (.Values.control.slo | default dict).existingConfigMap }}
           env:
-            {{- if .Values.control.slo.existingConfigMap }}
+            {{- if (.Values.control.slo | default dict).existingConfigMap }}
             # DPR-064: OpenSLO definitions, mounted from the operator's ConfigMap.
+            # The path defaults here too: a --reuse-values upgrade from a release
+            # that predates control.slo carries no mountPath.
             - name: PROBECTL_SLO_DIR
-              value: {{ .Values.control.slo.mountPath | quote }}
+              value: {{ (.Values.control.slo | default dict).mountPath | default "/etc/probectl/slo" | quote }}
             {{- end }}
             {{- if .Values.license.existingSecret }}
             # DPR-006: the offline-signed Enterprise/MSP license, verified locally.
@@ -172,7 +174,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled .Values.control.slo.existingConfigMap .Values.control.extraVolumeMounts }}
+          {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumeMounts }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}
             - name: control-tls
@@ -184,9 +186,9 @@ spec:
               mountPath: {{ include "probectl.agentListener.caMountPath" . | quote }}
               readOnly: true
             {{- end }}
-            {{- if .Values.control.slo.existingConfigMap }}
+            {{- if (.Values.control.slo | default dict).existingConfigMap }}
             - name: slo-definitions
-              mountPath: {{ .Values.control.slo.mountPath | quote }}
+              mountPath: {{ (.Values.control.slo | default dict).mountPath | default "/etc/probectl/slo" | quote }}
               readOnly: true
             {{- end }}
             {{- with .Values.control.extraVolumeMounts }}
@@ -212,13 +214,13 @@ spec:
               readOnly: true
             {{- end }}
           {{- end }}
-      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled .Values.control.slo.existingConfigMap .Values.control.extraVolumes }}
+      {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumes }}
       volumes:
-        {{- if .Values.control.slo.existingConfigMap }}
+        {{- if (.Values.control.slo | default dict).existingConfigMap }}
         # DPR-064: OpenSLO definitions (every key of the ConfigMap is a file).
         - name: slo-definitions
           configMap:
-            name: {{ .Values.control.slo.existingConfigMap | quote }}
+            name: {{ (.Values.control.slo | default dict).existingConfigMap | quote }}
         {{- end }}
         {{- with .Values.control.extraVolumes }}
         {{- toYaml . | nindent 8 }}

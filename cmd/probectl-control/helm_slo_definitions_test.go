@@ -36,6 +36,16 @@ func TestHelmSLODefinitionsReachTheControlPlane(t *testing.T) {
 			t.Errorf("rendered Deployment lacks %q", want)
 		}
 	}
+	// --reuse-values from a release that predates control.slo: the ConfigMap is
+	// named but no mountPath exists — the template must default it, or the
+	// apply fails with "volumeMounts[n].mountPath: Required value".
+	reused, err := renderHelmAgentListener(t, "templates/deployment.yaml", "--set-json", `control.slo={"existingConfigMap":"slo-defs"}`)
+	if err != nil {
+		t.Fatalf("render: %v\n%s", err, reused)
+	}
+	if !strings.Contains(reused, `mountPath: "/etc/probectl/slo"`) || !strings.Contains(reused, `value: "/etc/probectl/slo"`) {
+		t.Errorf("missing mountPath must default to /etc/probectl/slo:\n%s", reused)
+	}
 	plain, err := renderHelmAgentListener(t, "templates/deployment.yaml")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, plain)

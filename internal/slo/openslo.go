@@ -106,7 +106,8 @@ type SLO struct {
 	Description string
 
 	CanaryType string // "" = any
-	Target     string // probe target; trailing '*' = prefix match
+	Target     string // probe target; trailing '*' = prefix match ("" when test_id selects)
+	TestID     string // exact server test definition id (DPR-066); "" = any
 	Objective  float64
 	Window     time.Duration
 
@@ -162,9 +163,12 @@ func fromDocument(d Document) (SLO, error) {
 	if goodSpec["outcome"] != "success" {
 		return SLO{}, fmt.Errorf("slo %s: good metric must declare outcome: success", d.Metadata.Name)
 	}
-	probeTarget := totalSpec["target"]
-	if probeTarget == "" || probeTarget != goodSpec["target"] {
-		return SLO{}, fmt.Errorf("slo %s: good and total must share a non-empty target", d.Metadata.Name)
+	probeTarget, testID := totalSpec["target"], totalSpec["test_id"]
+	if probeTarget != goodSpec["target"] || testID != goodSpec["test_id"] {
+		return SLO{}, fmt.Errorf("slo %s: good and total must share the same target and test_id", d.Metadata.Name)
+	}
+	if probeTarget == "" && testID == "" {
+		return SLO{}, fmt.Errorf("slo %s: good and total must name a non-empty target or test_id", d.Metadata.Name)
 	}
 	if goodSpec["canary_type"] != totalSpec["canary_type"] {
 		return SLO{}, fmt.Errorf("slo %s: good and total must share canary_type", d.Metadata.Name)
@@ -177,6 +181,7 @@ func fromDocument(d Document) (SLO, error) {
 		Description: d.Spec.Description,
 		CanaryType:  totalSpec["canary_type"],
 		Target:      probeTarget,
+		TestID:      testID,
 		Objective:   target,
 		Window:      window,
 		doc:         d,
@@ -193,10 +198,16 @@ func (s SLO) Export() ([]byte, error) {
 	return out, nil
 }
 
-// Matches reports whether a synthetic result feeds this SLI.
-func (s SLO) Matches(canaryType, target string) bool {
+// Matches reports whether a synthetic result feeds this SLI. A definition that
+// names a test_id feeds only results stamped with that exact id (DPR-066: for
+// HTTP canaries the target is the host, so two definitions against one host
+// are told apart only by their test id); a target, when given, must match too.
+func (s SLO) Matches(canaryType, target, testID string) bool {
 	if s.CanaryType != "" && s.CanaryType != canaryType {
 		return false
+	}
+	if s.TestID != "" {
+		return s.TestID == testID && (s.Target == "" || s.TargetMatches(target))
 	}
 	return s.TargetMatches(target)
 }

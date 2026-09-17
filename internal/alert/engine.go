@@ -78,6 +78,49 @@ func (en *Engine) RestoreOps(ops map[string]RestoredOp) {
 // whenever a firing episode resolves, so the store row is deleted and a
 // FUTURE episode starts clean — restart-restored state never outlives the
 // episode semantics the in-memory engine always had.
+// ApplyOps reconciles the persisted operator state (alert_ops) into the engine
+// on every evaluation pass (DPR-067): an acknowledgement or silence taken on
+// another control replica reaches the evaluator here, a lifted silence is
+// cleared, and the same ops are kept for a series that starts a new episode.
+func (en *Engine) ApplyOps(ops map[string]RestoredOp) {
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	if en.restored == nil {
+		en.restored = map[string]RestoredOp{}
+	}
+	for key, st := range en.states {
+		op, ok := ops[key]
+		if !ok {
+			st.silencedUntil = time.Time{}
+			continue
+		}
+		st.silencedUntil = op.SilencedUntil
+		if op.AckedBy != "" && st.ackedBy == "" {
+			st.ackedBy, st.ackedAt = op.AckedBy, op.AckedAt
+		}
+	}
+	for fp, op := range ops {
+		if _, live := en.states[fp]; !live {
+			en.restored[fp] = op
+		}
+	}
+}
+
+// ReplaceMaintenanceWindows makes the persisted windows the engine's windows
+// (DPR-067: a window created on another replica must suppress here).
+func (en *Engine) ReplaceMaintenanceWindows(windows []MaintenanceWindow) {
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	next := make(map[string]MaintenanceWindow, len(windows))
+	for _, w := range windows {
+		if w.ID == "" || w.Validate() != nil {
+			continue
+		}
+		next[w.ID] = w
+	}
+	en.maintenance = next
+}
+
 func (en *Engine) SetResolveHook(fn func(fingerprint string)) { en.onResolve = fn }
 
 // EngineOption configures an Engine.

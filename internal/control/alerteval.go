@@ -304,7 +304,7 @@ type AlertEvaluatorSupervisor struct {
 
 	maxConcurrent int
 	mu            sync.Mutex
-	evaluators    map[string]*alert.Evaluator
+	evaluators    map[string]*tenantEvaluator
 }
 
 // BuildAlertEvaluatorSupervisor builds the multi-tenant alert fan-out. It
@@ -331,7 +331,7 @@ func BuildAlertEvaluatorSupervisor(pool *pgxpool.Pool, writer any, deps alert.Ch
 		register:      register,
 		unregister:    unregister,
 		maxConcurrent: 8,
-		evaluators:    map[string]*alert.Evaluator{},
+		evaluators:    map[string]*tenantEvaluator{},
 	}
 	s.listTenants = func(ctx context.Context) ([]store.Tenant, error) {
 		return store.NewTenants(pool).List(ctx)
@@ -362,7 +362,7 @@ func (s *AlertEvaluatorSupervisor) Sync(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		s.evaluators[id] = ev
+		s.evaluators[id] = &tenantEvaluator{ev: ev, tenant: tid}
 		if s.register != nil {
 			s.register(id, ev.Engine())
 		}
@@ -384,7 +384,7 @@ func (s *AlertEvaluatorSupervisor) Sync(ctx context.Context) error {
 // Tick evaluates every active tenant, bounded by maxConcurrent workers.
 func (s *AlertEvaluatorSupervisor) Tick(ctx context.Context) {
 	s.mu.Lock()
-	evals := make([]*alert.Evaluator, 0, len(s.evaluators))
+	evals := make([]*tenantEvaluator, 0, len(s.evaluators))
 	for _, ev := range s.evaluators {
 		evals = append(evals, ev)
 	}
@@ -401,12 +401,17 @@ func (s *AlertEvaluatorSupervisor) Tick(ctx context.Context) {
 		}
 		sem <- struct{}{}
 		wg.Add(1)
-		go func(ev *alert.Evaluator) {
+		go func(te *tenantEvaluator) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := ev.Tick(ctx); err != nil {
+			// DPR-067: operator actions and maintenance windows taken on any
+			// replica are pulled in before the pass, and the resulting active
+			// set is published for every replica after it.
+			s.reloadShared(ctx, te)
+			if err := te.ev.Tick(ctx); err != nil {
 				s.log.Warn("alert evaluation tick failed", "error", err)
 			}
+			s.publishShared(ctx, te)
 		}(ev)
 	}
 	wg.Wait()
@@ -430,5 +435,61 @@ func (s *AlertEvaluatorSupervisor) Run(ctx context.Context) {
 			}
 			s.Tick(ctx)
 		}
+	}
+}
+
+// tenantEvaluator is one tenant's evaluator on the singleton leader.
+type tenantEvaluator struct {
+	ev     *alert.Evaluator
+	tenant tenancy.ID
+}
+
+// reloadShared pulls the persisted operator state and maintenance windows into
+// the tenant's engine before a pass (DPR-067).
+func (s *AlertEvaluatorSupervisor) reloadShared(ctx context.Context, te *tenantEvaluator) {
+	if s.pool == nil {
+		return
+	}
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, te.tenant), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		ops, err := (store.AlertOps{}).List(ctx, sc)
+		if err != nil {
+			return err
+		}
+		restored := make(map[string]alert.RestoredOp, len(ops))
+		for _, op := range ops {
+			r := alert.RestoredOp{AckedBy: op.AckedBy}
+			if op.SilencedUntil != nil {
+				r.SilencedUntil = *op.SilencedUntil
+			}
+			if op.AckedAt != nil {
+				r.AckedAt = *op.AckedAt
+			}
+			restored[op.Fingerprint] = r
+		}
+		te.ev.Engine().ApplyOps(restored)
+		windows, err := (store.AlertMaintenance{}).List(ctx, sc)
+		if err != nil {
+			return err
+		}
+		te.ev.Engine().ReplaceMaintenanceWindows(windows)
+		return nil
+	})
+	if err != nil {
+		s.log.Warn("alert shared state reload failed", "tenant", te.tenant.String(), "error", err.Error())
+	}
+}
+
+// publishShared writes the tenant's active set and the evaluator heartbeat so
+// every control replica serves the same alert state (DPR-067).
+func (s *AlertEvaluatorSupervisor) publishShared(ctx context.Context, te *tenantEvaluator) {
+	if s.pool == nil {
+		return
+	}
+	active := te.ev.Engine().Active()
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, te.tenant), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.AlertActiveState{}).Replace(ctx, sc, active, time.Now().UTC(), s.interval)
+	})
+	if err != nil {
+		s.log.Warn("alert shared state publish failed", "tenant", te.tenant.String(), "error", err.Error())
 	}
 }

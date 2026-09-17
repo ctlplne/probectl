@@ -77,7 +77,18 @@ func (s *Server) alertStateFor(r *http.Request) (AlertStateSource, string, error
 	}
 	s.alertStateMu.RLock()
 	defer s.alertStateMu.RUnlock()
-	return s.alertState[tid], tid, nil
+	if src := s.alertState[tid]; src != nil {
+		return src, tid, nil
+	}
+	// DPR-067: this replica is not the evaluator leader — serve the state the
+	// leader publishes and route operator actions through the shared store.
+	if s.sharedAlerts != nil {
+		return newPersistedAlertState(s.sharedAlerts, tid, s.log), tid, nil
+	}
+	if s.alertingActive && s.pool != nil {
+		return newPersistedAlertState(pgSharedAlertStore{pool: s.pool}, tid, s.log), tid, nil
+	}
+	return nil, tid, nil
 }
 
 // handleListActiveAlerts serves GET /v1/alerts/active — every firing series in
@@ -96,7 +107,7 @@ func (s *Server) handleListActiveAlerts(w http.ResponseWriter, r *http.Request) 
 	if items == nil {
 		items = []alert.ActiveAlert{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "evaluator_running": true})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "evaluator_running": alertStateRunning(src)})
 	return nil
 }
 
@@ -303,7 +314,7 @@ func (s *Server) handleAlertWorkflow(w http.ResponseWriter, r *http.Request) err
 	}
 	resp := alertWorkflowResponse{
 		Alert: active, Operations: []alertWorkflowOperation{}, Deliveries: []alertWorkflowDelivery{},
-		EvaluatorRunning: src != nil, PersistenceRunning: s.pool != nil,
+		EvaluatorRunning: alertStateRunning(src), PersistenceRunning: s.pool != nil,
 		ConnectorRunning: s.dispatcher != nil,
 	}
 	if s.pool == nil {

@@ -92,6 +92,16 @@ again, and an already-expired silence is skipped. Planned maintenance windows
 are durable for the same reason: a restart must not unexpectedly page during an
 approved change window.
 
+**One evaluator, every replica (DPR-067).** The evaluator runs on exactly one
+control replica (the `alert-evaluator` cluster singleton) so a rule is
+evaluated and notified once. Its active set and heartbeat are published to
+Postgres after every pass, and every replica serves `/v1/alerts/active`, the
+workflow receipt, acknowledgements, silences and maintenance windows from that
+shared state — an operator action taken on any replica is persisted and
+reaches the evaluator on its next pass (at most one evaluation interval
+later). `evaluator_running` is the heartbeat's freshness, not "is the
+evaluator in this process".
+
 Delivery honesty, stated plainly: the **webhook** channel is the fully wired
 path — an HTTPS POST whose body is signed so the receiver can verify it came
 from your probectl. Incident-level paging, chat, and ticketing connectors
@@ -195,7 +205,7 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
       "fingerprint": "a1b2c3d4",
       "rule": "http-loss-edge",
       "severity": "warning",
-      "labels": { "target": "https://shop.example.com/", "region": "us-east" },
+      "labels": { "canary_type": "http", "server_address": "shop.example.com", "test_id": "018f2d5e-7b3a-7aa2-8b8a-9c21b0c6d991" },
       "state": "firing",
       "silenced_until": null,
       "acknowledged_by": null

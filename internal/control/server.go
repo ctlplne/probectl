@@ -196,6 +196,9 @@ type Server struct {
 	// are NEVER evaluated; the alerts API surfaces that loudly instead of
 	// silently accepting dead rules. Set via WithAlertingActive.
 	alertingActive bool
+	// sharedAlerts overrides the Postgres-backed shared alert state (DPR-067);
+	// tests inject a fake, production uses the pool.
+	sharedAlerts sharedAlertStore
 
 	// a2aBroker brokers agent-to-agent measurement sessions (ARCH-009). Set via
 	// WithA2ABroker; nil makes POST /v1/a2a/sessions and /v1/a2a/mesh report 503.
