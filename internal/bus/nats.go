@@ -68,6 +68,12 @@ type NATS struct {
 	inflight    atomic.Int64
 	lastFailure atomic.Pointer[produceFailure]
 
+	// DPR-141: this process's consumer backlog, from JetStream's per-message
+	// pending count.
+	lagMax         atomic.Int64
+	lagAssignments atomic.Int64
+	lagSeen        atomic.Bool
+
 	mu      sync.Mutex
 	streams map[string]struct{} // topics whose stream this process has ensured
 }
@@ -281,6 +287,33 @@ func (n *NATS) PublishFailures() (failed, shed uint64, last error) {
 }
 
 // Stats reports the cumulative producer counters.
+// recordLag keeps the highest pending count seen for this process's consumers.
+// A message's NumPending is that consumer's own backlog at delivery time.
+func (n *NATS) recordLag(pending int64) {
+	n.lagAssignments.Store(1)
+	n.lagSeen.Store(true)
+	for {
+		cur := n.lagMax.Load()
+		if pending <= cur {
+			// Decay toward the latest reading so a single burst does not pin the
+			// gauge high forever; the newest sample always wins downward.
+			n.lagMax.Store(pending)
+			return
+		}
+		if n.lagMax.CompareAndSwap(cur, pending) {
+			return
+		}
+	}
+}
+
+// ConsumerLag implements LagReporter from JetStream's per-message pending count.
+func (n *NATS) ConsumerLag() (int64, int, bool) {
+	if !n.lagSeen.Load() {
+		return 0, 0, false
+	}
+	return n.lagMax.Load(), int(n.lagAssignments.Load()), true
+}
+
 func (n *NATS) Stats() PublishStats {
 	return PublishStats{
 		Produced:      n.produced.Load(),
@@ -322,6 +355,12 @@ func (n *NATS) Subscribe(ctx context.Context, topic, group string, handler Handl
 	}
 
 	process := func(msg jetstream.Msg) {
+		// DPR-141: every JetStream message carries the consumer's pending count,
+		// so lag costs nothing to observe here — the same trick as Kafka's high
+		// watermark, and it stays fresh as long as anything is flowing.
+		if md, err := msg.Metadata(); err == nil {
+			n.recordLag(int64(md.NumPending))
+		}
 		m := Message{Topic: msg.Subject(), Value: msg.Data()}
 		if h := msg.Headers().Get(natsKeyHeader); h != "" {
 			m.Key = []byte(h)

@@ -43,6 +43,12 @@ type Kafka struct {
 	handlerErr  atomic.Uint64 // consumed records whose handler returned an error (NOT committed → redelivered)
 	maxBuffered int64
 
+	// DPR-141: the consumer's own view of how far behind it is, taken from the
+	// high watermarks that every fetch response already carries.
+	lagMax         atomic.Int64
+	lagAssignments atomic.Int64
+	lagSeen        atomic.Bool
+
 	// workers parallelizes EACH subscription's consume path (SCALE-001): a
 	// poll batch is dispatched across this many key-sharded workers — records
 	// sharing a key stay FIFO (per-tenant order holds), distinct keys process
@@ -394,6 +400,11 @@ func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Hand
 		if fetches.IsClientClosed() {
 			return nil
 		}
+		// DPR-141: the fetch response already carries each partition's high
+		// watermark, so the consumer's own lag costs nothing to observe. An
+		// EMPTY fetch carries it too, which is what keeps the number fresh on
+		// an idle topic instead of freezing at the last busy moment.
+		k.recordLag(fetches)
 		if k.workers <= 1 {
 			fetches.EachRecord(process)
 			continue
@@ -432,6 +443,39 @@ func (k *Kafka) Close() error {
 	_ = k.producer.Flush(ctx) // best-effort drain; unflushed records are already counted
 	k.producer.Close()
 	return nil
+}
+
+// recordLag stores the largest per-partition lag in this fetch. Lag is the
+// distance from the last record handed to the handler to the partition's high
+// watermark; a partition whose fetch returned nothing is caught up by
+// definition, so it contributes zero rather than being skipped.
+func (k *Kafka) recordLag(fetches kgo.Fetches) {
+	var maxLag int64
+	var assignments int
+	fetches.EachPartition(func(p kgo.FetchTopicPartition) {
+		assignments++
+		next := p.HighWatermark // no records: nothing outstanding
+		if n := len(p.Records); n > 0 {
+			next = p.Records[n-1].Offset + 1
+		}
+		if lag := p.HighWatermark - next; lag > maxLag {
+			maxLag = lag
+		}
+	})
+	if assignments == 0 {
+		return // a fetch with no partitions says nothing about lag
+	}
+	k.lagMax.Store(maxLag)
+	k.lagAssignments.Store(int64(assignments))
+	k.lagSeen.Store(true)
+}
+
+// ConsumerLag implements LagReporter from the consumer's own fetch responses.
+func (k *Kafka) ConsumerLag() (int64, int, bool) {
+	if !k.lagSeen.Load() {
+		return 0, 0, false // nothing consumed yet: no honest number to report
+	}
+	return k.lagMax.Load(), int(k.lagAssignments.Load()), true
 }
 
 // shardKey hashes a record key onto a worker shard (FNV-1a). An empty key

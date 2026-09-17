@@ -14,7 +14,7 @@
   "CLAUDE.md",
   "AGENTS.md"
  ],
- "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant|durable lightweight|volatile lightweight|durable bus mode",
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant|durable lightweight|volatile lightweight|durable bus mode|acceptance, not delivery|delivering nothing",
  "claims": [
   {
    "id": "CLM-DURABLE-LIGHTWEIGHT-BUS",
@@ -36,6 +36,26 @@
     "test:internal/bus/nats_test.go#TestDurableLightweightModeIsRefusedInTheClear",
     "test:internal/bus/nats_integration_test.go#TestNATSConsumerPositionSurvivesAReconnect",
     "test:internal/config/config_test.go#TestDurableLightweightBusPassesTheProductionProfiles"
+   ]
+  },
+  {
+   "id": "CLM-VERIFIED-DELIVERY",
+   "kind": "capability",
+   "statement": "Delivery observability derives from VERIFIED delivery, never from intent. An asynchronous producer returns before the broker answers, so a count of accepted records is not a count of delivered ones: every transport that can report what it failed to deliver reports it on the producer's own metrics endpoint, and a transport that cannot report it exposes no series rather than a zero that reads as healthy. Where a capability is requested and not delivering, that state is a metric an operator can alert on, not a log line.",
+   "pattern": "acceptance, not delivery|delivering nothing",
+   "surfaces": [
+    "docs/configuration.md",
+    "docs/ebpf-agent.md"
+   ],
+   "code": [
+    "internal/agent/metrics/bus.go",
+    "internal/bus/bus.go",
+    "cmd/probectl-ebpf-agent/main.go"
+   ],
+   "proof": [
+    "test:internal/agent/metrics/metrics_test.go#TestObservedBusExposesUndeliveredOnTheEndpoint",
+    "test:internal/agent/metrics/metrics_test.go#TestObservedBusOmitsUndeliveredSeriesWithoutTheCapability",
+    "test:internal/ebpf/deploy_contract_test.go#TestEBPFAgentExposesL7CaptureStateOnMetrics"
    ]
   },
   {

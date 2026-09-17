@@ -132,6 +132,32 @@ type memoryGroup struct {
 	next    int
 }
 
+// ConsumerLag implements LagReporter for the in-process bus: a member's lag is
+// the depth of its delivery channel, since a message sits there exactly until
+// its handler takes it (DPR-141). ok is false with no subscribers at all —
+// there is nothing to be behind on, and reporting zero would look like a
+// healthy consumer rather than an absent one.
+func (m *Memory) ConsumerLag() (int64, int, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var maxLag int64
+	var members int
+	for _, groups := range m.subs {
+		for _, g := range groups {
+			for _, ch := range g.members {
+				members++
+				if d := int64(len(ch)); d > maxLag {
+					maxLag = d
+				}
+			}
+		}
+	}
+	if members == 0 {
+		return 0, 0, false
+	}
+	return maxLag, members, true
+}
+
 // subscriberCount returns the live subscriber count for a topic under the
 // lock — the race-free way for tests (and callers) to await registration.
 // Reading m.subs directly races the Subscribe writer (caught by -race).

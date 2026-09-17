@@ -179,6 +179,23 @@ type StatsReporter interface {
 	Stats() PublishStats
 }
 
+// LagReporter is an optional Bus capability: how far behind the bus this
+// process's consumers are.
+//
+// DPR-141: every other integrity counter describes what happened to records the
+// consumer RECEIVED. A consumer that has stopped consuming receives nothing, so
+// every one of those counters flatlines — which is exactly what a quiet system
+// looks like. Lag is the one number that separates "nothing to do" from "falling
+// behind", and nothing exposed it.
+//
+// ok is false when the transport cannot report lag, so an operator sees an
+// explicit "unavailable" rather than a zero that reads as healthy.
+type LagReporter interface {
+	// ConsumerLag reports the largest number of records not yet consumed across
+	// every assignment this process holds, and how many assignments that covers.
+	ConsumerLag() (maxLag int64, assignments int, ok bool)
+}
+
 // PublishFailureReporter is an optional Bus capability: the cumulative count of
 // records that Publish ACCEPTED but that never reached the broker (failed after
 // the client's retries, or shed at a full buffer), plus the last such error.

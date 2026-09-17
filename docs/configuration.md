@@ -336,7 +336,26 @@ Core series are `probectl_agent_collections_total` (probe or collector batches),
 `probectl_agent_published_total` (results/batches accepted by the output transport),
 `probectl_agent_errors_total`, `probectl_agent_buffer_depth`, and
 `probectl_agent_publish_latency_seconds`. Build, uptime, Go-runtime, and process
-series come from the same dependency-free registry. Prometheus's `job` and
+series come from the same dependency-free registry.
+
+**`published_total` is acceptance, not delivery.** An asynchronous producer
+returns from `Publish` long before the broker answers, so on the agents that
+publish onto a bus that counter means "the transport took it". Where the
+transport can report what it then failed to deliver, two more series appear and
+an operator should alert on them:
+
+| Series | Meaning |
+| ------ | ------- |
+| `probectl_agent_bus_publish_failed_total` | records the transport accepted that never reached the broker, after its own retries |
+| `probectl_agent_bus_publish_shed_total` | records dropped at a full in-flight buffer under broker-degraded backpressure |
+
+Both describe records that `published_total` has **already counted**, which is
+why a climbing `published_total` alongside a climbing `failed_total` is data
+loss rather than throughput. A transport that cannot report undelivered records
+exposes neither series, rather than a zero that would read as healthy. The
+canary agent needs neither: it removes a result from its buffer only after the
+control plane's accepted count, so its `published_total` is verified delivery.
+The eBPF agent additionally ties readiness to it (`probectl_ebpf_publish_degraded`). Prometheus's `job` and
 `instance` target labels identify the binary/host; tenant identity is
 intentionally absent.
 

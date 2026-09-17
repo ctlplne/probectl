@@ -1059,6 +1059,32 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 		m.Gauge("probectl_bus_buffered", "Records currently buffered in the async producer (in flight).",
 			func() float64 { return float64(sb.Stats().Buffered) })
 	}
+	// DPR-141: every other integrity counter describes records the consumer
+	// RECEIVED, so a consumer that has stopped consuming flatlines all of them —
+	// indistinguishable from a quiet system. Lag is the one number that tells
+	// "nothing to do" from "falling behind". The unavailable gauge exists so a
+	// transport that cannot report lag says so, instead of a zero reading as
+	// healthy.
+	if lr, ok := resultBus.(bus.LagReporter); ok {
+		m.Gauge("probectl_bus_consumer_lag_max",
+			"Largest number of records not yet consumed across this process's assignments. Alert on this, not on throughput.",
+			func() float64 { lag, _, _ := lr.ConsumerLag(); return float64(lag) })
+		m.Gauge("probectl_bus_consumer_lag_assignments",
+			"Assignments the lag number covers. Zero means nothing was measured, so a zero lag says nothing.",
+			func() float64 { _, n, _ := lr.ConsumerLag(); return float64(n) })
+		m.Gauge("probectl_bus_consumer_lag_unavailable",
+			"1 while this transport cannot yet report consumer lag (nothing consumed, or no such capability).",
+			func() float64 {
+				if _, _, ok := lr.ConsumerLag(); ok {
+					return 0
+				}
+				return 1
+			})
+	} else {
+		m.Gauge("probectl_bus_consumer_lag_unavailable",
+			"1 because this transport cannot report consumer lag at all (DPR-141).",
+			func() float64 { return 1 })
+	}
 	// RESIL-002: the lightweight in-memory bus defaults to backpressure. If an
 	// operator explicitly selects drop isolation, drops are counted and Publish
 	// returns an error so upstream agent ACKs fail closed rather than deleting

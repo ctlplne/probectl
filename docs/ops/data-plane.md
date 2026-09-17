@@ -67,6 +67,16 @@ Reference operators (manage the stores on Kubernetes):
   watch `probectl_bus_shed` and `probectl_bus_handler_errors` (CORRECT-009). A
   rising shed rate means the consumers or stores can't keep up — scale the slow
   tier, don't raise the buffer blindly.
+- **Falling behind:** `probectl_bus_consumer_lag_max` is the records this process
+  has not consumed yet, taken from the transport's own view — Kafka's high
+  watermarks, JetStream's pending count, the in-process channel depth. Alert on
+  it rather than on throughput: every *other* integrity counter describes records
+  a consumer already received, so a consumer that has stopped consuming flatlines
+  all of them and looks exactly like a quiet system (DPR-141). Read it with
+  `probectl_bus_consumer_lag_assignments`, which is how many assignments the
+  number covers — a zero lag over zero assignments says nothing — and with
+  `probectl_bus_consumer_lag_unavailable`, which is 1 while the transport cannot
+  report lag at all, so a missing number never passes as a healthy one.
 - **Out-of-order rejects:** `probectl_tsdb_remote_write_rejected` climbing means
   late samples are being dropped; widen the TSDB out-of-order window.
 - **Rebalances:** size Kafka partitions for at least `TenantBuckets` × large-tenant

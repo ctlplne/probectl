@@ -8,6 +8,9 @@ package bus
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -228,5 +231,56 @@ func TestBusSecurityPolicy(t *testing.T) {
 	}
 	if _, err := (Security{TLSEnabled: true, CAFile: "/does/not/exist.pem"}).kgoOpts(); err == nil {
 		t.Fatal("missing CA file must fail")
+	}
+}
+
+// DPR-141: the lag seam must be exercised for every transport a deployment can
+// select, and a transport that cannot report lag must say so rather than
+// returning a zero that reads as a caught-up consumer.
+func TestEveryTransportEitherReportsLagOrSaysItCannot(t *testing.T) {
+	// The in-process bus reports it; an unsubscribed one reports unavailable.
+	mem := NewMemory()
+	defer func() { _ = mem.Close() }()
+	var _ LagReporter = mem
+	if lag, n, ok := mem.ConsumerLag(); ok || lag != 0 || n != 0 {
+		t.Errorf("an idle in-process bus must report unavailable, got %d/%d/%v", lag, n, ok)
+	}
+
+	// Kafka and NATS implement the seam; before anything is consumed they must
+	// report unavailable rather than a confident zero.
+	k := &Kafka{}
+	var _ LagReporter = k
+	if lag, n, ok := k.ConsumerLag(); ok || lag != 0 || n != 0 {
+		t.Errorf("kafka before any fetch must report unavailable, got %d/%d/%v", lag, n, ok)
+	}
+	nb := &NATS{}
+	var _ LagReporter = nb
+	if lag, n, ok := nb.ConsumerLag(); ok || lag != 0 || n != 0 {
+		t.Errorf("nats before any delivery must report unavailable, got %d/%d/%v", lag, n, ok)
+	}
+}
+
+// The control plane must publish the lag series for any transport, and must
+// publish the unavailable marker even when the transport lacks the capability —
+// an absent series is indistinguishable from a healthy one on a dashboard.
+func TestControlPlanePublishesLagSeriesForEveryTransport(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "cmd", "probectl-control", "builders.go"))
+	if err != nil {
+		t.Fatalf("read builders.go: %v", err)
+	}
+	s := string(src)
+	for _, want := range []string{
+		"probectl_bus_consumer_lag_max",
+		"probectl_bus_consumer_lag_assignments",
+		"probectl_bus_consumer_lag_unavailable",
+		"bus.LagReporter",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("control plane does not publish %q (DPR-141)", want)
+		}
+	}
+	// The else branch is the point: no capability still publishes the marker.
+	if strings.Count(s, "probectl_bus_consumer_lag_unavailable") < 2 {
+		t.Error("the unavailable marker must also be published when the transport lacks the capability")
 	}
 }
