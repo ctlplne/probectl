@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -26,19 +27,57 @@ import (
 
 // runAgentCAInit generates the agent CA hierarchy ONCE and prints the ROOT key
 // for offline custody — it is never persisted (ADR decision 2).
-func runAgentCAInit(ctx context.Context, db *store.DB) error {
+func runAgentCAInit(ctx context.Context, db *store.DB, args []string) error {
+	fs := flag.NewFlagSet("agent-ca init", flag.ContinueOnError)
+	keyOut := fs.String("key-out", "", "write the root private key to this file (0600) instead of stdout")
+	printKey := fs.Bool("print-key", false, "print the root private key to stdout even when stdout is not a terminal (it will be stored wherever that output goes)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	// DPR-121: "shown once, never stored" is true of the DATABASE, and it used
+	// to depend entirely on how the command was run. Through `kubectl exec` the
+	// key reaches the operator's terminal; through a Job, a Helm hook or a CI
+	// step — the ordinary way to automate a bootstrap — the same bytes land in
+	// the cluster's log store, readable by anyone with pods/log, with nothing
+	// said about it. Writing a root CA private key to a log is exactly what
+	// guardrail 6 forbids, so a non-terminal stdout now has to be asked for.
+	if *keyOut == "" && !*printKey && !isTerminal(os.Stdout) {
+		return errors.New("refusing to print the root CA private key to a non-terminal: it would be stored " +
+			"wherever that output goes (a Job's pod log, a CI artifact, a shell redirect). " +
+			"Use -key-out <file> to write it 0600 for offline custody, or -print-key if the destination " +
+			"really is safe custody (a pipe into your vault)")
+	}
 	rootKey, err := enroll.InitCA(ctx, db.Pool())
 	if err != nil {
 		return err
 	}
 	fmt.Println("agent CA initialized: root (10y) -> issuing intermediate (1y, sealed at rest)")
 	fmt.Println()
+	if *keyOut != "" {
+		if err := os.WriteFile(*keyOut, rootKey, 0o600); err != nil {
+			return fmt.Errorf("write root key: %w", err)
+		}
+		fmt.Printf("ROOT CA PRIVATE KEY written to %s (0600) — never stored anywhere else.\n", *keyOut)
+		fmt.Println("Move it to offline custody (HSM, sealed envelope, offline vault) and delete the file.")
+		fmt.Println("It is needed only to issue a future intermediate; runtime operation does not use it.")
+		return nil
+	}
 	fmt.Println("ROOT CA PRIVATE KEY — shown ONCE, never stored. Move it to offline custody")
 	fmt.Println("(HSM, sealed envelope, offline vault). It is needed only to issue a future")
 	fmt.Println("intermediate; runtime operation does not use it.")
 	fmt.Println()
 	os.Stdout.Write(rootKey)
 	return nil
+}
+
+// isTerminal reports whether f is a character device — an interactive terminal
+// rather than a pipe, a file or a container log.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // runAgentCAExport writes the agent CA trust bundle (root + intermediate

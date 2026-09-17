@@ -254,7 +254,9 @@ agent from its host against `https://<host>:8443` with gRPC at `<host>:9443`
 ([`deploying-agents.md`](deploying-agents.md)).
 
 On **Kubernetes** the chart ships the same listener off; run `agent-ca init`
-once through `kubectl exec`, then `helm upgrade --set
+once through `kubectl exec` (interactively, so the root key reaches your
+terminal and not a pod log — a Job or hook is refused unless you pass
+`-key-out`, DPR-121), then `helm upgrade --set
 control.agentListener.enabled=true` (plus a `NodePort`/`LoadBalancer` service
 type for probe hosts outside the cluster) — the chart exports the public trust
 bundle itself on every start. See the

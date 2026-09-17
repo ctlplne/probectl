@@ -579,7 +579,7 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 		}
 		switch os.Args[2] {
 		case "init":
-			return true, runAgentCAInit(context.Background(), db)
+			return true, runAgentCAInit(context.Background(), db, os.Args[3:])
 		case "export":
 			return true, runAgentCAExport(context.Background(), db, os.Args[3:])
 		default:

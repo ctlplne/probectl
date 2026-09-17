@@ -73,7 +73,12 @@ probectl-control agent-ca export /etc/probectl/agent-ca.crt
 ```
 
 `init` prints the root private key **once** for offline custody and never stores
-it; runtime operation never needs it. Re-running refuses to overwrite the trust
+it; runtime operation never needs it. It prints only to a terminal: run through
+a Job, a Helm hook or a CI step — anywhere stdout is a pipe or a log — and it
+refuses, because those bytes would be stored wherever that output goes
+(DPR-121). Automate it with `agent-ca init -key-out /path/key.pem` (written
+0600, move it to custody and delete the file), or `-print-key` when the
+destination really is safe custody, such as a pipe into your vault. Re-running refuses to overwrite the trust
 root. `export` writes the CA's **public** trust bundle (root + intermediate
 certificates — never a key) to a file; point the control plane's
 `PROBECTL_AGENT_TLS_CA_FILE` at it so the gRPC listener can verify enrolling
