@@ -142,6 +142,12 @@ func runRegisterCollector(ctx context.Context, db *store.DB, args []string) erro
 	fmt.Println("  tenant_id:", id.TenantID)
 	fmt.Println("  agent_id: ", id.AgentID)
 	fmt.Println("  plane:    ", id.Plane)
+	// DPR-049: agent-published planes publish on the tenant's namespaced lane.
+	if ns, nerr := store.NewTenants(db.Pool()).BusNamespace(ctx, id.TenantID); nerr == nil {
+		if env := collectorLaneEnv(id.Plane); env != "" {
+			fmt.Println("  bus_namespace:", ns, "  ("+env+"; required in the multi-tenant/regulated profiles, where the shared lane is refused)")
+		}
+	}
 	if id.SVID != nil {
 		if err := os.WriteFile(*certOut, []byte(id.SVID.CertPEM), 0o600); err != nil {
 			return fmt.Errorf("write BMP certificate: %w", err)
@@ -227,4 +233,20 @@ func runRevokeEnrollToken(ctx context.Context, db *store.DB, args []string) erro
 	}
 	fmt.Printf("voided enroll token %s: it can no longer be redeemed (it was single-use and expiring anyway — this just ends it early)\n", *id)
 	return nil
+}
+
+// collectorLaneEnv names the collector's bus-namespace setting for its plane
+// (DPR-049); BGP/BMP publish through the listener and analyzer instead.
+func collectorLaneEnv(plane string) string {
+	switch plane {
+	case "flow":
+		return "PROBECTL_FLOW_BUS_NAMESPACE"
+	case "device":
+		return "PROBECTL_DEVICE_BUS_NAMESPACE"
+	case "endpoint":
+		return "PROBECTL_ENDPOINT_BUS_NAMESPACE"
+	case "ebpf":
+		return "PROBECTL_EBPF_BUS_NAMESPACE"
+	}
+	return ""
 }

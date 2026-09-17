@@ -17,6 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/enroll"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -218,13 +219,14 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return err
 		}
+		busNamespace, _ := store.NewTenants(s.pool).BusNamespace(ctx, id.TenantID)
 		out = collectorRegistrationResponse{
 			TenantID:     id.TenantID,
 			AgentID:      id.AgentID,
 			Plane:        id.Plane,
 			Hostname:     hostname,
 			Capabilities: []string{"collector", id.Plane},
-			Config:       collectorConfig(id.Plane, id.TenantID, id.AgentID, collectionProfile),
+			Config:       collectorConfig(id.Plane, id.TenantID, id.AgentID, collectionProfile, busNamespace),
 			SVID:         id.SVID,
 		}
 		return s.recordAudit(ctx, sc, r, "collector.registered", id.AgentID, map[string]any{
@@ -272,8 +274,17 @@ func collectorCollectionProfile(plane, raw string) (string, error) {
 	return string(profile), nil
 }
 
-func collectorConfig(plane, tenantID, agentID, collectionProfile string) collectorConfigHint {
+func collectorConfig(plane, tenantID, agentID, collectionProfile, busNamespace string) collectorConfigHint {
 	h := collectorConfigHint{Env: map[string]string{}, YAML: map[string]string{"tenant_id": tenantID}}
+	// DPR-049: agent-published planes publish on the tenant's namespaced lane
+	// (strict-lane mode refuses the shared lane); say which one.
+	lane := func(envKey string) {
+		if busNamespace == "" {
+			return
+		}
+		h.Env[envKey] = busNamespace
+		h.YAML["bus_namespace"] = busNamespace
+	}
 	switch plane {
 	case "bgp":
 		h.Env["PROBECTL_BGP_TENANT_ID"] = tenantID
@@ -307,20 +318,24 @@ func collectorConfig(plane, tenantID, agentID, collectionProfile string) collect
 		h.Env["PROBECTL_FLOW_TENANT"] = tenantID
 		h.Env["PROBECTL_FLOW_AGENT_ID"] = agentID
 		h.YAML["agent_id"] = agentID
+		lane("PROBECTL_FLOW_BUS_NAMESPACE")
 	case "device":
 		h.Env["PROBECTL_DEVICE_TENANT"] = tenantID
 		h.Env["PROBECTL_DEVICE_AGENT_ID"] = agentID
 		h.Env["PROBECTL_DEVICE_PROFILE"] = collectionProfile
 		h.YAML["agent_id"] = agentID
 		h.YAML["collection_profile"] = collectionProfile
+		lane("PROBECTL_DEVICE_BUS_NAMESPACE")
 	case "endpoint":
 		h.Env["PROBECTL_ENDPOINT_TENANT_ID"] = tenantID
 		h.Env["PROBECTL_ENDPOINT_AGENT_ID"] = agentID
 		h.YAML["agent_id"] = agentID
+		lane("PROBECTL_ENDPOINT_BUS_NAMESPACE")
 	case "ebpf":
 		h.Env["PROBECTL_EBPF_TENANT_ID"] = tenantID
 		h.Env["PROBECTL_EBPF_HOST"] = agentID
 		h.YAML["host"] = agentID
+		lane("PROBECTL_EBPF_BUS_NAMESPACE")
 	}
 	return h
 }

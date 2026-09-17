@@ -83,3 +83,25 @@ func TestPGSchemaFailClosed(t *testing.T) {
 		t.Fatalf("pooled tenant: %q %v", s, err)
 	}
 }
+
+// TestPooledRouterListsEveryActiveTenantLane (DPR-049): without the
+// commercial router the pooled router still answers lane questions from the
+// installed tenant lister, so strict-lane mode has a lane for every tenant.
+func TestPooledRouterListsEveryActiveTenantLane(t *testing.T) {
+	SetRouter(nil)
+	t.Cleanup(func() { SetPooledNamespaceLister(nil) })
+	if ns, err := CurrentRouter().BusNamespaces(context.Background()); err != nil || len(ns) != 0 {
+		t.Fatalf("no lister: %v %v", ns, err)
+	}
+	SetPooledNamespaceLister(func(context.Context) (map[string]string, error) {
+		return map[string]string{BusNamespaceFor("globex"): "id-g", BusNamespaceFor("acme"): "id-a"}, nil
+	})
+	ns, err := CurrentRouter().BusNamespaces(context.Background())
+	if err != nil || len(ns) != 2 || ns[0] != "t-acme" || ns[1] != "t-globex" {
+		t.Fatalf("namespaces = %v, %v", ns, err)
+	}
+	tenants, err := CurrentRouter().BusNamespaceTenants(context.Background())
+	if err != nil || tenants["t-acme"] != "id-a" {
+		t.Fatalf("tenants = %v, %v", tenants, err)
+	}
+}

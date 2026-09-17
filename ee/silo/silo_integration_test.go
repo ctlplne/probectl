@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -218,6 +219,21 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("bus namespaces missing the siloed tenant: %v", ns)
+	}
+	// DPR-049: the pooled tenant owns a lane as well — strict-lane mode
+	// refuses agent-published planes on the shared lane for every tenant.
+	byNS, err := router.BusNamespaceTenants(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pooledListed := false
+	for n, id := range byNS {
+		if id == pooledID && strings.HasPrefix(n, "t-") {
+			pooledListed = true
+		}
+	}
+	if !pooledListed {
+		t.Fatalf("bus namespaces missing the pooled tenant %s: %v", pooledID, byNS)
 	}
 
 	// CATCH-UP: simulate a later migration adding a tenant-owned table +

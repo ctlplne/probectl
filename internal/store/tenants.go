@@ -10,6 +10,8 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Tenants is the provider-level repository for the tenant registry. It operates
@@ -85,4 +87,35 @@ func (r *Tenants) UpdateStatus(ctx context.Context, id, status string) (*Tenant,
 		return nil, notFound("tenant", err)
 	}
 	return &t, nil
+}
+
+// BusNamespaceTenants (DPR-049) maps every active tenant's bus namespace
+// (tenancy.BusNamespaceFor(slug)) to its id, so the control plane subscribes
+// to and creates a lane per tenant — pooled tenants included — and a
+// collector's namespaced batch can be bound to its tenant.
+func (r *Tenants) BusNamespaceTenants(ctx context.Context) (map[string]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id::text, slug FROM tenants WHERE status NOT IN ('offboarding', 'deleted')`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, slug string
+		if err := rows.Scan(&id, &slug); err != nil {
+			return nil, err
+		}
+		out[tenancy.BusNamespaceFor(slug)] = id
+	}
+	return out, rows.Err()
+}
+
+// BusNamespace returns the tenant's lane namespace (DPR-049) — the value a
+// collector sets as PROBECTL_<PLANE>_BUS_NAMESPACE.
+func (r *Tenants) BusNamespace(ctx context.Context, id string) (string, error) {
+	t, err := r.get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return tenancy.BusNamespaceFor(t.Slug), nil
 }

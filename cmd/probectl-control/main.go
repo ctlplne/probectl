@@ -46,6 +46,7 @@ import (
 	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/migrate"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/threat"
 	"github.com/ctlplne/probectl/internal/version"
 	"github.com/ctlplne/probectl/migrations"
@@ -128,6 +129,11 @@ func run(cmd string) error {
 		cfg.DatabaseMaxConns, cfg.DatabaseMinConns, cfg.DatabaseConnTimeout); err != nil {
 		return err
 	}
+
+	// DPR-049: every active tenant owns a namespaced bus lane; the pooled
+	// router answers lane questions from the tenant registry until (and
+	// unless) the commercial silo router replaces it.
+	tenancy.SetPooledNamespaceLister(store.NewTenants(db.Pool()).BusNamespaceTenants)
 
 	// CODE-001: the DB-backed one-shot subcommands (migrate, mcp-*, agent-ca,
 	// *-token, revoke-*, register-collector, replay-deadletter) dispatch here,

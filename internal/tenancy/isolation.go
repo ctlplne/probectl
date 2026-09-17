@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"sync"
 )
 
@@ -96,13 +97,56 @@ func (PooledRouter) TargetsFor(context.Context, string) (Targets, error) {
 	return Targets{Model: IsolationPooled}, nil
 }
 
-// BusNamespaces returns none.
-func (PooledRouter) BusNamespaces(context.Context) ([]string, error) { return nil, nil }
-
-// BusNamespaceTenants: pooled deployments have no namespaced lanes.
-func (PooledRouter) BusNamespaceTenants(context.Context) (map[string]string, error) {
-	return nil, nil
+// BusNamespaces lists every active tenant's lane namespace (DPR-049).
+func (PooledRouter) BusNamespaces(ctx context.Context) ([]string, error) {
+	tenants, err := PooledRouter{}.BusNamespaceTenants(ctx)
+	if err != nil || len(tenants) == 0 {
+		return nil, err
+	}
+	out := make([]string, 0, len(tenants))
+	for ns := range tenants {
+		out = append(out, ns)
+	}
+	sort.Strings(out)
+	return out, nil
 }
+
+// BusNamespaceTenants (DPR-049): even without the commercial router every
+// active tenant owns a namespaced bus lane, because strict-lane mode (the
+// multi-tenant/regulated default) refuses agent-published planes on the
+// shared lane. The lister is installed by the control plane from its tenant
+// registry; without one there are no tenant lanes (single-tenant dev).
+func (PooledRouter) BusNamespaceTenants(ctx context.Context) (map[string]string, error) {
+	pooledListerMu.RLock()
+	fn := pooledLister
+	pooledListerMu.RUnlock()
+	if fn == nil {
+		return nil, nil
+	}
+	return fn(ctx)
+}
+
+// NamespaceLister returns the active tenants' bus namespaces mapped to their
+// tenant ids (BusNamespaceFor(slug) → id).
+type NamespaceLister func(ctx context.Context) (map[string]string, error)
+
+var (
+	pooledListerMu sync.RWMutex
+	pooledLister   NamespaceLister
+)
+
+// SetPooledNamespaceLister installs the tenant-registry lister the pooled
+// router answers lane questions with (DPR-049).
+func SetPooledNamespaceLister(fn NamespaceLister) {
+	pooledListerMu.Lock()
+	pooledLister = fn
+	pooledListerMu.Unlock()
+}
+
+// BusNamespaceFor is the one definition of a tenant's bus namespace
+// (probectl.<namespace>.<lane>): "t-" + slug, for pooled and siloed tenants
+// alike (DPR-049).
+func BusNamespaceFor(slug string) string { return "t-" + slug }
 
 var (
 	routerMu sync.RWMutex

@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Naming: identifiers derive from the tenant UUID (stable, collision-free,
@@ -40,7 +42,7 @@ func CHDatabase(tenantID string) string {
 }
 
 // BusNamespace returns the tenant's bus topic namespace: "t-<slug>".
-func BusNamespace(slug string) string { return "t-" + slug }
+func BusNamespace(slug string) string { return tenancy.BusNamespaceFor(slug) }
 
 // ObjectPrefix returns the tenant's object-store key namespace.
 func ObjectPrefix(tenantID string) string { return "silo/" + strings.ToLower(tenantID) }

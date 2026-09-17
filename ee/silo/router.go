@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -239,9 +240,6 @@ func (r *Router) BusNamespaceTenants(ctx context.Context) (map[string]string, er
 	}
 	out := map[string]string{}
 	for id, row := range reg {
-		if row.model != tenancy.IsolationSiloed && row.model != tenancy.IsolationHybrid {
-			continue
-		}
 		if row.status == "offboarding" || row.status == "deleted" {
 			continue
 		}
@@ -259,13 +257,13 @@ func (r *Router) BusNamespaces(ctx context.Context) ([]string, error) {
 	}
 	var out []string
 	for _, row := range reg {
-		if row.model != tenancy.IsolationSiloed && row.model != tenancy.IsolationHybrid {
-			continue
-		}
+		// DPR-049: pooled tenants own a lane too — strict-lane mode refuses
+		// agent-published planes on the shared lane for every tenant.
 		if row.status == "offboarding" || row.status == "deleted" {
 			continue
 		}
 		out = append(out, BusNamespace(row.slug))
 	}
+	sort.Strings(out)
 	return out, nil
 }

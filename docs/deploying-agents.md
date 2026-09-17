@@ -162,7 +162,12 @@ probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc00"}'
 ```
 
 The response includes `tenant_id`, `agent_id`, `capabilities`, and concrete
-config hints. Flow, device, and endpoint use `agent_id` in YAML/env. eBPF's
+config hints — including the tenant's **bus lane**
+(`PROBECTL_<PLANE>_BUS_NAMESPACE=t-<tenant-slug>`). Every active tenant, pooled
+or siloed, owns a namespaced lane; in the multi-tenant and regulated profiles
+the shared lane is refused for agent-published planes
+(`PROBECTL_INGEST_STRICT_TENANT_LANES`), so the collector must carry that
+setting or every batch is rejected at the control plane (DPR-049). Flow, device, and endpoint use `agent_id` in YAML/env. eBPF's
 current runtime uses `host` as its bus `agent_id`, so the eBPF hint returns
 `host: <collector-id>` and `PROBECTL_EBPF_HOST=<collector-id>` instead of
 inventing a second unsupported key. BGP returns BMP listener hints, including
@@ -187,7 +192,7 @@ startup then verifies them and fails closed naming any that is missing:
 | `probectl.bgp.events` | BMP listener / analyzer → BGP consumer |
 | `probectl.otlp.metrics` | OTLP ingest → metrics consumer |
 | `probectl.deadletter.results` | consumers → replay tooling |
-| `probectl.<namespace>.<lane>` | the same lanes, one namespace per siloed tenant |
+| `probectl.<namespace>.<lane>` | the same lanes, one namespace (`t-<slug>`) per active tenant — pooled or siloed; the lanes agent-published planes must use in strict-lane mode |
 
 Partitions and replication for created topics: `PROBECTL_BUS_TOPIC_PARTITIONS`
 (3) and `PROBECTL_BUS_TOPIC_REPLICATION` (`-1` = the broker default).
