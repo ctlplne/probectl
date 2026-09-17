@@ -67,6 +67,7 @@ rules:
     suppress: 1h
     thresholds:
       min_samples: 8
+      internal_penalty: 30   # DPR-076: subtracted when the destination is a private/internal address (keepalives, pollers)
       max_jitter: 0.12
       min_interval_s: 5
       max_interval_s: 3600

@@ -569,3 +569,41 @@ func TestSelfTrafficNeverBeacons(t *testing.T) {
 		t.Fatal("a metronome to another host must still beacon (the detector was not disabled)")
 	}
 }
+
+// DPR-076: the lab's first beaconing detection after the loopback fix was
+// Docker's own gateway (172.23.0.4 → 192.168.65.254:8080 every 15 s) at 89%
+// confidence — a keepalive between two private addresses. A metronome to an
+// internal destination stays a signal but is labeled and scored down by the
+// rule's internal_penalty; the same metronome to an external host is not.
+func TestInternalBeaconIsScoredDown(t *testing.T) {
+	fire := func(dst string) []incident.Signal {
+		e := testEngine(t, nil, nil)
+		var out []incident.Signal
+		for i := 0; i < 12; i++ {
+			out = append(out, e.ObserveFlow("t1", FlowObservation{
+				Src: "172.23.0.4", Dst: dst, DstPort: 8080, Bytes: 64,
+				At: t0.Add(time.Duration(i) * 15 * time.Second)})...)
+		}
+		return out
+	}
+	pick := func(sigs []incident.Signal) (int, string) {
+		for _, s := range sigs {
+			if s.Kind == "ndr.beaconing" {
+				c, _ := strconv.Atoi(s.Attributes["detector.confidence"])
+				return c, s.Attributes["beacon.scope"]
+			}
+		}
+		return -1, ""
+	}
+	extConf, extScope := pick(fire("203.0.113.9"))
+	intConf, intScope := pick(fire("192.168.65.254"))
+	if extConf < 0 || intConf < 0 {
+		t.Fatalf("beaconing did not fire: external=%d internal=%d", extConf, intConf)
+	}
+	if extScope != "external" || intScope != "internal" {
+		t.Errorf("scope evidence: external=%q internal=%q", extScope, intScope)
+	}
+	if intConf != extConf-30 {
+		t.Errorf("internal destination must be scored down by internal_penalty (30): external=%d internal=%d", extConf, intConf)
+	}
+}

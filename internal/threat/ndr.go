@@ -441,6 +441,19 @@ func (e *Engine) observeBeacon(tenant string, ts *tenantState, obs FlowObservati
 			"beacon.interval_s": fmt.Sprintf("%.1f", mean),
 			"beacon.jitter":     fmt.Sprintf("%.3f", jitter),
 			"beacon.samples":    strconv.Itoa(len(st.arrivals) - 1),
+			"beacon.scope":      "external",
+		}
+		if isInternal(obs.Dst) {
+			// DPR-076: a metronome to a PRIVATE destination is far more often a
+			// keepalive, a health probe or a poller than a callback (the lab's
+			// first hit was Docker's own gateway every 15 s at 89%). Keep the
+			// signal — internal C2 relays exist — but say so and score it down
+			// by the rule's internal_penalty (default 30; 0 keeps parity).
+			evidence["beacon.scope"] = "internal"
+			conf -= int(rule.Threshold("internal_penalty", 30))
+			if conf < 1 {
+				conf = 1
+			}
 		}
 		if m := e.bestIntel(obs.Dst); m != nil {
 			conf += 20
