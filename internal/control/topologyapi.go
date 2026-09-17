@@ -180,13 +180,14 @@ func atParam(r *http.Request, def time.Time) (time.Time, error) {
 // (S14), and device telemetry (S39). Path discoveries fold in at save time
 // (see handleDiscoverPath). Unscoped records are dropped (guardrail 1).
 type TopologyConsumer struct {
-	store     topology.Store
-	bus       bus.Bus
-	log       *slog.Logger
-	binding   pipeline.TenantBinding // TENANT-101; nil = unit tests
-	clock     func() time.Time
-	ledger    *topologyIntegrityLedger
-	nsTenants map[string]string
+	store      topology.Store
+	bus        bus.Bus
+	log        *slog.Logger
+	rejections *rejectionLogger       // DPR-074: fail-closed rejections, loud once per window
+	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
+	clock      func() time.Time
+	ledger     *topologyIntegrityLedger
+	nsTenants  map[string]string
 	// ebpf is the durable eBPF aggregate store (ARCH-008). When set, every
 	// verified service edge is also persisted, so the differentiator plane has
 	// history and survives a restart instead of living only in the RAM graph.
@@ -234,7 +235,7 @@ func NewTopologyConsumer(b bus.Bus, st topology.Store, log *slog.Logger) *Topolo
 	if log == nil {
 		log = slog.Default()
 	}
-	return &TopologyConsumer{store: st, bus: b, log: log, clock: time.Now, ledger: newTopologyIntegrityLedger()}
+	return &TopologyConsumer{store: st, bus: b, log: log, clock: time.Now, ledger: newTopologyIntegrityLedger(), rejections: newRejectionLogger(0)}
 }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101)
@@ -268,7 +269,8 @@ func (tc *TopologyConsumer) rejectBatch(ctx context.Context, plane, laneTenant s
 		return false
 	}
 	if _, _, err := pipeline.VerifyBatchTenantStrict(ctx, tc.binding, laneTenant, tc.strictLane, ids); err != nil {
-		tc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+		tc.rejections.Log(tc.log, "REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+			[]string{"topology", plane, ids[0].Tenant, ids[0].Agent, err.Error()},
 			"view", "topology", "plane", plane, "claimed_tenant", ids[0].Tenant,
 			"agent_id", ids[0].Agent, "error", err.Error())
 		tc.ledger.addRejected(plane, 1)

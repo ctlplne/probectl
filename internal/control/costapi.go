@@ -97,6 +97,7 @@ type CostConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	log        *slog.Logger
+	rejections *rejectionLogger       // DPR-074: fail-closed rejections, loud once per window
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 	nsTenants  map[string]string
 }
@@ -106,7 +107,7 @@ func NewCostConsumer(b bus.Bus, e *cost.Engine, c *incident.Correlator, log *slo
 	if log == nil {
 		log = slog.Default()
 	}
-	return &CostConsumer{engine: e, bus: b, correlator: c, log: log}
+	return &CostConsumer{engine: e, bus: b, correlator: c, log: log, rejections: newRejectionLogger(0)}
 }
 
 // Run subscribes to the shared flow topic plus every siloed-tenant lane until ctx ends.
@@ -146,7 +147,8 @@ func (cc *CostConsumer) handleLane(ctx context.Context, msg bus.Message, laneTen
 			ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
 		}
 		if _, _, err := pipeline.VerifyBatchTenant(ctx, cc.binding, "", ids); err != nil {
-			cc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+			cc.rejections.Log(cc.log, "REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+				[]string{"cost", "flow", ids[0].Tenant, ids[0].Agent, err.Error()},
 				"view", "cost", "claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent, "error", err.Error())
 			return nil
 		}

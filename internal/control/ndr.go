@@ -69,6 +69,7 @@ type NDRConsumer struct {
 	detections *threat.DetectionStore
 	siem       *siem.Forwarder
 	log        *slog.Logger
+	rejections *rejectionLogger // DPR-074: fail-closed rejections, loud once per window
 
 	// binding is the registry-backed tenant verification (TENANT-101, ARCH-012).
 	// The NDR consumer was the ONE bus consumer that trusted the payload tenant
@@ -149,7 +150,8 @@ func (cs *NDRConsumer) rejectFlows(ctx context.Context, plane string, ids []pipe
 		return false
 	}
 	if _, _, err := pipeline.VerifyBatchTenant(ctx, cs.binding, "", ids); err != nil {
-		cs.log.Error("REJECTED batch: tenant verification failed (TENANT-101/ARCH-012, fail closed)",
+		cs.rejections.Log(cs.log, "REJECTED batch: tenant verification failed (TENANT-101/ARCH-012, fail closed)",
+			[]string{"ndr", plane, ids[0].Tenant, ids[0].Agent, err.Error()},
 			"view", "ndr", "plane", plane, "claimed_tenant", ids[0].Tenant,
 			"agent_id", ids[0].Agent, "error", err.Error())
 		return true
@@ -162,7 +164,7 @@ func NewNDRConsumer(b bus.Bus, eng *threat.Engine, c *incident.Correlator, log *
 	if log == nil {
 		log = slog.Default()
 	}
-	return &NDRConsumer{engine: eng, bus: b, correlator: c, log: log}
+	return &NDRConsumer{engine: eng, bus: b, correlator: c, log: log, rejections: newRejectionLogger(0)}
 }
 
 // withDetections retains raised detections for the triage surface (S-FE3).

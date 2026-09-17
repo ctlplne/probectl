@@ -111,6 +111,7 @@ type ComplianceConsumer struct {
 	siem       *siem.Forwarder
 	gate       ComplianceAlertGate // DPR-073: cluster-wide once-only export of a violation
 	log        *slog.Logger
+	rejections *rejectionLogger       // DPR-074: fail-closed rejections, loud once per window
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 	nsTenants  map[string]string
 }
@@ -120,7 +121,7 @@ func NewComplianceConsumer(b bus.Bus, e *compliance.Engine, c *incident.Correlat
 	if log == nil {
 		log = slog.Default()
 	}
-	return &ComplianceConsumer{engine: e, bus: b, correlator: c, log: log}
+	return &ComplianceConsumer{engine: e, bus: b, correlator: c, log: log, rejections: newRejectionLogger(0)}
 }
 
 // ComplianceAlertGate decides, cluster-wide, whether THIS replica exports a
@@ -192,7 +193,8 @@ func (cc *ComplianceConsumer) rejectFlows(ctx context.Context, plane string, ids
 		return false
 	}
 	if _, _, err := pipeline.VerifyBatchTenant(ctx, cc.binding, "", ids); err != nil {
-		cc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+		cc.rejections.Log(cc.log, "REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+			[]string{"compliance", plane, ids[0].Tenant, ids[0].Agent, err.Error()},
 			"view", "compliance", "plane", plane, "claimed_tenant", ids[0].Tenant,
 			"agent_id", ids[0].Agent, "error", err.Error())
 		return true
