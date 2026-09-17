@@ -10,6 +10,16 @@
     "/provider/v1/auth/bootstrap": {
       "post": {
         "summary": "Create the first admin from the deployment bootstrap token (single-use)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorBootstrapRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "The first provider admin was created and its one-time enrollment token returned"
@@ -23,6 +33,16 @@
     "/provider/v1/auth/enroll/start": {
       "post": {
         "summary": "Exchange an enrollment token for the TOTP binding (secret returned once)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorEnrollStartRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -33,6 +53,16 @@
     "/provider/v1/auth/enroll/complete": {
       "post": {
         "summary": "Verify the first TOTP code, set the password, activate the operator",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorEnrollCompleteRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -43,6 +73,16 @@
     "/provider/v1/auth/login": {
       "post": {
         "summary": "Operator login: email + password + TOTP (MFA mandatory)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorLoginRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -53,6 +93,7 @@
     "/provider/v1/auth/logout": {
       "post": {
         "summary": "End the operator session",
+        "x-probectl-request-body": "none: the session token in the Authorization header identifies what to tear down",
         "responses": {
           "200": {
             "description": "OK"
@@ -91,6 +132,16 @@
       },
       "post": {
         "summary": "Create an operator; returns the one-time enrollment token (admin)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorCreateRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -101,6 +152,16 @@
     "/provider/v1/operators/{id}/status": {
       "post": {
         "summary": "Enable/disable an operator; disablement revokes sessions immediately (admin)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorStatusRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -119,6 +180,16 @@
       },
       "post": {
         "summary": "Provision a tenant (licensed tenant band enforced atomically at publication; isolation_model pooled|siloed|hybrid \u2014 failed siloed/hybrid setup remains non-routable in provisioning state and the identical request resumes the same tenant; residency pins a configured data plane)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantProvisionRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -129,6 +200,16 @@
     "/provider/v1/tenants/{id}": {
       "patch": {
         "summary": "Configure (rename) a tenant",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantConfigureRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -139,6 +220,7 @@
     "/provider/v1/tenants/{id}/suspend": {
       "post": {
         "summary": "Suspend a tenant: its users are rejected at the API; data and ingestion are untouched",
+        "x-probectl-request-body": "none: the path identifies the tenant; the actor comes from the session",
         "responses": {
           "200": {
             "description": "OK"
@@ -149,6 +231,7 @@
     "/provider/v1/tenants/{id}/resume": {
       "post": {
         "summary": "Reactivate a suspended tenant",
+        "x-probectl-request-body": "none: the path identifies the tenant; the actor comes from the session",
         "responses": {
           "200": {
             "description": "OK"
@@ -159,6 +242,7 @@
     "/provider/v1/tenants/{id}/offboard": {
       "post": {
         "summary": "Offboard a tenant: API access stops and the licensed-band slot is freed; all data and isolated stores remain for the separate verifiable-deletion flow",
+        "x-probectl-request-body": "none: the path identifies the tenant; the actor comes from the session",
         "responses": {
           "200": {
             "description": "OK"
@@ -191,6 +275,7 @@
       "post": {
         "summary": "Abandon a stranded provisioning attempt (admin only)",
         "description": "Tears down whatever external silo state the attempt created, then removes its staging row. Teardown runs first: dropping the row while a per-tenant database survives is precisely the orphan this action exists to prevent. Separately audited on the provider stream.",
+        "x-probectl-request-body": "none: the path identifies the provisioning record",
         "responses": {
           "200": {
             "description": "Abandoned"
@@ -209,6 +294,16 @@
       },
       "post": {
         "summary": "Request a break-glass grant (pending until the tenant consents; TTL capped)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BreakGlassRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -219,6 +314,7 @@
     "/provider/v1/breakglass/{id}/revoke": {
       "post": {
         "summary": "Revoke a grant early",
+        "x-probectl-request-body": "none: the path identifies the grant; revocation takes no parameters",
         "responses": {
           "200": {
             "description": "OK"
@@ -255,6 +351,16 @@
     "/provider/v1/consent/{id}": {
       "post": {
         "summary": "Approve or deny a grant (tenant session; tenant-first directory.write RBAC plus ABAC)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentDecisionRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -299,6 +405,16 @@
       },
       "put": {
         "summary": "Set a tenant's creation quotas (admin; audited; creation-gating only \u2014 telemetry is never quota-dropped)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantQuotasRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -309,6 +425,16 @@
     "/provider/v1/tenants/{id}/erase": {
       "post": {
         "summary": "IRREVERSIBLE verifiable erasure of a tenant across every store (the CORE S-T5 engine; admin SoD; confirm=<slug>; returns + audits the deletion attestation)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantEraseRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -371,6 +497,16 @@
       },
       "put": {
         "summary": "Set the tenant's data-governance policy: classification overrides + redaction (redact_from / redact_export); audited provider.governance_set; admin; read-only-degrade blocked",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantGovernanceRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -494,6 +630,300 @@
             }
           }
         }
+      },
+      "OperatorBootstrapRequest": {
+        "description": "Bootstrap the first provider operator. Case-insensitive keys are accepted; the response carries the operator and a one-time enroll_token for TOTP enrollment.",
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "the deployment bootstrap secret (PROBECTL_PROVIDER_BOOTSTRAP_TOKEN); accepted only while no operator exists"
+          },
+          "email": {
+            "type": "string",
+            "description": "first operator email (lower-cased)",
+            "format": "email"
+          },
+          "name": {
+            "type": "string",
+            "description": "display name"
+          }
+        },
+        "required": [
+          "token",
+          "email",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "OperatorEnrollStartRequest": {
+        "description": "Begin operator enrollment: returns the TOTP secret and otpauth URI to load into an authenticator.",
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "the one-time enroll token issued at bootstrap or operator creation"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "OperatorEnrollCompleteRequest": {
+        "description": "Complete enrollment: sets the password and proves TOTP possession; the operator becomes active.",
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "the same one-time enroll token"
+          },
+          "password": {
+            "type": "string",
+            "description": "the operator password to set",
+            "format": "password"
+          },
+          "totp": {
+            "type": "string",
+            "description": "a current 6-digit code from the enrolled authenticator (proves the secret was captured)"
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "totp"
+        ],
+        "additionalProperties": false
+      },
+      "OperatorLoginRequest": {
+        "description": "Establish an operator session. Throttled per source IP and per account before the credentials are checked.",
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "totp": {
+            "type": "string",
+            "description": "current TOTP code (MFA is mandatory for operators)"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "totp"
+        ],
+        "additionalProperties": false
+      },
+      "OperatorCreateRequest": {
+        "description": "Create another operator (admin only). The response carries a one-time enroll_token to hand to the person out of band.",
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "description": "operator role",
+            "enum": [
+              "admin",
+              "operator"
+            ]
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "role"
+        ],
+        "additionalProperties": false
+      },
+      "OperatorStatusRequest": {
+        "description": "Enable or disable an operator; disabling ends every session of that operator immediately.",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "TenantProvisionRequest": {
+        "description": "Provision a tenant under the licensed tenant band.",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "URL-safe tenant identifier; the identical request resumes an in-progress provision"
+          },
+          "name": {
+            "type": "string",
+            "description": "display name"
+          },
+          "isolation_model": {
+            "type": "string",
+            "description": "data isolation model for this tenant",
+            "enum": [
+              "pooled",
+              "siloed",
+              "hybrid"
+            ]
+          },
+          "residency": {
+            "type": "string",
+            "description": "optional: pins the tenant to a configured data plane / region"
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "TenantConfigureRequest": {
+        "description": "Update a tenant's mutable settings.",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "new display name"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "BreakGlassRequest": {
+        "description": "Request a time-bounded break-glass grant. It becomes active only after a tenant administrator consents.",
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "the tenant whose telemetry the grant would cover",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "description": "free-text justification, written to the provider audit stream"
+          },
+          "ttl_minutes": {
+            "type": "integer",
+            "description": "grant lifetime in minutes; capped by policy",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "tenant_id",
+          "reason",
+          "ttl_minutes"
+        ],
+        "additionalProperties": false
+      },
+      "ConsentDecisionRequest": {
+        "description": "A tenant administrator's decision on a pending break-glass request.",
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "deny"
+            ]
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "additionalProperties": false
+      },
+      "TenantQuotasRequest": {
+        "description": "Set per-tenant quotas (fairness/metering). Negative values are rejected.",
+        "type": "object",
+        "properties": {
+          "max_agents": {
+            "type": "integer",
+            "description": "cap on enrolled agents; null or omitted clears the cap",
+            "minimum": 0,
+            "nullable": true
+          },
+          "max_tests": {
+            "type": "integer",
+            "description": "cap on test definitions; null or omitted clears the cap",
+            "minimum": 0,
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TenantEraseRequest": {
+        "description": "Verifiable erasure of a tenant's data; the confirmation must repeat the tenant slug.",
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "must equal the tenant slug: the erase is irreversible"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "TenantGovernanceRequest": {
+        "description": "Set the tenant's data-governance policy.",
+        "type": "object",
+        "properties": {
+          "classifications": {
+            "type": "object",
+            "description": "per-field data classification overrides (field \u2192 class)",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "public",
+                "internal",
+                "confidential",
+                "pii",
+                "restricted"
+              ]
+            }
+          },
+          "redact_from": {
+            "type": "string",
+            "description": "classes at or above this level are redacted",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "pii",
+              "restricted"
+            ]
+          },
+          "redact_export": {
+            "type": "boolean",
+            "description": "redact classified fields in exports"
+          },
+          "ai_remote_egress": {
+            "type": "boolean",
+            "description": "tenant consent for sending redacted evidence to a remote AI model"
+          }
+        },
+        "additionalProperties": false
       }
     }
   }

@@ -95,3 +95,54 @@ func TestProviderRoutesAreRegistered(t *testing.T) {
 		}
 	}
 }
+
+// DPR-012: an integrator learns field names from the contract, so every
+// POST/PUT/PATCH either declares a JSON request body whose schema resolves,
+// or states explicitly (x-probectl-request-body) why it takes none.
+func TestProviderOpenAPIDeclaresRequestBodies(t *testing.T) {
+	var doc struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(providerSpec, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for p, methods := range doc.Paths {
+		for m, op := range methods {
+			switch strings.ToUpper(m) {
+			case "POST", "PUT", "PATCH":
+			default:
+				continue
+			}
+			label := strings.ToUpper(m) + " " + p
+			if why, ok := op["x-probectl-request-body"].(string); ok {
+				if !strings.HasPrefix(why, "none:") {
+					t.Errorf("%s: x-probectl-request-body must start with \"none:\" and give the reason, got %q", label, why)
+				}
+				if _, both := op["requestBody"]; both {
+					t.Errorf("%s: declares a requestBody AND x-probectl-request-body", label)
+				}
+				continue
+			}
+			body, ok := op["requestBody"].(map[string]any)
+			if !ok {
+				t.Errorf("%s: declares no requestBody and no x-probectl-request-body reason (DPR-012)", label)
+				continue
+			}
+			content, _ := body["content"].(map[string]any)
+			js, _ := content["application/json"].(map[string]any)
+			schema, _ := js["schema"].(map[string]any)
+			ref, _ := schema["$ref"].(string)
+			if ref == "" {
+				t.Errorf("%s: requestBody must carry application/json with a $ref schema", label)
+				continue
+			}
+			const prefix = "#/components/schemas/"
+			if _, ok := doc.Components.Schemas[strings.TrimPrefix(ref, prefix)]; !strings.HasPrefix(ref, prefix) || !ok {
+				t.Errorf("%s: requestBody $ref %q does not resolve", label, ref)
+			}
+		}
+	}
+}
