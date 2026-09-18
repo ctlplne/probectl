@@ -922,6 +922,12 @@ function DevicePanel({
         variant="secondary"
         className={styles.configVersionCompareButton}
         aria-haspopup="dialog"
+        // DPR-167: a stable key so focus can be restored to this button even if
+        // the row it lives in re-rendered while the dialog was open. A data
+        // attribute, not an id: the responsive layout renders this button twice
+        // — once in the desktop table, once in the mobile card — and duplicate
+        // ids on active elements are themselves an accessibility violation.
+        data-focus-key={`config-compare-${config.id}`}
         aria-expanded={configComparison?.current.id === config.id}
         aria-label={t('planes.device.config.compare.actionLabel', {
           device: config.device,

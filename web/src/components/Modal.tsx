@@ -22,6 +22,52 @@ export interface ModalProps {
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
 
+// isVisible answers "would a browser paint this?" — checkVisibility where the
+// engine has it (it is correct for position: fixed, which offsetParent reports
+// as hidden), otherwise the offsetParent test, which display: none nulls out.
+function isVisible(el: HTMLElement): boolean {
+  if (typeof el.checkVisibility === 'function') return el.checkVisibility()
+  return el.offsetParent !== null
+}
+
+// DPR-167: restore focus to the TRIGGER, not to the node it used to be. A list
+// that re-renders while a dialog is open (a poll landing, a refetch, a
+// responsive re-layout) replaces the captured element, and focusing a detached
+// node silently does nothing — focus falls to <body>, where the next Tab
+// restarts at the top of the page. That is a WCAG 2.4.3 focus-order failure that
+// reads like working code, so this walks the alternatives in order of how much
+// it actually knows, and never gives up silently.
+function restoreFocus(trigger: HTMLElement | null) {
+  const captured = trigger?.isConnected && trigger !== document.body ? trigger : null
+  if (captured && isVisible(captured)) {
+    captured.focus?.()
+    return
+  }
+  // The trigger is gone, or still mounted but no longer painted (the responsive
+  // copy that display: none took away). A stable key re-finds the live one.
+  const key = trigger?.dataset?.focusKey
+  const candidates = key
+    ? Array.from(document.querySelectorAll<HTMLElement>(`[data-focus-key="${CSS.escape(key)}"]`))
+    : []
+  const visible = candidates.find(isVisible)
+  if (visible) {
+    visible.focus()
+    return
+  }
+  // Nothing confirmed visible — which is also every environment without layout,
+  // so do not throw away a node we do have: the caller's own still-mounted
+  // trigger beats a guess, and a re-rendered copy beats the page body.
+  const fallback = captured ?? candidates[0]
+  if (fallback) {
+    fallback.focus?.()
+    return
+  }
+  // No identifiable trigger left: park focus on the main landmark, the same
+  // place a route change puts it, rather than dropping it on <body>.
+  const main = document.getElementById('main-content') ?? document.querySelector('main')
+  main?.focus?.()
+}
+
 /** An accessible modal dialog: focus trap, Escape to close, focus restoration. */
 export function Modal({ open, onClose, title, children, footer, returnFocusRef }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -57,7 +103,7 @@ export function Modal({ open, onClose, title, children, footer, returnFocusRef }
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      previouslyFocused?.focus?.()
+      restoreFocus(previouslyFocused)
     }
   }, [open, onClose, returnFocusRef])
 
