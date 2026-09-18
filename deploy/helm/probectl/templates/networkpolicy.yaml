@@ -21,10 +21,18 @@ spec:
     - ports:
         - protocol: TCP
           port: {{ .Values.service.port }}
-      {{- with .Values.networkPolicy.ingressFrom }}
       from:
+        {{- with .Values.networkPolicy.ingressFrom }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
+        {{- with .Values.networkPolicy.agentEnrollmentFrom }}
+        # DPR-174: agent enrolment and identity ROTATION are HTTP endpoints on
+        # this port, and rotation cannot use the mTLS listener because the
+        # certificate it exists to replace is the one about to expire. Without a
+        # path here, every in-cluster agent dies one identity lifetime after it
+        # enrols.
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     {{- if .Values.control.agentListener.enabled }}
     # DPR-046: producers reach the mTLS listener from customer networks; the
     # SVID handshake is the authentication, so the default source is any.

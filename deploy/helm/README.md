@@ -344,6 +344,31 @@ Agents → Enroll agent, or `enroll-token -tenant <uuid>`) and enroll agents
 against the API host with gRPC at the `-agents` address
 ([`docs/deploying-agents.md`](../../docs/deploying-agents.md)).
 
+**Agents also need the API port, and only for their identity.** Enrolment
+(`POST /enroll/agent/join`) and identity **rotation** (`POST
+/enroll/agent/rotate`) are HTTP endpoints on `service.port`, not on the mTLS
+listener — rotation cannot live behind mTLS, because the certificate it exists
+to replace is the one that is about to stop working. An SVID lasts hours, not
+months; an agent that cannot reach this endpoint keeps running on the identity
+it has, goes silent one lifetime later, and can then only return by enrolling
+again with a fresh join token (DPR-174).
+
+`networkPolicy.agentEnrollmentFrom` is the path for that, and it ships naming
+the product's own agent pods (`app.kubernetes.io/name: probectl-agent`) in any
+namespace — nothing else. Agents you deploy another way need their own selector
+here:
+
+```yaml
+networkPolicy:
+  agentEnrollmentFrom:
+    - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: probectl-agents } }
+      podSelector: { matchLabels: { app: my-flow-collector } }
+```
+
+Agents that run OUTSIDE the cluster reach the same endpoint through the
+ingress, so they need nothing here. Setting the list empty restores the
+previous behaviour and is only correct when every agent is external.
+
 ## Optional rendered-browser synthetic agent
 
 `browserAgent.enabled=true` adds a listener-free DaemonSet using the dedicated

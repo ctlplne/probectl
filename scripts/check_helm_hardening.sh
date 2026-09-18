@@ -534,6 +534,12 @@ need "kind: NetworkPolicy"             "$base" "default profile missing NetworkP
 base_np="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$base")"
 need "from:"                           "$base_np" "default profile NetworkPolicy has no ingress source selector (WIRE-002)"
 need "ingress-nginx"                   "$base_np" "default profile NetworkPolicy does not restrict API ingress to the ingress controller (WIRE-002)"
+# DPR-174: agents enrol and ROTATE their identity over the API port, and
+# rotation cannot use the mTLS listener because the certificate it replaces is
+# the one about to expire. A policy that admits only the ingress controller
+# kills every in-cluster agent one identity lifetime after it enrols — silently,
+# because an established stream keeps working until the control plane restarts.
+need "app.kubernetes.io/name: probectl-agent" "$base_np" "default profile NetworkPolicy gives the product's own agents no path to the enrolment/rotation endpoints (DPR-174)"
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
