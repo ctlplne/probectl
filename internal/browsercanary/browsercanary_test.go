@@ -193,7 +193,16 @@ process.stdout.write(JSON.stringify({success:true,total_ms:7,steps:[],waterfall:
 		t.Fatal(err)
 	}
 	c, err := factory(canary.Config{
-		Type: Type, Target: "https://example.com/", Timeout: time.Second,
+		// DPR-202: not one second. This spawns `node`, and a cold Node start on a
+		// loaded machine takes longer than that — the worker is killed at the
+		// deadline, res.Success goes false, and the test fails with
+		// "browser worker: signal: killed" for a reason that has nothing to do
+		// with what it asserts. Observed exactly once during a full gate run on a
+		// saturated host, and it passed twice immediately afterwards, which is
+		// the signature of a deadline rather than a defect. The test measures
+		// driver selection and output parsing, not latency, so a generous budget
+		// costs nothing when things are fast.
+		Type: Type, Target: "https://example.com/", Timeout: 30 * time.Second,
 		Params: map[string]string{DriverParam: DriverBrowser},
 	})
 	if err != nil {
