@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"time"
@@ -85,6 +86,48 @@ func runAgentCAInit(ctx context.Context, db *store.DB, args []string) error {
 	return nil
 }
 
+// maxRootKeyBytes bounds the stdin read in `agent-ca renew`. An Ed25519 or
+// P-256 root key PEM is a few hundred bytes; 64 KiB is room for a PEM with a
+// long comment header and nothing like enough to be a mistake worth allocating.
+const maxRootKeyBytes = 64 << 10
+
+// readRootKey loads the offline root CA private key for `agent-ca renew`. The
+// key is a private key: read it, use it, and never copy it anywhere else.
+// Guardrail 6 — it is not logged, not echoed, not stored.
+//
+// DPR-191: "-" means stdin, the same way `agent-ca export -` means stdout.
+// Without it this command was unrunnable on the image the chart ships. That
+// image is distroless — no shell, no tar — so `kubectl cp` into it fails with
+// `exec: "tar": executable file not found in $PATH`, and there is no other way
+// to put a file inside the container. The workaround an operator would reach
+// for, mounting the root key as a Secret, writes the offline root into etcd and
+// onto every replica — precisely what keeping the root offline exists to
+// prevent. `ir-key-install` learned this already; this command had not.
+func readRootKey(path string, stdin io.Reader) ([]byte, error) {
+	if path != "-" {
+		key, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("agent-ca renew: read root key: %w", err)
+		}
+		return key, nil
+	}
+	if stdin == nil {
+		return nil, errors.New("agent-ca renew: -root-key - was given but this process has no stdin")
+	}
+	key, err := io.ReadAll(io.LimitReader(stdin, maxRootKeyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("agent-ca renew: read root key from stdin: %w", err)
+	}
+	if len(key) == 0 {
+		return nil, errors.New("agent-ca renew: -root-key - was given but stdin is empty; pipe the root key PEM in " +
+			"(with kubectl, remember `exec -i`)")
+	}
+	if len(key) > maxRootKeyBytes {
+		return nil, fmt.Errorf("agent-ca renew: the root key on stdin exceeds %d bytes — that is not a private key PEM", maxRootKeyBytes)
+	}
+	return key, nil
+}
+
 // runAgentCARenew issues a NEW signing intermediate from the offline root and
 // supersedes the current one, keeping the old certificate until it expires.
 //
@@ -94,25 +137,25 @@ func runAgentCAInit(ctx context.Context, db *store.DB, args []string) error {
 // one-year mark enrollment and rotation start refusing, and the whole fleet
 // stops within one SVID lifetime, quietly, because each agent keeps working
 // until its own leaf expires.
-func runAgentCARenew(ctx context.Context, db *store.DB, args []string) error {
+func runAgentCARenew(ctx context.Context, db *store.DB, args []string, stdin io.Reader) error {
 	fs := flag.NewFlagSet("agent-ca renew", flag.ContinueOnError)
-	rootKeyFile := fs.String("root-key", "", "file holding the OFFLINE root CA private key printed by `agent-ca init` (required)")
+	rootKeyFile := fs.String("root-key", "", "file holding the OFFLINE root CA private key printed by `agent-ca init`, or \"-\" to read it from stdin (required)")
 	years := fs.Int("years", 1, "lifetime of the new issuing intermediate, in years")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *rootKeyFile == "" {
 		return errors.New("agent-ca renew: -root-key <file> is required — renewal is signed by the offline root, " +
-			"which this deployment deliberately does not hold. Retrieve it from custody, run this, and put it back")
+			"which this deployment deliberately does not hold. Retrieve it from custody, run this, and put it back. " +
+			"The shipped image has no shell and no tar, so `kubectl cp` cannot reach it: pipe the key in instead — " +
+			"kubectl exec -i deploy/probectl -c control -- probectl-control agent-ca renew -root-key - < root.key")
 	}
 	if *years < 1 || *years > 10 {
 		return errors.New("agent-ca renew: -years must be between 1 and 10 (the root itself lives ten years)")
 	}
-	// The key is a private key on disk: read it, use it, and never copy it
-	// anywhere else. Guardrail 6 — it is not logged, not echoed, not stored.
-	rootKey, err := os.ReadFile(*rootKeyFile)
+	rootKey, err := readRootKey(*rootKeyFile, stdin)
 	if err != nil {
-		return fmt.Errorf("agent-ca renew: read root key: %w", err)
+		return err
 	}
 	notAfter, err := enroll.RenewIntermediate(ctx, db.Pool(), rootKey, time.Duration(*years)*365*24*time.Hour)
 	if err != nil {

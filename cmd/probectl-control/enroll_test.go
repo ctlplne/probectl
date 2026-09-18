@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,91 @@ func TestAgentCAInitIfMissingIsTheRepeatableForm(t *testing.T) {
 	// And the refusal must stay the DEFAULT: silence on an existing CA is opt-in.
 	if !strings.Contains(body, "*ifMissing") {
 		t.Error("the no-op must be gated on the flag, not unconditional")
+	}
+}
+
+// DPR-191: `agent-ca renew` is the only way out of a one-year agent-CA expiry,
+// and as first written it could not be run on the image the chart ships. It took
+// the root key as a FILE inside the container, and that container is distroless:
+// `kubectl cp` into it fails with `exec: "tar": executable file not found in
+// $PATH` because there is no tar and no shell. The workaround an operator would
+// reach for — mounting the root key as a Secret — writes the offline root into
+// etcd and onto every replica, which is the one thing keeping it offline exists
+// to prevent. "-" now means stdin, matching `agent-ca export -`.
+func TestReadRootKeyAcceptsStdinSoRenewalWorksOnADistrolessImage(t *testing.T) {
+	const pem = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----\n"
+
+	t.Run("dash reads stdin verbatim", func(t *testing.T) {
+		got, err := readRootKey("-", strings.NewReader(pem))
+		if err != nil {
+			t.Fatalf("stdin must be accepted: %v", err)
+		}
+		if string(got) != pem {
+			t.Errorf("stdin bytes must reach the caller unchanged, got %q", got)
+		}
+	})
+
+	t.Run("a file still works", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "root.key")
+		if err := os.WriteFile(path, []byte(pem), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := readRootKey(path, nil)
+		if err != nil {
+			t.Fatalf("the file form must keep working: %v", err)
+		}
+		if string(got) != pem {
+			t.Errorf("file bytes must reach the caller unchanged, got %q", got)
+		}
+	})
+
+	t.Run("empty stdin is named, not treated as a key", func(t *testing.T) {
+		_, err := readRootKey("-", strings.NewReader(""))
+		if err == nil {
+			t.Fatal("empty stdin must not be handed on as a key")
+		}
+		// `kubectl exec` without -i gives the command a closed stdin, which is
+		// the mistake this message exists to shortcut.
+		if !strings.Contains(err.Error(), "exec -i") {
+			t.Errorf("the error must name the likely cause: %v", err)
+		}
+	})
+
+	t.Run("stdin is bounded", func(t *testing.T) {
+		_, err := readRootKey("-", strings.NewReader(strings.Repeat("x", maxRootKeyBytes+1)))
+		if err == nil || !strings.Contains(err.Error(), "not a private key PEM") {
+			t.Fatalf("an unbounded read is how a pipe becomes a memory fault, got %v", err)
+		}
+	})
+
+	t.Run("a missing file says so", func(t *testing.T) {
+		_, err := readRootKey(filepath.Join(t.TempDir(), "absent.key"), nil)
+		if err == nil || !strings.Contains(err.Error(), "read root key") {
+			t.Fatalf("a missing file must be reported as one, got %v", err)
+		}
+	})
+}
+
+// And the refusal an operator hits when they forget the flag entirely has to
+// tell them the form that works inside the container, because the obvious one
+// (`kubectl cp` the key in) cannot work there at all.
+func TestAgentCARenewRefusalNamesTheFormThatWorksInAContainer(t *testing.T) {
+	src, err := os.ReadFile("enroll.go")
+	if err != nil {
+		t.Fatalf("read enroll.go: %v", err)
+	}
+	s := string(src)
+	start := strings.Index(s, "func runAgentCARenew")
+	if start < 0 {
+		t.Fatal("runAgentCARenew not found")
+	}
+	body := s[start:]
+	if end := strings.Index(body[1:], "\nfunc "); end > 0 {
+		body = body[:end]
+	}
+	for _, want := range []string{"exec -i", "-root-key -", "no shell and no tar"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the missing-flag refusal must mention %q: an operator on the shipped image has no other way in", want)
+		}
 	}
 }

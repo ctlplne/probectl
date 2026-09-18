@@ -287,6 +287,25 @@ probectl-control agent-ca export /etc/probectl/agent-ca.crt # re-export wherever
 # then put root.key back in offline custody and delete the copy
 ```
 
+**On Kubernetes, pipe the key in — do not try to copy it in.** The control image
+is distroless: no shell, no `tar`, so `kubectl cp` into it fails with
+`exec: "tar": executable file not found in $PATH`. `-root-key -` reads the key
+from stdin instead, the same way `agent-ca export -` writes the bundle to stdout
+(DPR-191):
+
+```sh
+kubectl -n probectl exec -i deploy/probectl -c control -- \
+  probectl-control agent-ca renew -root-key - < ./root.key
+kubectl -n probectl exec deploy/probectl -c control -- \
+  probectl-control agent-ca export - > ./agent-ca.crt
+```
+
+`exec -i` is not optional — without it the command gets a closed stdin and
+refuses rather than guessing. **Do not mount the root key as a Secret** to get
+around this: that writes the offline root into etcd and onto every replica, which
+is the one thing keeping it offline exists to prevent. Piped into `exec -i`, the
+key exists only in the command's memory for the length of the call.
+
 Renewal is safe to run at any time, including long before the deadline: the
 superseded intermediate is **kept until its own expiry**, so every agent still
 holding a leaf it signed keeps verifying and moves onto the new chain at its

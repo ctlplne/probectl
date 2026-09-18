@@ -584,7 +584,9 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 		case "renew":
 			// DPR-177: the issuing intermediate lives a year; this is how it is
 			// replaced, signed by the offline root the operator brings back.
-			return true, runAgentCARenew(context.Background(), db, os.Args[3:])
+			// DPR-191: stdin is wired through so `-root-key -` works over
+			// `kubectl exec -i` — the only way in on a distroless image.
+			return true, runAgentCARenew(context.Background(), db, os.Args[3:], os.Stdin)
 		case "export":
 			return true, runAgentCAExport(context.Background(), db, os.Args[3:])
 		default:
