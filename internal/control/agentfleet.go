@@ -123,11 +123,23 @@ func buildFleetAgentViews(rows []store.Agent, rollouts []store.RolloutRecord, id
 				view.RolloutState = string(wave.Status)
 				view.RolloutHalted = plan.Halted
 				view.RolloutHaltReason = plan.HaltReason
+				// DPR-195: the rollout overlay overwrote the next action
+				// unconditionally, and it ran AFTER the agent's own diagnosis. On
+				// the lab an agent whose SVID had expired — whose own row said
+				// "the agent must enroll again" — was told to "Review rollout
+				// health gate" instead. That rollout cannot advance until the
+				// agent can complete a handshake, so the nudge did not merely
+				// fail to help, it pointed away from the only thing that would
+				// unblock it. The rollout facts are still reported in the rollout
+				// fields either way, including the halt reason.
+				blocked := blockingReadiness(view.ReadinessState)
 				if plan.Halted {
 					view.RolloutState = "halted"
-					view.LastFailure = plan.HaltReason
-					view.NextSafeAction = safeAction("review_halted_rollout", "Review halted rollout", "A human must review the failure, rollback if needed, and record a remediation note before resume.")
-				} else if wave.Status == agent.WaveApplying {
+					if !blocked {
+						view.LastFailure = plan.HaltReason
+						view.NextSafeAction = safeAction("review_halted_rollout", "Review halted rollout", "A human must review the failure, rollback if needed, and record a remediation note before resume.")
+					}
+				} else if wave.Status == agent.WaveApplying && !blocked {
 					view.NextSafeAction = safeAction("verify_rollout_wave", "Review rollout health gate", "Confirm the signed target and fresh registry heartbeat before a human advances another cohort.")
 				}
 			}
@@ -135,6 +147,23 @@ func buildFleetAgentViews(rows []store.Agent, rollouts []store.RolloutRecord, id
 	}
 
 	return views, nil
+}
+
+// blockingReadiness reports whether the agent's own state explains its silence
+// in a way no rollout review can address, so a rollout nudge must not displace
+// it (DPR-195).
+//
+// This is deliberately just the expired identity. A heartbeat that has gone
+// quiet DURING an applying wave is very plausibly quiet BECAUSE of the wave —
+// the agent is restarting onto the new version — and "confirm the signed target
+// and a fresh heartbeat before advancing another cohort" is exactly the right
+// thing to say about it. An expired certificate is different in kind: a version
+// upgrade neither caused it nor can fix it, the agent cannot complete a
+// handshake at all, and the rollout is stuck behind it. Replacing "re-enroll
+// this agent" with "review the rollout health gate" there sends the operator to
+// the one place that cannot help.
+func blockingReadiness(state string) bool {
+	return state == "identity_expired"
 }
 
 func newFleetAgentView(row store.Agent, identity *store.AgentIdentityWindow, controlVersion string, now time.Time) fleetAgentView {
