@@ -8,6 +8,18 @@ on:
   push:
     tags:
       - "v*"
+  # DPR-166: a release can fail for a reason OUTSIDE the repository — a billing
+  # hold stopped every job of v0.6.0 before it started — and a tag push fires
+  # once. Without this, retrying meant deleting and re-pushing a published tag
+  # to work around an account setting.
+  #
+  # DISPATCH AGAINST THE TAG, not a branch: the "Run workflow" ref selector
+  # lists tags, and `gh workflow run release.yml --ref v0.6.0` does the same.
+  # Every job below reads github.ref_name and github.sha, so choosing the tag
+  # makes them the tag and its commit exactly as a push would — which is why
+  # this needs no other change, and why dispatching from a branch would build a
+  # release named after the branch. The guard below refuses that.
+  workflow_dispatch:
 
 permissions:
   contents: write # create the GitHub release
@@ -31,6 +43,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
+      # DPR-166: a manual dispatch can name any ref. Everything downstream
+      # versions artifacts from github.ref_name, so a branch dispatch would
+      # publish a release called "main". Refuse before anything is built.
+      - name: the ref must be a tag
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/tags/${GITHUB_REF_NAME}" ]; then
+            echo "::error::release must run against a TAG ref, got '${GITHUB_REF}'. Re-dispatch with the tag selected (gh workflow run release.yml --ref vX.Y.Z)."
+            exit 1
+          fi
+          echo "releasing tag ${GITHUB_REF_NAME}"
       - name: ci workflow must be green for ${{ github.sha }}
         env:
           GH_TOKEN: ${{ github.token }}
