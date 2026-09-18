@@ -51,6 +51,37 @@ What probectl guarantees you:
   correlation — probectl is the source of truth, not a replacement for your security
   tooling.
 
+### When the WORM volume cannot be written
+
+The audit row reaches the database as the action happens; the WORM export is a
+**separate, asynchronous copy**, written by a runner that catches up once at
+startup and then on its interval (`PROBECTL_AUDIT_WORM_INTERVAL`, default 1h).
+That split is deliberate, and it means a full or read-only WORM volume does
+**not** stop the product: requests keep being served, audited mutations keep
+succeeding, and nothing is lost, because the chain of record is the database.
+
+It does mean the tamper-evident copy falls behind, and you should know when.
+`GET /v1/diagnostics` (admin) and the support bundle carry an **`audit_worm`**
+check for exactly that (DPR-200):
+
+| State | What it means |
+|---|---|
+| `ok` | the last export cycle succeeded, and the check names when |
+| `ok`, "catching up" | source events exist beyond the exported watermark and the export is writing — not a fault |
+| `degraded`, export failing | a cycle could not write a segment; **free space and permissions on that volume** are the usual cause |
+| `degraded`, verification failing | exported segments no longer verify against the chain. This is what a purge or tampering looks like from here — preserve the volume rather than restarting |
+
+It is deliberately **not** on `/readyz`: a stalled export costs no served
+request, so failing readiness over it would take a healthy replica out of the
+load balancer for something to schedule rather than something to page on. That is
+the same line `docs/verdict-coverage.md` draws everywhere else.
+
+One related behaviour worth knowing before you move a WORM volume: if the volume
+a replica is given cannot account for the segments the audit chain references,
+that replica **refuses to admit traffic at all** rather than serving with an
+unverifiable audit trail, and says which segment it could not read. Seed a
+replacement volume from the old one before you switch to it.
+
 ### Encrypted incident-response attribution
 
 Provider break-glass evidence deliberately keeps the signed WORM copy

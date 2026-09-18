@@ -506,6 +506,12 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	rt.lifeEngine = lifeEngine
 	rt.lifeEngine.WithEndpointRetention(rt.endpointViews)
 	rt.lifeEngine.WithEndpointEvents(rt.endpointStore)
+	// DPR-200: give the tamper-evident audit export an operator-facing state.
+	// Before this it had a Prometheus counter and a log line, and a deployment
+	// whose WORM volume was 100% full reported `overall: ok`.
+	if worm != nil {
+		rt.srv.WithAuditWORMStatus(rt.cfg.AuditWORMDir, worm.ExportStatus)
+	}
 	if err := attachEE(rt.gctx, rt.srv, rt.cfg, rt.log, rt.lic, rt.db.Pool(), rt.latestResults,
 		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.endpointStore, rt.lifeEngine,
 		worm, rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore, rt.singletons); err != nil {

@@ -86,6 +86,13 @@ type Server struct {
 	authLimiter *auth.Limiter
 	// enrollSvc issues agent SVIDs (Sprint 11); nil = enrollment unconfigured.
 	enrollSvc enrollmentService
+	// auditWORMStatus reports the tamper-evident audit export's own view of
+	// itself (DPR-200). nil when WORM export is not configured, which is a
+	// deployment choice and not a fault.
+	auditWORMStatus func() audit.WormExportStatus
+	// auditWORMDir is named in the check's finding so an operator knows which
+	// volume to look at.
+	auditWORMDir string
 	// enrollmentFailureAudit receives an already-redacted, bounded failure
 	// event. New wires the tamper-evident tenant/provider audit implementation;
 	// the seam keeps rejection behavior unit-testable without a database.

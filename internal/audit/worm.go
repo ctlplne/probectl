@@ -115,9 +115,48 @@ type WormExporter struct {
 	ir      IRWORMDurability
 
 	gaps            atomic.Uint64 // chain-verification failures observed (never silent)
+	exportFails     atomic.Uint64 // DPR-200: export cycles that could not write
 	lastSuccessUnix atomic.Int64
 	lagging         atomic.Int64
 	metrics         wormExporterMetrics
+}
+
+// WormExportStatus is what an operator needs to know about the tamper-evident
+// copy without reading logs or scraping Prometheus.
+//
+// DPR-200: the exporter already counted its failures and its last success, and
+// nothing turned either into an operator-facing state. A deployment whose audit
+// WORM volume was 100% full reported `overall: ok` on /v1/diagnostics with six
+// checks, none of them about the audit export — measured on the lab, with the
+// volume genuinely at zero bytes free.
+type WormExportStatus struct {
+	// LastSuccess is the zero time until a cycle has completed.
+	LastSuccess time.Time
+	// ExportFailures counts cycles that could not write a segment.
+	ExportFailures uint64
+	// ChainFailures counts verification failures — a purge or tampering signal,
+	// which is a different and worse thing than not being able to write.
+	ChainFailures uint64
+	// Lagging reports that source events exist beyond the exported watermark.
+	Lagging bool
+}
+
+// ExportStatus reports the exporter's own view of itself. Safe to call from a
+// request path: it reads atomics and touches neither the database nor the store.
+func (w *WormExporter) ExportStatus() WormExportStatus {
+	if w == nil {
+		return WormExportStatus{}
+	}
+	var last time.Time
+	if unix := w.lastSuccessUnix.Load(); unix > 0 {
+		last = time.Unix(unix, 0).UTC()
+	}
+	return WormExportStatus{
+		LastSuccess:    last,
+		ExportFailures: w.exportFails.Load(),
+		ChainFailures:  w.gaps.Load(),
+		Lagging:        w.lagging.Load() != 0,
+	}
 }
 
 type wormExporterMetrics struct {
@@ -349,6 +388,9 @@ func (w *WormExporter) recordLag() {
 }
 
 func (w *WormExporter) recordExportFailure() {
+	// DPR-200: counted locally as well as on /metrics, so a health check can read
+	// it without a Prometheus round trip.
+	w.exportFails.Add(1)
 	if w.metrics.exportFailures != nil {
 		w.metrics.exportFailures.Inc()
 	}

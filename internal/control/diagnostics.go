@@ -102,6 +102,71 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 		}
 	}
 
+	// DPR-200: the tamper-evident audit copy, which had no operator-facing state
+	// at all. Measured on the lab with the WORM volume at 100% and zero bytes
+	// free: /readyz answered 200, an audited mutation returned 201 in under a
+	// second, the audit trail read fine, and /v1/diagnostics reported
+	// `overall: ok` across six checks — none of them about the audit export. The
+	// exporter was already counting its failures and its last success; nothing
+	// turned either into something an operator could see.
+	//
+	// The request path staying up is CORRECT — an audit row reaches Postgres
+	// immediately and the WORM export is asynchronous, so failing readiness over
+	// a stalled export would be a false alarm. What was wrong is that the
+	// deployment said nothing at all. This is the same shape as the agent_ca
+	// check and deliberately on the same surface: something to schedule, not a
+	// reason to drain a replica.
+	if s.auditWORMStatus != nil {
+		checks["audit_worm"] = func(context.Context) support.Check {
+			st := s.auditWORMStatus()
+			where := s.auditWORMDir
+			if where == "" {
+				where = "the configured audit WORM volume"
+			}
+			switch {
+			case st.ChainFailures > 0:
+				// A verification failure is a different and worse thing than not
+				// being able to write: it says the copy that already exists no
+				// longer matches the chain.
+				return support.Check{
+					Status: support.StatusDegraded,
+					Detail: fmt.Sprintf("audit WORM chain verification has failed %d time(s)", st.ChainFailures),
+					Finding: support.NewReadinessFinding(
+						"readiness.audit_worm_chain",
+						"The audit WORM chain failed verification",
+						fmt.Sprintf("The exported segments under %s no longer verify against the audit chain. "+
+							"This is what a purge or tampering looks like from here, and it is not something to clear by restarting. "+
+							"Preserve the volume, then compare the exported segments against the database chain.", where),
+						support.LocalAction{Label: "Audit and evidence", Href: "/docs/api#audit", Kind: support.ActionNavigate},
+					),
+				}
+			case st.ExportFailures > 0:
+				return support.Check{
+					Status: support.StatusDegraded,
+					Detail: fmt.Sprintf("audit WORM export has failed %d time(s); last success %s", st.ExportFailures, lastSuccessDetail(st.LastSuccess)),
+					Finding: support.NewReadinessFinding(
+						"readiness.audit_worm_export",
+						"The audit WORM export is not writing",
+						fmt.Sprintf("Audit events are still recorded in the database, so nothing is lost and requests are unaffected — "+
+							"but the tamper-evident copy under %s is falling behind, and a full or read-only volume is the usual cause. "+
+							"Check free space and permissions on that volume.", where),
+						support.LocalAction{Label: "Audit and evidence", Href: "/docs/api#audit", Kind: support.ActionNavigate},
+					),
+				}
+			case st.Lagging:
+				return support.Check{
+					Status: support.StatusOK,
+					Detail: fmt.Sprintf("audit WORM export is catching up; last success %s", lastSuccessDetail(st.LastSuccess)),
+				}
+			default:
+				return support.Check{
+					Status: support.StatusOK,
+					Detail: fmt.Sprintf("audit WORM export last succeeded %s", lastSuccessDetail(st.LastSuccess)),
+				}
+			}
+		}
+	}
+
 	// Secrets resolver (S41): degraded if any backend is failing.
 	if s.secretsHealth != nil {
 		checks["secrets_resolver"] = func(context.Context) support.Check {
@@ -421,3 +486,13 @@ func pastIssuingRenewalPoint(notBefore, notAfter, now time.Time) bool {
 // A quarter of the lifetime left: 91 days for the shipped one-year
 // intermediate, which is time to find the offline root key.
 const issuingRenewalFraction = 0.75
+
+// lastSuccessDetail phrases a possibly-never timestamp the way an operator reads
+// it. "never" is the honest answer for a deployment that has not completed a
+// cycle yet, and it is a materially different thing from "an hour ago".
+func lastSuccessDetail(t time.Time) string {
+	if t.IsZero() {
+		return "never (no cycle has completed)"
+	}
+	return t.UTC().Format(time.RFC3339)
+}

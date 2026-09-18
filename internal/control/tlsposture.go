@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/threat"
@@ -27,6 +28,19 @@ import (
 func (s *Server) WithTLSPosture(ps *threat.PostureStore) *Server {
 	if ps != nil {
 		s.tlsPostures = ps
+	}
+	return s
+}
+
+// WithAuditWORMStatus attaches the tamper-evident audit exporter's own view of
+// itself, which becomes the `audit_worm` check on GET /v1/diagnostics and in the
+// support bundle (DPR-200). nil is a no-op: WORM export is a deployment choice,
+// and a deployment that has not configured it must not grow a check that is
+// permanently unhappy about its absence.
+func (s *Server) WithAuditWORMStatus(dir string, status func() audit.WormExportStatus) *Server {
+	if status != nil {
+		s.auditWORMStatus = status
+		s.auditWORMDir = dir
 	}
 	return s
 }
