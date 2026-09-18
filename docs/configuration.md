@@ -64,7 +64,7 @@ one rather than rotating it; production brings its own CA-issued cert).
 `probectl-control stage-binary <destination>` is the internal, shell-free
 distroless init-container helper used by the Helm backup/restore Jobs. The other
 subcommands are covered with their features:
-`agent-ca init|export`, `enroll-token`, and `revoke-agent` (agent transport and
+`agent-ca init|renew|export`, `enroll-token`, and `revoke-agent` (agent transport and
 enrollment — [`agent/enrollment.md`](agent/enrollment.md)), `scim-token`
 (SCIM, below), `mcp-stdio` and `mcp-token` (MCP server, below), `preflight`
 (the storage-encryption preflight — [`hardening.md`](hardening.md)),

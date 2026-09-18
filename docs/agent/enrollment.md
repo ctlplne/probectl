@@ -273,6 +273,31 @@ rotation recorded — the state an agent sits in for hours before it dies, and t
 one worth alerting on. `unknown` means no issuance is recorded for that agent
 and the lifetime cannot be read; it is never reported as healthy.
 
+## Renewing the issuing CA (once a year, with the offline root)
+
+The intermediate that signs every SVID lives **one year**, and the root that can
+replace it is offline by design — so the deployment cannot renew itself. When it
+expires, enrollment and rotation refuse, and the fleet stops within one SVID
+lifetime. This is the one dated maintenance task the product has (DPR-177):
+
+```sh
+# with the root key retrieved from custody for this one command:
+probectl-control agent-ca renew -root-key ./root.key        # -years 1 by default
+probectl-control agent-ca export /etc/probectl/agent-ca.crt # re-export wherever it is pinned
+# then put root.key back in offline custody and delete the copy
+```
+
+Renewal is safe to run at any time, including long before the deadline: the
+superseded intermediate is **kept until its own expiry**, so every agent still
+holding a leaf it signed keeps verifying and moves onto the new chain at its
+next rotation. Nothing is re-enrolled, no agent is restarted, and the trust
+bundle carries both issuing certificates for the length of the overlap.
+
+You do not have to remember the date. `/readyz` and the support bundle carry an
+`agent_ca` check that goes **degraded** once the intermediate is three quarters
+through its life — about 91 days of warning on the shipped one-year lifetime —
+and says exactly which command to run.
+
 ## Security properties (what to rely on)
 
 | Property | Mechanism |

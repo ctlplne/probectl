@@ -85,6 +85,50 @@ func runAgentCAInit(ctx context.Context, db *store.DB, args []string) error {
 	return nil
 }
 
+// runAgentCARenew issues a NEW signing intermediate from the offline root and
+// supersedes the current one, keeping the old certificate until it expires.
+//
+// DPR-177: the shipped intermediate lives one year. The root that can replace
+// it is deliberately offline, so the deployment cannot renew itself — and
+// before this command there was no way for an operator to do it either. At the
+// one-year mark enrollment and rotation start refusing, and the whole fleet
+// stops within one SVID lifetime, quietly, because each agent keeps working
+// until its own leaf expires.
+func runAgentCARenew(ctx context.Context, db *store.DB, args []string) error {
+	fs := flag.NewFlagSet("agent-ca renew", flag.ContinueOnError)
+	rootKeyFile := fs.String("root-key", "", "file holding the OFFLINE root CA private key printed by `agent-ca init` (required)")
+	years := fs.Int("years", 1, "lifetime of the new issuing intermediate, in years")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *rootKeyFile == "" {
+		return errors.New("agent-ca renew: -root-key <file> is required — renewal is signed by the offline root, " +
+			"which this deployment deliberately does not hold. Retrieve it from custody, run this, and put it back")
+	}
+	if *years < 1 || *years > 10 {
+		return errors.New("agent-ca renew: -years must be between 1 and 10 (the root itself lives ten years)")
+	}
+	// The key is a private key on disk: read it, use it, and never copy it
+	// anywhere else. Guardrail 6 — it is not logged, not echoed, not stored.
+	rootKey, err := os.ReadFile(*rootKeyFile)
+	if err != nil {
+		return fmt.Errorf("agent-ca renew: read root key: %w", err)
+	}
+	notAfter, err := enroll.RenewIntermediate(ctx, db.Pool(), rootKey, time.Duration(*years)*365*24*time.Hour)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("agent CA renewed: new issuing intermediate valid until %s\n", notAfter.UTC().Format(time.RFC3339))
+	fmt.Println("The superseded intermediate is kept until its own expiry, so agents holding a leaf")
+	fmt.Println("it signed keep verifying and move onto the new chain at their next rotation —")
+	fmt.Println("nothing needs re-enrolling.")
+	fmt.Println()
+	fmt.Println("Next: re-export the trust bundle wherever it is pinned, then put the root key back")
+	fmt.Println("in offline custody:")
+	fmt.Println("  probectl-control agent-ca export /etc/probectl/agent-ca.crt")
+	return nil
+}
+
 // isTerminal reports whether f is a character device — an interactive terminal
 // rather than a pipe, a file or a container log.
 func isTerminal(f *os.File) bool {

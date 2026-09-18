@@ -65,6 +65,43 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 			}
 		},
 	}
+	// DPR-177: the intermediate that signs every agent SVID lives one year, and
+	// the root that could replace it is deliberately offline. Nothing watched
+	// the date, so a deployment's whole fleet stops a year after `agent-ca init`
+	// — quietly, because each agent keeps working until its own leaf expires.
+	// A date nobody is shown is a date nobody renews.
+	if s.enrollSvc != nil {
+		checks["agent_ca"] = func(context.Context) support.Check {
+			notBefore, notAfter := s.enrollSvc.IssuingWindow()
+			if notAfter.IsZero() {
+				return support.Check{Status: support.StatusOK, Detail: "agent CA issuing window is not readable from this replica"}
+			}
+			now := time.Now()
+			detail := "agent CA issuing intermediate valid until " + notAfter.UTC().Format(time.RFC3339)
+			if now.Before(notAfter) && !pastIssuingRenewalPoint(notBefore, notAfter, now) {
+				return support.Check{Status: support.StatusOK, Detail: detail}
+			}
+			title := "The agent CA must be renewed"
+			body := "The intermediate that signs every agent identity expires " +
+				notAfter.UTC().Format(time.RFC3339) + ". After that no agent can enroll or rotate, and the fleet stops within one SVID lifetime. Renewal needs the offline root key: probectl-control agent-ca renew -root-key <file>."
+			if !now.Before(notAfter) {
+				title = "The agent CA has expired"
+				body = "The intermediate that signs every agent identity expired " +
+					notAfter.UTC().Format(time.RFC3339) + ". Enrollment and rotation are refused until it is renewed with the offline root key: probectl-control agent-ca renew -root-key <file>."
+			}
+			return support.Check{
+				Status: support.StatusDegraded,
+				Detail: detail,
+				Finding: support.NewReadinessFinding(
+					"readiness.agent_ca",
+					title,
+					body,
+					support.LocalAction{Label: "Agent enrollment and rotation", Href: "/docs/api#agents", Kind: support.ActionNavigate},
+				),
+			}
+		}
+	}
+
 	// Secrets resolver (S41): degraded if any backend is failing.
 	if s.secretsHealth != nil {
 		checks["secrets_resolver"] = func(context.Context) support.Check {
@@ -367,3 +404,20 @@ func (s *Server) knownSecrets() []string {
 	}
 	return out
 }
+
+// pastIssuingRenewalPoint is true once the issuing intermediate has spent
+// issuingRenewalFraction of its own lifetime, so the warning means the same
+// thing for a one-year intermediate and a ninety-day one. It deliberately
+// mirrors the per-agent rule in agentfleet.go: the same question, one level up
+// the chain.
+func pastIssuingRenewalPoint(notBefore, notAfter, now time.Time) bool {
+	lifetime := notAfter.Sub(notBefore)
+	if lifetime <= 0 {
+		return false
+	}
+	return float64(now.Sub(notBefore)) >= issuingRenewalFraction*float64(lifetime)
+}
+
+// A quarter of the lifetime left: 91 days for the shipped one-year
+// intermediate, which is time to find the offline root key.
+const issuingRenewalFraction = 0.75

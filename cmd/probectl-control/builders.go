@@ -571,19 +571,24 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 	case "mcp-token":
 		return true, runMCPToken(log, db, os.Args[2:])
 	case "agent-ca":
-		// Sprint 11: `agent-ca init` generates the enrollment hierarchy once.
+		// Sprint 11: `agent-ca init` generates the enrollment hierarchy once,
+		// `agent-ca renew` replaces the issuing intermediate from the offline root,
 		// `agent-ca export <file>` writes the public trust bundle (root +
 		// intermediate) for PROBECTL_AGENT_TLS_CA_FILE.
 		if len(os.Args) < 3 {
-			return true, fmt.Errorf("usage: probectl-control agent-ca <init|export>")
+			return true, fmt.Errorf("usage: probectl-control agent-ca <init|renew|export>")
 		}
 		switch os.Args[2] {
 		case "init":
 			return true, runAgentCAInit(context.Background(), db, os.Args[3:])
+		case "renew":
+			// DPR-177: the issuing intermediate lives a year; this is how it is
+			// replaced, signed by the offline root the operator brings back.
+			return true, runAgentCARenew(context.Background(), db, os.Args[3:])
 		case "export":
 			return true, runAgentCAExport(context.Background(), db, os.Args[3:])
 		default:
-			return true, fmt.Errorf("usage: probectl-control agent-ca <init|export>")
+			return true, fmt.Errorf("usage: probectl-control agent-ca <init|renew|export>")
 		}
 	case "enroll-token":
 		return true, runEnrollToken(context.Background(), cfg, db, os.Args[2:])

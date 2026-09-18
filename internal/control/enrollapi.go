@@ -34,6 +34,9 @@ type enrollmentService interface {
 	RegisterCollectorForTenant(context.Context, string, string, string, string, string) (*enroll.CollectorIdentity, error)
 	Rotate(context.Context, enroll.RotateRequest) (*enroll.Identity, error)
 	Revoke(context.Context, string, string, string) ([]string, string, error)
+	// IssuingWindow is the lifetime of the intermediate that signs every SVID
+	// this deployment issues (DPR-177).
+	IssuingWindow() (time.Time, time.Time)
 }
 
 // SetEnrollService installs the issuance service (nil = enrollment not

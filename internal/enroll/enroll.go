@@ -105,6 +105,10 @@ type Service struct {
 	pool    *pgxpool.Pool
 	ca      *crypto.CA // the issuing intermediate (unsealed in memory only)
 	rootPEM []byte
+	// prevCA is the superseded issuing intermediate during a renewal overlap
+	// (DPR-177): agents still holding a leaf it signed must verify and rotate.
+	// Nil when there is none, or once the old one is past its own NotAfter.
+	prevCA  *x509.Certificate
 	leafTTL time.Duration
 	log     *slog.Logger
 	now     func() time.Time
@@ -181,6 +185,88 @@ func InitCA(ctx context.Context, pool *pgxpool.Pool) (rootKeyPEM []byte, err err
 	return rootKey, nil
 }
 
+// previousIntermediate is where a superseded issuing intermediate is kept until
+// its own NotAfter, so agents still holding a leaf it signed can verify and
+// rotate their way onto the new one.
+const previousIntermediate = "intermediate_previous"
+
+// RenewIntermediate mints a NEW issuing intermediate from the offline root and
+// supersedes the current one, keeping the old certificate until it expires.
+//
+// DPR-177: the shipped intermediate lives one year and the root that can
+// replace it is deliberately offline, so the deployment cannot renew itself —
+// and there was no command for an operator to do it either. A year after
+// `agent-ca init`, enrollment and rotation refuse, and the fleet stops within
+// one SVID lifetime. The root key is supplied by the operator for this one
+// call and is never persisted, exactly as at init.
+//
+// The overlap is what makes this safe to run at any time: every agent still
+// holding a leaf signed by the previous intermediate keeps verifying, and its
+// normal rotation moves it onto the new chain. Nothing has to be re-enrolled.
+func RenewIntermediate(ctx context.Context, pool *pgxpool.Pool, rootKeyPEM []byte, ttl time.Duration) (notAfter time.Time, err error) {
+	if ttl <= 0 {
+		ttl = 365 * 24 * time.Hour
+	}
+	cas := store.NewAgentCA(pool)
+	rootCertPEM, _, err := cas.Load(ctx, "root")
+	if err != nil {
+		return time.Time{}, err
+	}
+	root, err := crypto.LoadCA([]byte(rootCertPEM), rootKeyPEM)
+	if err != nil {
+		// A mismatched key fails HERE, before anything is written: the operator
+		// brought the wrong file, which is a far more likely accident than a
+		// corrupted store.
+		return time.Time{}, fmt.Errorf("enroll: the supplied root key does not open this deployment's root CA: %w", err)
+	}
+	current, _, err := cas.Load(ctx, "intermediate")
+	if err != nil {
+		return time.Time{}, err
+	}
+	inter, err := root.IssueIntermediate(interCN, ttl)
+	if err != nil {
+		return time.Time{}, err
+	}
+	interKey, err := inter.KeyPEM()
+	if err != nil {
+		return time.Time{}, err
+	}
+	sealed, err := sealCAKey(ctx, interKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+	// Previous first: if the process dies between the two writes, the worst
+	// state is a deployment that trusts one chain twice, never one that has
+	// dropped the chain its agents are still using.
+	if err := cas.Save(ctx, previousIntermediate, current, ""); err != nil {
+		return time.Time{}, err
+	}
+	if err := cas.Save(ctx, "intermediate", string(inter.CertPEM()), sealed); err != nil {
+		return time.Time{}, err
+	}
+	return inter.Cert().NotAfter, nil
+}
+
+// loadPreviousIntermediate returns the superseded issuing certificate while it
+// is still inside its own validity, and nothing once it is not: an expired
+// intermediate in the verification pool would keep vouching for leaves that
+// should no longer verify.
+func loadPreviousIntermediate(ctx context.Context, cas store.AgentCA, now time.Time) *x509.Certificate {
+	certPEM, _, err := cas.Load(ctx, previousIntermediate)
+	if err != nil || certPEM == "" {
+		return nil
+	}
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || !now.Before(cert.NotAfter) {
+		return nil
+	}
+	return cert
+}
+
 // Load builds the service from the persisted hierarchy (unsealing the
 // intermediate key through tenantcrypto). store.ErrAgentCANotInitialized
 // tells the caller enrollment is not configured yet.
@@ -209,12 +295,36 @@ func Load(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) (*Service, 
 		log = slog.Default()
 	}
 	return &Service{pool: pool, ca: ca, rootPEM: []byte(rootCert),
+		prevCA:  loadPreviousIntermediate(ctx, cas, time.Now()),
 		leafTTL: DefaultLeafTTL, log: log, now: time.Now}, nil
 }
 
-// Bundle is the trust bundle transports verify against (root + intermediate).
+// IssuingWindow reports when the issuing intermediate was signed and when it
+// stops signing.
+//
+// DPR-177: the intermediate that signs every agent SVID lives ONE YEAR, the
+// root that could replace it is deliberately offline, and nothing anywhere
+// watched the date. A year after `agent-ca init` every rotation and every
+// enrollment starts failing, and the whole fleet is gone within one SVID
+// lifetime — silently, because an agent keeps working until its own leaf
+// expires. A deployment cannot be asked to remember a date nobody shows it.
+func (s *Service) IssuingWindow() (notBefore, notAfter time.Time) {
+	cert := s.ca.Cert()
+	if cert == nil {
+		return time.Time{}, time.Time{}
+	}
+	return cert.NotBefore, cert.NotAfter
+}
+
+// Bundle is the trust bundle transports verify against (root + intermediate,
+// plus the superseded intermediate while it is still inside its own validity —
+// DPR-177, so a renewal never orphans an agent mid-rotation).
 func (s *Service) Bundle() []byte {
-	return append(append([]byte{}, s.rootPEM...), s.ca.CertPEM()...)
+	out := append(append([]byte{}, s.rootPEM...), s.ca.CertPEM()...)
+	if s.prevCA != nil && s.now().Before(s.prevCA.NotAfter) {
+		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: s.prevCA.Raw})...)
+	}
+	return out
 }
 
 // PublicBundle returns the agent CA trust bundle — the root + intermediate
@@ -233,7 +343,14 @@ func PublicBundle(ctx context.Context, pool *pgxpool.Pool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []byte(rootCert + interCert), nil
+	out := rootCert + interCert
+	// DPR-177: a renewal overlap has TWO valid issuing certificates, and this
+	// bundle is what the agent gRPC listener verifies clients against. Leaving
+	// the superseded one out would refuse every agent that has not rotated yet.
+	if prev := loadPreviousIntermediate(ctx, cas, time.Now()); prev != nil {
+		out += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: prev.Raw}))
+	}
+	return []byte(out), nil
 }
 
 // MintToken creates a one-time join token for a tenant (operator path,
@@ -497,6 +614,13 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 		return nil, fmt.Errorf("enroll: root bundle unreadable")
 	}
 	inters.AddCert(s.ca.Cert())
+	// DPR-177: during a renewal overlap the presented leaf may still be signed
+	// by the superseded intermediate. Rotation is precisely how such an agent
+	// moves onto the new chain, so refusing it here would strand every agent
+	// that had not rotated in the minutes before the renewal.
+	if s.prevCA != nil && s.now().Before(s.prevCA.NotAfter) {
+		inters.AddCert(s.prevCA)
+	}
 	if _, err := cert.Verify(x509.VerifyOptions{
 		Roots: roots, Intermediates: inters, CurrentTime: s.now(),
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},

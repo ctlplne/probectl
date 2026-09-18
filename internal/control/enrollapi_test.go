@@ -49,6 +49,13 @@ func (f forensicEnrollmentService) Rotate(context.Context, enroll.RotateRequest)
 	return f.identity, f.rotateErr
 }
 
+// DPR-177: the issuing intermediate's window. This double reports a healthy
+// year so the forensics tests keep testing forensics.
+func (forensicEnrollmentService) IssuingWindow() (time.Time, time.Time) {
+	now := time.Now()
+	return now.Add(-24 * time.Hour), now.Add(364 * 24 * time.Hour)
+}
+
 func (forensicEnrollmentService) Revoke(context.Context, string, string, string) ([]string, string, error) {
 	return nil, "", nil
 }
