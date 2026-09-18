@@ -24,7 +24,15 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-5);
-  background: var(--color-warning-soft);
+  /* DPR-171: the soft warning token is a 12%-alpha tint, so a STICKY element
+     painted with it alone lets the page scroll straight through — the banner
+     that exists to say "operator domain, no tenant context" became unreadable
+     the moment anyone scrolled, and so did the rows passing behind it. The tint
+     is layered over the page background instead: same colour, no transparency,
+     still tokens only. */
+  background:
+    linear-gradient(var(--color-warning-soft), var(--color-warning-soft)),
+    var(--color-bg);
   color: var(--color-text);
   border-bottom: 1px solid var(--color-warning);
   font-size: var(--font-size-sm);

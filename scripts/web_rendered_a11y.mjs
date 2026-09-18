@@ -2149,6 +2149,54 @@ async function targetAndTabChecks(page) {
   });
 }
 
+// DPR-171: a sticky or fixed BAR painted with a translucent colour lets the
+// page scroll straight through it. Both the bar's own text and the content
+// passing behind it become unreadable, and nothing else here notices: axe reads
+// the DOM, and contrast is computed against a declared background that is not
+// what is actually drawn. It was found by looking at a screenshot of the real
+// provider console, where the banner that states "operator domain, no tenant
+// context" — the one element whose whole job is to be legible at all times —
+// was written over by the break-glass table scrolling under it.
+//
+// The rule: an element that stays put while the page moves, and is wide enough
+// to sit over content, needs something opaque behind its text. A layered tint
+// (`background: linear-gradient(tint, tint), var(--color-bg)`) satisfies this,
+// because the shorthand's final colour becomes background-color.
+async function stickyOpacityChecks(page) {
+  return page.evaluate(() => {
+    const alphaOf = (color) => {
+      const m = /^rgba?\(([^)]+)\)$/.exec(color || "");
+      if (!m) return color === "transparent" ? 0 : 1;
+      const parts = m[1].split(/[,\s/]+/).filter(Boolean);
+      return parts.length >= 4 ? Number.parseFloat(parts[3]) : 1;
+    };
+    const problems = [];
+    for (const el of document.querySelectorAll("*")) {
+      const style = getComputedStyle(el);
+      if (style.position !== "sticky" && style.position !== "fixed") continue;
+      const rect = el.getBoundingClientRect();
+      // Only bars: something narrow or short does not sit over a page of text,
+      // and a sticky cell inherits its row's background legitimately.
+      if (rect.width < innerWidth * 0.5 || rect.height < 16) continue;
+      if (style.visibility === "hidden" || style.display === "none") continue;
+      if (alphaOf(style.backgroundColor) >= 0.9) continue;
+      // A blur is a deliberate, legible alternative to opacity.
+      if (style.backdropFilter && style.backdropFilter !== "none") continue;
+      const label = [
+        el.tagName.toLowerCase(),
+        el.id ? `#${el.id}` : "",
+        el.className && typeof el.className === "string"
+          ? `.${el.className.trim().split(/\s+/)[0]}`
+          : "",
+      ].join("");
+      problems.push(
+        `${label} is ${style.position} and ${Math.round(rect.width)}px wide with background ${style.backgroundColor} — content scrolls through it`,
+      );
+    }
+    return problems;
+  });
+}
+
 async function dashboardChecks(page) {
   return page.evaluate((expectedCaptions) => {
     const problems = [];
@@ -3341,6 +3389,7 @@ async function main() {
             flowTopTalkers: [],
             deviceConfigDiff: [],
             configCorrelationPivot: [],
+            sticky: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -3387,6 +3436,12 @@ async function main() {
             if (axeFailures.length > 0) {
               failures.push(
                 `${viewport.name} ${theme} ${route}: axe violations\n${formatAxe(axeFailures)}`,
+              );
+            }
+            record.sticky = await stickyOpacityChecks(page);
+            if (record.sticky.length > 0) {
+              failures.push(
+                `${viewport.name} ${theme} ${route}: see-through sticky bars\n  ${record.sticky.join("\n  ")}`,
               );
             }
             record.custom = await targetAndTabChecks(page);
@@ -3704,6 +3759,16 @@ async function selfTest() {
   if (!appSource.includes(`BrowserRouter basename="${appBasePath}"`)) {
     throw new Error(
       `self-check failed: BrowserRouter does not use basename ${appBasePath}`,
+    );
+  }
+  // DPR-171: the see-through sticky rule has to run on every route in the
+  // matrix, not just exist.
+  if (
+    !scriptSource.includes("async function stickyOpacityChecks(page)") ||
+    !scriptSource.includes("record.sticky = await stickyOpacityChecks(page)")
+  ) {
+    throw new Error(
+      "self-check failed: the sticky-opacity rule is not wired into the route matrix",
     );
   }
   const routedNavigations = scriptSource.match(
