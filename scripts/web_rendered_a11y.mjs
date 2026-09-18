@@ -2162,6 +2162,39 @@ async function targetAndTabChecks(page) {
 // to sit over content, needs something opaque behind its text. A layered tint
 // (`background: linear-gradient(tint, tint), var(--color-bg)`) satisfies this,
 // because the shorthand's final colour becomes background-color.
+// DPR-179: text that overflows its own box with no ellipsis is clipped text —
+// the reader sees "Operat" and a button painted over the rest. The app chrome is
+// where it hurts most, because the tenant and authority indicators are the two
+// things that must be legible on every screen, and it only shows up at narrow
+// widths where nothing else complains: axe reads the DOM (the full string is
+// there), and an overflow check on the document passes (the bar itself fits).
+async function clippedChromeChecks(page) {
+  return page.evaluate(() => {
+    const bar = document.querySelector('header, [role="banner"]');
+    if (!bar) return [];
+    const problems = [];
+    for (const el of bar.querySelectorAll("*")) {
+      const text = (el.textContent || "").trim();
+      if (!text) continue;
+      const style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      // An ellipsis is a deliberate, readable truncation, and a scroll container
+      // is a deliberate one too. Neither is a clipped word.
+      if (style.textOverflow === "ellipsis") continue;
+      if (style.overflowX === "auto" || style.overflowX === "scroll") continue;
+      // NOT leaf-only: the element that gets squeezed is usually a wrapper —
+      // the authority badge was a span whose content needed 69px inside a box
+      // flex had shrunk to 20px, and its inner leaf was perfectly happy.
+      if (el.scrollWidth > el.clientWidth + 1) {
+        problems.push(
+          `${el.tagName.toLowerCase()}${el.className ? "." + String(el.className).split(/\s+/)[0] : ""} clips "${text.slice(0, 24)}" (${el.scrollWidth}px of content in ${el.clientWidth}px)`,
+        );
+      }
+    }
+    return problems;
+  });
+}
+
 async function stickyOpacityChecks(page) {
   return page.evaluate(() => {
     const alphaOf = (color) => {
@@ -2818,10 +2851,54 @@ async function deviceConfigDiffChecks(page, viewportName, axeSource) {
 
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
-  if (
-    !(await action.evaluate((element) => document.activeElement === element))
-  ) {
-    problems.push("config comparison does not restore trigger focus");
+  // DPR-180: focus restoration happens in React's effect cleanup, which runs
+  // after the dialog is already hidden — so sampling document.activeElement the
+  // instant waitFor({hidden}) resolves races it. Two runs in ten failed here
+  // with the product behaving correctly. The check is "focus RETURNS", not
+  // "focus has already returned at this exact millisecond", so wait for it and
+  // only then describe what happened.
+  await action
+    .evaluate(
+      (element) =>
+        new Promise((resolve) => {
+          const deadline = Date.now() + 2000;
+          const tick = () => {
+            if (document.activeElement === element || Date.now() > deadline) {
+              resolve();
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          tick();
+        }),
+    )
+    .catch(() => {});
+  // A bare "focus was not restored" sends the reader hunting; say where it went.
+  const focusLanded = await action.evaluate((element) => {
+    const active = document.activeElement;
+    return {
+      ok: active === element,
+      where: active
+        ? `${active.tagName.toLowerCase()}${active.id ? "#" + active.id : ""}${
+            active.getAttribute("aria-label")
+              ? `[${active.getAttribute("aria-label")}]`
+              : ""
+          }${active.dataset?.focusKey ? `{key=${active.dataset.focusKey}}` : ""}`
+        : "nothing",
+      sameKey: Boolean(
+        active &&
+          element.dataset?.focusKey &&
+          active.dataset?.focusKey === element.dataset.focusKey,
+      ),
+    };
+  });
+  if (!focusLanded.ok) {
+    problems.push(
+      `config comparison does not restore trigger focus — focus is on ${focusLanded.where}` +
+        (focusLanded.sameKey
+          ? " (the OTHER responsive copy of the same control)"
+          : ""),
+    );
   }
   return problems;
 }
@@ -3389,6 +3466,7 @@ async function main() {
             flowTopTalkers: [],
             deviceConfigDiff: [],
             configCorrelationPivot: [],
+            clippedChrome: [],
             sticky: [],
             runtime: [],
           };
@@ -3436,6 +3514,12 @@ async function main() {
             if (axeFailures.length > 0) {
               failures.push(
                 `${viewport.name} ${theme} ${route}: axe violations\n${formatAxe(axeFailures)}`,
+              );
+            }
+            record.clippedChrome = await clippedChromeChecks(page);
+            if (record.clippedChrome.length > 0) {
+              failures.push(
+                `${viewport.name} ${theme} ${route}: clipped app chrome\n  ${record.clippedChrome.join("\n  ")}`,
               );
             }
             record.sticky = await stickyOpacityChecks(page);
@@ -3763,6 +3847,14 @@ async function selfTest() {
   }
   // DPR-171: the see-through sticky rule has to run on every route in the
   // matrix, not just exist.
+  if (
+    !scriptSource.includes("async function clippedChromeChecks(page)") ||
+    !scriptSource.includes("record.clippedChrome = await clippedChromeChecks(page)")
+  ) {
+    throw new Error(
+      "self-check failed: the clipped-chrome rule is not wired into the route matrix",
+    );
+  }
   if (
     !scriptSource.includes("async function stickyOpacityChecks(page)") ||
     !scriptSource.includes("record.sticky = await stickyOpacityChecks(page)")

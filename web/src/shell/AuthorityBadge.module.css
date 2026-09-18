@@ -19,3 +19,16 @@
     display: inline;
   }
 }
+
+/* DPR-179: under 720px the identity cluster is allowed to shrink so the bar can
+ * never exceed the viewport, and `.left > * { min-width: 0 }` applies to this
+ * wrapper too — so at 375px the badge was squeezed below its own text and read
+ * "Operat", with the command button painted over the rest. The TENANT NAME is
+ * the elastic part of that cluster (it already ellipsizes); a six-to-eleven
+ * character authority label is not. This wrapper keeps its content width and
+ * lets the name absorb the shrink. */
+.wrap {
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+}

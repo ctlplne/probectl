@@ -59,6 +59,18 @@
   color: var(--color-text-muted);
 }
 
+/* DPR-179: at phone widths the identity cluster is squeezed, and the NAME
+ * ellipsizes as designed — but the "TENANT" kicker above it cannot shrink and
+ * was simply cut ("TENAN"). The kicker is a label for a control whose
+ * accessible name already says "Current tenant: <name>", so at these widths the
+ * name keeps the room and the label steps aside. Nothing is lost for assistive
+ * technology, and nothing is left half-drawn for anyone else. */
+@media (max-width: 560px) {
+  .kicker {
+    display: none;
+  }
+}
+
 .name {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
