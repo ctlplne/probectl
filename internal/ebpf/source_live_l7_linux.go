@@ -26,6 +26,7 @@ package ebpf
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"runtime"
@@ -54,13 +55,20 @@ const (
 // (docs/ebpf-agent.md). Go's crypto/tls does NOT use libssl and needs the
 // separate ret-offset + goroutine-tracking strategy (docs/ebpf-feasibility.md §7).
 type liveL7Source struct {
-	objs    sslsniffObjects
-	links   []link.Link
-	rd      *ringbuf.Reader
-	cfg     *Config
-	scope   []ScopeEntry
-	exePIDs map[uint32]struct{} // tgids we programmed for exe: entries (refresher diff)
-	drops   atomic.Uint64
+	objs  sslsniffObjects
+	links []link.Link
+	// closers holds probes attached through the in-repo tracefs path, which
+	// are not link.Link — they own a perf fd and a kernel-global tracefs event
+	// that must be removed on close, or it accumulates across agent restarts.
+	closers []io.Closer
+	// attachMechanism records which path actually attached, so an operator can
+	// tell from /metrics and the logs whether this node needed the fallback.
+	attachMechanism string
+	rd              *ringbuf.Reader
+	cfg             *Config
+	scope           []ScopeEntry
+	exePIDs         map[uint32]struct{} // tgids we programmed for exe: entries (refresher diff)
+	drops           atomic.Uint64
 
 	scopeRefresh *l7ScopeSyncMonitor
 }
@@ -147,24 +155,47 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 }
 
 func (s *liveL7Source) attachTLSLibrary(lib tlsProbeLibrary) error {
-	ex, err := link.OpenExecutable(lib.path)
-	if err != nil {
-		return fmt.Errorf("open %s TLS library %q: %w", lib.name, lib.path, err)
-	}
+	// cilium/ebpf first, because it is the well-trodden path and reports the
+	// richest errors. It has two limits this agent runs into on ordinary
+	// deployments, and the in-repo tracefs path below exists for both (D-03):
+	//
+	//   * OpenExecutable refuses a target with no execute bit, and Debian and
+	//     Ubuntu package shared libraries 0644 (DPR-125);
+	//   * its attach uses the perf uprobe PMU and falls back to tracefs only
+	//     when the PMU is MISSING, never when creating it is refused — and the
+	//     PMU refuses CAP_BPF+CAP_PERFMON, demanding CAP_SYS_ADMIN (DPR-126).
+	//
+	// Measured on a 0644 Debian libssl (evidence uprobe-privilege-matrix.log):
+	// the tracefs path attaches under CAP_PERFMON alone, so the capability
+	// needs no privilege the agent does not already document.
+	ex, exErr := link.OpenExecutable(lib.path)
 	attach := func(sym string, prog *cebpf.Program, ret bool) error {
-		var (
-			l   link.Link
-			err error
-		)
-		if ret {
-			l, err = ex.Uretprobe(sym, prog, nil)
-		} else {
-			l, err = ex.Uprobe(sym, prog, nil)
+		if exErr == nil {
+			var (
+				l   link.Link
+				err error
+			)
+			if ret {
+				l, err = ex.Uretprobe(sym, prog, nil)
+			} else {
+				l, err = ex.Uprobe(sym, prog, nil)
+			}
+			if err == nil {
+				s.links = append(s.links, l)
+				s.attachMechanism = attachViaLibrary
+				return nil
+			}
+			exErr = err
 		}
-		if err != nil {
-			return fmt.Errorf("attach %s %s in %q: %w", lib.name, sym, lib.path, err)
+		att, tErr := attachUprobeViaTracefs(lib.path, sym, prog, ret)
+		if tErr != nil {
+			// Both errors, because either alone misleads: the library's error
+			// explains why the usual path was skipped, and the tracefs error is
+			// why the fallback could not save it.
+			return fmt.Errorf("attach %s %s in %q: cilium/ebpf: %v; tracefs: %w", lib.name, sym, lib.path, exErr, tErr)
 		}
-		s.links = append(s.links, l)
+		s.closers = append(s.closers, att)
+		s.attachMechanism = attachViaTracefs
 		return nil
 	}
 	if err := attach(lib.writeSymbol, s.objs.ProbeSslWrite, false); err != nil {
@@ -343,6 +374,11 @@ func (s *liveL7Source) Close() error {
 	}
 	for _, l := range s.links {
 		_ = l.Close()
+	}
+	// A tracefs event outlives the process that created it, so a missed close
+	// leaks a kernel-global name until the box reboots.
+	for _, c := range s.closers {
+		_ = c.Close()
 	}
 	return s.objs.Close()
 }
