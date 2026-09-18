@@ -1452,22 +1452,15 @@
         "operationId": "exportIncidentEvidence",
         "summary": "Export an immutable signed incident evidence package",
         "description": "Builds a redacted probectl-evidence/v1 package whose factual statements resolve to content-addressed evidence records. The canonical manifest is signed with the deployment's stable Ed25519 evidence key and can be verified completely offline. The embedded public key proves integrity; verify its fingerprint out of band to prove operator identity. In addition to incident.read, ai.query is re-authorized tenant-first before evidence gathering.",
-        "tags": [
-          "incidents"
-        ],
+        "tags": ["incidents"],
         "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          },
+          {"$ref": "#/components/parameters/TenantHeader"},
           {
             "name": "id",
             "in": "path",
             "required": true,
             "description": "Incident id.",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
+            "schema": {"type": "string", "format": "uuid"}
           }
         ],
         "responses": {
@@ -1475,29 +1468,17 @@
             "description": "The portable signed evidence package.",
             "content": {
               "application/vnd.probectl.evidence+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IncidentEvidencePackage"
-                }
+                "schema": {"$ref": "#/components/schemas/IncidentEvidencePackage"}
               },
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IncidentEvidencePackage"
-                }
+                "schema": {"$ref": "#/components/schemas/IncidentEvidencePackage"}
               }
             }
           },
-          "403": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "429": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "503": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "403": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "429": {"$ref": "#/components/responses/ErrorResponse"},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -6628,11 +6609,7 @@
                           },
                           "state": {
                             "type": "string",
-                            "enum": [
-                              "observed",
-                              "unknown",
-                              "unsupported"
-                            ]
+                            "enum": ["observed", "unknown", "unsupported"]
                           },
                           "visibility": {
                             "type": "string"
@@ -6647,11 +6624,7 @@
                           },
                           "freshness": {
                             "type": "string",
-                            "enum": [
-                              "current",
-                              "stale",
-                              "unknown"
-                            ]
+                            "enum": ["current", "stale", "unknown"]
                           },
                           "tls_version": {
                             "type": "string"
@@ -6725,25 +6698,13 @@
       "get": {
         "operationId": "listThreatRules",
         "summary": "The live NDR detection rule set: embedded defaults merged with the detection-as-code overlay",
-        "tags": [
-          "threat"
-        ],
+        "tags": ["threat"],
         "description": "Which behavioral detectors are live, at which thresholds, severity, base confidence and suppression window \u2014 the merged result of the embedded defaults and PROBECTL_NDR_RULES_DIR (a rule with the same id replaces the default; a new id adds a detector; enabled=false switches one off). Rules are deployment-level configuration, identical for every tenant. rules_running=false means the NDR engine is off (PROBECTL_NDR_ENABLED=false).",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "responses": {
           "200": {
             "description": "The live rule set.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ThreatRuleList"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThreatRuleList"}}}
           }
         },
         "x-probectl-pagination": {
@@ -7390,7 +7351,7 @@
         "tags": [
           "tests"
         ],
-        "description": "The caller's tenant's recent synthetic results observed inside the trailing window (default 1h), oldest first and plot-ready, from the same bounded in-memory read model as /v1/results/latest \u2014 the series behind real-time-axis latency/duration trends (S11). collector_running=false distinguishes an unwired consumer from a quiet window.",
+        "description": "The caller's tenant's recent synthetic results observed inside the trailing window (default 1h), oldest first and plot-ready, from the same bounded in-memory read model as /v1/results/latest — the series behind real-time-axis latency/duration trends (S11). collector_running=false distinguishes an unwired consumer from a quiet window.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -7493,9 +7454,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "subject"
-                ],
+                "required": ["subject"],
                 "properties": {
                   "subject": {
                     "type": "string",
@@ -7527,10 +7486,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "subject",
-                  "confirm"
-                ],
+                "required": ["subject", "confirm"],
                 "properties": {
                   "subject": {
                     "type": "string",
@@ -7607,13 +7563,7 @@
         "summary": "IRREVERSIBLE verifiable erasure across every store; requires confirm=<tenant slug>; returns the deletion attestation (also appended to the provider audit chain)",
         "requestBody": {
           "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LifecycleEraseRequest"
-              }
-            }
-          }
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleEraseRequest"}}}
         },
         "responses": {
           "200": {
@@ -7650,13 +7600,7 @@
         "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation \u2014 the lockout guard); retired versions stay decrypt-only (no downtime). A license that transitions past grace denies rotation with license_read_only while status and decrypt remain available",
         "requestBody": {
           "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeyRotateRequest"
-              }
-            }
-          }
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KeyRotateRequest"}}}
         },
         "responses": {
           "200": {
@@ -7712,24 +7656,12 @@
       "get": {
         "operationId": "listRemediationProposals",
         "summary": "List guarded-remediation proposals (S-EE5). Hidden 404 when the remediation feature is unlicensed",
-        "tags": [
-          "remediation"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "responses": {
           "200": {
             "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RemediationProposalList"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposalList"}}}
           }
         },
         "x-probectl-pagination": {
@@ -7741,34 +7673,16 @@
       "post": {
         "operationId": "proposeRemediation",
         "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed \u2014 probectl never executes; a human must approve. A license that transitions past grace denies the mutation with license_read_only while proposal review remains available",
-        "tags": [
-          "remediation"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "requestBody": {
           "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RemediationProposalRequest"
-              }
-            }
-          }
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposalRequest"}}}
         },
         "responses": {
           "201": {
             "description": "Created \u2014 the proposal, in state proposed, with its read-only dry-run",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RemediationProposal"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
           },
           "400": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7783,33 +7697,12 @@
       "get": {
         "operationId": "getRemediationProposal",
         "summary": "Get one remediation proposal + its dry-run/blast-radius",
-        "tags": [
-          "remediation"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "Proposal id.",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}, {"name": "id", "in": "path", "required": true, "description": "Proposal id.", "schema": {"type": "string"}}],
         "responses": {
           "200": {
             "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RemediationProposal"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
           },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7821,43 +7714,16 @@
       "post": {
         "operationId": "approveRemediationProposal",
         "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING \u2014 operators carry it out. Read-only license mode denies the mutation with license_read_only",
-        "tags": [
-          "remediation"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "Proposal id.",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}, {"name": "id", "in": "path", "required": true, "description": "Proposal id.", "schema": {"type": "string"}}],
         "requestBody": {
           "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RemediationDecisionRequest"
-              }
-            }
-          }
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationDecisionRequest"}}}
         },
         "responses": {
           "200": {
             "description": "The proposal in state approved (a recorded, audited human authorization \u2014 nothing was executed)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RemediationProposal"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
           },
           "403": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7867,13 +7733,7 @@
           },
           "409": {
             "description": "Fails closed: approvals_disabled, blast_radius_exceeded, blast_radius_unknown or not_proposed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
       }
@@ -7882,43 +7742,16 @@
       "post": {
         "operationId": "rejectRemediationProposal",
         "summary": "Record a human's rejection of a remediation proposal (audited). Read-only license mode denies the mutation with license_read_only",
-        "tags": [
-          "remediation"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "Proposal id.",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "tags": ["remediation"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}, {"name": "id", "in": "path", "required": true, "description": "Proposal id.", "schema": {"type": "string"}}],
         "requestBody": {
           "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RemediationDecisionRequest"
-              }
-            }
-          }
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationDecisionRequest"}}}
         },
         "responses": {
           "200": {
             "description": "The proposal in state rejected",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RemediationProposal"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationProposal"}}}
           },
           "403": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7928,13 +7761,7 @@
           },
           "409": {
             "description": "not_proposed \u2014 only a proposal in state proposed can be decided",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
       }
@@ -9022,84 +8849,28 @@
       "get": {
         "operationId": "listDashboards",
         "summary": "List dashboard views owned by or shared with the caller",
-        "tags": [
-          "dashboards"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "responses": {
           "200": {
             "description": "Tenant-confined dashboard views.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/DashboardView"
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/DashboardView"}}}}}}
           },
-          "401": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
         },
-        "x-probectl-pagination": {
-          "mode": "bounded",
-          "max_items": 200,
-          "reason": "Saved dashboard lists are SQL-limited newest-first."
-        }
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Saved dashboard lists are SQL-limited newest-first."}
       },
       "post": {
         "operationId": "createDashboard",
         "summary": "Save a dashboard definition inside the caller tenant",
-        "tags": [
-          "dashboards"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DashboardCreateRequest"
-              }
-            }
-          }
-        },
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardCreateRequest"}}}},
         "responses": {
-          "201": {
-            "description": "Dashboard saved and audited.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardView"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "422": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "401": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "201": {"description": "Dashboard saved and audited.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardView"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -9108,36 +8879,14 @@
         "operationId": "getDashboard",
         "summary": "Get an owned or tenant-shared dashboard",
         "description": "Missing, unauthorized, and cross-tenant identifiers all return the same not-found response.",
-        "tags": [
-          "dashboards"
-        ],
+        "tags": ["dashboards"],
         "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {
-          "200": {
-            "description": "Dashboard view.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardView"
-                }
-              }
-            }
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "200": {"description": "Dashboard view.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardView"}}}},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -9146,47 +8895,21 @@
         "operationId": "exportDashboardManifest",
         "summary": "Export a deterministic redacted native dashboard manifest",
         "description": "Exports only the portable dashboard recipe. Tenant id, owner id, dashboard id, creation/update timestamps, credentials, secrets, and direct identifiers are omitted or redacted; the bounded observation interval remains. Missing, private, and cross-tenant identifiers are indistinguishable.",
-        "tags": [
-          "dashboards"
-        ],
+        "tags": ["dashboards"],
         "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {
           "200": {
             "description": "Versioned native dashboard manifest attachment.",
             "headers": {
-              "Content-Disposition": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "Fixed local JSON attachment filename."
-              }
+              "Content-Disposition": {"schema": {"type": "string"}, "description": "Fixed local JSON attachment filename."}
             },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardManifest"
-                }
-              }
-            }
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifest"}}}
           },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "422": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -9195,54 +8918,18 @@
         "operationId": "importDashboardManifest",
         "summary": "Preview or explicitly confirm a native dashboard manifest import",
         "description": "Strictly validates the version and every bounded definition field, redacts sensitive text again, and returns a normalized preview. The default confirm=false path creates no dashboard. On confirm=true the server assigns a new id and derives tenant and owner from the authenticated principal.",
-        "tags": [
-          "dashboards"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "requestBody": {
           "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DashboardManifestImportRequest"
-              }
-            }
-          }
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifestImportRequest"}}}
         },
         "responses": {
-          "200": {
-            "description": "Validated normalized preview; nothing was created.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardManifestImportResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Dashboard created under the authenticated tenant and owner.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardManifestImportResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "413": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "422": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "200": {"description": "Validated normalized preview; nothing was created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifestImportResponse"}}}},
+          "201": {"description": "Dashboard created under the authenticated tenant and owner.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardManifestImportResponse"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "413": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -9250,77 +8937,26 @@
       "get": {
         "operationId": "listDashboardReportSchedules",
         "summary": "List caller-owned report schedules and configured destinations",
-        "tags": [
-          "dashboards"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "responses": {
-          "200": {
-            "description": "Schedules plus the local tenant report inbox; outbound_default is always false.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardReportScheduleList"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "200": {"description": "Schedules plus the local tenant report inbox; outbound_default is always false.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportScheduleList"}}}},
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
         },
-        "x-probectl-pagination": {
-          "mode": "bounded",
-          "max_items": 200,
-          "reason": "Schedules are SQL-limited newest-first."
-        }
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Schedules are SQL-limited newest-first."}
       },
       "post": {
         "operationId": "createDashboardReportSchedule",
         "summary": "Schedule PDF or CSV delivery to a configured destination",
         "description": "Core configures only the internal tenant report inbox. An unconfigured or outbound destination fails closed; there is no default outbound delivery.",
-        "tags": [
-          "dashboards"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DashboardReportScheduleRequest"
-              }
-            }
-          }
-        },
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportScheduleRequest"}}}},
         "responses": {
-          "201": {
-            "description": "Schedule saved and audited.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardReportSchedule"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "422": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "201": {"description": "Schedule saved and audited.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportSchedule"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -9328,14 +8964,8 @@
       "post": {
         "operationId": "generateDashboardReport",
         "summary": "Generate an audited PDF or CSV artifact in the tenant report inbox",
-        "tags": [
-          "dashboards"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "requestBody": {
           "required": true,
           "content": {
@@ -9343,46 +8973,20 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": [
-                  "dashboard_id",
-                  "format"
-                ],
+                "required": ["dashboard_id", "format"],
                 "properties": {
-                  "dashboard_id": {
-                    "type": "string"
-                  },
-                  "format": {
-                    "type": "string",
-                    "enum": [
-                      "pdf",
-                      "csv"
-                    ]
-                  }
+                  "dashboard_id": {"type": "string"},
+                  "format": {"type": "string", "enum": ["pdf", "csv"]}
                 }
               }
             }
           }
         },
         "responses": {
-          "201": {
-            "description": "Generated artifact metadata.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardReportArtifact"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "422": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "201": {"description": "Generated artifact metadata.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportArtifact"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -9390,14 +8994,8 @@
       "get": {
         "operationId": "listDashboardReportArtifacts",
         "summary": "List generated artifacts in the caller tenant's report inbox",
-        "tags": [
-          "dashboards"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          }
-        ],
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "responses": {
           "200": {
             "description": "Artifact metadata; content is available only through the audited download route.",
@@ -9408,24 +9006,16 @@
                   "properties": {
                     "items": {
                       "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/DashboardReportArtifact"
-                      }
+                      "items": {"$ref": "#/components/schemas/DashboardReportArtifact"}
                     }
                   }
                 }
               }
             }
           },
-          "401": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
         },
-        "x-probectl-pagination": {
-          "mode": "bounded",
-          "max_items": 200,
-          "reason": "Artifact metadata is SQL-limited newest-first; binary content is excluded."
-        }
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Artifact metadata is SQL-limited newest-first; binary content is excluded."}
       }
     },
     "/v1/dashboard-report-artifacts/{id}": {
@@ -9433,42 +9023,14 @@
         "operationId": "downloadDashboardReportArtifact",
         "summary": "Download and audit one tenant-confined report artifact",
         "description": "Missing and cross-tenant artifact IDs are indistinguishable.",
-        "tags": [
-          "dashboards"
-        ],
+        "tags": ["dashboards"],
         "parameters": [
-          {
-            "$ref": "#/components/parameters/TenantHeader"
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {
-          "200": {
-            "description": "PDF or CSV attachment.",
-            "content": {
-              "application/pdf": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "text/csv": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
+          "200": {"description": "PDF or CSV attachment.", "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}, "text/csv": {"schema": {"type": "string"}}}},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
         }
       }
     },
@@ -9557,882 +9119,285 @@
       "ThreatRule": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Stable identity, e.g. ndr-beaconing-default."
-          },
-          "version": {
-            "type": "integer",
-            "description": "Bumped on every behavioral change of the rule."
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "dns_dga",
-              "dns_exfil",
-              "beaconing",
-              "egress_volume",
-              "egress_intel",
-              "lateral"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "severity": {
-            "type": "string"
-          },
-          "base_confidence": {
-            "type": "integer"
-          },
-          "suppress": {
-            "type": "string",
-            "description": "Re-raise suppression window per entity, Go duration (e.g. 1h0m0s)."
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "thresholds": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "number"
-            }
-          },
-          "lists": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
+          "id": {"type": "string", "description": "Stable identity, e.g. ndr-beaconing-default."},
+          "version": {"type": "integer", "description": "Bumped on every behavioral change of the rule."},
+          "kind": {"type": "string", "enum": ["dns_dga", "dns_exfil", "beaconing", "egress_volume", "egress_intel", "lateral"]},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "severity": {"type": "string"},
+          "base_confidence": {"type": "integer"},
+          "suppress": {"type": "string", "description": "Re-raise suppression window per entity, Go duration (e.g. 1h0m0s)."},
+          "enabled": {"type": "boolean"},
+          "thresholds": {"type": "object", "additionalProperties": {"type": "number"}},
+          "lists": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
         }
       },
       "ThreatRuleList": {
         "type": "object",
         "properties": {
-          "rules_running": {
-            "type": "boolean"
-          },
-          "overlay_dir": {
-            "type": "string",
-            "description": "PROBECTL_NDR_RULES_DIR as loaded; empty when only the embedded defaults are in force."
-          },
-          "rules": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ThreatRule"
-            }
-          }
+          "rules_running": {"type": "boolean"},
+          "overlay_dir": {"type": "string", "description": "PROBECTL_NDR_RULES_DIR as loaded; empty when only the embedded defaults are in force."},
+          "rules": {"type": "array", "items": {"$ref": "#/components/schemas/ThreatRule"}}
         }
       },
       "RemediationProposalRequest": {
         "type": "object",
-        "required": [
-          "kind",
-          "title"
-        ],
+        "required": ["kind", "title"],
         "properties": {
           "kind": {
             "type": "string",
-            "enum": [
-              "reroute_suggestion",
-              "traffic_shift_suggestion",
-              "open_ticket",
-              "trustctl_renewal"
-            ],
+            "enum": ["reroute_suggestion", "traffic_shift_suggestion", "open_ticket", "trustctl_renewal"],
             "description": "What is being suggested. probectl never executes any of them."
           },
-          "title": {
-            "type": "string",
-            "description": "One-line statement of the suggested change."
-          },
-          "rationale": {
-            "type": "string",
-            "description": "The RCA / topology reasoning that grounds the suggestion."
-          },
+          "title": {"type": "string", "description": "One-line statement of the suggested change."},
+          "rationale": {"type": "string", "description": "The RCA / topology reasoning that grounds the suggestion."},
           "target": {
             "type": "string",
             "description": "The affected topology element (a node id such as hop:10.0.0.1, service:<id> or prefix:<cidr>). When set, the read-only dry-run sizes its blast radius through the what-if simulation; an unknown target yields an unknown blast radius, which cannot be approved."
           },
-          "incident_id": {
-            "type": "string",
-            "description": "The grounding incident, when any."
-          }
+          "incident_id": {"type": "string", "description": "The grounding incident, when any."}
         }
       },
       "RemediationDecisionRequest": {
         "type": "object",
         "properties": {
-          "note": {
-            "type": "string",
-            "description": "The human's decision note, written to the audit trail."
-          }
+          "note": {"type": "string", "description": "The human's decision note, written to the audit trail."}
         }
       },
       "RemediationDryRun": {
         "type": "object",
         "properties": {
-          "blast_radius": {
-            "type": "integer",
-            "description": "Impacted services + prefixes + newly-disconnected hosts. Above PROBECTL_REMEDIATION_MAX_BLAST_RADIUS the proposal cannot be approved."
-          },
-          "impacted_services": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "impacted_prefixes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "disconnected": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "note": {
-            "type": "string",
-            "description": "e.g. \"topology unavailable \u2014 blast radius unknown\""
-          }
+          "blast_radius": {"type": "integer", "description": "Impacted services + prefixes + newly-disconnected hosts. Above PROBECTL_REMEDIATION_MAX_BLAST_RADIUS the proposal cannot be approved."},
+          "impacted_services": {"type": "array", "items": {"type": "string"}},
+          "impacted_prefixes": {"type": "array", "items": {"type": "string"}},
+          "disconnected": {"type": "array", "items": {"type": "string"}},
+          "note": {"type": "string", "description": "e.g. \"topology unavailable \u2014 blast radius unknown\""}
         }
       },
       "RemediationProposal": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "tenant_id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "reroute_suggestion",
-              "traffic_shift_suggestion",
-              "open_ticket",
-              "trustctl_renewal"
-            ]
-          },
-          "title": {
-            "type": "string"
-          },
-          "rationale": {
-            "type": "string"
-          },
-          "target": {
-            "type": "string"
-          },
-          "incident_id": {
-            "type": "string"
-          },
-          "dry_run": {
-            "$ref": "#/components/schemas/RemediationDryRun"
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "proposed",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "description": "proposed \u2192 approved | rejected by a human; applied is recorded by an operator after carrying the change out themselves."
-          },
-          "proposed_by": {
-            "type": "string",
-            "description": "user:<email> or ai:propose_remediation"
-          },
-          "decided_by": {
-            "type": "string"
-          },
-          "decision_note": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "decided_at": {
-            "type": "string",
-            "format": "date-time"
-          }
+          "id": {"type": "string"},
+          "tenant_id": {"type": "string"},
+          "kind": {"type": "string", "enum": ["reroute_suggestion", "traffic_shift_suggestion", "open_ticket", "trustctl_renewal"]},
+          "title": {"type": "string"},
+          "rationale": {"type": "string"},
+          "target": {"type": "string"},
+          "incident_id": {"type": "string"},
+          "dry_run": {"$ref": "#/components/schemas/RemediationDryRun"},
+          "state": {"type": "string", "enum": ["proposed", "approved", "rejected", "applied"], "description": "proposed \u2192 approved | rejected by a human; applied is recorded by an operator after carrying the change out themselves."},
+          "proposed_by": {"type": "string", "description": "user:<email> or ai:propose_remediation"},
+          "decided_by": {"type": "string"},
+          "decision_note": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "decided_at": {"type": "string", "format": "date-time"}
         }
       },
       "RemediationProposalList": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RemediationProposal"
-            }
-          },
-          "approvals_enabled": {
-            "type": "boolean",
-            "description": "PROBECTL_REMEDIATION_APPROVALS_ENABLED \u2014 false means review-only: Approve is unavailable."
-          }
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/RemediationProposal"}},
+          "approvals_enabled": {"type": "boolean", "description": "PROBECTL_REMEDIATION_APPROVALS_ENABLED \u2014 false means review-only: Approve is unavailable."}
         }
       },
       "LifecycleEraseRequest": {
         "type": "object",
-        "required": [
-          "confirm"
-        ],
+        "required": ["confirm"],
         "properties": {
-          "confirm": {
-            "type": "string",
-            "description": "Must equal the tenant's slug (case-insensitive). Anything else is refused."
-          }
+          "confirm": {"type": "string", "description": "Must equal the tenant's slug (case-insensitive). Anything else is refused."}
         }
       },
       "KeyRotateRequest": {
         "type": "object",
         "properties": {
-          "mode": {
-            "type": "string",
-            "enum": [
-              "managed",
-              "byok"
-            ],
-            "default": "managed"
-          },
-          "byok_ref": {
-            "type": "string",
-            "description": "Secret-backend reference of the customer key (required when mode=byok); resolved before activation."
-          }
+          "mode": {"type": "string", "enum": ["managed", "byok"], "default": "managed"},
+          "byok_ref": {"type": "string", "description": "Secret-backend reference of the customer key (required when mode=byok); resolved before activation."}
         }
       },
       "DashboardDefinition": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "absolute_from",
-          "absolute_to",
-          "provenance",
-          "redaction_state",
-          "coverage_limitations",
-          "metrics"
-        ],
+        "required": ["absolute_from", "absolute_to", "provenance", "redaction_state", "coverage_limitations", "metrics"],
         "properties": {
-          "absolute_from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "absolute_to": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "provenance": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 20,
-            "items": {
-              "type": "string",
-              "maxLength": 240
-            }
-          },
-          "redaction_state": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120
-          },
-          "coverage_limitations": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 20,
-            "items": {
-              "type": "string",
-              "maxLength": 240
-            }
-          },
-          "metrics": {
-            "type": "object",
-            "maxProperties": 100,
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 240
-            }
-          }
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "provenance": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "maxLength": 240}},
+          "redaction_state": {"type": "string", "minLength": 1, "maxLength": 120},
+          "coverage_limitations": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "maxLength": 240}},
+          "metrics": {"type": "object", "maxProperties": 100, "additionalProperties": {"type": "string", "maxLength": 240}}
         }
       },
       "DashboardCreateRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "name",
-          "preset",
-          "shared",
-          "definition"
-        ],
+        "required": ["name", "preset", "shared", "definition"],
         "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120
-          },
-          "preset": {
-            "type": "string",
-            "enum": [
-              "operator",
-              "executive"
-            ]
-          },
-          "shared": {
-            "type": "boolean",
-            "description": "Shares only within the same tenant; RBAC still applies."
-          },
-          "definition": {
-            "$ref": "#/components/schemas/DashboardDefinition"
-          }
+          "name": {"type": "string", "minLength": 1, "maxLength": 120},
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean", "description": "Shares only within the same tenant; RBAC still applies."},
+          "definition": {"$ref": "#/components/schemas/DashboardDefinition"}
         }
       },
       "DashboardView": {
         "type": "object",
-        "required": [
-          "id",
-          "tenant_id",
-          "owner_id",
-          "name",
-          "preset",
-          "shared",
-          "definition",
-          "created_at",
-          "updated_at"
-        ],
+        "required": ["id", "tenant_id", "owner_id", "name", "preset", "shared", "definition", "created_at", "updated_at"],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "tenant_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "owner_id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "preset": {
-            "type": "string",
-            "enum": [
-              "operator",
-              "executive"
-            ]
-          },
-          "shared": {
-            "type": "boolean"
-          },
-          "definition": {
-            "$ref": "#/components/schemas/DashboardDefinition"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
+          "id": {"type": "string"},
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "owner_id": {"type": "string"},
+          "name": {"type": "string"},
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean"},
+          "definition": {"$ref": "#/components/schemas/DashboardDefinition"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
         }
       },
       "DashboardManifestMetric": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "name",
-          "value"
-        ],
+        "required": ["name", "value"],
         "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 80
-          },
-          "value": {
-            "type": "string",
-            "maxLength": 240
-          }
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "value": {"type": "string", "maxLength": 240}
         }
       },
       "DashboardManifestDefinition": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "absolute_from",
-          "absolute_to",
-          "provenance",
-          "redaction_state",
-          "coverage_limitations",
-          "metrics"
-        ],
+        "required": ["absolute_from", "absolute_to", "provenance", "redaction_state", "coverage_limitations", "metrics"],
         "properties": {
-          "absolute_from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "absolute_to": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "provenance": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 20,
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 240
-            }
-          },
-          "redaction_state": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120
-          },
-          "coverage_limitations": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 20,
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 240
-            }
-          },
-          "metrics": {
-            "type": "array",
-            "maxItems": 100,
-            "uniqueItems": true,
-            "items": {
-              "$ref": "#/components/schemas/DashboardManifestMetric"
-            }
-          }
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "provenance": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 240}},
+          "redaction_state": {"type": "string", "minLength": 1, "maxLength": 120},
+          "coverage_limitations": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 240}},
+          "metrics": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/components/schemas/DashboardManifestMetric"}}
         }
       },
       "DashboardManifestMetadata": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120
-          }
+          "name": {"type": "string", "minLength": 1, "maxLength": 120}
         }
       },
       "DashboardManifestSpec": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "preset",
-          "shared",
-          "definition"
-        ],
+        "required": ["preset", "shared", "definition"],
         "properties": {
-          "preset": {
-            "type": "string",
-            "enum": [
-              "operator",
-              "executive"
-            ]
-          },
-          "shared": {
-            "type": "boolean",
-            "description": "Shares only inside the importing tenant."
-          },
-          "definition": {
-            "$ref": "#/components/schemas/DashboardManifestDefinition"
-          }
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean", "description": "Shares only inside the importing tenant."},
+          "definition": {"$ref": "#/components/schemas/DashboardManifestDefinition"}
         }
       },
       "DashboardManifest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "api_version",
-          "kind",
-          "metadata",
-          "spec"
-        ],
+        "required": ["api_version", "kind", "metadata", "spec"],
         "properties": {
-          "api_version": {
-            "type": "string",
-            "const": "probectl.io/dashboard/v1"
-          },
-          "kind": {
-            "type": "string",
-            "const": "Dashboard"
-          },
-          "metadata": {
-            "$ref": "#/components/schemas/DashboardManifestMetadata"
-          },
-          "spec": {
-            "$ref": "#/components/schemas/DashboardManifestSpec"
-          }
+          "api_version": {"type": "string", "const": "probectl.io/dashboard/v1"},
+          "kind": {"type": "string", "const": "Dashboard"},
+          "metadata": {"$ref": "#/components/schemas/DashboardManifestMetadata"},
+          "spec": {"$ref": "#/components/schemas/DashboardManifestSpec"}
         }
       },
       "DashboardManifestImportRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "manifest",
-          "confirm"
-        ],
+        "required": ["manifest", "confirm"],
         "properties": {
-          "manifest": {
-            "$ref": "#/components/schemas/DashboardManifest"
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "False validates and previews only; true explicitly creates a new dashboard."
-          }
+          "manifest": {"$ref": "#/components/schemas/DashboardManifest"},
+          "confirm": {"type": "boolean", "description": "False validates and previews only; true explicitly creates a new dashboard."}
         }
       },
       "DashboardManifestPreview": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "name",
-          "preset",
-          "shared",
-          "absolute_from",
-          "absolute_to",
-          "metric_count",
-          "provenance_count",
-          "coverage_limitation_count"
-        ],
+        "required": ["name", "preset", "shared", "absolute_from", "absolute_to", "metric_count", "provenance_count", "coverage_limitation_count"],
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "preset": {
-            "type": "string",
-            "enum": [
-              "operator",
-              "executive"
-            ]
-          },
-          "shared": {
-            "type": "boolean"
-          },
-          "absolute_from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "absolute_to": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "metric_count": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100
-          },
-          "provenance_count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 20
-          },
-          "coverage_limitation_count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 20
-          }
+          "name": {"type": "string"},
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean"},
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "metric_count": {"type": "integer", "minimum": 0, "maximum": 100},
+          "provenance_count": {"type": "integer", "minimum": 1, "maximum": 20},
+          "coverage_limitation_count": {"type": "integer", "minimum": 1, "maximum": 20}
         }
       },
       "DashboardManifestImportResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "status",
-          "manifest",
-          "preview"
-        ],
+        "required": ["status", "manifest", "preview"],
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "preview",
-              "created"
-            ]
-          },
-          "manifest": {
-            "$ref": "#/components/schemas/DashboardManifest"
-          },
-          "preview": {
-            "$ref": "#/components/schemas/DashboardManifestPreview"
-          },
-          "dashboard": {
-            "$ref": "#/components/schemas/DashboardView"
-          }
+          "status": {"type": "string", "enum": ["preview", "created"]},
+          "manifest": {"$ref": "#/components/schemas/DashboardManifest"},
+          "preview": {"$ref": "#/components/schemas/DashboardManifestPreview"},
+          "dashboard": {"$ref": "#/components/schemas/DashboardView"}
         }
       },
       "DashboardReportScheduleRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "dashboard_id",
-          "name",
-          "format",
-          "cadence",
-          "destination_id"
-        ],
+        "required": ["dashboard_id", "name", "format", "cadence", "destination_id"],
         "properties": {
-          "dashboard_id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 120
-          },
-          "format": {
-            "type": "string",
-            "enum": [
-              "pdf",
-              "csv"
-            ]
-          },
-          "cadence": {
-            "type": "string",
-            "enum": [
-              "daily",
-              "weekly",
-              "monthly"
-            ]
-          },
-          "destination_id": {
-            "type": "string",
-            "enum": [
-              "tenant-report-inbox"
-            ]
-          },
-          "first_run_at": {
-            "type": "string",
-            "format": "date-time"
-          }
+          "dashboard_id": {"type": "string"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 120},
+          "format": {"type": "string", "enum": ["pdf", "csv"]},
+          "cadence": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+          "destination_id": {"type": "string", "enum": ["tenant-report-inbox"]},
+          "first_run_at": {"type": "string", "format": "date-time"}
         }
       },
       "DashboardReportSchedule": {
         "type": "object",
-        "required": [
-          "id",
-          "tenant_id",
-          "dashboard_id",
-          "owner_id",
-          "name",
-          "format",
-          "cadence",
-          "destination_id",
-          "enabled",
-          "next_run_at",
-          "created_at",
-          "updated_at"
-        ],
+        "required": ["id", "tenant_id", "dashboard_id", "owner_id", "name", "format", "cadence", "destination_id", "enabled", "next_run_at", "created_at", "updated_at"],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "tenant_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "dashboard_id": {
-            "type": "string"
-          },
-          "owner_id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "format": {
-            "type": "string",
-            "enum": [
-              "pdf",
-              "csv"
-            ]
-          },
-          "cadence": {
-            "type": "string",
-            "enum": [
-              "daily",
-              "weekly",
-              "monthly"
-            ]
-          },
-          "destination_id": {
-            "type": "string"
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "next_run_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_run_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
+          "id": {"type": "string"},
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "dashboard_id": {"type": "string"},
+          "owner_id": {"type": "string"},
+          "name": {"type": "string"},
+          "format": {"type": "string", "enum": ["pdf", "csv"]},
+          "cadence": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+          "destination_id": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "next_run_at": {"type": "string", "format": "date-time"},
+          "last_run_at": {"type": ["string", "null"], "format": "date-time"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
         }
       },
       "DashboardReportScheduleList": {
         "type": "object",
-        "required": [
-          "items",
-          "destinations",
-          "outbound_default"
-        ],
+        "required": ["items", "destinations", "outbound_default"],
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DashboardReportSchedule"
-            }
-          },
-          "destinations": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "name",
-                "kind",
-                "outbound",
-                "ready"
-              ],
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "kind": {
-                  "type": "string"
-                },
-                "outbound": {
-                  "type": "boolean"
-                },
-                "ready": {
-                  "type": "boolean"
-                }
-              }
-            }
-          },
-          "outbound_default": {
-            "type": "boolean",
-            "const": false
-          }
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/DashboardReportSchedule"}},
+          "destinations": {"type": "array", "items": {"type": "object", "required": ["id", "name", "kind", "outbound", "ready"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "kind": {"type": "string"}, "outbound": {"type": "boolean"}, "ready": {"type": "boolean"}}}},
+          "outbound_default": {"type": "boolean", "const": false}
         }
       },
       "DashboardReportArtifact": {
         "type": "object",
-        "required": [
-          "id",
-          "dashboard_id",
-          "format",
-          "media_type",
-          "filename",
-          "generated_by",
-          "generated_at",
-          "absolute_from",
-          "absolute_to",
-          "provenance",
-          "redaction_state",
-          "coverage_limitations",
-          "download_url"
-        ],
+        "required": ["id", "dashboard_id", "format", "media_type", "filename", "generated_by", "generated_at", "absolute_from", "absolute_to", "provenance", "redaction_state", "coverage_limitations", "download_url"],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "dashboard_id": {
-            "type": "string"
-          },
-          "schedule_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "format": {
-            "type": "string",
-            "enum": [
-              "pdf",
-              "csv"
-            ]
-          },
-          "media_type": {
-            "type": "string",
-            "enum": [
-              "application/pdf",
-              "text/csv"
-            ]
-          },
-          "filename": {
-            "type": "string"
-          },
-          "generated_by": {
-            "type": "string"
-          },
-          "generated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "absolute_from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "absolute_to": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "provenance": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "redaction_state": {
-            "type": "string"
-          },
-          "coverage_limitations": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "download_url": {
-            "type": "string",
-            "description": "Same-origin authenticated path; never an external URL."
-          }
+          "id": {"type": "string"},
+          "dashboard_id": {"type": "string"},
+          "schedule_id": {"type": ["string", "null"]},
+          "format": {"type": "string", "enum": ["pdf", "csv"]},
+          "media_type": {"type": "string", "enum": ["application/pdf", "text/csv"]},
+          "filename": {"type": "string"},
+          "generated_by": {"type": "string"},
+          "generated_at": {"type": "string", "format": "date-time"},
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "provenance": {"type": "array", "items": {"type": "string"}},
+          "redaction_state": {"type": "string"},
+          "coverage_limitations": {"type": "array", "items": {"type": "string"}},
+          "download_url": {"type": "string", "description": "Same-origin authenticated path; never an external URL."}
         }
       },
       "Branding": {
@@ -11093,23 +10058,14 @@
               },
               "heartbeat_state": {
                 "type": "string",
-                "enum": [
-                  "ready",
-                  "stale",
-                  "never_seen"
-                ]
+                "enum": ["ready", "stale", "never_seen"]
               },
               "heartbeat_reason": {
                 "type": "string"
               },
               "version_state": {
                 "type": "string",
-                "enum": [
-                  "current",
-                  "supported_skew",
-                  "unsupported",
-                  "unknown"
-                ]
+                "enum": ["current", "supported_skew", "unsupported", "unknown"]
               },
               "version_reason": {
                 "type": "string"
@@ -11121,28 +10077,15 @@
               },
               "identity_state": {
                 "type": "string",
-                "enum": [
-                  "current",
-                  "renewal_overdue",
-                  "expired",
-                  "unknown"
-                ],
-                "description": "Credential lifetime, not liveness: an agent keeps working on the identity it holds and then stops for good, so rotation failing is invisible in the heartbeat until it is too late (DPR-176). renewal_overdue means the identity is past 75% of its lifetime with no rotation recorded; unknown means no issuance is recorded and the lifetime cannot be read, never that it is healthy."
+                "enum": ["current", "renewal_overdue", "expired", "unknown"],
+                "description": "Credential lifetime, not liveness: an agent keeps working on the identity it holds and then stops for good, so a failing rotation is invisible in the heartbeat until it is already too late (DPR-176). renewal_overdue is past 75% of the identity's own lifetime with no rotation recorded; unknown means no issuance is recorded and the lifetime cannot be read — never that it is healthy."
               },
               "identity_reason": {
                 "type": "string"
               },
               "readiness_state": {
                 "type": "string",
-                "enum": [
-                  "ready",
-                  "stale",
-                  "never_connected",
-                  "unsupported_capability",
-                  "version_skew",
-                  "identity_expired",
-                  "identity_renewal_overdue"
-                ]
+                "enum": ["ready", "stale", "never_connected", "unsupported_capability", "version_skew", "identity_expired", "identity_renewal_overdue"]
               },
               "readiness_reason": {
                 "type": "string"
@@ -11155,20 +10098,11 @@
               },
               "rollout_cohort": {
                 "type": "string",
-                "enum": [
-                  "canary",
-                  "early",
-                  "main"
-                ]
+                "enum": ["canary", "early", "main"]
               },
               "rollout_state": {
                 "type": "string",
-                "enum": [
-                  "pending",
-                  "applying",
-                  "complete",
-                  "halted"
-                ]
+                "enum": ["pending", "applying", "complete", "halted"]
               },
               "rollout_halted": {
                 "type": "boolean"
@@ -12287,109 +11221,47 @@
           "created_at"
         ],
         "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "tenant_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "source_incident_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "detached_incident_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "source_signal_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "plane": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "target": {
-            "type": "string"
-          },
-          "prefix": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "active": {
-            "type": "boolean"
-          },
-          "created_by": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "reversed_by": {
-            "type": "string"
-          },
-          "reversal_reason": {
-            "type": "string"
-          },
-          "reversed_at": {
-            "type": "string",
-            "format": "date-time"
-          }
+          "id": {"type": "string", "format": "uuid"},
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "source_incident_id": {"type": "string", "format": "uuid"},
+          "detached_incident_id": {"type": "string", "format": "uuid"},
+          "source_signal_id": {"type": "string", "format": "uuid"},
+          "plane": {"type": "string"},
+          "kind": {"type": "string"},
+          "target": {"type": "string"},
+          "prefix": {"type": "string"},
+          "reason": {"type": "string"},
+          "active": {"type": "boolean"},
+          "created_by": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "reversed_by": {"type": "string"},
+          "reversal_reason": {"type": "string"},
+          "reversed_at": {"type": "string", "format": "date-time"}
         }
       },
       "IncidentCorrelationOverrideCreate": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "signal_id",
-          "reason"
-        ],
+        "required": ["signal_id", "reason"],
         "properties": {
-          "signal_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          }
+          "signal_id": {"type": "string", "format": "uuid"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
         }
       },
       "IncidentCorrelationOverrideReverse": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "reason"
-        ],
+        "required": ["reason"],
         "properties": {
-          "reason": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          }
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
         }
       },
       "IncidentCorrelationOverrideCreateResponse": {
         "type": "object",
-        "required": [
-          "override",
-          "detached_incident"
-        ],
+        "required": ["override", "detached_incident"],
         "properties": {
-          "override": {
-            "$ref": "#/components/schemas/IncidentCorrelationOverride"
-          },
-          "detached_incident": {
-            "$ref": "#/components/schemas/Incident"
-          }
+          "override": {"$ref": "#/components/schemas/IncidentCorrelationOverride"},
+          "detached_incident": {"$ref": "#/components/schemas/Incident"}
         }
       },
       "IncidentList": {
@@ -12646,131 +11518,50 @@
       },
       "IncidentEvidencePackage": {
         "type": "object",
-        "required": [
-          "manifest",
-          "attachments",
-          "signing"
-        ],
+        "required": ["manifest", "attachments", "signing"],
         "properties": {
           "manifest": {
             "type": "object",
-            "required": [
-              "contract",
-              "package_id",
-              "tenant_scope_digest",
-              "created_at",
-              "incident",
-              "window",
-              "redaction",
-              "statements",
-              "evidence"
-            ],
+            "required": ["contract", "package_id", "tenant_scope_digest", "created_at", "incident", "window", "redaction", "statements", "evidence"],
             "properties": {
-              "contract": {
-                "type": "string",
-                "const": "probectl-evidence/v1"
-              },
-              "package_id": {
-                "type": "string",
-                "pattern": "^pkg_[a-f0-9]{32}$"
-              },
-              "tenant_scope_digest": {
-                "type": "string",
-                "pattern": "^sha256:[a-f0-9]{64}$"
-              },
-              "created_at": {
-                "type": "string",
-                "format": "date-time"
-              },
-              "incident": {
-                "type": "object",
-                "additionalProperties": true
-              },
+              "contract": {"type": "string", "const": "probectl-evidence/v1"},
+              "package_id": {"type": "string", "pattern": "^pkg_[a-f0-9]{32}$"},
+              "tenant_scope_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+              "created_at": {"type": "string", "format": "date-time"},
+              "incident": {"type": "object", "additionalProperties": true},
               "window": {
                 "type": "object",
-                "required": [
-                  "from",
-                  "to"
-                ],
+                "required": ["from", "to"],
                 "properties": {
-                  "from": {
-                    "type": "string",
-                    "format": "date-time"
-                  },
-                  "to": {
-                    "type": "string",
-                    "format": "date-time"
-                  }
+                  "from": {"type": "string", "format": "date-time"},
+                  "to": {"type": "string", "format": "date-time"}
                 }
               },
-              "redaction": {
-                "type": "string"
-              },
-              "statements": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
+              "redaction": {"type": "string"},
+              "statements": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+              "evidence": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
             }
           },
           "attachments": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": [
-                "digest",
-                "media_type",
-                "content"
-              ],
+              "required": ["digest", "media_type", "content"],
               "properties": {
-                "digest": {
-                  "type": "string",
-                  "pattern": "^sha256:[a-f0-9]{64}$"
-                },
-                "media_type": {
-                  "type": "string",
-                  "const": "application/json"
-                },
-                "content": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
+                "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+                "media_type": {"type": "string", "const": "application/json"},
+                "content": {"type": "object", "additionalProperties": true}
               }
             }
           },
           "signing": {
             "type": "object",
-            "required": [
-              "algorithm",
-              "public_key_pem",
-              "public_key_fingerprint",
-              "signature"
-            ],
+            "required": ["algorithm", "public_key_pem", "public_key_fingerprint", "signature"],
             "properties": {
-              "algorithm": {
-                "type": "string",
-                "const": "Ed25519"
-              },
-              "public_key_pem": {
-                "type": "string"
-              },
-              "public_key_fingerprint": {
-                "type": "string",
-                "pattern": "^sha256:[a-f0-9]{64}$"
-              },
-              "signature": {
-                "type": "string",
-                "format": "byte"
-              }
+              "algorithm": {"type": "string", "const": "Ed25519"},
+              "public_key_pem": {"type": "string"},
+              "public_key_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+              "signature": {"type": "string", "format": "byte"}
             }
           }
         }
@@ -13631,39 +12422,14 @@
           "evidence_path"
         ],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "question": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          },
-          "dimensions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "groupings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "measures": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "visualization": {
-            "type": "string"
-          },
-          "evidence_path": {
-            "type": "string"
-          }
+          "id": { "type": "string" },
+          "question": { "type": "string" },
+          "source": { "type": "string" },
+          "dimensions": { "type": "array", "items": { "type": "string" } },
+          "groupings": { "type": "array", "items": { "type": "string" } },
+          "measures": { "type": "array", "items": { "type": "string" } },
+          "visualization": { "type": "string" },
+          "evidence_path": { "type": "string" }
         }
       },
       "ExplorerSchemaResponse": {
@@ -13677,15 +12443,11 @@
         "properties": {
           "templates": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExplorerTemplate"
-            }
+            "items": { "$ref": "#/components/schemas/ExplorerTemplate" }
           },
           "visualizations": {
             "type": "array",
-            "items": {
-              "type": "string"
-            }
+            "items": { "type": "string" }
           },
           "comparison_sources": {
             "type": "array",
@@ -13701,9 +12463,7 @@
             },
             "description": "Sources whose tenant-scoped dispatch honors both explicit historical windows. Current-state-only sources are omitted."
           },
-          "max_rows": {
-            "type": "integer"
-          }
+          "max_rows": { "type": "integer" }
         }
       },
       "ExplorerColumn": {
@@ -13713,92 +12473,49 @@
           "label"
         ],
         "properties": {
-          "key": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "numeric": {
-            "type": "boolean"
-          }
+          "key": { "type": "string" },
+          "label": { "type": "string" },
+          "numeric": { "type": "boolean" }
         }
       },
       "ExplorerExecutionBounds": {
         "type": "object",
-        "required": [
-          "from",
-          "to",
-          "row_limit"
-        ],
+        "required": ["from", "to", "row_limit"],
         "properties": {
-          "from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "to": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "row_limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 500
-          }
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "row_limit": { "type": "integer", "minimum": 1, "maximum": 500 }
         },
         "description": "The normalized time and row bounds enforced by the server."
       },
       "ExplorerExecutionProjection": {
         "type": "object",
-        "required": [
-          "dimensions",
-          "groupings",
-          "measures"
-        ],
+        "required": ["dimensions", "groupings", "measures"],
         "properties": {
           "dimensions": {
             "type": "array",
             "maxItems": 8,
-            "items": {
-              "type": "string"
-            }
+            "items": { "type": "string" }
           },
           "groupings": {
             "type": "array",
             "maxItems": 4,
-            "items": {
-              "type": "string"
-            }
+            "items": { "type": "string" }
           },
           "measures": {
             "type": "array",
             "maxItems": 6,
-            "items": {
-              "type": "string"
-            }
+            "items": { "type": "string" }
           }
         }
       },
       "ExplorerExecutionTimings": {
         "type": "object",
-        "required": [
-          "source_ms",
-          "shaping_ms",
-          "total_ms"
-        ],
+        "required": ["source_ms", "shaping_ms", "total_ms"],
         "properties": {
-          "source_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "shaping_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "total_ms": {
-            "type": "integer",
-            "minimum": 0
-          }
+          "source_ms": { "type": "integer", "minimum": 0 },
+          "shaping_ms": { "type": "integer", "minimum": 0 },
+          "total_ms": { "type": "integer", "minimum": 0 }
         },
         "description": "Server-measured logical stage timings. Values can be zero for sub-millisecond work."
       },
@@ -13829,34 +12546,19 @@
           },
           "source": {
             "type": "string",
-            "enum": [
-              "flow",
-              "changes",
-              "path",
-              "topology",
-              "endpoints",
-              "tls",
-              "cost",
-              "slo"
-            ]
+            "enum": ["flow", "changes", "path", "topology", "endpoints", "tls", "cost", "slo"]
           },
           "tenant_scoped": {
             "type": "boolean",
             "const": true,
             "description": "True only after the authenticated principal tenant has been resolved and supplied to the source query."
           },
-          "bounds": {
-            "$ref": "#/components/schemas/ExplorerExecutionBounds"
-          },
-          "projection": {
-            "$ref": "#/components/schemas/ExplorerExecutionProjection"
-          },
+          "bounds": { "$ref": "#/components/schemas/ExplorerExecutionBounds" },
+          "projection": { "$ref": "#/components/schemas/ExplorerExecutionProjection" },
           "filter_keys": {
             "type": "array",
             "maxItems": 12,
-            "items": {
-              "type": "string"
-            },
+            "items": { "type": "string" },
             "description": "Sorted allow-listed filter field names. Literal values are deliberately omitted."
           },
           "source_rows": {
@@ -13864,95 +12566,43 @@
             "minimum": 0,
             "description": "Rows produced by the already tenant-scoped logical source before response shaping."
           },
-          "returned_rows": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 500
-          },
-          "truncated": {
-            "type": "boolean"
-          },
+          "returned_rows": { "type": "integer", "minimum": 0, "maximum": 500 },
+          "truncated": { "type": "boolean" },
           "truncation_reason": {
             "type": "string",
-            "enum": [
-              "none",
-              "row_limit"
-            ]
+            "enum": ["none", "row_limit"]
           },
-          "timings": {
-            "$ref": "#/components/schemas/ExplorerExecutionTimings"
-          }
+          "timings": { "$ref": "#/components/schemas/ExplorerExecutionTimings" }
         },
         "description": "A sanitized logical execution receipt. It never contains SQL, physical plans, tenant identity, literal filter values, secrets, or datastore-wide cardinality."
       },
       "ExplorerAlignmentExecutionReceipt": {
         "type": "object",
-        "required": [
-          "row_limit",
-          "returned_rows",
-          "truncated",
-          "truncation_reason",
-          "elapsed_ms"
-        ],
+        "required": ["row_limit", "returned_rows", "truncated", "truncation_reason", "elapsed_ms"],
         "properties": {
-          "row_limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 500
-          },
-          "returned_rows": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 500
-          },
-          "truncated": {
-            "type": "boolean"
-          },
+          "row_limit": { "type": "integer", "minimum": 1, "maximum": 500 },
+          "returned_rows": { "type": "integer", "minimum": 0, "maximum": 500 },
+          "truncated": { "type": "boolean" },
           "truncation_reason": {
             "type": "string",
-            "enum": [
-              "none",
-              "comparison_row_limit"
-            ]
+            "enum": ["none", "comparison_row_limit"]
           },
-          "elapsed_ms": {
-            "type": "integer",
-            "minimum": 0
-          }
+          "elapsed_ms": { "type": "integer", "minimum": 0 }
         }
       },
       "ExplorerComparisonExecutionReceipt": {
         "type": "object",
-        "required": [
-          "contract_version",
-          "tenant_scoped",
-          "current",
-          "previous",
-          "alignment",
-          "total_ms"
-        ],
+        "required": ["contract_version", "tenant_scoped", "current", "previous", "alignment", "total_ms"],
         "properties": {
           "contract_version": {
             "type": "string",
             "const": "explorer-comparison-execution/v1"
           },
-          "tenant_scoped": {
-            "type": "boolean",
-            "const": true
-          },
-          "current": {
-            "$ref": "#/components/schemas/ExplorerExecutionReceipt"
-          },
-          "previous": {
-            "$ref": "#/components/schemas/ExplorerExecutionReceipt"
-          },
-          "alignment": {
-            "$ref": "#/components/schemas/ExplorerAlignmentExecutionReceipt"
-          },
-          "total_ms": {
-            "type": "integer",
-            "minimum": 0
-          }
+          "tenant_scoped": { "type": "boolean", "const": true },
+          "current": { "$ref": "#/components/schemas/ExplorerExecutionReceipt" },
+          "previous": { "$ref": "#/components/schemas/ExplorerExecutionReceipt" },
+          "alignment": { "$ref": "#/components/schemas/ExplorerAlignmentExecutionReceipt" },
+          "total_ms": { "type": "integer", "minimum": 0 }
         },
         "description": "Two tenant-scoped logical receipts plus the bounded local alignment stage."
       },
@@ -13969,17 +12619,11 @@
           "execution"
         ],
         "properties": {
-          "query": {
-            "$ref": "#/components/schemas/ExplorerQuery"
-          },
-          "preview": {
-            "type": "string"
-          },
+          "query": { "$ref": "#/components/schemas/ExplorerQuery" },
+          "preview": { "type": "string" },
           "columns": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExplorerColumn"
-            }
+            "items": { "$ref": "#/components/schemas/ExplorerColumn" }
           },
           "rows": {
             "type": "array",
@@ -13992,20 +12636,12 @@
             "type": "object",
             "additionalProperties": {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             }
           },
-          "evidence_path": {
-            "type": "string"
-          },
-          "truncated": {
-            "type": "boolean"
-          },
-          "execution": {
-            "$ref": "#/components/schemas/ExplorerExecutionReceipt"
-          }
+          "evidence_path": { "type": "string" },
+          "truncated": { "type": "boolean" },
+          "execution": { "$ref": "#/components/schemas/ExplorerExecutionReceipt" }
         }
       },
       "ExplorerComparisonRequest": {
@@ -14172,9 +12808,7 @@
           "rows_truncated": {
             "type": "boolean"
           },
-          "execution": {
-            "$ref": "#/components/schemas/ExplorerComparisonExecutionReceipt"
-          }
+          "execution": { "$ref": "#/components/schemas/ExplorerComparisonExecutionReceipt" }
         }
       },
       "AIQueryRange": {
@@ -16550,58 +15184,37 @@
             "description": "Per-tenant flow retention in days; null uses the deployment default."
           },
           "otel_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Per-tenant OTLP trace/log retention in days; null uses the deployment default."
           },
           "ebpf_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Per-tenant eBPF aggregate retention in days; null uses the deployment default."
           },
           "path_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Per-tenant raw path/traceroute retention in days where the backend supports pruning; null uses the deployment default."
           },
           "audit_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Per-tenant local audit retention in days; null inherits the deployment window, and a finite value may only tighten a positive deployment maximum. Pruning still requires the tenant's durable SIEM watermark."
           },
           "ai_answer_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Per-tenant persisted AI-answer retention in days; null uses the deployment default."
           },
           "object_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Per-tenant object-artifact retention target in days; enforcement may be delegated to the object store lifecycle."
           },
           "derived_identity_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Per-tenant topology/endpoint derived identity-cache retention in days; null uses the deployment default."
           }
@@ -16622,53 +15235,32 @@
             "minimum": 1
           },
           "otel_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "ebpf_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "path_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "audit_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1,
             "description": "Stored per-tenant audit-retention tightening; null inherits the deployment window."
           },
           "ai_answer_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "object_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "derived_identity_retention_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "updated_by": {
@@ -17404,10 +15996,7 @@
           },
           "plane": {
             "type": "string",
-            "enum": [
-              "agent",
-              "bmp"
-            ]
+            "enum": ["agent", "bmp"]
           },
           "serial": {
             "type": "string"
