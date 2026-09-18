@@ -37,6 +37,7 @@ export interface AIAnswer {
   root_cause: string
   root_cause_citations?: AICitation[]
   root_cause_grounded: boolean
+  silent_planes?: string[]
   tenant: string
 }
 
@@ -118,6 +119,7 @@ export interface Agent {
 }
 
 export interface AgentList {
+  agent_transport_running?: boolean
   control_version: string
   items: FleetAgent[]
   next_cursor?: string
@@ -293,7 +295,10 @@ export interface ChangeCandidate {
 }
 
 export interface ChangeCandidateList {
+  correlation_running?: boolean
+  effective_limit?: number
   items?: ChangeCandidate[]
+  truncated?: boolean
 }
 
 export interface ChangeEvent {
@@ -312,7 +317,11 @@ export interface ChangeEvent {
 }
 
 export interface ChangeEventList {
+  change_ingest_configured?: boolean
+  config_archive_running?: boolean
+  effective_limit?: number
   items?: ChangeEvent[]
+  truncated?: boolean
 }
 
 export interface ChannelSpec {
@@ -1063,10 +1072,12 @@ export interface FlowAnomaly {
 }
 
 export interface FlowAnomalyList {
+  ingest_running?: boolean
   items?: FlowAnomaly[]
 }
 
 export interface FlowCapacityList {
+  ingest_running?: boolean
   items?: FlowCapacityPoint[]
 }
 
@@ -1131,6 +1142,7 @@ export interface FlowTopList {
   bucket?: string
   effective_limit?: number
   filters?: FlowFilter[]
+  ingest_running?: boolean
   items?: FlowTopRow[]
   series?: FlowSeriesPoint[]
   series_limit?: number
@@ -1359,7 +1371,10 @@ export interface IncidentJournalList {
 }
 
 export interface IncidentList {
+  correlation_running?: boolean
+  effective_limit?: number
   items?: Incident[]
+  truncated?: boolean
 }
 
 export interface IncidentPatch {
@@ -2149,6 +2164,11 @@ export interface ListComplianceResultsRequest {
 }
 
 export type ListComplianceResultsResponse = JsonObject
+
+export interface ExportAuditorBundleRequest {
+}
+
+export type ExportAuditorBundleResponse = JsonObject
 
 export interface ExportComplianceEvidenceRequest {
 }
@@ -3303,6 +3323,12 @@ export class ProbectlSDKClient {
     let path = "/v1/compliance"
     const query = new URLSearchParams()
     return this.requestJSON<ListComplianceResultsResponse>("GET", path, query, undefined)
+  }
+
+  async exportAuditorBundle(): Promise<ExportAuditorBundleResponse> {
+    let path = "/v1/compliance/auditor-bundle"
+    const query = new URLSearchParams()
+    return this.requestJSON<ExportAuditorBundleResponse>("GET", path, query, undefined)
   }
 
   async exportComplianceEvidence(): Promise<ExportComplianceEvidenceResponse> {

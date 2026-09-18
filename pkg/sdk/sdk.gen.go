@@ -112,6 +112,7 @@ type AIAnswer struct {
 	RootCause            string                `json:"root_cause"`
 	RootCauseCitations   []AICitation          `json:"root_cause_citations,omitempty"`
 	RootCauseGrounded    bool                  `json:"root_cause_grounded"`
+	SilentPlanes         []string              `json:"silent_planes,omitempty"`
 	Tenant               string                `json:"tenant"`
 }
 
@@ -195,10 +196,11 @@ type Agent struct {
 }
 
 type AgentList struct {
-	ControlVersion    string       `json:"control_version"`
-	Items             []FleetAgent `json:"items"`
-	NextCursor        string       `json:"next_cursor,omitempty"`
-	RolloutsAvailable bool         `json:"rollouts_available"`
+	AgentTransportRunning bool         `json:"agent_transport_running,omitempty"`
+	ControlVersion        string       `json:"control_version"`
+	Items                 []FleetAgent `json:"items"`
+	NextCursor            string       `json:"next_cursor,omitempty"`
+	RolloutsAvailable     bool         `json:"rollouts_available"`
 }
 
 type AgentPatch struct {
@@ -373,7 +375,10 @@ type ChangeCandidate struct {
 }
 
 type ChangeCandidateList struct {
-	Items []ChangeCandidate `json:"items,omitempty"`
+	CorrelationRunning bool              `json:"correlation_running,omitempty"`
+	EffectiveLimit     int               `json:"effective_limit,omitempty"`
+	Items              []ChangeCandidate `json:"items,omitempty"`
+	Truncated          bool              `json:"truncated,omitempty"`
 }
 
 // A normalized tenant-scoped change event from a signed webhook or a content-free read-time projection.
@@ -393,7 +398,11 @@ type ChangeEvent struct {
 }
 
 type ChangeEventList struct {
-	Items []ChangeEvent `json:"items,omitempty"`
+	ChangeIngestConfigured bool          `json:"change_ingest_configured,omitempty"`
+	ConfigArchiveRunning   bool          `json:"config_archive_running,omitempty"`
+	EffectiveLimit         int           `json:"effective_limit,omitempty"`
+	Items                  []ChangeEvent `json:"items,omitempty"`
+	Truncated              bool          `json:"truncated,omitempty"`
 }
 
 type ChannelSpec struct {
@@ -1159,11 +1168,13 @@ type FlowAnomaly struct {
 }
 
 type FlowAnomalyList struct {
-	Items []FlowAnomaly `json:"items,omitempty"`
+	IngestRunning bool          `json:"ingest_running,omitempty"`
+	Items         []FlowAnomaly `json:"items,omitempty"`
 }
 
 type FlowCapacityList struct {
-	Items []FlowCapacityPoint `json:"items,omitempty"`
+	IngestRunning bool                `json:"ingest_running,omitempty"`
+	Items         []FlowCapacityPoint `json:"items,omitempty"`
 }
 
 type FlowCapacityPoint struct {
@@ -1227,6 +1238,7 @@ type FlowTopList struct {
 	Bucket         string            `json:"bucket,omitempty"`
 	EffectiveLimit int               `json:"effective_limit,omitempty"`
 	Filters        []FlowFilter      `json:"filters,omitempty"`
+	IngestRunning  bool              `json:"ingest_running,omitempty"`
 	Items          []FlowTopRow      `json:"items,omitempty"`
 	Series         []FlowSeriesPoint `json:"series,omitempty"`
 	SeriesLimit    int               `json:"series_limit,omitempty"`
@@ -1458,7 +1470,10 @@ type IncidentJournalList struct {
 }
 
 type IncidentList struct {
-	Items []Incident `json:"items,omitempty"`
+	CorrelationRunning bool       `json:"correlation_running,omitempty"`
+	EffectiveLimit     int        `json:"effective_limit,omitempty"`
+	Items              []Incident `json:"items,omitempty"`
+	Truncated          bool       `json:"truncated,omitempty"`
 }
 
 type IncidentPatch struct {
@@ -2733,6 +2748,20 @@ type ListComplianceResultsRequest struct {
 
 func (c *Client) ListComplianceResults(ctx context.Context, req ListComplianceResultsRequest) (map[string]any, error) {
 	path := "/v1/compliance"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Signed auditor evidence bundle (P7)
+type ExportAuditorBundleRequest struct {
+}
+
+func (c *Client) ExportAuditorBundle(ctx context.Context, req ExportAuditorBundleRequest) (map[string]any, error) {
+	path := "/v1/compliance/auditor-bundle"
 	query := url.Values{}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
