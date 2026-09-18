@@ -312,6 +312,14 @@ holding a leaf it signed keeps verifying and moves onto the new chain at its
 next rotation. Nothing is re-enrolled, no agent is restarted, and the trust
 bundle carries both issuing certificates for the length of the overlap.
 
+**No restart is needed, and there is a way to confirm it took.** The renewal
+writes the database; every running replica adopts the new intermediate on its
+next periodic re-read — the same 30-second cycle that installs revocations
+(DPR-194). Check `GET /v1/diagnostics`: `checks[agent_ca].detail` names the
+issuing expiry, and it flips to the new date within that window. A replica that
+cannot read the new certificate logs the failure and keeps signing with the
+working one rather than dropping enrollment.
+
 You do not have to remember the date. `GET /v1/diagnostics` (admin) and the
 support bundle carry an `agent_ca` check that goes **degraded** once the
 intermediate is three quarters through its life — about 91 days of warning on

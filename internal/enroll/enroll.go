@@ -21,6 +21,7 @@
 package enroll
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/hex"
@@ -29,6 +30,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -102,7 +104,11 @@ func RefusalTenant(err error) (string, bool) {
 
 // Service issues and rotates agent SVIDs.
 type Service struct {
-	pool    *pgxpool.Pool
+	pool *pgxpool.Pool
+	// mu guards the three CA fields below. They used to be immutable after
+	// Load, and a renewal therefore had no effect on a running process
+	// (DPR-194). Refresh swaps them while the serving path is reading them.
+	mu      sync.RWMutex
 	ca      *crypto.CA // the issuing intermediate (unsealed in memory only)
 	rootPEM []byte
 	// prevCA is the superseded issuing intermediate during a renewal overlap
@@ -112,6 +118,89 @@ type Service struct {
 	leafTTL time.Duration
 	log     *slog.Logger
 	now     func() time.Time
+}
+
+// issuing returns a consistent snapshot of the three CA fields. Every read path
+// goes through it, so a Refresh can never be observed half-applied: a caller
+// cannot get the new intermediate with the old root, or sign with one chain and
+// return another in the same response.
+func (s *Service) issuing() (ca *crypto.CA, rootPEM []byte, prev *x509.Certificate) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ca, s.rootPEM, s.prevCA
+}
+
+// Refresh re-reads the persisted hierarchy and adopts a newly issued issuing
+// intermediate. It reports whether the intermediate changed.
+//
+// DPR-194: `agent-ca renew` writes the new intermediate to the DATABASE, and
+// nothing told a running control plane. Observed on the lab: after a successful
+// renewal, `agent-ca export` returned the expected three certificates while
+// every replica's own /v1/diagnostics went on reporting the SUPERSEDED window —
+// so the check that had told the operator to renew kept telling them to renew,
+// and the replicas kept signing new 24h identities from a certificate that was
+// about to expire. The documented escape from the one-year deadline bought
+// nothing until someone happened to restart the deployment.
+//
+// It is deliberately shaped like the revocation deny-list reload that runs
+// beside it: same thirty-second cadence, and a failure keeps the working chain
+// rather than dropping enrollment.
+func (s *Service) Refresh(ctx context.Context) (changed bool, err error) {
+	cas := store.NewAgentCA(s.pool)
+	rootCert, _, err := cas.Load(ctx, "root")
+	if err != nil {
+		return false, err
+	}
+	interCert, sealedKey, err := cas.Load(ctx, "intermediate")
+	if err != nil {
+		return false, err
+	}
+	if sealedKey == "" {
+		return false, fmt.Errorf("enroll: intermediate key missing (re-run agent-ca init)")
+	}
+	current, _, _ := s.issuing()
+	if cur := current.Cert(); cur != nil && sameCertificate(cur, []byte(interCert)) {
+		// Nothing was renewed. Do not unseal the key on every tick: that is an
+		// envelope-key operation, and this runs twice a minute per replica.
+		return false, nil
+	}
+	interKey, err := tenantcrypto.Open(ctx, caSealScope, sealedKey, []byte(caSealAAD))
+	if err != nil {
+		return false, fmt.Errorf("enroll: unseal intermediate key (is the envelope key configured?): %w", err)
+	}
+	ca, err := crypto.LoadCA([]byte(interCert), interKey)
+	if err != nil {
+		return false, err
+	}
+	prev := loadPreviousIntermediate(ctx, cas, s.now())
+	s.mu.Lock()
+	s.ca, s.rootPEM, s.prevCA = ca, []byte(rootCert), prev
+	s.mu.Unlock()
+	if cert := ca.Cert(); cert != nil {
+		s.log.Info("agent CA intermediate adopted after renewal",
+			"not_after", cert.NotAfter.UTC().Format(time.RFC3339),
+			"serial", cert.SerialNumber.String(),
+			"overlap_until", overlapUntil(prev))
+	}
+	return true, nil
+}
+
+// sameCertificate reports whether pem encodes the certificate cert. Compared on
+// the DER bytes rather than the serial: a serial is unique per issuer by
+// convention, and this is the guard that decides whether to unseal a key.
+func sameCertificate(cert *x509.Certificate, pemBytes []byte) bool {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return false
+	}
+	return bytes.Equal(cert.Raw, block.Bytes)
+}
+
+func overlapUntil(prev *x509.Certificate) string {
+	if prev == nil {
+		return "none"
+	}
+	return prev.NotAfter.UTC().Format(time.RFC3339)
 }
 
 // InitCA generates the hierarchy ONCE: root (10y) → intermediate (1y). The
@@ -309,7 +398,8 @@ func Load(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) (*Service, 
 // lifetime — silently, because an agent keeps working until its own leaf
 // expires. A deployment cannot be asked to remember a date nobody shows it.
 func (s *Service) IssuingWindow() (notBefore, notAfter time.Time) {
-	cert := s.ca.Cert()
+	ca, _, _ := s.issuing()
+	cert := ca.Cert()
 	if cert == nil {
 		return time.Time{}, time.Time{}
 	}
@@ -320,9 +410,10 @@ func (s *Service) IssuingWindow() (notBefore, notAfter time.Time) {
 // plus the superseded intermediate while it is still inside its own validity —
 // DPR-177, so a renewal never orphans an agent mid-rotation).
 func (s *Service) Bundle() []byte {
-	out := append(append([]byte{}, s.rootPEM...), s.ca.CertPEM()...)
-	if s.prevCA != nil && s.now().Before(s.prevCA.NotAfter) {
-		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: s.prevCA.Raw})...)
+	ca, rootPEM, prev := s.issuing()
+	out := append(append([]byte{}, rootPEM...), ca.CertPEM()...)
+	if prev != nil && s.now().Before(prev.NotAfter) {
+		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: prev.Raw})...)
 	}
 	return out
 }
@@ -608,18 +699,20 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 	if err != nil {
 		return nil, ErrNotOurs
 	}
-	// Chain: leaf → intermediate → root, time-valid, client-auth.
+	// Chain: leaf → intermediate → root, time-valid, client-auth. One snapshot
+	// for the whole verification, so a Refresh mid-request cannot mix chains.
+	rotateCA, rotateRoot, rotatePrev := s.issuing()
 	roots, inters := x509.NewCertPool(), x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(s.rootPEM) {
+	if !roots.AppendCertsFromPEM(rotateRoot) {
 		return nil, fmt.Errorf("enroll: root bundle unreadable")
 	}
-	inters.AddCert(s.ca.Cert())
+	inters.AddCert(rotateCA.Cert())
 	// DPR-177: during a renewal overlap the presented leaf may still be signed
 	// by the superseded intermediate. Rotation is precisely how such an agent
 	// moves onto the new chain, so refusing it here would strand every agent
 	// that had not rotated in the minutes before the renewal.
-	if s.prevCA != nil && s.now().Before(s.prevCA.NotAfter) {
-		inters.AddCert(s.prevCA)
+	if rotatePrev != nil && s.now().Before(rotatePrev.NotAfter) {
+		inters.AddCert(rotatePrev)
 	}
 	if _, err := cert.Verify(x509.VerifyOptions{
 		Roots: roots, Intermediates: inters, CurrentTime: s.now(),
@@ -679,7 +772,11 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 	default:
 		return nil, refuseTenant(tenantID, ErrInvalidCollectorPlane)
 	}
-	leafPEM, serial, err := s.ca.SignCSR([]byte(csrPEM), spiffe, s.leafTTL)
+	// One snapshot: the leaf, the intermediate appended to it, and the bundle
+	// returned beside it must all come from the SAME chain, or an agent can be
+	// handed a leaf whose issuer is missing from its own bundle.
+	issuingCA, _, _ := s.issuing()
+	leafPEM, serial, err := issuingCA.SignCSR([]byte(csrPEM), spiffe, s.leafTTL)
 	if err != nil {
 		return nil, refuseTenant(tenantID, fmt.Errorf("%w: %v", ErrBadCSR, err))
 	}
@@ -713,7 +810,7 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 		"tenant_id", tenantID, "agent_id", agentID, "serial", serialHex,
 		"plane", plane, "not_after", notAfter.UTC().Format(time.RFC3339), "rotated_from", rotatedFrom)
 
-	chain := append(append([]byte{}, leafPEM...), s.ca.CertPEM()...)
+	chain := append(append([]byte{}, leafPEM...), issuingCA.CertPEM()...)
 	return &Identity{
 		CertPEM: string(chain), CABundle: string(s.Bundle()),
 		SPIFFEID: spiffe, TenantID: tenantID, AgentID: agentID,

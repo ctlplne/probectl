@@ -707,6 +707,23 @@ func startAgentTransport(
 			}
 			grpcSrv.RevocationList().Replace(serials, ids)
 		}
+		// DPR-194: `agent-ca renew` writes the new issuing intermediate to the
+		// DATABASE, and nothing told this process. Every replica went on signing
+		// from the superseded certificate and went on reporting its window on
+		// /v1/diagnostics, so the renewal took effect only if somebody happened
+		// to restart the deployment. It rides the same ticker as the deny-list
+		// for the same reason: one periodic re-read of the enrollment state the
+		// operator can change from outside the process.
+		refreshCA := func() {
+			changed, cerr := enrollSvc.Refresh(ctx)
+			if cerr != nil {
+				log.Error("agent CA refresh failed (keeping the current issuing intermediate)", "error", cerr.Error())
+				return
+			}
+			if changed {
+				log.Info("agent CA renewal picked up without a restart")
+			}
+		}
 		reload()
 		srv.SetAgentRevocationPush(func(serials, ids []string) {
 			for _, s := range serials {
@@ -725,6 +742,7 @@ func startAgentTransport(
 					return nil
 				case <-t.C:
 					reload()
+					refreshCA()
 				}
 			}
 		})

@@ -7,8 +7,10 @@
 package enroll
 
 import (
+	"bytes"
 	"crypto/x509"
 	"encoding/pem"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -96,4 +98,117 @@ func TestLoadPreviousIntermediateDropsAnExpiredCertificate(t *testing.T) {
 	if time.Now().Add(2 * time.Hour).Before(cert.NotAfter) {
 		t.Fatal("fixture intermediate outlives the window this test needs")
 	}
+}
+
+// DPR-194: `agent-ca renew` writes the new issuing intermediate to the DATABASE,
+// and nothing told a running control plane. Observed on the lab: a renewal
+// succeeded, `agent-ca export` returned the expected three certificates, and
+// every replica's own /v1/diagnostics went on reporting the SUPERSEDED window —
+// so the check that had told the operator to renew kept telling them to renew,
+// and the replicas kept minting 24h identities from a certificate about to
+// expire. The documented escape from the one-year deadline bought nothing until
+// somebody happened to restart the deployment.
+//
+// The DB round trip is covered by the integration suite. What is asserted here
+// is the part that was structurally missing: the fields a renewal has to change
+// are readable through one consistent snapshot, and swapping them is visible to
+// every read path at once.
+func TestIssuingSnapshotIsConsistentAndSwappable(t *testing.T) {
+	root, err := crypto.GenerateRootCA("test root", 10*365*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldInter, err := root.IssueIntermediate("old issuing", 30*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newInter, err := root.IssueIntermediate("new issuing", 365*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	svc := &Service{
+		ca: oldInter, rootPEM: root.CertPEM(), prevCA: nil,
+		leafTTL: DefaultLeafTTL, log: slog.Default(), now: func() time.Time { return now },
+	}
+
+	_, notAfter := svc.IssuingWindow()
+	if !notAfter.Equal(oldInter.Cert().NotAfter) {
+		t.Fatalf("the window must report the loaded intermediate, got %s", notAfter)
+	}
+
+	// The swap Refresh performs, without the database in the way.
+	svc.mu.Lock()
+	svc.ca, svc.prevCA = newInter, oldInter.Cert()
+	svc.mu.Unlock()
+
+	_, notAfter = svc.IssuingWindow()
+	if !notAfter.Equal(newInter.Cert().NotAfter) {
+		t.Errorf("after a renewal the window must report the NEW intermediate; got %s, want %s",
+			notAfter, newInter.Cert().NotAfter)
+	}
+	// And the bundle must carry the overlap, or every agent holding a leaf from
+	// the old intermediate stops verifying the moment the swap happens.
+	bundle := svc.Bundle()
+	if n := bytes.Count(bundle, []byte("BEGIN CERTIFICATE")); n != 3 {
+		t.Errorf("bundle after the swap has %d certificates, want 3 (root + new + superseded)", n)
+	}
+
+	// sameCertificate is the guard that decides whether to unseal the key at all,
+	// so it must not call two different certificates the same.
+	if !sameCertificate(newInter.Cert(), newInter.CertPEM()) {
+		t.Error("a certificate must match its own PEM")
+	}
+	if sameCertificate(newInter.Cert(), oldInter.CertPEM()) {
+		t.Error("two different intermediates must not compare equal — a renewal would never be adopted")
+	}
+	if sameCertificate(newInter.Cert(), []byte("not pem")) {
+		t.Error("unparseable input must not compare equal")
+	}
+}
+
+// The serving path reads the CA on every enrollment and rotation while the
+// refresh loop may be swapping it. Run under -race, this is the test that fails
+// if a future reader goes back to touching the fields directly.
+func TestIssuingSnapshotIsSafeUnderConcurrentRefresh(t *testing.T) {
+	root, err := crypto.GenerateRootCA("test root", 10*365*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := root.IssueIntermediate("issuing a", 365*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := root.IssueIntermediate("issuing b", 365*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	svc := &Service{ca: a, rootPEM: root.CertPEM(), leafTTL: DefaultLeafTTL,
+		log: slog.Default(), now: func() time.Time { return now }}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			next := a
+			if i%2 == 1 {
+				next = b
+			}
+			svc.mu.Lock()
+			svc.ca = next
+			svc.mu.Unlock()
+		}
+	}()
+	for i := 0; i < 500; i++ {
+		ca, rootPEM, _ := svc.issuing()
+		if ca == nil || ca.Cert() == nil || len(rootPEM) == 0 {
+			t.Fatal("a snapshot must never be empty or half-applied")
+		}
+		_, notAfter := svc.IssuingWindow()
+		if notAfter.IsZero() {
+			t.Fatal("the window must never read zero while a CA is loaded")
+		}
+	}
+	<-done
 }

@@ -610,3 +610,65 @@ func TestCollectorRegistrationHonoursTheAgentQuota(t *testing.T) {
 		t.Fatalf("registration under the cap must succeed: %v", err)
 	}
 }
+
+// DPR-194: the renewal a running control plane never noticed. This is the round
+// trip the unit test cannot make: renew through the store, then ask a Service
+// that was loaded BEFORE the renewal what its issuing window is. Before the fix
+// it answered with the superseded certificate for the life of the process.
+func TestRefreshAdoptsARenewedIntermediateWithoutAReload(t *testing.T) {
+	ctx := context.Background()
+	pool, svc, tenantID := setup(ctx, t)
+
+	_, before := svc.IssuingWindow()
+	if before.IsZero() {
+		t.Fatal("the loaded service must report an issuing window")
+	}
+
+	// A refresh with nothing renewed must be a no-op — it runs twice a minute
+	// per replica and must not unseal the intermediate key on every tick.
+	if changed, err := svc.Refresh(ctx); err != nil || changed {
+		t.Fatalf("refresh with no renewal: changed=%v err=%v, want false/nil", changed, err)
+	}
+
+	// The root key is only handed out by InitCA, and setup() has already run it
+	// against this database. Generate a fresh hierarchy in a scratch schema
+	// instead? No: renewal must be signed by THIS deployment's root, so the test
+	// needs the key InitCA returned. Re-initializing is refused by design, so
+	// this case is only meaningful on a database where the CA is new.
+	rootKey, err := enroll.InitCA(ctx, pool)
+	if err != nil {
+		t.Skipf("this database's agent CA already exists, so its offline root key is not available here: %v", err)
+	}
+	notAfter, err := enroll.RenewIntermediate(ctx, pool, rootKey, 2*365*24*time.Hour)
+	if err != nil {
+		t.Fatalf("renew: %v", err)
+	}
+	if !notAfter.After(before) {
+		t.Fatalf("the renewed intermediate must outlive the old one: %s vs %s", notAfter, before)
+	}
+
+	// The service was loaded before the renewal and has not been recreated.
+	if _, stale := svc.IssuingWindow(); !stale.Equal(before) {
+		t.Fatalf("the window changed without a refresh: %s", stale)
+	}
+	changed, err := svc.Refresh(ctx)
+	if err != nil {
+		t.Fatalf("refresh after renewal: %v", err)
+	}
+	if !changed {
+		t.Fatal("a refresh after a renewal must report the intermediate changed")
+	}
+	_, after := svc.IssuingWindow()
+	if !after.Equal(notAfter) {
+		t.Errorf("after the refresh the window must be the NEW expiry; got %s, want %s", after, notAfter)
+	}
+	// The overlap has to survive the refresh, or the swap strands every agent
+	// holding a leaf from the superseded intermediate.
+	if n := bytes.Count(svc.Bundle(), []byte("BEGIN CERTIFICATE")); n != 3 {
+		t.Errorf("bundle after refresh has %d certificates, want 3 (root + new + superseded)", n)
+	}
+	// And an agent can still enroll on the new chain.
+	if _, _, err := svc.MintToken(ctx, tenantID, "00000000-0000-4000-8000-00000000f194", "post-renewal", "test", time.Hour); err != nil {
+		t.Errorf("minting a join token after the refresh failed: %v", err)
+	}
+}

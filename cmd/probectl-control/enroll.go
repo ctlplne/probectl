@@ -166,6 +166,14 @@ func runAgentCARenew(ctx context.Context, db *store.DB, args []string, stdin io.
 	fmt.Println("it signed keep verifying and move onto the new chain at their next rotation —")
 	fmt.Println("nothing needs re-enrolling.")
 	fmt.Println()
+	// DPR-194: saying nothing here was the whole bug. The renewal writes the
+	// database; a RUNNING control plane adopts it on its next periodic re-read,
+	// the same way `revoke-agent` reaches a running deployment. An operator who
+	// is not told that reads the unchanged health check as a failed renewal.
+	fmt.Println("Every running control-plane replica adopts it within 30 seconds, on the same periodic")
+	fmt.Println("re-read that installs revocations — no restart, no rollout. Confirm it took:")
+	fmt.Println("  GET /v1/diagnostics -> checks[agent_ca].detail names the NEW expiry")
+	fmt.Println()
 	fmt.Println("Next: re-export the trust bundle wherever it is pinned, then put the root key back")
 	fmt.Println("in offline custody:")
 	fmt.Println("  probectl-control agent-ca export /etc/probectl/agent-ca.crt")
