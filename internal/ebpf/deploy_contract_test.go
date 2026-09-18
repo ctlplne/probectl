@@ -685,3 +685,48 @@ func TestAgentHelmTracefsIsWritableOnlyForConsentedL7Capture(t *testing.T) {
 		t.Error("tracefs is mounted unconditionally writable; it must be gated on l7Capture.enabled")
 	}
 }
+
+// DPR-127 / D-02, consented 2026-09-18: a scope entry can only name a workload
+// the agent can see. In its own PID namespace it sees one process — itself — so
+// a consented, scoped capture attached its uprobes and matched nothing.
+//
+// hostPID and the node's cgroup tree are what make `pid:`, `exe:` and `cgroup:`
+// scoping mean anything, and both belong to the consented path alone: an agent
+// with capture off has no use for either, and hostPID on every agent in a fleet
+// is a much bigger grant than the one that was consented to.
+func TestAgentHelmHostVisibilityIsGatedOnConsentedL7Capture(t *testing.T) {
+	daemonset := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/daemonset.yaml")
+
+	for _, want := range []string{
+		"{{- if .Values.l7Capture.enabled }}",
+		"hostPID: true",
+		"name: hostcgroup",
+		`path: /sys/fs/cgroup`,
+		"type: Directory", // never DirectoryOrCreate: a node without cgroup v2 must not schedule
+	} {
+		if !strings.Contains(daemonset, want) {
+			t.Errorf("the consented L7 path needs %q in the daemonset (DPR-127)", want)
+		}
+	}
+	// hostPID must sit inside the l7Capture guard, not beside it.
+	guard := strings.Index(daemonset, "{{- if .Values.l7Capture.enabled }}")
+	host := strings.Index(daemonset, "hostPID: true")
+	if guard < 0 || host < 0 || host < guard {
+		t.Error("hostPID must be rendered only when l7Capture.enabled")
+	}
+	if end := strings.Index(daemonset[guard:], "{{- end }}"); end < 0 || guard+end < host {
+		t.Error("hostPID escapes its l7Capture guard — it would be granted to every agent")
+	}
+	// The blast radius stops at seeing processes. Neither of these is needed for
+	// that, and both would widen it.
+	for _, forbidden := range []string{"hostNetwork: true", "hostIPC: true"} {
+		if strings.Contains(daemonset, forbidden) {
+			t.Errorf("%q is not needed to see a process and must not be granted", forbidden)
+		}
+	}
+	// The cgroup tree is read-only: resolving a cgroup id is a stat, never a write.
+	idx := strings.Index(daemonset, "name: hostcgroup")
+	if idx >= 0 && !strings.Contains(daemonset[idx:min(idx+300, len(daemonset))], "readOnly: true") {
+		t.Error("the node cgroup mount must be read-only")
+	}
+}

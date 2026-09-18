@@ -56,6 +56,23 @@ spec:
     spec:
       serviceAccountName: {{ include "probectl-agent.fullname" . }}
       automountServiceAccountToken: false
+      {{- if .Values.l7Capture.enabled }}
+      # DPR-127 / D-02, consented 2026-09-18. A scope entry can only name a
+      # workload the agent can SEE, and in its own PID namespace it sees one
+      # process: itself. So a consented, scoped capture had nothing it was able
+      # to capture — the uprobes attached and no call ever matched.
+      #
+      # hostPID puts the node's processes in view, which is what makes `pid:`
+      # and `exe:` scoping mean anything. It is on ONLY when capture is enabled,
+      # which already requires an explicit consent tenant and a non-empty scope:
+      # three gates, not one. Host-wide capture is still not expressible — the
+      # kernel program drops every process outside the scope before copying a
+      # byte.
+      #
+      # Deliberately NOT hostNetwork and NOT hostIPC: neither is needed to see a
+      # process, and each would widen the blast radius for nothing.
+      hostPID: true
+      {{- end }}
       {{- with .Values.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
@@ -266,6 +283,13 @@ spec:
               mountPath: {{ .Values.tracefs.hostPath }}
               readOnly: {{ not .Values.l7Capture.enabled }}
             {{- if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot }}
+            # DPR-127: the node's cgroup tree, read-only. A container IS a
+            # cgroup, so `cgroup:` is how a scope entry names another pod's
+            # workload; the id the kernel wants is that directory's inode, which
+            # cannot be read from inside the agent's own cgroup namespace.
+            - name: hostcgroup
+              mountPath: {{ printf "%s/sys/fs/cgroup" .Values.l7Capture.hostRoot | quote }}
+              readOnly: true
             # DPR-124: the node's shared-library tree, read-only. TLS uprobes
             # attach to an inode and this image is distroless, so without these
             # the consented L7 capture can never resolve a libssl to attach to.
@@ -316,6 +340,13 @@ spec:
             path: {{ .Values.tracefs.hostPath }}
             type: Directory
         {{- if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot }}
+        # DPR-127: Directory, not DirectoryOrCreate — a node with no cgroup v2
+        # tree cannot resolve a cgroup: scope entry at all, so the pod must fail
+        # to schedule rather than run and silently match nothing.
+        - name: hostcgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
         # DPR-124: node shared-library directories, read-only and narrow — the
         # uprobe target, never the whole node root filesystem. Directory (not
         # DirectoryOrCreate): a node missing one must fail to schedule rather

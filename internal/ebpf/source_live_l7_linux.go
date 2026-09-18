@@ -29,7 +29,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -68,7 +71,16 @@ type liveL7Source struct {
 	cfg             *Config
 	scope           []ScopeEntry
 	exePIDs         map[uint32]struct{} // tgids we programmed for exe: entries (refresher diff)
-	drops           atomic.Uint64
+	// scopedLibs is every (device:inode) this source has already tried to
+	// attach for a scoped workload, so a library shared by many processes is
+	// probed once and an unattachable one is not retried every ten seconds.
+	scopedLibs map[string]struct{}
+	// last* make the scope log a CHANGE log rather than a per-tick repeat.
+	lastScopeTgids   int
+	lastScopeCgroups int
+	scopeLogged      bool
+	log              *slog.Logger
+	drops            atomic.Uint64
 
 	scopeRefresh *l7ScopeSyncMonitor
 }
@@ -92,7 +104,11 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 	if len(scope) == 0 {
 		return nil, fmt.Errorf("ebpf: l7_capture_scope is empty — TLS capture requires an explicit workload allowlist (EBPF-001)")
 	}
-	s := &liveL7Source{cfg: cfg, scope: scope, exePIDs: map[uint32]struct{}{}}
+	s := &liveL7Source{
+		cfg: cfg, scope: scope, log: log,
+		exePIDs:    map[uint32]struct{}{},
+		scopedLibs: map[string]struct{}{},
+	}
 	if s.hasExeEntries() {
 		s.scopeRefresh = newL7ScopeSyncMonitor(cfg, log, scopeExe)
 	}
@@ -210,6 +226,40 @@ func (s *liveL7Source) attachTLSLibrary(lib tlsProbeLibrary) error {
 	return nil
 }
 
+// attachScopedLibraries probes the TLS library of every scoped process that the
+// agent is not already attached to, keyed by (device, inode) so one image
+// shared by forty replicas is one probe.
+func (s *liveL7Source) attachScopedLibraries(procRoot string, tgids map[uint32]struct{}) {
+	if len(tgids) == 0 {
+		return
+	}
+	for _, lib := range mappedTLSLibrariesForPIDs(procRoot, tgids, tlsLibraryNames()) {
+		key := lib.Dev + ":" + strconv.FormatUint(lib.Ino, 10)
+		if _, done := s.scopedLibs[key]; done {
+			continue
+		}
+		// Recorded before the attempt, so a library that cannot be attached is
+		// not retried every ten seconds forever.
+		s.scopedLibs[key] = struct{}{}
+		probe := tlsProbeLibrary{
+			name:        "scoped " + filepath.Base(lib.InContainer),
+			path:        lib.Path,
+			writeSymbol: "SSL_write",
+			readSymbol:  "SSL_read",
+		}
+		if strings.Contains(filepath.Base(lib.InContainer), "gnutls") {
+			probe.writeSymbol, probe.readSymbol = "gnutls_record_send", "gnutls_record_recv"
+		}
+		if err := s.attachTLSLibrary(probe); err != nil {
+			s.log.Warn("ebpf: could not attach to a scoped workload's TLS library",
+				"library", lib.InContainer, "inode", lib.Ino, "error", err)
+			continue
+		}
+		s.log.Info("ebpf: attached to a scoped workload's own TLS library",
+			"library", lib.InContainer, "inode", lib.Ino, "mechanism", s.attachMechanism)
+	}
+}
+
 // syncScope materializes the allowlist into the kernel maps. pid: and
 // cgroup: entries are stable; exe: entries are re-resolved against /proc —
 // newly started processes of an opted-in binary are added and exited ones
@@ -245,6 +295,37 @@ func (s *liveL7Source) syncScope() error {
 			next[tgid] = struct{}{}
 		}
 	}
+	// DPR-127: attach to the library each SCOPED process actually mapped, not
+	// only the one the node ships. A uprobe attaches to an inode and a container
+	// brings its own libssl from its image, so probing the node's copy can never
+	// fire for a containerized workload — which is exactly how a correctly
+	// scoped capture stayed silent with zero attach failures.
+	//
+	// Done here rather than at startup because scope is re-resolved every 10s: a
+	// workload that starts later joins scope, and its library gets probed then.
+	// Failures are logged and counted, never fatal — one unreadable process must
+	// not take down capture for the rest.
+	// Cgroup-scoped workloads have no tgid in the map — the kernel matches them
+	// by cgroup id — so their processes are enumerated here purely to find which
+	// TLS libraries to probe.
+	s.attachScopedLibraries(procRoot, pidsForScope(s.scope, tgids))
+
+	// DPR-163: say what the scope MATCHED, not only when it failed. A capture
+	// that is on, consented, correctly scoped and matching nothing looked
+	// exactly like a capture that was working: l7_attach_failures 0,
+	// l7_scope_sync_failures 0, l7_calls 0, and no way from outside to tell
+	// which. The counts are logged when they change, so a scope that resolves
+	// to zero processes is visible the moment it happens rather than inferred
+	// from an absence.
+	// !scopeLogged, or the FIRST sync would be silent whenever it resolved zero
+	// — which is precisely the case an operator needs to see.
+	if n := len(tgids); !s.scopeLogged || n != s.lastScopeTgids || len(cgroups) != s.lastScopeCgroups {
+		s.log.Info("ebpf L7 scope resolved",
+			"processes", n, "cgroups", len(cgroups),
+			"libraries_attached", len(s.scopedLibs), "proc_root", procRoot)
+		s.lastScopeTgids, s.lastScopeCgroups, s.scopeLogged = n, len(cgroups), true
+	}
+
 	// Exited exe-resolved processes leave scope (delete is idempotent).
 	for tgid := range s.exePIDs {
 		if _, still := next[tgid]; !still {
