@@ -507,6 +507,15 @@ airgap-gate: ## OPS-003: network-free complete-bundle fixture + fail-closed sign
 	bash scripts/check_cosign_wiring.sh
 
 .PHONY: release-notes-gate
+dco-gate: ## Verify every commit on this branch that origin has not seen carries a DCO sign-off.
+	@# The CI dco job only runs on pull_request, so a workflow that commits
+	@# straight to main never meets it — which is exactly how seven unsigned
+	@# commits reached the remote (DPR-161). This checks what is about to be
+	@# pushed, on the machine that made it, before it becomes public history.
+	@base=$$(git rev-parse --verify --quiet origin/$$(git rev-parse --abbrev-ref HEAD) || git rev-parse --verify --quiet origin/main); \
+	if [ -z "$$base" ]; then echo "dco-gate: no origin ref to compare against; nothing to check"; exit 0; fi; \
+	BASE_SHA=$$base HEAD_SHA=HEAD bash scripts/check_dco.sh
+
 release-notes-gate: ## Release-note preview accounts for every non-merge commit exactly once.
 	bash scripts/check_release_notes.sh
 
