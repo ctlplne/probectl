@@ -2230,10 +2230,10 @@ func (c *Client) MintAgentEnrollToken(ctx context.Context, req MintAgentEnrollTo
 type GetAgentRequest struct {
 }
 
-func (c *Client) GetAgent(ctx context.Context, req GetAgentRequest) (*Agent, error) {
+func (c *Client) GetAgent(ctx context.Context, req GetAgentRequest) (*FleetAgent, error) {
 	path := "/v1/agents/{id}"
 	query := url.Values{}
-	var out Agent
+	var out FleetAgent
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

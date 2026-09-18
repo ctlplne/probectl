@@ -114,3 +114,42 @@ func TestFleetReadinessNamesTheExpiredIdentityRatherThanTheSilence(t *testing.T)
 		t.Fatalf("healthy agent reported %s/%s", views[0].ReadinessState, views[0].IdentityState)
 	}
 }
+
+// DPR-176: the detail endpoint used to return the bare registry row, so an
+// operator who clicked into an agent — or ran `probectl agent get` — saw less
+// than the list they came from. Same agent, same tenant transaction, same
+// derived health.
+func TestAgentDetailCarriesTheSameDerivedHealthAsTheList(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	seen := now.Add(-time.Minute)
+	row := store.Agent{
+		ID: "agent-1", TenantID: "tenant-a", Name: "edge-1",
+		AgentVersion: "v1.4.2", Status: "online", LastSeenAt: &seen,
+		Capabilities: []string{"icmp"},
+	}
+	identities := map[string]store.AgentIdentityWindow{
+		"agent-1": {IssuedAt: now.Add(-23 * time.Hour), NotAfter: now.Add(time.Hour)},
+	}
+
+	views, err := buildFleetAgentViews([]store.Agent{row}, nil, identities, "v1.4.2", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail := views[0]
+	for name, got := range map[string]string{
+		"heartbeat_state": detail.HeartbeatState,
+		"version_state":   detail.VersionState,
+		"identity_state":  detail.IdentityState,
+		"readiness_state": detail.ReadinessState,
+	} {
+		if got == "" {
+			t.Fatalf("%s is empty: the detail view must carry the same verdicts as the list", name)
+		}
+	}
+	if detail.IdentityState != "renewal_overdue" {
+		t.Fatalf("identity_state = %q, want renewal_overdue", detail.IdentityState)
+	}
+	if detail.ReadinessState != "identity_renewal_overdue" {
+		t.Fatalf("readiness_state = %q: an identity past its renewal point is the verdict, not 'ready'", detail.ReadinessState)
+	}
+}

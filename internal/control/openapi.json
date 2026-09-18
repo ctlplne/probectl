@@ -676,11 +676,11 @@
         ],
         "responses": {
           "200": {
-            "description": "The agent.",
+            "description": "The agent, with the same derived fleet health the list returns: heartbeat verdict, version policy, identity lifetime and rollout state (DPR-176).",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Agent"
+                  "$ref": "#/components/schemas/FleetAgent"
                 }
               }
             }

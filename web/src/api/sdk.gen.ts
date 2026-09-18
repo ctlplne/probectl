@@ -1975,7 +1975,7 @@ export type MintAgentEnrollTokenResponse = JsonObject
 export interface GetAgentRequest {
 }
 
-export type GetAgentResponse = Agent
+export type GetAgentResponse = FleetAgent
 
 export interface PatchAgentRequest {
   body: AgentPatch

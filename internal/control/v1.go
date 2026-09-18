@@ -549,14 +549,35 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	var a *store.Agent
+	var rollouts []store.RolloutRecord
+	identities := map[string]store.AgentIdentityWindow{}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		x, e := store.Agents{}.Get(ctx, sc, id)
+		if e != nil {
+			return e
+		}
 		a = x
+		// DPR-176: the detail view used to return the bare registry row, so an
+		// operator who clicked into an agent — or ran `probectl agent get` —
+		// saw LESS than the list they came from: no heartbeat verdict, no
+		// version policy, no identity lifetime. The derived health is the same
+		// health, read in the same tenant transaction.
+		rollouts, e = (store.Rollouts{}).ListForAgents(ctx, sc, []string{x.ID})
+		if e != nil {
+			return e
+		}
+		identities, e = (store.AgentIdentities{}).LiveForAgents(ctx, sc, []string{x.ID})
 		return e
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, a)
+	views, err := buildFleetAgentViews([]store.Agent{*a}, rollouts, identities, version.Get().Version, time.Now())
+	if err != nil || len(views) == 0 {
+		// Rollout evidence that cannot be decoded must not hide the agent: fall
+		// back to the health that does not depend on it, exactly as the list does.
+		views, _ = buildFleetAgentViews([]store.Agent{*a}, nil, identities, version.Get().Version, time.Now())
+	}
+	writeJSON(w, http.StatusOK, views[0])
 	return nil
 }
 
