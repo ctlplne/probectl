@@ -21,12 +21,20 @@ export interface Agent {
   heartbeat_reason?: string
   version_state?: 'current' | 'supported_skew' | 'unsupported' | 'unknown'
   version_reason?: string
+  // DPR-176: the credential the agent runs on, not its liveness. An agent keeps
+  // working on the identity it holds and then stops for good, so a failing
+  // rotation is invisible in the heartbeat until it is already too late.
+  identity_expires_at?: string
+  identity_state?: 'current' | 'renewal_overdue' | 'expired' | 'unknown'
+  identity_reason?: string
   readiness_state?:
     | 'ready'
     | 'stale'
     | 'never_connected'
     | 'unsupported_capability'
     | 'version_skew'
+    | 'identity_expired'
+    | 'identity_renewal_overdue'
   readiness_reason?: string
   rollout_id?: string
   rollout_target?: string
@@ -43,6 +51,8 @@ export interface Agent {
       | 'verify_rollout_wave'
       | 'review_halted_rollout'
       | 'inspect_evidence'
+      | 'reenroll_identity'
+      | 'inspect_identity'
     label: string
     reason: string
     href: string

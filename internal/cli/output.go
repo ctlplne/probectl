@@ -12,6 +12,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"time"
 )
 
 func printJSON(w io.Writer, v any) int {
@@ -67,12 +68,35 @@ func printAgents(w io.Writer, agents []Agent) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tHOSTNAME\tSTATUS\tCAPABILITIES")
+	fmt.Fprintln(tw, "ID\tNAME\tHOSTNAME\tSTATUS\tIDENTITY\tCAPABILITIES")
 	for _, a := range agents {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			short(a.ID), a.Name, a.Hostname, a.Status, strings.Join(a.Capabilities, ","))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			short(a.ID), a.Name, a.Hostname, a.Status, identityCell(a), strings.Join(a.Capabilities, ","))
 	}
 	_ = tw.Flush()
+}
+
+// identityCell states the credential lifetime in one column. "unknown" is
+// printed as "-" rather than guessed: an agent enrolled before this deployment
+// recorded issuance has no window to read (DPR-176).
+func identityCell(a Agent) string {
+	switch a.IdentityState {
+	case "":
+		return "-"
+	case "unknown":
+		return "unknown"
+	case "current":
+		if a.IdentityExpiresAt != nil {
+			return "valid until " + a.IdentityExpiresAt.UTC().Format(time.RFC3339)
+		}
+		return "valid"
+	case "renewal_overdue":
+		return "RENEWAL OVERDUE"
+	case "expired":
+		return "EXPIRED"
+	default:
+		return a.IdentityState
+	}
 }
 
 func printAgent(w io.Writer, a Agent) {
@@ -82,4 +106,8 @@ func printAgent(w io.Writer, a Agent) {
 	fmt.Fprintf(w, "agent_version: %s\n", a.AgentVersion)
 	fmt.Fprintf(w, "status:        %s\n", a.Status)
 	fmt.Fprintf(w, "capabilities:  %s\n", strings.Join(a.Capabilities, ", "))
+	fmt.Fprintf(w, "identity:      %s\n", identityCell(a))
+	if a.IdentityReason != "" {
+		fmt.Fprintf(w, "identity_note: %s\n", a.IdentityReason)
+	}
 }

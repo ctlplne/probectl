@@ -496,6 +496,11 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error 
 	// explicitly reports the degraded state instead of guessing.
 	rolloutsAvailable := true
 	var rollouts []store.RolloutRecord
+	// DPR-176: the identity window comes from the SAME RLS transaction as the
+	// rollout evidence, so the fleet view never reads one tenant's credential
+	// lifetimes while rendering another's agents. An unreadable identity store
+	// leaves every row "unknown" rather than silently "current".
+	identities := map[string]store.AgentIdentityWindow{}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		agentIDs := make([]string, len(agents))
 		for i := range agents {
@@ -503,19 +508,24 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error 
 		}
 		var err error
 		rollouts, err = (store.Rollouts{}).ListForAgents(ctx, sc, agentIDs)
+		if err != nil {
+			return err
+		}
+		identities, err = (store.AgentIdentities{}).LiveForAgents(ctx, sc, agentIDs)
 		return err
 	}); err != nil {
 		rolloutsAvailable = false
 		rollouts = nil
+		identities = map[string]store.AgentIdentityWindow{}
 		tenantID, _ := s.principalTenant(r)
 		s.log.Warn("fleet rollout evidence unavailable", "tenant_id", tenantID, "error", err)
 	}
-	views, err := buildFleetAgentViews(agents, rollouts, version.Get().Version, time.Now())
+	views, err := buildFleetAgentViews(agents, rollouts, identities, version.Get().Version, time.Now())
 	if err != nil {
 		rolloutsAvailable = false
 		tenantID, _ := s.principalTenant(r)
 		s.log.Warn("fleet rollout evidence invalid", "tenant_id", tenantID, "error", err)
-		views, _ = buildFleetAgentViews(agents, nil, version.Get().Version, time.Now())
+		views, _ = buildFleetAgentViews(agents, nil, identities, version.Get().Version, time.Now())
 	}
 	resp := map[string]any{
 		"items":           views,

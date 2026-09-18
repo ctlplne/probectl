@@ -249,6 +249,30 @@ third of the lifetime — eight hours — of slack for a down control plane: a
 failed rotation retries every minute while the current SVID is still valid,
 logging loudly.
 
+**What the retry loop cannot save you from.** Rotation is a network call, so it
+is also a reachability problem. If the agent cannot reach `identity.server` for
+a whole lifetime — a network policy that admits only telemetry ports, a firewall
+rule, a DNS change — the retries expire with the certificate, and an expired
+SVID **cannot rotate itself**: the server verifies the presented chain at the
+current time and refuses it, exactly as it would refuse a stranger. The agent
+must then enroll again with a fresh join token. In Kubernetes this is the whole
+reason the chart opens the API port to agent pods
+(`networkPolicy.agentEnrollmentFrom`, DPR-174).
+
+The failure is quiet by nature, which is why the product now says it out loud in
+three places (DPR-176):
+
+| Where | What it says |
+|---|---|
+| `GET /v1/agents` | `identity_state` (`current` / `renewal_overdue` / `expired` / `unknown`), `identity_expires_at`, and a sentence in `identity_reason` |
+| Admin → Agents | an **Agent identity** column, and a fleet verdict of *Identity expired* whose next safe action is re-enrollment rather than "inspect the heartbeat" |
+| `probectl agent list` / `agent get` | an `IDENTITY` column and an `identity:` line |
+
+`renewal_overdue` means the identity is past 75% of its lifetime with no
+rotation recorded — the state an agent sits in for hours before it dies, and the
+one worth alerting on. `unknown` means no issuance is recorded for that agent
+and the lifetime cannot be read; it is never reported as healthy.
+
 ## Security properties (what to rely on)
 
 | Property | Mechanism |

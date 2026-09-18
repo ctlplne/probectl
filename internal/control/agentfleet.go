@@ -20,6 +20,13 @@ import (
 // healthy in Admin while the rollout state machine correctly treats it as dark.
 const fleetHeartbeatSLO = 5 * time.Minute
 
+// DPR-176: rotation is meant to happen well inside an SVID's lifetime, so an
+// identity still alive at this fraction of its window has already missed the
+// renewals it should have made. Expressed as a FRACTION rather than a fixed
+// number of hours because SVID lifetimes are a deployment choice: the same
+// warning has to mean the same thing for a one-hour identity and a one-day one.
+const fleetIdentityRenewalFraction = 0.75
+
 type fleetSafeAction struct {
 	Kind   string `json:"kind"`
 	Label  string `json:"label"`
@@ -38,6 +45,9 @@ type fleetAgentView struct {
 	HeartbeatReason     string          `json:"heartbeat_reason"`
 	VersionState        string          `json:"version_state"`
 	VersionReason       string          `json:"version_reason"`
+	IdentityExpiresAt   *time.Time      `json:"identity_expires_at,omitempty"`
+	IdentityState       string          `json:"identity_state"`
+	IdentityReason      string          `json:"identity_reason"`
 	ReadinessState      string          `json:"readiness_state"`
 	ReadinessReason     string          `json:"readiness_reason"`
 	RolloutID           string          `json:"rollout_id,omitempty"`
@@ -55,11 +65,16 @@ type fleetAgentView struct {
 // rollout list's newest-first operator view. This function has no datastore
 // access of its own, which makes the precedence and fail-closed join easy to
 // test without weakening the storage boundary.
-func buildFleetAgentViews(rows []store.Agent, rollouts []store.RolloutRecord, controlVersion string, now time.Time) ([]fleetAgentView, error) {
+func buildFleetAgentViews(rows []store.Agent, rollouts []store.RolloutRecord, identities map[string]store.AgentIdentityWindow, controlVersion string, now time.Time) ([]fleetAgentView, error) {
 	views := make([]fleetAgentView, len(rows))
 	byID := make(map[string]*fleetAgentView, len(rows))
 	for i := range rows {
-		views[i] = newFleetAgentView(rows[i], controlVersion, now)
+		id, ok := identities[rows[i].ID]
+		var window *store.AgentIdentityWindow
+		if ok {
+			window = &id
+		}
+		views[i] = newFleetAgentView(rows[i], window, controlVersion, now)
 		byID[rows[i].ID] = &views[i]
 	}
 
@@ -96,8 +111,13 @@ func buildFleetAgentViews(rows []store.Agent, rollouts []store.RolloutRecord, co
 	return views, nil
 }
 
-func newFleetAgentView(row store.Agent, controlVersion string, now time.Time) fleetAgentView {
+func newFleetAgentView(row store.Agent, identity *store.AgentIdentityWindow, controlVersion string, now time.Time) fleetAgentView {
 	view := fleetAgentView{Agent: row, LastFailure: ""}
+	view.IdentityState, view.IdentityReason = fleetIdentityState(identity, now)
+	if identity != nil {
+		expires := identity.NotAfter
+		view.IdentityExpiresAt = &expires
+	}
 
 	switch {
 	case row.LastSeenAt == nil:
@@ -123,6 +143,14 @@ func newFleetAgentView(row store.Agent, controlVersion string, now time.Time) fl
 	view.VersionState, view.VersionReason = fleetVersionState(controlVersion, row.AgentVersion)
 
 	switch {
+	// An expired identity is checked BEFORE the heartbeat, because it is the
+	// cause the heartbeat is only a symptom of: the agent goes quiet, and
+	// "inspect the transport" sends the operator to the wrong place.
+	case view.IdentityState == "expired":
+		view.ReadinessState = "identity_expired"
+		view.ReadinessReason = view.IdentityReason
+		view.LastFailure = view.IdentityReason
+		view.NextSafeAction = safeAction("reenroll_identity", "Re-enroll this agent", "An expired SVID cannot rotate itself: mint a join token and enroll the agent again. Nothing is changed for you.")
 	case view.HeartbeatState == "never_seen":
 		view.ReadinessState = "never_connected"
 		view.ReadinessReason = view.HeartbeatReason
@@ -145,12 +173,41 @@ func newFleetAgentView(row store.Agent, controlVersion string, now time.Time) fl
 			view.LastFailure = view.VersionReason
 		}
 		view.NextSafeAction = safeAction("review_staged_rollout", "Review staged rollout", "A human may plan a signed, cohort-gated rollout or rollback using the external orchestrator.")
+	case view.IdentityState == "renewal_overdue":
+		view.ReadinessState = "identity_renewal_overdue"
+		view.ReadinessReason = view.IdentityReason
+		view.LastFailure = view.IdentityReason
+		view.NextSafeAction = safeAction("inspect_identity", "Inspect identity rotation", "Check that the agent can reach the control plane's enrollment endpoint; an identity that stops rotating ends as an agent that never returns.")
 	default:
 		view.ReadinessState = "ready"
-		view.ReadinessReason = "Heartbeat, version policy, and reported capabilities are ready."
+		view.ReadinessReason = "Heartbeat, version policy, reported capabilities, and identity lifetime are ready."
 		view.NextSafeAction = safeAction("inspect_evidence", "Inspect agent evidence", "Review the tenant-scoped registry evidence; no fleet change is performed.")
 	}
 	return view
+}
+
+// fleetIdentityState reads the agent's own credential window. "unknown" is a
+// real answer and says so: an agent enrolled before this deployment recorded
+// issuance has no window to read, and guessing "current" for it would be the
+// confident-verdict-over-unmeasured-evidence bug this programme exists to stop.
+func fleetIdentityState(identity *store.AgentIdentityWindow, now time.Time) (string, string) {
+	if identity == nil || identity.NotAfter.IsZero() {
+		return "unknown", "No issued identity is recorded for this agent; its certificate lifetime cannot be read here."
+	}
+	if !now.Before(identity.NotAfter) {
+		return "expired", fmt.Sprintf("Agent identity expired %s. An expired SVID cannot rotate itself; the agent must enroll again.",
+			identity.NotAfter.UTC().Format(time.RFC3339))
+	}
+	lifetime := identity.NotAfter.Sub(identity.IssuedAt)
+	if lifetime > 0 {
+		elapsed := now.Sub(identity.IssuedAt)
+		if float64(elapsed) >= fleetIdentityRenewalFraction*float64(lifetime) {
+			return "renewal_overdue", fmt.Sprintf(
+				"Agent identity expires %s and is past %d%% of its lifetime with no rotation recorded.",
+				identity.NotAfter.UTC().Format(time.RFC3339), int(fleetIdentityRenewalFraction*100))
+		}
+	}
+	return "current", fmt.Sprintf("Agent identity is valid until %s.", identity.NotAfter.UTC().Format(time.RFC3339))
 }
 
 func fleetVersionState(controlVersion, agentVersion string) (string, string) {

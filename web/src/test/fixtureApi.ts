@@ -65,8 +65,12 @@ const sampleAgents = [
     heartbeat_reason: 'Authenticated heartbeat is inside the five-minute health gate.',
     version_state: 'current',
     version_reason: 'Agent matches the control-plane version.',
+    identity_expires_at: '2026-06-05T08:00:00Z',
+    identity_state: 'current',
+    identity_reason: 'Agent identity is valid until 2026-06-05T08:00:00Z.',
     readiness_state: 'ready',
-    readiness_reason: 'Heartbeat, version policy, and reported capabilities are ready.',
+    readiness_reason:
+      'Heartbeat, version policy, reported capabilities, and identity lifetime are ready.',
     rollout_halted: false,
     last_failure: '',
     next_safe_action: {

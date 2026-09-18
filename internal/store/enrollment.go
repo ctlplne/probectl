@@ -217,6 +217,47 @@ func (a AgentIdentities) Record(ctx context.Context, tenantID, agentID, spiffeID
 	return nil
 }
 
+// AgentIdentityWindow is the lifetime of ONE issued SVID: when this deployment
+// signed it and when it stops being an identity. It carries no key material and
+// no serial — the fleet view needs the window, not the credential.
+type AgentIdentityWindow struct {
+	IssuedAt time.Time
+	NotAfter time.Time
+}
+
+// LiveForAgents returns the newest non-revoked identity window per agent, for
+// agents already selected inside the caller's RLS transaction.
+//
+// DPR-176: the fleet view knew when an agent last spoke and what version it
+// ran, and nothing at all about the certificate that lets it speak. Rotation
+// failing is the one fault that kills an agent silently — it keeps working on
+// the identity it holds, then stops for good — so the window behind it belongs
+// in the same view as the heartbeat.
+func (AgentIdentities) LiveForAgents(ctx context.Context, s tenancy.Scope, agentIDs []string) (map[string]AgentIdentityWindow, error) {
+	out := make(map[string]AgentIdentityWindow, len(agentIDs))
+	if len(agentIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.Q.Query(ctx, `
+		SELECT DISTINCT ON (agent_id) agent_id, issued_at, not_after
+		  FROM agent_identities
+		 WHERE agent_id = ANY($1::text[]) AND revoked_at IS NULL
+		 ORDER BY agent_id, not_after DESC, issued_at DESC`, agentIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var w AgentIdentityWindow
+		if err := rows.Scan(&id, &w.IssuedAt, &w.NotAfter); err != nil {
+			return nil, err
+		}
+		out[id] = w
+	}
+	return out, rows.Err()
+}
+
 // KnownSerial reports whether a serial was issued by this deployment for the
 // given tenant+agent — the rotation path's "this cert is ours" check.
 func (a AgentIdentities) KnownSerial(ctx context.Context, tenantID, agentID, serial string) (bool, error) {

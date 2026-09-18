@@ -34,7 +34,7 @@ func TestFleetHealthTenantJoinUsesOnlyScopedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	views, err := buildFleetAgentViews(rows, []store.RolloutRecord{{ID: "rollout-a", TenantID: "tenant-a", Plan: raw}}, "v1.4.2", now)
+	views, err := buildFleetAgentViews(rows, []store.RolloutRecord{{ID: "rollout-a", TenantID: "tenant-a", Plan: raw}}, nil, "v1.4.2", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestFleetHealthRolloutHaltRequiresHumanReview(t *testing.T) {
 		HaltReason: "canary heartbeat failed",
 	}
 	raw, _ := json.Marshal(plan)
-	views, err := buildFleetAgentViews([]store.Agent{row}, []store.RolloutRecord{{ID: "r1", Plan: raw}}, "v1.4.2", now)
+	views, err := buildFleetAgentViews([]store.Agent{row}, []store.RolloutRecord{{ID: "r1", Plan: raw}}, nil, "v1.4.2", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestFleetHealthStatesAreHonestAndDistinct(t *testing.T) {
 		{ID: "skew", AgentVersion: "v1.2.0", Status: "online", Capabilities: []string{"flow"}, LastSeenAt: &recent},
 		{ID: "supported-skew", AgentVersion: "v1.3.0", Status: "online", Capabilities: []string{"flow"}, LastSeenAt: &recent},
 	}
-	views, err := buildFleetAgentViews(rows, nil, "v1.4.0", now)
+	views, err := buildFleetAgentViews(rows, nil, nil, "v1.4.0", now)
 	if err != nil {
 		t.Fatal(err)
 	}

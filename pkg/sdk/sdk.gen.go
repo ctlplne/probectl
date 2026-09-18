@@ -1124,6 +1124,9 @@ type FleetAgent struct {
 	HeartbeatState      string            `json:"heartbeat_state"`
 	Hostname            string            `json:"hostname,omitempty"`
 	Id                  string            `json:"id"`
+	IdentityExpiresAt   string            `json:"identity_expires_at,omitempty"`
+	IdentityReason      string            `json:"identity_reason,omitempty"`
+	IdentityState       string            `json:"identity_state,omitempty"`
 	Labels              map[string]string `json:"labels"`
 	LastFailure         string            `json:"last_failure"`
 	LastSeenAt          string            `json:"last_seen_at,omitempty"`

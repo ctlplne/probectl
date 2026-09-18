@@ -46,6 +46,12 @@ type Agent struct {
 	Status       string     `json:"status"`
 	Capabilities []string   `json:"capabilities"`
 	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
+	// DPR-176: the credential the agent runs on. An agent keeps working on the
+	// identity it holds and then stops for good, so an operator reading a fleet
+	// from a terminal needs the lifetime next to the status, not only in the UI.
+	IdentityState     string     `json:"identity_state,omitempty"`
+	IdentityExpiresAt *time.Time `json:"identity_expires_at,omitempty"`
+	IdentityReason    string     `json:"identity_reason,omitempty"`
 }
 
 // list is the standard list envelope.

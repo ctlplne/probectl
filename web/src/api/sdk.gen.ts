@@ -1029,13 +1029,16 @@ export interface FleetAgent {
   heartbeat_state: "ready" | "stale" | "never_seen"
   hostname?: string
   id: string
+  identity_expires_at?: string
+  identity_reason?: string
+  identity_state?: "current" | "renewal_overdue" | "expired" | "unknown"
   labels: { [key: string]: string }
   last_failure: string
   last_seen_at?: string
   name: string
   next_safe_action: FleetSafeAction
   readiness_reason: string
-  readiness_state: "ready" | "stale" | "never_connected" | "unsupported_capability" | "version_skew"
+  readiness_state: "ready" | "stale" | "never_connected" | "unsupported_capability" | "version_skew" | "identity_expired" | "identity_renewal_overdue"
   registered_at?: string
   rollout_cohort?: "canary" | "early" | "main"
   rollout_halt_reason?: string

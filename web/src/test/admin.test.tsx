@@ -62,12 +62,45 @@ const noHeartbeatAgent = {
   },
 }
 
+// DPR-176: an agent whose SVID has expired keeps looking like a transport
+// problem — silent, stale, "inspect the heartbeat" — until an operator happens
+// to read the agent's own logs. The fleet view has to name the credential.
+const expiredIdentityAgent = {
+  id: 'agent-expired-svid',
+  name: 'browser-1',
+  hostname: 'browser-1.example',
+  agent_version: 'v1.4.0',
+  status: 'offline' as const,
+  capabilities: ['browser-rendered'],
+  last_seen_at: '2026-07-14T03:00:00Z',
+  heartbeat_age_seconds: 32400,
+  heartbeat_state: 'stale' as const,
+  heartbeat_reason: 'Agent is marked offline; inspect its last authenticated heartbeat.',
+  version_state: 'current' as const,
+  version_reason: 'Agent matches the control-plane version.',
+  identity_expires_at: '2026-07-14T02:00:00Z',
+  identity_state: 'expired' as const,
+  identity_reason:
+    'Agent identity expired 2026-07-14T02:00:00Z. An expired SVID cannot rotate itself; the agent must enroll again.',
+  readiness_state: 'identity_expired' as const,
+  readiness_reason:
+    'Agent identity expired 2026-07-14T02:00:00Z. An expired SVID cannot rotate itself; the agent must enroll again.',
+  rollout_halted: false,
+  last_failure: 'Agent identity expired 2026-07-14T02:00:00Z.',
+  next_safe_action: {
+    kind: 'reenroll_identity' as const,
+    label: 'Re-enroll this agent',
+    reason: 'An expired SVID cannot rotate itself: mint a join token and enroll the agent again.',
+    href: '/docs/api#rollouts',
+  },
+}
+
 function fleetFetch(rolloutsAvailable: boolean) {
   const base = defaultFetch()
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (pathOf(input) === '/v1/agents') {
       return jsonResponse({
-        items: [staleAgent, noHeartbeatAgent],
+        items: [staleAgent, noHeartbeatAgent, expiredIdentityAgent],
         control_version: 'v1.4.0',
         rollouts_available: rolloutsAvailable,
       })
@@ -138,5 +171,37 @@ describe('Admin fleet health action center', () => {
     expect(await screen.findByText(/staged-rollout evidence is unavailable/i)).toBeInTheDocument()
     expect(screen.getByText('edge-stale')).toBeInTheDocument()
     expect(screen.getAllByText('Rollout evidence unavailable').length).toBeGreaterThan(0)
+  })
+})
+
+describe('Admin fleet identity lifetime', () => {
+  // DPR-176: the agent kept working on the identity it held, then stopped for
+  // good, and every column in this table said "heartbeat". The identity column
+  // is what turns that into a sentence an operator can act on.
+  test('names an expired agent identity and sends the operator to re-enrollment', async () => {
+    vi.stubGlobal('fetch', fleetFetch(true))
+    renderApp('/admin')
+
+    const row = (await screen.findByText('browser-1')).closest('tr')
+    if (!row) throw new Error('the fleet row for the expired-identity agent is missing')
+    expect(within(row).getByText('Expired')).toBeInTheDocument()
+    expect(within(row).getByText('Identity expired')).toBeInTheDocument()
+    // The same sentence appears in the health column and in the identity column:
+    // the cause is stated where the operator looks first and where they confirm.
+    expect(within(row).getAllByText(/an expired svid cannot rotate itself/i).length).toBe(2)
+
+    const action = within(row).getByRole('button', { name: /re-enroll this agent/i })
+    await userEvent.click(action)
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/mint a join token/i)).toBeInTheDocument()
+  })
+
+  test('a healthy agent shows its identity as valid rather than saying nothing', async () => {
+    vi.stubGlobal('fetch', defaultFetch())
+    renderApp('/admin')
+
+    const row = (await screen.findByText('agent-1')).closest('tr')
+    if (!row) throw new Error('the fleet row for the healthy agent is missing')
+    expect(within(row).getByText('Valid')).toBeInTheDocument()
   })
 })

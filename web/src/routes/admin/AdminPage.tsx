@@ -49,6 +49,7 @@ import { RolloutCard } from './RolloutCard'
 const BreakGlassConsentCard = lazy(() =>
   import('@ee/provider/ConsentCard').then((module) => ({ default: module.ConsentCard })),
 )
+import { DateTime } from '../../time/DateTime'
 import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
 import { FilterBar, SavedViews } from '../listControls'
@@ -78,6 +79,8 @@ function readinessLabel(agent: Agent, t: TFn) {
     never_connected: 'admin.fleet.health.neverConnected',
     unsupported_capability: 'admin.fleet.health.capabilityGap',
     version_skew: 'admin.fleet.health.versionSkew',
+    identity_expired: 'admin.fleet.health.identityExpired',
+    identity_renewal_overdue: 'admin.fleet.health.identityOverdue',
     unavailable: 'admin.fleet.health.unavailable',
   }
   return t(labels[readinessState(agent)])
@@ -86,8 +89,31 @@ function readinessLabel(agent: Agent, t: TFn) {
 function readinessTone(agent: Agent): 'success' | 'warning' | 'danger' | 'neutral' {
   const state = readinessState(agent)
   if (state === 'ready') return 'success'
-  if (state === 'stale' || state === 'version_skew') return 'warning'
-  if (state === 'never_connected' || state === 'unsupported_capability') return 'danger'
+  if (state === 'stale' || state === 'version_skew' || state === 'identity_renewal_overdue')
+    return 'warning'
+  if (
+    state === 'never_connected' ||
+    state === 'unsupported_capability' ||
+    state === 'identity_expired'
+  )
+    return 'danger'
+  return 'neutral'
+}
+
+function identityLabel(agent: Agent, t: TFn) {
+  const labels: Record<NonNullable<Agent['identity_state']>, MessageKey> = {
+    current: 'admin.fleet.identity.current',
+    renewal_overdue: 'admin.fleet.identity.overdue',
+    expired: 'admin.fleet.identity.expired',
+    unknown: 'admin.fleet.identity.unknown',
+  }
+  return t(labels[agent.identity_state ?? 'unknown'])
+}
+
+function identityTone(agent: Agent): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (agent.identity_state === 'current') return 'success'
+  if (agent.identity_state === 'renewal_overdue') return 'warning'
+  if (agent.identity_state === 'expired') return 'danger'
   return 'neutral'
 }
 
@@ -114,6 +140,8 @@ function safeActionLabel(agent: Agent, t: TFn) {
     review_staged_rollout: 'admin.fleet.action.reviewRollout',
     verify_rollout_wave: 'admin.fleet.action.verifyWave',
     review_halted_rollout: 'admin.fleet.action.reviewHalted',
+    reenroll_identity: 'admin.fleet.action.reenrollIdentity',
+    inspect_identity: 'admin.fleet.action.inspectIdentity',
     inspect_evidence: 'admin.fleet.action.inspect',
   }
   return agent.next_safe_action
@@ -701,6 +729,8 @@ export function AdminPage() {
         agent.heartbeat_reason,
         agent.version_state,
         agent.version_reason,
+        agent.identity_state,
+        agent.identity_reason,
         agent.readiness_state,
         agent.readiness_reason,
         agent.rollout_cohort,
@@ -768,6 +798,21 @@ export function AdminPage() {
           {fleet.controlVersion ? (
             <small>{t('admin.fleet.controlVersion', { version: fleet.controlVersion })}</small>
           ) : null}
+        </span>
+      ),
+    },
+    {
+      key: 'identity',
+      header: t('admin.fleet.column.identity'),
+      render: (a) => (
+        <span className={styles.fleetCell}>
+          <Badge tone={identityTone(a)}>{identityLabel(a, t)}</Badge>
+          {a.identity_expires_at ? (
+            <small>
+              {t('admin.fleet.identity.expires')} <DateTime value={a.identity_expires_at} />
+            </small>
+          ) : null}
+          <small>{a.identity_reason || t('admin.fleet.evidenceUnavailable')}</small>
         </span>
       ),
     },
