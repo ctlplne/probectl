@@ -254,9 +254,17 @@ spec:
               mountPath: /sys/kernel/btf/vmlinux
               readOnly: true
             # DPR-054: tracepoint metadata (event ids) lives in tracefs.
+            #
+            # DPR-125: read-only unless L7 capture is ON. The TLS uprobe attach
+            # registers its probe by WRITING uprobe_events, which is what lets it
+            # attach to a distribution-packaged libssl that has no execute bit,
+            # while keeping the agent's documented CAP_BPF + CAP_PERFMON pair.
+            # Writable is therefore part of the consented L7 path and of nothing
+            # else: an agent with capture off keeps the read-only mount it has
+            # always had.
             - name: tracefs
               mountPath: {{ .Values.tracefs.hostPath }}
-              readOnly: true
+              readOnly: {{ not .Values.l7Capture.enabled }}
             {{- if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot }}
             # DPR-124: the node's shared-library tree, read-only. TLS uprobes
             # attach to an inode and this image is distroless, so without these

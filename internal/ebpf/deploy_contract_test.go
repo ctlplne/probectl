@@ -659,3 +659,29 @@ func TestL7CaptureRequestedIsSeparateFromActive(t *testing.T) {
 		t.Error("a fixture replay must not report live capture active")
 	}
 }
+
+// DPR-125: the TLS uprobe attach registers its probe by WRITING tracefs
+// uprobe_events — that is what lets it attach to a distribution-packaged libssl
+// with no execute bit, at CAP_PERFMON rather than CAP_SYS_ADMIN. So the mount
+// has to be writable on the consented L7 path, and must stay read-only
+// everywhere else: writable tracefs is a capability an agent that is not
+// capturing has no use for.
+func TestAgentHelmTracefsIsWritableOnlyForConsentedL7Capture(t *testing.T) {
+	daemonset := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/daemonset.yaml")
+
+	const mount = "readOnly: {{ not .Values.l7Capture.enabled }}"
+	if !strings.Contains(daemonset, mount) {
+		t.Errorf("the tracefs mount must be read-only unless l7Capture.enabled; want %q in the daemonset", mount)
+	}
+	// A blanket `readOnly: false` would also make the uprobe path work and is
+	// exactly the shortcut to refuse: it would hand write access to every agent
+	// in the fleet, including the ones with capture off.
+	idx := strings.Index(daemonset, "name: tracefs")
+	if idx < 0 {
+		t.Fatal("the daemonset no longer mounts tracefs at all")
+	}
+	window := daemonset[idx:min(idx+400, len(daemonset))]
+	if strings.Contains(window, "readOnly: false") {
+		t.Error("tracefs is mounted unconditionally writable; it must be gated on l7Capture.enabled")
+	}
+}
