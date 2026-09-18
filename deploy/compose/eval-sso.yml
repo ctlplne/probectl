@@ -1,0 +1,103 @@
+# probectl — EVALUATION overlay: real SSO, and therefore a reachable WEB UI.
+# ============================================================================
+# Layer this ON TOP OF eval.yml when you want to evaluate the product through
+# its interface rather than through the API:
+#
+#     export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
+#     export DEX_DEMO_PASSWORD_HASH="$(htpasswd -bnBC 12 demo 'choose-a-password' | cut -d: -f2)"
+#     export PROBECTL_SESSION_HMAC_KEY="$(openssl rand -hex 32)"
+#     docker compose -f eval.yml -f eval-sso.yml up --build -d
+#     open https://localhost:8443/ui/      # sign in as demo@probectl.local
+#
+# If another stack already holds 8443, pick a port and keep the two in step:
+#     export PROBECTL_EVAL_UI_PORT=8444
+#
+# WHY THIS EXISTS (DPR-134 / D-09)
+#
+# eval.yml runs dev auth, where every request is an unauthenticated admin. The
+# control plane REFUSES to start if dev auth is given anything but a loopback
+# bind — enforced in code, not warned about (RED-001) — so the API is reachable
+# only from inside the container network and the UI the binary embeds is
+# reachable from nowhere at all. A documented evaluation that ends at the API is
+# most of the product unseen.
+#
+# The obvious fix is to let dev auth accept a non-loopback bind behind a second
+# acknowledgement. That was tried and is the wrong answer: the check's whole
+# value is that it has no exceptions, and the first exception is the one that
+# gets copied into a real deployment.
+#
+# So this overlay removes the need for an exception instead. It turns dev auth
+# OFF and puts the same demo IdP the production-shaped stack uses in front, so
+# the eval stack runs REAL session auth. A non-loopback bind is then ordinary —
+# the loopback rule applies to dev auth alone — and the UI is simply reachable.
+#
+# WHAT YOU ARE EVALUATING, PRECISELY
+# Real OIDC, real sessions, real RBAC, on a stack that is otherwise still the
+# evaluation one: a plaintext in-network bus and a self-signed certificate. It is
+# not the production-shaped stack (docs/install.md), and it does not pretend to
+# be. What it is, is the shortest honest path to the interface.
+#
+# Dex shares the control container's network namespace, so both the browser and
+# probectl resolve the issuer as https://localhost:5556/dex, and BOTH must be
+# recreated together — always bring the stack up as a whole, never `up -d
+# control` alone, or Dex is left attached to a deleted namespace and every login
+# fails with "tenant SSO provider is unavailable" (DPR-025).
+# ============================================================================
+
+services:
+  control:
+    environment:
+      # Real session auth. Dev auth is off, so the loopback-only rule that
+      # governs it no longer applies and the listener can be reached.
+      PROBECTL_AUTH_MODE: "session"
+      PROBECTL_DEV_AUTH_ACK: ""
+      # 0.0.0.0 inside the container; the port publish below is what puts it in
+      # front of a browser on the host.
+      PROBECTL_HTTP_ADDR: "0.0.0.0:8443"
+      # Session cookies are HMACed before their digest is stored, and session
+      # auth refuses to start without this key. Generated per evaluation.
+      PROBECTL_SESSION_HMAC_KEY: ${PROBECTL_SESSION_HMAC_KEY:?PROBECTL_SESSION_HMAC_KEY is required for session auth — openssl rand -hex 32}
+      PROBECTL_OIDC_ISSUER: https://localhost:5556/dex
+      PROBECTL_OIDC_CLIENT_ID: probectl-demo
+      PROBECTL_OIDC_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required for the local Dex demo — openssl rand -hex 32}
+      PROBECTL_OIDC_REDIRECT_URL: https://localhost:${PROBECTL_EVAL_UI_PORT:-8443}/auth/callback
+      # The self-signed quickstart CA, so probectl trusts the issuer it is
+      # sharing a namespace with. Nothing here disables certificate validation.
+      SSL_CERT_FILE: /certs/ca.crt
+    ports:
+      # The one line that makes the UI reachable. It is safe BECAUSE dev auth is
+      # off: an unauthenticated request to this listener is refused (U-001).
+      #
+      # Bound to 127.0.0.1 on the host, never 0.0.0.0 — this is an evaluation on
+      # a laptop, not something to put on a network. The host port is settable
+      # because another probectl stack may already hold 8443; if you change it,
+      # change PROBECTL_OIDC_REDIRECT_URL to match or the callback will not
+      # return to a listener that exists.
+      - "127.0.0.1:${PROBECTL_EVAL_UI_PORT:-8443}:8443"
+
+  # The same demo IdP the production-shaped stack uses, on the same config.
+  dex:
+    image: ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462 # v2.45.1
+    # The quickstart certificate is owned by the distroless non-root UID; Dex
+    # supports an arbitrary non-root UID, so sharing it keeps tls.key at 0600
+    # without either process running as root.
+    user: "65532:65532"
+    network_mode: "service:control"
+    depends_on:
+      control:
+        condition: service_started
+    command: ["dex", "serve", "/etc/dex/config.demo.yaml"]
+    environment:
+      DEX_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required for the local Dex demo}
+      DEX_DEMO_PASSWORD_HASH: "${DEX_DEMO_PASSWORD_HASH:?DEX_DEMO_PASSWORD_HASH is required for the local Dex demo — see the header for the htpasswd command}"
+    volumes:
+      - ./dex-demo.yaml:/etc/dex/config.demo.yaml:ro
+      - certs:/certs:ro
+      - controldata:/var/lib/probectl
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

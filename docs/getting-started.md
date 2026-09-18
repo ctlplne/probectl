@@ -54,9 +54,24 @@ waits on readiness rather than a clock, prints the first measurement it receives
 commands for reading more. It generates the one secret this path needs into
 `deploy/compose/.env.eval` and reuses it on later runs.
 
-It is **evaluation only**, for the reasons the next section explains, and it ends at the API rather
-than the web UI: dev auth is refused on anything but a loopback bind, so nothing on this stack is
-reachable from a browser. For the UI, use the production-shaped stack with real SSO
+It is **evaluation only**, for the reasons the next section explains, and as written it ends at the
+API rather than the web UI: dev auth is refused on anything but a loopback bind, so nothing on this
+stack is reachable from a browser.
+
+**To evaluate the interface, add one overlay** — `deploy/compose/eval-sso.yml`. It turns dev auth
+off and puts the same demo identity provider in front, so the stack runs real session auth; the
+loopback rule governs dev auth alone, so with it off the UI is simply reachable:
+
+```sh
+export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
+export DEX_DEMO_PASSWORD_HASH="$(htpasswd -bnBC 12 demo 'choose-a-password' | cut -d: -f2)"
+export PROBECTL_SESSION_HMAC_KEY="$(openssl rand -hex 32)"
+docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-sso.yml up --build -d
+open https://localhost:8443/ui/     # sign in as demo@probectl.local
+```
+
+That is real OIDC, real sessions and real RBAC on a stack whose bus and certificate are still the
+evaluation ones. For the full production shape, use the production-shaped stack
 ([`install.md`](install.md) plus `deploy/compose/dex-demo.yml`).
 
 The rest of this section is the same path by hand, which is worth reading once.

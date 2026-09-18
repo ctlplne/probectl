@@ -136,8 +136,12 @@ services:
       # a non-loopback bind is refused at startup, not warned about. A
       # consequence worth knowing before you look for it: the web UI this binary
       # embeds at /ui/ is unreachable from a browser on the host, so evaluation
-      # here ends at the API through the `viewer` helper. For the UI, use the
-      # production-shaped stack with real SSO (docs/install.md, dex-demo.yml).
+      # here ends at the API through the `viewer` helper.
+      #
+      # For the UI without leaving the evaluation stack, layer eval-sso.yml on
+      # top (DPR-134): it turns dev auth off and puts the demo IdP in front, so
+      # real session auth applies and this rule stops binding. For the full
+      # production shape, see docs/install.md and dex-demo.yml.
       PROBECTL_HTTP_ADDR: "127.0.0.1:8443"
       PROBECTL_TLS_CERT_FILE: /certs/tls.crt
       PROBECTL_TLS_KEY_FILE: /certs/tls.key
