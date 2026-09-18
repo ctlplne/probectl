@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '../shell/AppShell'
 import { NAV } from '../nav/ia'
 import { DemoModeProvider } from '../demo/DemoMode'
@@ -66,6 +66,22 @@ const AdminPage = lazy(() =>
   import('./admin/AdminPage').then((module) => ({ default: module.AdminPage })),
 )
 
+/**
+ * The provider console lives outside web/, so it cannot resolve react-router.
+ * DPR-155: it still has to know whether the URL asks for the demo workspace —
+ * it is outside DemoModeProvider by design, and without this it answered
+ * `?demo=1` with live provider data. The route reads the query string and hands
+ * it over; the console decides what to do with it.
+ */
+function ProviderRoute() {
+  const { search } = useLocation()
+  return (
+    <Suspense fallback={<LoadingState label="Loading page…" />}>
+      <ProviderConsole search={search} />
+    </Suspense>
+  )
+}
+
 function deferred(Page: LazyExoticComponent<ComponentType>) {
   return (
     <Suspense fallback={<LoadingState label="Loading page…" />}>
@@ -82,7 +98,7 @@ export function AppRoutes() {
           AppShell: a visually-separate surface for a separate privilege
           domain. Not in the tenant nav; the API behind it is hidden
           (404) unless the deployment holds a provider license. */}
-      <Route path="/provider/*" element={deferred(ProviderConsole)} />
+      <Route path="/provider/*" element={<ProviderRoute />} />
       <Route
         element={
           <DemoModeProvider>

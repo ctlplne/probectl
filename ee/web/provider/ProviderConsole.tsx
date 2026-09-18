@@ -72,15 +72,40 @@ interface LicenseInfo {
 // api/NotEnabledError/APIError moved to providerData.ts so every card shares
 // one fetch contract and the react-query read layer below it.
 
-/** The console root: not-enabled / login / dashboard. */
-export function ProviderConsole() {
+/**
+ * demoRequested reports whether the URL asks for the isolated demo workspace.
+ *
+ * DPR-155: the provider console sits OUTSIDE the tenant shell, and therefore
+ * outside DemoModeProvider — which is correct, because it is a separate
+ * privilege domain. The consequence was not: `?demo=1` on this route entered
+ * nothing, the console fetched live provider data, and the screens showed real
+ * operator identities and real cross-tenant usage with no Demo badge and no hint
+ * that demo mode was not in effect. A mode whose whole promise is "these are
+ * samples" must not answer with production data on one surface and stay silent
+ * about it.
+ */
+function demoRequested(search: string): boolean {
+  return new URLSearchParams(search).get("demo") === "1";
+}
+
+/** What the route passes in: the current query string, nothing more. */
+export interface ProviderConsoleProps {
+  search?: string;
+}
+
+/** The console root: demo-refused / not-enabled / login / dashboard. */
+export function ProviderConsole({ search = "" }: ProviderConsoleProps) {
   const { t } = useI18n();
+  const demo = demoRequested(search);
   const [phase, setPhase] = useState<
-    "probe" | "login" | "dashboard" | "disabled"
-  >("probe");
+    "probe" | "login" | "dashboard" | "disabled" | "demo"
+  >(demo ? "demo" : "probe");
   const [operator, setOperator] = useState<Operator | null>(null);
 
   useEffect(() => {
+    // Fail closed: in the demo workspace this console fetches nothing at all,
+    // rather than fetching live data and labelling it a sample.
+    if (demo) return;
     let cancelled = false;
     api<{ operator: Operator }>("GET", "/provider/v1/me")
       .then((r) => {
@@ -96,7 +121,7 @@ export function ProviderConsole() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [demo]);
 
   return (
     <div className={styles.shell}>
@@ -112,6 +137,17 @@ export function ProviderConsole() {
       <main className={styles.main}>
         {phase === "probe" ? (
           <LoadingState label={t("provider.loading")} />
+        ) : null}
+        {phase === "demo" ? (
+          <>
+            {/* keep the h1→h2→h3 ladder intact for the EmptyState's h3 */}
+            <h2 className={styles.title}>{t("provider.demo.title")}</h2>
+            <EmptyState
+              icon="admin"
+              title={t("provider.demo.notCoveredTitle")}
+              description={t("provider.demo.description")}
+            />
+          </>
         ) : null}
         {phase === "disabled" ? (
           <>

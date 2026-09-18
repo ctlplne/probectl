@@ -579,3 +579,45 @@ describe('provider console (S-T1)', () => {
     expect(await axe(container)).toHaveNoViolations()
   })
 })
+
+// DPR-155: the provider console is outside the tenant shell and therefore
+// outside DemoModeProvider — correct, because it is a separate privilege
+// domain. The consequence was not: `?demo=1` entered nothing here, the console
+// fetched live provider data, and the screens carried real operator identities
+// and real cross-tenant usage with no Demo badge and nothing saying demo mode
+// was not in effect. Found while capturing J6 for the readiness programme: the
+// demo pass and the live pass produced the same operator emails.
+describe('provider console in the demo workspace', () => {
+  test('refuses the demo workspace instead of answering it with live data', async () => {
+    const calls: string[] = []
+    const base = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push(String(input))
+        return base(input, init)
+      }),
+    )
+    renderApp('/provider?demo=1')
+
+    expect(
+      await screen.findByText(/demo workspace does not cover the provider plane/i),
+    ).toBeInTheDocument()
+    // Fail closed: not one provider request is made, so there is no live data
+    // on screen to mislabel as a sample.
+    await waitFor(() => {
+      expect(calls.filter((u) => u.includes('/provider/v1/'))).toHaveLength(0)
+    })
+  })
+
+  test('without the demo marker it behaves exactly as before', async () => {
+    renderApp('/provider')
+    // The operator sign-in is what an unauthenticated operator sees; the point
+    // is only that the demo refusal has not replaced the normal path.
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/demo workspace does not cover the provider plane/i),
+      ).not.toBeInTheDocument()
+    })
+  })
+})

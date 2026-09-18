@@ -1280,6 +1280,10 @@ const en = {
   'provider.disabled.licenseTitle': 'No provider license',
   'provider.disabled.description':
     'This deployment has no provider/MSP license, so the operator console is inactive. Tenant observability is unaffected.',
+  'provider.demo.title': 'Demo workspace',
+  'provider.demo.notCoveredTitle': 'The demo workspace does not cover the provider plane',
+  'provider.demo.description':
+    'The provider console is a separate privilege domain with its own sign-in, so the demo workspace has no sample data for it. It will not show you live provider data while demo mode is on. Leave demo mode to work with the real provider plane.',
   'provider.login.title': 'Operator sign-in',
   'provider.login.description':
     'Provider operators authenticate with a password AND an authenticator code - MFA is mandatory in this domain.',
@@ -2612,6 +2616,10 @@ const es: Record<MessageKey, string> = {
   'provider.disabled.licenseTitle': 'Sin licencia de proveedor',
   'provider.disabled.description':
     'Este despliegue no tiene licencia Provider/MSP, por lo que la consola de operador esta inactiva. La observabilidad del tenant no se ve afectada.',
+  'provider.demo.title': 'Espacio de demostracion',
+  'provider.demo.notCoveredTitle': 'El espacio de demostracion no cubre el plano de proveedor',
+  'provider.demo.description':
+    'La consola de proveedor es un dominio de privilegios separado con su propio inicio de sesion, por lo que el espacio de demostracion no tiene datos de muestra para ella. No mostrara datos reales del proveedor mientras el modo demostracion este activo. Salga del modo demostracion para trabajar con el plano de proveedor real.',
   'provider.login.title': 'Inicio de sesion de operador',
   'provider.login.description':
     'Los operadores del proveedor se autentican con contrasena Y codigo autenticador; MFA es obligatorio en este dominio.',
@@ -3870,6 +3878,10 @@ const ar: Record<MessageKey, string> = {
   'provider.disabled.licenseTitle': 'لا توجد رخصة مزوّد',
   'provider.disabled.description':
     'هذا النشر لا يملك رخصة Provider/MSP، لذلك وحدة تحكم المشغل غير نشطة. مراقبة المستأجر لا تتأثر.',
+  'provider.demo.title': 'مساحة العرض التجريبي',
+  'provider.demo.notCoveredTitle': 'مساحة العرض التجريبي لا تغطي مستوى المزوّد',
+  'provider.demo.description':
+    'وحدة تحكم المزوّد نطاق صلاحيات منفصل له تسجيل دخول خاص به، لذلك لا تتوفر بيانات عينة له في مساحة العرض التجريبي. ولن تعرض بيانات المزوّد الحقيقية أثناء تفعيل وضع العرض التجريبي. اخرج من وضع العرض التجريبي للعمل مع مستوى المزوّد الحقيقي.',
   'provider.login.title': 'تسجيل دخول المشغل',
   'provider.login.description':
     'يتوثق مشغلو المزوّد بكلمة مرور ورمز مصادقة؛ MFA إلزامي في هذا النطاق.',
