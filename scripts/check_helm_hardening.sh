@@ -274,6 +274,12 @@ need_fixed "automountServiceAccountToken: false" "$browser_render" "browser agen
 need_fixed "readOnlyRootFilesystem: true" "$browser_render" "browser agent root filesystem is writable (W2)"
 need_fixed "PROBECTL_AGENT_BROWSER_WORKER_PATH" "$browser_render" "browser agent is not pinned to the packaged worker (W2)"
 need_fixed "ingress: []" "$browser_render" "browser agent NetworkPolicy admits inbound traffic (W2)"
+# DPR-174: the browser agent's SVID has to be rotatable, and rotation is an HTTP
+# call to the control plane's API port. Both ends of that hop are the chart's, so
+# both are asserted: the agent may egress to it, and the control plane admits it.
+need_fixed "app.kubernetes.io/component: browser-agent" "$browser_render" "control NetworkPolicy does not admit this release's own browser agent to the enrolment/rotation endpoint (DPR-174)"
+browser_np="$(awk '/-browser-agent$/,/^---/' <<<"$browser_render")"
+need "port: 8080" "$browser_np" "browser agent NetworkPolicy has no egress to the control API port, so its identity cannot be rotated (DPR-174)"
 
 # EBPF-001: every shipped eBPF config generator must include the schema version
 # accepted by the strict agent loader. The agent should keep failing closed on

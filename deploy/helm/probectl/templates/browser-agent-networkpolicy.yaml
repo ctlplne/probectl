@@ -21,5 +21,15 @@ spec:
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
+    # DPR-174: identity, not telemetry. The agent enrols and ROTATES its SVID over
+    # the control plane's API port; without this it runs until its certificate
+    # expires and then silently never comes back. The chart knows both ends of
+    # this hop, so it is not left to browserAgent.networkPolicy.egressTo.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "probectl.controlSelectorLabels" . | nindent 14 }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.service.port }} }
     {{- toYaml $egress | nindent 4 }}
 {{- end }}
