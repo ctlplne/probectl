@@ -311,11 +311,14 @@ func TestLibsslOverrideIsNotHostRootPrefixed(t *testing.T) {
 	}
 }
 
-// DPR-125: cilium/ebpf's uprobe loader refuses a target with no execute bit, and
-// Debian/Ubuntu package shared libraries 0644 — so the OpenSSL uprobe path could
-// never attach on the two distros the candidate list is built around. Discovery
-// must SKIP an unattachable candidate and keep looking, and say precisely what
-// it found when nothing is attachable.
+// Discovery must SKIP a candidate the caller's predicate rejects and keep
+// looking, and say precisely what it found when nothing is accepted.
+//
+// The predicate is injected, so this tests the MECHANISM. What counts as
+// attachable in production changed with DPR-125's second half — the execute bit
+// no longer disqualifies a library, because the tracefs attach path does not
+// need one — and that predicate is tested directly in
+// libssl_probe_linux_test.go.
 func TestDiscoverySkipsUnattachableLibraries(t *testing.T) {
 	debian := "/usr/lib/aarch64-linux-gnu/libssl.so.3" // 0644, present, unusable
 	rhel := "/usr/lib64/libssl.so.3"                   // 0755, the one to use
