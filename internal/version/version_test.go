@@ -48,3 +48,31 @@ func TestInfoStringContainsVersion(t *testing.T) {
 		t.Errorf("Info.String() = %q, want it to contain the version %q", got, info.Version)
 	}
 }
+
+// DPR-148: the commit is baked into every binary, reported on /metrics, and
+// asserted in the SIGNED auditor bundle, which tells its reader to fetch the
+// SBOM for that build. A build from a modified tree, or one with no VCS
+// information, identifies no published artifact — and a document that quotes the
+// SHA anyway sends an auditor to compare against the wrong thing.
+func TestProvenanceIsOnlyTrustworthyForAnUnmodifiedRevision(t *testing.T) {
+	for _, tc := range []struct {
+		commit      string
+		trustworthy bool
+		modified    bool
+	}{
+		{"7d8338d", true, false},
+		{"7d8338d9ffeb0d15ddc9918ffe2626e7dea16b08", true, false},
+		{"7d8338d-dirty", false, true},
+		{"unknown", false, false},
+		{"", false, false},
+		{"   ", false, false},
+	} {
+		got := Info{Commit: tc.commit}
+		if got.ProvenanceTrustworthy() != tc.trustworthy {
+			t.Errorf("commit %q: trustworthy = %v, want %v", tc.commit, got.ProvenanceTrustworthy(), tc.trustworthy)
+		}
+		if got.Modified() != tc.modified {
+			t.Errorf("commit %q: modified = %v, want %v", tc.commit, got.Modified(), tc.modified)
+		}
+	}
+}

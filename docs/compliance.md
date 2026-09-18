@@ -167,7 +167,7 @@ signed as a single Ed25519-signed document:
 | `audit-chain-verification` | the tenant's audit stream re-verified end to end |
 | `retention-receipts` | the retention policy and the status reported against it |
 | `deletion-proofs` | the tenant's verifiable-deletion receipts, subjects as salted hashes only |
-| `build-provenance` | the version, commit and which release artifact carries the SBOM |
+| `build-provenance` | the version, commit and which release artifact carries the SBOM — reported **failed** when the binary was built from a modified tree or carries no usable commit, because then it identifies no published artifact |
 | `crypto-self-test` | the cryptographic module's self-test status, read live |
 
 Three properties are the point of the format:

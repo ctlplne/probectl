@@ -15,6 +15,7 @@ package version
 import (
 	"fmt"
 	"runtime"
+	"strings"
 )
 
 // Build metadata. These are overridden at link time with
@@ -27,6 +28,24 @@ var (
 	// Date is the build timestamp in RFC 3339 form.
 	Date = "unknown"
 )
+
+// Modified reports whether Commit describes the source this binary was actually
+// built from. A build produced from a working tree with uncommitted changes
+// carries a "-dirty" suffix by convention (see the Makefile), and anything that
+// asserts provenance — the metrics endpoint, the signed auditor bundle — has to
+// treat that as "not a released build" rather than quoting the SHA as if it
+// identified the artifact (DPR-148). An "unknown" commit is equally unusable.
+func (i Info) Modified() bool {
+	return strings.HasSuffix(i.Commit, "-dirty")
+}
+
+// ProvenanceTrustworthy reports whether Commit identifies a real, unmodified
+// source revision. False means the binary cannot be traced to a published
+// artifact, and a document that says otherwise would be wrong.
+func (i Info) ProvenanceTrustworthy() bool {
+	c := strings.TrimSpace(i.Commit)
+	return c != "" && c != "unknown" && !strings.HasSuffix(c, "-dirty")
+}
 
 // Info is a structured snapshot of the build metadata plus the runtime
 // environment the binary is executing in.

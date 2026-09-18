@@ -200,17 +200,34 @@ func (s *Server) auditorDeletionSection(ctx context.Context, tid string) complia
 // rather than producing a parts list it cannot stand behind.
 func (s *Server) auditorProvenanceSection() compliance.SectionInput {
 	v := version.Get()
-	return compliance.SectionInput{
-		Kind: compliance.SectionProvenance, Status: compliance.StatusVerified,
-		Content: map[string]any{
-			"version": v.Version, "commit": v.Commit, "built_at": v.Date,
-			"sbom": map[string]any{
-				"generated_by": "the release workflow, not this process",
-				"artifact":     "probectl_" + v.Version + "_sbom.spdx.json",
-				"note":         "fetch it from the release and verify it with cosign; see docs/ops/verify-artifacts.md",
-			},
+	content := map[string]any{
+		"version": v.Version, "commit": v.Commit, "built_at": v.Date,
+		"sbom": map[string]any{
+			"generated_by": "the release workflow, not this process",
+			"artifact":     "probectl_" + v.Version + "_sbom.spdx.json",
+			"note":         "fetch it from the release and verify it with cosign; see docs/ops/verify-artifacts.md",
 		},
 	}
+	// DPR-148: a commit is only provenance if it identifies the source this
+	// binary was built from. A build from a modified tree carries "-dirty", and
+	// a build with no VCS information reports "unknown"; in either case there is
+	// no published artifact to compare against, and a SIGNED document must not
+	// imply there is. The section is reported as FAILED — gathered, with its
+	// evidence, and impossible to read as passing.
+	if !v.ProvenanceTrustworthy() {
+		reason := "this binary carries no usable commit, so it cannot be traced to a published source revision"
+		if v.Modified() {
+			reason = "this binary was built from a MODIFIED working tree, so its commit does not identify any published source revision"
+		}
+		content["provenance"] = "untrustworthy"
+		content["reason"] = reason
+		return compliance.SectionInput{
+			Kind: compliance.SectionProvenance, Status: compliance.StatusFailed,
+			Reason: reason, Content: content,
+		}
+	}
+	content["provenance"] = "commit identifies an unmodified source revision"
+	return compliance.SectionInput{Kind: compliance.SectionProvenance, Status: compliance.StatusVerified, Content: content}
 }
 
 // auditorSelfTestSection carries the cryptographic self-test status read live.

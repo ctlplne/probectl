@@ -15,6 +15,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/version"
 )
 
 func auditorRequest(t *testing.T, tenant string) *http.Request {
@@ -130,5 +131,46 @@ func TestAuditorBundleCarriesNoConfiguredSecret(t *testing.T) {
 	// And the tenant id is bound by digest, never serialized.
 	if strings.Contains(body, "00000000-0000-0000-0000-000000000001") {
 		t.Error("the bundle must not serialize the tenant id")
+	}
+}
+
+// DPR-148: a signed document must not assert a commit it cannot stand behind.
+// The provenance section is reported as FAILED — present, with its evidence,
+// impossible to read as passing — when the binary was built from a modified tree
+// or carries no usable commit, because in either case there is no published
+// artifact for the reader to compare against.
+func TestAuditorBundleRefusesToVouchForAnUntrustworthyBuild(t *testing.T) {
+	priv, _, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	s := testServer(nil).WithEvidenceSigningKey(priv)
+	rec := httptest.NewRecorder()
+	if err := s.handleAuditorBundle(rec, auditorRequest(t, "00000000-0000-0000-0000-000000000001")); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	m, err := compliance.VerifyAuditorBundle(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	var prov compliance.AuditorSection
+	for _, sec := range m.Sections {
+		if sec.Kind == compliance.SectionProvenance {
+			prov = sec
+		}
+	}
+	// A test binary is built without the release ldflags, so its commit is
+	// "unknown" — exactly the untrustworthy case this rule exists for.
+	if version.Get().ProvenanceTrustworthy() {
+		t.Skip("this binary carries a released commit; the untrustworthy path is not reachable here")
+	}
+	if prov.Status != compliance.StatusFailed {
+		t.Errorf("provenance status = %q, want %q for a build that cannot be traced", prov.Status, compliance.StatusFailed)
+	}
+	if prov.Digest == "" {
+		t.Error("a failed control must still carry its evidence, not be omitted")
+	}
+	if !strings.Contains(strings.Join(m.Caveats, " "), "FAILED") {
+		t.Error("the caveats must name the failing control")
 	}
 }

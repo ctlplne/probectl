@@ -36,7 +36,14 @@ VERSION_IS_SEMVER := $(shell printf '%s\n' '$(VERSION)' | grep -Eq '^(0|[1-9][0-
 ifneq ($(VERSION_IS_SEMVER),valid)
 $(error VERSION resolved to '$(VERSION)'; expected a non-empty semantic version (for example 0.6.0 or 0.6.0-rc.1))
 endif
-COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+# DPR-148: a build from a MODIFIED tree must say so. The commit is baked into
+# the binary, reported on /metrics as probectl_build_info, and asserted in the
+# SIGNED auditor bundle, which tells the reader to fetch the SBOM for that
+# build. A bare SHA from a dirty tree makes all three describe an artifact that
+# does not exist. The `-dirty` suffix is the universal convention and every
+# consumer of this value treats it as "not a released build".
+GIT_DIRTY := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo "-dirty")
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")$(GIT_DIRTY)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w \
 	-X $(MODULE)/internal/version.Version=$(VERSION) \
