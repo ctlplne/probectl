@@ -38,7 +38,7 @@ import {
 } from '../../api/diagnostics'
 import { DateTime } from '../../time/DateTime'
 import { useI18n } from '../../i18n/useI18n'
-import { formatInteger, formatScaledBytes } from '../../i18n/number'
+import { formatInteger, formatScaledBytes, formatDuration } from '../../i18n/number'
 
 /** LifecycleCard (S-T5, core): self-service data export, the retention
  *  control, and residency/isolation visibility — export + verifiable
@@ -346,8 +346,9 @@ export function SupportCard() {
         {
           id: 'uptime',
           metric: t('admin.support.metrics.uptime'),
+          // DPR-186: uptime in raw seconds is a number nobody converts.
           value: t('admin.support.metrics.uptimeValue', {
-            seconds: formatInteger(selfMetrics.uptime_seconds, locale),
+            duration: formatDuration(selfMetrics.uptime_seconds, locale),
           }),
         },
         {

@@ -55,8 +55,12 @@ describe('support & diagnostics (S-EE4)', () => {
       expect(within(processMetrics).getByText(metric)).toBeInTheDocument()
       const uptimeText = within(processMetrics).getByText(uptime).closest('tr')?.textContent ?? ''
       expect(uptimeText).toMatch(/[0-9٠-٩]/)
-      expect(uptimeText).toContain(locale === 'es' ? 's' : 'ث')
-      expect(uptimeText).not.toContain(locale === 'es' ? 'ث' : ' s')
+      // DPR-186: uptime is a DURATION now ("2h 0min"), not a count of seconds,
+      // and the units still come from the locale rather than a hard-coded
+      // letter — Spanish "min" and Arabic "د" are the platform's wording, not
+      // ours. What must not happen is one locale rendering the other's units.
+      expect(uptimeText).toMatch(locale === 'es' ? /\d+\s*(h|min|s)/ : /[٠-٩0-9]\s*(س|د|ث)/)
+      expect(uptimeText).not.toContain(locale === 'es' ? 'ث' : 'min')
       const build = screen.getByRole('table', { name: buildCaption })
       expect(within(build).getByText(buildField)).toBeInTheDocument()
       expect(document.documentElement.dir).toBe(direction)

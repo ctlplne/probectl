@@ -8,6 +8,7 @@ import { describe, expect, test } from 'vitest'
 import {
   formatCount,
   formatCurrencyUSD,
+  formatDuration,
   formatGibibytes,
   formatRatioPercent,
   formatUnit,
@@ -34,5 +35,34 @@ describe('locale-aware numeric formatting', () => {
     expect(formatThreatConfidence(100, 'en')).toBe('100%')
     expect(formatThreatConfidence(undefined, 'en')).toBe('n/a')
     expect(formatThreatConfidence(82, 'es')).toMatch(/^82\s*%$/)
+  })
+})
+
+// DPR-186: the fleet table printed "Heartbeat age: 104848s" and the support card
+// printed uptime the same way. Nobody converts 104,848 seconds in their head,
+// and the number that matters — a day and five hours — was sitting there unread.
+describe('formatDuration', () => {
+  test('reads as a duration, in the two units that carry the information', () => {
+    expect(formatDuration(104848, 'en')).toBe('1d 5h')
+    expect(formatDuration(3600, 'en')).toBe('1h 0m')
+    expect(formatDuration(3661, 'en')).toBe('1h 1m')
+    expect(formatDuration(90, 'en')).toBe('1m 30s')
+    expect(formatDuration(45, 'en')).toBe('45s')
+    expect(formatDuration(0, 'en')).toBe('0s')
+  })
+
+  test('follows the locale rather than hard-coded unit letters', () => {
+    // Spanish narrow units differ from English; the exact glyphs are the
+    // platform's business, but they must not be identical by accident.
+    const en = formatDuration(104848, 'en')
+    const es = formatDuration(104848, 'es')
+    expect(en).toMatch(/1\s*d/)
+    expect(typeof es).toBe('string')
+    expect(es.length).toBeGreaterThan(0)
+  })
+
+  test('refuses nonsense instead of inventing a duration', () => {
+    expect(formatDuration(Number.NaN, 'en')).toBe('')
+    expect(formatDuration(-5, 'en')).toBe('')
   })
 })

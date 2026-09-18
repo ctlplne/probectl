@@ -134,6 +134,44 @@ function formatScaled(value: number, base: number, units: string[], locale: stri
   })
 }
 
+/**
+ * formatDuration renders a number of seconds the way an operator reads a
+ * duration: the two largest units that carry information.
+ *
+ * DPR-186: the fleet table printed "Heartbeat age: 104848s" and the support
+ * card printed uptime the same way. Nobody converts 104,848 seconds in their
+ * head, and the number that matters — a day and five hours — was sitting there
+ * unread. Units come from Intl unit formatting, so the wording follows the
+ * locale rather than a hard-coded "h".
+ */
+export function formatDuration(seconds: number, locale: string = DEFAULT_LOCALE): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return ''
+  const whole = Math.floor(seconds)
+  const units: Array<{ unit: Intl.NumberFormatOptions['unit']; size: number }> = [
+    { unit: 'day', size: 86400 },
+    { unit: 'hour', size: 3600 },
+    { unit: 'minute', size: 60 },
+    { unit: 'second', size: 1 },
+  ]
+  const parts: string[] = []
+  let left = whole
+  for (const { unit, size } of units) {
+    const value = Math.floor(left / size)
+    left -= value * size
+    if (value === 0 && parts.length === 0) continue
+    parts.push(
+      numberFormatter(locale, { style: 'unit', unit, unitDisplay: 'narrow' }).format(value),
+    )
+    // Two units is the whole point: "1d 5h" answers the question, "1d 5h 7m 28s"
+    // makes the reader do the reading.
+    if (parts.length === 2) break
+  }
+  if (parts.length === 0) {
+    return numberFormatter(locale, { style: 'unit', unit: 'second', unitDisplay: 'narrow' }).format(0)
+  }
+  return parts.join(' ')
+}
+
 function numberFormatter(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
   const key = `${locale}:${JSON.stringify(options)}`
   let formatter = numberFormatCache.get(key)

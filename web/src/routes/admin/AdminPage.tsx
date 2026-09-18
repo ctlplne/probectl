@@ -50,6 +50,7 @@ const BreakGlassConsentCard = lazy(() =>
   import('@ee/provider/ConsentCard').then((module) => ({ default: module.ConsentCard })),
 )
 import { DateTime } from '../../time/DateTime'
+import { formatDuration } from '../../i18n/number'
 import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
 import { FilterBar, SavedViews } from '../listControls'
@@ -127,10 +128,13 @@ function versionLabel(agent: Agent, t: TFn) {
   return t(labels[agent.version_state ?? 'unknown'])
 }
 
-function heartbeatAge(agent: Agent, t: TFn) {
+function heartbeatAge(agent: Agent, t: TFn, locale: string) {
   if (agent.heartbeat_state === 'never_seen') return t('admin.fleet.heartbeat.never')
   if (agent.heartbeat_age_seconds === undefined) return t('admin.fleet.heartbeat.unavailable')
-  return t('admin.fleet.heartbeat.age', { seconds: agent.heartbeat_age_seconds })
+  // DPR-186: "Heartbeat age: 104848s" is a number nobody converts in their head.
+  return t('admin.fleet.heartbeat.age', {
+    duration: formatDuration(agent.heartbeat_age_seconds, locale),
+  })
 }
 
 function safeActionLabel(agent: Agent, t: TFn) {
@@ -676,7 +680,7 @@ function SecretBackendsCard() {
 }
 
 export function AdminPage() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { data, isPending, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useAgents()
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [collectorOpen, setCollectorOpen] = useState(false)
@@ -770,7 +774,7 @@ export function AdminPage() {
       render: (a) => (
         <span className={styles.fleetCell}>
           <StatusDot tone={readinessTone(a)} label={readinessLabel(a, t)} />
-          <span>{heartbeatAge(a, t)}</span>
+          <span>{heartbeatAge(a, t, locale)}</span>
           <small>{agentStatusLabel(a.status, t)}</small>
           <small>{a.readiness_reason || t('admin.fleet.evidenceUnavailable')}</small>
         </span>
