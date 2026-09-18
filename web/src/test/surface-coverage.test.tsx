@@ -692,5 +692,12 @@ describe('frontend-coverage gate (S-FE6)', () => {
         view.unmount()
       }
     },
+    // DPR-168: this sweep renders a whole route and runs axe over it, and the
+    // heaviest route (/docs/api, every documented operation) measures 2.9s alone
+    // but 16.3s when the full suite is competing for the same cores — over the
+    // 15s default, so the a11y gate failed for load, not for accessibility.
+    // Timeout headroom belongs on the sweep; page weight is the performance
+    // gate's job, not this one's.
+    60_000,
   )
 })
