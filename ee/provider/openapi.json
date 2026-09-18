@@ -750,7 +750,7 @@
         }
       },
       "OperatorBootstrapRequest": {
-        "description": "Bootstrap the first provider operator. Case-insensitive keys are accepted; the response carries the operator and a one-time enroll_token for TOTP enrollment.",
+        "description": "Bootstrap the first provider operator. Case-insensitive keys are accepted; the response carries the operator and a one-time enroll_token for TOTP enrollment, redeemable for 24h (DPR-178).",
         "type": "object",
         "properties": {
           "token": {
@@ -838,7 +838,7 @@
         "additionalProperties": false
       },
       "OperatorCreateRequest": {
-        "description": "Create another operator (admin only). The response carries a one-time enroll_token to hand to the person out of band.",
+        "description": "Create another operator (admin only). The response carries a one-time enroll_token to hand to the person out of band, and enroll_token_expires_in — the window it can be redeemed in (24h). An unredeemed token used to be valid forever, which made every message carrying one a live credential for this privilege domain (DPR-178).",
         "type": "object",
         "properties": {
           "email": {

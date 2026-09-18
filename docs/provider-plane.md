@@ -67,9 +67,14 @@ every operator after that enrolls:
    Concurrent attempts and later retries lose with the same `409 conflict`;
    they create neither an operator nor a success audit.
 2. **Enroll.** Creating an operator (whether via bootstrap or by an existing
-   admin) returns a **one-time enrollment token** — only its hash is stored. The
-   operator exchanges it in two steps: `enroll/start` binds the authenticator (the
-   TOTP secret travels exactly once, over TLS, and is sealed at rest), and
+   admin) returns a **one-time enrollment token** — only its hash is stored, and
+   it is redeemable for **24 hours** (`enroll_token_expires_in` in the create
+   response). It used to have no expiry at all, so an invitation nobody redeemed
+   stayed a live credential for this privilege domain in whatever email or
+   ticket carried it (DPR-178). An expired token is refused exactly like an
+   invented one; mint a new one by re-creating the operator. The operator
+   exchanges it in two steps: `enroll/start` binds the authenticator (the TOTP
+   secret travels exactly once, over TLS, and is sealed at rest), and
    `enroll/complete` verifies the first TOTP code, sets the password (minimum 12
    characters), and activates the account.
 3. **Log in** with email + password + TOTP. Failures are deliberately *uniform* —

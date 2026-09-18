@@ -241,9 +241,12 @@ type MemStore struct {
 }
 
 type memOperator struct {
-	op     Operator
-	cred   Credential
-	enroll []byte
+	op   Operator
+	cred Credential
+	// enroll is the single-use enrollment token hash, and enrollExpires bounds
+	// how long it can be redeemed (DPR-178).
+	enroll        []byte
+	enrollExpires time.Time
 }
 
 // NewMemStore returns an empty in-memory store.
@@ -282,9 +285,10 @@ func (m *MemStore) cloneLocked() *MemStore {
 	staged.seq = m.seq
 	for id, x := range m.operators {
 		cp := &memOperator{
-			op:     x.op,
-			cred:   x.cred,
-			enroll: append([]byte(nil), x.enroll...),
+			op:            x.op,
+			cred:          x.cred,
+			enroll:        append([]byte(nil), x.enroll...),
+			enrollExpires: x.enrollExpires,
 		}
 		cp.cred.TOTP.WrappedDEK = append([]byte(nil), x.cred.TOTP.WrappedDEK...)
 		cp.cred.TOTP.Ciphertext = append([]byte(nil), x.cred.TOTP.Ciphertext...)
@@ -352,7 +356,7 @@ func (m *MemStore) createOperatorLocked(op Operator, enrollTokenHash []byte) (Op
 	}
 	op.ID = m.nextID("op")
 	op.CreatedAt = time.Now().UTC()
-	m.operators[op.ID] = &memOperator{op: op, enroll: enrollTokenHash}
+	m.operators[op.ID] = &memOperator{op: op, enroll: enrollTokenHash, enrollExpires: time.Now().Add(OperatorEnrollTTL)}
 	return op, nil
 }
 
@@ -373,6 +377,12 @@ func (m *MemStore) OperatorByEnrollHash(_ context.Context, hash []byte) (*Operat
 	defer m.mu.Unlock()
 	for _, x := range m.operators {
 		if len(x.enroll) > 0 && crypto.ConstantTimeEqual(x.enroll, hash) {
+			// DPR-178: the same window the database enforces. A memory store
+			// that answers where Postgres refuses would let a test prove the
+			// opposite of production.
+			if x.enrollExpires.IsZero() || !time.Now().Before(x.enrollExpires) {
+				return nil, ErrNotFound
+			}
 			op := x.op
 			return &op, nil
 		}

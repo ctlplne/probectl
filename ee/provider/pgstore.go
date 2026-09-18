@@ -117,6 +117,14 @@ func scanOperator(row pgx.Row) (Operator, error) {
 	return op, err
 }
 
+// OperatorEnrollTTL bounds how long an unredeemed operator enrollment token can
+// be used (DPR-178). It used to be forever: the token is single-use and hashed
+// at rest, but until someone redeemed it, the message carrying it stayed a live
+// credential for the product's highest-privilege domain. The agent side of the
+// same idea has always been an hour; a person who must install an authenticator
+// gets a day.
+const OperatorEnrollTTL = 24 * time.Hour
+
 func insertOperator(
 	ctx context.Context,
 	q tenancy.Querier,
@@ -124,9 +132,9 @@ func insertOperator(
 	enrollTokenHash []byte,
 ) (Operator, error) {
 	return scanOperator(q.QueryRow(ctx,
-		`INSERT INTO provider_operators (email, name, role, status, enroll_token_hash)
-		 VALUES ($1, $2, $3, 'disabled', $4) RETURNING `+operatorCols,
-		op.Email, op.Name, op.Role, enrollTokenHash))
+		`INSERT INTO provider_operators (email, name, role, status, enroll_token_hash, enroll_expires_at)
+		 VALUES ($1, $2, $3, 'disabled', $4, now() + $5::interval) RETURNING `+operatorCols,
+		op.Email, op.Name, op.Role, enrollTokenHash, OperatorEnrollTTL.String()))
 }
 
 func (s *PGStore) CreateOperator(ctx context.Context, op Operator, enrollTokenHash []byte) (Operator, error) {
@@ -194,8 +202,14 @@ func (s *PGStore) OperatorByEnrollHash(ctx context.Context, hash []byte) (*Opera
 	var op Operator
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
 		var e error
+		// DPR-178: an expired or undated enrollment token is not a token. The
+		// window is enforced in the lookup rather than after it, so every caller
+		// — enroll start, enroll complete, anything added later — gets the same
+		// refusal without having to remember to ask.
 		op, e = scanOperator(q.QueryRow(ctx,
-			`SELECT `+operatorCols+` FROM provider_operators WHERE enroll_token_hash = $1`, hash))
+			`SELECT `+operatorCols+` FROM provider_operators
+			  WHERE enroll_token_hash = $1
+			    AND enroll_expires_at IS NOT NULL AND enroll_expires_at > now()`, hash))
 		return e
 	})
 	if err != nil {
