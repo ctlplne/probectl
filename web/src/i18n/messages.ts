@@ -1129,6 +1129,7 @@ const en = {
   'admin.fleet.action.reviewHalted': 'Review halted rollout',
   'admin.fleet.action.reenrollIdentity': 'Re-enroll this agent',
   'admin.fleet.action.inspectIdentity': 'Inspect identity rotation',
+  'admin.fleet.action.inspectCollectorInput': 'Inspect collector inputs',
   'admin.fleet.dialog.title': 'Safe action for {agent}',
   'admin.fleet.dialog.done': 'Done',
   'admin.fleet.dialog.safety':
@@ -2470,6 +2471,7 @@ const es: Record<MessageKey, string> = {
   'admin.fleet.action.reviewHalted': 'Revisar despliegue detenido',
   'admin.fleet.action.reenrollIdentity': 'Volver a inscribir este agente',
   'admin.fleet.action.inspectIdentity': 'Revisar la rotación de identidad',
+  'admin.fleet.action.inspectCollectorInput': 'Revisar las entradas del colector',
   'admin.fleet.dialog.title': 'Accion segura para {agent}',
   'admin.fleet.dialog.done': 'Listo',
   'admin.fleet.dialog.safety':

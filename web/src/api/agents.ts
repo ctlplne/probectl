@@ -46,6 +46,7 @@ export interface Agent {
   next_safe_action?: {
     kind:
       | 'inspect_heartbeat'
+      | 'inspect_collector_input'
       | 'review_capabilities'
       | 'review_staged_rollout'
       | 'verify_rollout_wave'

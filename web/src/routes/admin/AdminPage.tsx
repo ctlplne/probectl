@@ -140,6 +140,8 @@ function heartbeatAge(agent: Agent, t: TFn, locale: string) {
 function safeActionLabel(agent: Agent, t: TFn) {
   const labels: Record<NonNullable<Agent['next_safe_action']>['kind'], MessageKey> = {
     inspect_heartbeat: 'admin.fleet.action.inspectHeartbeat',
+    // DPR-192: a bus collector has no heartbeat lane to inspect.
+    inspect_collector_input: 'admin.fleet.action.inspectCollectorInput',
     review_capabilities: 'admin.fleet.action.reviewCapabilities',
     review_staged_rollout: 'admin.fleet.action.reviewRollout',
     verify_rollout_wave: 'admin.fleet.action.verifyWave',

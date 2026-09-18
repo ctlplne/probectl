@@ -27,6 +27,32 @@ const fleetHeartbeatSLO = 5 * time.Minute
 // warning has to mean the same thing for a one-hour identity and a one-day one.
 const fleetIdentityRenewalFraction = 0.75
 
+// busCollector reports whether this agent publishes to the bus instead of
+// holding a control-plane gRPC lane — an eBPF, flow, device or BMP collector
+// registered with `register-collector`, which mints an identity and no cert
+// because "bus auth is separate" (ARCH-011). The distinction matters to an
+// operator reading a stale row: such an agent has NO heartbeat lane, so its
+// liveness is inferred from its telemetry being ingested
+// (internal/pipeline/tenantverify.go heartbeats the agent when a result of its
+// arrives). Telling their operator to inspect a heartbeat and read the agent's
+// logs is advice that cannot be followed.
+//
+// DPR-192: observed on the lab, not reasoned about. A flow collector sat 1/1
+// Running for ninety minutes logging contented all-zero collector stats every
+// sixty seconds, while the fleet called it offline and told the operator to
+// "inspect its last authenticated heartbeat" and "review transport and agent
+// logs". There was no heartbeat to inspect and the logs said everything was
+// fine. What was actually true — no exporter had sent it a packet since the
+// senders finished — is what the row now says.
+func busCollector(caps []string) bool {
+	for _, c := range caps {
+		if c == "collector" {
+			return true
+		}
+	}
+	return false
+}
+
 type fleetSafeAction struct {
 	Kind   string `json:"kind"`
 	Label  string `json:"label"`
@@ -119,25 +145,41 @@ func newFleetAgentView(row store.Agent, identity *store.AgentIdentityWindow, con
 		view.IdentityExpiresAt = &expires
 	}
 
+	// DPR-192: a bus collector has no heartbeat lane, so every sentence about
+	// one is wrong for it. Its liveness IS its telemetry arriving, and that is
+	// what its row says.
+	collector := busCollector(row.Capabilities)
 	switch {
 	case row.LastSeenAt == nil:
 		view.HeartbeatState = "never_seen"
 		view.HeartbeatReason = "Agent has not completed an authenticated heartbeat."
+		if collector {
+			view.HeartbeatReason = "Collector has published no telemetry yet; it has no heartbeat lane of its own."
+		}
 	case row.Status == "offline":
 		age := heartbeatAgeSeconds(now, *row.LastSeenAt)
 		view.HeartbeatAgeSeconds = &age
 		view.HeartbeatState = "stale"
 		view.HeartbeatReason = "Agent is marked offline; inspect its last authenticated heartbeat."
+		if collector {
+			view.HeartbeatReason = "No telemetry from this collector has been ingested since its last publish; it has no heartbeat lane of its own."
+		}
 	case now.Sub(*row.LastSeenAt) > fleetHeartbeatSLO:
 		age := heartbeatAgeSeconds(now, *row.LastSeenAt)
 		view.HeartbeatAgeSeconds = &age
 		view.HeartbeatState = "stale"
 		view.HeartbeatReason = fmt.Sprintf("Last authenticated heartbeat is older than the %s health gate.", fleetHeartbeatSLO)
+		if collector {
+			view.HeartbeatReason = fmt.Sprintf("No telemetry from this collector has been ingested inside the %s health gate; it has no heartbeat lane of its own.", fleetHeartbeatSLO)
+		}
 	default:
 		age := heartbeatAgeSeconds(now, *row.LastSeenAt)
 		view.HeartbeatAgeSeconds = &age
 		view.HeartbeatState = "ready"
 		view.HeartbeatReason = "Authenticated heartbeat is inside the five-minute health gate."
+		if collector {
+			view.HeartbeatReason = "Telemetry from this collector was ingested inside the five-minute health gate."
+		}
 	}
 
 	view.VersionState, view.VersionReason = fleetVersionState(controlVersion, row.AgentVersion)
@@ -156,11 +198,17 @@ func newFleetAgentView(row store.Agent, identity *store.AgentIdentityWindow, con
 		view.ReadinessReason = view.HeartbeatReason
 		view.LastFailure = view.HeartbeatReason
 		view.NextSafeAction = safeAction("inspect_heartbeat", "Inspect enrollment and heartbeat", "Review mTLS enrollment and transport evidence; this action does not reconnect or update the agent.")
+		if collector {
+			view.NextSafeAction = safeAction("inspect_collector_input", "Inspect collector inputs", "This collector publishes to the bus and has no heartbeat lane: review the exporters configured to send to it, its bus credentials and its listen address. Its own logs will look healthy while nothing is arriving.")
+		}
 	case view.HeartbeatState == "stale":
 		view.ReadinessState = "stale"
 		view.ReadinessReason = view.HeartbeatReason
 		view.LastFailure = view.HeartbeatReason
 		view.NextSafeAction = safeAction("inspect_heartbeat", "Inspect stale heartbeat", "Review transport and agent logs before any human-approved rollout action.")
+		if collector {
+			view.NextSafeAction = safeAction("inspect_collector_input", "Inspect collector inputs", "This collector publishes to the bus and has no heartbeat lane: review the exporters configured to send to it, its bus credentials and its listen address. Its own logs will look healthy while nothing is arriving.")
+		}
 	case len(row.Capabilities) == 0:
 		view.ReadinessState = "unsupported_capability"
 		view.ReadinessReason = "Agent reported no supported telemetry capabilities."
