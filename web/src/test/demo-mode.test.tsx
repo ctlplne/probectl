@@ -26,15 +26,24 @@ function requestedPaths(fetcher: ReturnType<typeof vi.fn>): string[] {
 
 describe('transport-isolated demo mode', () => {
   test('every tenant menu has a populated demo definition', () => {
-    expect([...DEMO_PAGE_PATHS].sort()).toEqual(NAV.map((item) => item.to).sort())
+    // Every navigation item must have a page. The reverse is NOT required: a
+    // route can have its own sample surface without being a top-level menu
+    // entry, which is what the per-plane pages are (DPR-145). The shape contract
+    // below then applies to every page, nav item or not, so the extra ones are
+    // held to the same standard rather than escaping the check.
+    const paths = [...DEMO_PAGE_PATHS].sort()
     for (const item of NAV) {
-      const page = DEMO_PAGES[item.to]
-      expect(page.metrics, `${item.to} metrics`).toHaveLength(4)
-      expect(page.primary.rows.length, `${item.to} primary rows`).toBeGreaterThanOrEqual(3)
-      expect(page.secondary.rows.length, `${item.to} secondary rows`).toBeGreaterThanOrEqual(3)
+      expect(paths, `nav item ${item.to} has no demo page`).toContain(item.to)
+    }
+    for (const path of paths) {
+      const page = DEMO_PAGES[path]
+      expect(page.path, `${path} path`).toBe(path)
+      expect(page.metrics, `${path} metrics`).toHaveLength(4)
+      expect(page.primary.rows.length, `${path} primary rows`).toBeGreaterThanOrEqual(3)
+      expect(page.secondary.rows.length, `${path} secondary rows`).toBeGreaterThanOrEqual(3)
       for (const panel of [page.primary, page.secondary]) {
         for (const sample of panel.rows) {
-          expect(sample.cells, `${item.to}/${panel.title}/${sample.id}`).toHaveLength(
+          expect(sample.cells, `${path}/${panel.title}/${sample.id}`).toHaveLength(
             panel.columns.length,
           )
         }
@@ -186,5 +195,30 @@ describe('demo fixtures are safe to publish', () => {
       for (const m of body.matchAll(banned)) offenders.push(`${name}: ${m[0]}`)
     }
     expect(offenders).toEqual([])
+  })
+})
+
+// DPR-145: each telemetry plane gets its own sample surface. The lookup used to
+// send every /planes/<plane> route to the plane index, so four navigation
+// destinations rendered one page — on a hosted tour, four links that look broken.
+describe('the demo tour has a page per plane', () => {
+  it('gives each plane its own distinct surface', async () => {
+    const { demoPageForPath } = await import('../demo/demoPages')
+    const index = demoPageForPath('/planes')
+    const planes = ['synthetic', 'bgp', 'flow', 'device', 'ebpf']
+    const titles = new Set<string>()
+    for (const plane of planes) {
+      const page = demoPageForPath(`/planes/${plane}`)
+      expect(page.path).toBe(`/planes/${plane}`)
+      expect(page.title).not.toBe(index.title)
+      titles.add(page.title)
+    }
+    // Distinct from each other too, not just from the index.
+    expect(titles.size).toBe(planes.length)
+  })
+
+  it('still falls back for a plane that does not exist yet', async () => {
+    const { demoPageForPath } = await import('../demo/demoPages')
+    expect(demoPageForPath('/planes/not-a-plane').title).toBe(demoPageForPath('/dashboards').title)
   })
 })

@@ -219,6 +219,181 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       ],
     ),
   },
+  // DPR-145: the tour's Planes item used to be the whole story, and every
+  // /planes/<plane> route fell back to it — four navigation destinations
+  // rendering one page. A tour of a five-plane product that cannot show a plane
+  // is the wrong shape, and on a hosted demo it reads as four broken links.
+  // Addresses throughout are RFC 5737 documentation space (DPR-146).
+  '/planes/synthetic': {
+    path: '/planes/synthetic',
+    kicker: 'Active measurement',
+    title: 'Synthetic plane',
+    description:
+      'Sample checks running from three regions, with the p95 that moved before any alert fired.',
+    metrics: [
+      metric('Checks', '24', 'HTTP, DNS, ICMP, and path', 'info'),
+      metric('Healthy', '23 / 24', 'One degraded DNS check', 'success'),
+      metric('Worst p95', '91 ms', 'Checkout, US East', 'warning'),
+      metric('Agents reporting', '6', 'Across three sample regions', 'accent'),
+    ],
+    primary: table(
+      'Checks in the sample window',
+      'Illustrative results by check and region.',
+      ['Check', 'Type', 'Region', 'p95', 'State'],
+      [
+        row('chk-1', ['checkout', 'HTTP', 'US East', '91 ms', 'Degraded'], 'warning'),
+        row('chk-2', ['checkout', 'HTTP', 'EU West', '38 ms', 'Healthy'], 'success'),
+        row('chk-3', ['payments', 'HTTP', 'US East', '42 ms', 'Healthy'], 'success'),
+        row('chk-4', ['auth-dns', 'DNS', 'US West', '—', 'Degraded'], 'warning'),
+        row('chk-5', ['edge-gw', 'ICMP', 'US East', '4 ms', 'Healthy'], 'success'),
+      ],
+    ),
+    secondary: table(
+      'What the plane contributed',
+      'Sample signals this plane raised into the shared incident clock.',
+      ['Time', 'Signal', 'Detail'],
+      [
+        row('syn-1', ['09:37 UTC', 'p95 step', 'checkout US East 44 ms to 91 ms'], 'warning'),
+        row('syn-2', ['09:41 UTC', 'DNS timeout', 'auth-dns, one of three resolvers'], 'warning'),
+        row('syn-3', ['09:44 UTC', 'Recovery', 'checkout p95 back under target'], 'success'),
+      ],
+    ),
+  },
+  '/planes/bgp': {
+    path: '/planes/bgp',
+    kicker: 'Routing',
+    title: 'BGP plane',
+    description:
+      'Sample routing events for the monitored prefixes, with RPKI state alongside each change.',
+    metrics: [
+      metric('Monitored prefixes', '12', 'Across three sample origins', 'info'),
+      metric('Paths seen', '18', 'From the sample collectors', 'accent'),
+      metric('Origin changes', '1', 'Within the sample window', 'warning'),
+      metric('RPKI invalid', '0', 'No invalid announcement observed', 'success'),
+    ],
+    primary: table(
+      'Routing events',
+      'Illustrative announcements and withdrawals.',
+      ['Time', 'Prefix', 'Origin', 'RPKI', 'Event'],
+      [
+        row('bgp-1', ['09:37 UTC', '203.0.113.0/24', 'AS64501', 'Valid', 'Origin changed'], 'warning'),
+        row('bgp-2', ['09:38 UTC', '198.51.100.0/24', 'AS64500', 'Valid', 'Path lengthened'], 'info'),
+        row('bgp-3', ['09:39 UTC', '192.0.2.0/24', 'AS64500', 'Valid', 'Announced'], 'success'),
+      ],
+    ),
+    secondary: table(
+      'Collector coverage',
+      'Which sample collectors saw the change, and when.',
+      ['Collector', 'Peers', 'First seen', 'State'],
+      [
+        row('col-1', ['rrc00', '42', '09:37 UTC', 'Ready'], 'success'),
+        row('col-2', ['route-views2', '38', '09:37 UTC', 'Ready'], 'success'),
+        row('col-3', ['local BMP', '2', '09:38 UTC', 'Ready'], 'success'),
+      ],
+    ),
+  },
+  '/planes/flow': {
+    path: '/planes/flow',
+    kicker: 'Traffic',
+    title: 'Flow plane',
+    description:
+      'Sample NetFlow, IPFIX, and sFlow records folded into service edges and cost classes.',
+    metrics: [
+      metric('Exporters', '3', 'NetFlow v5, IPFIX, sFlow v5', 'info'),
+      metric('Service edges', '113', 'Tenant-scoped sample edges', 'accent'),
+      metric('Decode errors', '0', 'Every record parsed', 'success'),
+      metric('Inter-region share', '41%', 'Shifted during the window', 'warning'),
+    ],
+    primary: table(
+      'Top talkers in the sample window',
+      'Illustrative conversations by volume.',
+      ['Source', 'Destination', 'Port', 'Class', 'Share'],
+      [
+        row('flow-1', ['198.51.100.21', '203.0.113.20', '443', 'inter_region', '18%'], 'warning'),
+        row('flow-2', ['198.51.100.22', '198.51.100.40', '5432', 'intra_az', '14%'], 'success'),
+        row('flow-3', ['198.51.100.23', '192.0.2.9', '443', 'internet_egress', '11%'], 'info'),
+        row('flow-4', ['203.0.113.1', '198.51.100.21', '9092', 'inter_az', '9%'], 'success'),
+      ],
+    ),
+    secondary: table(
+      'Ingest quality',
+      'What each sample exporter sent, and what arrived.',
+      ['Exporter', 'Dialect', 'Records', 'Decode errors', 'Template misses'],
+      [
+        row('exp-1', ['edge-r1', 'netflow5', '155', '0', 'n/a'], 'success'),
+        row('exp-2', ['edge-r2', 'ipfix', '60', '0', '0'], 'success'),
+        row('exp-3', ['tor-sw3', 'sflow5', '84', '0', 'n/a'], 'success'),
+      ],
+    ),
+  },
+  '/planes/device': {
+    path: '/planes/device',
+    kicker: 'Device telemetry',
+    title: 'Device plane',
+    description:
+      'Sample interface counters, neighbours, and configuration changes from the polled fleet.',
+    metrics: [
+      metric('Devices', '14', 'Routers, switches, firewalls', 'info'),
+      metric('Interfaces', '186', 'Sample polled interfaces', 'accent'),
+      metric('Poll lag', '4 min', 'One poller behind the others', 'warning'),
+      metric('Config changes', '2', 'Within the sample window', 'warning'),
+    ],
+    primary: table(
+      'Interfaces worth looking at',
+      'Illustrative counters from the sample fleet.',
+      ['Device', 'Interface', 'Utilisation', 'Errors', 'State'],
+      [
+        row('dev-1', ['edge-r1', 'ethernet-1/1', '78%', '0', 'Up'], 'warning'),
+        row('dev-2', ['edge-r1', 'ethernet-1/2', '31%', '0', 'Up'], 'success'),
+        row('dev-3', ['tor-sw3', 'ethernet-1/9', '12%', '14', 'Up'], 'warning'),
+        row('dev-4', ['core-r2', 'ethernet-2/1', '44%', '0', 'Up'], 'success'),
+      ],
+    ),
+    secondary: table(
+      'Changes and neighbours',
+      'Sample configuration changes and discovered adjacencies.',
+      ['Time', 'Device', 'Change', 'Neighbour'],
+      [
+        row('devc-1', ['09:31 UTC', 'edge-r1', 'BGP policy updated', 'core-r2'], 'warning'),
+        row('devc-2', ['09:33 UTC', 'tor-sw3', 'MTU changed on ethernet-1/9', 'edge-r1'], 'warning'),
+        row('devc-3', ['09:35 UTC', 'core-r2', 'No change', 'edge-r1, tor-sw3'], 'success'),
+      ],
+    ),
+  },
+  '/planes/ebpf': {
+    path: '/planes/ebpf',
+    kicker: 'Host and service map',
+    title: 'eBPF plane',
+    description:
+      'Sample host-level connections and a service map built without touching the application.',
+    metrics: [
+      metric('Hosts', '7', 'Reporting in the sample window', 'info'),
+      metric('Service edges', '38', 'Observed, not configured', 'accent'),
+      metric('L7 capture', 'Off', 'Consent and scope not granted', 'neutral'),
+      metric('Dropped records', '0', 'Ring buffers kept up', 'success'),
+    ],
+    primary: table(
+      'Observed service map',
+      'Illustrative process-to-process connections.',
+      ['From', 'To', 'Port', 'Connections', 'State'],
+      [
+        row('ebpf-1', ['checkout', 'payments', '8443', '1,204', 'Healthy'], 'success'),
+        row('ebpf-2', ['checkout', 'session-cache', '6379', '3,880', 'Healthy'], 'success'),
+        row('ebpf-3', ['payments', 'ledger-db', '5432', '642', 'Slow'], 'warning'),
+        row('ebpf-4', ['auth', 'auth-dns', '53', '918', 'Degraded'], 'warning'),
+      ],
+    ),
+    secondary: table(
+      'Per-host coverage',
+      'What each sample host contributed, and what it could not see.',
+      ['Host', 'Flows', 'Edges', 'Encrypted L7'],
+      [
+        row('ebpf-h1', ['node-a', '1,042', '14', 'Not captured — no consent'], 'neutral'),
+        row('ebpf-h2', ['node-b', '988', '12', 'Not captured — no consent'], 'neutral'),
+        row('ebpf-h3', ['node-c', '1,131', '12', 'Not captured — no consent'], 'neutral'),
+      ],
+    ),
+  },
   '/topology': {
     path: '/topology',
     kicker: 'Change-aware graph',
@@ -881,6 +1056,9 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
 export const DEMO_PAGE_PATHS = Object.keys(DEMO_PAGES)
 
 export function demoPageForPath(pathname: string): DemoPageModel {
-  if (pathname.startsWith('/planes/')) return DEMO_PAGES['/planes']
+  // DPR-145: a per-plane route gets its own sample surface. Falling back to the
+  // plane index made four navigation destinations render one page, which on a
+  // hosted tour reads as four broken links. An unknown plane still falls back,
+  // so a future plane is a missing page rather than a crash.
   return DEMO_PAGES[pathname] ?? DEMO_PAGES['/dashboards']
 }
