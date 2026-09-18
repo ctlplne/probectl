@@ -37,8 +37,17 @@ export function formatDecimal(
   })
 }
 
-export function formatCurrencyUSD(value: number, locale: string = DEFAULT_LOCALE): string {
-  return formatNumber(value, locale, { style: 'currency', currency: 'USD' })
+export function formatCurrencyUSD(
+  value: number,
+  locale: string = DEFAULT_LOCALE,
+  options: DecimalOptions = {},
+): string {
+  return formatNumber(value, locale, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: options.minimumFractionDigits,
+    maximumFractionDigits: options.maximumFractionDigits,
+  })
 }
 
 export function formatRatioPercent(

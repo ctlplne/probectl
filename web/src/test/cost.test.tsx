@@ -209,3 +209,21 @@ describe('cost / FinOps summary (S44)', () => {
     expect(results.violations).toEqual([])
   })
 })
+
+// DPR-183: the engine prices each flow by its zone, so a team with MORE egress
+// can cost LESS — and with only GiB and dollars on screen the honest answer
+// reads like an arithmetic error. The rate is what turns it into a fact.
+describe('cost attribution rates', () => {
+  test('each team shows the effective rate behind its bill', async () => {
+    renderApp('/cost')
+    const table = await screen.findByRole('table', { name: /spend by team/i })
+    expect(within(table).getByText(/effective \$\/gib/i)).toBeInTheDocument()
+
+    const payments = within(table).getByText('payments').closest('tr')
+    const analytics = within(table).getByText('analytics').closest('tr')
+    if (!payments || !analytics) throw new Error('both teams must be listed')
+    // 0.38 USD over 12 GiB, and 0.22 over 4 GiB: more traffic, lower rate.
+    expect(within(payments).getByText('$0.0317')).toBeInTheDocument()
+    expect(within(analytics).getByText('$0.0550')).toBeInTheDocument()
+  })
+})

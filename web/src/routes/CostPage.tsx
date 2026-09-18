@@ -25,7 +25,14 @@ import {
 // Direct import (not the components barrel): uplot must ride only in lazy
 // route chunks so the app-shell entry stays inside its bundle budget.
 import { TimeSeries } from '../components/TimeSeries'
-import { gib, usd, useCostSummary, type BudgetStatus, type ChattyPair } from '../api/cost'
+import {
+  gib,
+  usd,
+  usdPerGiB,
+  useCostSummary,
+  type BudgetStatus,
+  type ChattyPair,
+} from '../api/cost'
 import { useCarbon, type CarbonAgg } from '../api/carbon'
 import { useI18n } from '../i18n/useI18n'
 import { formatDecimal, formatUnit } from '../i18n/number'
@@ -78,6 +85,11 @@ export function CostPage() {
     .map(([name, agg]) => ({ name, agg }))
     .sort((a, b) => b.agg.usd - a.agg.usd || b.agg.bytes - a.agg.bytes)
 
+  // DPR-183: a team with MORE egress can cost LESS, because the engine prices
+  // each flow by its zone — intra-AZ traffic is nearly free next to
+  // cross-region egress. The table showed only GiB and dollars, so the honest
+  // answer looked like an arithmetic error (43.9 GiB at $2.44 above 65.5 GiB at
+  // $0.44). The effective rate is what makes it a fact rather than a puzzle.
   const teamColumns: Column<(typeof owners)[number]>[] = [
     { key: 'team', header: 'Team', render: (r) => <strong>{r.name}</strong> },
     { key: 'gib', header: 'Egress (GiB)', render: (r) => fmtGiB(r.agg.bytes) },
@@ -85,6 +97,16 @@ export function CostPage() {
       key: 'usd',
       header: 'Cost',
       render: (r) => (s?.priced ? fmtUSD(r.agg.usd) : '—'),
+    },
+    {
+      key: 'rate',
+      header: 'Effective $/GiB',
+      render: (r) => {
+        if (!s?.priced) return '—'
+        const gibs = r.agg.bytes / 1024 ** 3
+        if (gibs <= 0) return '—'
+        return `${usdPerGiB(r.agg.usd / gibs, locale)}`
+      },
     },
   ]
 

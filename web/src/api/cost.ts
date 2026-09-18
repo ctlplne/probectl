@@ -84,3 +84,12 @@ export function gib(bytes: number, locale?: string): string {
 export function usd(v: number, locale?: string): string {
   return formatCurrencyUSD(v, locale)
 }
+
+/**
+ * usdPerGiB renders an effective rate (DPR-183). Egress rates are cents per
+ * gibibyte, so the ordinary two-decimal currency format rounds most of them to
+ * $0.00 and hides exactly the difference the column exists to show.
+ */
+export function usdPerGiB(v: number, locale?: string): string {
+  return formatCurrencyUSD(v, locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+}

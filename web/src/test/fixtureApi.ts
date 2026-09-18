@@ -2130,7 +2130,12 @@ export function fixtureFetch(
           total_usd: 0.38,
           by_class: { inter_az: { bytes: 10 * 2 ** 30, usd: 0.1 } },
           by_service: { checkout: { bytes: 12 * 2 ** 30, usd: 0.38 } },
-          by_team: { payments: { bytes: 12 * 2 ** 30, usd: 0.38 } },
+          // DPR-183: two teams whose rates differ by an order of magnitude —
+          // the case the effective-rate column exists to explain.
+          by_team: {
+            payments: { bytes: 12 * 2 ** 30, usd: 0.38 },
+            analytics: { bytes: 4 * 2 ** 30, usd: 0.22 },
+          },
           chatty_pairs: [],
           trend: [
             { hour: '2026-06-04T10:00:00Z', bytes: 4 * 2 ** 30, usd: 0.08 },
