@@ -62,14 +62,34 @@ func (Incidents) OpenIncidents(ctx context.Context, s tenancy.Scope) ([]incident
 		FROM incidents WHERE status = 'open' ORDER BY last_seen_at DESC LIMIT 200`)
 }
 
-// List returns the tenant's incidents, most-recently-active first.
-func (Incidents) List(ctx context.Context, s tenancy.Scope) ([]incident.Incident, error) {
-	return queryIncidents(ctx, s, `SELECT `+incidentCols+`
-		FROM incidents ORDER BY last_seen_at DESC LIMIT 500`)
+// DefaultIncidentListLimit bounds an unqualified incident list read.
+const DefaultIncidentListLimit = 500
+
+// List returns the tenant's incidents, most-recently-active first, and whether
+// the tenant has MORE than the caller asked for.
+//
+// DPR-151: this used to hide a bare LIMIT 500 inside the query and return the
+// rows alone, so a tenant with 600 incidents was handed 500 that presented
+// themselves as all of them. It reads limit+1 and trims, which is the cheapest
+// honest way to know the difference between "that is everything" and "that is
+// the first 500".
+func (Incidents) List(ctx context.Context, s tenancy.Scope, limit int) ([]incident.Incident, bool, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = DefaultIncidentListLimit
+	}
+	rows, err := queryIncidents(ctx, s, `SELECT `+incidentCols+`
+		FROM incidents ORDER BY last_seen_at DESC LIMIT $1`, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(rows) > limit {
+		return rows[:limit], true, nil
+	}
+	return rows, false, nil
 }
 
-func queryIncidents(ctx context.Context, s tenancy.Scope, sql string) ([]incident.Incident, error) {
-	rows, err := s.Q.Query(ctx, sql)
+func queryIncidents(ctx context.Context, s tenancy.Scope, sql string, args ...any) ([]incident.Incident, error) {
+	rows, err := s.Q.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}

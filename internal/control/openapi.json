@@ -10118,6 +10118,10 @@
       "AgentList": {
         "type": "object",
         "properties": {
+          "agent_transport_running": {
+            "type": "boolean",
+            "description": "Whether the agent gRPC lane is enabled in this deployment. False means no agent can report at all, so an empty or uniformly stale fleet is a control plane that is not listening rather than a fleet that stopped."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -11246,6 +11250,18 @@
       "IncidentList": {
         "type": "object",
         "properties": {
+          "correlation_running": {
+            "type": "boolean",
+            "description": "Whether cross-plane incident correlation is running in this deployment. False means no incident can ever be raised here, so an empty items array is a stopped correlator and not a quiet tenant."
+          },
+          "effective_limit": {
+            "type": "integer",
+            "description": "The bound the server actually applied (500)."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the tenant has more rows than effective_limit, so items is the newest page and not the whole set."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -13234,6 +13250,22 @@
       "ChangeEventList": {
         "type": "object",
         "properties": {
+          "change_ingest_configured": {
+            "type": "boolean",
+            "description": "Whether any signed change-ingest webhook credential is registered for this tenant. False means nothing can deliver change events here, so an empty timeline is an unconfigured integration and not a period in which nothing changed."
+          },
+          "config_archive_running": {
+            "type": "boolean",
+            "description": "Whether the device-configuration archive that projects config revisions into the change timeline is wired."
+          },
+          "effective_limit": {
+            "type": "integer",
+            "description": "The bound the server actually applied (200)."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the tenant has more rows than effective_limit, so items is the newest page and not the whole set."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -14238,6 +14270,18 @@
       "ChangeCandidateList": {
         "type": "object",
         "properties": {
+          "correlation_running": {
+            "type": "boolean",
+            "description": "Whether cross-plane incident correlation is running in this deployment. False means no incident can ever be raised here, so an empty items array is a stopped correlator and not a quiet tenant."
+          },
+          "effective_limit": {
+            "type": "integer",
+            "description": "The bound the server actually applied (500)."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when more candidate changes fell in the window than effective_limit."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -14878,6 +14922,10 @@
       "FlowTopList": {
         "type": "object",
         "properties": {
+          "ingest_running": {
+            "type": "boolean",
+            "description": "Whether this deployment has the flow plane's ingest ledger wired. False means nothing is receiving flow at all, so an empty items array is a blocked producer and not a tenant with no traffic."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -15002,6 +15050,10 @@
       "FlowCapacityList": {
         "type": "object",
         "properties": {
+          "ingest_running": {
+            "type": "boolean",
+            "description": "Whether this deployment has the flow plane's ingest ledger wired. False means nothing is receiving flow at all, so an empty items array is a blocked producer and not a tenant with no traffic."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -15091,6 +15143,10 @@
       "FlowAnomalyList": {
         "type": "object",
         "properties": {
+          "ingest_running": {
+            "type": "boolean",
+            "description": "Whether this deployment has the flow plane's ingest ledger wired. False means nothing is receiving flow at all, so an empty items array is a blocked producer and not a tenant with no traffic."
+          },
           "items": {
             "type": "array",
             "items": {

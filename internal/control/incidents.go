@@ -333,14 +333,23 @@ func (cs *BGPIncidentConsumer) handleLane(ctx context.Context, msg bus.Message, 
 
 func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) error {
 	var incs []incident.Incident
+	truncated := false
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		x, e := store.Incidents{}.List(ctx, sc)
-		incs = x
+		x, more, e := store.Incidents{}.List(ctx, sc, store.DefaultIncidentListLimit)
+		incs, truncated = x, more
 		return e
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": incs})
+	// DPR-151: say when the list is the FIRST N rather than all of them. A
+	// correlation surface that silently stops at a bound reports a complete
+	// picture of a tenant's incidents that is not complete.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":               incs,
+		"correlation_running": s.correlationActive,
+		"effective_limit":     store.DefaultIncidentListLimit,
+		"truncated":           truncated,
+	})
 	return nil
 }
 

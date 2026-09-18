@@ -518,9 +518,15 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error 
 		views, _ = buildFleetAgentViews(agents, nil, version.Get().Version, time.Now())
 	}
 	resp := map[string]any{
-		"items":              views,
-		"control_version":    version.Get().Version,
-		"rollouts_available": rolloutsAvailable,
+		"items":           views,
+		"control_version": version.Get().Version,
+		// DPR-152: the fleet view's own verdict — an agent is stale, or skewed,
+		// or simply absent — is read off heartbeats that arrive on the agent
+		// gRPC lane. With that lane disabled no agent can report at all, so an
+		// empty or uniformly stale fleet is a deployment that is not listening
+		// rather than a fleet that has stopped. The reader is told which.
+		"agent_transport_running": s.cfg != nil && s.cfg.AgentTransportEnabled(),
+		"rollouts_available":      rolloutsAvailable,
 	}
 	// next_cursor is the last id; absent when the page wasn't full (end of set).
 	if len(agents) == limit && limit > 0 {

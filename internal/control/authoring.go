@@ -113,7 +113,7 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 			for _, t := range tests {
 				existing = append(existing, t.Target)
 			}
-			incs, e := store.Incidents{}.List(ctx, sc)
+			incs, _, e := store.Incidents{}.List(ctx, sc, store.DefaultIncidentListLimit)
 			if e != nil {
 				return e
 			}

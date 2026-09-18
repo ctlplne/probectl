@@ -116,10 +116,43 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 }
 
 // handleListChanges returns the caller tenant's change timeline (newest first).
+// changeListLimit bounds the change timeline read. The response states it.
+const changeListLimit = 200
+
+// incidentCandidateLimit bounds the ranked candidate-cause list for one
+// incident. The response states it.
+const incidentCandidateLimit = 500
+
+// changeIngestConfigured reports whether ANY change-ingest webhook credential is
+// configured for this tenant.
+//
+// DPR-152: change events reach probectl only through signed provider webhooks
+// (and the device-config projection). With no credential registered, the change
+// timeline is empty forever — and an empty timeline reads as "nothing changed",
+// which during an investigation is the most misleading answer the product can
+// give. The reader is told which of the two it is.
+func (s *Server) changeIngestConfigured(tenant string) bool {
+	if s.cfg == nil {
+		return false
+	}
+	for _, cred := range s.cfg.ChangeWebhooks {
+		if cred.TenantID == tenant {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error {
 	var evs []change.Event
+	truncated := false
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		stored, err := store.ChangeEvents{}.List(ctx, sc, 200)
+		// DPR-151: read one more than the bound so the response can tell the
+		// difference between "that is every change" and "that is the newest
+		// 200". A change timeline that stops silently is read as a complete
+		// history, and a missing change is exactly what an investigation is
+		// looking for.
+		stored, err := store.ChangeEvents{}.List(ctx, sc, changeListLimit+1)
 		if err != nil {
 			return err
 		}
@@ -127,12 +160,25 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error
 		if err != nil {
 			return err
 		}
-		evs = mergeChangeEvents(200, stored, projected)
+		truncated = len(stored) > changeListLimit || len(stored)+len(projected) > changeListLimit
+		evs = mergeChangeEvents(changeListLimit, stored, projected)
 		return nil
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": evs})
+	tenant, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": evs,
+		// Two producers feed this timeline: signed provider webhooks, and the
+		// device-configuration archive projected into change events.
+		"change_ingest_configured": s.changeIngestConfigured(tenant),
+		"config_archive_running":   s.deviceOps != nil,
+		"effective_limit":          changeListLimit,
+		"truncated":                truncated,
+	})
 	return nil
 }
 
@@ -146,6 +192,7 @@ func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) e
 		window = 24 * time.Hour
 	}
 	var cands []change.Candidate
+	candidatesTruncated := false
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		inc, e := store.Incidents{}.Get(ctx, sc, id)
 		if e != nil {
@@ -161,14 +208,19 @@ func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) e
 		}
 		evs = mergeChangeEvents(len(evs)+len(projected), evs, projected)
 		cands = change.Candidates(evs, inc.Target, inc.Prefix, inc.StartedAt, window)
-		if len(cands) > 500 {
-			cands = cands[:500]
+		if len(cands) > incidentCandidateLimit {
+			cands, candidatesTruncated = cands[:incidentCandidateLimit], true
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": cands})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":               cands,
+		"correlation_running": s.correlationActive,
+		"effective_limit":     incidentCandidateLimit,
+		"truncated":           candidatesTruncated,
+	})
 	return nil
 }
 

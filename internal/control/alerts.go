@@ -139,6 +139,19 @@ func (s *Server) WithAlertingActive(active bool) *Server {
 	return s
 }
 
+// WithCorrelationActive records whether cross-plane incident correlation is
+// running in this profile.
+//
+// DPR-151: /v1/incidents returned a bare items array, so an empty list meant
+// both "this tenant has no incidents" and "nothing in this deployment is
+// correlating planes into incidents" — and the second is the one an operator
+// needs to know. The alert evaluator already reports itself this way; the
+// correlator is the same kind of fact about the same kind of surface.
+func (s *Server) WithCorrelationActive(active bool) *Server {
+	s.correlationActive = active
+	return s
+}
+
 func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error {
 	var req alertRequest
 	if err := decodeJSON(r, &req); err != nil {

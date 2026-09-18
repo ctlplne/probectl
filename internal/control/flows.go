@@ -102,6 +102,18 @@ func (s *Server) handleFlowIngestQuality(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+// flowIngestRunning reports whether this deployment has the flow plane's own
+// ingest ledger wired.
+//
+// DPR-152: /v1/flows/top, /capacity and /anomalies each returned a bare items
+// array, so an empty one meant BOTH "this tenant sends no flow" and "nothing in
+// this deployment is receiving flow" — and the UI's own honest-state classifier
+// (web/src/data/classifySurfaceTruth.ts) needs producerRunning to tell a
+// blocked producer from a real zero. Every other flow read already says this;
+// these three did not. The ledger is the same one /v1/flows/ingest-quality
+// reports, so the field keeps one meaning across the plane.
+func (s *Server) flowIngestRunning() bool { return s.flowQuality != nil }
+
 // handleFlowTop serves GET /v1/flows/top — the top-talkers view.
 // Query: by=<allowlisted facet>, window=1h, bucket=3m, limit=10, and repeated
 // filter=<field>:<value>. Filters never carry tenant scope.
@@ -154,6 +166,7 @@ func (s *Server) handleFlowTop(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":           rows,
+		"ingest_running":  s.flowIngestRunning(),
 		"series":          series,
 		"effective_limit": effLimit,
 		"series_limit":    min(len(rows), 6),
@@ -211,7 +224,10 @@ func (s *Server) handleFlowCapacity(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return apierror.BadRequest(err.Error())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": points})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":          points,
+		"ingest_running": s.flowIngestRunning(),
+	})
 	return nil
 }
 
@@ -251,7 +267,10 @@ func (s *Server) handleFlowAnomalies(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return apierror.BadRequest(err.Error())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": anomalies})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":          anomalies,
+		"ingest_running": s.flowIngestRunning(),
+	})
 	return nil
 }
 

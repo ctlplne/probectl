@@ -277,7 +277,7 @@ type incidentEntitiesSource struct{ pool *pgxpool.Pool }
 func (s incidentEntitiesSource) QueryEntities(ctx context.Context, tenant string, sel map[string]string, limit int) ([]ai.Row, error) {
 	var rows []ai.Row
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		incs, err := (store.Incidents{}).List(ctx, sc)
+		incs, _, err := (store.Incidents{}).List(ctx, sc, store.DefaultIncidentListLimit)
 		if err != nil {
 			return err
 		}

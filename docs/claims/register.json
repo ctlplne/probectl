@@ -14,7 +14,7 @@
   "CLAUDE.md",
   "AGENTS.md"
  ],
- "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant|durable lightweight|volatile lightweight|durable bus mode|acceptance, not delivery|delivering nothing|unverified rather than clean|unmeasured layers|silent planes",
+ "grammar": "phone-home|call-home|never leaves|leaves the (operator|deployment|network)|zero[- ]egress|no egress|air-gap|fail[- ]closed|fails? closed|tamper-evident|hash-chained|observe-only|human-gated|never an IPS|not an IPS|not an inline IPS|inline (IPS|blocking)|enforced at the storage|storage-layer enforc|FORCE[- ]?RLS|row.level security|\\bguarantees?\\b|separately audited|consent-gated|bring-your-own artifact|fetched read-only over validated TLS|refuses to load|generator freshness|ingested once|ingest-once|Collector ingestion is per tenant|durable lightweight|volatile lightweight|durable bus mode|acceptance, not delivery|delivering nothing|unverified rather than clean|unmeasured layers|silent planes|verdict coverage|nothing was measuring|was observing|producer that is not running",
  "claims": [
   {
    "id": "CLM-DURABLE-LIGHTWEIGHT-BUS",
@@ -125,39 +125,39 @@
    "statement": "The deployment operates air-gapped: the default AI is the in-process builtin and no feature requires egress.",
    "pattern": "air-gap",
    "surfaces": [
-   "CLAUDE.md",
-   "README.md",
-   "SECURITY.md",
-   "docs/adr/agent-enrollment.md",
-   "docs/adr/browser-artifact-storage.md",
-   "docs/adr/external-vantage-sources.md",
-   "docs/ai-authoring.md",
-   "docs/ai-egress.md",
-   "docs/ai-quickstart.md",
-   "docs/ai-rca.md",
-   "docs/auth/self-hosted-idp.md",
-   "docs/browser-synthetic.md",
-   "docs/build/toolchain.md",
-   "docs/compliance/control-evidence.md",
-   "docs/configuration.md",
-   "docs/dependency-policy.md",
-   "docs/deploying-agents.md",
-   "docs/development.md",
-   "docs/ebpf-agent.md",
-   "docs/features/ai-assistant.md",
-   "docs/features/digital-experience.md",
-   "docs/features/identity-and-access.md",
-   "docs/flow.md",
-   "docs/hardening.md",
-   "docs/ops/air-gap.md",
-   "docs/ops/verify-artifacts.md",
-   "docs/pov-demo-script.md",
-   "docs/pricing.md",
-   "docs/security/agent-whitepaper.md",
-   "docs/security/threat-model.md",
-   "docs/ux/design-principles.md",
-   "docs/ux/teardown.md",
-   "probectl-PRD-v1.0.md"
+    "CLAUDE.md",
+    "README.md",
+    "SECURITY.md",
+    "docs/adr/agent-enrollment.md",
+    "docs/adr/browser-artifact-storage.md",
+    "docs/adr/external-vantage-sources.md",
+    "docs/ai-authoring.md",
+    "docs/ai-egress.md",
+    "docs/ai-quickstart.md",
+    "docs/ai-rca.md",
+    "docs/auth/self-hosted-idp.md",
+    "docs/browser-synthetic.md",
+    "docs/build/toolchain.md",
+    "docs/compliance/control-evidence.md",
+    "docs/configuration.md",
+    "docs/dependency-policy.md",
+    "docs/deploying-agents.md",
+    "docs/development.md",
+    "docs/ebpf-agent.md",
+    "docs/features/ai-assistant.md",
+    "docs/features/digital-experience.md",
+    "docs/features/identity-and-access.md",
+    "docs/flow.md",
+    "docs/hardening.md",
+    "docs/ops/air-gap.md",
+    "docs/ops/verify-artifacts.md",
+    "docs/pov-demo-script.md",
+    "docs/pricing.md",
+    "docs/security/agent-whitepaper.md",
+    "docs/security/threat-model.md",
+    "docs/ux/design-principles.md",
+    "docs/ux/teardown.md",
+    "probectl-PRD-v1.0.md"
    ],
    "code": [
     "internal/ai/model_builtin.go",
@@ -480,7 +480,8 @@
    "statement": "A layer, plane or segment that was NOT measured is reported as unverified, never as healthy. Every verdict surface names what it could not see, in a machine-readable field and in the text a human reads, and lowers its own confidence rather than presenting an unmeasured gap as corroboration. The endpoint attribution names unmeasured layers and drops to a fixed lower confidence; the cross-plane root cause names the cause-bearing planes that contributed nothing and refuses high confidence for a single-plane verdict while others were silent; the topology graph ships its coverage counts and says which planes are missing from an impact answer.",
    "pattern": "unverified rather than clean|unmeasured layers|silent planes",
    "surfaces": [
-    "docs/features/ai-assistant.md"
+    "docs/features/ai-assistant.md",
+    "docs/verdict-coverage.md"
    ],
    "code": [
     "internal/ai/model_builtin.go",
@@ -490,6 +491,27 @@
     "test:internal/ai/model_builtin_test.go#TestBuiltinNamesThePlanesThatSaidNothing",
     "test:internal/ai/model_builtin_test.go#TestBuiltinSaysNothingWhenEveryPlaneSpoke",
     "selftest-label:DOCS-S06"
+   ]
+  },
+  {
+   "id": "CLM-VERDICT-COVERAGE",
+   "kind": "capability",
+   "statement": "Every surface that reports what probectl observed also reports what was observing. Each one carries a provenance declaration \u2014 whether the producer behind it exists and is running for this tenant (collector_running, ingest_running, correlation_running, change_ingest_configured, agent_transport_running, coverage, methodology, measurement_fidelity, silent_planes, freshness) \u2014 and, where it applies a bound, a completeness declaration (effective_limit, truncated, next_cursor). An empty answer therefore never has to be read as good news: the reader is told whether nothing was wrong or nothing was measuring. Surfaces that return rows the caller created declare nothing, because an empty list there is unambiguous. The web UI turns those fields into what a person sees, and a producer that is not running is shown as blocked rather than as a zero-valued chart.",
+   "pattern": "verdict coverage|nothing was measuring|was observing|producer that is not running",
+   "surfaces": [
+    "docs/verdict-coverage.md"
+   ],
+   "code": [
+    "internal/control/change.go",
+    "internal/control/flows.go",
+    "internal/control/incidents.go",
+    "internal/control/onboardingapi.go",
+    "web/src/data/classifySurfaceTruth.ts"
+   ],
+   "proof": [
+    "test:internal/control/verdict_coverage_test.go#TestEveryObservationSurfaceDeclaresItsCoverage",
+    "test:internal/control/onboarding_plane_readiness_test.go#TestOnboardingEngineReadinessReadsPlaneLedgers",
+    "test:internal/control/onboarding_plane_readiness_test.go#TestOnboardingEngineReadinessStaysQuietWithoutTenantData"
    ]
   },
   {

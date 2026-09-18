@@ -210,6 +210,12 @@ type Server struct {
 	// are NEVER evaluated; the alerts API surfaces that loudly instead of
 	// silently accepting dead rules. Set via WithAlertingActive.
 	alertingActive bool
+
+	// correlationActive reports whether cross-plane incident correlation is
+	// actually running in this deployment profile. When false, /v1/incidents
+	// can only ever be empty, and the response says so rather than letting an
+	// empty list read as a quiet tenant. Set via WithCorrelationActive.
+	correlationActive bool
 	// sharedAlerts overrides the Postgres-backed shared alert state (DPR-067);
 	// tests inject a fake, production uses the pool.
 	sharedAlerts sharedAlertStore

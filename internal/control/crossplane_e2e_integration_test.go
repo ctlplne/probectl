@@ -226,7 +226,7 @@ func openIncidentsRLS(t *testing.T, pool *pgxpool.Pool, tenant string) []inciden
 	var out []incident.Incident
 	err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(tenant)), pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
-			incs, e := store.Incidents{}.List(ctx, sc)
+			incs, _, e := store.Incidents{}.List(ctx, sc, store.DefaultIncidentListLimit)
 			out = incs
 			return e
 		})

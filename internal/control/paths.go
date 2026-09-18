@@ -10,8 +10,10 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -201,9 +203,30 @@ func (s *Server) testTarget(r *http.Request) (string, error) {
 	return target, nil
 }
 
-// pathHost strips a port from a target — path discovery traces to the host.
+// pathHost reduces a test target to the host path discovery should trace to.
+//
+// DPR-154: this used to call net.SplitHostPort alone, which is only a
+// host:port parser. Handed the target of an ordinary HTTP test it split
+// "https://example.com/checkout" at the FIRST colon and returned "https" —
+// SplitHostPort does not check that the port is numeric — so the control plane
+// asked its resolver for a host called "https" and path discovery failed with
+// "no such host" for every URL-shaped target. A target with a port in the URL
+// ("http://10.0.0.1:8080/x") failed the split entirely and was resolved whole,
+// which fails the same way. HTTP and browser tests are the common case, so J4
+// (debug a lossy path) could not be completed for most of the fleet.
+//
+// A URL is recognized as a URL first; only then does host:port apply.
 func pathHost(target string) string {
-	if h, _, err := net.SplitHostPort(target); err == nil {
+	target = strings.TrimSpace(target)
+	if strings.Contains(target, "://") {
+		if u, err := url.Parse(target); err == nil && u.Host != "" {
+			// Hostname() drops the port and the brackets around a literal IPv6.
+			if h := u.Hostname(); h != "" {
+				return h
+			}
+		}
+	}
+	if h, _, err := net.SplitHostPort(target); err == nil && h != "" {
 		return h
 	}
 	return target

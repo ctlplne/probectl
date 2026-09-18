@@ -66,7 +66,7 @@ func (p pgLinkStore) ListIncidents(ctx context.Context, tenant string) ([]incide
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
 		func(c context.Context, sc tenancy.Scope) error {
 			var e error
-			out, e = (store.Incidents{}).List(c, sc)
+			out, _, e = (store.Incidents{}).List(c, sc, store.DefaultIncidentListLimit)
 			return e
 		})
 	return out, err

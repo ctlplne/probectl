@@ -16,7 +16,10 @@ import (
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/otelstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -245,6 +248,44 @@ func setOnboardingReadinessCount(out *onboardingProgressResponse) {
 	}
 }
 
+// planeLedgersHaveData asks each store-backed plane whether this tenant's own
+// ledger holds anything yet.
+//
+// Each check is bounded to a single row, and a store error is returned rather
+// than swallowed: "I could not look" is not "nothing arrived", and answering
+// quiet on a failed read is the exact lie this exists to prevent (DPR-150).
+func (s *Server) planeLedgersHaveData(ctx context.Context, tenant string, metricsRead, flowRead bool) (flowData, otlpData, deviceData bool, err error) {
+	if flowRead && s.flowQuality != nil {
+		rows, _, e := s.flowQuality.ListQualityReceipts(ctx, tenant, flow.QualityFilter{Limit: 1, AsOf: time.Now().UTC()})
+		if e != nil {
+			return false, false, false, e
+		}
+		flowData = len(rows) > 0
+	}
+	if metricsRead && s.otelStore != nil {
+		spans, e := s.otelStore.QuerySpans(ctx, tenant, otelstore.SpanQuery{Limit: 1})
+		if e != nil {
+			return false, false, false, e
+		}
+		otlpData = len(spans) > 0
+		if !otlpData {
+			logs, e := s.otelStore.QueryLogs(ctx, tenant, otelstore.LogQuery{Limit: 1})
+			if e != nil {
+				return false, false, false, e
+			}
+			otlpData = len(logs) > 0
+		}
+	}
+	if metricsRead && s.deviceOutcomes != nil {
+		rows, _, e := s.deviceOutcomes.ListCollectionOutcomes(ctx, tenant, device.CollectionOutcomeFilter{Limit: 1})
+		if e != nil {
+			return false, false, false, e
+		}
+		deviceData = len(rows) > 0
+	}
+	return flowData, otlpData, deviceData, nil
+}
+
 func engineReadiness(id string, wired, hasData bool, nextAction string) onboardingReadiness {
 	if !wired {
 		return onboardingReadiness{ID: id, State: onboardingBlocked, Detail: "engine is not configured", NextAction: "/admin"}
@@ -319,6 +360,19 @@ func (s *Server) onboardingEngineReadiness(
 	ctActive := s.cfg != nil && s.cfg.CTEnabled
 	threatIntelHasData := threatRead && s.iocStore != nil && s.iocStore.Count() > 0
 
+	// DPR-150: flow-analytics, otlp and device-telemetry each passed a literal
+	// false as their hasData argument, so all three reported "engine is running
+	// and waiting for tenant data" FOREVER — including for a tenant whose flow
+	// exporters were delivering, whose quality receipts existed, and whose
+	// device collections were succeeding. The same onboarding payload then said
+	// producers[flow].state = ready in one field and "waiting for tenant data"
+	// in another. A readiness verdict has to be read from the plane's own
+	// tenant-scoped ledger; a constant is not a measurement.
+	flowHasData, otlpHasData, deviceHasData, err := s.planeLedgersHaveData(ctx, tenant, metricsRead, allowed(permFlowRead))
+	if err != nil {
+		return nil, err
+	}
+
 	alerting := engineReadiness("alerting", s.alertingActive, s.alertingActive, "/alerts")
 	if s.alertingActive {
 		alerting.Detail = "alert evaluator is running"
@@ -331,9 +385,9 @@ func (s *Server) onboardingEngineReadiness(
 
 	engines := []onboardingReadiness{
 		authorizedEngineReadiness(engineReadiness("synthetic-results", s.latestResults != nil, len(results) > 0, "/targets"), allowed(permTestRead)),
-		authorizedEngineReadiness(engineReadiness("flow-analytics", s.flowStore != nil, false, "/planes/flow"), allowed(permFlowRead)),
-		authorizedEngineReadiness(engineReadiness("otlp", s.otelStore != nil, false, "/admin"), metricsRead),
-		authorizedEngineReadiness(engineReadiness("device-telemetry", s.deviceOps != nil, false, "/planes/device"), metricsRead),
+		authorizedEngineReadiness(engineReadiness("flow-analytics", s.flowStore != nil, flowHasData, "/planes/flow"), allowed(permFlowRead)),
+		authorizedEngineReadiness(engineReadiness("otlp", s.otelStore != nil, otlpHasData, "/admin"), metricsRead),
+		authorizedEngineReadiness(engineReadiness("device-telemetry", s.deviceOps != nil, deviceHasData, "/planes/device"), metricsRead),
 		authorizedEngineReadiness(engineReadiness("ebpf", s.ebpfStore != nil || s.topo != nil, topologyHasData, "/planes/ebpf"), topologyRead),
 		authorizedEngineReadiness(engineReadiness("topology", s.topo != nil, topologyHasData, "/topology"), topologyRead),
 		authorizedEngineReadiness(engineReadiness("cost", s.costEngine != nil, metricsRead && s.costEngine != nil && s.costEngine.Summary(tenant).TotalBytes > 0, "/cost"), metricsRead),

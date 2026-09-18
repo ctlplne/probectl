@@ -303,8 +303,8 @@ func TestIncidentLifecycle(t *testing.T) {
 		if open, err := (Incidents{}).OpenIncidents(ctx, s); err != nil || len(open) != 0 {
 			t.Fatalf("open after resolve: %v / %d", err, len(open))
 		}
-		if all, err := (Incidents{}).List(ctx, s); err != nil || len(all) != 1 {
-			t.Fatalf("list: %v / %d", err, len(all))
+		if all, more, err := (Incidents{}).List(ctx, s, DefaultIncidentListLimit); err != nil || len(all) != 1 || more {
+			t.Fatalf("list: %v / %d / truncated=%v", err, len(all), more)
 		}
 		return nil
 	})

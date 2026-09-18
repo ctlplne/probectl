@@ -539,6 +539,7 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 		}
 	}
 	rt.srv.WithAlertingActive(rt.alertingActive)
+	rt.srv.WithCorrelationActive(rt.correlator != nil)
 	rt.g.Go(func() error { return rt.srv.Run(rt.gctx) })
 	return nil
 }
