@@ -624,21 +624,30 @@ func TestRefreshAdoptsARenewedIntermediateWithoutAReload(t *testing.T) {
 		t.Fatal("the loaded service must report an issuing window")
 	}
 
-	// A refresh with nothing renewed must be a no-op — it runs twice a minute
-	// per replica and must not unseal the intermediate key on every tick.
+	// Renewal must be signed by THIS deployment's root, and the root key is only
+	// ever handed out by InitCA — setup() has already run it against this shared
+	// database, so the key it returned is gone. Clear the hierarchy and mint a
+	// fresh one rather than skipping: a skip here would mean the round trip this
+	// test exists for never runs in CI, which is what
+	// TestClickHouseIsolationMandatoryServicePolicy is there to prevent. This test
+	// is declared last in the file and leaves a valid hierarchy behind, which is
+	// the state every other test's setup() tolerates.
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_ca`); err != nil {
+		t.Fatalf("clear agent CA for a fresh hierarchy: %v", err)
+	}
+	rootKey, err := enroll.InitCA(ctx, pool)
+	if err != nil {
+		t.Fatalf("init a fresh agent CA: %v", err)
+	}
+	svc, err = enroll.Load(ctx, pool, nil)
+	if err != nil {
+		t.Fatalf("reload against the fresh hierarchy: %v", err)
+	}
+	_, before = svc.IssuingWindow()
 	if changed, err := svc.Refresh(ctx); err != nil || changed {
 		t.Fatalf("refresh with no renewal: changed=%v err=%v, want false/nil", changed, err)
 	}
 
-	// The root key is only handed out by InitCA, and setup() has already run it
-	// against this database. Generate a fresh hierarchy in a scratch schema
-	// instead? No: renewal must be signed by THIS deployment's root, so the test
-	// needs the key InitCA returned. Re-initializing is refused by design, so
-	// this case is only meaningful on a database where the CA is new.
-	rootKey, err := enroll.InitCA(ctx, pool)
-	if err != nil {
-		t.Skipf("this database's agent CA already exists, so its offline root key is not available here: %v", err)
-	}
 	notAfter, err := enroll.RenewIntermediate(ctx, pool, rootKey, 2*365*24*time.Hour)
 	if err != nil {
 		t.Fatalf("renew: %v", err)
