@@ -349,7 +349,14 @@
         ],
         "responses": {
           "200": {
-            "description": "OK: {items: [{seq, actor, action, target, data, prev_hash, hash, created_at}], next: cursor for the following page (last seq returned), order}"
+            "description": "OK: one page of the provider/break-glass stream, plus the cursor and the order it was walked in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAuditPage"
+                }
+              }
+            }
           },
           "403": {
             "description": "Forbidden: operator is not a provider admin"
@@ -556,6 +563,78 @@
   },
   "components": {
     "schemas": {
+      "ProviderAuditEvent": {
+        "type": "object",
+        "description": "One record in the separate, hash-chained provider/break-glass audit stream. This is the raw operator stream, not the tenant stream, so no privacy-erasure projection applies to it.",
+        "required": [
+          "seq",
+          "actor",
+          "action",
+          "hash"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "actor": {
+            "type": "string",
+            "description": "The acting operator (email or operator id), or the deployment bootstrap principal."
+          },
+          "action": {
+            "type": "string",
+            "description": "e.g. breakglass.request, tenant_provision, operator.create, auth.login."
+          },
+          "target": {
+            "type": "string",
+            "description": "The id of the affected subject (tenant id, grant id, operator id)."
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Structured event data. Break-glass records are written through the typed same-transaction IR seam, so telemetry access carries its grant reference here."
+          },
+          "prev_hash": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProviderAuditPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "next",
+          "order"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderAuditEvent"
+            }
+          },
+          "next": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The last seq returned: pass it as ?after= walking ascending, or as ?before= walking with order=desc. 0 when the page is empty."
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "The order this page was walked in, echoed back so a caller can page without re-deriving it."
+          }
+        }
+      },
       "FairnessCounters": {
         "type": "object",
         "properties": {

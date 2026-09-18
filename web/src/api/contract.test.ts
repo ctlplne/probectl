@@ -166,6 +166,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   },
   { method: 'GET', path: '/v1/threat/detections' },
   { method: 'GET', path: '/v1/threat/intel/status' },
+  { method: 'GET', path: '/v1/threat/rules' },
   { method: 'GET', path: '/v1/tls/posture' },
   { method: 'GET', path: '/v1/topology' },
   { method: 'POST', path: '/v1/topology/whatif', body: { target: 'service:checkout' } },
@@ -182,6 +183,7 @@ const PROVIDER_FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
     path: '/provider/v1/consent',
     allowMissingResponseSchema: 'provider contract currently documents status only',
   },
+  { method: 'GET', path: '/provider/v1/audit' },
   { method: 'GET', path: '/provider/v1/fairness' },
   {
     method: 'GET',

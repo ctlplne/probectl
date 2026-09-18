@@ -1646,6 +1646,44 @@ export function fixtureFetch(
         retention: { max_per_series: 64, max_per_rule: 256, expires_days: 7 },
       })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
+    // DPR-165: the Security page reads the detection catalogue, and the fixture
+    // did not serve it — so J3 failed on a bare console 404 in a gate nobody had
+    // run. Shapes follow ThreatRuleList/ThreatRule in the OpenAPI spec.
+    if (path === '/v1/threat/rules')
+      return jsonResponse({
+        rules_running: true,
+        overlay_dir: '', // only the embedded defaults are in force
+        rules: [
+          {
+            id: 'ndr-beaconing-default',
+            version: 3,
+            kind: 'beaconing',
+            name: 'Periodic beaconing to a low-reputation destination',
+            description:
+              'Regular, low-variance egress intervals to one destination, scored against the tenant own baseline.',
+            severity: 'medium',
+            enabled: true,
+          },
+          {
+            id: 'ndr-dns-dga-default',
+            version: 2,
+            kind: 'dns_dga',
+            name: 'Algorithmically generated domain lookups',
+            description: 'High-entropy NXDOMAIN bursts from one host.',
+            severity: 'high',
+            enabled: true,
+          },
+          {
+            id: 'ndr-egress-intel-default',
+            version: 5,
+            kind: 'egress_intel',
+            name: 'Egress to a threat-intel indicator',
+            description: 'An observed destination matches a loaded intel feed.',
+            severity: 'high',
+            enabled: true,
+          },
+        ],
+      })
     if (path === '/v1/threat/intel/status') return jsonResponse(sampleIntelStatus)
     if (path === '/v1/threat/detections')
       return jsonResponse({
@@ -2310,6 +2348,30 @@ export function fixtureFetch(
       }
       providerTenants = [...providerTenants, created]
       return jsonResponse(created, 201)
+    }
+    // DPR-165: the provider console's activity section reads its own
+    // hash-chained operator stream. Missing from the fixture, so J4 failed the
+    // same way J3 did. Shape per ee/provider/openapi.json: items with
+    // seq/actor/action/target/data/prev_hash/hash/created_at, plus a cursor.
+    if (options.providerPlane && path === '/provider/v1/audit') {
+      const rows = [
+        { seq: 3, actor: 'ops@probectl.example', action: 'provider.tenant.provision', target: 'globex-eu' },
+        { seq: 2, actor: 'ops@probectl.example', action: 'provider.operator.login', target: 'ops@probectl.example' },
+        { seq: 1, actor: 'system:bootstrap', action: 'provider.bootstrap', target: 'provider-plane' },
+      ]
+      return jsonResponse({
+        items: rows.map((row, index) => ({
+          ...row,
+          data: {},
+          // A chain a reader can actually follow: each row names its
+          // predecessor, oldest first has none.
+          prev_hash: index === rows.length - 1 ? '' : `sha256:fixture-${row.seq - 1}`,
+          hash: `sha256:fixture-${row.seq}`,
+          created_at: new Date(Date.UTC(2026, 0, 1, 9, 30 + row.seq)).toISOString(),
+        })),
+        next: 1,
+        order: 'desc',
+      })
     }
     if (options.providerPlane && path === '/provider/v1/fleet')
       return jsonResponse({

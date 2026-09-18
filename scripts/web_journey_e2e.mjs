@@ -130,6 +130,16 @@ async function runJourney(browser, baseURL, journey, exercise) {
     if (message.type() === "error") failures.push(`console: ${message.text()}`);
   });
   page.on("pageerror", (error) => failures.push(`page: ${error.message}`));
+  // DPR-165: a bare "console: Failed to load resource: 404" names nothing, and
+  // that is all this reported for two failing journeys. Record the request that
+  // actually failed, so the message says which endpoint the fixture is missing.
+  page.on("response", (response) => {
+    const status = response.status();
+    if (status < 400) return;
+    const path = new URL(response.url()).pathname;
+    if (!path.startsWith("/v1/") && !path.startsWith("/provider/v1/")) return;
+    failures.push(`http ${status}: ${response.request().method()} ${path}`);
+  });
   page.on("request", (request) => {
     const url = new URL(request.url());
     if (
