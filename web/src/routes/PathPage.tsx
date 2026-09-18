@@ -63,25 +63,6 @@ const fidelityTimingLabels: Record<PathMeasurementFidelity['timing_source'], Mes
   mixed: 'path.fidelity.timing.mixed',
 }
 
-function Legend() {
-  return (
-    <div className={styles.legend}>
-      <span>
-        <i className={styles.ok} /> no loss
-      </span>
-      <span>
-        <i className={styles.warning} /> partial
-      </span>
-      <span>
-        <i className={styles.danger} /> high loss
-      </span>
-      <span>
-        <i className={styles.dest} /> destination
-      </span>
-    </div>
-  )
-}
-
 function inTimeWindow(value: string, from?: string, to?: string) {
   const timestamp = Date.parse(value)
   return (
@@ -628,12 +609,17 @@ export function PathPage() {
                     </div>
                     {pathView === 'topology' ? (
                       <>
+                        {/* DPR-182: PathGraph carries its own legend. This page
+                            used to render a SECOND one underneath it, in a
+                            different vocabulary for the same thresholds —
+                            "partial" and "high loss" against the graph's "loss
+                            under 30%" and "loss 30%+" — so the reader got two
+                            keys to one picture that did not agree. */}
                         <PathGraph
                           path={displayedPath}
                           selectedId={selected?.id}
                           onSelect={selectNode}
                         />
-                        <Legend />
                       </>
                     ) : pathView === 'profile' ? (
                       <PathProfile

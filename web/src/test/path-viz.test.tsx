@@ -249,3 +249,20 @@ describe('path visualization', () => {
     expect(results).toHaveNoViolations()
   })
 })
+
+// DPR-182: the path page rendered PathGraph's legend AND a second one of its
+// own, in a different vocabulary for the same thresholds — "partial" and "high
+// loss" against "loss under 30%" and "loss 30%+". Two keys to one picture that
+// disagree are worse than one.
+describe('path legend', () => {
+  test("there is one legend, and it is the graph's own", async () => {
+    renderApp('/path')
+    await screen.findByRole('heading', { name: /path & topology/i, level: 1 })
+    const noLoss = await screen.findAllByText('no loss')
+    expect(noLoss).toHaveLength(1)
+    expect(screen.getByText('loss under 30%')).toBeInTheDocument()
+    expect(screen.getByText('loss 30%+')).toBeInTheDocument()
+    expect(screen.queryByText('partial')).not.toBeInTheDocument()
+    expect(screen.queryByText('high loss')).not.toBeInTheDocument()
+  })
+})
