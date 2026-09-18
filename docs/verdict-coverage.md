@@ -97,6 +97,12 @@ A new endpoint with an items envelope fails that test until somebody classifies 
 That is the point: the fields do not rot, the classification does — so the
 classification is what the gate holds.
 
+The gate's reach is exactly that shape, and it is worth stating plainly: a verdict
+surface whose body is not an `items`/`summary` envelope — the assistant's answer
+is the one in the table today — is held to this contract by review and by its own
+tests, not by that gate. Extending the gate to those shapes is the obvious next
+step for it.
+
 ## What went wrong before this was a contract
 
 Every one of these was found by driving the product, not by reading it:
