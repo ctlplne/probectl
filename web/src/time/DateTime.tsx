@@ -6,6 +6,7 @@
 
 import type { ReactNode } from 'react'
 import { useTime } from './useTime'
+import styles from './DateTime.module.css'
 
 export type DateTimeValue = string | number | Date | undefined | null
 
@@ -21,10 +22,11 @@ export function DateTime({
   const { format } = useTime()
   const formatted = format(value)
   if (!formatted.text) return <>{empty}</>
-  if (!formatted.valid) return <span className={className}>{formatted.text}</span>
+  const classes = [styles.time, className].filter(Boolean).join(' ')
+  if (!formatted.valid) return <span className={classes}>{formatted.text}</span>
   return (
     <time
-      className={className}
+      className={classes}
       dateTime={formatted.dateTime}
       title={`${formatted.dateTime} (${formatted.timeZone})`}
     >

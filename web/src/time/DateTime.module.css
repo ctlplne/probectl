@@ -1,0 +1,9 @@
+/* DPR-184: a timestamp is one atom of information and reads as one line. In a
+ * table cell it was allowed to wrap, so "Sep 18, 2026, 16:57 UTC" became four
+ * stacked fragments and, in the last column of a scrollable table, the fragments
+ * were cut at the viewport edge — which reads as broken rather than scrollable.
+ * The table already has a focusable horizontal scroll region; letting the cell
+ * keep its natural width is what makes that region do its job. */
+.time {
+  white-space: nowrap;
+}
