@@ -10019,6 +10019,9 @@
             "type": "string",
             "enum": [
               "inspect_heartbeat",
+              "inspect_collector_input",
+              "inspect_identity",
+              "reenroll_identity",
               "review_capabilities",
               "review_staged_rollout",
               "verify_rollout_wave",
