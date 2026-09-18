@@ -8,6 +8,8 @@ package control
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -149,7 +151,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	defer cancel()
 	p, err := s.discover(dctx, cfg)
 	if err != nil {
-		return apierror.Internal("path discovery failed").Wrap(err)
+		return pathDiscoveryError(target, err)
 	}
 	normalizePathCollections(p)
 	if err := s.pathStore.Save(r.Context(), tid, p); err != nil {
@@ -201,6 +203,25 @@ func (s *Server) testTarget(r *http.Request) (string, error) {
 		return "", err
 	}
 	return target, nil
+}
+
+// pathDiscoveryError maps a discovery failure to the error the caller should
+// see.
+//
+// DPR-157: a target that does not resolve is a fact about the test, not a fault
+// in the control plane, and it was reported as a 500. It is also the FIRST thing
+// an operator hits, because discovery starts by resolving — so "the product is
+// broken" was the default reading of "my target is wrong". The host is named so
+// the message is actionable; the resolver's own text is not repeated, because it
+// carries the deployment's nameserver address.
+func pathDiscoveryError(target string, err error) error {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return apierror.Validation(fmt.Sprintf(
+			"the test's target %q does not resolve from the control plane, so there is no path to discover", target,
+		)).Wrap(err)
+	}
+	return apierror.Internal("path discovery failed").Wrap(err)
 }
 
 // pathHost reduces a test target to the host path discovery should trace to.

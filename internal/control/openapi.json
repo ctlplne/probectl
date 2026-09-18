@@ -473,6 +473,10 @@
               }
             }
           },
+          "422": {
+            "description": "The test's target does not resolve from the control plane, so there is no path to discover.",
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
           }
