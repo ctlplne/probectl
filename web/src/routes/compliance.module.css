@@ -26,6 +26,13 @@
 
 .evidenceRow {
   display: flex;
+  /* DPR-164: wrap and gap. This row held one button until P7 added the auditor
+     bundle beside it; two do not fit at 390px, and with flex-end and no wrap
+     the first was pushed to x=-133 and clipped away by the section's hidden
+     overflow — a control that is present, focusable and invisible. The rendered
+     a11y gate caught it in dark and aurora at mobile width. */
+  flex-wrap: wrap;
+  gap: var(--space-2);
   justify-content: flex-end;
   margin-bottom: var(--space-3);
 }
