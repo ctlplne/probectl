@@ -724,6 +724,21 @@ func TestAgentHelmHostVisibilityIsGatedOnConsentedL7Capture(t *testing.T) {
 			t.Errorf("%q is not needed to see a process and must not be granted", forbidden)
 		}
 	}
+	// DPR-127 / D-02a: SYS_PTRACE is needed to OPEN another container's TLS
+	// library (/proc/<pid>/root is ptrace-gated), and belongs to the consented
+	// path alone. A default agent must never carry it.
+	if !strings.Contains(daemonset, `add: ["BPF", "PERFMON", "SYS_PTRACE"]`) {
+		t.Error("the consented L7 path needs SYS_PTRACE to open a scoped workload's library")
+	}
+	if !strings.Contains(daemonset, `add: ["BPF", "PERFMON"] # kernels >= 5.8`) {
+		t.Error("an agent with capture OFF must keep the minimal BPF+PERFMON pair")
+	}
+	// SYS_ADMIN remains break-glass only; the ptrace grant must not have become
+	// an excuse to widen the default.
+	if strings.Count(daemonset, `"SYS_ADMIN"`) != 1 {
+		t.Error("SYS_ADMIN must appear exactly once, in the legacy break-glass branch")
+	}
+
 	// The cgroup tree is read-only: resolving a cgroup id is a stat, never a write.
 	idx := strings.Index(daemonset, "name: hostcgroup")
 	if idx >= 0 && !strings.Contains(daemonset[idx:min(idx+300, len(daemonset))], "readOnly: true") {

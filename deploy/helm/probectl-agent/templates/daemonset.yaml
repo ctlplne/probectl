@@ -203,7 +203,31 @@ spec:
               {{- end }}
               add: ["SYS_ADMIN"] # explicit break-glass only; runtime still requires BTF + BPF ring buffer
               {{- else }}
+              {{- if .Values.l7Capture.enabled }}
+              {{- /*
+                DPR-127 / D-02a, consented 2026-09-18. SYS_PTRACE is added ONLY
+                on the consented capture path, never to a default agent.
+
+                Why it is needed, measured rather than assumed: a uprobe attaches
+                to an inode, and a container brings its own TLS library from its
+                image — on the lab the node's libssl.so.3 and the scoped
+                workload's are different files. The agent finds the right one by
+                reading /proc/<pid>/maps, which needs no extra privilege. OPENING
+                it to attach does: /proc/<pid>/root is a ptrace-gated magic
+                symlink, and a capability-dropped agent is not a superset of the
+                target's capabilities, so the open is refused.
+
+                Two otherwise-identical hostPID pods, differing only here:
+                  {BPF,PERFMON}             maps OK, exe DENIED, root DENIED
+                  {BPF,PERFMON,SYS_PTRACE}  all three OK
+
+                The narrower alternative does not exist; the other option was
+                mounting the node's whole container storage, which is broader.
+              */}}
+              add: ["BPF", "PERFMON", "SYS_PTRACE"] # kernels >= 5.8 + the consented L7 path
+              {{- else }}
               add: ["BPF", "PERFMON"] # kernels >= 5.8 — the minimal pair
+              {{- end }}
               {{- end }}
           env:
             - name: PROBECTL_EBPF_LOG_LEVEL
