@@ -418,15 +418,28 @@ func TestTrustedKeysParsesLdflagsPayload(t *testing.T) {
 	old := builtinPubKeysB64
 	defer func() { builtinPubKeysB64 = old }()
 
+	// DPR-190: the baseline is whatever trusted_keys/*.pub this tree SHIPS, not
+	// zero. This test used to assert that an empty bake yields no keys at all,
+	// which was true only while the directory was empty — so it failed the
+	// moment the product finally shipped the anchor it must ship, and the
+	// failure looked like a regression in key parsing rather than what it was.
 	builtinPubKeysB64 = ""
-	if TrustedKeys() != nil {
-		t.Fatal("empty bake must yield no keys")
-	}
+	embedded := TrustedKeys()
+
 	_, pub1 := testKeypair(t)
 	_, pub2 := testKeypair(t)
 	builtinPubKeysB64 = base64.StdEncoding.EncodeToString(pub1) + "," + base64.StdEncoding.EncodeToString(pub2)
 	keys := TrustedKeys()
-	if len(keys) != 2 || string(keys[0]) != string(pub1) || string(keys[1]) != string(pub2) {
-		t.Fatalf("rotation bake parsed wrong: %d keys", len(keys))
+	if len(keys) != len(embedded)+2 {
+		t.Fatalf("rotation bake parsed wrong: %d keys with %d embedded", len(keys), len(embedded))
+	}
+	// Link-time keys come after the embedded ones, in the order they were baked.
+	if string(keys[len(keys)-2]) != string(pub1) || string(keys[len(keys)-1]) != string(pub2) {
+		t.Fatal("baked keys must follow the embedded anchors, in bake order")
+	}
+	for i, want := range embedded {
+		if string(keys[i]) != string(want) {
+			t.Fatalf("embedded anchor %d changed when a bake was added", i)
+		}
 	}
 }
