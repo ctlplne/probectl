@@ -231,9 +231,9 @@ func (cs *EBPFTLSPostureConsumer) countSkipped(agentID string, seen, projected i
 // tlsSkipReportInterval bounds how often the skip summary is logged per replica.
 const tlsSkipReportInterval = 10 * time.Minute
 
-// SkippedTotals reports the accumulated skip reasons for this replica. Used by
+// skippedTotals reports the accumulated skip reasons for this replica. Used by
 // the tests and safe to expose: closed reasons and counts, no tenant data.
-func (cs *EBPFTLSPostureConsumer) SkippedTotals() map[string]uint64 {
+func (cs *EBPFTLSPostureConsumer) skippedTotals() map[string]uint64 {
 	cs.skipMu.Lock()
 	defer cs.skipMu.Unlock()
 	out := make(map[string]uint64, len(cs.skipTotals))

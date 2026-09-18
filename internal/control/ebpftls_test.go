@@ -181,7 +181,7 @@ func TestEBPFTLSPostureKeepsRecordsAroundTheKnownUprobeGap(t *testing.T) {
 
 	// And the skip is counted under its own name, so an operator sees a number
 	// for a known gap rather than a wall of "malformed".
-	totals := consumer.SkippedTotals()
+	totals := consumer.skippedTotals()
 	if totals[tlsSkipNoTarget] != 1 {
 		t.Errorf("skipped totals = %v, want one %s", totals, tlsSkipNoTarget)
 	}
@@ -226,7 +226,7 @@ func TestEBPFTLSPostureStillRefusesABatchWithAnImpossibleValue(t *testing.T) {
 			if got := postures.Len("tenant-a"); got != 0 {
 				t.Errorf("a batch carrying an impossible value must mutate nothing, got %d postures", got)
 			}
-			if totals := consumer.SkippedTotals(); totals[tc.want] == 0 {
+			if totals := consumer.skippedTotals(); totals[tc.want] == 0 {
 				t.Errorf("the refusal must be counted under %s, got %v", tc.want, totals)
 			}
 		})
@@ -259,7 +259,7 @@ func TestEBPFTLSPostureSkipSummaryIsRateLimited(t *testing.T) {
 	if lines != 1 {
 		t.Errorf("40 batches produced %d log lines, want 1 — this is the spam the fix exists to stop", lines)
 	}
-	if totals := consumer.SkippedTotals(); totals[tlsSkipNoTarget] != 40 {
+	if totals := consumer.skippedTotals(); totals[tlsSkipNoTarget] != 40 {
 		t.Errorf("every skip must still be counted: %v", totals)
 	}
 	// The one line must say the agent is fine, not that the data is malformed.

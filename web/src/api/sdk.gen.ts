@@ -1055,7 +1055,7 @@ export interface FleetAgent {
 
 export interface FleetSafeAction {
   href: string
-  kind: "inspect_heartbeat" | "review_capabilities" | "review_staged_rollout" | "verify_rollout_wave" | "review_halted_rollout" | "inspect_evidence"
+  kind: "inspect_heartbeat" | "inspect_collector_input" | "inspect_identity" | "reenroll_identity" | "review_capabilities" | "review_staged_rollout" | "verify_rollout_wave" | "review_halted_rollout" | "inspect_evidence"
   label: string
   reason: string
 }
