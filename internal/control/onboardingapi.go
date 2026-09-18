@@ -276,12 +276,29 @@ func (s *Server) planeLedgersHaveData(ctx context.Context, tenant string, metric
 			otlpData = len(logs) > 0
 		}
 	}
-	if metricsRead && s.deviceOutcomes != nil {
-		rows, _, e := s.deviceOutcomes.ListCollectionOutcomes(ctx, tenant, device.CollectionOutcomeFilter{Limit: 1})
-		if e != nil {
-			return false, false, false, e
+	if metricsRead {
+		// The device plane has TWO ledgers and a tenant may populate either.
+		// Collection outcomes record LLDP/CDP neighbor discovery; the TSDB
+		// holds the SNMP and gNMI metrics. Asking only the first reported
+		// "waiting for tenant data" for a tenant with three device metrics and
+		// a device in inventory, which is the same constant-shaped wrongness
+		// this fix was for, one ledger along.
+		if s.deviceOutcomes != nil {
+			rows, _, e := s.deviceOutcomes.ListCollectionOutcomes(ctx, tenant, device.CollectionOutcomeFilter{Limit: 1})
+			if e != nil {
+				return false, false, false, e
+			}
+			deviceData = len(rows) > 0
 		}
-		deviceData = len(rows) > 0
+		if !deviceData {
+			if q, ok := s.tsdbWriter.(deviceMetricQuerier); ok && s.tsdbWriter != nil {
+				series, e := deviceMetricSeriesFromTSDB(ctx, q, tenant, "", "")
+				if e != nil {
+					return false, false, false, e
+				}
+				deviceData = len(series) > 0
+			}
+		}
 	}
 	return flowData, otlpData, deviceData, nil
 }

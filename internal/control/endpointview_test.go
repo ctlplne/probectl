@@ -96,12 +96,33 @@ func TestEndpointViewEndToEnd(t *testing.T) {
 	}
 
 	// The other tenant sees only its own endpoint.
-	rec2 := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/endpoints", nil)
-	req.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-000000000002")
-	srv.Handler().ServeHTTP(rec2, req)
-	if !strings.Contains(rec2.Body.String(), "secret-ep") || strings.Contains(rec2.Body.String(), "laptop-1") {
-		t.Fatalf("other-tenant view wrong: %s", rec2.Body.String())
+	//
+	// DPR-162: this used to query tenant 2 the instant tenant 1's view landed,
+	// as if one consumer delivering meant both had. It does not — the two
+	// results are separate bus messages — so the assertion fired intermittently
+	// with "other-tenant view wrong: {...,"items":[]}", which reads like a
+	// tenant-isolation failure and is the opposite: tenant 2 saw NOTHING, not
+	// another tenant's data. Tenant 2 gets the same deadline tenant 1 got.
+	var body2 string
+	deadline2 := time.Now().Add(2 * time.Second)
+	for {
+		rec2 := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v1/endpoints", nil)
+		req.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-000000000002")
+		srv.Handler().ServeHTTP(rec2, req)
+		body2 = rec2.Body.String()
+		if strings.Contains(body2, "secret-ep") {
+			break
+		}
+		if time.Now().After(deadline2) {
+			t.Fatalf("the other tenant's own endpoint never landed: %s", body2)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The isolation assertion proper, kept separate from the arrival wait so a
+	// leak and a slow consumer can never again be reported as the same thing.
+	if strings.Contains(body2, "laptop-1") {
+		t.Fatalf("CROSS-TENANT LEAK: the other tenant sees laptop-1: %s", body2)
 	}
 
 	// No store wired: honest empty response.

@@ -16,6 +16,7 @@ import (
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/otelstore"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -95,6 +96,50 @@ func TestOnboardingEngineReadinessReadsPlaneLedgers(t *testing.T) {
 				id, got[id].State, got[id].Detail)
 		}
 	}
+}
+
+// DPR-150, second pass: the device plane has two ledgers and a tenant may
+// populate either. The lab populates only the TSDB — three device metrics, one
+// device in inventory, zero LLDP/CDP collection outcomes — and the first fix
+// asked only the collection-outcome ledger, so it still answered "waiting for
+// tenant data". Same constant-shaped wrongness, one ledger along.
+func TestOnboardingDeviceReadinessAcceptsEitherDeviceLedger(t *testing.T) {
+	server := &Server{
+		cfg:            &config.Config{},
+		deviceOps:      device.NewMemoryOpsStore(),
+		deviceOutcomes: device.NewMemoryCollectionOutcomeStore(), // deliberately empty
+		tsdbWriter:     deviceMetricsOnly{},
+	}
+	items, err := server.onboardingEngineReadiness(
+		context.Background(), tenancy.Scope{Tenant: "tenant-c"}, nil, func(string) bool { return true },
+	)
+	if err != nil {
+		t.Fatalf("engine readiness: %v", err)
+	}
+	for _, item := range items {
+		if item.ID != "device-telemetry" {
+			continue
+		}
+		if item.State != onboardingReady {
+			t.Errorf("device-telemetry reported %q (%s) for a tenant with device metrics but no neighbor discovery", item.State, item.Detail)
+		}
+		return
+	}
+	t.Fatal("device-telemetry engine missing")
+}
+
+// deviceMetricsOnly answers the device-metric instant vector with one sample
+// and nothing else, which is the shape of a tenant polled by SNMP.
+type deviceMetricsOnly struct{}
+
+func (deviceMetricsOnly) Write(context.Context, []tsdb.Series) error { return nil }
+func (deviceMetricsOnly) Close() error                               { return nil }
+
+func (deviceMetricsOnly) InstantVector(context.Context, string) ([]tsdb.LabeledSample, error) {
+	return []tsdb.LabeledSample{{
+		Labels: map[string]string{"__name__": deviceMetricPrefix + "if_in_octets", "device": "edge-1"},
+		Value:  42,
+	}}, nil
 }
 
 // The other half of the contract: with the engines wired but the tenant's
