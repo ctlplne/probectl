@@ -429,10 +429,17 @@ networkPolicy:
   # that way, and the fleet view called them online until the control plane was
   # restarted.
   #
+  # Which agents this matters for: the ones that hold an mTLS SVID — the canary
+  # agent and the rendered-browser agent. The bus collectors (BGP, flow, device,
+  # eBPF, endpoint) publish to the bus with a registered collector identity and
+  # never redeem an SVID, so they never rotate one.
+  #
   # The default names the product's OWN agent pods (the probectl-agent chart),
-  # in any namespace, and nothing else. Add your own selectors here for agents
-  # deployed by other means; an empty list restores the broken behaviour and is
-  # allowed only because some deployments run every agent outside the cluster.
+  # in any namespace, and nothing else; this release's browser agent is named by
+  # the template itself, because the chart deploys both ends of that hop. Add
+  # your own selectors here for SVID-holding agents deployed by other means. An
+  # empty list restores the broken behaviour and is correct only when every such
+  # agent lives outside the cluster and arrives through the ingress.
   agentEnrollmentFrom:
     - namespaceSelector: {}
       podSelector:
