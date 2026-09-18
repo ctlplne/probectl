@@ -277,7 +277,7 @@ need_fixed "ingress: []" "$browser_render" "browser agent NetworkPolicy admits i
 # DPR-174: the browser agent's SVID has to be rotatable, and rotation is an HTTP
 # call to the control plane's API port. Both ends of that hop are the chart's, so
 # both are asserted: the agent may egress to it, and the control plane admits it.
-need_fixed "app.kubernetes.io/component: browser-agent" "$browser_render" "control NetworkPolicy does not admit this release's own browser agent to the enrolment/rotation endpoint (DPR-174)"
+need_fixed "app.kubernetes.io/component: browser-agent" "$browser_render" "control NetworkPolicy does not admit this release's own browser agent to the enrollment/rotation endpoint (DPR-174)"
 browser_np="$(awk '/-browser-agent$/,/^---/' <<<"$browser_render")"
 need "port: 8080" "$browser_np" "browser agent NetworkPolicy has no egress to the control API port, so its identity cannot be rotated (DPR-174)"
 
@@ -540,12 +540,12 @@ need "kind: NetworkPolicy"             "$base" "default profile missing NetworkP
 base_np="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$base")"
 need "from:"                           "$base_np" "default profile NetworkPolicy has no ingress source selector (WIRE-002)"
 need "ingress-nginx"                   "$base_np" "default profile NetworkPolicy does not restrict API ingress to the ingress controller (WIRE-002)"
-# DPR-174: agents enrol and ROTATE their identity over the API port, and
+# DPR-174: agents enroll and ROTATE their identity over the API port, and
 # rotation cannot use the mTLS listener because the certificate it replaces is
 # the one about to expire. A policy that admits only the ingress controller
-# kills every in-cluster agent one identity lifetime after it enrols — silently,
+# kills every in-cluster agent one identity lifetime after it enrolls — silently,
 # because an established stream keeps working until the control plane restarts.
-need "app.kubernetes.io/name: probectl-agent" "$base_np" "default profile NetworkPolicy gives the product's own agents no path to the enrolment/rotation endpoints (DPR-174)"
+need "app.kubernetes.io/name: probectl-agent" "$base_np" "default profile NetworkPolicy gives the product's own agents no path to the enrollment/rotation endpoints (DPR-174)"
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \

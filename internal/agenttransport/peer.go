@@ -48,7 +48,7 @@ func identityFromContext(ctx context.Context) (crypto.SPIFFEID, error) {
 	// re-reads the expiry its own certificate was issued with.
 	if t := now(); t.After(leaf.NotAfter) {
 		return crypto.SPIFFEID{}, fmt.Errorf(
-			"agent identity expired at %s (rotate before expiry via POST /enroll/agent/rotate; an expired identity must re-enrol with a join token)",
+			"agent identity expired at %s (rotate before expiry via POST /enroll/agent/rotate; an expired identity must re-enroll with a join token)",
 			leaf.NotAfter.UTC().Format(time.RFC3339))
 	}
 	return crypto.SPIFFEIDFromCert(leaf)

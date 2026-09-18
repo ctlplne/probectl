@@ -26,7 +26,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- if .Values.browserAgent.enabled }}
-        # This release's OWN browser agent enrols and rotates through this port
+        # This release's OWN browser agent enrolls and rotates through this port
         # too, and the chart knows both ends, so it is named here rather than
         # left to an operator to guess.
         - podSelector:
@@ -35,11 +35,11 @@ spec:
               app.kubernetes.io/component: browser-agent
         {{- end }}
         {{- with .Values.networkPolicy.agentEnrollmentFrom }}
-        # DPR-174: agent enrolment and identity ROTATION are HTTP endpoints on
+        # DPR-174: agent enrollment and identity ROTATION are HTTP endpoints on
         # this port, and rotation cannot use the mTLS listener because the
         # certificate it exists to replace is the one about to expire. Without a
         # path here, every in-cluster agent dies one identity lifetime after it
-        # enrols.
+        # enrolls.
         {{- toYaml . | nindent 8 }}
         {{- end }}
     {{- if .Values.control.agentListener.enabled }}

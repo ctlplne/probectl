@@ -424,7 +424,7 @@ networkPolicy:
   # listener cannot carry rotation — rotation is what an agent does because its
   # client certificate is about to stop working, and an expired SVID cannot
   # authenticate anything. So an in-cluster agent with no path to this port
-  # loses its identity one lifetime after enrolment and can only come back by
+  # loses its identity one lifetime after enrollment and can only come back by
   # re-enrolling with a new join token. Measured: two lab agents died silently
   # that way, and the fleet view called them online until the control plane was
   # restarted.
