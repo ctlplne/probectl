@@ -293,10 +293,13 @@ holding a leaf it signed keeps verifying and moves onto the new chain at its
 next rotation. Nothing is re-enrolled, no agent is restarted, and the trust
 bundle carries both issuing certificates for the length of the overlap.
 
-You do not have to remember the date. `/readyz` and the support bundle carry an
-`agent_ca` check that goes **degraded** once the intermediate is three quarters
-through its life — about 91 days of warning on the shipped one-year lifetime —
-and says exactly which command to run.
+You do not have to remember the date. `GET /v1/diagnostics` (admin) and the
+support bundle carry an `agent_ca` check that goes **degraded** once the
+intermediate is three quarters through its life — about 91 days of warning on
+the shipped one-year lifetime — and says exactly which command to run. It is
+deliberately NOT part of `/readyz`: a CA that expires in three months is
+something to schedule, not a reason to take a healthy replica out of the load
+balancer.
 
 ## Security properties (what to rely on)
 
