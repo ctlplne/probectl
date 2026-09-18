@@ -2170,10 +2170,13 @@ async function targetAndTabChecks(page) {
 // there), and an overflow check on the document passes (the bar itself fits).
 async function clippedChromeChecks(page) {
   return page.evaluate(() => {
-    const bar = document.querySelector('header, [role="banner"]');
-    if (!bar) return [];
+    // Every header on the page, not just the first: the provider console has its
+    // own operator banner, and checking only document's first header skipped it
+    // entirely (DPR-189).
+    const bars = [...document.querySelectorAll('header, [role="banner"]')];
+    if (bars.length === 0) return [];
     const problems = [];
-    for (const el of bar.querySelectorAll("*")) {
+    for (const el of bars.flatMap((bar) => [...bar.querySelectorAll("*")])) {
       const text = (el.textContent || "").trim();
       if (!text) continue;
       const style = getComputedStyle(el);

@@ -226,3 +226,16 @@
   color: var(--color-accent);
   font-weight: var(--font-weight-semibold);
 }
+
+/* DPR-189: two sticky elements whose offsets assume the banner is one line. At
+ * phone widths the operator banner wraps to three — title, domain badge,
+ * operator identity — and the task nav, pinned at a fixed offset below the top,
+ * was drawn straight over the second and third lines: "probectl · PROVIDER
+ * P…" with the nav covering the rest. On a phone a sticky secondary nav is
+ * eating a third of the viewport anyway, so below this width it scrolls with
+ * the page and the banner keeps every line it needs. */
+@media (max-width: 720px) {
+  .taskNav {
+    position: static;
+  }
+}
