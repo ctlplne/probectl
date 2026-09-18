@@ -189,7 +189,7 @@ func newFleetAgentView(row store.Agent, identity *store.AgentIdentityWindow, con
 // fleetIdentityState reads the agent's own credential window. "unknown" is a
 // real answer and says so: an agent enrolled before this deployment recorded
 // issuance has no window to read, and guessing "current" for it would be the
-// confident-verdict-over-unmeasured-evidence bug this programme exists to stop.
+// confident-verdict-over-unmeasured-evidence bug this project exists to stop.
 func fleetIdentityState(identity *store.AgentIdentityWindow, now time.Time) (string, string) {
 	if identity == nil || identity.NotAfter.IsZero() {
 		return "unknown", "No issued identity is recorded for this agent; its certificate lifetime cannot be read here."
