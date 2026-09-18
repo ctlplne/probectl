@@ -10,6 +10,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,4 +144,140 @@ func findTLSPosture(t *testing.T, postures []threat.Posture, target string) thre
 	}
 	t.Fatalf("posture %q not found: %+v", target, postures)
 	return threat.Posture{}
+}
+
+// DPR-196: the live C-library uprobe has no 5-tuple, so every L7 call it emits
+// carries no destination (internal/ebpf/l7chunk.go sets Destination: Endpoint{}).
+// The posture consumer rejected the WHOLE batch on the first such record, which
+// meant the eBPF plane put nothing at all in the TLS inventory: four hours of
+// soak, 17,690 L7 calls captured, and the tenant's /v1/tls/posture held two
+// entries, both from the HTTP synthetic. The only signal was 6,086 identical
+// WARN lines saying "malformed metadata batch" and naming the agent id — the one
+// field that was fine.
+func TestEBPFTLSPostureKeepsRecordsAroundTheKnownUprobeGap(t *testing.T) {
+	postures := threat.NewPostureStore(0)
+	consumer := NewEBPFTLSPostureConsumer(nil, postures, buildTLSAnalyzer(&config.Config{}), intelTestLog()).
+		WithTenantBinding(ndrFakeBinding{"agent-a": "tenant-a"})
+	now := time.Now().UnixNano()
+	usable := &ebpfv1.L7Call{
+		TenantId: "tenant-a", AgentId: "agent-a", Destination: "10.0.0.1", DestinationPort: 443,
+		TlsVisibility: "observed", TlsVersion: "1.3", TlsConfidence: 90,
+		TlsVerification: "unknown", TlsObservationSource: "uprobe", TlsHandshakeUnixNano: now,
+	}
+	// What the live uprobe actually emits: it can prove the bytes were encrypted
+	// and nothing else, and it has no socket peer to name.
+	uprobe := &ebpfv1.L7Call{
+		TenantId: "tenant-a", AgentId: "agent-a",
+		TlsVisibility: "encrypted_unknown", TlsObservationSource: "uprobe", TlsHandshakeUnixNano: now,
+	}
+	if err := consumer.handle(context.Background(),
+		mustEBPFTLSMessage(t, &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{uprobe, usable}})); err != nil {
+		t.Fatal(err)
+	}
+	if got := postures.Len("tenant-a"); got != 1 {
+		t.Fatalf("posture count = %d, want 1 — the destination-less record must not take the usable one with it", got)
+	}
+	findTLSPosture(t, postures.List("tenant-a"), "10.0.0.1:443")
+
+	// And the skip is counted under its own name, so an operator sees a number
+	// for a known gap rather than a wall of "malformed".
+	totals := consumer.SkippedTotals()
+	if totals[tlsSkipNoTarget] != 1 {
+		t.Errorf("skipped totals = %v, want one %s", totals, tlsSkipNoTarget)
+	}
+	if len(totals) != 1 {
+		t.Errorf("no other reason should have fired: %v", totals)
+	}
+}
+
+// A value a correct producer never emits is still evidence about the producer,
+// and still refuses the batch (§7.10). What changed is that the refusal names
+// which property failed instead of saying "malformed".
+func TestEBPFTLSPostureStillRefusesABatchWithAnImpossibleValue(t *testing.T) {
+	now := time.Now().UnixNano()
+	base := &ebpfv1.L7Call{
+		TenantId: "tenant-a", AgentId: "agent-a", Destination: "10.0.0.1", DestinationPort: 443,
+		TlsVisibility: "observed", TlsVersion: "1.3", TlsConfidence: 90,
+		TlsVerification: "unknown", TlsObservationSource: "fixture", TlsHandshakeUnixNano: now,
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*ebpfv1.L7Call)
+		want   string
+	}{
+		{"unparseable certificate", func(c *ebpfv1.L7Call) { c.TlsPeerCertificateDer = []byte("not a certificate") }, tlsSkipBadCertificate},
+		{"confidence out of range", func(c *ebpfv1.L7Call) { c.TlsConfidence = 250 }, tlsSkipBadConfidence},
+		{"visibility that does not exist", func(c *ebpfv1.L7Call) { c.TlsVisibility = "definitely_fine" }, tlsSkipUnknownVisibility},
+		{"verification that does not exist", func(c *ebpfv1.L7Call) { c.TlsVerification = "probably" }, tlsSkipBadVerification},
+		{"observed with no version", func(c *ebpfv1.L7Call) { c.TlsVersion = "" }, tlsSkipNoVersion},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			postures := threat.NewPostureStore(0)
+			consumer := NewEBPFTLSPostureConsumer(nil, postures, buildTLSAnalyzer(&config.Config{}), intelTestLog()).
+				WithTenantBinding(ndrFakeBinding{"agent-a": "tenant-a"})
+			good := proto.Clone(base).(*ebpfv1.L7Call)
+			bad := proto.Clone(base).(*ebpfv1.L7Call)
+			bad.Destination = "10.0.0.2"
+			tc.mutate(bad)
+			if err := consumer.handle(context.Background(),
+				mustEBPFTLSMessage(t, &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{good, bad}})); err != nil {
+				t.Fatal(err)
+			}
+			if got := postures.Len("tenant-a"); got != 0 {
+				t.Errorf("a batch carrying an impossible value must mutate nothing, got %d postures", got)
+			}
+			if totals := consumer.SkippedTotals(); totals[tc.want] == 0 {
+				t.Errorf("the refusal must be counted under %s, got %v", tc.want, totals)
+			}
+		})
+	}
+}
+
+// The summary is rate-limited per replica, because the whole point was that one
+// known gap produced 6,086 log lines in four hours.
+func TestEBPFTLSPostureSkipSummaryIsRateLimited(t *testing.T) {
+	var buf bytes.Buffer
+	postures := threat.NewPostureStore(0)
+	consumer := NewEBPFTLSPostureConsumer(nil, postures, buildTLSAnalyzer(&config.Config{}),
+		slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))).
+		WithTenantBinding(ndrFakeBinding{"agent-a": "tenant-a"})
+	clock := time.Now()
+	consumer.nowFn = func() time.Time { return clock }
+
+	uprobe := &ebpfv1.L7Call{
+		TenantId: "tenant-a", AgentId: "agent-a",
+		TlsVisibility: "encrypted_unknown", TlsObservationSource: "uprobe",
+		TlsHandshakeUnixNano: clock.UnixNano(),
+	}
+	for i := 0; i < 40; i++ {
+		if err := consumer.handle(context.Background(),
+			mustEBPFTLSMessage(t, &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{uprobe}})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lines := bytes.Count(buf.Bytes(), []byte("ebpf tls posture:"))
+	if lines != 1 {
+		t.Errorf("40 batches produced %d log lines, want 1 — this is the spam the fix exists to stop", lines)
+	}
+	if totals := consumer.SkippedTotals(); totals[tlsSkipNoTarget] != 40 {
+		t.Errorf("every skip must still be counted: %v", totals)
+	}
+	// The one line must say the agent is fine, not that the data is malformed.
+	out := buf.String()
+	if strings.Contains(out, "malformed") {
+		t.Errorf("a documented structural gap must not be reported as malformed data: %s", out)
+	}
+	if !strings.Contains(out, "nothing is wrong with the agent") {
+		t.Errorf("the summary must say the agent is not at fault: %s", out)
+	}
+
+	// Past the interval it reports again, with the running total.
+	clock = clock.Add(11 * time.Minute)
+	if err := consumer.handle(context.Background(),
+		mustEBPFTLSMessage(t, &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{uprobe}})); err != nil {
+		t.Fatal(err)
+	}
+	if lines := bytes.Count(buf.Bytes(), []byte("ebpf tls posture:")); lines != 2 {
+		t.Errorf("after the interval it must report again, got %d lines", lines)
+	}
 }

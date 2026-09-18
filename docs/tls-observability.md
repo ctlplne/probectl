@@ -127,12 +127,20 @@ things:
   **probectl's own client** negotiated. This works whenever probectl initiates
   the handshake.
 - The **eBPF L7** path (`source: ebpf`) is wired to the same inventory. A source
-  that supplies validated version/cipher/certificate metadata yields an
-  observed posture; the recorded fixture is the deterministic acceptance path.
-  The current live C-library plaintext uprobe does not pretend it can derive
-  certificate posture from decrypted bytes: it emits `encrypted_unknown` until
-  a trustworthy handshake-metadata source is present. Sidecars likewise stay
-  `sidecar_unknown`. A **Go server terminates TLS inside the Go runtime**, not in
+  that supplies validated version/cipher/certificate metadata **and a
+  destination** yields an observed posture; the recorded fixture is the
+  deterministic acceptance path. The current live C-library plaintext uprobe does
+  not pretend it can derive certificate posture from decrypted bytes: it emits
+  `encrypted_unknown` until a trustworthy handshake-metadata source is present.
+  Sidecars likewise stay `sidecar_unknown`.
+
+  **An `encrypted_unknown` record from the live uprobe does not reach this
+  inventory today**, and the reason is the destination rather than the posture: a
+  uprobe sees an `SSL_write` buffer, not the socket's peer, so it has no target to
+  key a row on ([limitations.md](limitations.md#built-not-yet-served-edges),
+  DPR-196). Such records are counted under `no_destination` and summarized in the
+  control-plane log; they are not a fault and no longer void the batch they
+  arrive in. A **Go server terminates TLS inside the Go runtime**, not in
   a system TLS library probectl's uprobes attach to, so Go `crypto/tls` metadata
   capture remains [a documented post-GA limitation](limitations.md#built-not-yet-served-edges) (see
   [`ebpf-feasibility.md`](ebpf-feasibility.md)).
