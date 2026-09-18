@@ -11,10 +11,19 @@
 # glob/placeholder characters (* ? < > | $ { } ( ) space) are non-literal
 # and ignored. A new dangling reference fails without this script changing.
 #
-# Out-of-repo references (the structural backlog files) are workspace scaffolding
-# deliberately not shipped with the product: they are enforced when that
-# workspace layout is present (`../backlog.json` exists) and skipped with a
-# printed notice in a bare clone (CI), where parent artifacts are absent by design.
+# Out-of-repo references are workspace scaffolding deliberately not shipped with
+# the product, so they are enforced only when that workspace is actually present
+# and skipped with a printed notice in a bare clone (CI), where parent artifacts
+# are absent by design.
+#
+# DPR-173: the presence probe used to be `[ -f ../backlog.json ]` — one of the
+# very files this guard exists to check. When that file was retired the guard
+# silently switched ITSELF off and stopped reporting the dangling reference to
+# it, along with every other out-of-repo reference, for six weeks. A gate whose
+# enable-condition is one of its own subjects cannot fail in the case it was
+# written for. The probe is now independent of any single reference: the
+# workspace counts as present when ANY out-of-repo reference resolves, or when
+# the repository is not alone in its parent directory (a bare CI checkout is).
 #
 # Self-test: SELFTEST plants (a) a dangling backtick path and (b) a dangling
 # markdown link in a scratch file and asserts the guard reports BOTH, then
@@ -61,10 +70,30 @@ looks_like_path() {
 }
 
 # check_file <file>: report every dangling reference; return 1 if any.
+# workspace_present <file...>: 0 iff the surrounding workspace is present, so
+# out-of-repo references must resolve. Deliberately NOT keyed on any one path.
+workspace_present() {
+  local f ref target
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    while IFS= read -r ref; do
+      [ -n "$ref" ] || continue
+      looks_like_path "$ref" || continue
+      case "$ref" in ../*) : ;; *) continue ;; esac
+      target="${ref%%#*}"; target="${target%/}"
+      [ -e "$target" ] && return 0
+    done < <(extract_refs "$f" | LC_ALL=C sort -u)
+  done
+  # No out-of-repo reference resolved. A bare CI checkout is alone in its parent;
+  # a real workspace has siblings, and then a reference resolving to nothing is a
+  # dangling reference rather than an absent-by-design one.
+  [ "$(ls -A .. 2>/dev/null | wc -l | tr -d ' ')" -gt 1 ] && return 0
+  return 1
+}
+
 check_file() {
-  local f="$1" fail=0 workspace_present=0 ref target
+  local f="$1" fail=0 workspace_present=${2:-0} ref target
   [ -f "$f" ] || { echo "contract-links: contract file missing: $f" >&2; return 1; }
-  [ -f "../backlog.json" ] && workspace_present=1
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
     looks_like_path "$ref" || continue
@@ -118,11 +147,37 @@ PLANT
 Read `Makefile` and `docs/` and follow [contributing](CONTRIBUTING.md).
 Non-literal tokens are ignored: `PROBECTL_*`, `probectl.<type>.results|events`, `-tags probectl_core`.
 PLANT
-  if ! check_file "$tmp/clean.md" >/dev/null 2>&1; then
+  if ! check_file "$tmp/clean.md" 1 >/dev/null 2>&1; then
     echo "contract-links SELFTEST FAILED: clean file did not pass" >&2
     return 1
   fi
-  echo "contract-links selftest OK (planted backtick + markdown-link shapes both caught; clean file passes)"
+
+  # (c) DPR-173: the out-of-repo probe must not be disable-able by the very
+  # reference it is checking. Plant a workspace with ONE resolving sibling and
+  # ONE dangling sibling, and assert the dangling one is reported.
+  mkdir -p "$tmp/ws/repo" "$tmp/ws/present-sibling"
+  cat >"$tmp/ws/repo/planted.md" <<'PLANT'
+Live programme: `../present-sibling/` · retired state: `../gone.json`
+PLANT
+  rc=0
+  out="$( cd "$tmp/ws/repo" && { p=0; workspace_present planted.md && p=1; check_file planted.md "$p"; } 2>&1 )" || rc=$?
+  if [ "$rc" -eq 0 ] || [ "${out#*gone.json}" = "$out" ]; then
+    echo "contract-links SELFTEST FAILED: a dangling sibling was not reported in a present workspace: $out" >&2
+    return 1
+  fi
+
+  # (d) and the bare-clone case still skips: nothing resolves AND the repo is
+  # alone in its parent, which is what a CI checkout looks like.
+  mkdir -p "$tmp/bare/repo"
+  cat >"$tmp/bare/repo/planted.md" <<'PLANT'
+Retired state: `../gone.json`
+PLANT
+  if ( cd "$tmp/bare/repo" && workspace_present planted.md ); then
+    echo "contract-links SELFTEST FAILED: a bare clone was treated as a present workspace" >&2
+    return 1
+  fi
+
+  echo "contract-links selftest OK (planted backtick + markdown-link shapes both caught; clean file passes; a dangling sibling fails in a present workspace and is skipped in a bare clone)"
 }
 
 if [ "${1:-}" = "SELFTEST" ] || [ "${SELFTEST:-0}" = "1" ]; then
@@ -131,8 +186,10 @@ if [ "${1:-}" = "SELFTEST" ] || [ "${SELFTEST:-0}" = "1" ]; then
 fi
 
 overall=0
+present=0
+if workspace_present $contract_files; then present=1; fi
 for f in $contract_files; do
-  check_file "$f" || overall=1
+  check_file "$f" "$present" || overall=1
 done
 if [ "$overall" -ne 0 ]; then
   echo "contract-links: FAIL — a contract file references a path that does not exist." >&2

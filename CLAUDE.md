@@ -98,7 +98,7 @@ ee/         billing (metering/usage export) · cmd (commercial offline CLIs) ·
             silo (siloed/hybrid isolation) · tenantkeys (BYOK) · web (embedded provider-console assets)
 analyzer/   Python BGP · proto/ schemas · migrations/ (sequential, idempotent) · web/ frontend
 deploy/     helm · compose · terraform · backup · packaging | docs/ · test/ (real-stack integration)
-../foundation-loop/ structural-excellence program (the one live program) — OUTSIDE the repo, at the workspace root (§11)
+../design-partner-readiness/  the one live agent programme — OUTSIDE the repo, at the workspace root (§11)
 ```
 
 ## 6. Conventions
@@ -144,17 +144,31 @@ Read this file + PRD first. Plan → implement → test → document → PR. Sma
 
 Not a vendor-operated public SaaS (multi-tenancy exists for MSP/partner self-hosting); not an APM/tracing replacement; not a SIEM/log platform; not an inline IPS/full NDR; no global first-party agent/BGP fleet; no un-gated remediation; no phone-home; **no white-label/OEM rebranding** — MSPs resell under the probectl banner.
 
-## 11. Structural backlog
+## 11. The live programme
 
-The live machine-readable program state is `../backlog.json`; its human-readable
-mirror is `../probectl-comprehensive-backlog-2026-08-08.html`. They deliberately
-live outside the repository so product releases do not ship planning state. Keep
-the two files synchronized, preserve honest COMPLETE/PARTIAL/DEFERRED semantics,
-and attach exact repository commit SHAs and reproducible receipts to evidence.
-There is no separate `foundation-loop` directory or implied exception to the
-architecture/guardrail approval rules. The retired harness's parked proofs
-E2/E3/E4/L4 live in `probectl-PRD-v1.1.md` §4. Business decisions of record live
-in §2 of this file (decision of record 2026-07-14).
+`../design-partner-readiness/` is the ONE live agent programme (started
+2026-09-16). It lives outside the repository so product releases never ship
+planning state. Start at `../design-partner-readiness/PLAN.md` (plan of record
+and every decision of record, which wins over defaults in this file), then
+`../design-partner-readiness/RUN_PROMPT.md` (the autonomous run),
+`../design-partner-readiness/FINDINGS.md` with its
+`../design-partner-readiness/findings.json` (the ledger),
+`../design-partner-readiness/journeys/` (per-journey checkpoints),
+`../design-partner-readiness/connectors.md` (real vs simulated vs blocked) and
+`../design-partner-readiness/decisions-needed.md` (the only list kept for the
+owner). Standing rules of that programme: fix everything found — no backlog —
+§7 guardrails never relaxed, commit on `main` as Shankar, never push, only this
+repository is in scope.
+
+Predecessor programmes are RETIRED, read-only reference and must not be worked:
+the 2026-08-08 comprehensive backlog (`../probectl-comprehensive-backlog-2026-08-08.html`),
+the completeness loop, the audit harness and the red-team loop. Neither a
+foundation-loop directory nor a root backlog file exists any more; both were
+named here after they stopped existing, which is how a fresh agent ended up
+pointed at nothing.
+The retired harness's parked proofs E2/E3/E4/L4 live in `probectl-PRD-v1.1.md`
+§4. Business decisions of record live in §2 of this file (decision of record
+2026-07-14).
 
 ## 12. References
 

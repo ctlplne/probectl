@@ -8,13 +8,19 @@ Instructions for coding agents (Codex, Claude Code, Cowork, or any other) workin
    guardrails are non-negotiable under any level of autonomy; §6 conventions bind
    every commit.
 
-2. **If your task is the structural backlog** (anything like "work the backlog"):
-   the machine-readable state is **`../backlog.json`** and its human-readable mirror is
-   **`../probectl-comprehensive-backlog-2026-08-08.html`**. Both live outside this repo
-   so program state never ships with the product; keep them synchronized and record exact
-   repo commit SHAs in their evidence. Do not invent a missing program/playbook path.
-   Backlog work still obeys the contract and §7 guardrails; the retired harness proofs
-   E2/E3/E4/L4 remain documented in `probectl-PRD-v1.1.md` §4.
+2. **If your task is programme work** (anything like "work the backlog" or "continue the
+   programme"): the one live programme is **`../design-partner-readiness/`** — start at
+   `../design-partner-readiness/PLAN.md`, then
+   `../design-partner-readiness/RUN_PROMPT.md`,
+   `../design-partner-readiness/FINDINGS.md` and
+   `../design-partner-readiness/decisions-needed.md`. It lives outside this repo so programme
+   state never ships with the product. Its standing rules: fix everything found (no backlog),
+   §7 guardrails never relaxed, commit on `main` as the owner, never push. The 2026-08-08
+   comprehensive backlog (`../probectl-comprehensive-backlog-2026-08-08.html`) and every
+   earlier harness are RETIRED read-only reference, and the root backlog file they used no
+   longer exists — do not resurrect either, and do not invent a missing program/playbook
+   path. The retired harness proofs E2/E3/E4/L4 remain documented in
+   `probectl-PRD-v1.1.md` §4.
 
 3. **If your task is ordinary feature/bug work:** follow `CLAUDE.md` §6–§9 (smallest
    coherent change; OpenAPI + docs + idempotent migration in the same commit; conventional
