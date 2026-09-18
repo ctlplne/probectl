@@ -323,6 +323,24 @@ func (h *Handler) handleAbandonProvision(w http.ResponseWriter, r *http.Request,
 	return h.writeJSON(w, http.StatusOK, map[string]any{"abandoned": true, "id": id})
 }
 
+// enrollTokenResponse is the body both operator-creating routes return. The
+// expiry is part of it because a one-time token the recipient cannot date is a
+// token they will try to redeem next week.
+//
+// DPR-178 gave the token a 24-hour life and said so in the OpenAPI description —
+// "the response carries ... enroll_token_expires_in" — and the handlers went on
+// returning two fields. A description is not an implementation: the window has to
+// travel WITH the credential, in the same response, so whoever passes it on can
+// say when it stops working.
+func enrollTokenResponse(op any, enroll string) map[string]any {
+	return map[string]any{
+		"operator":                op,
+		"enroll_token":            enroll,
+		"enroll_token_expires_in": OperatorEnrollTTL.String(),
+		"enroll_token_expires_at": time.Now().Add(OperatorEnrollTTL).UTC().Format(time.RFC3339),
+	}
+}
+
 // --- auth handlers ---
 
 func (h *Handler) handleBootstrap(w http.ResponseWriter, r *http.Request) error {
@@ -334,7 +352,7 @@ func (h *Handler) handleBootstrap(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	return h.writeJSON(w, http.StatusCreated, map[string]any{"operator": op, "enroll_token": enroll})
+	return h.writeJSON(w, http.StatusCreated, enrollTokenResponse(op, enroll))
 }
 
 func (h *Handler) handleEnrollStart(w http.ResponseWriter, r *http.Request) error {
@@ -442,7 +460,7 @@ func (h *Handler) handleCreateOperator(w http.ResponseWriter, r *http.Request, a
 	if err != nil {
 		return err
 	}
-	return h.writeJSON(w, http.StatusCreated, map[string]any{"operator": op, "enroll_token": enroll})
+	return h.writeJSON(w, http.StatusCreated, enrollTokenResponse(op, enroll))
 }
 
 func (h *Handler) handleOperatorStatus(w http.ResponseWriter, r *http.Request, actor Operator) error {

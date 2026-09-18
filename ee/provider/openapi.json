@@ -22,7 +22,14 @@
         },
         "responses": {
           "201": {
-            "description": "The first provider admin was created and its one-time enrollment token returned"
+            "description": "The first provider admin was created and its one-time enrollment token returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorEnrollment"
+                }
+              }
+            }
           },
           "409": {
             "description": "Bootstrap was already consumed because a provider operator exists"
@@ -143,8 +150,15 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "OK"
+          "201": {
+            "description": "The operator was created and its one-time enrollment token returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorEnrollment"
+                }
+              }
+            }
           }
         }
       }
@@ -837,7 +851,44 @@
         ],
         "additionalProperties": false
       },
-      "OperatorCreateRequest": {
+      "OperatorEnrollment": {
+      "description": "An operator was created and its ONE-TIME enrollment token returned. The token is shown once and stored only as a hash, so hand it over out of band. DPR-178: an unredeemed token used to be valid forever, which made every message carrying one a live credential for this privilege domain. It now expires, and the window travels WITH the token so whoever passes it on can say when it stops working.",
+      "type": "object",
+      "required": [
+        "operator",
+        "enroll_token",
+        "enroll_token_expires_in",
+        "enroll_token_expires_at"
+      ],
+      "properties": {
+        "operator": {
+          "type": "object",
+          "description": "the created operator record",
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "email": { "type": "string", "format": "email" },
+            "name": { "type": "string" },
+            "role": { "type": "string", "enum": ["admin", "operator"] },
+            "status": { "type": "string", "enum": ["active", "suspended", "disabled"] },
+            "enrolled": { "type": "boolean", "description": "false until the token is redeemed and a password and TOTP are set" }
+          }
+        },
+        "enroll_token": {
+          "type": "string",
+          "description": "one-time enrollment token, shown once and never stored in plaintext"
+        },
+        "enroll_token_expires_in": {
+          "type": "string",
+          "description": "the redemption window as a duration, e.g. 24h0m0s"
+        },
+        "enroll_token_expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "the instant the token stops being redeemable"
+        }
+      }
+    },
+    "OperatorCreateRequest": {
         "description": "Create another operator (admin only). The response carries a one-time enroll_token to hand to the person out of band, and enroll_token_expires_in — the window it can be redeemed in (24h). An unredeemed token used to be valid forever, which made every message carrying one a live credential for this privilege domain (DPR-178).",
         "type": "object",
         "properties": {
