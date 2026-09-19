@@ -884,6 +884,16 @@ jobs:
             PROBECTL_DRILL_BACKUP_LOG_GLOB=artifacts/backup-restore-large.log \
             PROBECTL_DRILL_BACKUP_PROFILES=ci-marker \
             bash scripts/check_drill_evidence.sh
+          # DPR-207: the fresh run above proves the mechanism on this commit at a
+          # size chosen to be fast. The production-shaped CLAIM is a different
+          # thing, and it is carried by the committed evidence the runbook cites —
+          # so check that too, rather than asking the marker run to be something
+          # it is not. Historical by definition: that row was measured on an
+          # older commit, which is the point of citing it.
+          PROBECTL_DRILL_SCOPE=backup \
+            PROBECTL_DRILL_CHECK_DOCS=0 \
+            PROBECTL_DRILL_ALLOW_HISTORICAL=1 \
+            bash scripts/check_drill_evidence.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backup-restore-results
@@ -919,7 +929,11 @@ jobs:
             PROBECTL_DRILL_EXPECTED_SHA="$(git rev-parse --short=12 HEAD)" \
             PROBECTL_DRILL_FAILOVER_CSV=artifacts/failover-results.csv \
             PROBECTL_DRILL_FAILOVER_LOG_GLOB=artifacts/failover-representative.log \
-            PROBECTL_DRILL_FAILOVER_PROFILES=ci-dev-compose \
+            # The drill names its profile ci-dev-compose-<replication mode>
+            # (scripts/failover_drill.sh), because a sync failover and an async
+            # one make different RPO promises and the evidence row has to say
+            # which. Asking for the bare `ci-dev-compose` matched nothing.
+            PROBECTL_DRILL_FAILOVER_PROFILES=ci-dev-compose-sync,ci-dev-compose-async \
             bash scripts/check_drill_evidence.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

@@ -58,6 +58,18 @@ def current_git_sha() -> str:
 
 EXPECTED_SHA = normalize_sha(os.environ.get("PROBECTL_DRILL_EXPECTED_SHA", "")) or current_git_sha()
 BACKUP_PROFILES = profile_set("PROBECTL_DRILL_BACKUP_PROFILES", {"large", "production-shaped"})
+# DPR-207: which profiles are CLAIMING to be production-shaped, and therefore
+# have to carry a production-shaped artifact. The >=1MB bar exists so nobody
+# cites a trivial run as representative evidence in the runbook — it is about the
+# claim, not about every row. A `ci-marker` run makes no such claim: it proves on
+# every commit that backup → wipe → restore still works, at a size chosen to be
+# fast, and it is still held to its signature, its freshness and its restore
+# time. Holding it to 1MB as well made the assertion unsatisfiable, which is why
+# CI's backup-drill has been red.
+REPRESENTATIVE_PROFILES = profile_set(
+    "PROBECTL_DRILL_REPRESENTATIVE_PROFILES", {"large", "production-shaped"}
+)
+MIN_REPRESENTATIVE_BYTES = int(os.environ.get("PROBECTL_DRILL_MIN_REPRESENTATIVE_BYTES", "1000000"))
 FAILOVER_PROFILES = profile_set("PROBECTL_DRILL_FAILOVER_PROFILES", {"representative-compose", "production-shaped"})
 if not ALLOW_HISTORICAL and not EXPECTED_SHA:
     fail("exact-commit mode requires PROBECTL_DRILL_EXPECTED_SHA or a readable git HEAD")
@@ -113,8 +125,14 @@ if SCOPE in {"all", "backup"}:
             except ValueError:
                 fail("backup large row has non-numeric artifact/restore fields")
             else:
-                if artifact_bytes < 1_000_000:
-                    fail(f"backup large artifact too small for representative row: {artifact_bytes}")
+                claims_representative = row.get("profile") in REPRESENTATIVE_PROFILES
+                if claims_representative and artifact_bytes < MIN_REPRESENTATIVE_BYTES:
+                    fail(
+                        f"backup profile {row.get('profile')!r} claims to be production-shaped but its artifact is "
+                        f"{artifact_bytes} bytes (min {MIN_REPRESENTATIVE_BYTES})"
+                    )
+                if artifact_bytes <= 0:
+                    fail(f"backup row has no artifact at all: {artifact_bytes} bytes")
                 if restore_secs < 0:
                     fail("backup large row restore_secs is negative")
 
