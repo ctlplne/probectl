@@ -705,6 +705,13 @@ func TestSIEMCursorAndIntegrationLinks(t *testing.T) {
 // TestAgentsRegisterDuplicateNameIsAConflict (DPR-048): a second registration
 // under a name the tenant already uses is a conflict the operator can act on,
 // not a raw unique-constraint error.
+//
+// DPR-216 strengthened the tail of this test. "Reuse its agent_id" is only
+// actionable if the caller can still act, so the re-register below has to work
+// inside the SAME transaction that just saw the conflict — and the savepoint
+// that makes it work must undo the failed insert and nothing else. The extra
+// assertions pin that blast radius: the rejected id never landed, the first
+// registration survived with its update, and the transaction commits.
 func TestAgentsRegisterDuplicateNameIsAConflict(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
@@ -725,8 +732,35 @@ func TestAgentsRegisterDuplicateNameIsAConflict(t *testing.T) {
 			t.Fatalf("duplicate name must be a named conflict, got %v", err)
 		}
 		// The same id re-registering is still the idempotent upsert.
-		if _, err := (Agents{}).Register(ctx, s, first, "helm-flow-1", "host-1", "1.0.1", "", []string{"collector", "flow"}); err != nil {
+		again, err := (Agents{}).Register(ctx, s, first, "helm-flow-1", "host-1", "1.0.1", "", []string{"collector", "flow"})
+		if err != nil {
 			t.Fatalf("re-register same id: %v", err)
+		}
+		if again.ID != first || again.AgentVersion != "1.0.1" {
+			t.Fatalf("re-register returned %+v, want the first id at 1.0.1", again)
+		}
+		// The rejected id must not have been created, and undoing it must not
+		// have taken the first registration with it.
+		var rejected, kept int
+		if err := s.Q.QueryRow(ctx,
+			`SELECT count(*) FILTER (WHERE id = $1), count(*) FILTER (WHERE id = $2) FROM agents`,
+			second, first,
+		).Scan(&rejected, &kept); err != nil {
+			t.Fatalf("count agents after the conflict: %v", err)
+		}
+		if rejected != 0 || kept != 1 {
+			t.Fatalf("after the conflict: rejected id rows = %d (want 0), first id rows = %d (want 1)", rejected, kept)
+		}
+		return nil
+	})
+	// The transaction committed, so the surviving registration is durable.
+	inTenant(ctx, t, pool, tn.ID, func(ctx context.Context, s tenancy.Scope) error {
+		var version string
+		if err := s.Q.QueryRow(ctx, `SELECT agent_version FROM agents WHERE id = $1`, first).Scan(&version); err != nil {
+			t.Fatalf("read the committed registration: %v", err)
+		}
+		if version != "1.0.1" {
+			t.Fatalf("committed agent_version = %q, want 1.0.1", version)
 		}
 		return nil
 	})

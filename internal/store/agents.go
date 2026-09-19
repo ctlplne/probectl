@@ -157,6 +157,19 @@ func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name,
 	if err != nil {
 		return nil, err
 	}
+	// DPR-216: the (tenant, name) uniqueness below raises SQLSTATE 23505, and a
+	// raised error ABORTS the enclosing transaction. Returning a friendly typed
+	// conflict out of a dead transaction is a promise the caller cannot act on:
+	// its next statement — including the documented idempotent re-register of the
+	// same agent id — fails with 25P02 "current transaction is aborted". The
+	// savepoint keeps the conflict recoverable, which is what a conflict means.
+	// Same idiom as touchCredential in credentiallocators.go. If there is no
+	// transaction to take a savepoint in, this is a no-op and behavior is
+	// exactly as before.
+	savepoint := false
+	if _, sErr := s.Q.Exec(ctx, "SAVEPOINT agent_register"); sErr == nil {
+		savepoint = true
+	}
 	var a Agent
 	err = scanAgent(s.Q.QueryRow(ctx,
 		`INSERT INTO agents (id, tenant_id, name, hostname, agent_version, status, capabilities, labels, spiffe_id, last_seen_at)
@@ -169,6 +182,10 @@ func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name,
 		 RETURNING `+agentCols,
 		id, s.Tenant.String(), name, hostname, version, string(caps), string(labelJSON), spiffeID), &a)
 	if err != nil {
+		if savepoint {
+			// Undo only the failed insert, leaving the caller's transaction alive.
+			_, _ = s.Q.Exec(ctx, "ROLLBACK TO SAVEPOINT agent_register")
+		}
 		// DPR-048: the (tenant, name) uniqueness is a conflict the operator can
 		// act on — reuse the existing registration or pick another name — not
 		// a raw SQLSTATE 23505 for the CLI to print.
@@ -177,6 +194,9 @@ func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name,
 			return nil, apierror.Conflict(fmt.Sprintf("an agent or collector named %q is already registered in this tenant: reuse its agent_id, or register with another name", name))
 		}
 		return nil, err
+	}
+	if savepoint {
+		_, _ = s.Q.Exec(ctx, "RELEASE SAVEPOINT agent_register")
 	}
 	return &a, nil
 }
