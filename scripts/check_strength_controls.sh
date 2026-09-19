@@ -443,7 +443,26 @@ need_pattern SUPPLY-007 .github/workflows/ci.yml 'govulncheck|Trivy filesystem s
 need_pattern SUPPLY-007 scripts/check_npm_audit_policy.mjs 'critical advisory|high advisory|npm audit policy: OK'
 need_pattern SUPPLY-007 scripts/verify_all.sh 'govulncheck|trivy fs --scanners vuln --severity CRITICAL,HIGH'
 need_pattern SUPPLY-007 scripts/check_web_router_mode.mjs 'client-only BrowserRouter|planted React Router RSC API|server-action'
-need_pattern SUPPLY-007 docs/security/npm-audit-policy.json 'GHSA-qwww-vcr4-c8h2|SUPPLY-008-react-router-rsc-only|2026-08-31'
+# DPR-237: assert the SHAPE of the policy, not one advisory's id.
+#
+# This line used to require /GHSA-qwww-vcr4-c8h2|SUPPLY-008-react-router-rsc-only|
+# 2026-08-31/ — an advisory id, the id of the exception that accepted it, and that
+# exception's expiry. All three disappear the moment the advisory is FIXED, so the
+# gate failed for doing the right thing: DPR-211 upgraded react-router past the
+# advisory, removed the now-meaningless exception, and lint-go went red. A control
+# that punishes remediation is not a control.
+#
+# Every other SUPPLY-007 line above asserts a durable property of its file, and so
+# do these: the policy is a bounded-exception policy — each exception states the
+# affected ranges, a severity ceiling, and a date it dies on. Those keys are the
+# mechanism the rest of the gate relies on, and they survive any particular
+# advisory being patched away.
+need_pattern SUPPLY-007 docs/security/npm-audit-policy.json '"advisory_ranges"'
+need_pattern SUPPLY-007 docs/security/npm-audit-policy.json '"max_severity"'
+need_pattern SUPPLY-007 docs/security/npm-audit-policy.json '"expires_at"'
+# The React Router RSC posture itself is not weakened by dropping that id: it is
+# enforced by check_web_router_mode.mjs, required two lines above, which rejects
+# every unstable_*RSC* API, RSC build packages and 'use server' directives.
 
 # Tenant isolation controls.
 need_pattern TENANT-003 internal/tenancy/posture.go 'AssertIsolationPosture|NOBYPASSRLS|FORCE ROW LEVEL SECURITY|refusing to start'
