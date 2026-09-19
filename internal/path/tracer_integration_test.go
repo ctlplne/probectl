@@ -11,6 +11,7 @@ package path
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -164,12 +165,25 @@ func runRawMultiHopChild(t *testing.T) {
 	}
 }
 
+// rawPathUnavailable routes the two-tier contract for the privileged lane.
+//
+// DPR-222: the second tier used to be SkipOrFatal, which fatals under
+// PROBECTL_TEST_REQUIRE_SERVICES=1. That made the general integration job — which
+// runs `make test-integration` as the unprivileged runner user — demand root to
+// create network namespaces and veth links, a capability it can never have, so
+// TestRunRawMultiHop failed there permanently. Root is not a "service that is
+// missing"; it is what defines this as a separate lane. The lane is the
+// path-raw-live job: scripts/path_raw_live_ci.sh runs this test under sudo with
+// PROBECTL_TEST_REQUIRE_RAW_PATH=1 and fails the build if it reports a skip, so
+// the privileged path is still proved on every commit — the first tier below.
+// SkipOptIn is the sanctioned door for exactly this shape (see SkipOptIn's own
+// doc comment) and keeps the lane greppable.
 func rawPathUnavailable(t *testing.T, format string, args ...any) {
 	t.Helper()
 	if os.Getenv("PROBECTL_TEST_REQUIRE_RAW_PATH") == "1" {
 		t.Fatalf(format, args...)
 	}
-	testsupport.SkipOrFatal(t, format, args...)
+	testsupport.SkipOptIn(t, "PROBECTL_TEST_REQUIRE_RAW_PATH", fmt.Sprintf(format, args...))
 }
 
 type rawMultiHopFixture struct {

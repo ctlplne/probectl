@@ -27,10 +27,19 @@ import (
 // exact factory registered by probectl-agent selects ExecDriver, invokes the
 // real worker, and returns rendered DOM timings. The browser-worker CI job sets
 // PROBECTL_BROWSER_WORKER_PATH after installing the pinned Playwright lock.
+//
+// DPR-222: that lane is an opt-in, not a required service. The worker is
+// worker.mjs plus a Chromium install, which is why it runs inside the pinned
+// Playwright image in its own job; the general integration job has neither and
+// under PROBECTL_TEST_REQUIRE_SERVICES=1 was failing permanently on their
+// absence. The browser-worker job is the lane, and it now fails if this test
+// reports a skip, so an unset path there is still caught.
 func TestAgentFactoryRunsRealPlaywrightWorker(t *testing.T) {
 	worker := os.Getenv("PROBECTL_BROWSER_WORKER_PATH")
 	if worker == "" {
-		testsupport.SkipOrFatal(t, "PROBECTL_BROWSER_WORKER_PATH is required for the real worker smoke")
+		// SkipOptIn's message says "=1"; this one takes a path, so say so.
+		testsupport.SkipOptIn(t, "PROBECTL_BROWSER_WORKER_PATH",
+			"set it to the worker path (browser-worker/worker.mjs) next to a Chromium install, as the browser-worker CI job does")
 	}
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

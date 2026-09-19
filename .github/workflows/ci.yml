@@ -434,7 +434,17 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           PROBECTL_BROWSER_WORKER_PATH: ${{ github.workspace }}/browser-worker/worker.mjs
-        run: go test -tags=integration ./internal/browsercanary -run '^TestAgentFactoryRunsRealPlaywrightWorker$' -count=1 -v
+        # DPR-222: this job IS the opt-in lane for the real-worker smoke, so it
+        # must be a hard signal — a skip here would be silent green. Same shape as
+        # scripts/path_raw_live_ci.sh for the privileged path lane.
+        run: |
+          set -euo pipefail
+          log="${RUNNER_TEMP:-/tmp}/probectl-browser-worker-smoke.log"
+          go test -tags=integration ./internal/browsercanary             -run '^TestAgentFactoryRunsRealPlaywrightWorker$' -count=1 -v 2>&1 | tee "$log"
+          if grep -q -- '--- SKIP: TestAgentFactoryRunsRealPlaywrightWorker' "$log"; then
+            echo "::error::TestAgentFactoryRunsRealPlaywrightWorker skipped in its own lane" >&2
+            exit 1
+          fi
 
   openapi-gate:
     name: openapi-gate
