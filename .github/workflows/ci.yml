@@ -977,15 +977,18 @@ jobs:
           set -o pipefail
           mkdir -p artifacts
           make failover-drill 2>&1 | tee artifacts/failover-representative.log
+          # DPR-207: the drill names its profile ci-dev-compose-<replication mode>
+          # (scripts/failover_drill.sh), because a sync failover and an async one
+          # make different RPO promises and the evidence row has to say which.
+          # Asking for the bare `ci-dev-compose` matched nothing.
+          # The comment lives ABOVE the chain on purpose (DPR-225): a comment
+          # between two `\`-continued lines ends that logical line, splitting the
+          # command in two.
           PROBECTL_DRILL_SCOPE=failover \
             PROBECTL_DRILL_CHECK_DOCS=0 \
             PROBECTL_DRILL_EXPECTED_SHA="$(git rev-parse --short=12 HEAD)" \
             PROBECTL_DRILL_FAILOVER_CSV=artifacts/failover-results.csv \
             PROBECTL_DRILL_FAILOVER_LOG_GLOB=artifacts/failover-representative.log \
-            # The drill names its profile ci-dev-compose-<replication mode>
-            # (scripts/failover_drill.sh), because a sync failover and an async
-            # one make different RPO promises and the evidence row has to say
-            # which. Asking for the bare `ci-dev-compose` matched nothing.
             PROBECTL_DRILL_FAILOVER_PROFILES=ci-dev-compose-sync,ci-dev-compose-async \
             bash scripts/check_drill_evidence.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
