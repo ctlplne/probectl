@@ -141,6 +141,13 @@ grep -q "probectl-endpoint-${version}-1.arm64.rpm" "$bundle/MANIFEST.txt"
 grep -q 'cosign verify-blob' "$log"
 grep -q 'cosign verify --certificate-oidc-issuer' "$log"
 grep -q 'docker pull registry.invalid/probectl/probectl-control:9.9.9' "$log"
-tar -tzf "$archive" | grep -q "${bundle_name}/MANIFEST.txt"
+# DPR-212: NOT `tar -tzf … | grep -q …`. grep -q exits at its first match and
+# closes the pipe, GNU tar is still writing the rest of a 4,000-entry listing,
+# and under `set -o pipefail` the SIGPIPE (exit 141, "tar: stdout: write error")
+# takes the whole gate down. It passes on macOS, where bsdtar and the pipe buffer
+# behave differently — which is exactly why CI saw it and a developer did not.
+# Read the listing once, then search it.
+archive_listing="$(tar -tzf "$archive")"
+grep -q "${bundle_name}/MANIFEST.txt" <<<"$archive_listing"
 
 echo "airgap success gate: OK (11 verified images, 18 signed binaries, 20 signed packages, complete offline manifest)"
