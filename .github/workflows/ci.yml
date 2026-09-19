@@ -1114,6 +1114,16 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      # DPR-236: 3 seconds, before anything else, because a lock that cannot
+      # install takes down eleven jobs at once (this one, web-rendered-a11y,
+      # image-scan and all eight build-images, since the Dockerfile's web stage
+      # runs npm ci too) and each of them reports it as its own mysterious
+      # failure. This says it once, in plain words, and proves the check works.
+      - name: Lockfile installs under the pinned npm (SUPPLY-007)
+        working-directory: ${{ github.workspace }}
+        run: |
+          SELFTEST=1 ./scripts/check_web_lock.sh
+          ./scripts/check_web_lock.sh
       - name: Install
         run: npm ci
       - name: Audit gate (SEC-004 — exact, expiring exceptions only)
