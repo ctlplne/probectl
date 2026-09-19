@@ -8,9 +8,23 @@ on:
 permissions:
   contents: read
 
+# DPR-235: cancel on PR branches, NEVER on main or a tag.
+#
+# `cancel-in-progress: true` for every ref meant that a push landing inside a
+# run's ~20-minute window killed it. This programme pushes far faster than that,
+# and the arithmetic showed up in the history: of the last 30 ci runs on main, 26
+# cancelled, 3 failed, ZERO ever concluded successfully. release.yml's
+# "require green ci on the tagged sha" polls for `completed/success`, so a branch
+# whose runs are always cancelled can never be released — which is half of why
+# v0.6.3 failed.
+#
+# A main run is now allowed to finish. Pushes queue behind it in the same group
+# instead of destroying it: with a 20m pipeline (measured, see
+# docs/ops/ci-critical-path.md) a queue is a delay, while a cancellation is a
+# permanently missing verdict.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   # Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.7` /
