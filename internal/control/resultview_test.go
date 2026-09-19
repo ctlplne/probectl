@@ -214,13 +214,29 @@ func TestLatestResultsEndToEnd(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// The other tenant sees only its own result.
-	rec2 := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/results/latest", nil)
-	req.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-000000000002")
-	srv.Handler().ServeHTTP(rec2, req)
-	if !strings.Contains(rec2.Body.String(), "secret.example") || strings.Contains(rec2.Body.String(), "acme.example") {
-		t.Fatalf("other-tenant view wrong: %s", rec2.Body.String())
+	// The other tenant sees only its own result. DPR-229: poll for it under the
+	// same deadline instead of reading once. Both results go onto the bus and one
+	// consumer goroutine drains it, so tenant 1's arrival says nothing about
+	// tenant 2's — asserting immediately made this a race that loses on a loaded
+	// runner (reproduced 2/300 on a single CPU). The oracle is unchanged: tenant 2
+	// must see its own result, must never see tenant 1's, and must not time out.
+	otherDeadline := time.Now().Add(2 * time.Second)
+	for {
+		rec2 := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v1/results/latest", nil)
+		req.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-000000000002")
+		srv.Handler().ServeHTTP(rec2, req)
+		body := rec2.Body.String()
+		if strings.Contains(body, "acme.example") {
+			t.Fatalf("CROSS-TENANT LEAK into the other tenant's view: %s", body)
+		}
+		if strings.Contains(body, "secret.example") {
+			break
+		}
+		if time.Now().After(otherDeadline) {
+			t.Fatalf("other tenant's result never landed: %s", body)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// No store wired: honest empty response.
