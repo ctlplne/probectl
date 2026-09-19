@@ -469,7 +469,7 @@ with your tooling.
     --set 'bus.brokers={kafka.probectl.svc:9093}' \
     --set bus.tls.existingSecret=probectl-bus-tls \
     --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=probectl-bus-sasl \
-    --set-string image.tag='0.6.0@sha256:<digest>'
+    --set-string image.tag='0.6.4@sha256:<digest>'
   ```
 
   `agentID` is the collector identity the tenant registered for these nodes

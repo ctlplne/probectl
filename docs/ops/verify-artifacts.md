@@ -87,8 +87,8 @@ A control plane can only accept a commercial license file if the build carries
 the vendor's public key. Confirm it on the binary you are about to deploy:
 
 ```sh
-./probectl-control_v0.6.0_linux_amd64 version
-# probectl-control 0.6.0 (commit …)
+./probectl-control_v0.6.4_linux_amd64 version
+# probectl-control 0.6.4 (commit …)
 # license trust anchors: 1      ← 0 means a keyless build: Community only
 ```
 

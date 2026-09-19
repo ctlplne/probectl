@@ -8,7 +8,7 @@ gap; everything installs from it offline.
 ## Acquiring the bundle (connected side)
 
 ```sh
-version=0.6.0
+version=0.6.4
 gh release download "v${version}" --repo ctlplne/probectl \
   --pattern "probectl-airgap-${version}.tar.gz*"
 cosign verify-blob \
@@ -33,13 +33,13 @@ checkout is not enough: first acquire the release inputs into `dist/`, then run
 the builder, which also pulls the tagged images from GHCR:
 
 ```sh
-version=0.6.0
+version=0.6.4
 git checkout "v${version}"
 mkdir -p dist
 gh release download "v${version}" --repo ctlplne/probectl --dir dist
 docker login ghcr.io
 DIST=dist make airgap-bundle VERSION="${version}"
-# → probectl-airgap-0.6.0.tar.gz
+# → probectl-airgap-0.6.4.tar.gz
 ```
 
 The bundle contains:
@@ -76,7 +76,7 @@ The bundle contains:
 3. **Install the control plane** from the bundled chart, pointing image
    repositories at your internal registry:
    ```
-   helm install probectl charts/probectl-0.6.0.tgz \
+   helm install probectl charts/probectl-0.6.4.tgz \
      -f your-values.yaml \
      --set image.repository=registry.internal/probectl \
      --set-string image.digest='sha256:<internal-mirror-digest>'
