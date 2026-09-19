@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -612,6 +614,37 @@ func TestEnrollmentStore(t *testing.T) {
 	}
 
 	ca := NewAgentCA(pool)
+	// DPR-219: agent_ca is a SHARED, single-row-per-kind table, and this test
+	// overwrites both kinds with placeholder strings that are not PEM. It used to
+	// leave them there, so every package that ran afterwards against the same
+	// database — the whole enroll suite — failed with
+	// "crypto: ca cert PEM malformed" on a CA this test had scribbled over. The
+	// test is right that it must not assert an exact value on a shared table; it
+	// also has to put back what it found.
+	for _, kind := range []string{"root", "intermediate"} {
+		priorCert, priorSealed, priorErr := ca.Load(ctx, kind)
+		existed := priorErr == nil
+		t.Cleanup(func() {
+			// Its own pool: this test closes its pool with `defer`, and t.Cleanup
+			// runs after the deferred close, so the shared one is gone by now.
+			restore := context.Background()
+			rp, err := pgxpool.New(restore, dsn())
+			if err != nil {
+				t.Errorf("reopen pool to restore agent_ca %s: %v", kind, err)
+				return
+			}
+			defer rp.Close()
+			if existed {
+				if err := NewAgentCA(rp).Save(restore, kind, priorCert, priorSealed); err != nil {
+					t.Errorf("restore agent_ca %s: %v", kind, err)
+				}
+				return
+			}
+			if _, err := rp.Exec(restore, `DELETE FROM agent_ca WHERE kind = $1`, kind); err != nil {
+				t.Errorf("remove planted agent_ca %s: %v", kind, err)
+			}
+		})
+	}
 	if err := ca.Save(ctx, "root", "ROOT-CERT-"+sfx, ""); err != nil {
 		t.Fatalf("ca save root: %v", err)
 	}
