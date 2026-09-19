@@ -28,6 +28,19 @@ inventory_violations() {
   ' "$source"
 }
 
+# DPR-208: without this the gate FAILS OPEN. runtime_ref_violations swallows
+# stderr and falls back to `|| true`, so on a machine with no ripgrep it returned
+# no violations and the policy passed having scanned nothing at all. That is how
+# a supply-chain licence gate stops being a gate. The selftest caught it as
+# "Grafana runtime was not rejected" — the planted violation could not be seen
+# either — and the same absence takes delivery-audit-gate down.
+require_ripgrep() {
+  command -v rg >/dev/null 2>&1 || {
+    echo "dependency-license-policy: ripgrep (rg) is required and not installed — refusing to report a clean scan it never ran" >&2
+    exit 127
+  }
+}
+
 runtime_ref_violations() {
   local scan_root="${1:?scan root}"
   rg -n -i \
@@ -36,6 +49,11 @@ runtime_ref_violations() {
     "$scan_root/.github" "$scan_root/deploy" "$scan_root/scripts" "$scan_root/Makefile" \
     2>/dev/null || true
 }
+
+# Top level on purpose: runtime_ref_violations runs inside a pipeline, and an
+# exit from there ends only that subshell — the caller would carry on and report
+# a misleading "not rejected" instead of "the tool is missing".
+require_ripgrep
 
 if [ "${SELFTEST:-0}" = "1" ]; then
   fixture="$(mktemp -d "${TMPDIR:-/tmp}/probectl-license-policy.XXXXXX")"
