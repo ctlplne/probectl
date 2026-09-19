@@ -66,6 +66,12 @@ condition = "AND"
 commits = ['''8b979f278c094f34fb4c52b9475baa111d96e032''']
 paths = ['''scripts/check_secret_scan_history\.sh''']
 
+[[rules.allowlists]]
+description = "DPR-227: DPR-191's stdin test asserts readRootKey passes bytes through verbatim, using a syntactically-shaped PKCS#8 placeholder whose key payload is EMPTY (MC4CAQAwBQYDK2VwBCIEIA== is a DER SEQUENCE with a zero-length OCTET STRING) - there is no key material to leak. Commit + path must both match, so a later real key in this file is still a finding."
+condition = "AND"
+commits = ['''88a4b396be168281030793707e005121173665f2''']
+paths = ['''cmd/probectl-control/enroll_test\.go''']
+
 [[rules]]
 id = "stripe-access-token"
 
@@ -138,3 +144,4 @@ description = "DPR-210: prose about DESIGN tokens, not credentials. The design-p
 condition = "AND"
 commits = ['''442911f2d82683f0cca0e742d1deb4bb32346a2c''']
 paths = ['''docs/ux/design-principles\.md''']
+
