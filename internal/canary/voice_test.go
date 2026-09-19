@@ -148,9 +148,16 @@ func TestNewVoiceValidation(t *testing.T) {
 }
 
 func TestVoiceDialFailureReturnsFailedResult(t *testing.T) {
+	// DPR-204: the target used to be "127.0.0.1:0", and that is a dial failure
+	// on darwin ("can't assign requested address") and NOT one on Linux, where
+	// connect() to port 0 succeeds and the probe goes on to send its datagrams.
+	// So on CI this test was not exercising a dial failure at all — it was
+	// asserting a "no echoes" error contained the word "dial", and failing. A
+	// name from RFC 6761's reserved `.invalid` TLD cannot resolve on any
+	// platform, so the failure is the product's own dial path on every host.
+	const target = "no-such-host.invalid:9"
 	c, err := NewVoice(Config{
-		Type: voiceType, Target: "127.0.0.1:0", Timeout: time.Millisecond,
-		Params: map[string]string{"allow_private_targets": "true"},
+		Type: voiceType, Target: target, Timeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +169,7 @@ func TestVoiceDialFailureReturnsFailedResult(t *testing.T) {
 	if res.Success || res.Error == "" || !strings.Contains(res.Error, "dial") {
 		t.Fatalf("dial failure result = %+v", res)
 	}
-	if res.Duration <= 0 || res.Type != voiceType || res.Target != "127.0.0.1:0" {
+	if res.Duration <= 0 || res.Type != voiceType || res.Target != target {
 		t.Fatalf("dial failure metadata = %+v", res)
 	}
 	if res.Attributes["voice.codec"] != "g711" || res.Attributes["voice.method"] == "" {
