@@ -14,6 +14,9 @@ on:
 
 permissions:
   contents: read
+  # DPR-245: read the repository's own code-scanning analyses, to prove CodeQL is
+  # still looking at the product and not only at the workflows.
+  security-events: read
 
 # Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.7` /
 # `toolchain go1.26.7`, SUPPLY-007) and ci.yml's GO_VERSION. govulncheck's
@@ -24,6 +27,30 @@ env:
   GO_VERSION: "1.26.7"
 
 jobs:
+  # DPR-245: FIRST, because the rest of this workflow is meaningless if the
+  # repository's static analysis has quietly stopped covering the product. On
+  # 2026-09-19 CodeQL's last Go analysis was 79 days old and only
+  # /language:actions was still running; the open alert list was a July snapshot,
+  # and a local run of the same suite on current code found two high-severity rule
+  # classes GitHub had never reported. Nothing caught it because the language list
+  # lives in repo settings, where no diff can show it changing.
+  #
+  # This job is deliberately in security-scan.yml and not in ci.yml: it fails while
+  # the coverage gap is open (decisions-needed D-14, a settings change), and a
+  # weekly evidence run is the right place for a standing truth, not the push path.
+  codeql-coverage:
+    name: codeql coverage (product languages are actually analysed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Coverage staleness gate (SUPPLY-007)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SELFTEST=1 ./scripts/check_codeql_coverage.sh
+          ./scripts/check_codeql_coverage.sh
+
   govulncheck:
     name: govulncheck (Go)
     runs-on: ubuntu-latest
