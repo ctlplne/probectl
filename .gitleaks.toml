@@ -107,12 +107,10 @@ regexTarget = "line"
 regexes = ['''export PROBECTL_SESSION_HMAC_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"''']
 
 [[rules.allowlists]]
-description = "Historical e2e envelope fixture: exact commit + path + documented base64 test KEK must all match."
+description = "Historical e2e envelope fixture (the base64 of the literal 0123456789abcdef0123456789abcdef). Commit + path must both match. DPR-210: this entry also carried a regex on that literal and therefore matched NOTHING - gitleaks redacts the line before an allowlist regex is applied, so the entry never suppressed its own finding and secret-scan stayed red. The commit and the path are the narrow part."
 condition = "AND"
 commits = ['''ac217d7ac307a1380c4ca7c7352e22104ccfe839''']
 paths = ['''test/e2e/e2e_test\.go''']
-regexTarget = "line"
-regexes = ["PROBECTL_ENVELOPE_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="]
 
 [[rules.allowlists]]
 description = "DPR-003: the local upgrade/rollback drill exports the SAME documented throwaway KEK and session pepper as the e2e/compose fixtures; path + exact literal must both match."
@@ -134,3 +132,9 @@ regexes = [
   '''PROBECTL_SESSION_HMAC_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\s*$''',
   '''PROBECTL_SESSION_HMAC_KEY=zz23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\|'\s*$''',
 ]
+
+[[rules.allowlists]]
+description = "DPR-210: prose about DESIGN tokens, not credentials. The design-principles receipt reads 'focus, selection, layer, duration, and easing tokens are contrast-tested', and generic-api-key fires on the word 'tokens' next to high-entropy prose. Commit + path must both match."
+condition = "AND"
+commits = ['''442911f2d82683f0cca0e742d1deb4bb32346a2c''']
+paths = ['''docs/ux/design-principles\.md''']
