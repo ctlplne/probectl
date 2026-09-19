@@ -19,7 +19,6 @@ import (
 	"strings"
 	"unsafe"
 
-	cebpf "github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -47,42 +46,8 @@ import (
 // different privilege requirements — lets the agent report which one actually
 // worked instead of guessing.
 
-// The two ways a uprobe can end up attached, reported so an operator can see
-// which one a node needed rather than inferring it.
-const (
-	attachViaLibrary = "cilium-ebpf"
-	attachViaTracefs = "tracefs"
-)
-
 // tracefsMounts are the two places the kernel exposes tracefs, newest first.
 var tracefsMounts = []string{"/sys/kernel/tracing", "/sys/kernel/debug/tracing"}
-
-// uprobeAttachment is an attached probe. Closing it detaches the BPF program
-// and removes the tracefs event; leaving events behind would accumulate across
-// agent restarts until the kernel's limit is hit.
-type uprobeAttachment struct {
-	perfFD     int
-	eventsPath string
-	group      string
-	name       string
-}
-
-func (a *uprobeAttachment) Close() error {
-	var errs []error
-	if a.perfFD >= 0 {
-		if err := unix.Close(a.perfFD); err != nil {
-			errs = append(errs, fmt.Errorf("close perf event: %w", err))
-		}
-		a.perfFD = -1
-	}
-	if a.eventsPath != "" {
-		if err := appendToFile(a.eventsPath, fmt.Sprintf("-:%s/%s\n", a.group, a.name)); err != nil {
-			errs = append(errs, fmt.Errorf("remove tracefs event %s/%s: %w", a.group, a.name, err))
-		}
-		a.eventsPath = ""
-	}
-	return errors.Join(errs...)
-}
 
 // findTracefs returns the mounted tracefs directory that has uprobe_events.
 func findTracefs() (string, error) {
@@ -95,98 +60,6 @@ func findTracefs() (string, error) {
 		tried = append(tried, p)
 	}
 	return "", fmt.Errorf("tracefs is not mounted (looked for %s). In a container it must be mounted from the host", strings.Join(tried, ", "))
-}
-
-// attachUprobeViaTracefs registers a uprobe on symbol in libPath and attaches
-// prog to it. ret selects a return probe.
-func attachUprobeViaTracefs(libPath, symbol string, prog *cebpf.Program, ret bool) (*uprobeAttachment, error) {
-	if prog == nil {
-		return nil, errors.New("uprobe: program is nil")
-	}
-	att, err := openUprobePerfEvent(libPath, symbol, ret)
-	if err != nil {
-		return nil, err
-	}
-	if err := unix.IoctlSetInt(att.perfFD, unix.PERF_EVENT_IOC_SET_BPF, prog.FD()); err != nil {
-		_ = att.Close()
-		return nil, fmt.Errorf("uprobe: attach program to %s/%s: %w", att.group, att.name, err)
-	}
-	if err := unix.IoctlSetInt(att.perfFD, unix.PERF_EVENT_IOC_ENABLE, 0); err != nil {
-		_ = att.Close()
-		return nil, fmt.Errorf("uprobe: enable %s/%s: %w", att.group, att.name, err)
-	}
-	return att, nil
-}
-
-// openUprobePerfEvent does everything up to attaching a BPF program: resolve
-// the symbol, register the probe in tracefs, open the perf event.
-//
-// It is separate so the PRIVILEGE question can be measured without a compiled
-// BPF object. D-01 turns on whether this path works under the agent's
-// documented CAP_BPF+CAP_PERFMON, where the perf uprobe PMU demanded
-// CAP_SYS_ADMIN (DPR-126); every step that could refuse is in here.
-func openUprobePerfEvent(libPath, symbol string, ret bool) (*uprobeAttachment, error) {
-	f, err := elf.Open(libPath)
-	if err != nil {
-		return nil, fmt.Errorf("uprobe: open %q: %w", libPath, err)
-	}
-	defer f.Close()
-	offset, err := symbolFileOffset(f, symbol)
-	if err != nil {
-		return nil, fmt.Errorf("uprobe: %q in %q: %w", symbol, libPath, err)
-	}
-
-	dir, err := findTracefs()
-	if err != nil {
-		return nil, fmt.Errorf("uprobe: %w", err)
-	}
-	eventsPath := filepath.Join(dir, "uprobe_events")
-
-	// A fresh name per attach: two agents, or one agent across a restart that
-	// did not clean up, must not collide on a kernel-global event name.
-	// Through internal/crypto, the repo's only crypto door (§7.3). Uniqueness
-	// is what this needs rather than unpredictability, but the guard is
-	// absolute on purpose and there is no reason to argue with it here.
-	suffix, err := crypto.Random(6)
-	if err != nil {
-		return nil, fmt.Errorf("uprobe: name: %w", err)
-	}
-	group := "probectl"
-	name := fmt.Sprintf("%s_%s", sanitizeEventName(symbol), hex.EncodeToString(suffix))
-
-	line, err := uprobeEventLine(ret, group, name, libPath, offset)
-	if err != nil {
-		return nil, fmt.Errorf("uprobe: %w", err)
-	}
-	if err := appendToFile(eventsPath, line); err != nil {
-		return nil, fmt.Errorf("uprobe: register %s at %s+0x%x: %w", symbol, libPath, offset, err)
-	}
-	att := &uprobeAttachment{perfFD: -1, eventsPath: eventsPath, group: group, name: name}
-
-	id, err := readTraceEventID(dir, group, name)
-	if err != nil {
-		_ = att.Close()
-		return nil, fmt.Errorf("uprobe: %w", err)
-	}
-
-	attr := unix.PerfEventAttr{
-		Type:        unix.PERF_TYPE_TRACEPOINT,
-		Config:      uint64(id),
-		Size:        uint32(unsafe.Sizeof(unix.PerfEventAttr{})),
-		Sample_type: unix.PERF_SAMPLE_RAW,
-		Sample:      1,
-		Wakeup:      1,
-	}
-	// pid -1 with cpu 0 is the system-wide form: the perf event is the
-	// attachment's lifetime handle, and the BPF program runs for hits on every
-	// CPU regardless of which one this event names.
-	fd, err := unix.PerfEventOpen(&attr, -1, 0, -1, unix.PERF_FLAG_FD_CLOEXEC)
-	if err != nil {
-		_ = att.Close()
-		return nil, fmt.Errorf("uprobe: open perf event for %s/%s: %w", group, name, err)
-	}
-	att.perfFD = fd
-	return att, nil
 }
 
 // uprobeEventLine builds the command the kernel parses out of uprobe_events.
@@ -271,4 +144,102 @@ func sanitizeEventName(s string) string {
 		out = out[:40]
 	}
 	return out
+}
+
+// uprobeAttachment is an attached probe. Closing it detaches the BPF program
+// and removes the tracefs event; leaving events behind would accumulate across
+// agent restarts until the kernel's limit is hit.
+type uprobeAttachment struct {
+	perfFD     int
+	eventsPath string
+	group      string
+	name       string
+}
+
+func (a *uprobeAttachment) Close() error {
+	var errs []error
+	if a.perfFD >= 0 {
+		if err := unix.Close(a.perfFD); err != nil {
+			errs = append(errs, fmt.Errorf("close perf event: %w", err))
+		}
+		a.perfFD = -1
+	}
+	if a.eventsPath != "" {
+		if err := appendToFile(a.eventsPath, fmt.Sprintf("-:%s/%s\n", a.group, a.name)); err != nil {
+			errs = append(errs, fmt.Errorf("remove tracefs event %s/%s: %w", a.group, a.name, err))
+		}
+		a.eventsPath = ""
+	}
+	return errors.Join(errs...)
+}
+
+// openUprobePerfEvent does everything up to attaching a BPF program: resolve
+// the symbol, register the probe in tracefs, open the perf event.
+//
+// It is separate so the PRIVILEGE question can be measured without a compiled
+// BPF object. D-01 turns on whether this path works under the agent's
+// documented CAP_BPF+CAP_PERFMON, where the perf uprobe PMU demanded
+// CAP_SYS_ADMIN (DPR-126); every step that could refuse is in here.
+func openUprobePerfEvent(libPath, symbol string, ret bool) (*uprobeAttachment, error) {
+	f, err := elf.Open(libPath)
+	if err != nil {
+		return nil, fmt.Errorf("uprobe: open %q: %w", libPath, err)
+	}
+	defer f.Close()
+	offset, err := symbolFileOffset(f, symbol)
+	if err != nil {
+		return nil, fmt.Errorf("uprobe: %q in %q: %w", symbol, libPath, err)
+	}
+
+	dir, err := findTracefs()
+	if err != nil {
+		return nil, fmt.Errorf("uprobe: %w", err)
+	}
+	eventsPath := filepath.Join(dir, "uprobe_events")
+
+	// A fresh name per attach: two agents, or one agent across a restart that
+	// did not clean up, must not collide on a kernel-global event name.
+	// Through internal/crypto, the repo's only crypto door (§7.3). Uniqueness
+	// is what this needs rather than unpredictability, but the guard is
+	// absolute on purpose and there is no reason to argue with it here.
+	suffix, err := crypto.Random(6)
+	if err != nil {
+		return nil, fmt.Errorf("uprobe: name: %w", err)
+	}
+	group := "probectl"
+	name := fmt.Sprintf("%s_%s", sanitizeEventName(symbol), hex.EncodeToString(suffix))
+
+	line, err := uprobeEventLine(ret, group, name, libPath, offset)
+	if err != nil {
+		return nil, fmt.Errorf("uprobe: %w", err)
+	}
+	if err := appendToFile(eventsPath, line); err != nil {
+		return nil, fmt.Errorf("uprobe: register %s at %s+0x%x: %w", symbol, libPath, offset, err)
+	}
+	att := &uprobeAttachment{perfFD: -1, eventsPath: eventsPath, group: group, name: name}
+
+	id, err := readTraceEventID(dir, group, name)
+	if err != nil {
+		_ = att.Close()
+		return nil, fmt.Errorf("uprobe: %w", err)
+	}
+
+	attr := unix.PerfEventAttr{
+		Type:        unix.PERF_TYPE_TRACEPOINT,
+		Config:      uint64(id),
+		Size:        uint32(unsafe.Sizeof(unix.PerfEventAttr{})),
+		Sample_type: unix.PERF_SAMPLE_RAW,
+		Sample:      1,
+		Wakeup:      1,
+	}
+	// pid -1 with cpu 0 is the system-wide form: the perf event is the
+	// attachment's lifetime handle, and the BPF program runs for hits on every
+	// CPU regardless of which one this event names.
+	fd, err := unix.PerfEventOpen(&attr, -1, 0, -1, unix.PERF_FLAG_FD_CLOEXEC)
+	if err != nil {
+		_ = att.Close()
+		return nil, fmt.Errorf("uprobe: open perf event for %s/%s: %w", group, name, err)
+	}
+	att.perfFD = fd
+	return att, nil
 }
