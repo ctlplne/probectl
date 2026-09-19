@@ -840,6 +840,21 @@ jobs:
         # the fix is to supply the server, exactly as kafka and clickhouse are
         # supplied above.
         run: docker compose -f deploy/compose/dev.yml up -d --wait nats
+      - name: Permit unprivileged datagram ICMP (DPR-221 — the loopback probe tests need a socket)
+        # DPR-221: TestICMPLoopback (both 127.0.0.1 and ::1) and TestRunLoopback
+        # died on "icmp: open socket: socket: permission denied". Both deliberately
+        # use the UNPRIVILEGED datagram path — NewICMP falls back from raw to
+        # SOCK_DGRAM, and the tracer asserts
+        # MeasurementFidelity.AcquisitionMode == "icmp_datagram" — so they need no
+        # capability, only a ping_group_range that includes the test process's
+        # group. ubuntu-latest ships "1 0", an empty range that admits nobody.
+        # Grant exactly the runner's own gid, not the whole 0..2147483647 span.
+        # The privileged raw lane stays where it belongs, in path-raw-live.
+        run: |
+          set -euo pipefail
+          gid="$(id -g)"
+          sudo sysctl -w "net.ipv4.ping_group_range=$gid $gid"
+          echo "ping_group_range=$(cat /proc/sys/net/ipv4/ping_group_range) for gid $gid"
       - name: Install hash-locked BGP analyzer runtime dependency
         run: python3 -m pip install --require-hashes -r analyzer/requirements.lock
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
