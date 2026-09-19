@@ -121,11 +121,25 @@ func (co *Coordinator) runResponder(ctx context.Context, client *Client, task *a
 		co.log.Error("a2a responder listen failed", "session", task.GetSessionId(), "error", err.Error())
 		return
 	}
-	_, portStr, _ := net.SplitHostPort(resp.Addr())
-	port, _ := strconv.Atoi(portStr)
+	// DPR-246: both errors were discarded, so a listener address this code could
+	// not parse was reported to the peer as port 0 — a measurement endpoint nobody
+	// can reach, indistinguishable from a healthy one. ParseUint with an explicit
+	// 16-bit width also makes the uint32 conversion below provably in range
+	// instead of relying on the address happening to be well formed.
+	_, portStr, splitErr := net.SplitHostPort(resp.Addr())
+	if splitErr != nil {
+		co.log.Warn("a2a: cannot parse responder address", "addr", resp.Addr(), "error", splitErr.Error())
+		return
+	}
+	port64, portErr := strconv.ParseUint(portStr, 10, 16)
+	if portErr != nil {
+		co.log.Warn("a2a: responder address has no usable port", "addr", resp.Addr(), "error", portErr.Error())
+		return
+	}
+	port := uint32(port64)
 
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	err = client.ReportEndpoint(rctx, task.GetSessionId(), co.advertise, uint32(port))
+	err = client.ReportEndpoint(rctx, task.GetSessionId(), co.advertise, port)
 	cancel()
 	if err != nil {
 		co.log.Error("a2a report endpoint failed", "session", task.GetSessionId(), "error", err.Error())

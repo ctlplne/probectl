@@ -93,6 +93,10 @@ const (
 // The eBPF service map / BGP / DNS plug into the same Observation input as those
 // sources are wired. Results are ranked, thresholded, deduped, schema-validated,
 // and returned as proposals only.
+// maxInt is the largest value an int holds on this platform, used to saturate
+// a uint64 row count instead of letting the conversion wrap (DPR-246).
+const maxInt = uint64(^uint(0) >> 1)
+
 func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error {
 	principal := auth.PrincipalFrom(r.Context())
 	if principal == nil {
@@ -156,9 +160,14 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 				if row.Flows < discoverFlowMinCount {
 					continue
 				}
-				count := int(row.Flows)
-				if row.Flows > uint64(^uint(0)>>1) {
-					count = int(^uint(0) >> 1)
+				// DPR-246: bound BEFORE converting, not after. The old code did
+				// count := int(row.Flows) and then corrected it, so on a value above
+				// MaxInt the conversion had already wrapped negative and the
+				// correctness depended on the follow-up check rather than on the
+				// conversion being safe.
+				count := int(maxInt)
+				if row.Flows <= maxInt {
+					count = int(row.Flows)
 				}
 				obs = append(obs, author.Observation{
 					Target: row.Key,

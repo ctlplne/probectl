@@ -173,3 +173,49 @@ func exportRows(t *testing.T, store flowstore.Store, tenantID string) []flowstor
 	}
 	return rows
 }
+
+// TestParseUnixSecondsRejectsOutOfRange (DPR-246) is the CodeQL
+// go/incorrect-integer-conversion finding on this file, made concrete.
+//
+// The field is a timestamp in a CLOUD PROVIDER's flow log — third-party content,
+// which §7 guardrail 10 says is untrusted. It was parsed as uint64 and converted
+// straight to int64 for time.Unix, so an out-of-range value did not fail to
+// import; it imported with a nonsense timestamp. Measured on the unbounded code:
+// 2^63 became 292277026596-12-04T15:30:08Z, and max uint64 (which is int64 -1)
+// became 1969-12-31T23:59:59Z. Either way the record lands silently outside every
+// retention and query window instead of being rejected as malformed.
+func TestParseUnixSecondsRejectsOutOfRange(t *testing.T) {
+	// 2^63 is a legal uint64 and a negative int64; unbounded, time.Unix turned it
+	// into the year 292277026596.
+	const wraps = "9223372036854775808" // 2^63
+	if got, err := parseUnixSeconds(wraps); err == nil {
+		t.Errorf("parseUnixSeconds(%s) = %s with no error; a value that wraps int64 must be refused",
+			wraps, got.Format(time.RFC3339))
+	}
+	for _, in := range []string{
+		"18446744073709551615", // max uint64
+		"253402300800",         // one second past the bound
+	} {
+		if _, err := parseUnixSeconds(in); err == nil {
+			t.Errorf("parseUnixSeconds(%s) accepted an out-of-range timestamp", in)
+		}
+	}
+	// And the ordinary cases still work, including the exact bound.
+	for in, want := range map[string]int64{
+		"0":            0,
+		"1757980800":   1757980800,
+		"253402300799": 253402300799, // the bound itself is valid
+	} {
+		got, err := parseUnixSeconds(in)
+		if err != nil {
+			t.Errorf("parseUnixSeconds(%s) errored: %v", in, err)
+			continue
+		}
+		if got.Unix() != want {
+			t.Errorf("parseUnixSeconds(%s) = %d, want %d", in, got.Unix(), want)
+		}
+		if got.Location() != time.UTC {
+			t.Errorf("parseUnixSeconds(%s) is not UTC: %s", in, got.Location())
+		}
+	}
+}

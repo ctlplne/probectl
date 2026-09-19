@@ -546,10 +546,25 @@ func parseAzureProtocol(s string) (uint8, error) {
 	}
 }
 
+// maxUnixSeconds bounds a cloud flow log's timestamp field. Year 9999 is far
+// past any retention window and still leaves int64 seconds room to spare.
+const maxUnixSeconds = 253402300799 // 9999-12-31T23:59:59Z
+
+// parseUnixSeconds reads an epoch-seconds field from a cloud provider's flow log.
+//
+// DPR-246: the value is third-party content and §7 guardrail 10 says fetched
+// content is untrusted, so the range is checked rather than assumed. Without the
+// bound an out-of-range value did not fail — it produced a nonsense timestamp:
+// 2^63 became the year 292277026596, and max uint64 (int64 -1) became 1969. Either
+// way the record was filed silently outside every retention and query window
+// instead of being rejected as malformed.
 func parseUnixSeconds(s string) (time.Time, error) {
 	n, err := parseUint(strings.TrimSpace(s))
 	if err != nil {
 		return time.Time{}, err
+	}
+	if n > maxUnixSeconds {
+		return time.Time{}, fmt.Errorf("timestamp %d is out of range (max %d)", n, maxUnixSeconds)
 	}
 	return time.Unix(int64(n), 0).UTC(), nil
 }
