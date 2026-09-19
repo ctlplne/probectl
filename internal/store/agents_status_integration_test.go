@@ -28,7 +28,15 @@ func TestAgentStatusDecaysWithoutHeartbeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const id = "7c2c4a4e-8d3f-4d1c-9c3a-2f6a0a1b9e01"
+	// DPR-232: a FRESH id per run. `agents.id` is the primary key and is global,
+	// while this test mints a new tenant every time, so a hard-coded id makes the
+	// second run against the same database re-register another tenant's row:
+	// Register's ON CONFLICT (id) DO UPDATE hits a row RLS will not let this
+	// tenant see, and Postgres refuses with 42501 "new row violates row-level
+	// security policy (USING expression)". The integration job does exactly that
+	// — `make test-integration` then a second internal/store run for the U-057
+	// coverage floor — so it only stayed hidden while the first run was failing.
+	id := covUUID(t)
 	status := func() string {
 		var st string
 		inTenant(ctx, t, pool, tn.ID, func(ctx context.Context, sc tenancy.Scope) error {
