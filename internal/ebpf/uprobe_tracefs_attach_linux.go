@@ -11,11 +11,6 @@ package ebpf
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"unsafe"
 
 	cebpf "github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
