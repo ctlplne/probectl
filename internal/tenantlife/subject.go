@@ -177,6 +177,21 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		exact:    []string{"user_id"},
 		contains: []string{"question", "comment"},
 	},
+	// DPR-214: migrations 0095/0096/0099 added four tenant-owned tables without
+	// classifying them here, and subject erasure fails closed on anything it
+	// cannot classify — correctly, since the alternative is leaving a subject's
+	// rows behind and reporting success. That refusal is what CI's integration
+	// job has been failing on.
+	"alert_active_state": {
+		plane: "postgres:alert_active_state", disposition: subjectTableDeleteMatches,
+		// labels carry whatever the rule matched on, and reason is free text an
+		// operator writes — the same shape as alert_evaluation_receipts and
+		// incident_correlation_overrides respectively.
+		contains: []string{"labels", "reason"},
+	},
+	// Per-tenant evaluator heartbeat: tenant_id, evaluated_at, interval, updated_at.
+	// There is no subject-bearing column to match on.
+	"alert_evaluator_status": {plane: "postgres:alert_evaluator_status", disposition: subjectTableNoSubject},
 	"alert_evaluation_receipts": {
 		plane: "postgres:alert_evaluation_receipts", disposition: subjectTableDeleteMatches,
 		contains: []string{"labels"},
@@ -200,6 +215,16 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:change_events", disposition: subjectTableDeleteMatches,
 		exact:    []string{"actor", "target"},
 		contains: []string{"title", "summary", "attributes"},
+	},
+	// One row per (policy, rule) already alerted on: both are policy identifiers
+	// from the compliance engine, never a subject.
+	"compliance_alerted": {plane: "postgres:compliance_alerted", disposition: subjectTableNoSubject},
+	// budget_key is the cost signal's Target, and every other table storing a
+	// target matches on it exactly (change_events, incident_signals, incidents,
+	// incident_correlation_overrides).
+	"cost_budget_alerted": {
+		plane: "postgres:cost_budget_alerted", disposition: subjectTableDeleteMatches,
+		exact: []string{"budget_key"},
 	},
 	"dashboard_report_artifacts": {
 		plane: "postgres:dashboard_report_artifacts", disposition: subjectTableDeleteMatches,
