@@ -104,7 +104,11 @@ const DEMO_PATH: Path = {
     { ttl: 1, nodes: [pathNode('198.51.100.1', 1)] },
     {
       ttl: 2,
-      nodes: [pathNode('198.51.100.21', 3), pathNode('198.51.100.22', 4), pathNode('198.51.100.23', 5)],
+      nodes: [
+        pathNode('198.51.100.21', 3),
+        pathNode('198.51.100.22', 4),
+        pathNode('198.51.100.23', 5),
+      ],
     },
     {
       ttl: 3,

@@ -167,7 +167,9 @@ export function formatDuration(seconds: number, locale: string = DEFAULT_LOCALE)
     if (parts.length === 2) break
   }
   if (parts.length === 0) {
-    return numberFormatter(locale, { style: 'unit', unit: 'second', unitDisplay: 'narrow' }).format(0)
+    return numberFormatter(locale, { style: 'unit', unit: 'second', unitDisplay: 'narrow' }).format(
+      0,
+    )
   }
   return parts.join(' ')
 }

@@ -26,11 +26,16 @@ describe('break-glass consent', () => {
     expect(row).toHaveTextContent('read')
     expect(await axe(container)).toHaveNoViolations()
 
-    await userEvent.click(within(table).getByRole('button', { name: 'Approve operator@provider.probectl.test' }))
+    await userEvent.click(
+      within(table).getByRole('button', { name: 'Approve operator@provider.probectl.test' }),
+    )
     await waitFor(() =>
       expect(within(table).queryByText('operator@provider.probectl.test')).toBeNull(),
     )
-    expect(screen.getByText(/Approved: operator@provider.probectl.test/)).toHaveAttribute('role', 'status')
+    expect(screen.getByText(/Approved: operator@provider.probectl.test/)).toHaveAttribute(
+      'role',
+      'status',
+    )
     expect(screen.getByText('No pending requests')).toBeInTheDocument()
   })
 
@@ -38,11 +43,16 @@ describe('break-glass consent', () => {
     vi.stubGlobal('fetch', providerFetch())
     renderApp('/admin', admin)
     const table = await screen.findByRole('table', { name: 'Pending break-glass requests' })
-    await userEvent.click(within(table).getByRole('button', { name: 'Deny operator@provider.probectl.test' }))
+    await userEvent.click(
+      within(table).getByRole('button', { name: 'Deny operator@provider.probectl.test' }),
+    )
     await waitFor(() =>
       expect(within(table).queryByText('operator@provider.probectl.test')).toBeNull(),
     )
-    expect(screen.getByText(/Denied: operator@provider.probectl.test/)).toHaveAttribute('role', 'status')
+    expect(screen.getByText(/Denied: operator@provider.probectl.test/)).toHaveAttribute(
+      'role',
+      'status',
+    )
   })
 
   test('is absent when the deployment has no provider plane', async () => {

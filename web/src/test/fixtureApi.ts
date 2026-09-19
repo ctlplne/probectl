@@ -1030,32 +1030,59 @@ function coldFixture(path: string): Response | null {
  * test that adds, grants or revokes never leaks into another test. */
 function seedDirectoryUsers() {
   return [
-  {
-    id: 'fixture-user-operator',
-    tenant_id: '00000000-0000-0000-0000-000000000001',
-    email: 'operator@probectl.test',
-    display_name: 'Test Operator',
-    status: 'active',
-    roles: ['admin'],
-    created_at: '2026-06-04T12:00:00Z',
-    updated_at: '2026-06-04T12:00:00Z',
-  },
-  {
-    id: 'fixture-user-viewer',
-    tenant_id: '00000000-0000-0000-0000-000000000001',
-    email: 'viewer@probectl.test',
-    display_name: 'Read Only',
-    status: 'active',
-    roles: ['viewer'],
-    created_at: '2026-06-04T12:00:00Z',
-    updated_at: '2026-06-04T12:00:00Z',
-  },
-]
+    {
+      id: 'fixture-user-operator',
+      tenant_id: '00000000-0000-0000-0000-000000000001',
+      email: 'operator@probectl.test',
+      display_name: 'Test Operator',
+      status: 'active',
+      roles: ['admin'],
+      created_at: '2026-06-04T12:00:00Z',
+      updated_at: '2026-06-04T12:00:00Z',
+    },
+    {
+      id: 'fixture-user-viewer',
+      tenant_id: '00000000-0000-0000-0000-000000000001',
+      email: 'viewer@probectl.test',
+      display_name: 'Read Only',
+      status: 'active',
+      roles: ['viewer'],
+      created_at: '2026-06-04T12:00:00Z',
+      updated_at: '2026-06-04T12:00:00Z',
+    },
+  ]
 }
 const fixtureDirectoryRoles = [
-  { id: 'role-admin', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'admin', name: 'Administrator', description: 'Full access within the tenant', is_system: true, permissions: ['agent.read', 'agent.write', 'directory.write'], members: 1 },
-  { id: 'role-editor', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'editor', name: 'Editor', description: 'Manage tests, alerts, incidents', is_system: true, permissions: ['test.read', 'test.write'], members: 0 },
-  { id: 'role-viewer', tenant_id: '00000000-0000-0000-0000-000000000001', slug: 'viewer', name: 'Viewer', description: 'Read-only', is_system: true, permissions: ['test.read'], members: 1 },
+  {
+    id: 'role-admin',
+    tenant_id: '00000000-0000-0000-0000-000000000001',
+    slug: 'admin',
+    name: 'Administrator',
+    description: 'Full access within the tenant',
+    is_system: true,
+    permissions: ['agent.read', 'agent.write', 'directory.write'],
+    members: 1,
+  },
+  {
+    id: 'role-editor',
+    tenant_id: '00000000-0000-0000-0000-000000000001',
+    slug: 'editor',
+    name: 'Editor',
+    description: 'Manage tests, alerts, incidents',
+    is_system: true,
+    permissions: ['test.read', 'test.write'],
+    members: 0,
+  },
+  {
+    id: 'role-viewer',
+    tenant_id: '00000000-0000-0000-0000-000000000001',
+    slug: 'viewer',
+    name: 'Viewer',
+    description: 'Read-only',
+    is_system: true,
+    permissions: ['test.read'],
+    members: 1,
+  },
 ]
 
 export function fixtureFetch(
@@ -1224,7 +1251,9 @@ export function fixtureFetch(
       return jsonResponse(created, 201)
     }
     if (path === '/v1/directory/users' && method === 'POST') {
-      const body = init?.body ? (JSON.parse(String(init.body)) as { email: string; display_name?: string; role?: string }) : { email: '' }
+      const body = init?.body
+        ? (JSON.parse(String(init.body)) as { email: string; display_name?: string; role?: string })
+        : { email: '' }
       const created = {
         id: `fixture-user-${fixtureDirectoryUsers.length + 1}`,
         tenant_id: '00000000-0000-0000-0000-000000000001',
@@ -1242,16 +1271,30 @@ export function fixtureFetch(
     if (bindMatch && method === 'POST') {
       const body = init?.body ? (JSON.parse(String(init.body)) as { role: string }) : { role: '' }
       const user = fixtureDirectoryUsers.find((u) => u.id === bindMatch[1])
-      if (!user) return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
+      if (!user)
+        return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
       if (!user.roles.includes(body.role)) user.roles = [...user.roles, body.role].sort()
       return jsonResponse(user)
     }
     const unbindMatch = /^\/v1\/directory\/users\/([^/]+)\/roles\/([^/]+)$/.exec(path)
     if (unbindMatch && method === 'DELETE') {
       const user = fixtureDirectoryUsers.find((u) => u.id === unbindMatch[1])
-      if (!user) return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
-      if (unbindMatch[2] === 'admin' && fixtureDirectoryUsers.filter((u) => u.roles.includes('admin')).length === 1)
-        return jsonResponse({ error: { code: 'conflict', message: 'cannot remove the last administrator of the tenant; grant another administrator first' } }, 409)
+      if (!user)
+        return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
+      if (
+        unbindMatch[2] === 'admin' &&
+        fixtureDirectoryUsers.filter((u) => u.roles.includes('admin')).length === 1
+      )
+        return jsonResponse(
+          {
+            error: {
+              code: 'conflict',
+              message:
+                'cannot remove the last administrator of the tenant; grant another administrator first',
+            },
+          },
+          409,
+        )
       user.roles = user.roles.filter((r) => r !== unbindMatch[2])
       return new Response(null, { status: 204 })
     }
@@ -2364,9 +2407,24 @@ export function fixtureFetch(
     // seq/actor/action/target/data/prev_hash/hash/created_at, plus a cursor.
     if (options.providerPlane && path === '/provider/v1/audit') {
       const rows = [
-        { seq: 3, actor: 'ops@probectl.example', action: 'provider.tenant.provision', target: 'globex-eu' },
-        { seq: 2, actor: 'ops@probectl.example', action: 'provider.operator.login', target: 'ops@probectl.example' },
-        { seq: 1, actor: 'system:bootstrap', action: 'provider.bootstrap', target: 'provider-plane' },
+        {
+          seq: 3,
+          actor: 'ops@probectl.example',
+          action: 'provider.tenant.provision',
+          target: 'globex-eu',
+        },
+        {
+          seq: 2,
+          actor: 'ops@probectl.example',
+          action: 'provider.operator.login',
+          target: 'ops@probectl.example',
+        },
+        {
+          seq: 1,
+          actor: 'system:bootstrap',
+          action: 'provider.bootstrap',
+          target: 'provider-plane',
+        },
       ]
       return jsonResponse({
         items: rows.map((row, index) => ({
@@ -2403,9 +2461,13 @@ export function fixtureFetch(
       const id = path.slice('/provider/v1/consent/'.length)
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
       const grant = pendingConsent.find((g) => g.id === id)
-      if (!grant) return jsonResponse({ error: { code: 'not_found', message: 'grant not found' } }, 404)
+      if (!grant)
+        return jsonResponse({ error: { code: 'not_found', message: 'grant not found' } }, 404)
       if (body.decision !== 'approve' && body.decision !== 'deny')
-        return jsonResponse({ error: { code: 'bad_request', message: 'decision must be approve or deny' } }, 400)
+        return jsonResponse(
+          { error: { code: 'bad_request', message: 'decision must be approve or deny' } },
+          400,
+        )
       pendingConsent = pendingConsent.filter((g) => g.id !== id)
       const decidedAt = '2026-06-04T11:45:00Z'
       return jsonResponse(

@@ -523,7 +523,10 @@ describe('provider console (S-T1)', () => {
     expect(rows[0]).toHaveTextContent('provider.breakglass_request')
     expect(rows[0]).toHaveTextContent('tenant=tn_1')
     expect(rows[1]).toHaveTextContent('provider.tenant_provision')
-    expect(screen.getByRole('link', { name: /Activity/ })).toHaveAttribute('href', '#provider-activity')
+    expect(screen.getByRole('link', { name: /Activity/ })).toHaveAttribute(
+      'href',
+      '#provider-activity',
+    )
 
     const form = screen.getByRole('form', { name: 'Filter activity' })
     await userEvent.type(within(form).getByLabelText('Action contains'), 'breakglass')

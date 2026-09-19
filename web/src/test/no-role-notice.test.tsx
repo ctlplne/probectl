@@ -22,7 +22,9 @@ describe('no-role notice', () => {
     expect(notice).toHaveTextContent('No role yet')
     expect(notice).toHaveTextContent(/signed in as new\.person@example\.test/)
     expect(notice).toHaveTextContent(/ask a tenant administrator/i)
-    expect(notice).toHaveTextContent('probectl-control bootstrap-admin -email new.person@example.test')
+    expect(notice).toHaveTextContent(
+      'probectl-control bootstrap-admin -email new.person@example.test',
+    )
   })
 
   test('a user holding any permission never sees it', async () => {

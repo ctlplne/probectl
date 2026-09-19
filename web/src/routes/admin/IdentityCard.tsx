@@ -266,7 +266,13 @@ export function IdentityCard() {
         </span>
       ),
     },
-    { key: 'status', header: 'Status', render: (u) => <StatusDot tone={u.status === 'active' ? 'success' : 'neutral'} label={u.status} /> },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (u) => (
+        <StatusDot tone={u.status === 'active' ? 'success' : 'neutral'} label={u.status} />
+      ),
+    },
     {
       key: 'roles',
       header: 'Roles',
@@ -454,7 +460,11 @@ export function IdentityCard() {
             onChange={(e) => setPersonRole(e.target.value)}
             options={roleOptions}
           />
-          <Button type="submit" variant="primary" disabled={createPerson.isPending || bindRole.isPending || roleOptions.length === 0}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={createPerson.isPending || bindRole.isPending || roleOptions.length === 0}
+          >
             Grant
           </Button>
         </form>

@@ -276,8 +276,16 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       'Illustrative announcements and withdrawals.',
       ['Time', 'Prefix', 'Origin', 'RPKI', 'Event'],
       [
-        row('bgp-1', ['09:37 UTC', '203.0.113.0/24', 'AS64501', 'Valid', 'Origin changed'], 'warning'),
-        row('bgp-2', ['09:38 UTC', '198.51.100.0/24', 'AS64500', 'Valid', 'Path lengthened'], 'info'),
+        row(
+          'bgp-1',
+          ['09:37 UTC', '203.0.113.0/24', 'AS64501', 'Valid', 'Origin changed'],
+          'warning',
+        ),
+        row(
+          'bgp-2',
+          ['09:38 UTC', '198.51.100.0/24', 'AS64500', 'Valid', 'Path lengthened'],
+          'info',
+        ),
         row('bgp-3', ['09:39 UTC', '192.0.2.0/24', 'AS64500', 'Valid', 'Announced'], 'success'),
       ],
     ),
@@ -355,7 +363,11 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       ['Time', 'Device', 'Change', 'Neighbour'],
       [
         row('devc-1', ['09:31 UTC', 'edge-r1', 'BGP policy updated', 'core-r2'], 'warning'),
-        row('devc-2', ['09:33 UTC', 'tor-sw3', 'MTU changed on ethernet-1/9', 'edge-r1'], 'warning'),
+        row(
+          'devc-2',
+          ['09:33 UTC', 'tor-sw3', 'MTU changed on ethernet-1/9', 'edge-r1'],
+          'warning',
+        ),
         row('devc-3', ['09:35 UTC', 'core-r2', 'No change', 'edge-r1, tor-sw3'], 'success'),
       ],
     ),
