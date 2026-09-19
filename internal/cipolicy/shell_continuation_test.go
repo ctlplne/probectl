@@ -352,3 +352,19 @@ func declaresShell(step string) bool {
 	}
 	return false
 }
+
+// workflowFiles lists every workflow yml by name.
+func workflowFiles(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(repoRoot(t), ".github", "workflows"))
+	if err != nil {
+		t.Fatalf("read workflows: %v", err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yml") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
