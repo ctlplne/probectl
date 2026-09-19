@@ -172,3 +172,183 @@ func continuationScanTargets(t *testing.T, root string) []string {
 	}
 	return out
 }
+
+// TestContainerJobStepsDeclareBashWhenTheyUseIt (DPR-233): inside a `container:`
+// job a `run:` block's default shell is `sh`, which on Debian/Ubuntu images is
+// dash. Bash-only syntax there does not degrade — the step dies immediately with
+// "Illegal option -o pipefail", before running anything it was meant to run.
+//
+// DPR-222 added a `set -euo pipefail` guard to the browser-worker job, which runs
+// in the pinned Playwright image, and turned that job from green into a step that
+// never executed its own test. So the rule is mechanical: a step in a container
+// job whose script uses bash-only syntax must declare `shell: bash` (or the job
+// must default to it).
+func TestContainerJobStepsDeclareBashWhenTheyUseIt(t *testing.T) {
+	// Bash-only constructs that dash rejects outright.
+	bashOnly := []string{"pipefail", "[[", "<<<", "PIPESTATUS", "function ", "local -", "declare -"}
+	var violations []string
+	checked := 0
+	for _, rel := range containerJobWorkflows(t) {
+		body := readRepoFile(t, ".github", "workflows", rel)
+		for _, job := range containerJobBlocks(body) {
+			if jobDefaultsToBash(job.text) {
+				continue
+			}
+			checked++
+			for _, st := range runBlocks(job.text) {
+				if declaresShell(st.text) {
+					continue
+				}
+				for _, tok := range bashOnly {
+					if strings.Contains(st.script, tok) {
+						violations = append(violations,
+							rel+" job "+job.name+" step at line "+strconv.Itoa(st.line)+" uses "+strconv.Quote(tok))
+						break
+					}
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("found no container jobs to check; the guard's reach collapsed")
+	}
+	if len(violations) != 0 {
+		t.Fatalf("a container job's default shell is sh (dash) — add `shell: bash` to these steps:\n  %s",
+			strings.Join(violations, "\n  "))
+	}
+}
+
+type ciJob struct {
+	name string
+	text string
+}
+
+type ciStep struct {
+	line   int
+	text   string
+	script string
+}
+
+// containerJobWorkflows lists the workflow files that declare at least one
+// container job.
+func containerJobWorkflows(t *testing.T) []string {
+	t.Helper()
+	dir := filepath.Join(repoRoot(t), ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read workflows: %v", err)
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") {
+			continue
+		}
+		b, rerr := os.ReadFile(filepath.Join(dir, e.Name()))
+		if rerr != nil {
+			t.Fatalf("read %s: %v", e.Name(), rerr)
+		}
+		if strings.Contains(string(b), "\n    container:") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// containerJobBlocks splits a workflow into its jobs and returns only those
+// declaring a container.
+func containerJobBlocks(body string) []ciJob {
+	var out []ciJob
+	lines := strings.Split(body, "\n")
+	starts := []int{}
+	names := []string{}
+	for i, ln := range lines {
+		if len(ln) > 2 && ln[0] == ' ' && ln[1] == ' ' && ln[2] != ' ' && strings.HasSuffix(strings.TrimRight(ln, " "), ":") {
+			starts = append(starts, i)
+			names = append(names, strings.TrimSuffix(strings.TrimSpace(ln), ":"))
+		}
+	}
+	for i, s := range starts {
+		e := len(lines)
+		if i+1 < len(starts) {
+			e = starts[i+1]
+		}
+		text := strings.Join(lines[s:e], "\n")
+		if strings.Contains(text, "\n    container:") {
+			out = append(out, ciJob{name: names[i], text: text})
+		}
+	}
+	return out
+}
+
+// jobDefaultsToBash reports whether the job sets bash as its default run shell.
+func jobDefaultsToBash(job string) bool {
+	i := strings.Index(job, "\n    defaults:")
+	if i < 0 {
+		return false
+	}
+	window := job[i:]
+	if j := strings.Index(window[1:], "\n    "); j > 0 {
+		// Stay inside the defaults: block plus its nested lines.
+		for _, ln := range strings.Split(window, "\n") {
+			t := strings.TrimSpace(ln)
+			if strings.HasPrefix(t, "shell:") {
+				return strings.Contains(t, "bash")
+			}
+		}
+	}
+	return false
+}
+
+// runBlocks returns each `run:` script in a job, with the line it starts on.
+func runBlocks(job string) []ciStep {
+	var out []ciStep
+	lines := strings.Split(job, "\n")
+	for i, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if t != "run: |" && !strings.HasPrefix(t, "run: |") && !strings.HasPrefix(t, "run: ") {
+			continue
+		}
+		indent := len(ln) - len(strings.TrimLeft(ln, " "))
+		script := t
+		// A block scalar's body is every following line indented deeper.
+		for j := i + 1; j < len(lines); j++ {
+			nxt := lines[j]
+			if strings.TrimSpace(nxt) == "" {
+				continue
+			}
+			if len(nxt)-len(strings.TrimLeft(nxt, " ")) <= indent {
+				break
+			}
+			script += "\n" + nxt
+		}
+		// The step's own keys, for the shell: lookup.
+		stepStart := i
+		for stepStart > 0 && !strings.HasPrefix(strings.TrimSpace(lines[stepStart]), "- ") {
+			stepStart--
+		}
+		stepEnd := i
+		for stepEnd+1 < len(lines) {
+			nxt := lines[stepEnd+1]
+			if strings.HasPrefix(strings.TrimSpace(nxt), "- ") && len(nxt)-len(strings.TrimLeft(nxt, " ")) <= indent {
+				break
+			}
+			stepEnd++
+		}
+		out = append(out, ciStep{
+			line:   i + 1,
+			text:   strings.Join(lines[stepStart:stepEnd+1], "\n"),
+			script: script,
+		})
+	}
+	return out
+}
+
+// declaresShell reports whether a step sets its own shell.
+func declaresShell(step string) bool {
+	for _, ln := range strings.Split(step, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ln), "shell:") {
+			return true
+		}
+	}
+	return false
+}

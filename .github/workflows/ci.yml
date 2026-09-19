@@ -437,6 +437,10 @@ jobs:
         # DPR-222: this job IS the opt-in lane for the real-worker smoke, so it
         # must be a hard signal — a skip here would be silent green. Same shape as
         # scripts/path_raw_live_ci.sh for the privileged path lane.
+        # DPR-233: `shell: bash` is required, not cosmetic. This job runs inside a
+        # container, where a `run:` block's default shell is `sh` — dash, which has
+        # no `set -o pipefail` and fails the step with "Illegal option -o pipefail".
+        shell: bash
         run: |
           set -euo pipefail
           log="${RUNNER_TEMP:-/tmp}/probectl-browser-worker-smoke.log"
