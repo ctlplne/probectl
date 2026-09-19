@@ -42,6 +42,25 @@ func TestMainRunsAreNeverCanceledInProgress(t *testing.T) {
 			t.Errorf("cancel-in-progress expression %q must exempt %q", value, want)
 		}
 	}
+
+	// DPR-242: not canceling is only half of it. With one group per REF, a main
+	// run that never CONCLUDES blocks every later main run at `pending` — and
+	// ebpf-kernel-matrix (6.6-arm64) never concludes, because its runner does not
+	// exist (D-13). That happened: a push stayed pending until the previous run was
+	// canceled by hand, which trades an automatic cancellation for a manual one.
+	// Keying main on the commit means a stuck run is stuck alone.
+	group, ok := scalarKey(block, "group")
+	if !ok {
+		t.Fatal("ci.yml's concurrency block declares no group")
+	}
+	if !strings.Contains(group, "github.sha") {
+		t.Errorf("concurrency group %q must key main on github.sha, not on the ref alone: a main run "+
+			"that cannot conclude would otherwise hold every later run at pending (DPR-242)", group)
+	}
+	if !strings.Contains(group, "refs/heads/main") {
+		t.Errorf("concurrency group %q must name refs/heads/main, so branches keep one group per ref "+
+			"and keep the coalescing that cancel-in-progress exists for", group)
+	}
 }
 
 // concurrencyBlock returns the top-level concurrency mapping's text.

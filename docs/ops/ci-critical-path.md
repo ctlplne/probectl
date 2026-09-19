@@ -67,7 +67,14 @@ polls exactly `status`/`conclusion`. That is why v0.6.3's release spent 1824s an
 "timed out waiting for ci to complete" — while its other two gates, `license trust anchor
 present` (6s) and `published components complete` (4s), both PASSED.
 
-Un-cancelling main runs (DPR-235) does not fix this half, and no amount of speed does either.
+Un-canceling main runs (DPR-235) does not fix this half, and no amount of speed does either.
 It needs a decision — provision the runner, or change what arm64 eBPF support claims — which
 is why it is D-13 in `../design-partner-readiness/decisions-needed.md` rather than something
 worked around here.
+
+It also had a second-order cost that DPR-242 had to fix. While `main` shared one concurrency
+group per ref, a run that never concludes HELD that group, so the next push sat at `pending`
+until somebody canceled the stuck run by hand — observed on 2026-09-19, eleven hours after the
+run on `ac90177` started. `main` is now keyed on `github.sha`, so each commit gets its own group
+and a stuck run is stuck alone. Branches still share one group per ref, with cancellation, which
+is what that setting is for.

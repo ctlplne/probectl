@@ -18,12 +18,22 @@ permissions:
 # whose runs are always cancelled can never be released — which is half of why
 # v0.6.3 failed.
 #
-# A main run is now allowed to finish. Pushes queue behind it in the same group
-# instead of destroying it: with a 20m pipeline (measured, see
-# docs/ops/ci-critical-path.md) a queue is a delay, while a cancellation is a
-# permanently missing verdict.
+# A main run is now allowed to finish, and it is given its OWN group so it cannot
+# hold up the next one either.
+#
+# DPR-242: not cancelling was only half of it. With one group per REF, a main run
+# that never concludes blocks every later main run at `pending` indefinitely — and
+# ebpf-kernel-matrix (6.6-arm64) never concludes, because it wants a self-hosted
+# ARM64 KVM runner this account does not have (D-13). Observed directly: the run on
+# ac90177 sat queued for eleven hours and the push after it stayed `pending` until
+# a human cancelled the first by hand. Trading an automatic cancellation for a
+# manual one per push is not a fix.
+#
+# Keying main on the COMMIT gives every commit its own group, so a stuck run is
+# stuck alone. Branches keep one group per ref WITH cancellation, which is what
+# that setting is for: coalescing rapid pushes to a PR.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 env:
