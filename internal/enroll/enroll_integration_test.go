@@ -137,6 +137,20 @@ func TestEnrollHappyPathIssuesTenantBoundSVID(t *testing.T) {
 		t.Fatalf("spiffe id %q does not bind the tenant", id.SPIFFEID)
 	}
 
+	// Issuing an SVID proves identity, not liveness. The registry reservation must
+	// remain non-operational until the holder opens the authenticated mTLS
+	// transport and calls Register/Heartbeat.
+	//
+	// DPR-217: this assertion used to live at the END of the test, AFTER
+	// binding.Verify — and Verify heartbeats the agent on purpose, because a
+	// verified batch IS a bus collector's heartbeat (DPR-082,
+	// internal/pipeline/tenantverify.go). So the test simulated a batch arriving
+	// and then asserted that nothing had arrived, and it has been failing on CI
+	// ever since. In production nothing calls Verify between enrolment and the
+	// agent's first batch. Assert it where it belongs: immediately after
+	// enrolment.
+	assertAgentStatus(ctx, t, pool, tenantID, id.AgentID, "registered", true)
+
 	// The Sprint 4 binding now vouches for the pair (a REAL, repo-issued identity).
 	binding := pipeline.NewRegistryBinding(pool)
 	if err := binding.Verify(ctx, tenantID, id.AgentID); err != nil {
@@ -151,20 +165,41 @@ func TestEnrollHappyPathIssuesTenantBoundSVID(t *testing.T) {
 		t.Fatal("S4 binding vouched for the agent under a foreign tenant")
 	}
 
-	// Issuing an SVID proves identity, not liveness. The registry reservation
-	// must remain non-operational until the holder opens the authenticated mTLS
-	// transport and calls Register/Heartbeat.
-	var enrolled *store.Agent
-	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, scope tenancy.Scope) error {
+	// And now the other half of the same property, which was never asserted: a
+	// verified batch DOES make the agent operational. Verify above is what the
+	// ingest path calls, so by here the agent has been heartbeaten exactly once.
+	assertAgentStatus(ctx, t, pool, tenantID, id.AgentID, "online", false)
+}
+
+// assertAgentStatus reads the agent through the tenant transaction and checks
+// both the derived status and whether it has ever been seen. wantNeverSeen keeps
+// the two apart: "registered" is also what a long-silent agent derives to, so the
+// null last_seen_at is the part that proves nothing has ever connected.
+func assertAgentStatus(
+	ctx context.Context,
+	t *testing.T,
+	pool *pgxpool.Pool,
+	tenantID, agentID, wantStatus string,
+	wantNeverSeen bool,
+) {
+	t.Helper()
+	var got *store.Agent
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, scope tenancy.Scope) error {
 		var getErr error
-		enrolled, getErr = (store.Agents{}).Get(ctx, scope, id.AgentID)
+		got, getErr = (store.Agents{}).Get(ctx, scope, agentID)
 		return getErr
 	})
 	if err != nil {
-		t.Fatalf("get enrolled agent: %v", err)
+		t.Fatalf("get agent %s: %v", agentID, err)
 	}
-	if enrolled.Status != "registered" || enrolled.LastSeenAt != nil {
-		t.Fatalf("enrollment claimed an operational connection: %+v", enrolled)
+	if got.Status != wantStatus {
+		t.Fatalf("agent status = %q, want %q: %+v", got.Status, wantStatus, got)
+	}
+	if wantNeverSeen && got.LastSeenAt != nil {
+		t.Fatalf("agent has never connected but carries last_seen_at %v: %+v", got.LastSeenAt, got)
+	}
+	if !wantNeverSeen && got.LastSeenAt == nil {
+		t.Fatalf("agent should have been seen but last_seen_at is null: %+v", got)
 	}
 }
 
