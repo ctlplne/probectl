@@ -131,54 +131,28 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `@emnapi/runtime` | 1.10.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@emnapi/runtime |
 | npm:web | `@emnapi/wasi-threads` | 1.2.1 | dev/build-only | MIT | web/package-lock.json:node_modules/@emnapi/wasi-threads |
 | npm:web | `@esbuild/aix-ppc64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/aix-ppc64 |
-| npm:web | `@esbuild/aix-ppc64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/aix-ppc64 |
 | npm:web | `@esbuild/android-arm` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/android-arm |
-| npm:web | `@esbuild/android-arm` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/android-arm |
 | npm:web | `@esbuild/android-arm64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/android-arm64 |
-| npm:web | `@esbuild/android-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/android-arm64 |
 | npm:web | `@esbuild/android-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/android-x64 |
-| npm:web | `@esbuild/android-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/android-x64 |
 | npm:web | `@esbuild/darwin-arm64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/darwin-arm64 |
-| npm:web | `@esbuild/darwin-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/darwin-arm64 |
 | npm:web | `@esbuild/darwin-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/darwin-x64 |
-| npm:web | `@esbuild/darwin-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/darwin-x64 |
 | npm:web | `@esbuild/freebsd-arm64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/freebsd-arm64 |
-| npm:web | `@esbuild/freebsd-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/freebsd-arm64 |
 | npm:web | `@esbuild/freebsd-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/freebsd-x64 |
-| npm:web | `@esbuild/freebsd-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/freebsd-x64 |
 | npm:web | `@esbuild/linux-arm` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-arm |
-| npm:web | `@esbuild/linux-arm` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-arm |
 | npm:web | `@esbuild/linux-arm64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-arm64 |
-| npm:web | `@esbuild/linux-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-arm64 |
 | npm:web | `@esbuild/linux-ia32` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-ia32 |
-| npm:web | `@esbuild/linux-ia32` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-ia32 |
 | npm:web | `@esbuild/linux-loong64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-loong64 |
-| npm:web | `@esbuild/linux-loong64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-loong64 |
 | npm:web | `@esbuild/linux-mips64el` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-mips64el |
-| npm:web | `@esbuild/linux-mips64el` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-mips64el |
 | npm:web | `@esbuild/linux-ppc64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-ppc64 |
-| npm:web | `@esbuild/linux-ppc64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-ppc64 |
 | npm:web | `@esbuild/linux-riscv64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-riscv64 |
-| npm:web | `@esbuild/linux-riscv64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-riscv64 |
 | npm:web | `@esbuild/linux-s390x` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-s390x |
-| npm:web | `@esbuild/linux-s390x` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-s390x |
 | npm:web | `@esbuild/linux-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/linux-x64 |
-| npm:web | `@esbuild/linux-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/linux-x64 |
-| npm:web | `@esbuild/netbsd-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/netbsd-arm64 |
 | npm:web | `@esbuild/netbsd-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/netbsd-x64 |
-| npm:web | `@esbuild/netbsd-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/netbsd-x64 |
-| npm:web | `@esbuild/openbsd-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/openbsd-arm64 |
 | npm:web | `@esbuild/openbsd-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/openbsd-x64 |
-| npm:web | `@esbuild/openbsd-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/openbsd-x64 |
-| npm:web | `@esbuild/openharmony-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/openharmony-arm64 |
 | npm:web | `@esbuild/sunos-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/sunos-x64 |
-| npm:web | `@esbuild/sunos-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/sunos-x64 |
 | npm:web | `@esbuild/win32-arm64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/win32-arm64 |
-| npm:web | `@esbuild/win32-arm64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/win32-arm64 |
 | npm:web | `@esbuild/win32-ia32` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/win32-ia32 |
-| npm:web | `@esbuild/win32-ia32` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/win32-ia32 |
 | npm:web | `@esbuild/win32-x64` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@esbuild/win32-x64 |
-| npm:web | `@esbuild/win32-x64` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/@esbuild/win32-x64 |
 | npm:web | `@eslint-community/eslint-utils` | 4.9.1 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint-community/eslint-utils |
 | npm:web | `@eslint-community/regexpp` | 4.12.2 | dev/build-only | MIT | web/package-lock.json:node_modules/@eslint-community/regexpp |
 | npm:web | `@eslint/config-array` | 0.23.5 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/@eslint/config-array |
@@ -317,11 +291,11 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `axe-core` | 3.5.6 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/axe-core |
 | npm:web | `axe-core` | 4.9.1 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/jest-axe/node_modules/axe-core |
 | npm:web | `balanced-match` | 4.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/balanced-match |
-| npm:web | `baseline-browser-mapping` | 2.10.33 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/baseline-browser-mapping |
-| npm:web | `brace-expansion` | 5.0.8 | dev/build-only | MIT | web/package-lock.json:node_modules/brace-expansion |
-| npm:web | `browserslist` | 4.28.2 | dev/build-only | MIT | web/package-lock.json:node_modules/browserslist |
+| npm:web | `baseline-browser-mapping` | 2.11.25 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/baseline-browser-mapping |
+| npm:web | `brace-expansion` | 5.0.12 | dev/build-only | MIT | web/package-lock.json:node_modules/brace-expansion |
+| npm:web | `browserslist` | 4.29.0 | dev/build-only | MIT | web/package-lock.json:node_modules/browserslist |
 | npm:web | `call-bind-apply-helpers` | 1.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/call-bind-apply-helpers |
-| npm:web | `caniuse-lite` | 1.0.30001793 | dev/build-only | CC-BY-4.0 | web/package-lock.json:node_modules/caniuse-lite |
+| npm:web | `caniuse-lite` | 1.0.30001810 | dev/build-only | CC-BY-4.0 | web/package-lock.json:node_modules/caniuse-lite |
 | npm:web | `chai` | 6.2.2 | dev/build-only | MIT | web/package-lock.json:node_modules/chai |
 | npm:web | `chalk` | 4.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/chalk |
 | npm:web | `ci-info` | 4.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/ci-info |
@@ -344,7 +318,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `dom-accessibility-api` | 0.5.16 | dev/build-only | MIT | web/package-lock.json:node_modules/dom-accessibility-api |
 | npm:web | `dom-accessibility-api` | 0.6.3 | dev/build-only | MIT | web/package-lock.json:node_modules/@testing-library/jest-dom/node_modules/dom-accessibility-api |
 | npm:web | `dunder-proto` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/dunder-proto |
-| npm:web | `electron-to-chromium` | 1.5.364 | dev/build-only | ISC | web/package-lock.json:node_modules/electron-to-chromium |
+| npm:web | `electron-to-chromium` | 1.5.433 | dev/build-only | ISC | web/package-lock.json:node_modules/electron-to-chromium |
 | npm:web | `entities` | 6.0.1 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/entities |
 | npm:web | `es-define-property` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/es-define-property |
 | npm:web | `es-errors` | 1.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/es-errors |
@@ -352,7 +326,6 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `es-object-atoms` | 1.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/es-object-atoms |
 | npm:web | `es-set-tostringtag` | 2.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/es-set-tostringtag |
 | npm:web | `esbuild` | 0.21.5 | dev/build-only | MIT | web/package-lock.json:node_modules/esbuild |
-| npm:web | `esbuild` | 0.28.0 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/esbuild |
 | npm:web | `escalade` | 3.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/escalade |
 | npm:web | `escape-string-regexp` | 2.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/stack-utils/node_modules/escape-string-regexp |
 | npm:web | `escape-string-regexp` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/escape-string-regexp |
@@ -455,9 +428,9 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `min-indent` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/min-indent |
 | npm:web | `minimatch` | 10.2.5 | dev/build-only | BlueOak-1.0.0 | web/package-lock.json:node_modules/minimatch |
 | npm:web | `ms` | 2.1.3 | dev/build-only | MIT | web/package-lock.json:node_modules/ms |
-| npm:web | `nanoid` | 3.3.16 | dev/build-only | MIT | web/package-lock.json:node_modules/nanoid |
+| npm:web | `nanoid` | 3.3.19 | dev/build-only | MIT | web/package-lock.json:node_modules/nanoid |
 | npm:web | `natural-compare` | 1.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/natural-compare |
-| npm:web | `node-releases` | 2.0.46 | dev/build-only | MIT | web/package-lock.json:node_modules/node-releases |
+| npm:web | `node-releases` | 2.0.56 | dev/build-only | MIT | web/package-lock.json:node_modules/node-releases |
 | npm:web | `nwsapi` | 2.2.23 | dev/build-only | MIT | web/package-lock.json:node_modules/nwsapi |
 | npm:web | `obug` | 2.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/obug |
 | npm:web | `optionator` | 0.9.4 | dev/build-only | MIT | web/package-lock.json:node_modules/optionator |
@@ -519,7 +492,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `typescript` | 5.9.3 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/typescript |
 | npm:web | `typescript-eslint` | 8.60.0 | dev/build-only | MIT | web/package-lock.json:node_modules/typescript-eslint |
 | npm:web | `undici-types` | 6.21.0 | dev/build-only | MIT | web/package-lock.json:node_modules/undici-types |
-| npm:web | `update-browserslist-db` | 1.2.3 | dev/build-only | MIT | web/package-lock.json:node_modules/update-browserslist-db |
+| npm:web | `update-browserslist-db` | 1.3.3 | dev/build-only | MIT | web/package-lock.json:node_modules/update-browserslist-db |
 | npm:web | `uri-js` | 4.4.1 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/uri-js |
 | npm:web | `vite` | 5.4.21 | dev/build-only | MIT | web/package-lock.json:node_modules/vite |
 | npm:web | `vite` | 8.0.16 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/vite |
@@ -542,21 +515,18 @@ duty in `docs/opendata-aup.md`).
 | python:analyzer | `structlog` | 25.5.0 | runtime | Apache-2.0 | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `attrs` | 26.1.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `black` | 25.11.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `click` | 8.1.8 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `coverage` | 7.10.7 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `exceptiongroup` | 1.3.1 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
+| python:analyzer | `click` | 8.5.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
+| python:analyzer | `coverage` | 7.16.1 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `hypothesis` | 6.141.1 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `iniconfig` | 2.1.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
+| python:analyzer | `iniconfig` | 2.3.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `mypy-extensions` | 1.1.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `packaging` | 26.2 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
+| python:analyzer | `packaging` | 26.3 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pathspec` | 1.1.1 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `platformdirs` | 4.4.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
+| python:analyzer | `platformdirs` | 4.11.11 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pluggy` | 1.6.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `pygments` | 2.20.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
+| python:analyzer | `pygments` | 2.21.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pytest` | 8.4.2 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pytest-cov` | 7.1.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pytokens` | 0.4.1 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `ruff` | 0.15.16 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `sortedcontainers` | 2.4.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `tomli` | 2.4.1 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `typing-extensions` | 4.15.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
