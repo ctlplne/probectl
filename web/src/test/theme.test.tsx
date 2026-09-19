@@ -21,9 +21,16 @@ function Probe() {
   )
 }
 
+// DPR-247: escape EVERY regex metacharacter, not four of them. CodeQL
+// js/incomplete-sanitization is right about the pattern even though the input here
+// is a test literal: `[[\]'.]` misses ( ) * + ? { } | ^ $ - and backslash, so a
+// selector containing any of them would build a regex that silently matches the
+// wrong declaration block — a contrast test that passes while testing nothing.
+const escapeForRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
+
 function colorTokensFor(css: string, selector: string): Set<string> {
   // Grab the declaration block whose selector list contains `selector`.
-  const re = new RegExp(`([^}]*${selector.replace(/[[\]'.]/g, '\\$&')}[^{]*)\\{([^}]*)\\}`)
+  const re = new RegExp(`([^}]*${escapeForRegExp(selector)}[^{]*)\\{([^}]*)\\}`)
   const block = re.exec(css)?.[2] ?? ''
   const names = block.match(/--color-[a-z0-9-]+/g) ?? []
   return new Set(names)

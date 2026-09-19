@@ -19,8 +19,15 @@ interface Pair {
 const TEXT_MIN = 4.5
 const UI_MIN = 3
 
+// DPR-247: escape EVERY regex metacharacter, not four of them. CodeQL
+// js/incomplete-sanitization is right about the pattern even though the input here
+// is a test literal: `[[\]'.]` misses ( ) * + ? { } | ^ $ - and backslash, so a
+// selector containing any of them would build a regex that silently matches the
+// wrong declaration block — a contrast test that passes while testing nothing.
+const escapeForRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
+
 function themeBlock(css: string, selector: string) {
-  const escaped = selector.replace(/[[\]'.]/g, '\\$&')
+  const escaped = escapeForRegExp(selector)
   const match = new RegExp(`([^}]*${escaped}[^{]*)\\{([^}]*)\\}`).exec(css)
   return match?.[2] ?? ''
 }
