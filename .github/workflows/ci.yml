@@ -1346,7 +1346,7 @@ jobs:
           # Overlays are validated MERGED with the base they extend (each file's
           # header documents the `-f <base> -f <overlay>` invocation): they
           # reference the base's networks/services and CANNOT render standalone.
-          declare -A OVERLAY_BASE=( [dr-drill.yml]=dev.yml [eval-synthetic.yml]=eval.yml [license.yml]=probectl.yml [dex-demo.yml]=probectl.yml [provider.yml]=probectl.yml [agents.yml]=probectl.yml )
+          declare -A OVERLAY_BASE=( [dr-drill.yml]=dev.yml [eval-synthetic.yml]=eval.yml [eval-sso.yml]=eval.yml [license.yml]=probectl.yml [dex-demo.yml]=probectl.yml [provider.yml]=probectl.yml [agents.yml]=probectl.yml )
           for f in *.yml; do
             # Only real docker-compose files have a top-level `services:` key.
             # eval-agent.yml (agent canary config) and prometheus.yml (prometheus
