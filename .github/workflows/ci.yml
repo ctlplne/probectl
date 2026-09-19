@@ -664,7 +664,14 @@ jobs:
       - name: Generate + compile the BPF objects (pinned clang/llvm/bpftool toolchain)
         run: |
           set -euo pipefail
-          bash scripts/run-ebpf-toolchain.sh bash -lc '
+          # DPR-213: `bash -c`, NOT `bash -lc`. The toolchain container runs as a
+          # non-root user, and a LOGIN shell sources Debian's /etc/profile, which
+          # rewrites PATH for non-root to
+          # /usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games — dropping
+          # both /usr/sbin, where Debian installs bpftool, and /usr/local/go/bin.
+          # That is why all three matrix rows died on "bpftool: command not
+          # found" despite the image pinning bpftool=7.1.0+6.1.174-1.
+          bash scripts/run-ebpf-toolchain.sh bash -c '
             set -euo pipefail
             bpftool btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/vmlinux.h
             # Single source of truth for the bpf2go compile (vendored -I + the
