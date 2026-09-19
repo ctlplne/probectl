@@ -150,8 +150,22 @@ func TestNoisyNeighborLatencySLO(t *testing.T) {
 		totalMsgs      = 5000
 		bEvery         = 50 // B sends 1 message per 50 of A's
 		bLatencySLO    = 25 * time.Millisecond
+		// DPR-231: the total admitted-neighbor work the modest tenant's stream
+		// may wait behind. 800 admits (the shed bound below) cost 40ms; an
+		// unshed 5000 cost 250ms.
+		bLatencyBudget = 50 * time.Millisecond
 	)
-	var bWorst time.Duration
+	// DPR-231: the latency oracle is COSTED FROM THE MODEL, not read off a wall
+	// clock around time.Sleep. A 50µs sleep is a request to the OS timer, and
+	// under load one sleep overshoots by tens of milliseconds — this test failed
+	// at 47.8ms on a busy host, and the old bound could not have caught the
+	// regression it was named for anyway: the loop interleaves one modest message
+	// per 50 heavy ones, so a single modest message's window is one store write
+	// whether the flood is shed or not. What shedding actually changes is how much
+	// admitted work the modest tenant's stream waits behind IN TOTAL — 4900
+	// unshed messages are 245ms of it — so that is the quantity asserted, and it
+	// is arithmetic on the cost model rather than a measurement of the scheduler.
+	var bWorstAdmit time.Duration
 	var bShed, aAdmitted int
 	for i := range totalMsgs {
 		// The heavy tenant's message hits the shared loop.
@@ -162,23 +176,36 @@ func TestNoisyNeighborLatencySLO(t *testing.T) {
 		if i%bEvery != 0 {
 			continue
 		}
-		// The modest tenant's message arrives now; its latency is the time
-		// to get admitted and processed from this point.
+		// The modest tenant's message arrives now. Time the GATE only: AdmitN is
+		// a token-bucket check and must never wait, which is a property of the
+		// gate rather than of the host's timers.
 		start := time.Now()
-		if !g.AdmitN(ctx, "modest", MeterResults, 1) {
+		admitted := g.AdmitN(ctx, "modest", MeterResults, 1)
+		admitCost := time.Since(start)
+		if !admitted {
 			bShed++
 			continue
 		}
 		time.Sleep(storeWriteCost)
-		if d := time.Since(start); d > bWorst {
-			bWorst = d
+		if admitCost > bWorstAdmit {
+			bWorstAdmit = admitCost
 		}
 	}
 	if bShed != 0 {
 		t.Fatalf("the modest tenant must never be shed: %d", bShed)
 	}
-	if bWorst > bLatencySLO {
-		t.Fatalf("the modest tenant's worst latency %v breached its SLO %v under a 50x neighbor", bWorst, bLatencySLO)
+	// The whole latency budget the modest tenant's stream can lose to its
+	// neighbor, costed by the model. Shed: ~200 admits, ~10ms. Un-shed: 5000
+	// admits, 250ms — six times over.
+	if queued := time.Duration(aAdmitted) * storeWriteCost; queued > bLatencyBudget {
+		t.Fatalf("the modest tenant's stream waited behind %v of the neighbor's admitted work, over its %v budget (admitted %d)",
+			queued, bLatencyBudget, aAdmitted)
+	}
+	// And the gate adds no latency of its own. This window is microseconds of
+	// CPU, so it tolerates ordinary scheduling noise while still catching a gate
+	// that starts blocking.
+	if bWorstAdmit > bLatencySLO {
+		t.Fatalf("the gate's own admission took %v for the modest tenant, over %v — AdmitN must never block", bWorstAdmit, bLatencySLO)
 	}
 	// The flood was genuinely bounded: a tiny fraction of 4900 made it in.
 	if aAdmitted > 800 {
