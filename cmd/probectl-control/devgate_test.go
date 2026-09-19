@@ -84,3 +84,71 @@ func TestRunRefusesUnavailableDevAuthBeforeEnvelopeSetup(t *testing.T) {
 		t.Fatalf("release startup leaked past the authoritative dev-auth refusal: %v", err)
 	}
 }
+
+// DPR-206: the "this binary has no dev auth" refusal used to live only inside
+// validateDevAuthMode, which takes a loaded *config.Config — so a release binary
+// asked for dev mode with nothing else configured refused with
+// "load config: PROBECTL_DATABASE_URL is required". Correct to refuse, wrong
+// thing to say: the operator fixes the database URL, restarts, and only then
+// learns dev auth was never going to work in this build. CI's behavioral check
+// caught exactly this and has been failing on it.
+func TestReleaseBuildRefusesDevAuthBeforeAnyOtherConfig(t *testing.T) {
+	orig := devAuthAvailable
+	devAuthAvailable = func() bool { return false }
+	t.Cleanup(func() { devAuthAvailable = orig })
+
+	// Nothing else set at all: no database URL, no envelope key, no bind address.
+	env := func(k string) string {
+		if k == "PROBECTL_AUTH_MODE" {
+			return "dev"
+		}
+		return ""
+	}
+	err := refuseDevAuthOnReleaseBuild(env)
+	if err == nil {
+		t.Fatal("a release binary must refuse dev auth even with nothing else configured")
+	}
+	if !strings.Contains(err.Error(), "not compiled into this binary") {
+		t.Errorf("the refusal must name the real blocker, got %v", err)
+	}
+	if strings.Contains(err.Error(), "DATABASE_URL") {
+		t.Errorf("the refusal must not be about unrelated config: %v", err)
+	}
+
+	// A build that HAS dev auth is not refused here — the remaining locks (the
+	// typed acknowledgement and the loopback bind) need config and stay in
+	// validateDevAuthMode.
+	devAuthAvailable = func() bool { return true }
+	if err := refuseDevAuthOnReleaseBuild(env); err != nil {
+		t.Errorf("a devauth build must pass this gate and be judged by the other locks: %v", err)
+	}
+
+	// And any other auth mode is none of this gate's business.
+	devAuthAvailable = func() bool { return false }
+	if err := refuseDevAuthOnReleaseBuild(func(string) string { return "session" }); err != nil {
+		t.Errorf("session mode must not be touched: %v", err)
+	}
+}
+
+// The two wordings must stay one wording: CI greps the binary's output for this
+// exact phrase, and so does the test above.
+func TestDevAuthRefusalHasOneWording(t *testing.T) {
+	cfg := &config.Config{AuthMode: "dev"}
+	orig := devAuthAvailable
+	devAuthAvailable = func() bool { return false }
+	t.Cleanup(func() { devAuthAvailable = orig })
+
+	viaConfig := validateDevAuthMode(cfg)
+	viaEnv := refuseDevAuthOnReleaseBuild(func(k string) string {
+		if k == "PROBECTL_AUTH_MODE" {
+			return "dev"
+		}
+		return ""
+	})
+	if viaConfig == nil || viaEnv == nil {
+		t.Fatal("both paths must refuse")
+	}
+	if viaConfig.Error() != viaEnv.Error() {
+		t.Errorf("the same refusal is worded two ways:\n  config path: %v\n  env path:    %v", viaConfig, viaEnv)
+	}
+}

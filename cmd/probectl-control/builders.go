@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -103,6 +104,31 @@ func buildResultPipelineConsumer(
 		WithWriteQueueDepth(cfg.IngestWriteQueue)                                       // SCALE-005
 }
 
+// errDevAuthNotCompiled is the one dev-auth refusal that depends on nothing but
+// the binary itself, so it has exactly one wording wherever it is raised.
+func errDevAuthNotCompiled() error {
+	return errors.New("PROBECTL_AUTH_MODE=dev refused: dev auth is not compiled into this binary (release build). " +
+		"For local evaluation build with -tags devauth (make build-devauth); production uses the default \"session\" mode (RED-001)")
+}
+
+// refuseDevAuthOnReleaseBuild answers the dev-auth lock that needs NO
+// configuration: a release binary simply does not contain the code, and that is
+// true before any environment variable is validated.
+//
+// DPR-206: it used to be checked only inside validateDevAuthMode, which takes a
+// loaded *config.Config — so `PROBECTL_AUTH_MODE=dev` on a release binary with
+// nothing else set refused with "load config: PROBECTL_DATABASE_URL is
+// required". Correct to refuse, wrong thing to say: the operator fixes the
+// database URL, restarts, and only then learns that dev auth was never going to
+// work in this build. The other two locks (the typed acknowledgement and the
+// loopback bind) still need config and stay where they are.
+func refuseDevAuthOnReleaseBuild(getenv func(string) string) error {
+	if getenv("PROBECTL_AUTH_MODE") != "dev" || devAuthAvailable() {
+		return nil
+	}
+	return errDevAuthNotCompiled()
+}
+
 // validateDevAuthMode is the RED-001/SEC-001 startup gate for the explicit
 // local-evaluation auth mode. In ELI5 terms: if the operator asks for the
 // "pretend every request is admin" mode, three locks must all be open:
@@ -113,8 +139,7 @@ func validateDevAuthMode(cfg *config.Config) error {
 		return nil
 	}
 	if !devAuthAvailable() {
-		return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: dev auth is not compiled into this binary (release build). " +
-			"For local evaluation build with -tags devauth (make build-devauth); production uses the default \"session\" mode (RED-001)")
+		return errDevAuthNotCompiled()
 	}
 	if os.Getenv("PROBECTL_DEV_AUTH_ACK") != "i-understand" {
 		return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: set PROBECTL_DEV_AUTH_ACK=i-understand to acknowledge that " +

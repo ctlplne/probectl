@@ -83,6 +83,12 @@ func run(cmd string) error {
 		return err
 	}
 
+	// DPR-206: before the config is even read. A release binary has no dev-auth
+	// code in it, and that answer does not depend on PROBECTL_DATABASE_URL or
+	// anything else being set correctly.
+	if err := refuseDevAuthOnReleaseBuild(os.Getenv); err != nil {
+		return err
+	}
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
