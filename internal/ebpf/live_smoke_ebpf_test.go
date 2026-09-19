@@ -205,7 +205,15 @@ func TestLiveLoadAttachSslsniff(t *testing.T) {
 }
 
 func TestLiveGnuTLSAttach(t *testing.T) {
-	libs, err := discoverTLSProbeLibrariesDefault(os.Getenv("PROBECTL_EBPF_LIBSSL"))
+	// DPR-223: build the config FIRST and pre-check discovery with the same
+	// L7CaptureHostRoot newLiveL7Source will use. DPR-125's follow-up gave
+	// discoverTLSProbeLibrariesDefault a hostRoot parameter and left this
+	// ebpf-tagged call at one argument, so the package stopped compiling under
+	// -tags ebpf; passing the config's own value keeps the precondition and the
+	// attach looking at one rootfs instead of two.
+	cfg := Default()
+	cfg.TenantID = "kernel-matrix"
+	libs, err := discoverTLSProbeLibrariesDefault(os.Getenv("PROBECTL_EBPF_LIBSSL"), cfg.L7CaptureHostRoot)
 	if err != nil {
 		t.Skipf("no supported TLS libraries on this rootfs: %v", err)
 	}
@@ -220,8 +228,6 @@ func TestLiveGnuTLSAttach(t *testing.T) {
 		t.Skip("libgnutls not on this rootfs — GnuTLS attach smoke needs it")
 	}
 
-	cfg := Default()
-	cfg.TenantID = "kernel-matrix"
 	cfg.L7CaptureEnabled = true
 	cfg.L7CaptureConsentTenant = "kernel-matrix"
 	cfg.L7CaptureScope = []string{"pid:" + strconv.Itoa(os.Getpid())}
