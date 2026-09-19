@@ -267,7 +267,13 @@ func TestProviderAuditStreamPagesBothWays(t *testing.T) {
 		t.Fatalf("head: %v", err)
 	}
 	actor := fmt.Sprintf("dpr037-%d@msp.example", time.Now().UnixNano())
-	actions := []string{"provider.tenant_provision", "provider.breakglass_request", "provider.breakglass_revoke"}
+	// DPR-218: three DISTINCT provider actions, none of them break-glass. This
+	// test is about paging a stream both ways, and the actions are only sample
+	// rows — but `provider.breakglass_*` is protected: since the encrypted IR
+	// sidecar landed (0a1f281), ProviderAppend refuses one without IR attribution,
+	// which is correct and is why this test has been failing. Break-glass events
+	// reach the stream through the attributed path, not this one.
+	actions := []string{"provider.tenant_provision", "provider.tenant_configure", "provider.tenant_provision_failure"}
 	for i, action := range actions {
 		if _, err := ProviderAppend(ctx, pool, actor, action, fmt.Sprintf("t-%d", i), map[string]any{"i": i}); err != nil {
 			t.Fatalf("append: %v", err)
@@ -301,12 +307,23 @@ func TestProviderAuditStreamPagesBothWays(t *testing.T) {
 		t.Fatalf("desc before %d = %+v", desc[1].Seq, older)
 	}
 
-	filtered, err := ProviderListFiltered(ctx, pool, head, 1000, Filter{Actor: actor, Action: "BREAKGLASS"})
+	// The action filter is a case-insensitive substring match, so "PROVISION"
+	// selects tenant_provision and tenant_provision_failure but not
+	// tenant_configure. It used to filter on "BREAKGLASS"; break-glass events
+	// cannot be appended through ProviderAppend at all (see the actions above),
+	// and their filtering is covered where they are created properly, in
+	// ir_key_shred_integration_test.go and ir_worm_binding_integration_test.go.
+	filtered, err := ProviderListFiltered(ctx, pool, head, 1000, Filter{Actor: actor, Action: "PROVISION"})
 	if err != nil {
 		t.Fatalf("filtered: %v", err)
 	}
 	if len(filtered) != 2 {
-		t.Fatalf("action filter: want 2 break-glass rows, got %d", len(filtered))
+		t.Fatalf("action filter: want the 2 provision rows, got %d", len(filtered))
+	}
+	for _, ev := range filtered {
+		if !strings.Contains(ev.Action, "provision") {
+			t.Fatalf("action filter returned an unrelated row: %+v", ev)
+		}
 	}
 	after, err := ProviderHeadSeq(ctx, pool)
 	if err != nil {
