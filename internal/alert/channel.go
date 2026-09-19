@@ -14,11 +14,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/smtp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
@@ -151,6 +153,58 @@ func NewSMTPSender(addr, from string, auth smtp.Auth, mode SMTPTLSMode, tlsBase 
 // Send composes a minimal RFC 5322 message and delivers it over a session that
 // is TLS-secured before authentication or content: implicit mode handshakes
 // first; starttls mode refuses a server that does not offer STARTTLS.
+// maxHeaderValue bounds a single header value. RFC 5322 allows 998 octets per
+// line before folding; alert subjects are not the place to exercise that, and a
+// rule name is a label rather than a document.
+const maxHeaderValue = 400
+
+// headerValue makes a string safe to place after "Name: " in a message header.
+//
+// DPR-243: it strips every control character, not just CR and LF. CR/LF are the
+// injection vector — they terminate the header and let the next line be one the
+// attacker chose — but NUL and the rest have no legitimate place in a header
+// either, and an allowlist of "printable plus space" is a rule that stays true
+// as this code changes. Runs of whitespace collapse so a stripped newline does
+// not leave a ragged gap, and the result is bounded.
+func headerValue(v string) string {
+	var b strings.Builder
+	b.Grow(len(v))
+	lastWasSpace := false
+	for _, r := range v {
+		switch {
+		case r == '\r' || r == '\n' || r == '\t' || unicode.IsControl(r):
+			// Collapse to a single space rather than deleting, so two tokens
+			// separated only by a newline do not silently become one word.
+			if !lastWasSpace {
+				b.WriteRune(' ')
+				lastWasSpace = true
+			}
+		case r == ' ':
+			if !lastWasSpace {
+				b.WriteRune(' ')
+				lastWasSpace = true
+			}
+		default:
+			b.WriteRune(r)
+			lastWasSpace = false
+		}
+	}
+	out := strings.TrimSpace(b.String())
+	if len(out) > maxHeaderValue {
+		out = strings.TrimSpace(string([]rune(out)[:min(len([]rune(out)), maxHeaderValue)]))
+	}
+	return out
+}
+
+// encodedSubject sanitizes and then RFC 2047-encodes a subject, so a rule name
+// in any language survives the trip while a rule name containing CRLF cannot
+// forge a header. Sanitizing FIRST is deliberate: Q-encoding would also hide a
+// newline, but only as a side effect of how mime.WordEncoder decides what needs
+// encoding, and a security property should not rest on that.
+func encodedSubject(subject string) string {
+	return mime.QEncoding.Encode("utf-8", headerValue(subject))
+}
+
 func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string) error {
 	host, _, err := net.SplitHostPort(s.addr)
 	if err != nil {
@@ -203,11 +257,21 @@ func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string
 		return fmt.Errorf("smtp: data: %w", err)
 	}
 	msg := strings.Builder{}
-	fmt.Fprintf(&msg, "From: %s\r\n", s.from)
-	fmt.Fprintf(&msg, "To: %s\r\n", strings.Join(to, ", "))
-	fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
+	// DPR-243: every header value is sanitized. A header is CRLF-delimited, so a
+	// value carrying \r or \n does not corrupt the header — it ENDS it and starts
+	// another one the attacker chooses (Bcc:, Reply-To:, or a whole second body).
+	// The subject is built from the rule name, which is tenant-supplied free text
+	// arriving through the rule-create API, so this is untrusted input reaching a
+	// protocol control surface: exactly guardrail 12's "fetched content
+	// untrusted", one layer up.
+	fmt.Fprintf(&msg, "From: %s\r\n", headerValue(s.from))
+	fmt.Fprintf(&msg, "To: %s\r\n", headerValue(strings.Join(to, ", ")))
+	fmt.Fprintf(&msg, "Subject: %s\r\n", encodedSubject(subject))
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	msg.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
+	// The body needs no escaping for structure: Data() returns a
+	// textproto.DotWriter, which dot-stuffs, so a "\r\n.\r\n" in the body cannot
+	// end the DATA section early.
 	msg.WriteString(body)
 	if _, err := io.WriteString(wc, msg.String()); err != nil {
 		_ = wc.Close()

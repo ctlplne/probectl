@@ -247,3 +247,119 @@ func TestSMTPSenderDeliversOverImplicitTLS(t *testing.T) {
 		t.Fatalf("implicit delivery incomplete: plaintext=%v from=%v data=%q", srv.plaintextMailFrom, srv.mailFrom, srv.data)
 	}
 }
+
+// TestSMTPSenderRefusesHeaderInjection (DPR-243) is the CodeQL go/email-injection
+// finding, reproduced and closed. A rule name is tenant-supplied free text — it
+// arrives through the rule-create API and is stored verbatim — and EmailChannel
+// builds the Subject from it. A header is CRLF-delimited, so a rule name carrying
+// \r\n does not corrupt the Subject; it ENDS it, and the next line is whatever the
+// author chose: Bcc to an address the operator never configured, a Reply-To that
+// redirects the reply, or a blank line and a second body entirely.
+//
+// The oracle is the bytes the server received, not the error: delivery must still
+// succeed (an alert must not be suppressible by naming a rule badly) while the
+// message carries exactly the headers probectl wrote.
+func TestSMTPSenderRefusesHeaderInjection(t *testing.T) {
+	serverCfg, clientBase := serverTLS(t, []string{"127.0.0.1"})
+	srv := newFakeSMTP(t, serverCfg, false)
+	sender := NewSMTPSender(srv.addr(), "probectl@example.test", nil, SMTPStartTLS, clientBase)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// What an attacker would put in a rule name, reaching Subject via
+	// EmailChannel.Notify's fmt.Sprintf.
+	hostile := "disk full\r\nBcc: exfil@attacker.test\r\nReply-To: attacker@attacker.test\r\n\r\nInjected body"
+	if err := sender.Send(ctx, []string{"oncall@example.test"}, "[probectl][critical] "+hostile+" firing", "b"); err != nil {
+		t.Fatalf("delivery must still succeed — an alert cannot be suppressible by naming a rule badly: %v", err)
+	}
+
+	srv.mu.Lock()
+	data := srv.data
+	srv.mu.Unlock()
+	if data == "" {
+		t.Fatal("server recorded no message")
+	}
+
+	headers, _, _ := strings.Cut(data, "\r\n\r\n")
+
+	// The oracle is STRUCTURAL, not a substring search. After sanitization the
+	// text "Bcc:" still appears — inside the Subject's value, which is exactly
+	// where it is harmless. What must not exist is a header LINE whose name is
+	// Bcc, so parse the names and compare the set.
+	var names []string
+	for _, line := range strings.Split(headers, "\r\n") {
+		if line == "" || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue // a folded continuation of the previous header, not a new one
+		}
+		name, _, ok := strings.Cut(line, ":")
+		if !ok {
+			t.Errorf("header block contains a line that is not a header: %q", line)
+			continue
+		}
+		names = append(names, name)
+	}
+	want := []string{"From", "To", "Subject", "MIME-Version", "Content-Type"}
+	if len(names) != len(want) {
+		t.Fatalf("message has %d header lines %v, want exactly %v — an extra line means an injected header:\n%s",
+			len(names), names, want, headers)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("header %d = %q, want %q (full headers:\n%s)", i, names[i], want[i], headers)
+		}
+	}
+	// And the injected text is carried as Subject CONTENT, on one line.
+	subjectLines := 0
+	for _, line := range strings.Split(headers, "\r\n") {
+		if strings.HasPrefix(line, "Subject:") {
+			subjectLines++
+			for _, forbidden := range []string{"\r", "\n"} {
+				if strings.Contains(line, forbidden) {
+					t.Errorf("Subject line still carries a raw control byte: %q", line)
+				}
+			}
+		}
+	}
+	if subjectLines != 1 {
+		t.Errorf("found %d Subject lines, want exactly 1:\n%s", subjectLines, headers)
+	}
+	// The text is still carried, just as one safe header value.
+	if !strings.Contains(headers, "disk full") {
+		t.Errorf("the rule name's real text was lost, not just made safe:\n%s", headers)
+	}
+}
+
+// TestHeaderValueSanitization (DPR-243) pins the helper directly, including the
+// cases the injection test cannot reach through Send.
+func TestHeaderValueSanitization(t *testing.T) {
+	for name, tc := range map[string]struct{ in, want string }{
+		"plain":              {"disk usage high", "disk usage high"},
+		"crlf":               {"a\r\nBcc: x@y.z", "a Bcc: x@y.z"},
+		"lone lf":            {"a\nb", "a b"},
+		"lone cr":            {"a\rb", "a b"},
+		"tab":                {"a\tb", "a b"},
+		"nul":                {"a\x00b", "a b"},
+		"collapses runs":     {"a\r\n\r\n   \t b", "a b"},
+		"trims":              {"  a  ", "a"},
+		"keeps unicode":      {"disque plein é 磁盘", "disque plein é 磁盘"},
+		"empty":              {"", ""},
+		"only control chars": {"\r\n\t", ""},
+	} {
+		if got := headerValue(tc.in); got != tc.want {
+			t.Errorf("%s: headerValue(%q) = %q, want %q", name, tc.in, got, tc.want)
+		}
+	}
+	long := strings.Repeat("x", maxHeaderValue*2)
+	if got := headerValue(long); len(got) > maxHeaderValue {
+		t.Errorf("headerValue did not bound a %d-char value: got %d", len(long), len(got))
+	}
+	// A subject is sanitized AND encoded, so no raw control byte can survive and
+	// a non-ASCII rule name still arrives intact.
+	enc := encodedSubject("a\r\nBcc: x@y.z")
+	if strings.ContainsAny(enc, "\r\n") {
+		t.Errorf("encodedSubject kept a control byte: %q", enc)
+	}
+	if got := encodedSubject("磁盘已满"); !strings.HasPrefix(got, "=?utf-8?q?") {
+		t.Errorf("encodedSubject(non-ASCII) = %q, want an RFC 2047 encoded-word", got)
+	}
+}
