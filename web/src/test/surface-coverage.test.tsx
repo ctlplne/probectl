@@ -586,8 +586,17 @@ describe('frontend-coverage gate (S-FE6)', () => {
     )
   })
 
-  test('every native surface renders a real screen — never the placeholder', async () => {
-    for (const route of uniqueRoutes('native')) {
+  // DPR-238: one case PER ROUTE. Every native route is a full app mount plus a
+  // lazy chunk resolving, and there are dozens of them; inside a single test they
+  // shared one 15s budget and the loop timed out — on a slower runner first, and
+  // the timeout then named the loop instead of the route that was slow. Worse, a
+  // test that dies mid-loop never reaches its unmount(), so the NEXT test in this
+  // file inherited a second mounted shell and failed on a duplicate banner
+  // landmark, reporting an a11y violation that did not exist. Same reason
+  // DPR-234 split the telemetry-plane case just above.
+  test.each(uniqueRoutes('native'))(
+    'native surface %s renders a real screen — never the placeholder',
+    async (route) => {
       const { container, findByRole, unmount } = renderApp(route)
       // The shell mounts AFTER the session resolves (/v1/me, SEC-001), so await
       // the <main> landmark rather than asserting synchronously.
@@ -601,11 +610,17 @@ describe('frontend-coverage gate (S-FE6)', () => {
         `${route} is declared native but renders the placeholder`,
       ).not.toMatch(PLACEHOLDER_MARKER)
       unmount()
-    }
-  })
+    },
+  )
 
-  test('each telemetry plane has a deep-linkable native route and passes axe', async () => {
-    for (const plane of TELEMETRY_PLANE_ROUTES) {
+  // DPR-234: one case PER PLANE, not one case looping over four. Rendering the
+  // app and running axe on a single route costs ~15s in this environment, so four
+  // of them inside one test sat exactly on the shared 60s budget and timed out on
+  // a loaded machine — and a timeout named the loop rather than the plane. Each
+  // case now gets its own budget and its own name; the assertions are unchanged.
+  test.each(TELEMETRY_PLANE_ROUTES)(
+    'telemetry plane $route is deep-linkable, selects its tab, and passes axe',
+    async (plane) => {
       const { container, findByRole, unmount } = renderApp(plane.route)
       expect(await findByRole('main'), `${plane.route}: no main landmark`).toBeTruthy()
       const activeTab = await findByRole('tab', { name: plane.tab })
@@ -613,8 +628,9 @@ describe('frontend-coverage gate (S-FE6)', () => {
       const results = await axe(container)
       expect(results, `${plane.route} fails the a11y bar`).toHaveNoViolations()
       unmount()
-    }
-  }, 60_000)
+    },
+    60_000,
+  )
 
   test('every declared file, OpenAPI, and CLI evidence exists', () => {
     expect(evidenceViolations(SURFACES)).toEqual([])
