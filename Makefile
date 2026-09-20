@@ -264,6 +264,11 @@ migration-gate: ## Migration gate (S34/SCHEMA-001/003): reject destructive, lock
 .PHONY: helm-gate
 helm-gate: ## Helm chart lint + secure-by-default hardening assertions (S35). Needs helm.
 	bash scripts/check_helm_hardening.sh
+	@# DPR-258: the release publishes this chart as an OCI artifact and reads the
+	@# digest back out of helm's output. helm writes it to STDERR, which cost
+	@# v0.6.5 a chart that published and then failed. The planted self-test runs
+	@# here, with a stubbed helm, so the stream can never quietly change back.
+	SELFTEST=1 bash scripts/helm_push_digest.sh
 
 .PHONY: gitops-gate
 gitops-gate: ## GitOps (ArgoCD/Flux) manifest structural validation (S35). Uses the existing Go YAML dependency.
