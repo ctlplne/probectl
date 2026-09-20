@@ -56,10 +56,30 @@ func TestGappedReleasesArePublishedAsPrereleases(t *testing.T) {
 
 	// A pre-release that moves `latest` is recommended to everyone who pulls
 	// without a tag, which is the opposite of what D-15 traded away.
+	//
+	// DPR-257: the assertion that used to live here checked only that the gated
+	// `type=raw,value=latest` entry was present, and it PASSED while v0.6.5
+	// published `latest` on all eleven components. docker/metadata-action has two
+	// independent routes to that tag and the tags list is only one of them: the
+	// `flavor` input defaults to `latest=auto`, which adds it for any semver tag
+	// push no matter what the tags list says. So both routes are checked here,
+	// and the flavor one first, because it is the one that fires by default.
 	images := jobBlock(t, release, "images")
-	if !strings.Contains(images, "type=raw,value=latest,enable=${{ needs.completeness-release-gate.outputs.prerelease != 'true' }}") {
-		t.Error("release.yml tags `latest` without gating it on a complete capability ledger — a 0.x " +
-			"pre-release carrying acknowledged gaps would become the default image pull (D-15)")
+	if !regexp.MustCompile(`(?m)^\s*latest=false\s*$`).MatchString(images) {
+		t.Error("release.yml's images job does not pin `flavor: latest=false`, so metadata-action's " +
+			"default `latest=auto` adds `latest` for every semver tag push regardless of the tags " +
+			"list — a 0.x pre-release carrying acknowledged gaps becomes the default image pull " +
+			"(D-15, DPR-257)")
+	}
+	for _, line := range strings.Split(images, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "type=") || !strings.Contains(trimmed, "latest") {
+			continue
+		}
+		if !strings.Contains(trimmed, "needs.completeness-release-gate.outputs.prerelease") {
+			t.Errorf("release.yml tags `latest` from an entry that is not gated on the capability "+
+				"ledger: %q (D-15, DPR-257)", trimmed)
+		}
 	}
 
 	binaries := jobBlock(t, release, "binaries")

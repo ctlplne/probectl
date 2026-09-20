@@ -41,16 +41,27 @@ against.
 |---|---|---|---|
 | v0.1, v0.1.0, v0.2.1, v0.3.0, v0.4.0 | published, **unsigned** (no `.sig`/`.pem` assets) | not published | published, **no cosign signature** |
 | v0.5.0 | published and **cosign-signed** — 48 assets: 16 artifacts, 16 `.sig`, 16 `.pem` | not published | published, **no cosign signature** |
-| v0.6.0 … v0.6.5 | **not published** | not published | not published |
+| v0.6.0 … v0.6.4 | **not published** | not published | not published |
+| **v0.6.5** | published and **cosign-signed** — 99 assets: 33 artifacts, 33 `.sig`, 33 `.pem`. Flagged a **pre-release**, with its 58-gap count in the notes | pushed to `ghcr.io/ctlplne/charts/probectl:0.6.5`, **not signed by digest and not attached to the release** | published and **cosign-signed by digest — the first images ever signed here**, Rekor-logged |
 
-Nothing published so far carries a signed Helm chart, a signed deb/rpm, or a
-cosign-signed image. Those three are wired into the release workflow and
-self-verified there, but `publish helm chart (OCI)` and `deb/rpm packages` have
-never completed successfully, and image signing was added to the release
-workflow after v0.5.0 — the images that exist were pushed before it, and carry
-buildx SLSA provenance + SBOM attestations instead of a cosign signature. The
-v0.6.x tags exist as source milestones; their release runs stop at the
-capability-ledger gate, so they publish nothing.
+**v0.6.5 is a partial release, and the gaps are specific.** Its binaries,
+checksums and SBOM are signed and verifiable exactly as described below, and its
+images are the first this project has ever signed. Three things it does not carry:
+
+- **No signed chart.** The chart reached GHCR, but the job then failed reading
+  helm's own output — helm reports the pushed digest on stderr and the workflow
+  captured stdout only (DPR-258) — so `cosign sign` never ran against the chart
+  digest and no `.tgz`/`.sig`/`.pem` was attached. Verify the chart at this
+  version by digest only if you pulled it yourself; there is no signature to check.
+- **Only 6 of 10 deb/rpm packages.** `deb/rpm packages (ebpf-agent)` failed on a
+  missing packaging file (DPR-259) and fail-fast cancelled the remaining legs.
+- **No air-gap bundle.** It requires the chart job, so it was skipped.
+
+**`latest` moved to v0.6.5, and it should not have.** A pre-release is not meant
+to become the default pull; `docker/metadata-action` has two routes to that tag
+and only one of them was gated (DPR-257, fixed). If you pull
+`ghcr.io/ctlplne/probectl-*:latest` today you get a pre-release carrying 58
+acknowledged evidence gaps. Pin the digest, as the install docs already tell you to.
 
 Treat a missing `.sig` as **"this is not signed"**, never as "the signature is
 somewhere else, proceed anyway".

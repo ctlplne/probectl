@@ -199,6 +199,14 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}
+          # DPR-257: metadata-action has TWO routes to `latest` and gating one is
+          # not gating it. The `flavor` default is `latest=auto`, which adds it
+          # for any semver tag push regardless of the tags list — so v0.6.5
+          # published `latest` on all eleven components while the raw entry below
+          # correctly rendered `enable=false`. Pinning the flavor off makes the
+          # gated entry the ONLY route, which is the whole point of naming it.
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
             # D-15: a pre-release must not become the image everyone pulls by
@@ -406,9 +414,12 @@ jobs:
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
             "${chart_pkg}"
-          push_out="$(helm push "${chart_pkg}" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts")"
-          printf '%s\n' "$push_out"
-          chart_digest="$(printf '%s\n' "$push_out" | awk '/Digest:/ {print $2; exit}')"
+          # DPR-258: helm writes "Pushed:" and "Digest:" to STDERR, so the
+          # stdout-only capture that used to be here left the digest unparseable
+          # and v0.6.5 published this chart and then failed reading its own
+          # output. scripts/helm_push_digest.sh owns that read and carries the
+          # planted self-test for it (make helm-gate runs it on every push).
+          chart_digest="$(bash scripts/helm_push_digest.sh "${chart_pkg}" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts")"
           case "$chart_digest" in
             sha256:*) ;;
             *) echo "::error::helm push did not report an immutable chart digest"; exit 1 ;;
