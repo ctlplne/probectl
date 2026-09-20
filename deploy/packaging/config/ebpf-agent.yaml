@@ -1,0 +1,43 @@
+# probectl eBPF host/L7 agent configuration (shipped as a CONFFILE in the deb/rpm
+# so operator edits survive upgrades). It captures L3/L4 flows, builds a service
+# map, and — only when explicitly opted in — reads TLS plaintext for L7
+# visibility. Observe-only: it never blocks or modifies traffic (guardrail 9).
+# Full key reference: docs/configuration.md and docs/ebpf-agent.md. Bus
+# credentials are NOT stored here — provide them via the environment
+# (PROBECTL_EBPF_BUS_*), so no secret lands in the journal. Every key below is
+# also overridable with PROBECTL_EBPF_*.
+#
+# The unit runs: probectl-ebpf-agent --config /etc/probectl/ebpf-agent.yaml
+apiVersion: probectl.io/ebpf-agent/v1
+tenant_id: ""                 # REQUIRED: binds every flow and edge to one tenant (F50)
+agent_id: ""                  # the collector id this tenant registered for the host; empty falls back to the hostname (single-node lightweight mode only)
+# host: defaults to the OS hostname
+bus:
+  mode: kafka                 # memory | kafka
+  brokers: ["BROKER-HOST:9093"]
+  namespace: ""               # siloed bus lane for this tenant; empty = pooled
+proc_root: /proc              # procfs root used for process/cgroup enrichment
+flush_interval: 10s           # how often flows and the service map are emitted
+# Kernel ring buffers, live source only. The packaged binary is the -tags ebpf
+# live build (the release refuses a fixture-only one), so these are in effect;
+# they need LimitMEMLOCK, which the shipped unit already sets.
+ring_buffer_bytes: 16777216       # 16 MiB L4 flow ring
+l7_ring_buffer_bytes: 16777216    # 16 MiB L7 chunk ring
+# Replay recorded events instead of loading eBPF — the no-kernel path for a host
+# without BTF or without CAP_BPF. Leave unset in production.
+# fixture_path: /etc/probectl/flows.json
+# l7_fixture_path: /etc/probectl/l7.json
+#
+# --- TLS-plaintext (L7) capture: OFF, and deliberately hard to turn on. -------
+# It reads application plaintext on this host through OpenSSL/GnuTLS uprobes, so
+# it requires ALL THREE statements below. Host-wide capture is not expressible:
+# the scope is enforced in the kernel, and the consent tenant must equal
+# tenant_id exactly. Leaving these commented is the supported default.
+# l7_capture_enabled: true
+# l7_capture_consent_tenant: ""   # must equal tenant_id exactly
+# l7_capture_scope:               # the opted-in workloads, nothing wider
+#   - exe:/usr/sbin/nginx         #   every process of this binary (re-resolved every 10s)
+#   - cgroup:/sys/fs/cgroup/system.slice/myapp.service # a container or pod IS a cgroup
+#   - pid:1234                    #   one exact process
+# l7_capture_redaction: headers   # headers (bodies zeroed) | length (no payload bytes) | full (consented debugging only)
+# l7_capture_kernel_window: 1024  # max plaintext bytes per chunk crossing the kernel ring (128-4095)
