@@ -251,6 +251,9 @@ func TestCurrentStatusRequiresCleanExactCheckout(t *testing.T) {
 // different one, must be refused. The mutation keeps the YAML valid so the
 // mismatch is the ONLY thing that can fail.
 func TestReachabilityArtifactBoundToADifferentRegistryIsRefused(t *testing.T) {
+	// Read-only against the source tree, so it overlaps with the rest of the
+	// package rather than adding its validator runs to the critical path.
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}

@@ -148,9 +148,17 @@ ebpf-agent: ## Build probectl-ebpf-agent WITH the live CO-RE loader (-tags ebpf;
 # ---- test ----------------------------------------------------------------
 .PHONY: test
 test: ## Run unit tests across all workspace modules.
+	@# DPR-256: name the budget instead of inheriting Go's implicit 10m default.
+	@# This is the only long-running target here that did not, and its slowest
+	@# package is `internal/deliveryaudit`, which clones the repository and reruns
+	@# the completeness validator under -race: 267s in CI, but 298s -> 483s -> over
+	@# 600s across three runs on one developer laptop, where it then panicked as a
+	@# timeout rather than failing as a defect. 30m is ~6.7x the CI time, so a real
+	@# hang still surfaces (Go names the running tests when the alarm fires) while a
+	@# slow machine stops being reported as a broken test.
 	@for d in $(GO_MODULE_DIRS); do \
 		echo ">> go test ($$d)"; \
-		( cd $$d && $(GO) test -race -count=1 ./... ) || exit 1; \
+		( cd $$d && $(GO) test -race -count=1 -timeout 30m ./... ) || exit 1; \
 	done
 	@$(MAKE) --no-print-directory test-performance
 
