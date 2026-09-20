@@ -164,6 +164,13 @@ func TestCurrentStatusRequiresCleanExactCheckout(t *testing.T) {
 		"internal/completeness/cli_dispatch.go",
 		"scripts/run_completeness_audit.sh", "scripts/completeness_audit_browser.mjs",
 		"docs/quality/delivery-audit-review-protocols.json",
+		// DPR-255: capabilities.yaml is the registry the validator RUNS against —
+		// the most production of the analyzer inputs — and it was the one missing
+		// here. refreshSourceBoundSelfTestArtifacts digests it from the working
+		// tree while CurrentStatus re-verifies against this clone, so any
+		// uncommitted registry edit failed with reachability-source-mismatch and
+		// made `make test` red for a change that was correct.
+		"capabilities.yaml",
 	} {
 		data, err := os.ReadFile(filepath.Join(testSourceRoot(t), filepath.FromSlash(relative)))
 		if err != nil {
@@ -177,7 +184,7 @@ func TestCurrentStatusRequiresCleanExactCheckout(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runGit(t, repo, "add", "internal/cli", "internal/completeness/cli_dispatch.go", "scripts", "docs/quality/delivery-audit-review-protocols.json")
+	runGit(t, repo, "add", "internal/cli", "internal/completeness/cli_dispatch.go", "scripts", "docs/quality/delivery-audit-review-protocols.json", "capabilities.yaml")
 	diff := exec.Command("git", "-C", repo, "diff", "--cached", "--quiet")
 	if err := diff.Run(); err != nil {
 		runGit(t, repo, "commit", "-qm", "test: mirror validator inputs")
@@ -233,6 +240,60 @@ func TestCurrentStatusRequiresCleanExactCheckout(t *testing.T) {
 	status, _, err = CurrentStatus(verified, repo, trust)
 	if err != nil || status != StatusStaleSHA {
 		t.Fatalf("stale status = %s, %v", status, err)
+	}
+}
+
+// DPR-255: before capabilities.yaml was mirrored into the exact checkout above,
+// the ONLY thing exercising reachability-source-mismatch was a developer with an
+// uncommitted registry edit — which is to say, an accident. Mirroring it would
+// have left the guard unexercised, so this is the deliberate negative: an
+// artifact bound to one registry, re-verified against a tree carrying a
+// different one, must be refused. The mutation keeps the YAML valid so the
+// mismatch is the ONLY thing that can fail.
+func TestReachabilityArtifactBoundToADifferentRegistryIsRefused(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := testSourceRoot(t)
+	registry, err := readSourceFile(root, reachabilityRegistryPath, 4<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	artifactRoot := t.TempDir()
+	receipt, err := newSelfTestReceipt(artifactRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bind the artifact to a registry that differs from the source tree's by one
+	// comment line: same capabilities, same validator verdict, different bytes.
+	altered := append(append([]byte(nil), registry...), []byte("\n# DPR-255 digest-divergence probe\n")...)
+	if digestBytes(altered) == digestBytes(registry) {
+		t.Fatal("the probe did not change the registry digest")
+	}
+	writeTestJSON(t, filepath.Join(artifactRoot, "reachability.json"), reachabilityArtifact(receipt, digestBytes(altered)))
+
+	diagnostics := lintReachabilitySource(receipt, reachabilityArtifact(receipt, digestBytes(altered)), root)
+	var codes []string
+	for _, diagnostic := range diagnostics {
+		codes = append(codes, diagnostic.Code)
+	}
+	found := false
+	for _, code := range codes {
+		if code == "reachability-source-mismatch" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("an artifact bound to a different capabilities.yaml was accepted; diagnostics = %v", codes)
+	}
+
+	// And the control: the same artifact bound to the tree's own registry must
+	// NOT raise the mismatch, or this test would pass for the wrong reason.
+	for _, diagnostic := range lintReachabilitySource(receipt, reachabilityArtifact(receipt, digestBytes(registry)), root) {
+		if diagnostic.Code == "reachability-source-mismatch" {
+			t.Fatalf("the tree's own registry raised a source mismatch: %v", diagnostic)
+		}
 	}
 }
 
