@@ -145,6 +145,40 @@ func NewLedger(source string, registry Registry) Ledger {
 	return ledger
 }
 
+// LedgerGap is one acknowledged gap cell: the row that -require-complete
+// refuses a release on, together with the reason the registry recorded for it.
+type LedgerGap struct {
+	Capability string `json:"capability"`
+	Name       string `json:"name"`
+	Cell       string `json:"cell"`
+	Owner      string `json:"owner"`
+	Reason     string `json:"reason"`
+}
+
+// Gaps lists every acknowledged gap cell in registry order, then wiring-spine
+// order, so the strict release gate can name each blocking row instead of
+// printing a bare count an operator cannot act on. The returned length always
+// equals Summary.GapCells.
+func (l Ledger) Gaps() []LedgerGap {
+	gaps := make([]LedgerGap, 0, l.Summary.GapCells)
+	for _, capability := range l.Capabilities {
+		for _, name := range CellNames {
+			cell, ok := capability.Cells[name]
+			if !ok || cell.State != "gap" {
+				continue
+			}
+			gaps = append(gaps, LedgerGap{
+				Capability: capability.ID,
+				Name:       capability.Name,
+				Cell:       name,
+				Owner:      capability.Owner,
+				Reason:     cell.Reason,
+			})
+		}
+	}
+	return gaps
+}
+
 // WriteJSON writes a stable, indented JSON ledger.
 func WriteJSON(path string, ledger Ledger) error {
 	data, err := json.MarshalIndent(ledger, "", "  ")

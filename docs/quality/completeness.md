@@ -146,6 +146,13 @@ strict form, which fails until every gap is replaced:
 make completeness-release-gate
 ```
 
+When it refuses, it names every blocking row — `<capability>.<cell> [owner]
+<name>: <reason>` — and finishes with a per-dimension tally of the blocking
+cells. That output is the work list for reaching 100%: each row becomes either a
+real receipt in `refs` or an approved `none_by_design`. The whole set is printed
+rather than truncated, because a release blocked by this gate produces no other
+artifact.
+
 For direct debugging:
 
 ```sh

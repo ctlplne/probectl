@@ -13,6 +13,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,7 @@ func run(args []string) int {
 			ledger.Summary.WiredCells+ledger.Summary.NoneByDesignCells,
 			ledger.Summary.TotalCells,
 		)
+		reportGaps(os.Stderr, ledger)
 		return 1
 	}
 	result := "OK"
@@ -104,6 +106,35 @@ func run(args []string) int {
 		ledger.Summary.GapCells,
 	)
 	return 0
+}
+
+// reportGaps names every row the strict gate refused on. A bare count tells an
+// operator that the release is blocked but not by what, so the refusal lists
+// each capability.cell with its owner and recorded reason, then tallies the
+// blocking cells per wiring-spine dimension. The whole set is printed: the
+// gate's own output is the work list, and truncating it would hide work.
+func reportGaps(out io.Writer, ledger completeness.Ledger) {
+	gaps := ledger.Gaps()
+	if len(gaps) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "each row below must become a real receipt (refs) or an approved none_by_design in the registry; see docs/quality/completeness.md:")
+	perCell := make(map[string]int, len(gaps))
+	for _, gap := range gaps {
+		perCell[gap.Cell]++
+		owner := gap.Owner
+		if owner == "" {
+			owner = "unowned"
+		}
+		fmt.Fprintf(out, "  - %s.%s [%s] %s: %s\n", gap.Capability, gap.Cell, owner, gap.Name, gap.Reason)
+	}
+	dimensions := make([]string, 0, len(perCell))
+	for _, name := range completeness.CellNames {
+		if perCell[name] > 0 {
+			dimensions = append(dimensions, fmt.Sprintf("%s=%d", name, perCell[name]))
+		}
+	}
+	fmt.Fprintf(out, "blocking cells by dimension: %s\n", strings.Join(dimensions, " "))
 }
 
 func runSelftest(validator *completeness.Validator, registry completeness.Registry) error {
