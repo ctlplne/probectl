@@ -41,7 +41,7 @@ against.
 |---|---|---|---|
 | v0.1, v0.1.0, v0.2.1, v0.3.0, v0.4.0 | published, **unsigned** (no `.sig`/`.pem` assets) | not published | published, **no cosign signature** |
 | v0.5.0 | published and **cosign-signed** — 48 assets: 16 artifacts, 16 `.sig`, 16 `.pem` | not published | published, **no cosign signature** |
-| v0.6.0 … v0.6.4 | **not published** | not published | not published |
+| v0.6.0 … v0.6.5 | **not published** | not published | not published |
 
 Nothing published so far carries a signed Helm chart, a signed deb/rpm, or a
 cosign-signed image. Those three are wired into the release workflow and
