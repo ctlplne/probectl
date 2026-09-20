@@ -119,12 +119,19 @@ organization. The directory-admin permissions are seeded to the admin role, whic
 is what makes a *tenant* administrator able to manage SCIM tokens and ABAC
 policies without involving a platform operator.
 
-The hierarchy itself is available through `GET /v1/hierarchy` and
-`probectl hierarchy show`; tenant admins can create organizations, teams, and
-projects with the matching `POST /v1/hierarchy/...` routes or
-`probectl hierarchy create-*` commands. Parent lookups run inside the caller's
-tenant RLS scope before insert, so a team or project cannot be attached to
-another tenant's parent object.
+The hierarchy itself is available on three equivalent surfaces: **Admin →
+*Organizations, teams and projects*** in the UI, `probectl hierarchy show`, and
+`GET /v1/hierarchy`. Tenant admins create organizations, teams and projects from
+the same admin card, with `probectl hierarchy create-*`, or with the matching
+`POST /v1/hierarchy/...` routes. Reading needs `org.read` and creating needs
+`org.write`.
+
+Two properties hold on every one of those surfaces. Parent lookups run inside the
+caller's tenant RLS scope before insert, so a team or project cannot be attached
+to another tenant's parent object. And ABAC is evaluated per node, so what any
+surface returns is **the branches that principal may read, never the whole
+tenant** — the UI says so rather than presenting a pruned tree as complete, and an
+empty result means either a flat tenant or a policy withholding every branch.
 
 ## Use it
 

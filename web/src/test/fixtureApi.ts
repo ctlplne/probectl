@@ -2274,6 +2274,67 @@ export function fixtureFetch(
           },
         },
       })
+    // DPR-254: the two surfaces the admin hierarchy and SIEM-posture cards read.
+    // Both shapes are asserted against the OpenAPI operation by the fixture
+    // contract test, so a drift in either schema fails here rather than on a
+    // real tenant.
+    if (path === '/v1/hierarchy')
+      return jsonResponse({
+        items: [
+          {
+            id: 'org-fixture-1',
+            tenant_id: TENANT_ID,
+            slug: 'acme-platform',
+            name: 'Platform Engineering',
+            created_at: '2026-05-02T09:00:00Z',
+            updated_at: '2026-06-01T10:15:00Z',
+            teams: [
+              {
+                id: 'team-fixture-1',
+                tenant_id: TENANT_ID,
+                org_id: 'org-fixture-1',
+                slug: 'network-observability',
+                name: 'Network Observability',
+                created_at: '2026-05-02T09:05:00Z',
+                updated_at: '2026-06-01T10:15:00Z',
+                projects: [
+                  {
+                    id: 'project-fixture-1',
+                    tenant_id: TENANT_ID,
+                    team_id: 'team-fixture-1',
+                    slug: 'checkout-slo',
+                    name: 'Checkout SLO',
+                    created_at: '2026-05-02T09:10:00Z',
+                    updated_at: '2026-06-01T10:15:00Z',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })
+    if (path === '/v1/siem/status')
+      return jsonResponse({
+        id: 'siem-export',
+        name: 'SIEM export',
+        summary: 'Forwarding the audit and threat streams to the configured collector.',
+        siem_running: true,
+        enabled: true,
+        configured: true,
+        reason: 'configured',
+        preset: 'splunk',
+        format: 'splunk-hec',
+        endpoint_configured: true,
+        endpoint_tls_configured: true,
+        endpoint_host: 'siem.probectl.test:8088',
+        token_configured: true,
+        audit_poll_interval: '30s',
+        buffer_size: 1000,
+        redact_key_count: 4,
+        tls_required: true,
+        no_drop_delivery: true,
+        streams: ['audit', 'threat'],
+      })
     if (path === '/v1/secrets/health')
       return jsonResponse({
         resolver_running: true,

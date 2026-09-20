@@ -93,10 +93,20 @@ const PRD_ROW_SURFACE_PARITY: Array<{
     evidence: ['openapi:/v1/devices', 'openapi:/v1/device/metrics', 'cli:probectl device metrics'],
   },
   {
+    // DPR-254: F26 keeps its federated API/CLI surface AND now has the native
+    // delivery-posture card, so the parity row requires both.
     id: 'F26',
     name: 'SIEM integration',
-    kind: 'federated',
+    kind: 'native',
+    route: '/admin',
     evidence: ['openapi:/v1/siem/status', 'cli:probectl siem status'],
+  },
+  {
+    id: 'F24',
+    name: 'Tenant→Org→Team→Project',
+    kind: 'native',
+    route: '/admin',
+    evidence: ['openapi:/v1/hierarchy', 'openapi:/v1/hierarchy/orgs'],
   },
   {
     id: 'F47',

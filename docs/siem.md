@@ -164,6 +164,23 @@ embedded bearer tokens or `token=...` / `password=...`-style secrets.
   malformed, oversized, unsigned, forged, or rate-limited messages are rejected
   before storage.
 
+## Checking delivery posture
+
+Three equivalent surfaces answer "is this actually being forwarded, and to what":
+
+- **UI** — Admin → *SIEM export posture*. Says whether the exporter is running, which streams are
+  forwarded, the resolved format and preset, the destination `host:port`, the back-pressure policy,
+  the poll cadence and buffer size, and how many redaction keys are in effect. When it is not
+  delivering it shows the server's own reason (`disabled`, `missing_endpoint`, `insecure_endpoint`,
+  `invalid_format`) rather than an empty panel.
+- **CLI** — `probectl siem status`.
+- **API** — `GET /v1/siem/status` (requires `threat.read`).
+
+All three are **posture, never values**. The endpoint path, its query string and the ingest token
+are never returned by the API, so no surface can display them; the endpoint appears as scheme-free
+`host:port` and the credential as configured / not configured. Read that as designed, not as
+missing detail — see *Security* above.
+
 ## Configuration
 
 See [`configuration.md`](configuration.md#siem-export) for the full key table.

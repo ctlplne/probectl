@@ -737,6 +737,24 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
+    // DPR-254: the API and CLI had always served the hierarchy and there was no
+    // screen, so a tenant administrator could only see and change the structure
+    // their roles and ABAC rules are written against from a terminal.
+    capability: 'Tenant hierarchy administration',
+    featureIds: ['F24'],
+    sprint: 'DPR-254',
+    kind: 'native',
+    route: '/admin',
+    evidence: [
+      'openapi:/v1/hierarchy',
+      'openapi:/v1/hierarchy/orgs',
+      'file:web/src/routes/admin/HierarchyCard.tsx',
+      'file:web/src/routes/admin/hierarchyTree.ts',
+      'file:web/src/test/hierarchy-card.test.tsx',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'SIEM export and tenant-routed forwarding',
     featureIds: ['F26'],
     sprint: 'S38',
@@ -748,6 +766,23 @@ export const SURFACES: SurfaceDecl[] = [
       'file:internal/siem',
     ],
     liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
+  },
+  {
+    // DPR-254: posture only, and deliberately secret-free — the API returns
+    // booleans for "endpoint configured" and "token configured" plus
+    // scheme-free host:port, never the path, query or ingest token.
+    capability: 'SIEM delivery posture',
+    featureIds: ['F26'],
+    sprint: 'DPR-254',
+    kind: 'native',
+    route: '/admin',
+    evidence: [
+      'openapi:/v1/siem/status',
+      'cli:probectl siem status',
+      'file:web/src/routes/admin/SIEMPostureCard.tsx',
+      'file:web/src/test/siem-posture-card.test.tsx',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'IaC and GitOps deployment surfaces',

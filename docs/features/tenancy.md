@@ -137,6 +137,14 @@ instant its burst window passes — there is no penalty box.
 
 ## Use it
 
+**Organize the tenant into organizations, teams and projects** — the structure your roles and
+ABAC rules are written against. Admin → *Organizations, teams and projects* shows the tree and
+creates a node at any level; `probectl hierarchy show` and `GET /v1/hierarchy` are the same view.
+Reading needs `org.read` and creating needs `org.write`, and both are ABAC-scoped per node — so what
+any surface shows is **the branches that principal may read, never the whole tenant**. An empty tree
+means either a flat tenant or a policy withholding every branch, and the UI says so rather than
+implying the tenant has no organizations.
+
 **Read your own fairness posture and accounting** (your effective policy plus
 admitted/shed/rejected counts):
 

@@ -150,9 +150,9 @@ Strict standard; one line each. Evidence = package / doc / gate / U-ID.
 | F21 | Voice/RTP | ✅ | `internal/canary/voice.go` |
 | F22 | SSO + role model | ✅ | `internal/auth` (fail-closed default — U-001) |
 | F23 | Audit foundation | ✅ | `internal/audit` (+ WORM, U-041) |
-| F24 | Tenant→Org→Team→Project | ✅ | `internal/store/hierarchy.go` |
+| F24 | Tenant→Org→Team→Project | ✅ | `internal/store/hierarchy.go`; API/CLI + native tenant-admin surface ✅ (`/v1/hierarchy`, `probectl hierarchy show`, `web/src/routes/admin/HierarchyCard.tsx`) |
 | F25 | SCIM/ABAC/delegated admin | ✅ | `internal/control/scim.go`; ABAC deny-override in `internal/auth/abac.go` + `internal/control/abac.go` |
-| F26 | SIEM integration | ✅ | `internal/siem` (cursor, tenant-routed) |
+| F26 | SIEM integration | ✅ | `internal/siem` (cursor, tenant-routed); API/CLI + native delivery-posture surface ✅ (`/v1/siem/status`, `probectl siem status`, `web/src/routes/admin/SIEMPostureCard.tsx`) |
 | F27 | On-call & ITSM | ✅ | `internal/notify`, `docs/oncall-itsm.md` |
 | F28 | Zero-downtime lifecycle + fleet rollout | ✅ | migrations gate + rollout engine ✅ (`internal/agent/rollout.go`); CLI/API + native human-gated wave console ✅ (`probectl rollout`, `/v1/rollouts`, `web/src/routes/admin/RolloutCard.tsx`, `docs/ops/fleet-rollout.md`) |
 | F29 | IaC & GitOps | ✅ | `deploy/terraform`, *gitops-gate*, *helm-gate* |

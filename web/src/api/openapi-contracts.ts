@@ -265,6 +265,45 @@ export const API_CALL_CONTRACTS = [
       'OpenAPI currently emits JsonObject for carbon estimates; CarbonResponse is the explicit view model.',
   },
   {
+    file: 'api/hierarchy.ts',
+    method: 'GET',
+    path: '/hierarchy',
+    response: 'HierarchyWire',
+    generated: 'GetHierarchyResponse',
+    reason:
+      'HierarchyWire is the same shape with every array optional, because the server may omit an empty teams/projects list; normalizeHierarchy turns it into Hierarchy.',
+  },
+  {
+    file: 'api/hierarchy.ts',
+    method: 'POST',
+    path: '/hierarchy/orgs',
+    response: 'HierarchyOrganizationFlat',
+    generated: 'CreateHierarchyOrganizationResponse',
+  },
+  {
+    file: 'api/hierarchy.ts',
+    method: 'POST',
+    path: '`/hierarchy/orgs/${encodeURIComponent(orgID)}/teams`',
+    response: 'HierarchyTeamFlat',
+    generated: 'CreateHierarchyTeamResponse',
+  },
+  {
+    file: 'api/hierarchy.ts',
+    method: 'POST',
+    path: '`/hierarchy/teams/${encodeURIComponent(teamID)}/projects`',
+    response: 'HierarchyProject',
+    generated: 'CreateHierarchyProjectResponse',
+  },
+  {
+    file: 'api/siem.ts',
+    method: 'GET',
+    path: '/siem/status',
+    response: 'SIEMStatusWire',
+    generated: 'GetSiemStatusResponse',
+    reason:
+      'SIEMStatusWire is SIEMStatus with streams optional, because the server may omit an empty stream list; normalizeSIEMStatus makes it an array.',
+  },
+  {
     file: 'api/compliance.ts',
     method: 'GET',
     path: '/compliance',

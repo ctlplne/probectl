@@ -75,6 +75,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/directory/users' },
   { method: 'GET', path: '/v1/editions' },
   { method: 'GET', path: '/v1/endpoints' },
+  { method: 'GET', path: '/v1/hierarchy' },
   { method: 'GET', path: '/v1/identity/settings' },
   { method: 'GET', path: '/v1/incident-shares/share_0123456789abcdef0123456789abcdef' },
   {
@@ -154,6 +155,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/rum' },
   { method: 'GET', path: '/v1/secrets/health' },
   { method: 'GET', path: '/v1/security/keys' },
+  { method: 'GET', path: '/v1/siem/status' },
   { method: 'GET', path: '/v1/slos' },
   { method: 'GET', path: '/v1/tests' },
   {

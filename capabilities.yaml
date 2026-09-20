@@ -385,13 +385,13 @@ capabilities:
   - id: F24
     name: Tenant to org/team/project hierarchy
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: tenancy/provider
     engine: {refs: ["file:internal/store/hierarchy.go"]}
     binary: {refs: ["file:internal/control/v1.go#s.handleGetHierarchy"]}
     api: {refs: ["api:GET /v1/hierarchy"]}
     cli: {refs: ["cli:probectl hierarchy show"]}
-    ui: {gap: "The hierarchy API and CLI are implemented, but no native route currently lets tenant administrators view or edit organizations, teams, and projects."}
+    ui: {refs: ["ui:F24@/admin"]}
     docs: {refs: ["file:docs/features/tenancy.md#Tenancy & hard isolation"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/audit"]}
@@ -423,7 +423,7 @@ capabilities:
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildSIEM("]}
     api: {refs: ["api:GET /v1/siem/status"]}
     cli: {refs: ["cli:probectl siem status"]}
-    ui: {gap: "The SIEM status API and CLI are implemented, but no native route currently shows delivery posture or tenant-routed forwarding state."}
+    ui: {refs: ["ui:F26@/admin"]}
     docs: {refs: ["file:docs/siem.md#SIEM export"]}
     config_keys: {refs: ["config:PROBECTL_SIEM_ENABLED", "config:PROBECTL_SIEM_ENDPOINT"]}
     telemetry: {refs: ["file:internal/siem"]}

@@ -42,6 +42,8 @@ import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
+import { HierarchyCard } from './HierarchyCard'
+import { SIEMPostureCard } from './SIEMPostureCard'
 import { RolloutCard } from './RolloutCard'
 
 // DPR-038: the tenant's break-glass consent screen. Commercial UI source lives
@@ -1008,6 +1010,14 @@ export function AdminPage() {
       <Suspense fallback={null}>
         <BreakGlassConsentCard />
       </Suspense>
+      {/* DPR-254: both cards sit AFTER RemediationCard deliberately. The
+          hierarchy form adds five focusable controls, and placing it earlier
+          lengthened the keyboard path to Approve/Reject on the human-gated
+          remediation card — a safety control (§7 guardrail 8) whose reach
+          should not get worse because an administration card was added.
+          web/src/test/remediation.test.tsx tabs to those buttons and caught it. */}
+      <HierarchyCard />
+      <SIEMPostureCard />
       <SupportCard />
       <EditionsCard />
     </Page>
