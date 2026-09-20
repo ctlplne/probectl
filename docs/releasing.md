@@ -161,6 +161,15 @@ tree is refused before any artifact is built.
    GitHub Release. Confirm the images and their attestations appear under the
    repository's Packages, and that the release assets include the `.sig`/`.pem`
    signatures.
+5. **A `v0.x` tag publishes a pre-release while the capability ledger still
+   records acknowledged gaps** (decision D-15). The `capability ledger 100%
+   complete` job prints every blocking row, the release is flagged a pre-release
+   on GitHub, and the notes carry the gap count. Such a release does **not** move
+   the `latest` image tag — only the immutable `{{version}}` tag is published, so
+   nothing silently recommends an incomplete build to a `docker pull` without a
+   tag. The first tag outside 0.x is refused until the ledger reaches 100%, and
+   any *other* failure of that gate — an invalid registry, a broken toolchain —
+   refuses every tag including 0.x. See `docs/quality/completeness.md`.
 
 ## Provenance & supply chain
 

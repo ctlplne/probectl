@@ -227,6 +227,12 @@ completeness-gate: ## Capability wiring-spine gate: validate registry and render
 	$(GO) run ./cmd/probectl-completeness \
 		-ledger-json dist/completeness/ledger.json \
 		-ledger-html dist/completeness/ledger.html
+	@# D-15: the release's own reading of this gate's verdict — which tags a
+	@# declared gap may publish under and which it refuses — is decided by
+	@# scripts/release_completeness_verdict.sh. Its planted self-test runs here,
+	@# with a stubbed gate, so a loosened release rule fails on every push
+	@# rather than at the next tag.
+	SELFTEST=1 bash scripts/release_completeness_verdict.sh
 
 completeness-release-gate: ## Strict final-release variant: reject every acknowledged evidence gap.
 	$(GO) run ./cmd/probectl-completeness -require-complete

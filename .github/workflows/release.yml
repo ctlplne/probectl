@@ -82,18 +82,34 @@ jobs:
   # declared not-done gaps remain. A release is stricter: no image, binary, or
   # package may be published until every shipped capability has 100% spine
   # coverage (concrete proof or genuine none-by-design).
+  #
+  # DPR-253, decision D-15 (2026-09-20): docs/quality/completeness.md reserves
+  # the strict form for a FINAL release, and this job used to apply it to every
+  # tag — so v0.6.4 cleared all three entry gates and then published nothing,
+  # while publish-chart, deb/rpm and the air-gap bundle went on rotting unrun.
+  # The split: the gate ALWAYS runs and its full row-by-row refusal always lands
+  # in this log, a `v0.*` tag publishes a GitHub PRE-RELEASE that states the gap
+  # count, and any other tag is still refused outright. The oracle itself is
+  # untouched — `make completeness-release-gate` is the same command with the
+  # same verdict, and 0.x is the only version range where that verdict does not
+  # block. `gaps` and `prerelease` are read by the binaries job, so a release
+  # carrying acknowledged gaps cannot be published without saying so.
   completeness-release-gate:
     name: capability ledger 100% complete
     needs: require-green-ci
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      gaps: ${{ steps.ledger.outputs.gaps }}
+      prerelease: ${{ steps.ledger.outputs.prerelease }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Reject every acknowledged completeness gap
-        run: make completeness-release-gate
+        id: ledger
+        run: bash scripts/release_completeness_verdict.sh
 
   # TEST-011: the docs-vs-CI contradiction recurs the moment the Makefile grows
   # a binary that nobody adds here. This gate makes the published set cover the
@@ -185,7 +201,12 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
+            # D-15: a pre-release must not become the image everyone pulls by
+            # default. `latest` moves only when the capability ledger is
+            # complete; a 0.x tag that ships acknowledged gaps still gets its
+            # immutable {{version}} tag, so `docs/install.md`'s digest pin works
+            # exactly as documented, and nothing silently recommends it.
+            type=raw,value=latest,enable=${{ needs.completeness-release-gate.outputs.prerelease != 'true' }}
       - id: build
         name: Build + push multi-arch image (with provenance + SBOM)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -305,10 +326,39 @@ jobs:
             cosign verify-blob               --certificate "${f}.pem"               --signature "${f}.sig"               --certificate-oidc-issuer "https://token.actions.githubusercontent.com"               --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/"               "$f"
           done
           echo "all artifacts verify"
+      # D-15: a release that ships with acknowledged capability gaps says so on
+      # its own page, in the notes, with the count -- and is flagged a
+      # pre-release so every downstream consumer that reads that flag (GitHub's
+      # "Latest release", gh release list, dependency tooling) sees it too. When
+      # the ledger is complete this block reduces to an ordinary release.
+      - name: Compose the completeness note
+        id: notes
+        env:
+          GAPS: ${{ needs.completeness-release-gate.outputs.gaps }}
+          PRERELEASE: ${{ needs.completeness-release-gate.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          {
+            if [ "${PRERELEASE}" = "true" ]; then
+              echo "> **Pre-release.** probectl's capability ledger records **${GAPS} acknowledged evidence gap(s)**"
+              echo "> at this tag, so this build is published as a pre-release under decision D-15."
+              echo "> Every gap is a declared not-done cell in \`capabilities.yaml\`, not an unknown: run"
+              echo "> \`make completeness-release-gate\` on this tag for the row-by-row list, or read the"
+              echo "> \`capability-completeness-ledger\` artifact on this run. Artifact signing and"
+              echo "> verification are unaffected -- see docs/ops/verify-artifacts.md."
+            else
+              echo "> probectl's capability ledger is **100% complete** at this tag: every shipped"
+              echo "> capability has concrete proof or an approved none-by-design disposition for all"
+              echo "> ten wiring-spine cells."
+            fi
+          } > release-note.md
+          cat release-note.md
       - name: Create GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
+          prerelease: ${{ needs.completeness-release-gate.outputs.prerelease == 'true' }}
+          body_path: release-note.md
           files: |
             dist/*
 

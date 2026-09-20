@@ -153,6 +153,30 @@ real receipt in `refs` or an approved `none_by_design`. The whole set is printed
 rather than truncated, because a release blocked by this gate produces no other
 artifact.
 
+### What a release does with that verdict
+
+`scripts/release_completeness_verdict.sh` is the single reader of it, and
+`release.yml` calls nothing else:
+
+| Verdict | Tag | Outcome |
+|---|---|---|
+| ledger complete | any | full release |
+| acknowledged gaps | `v0` / `v0.*` | **pre-release**, flagged as one on GitHub, with the gap count in the release notes, and it does not move the `latest` image tag |
+| acknowledged gaps | anything else | refused |
+| any other gate failure (invalid registry, broken toolchain) | any | refused |
+
+This is decision **D-15** (2026-09-20) and it is the reason "final release" above
+is not "every tag": a 0.x tag publishes an artifact a design partner can install
+while the ledger closes, and it says on its own release page how many
+acknowledged gaps it carries. The gate itself is unchanged — the script runs
+`make completeness-release-gate` and never reinterprets a failure it cannot
+attribute to declared gaps, so a broken registry still refuses a 0.x tag. The
+first tag outside 0.x has to reach 710/710.
+
+Run the planted self-test with `SELFTEST=1 bash
+scripts/release_completeness_verdict.sh`; `make completeness-gate` runs it on
+every push, so loosening the rule fails there rather than at the next tag.
+
 For direct debugging:
 
 ```sh
