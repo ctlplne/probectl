@@ -8,8 +8,11 @@ page is how you check that proof. An **artifact** is anything a release ships �
 a binary, a checksum manifest, an SBOM — and a **signature** is the
 cryptographic mark that lets you verify who produced it.
 
-Every released binary and the `checksums.txt` manifest are signed with **cosign
-keyless** (Sigstore). "Keyless" means there is no long-lived private key to
+Releases from **v0.5.0** onward sign every binary and the `checksums.txt`
+manifest with **cosign keyless** (Sigstore); earlier releases predate signing and
+carry no `.sig`/`.pem` at all. Check *What each published release carries* below
+before you run a recipe — a recipe cannot verify a signature the release does not
+ship. "Keyless" means there is no long-lived private key to
 leak: the release workflow signs using its GitHub OIDC identity (the
 machine-checkable "who am I" token GitHub issues to a running workflow),
 Sigstore's Fulcio issues a **short-lived certificate** bound to that identity
@@ -28,11 +31,35 @@ Each release ships, per artifact: the artifact itself, `<artifact>.sig`,
 SHA-256 **checksum** — a fingerprint that changes if even one byte changes —
 itself signed the same way).
 
+## What each published release carries
+
+What the GitHub releases and GHCR hold **today** — not what the release workflow
+is capable of. The two are different, and only this table is safe to plan
+against.
+
+| Release | Binaries + `checksums.txt` | Helm chart | Container images |
+|---|---|---|---|
+| v0.1, v0.1.0, v0.2.1, v0.3.0, v0.4.0 | published, **unsigned** (no `.sig`/`.pem` assets) | not published | published, **no cosign signature** |
+| v0.5.0 | published and **cosign-signed** — 48 assets: 16 artifacts, 16 `.sig`, 16 `.pem` | not published | published, **no cosign signature** |
+| v0.6.0 … v0.6.4 | **not published** | not published | not published |
+
+Nothing published so far carries a signed Helm chart, a signed deb/rpm, or a
+cosign-signed image. Those three are wired into the release workflow and
+self-verified there, but `publish helm chart (OCI)` and `deb/rpm packages` have
+never completed successfully, and image signing was added to the release
+workflow after v0.5.0 — the images that exist were pushed before it, and carry
+buildx SLSA provenance + SBOM attestations instead of a cosign signature. The
+v0.6.x tags exist as source milestones; their release runs stop at the
+capability-ledger gate, so they publish nothing.
+
+Treat a missing `.sig` as **"this is not signed"**, never as "the signature is
+somewhere else, proceed anyway".
+
 ## Verify (copy-paste)
 
 ```sh
 # 0. Install cosign: https://docs.sigstore.dev/cosign/system_config/installation/
-TAG=v0.1.0
+TAG=v0.5.0   # a release that ships .sig/.pem — see the table above
 BIN=probectl-agent_${TAG}_linux_amd64
 BASE=https://github.com/ctlplne/probectl/releases/download/${TAG}
 
@@ -87,8 +114,8 @@ A control plane can only accept a commercial license file if the build carries
 the vendor's public key. Confirm it on the binary you are about to deploy:
 
 ```sh
-./probectl-control_v0.6.4_linux_amd64 version
-# probectl-control 0.6.4 (commit …)
+./probectl-control version      # whichever control-plane binary you are deploying
+# probectl-control <version> (commit …)
 # license trust anchors: 1      ← 0 means a keyless build: Community only
 ```
 
@@ -98,10 +125,12 @@ control plane is running (Admin → Editions in the UI).
 ## Helm chart
 
 The release also signs the packaged Helm chart as a blob and signs the pushed OCI
-chart artifact by immutable digest. Verify the package exactly like a binary:
+chart artifact by immutable digest. No release has published a signed chart yet (see the table above), so set `TAG`
+to the first release whose assets include `probectl-<version>.tgz`. The recipe is
+then exactly the binary one:
 
 ```sh
-TAG=v0.2.0
+TAG="${TAG:?set this to a release whose assets include the chart package}"
 CHART=probectl-${TAG#v}.tgz
 BASE=https://github.com/ctlplne/probectl/releases/download/${TAG}
 
@@ -141,11 +170,17 @@ syft at release time. It ships with its own `.sig` and `.pem` and verifies with
 the **same** `cosign verify-blob` invocation as any binary above. Feed it
 straight into your SCA / license tooling.
 
-Container images are also signed by immutable digest. First resolve the digest
-you will deploy, then verify that exact image reference:
+The release workflow also signs container images by immutable digest, and every
+image it pushes is verified there before the release publishes. **No image in
+GHCR carries that signature yet** — the images that exist were pushed before
+image signing was added (see the table above), so `cosign verify` on them will
+not find a signature; they carry buildx SLSA provenance + SBOM attestations,
+which you inspect with `docker buildx imagetools inspect`. From the first
+release that publishes signed images, resolve the digest you will deploy and
+verify that exact reference:
 
 ```sh
-IMG=ghcr.io/ctlplne/probectl-ebpf-agent:0.2.0
+IMG=ghcr.io/ctlplne/probectl-ebpf-agent:${VERSION:?set this to the image version you are deploying}
 DIGEST="$(docker buildx imagetools inspect "$IMG" --format '{{.Manifest.Digest}}')"
 cosign verify \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
@@ -164,8 +199,11 @@ sbom: true`). Inspect them with `docker buildx imagetools inspect`.
 After signing, the release workflow runs `cosign verify-blob` on its **own**
 artifacts, including the packaged Helm chart, and `cosign verify` on every
 pushed image and chart digest before publishing. A release whose artifacts do not
-verify simply does not publish — so a published release is, by construction, a
-verifiable one. This is why the copy-paste block above can be trusted to work:
+verify simply does not publish — so from v0.5.0 onward, a published asset that
+ships a `.sig` is one the workflow already verified itself. That is a statement
+about the assets a signing release publishes, not about every release ever cut:
+the pre-v0.5.0 releases published nothing to verify. This is why the copy-paste
+block above can be trusted to work:
 it isn't parallel documentation that could drift from the release process; it
 *is* the release's own exit gate, run from your side.
 
