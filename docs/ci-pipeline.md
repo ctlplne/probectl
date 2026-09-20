@@ -163,11 +163,15 @@ Verification you ran, not verification you described.
   the BPF programs (tracepoint + uprobes, one flush cycle). Static analysis
   cannot prove a BPF program loads; only a kernel's verifier can. One matrix
   entry raises kernel lockdown to INTEGRITY inside the VM and proves
-  load+attach still works on a hardened kernel. Every architecture runs under KVM
-  (hardware-accelerated virtualization): amd64 uses the hosted Linux runners, and
-  arm64 uses a self-hosted Linux/ARM64 runner carrying the custom `kvm` label.
-  Missing `/dev/kvm` is a hard CI error, not a green skip, so arm64 eBPF
-  verifier/attach behavior must be live-load proven before release.
+  load+attach still works on a hardened kernel. The matrix is **x86_64 only** and
+  runs under KVM (hardware-accelerated virtualization) on the hosted Linux runners;
+  missing `/dev/kvm` is a hard CI error, not a green skip. **arm64 eBPF is
+  compile-verified, not live-verified** (decision D-13): vimto does not emulate
+  cross-arch, so the arm64 row needed a self-hosted Linux/ARM64 runner with a `kvm`
+  label. Without one the job never left `queued`, and a job that never starts means
+  the RUN never reaches `completed` — which is what release.yml polls, so every tag
+  timed out with all other jobs green. See docs/ebpf-agent.md for what arm64 does
+  and does not prove, and how to restore the row.
 - **ebpf-image-live** — the shipped `probectl-ebpf-agent` image must carry the
   _live_ CO-RE loader (CO-RE = Compile Once – Run Everywhere: the BPF object is
   relocated at load time to fit the running kernel's struct layouts), built

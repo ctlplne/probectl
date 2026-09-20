@@ -55,6 +55,12 @@ matters: the cost of a cancelled run was never compute, it was the missing verdi
 
 (14 jobs under 30s omitted; skipped jobs carry no duration: `commitlint`, `dco`, `coverage-comment`.)
 
+## The job that never started, and why the release gate hung (resolved, D-13)
+
+Resolved on 2026-09-19 by decision D-13: the arm64 row is removed and the claim
+narrowed to compile-verified (DPR-250). The rest of this section is kept because it
+is the diagnosis, and because restoring the row re-creates the situation exactly.
+
 ## The job that never starts, and why the release gate hangs
 
 `ebpf-kernel-matrix (6.6-arm64)` is still `queued` and its `completedAt` is `0001-01-01T00:00:00Z` — it has never

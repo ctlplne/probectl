@@ -494,7 +494,7 @@ booted kernel. It runs the live smoke: l4flow tracepoint attach, sslsniff uprobe
 attach (consented + scoped), one full agent flush cycle, with object-digest
 verification on the load path. The images are `ghcr.io/cilium/ci-kernels`.
 
-The matrix is **5.15** and **6.6** on x86_64, **6.6 on arm64**, plus a **hardened
+The matrix is **5.15** and **6.6** on x86_64, plus a **hardened
 entry** on x86_64 that raises kernel lockdown to **integrity** inside the
 ephemeral VM (`TestLiveHardenedLockdownIntegrity`, gated on
 `PROBECTL_TEST_SET_LOCKDOWN=integrity`) and proves load+attach still works there
@@ -504,12 +504,22 @@ distro-kernel image is the remaining infrastructure gap).
 
 One arch nuance worth knowing: the live QEMU boot needs KVM (the kernel's
 hardware-assisted virtualization, which lets the VM run at near-native speed
-instead of instruction-by-instruction emulation) for usable speed. Both x86_64 and
-arm64 now run the **full live load+attach** path under KVM. The arm64 row targets a
-self-hosted Linux/ARM64 runner with the custom `kvm` label; if `/dev/kvm` is
-missing, the job fails instead of falling back to compile-only coverage. Treat
-arm64 eBPF releases as live-load-proven only when that matrix row is green. Bump
-the matrix when adopting a new LTS.
+instead of instruction-by-instruction emulation) for usable speed, and vimto does
+not emulate cross-arch — so an arm64 row cannot ride a hosted x86_64 runner. If
+`/dev/kvm` is missing the job fails rather than falling back to compile-only
+coverage. Bump the matrix when adopting a new LTS.
+
+**arm64 eBPF is compile-verified, not live-verified** (decision D-13, 2026-09-19).
+The BPF objects are built for arm64 by the same pinned clang/llvm/bpftool
+toolchain, the `probectl-ebpf-agent_linux_arm64` binary is built with `-tags ebpf`
+and the release gate refuses a fixture-only build — so the arm64 agent is proven to
+COMPILE and to carry the live CO-RE loader. What is NOT proven on arm64 is the
+kernel verifier accepting the programs and the attach succeeding: that needs a
+self-hosted Linux/ARM64 runner with a `kvm` label, which does not exist for this
+repository. The row was removed rather than left queued forever, because a job that
+never starts means the whole CI run never reaches a conclusion and every release
+tag times out waiting for it. Do not describe arm64 eBPF as live-load-proven until
+that runner exists and the row is back.
 
 ## Building
 

@@ -652,23 +652,40 @@ jobs:
     # not just statically checked. vimto boots each kernel under QEMU with the
     # runner rootfs, and `go test -exec` runs the live smoke (load, attach
     # tracepoint + uprobes, one agent flush cycle; the U-014 digest verification
-    # runs inherently). KVM is required for every matrix row, including arm64:
-    # arm64 runs on a self-hosted Linux/ARM64 runner with the custom `kvm` label.
-    # A missing /dev/kvm is a hard error, never a green skip, so release branches
-    # cannot claim arm64 eBPF support without a live verifier/attach run. Kernel
-    # images are digest-pinned; the runner-side BPF object build runs inside the
-    # same pinned clang/llvm/bpftool toolchain stage used by release images and
-    # downloads. The observe-only static gate runs in test-go.
+    # runs inherently). KVM is required for every matrix row; a missing /dev/kvm is
+    # a hard error, never a green skip. Kernel images are digest-pinned; the
+    # runner-side BPF object build runs inside the same pinned
+    # clang/llvm/bpftool toolchain stage used by release images and downloads. The
+    # observe-only static gate runs in test-go.
+    #
+    # DPR-250: x86_64 ONLY. The arm64 row is removed, and the claim is narrowed to
+    # match: arm64 eBPF is compile-verified, not live-verified. It needed a
+    # self-hosted Linux/ARM64 runner with a custom `kvm` label, which this account
+    # does not have, so the job never left `queued` — and a job that never starts
+    # means the RUN never reaches `completed`, which is exactly what release.yml's
+    # `require green ci on the tagged sha` polls. Every tag therefore timed out
+    # after 1824s with 51 of 51 runnable jobs green (DPR-188, decision D-13).
+    #
+    # To restore it, attach an ARM64 runner with /dev/kvm and the `kvm` label, then
+    # re-add one matrix entry:
+    #     - kernel: "6.6-arm64"
+    #       runner: [self-hosted, Linux, ARM64, kvm]
+    #       run: "TestLive"
+    #       image: <the same digest-pinned 6.6 image as the x86_64 row>
+    # and widen the claim back in docs/ebpf-agent.md, docs/ci-pipeline.md and
+    # docs/security/agent-whitepaper.md in the same change.
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # EBPF-008/EBPF-003: x86_64 LTS pair + arm64 (native KVM runner —
-        # vimto does not emulate cross-arch) + a hardened entry that raises
-        # kernel lockdown to INTEGRITY inside the ephemeral VM (one-way sysfs
-        # write) and proves load+attach still works there. ci-kernels images
-        # are multi-arch indexes — the same digest serves both runners.
+        # EBPF-008/EBPF-003: the x86_64 LTS pair plus a hardened entry that
+        # raises kernel lockdown to INTEGRITY inside the ephemeral VM (one-way
+        # sysfs write) and proves load+attach still works there. arm64 is absent
+        # by decision D-13 — see the DPR-250 note above for why and how to
+        # restore it. vimto does not emulate cross-arch, so arm64 cannot ride a
+        # hosted runner; the ci-kernels images are multi-arch indexes, so the
+        # same digest would serve both.
         include:
           - kernel: "5.15"
             runner: ubuntu-latest
@@ -676,10 +693,6 @@ jobs:
             image: ghcr.io/cilium/ci-kernels:5.15@sha256:11bbf6ada68fdd8850c020b955b84bc16ed6227cdbadbb437da83db6eb02a9d0
           - kernel: "6.6"
             runner: ubuntu-latest
-            run: "TestLive"
-            image: ghcr.io/cilium/ci-kernels:6.6@sha256:0b7036c12c2a357672a81e7ff7bf02cc67fe06acb2c4b0206e2a15949d2193bd
-          - kernel: "6.6-arm64"
-            runner: [self-hosted, Linux, ARM64, kvm]
             run: "TestLive"
             image: ghcr.io/cilium/ci-kernels:6.6@sha256:0b7036c12c2a357672a81e7ff7bf02cc67fe06acb2c4b0206e2a15949d2193bd
           - kernel: "6.6-lockdown"

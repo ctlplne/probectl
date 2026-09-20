@@ -65,7 +65,8 @@ that up:
   type — only observation types may exist in the tree. An enforcement program
   cannot be merged.
 - **Load-and-attach on real kernels.** The `ebpf-kernel-matrix` CI job loads and
-  attaches **every** program on real amd64 and arm64 LTS kernels under QEMU/KVM
+  attaches **every** program on real amd64 LTS kernels under QEMU/KVM (arm64 is
+  compile-verified only — decision D-13, see docs/ebpf-agent.md)
   on every pass — so the shipped bytecode is exactly what was reviewed, proven
   loadable on those kernels, and proven incapable of enforcement. The arm64 row
   runs on a self-hosted Linux/ARM64 runner with the custom `kvm` label, and a
