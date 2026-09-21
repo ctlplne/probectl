@@ -40,9 +40,18 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+# DPR-267: the repo is bind-mounted, so without this tmpfs a container `npm ci`
+# writes linux/amd64 binaries straight over the HOST's web/node_modules. The next
+# local `npm test` then dies with "Cannot find native binding" and npm's own
+# message blames its optional-dependency bug rather than this script — which is
+# exactly how the last run of this check cost an hour. Nothing this script is for
+# (verifying the lock, regenerating the lock, running a typecheck at CI parity)
+# needs the install to survive on the host, and local work uses the host npm.
+# scripts/web_rendered_a11y_container.sh already isolates node_modules this way.
 exec docker run --rm \
   --platform "$PLATFORM" \
   -v "$repo_root:/src" \
+  --tmpfs /src/web/node_modules:rw,exec \
   -w /src/web \
   -e npm_config_update_notifier=false \
   -e HOME=/tmp \
