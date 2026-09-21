@@ -274,7 +274,14 @@ const runRawOperationWithStdinSpine = `{
 	if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
 		return fail(stderr, err)
 	}
-	return printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns)
+	if code := printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns); code != 0 {
+		return code
+	}
+	if verdictIsFalse(op.VerdictField, out) {
+		fmt.Fprintln(stderr, op.VerdictField+"=false: the server answered successfully and the answer is a finding")
+		return 1
+	}
+	return 0
 }`
 
 var customCLIHandlerSpines = map[string]string{

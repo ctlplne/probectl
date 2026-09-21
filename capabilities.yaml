@@ -369,7 +369,7 @@ capabilities:
   - id: F23
     name: Audit foundation
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: provider/security
     engine: {refs: ["file:internal/audit"]}
     binary: {refs: ["file:cmd/probectl-control/builders.go#buildReconciledAuditWORM("]}
@@ -379,7 +379,7 @@ capabilities:
     docs: {refs: ["file:docs/audit.md#Audit log"]}
     config_keys: {refs: ["config:PROBECTL_AUDIT_WORM_DIR", "config:PROBECTL_AUDIT_RETENTION"]}
     telemetry: {refs: ["file:internal/audit"]}
-    real_stack_proof: {gap: "The current receipt directly appends and verifies one fresh tenant's PostgreSQL chain; it lacks a second-tenant boundary and public audit API, CLI, and UI workflow."}
+    real_stack_proof: {refs: ["test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering"]}
     migration: {refs: ["file:migrations/0005_audit.sql", "file:migrations/0075_audit_stream_heads.sql"]}
 
   - id: F24
@@ -969,7 +969,7 @@ capabilities:
   - id: CLM-TAMPER-EVIDENT
     name: Audit streams are hash-chained and tamper-evident.
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: release/docs
     ui_aliases: {F23: "The cross-cutting audit-chain invariant is surfaced on the Audit foundation page rather than a duplicate claim-only screen."}
     engine: {refs: ["file:internal/audit/audit.go", "file:internal/audit/worm.go"]}
@@ -980,7 +980,7 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-TAMPER-EVIDENT"]}
     config_keys: {refs: ["config:PROBECTL_AUDIT_WORM_DIR"]}
     telemetry: {refs: ["file:internal/audit"]}
-    real_stack_proof: {gap: "The selected receipt checks one tenant PostgreSQL chain only; it does not prove both tenant and provider streams or the public verification API, CLI, and UI path."}
+    real_stack_proof: {refs: ["test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering"]}
     migration: {refs: ["file:migrations/0005_audit.sql", "file:migrations/0075_audit_stream_heads.sql"]}
 
   - id: CLM-OBSERVE-ONLY

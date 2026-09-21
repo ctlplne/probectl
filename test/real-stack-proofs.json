@@ -2,29 +2,47 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
+      "profile": "integration",
+      "capabilities": [
+        "F23",
+        "CLM-TAMPER-EVIDENT"
+      ]
+    },
+    {
       "ref": "test:internal/control/change_integration_test.go#TestChangeWebhookTenantIsolation",
       "profile": "integration",
-      "capabilities": ["F39"]
+      "capabilities": [
+        "F39"
+      ]
     },
     {
       "ref": "test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E",
       "profile": "integration",
-      "capabilities": ["F9"]
+      "capabilities": [
+        "F9"
+      ]
     },
     {
       "ref": "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation",
       "profile": "integration",
-      "capabilities": ["F9"]
+      "capabilities": [
+        "F9"
+      ]
     },
     {
       "ref": "test:internal/control/diagnostics_integration_test.go#TestSupportBundleTopologyTwoTenantIsolationPostgres",
       "profile": "integration",
-      "capabilities": ["F35"]
+      "capabilities": [
+        "F35"
+      ]
     },
     {
       "ref": "test:internal/control/hierarchyapi_integration_test.go#TestHierarchyAPITenantScopedTree",
       "profile": "integration",
-      "capabilities": ["F24"]
+      "capabilities": [
+        "F24"
+      ]
     }
   ]
 }

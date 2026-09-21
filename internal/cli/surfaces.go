@@ -24,6 +24,13 @@ type apiOp struct {
 	// for collections whose items are not id/name/status objects (audit
 	// events, for one). Empty keeps the generic ID/NAME/STATUS/SUMMARY table.
 	Columns []string
+	// VerdictField (DPR-272) names a boolean response field whose false value is
+	// a FINDING rather than a transport error. Such a handler answers 200 on
+	// purpose — the request succeeded and the answer is bad — but a CLI's
+	// contract is its exit status, and `probectl audit verify` exiting 0 while
+	// printing "audit chain broken at seq 2" tells every cron job and monitoring
+	// check that a compromised audit log is fine.
+	VerdictField string
 }
 
 // auditColumns is the table shape of an audit event (tenant or provider stream).
@@ -92,7 +99,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	"audit": {Name: "audit", Summary: "audit log and verification", Ops: map[string]apiOp{
 		"list":   {Method: http.MethodGet, Path: "/v1/audit", Columns: auditColumns},
 		"reveal": {Method: http.MethodPost, Path: "/v1/audit/ir/{event_ref}/reveal", ArgName: "event_ref", Description: "reveal one encrypted IR attribution with a reason read from stdin or an owner-only file"},
-		"verify": {Method: http.MethodGet, Path: "/v1/audit/verify"},
+		"verify": {Method: http.MethodGet, Path: "/v1/audit/verify", VerdictField: "ok"},
 	}},
 	"onboarding": {Name: "onboarding", Summary: "first-run setup progress", Ops: map[string]apiOp{
 		"progress": {Method: http.MethodGet, Path: "/v1/onboarding/progress", Description: "show first-run checklist progress"},

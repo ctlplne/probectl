@@ -207,7 +207,35 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 	if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
 		return fail(stderr, err)
 	}
-	return printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns)
+	if code := printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns); code != 0 {
+		return code
+	}
+	// The output is printed either way — the operator needs the detail — and only
+	// the exit status changes, so a script can branch on it.
+	if verdictIsFalse(op.VerdictField, out) {
+		fmt.Fprintln(stderr, op.VerdictField+"=false: the server answered successfully and the answer is a finding")
+		return 1
+	}
+	return 0
+}
+
+// verdictIsFalse reports whether the response's named boolean field is present
+// and false. A missing field is not a finding: absent is not the same as false,
+// and inventing a failure from a missing key would make the gate lie the other way.
+func verdictIsFalse(field string, out any) bool {
+	if field == "" {
+		return false
+	}
+	obj, ok := out.(map[string]any)
+	if !ok {
+		return false
+	}
+	v, present := obj[field]
+	if !present {
+		return false
+	}
+	b, isBool := v.(bool)
+	return isBool && !b
 }
 
 func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
