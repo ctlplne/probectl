@@ -87,6 +87,25 @@ func TestTwoTenantMultiStoreIsolationSurvivesSubstitution(t *testing.T) {
 	assertOnlyOwnFlows(t, "tenant A", topA, "10.10.", "10.20.", 3_000)
 	assertOnlyOwnFlows(t, "tenant B", topB, "10.20.", "10.10.", 24_000)
 
+	// The analytics themselves, not only the fence: top-talker means RANKED, so
+	// the heaviest source has to come first and carry its own byte total. An
+	// isolation assertion alone would pass on a correctly-scoped but wrongly
+	// aggregated answer.
+	if key, _ := topB[0]["key"].(string); key != "10.20.0.3" {
+		t.Errorf("top talker for tenant B = %q, want 10.20.0.3 (the heaviest at 9000 bytes)", key)
+	}
+	var prev float64 = 1 << 62
+	for _, item := range topB {
+		bytes, ok := item["bytes"].(float64)
+		if !ok {
+			t.Fatalf("talker has no numeric bytes: %+v", item)
+		}
+		if bytes > prev {
+			t.Errorf("top talkers are not ranked descending: %v after %v", bytes, prev)
+		}
+		prev = bytes
+	}
+
 	// ── the real CLI, from both sides ──────────────────────────────────────
 	live := httptest.NewServer(h)
 	defer live.Close()

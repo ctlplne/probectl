@@ -273,7 +273,7 @@ capabilities:
   - id: F17
     name: Flow analytics
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: platform/release
     engine: {refs: ["file:internal/flow"]}
     binary: {refs: ["file:cmd/probectl-flow-agent/main.go#func run"]}
@@ -283,7 +283,7 @@ capabilities:
     docs: {refs: ["file:docs/flow.md#Flow analytics"]}
     config_keys: {refs: ["config:PROBECTL_FLOW_CONFIG", "config:PROBECTL_FLOW_NETFLOW_LISTEN"]}
     telemetry: {refs: ["file:internal/flow"]}
-    real_stack_proof: {gap: "The Kafka-to-ClickHouse load test is opt-in outside normal integration CI and queries the store directly; it does not prove the public API, CLI, rendered UI, and two-tenant release path."}
+    real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution"]}
     migration: *no_migration
 
   - id: F18
