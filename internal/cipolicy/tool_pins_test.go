@@ -15,7 +15,7 @@ import (
 )
 
 // Every Go tool a workflow installs must name an exact version. A floating
-// @latest/@master means the gate's behaviour changes without a commit: a scanner
+// @latest/@master means the gate's behavior changes without a commit: a scanner
 // can start reporting more, or less, and nothing in the repository records which
 // one produced a given verdict. The repo already installs gitleaks, nfpm, vimto,
 // protoc-gen-go and cyclonedx-gomod this way; this keeps it true as jobs change.
