@@ -37,7 +37,7 @@ func abacDenialRows(t *testing.T, db *store.DB, tenant string) []audit.Event {
 // TestABACDenialIsAuditedOncePerWindow (DPR-043): a policy denial lands on the
 // tenant's tamper-evident stream naming the actor and the permission, repeats
 // inside the window fold into that row, a later denial is a new row, and an
-// ordinary RBAC miss is not mislabelled as a policy denial.
+// ordinary RBAC miss is not mislabeled as a policy denial.
 func TestABACDenialIsAuditedOncePerWindow(t *testing.T) {
 	srv, db := setupSessionAPI(t, auth.Identity{})
 	h := srv.Handler()

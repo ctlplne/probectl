@@ -23,7 +23,7 @@ import type { Connect, Plugin, ViteDevServer } from 'vite'
  *   Plain `npm run dev` keeps proxying /v1 to a real control plane, and the
  *   shipped SPA still hard-requires the backend session — this changes the
  *   laptop, not the product's auth model.
- * - Every response is labelled `x-probectl-fixture: 1`, and the fixture
+ * - Every response is labeled `x-probectl-fixture: 1`, and the fixture
  *   identity is the same obviously-fake operator the tests render.
  */
 export function fixtureApiPlugin(): Plugin {

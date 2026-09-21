@@ -588,7 +588,7 @@ describe('provider console (S-T1)', () => {
 // domain. The consequence was not: `?demo=1` entered nothing here, the console
 // fetched live provider data, and the screens carried real operator identities
 // and real cross-tenant usage with no Demo badge and nothing saying demo mode
-// was not in effect. Found while capturing J6 for the readiness programme: the
+// was not in effect. Found while capturing J6 for the readiness program: the
 // demo pass and the live pass produced the same operator emails.
 describe('provider console in the demo workspace', () => {
   test('refuses the demo workspace instead of answering it with live data', async () => {

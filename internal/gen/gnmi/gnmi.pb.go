@@ -968,8 +968,8 @@ func (x *Value) GetType() Encoding {
 	return Encoding_JSON
 }
 
-// Error message previously utilised to return errors to the client. Deprecated
-// in favour of using the google.golang.org/genproto/googleapis/rpc/status
+// Error message previously utilized to return errors to the client. Deprecated
+// in favor of using the google.golang.org/genproto/googleapis/rpc/status
 // message in the RPC response.
 // Reference: gNMI Specification Section 2.5
 //
@@ -1386,7 +1386,7 @@ type SubscribeResponse_SyncResponse struct {
 }
 
 type SubscribeResponse_Error struct {
-	// Deprecated in favour of google.golang.org/genproto/googleapis/rpc/status
+	// Deprecated in favor of google.golang.org/genproto/googleapis/rpc/status
 	//
 	// Deprecated: Marked as deprecated in gnmi/gnmi.proto.
 	Error *Error `protobuf:"bytes,4,opt,name=error,proto3,oneof"`

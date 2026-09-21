@@ -616,7 +616,7 @@ func TestEnrollmentStore(t *testing.T) {
 	ca := NewAgentCA(pool)
 	// DPR-219: agent_ca is a SHARED, single-row-per-kind table, and this test
 	// overwrites both kinds with placeholder strings that are not PEM. It used to
-	// leave them there, so every package that ran afterwards against the same
+	// leave them there, so every package that ran afterward against the same
 	// database — the whole enroll suite — failed with
 	// "crypto: ca cert PEM malformed" on a CA this test had scribbled over. The
 	// test is right that it must not assert an exact value on a shared table; it

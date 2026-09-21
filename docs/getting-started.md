@@ -593,7 +593,7 @@ the shared setup runs `dev.yml` and wired the control plane to
 
 The agent ships with a recorded flow fixture
 ([`internal/ebpf/testdata/flows.json`](../internal/ebpf/testdata/flows.json)) so
-you can light up the service map with **clearly-labelled SAMPLE data** on any OS,
+you can light up the service map with **clearly-labeled SAMPLE data** on any OS,
 no privileges. Point the agent at that file and at the dev Kafka:
 
 ```sh

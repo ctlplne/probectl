@@ -120,7 +120,7 @@ sections below are concrete instances of them.
   `tenant_id` *at the storage/query layer* — in Postgres Row-Level Security
   (**RLS**: the database itself appends a tenant filter to every statement, so
   an unscoped query returns nothing rather than everything) and
-  ClickHouse row policies (the ClickHouse analogue) — never in handler code
+  ClickHouse row policies (the ClickHouse analog) — never in handler code
   alone. The reasoning: handler
   code has bugs; a `WHERE tenant_id = ?` you forgot to write leaks data, but a
   database that *physically refuses* to return another tenant's rows does not. A

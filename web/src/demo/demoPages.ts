@@ -339,7 +339,7 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
     kicker: 'Device telemetry',
     title: 'Device plane',
     description:
-      'Sample interface counters, neighbours, and configuration changes from the polled fleet.',
+      'Sample interface counters, neighbors, and configuration changes from the polled fleet.',
     metrics: [
       metric('Devices', '14', 'Routers, switches, firewalls', 'info'),
       metric('Interfaces', '186', 'Sample polled interfaces', 'accent'),
@@ -358,7 +358,7 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       ],
     ),
     secondary: table(
-      'Changes and neighbours',
+      'Changes and neighbors',
       'Sample configuration changes and discovered adjacencies.',
       ['Time', 'Device', 'Change', 'Neighbour'],
       [
@@ -1010,7 +1010,7 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
     kicker: 'Versioned contract',
     title: 'API docs',
     description:
-      'A sample OpenAPI catalogue shows the shape of the HTTPS-only, tenant-scoped v1 API.',
+      'A sample OpenAPI catalog shows the shape of the HTTPS-only, tenant-scoped v1 API.',
     metrics: [
       metric('Operations', '145', 'Documented v1 surface', 'info'),
       metric('Schemas', '53', 'Generated typed models', 'accent'),

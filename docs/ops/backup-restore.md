@@ -118,7 +118,7 @@ Object Lock prevents changing or deleting it during retention.
 Plaintext Postgres dumps are break-glass only. The backup script and shipped
 cron examples refuse to write `.dump` unless
 `PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup` is set exactly.
-The Helm chart uses the same exact acknowledgement:
+The Helm chart uses the same exact acknowledgment:
 `backup.plaintextAck=allow-plaintext-tenant-backup` when
 `backup.encryption.enabled=false`. That path exists for disaster debugging, not
 normal operation; handle the file as raw tenant data and seal or destroy it
@@ -235,7 +235,7 @@ decrypt, copy, drop, or restore until the checksum passes. `restore_clickhouse.s
 accepts a sealed `.zip.pbk`, verifies its checksum sidecar, opens it into an
 ephemeral `.zip`, copies that zip back to the ClickHouse server backup path, and
 then runs the destructive restore. Plain `.dump` or `.zip` artifacts should
-exist only from explicit raw-backup acknowledgements; treat them as exposed
+exist only from explicit raw-backup acknowledgments; treat them as exposed
 tenant data.
 
 ### One database user, all the way through
@@ -245,7 +245,7 @@ Migration 0007 grants the application role DML on future tables through
 `ALTER DEFAULT PRIVILEGES`, and Postgres records that for the role that
 executed it: tables created later by a DIFFERENT user carry their row-level
 policies without the grant behind them. Nothing complains at migration time —
-the control plane refuses to start afterwards and names the tables (DPR-122).
+the control plane refuses to start afterward and names the tables (DPR-122).
 This bites most easily in a restore into a scratch database under another
 login, or after a migration-user rotation.
 

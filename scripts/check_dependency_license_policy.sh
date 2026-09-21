@@ -31,7 +31,7 @@ inventory_violations() {
 # DPR-208: without this the gate FAILS OPEN. runtime_ref_violations swallows
 # stderr and falls back to `|| true`, so on a machine with no ripgrep it returned
 # no violations and the policy passed having scanned nothing at all. That is how
-# a supply-chain licence gate stops being a gate. The selftest caught it as
+# a supply-chain license gate stops being a gate. The selftest caught it as
 # "Grafana runtime was not rejected" — the planted violation could not be seen
 # either — and the same absence takes delivery-audit-gate down.
 require_ripgrep() {

@@ -13,7 +13,7 @@
 {{- fail "health.mode must be exec or http" -}}
 {{- end -}}
 {{- if and .Values.health.enabled (eq .Values.health.mode "http") (not .Values.health.allowPlaintextHTTP) -}}
-{{- fail "health.mode=http opens a plaintext pod listener; keep health.mode=exec or set health.allowPlaintextHTTP=true as an explicit compatibility acknowledgement" -}}
+{{- fail "health.mode=http opens a plaintext pod listener; keep health.mode=exec or set health.allowPlaintextHTTP=true as an explicit compatibility acknowledgment" -}}
 {{- end -}}
 {{- if and .Values.metrics.enabled (not .Values.metrics.tls.existingSecret) -}}
 {{- fail "metrics.enabled exposes the agent listener on the pod network and requires metrics.tls.existingSecret (keys tls.crt and tls.key)" -}}

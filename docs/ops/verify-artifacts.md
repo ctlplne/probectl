@@ -54,7 +54,7 @@ images are the first this project has ever signed. Three things it does not carr
   digest and no `.tgz`/`.sig`/`.pem` was attached. Verify the chart at this
   version by digest only if you pulled it yourself; there is no signature to check.
 - **Only 6 of 10 deb/rpm packages.** `deb/rpm packages (ebpf-agent)` failed on a
-  missing packaging file (DPR-259) and fail-fast cancelled the remaining legs.
+  missing packaging file (DPR-259) and fail-fast canceled the remaining legs.
 - **No air-gap bundle.** It requires the chart job, so it was skipped.
 
 **`latest` moved to v0.6.5, and it should not have.** A pre-release is not meant

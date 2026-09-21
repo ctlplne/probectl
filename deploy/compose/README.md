@@ -96,7 +96,7 @@ deployment's real OIDC/SCIM configuration for any production use.
 
 The fastest path from nothing to **visible data**: brings up Postgres + Kafka +
 the control plane **plus a producer** — an eBPF agent in fixture mode, replaying
-a recorded, clearly-labelled SAMPLE flow file (no kernel needed; works on
+a recorded, clearly-labeled SAMPLE flow file (no kernel needed; works on
 macOS/Windows/Linux). The control plane folds those flows into the
 `/v1/topology` service map — your first data.
 

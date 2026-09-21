@@ -149,7 +149,7 @@ just "wait for its own CI". The `require-green-ci` job instead **looks up** the
 - **completed + success** → the tag workflow runs the strict
   `completeness-release-gate`; only a 100%-covered ledger unlocks the `images`
   and `binaries` jobs.
-- **completed + failure/cancelled** → the release fails; nothing is built.
+- **completed + failure/canceled** → the release fails; nothing is built.
 - **still running** → it polls for up to ~30 minutes (60 tries, 30 s apart),
   then proceeds or fails based on the outcome.
 - **no run at all** (the commit was never pushed to `main` or a PR, so `ci`

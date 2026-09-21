@@ -252,7 +252,7 @@ func (*Extension_ConfigSubscription) isExtension_Ext() {}
 type RegisteredExtension struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            ExtensionID            `protobuf:"varint,1,opt,name=id,proto3,enum=gnmi_ext.ExtensionID" json:"id,omitempty"` // The unique ID assigned to this extension.
-	Msg           []byte                 `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`                          // The binary-marshalled protobuf extension payload.
+	Msg           []byte                 `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`                          // The binary-marshaled protobuf extension payload.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

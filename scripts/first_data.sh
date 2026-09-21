@@ -69,7 +69,7 @@ test_id="$("${compose[@]}" --profile tools run --rm --no-deps --entrypoint /bin/
 [ -n "$test_id" ] || { echo "first-data: the control plane did not return a test id" >&2; exit 1; }
 echo "    test id: $test_id"
 
-# 5. Mint a single-use join token and hand it to the canary, which enrols itself
+# 5. Mint a single-use join token and hand it to the canary, which enrolls itself
 #    on boot over mTLS. No plaintext or token-only agent transport exists.
 say "enrolling the canary"
 token="$("${compose[@]}" exec -T control /usr/local/bin/app enroll-token -tenant "$tenant" -name first-data \

@@ -129,7 +129,7 @@ type Config struct {
 	L7CaptureScope []string `yaml:"l7_capture_scope"`
 
 	// L7CaptureHostRoot names a read-only mount of the NODE's filesystem
-	// inside a containerised agent (DPR-124). TLS uprobes attach to an inode,
+	// inside a containerized agent (DPR-124). TLS uprobes attach to an inode,
 	// and the distroless agent image has no libssl of its own, so without this
 	// a DaemonSet agent can never resolve "the system TLS libraries" it is
 	// documented to attach to. Empty = search the agent's own namespace

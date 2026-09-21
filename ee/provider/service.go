@@ -261,7 +261,7 @@ func (s *Service) CreateOperator(ctx context.Context, actor, email, name, role s
 }
 
 // Bootstrap creates the FIRST admin from the deployment's bootstrap token.
-// It works only while zero operators exist; afterwards the token is inert.
+// It works only while zero operators exist; afterward the token is inert.
 func (s *Service) Bootstrap(ctx context.Context, configuredToken, presentedToken, email, name string) (Operator, string, error) {
 	if configuredToken == "" {
 		return Operator{}, "", errors.New("provider: bootstrap is not configured (set PROBECTL_PROVIDER_BOOTSTRAP_TOKEN)")

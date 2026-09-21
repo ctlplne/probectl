@@ -244,7 +244,7 @@ func TestAgentRunEmitsL7Calls(t *testing.T) {
 // error — exactly how the Kafka bus behaves (DPR-071).
 type verifyingBus struct {
 	publishes int
-	rejectAll bool // every accepted record is reported failed afterwards
+	rejectAll bool // every accepted record is reported failed afterward
 	flushErr  error
 	failed    uint64
 }

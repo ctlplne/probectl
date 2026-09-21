@@ -949,7 +949,7 @@ need "exe:/usr/bin/nginx"               "$l7" "agent: L7 scoped workload not ren
 need "l7_capture_redaction: \"length\"" "$l7" "agent: L7 redaction not rendered (EBPF-002)"
 need "l7_capture_kernel_window: 0"      "$l7" "agent: L7 kernel window not rendered (EBPF-002)"
 
-# EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgement.
+# EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgment.
 agent_ds="$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")"
 grep -q "SYS_ADMIN" <<<"$agent_ds" && fail "agent: SYS_ADMIN in the DEFAULT DaemonSet (legacy mode only)"
 if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \

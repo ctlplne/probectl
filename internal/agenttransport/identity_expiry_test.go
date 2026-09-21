@@ -31,7 +31,7 @@ func TestIdentityFromContextRefusesAnExpiredCertificateMidStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	const tenant, agent = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
-	// A SHORT-lived identity, exactly as enrolment issues them.
+	// A SHORT-lived identity, exactly as enrollment issues them.
 	certPEM, _, err := ca.IssueClientCert(agent, crypto.AgentSPIFFEID(tenant, agent), time.Minute)
 	if err != nil {
 		t.Fatal(err)

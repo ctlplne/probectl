@@ -91,7 +91,7 @@ reach for most:
 
 The central browser API client and generated TypeScript SDK buffer JSON only
 through `web/src/api/response.ts`: successful responses are capped at 32 MiB
-and error envelopes at 1 MiB, with the stream cancelled on the first byte past
+and error envelopes at 1 MiB, with the stream canceled on the first byte past
 the limit. Branding and the API-docs JSON/executor use the same reader.
 Intentional artifact downloads remain streaming and do not use this helper.
 
@@ -250,7 +250,7 @@ deploy recipes are `sslmode=require` or stricter.
 - **Integration** (`make test-integration`, `-tags=integration`) — against real
   Kafka (in-process kfake), Postgres, ClickHouse, and Prometheus, plus in-process
   HTTPS/DNS servers and loopback sockets for the probes. The DNS/HTTP/TLS canary
-  behaviour (success / 5xx / slow / expired-cert / DNSSEC-bogus) lives here.
+  behavior (success / 5xx / slow / expired-cert / DNSSEC-bogus) lives here.
 - **Fuzz** (`make fuzz-smoke`) — **fuzzing** feeds a parser thousands of
   mutated, adversarial inputs hunting for the one that crashes it. The Go fuzz
   targets cover the untrusted-input parsers and tenant-bound ingest invariants.

@@ -146,9 +146,9 @@ func TestEnrollHappyPathIssuesTenantBoundSVID(t *testing.T) {
 	// verified batch IS a bus collector's heartbeat (DPR-082,
 	// internal/pipeline/tenantverify.go). So the test simulated a batch arriving
 	// and then asserted that nothing had arrived, and it has been failing on CI
-	// ever since. In production nothing calls Verify between enrolment and the
+	// ever since. In production nothing calls Verify between enrollment and the
 	// agent's first batch. Assert it where it belongs: immediately after
-	// enrolment.
+	// enrollment.
 	assertAgentStatus(ctx, t, pool, tenantID, id.AgentID, "registered", true)
 
 	// The Sprint 4 binding now vouches for the pair (a REAL, repo-issued identity).

@@ -79,7 +79,7 @@ run_checks() {
     grep -Fq "PROBECTL_IMAGE=$expected_placeholder" "$root/deploy/compose/.env.example" \
       || err "deploy/compose/.env.example must show the VERSION-matched digest placeholder ($expected_placeholder)"
     grep -Fq 'PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable' "$root/deploy/compose/.env.example" \
-      || err "deploy/compose/.env.example must document the explicit tag-only acknowledgement"
+      || err "deploy/compose/.env.example must document the explicit tag-only acknowledgment"
   fi
 
   # DPR-025: the demo Dex shares control's network namespace; the overlay and

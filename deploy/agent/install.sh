@@ -27,7 +27,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # SUPPLY-002: verification is the default for this privileged installer. Repo
 # identity is the probectl release workflow on a tag — the same identity
 # release.yml signs with. The legacy PROBECTL_VERIFY_COSIGN=0 env and the
-# --no-verify flag are break-glass only and require the acknowledgement below.
+# --no-verify flag are break-glass only and require the acknowledgment below.
 VERIFY="${PROBECTL_VERIFY_COSIGN:-1}"
 case "${VERIFY}" in
   1|true|TRUE|yes|YES) VERIFY=1 ;;

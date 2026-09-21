@@ -25,7 +25,7 @@ import (
 // there at all and discovery could never succeed, even though docs advertise
 // attaching to "the system TLS libraries" (DPR-124). l7_capture_host_root
 // names a read-only mount of the NODE's library tree; every candidate and
-// every ldconfig-derived path is resolved under it, so a containerised agent
+// every ldconfig-derived path is resolved under it, so a containerized agent
 // attaches to the node's real libssl inode. Empty = the agent's own namespace
 // (a host-installed agent, unchanged).
 
@@ -174,7 +174,7 @@ func discoverSharedLibrary(goarch string, names []string, candidates []string, l
 	if root := strings.TrimRight(strings.TrimSpace(hostRoot), "/"); root != "" {
 		where += fmt.Sprintf(" (searched under host root %s — is the node library mount present?)", root)
 	} else {
-		where += " (searched the agent's OWN mount namespace; a containerised agent needs l7_capture_host_root pointing at a read-only mount of the node library tree — DPR-124)"
+		where += " (searched the agent's OWN mount namespace; a containerized agent needs l7_capture_host_root pointing at a read-only mount of the node library tree — DPR-124)"
 	}
 	msg := fmt.Sprintf("%s not found for %s (%s)", label, goarch, where)
 	if hint != "" {

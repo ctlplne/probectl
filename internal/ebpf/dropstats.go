@@ -36,7 +36,7 @@ func (s DropStats) Add(o DropStats) DropStats {
 }
 
 // Delta returns the positive field-wise movement from prev to s. If a source is
-// restarted and a counter moves backwards, that field contributes zero for this
+// restarted and a counter moves backward, that field contributes zero for this
 // sync and the caller's next baseline becomes the new lower value.
 func (s DropStats) Delta(prev DropStats) DropStats {
 	return DropStats{

@@ -468,7 +468,7 @@ func (s *liveL7Source) Close() error {
 // PROBECTL_EBPF_LIBSSL override for OpenSSL-compatible stacks, then multi-arch
 // discovery (ldconfig cache + per-arch candidates — U-015/EBPF-001; see
 // libssl.go) for OpenSSL-compatible libssl and GnuTLS. hostRoot resolves
-// discovery inside a mounted node filesystem for a containerised agent
+// discovery inside a mounted node filesystem for a containerized agent
 // (l7_capture_host_root, DPR-124).
 func tlsProbeLibraries(hostRoot string) ([]tlsProbeLibrary, error) {
 	return discoverTLSProbeLibrariesDefault(os.Getenv("PROBECTL_EBPF_LIBSSL"), hostRoot)

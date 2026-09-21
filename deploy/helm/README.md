@@ -344,7 +344,7 @@ Agents → Enroll agent, or `enroll-token -tenant <uuid>`) and enroll agents
 against the API host with gRPC at the `-agents` address
 ([`docs/deploying-agents.md`](../../docs/deploying-agents.md)).
 
-**Agents also need the API port, and only for their identity.** Enrolment
+**Agents also need the API port, and only for their identity.** Enrollment
 (`POST /enroll/agent/join`) and identity **rotation** (`POST
 /enroll/agent/rotate`) are HTTP endpoints on `service.port`, not on the mTLS
 listener — rotation cannot live behind mTLS, because the certificate it exists
@@ -367,7 +367,7 @@ networkPolicy:
 
 Agents that run OUTSIDE the cluster reach the same endpoint through the
 ingress, so they need nothing here. Setting the list empty restores the
-previous behaviour and is only correct when every agent is external.
+previous behavior and is only correct when every agent is external.
 
 ## Optional rendered-browser synthetic agent
 

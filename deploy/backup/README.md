@@ -21,7 +21,7 @@ telemetry, including its backups, never leaves the operator's network (a
 Postgres backups are additionally envelope-encrypted in the dump pipeline by
 default (`pg_dump | probectl-control backup-seal > .dump.pbk`), so the raw
 tenant database does not land on the backups volume. Plaintext `.dump` output
-requires the exact break-glass acknowledgement
+requires the exact break-glass acknowledgment
 `PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup`.
 Filesystem object stores are streamed directly through the same envelope
 encryption into `.tar.pbk`; no plaintext tar is written. S3/MinIO copies require

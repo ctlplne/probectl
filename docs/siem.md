@@ -118,7 +118,7 @@ flowchart LR
   needed and locks it with `SELECT ... FOR UPDATE` before reading audit events.
   A second replica waits, then observes the committed cursor, so overlapping
   pollers do not forward the same page twice. A process crash after remote
-  acknowledgement but before commit can still replay that final event; SIEM
+  acknowledgment but before commit can still replay that final event; SIEM
   receivers should therefore keep their documented `(tenant_id, audit.seq)`
   idempotency key. This is at-least-once delivery with no gaps, not a false
   exactly-once claim.

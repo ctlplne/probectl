@@ -22,7 +22,7 @@
 # most of the product unseen.
 #
 # The obvious fix is to let dev auth accept a non-loopback bind behind a second
-# acknowledgement. That was tried and is the wrong answer: the check's whole
+# acknowledgment. That was tried and is the wrong answer: the check's whole
 # value is that it has no exceptions, and the first exception is the one that
 # gets copied into a real deployment.
 #

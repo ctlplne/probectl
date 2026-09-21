@@ -254,7 +254,7 @@ function roundtripBackend(options: { expiredSilence?: boolean; connectorBlocked?
 }
 
 describe('alert-to-postmortem round trip (X11)', () => {
-  test('completes acknowledgement, bounded silence, delivery receipt, and postmortem in four interactions', async () => {
+  test('completes acknowledgment, bounded silence, delivery receipt, and postmortem in four interactions', async () => {
     const { fetcher, requests } = roundtripBackend()
     vi.stubGlobal('fetch', fetcher)
     renderWithLocation('/alerts?alert_state=firing')

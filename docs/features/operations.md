@@ -50,7 +50,7 @@ Each capability answers a concrete fear:
 - **"What happens if a region dies?"** The control plane keeps serving reads and
   ingest everywhere; the database fails *closed* on writes during the flip so it
   can never corrupt state.
-- **"Can we honour a deletion or residency obligation, and prove it?"** Yes —
+- **"Can we honor a deletion or residency obligation, and prove it?"** Yes —
   erasure produces a proof document anyone can re-derive.
 - **"Can we get a diagnostic file to support without leaking credentials?"** Yes —
   the support bundle is structurally secret-free.
@@ -144,7 +144,7 @@ Governance is one coherent view per customer over five concerns:
   floor (PII by default) is masked. The default strategy keeps a coarse,
   non-identifying prefix — "blur the house number, keep the street" — so analytics
   still group by network while no value points at one host. Credentials always
-  drop entirely. Masking is best-effort pseudonymisation, **not** anonymisation:
+  drop entirely. Masking is best-effort pseudonymization, **not** anonymization:
   for irreversible removal, use erasure.
 - **Retention.** Each store has its own deletion clock; you set how long flow,
   path, host-level, and trace/log telemetry live.
@@ -264,7 +264,7 @@ survive.
 - **Lose the encryption key and sealed values become unreadable.** Back up the
   key material like you back up the data. A keyless production startup is a fatal
   error, never a silent fallthrough to plaintext.
-- **Masking is not anonymisation.** The default strategy keeps a network prefix
+- **Masking is not anonymization.** The default strategy keeps a network prefix
   and the hash strategy is correlatable. You cannot promise a masked value
   identifies nobody. For that, erase.
 - **Erasure clears live stores, not backups.** A governed deletion attests the

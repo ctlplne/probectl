@@ -8,12 +8,12 @@ Instructions for coding agents (Codex, Claude Code, Cowork, or any other) workin
    guardrails are non-negotiable under any level of autonomy; §6 conventions bind
    every commit.
 
-2. **If your task is programme work** (anything like "work the backlog" or "continue the
-   programme"): the one live programme is **`../design-partner-readiness/`** — start at
+2. **If your task is program work** (anything like "work the backlog" or "continue the
+   program"): the one live program is **`../design-partner-readiness/`** — start at
    `../design-partner-readiness/PLAN.md`, then
    `../design-partner-readiness/RUN_PROMPT.md`,
    `../design-partner-readiness/FINDINGS.md` and
-   `../design-partner-readiness/decisions-needed.md`. It lives outside this repo so programme
+   `../design-partner-readiness/decisions-needed.md`. It lives outside this repo so program
    state never ships with the product. Its standing rules: fix everything found (no backlog),
    §7 guardrails never relaxed, commit on `main` as the owner, never push. The 2026-08-08
    comprehensive backlog (`../probectl-comprehensive-backlog-2026-08-08.html`) and every

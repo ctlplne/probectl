@@ -92,7 +92,7 @@ validate_image_ref() {
     *@sha256:*) return 0 ;;
   esac
   if allow_tag_ack; then
-    echo "compose preflight: tag-only image allowed by explicit operator acknowledgement: $image"
+    echo "compose preflight: tag-only image allowed by explicit operator acknowledgment: $image"
     return 0
   fi
   cat >&2 <<EOF
@@ -209,7 +209,7 @@ ENV
   rc=$?
   set -e
   if [ "$rc" -eq 0 ] || ! grep -Fq "must be digest-pinned" <<<"$output"; then
-    echo "SELFTEST FAILED: tag-only image passed without acknowledgement" >&2
+    echo "SELFTEST FAILED: tag-only image passed without acknowledgment" >&2
     return 1
   fi
   cat > "$root/deploy/compose/.env" <<'ENV'
@@ -218,7 +218,7 @@ PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
 ENV
   DOCKER_LOG="$docker_log" INSPECT_RC=0 PULL_RC=1 PATH="$tmp/bin:$PATH" PROBECTL_REPO_ROOT="$root" bash "$script" >/dev/null
   grep -Fq 'image inspect probectl-control:local' "$docker_log" || {
-    echo "SELFTEST FAILED: tag-only acknowledgement was not honored" >&2
+    echo "SELFTEST FAILED: tag-only acknowledgment was not honored" >&2
     return 1
   }
   set +e

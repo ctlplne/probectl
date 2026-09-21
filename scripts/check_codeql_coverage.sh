@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: BUSL-1.1
 #
-# check_codeql_coverage.sh (DPR-245) — CodeQL must actually be analysing the
+# check_codeql_coverage.sh (DPR-245) — CodeQL must actually be analyzing the
 # product, not just the workflows.
 #
 # On 2026-09-19 this was discovered by reading the alert list rather than by any
 # gate: CodeQL's last analysis of Go, JavaScript/TypeScript, Python and C/C++ was
 # 2026-07-02 on commit 0aa5ff0. Only `/language:actions` had run since — 79 days,
-# the whole design-partner-readiness programme, with no static analysis of the
+# the whole design-partner-readiness program, with no static analysis of the
 # product at all. The 17 open alerts were a frozen July snapshot whose line
 # numbers no longer matched the code, and a local run of the same suite on current
 # code found TWO high-severity rule classes GitHub had never reported
@@ -86,7 +86,7 @@ print(runs[0]['created_at'] if runs else '')
     echo "::error::codeql-coverage: /language:${lang} last analysed ${age} days ago (${newest}), over the ${MAX_AGE_DAYS}-day bar — the open alert list is a stale snapshot (DPR-245)" >&2
     fail=1
   else
-    echo "codeql-coverage: /language:${lang} analysed ${age}d ago (${newest})"
+    echo "codeql-coverage: /language:${lang} analyzed ${age}d ago (${newest})"
   fi
 done
 
@@ -94,4 +94,4 @@ if [ "$fail" -ne 0 ]; then
   echo "codeql-coverage gate FAILED — enable the missing language(s) in code scanning, or adopt the in-repo workflow (decisions-needed D-14)." >&2
   exit 1
 fi
-echo "codeql-coverage gate: OK (every product language analysed within ${MAX_AGE_DAYS} days)"
+echo "codeql-coverage gate: OK (every product language analyzed within ${MAX_AGE_DAYS} days)"

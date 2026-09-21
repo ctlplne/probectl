@@ -272,7 +272,7 @@ deployment path uses app-terminated TLS:
   refused).
 - **Ingress compatibility mode** — a legacy/operator-owned deployment can leave
   them unset only with the explicit `PROBECTL_ALLOW_PLAINTEXT_HTTP=true`
-  acknowledgement behind its TLS ingress. Shipped Helm and Compose do not use
+  acknowledgment behind its TLS ingress. Shipped Helm and Compose do not use
   this mode because it leaves the ingress-to-process hop unencrypted.
 
 All TLS and crypto policy lives in `internal/crypto`; a CI guard
@@ -505,7 +505,7 @@ In `nats` mode each topic is a JetStream stream of its own (so a siloed tenant's
 lane stays its own lane), each consumer group is a durable consumer whose
 position survives restarts and rolling upgrades, a message is acknowledged only
 after its handler returns nil, and `Flush` waits for the server's
-acknowledgement — the same delivery contract Kafka carries. Set
+acknowledgment — the same delivery contract Kafka carries. Set
 `PROBECTL_BUS_BROKERS` to one or more `nats://`/`tls://` URLs. The transport
 policy is identical to Kafka's: TLS and credentials are required, and a bus
 without TLS is refused unless the explicit dev-only
@@ -1883,7 +1883,7 @@ rotate on restart. See [`ai-rca.md`](ai-rca.md).
 | `PROBECTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |
 | `PROBECTL_AI_MODEL_TIMEOUT`  | `60s`     | per-request timeout for the model endpoint                         |
 | `PROBECTL_AI_MAX_EVIDENCE`   | `50`      | cost guard: the most signals one answer may gather                 |
-| `PROBECTL_AI_MAX_CONCURRENT` | `8`       | process-wide cap on concurrent analyses (HTTP 429 when exceeded); a backstop beneath the per-tenant fairness gate |
+| `PROBECTL_AI_MAX_CONCURRENT` | `8`       | process-wide cap on concurrent analyzes (HTTP 429 when exceeded); a backstop beneath the per-tenant fairness gate |
 | `PROBECTL_AI_PERSIST_ANSWERS` | `false`  | persist privacy-minimized answer artifacts (tokenized prompt/cited JSON + model + config hash) for reproducibility/disputes |
 | `PROBECTL_AI_ANSWER_RETENTION` | `2160h` (90 days) | prune persisted answers older than this (enforced opportunistically on write) |
 

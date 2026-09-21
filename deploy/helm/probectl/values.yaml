@@ -419,7 +419,7 @@ networkPolicy:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: ingress-nginx
-  # DPR-174: agents ENROL and ROTATE their identity over this same API port
+  # DPR-174: agents ENROLL and ROTATE their identity over this same API port
   # (POST /enroll/agent/join, POST /enroll/agent/rotate). The mTLS agent
   # listener cannot carry rotation — rotation is what an agent does because its
   # client certificate is about to stop working, and an expired SVID cannot
@@ -438,7 +438,7 @@ networkPolicy:
   # in any namespace, and nothing else; this release's browser agent is named by
   # the template itself, because the chart deploys both ends of that hop. Add
   # your own selectors here for SVID-holding agents deployed by other means. An
-  # empty list restores the broken behaviour and is correct only when every such
+  # empty list restores the broken behavior and is correct only when every such
   # agent lives outside the cluster and arrives through the ingress.
   agentEnrollmentFrom:
     - namespaceSelector: {}

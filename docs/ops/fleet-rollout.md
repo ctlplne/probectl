@@ -267,6 +267,6 @@ probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
 | Halt-on-error | registry-verified — stragglers or dark agents past the window freeze the train |
 | Mid-rollout safety | N/N-1 means old and new agents coexist on the bus throughout |
 
-**Rollback** is the same machine pointed backwards: plan a rollout to the
+**Rollback** is the same machine pointed backward: plan a rollout to the
 previous (still-verified) version. The same skew window that lets waves coexist
 going forward lets them coexist coming back.

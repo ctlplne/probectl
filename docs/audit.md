@@ -5,7 +5,7 @@
 The audit log is probectl's permanent, ordered record of every action that changes
 configuration or touches data: who did it, to what, from where, and when. Think of it
 as the building's CCTV plus a signed visitor book — not to slow anyone down, but so
-that afterwards you can prove exactly what happened and be confident no one quietly
+that afterward you can prove exactly what happened and be confident no one quietly
 edited the tape.
 
 A term you'll see: **WORM** (write-once, read-many) — storage that accepts a record
@@ -76,7 +76,7 @@ request, so failing readiness over it would take a healthy replica out of the
 load balancer for something to schedule rather than something to page on. That is
 the same line `docs/verdict-coverage.md` draws everywhere else.
 
-One related behaviour worth knowing before you move a WORM volume: if the volume
+One related behavior worth knowing before you move a WORM volume: if the volume
 a replica is given cannot account for the segments the audit chain references,
 that replica **refuses to admit traffic at all** rather than serving with an
 unverifiable audit trail, and says which segment it could not read. Seed a

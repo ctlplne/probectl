@@ -132,7 +132,7 @@ type Bus interface {
 
 // Flusher is an optional Bus capability: block until everything published so
 // far is durable/processed (or ctx expires). The async Kafka bus waits for
-// broker acknowledgements; the in-memory bus waits until subscriber handlers
+// broker acknowledgments; the in-memory bus waits until subscriber handlers
 // have finished records already accepted by Publish. Callers that need a
 // durability barrier before acking upstream (CORRECT-004 / RESIL-002)
 // type-assert for it and treat a missing implementation as "already durable".

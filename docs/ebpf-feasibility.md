@@ -134,7 +134,7 @@ The kernel offers two mechanisms for streaming events up to userspace: the
 **ring buffer** — one shared, ordered, fixed-size queue all CPUs write into
 (MPSC: many producers, a single consumer) — and the older **perf buffer**, a
 separate queue per CPU, like a basket at every checkout lane that userspace must
-poll in turn and re-order afterwards.
+poll in turn and re-order afterward.
 
 | | `BPF_MAP_TYPE_RINGBUF` (≥5.8) | `BPF_MAP_TYPE_PERF_EVENT_ARRAY` (older) |
 |---|---|---|

@@ -82,7 +82,7 @@ func TestStoreWriteRetriesTransientFailure(t *testing.T) {
 
 // U-019: when the store stays down past the retry budget, the ORIGINAL bytes
 // are dead-lettered (replayable) — proven by consuming the DLQ topic and
-// unmarshalling the identical result. Zero silent loss.
+// unmarshaling the identical result. Zero silent loss.
 func TestStoreWriteExhaustionDeadLetters(t *testing.T) {
 	b := bus.NewMemory()
 	defer b.Close()

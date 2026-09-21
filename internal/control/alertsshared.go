@@ -102,7 +102,7 @@ func (p pgSharedAlertStore) DeleteMaintenance(ctx context.Context, tenant, id st
 // persistedAlertState serves a tenant's alert state from the shared store on a
 // replica that is not the evaluator leader (DPR-067). Reads overlay the
 // persisted operator state onto the published active set; silences and
-// acknowledgements are written to alert_ops, which the leader applies on its
+// acknowledgments are written to alert_ops, which the leader applies on its
 // next pass (at most one evaluation interval later).
 type persistedAlertState struct {
 	store   sharedAlertStore

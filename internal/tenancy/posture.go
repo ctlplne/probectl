@@ -427,7 +427,7 @@ func assertProviderPoliciesAreScoped(ctx context.Context, q postureQuerier) erro
 	//
 	//  2. Only PERMISSIVE policies grant access. A RESTRICTIVE policy further
 	//     CONSTRAINS what a permissive one allows, so reading one as an
-	//     unconstrained grant is backwards: it would refuse to start on a
+	//     unconstrained grant is backward: it would refuse to start on a
 	//     database that is more locked down, not less. ir_attribution_records'
 	//     public-route policy is exactly that — a restrictive guard keeping
 	//     siloed tenants out of the pooled table.

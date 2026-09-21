@@ -2149,7 +2149,7 @@ async function targetAndTabChecks(page) {
   });
 }
 
-// DPR-171: a sticky or fixed BAR painted with a translucent colour lets the
+// DPR-171: a sticky or fixed BAR painted with a translucent color lets the
 // page scroll straight through it. Both the bar's own text and the content
 // passing behind it become unreadable, and nothing else here notices: axe reads
 // the DOM, and contrast is computed against a declared background that is not
@@ -2161,7 +2161,7 @@ async function targetAndTabChecks(page) {
 // The rule: an element that stays put while the page moves, and is wide enough
 // to sit over content, needs something opaque behind its text. A layered tint
 // (`background: linear-gradient(tint, tint), var(--color-bg)`) satisfies this,
-// because the shorthand's final colour becomes background-color.
+// because the shorthand's final color becomes background-color.
 // DPR-179: text that overflows its own box with no ellipsis is clipped text —
 // the reader sees "Operat" and a button painted over the rest. The app chrome is
 // where it hurts most, because the tenant and authority indicators are the two

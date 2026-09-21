@@ -14,7 +14,7 @@ on:
 
 permissions:
   contents: read
-  # DPR-245: read the repository's own code-scanning analyses, to prove CodeQL is
+  # DPR-245: read the repository's own code-scanning analyzes, to prove CodeQL is
   # still looking at the product and not only at the workflows.
   security-events: read
 

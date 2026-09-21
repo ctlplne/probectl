@@ -11,22 +11,22 @@ permissions:
 # DPR-235: cancel on PR branches, NEVER on main or a tag.
 #
 # `cancel-in-progress: true` for every ref meant that a push landing inside a
-# run's ~20-minute window killed it. This programme pushes far faster than that,
+# run's ~20-minute window killed it. This program pushes far faster than that,
 # and the arithmetic showed up in the history: of the last 30 ci runs on main, 26
-# cancelled, 3 failed, ZERO ever concluded successfully. release.yml's
+# canceled, 3 failed, ZERO ever concluded successfully. release.yml's
 # "require green ci on the tagged sha" polls for `completed/success`, so a branch
-# whose runs are always cancelled can never be released — which is half of why
+# whose runs are always canceled can never be released — which is half of why
 # v0.6.3 failed.
 #
 # A main run is now allowed to finish, and it is given its OWN group so it cannot
 # hold up the next one either.
 #
-# DPR-242: not cancelling was only half of it. With one group per REF, a main run
+# DPR-242: not canceling was only half of it. With one group per REF, a main run
 # that never concludes blocks every later main run at `pending` indefinitely — and
 # ebpf-kernel-matrix (6.6-arm64) never concludes, because it wants a self-hosted
 # ARM64 KVM runner this account does not have (D-13). Observed directly: the run on
 # ac90177 sat queued for eleven hours and the push after it stayed `pending` until
-# a human cancelled the first by hand. Trading an automatic cancellation for a
+# a human canceled the first by hand. Trading an automatic cancellation for a
 # manual one per push is not a fix.
 #
 # Keying main on the COMMIT gives every commit its own group, so a stuck run is
@@ -192,7 +192,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install ripgrep
-        # DPR-208: the licence-policy scan and the completeness audit both
+        # DPR-208: the license-policy scan and the completeness audit both
         # require rg. ubuntu-latest does not ship it, and the scripts used to
         # treat its absence as "no violations found" rather than as an error.
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
@@ -531,7 +531,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install ripgrep
-        # DPR-208: the licence-policy scan and the completeness audit both
+        # DPR-208: the license-policy scan and the completeness audit both
         # require rg. ubuntu-latest does not ship it, and the scripts used to
         # treat its absence as "no violations found" rather than as an error.
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep

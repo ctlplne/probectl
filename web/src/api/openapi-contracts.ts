@@ -198,7 +198,7 @@ export const API_CALL_CONTRACTS = [
     response: '{ accepted: boolean; type: string }',
     generated: 'JsonObject',
     reason:
-      'OpenAPI SDK generation is intentionally not run in the frontend gate; the response is a narrow test-delivery acknowledgement.',
+      'OpenAPI SDK generation is intentionally not run in the frontend gate; the response is a narrow test-delivery acknowledgment.',
   },
   {
     file: 'api/alerts.ts',
@@ -207,7 +207,7 @@ export const API_CALL_CONTRACTS = [
     response: '{ accepted: boolean; connector_id: string; provider: string; status?: string }',
     generated: 'JsonObject',
     reason:
-      'OpenAPI SDK generation is intentionally not run in the frontend gate; the response is a narrow connector-test acknowledgement.',
+      'OpenAPI SDK generation is intentionally not run in the frontend gate; the response is a narrow connector-test acknowledgment.',
   },
   {
     file: 'api/alerts.ts',

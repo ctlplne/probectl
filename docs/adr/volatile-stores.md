@@ -68,10 +68,10 @@ Cross-tenant isolation is unaffected. Each store is keyed by tenant, and a cold
 start cannot surface another tenant's data: it surfaces *nothing* until it has
 re-derived from that tenant's own inputs.
 
-## The exception: alert silences and acknowledgements
+## The exception: alert silences and acknowledgments
 
 A **silence** mutes an alert's notifications until a chosen time; an **ack**
-(acknowledgement) marks who has taken ownership of it. Both are **operator
+(acknowledgment) marks who has taken ownership of it. Both are **operator
 inputs**, not derivable from any stream. Re-deriving firing state can
 reconstruct *what is firing*, but it cannot reconstruct "operator X silenced
 this alert until 3pm" — that fact existed only because a human typed it. When

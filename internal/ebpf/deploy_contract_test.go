@@ -361,7 +361,7 @@ func TestAgentHelmHealthDefaultsUseExecProbes(t *testing.T) {
 		"mode: exec",
 		"stateDir: /var/run/probectl-ebpf-agent",
 		"allowPlaintextHTTP: false",
-		"explicit plaintext acknowledgement",
+		"explicit plaintext acknowledgment",
 	} {
 		if !strings.Contains(values, want) {
 			t.Errorf("agent values.yaml missing exec health default %q (WIRE-004)", want)

@@ -7,7 +7,7 @@ services call other services, autonomous systems originate prefixes (an
 **autonomous system** is one independently-operated network, like an ISP; a
 **prefix** is the block of IP addresses it announces to the world), devices
 carry interfaces. `internal/topology` is probectl's live model of that shape — a
-**tenant-scoped**, **versioned (time-travelling)** graph (a graph is just
+**tenant-scoped**, **versioned (time-traveling)** graph (a graph is just
 nodes — the things — and edges — who touches whom) that stitches together
 the signals the other planes already produce:
 
@@ -152,7 +152,7 @@ get:
 - **broken** agent→target paths — routes with no surviving alternative;
 - **rerouted** paths — with the surviving route returned alongside the original;
 - **impacted services** — the transitive callers of a failed service/host:
-  walk the call arrows *backwards* and collect everyone that depends on it,
+  walk the call arrows *backward* and collect everyone that depends on it,
   directly or through intermediaries
   (reverse reachability over `flow` edges);
 - **impacted prefixes** — prefixes a failed AS originated (a failed prefix is its
@@ -186,7 +186,7 @@ computes positions client-side, so the server stays layout-agnostic.
 `IndexedStore` implements the same `Store` contract as `MemoryStore`, but backs
 it with forward/reverse adjacency indexes, so `Neighbors` and `Traverse` are
 proportional to a node's degree (how many edges touch it) instead of the whole
-edge set — the behaviour
+edge set — the behavior
 large graphs need. The engine is selected by `PROBECTL_TOPOLOGY_ENGINE`
 (`indexed`, the default | `memory`); the switch is transparent behind the query
 API. A scale test exercises both correctness and interactivity at roughly 30k
@@ -215,7 +215,7 @@ a deployment outgrows a single process.
   Scrubbing the clock preserves the selected entity. Incident evidence can pivot
   into the selected entity and open the what-if overlay in two interactions
   while preserving the incident, evidence, time range, filters, and return path.
-  The overlay is labelled **observe-only dry-run** and shows affected tests,
+  The overlay is labeled **observe-only dry-run** and shows affected tests,
   services, the authorized linked incident, routes, known SLOs, confidence, and
   gaps before offering the audited JSON export.
 - `GET /v1/device/identity-conflicts` — bounded conflict/provenance rows and

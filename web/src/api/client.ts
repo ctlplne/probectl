@@ -117,7 +117,7 @@ export async function apiFetchBytes(path: string, init?: RequestInit): Promise<U
 /**
  * publicFetch targets a same-origin endpoint that is deliberately OUTSIDE the
  * versioned `/v1` API base — the pre-auth surfaces (`/branding`, `/auth/...`).
- * Centralising them here keeps "off-/v1" a single, documented convention
+ * Centralizing them here keeps "off-/v1" a single, documented convention
  * instead of scattered raw `fetch()` calls (UX-006). It does NOT auto-prepend
  * a base, so callers pass an absolute same-origin path (e.g. `/branding`).
  */

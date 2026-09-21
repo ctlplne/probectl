@@ -122,7 +122,7 @@ export function Modal({ open, onClose, title, children, footer, returnFocusRef }
       >
         {/* A div, not <header>: inside a dialog a header maps to a second
             banner landmark (axe landmark-no-duplicate-banner); the dialog is
-            labelled via aria-labelledby. */}
+            labeled via aria-labelledby. */}
         <div className={styles.header}>
           <h2 id={titleId} className={styles.title}>
             {title}

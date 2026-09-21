@@ -28,7 +28,7 @@
      painted with it alone lets the page scroll straight through — the banner
      that exists to say "operator domain, no tenant context" became unreadable
      the moment anyone scrolled, and so did the rows passing behind it. The tint
-     is layered over the page background instead: same colour, no transparency,
+     is layered over the page background instead: same color, no transparency,
      still tokens only. */
   background:
     linear-gradient(var(--color-warning-soft), var(--color-warning-soft)),

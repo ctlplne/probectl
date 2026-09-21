@@ -254,7 +254,7 @@ spec:
                   echo "wrote sealed ${out}"
                   {{- else }}
                   sha256sum "${server_backup_path}/${name}" > "${server_backup_path}/${name}.sha256"
-                  echo "wrote raw ${server_backup_path}/${name} under encrypted-target acknowledgement"
+                  echo "wrote raw ${server_backup_path}/${name} under encrypted-target acknowledgment"
                   {{- end }}
               env:
                 - name: CH_USER

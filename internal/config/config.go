@@ -515,7 +515,7 @@ type Config struct {
 	AIModelToken    string
 	AIModelTimeout  time.Duration
 	AIMaxEvidence   int
-	// AIMaxConcurrent (U-048) caps concurrent RCA analyses process-wide — a
+	// AIMaxConcurrent (U-048) caps concurrent RCA analyzes process-wide — a
 	// fail-fast (429) backstop that holds even when no per-tenant fairness
 	// gate is configured.
 	AIMaxConcurrent int

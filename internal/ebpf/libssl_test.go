@@ -273,7 +273,7 @@ func TestHostRootRewritesLdconfigPaths(t *testing.T) {
 }
 
 // The failure must tell the operator which of the two situations they are in:
-// a containerised agent with no node mount, or a mount that is present but
+// a containerized agent with no node mount, or a mount that is present but
 // carries no TLS library. A silent or generic failure is what DPR-124 was.
 func TestDiscoveryFailureNamesTheDeploymentShape(t *testing.T) {
 	ld := func() ([]byte, error) { return nil, errors.New("no ldconfig") }

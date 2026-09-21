@@ -6,7 +6,7 @@ The provider plane is the operator surface a **managed service provider (MSP)** 
 an organization that self-hosts probectl once and serves many customer tenants —
 or an internal platform team uses to *run* a multi-tenant deployment: provisioning
 and suspending tenants, watching fleet-wide health across all of them, metering
-each tenant's usage for billing, preserving the probectl product identity, honouring
+each tenant's usage for billing, preserving the probectl product identity, honoring
 export and residency obligations, and — under tight controls — reaching into a
 single tenant's telemetry.
 
@@ -49,7 +49,7 @@ wall in front of tenant data:
   streams already flowing and exports a vendor-neutral feed.
 - **"Can each customer replace the product identity?"** No — MSPs resell under
   the probectl banner. One optional design-token theme applies deployment-wide.
-- **"Can we honour a customer's deletion or data-residency demand, and prove it?"**
+- **"Can we honor a customer's deletion or data-residency demand, and prove it?"**
   Yes — export and a recomputable deletion attestation, plus regional pinning for
   strict tenants.
 - **"Can a customer hold its own encryption keys?"** Yes — BYOK, where the key

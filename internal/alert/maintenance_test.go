@@ -98,8 +98,8 @@ func TestMaintenanceWindowValidation(t *testing.T) {
 		EndsAt:   time.Date(2026, 6, 4, 13, 0, 0, 0, time.UTC),
 	}
 	cases := map[string]func(MaintenanceWindow) MaintenanceWindow{
-		"missing name":   func(w MaintenanceWindow) MaintenanceWindow { w.Name = ""; return w },
-		"backwards time": func(w MaintenanceWindow) MaintenanceWindow { w.EndsAt = w.StartsAt; return w },
+		"missing name":  func(w MaintenanceWindow) MaintenanceWindow { w.Name = ""; return w },
+		"backward time": func(w MaintenanceWindow) MaintenanceWindow { w.EndsAt = w.StartsAt; return w },
 		"too long": func(w MaintenanceWindow) MaintenanceWindow {
 			w.EndsAt = w.StartsAt.Add(MaxMaintenanceWindow + time.Second)
 			return w

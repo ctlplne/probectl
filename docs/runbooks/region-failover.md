@@ -92,7 +92,7 @@ GET /readyz  →  cluster.writes_usable:        true
 writer node's reported region is the `writer_region` field on `cluster.writer`.)
 A mutating request — e.g. saving a config — should now succeed instead of
 returning `503`. The elapsed time from primary loss to `writes_usable: true` is
-your realised **RTO**; compare it against `PROBECTL_RTO_SECONDS` (default and
+your realized **RTO**; compare it against `PROBECTL_RTO_SECONDS` (default and
 provisional target: 60 s).
 
 ## 6. Rebuild the old region as a standby

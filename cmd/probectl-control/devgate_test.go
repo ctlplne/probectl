@@ -116,7 +116,7 @@ func TestReleaseBuildRefusesDevAuthBeforeAnyOtherConfig(t *testing.T) {
 	}
 
 	// A build that HAS dev auth is not refused here — the remaining locks (the
-	// typed acknowledgement and the loopback bind) need config and stay in
+	// typed acknowledgment and the loopback bind) need config and stay in
 	// validateDevAuthMode.
 	devAuthAvailable = func() bool { return true }
 	if err := refuseDevAuthOnReleaseBuild(env); err != nil {

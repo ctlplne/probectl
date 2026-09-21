@@ -105,7 +105,7 @@ measured incident workflow that beats your current diagnosis baseline.”
   L/XL/XXL reference numbers remain provisional until reference-iron evidence
   lands; do not present them as customer capacity.
 - **“AI privacy?”** The built-in deterministic adapter is local. Remote
-  adapters require explicit operator acknowledgement plus tenant consent,
+  adapters require explicit operator acknowledgment plus tenant consent,
   redact the outbound request, and emit an audit receipt.
 
 ## Logistics

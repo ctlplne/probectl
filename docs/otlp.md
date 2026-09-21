@@ -119,7 +119,7 @@ missing makes it **fail closed**.
   identically to metrics, spans, and log records — a tenant can never push
   another tenant's data.
 - **Untrusted input.** Bounded receive size (default 4 MiB), and the protobuf is
-  unmarshalled and validated before use.
+  unmarshaled and validated before use.
 - **Sinks.** Ingested signals are tenant-tagged and published to per-signal bus
   topics: `probectl.otlp.metrics`, `probectl.otlp.traces`, `probectl.otlp.logs`.
   All three sinks are required — a receiver that silently dropped a signal would

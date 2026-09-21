@@ -164,7 +164,7 @@ samples as fleet-experience telemetry, not as evidence in a dispute.
 
 | Threat | Mitigation — evidence |
 |---|---|
-| Tenant data exfiltration via the model | the built-in model is **air-gapped by default**; remote egress requires three gates — a boot-time operator acknowledgement env var, per-tenant default-deny consent, and a durably committed per-call audit event recording exactly which data categories left; a missing/failed audit store blocks dispatch or output ([../ai-egress.md](../ai-egress.md)) |
+| Tenant data exfiltration via the model | the built-in model is **air-gapped by default**; remote egress requires three gates — a boot-time operator acknowledgment env var, per-tenant default-deny consent, and a durably committed per-call audit event recording exactly which data categories left; a missing/failed audit store blocks dispatch or output ([../ai-egress.md](../ai-egress.md)) |
 | PII leaving in prompts | a redaction pass runs before any remote prompt (`internal/ai/redact.go`): IPs and secrets masked, hostnames per policy |
 | Prompt injection via telemetry | per-session random evidence IDs, structured delimiter framing with defanged escapes, and fail-closed citation grounding — a fully injected answer degrades to "insufficient evidence" rather than obeying the injection; the adversarial test suite includes a deliberately compromised model stand-in (`internal/ai/rca.go`) |
 | MCP caller over-reach | tenant **first**, then RBAC, on every tool — enforced at the MCP layer and again at the stores |

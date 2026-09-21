@@ -202,7 +202,7 @@ func TestBreakGlassConsentCannotFollowRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	if final.ConsentedAt != nil {
-		t.Fatal("a revoked grant was consented afterwards — access was resurrected")
+		t.Fatal("a revoked grant was consented afterward — access was resurrected")
 	}
 	if final.Usable(now.Add(2 * time.Second)) {
 		t.Fatal("a revoked grant reports usable")

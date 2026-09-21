@@ -83,8 +83,8 @@ Two operator actions on a firing alert, and they are deliberately different:
   alert and changes nothing about evaluation or delivery.
 
 A new firing episode never inherits the previous episode's silence or
-acknowledgement: when a series resolves, its operator state is wiped so the next
-episode starts clean. And because a silence or acknowledgement is human input
+acknowledgment: when a series resolves, its operator state is wiped so the next
+episode starts clean. And because a silence or acknowledgment is human input
 that can't be re-derived from any data stream, **both survive a control-plane
 restart** — losing them would re-page someone who had deliberately quieted an
 alert. A restored silence is re-applied the first time that same alert fires
@@ -96,7 +96,7 @@ approved change window.
 control replica (the `alert-evaluator` cluster singleton) so a rule is
 evaluated and notified once. Its active set and heartbeat are published to
 Postgres after every pass, and every replica serves `/v1/alerts/active`, the
-workflow receipt, acknowledgements, silences and maintenance windows from that
+workflow receipt, acknowledgments, silences and maintenance windows from that
 shared state — an operator action taken on any replica is persisted and
 reaches the evaluator on its next pass (at most one evaluation interval
 later). `evaluator_running` is the heartbeat's freshness, not "is the
@@ -336,10 +336,10 @@ inline.
 
 Properties you can rely on: the displayed firing state is always the engine's
 current truth (never computed in the browser); its explanation timeline is
-server-authored, tenant-scoped, and bounded; silences and acknowledgements
+server-authored, tenant-scoped, and bounded; silences and acknowledgments
 persist across a restart and never leak from one firing episode into the next;
 maintenance windows are reusable, durable, tenant-scoped planned suppressors
-with preview and audit on change; every silence and acknowledgement is
+with preview and audit on change; every silence and acknowledgment is
 tenant-scoped, reasoned, and audited; and one underlying fault surfaces as one
 tenant-scoped incident with evidence drawn from every plane that observed it.
 

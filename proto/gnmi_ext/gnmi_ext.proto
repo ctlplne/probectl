@@ -48,7 +48,7 @@ message Extension {
 // of this file.
 message RegisteredExtension {
   ExtensionID id = 1;  // The unique ID assigned to this extension.
-  bytes msg = 2;       // The binary-marshalled protobuf extension payload.
+  bytes msg = 2;       // The binary-marshaled protobuf extension payload.
 }
 
 // RegisteredExtension is an enumeration acting as a registry for extensions

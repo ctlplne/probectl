@@ -23,7 +23,7 @@ import styles from './TimeSeries.module.css'
  *   <html data-theme> rebuilds the plot on theme swap.
  * - Series carry the non-color encoding too: --viz-series-N-dash patterns
  *   accompany --color-chart-N, matching the SVG viz grammar.
- * - Accessibility: the canvas is a labelled role="img"; a sampled sr-only
+ * - Accessibility: the canvas is a labeled role="img"; a sampled sr-only
  *   table exposes the same data to assistive tech, and becomes the visible
  *   rendering when canvas is unavailable (also the jsdom test path).
  * - Interactions: crosshair readout, drag x-zoom, double-click reset, and

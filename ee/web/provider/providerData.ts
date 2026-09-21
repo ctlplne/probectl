@@ -39,7 +39,7 @@ export async function api<T>(
   if (res.status === 404) throw new NotEnabledError();
   if (res.status === 429) {
     // UX-005: rate-limited — surface a clear retry hint rather than a bare
-    // "HTTP 429". Honour Retry-After when the server sends it.
+    // "HTTP 429". Honor Retry-After when the server sends it.
     const after = res.headers.get("Retry-After");
     const hint = after
       ? ` Retry after ${after}s.`

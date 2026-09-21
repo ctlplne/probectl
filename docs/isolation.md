@@ -145,7 +145,7 @@ Code-level scoping is the first line of defense — every flow/path query pins a
 `tenant_id`, and an unscoped call refuses with `ErrNoTenant`. But that only
 protects access *through probectl*. To also protect a tenant credential used
 *directly* against ClickHouse, `EnsureRowPolicies` installs **database-level row
-policies** (a **row policy** is ClickHouse's analogue of Postgres RLS — a
+policies** (a **row policy** is ClickHouse's analog of Postgres RLS — a
 server-side filter attached to the table itself): per shared table, a policy
 filtering every user to `tenant_id =
 currentUser()` (by convention each per-tenant ClickHouse user is named exactly the

@@ -88,7 +88,7 @@ services:
         elif [ "$${PROBECTL_CLICKHOUSE_BACKUP_ACK:-}" = "encrypted-clickhouse-backup-target" ]; then
           cp "/clickhouse-backups/$$name" "/backups/$$name"
           sha256sum "/backups/$$name" > "/backups/$$name.sha256"
-          echo "ch-backup: wrote raw /backups/$$name under encrypted-target acknowledgement; artifact contains tenant telemetry" >&2
+          echo "ch-backup: wrote raw /backups/$$name under encrypted-target acknowledgment; artifact contains tenant telemetry" >&2
         else
           echo "ch-backup: refusing raw ClickHouse backup; set PROBECTL_ENVELOPE_KEY/PROBECTL_BACKUP_KEY_FILE or PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target" >&2
           exit 1

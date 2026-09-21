@@ -106,7 +106,7 @@ scope for GA (`docs/ebpf-feasibility.md` §7).
 |---|---|---|
 | ≥ 5.8 with BTF (`/sys/kernel/btf/vmlinux`) | **Supported** — `CAP_BPF`+`CAP_PERFMON` | all mainstream LTS distros; CO-RE relocates against the running kernel |
 | 5.15 / 6.6 LTS | **CI-proven every pass** | loaded + attached under QEMU (`ebpf-kernel-matrix`) |
-| Generic < 5.8 | unsupported by default | Legacy `CAP_SYS_ADMIN` mode is break-glass only after the runtime probe confirms BTF plus BPF ring-buffer support and the operator records the acknowledgement |
+| Generic < 5.8 | unsupported by default | Legacy `CAP_SYS_ADMIN` mode is break-glass only after the runtime probe confirms BTF plus BPF ring-buffer support and the operator records the acknowledgment |
 | < 5.4 / no BTF | unsupported for live capture | fixture/replay mode still works (no kernel programs) |
 
 BTF — BPF Type Format — is the kernel's machine-readable description of its own

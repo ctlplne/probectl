@@ -103,7 +103,7 @@ and findings against the intentionally non-production
 
 - We acknowledge reports promptly and keep you updated through remediation.
 - Dependencies and images are scanned in CI; we patch known CVEs (publicly
-  catalogued vulnerabilities) on a priority basis.
+  cataloged vulnerabilities) on a priority basis.
 - Releases carry provenance (the signed record of where and how an artifact was
   built) and an SBOM (software bill of materials — the machine-readable parts
   list of a release); see `docs/releasing.md`.

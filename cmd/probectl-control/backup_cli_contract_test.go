@@ -309,7 +309,7 @@ func TestObjectStoreBackupRestoreContracts(t *testing.T) {
 		{backup, `= "COMPLIANCE"`, "the S3/MinIO destination must provide immutable compliance retention"},
 		{backup, "--sse AES256", "remote object copies must request encryption at rest by default"},
 		{backup, "refusing symlink/special object-store entry", "filesystem archives must reject unsafe entry types"},
-		{restore, `ACK}" = "replace-objectstore"`, "destructive replacement must require the exact operator acknowledgement"},
+		{restore, `ACK}" = "replace-objectstore"`, "destructive replacement must require the exact operator acknowledgment"},
 		{restore, "sha256sum -c", "sealed filesystem artifacts must be verified before opening"},
 		{restore, "get-object-lock-configuration", "the restored S3/MinIO WORM target must enforce immutable retention"},
 		{restore, ".pre-restore-", "the prior object tree must be preserved for rollback"},
@@ -584,8 +584,8 @@ func TestStandaloneClickHouseBackupsAreSealedOrEncryptedTargetAck(t *testing.T) 
 		}
 		if tc.rawFallback {
 			for _, want := range []struct{ substr, why string }{
-				{tc.ack, "raw zip output must require an explicit encrypted-target acknowledgement"},
-				{"encrypted-clickhouse-backup-target", "the acknowledgement value must be exact and searchable"},
+				{tc.ack, "raw zip output must require an explicit encrypted-target acknowledgment"},
+				{"encrypted-clickhouse-backup-target", "the acknowledgment value must be exact and searchable"},
 				{"tenant telemetry", "operators must be told the raw staging zip contains tenant telemetry"},
 			} {
 				if !strings.Contains(stripped, want.substr) {
@@ -600,7 +600,7 @@ func TestStandaloneClickHouseBackupsAreSealedOrEncryptedTargetAck(t *testing.T) 
 // directly to disk, then rely on later docs/drills to seal a copy. That leaves a
 // raw multi-tenant database artifact on the backups volume. Pin the literal
 // shipped artifacts to the safe shape: sealed .dump.pbk by default, and the old
-// plaintext .dump path only behind an exact break-glass acknowledgement.
+// plaintext .dump path only behind an exact break-glass acknowledgment.
 func TestStandalonePostgresBackupsAreSealedOrBreakGlass(t *testing.T) {
 	for _, rel := range []string{
 		"scripts/backup_postgres.sh",
@@ -614,8 +614,8 @@ func TestStandalonePostgresBackupsAreSealedOrBreakGlass(t *testing.T) {
 		for _, want := range []struct{ substr, why string }{
 			{"backup-seal", "the default Postgres backup path must stream through the envelope sealer"},
 			{".dump.pbk", "the default Postgres backup artifact must be sealed, not plaintext"},
-			{"PROBECTL_PLAINTEXT_BACKUP_ACK", "plaintext must require an explicit break-glass acknowledgement"},
-			{"allow-plaintext-tenant-backup", "the acknowledgement value must be exact and searchable"},
+			{"PROBECTL_PLAINTEXT_BACKUP_ACK", "plaintext must require an explicit break-glass acknowledgment"},
+			{"allow-plaintext-tenant-backup", "the acknowledgment value must be exact and searchable"},
 		} {
 			if !strings.Contains(stripped, want.substr) {
 				t.Errorf("%s: missing %q — %s (RESIL-003)", rel, want.substr, want.why)

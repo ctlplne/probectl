@@ -303,7 +303,7 @@ expected, not a bug. To see data you have to attach at least one producer.
 ### Fastest path to *first data* — the evaluation stack
 
 This brings up the control plane **plus** an eBPF agent in **fixture mode**
-(replaying a recorded, clearly-labelled file of SAMPLE flows — no kernel, works
+(replaying a recorded, clearly-labeled file of SAMPLE flows — no kernel, works
 on macOS/Windows/Linux), so you watch a real signal flow end-to-end with one
 command and no Go toolchain:
 

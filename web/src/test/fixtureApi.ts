@@ -1693,7 +1693,7 @@ export function fixtureFetch(
         retention: { max_per_series: 64, max_per_rule: 256, expires_days: 7 },
       })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
-    // DPR-165: the Security page reads the detection catalogue, and the fixture
+    // DPR-165: the Security page reads the detection catalog, and the fixture
     // did not serve it — so J3 failed on a bare console 404 in a gate nobody had
     // run. Shapes follow ThreatRuleList/ThreatRule in the OpenAPI spec.
     if (path === '/v1/threat/rules')

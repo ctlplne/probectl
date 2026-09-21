@@ -88,7 +88,7 @@ one runs depends on your config:
   service name): URLs become `http` tests, IPs become `icmp` (or `tcp`/`udp` if
   you mention a port), hostnames default to a web check unless you say
   "dns"/"resolve" or "ping", and a small list of well-known services is
-  recognised by name — so "check Salesforce login" yields an `http` test to
+  recognized by name — so "check Salesforce login" yields an `http` test to
   `login.salesforce.com`. Explicit intent beats incidental words: "ping 9.9.9.9
   from every site" is an `icmp` test, because "ping" is a reachability verb and
   "site" is just scenery. If it can't find a host, IP, or URL, it returns a
@@ -140,7 +140,7 @@ It:
   count (default 2) is ignored — so it doesn't propose every stray packet;
 - **dedups against your existing tests** by reducing every target to its bare
   lowercase hostname (scheme, port, and path stripped) — so a discovered
-  `host:443` is recognised as already covered by an existing `https://host`
+  `host:443` is recognized as already covered by an existing `https://host`
   test;
 - **ranks and caps** the result — each candidate scores by how often it was
   seen, with a bonus for the well-known service ports (443/80/53), then the list

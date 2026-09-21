@@ -140,7 +140,7 @@ fi
 grep -q -- '--verify' "$INSTALL"            || { echo "install.sh: missing --verify path"; fail=1; }
 grep -q -- '--no-verify' "$INSTALL"         || { echo "install.sh: missing explicit --no-verify break-glass"; fail=1; }
 grep -q 'VERIFY="${PROBECTL_VERIFY_COSIGN:-1}"' "$INSTALL" || { echo "install.sh: cosign verification is not default-on"; fail=1; }
-grep -q 'PROBECTL_UNVERIFIED_INSTALL_ACK' "$INSTALL" || { echo "install.sh: missing unverified-install acknowledgement"; fail=1; }
+grep -q 'PROBECTL_UNVERIFIED_INSTALL_ACK' "$INSTALL" || { echo "install.sh: missing unverified-install acknowledgment"; fail=1; }
 grep -q 'cosign verify-blob' "$INSTALL"     || grep -q 'cosign \\' "$INSTALL" || { echo "install.sh: missing cosign verify-blob"; fail=1; }
 for identity_source in "$INSTALL" "$AIRGAP" deploy/ansible/roles/probectl_agents/defaults/main.yml; do
   if grep -Fq '[^/]+/probectl' "$identity_source"; then
@@ -166,7 +166,7 @@ if [[ -z "$airgap_verify_line" || -z "$airgap_install_line" || "$airgap_verify_l
 fi
 
 grep -q 'PROBECTL_AIRGAP_VERIFY_COSIGN:-1' "$AIRGAP" || { echo "airgap: cosign verification is not default-on"; fail=1; }
-grep -q 'PROBECTL_AIRGAP_UNVERIFIED_ACK' "$AIRGAP" || { echo "airgap: missing explicit unverified-bundle acknowledgement"; fail=1; }
+grep -q 'PROBECTL_AIRGAP_UNVERIFIED_ACK' "$AIRGAP" || { echo "airgap: missing explicit unverified-bundle acknowledgment"; fail=1; }
 grep -q 'cosign verify-blob' "$AIRGAP" || { echo "airgap: missing signed binary/package verify-blob"; fail=1; }
 grep -q 'cosign verify' "$AIRGAP" || { echo "airgap: missing image signature verification"; fail=1; }
 grep -q 'IMAGE-VERIFICATION.txt' "$AIRGAP" || { echo "airgap: missing image verification manifest"; fail=1; }
@@ -272,9 +272,9 @@ breakglass_log="$tmp/breakglass.log"
 if PATH="$stub:/usr/bin:/bin" \
    PROBECTL_UNVERIFIED_INSTALL_ACK=allow-unsigned-cap-bpf-code \
    bash "$INSTALL" --no-verify "$tmp/bin" >"$breakglass_log" 2>&1; then
-  echo "install.sh --no-verify with acknowledgement unexpectedly succeeded as non-root"; fail=1
+  echo "install.sh --no-verify with acknowledgment unexpectedly succeeded as non-root"; fail=1
 elif ! grep -q 'BREAK-GLASS' "$breakglass_log" || ! grep -q 'run as root' "$breakglass_log"; then
-  echo "install.sh --no-verify acknowledgement did not reach the audited root preflight"; fail=1
+  echo "install.sh --no-verify acknowledgment did not reach the audited root preflight"; fail=1
 fi
 
 # (e) the air-gap builder must fail before producing a bundle when the signed

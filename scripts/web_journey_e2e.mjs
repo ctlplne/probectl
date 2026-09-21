@@ -8,7 +8,7 @@
 // Canonical documented-journey browser gate. Unlike the broad rendered-a11y
 // route matrix, this follows the actual J1-J6 contracts in docs/journeys/ and
 // performs their browser-visible state transitions against the stateful,
-// clearly-labelled local fixture API. Real transport/store/crypto/DR legs are
+// clearly-labeled local fixture API. Real transport/store/crypto/DR legs are
 // separate gates and are referenced in the receipt; a browser fixture never
 // promotes those claims by itself.
 

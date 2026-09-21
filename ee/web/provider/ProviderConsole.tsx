@@ -104,7 +104,7 @@ export function ProviderConsole({ search = "" }: ProviderConsoleProps) {
 
   useEffect(() => {
     // Fail closed: in the demo workspace this console fetches nothing at all,
-    // rather than fetching live data and labelling it a sample.
+    // rather than fetching live data and labeling it a sample.
     if (demo) return;
     let cancelled = false;
     api<{ operator: Operator }>("GET", "/provider/v1/me")

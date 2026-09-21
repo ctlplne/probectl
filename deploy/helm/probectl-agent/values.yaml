@@ -200,7 +200,7 @@ updateStrategy:
 # OPS-001/WIRE-004: liveness/readiness probes. The secure default is exec mode:
 # the agent writes state files and Kubernetes probes them with the binary, so no
 # plaintext listener is opened. HTTP mode is compatibility-only and requires the
-# explicit plaintext acknowledgement below.
+# explicit plaintext acknowledgment below.
 health:
   enabled: true
   mode: exec # exec | http

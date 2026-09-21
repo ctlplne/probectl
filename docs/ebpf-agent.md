@@ -416,7 +416,7 @@ publishing into the void.
 
 ### The metrics endpoint
 
-`metrics.enabled` serves a tenant-labelled Prometheus endpoint. Four gauges say
+`metrics.enabled` serves a tenant-labeled Prometheus endpoint. Four gauges say
 whether the agent is *delivering* rather than merely running:
 
 | Metric | Meaning |
@@ -602,7 +602,7 @@ The `deploy/helm/probectl-agent` chart deploys the agent as a **DaemonSet** (one
 pod per node — host-level capture needs an agent on every host) with the
 privilege contract declared in the manifest: drop **all** capabilities and add
 back only `CAP_BPF` / `CAP_PERFMON`. `capabilityMode: legacy` renders
-`CAP_SYS_ADMIN` only with the explicit `legacyKernelRingBufferAck` acknowledgement
+`CAP_SYS_ADMIN` only with the explicit `legacyKernelRingBufferAck` acknowledgment
 after the runtime probe has confirmed BTF + BPF ring-buffer support; it is not a
 generic `<5.8` escape hatch. The chart also declares a **seccomp** profile (a
 kernel syscall filter — the process may invoke only the listed system calls;

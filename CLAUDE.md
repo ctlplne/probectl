@@ -145,9 +145,9 @@ Read this file + PRD first. Plan → implement → test → document → PR. Sma
 
 Not a vendor-operated public SaaS (multi-tenancy exists for MSP/partner self-hosting); not an APM/tracing replacement; not a SIEM/log platform; not an inline IPS/full NDR; no global first-party agent/BGP fleet; no un-gated remediation; no phone-home; **no white-label/OEM rebranding** — MSPs resell under the probectl banner.
 
-## 11. The live programme
+## 11. The live program
 
-`../design-partner-readiness/` is the ONE live agent programme (started
+`../design-partner-readiness/` is the ONE live agent program (started
 2026-09-16). It lives outside the repository so product releases never ship
 planning state. Start at `../design-partner-readiness/PLAN.md` (plan of record
 and every decision of record, which wins over defaults in this file), then
@@ -157,11 +157,11 @@ and every decision of record, which wins over defaults in this file), then
 `../design-partner-readiness/journeys/` (per-journey checkpoints),
 `../design-partner-readiness/connectors.md` (real vs simulated vs blocked) and
 `../design-partner-readiness/decisions-needed.md` (the only list kept for the
-owner). Standing rules of that programme: fix everything found — no backlog —
+owner). Standing rules of that program: fix everything found — no backlog —
 §7 guardrails never relaxed, commit on `main` as Shankar, never push, only this
 repository is in scope.
 
-Predecessor programmes are RETIRED, read-only reference and must not be worked:
+Predecessor programs are RETIRED, read-only reference and must not be worked:
 the 2026-08-08 comprehensive backlog (`../probectl-comprehensive-backlog-2026-08-08.html`),
 the completeness loop, the audit harness and the red-team loop. Neither a
 foundation-loop directory nor a root backlog file exists any more; both were

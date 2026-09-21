@@ -82,7 +82,7 @@ every operator after that enrolls:
    so an attacker can't probe which part they got right. The session that comes
    back is **persisted in Postgres** (`provider_sessions`, keyed token hash only,
    4-hour lifetime, idle timeout), so every control replica behind the ingress
-   honours it and a logout, an idle expiry, or disabling the operator ends it on
+   honors it and a logout, an idle expiry, or disabling the operator ends it on
    all replicas at once (DPR-033).
 
 The same flow has named CLI paths: `probectl provider bootstrap`,

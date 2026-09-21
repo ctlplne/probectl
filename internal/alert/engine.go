@@ -79,7 +79,7 @@ func (en *Engine) RestoreOps(ops map[string]RestoredOp) {
 // FUTURE episode starts clean — restart-restored state never outlives the
 // episode semantics the in-memory engine always had.
 // ApplyOps reconciles the persisted operator state (alert_ops) into the engine
-// on every evaluation pass (DPR-067): an acknowledgement or silence taken on
+// on every evaluation pass (DPR-067): an acknowledgment or silence taken on
 // another control replica reaches the evaluator here, a lifted silence is
 // cleared, and the same ops are kept for a series that starts a new episode.
 func (en *Engine) ApplyOps(ops map[string]RestoredOp) {

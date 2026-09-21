@@ -120,7 +120,7 @@ func errDevAuthNotCompiled() error {
 // nothing else set refused with "load config: PROBECTL_DATABASE_URL is
 // required". Correct to refuse, wrong thing to say: the operator fixes the
 // database URL, restarts, and only then learns that dev auth was never going to
-// work in this build. The other two locks (the typed acknowledgement and the
+// work in this build. The other two locks (the typed acknowledgment and the
 // loopback bind) still need config and stay where they are.
 func refuseDevAuthOnReleaseBuild(getenv func(string) string) error {
 	if getenv("PROBECTL_AUTH_MODE") != "dev" || devAuthAvailable() {

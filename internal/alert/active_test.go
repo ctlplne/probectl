@@ -256,7 +256,7 @@ func TestPersistedOpsRestoreSurvivesRestart(t *testing.T) {
 
 // DPR-067: operator state persisted by another control replica reaches the
 // evaluator through ApplyOps on its next pass — a silence lands, a lifted
-// silence clears, an acknowledgement sticks — and a maintenance window created
+// silence clears, an acknowledgment sticks — and a maintenance window created
 // elsewhere becomes the engine's window.
 func TestApplyOpsReconcilesPersistedOperatorState(t *testing.T) {
 	h, rule := newActiveHarness(t)

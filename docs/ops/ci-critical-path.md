@@ -1,7 +1,7 @@
 # CI critical path — measured, not estimated
 
 Source: ci.yml run 35423586013 on `ac90177` (2026-09-19T05:18:05Z), the FIRST run on `main`
-ever allowed to live to a verdict — every earlier run was cancelled by the next push
+ever allowed to live to a verdict — every earlier run was canceled by the next push
 (DPR-235). Regenerate this from a completed run rather than editing it.
 
 **Wall clock: 20m10s.** The run is one job deep: `test-go` at 20m10s IS the critical
@@ -9,7 +9,7 @@ path, and the second-slowest job finishes 12m19s earlier. Every other job is alr
 hidden behind it, so making the rest faster buys nothing.
 
 Recorded because the pipeline had been described as taking four hours. It does not, and that
-matters: the cost of a cancelled run was never compute, it was the missing verdict.
+matters: the cost of a canceled run was never compute, it was the missing verdict.
 
 51 jobs ran, 3 were skipped, 1 never started.
 

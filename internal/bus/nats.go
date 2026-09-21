@@ -195,7 +195,7 @@ func (n *NATS) ensureStream(ctx context.Context, topic string) error {
 
 // Publish sends value to topic. It is ASYNCHRONOUS and bounded, like the Kafka
 // producer: the call returns once the record is accepted, and the server's
-// acknowledgement is accounted in the background (Stats / PublishFailures /
+// acknowledgment is accounted in the background (Stats / PublishFailures /
 // Flush). A full in-flight window sheds rather than blocking the caller.
 func (n *NATS) Publish(ctx context.Context, topic string, key, value []byte) error {
 	if ctx == nil {
@@ -475,7 +475,7 @@ const natsGroupIdle = 5 * time.Minute
 
 // ListEmptyGroups implements GroupJanitor (DPR-109): durable consumers that
 // nobody is consuming. A consumer qualifies when no pull request is waiting on
-// it, nothing is awaiting acknowledgement, and it has not delivered anything
+// it, nothing is awaiting acknowledgment, and it has not delivered anything
 // recently.
 func (n *NATS) ListEmptyGroups(ctx context.Context) ([]string, error) {
 	var empty []string

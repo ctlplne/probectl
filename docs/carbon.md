@@ -55,7 +55,7 @@ gCO2e = kWh × grid intensity (gCO2e/kWh)
 
 **The honesty contract is structural, not a footnote.** The estimate has the
 same shape as planning a road trip's fuel burn from distance × the
-manufacturer's litres-per-100km figure: excellent for comparing routes, drivers,
+manufacturer's liters-per-100km figure: excellent for comparing routes, drivers,
 and months — and never a substitute for the receipt at the pump. Every response
 therefore carries a methodology block: `measured: false`, the coefficient
 source, the grid intensity used, and a note stating plainly that these are

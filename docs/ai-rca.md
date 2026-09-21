@@ -121,7 +121,7 @@ The four steps, and the guardrail each one buys you:
    but can't leave to fetch another file or pull a lever. So even hostile
    evidence content (a prompt-injection payload riding in a log line —
    attacker-written text crafted so an LLM mistakes data for instructions) can't
-   drive behaviour: the worst it can do is produce a claim that the next step
+   drive behavior: the worst it can do is produce a claim that the next step
    throws away. The model returns a *structured* answer — findings, each citing
    evidence IDs — not free text.
 

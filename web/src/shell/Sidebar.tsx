@@ -19,7 +19,7 @@ export function Sidebar() {
         <span className={styles.wordmark}>probectl</span>
       </div>
 
-      {/* Grouped IA: each group is a labelled list so the 14-item nav reads as
+      {/* Grouped IA: each group is a labeled list so the 14-item nav reads as
           a structured product rather than one flat column. */}
       {NAV_GROUPS.map((group) => {
         const items = NAV.filter((item) => item.group === group.id)

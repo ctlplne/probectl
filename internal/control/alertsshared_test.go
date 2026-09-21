@@ -80,7 +80,7 @@ func (f *fakeSharedAlertStore) DeleteMaintenance(_ context.Context, _ string, id
 // TestPersistedAlertStateServesSharedStateOnAnyReplica (DPR-067): a replica
 // without the evaluator used to answer "not running for this tenant"; it now
 // serves the published active set with the persisted operator state overlaid,
-// writes acknowledgements and silences to the shared ops, and reports the
+// writes acknowledgments and silences to the shared ops, and reports the
 // evaluator running from the leader's heartbeat.
 func TestPersistedAlertStateServesSharedStateOnAnyReplica(t *testing.T) {
 	now := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
