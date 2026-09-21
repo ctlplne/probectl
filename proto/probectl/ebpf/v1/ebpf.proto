@@ -6,7 +6,7 @@ syntax = "proto3";
 // semantic conventions from the first field (matching result.proto / S6), so
 // the OTLP layer (S22) EXPOSES these signals rather than remapping them. The
 // tenant is the outermost scope (probectl.tenant.id, F50). eBPF is observe-only
-// (CLAUDE.md §7 guardrail 8): these are signals, never enforcement.
+// (docs/guardrails.md G7-8): these are signals, never enforcement.
 //
 // Backward compatibility: fields are additive-only; never renumber or reuse tags.
 package probectl.ebpf.v1;

@@ -17,7 +17,7 @@
 // verified SPIFFE client certificate. The bridge fails closed on an event with
 // no tenant (docs/guardrails.md G7-1 and G7-10).
 //
-// Detection is a SIGNAL, not ground truth (guardrail 9): every event carries a
+// Detection is a SIGNAL, not ground truth (docs/guardrails.md G7-9): every event carries a
 // confidence and a severity and is tunable/suppressible downstream — probectl does
 // not act on routing automatically.
 //

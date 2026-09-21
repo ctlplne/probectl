@@ -47,8 +47,7 @@
         "docs/contract/"
       ],
       "subject_roots": [
-        "docs/contract/",
-        "receipts/"
+        "docs/contract/"
       ]
     },
     {
@@ -63,8 +62,7 @@
       ],
       "subject_roots": [
         "docs/contract/",
-        "docs/",
-        "receipts/"
+        "docs/"
       ]
     },
     {
@@ -79,8 +77,7 @@
       ],
       "subject_roots": [
         "docs/contract/",
-        "docs/",
-        "receipts/"
+        "docs/"
       ]
     }
   ]

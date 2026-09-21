@@ -9,19 +9,26 @@ package deliveryaudit
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // A review protocol accepts evidence only from inside its declared roots, so a
-// root naming a directory that does not exist accepts NOTHING: the item can never
-// be satisfied, and the protocol reads as coverage while auditing nothing.
+// root naming a directory a checkout does not have accepts NOTHING: the item can
+// never be satisfied, and the protocol reads as coverage while auditing nothing.
 //
 // Four of the five review protocols were in that state — bound to a retired
 // program's layout (evidence/, docs/product/, docs/competitive/, docs/release/) —
 // and no gate noticed, because a dead root fails by silently matching nothing
 // rather than by erroring.
+//
+// The root must be TRACKED, not merely present. An earlier version of this test
+// checked the filesystem and passed locally while failing all six Go jobs in CI:
+// it accepted receipts/, which is gitignored generated output that this machine
+// happened to have and a fresh checkout never does. Checking the filesystem is
+// how the defect above got reintroduced while fixing it.
 func TestReviewProtocolRootsExist(t *testing.T) {
 	t.Parallel()
 	const authority = "../../docs/contract/delivery-audit-review-protocols.json"
@@ -58,11 +65,28 @@ func TestReviewProtocolRootsExist(t *testing.T) {
 					t.Errorf("%s %s contains an unusable root %q", proto.Item, label, root)
 					continue
 				}
-				info, err := os.Stat(filepath.Join(repoRoot, clean))
-				if err != nil || !info.IsDir() {
-					t.Errorf("%s %s names %q, which is not a directory in this repository — the protocol accepts no evidence at all", proto.Item, label, root)
+				if !trackedDir(t, repoRoot, clean) {
+					t.Errorf("%s %s names %q, which no checkout of this repository contains (absent, or present only as ignored/untracked files) — the protocol accepts no evidence at all", proto.Item, label, root)
 				}
 			}
 		}
 	}
+}
+
+// trackedDir reports whether root holds at least one file that git tracks, which
+// is the property that matters: what a fresh checkout actually contains.
+func trackedDir(t *testing.T, repoRoot, root string) bool {
+	t.Helper()
+	info, err := os.Stat(filepath.Join(repoRoot, root))
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	cmd := exec.Command("git", "-C", repoRoot, "ls-files", "--", root)
+	out, err := cmd.Output()
+	if err != nil {
+		// Not a git checkout (a release tarball, say): fall back to existence,
+		// which is all that can be established there.
+		return true
+	}
+	return len(strings.TrimSpace(string(out))) > 0
 }
