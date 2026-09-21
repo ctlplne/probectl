@@ -321,7 +321,7 @@ capabilities:
   - id: F20
     name: RUM
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: product/release
     engine: {refs: ["file:internal/rum"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildRUM("]}
@@ -331,7 +331,7 @@ capabilities:
     docs: {refs: ["file:docs/rum.md#RUM convergence"]}
     config_keys: {refs: ["config:PROBECTL_RUM_ENABLED", "config:PROBECTL_RUM_APPS"]}
     telemetry: {refs: ["file:internal/rum"]}
-    real_stack_proof: {gap: "RUM is published and consumed over the runtime bus, but current tests use a fake bus and memory incident store; no shipping full-stack, two-tenant receipt exists."}
+    real_stack_proof: {refs: ["test:internal/control/rum_beacon_live_integration_test.go#TestRUMBeaconToViewIsTenantBoundByAppKey"]}
     migration: *no_migration
 
   - id: F21

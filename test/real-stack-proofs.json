@@ -52,6 +52,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/rum_beacon_live_integration_test.go#TestRUMBeaconToViewIsTenantBoundByAppKey",
+      "profile": "integration",
+      "capabilities": [
+        "F20"
+      ]
+    },
+    {
       "ref": "test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution",
       "profile": "integration",
       "capabilities": [
