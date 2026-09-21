@@ -130,12 +130,28 @@ func TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering(t *testing.T
 	}
 
 	// ── 5. the provider stream is a separate privilege domain ─────────────
+	// The provider stream is GLOBAL — one chain for the deployment, not one per
+	// tenant — so it is shared mutable state across the whole integration suite,
+	// and other tests in it corrupt earlier records on purpose to prove the chain
+	// is tamper-evident. Verifying the whole chain here would assert something
+	// this receipt does not own and would pass or fail on test ordering: it passed
+	// locally against a fresh database and failed in CI with "audit chain broken at
+	// seq 1", a record written long before this test ran.
+	//
+	// ProviderVerifyFrom anchors verification at the head as it stood before this
+	// receipt appended anything, which is the claim that is actually this test's:
+	// the provider records IT wrote form an intact chain, and a tampered TENANT
+	// chain does not touch them.
+	anchor, err := audit.ProviderHeadSeq(ctx, db.Pool())
+	if err != nil {
+		t.Fatalf("read provider head: %v", err)
+	}
 	providerMarker := fmt.Sprintf("provider-only-%d", time.Now().UnixNano())
 	if _, err := audit.ProviderAppend(ctx, db.Pool(), "provider-operator", "provider.tenant.list", providerMarker, map[string]any{"marker": providerMarker}); err != nil {
 		t.Fatalf("provider append: %v", err)
 	}
-	if err := audit.ProviderVerify(ctx, db.Pool()); err != nil {
-		t.Errorf("provider chain should verify independently of a tampered tenant chain: %v", err)
+	if err := audit.ProviderVerifyFrom(ctx, db.Pool(), anchor); err != nil {
+		t.Errorf("the provider records this test wrote should verify independently of a tampered tenant chain: %v", err)
 	}
 	for _, tc := range []struct {
 		name   string
