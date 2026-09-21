@@ -907,7 +907,7 @@ capabilities:
   - id: F57
     name: Tenant fairness
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: release/docs
     engine: {refs: ["file:internal/fairness"]}
     binary: {refs: ["file:cmd/probectl-control/fairness_gate.go#fairness.NewGate("]}
@@ -917,7 +917,7 @@ capabilities:
     docs: {refs: ["file:docs/fairness.md#Tenant fairness"]}
     config_keys: {refs: ["config:PROBECTL_FAIRNESS_RESULTS_PER_SEC", "config:PROBECTL_FAIRNESS_QUERY_CONCURRENCY"]}
     telemetry: {refs: ["file:internal/fairness"]}
-    real_stack_proof: {gap: "The PostgreSQL test stores two-tenant policies and calls Gate.AdmitN directly; no live ingestion/query consumers or fairness API, CLI, and UI outcome is exercised."}
+    real_stack_proof: {refs: ["test:internal/control/fairness_live_ingest_integration_test.go#TestFairnessShedsTheFloodingTenantAndSparesItsNeighbour"]}
     migration: {refs: ["file:migrations/0031_fairness.sql", "file:migrations/0053_fairness_device_otlp_overrides.sql"]}
 
   - id: CLM-NO-PHONE-HOME

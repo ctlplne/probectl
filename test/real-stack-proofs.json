@@ -45,6 +45,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/fairness_live_ingest_integration_test.go#TestFairnessShedsTheFloodingTenantAndSparesItsNeighbour",
+      "profile": "integration",
+      "capabilities": [
+        "F57"
+      ]
+    },
+    {
       "ref": "test:internal/control/hierarchyapi_integration_test.go#TestHierarchyAPITenantScopedTree",
       "profile": "integration",
       "capabilities": [
