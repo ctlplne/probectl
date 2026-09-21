@@ -43,6 +43,14 @@
       "capabilities": [
         "F24"
       ]
+    },
+    {
+      "ref": "test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution",
+      "profile": "integration",
+      "capabilities": [
+        "F50",
+        "CLM-STORAGE-LAYER-TENANCY"
+      ]
     }
   ]
 }

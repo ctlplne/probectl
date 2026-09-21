@@ -796,7 +796,7 @@ capabilities:
   - id: F50
     name: Tenancy and hard isolation
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: platform/release
     engine: {refs: ["file:internal/tenancy"]}
     binary: {refs: ["file:cmd/probectl-control/builders.go#func verifyServePosture"]}
@@ -806,7 +806,7 @@ capabilities:
     docs: {refs: ["file:docs/isolation.md#Tenant isolation models"]}
     config_keys: {refs: ["config:PROBECTL_DATABASE_URL", "config:PROBECTL_INGEST_STRICT_TENANT_LANES"]}
     telemetry: {refs: ["file:internal/control/isolationapi.go"]}
-    real_stack_proof: {gap: "The pooled PostgreSQL test gives both tenants identical row counts and values, so cross-tenant substitution can pass; it also omits the full storage, API, CLI, and UI isolation path."}
+    real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution"]}
     migration: {refs: ["file:migrations/0002_tenancy_core.sql", "file:migrations/0025_tenant_isolation.sql", "file:migrations/0086_tenant_postgres_write_fence.sql"]}
 
   - id: F51
@@ -1033,7 +1033,7 @@ capabilities:
   - id: CLM-STORAGE-LAYER-TENANCY
     name: Tenant isolation is enforced at the storage layer (FORCE RLS / partition / silo), not per-handler.
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: release/docs
     engine: {refs: ["file:internal/tenancy/posture.go", "file:internal/tenancy/writefence.go"]}
     binary: {refs: ["file:cmd/probectl-control/main.go#verifyServePosture("]}
@@ -1043,7 +1043,7 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-STORAGE-LAYER-TENANCY"]}
     config_keys: {refs: ["config:PROBECTL_DATABASE_URL"]}
     telemetry: {refs: ["file:internal/control/isolationapi.go"]}
-    real_stack_proof: {gap: "The pooled PostgreSQL test asserts only identical per-tenant counts and can miss cross-tenant substitution; no full multi-store, bidirectional isolation receipt is bound here yet."}
+    real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution"]}
     migration: {refs: ["file:migrations/0025_tenant_isolation.sql", "file:migrations/0086_tenant_postgres_write_fence.sql"]}
 
   - id: CLM-HONEST-NUMBERS
