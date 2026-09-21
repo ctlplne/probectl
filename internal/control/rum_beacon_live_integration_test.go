@@ -79,12 +79,6 @@ func TestRUMBeaconToViewIsTenantBoundByAppKey(t *testing.T) {
 	SetInstanceGroupSuffix(fmt.Sprintf("rum-receipt-%d", stamp))
 	t.Cleanup(func() { SetInstanceGroupSuffix("") })
 
-	consumer := NewRUMConsumer(b, engine, nil, quietLog())
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	runErr := make(chan error, 1)
-	go func() { runErr <- consumer.RunViews(runCtx) }()
-
 	// Different view counts per tenant: with equal counts a view served from the
 	// wrong tenant's state is indistinguishable from a correct one.
 	for i := 0; i < 2; i++ {
@@ -103,6 +97,16 @@ func TestRUMBeaconToViewIsTenantBoundByAppKey(t *testing.T) {
 	// An unknown key is refused outright — a public surface must not accept a
 	// beacon it cannot attribute.
 	liveBeacon(t, h, "pk-does-not-exist", hostA, "/nope", http.StatusUnauthorized)
+
+	// Produce BEFORE subscribing: the beacon POSTs above create the topic on a
+	// fresh broker, and a brand-new group reads from the earliest offset, so the
+	// consumer cannot miss them. Subscribing first is the ordering that can lose a
+	// run while metadata refreshes.
+	consumer := NewRUMConsumer(b, engine, nil, quietLog())
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() { runErr <- consumer.RunViews(runCtx) }()
 
 	snapA := awaitRUMViews(t, h, tenantA, hostA, 2, runErr)
 	snapB := awaitRUMViews(t, h, tenantB, hostB, 4, runErr)

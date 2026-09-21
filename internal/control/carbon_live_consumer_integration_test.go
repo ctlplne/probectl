@@ -72,6 +72,18 @@ func TestCarbonLiveConsumerAttributesBytesPerTenant(t *testing.T) {
 	SetInstanceGroupSuffix(fmt.Sprintf("carbon-receipt-%d", time.Now().UnixNano()))
 	t.Cleanup(func() { SetInstanceGroupSuffix("") })
 
+	// Produce BEFORE the consumer subscribes. Producing is what creates the topic
+	// on a fresh broker, and a consumer that subscribes to a not-yet-existing
+	// topic has to wait for a metadata refresh — the one ordering that can lose a
+	// run on a clean CI broker. A brand-new group reads from the earliest offset,
+	// so nothing published first is missed.
+	const bytesA, bytesB = 5_000, 11_000
+	now := time.Now().UTC()
+	publishFlowBatch(ctx, t, b, tenantA, flowRecord(tenantA, "10.30.0.1", bytesA, now))
+	publishFlowBatch(ctx, t, b, tenantB, flowRecord(tenantB, "10.40.0.1", bytesB, now))
+	// An unscoped record: the consumer must drop it, not attribute it.
+	publishFlowBatch(ctx, t, b, tenantA, flowRecord("", "10.50.0.1", 999_000, now))
+
 	// The SHIPPING consumer, not a test double.
 	consumer := NewCarbonConsumer(b, engine, quietLog())
 	runCtx, cancel := context.WithCancel(ctx)
@@ -80,13 +92,6 @@ func TestCarbonLiveConsumerAttributesBytesPerTenant(t *testing.T) {
 	// are different failures, and discarding this made them look identical.
 	runErr := make(chan error, 1)
 	go func() { runErr <- consumer.Run(runCtx) }()
-
-	const bytesA, bytesB = 5_000, 11_000
-	now := time.Now().UTC()
-	publishFlowBatch(ctx, t, b, tenantA, flowRecord(tenantA, "10.30.0.1", bytesA, now))
-	publishFlowBatch(ctx, t, b, tenantB, flowRecord(tenantB, "10.40.0.1", bytesB, now))
-	// An unscoped record: the consumer must drop it, not attribute it.
-	publishFlowBatch(ctx, t, b, tenantA, flowRecord("", "10.50.0.1", 999_000, now))
 
 	// Poll rather than sleep-and-hope: the assertion is what arrived, and a
 	// timeout says the consumer never consumed instead of silently passing.
