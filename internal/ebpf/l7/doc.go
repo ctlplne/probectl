@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
 
 // Package l7 parses application-protocol calls (HTTP/1.1, HTTP/2, gRPC, DNS,
 // Kafka) from the plaintext byte streams the eBPF agent captures (S21) — via

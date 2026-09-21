@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 global:
   scrape_interval: 30s
   evaluation_interval: 30s

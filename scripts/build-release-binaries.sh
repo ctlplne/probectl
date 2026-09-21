@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # Build the downloadable release binaries. The eBPF agent is special: a plain
 # `go build ./cmd/probectl-ebpf-agent` links the fixture/stub source, so the

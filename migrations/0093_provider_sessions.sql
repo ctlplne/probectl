@@ -1,4 +1,4 @@
--- SPDX-License-Identifier: MPL-2.0
+-- SPDX-License-Identifier: BUSL-1.1
 --
 -- DPR-033: provider operator sessions are persisted so every control replica
 -- validates the same session and disabling an operator ends it everywhere.

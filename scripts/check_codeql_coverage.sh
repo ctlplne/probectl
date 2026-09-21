@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # check_codeql_coverage.sh (DPR-245) — CodeQL must actually be analysing the
 # product, not just the workflows.

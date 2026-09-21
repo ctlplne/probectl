@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # Real v0.5.0 -> current -> v0.5.0 -> current lifecycle rehearsal against one
 # disposable PostgreSQL database. It builds the historical binary from the

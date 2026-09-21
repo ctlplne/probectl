@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <clickhouse>
   <!-- The entrypoint-created `probectl` user inherits this profile. Defining
        the custom setting here makes getSetting() fail closed to an empty

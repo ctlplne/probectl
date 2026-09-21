@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # check_web_lock.sh (DPR-236) — web/package-lock.json must install with `npm ci`
 # under the npm that CI and deploy/docker/Dockerfile actually use.

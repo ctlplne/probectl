@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # packaging-smoke.sh (OPS-002) — build a deb + an rpm from a stand-in binary for
 # EVERY agent release.yml packages, exactly as release.yml does, and assert both

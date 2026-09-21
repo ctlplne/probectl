@@ -4,7 +4,8 @@
 // Production use requires a valid commercial agreement; resale additionally
 // requires an MSP entitlement and reseller agreement.
 
-// Source files in ee/ are NOT covered by the root MPL-2.0 license. Their source
+// Source files in ee/ are NOT covered by the root LICENSE (BUSL-1.1 core, MPL-2.0
+// client tree). Their source
 // is visible for review, but production use requires a valid Enterprise/MSP
 // agreement and resale additionally requires an MSP entitlement plus a signed
 // reseller agreement. ee/LICENSE is explicitly DRAFT-FOR-COUNSEL until the

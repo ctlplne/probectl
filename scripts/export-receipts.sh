@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # export-receipts.sh — TEST-011 (receipts half) / data-room receipts bundle.
 #

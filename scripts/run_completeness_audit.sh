@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # CL-002 exact-SHA delivery audit. Phases are deliberately separable:
 #   static   source-only checks (no Docker daemon)

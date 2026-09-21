@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # helm_push_digest.sh (DPR-258) — push a packaged chart to an OCI repository and
 # print the immutable digest helm reported, on stdout. Everything helm said goes

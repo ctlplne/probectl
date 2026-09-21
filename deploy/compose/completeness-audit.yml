@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # CL-002 disposable delivery audit. The runner MUST supply a unique -p project
 # name. Nothing is published to the host and the one project network is marked

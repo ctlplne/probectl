@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # TEST-003: prove the fuzz gates are structurally honest. The PR smoke gate
 # must discover every fuzz target, and the nightly workflow must either fit its

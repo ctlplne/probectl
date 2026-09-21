@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # release_completeness_verdict.sh (decision D-15, 2026-09-20) — run the strict
 # capability-ledger gate, print the whole verdict, and decide what a release is

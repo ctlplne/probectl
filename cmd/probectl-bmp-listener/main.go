@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: BUSL-1.1
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
 
 // Command probectl-bmp-listener accepts direct router BMP sessions over mTLS,
 // derives the tenant from each peer's SPIFFE client certificate, and publishes

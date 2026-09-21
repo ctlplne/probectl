@@ -15,8 +15,9 @@ All rights not expressly granted are reserved.
 1. Scope
 
 This license applies only to source and related materials under the repository's
-`ee/` directory (the "Commercial Software"). The MPL-2.0 license in the
-repository root applies to core files outside `ee/`; it does not apply to the
+`ee/` directory (the "Commercial Software"). The root LICENSE (Business Source
+License 1.1 for the core, Mozilla Public License 2.0 for `pkg/`, `proto/` and
+`examples/`) applies to files outside `ee/`; it does not apply to the
 Commercial Software.
 
 2. Definitions

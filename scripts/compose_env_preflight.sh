@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # compose_env_preflight.sh — DPR-007: validate deploy/compose/.env BEFORE the
 # production Compose stack starts, so a value the docs told the operator to

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # SUPPLY-009 + G-bc21fbb0: prove every declared shipped data/font asset
 # exists, remains byte-identical to its recorded provenance digest, and

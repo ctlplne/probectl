@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # release_notes.sh [FROM] [TO] — exhaustive, conventional-commit-grouped notes.
 # FROM defaults to the latest tag, TO to HEAD. Every non-merge commit is emitted

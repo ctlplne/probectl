@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # check_license_trust_anchor.sh — DPR-001. A build verifies commercial license
 # files only against the trust anchors it carries: the committed

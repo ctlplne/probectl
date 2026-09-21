@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # Deterministic, network-free success-path test for the air-gap release bundle.
 # Docker and cosign are strict local stubs, while the fixture contains the full

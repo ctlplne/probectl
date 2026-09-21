@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # airgap-bundle.sh (OPS-003) — assemble a single, self-contained tarball an
 # operator can carry into an air-gapped network and install offline: all

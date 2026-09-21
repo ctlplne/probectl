@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # Run a command inside the pinned eBPF build toolchain stage. This keeps the
 # kernel-loadable BPF object compiler path off mutable GitHub runner apt state.

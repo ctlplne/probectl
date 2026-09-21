@@ -194,7 +194,7 @@ license_violations="$(check_license_headers)"
 if [ -n "${license_violations}" ]; then
   echo "EDITIONS LICENSE HEADER VIOLATIONS:" >&2
   printf '%s\n' "${license_violations}" >&2
-  echo "ee/ is commercial source under ee/LICENSE; core source is MPL-2.0." >&2
+  echo "ee/ is commercial source under ee/LICENSE; core source is BUSL-1.1; pkg/, proto/ and examples/ are MPL-2.0." >&2
   exit 1
 fi
 

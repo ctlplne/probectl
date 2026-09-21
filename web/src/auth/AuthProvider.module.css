@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0 */
+/* SPDX-License-Identifier: BUSL-1.1 */
 
 /* The pre-identity boot screen: the only thing on screen between the SSO
  * redirect and the first authenticated paint, so it must stand alone. */

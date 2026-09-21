@@ -1,4 +1,4 @@
--- SPDX-License-Identifier: MPL-2.0
+-- SPDX-License-Identifier: BUSL-1.1
 --
 -- Operator-supplied placement labels are authoritative local metadata for the
 -- owned-vantage coverage cockpit. They arrive on the authenticated agent

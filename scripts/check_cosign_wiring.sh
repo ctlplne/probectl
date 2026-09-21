@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # check_cosign_wiring.sh (SUPPLY-002) — assert cosign verification is actually
 # WIRED into the installers, not just claimed. Fails if:

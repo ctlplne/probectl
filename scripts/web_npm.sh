@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # Run an npm command for web/ inside the SAME digest-pinned Node image CI and
 # deploy/docker/Dockerfile use, instead of whatever npm the host happens to have.

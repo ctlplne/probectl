@@ -1,4 +1,4 @@
--- SPDX-License-Identifier: MPL-2.0
+-- SPDX-License-Identifier: BUSL-1.1
 --
 -- DPR-035: every tenant carries the three system roles. Migration 0013 seeded
 -- admin/editor/viewer for the default tenant only and promised that other

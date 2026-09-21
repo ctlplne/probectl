@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # Non-runtime companion for governed artifact/methodology/legal/release reviews.
 # It deliberately does not start Compose or populate executable receipt fields.

@@ -329,7 +329,7 @@ rows = sorted(
 notice_lines = [
     "probectl - THIRD-PARTY NOTICES",
     "",
-    "probectl first-party core is licensed under MPL-2.0; source under ee/",
+    "probectl first-party core is licensed under BUSL-1.1 (converting to MPL-2.0 four years after each release); pkg/, proto/ and examples/ are MPL-2.0; source under ee/",
     "is separately commercially licensed. See LICENSE and LICENSING.md.",
     "",
     "probectl is built, tested, packaged, and shipped with the third-party",

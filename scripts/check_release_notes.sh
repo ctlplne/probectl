@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: BUSL-1.1
 #
 # Regression fixture for exhaustive release-note accounting. It builds a tiny
 # local git history so no network or repository-history assumption is involved.

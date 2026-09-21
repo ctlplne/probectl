@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
 <clickhouse>
   <!-- Remove every stock plaintext listener before enabling the secure pair. -->
   <http_port remove="remove"/>
