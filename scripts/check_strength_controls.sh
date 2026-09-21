@@ -44,6 +44,13 @@ need_file() {
 
 need_pattern() {
   local id="$1" path="$2" pattern="$3"
+  # A control naming a path that no longer exists is a control that protects
+  # nothing, and "lacks pattern" is the wrong diagnosis for it: it sends the
+  # reader looking for a missing line inside a missing file. Say which it is.
+  if [ ! -e "$path" ]; then
+    err "$id: $path does not exist — the protection moved or was deleted; repoint this control at where it lives now, or remove it deliberately"
+    return
+  fi
   if [ -d "$path" ]; then
     if grep -RIEq "$pattern" "$path" 2>/dev/null; then
       return
@@ -128,7 +135,7 @@ need_pattern DOCS-005 .github/workflows/ci.yml 'check_docs_claims\.sh SELFTEST &
 need_pattern DOCS-005 web/package.json 'coverage-gate'
 need_pattern DOCS-005 .github/workflows/ci.yml 'npm run coverage-gate'
 need_pattern DOCS-005 web/src/test/surface-coverage.test.tsx 'the gate itself fails on a capability with no surface'
-need_pattern DOCS-005 web/src/test/surface-coverage.test.tsx 'required PRD feature disappears or has no surface kind'
+need_pattern DOCS-005 web/src/test/surface-coverage.test.tsx 'required contract feature disappears or has no surface kind'
 need_pattern DOCS-005 web/src/test/surface-coverage.test.tsx 'PLACEHOLDER_MARKER|toHaveNoViolations'
 need_pattern DOCS-005 web/src/surfaces.ts 'native|federated|none-by-design'
 need_pattern DOCS-006 docs/otlp.md 'metrics|traces|logs'
@@ -304,7 +311,12 @@ need_pattern PRODUCT-012 web/src/components/Modal.tsx 'focus trap|Escape|aria-mo
 need_pattern PRODUCT-012 web/src/components/Input.tsx 'htmlFor|aria-invalid|aria-describedby'
 need_pattern PRODUCT-012 web/src/components/Badge.tsx 'StatusDot|aria-hidden'
 need_pattern PRODUCT-012 web/src/styles/tokens.css 'prefers-reduced-motion'
-need_pattern PRODUCT-012 web/src/components/States.module.css 'prefers-reduced-motion'
+# The States primitive moved to Tailwind and its module stylesheet is gone. The
+# protection did not go with it: the reduce rule now lives in global.css and
+# applies to EVERY element, not just that one component, which is strictly
+# stronger. design-tokens-v2.test.tsx asserts it is present.
+need_pattern PRODUCT-012 web/src/styles/global.css 'prefers-reduced-motion'
+need_pattern PRODUCT-012 web/src/test/design-tokens-v2.test.tsx 'prefers-reduced-motion'
 need_pattern PRODUCT-012 web/src/viz/PathGraph.module.css 'prefers-reduced-motion'
 need_pattern PRODUCT-013 internal/control/errors.go 'errorBody|errorDetail|writeError|RequestIDFromContext'
 need_pattern PRODUCT-013 internal/control/errors_test.go 'TestAPIHandlerMapsErrors|plain error leaked detail'

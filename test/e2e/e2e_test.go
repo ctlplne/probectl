@@ -158,7 +158,14 @@ func TestE2E(t *testing.T) {
 	// ── schema: the serve path checks DB-level tenant isolation before listen ─
 	runCmd(t, root, controlEnv, control, "migrate")
 	seedE2ETenants(t, root, composeEnv, composeProject, composeFile, composeIsoFile)
-	runCmd(t, root, controlEnv, control, "agent-ca", "init")
+	// DPR-121 hardened `agent-ca init` to refuse printing the root CA private key
+	// to a non-terminal, because a Job log or a CI artifact is exactly where
+	// docs/guardrails.md G7-6 says a private key must never land — and `go test`
+	// stdout is a non-terminal. The key goes to a file under the test's temp dir,
+	// the same way deploy/compose/eval-synthetic.yml bootstraps it. This caller was
+	// missed when that landed, which is why nightly e2e had been red (DPR-270).
+	agentCARootKey := filepath.Join(work, "agent-ca-root.key")
+	runCmd(t, root, controlEnv, control, "agent-ca", "init", "-key-out", agentCARootKey)
 	agentCABundle := filepath.Join(work, "agent-ca.crt")
 	runCmd(t, root, controlEnv, control, "agent-ca", "export", agentCABundle)
 	registerCollector(t, root, control, controlEnv, tenantA, agentAID, "agent-a")
