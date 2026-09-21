@@ -2,7 +2,7 @@
 
 These are executable product rules, not mood-board adjectives. They turn the competitive
 baseline in [`teardown.md`](./teardown.md) into review and CI criteria while preserving the
-security contract in [`CLAUDE.md`](../../CLAUDE.md).
+security contract in [`docs/guardrails.md`](../guardrails.md).
 
 ## 1. Evidence before eloquence
 
@@ -155,7 +155,7 @@ budgets, and route/chunk size checks. There are no hardcoded design values, thir
 or default outbound browser requests.
 
 The CI reference profile is deliberately fixed and local: the production bundle,
-deterministic same-origin API fixtures, pinned Chromium, dark and aurora themes,
+deterministic same-origin API fixtures, pinned Chromium, light and dark themes,
 1366×900 desktop plus 390×844 mobile accessibility viewports, and five fresh browser
 contexts for every J1–J6 landing route. The performance checker recomputes nearest-rank
 p75 from the five raw samples and enforces LCP <2.5 seconds and INP <200 milliseconds.

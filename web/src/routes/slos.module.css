@@ -1,7 +1,7 @@
 /* SLOs (S45) — S8a tokens only. */
 
 .meta {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -12,8 +12,8 @@
 .budgetBar {
   position: relative;
   height: 8px;
-  border-radius: var(--radius-sm);
-  background: var(--color-danger-soft);
+  border-radius: var(--radius-control);
+  background: hsl(var(--destructive) / 0.12);
   overflow: hidden;
   margin-top: var(--space-1);
 }
@@ -21,16 +21,16 @@
 .budgetFill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--color-success);
-  border-radius: var(--radius-sm);
+  background: hsl(var(--status-success));
+  border-radius: var(--radius-control);
 }
 
 .budgetLow .budgetFill {
-  background: var(--color-warning);
+  background: hsl(var(--status-warning));
 }
 
 .budgetGone .budgetFill {
-  background: var(--color-danger);
+  background: hsl(var(--destructive));
 }
 
 .burns {
@@ -41,14 +41,14 @@
 .window {
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
 .window strong {
-  color: var(--color-text);
+  color: hsl(var(--foreground));
 }
 
 .actions {

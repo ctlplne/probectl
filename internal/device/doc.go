@@ -26,7 +26,7 @@
 //     sysName/sysDescr/interface evidence and stop at pending review; activation
 //     requires an explicit review step.
 //   - Credentials are resolved through the CredentialSource seam by NAME —
-//     config carries references, never secrets (CLAUDE.md §7 guardrail 6).
+//     config carries references, never secrets (docs/guardrails.md G7-6).
 //     The env provider is the pre-S41 default; S41 plugs Vault/CyberArk into
 //     the same seam. Credentials are never logged (redacted Stringers).
 //   - MIB coverage varies wildly between vendors: every table walk degrades

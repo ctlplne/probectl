@@ -7,7 +7,7 @@
 // Package license implements probectl's offline edition gating (S-T0): an
 // Ed25519-signed license file activates commercial feature sets, verified
 // with pure local math against build-time-baked public keys — never a
-// phone-home (CLAUDE.md §7 guardrail 2; the editions decisions, §2).
+// phone-home (docs/guardrails.md G7-2; the editions decisions, §2).
 //
 // The doctrine, enforced here and checked by the editions CI gate:
 //

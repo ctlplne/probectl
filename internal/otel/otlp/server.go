@@ -29,7 +29,7 @@ type ServerConfig struct {
 
 // Server runs the OTLP/gRPC and OTLP/HTTP receivers on TLS listeners. It is the
 // inbound OTLP surface: TLS-only, authenticated, tenant-scoped, untrusted input
-// (CLAUDE.md §7 guardrail 12).
+// (docs/guardrails.md G7-12).
 type Server struct {
 	cfg   ServerConfig
 	tls   *tls.Config

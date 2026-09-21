@@ -6,7 +6,7 @@
 
 // Package logging configures the structured slog logger used across the control
 // plane and provides request-scoped logger / request-id context helpers.
-// Production code logs through slog only — never fmt.Printf (CLAUDE.md §6).
+// Production code logs through slog only — never fmt.Printf (CONTRIBUTING.md).
 package logging
 
 import (

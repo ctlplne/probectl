@@ -7,7 +7,7 @@
 // Command probectl-ebpf-agent is the probectl eBPF host agent (Linux): zero-
 // instrumentation L3/L4 flow capture + a live service map, emitted to the bus as
 // probectl.ebpf.flows (S20). It is observe-only and never loads policy-enforcing
-// programs (CLAUDE.md §7 guardrail 8).
+// programs (docs/guardrails.md G7-8).
 //
 // The CO-RE eBPF loader is compiled in only with `-tags ebpf` on Linux (it needs
 // clang at build time and a BTF kernel + CAP_BPF at run time). Every other build

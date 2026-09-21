@@ -14,7 +14,7 @@
 // attaches to a tenant-scoped record (a flow/test result), so the tenant boundary
 // is enforced where the enrichment is stored, not in this package (PRD §3 — shared
 // once, scoped per tenant). External fetches are over TLS with certificate
-// validation and treated as untrusted (CLAUDE.md §7 guardrails 10, 12). A source
+// validation and treated as untrusted (docs/guardrails.md G7-10, 12). A source
 // that is disabled or failing is logged and skipped — it must never break a core
 // path (graceful degradation).
 package opendata

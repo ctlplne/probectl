@@ -10,7 +10,7 @@
 // reports serve everyone; the support org / SLA is a commercial contract, not
 // code.
 //
-// The non-negotiable safety property (CLAUDE.md §7 guardrail 6): a support
+// The non-negotiable safety property (docs/guardrails.md G7-6): a support
 // bundle NEVER contains secrets, credentials, or PII. The config snapshot is
 // an allowlist (config.Redacted), and the bundle additionally SCRUBS any
 // known-sensitive value the caller passes — defense in depth, so an accidental

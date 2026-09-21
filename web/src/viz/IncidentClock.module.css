@@ -11,7 +11,7 @@
   gap: var(--space-2);
   direction: ltr;
   padding-block: var(--space-2);
-  border-block: 1px solid var(--color-border-strong);
+  border-block: 1px solid hsl(var(--border));
 }
 
 .lanes {
@@ -31,8 +31,8 @@
 }
 
 .laneLabel {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-subtle);
+  font-size: var(--font-size-caption);
+  color: hsl(var(--muted-foreground));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -50,7 +50,7 @@
   position: absolute;
   inset-inline: 0;
   top: 50%;
-  border-top: 1px solid var(--color-border-strong);
+  border-top: 1px solid hsl(var(--border));
 }
 
 /* Markers are true buttons: 24px minimum interactive target (the rendered
@@ -71,9 +71,9 @@
 }
 
 .marker:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
   outline-offset: var(--focus-ring-offset);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   z-index: var(--z-sticky);
 }
 
@@ -112,7 +112,7 @@
 }
 
 .selected .shape {
-  box-shadow: 0 0 0 var(--selection-outline-width) var(--color-selection);
+  box-shadow: 0 0 0 var(--selection-outline-width) hsl(var(--brand-accent));
 }
 
 .selected {
@@ -120,19 +120,19 @@
 }
 
 .toneDanger {
-  background: var(--color-danger);
+  background: hsl(var(--destructive));
 }
 
 .toneWarning {
-  background: var(--color-warning);
+  background: hsl(var(--status-warning));
 }
 
 .toneInfo {
-  background: var(--color-info);
+  background: hsl(var(--status-info));
 }
 
 .toneNeutral {
-  background: var(--color-chart-neutral);
+  background: hsl(var(--chart-neutral));
 }
 
 /* The axis reuses the lane grid so tick positions align with the tracks. */
@@ -141,7 +141,7 @@
   grid-template-columns: minmax(140px, max-content) minmax(0, 1fr);
   gap: var(--space-3);
   font-size: var(--font-size-2xs);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-variant-numeric: tabular-nums;
 }
 

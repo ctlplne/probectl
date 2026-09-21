@@ -21,11 +21,13 @@ const repoRoot = dirname(scriptDir);
 const webRoot = join(repoRoot, "web");
 const browserWorkerRoot = join(repoRoot, "browser-worker");
 const appBasePath = "/ui";
-// Theme matrix. Default stays the CI pair; PROBECTL_A11Y_THEMES widens or
-// narrows a run without a code change (e.g. =dark,aurora,ember locally, or in
-// a scheduled workflow) — only themes the token contract defines are accepted.
-const KNOWN_THEMES = ["dark", "aurora", "ember"];
-const themes = (process.env.PROBECTL_A11Y_THEMES ?? "dark,aurora")
+// Theme matrix. probectl ships exactly two themes, so the default IS the whole
+// matrix; PROBECTL_A11Y_THEMES narrows a run without a code change (e.g. =dark
+// while iterating) — only themes the token contract defines are accepted, which
+// matters because ThemeProvider silently falls back to light on an unknown name:
+// a stale theme name here would audit light twice and never audit dark.
+const KNOWN_THEMES = ["light", "dark"];
+const themes = (process.env.PROBECTL_A11Y_THEMES ?? "light,dark")
   .split(",")
   .map((t) => t.trim())
   .filter(Boolean);
@@ -2160,7 +2162,7 @@ async function targetAndTabChecks(page) {
 //
 // The rule: an element that stays put while the page moves, and is wide enough
 // to sit over content, needs something opaque behind its text. A layered tint
-// (`background: linear-gradient(tint, tint), var(--color-bg)`) satisfies this,
+// (`background: linear-gradient(tint, tint), hsl(var(--background))`) satisfies this,
 // because the shorthand's final color becomes background-color.
 // DPR-179: text that overflows its own box with no ellipsis is clipped text —
 // the reader sees "Operat" and a button painted over the rest. The app chrome is
@@ -2218,6 +2220,39 @@ async function stickyOpacityChecks(page) {
       if (alphaOf(style.backgroundColor) >= 0.9) continue;
       // A blur is a deliberate, legible alternative to opacity.
       if (style.backdropFilter && style.backdropFilter !== "none") continue;
+      // A pass-through layer is not a bar. An element that cannot receive
+      // pointer events and paints nothing has no text of its own to become
+      // unreadable, and it obscures nothing — the notification region is one:
+      // always mounted, full width, deliberately invisible until a toast
+      // appears. The guarantee is kept rather than dropped: whatever DOES carry
+      // text inside such a layer must itself be opaque, so a toast rendered on
+      // a see-through panel is still reported, just against the panel.
+      if (style.pointerEvents === "none") {
+        const seeThrough = [...el.querySelectorAll("*")].filter((child) => {
+          const own = [...child.childNodes]
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent.trim())
+            .join("");
+          if (!own) return false;
+          const childStyle = getComputedStyle(child);
+          if (childStyle.visibility === "hidden" || childStyle.display === "none") return false;
+          if (childStyle.backdropFilter && childStyle.backdropFilter !== "none") return false;
+          // Walk up to the nearest ancestor that paints, stopping at the layer.
+          for (let node = child; node && node !== el.parentElement; node = node.parentElement) {
+            if (alphaOf(getComputedStyle(node).backgroundColor) >= 0.9) return false;
+          }
+          return true;
+        });
+        if (seeThrough.length === 0) continue;
+        problems.push(
+          `${el.tagName.toLowerCase()} pass-through ${style.position} layer holds text on nothing opaque: ` +
+            seeThrough
+              .slice(0, 3)
+              .map((c) => `${c.tagName.toLowerCase()} "${(c.textContent || "").trim().slice(0, 24)}"`)
+              .join(", "),
+        );
+        continue;
+      }
       const label = [
         el.tagName.toLowerCase(),
         el.id ? `#${el.id}` : "",
@@ -3446,7 +3481,7 @@ async function main() {
       for (const theme of themes) {
         const context = await browser.newContext({
           viewport,
-          colorScheme: theme === "aurora" ? "light" : "dark",
+          colorScheme: theme === "light" ? "light" : "dark",
         });
         await context.addInitScript(fetchStubSource(theme));
         for (const route of routes) {

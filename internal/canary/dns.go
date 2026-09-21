@@ -26,7 +26,7 @@ const dnsType = "dns"
 
 // dnsCanary queries DNS (resolver or delegation-trace mode) over UDP/TCP/DoT/DoH,
 // optionally validating DNSSEC. The crypto lives entirely in miekg/dns (FIPS
-// enabler intact — CLAUDE.md §7 guardrail 3).
+// enabler intact — docs/guardrails.md G7-3).
 type dnsCanary struct {
 	guard *TargetGuard
 	name  string

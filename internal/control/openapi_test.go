@@ -190,7 +190,7 @@ func TestOpenAPITypeAcceptsNullableUnion(t *testing.T) {
 	}
 }
 
-// TestOpenAPIMatchesRoutes upholds "no undocumented routes" (CLAUDE.md §6, §8):
+// TestOpenAPIMatchesRoutes upholds "no undocumented routes" (CONTRIBUTING.md):
 // the registered /v1 routes must exactly equal the /v1 operations documented in
 // openapi.json — neither an undocumented handler nor a documented-but-missing
 // route may exist. The route table (apiRoutes) is the single source of truth.

@@ -14,7 +14,7 @@
 # command with the same verdict, prints every blocking row it named (DPR-251),
 # and never reinterprets a failure it cannot attribute to declared gaps. 0.x is
 # the only version range where a declared gap does not block, which is the
-# distinction docs/quality/completeness.md already draws by reserving the strict
+# distinction capabilities.yaml already draws by reserving the strict
 # form for a FINAL release. A 0.x release that carries gaps says so on its own
 # GitHub release page: `gaps` and `prerelease` are consumed by the binaries job.
 #

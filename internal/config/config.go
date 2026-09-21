@@ -6,7 +6,7 @@
 
 // Package config loads and validates the probectl control-plane configuration
 // from PROBECTL_-prefixed environment variables. Every key is documented in
-// docs/configuration.md (CLAUDE.md §6). Load reports all validation problems at
+// docs/configuration.md (CONTRIBUTING.md). Load reports all validation problems at
 // once so a misconfiguration is fixed in a single pass.
 package config
 
@@ -95,7 +95,7 @@ type Config struct {
 	// Security posture / TLS. When TLSCertFile and TLSKeyFile are both set, the
 	// API serves HTTPS directly; otherwise TLS terminates at the ingress. HSTS is
 	// always set so it is correct the moment the API is served over HTTPS
-	// (CLAUDE.md §7 guardrail 12).
+	// (docs/guardrails.md G7-12).
 	HSTSEnabled bool
 	HSTSMaxAge  time.Duration
 	TLSCertFile string
@@ -1581,20 +1581,20 @@ func (c *Config) OTLPExportEnabled() bool { return c.OTLPExportEndpoint != "" }
 
 // AIModelEnabled reports whether the AI assistant should call an external model
 // endpoint. False means the default in-process built-in synthesizer — fully
-// air-gapped, no network (CLAUDE.md §7 guardrail 2).
+// air-gapped, no network (docs/guardrails.md G7-2).
 func (c *Config) AIModelEnabled() bool {
 	return c.AIModelProvider != "" && c.AIModelProvider != "builtin"
 }
 
 // MCPEnabled reports whether the MCP HTTP transport should run — an address and
 // TLS cert+key are configured. The transport is TLS-only and bearer-authenticated
-// (CLAUDE.md §7 guardrail 12); the stdio transport is separate (local).
+// (docs/guardrails.md G7-12); the stdio transport is separate (local).
 func (c *Config) MCPEnabled() bool {
 	return c.MCPHTTPAddr != "" && c.MCPTLSCertFile != "" && c.MCPTLSKeyFile != ""
 }
 
 // LogValue implements slog.LogValuer so the config can be logged at startup
-// without leaking the database password (CLAUDE.md §7 guardrail 6).
+// without leaking the database password (docs/guardrails.md G7-6).
 func (c *Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("http_addr", c.HTTPAddr),

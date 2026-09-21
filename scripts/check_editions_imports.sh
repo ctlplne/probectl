@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Editions guard (S-T0/S-T1; CLAUDE.md §2 editions decisions, §6 conventions):
+# Editions guard (S-T0/S-T1; docs/editions.md editions decisions, §6 conventions):
 # commercial code lives under ee/ and may import core, but core may NEVER
 # import ee/ — the core-only build must work with ee/ absent or inert. This
 # guard fails the build on any Go file OUTSIDE ee/ importing the ee/ tree,
@@ -184,7 +184,7 @@ if [ -n "${violations}" ]; then
   echo "" >&2
   echo "The dependency is one-way: ee/ imports core, never the reverse." >&2
   echo "The ONLY exception is the allowlisted main.go attach seam, which must" >&2
-  echo "carry //go:build !probectl_core (CLAUDE.md §6, editions)." >&2
+  echo "carry //go:build !probectl_core (CONTRIBUTING.md, editions)." >&2
   exit 1
 fi
 

@@ -45,7 +45,7 @@ type DB struct {
 // Open parses dsn, applies pool sizing, and creates the PostgreSQL pool. The
 // pool connects lazily, so Open does not fail when the database is temporarily
 // unreachable — the readiness probe reports that instead. TLS-in-transit is
-// honored when the DSN requests it via sslmode (CLAUDE.md §7 guardrail 12).
+// honored when the DSN requests it via sslmode (docs/guardrails.md G7-12).
 func Open(ctx context.Context, dsn string, maxConns, minConns int32, connectTimeout time.Duration) (*DB, error) {
 	db := &DB{}
 	pool, err := openPool(ctx, dsn, maxConns, minConns, connectTimeout, db.afterConnect)

@@ -1,26 +1,48 @@
 /* SPDX-License-Identifier: BUSL-1.1 */
 
-/* Vendored variable typefaces (decision of record 2026-07-25, superseding the
- * earlier system-stack-only choice): Inter Variable + JetBrains Mono Variable,
- * OFL-1.1, latin wght subsets from the @fontsource-variable packages (see
- * NOTICE + docs/third-party-licenses.md). Shipped inside the bundle like every
- * other asset — nothing is ever fetched from a font service, air-gap
- * identical (§7.11). The system stacks remain as fallbacks in tokens.css;
- * font-display: swap means the one-time first paint uses them, then the
- * immutable-cached files take over permanently. */
+/* The ctlplne studio type system: Sora for UI text, DM Mono only for machine
+ * data, and Syne only for the wordmark or a rare brand moment. These are the
+ * exact four latin-subset files probectl's own website and the sibling consoles
+ * ship (@fontsource-variable/sora 5.2.8, @fontsource-variable/syne 5.2.7,
+ * @fontsource/dm-mono 5.2.7), vendored rather than taken as npm dependencies —
+ * see NOTICE, docs/third-party-licenses.md and third_party/vendored-assets.json,
+ * which pins each file by sha256.
+ *
+ * Superseding the 2026-07-25 Inter + JetBrains Mono decision: the three studio
+ * products now share one type system, so the console matches its own website.
+ * Nothing is ever fetched from a font service, which keeps first paint and
+ * air-gap behaviour identical (§7.11). The system stacks remain as fallbacks in
+ * tokens.css; font-display: swap means the one-time first paint uses them and
+ * the immutable-cached files take over permanently. */
 
 @font-face {
-  font-family: 'InterVariable';
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url('./fonts/inter-latin-wght.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrainsMonoVariable';
+  font-family: 'Sora Variable';
   font-style: normal;
   font-weight: 100 800;
   font-display: swap;
-  src: url('./fonts/jetbrains-mono-latin-wght.woff2') format('woff2');
+  src: url('./fonts/sora-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Syne Variable';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./fonts/syne-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/dm-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/dm-mono-latin-500-normal.woff2') format('woff2');
 }

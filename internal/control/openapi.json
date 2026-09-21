@@ -9414,7 +9414,7 @@
           },
           "token_overrides": {
             "type": "object",
-            "description": "Deployment-wide allowlisted CSS design-token values. Absent means the shipped dark/aurora themes are unmodified.",
+            "description": "Deployment-wide allowlisted CSS design-token values. Absent means the shipped light and dark themes are unmodified. A color value is the bare HSL triplet the stylesheet consumes, for example \"28 85% 30%\".",
             "additionalProperties": {
               "type": "string"
             }

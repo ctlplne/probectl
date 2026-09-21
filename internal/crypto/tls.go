@@ -83,7 +83,7 @@ func ConfigureServerTLS(srv *http.Server, certFile, keyFile string) error {
 
 // HardenedClientTLSConfig returns a hardened *tls.Config for OUTBOUND client
 // connections (TLS 1.2+, modern ciphers/curves). Certificate validation is ALWAYS
-// on — InsecureSkipVerify is never set (CLAUDE.md §7 guardrail 12). Used for
+// on — InsecureSkipVerify is never set (docs/guardrails.md G7-12). Used for
 // remote model endpoints and any other outbound fetch that needs the policy.
 func HardenedClientTLSConfig() *tls.Config { return hardenedTLS() }
 

@@ -23,7 +23,7 @@
 // Anything else is a literal. Backend access settings (addresses, role IDs,
 // client credentials) come from the ENVIRONMENT only — never probectl config
 // files — and every backend call rides TLS with certificate verification
-// (CLAUDE.md §7 guardrail 12).
+// (docs/guardrails.md G7-12).
 //
 // # Guardrails (§7: 1, 3, 6; the S41 'watch out for')
 //

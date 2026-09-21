@@ -6,7 +6,7 @@
 
 """Per-prefix AS-path monitoring and origin/hijack/leak detection.
 
-Detections are *signals*, not verdicts (CLAUDE.md §7 guardrail 9): each carries a
+Detections are *signals*, not verdicts (docs/guardrails.md G7-9): each carries a
 confidence in [0, 1] and a severity, and the rules are deliberately simple and
 tunable. The monitor is fed normalized :class:`BGPRoute` observations from either
 the MRT parser or RIS Live, so the source is irrelevant to detection.

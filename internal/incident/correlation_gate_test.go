@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// TEST-005 / CLAUDE.md §8 standing gate #2 — cross-plane correlation. Inject a
+// TEST-005 / CONTRIBUTING.md standing gate #2 — cross-plane correlation. Inject a
 // multi-plane fault for ONE tenant/target (a threat detection AND a BGP event)
 // and assert it surfaces as exactly ONE incident, tenant-scoped, carrying
 // evidence from ≥2 distinct planes. A regression that splits cross-plane

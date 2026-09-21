@@ -16,5 +16,5 @@
 //
 // The package is pure Go and kernel-independent: in production it is fed by the
 // capture layer; in tests it is fed byte fixtures. It is observe-only — it only
-// reads captured plaintext and never alters traffic (CLAUDE.md §7 guardrail 8).
+// reads captured plaintext and never alters traffic (docs/guardrails.md G7-8).
 package l7

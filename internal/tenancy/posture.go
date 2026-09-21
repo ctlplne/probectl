@@ -381,7 +381,7 @@ func assertStrictPreTenantPolicies(ctx context.Context, q postureQuerier) error 
 // legitimately operates ACROSS tenants, each with the reason. These hold
 // provider-plane control state — the tenant's configuration and the MSP's
 // metering — not the tenant's telemetry or operational data, and managing them
-// cross-tenant IS the provider console's job (CLAUDE.md §2, §3). Every OTHER
+// cross-tenant IS the provider console's job (docs/editions.md and docs/architecture.md). Every OTHER
 // tenant-owned table defaults to "the provider may not read it unscoped", so a
 // new table is refused at boot until someone classifies it.
 //
@@ -404,7 +404,7 @@ var providerManagedTables = map[string]string{
 // holds an unconstrained cross-tenant read on a table holding TENANT DATA
 // (Foundation-Loop S-1612260f).
 //
-// Provider operators get no implicit telemetry read (CLAUDE.md §7 guardrail
+// Provider operators get no implicit telemetry read (docs/guardrails.md guardrail
 // 1): cross-tenant access is explicit, time-bounded, consented break-glass —
 // which runs through the TENANT role and a GUC, never the provider role.
 // Migration 0045 tightened exactly this for audit_events and named the shape

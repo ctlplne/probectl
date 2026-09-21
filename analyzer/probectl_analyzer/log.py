@@ -4,7 +4,7 @@
 # in the LICENSE file at the root of this repository; on its Change Date
 # each version converts to the Mozilla Public License 2.0.
 
-"""structlog configuration for the analyzer (CLAUDE.md §6 — no ``print``)."""
+"""structlog configuration for the analyzer (CONTRIBUTING.md — no ``print``)."""
 
 from __future__ import annotations
 

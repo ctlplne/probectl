@@ -1,0 +1,502 @@
+{
+  "schema": "probectl.product-contract/v1",
+  "purpose": "The machine-readable product contract: the single in-repo authority for the facts CI gates check — the feature delivery matrix, the telemetry planes, the size of the verification net, and the proofs deliberately parked. Gates read THIS file, never a planning document, so the contract ships with the code it describes.",
+  "features": [
+    {
+      "ids": [
+        "F1"
+      ],
+      "name": "Canary agent",
+      "status": "delivered",
+      "evidence": "`cmd/probectl-agent`, `internal/canary`"
+    },
+    {
+      "ids": [
+        "F2"
+      ],
+      "name": "Network tests (a2s + a2a)",
+      "status": "delivered",
+      "evidence": "`internal/canary`, `internal/a2a`"
+    },
+    {
+      "ids": [
+        "F3"
+      ],
+      "name": "Path visualization",
+      "status": "delivered",
+      "evidence": "`internal/path`, web hero view"
+    },
+    {
+      "ids": [
+        "F4",
+        "F5"
+      ],
+      "name": "HTTP / DNS tests",
+      "status": "delivered",
+      "evidence": "`internal/canary` (http, dns, dnssec, trace)"
+    },
+    {
+      "ids": [
+        "F6"
+      ],
+      "name": "BGP monitoring",
+      "status": "delivered",
+      "evidence": "`analyzer/`, `internal/bgp`"
+    },
+    {
+      "ids": [
+        "F7"
+      ],
+      "name": "Open-data enrichment",
+      "status": "delivered",
+      "evidence": "`internal/opendata` (shared-once, per-tenant scoping)"
+    },
+    {
+      "ids": [
+        "F8",
+        "F9"
+      ],
+      "name": "Alerting / dashboards + incident timeline",
+      "status": "delivered",
+      "evidence": "`internal/alert`, `internal/incident`, `web/`; dense Operator/Executive dashboards plus tenant-safe saved views and scheduled local-inbox PDF/CSV reporting use `migrations/0061_dashboard_reporting.sql`, `internal/store/dashboardreports.go`, `internal/control/dashboardreporting.go`; silences/acks persist through `migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`"
+    },
+    {
+      "ids": [
+        "F10"
+      ],
+      "name": "Control plane + REST/gRPC + CLI",
+      "status": "delivered",
+      "evidence": "`internal/control`, `proto/`, `cmd/probectl` · *openapi-gate*"
+    },
+    {
+      "ids": [
+        "F11"
+      ],
+      "name": "eBPF host/L7 agent",
+      "status": "delivered",
+      "evidence": "`internal/ebpf` · *kernel-matrix*"
+    },
+    {
+      "ids": [
+        "F12"
+      ],
+      "name": "OTel-aligned data model + OTLP",
+      "status": "delivered",
+      "evidence": "`internal/otel`, `internal/otel/otlp`, `internal/pipeline/otlpexport.go` (metrics/traces/logs ingest/export; three-signal claim pinned by docslint — ARCH-002/003)"
+    },
+    {
+      "ids": [
+        "F13"
+      ],
+      "name": "AI RCA + NL query",
+      "status": "delivered",
+      "evidence": "`internal/ai` · *rca-eval*"
+    },
+    {
+      "ids": [
+        "F14"
+      ],
+      "name": "MCP server",
+      "status": "delivered",
+      "evidence": "`internal/ai/mcp`"
+    },
+    {
+      "ids": [
+        "F15"
+      ],
+      "name": "Browser synthetic",
+      "status": "delivered",
+      "evidence": "`browser-worker/` · *browser-worker*"
+    },
+    {
+      "ids": [
+        "F16"
+      ],
+      "name": "Endpoint agent (DEM)",
+      "status": "delivered",
+      "evidence": "`internal/endpoint`, cross-OS builds"
+    },
+    {
+      "ids": [
+        "F17"
+      ],
+      "name": "Flow analytics",
+      "status": "delivered",
+      "evidence": "`internal/flow`"
+    },
+    {
+      "ids": [
+        "F18"
+      ],
+      "name": "Device telemetry",
+      "status": "delivered",
+      "evidence": "`internal/device` (SNMP + gNMI)"
+    },
+    {
+      "ids": [
+        "F19"
+      ],
+      "name": "Internet-outage view",
+      "status": "delivered",
+      "evidence": "`internal/outage`"
+    },
+    {
+      "ids": [
+        "F20"
+      ],
+      "name": "RUM",
+      "status": "delivered",
+      "evidence": "`internal/rum`"
+    },
+    {
+      "ids": [
+        "F21"
+      ],
+      "name": "Voice/RTP",
+      "status": "delivered",
+      "evidence": "`internal/canary/voice.go`"
+    },
+    {
+      "ids": [
+        "F22"
+      ],
+      "name": "SSO + role model",
+      "status": "delivered",
+      "evidence": "`internal/auth` (fail-closed default — U-001)"
+    },
+    {
+      "ids": [
+        "F23"
+      ],
+      "name": "Audit foundation",
+      "status": "delivered",
+      "evidence": "`internal/audit` (+ WORM, U-041)"
+    },
+    {
+      "ids": [
+        "F24"
+      ],
+      "name": "Tenant→Org→Team→Project",
+      "status": "delivered",
+      "evidence": "`internal/store/hierarchy.go`; API/CLI + native tenant-admin surface ✅ (`/v1/hierarchy`, `probectl hierarchy show`, `web/src/routes/admin/HierarchyCard.tsx`)"
+    },
+    {
+      "ids": [
+        "F25"
+      ],
+      "name": "SCIM/ABAC/delegated admin",
+      "status": "delivered",
+      "evidence": "`internal/control/scim.go`; ABAC deny-override in `internal/auth/abac.go` + `internal/control/abac.go`"
+    },
+    {
+      "ids": [
+        "F26"
+      ],
+      "name": "SIEM integration",
+      "status": "delivered",
+      "evidence": "`internal/siem` (cursor, tenant-routed); API/CLI + native delivery-posture surface ✅ (`/v1/siem/status`, `probectl siem status`, `web/src/routes/admin/SIEMPostureCard.tsx`)"
+    },
+    {
+      "ids": [
+        "F27"
+      ],
+      "name": "On-call & ITSM",
+      "status": "delivered",
+      "evidence": "`internal/notify`, `docs/oncall-itsm.md`"
+    },
+    {
+      "ids": [
+        "F28"
+      ],
+      "name": "Zero-downtime lifecycle + fleet rollout",
+      "status": "delivered",
+      "evidence": "migrations gate + rollout engine ✅ (`internal/agent/rollout.go`); CLI/API + native human-gated wave console ✅ (`probectl rollout`, `/v1/rollouts`, `web/src/routes/admin/RolloutCard.tsx`, `docs/ops/fleet-rollout.md`)"
+    },
+    {
+      "ids": [
+        "F29"
+      ],
+      "name": "IaC & GitOps",
+      "status": "delivered",
+      "evidence": "`deploy/terraform`, *gitops-gate*, *helm-gate*"
+    },
+    {
+      "ids": [
+        "F30"
+      ],
+      "name": "CMDB / metrics federation",
+      "status": "delivered",
+      "evidence": "`internal/cmdb`, `internal/promapi`; Prometheus-compatible APIs support optional operator clients without a bundled dashboard runtime"
+    },
+    {
+      "ids": [
+        "F31"
+      ],
+      "name": "Secrets integration",
+      "status": "delivered",
+      "evidence": "`internal/secrets` (seam + Vault path), device creds"
+    },
+    {
+      "ids": [
+        "F32"
+      ],
+      "name": "FIPS-mode crypto",
+      "status": "delivered",
+      "evidence": "seam + build-tag + *fips-gate* ✅; dated module evidence in `docs/compliance/fips-evidence.md` (Go Cryptographic Module v1.0.0, CMVP #5247, CAVP A6650); probectl itself has no separate CMVP certificate"
+    },
+    {
+      "ids": [
+        "F33"
+      ],
+      "name": "Multi-region / HA",
+      "status": "partial",
+      "evidence": "stateless request/ingest path + PostgreSQL-leased, epoch-fenced singleton background loops; HA control plane, failover drill, runbooks ✅; multi-region validated runbooks + rep-hardware sign-off ⏳ (§5.2)"
+    },
+    {
+      "ids": [
+        "F34"
+      ],
+      "name": "Advanced governance",
+      "status": "delivered",
+      "evidence": "`internal/govern`, retention/erasure/redaction, BYOK"
+    },
+    {
+      "ids": [
+        "F35"
+      ],
+      "name": "Supportability",
+      "status": "delivered",
+      "evidence": "`internal/support` (tenant-scoped, secret-stripped bundles)"
+    },
+    {
+      "ids": [
+        "F36"
+      ],
+      "name": "TLS/cert observability",
+      "status": "delivered",
+      "evidence": "`internal/threat`, trustctl handoff"
+    },
+    {
+      "ids": [
+        "F37"
+      ],
+      "name": "NDR-lite detection engine",
+      "status": "delivered",
+      "evidence": "`internal/threat` (confidence-scored, suppression, SIEM)"
+    },
+    {
+      "ids": [
+        "F38"
+      ],
+      "name": "Threat-intel enrichment",
+      "status": "delivered",
+      "evidence": "`internal/opendata` + AUP tracking (resale terms = counsel, §5.3)"
+    },
+    {
+      "ids": [
+        "F39"
+      ],
+      "name": "Change intelligence",
+      "status": "delivered",
+      "evidence": "`internal/change` (HMAC webhooks)"
+    },
+    {
+      "ids": [
+        "F40"
+      ],
+      "name": "Live topology graph",
+      "status": "delivered",
+      "evidence": "`internal/topology` (versioned, what-if; ADR U-047)"
+    },
+    {
+      "ids": [
+        "F41"
+      ],
+      "name": "FinOps/egress cost",
+      "status": "delivered",
+      "evidence": "`internal/cost`"
+    },
+    {
+      "ids": [
+        "F42"
+      ],
+      "name": "SLO + business impact",
+      "status": "delivered",
+      "evidence": "`internal/slo` (OpenSLO)"
+    },
+    {
+      "ids": [
+        "F43"
+      ],
+      "name": "Segmentation validation",
+      "status": "delivered",
+      "evidence": "`internal/compliance`"
+    },
+    {
+      "ids": [
+        "F44"
+      ],
+      "name": "Guarded remediation",
+      "status": "delivered",
+      "evidence": "`ee/remediation` — observe-only/human-gated, dry-run, blast-radius, audited (guardrail intact)"
+    },
+    {
+      "ids": [
+        "F45"
+      ],
+      "name": "AI authoring + discovery",
+      "status": "delivered",
+      "evidence": "`internal/ai/author`"
+    },
+    {
+      "ids": [
+        "F46"
+      ],
+      "name": "Last-mile/WiFi/ISP diagnostics",
+      "status": "delivered",
+      "evidence": "`internal/endpoint` + `docs/endpoint-dem.md`"
+    },
+    {
+      "ids": [
+        "F47"
+      ],
+      "name": "Network chaos",
+      "status": "delivered",
+      "evidence": "`internal/chaos`"
+    },
+    {
+      "ids": [
+        "F48"
+      ],
+      "name": "Carbon/power",
+      "status": "delivered",
+      "evidence": "`internal/carbon`"
+    },
+    {
+      "ids": [
+        "F49"
+      ],
+      "name": "Plugin/detection marketplace",
+      "status": "future",
+      "evidence": "explicitly excluded from GA completeness; deliberate Phase-4 future bet with a `none-by-design` surface declaration (`web/src/surfaces.ts`; §6)"
+    },
+    {
+      "ids": [
+        "F50"
+      ],
+      "name": "Tenancy & hard isolation",
+      "status": "delivered",
+      "evidence": "`internal/tenancy` + RLS/CH policies · *cross-tenant-isolation*"
+    },
+    {
+      "ids": [
+        "F51"
+      ],
+      "name": "Provider/MSP plane",
+      "status": "delivered",
+      "evidence": "`ee/provider` (consumption-priced self-hosted resale under the probectl banner; break-glass audited; no implicit access)"
+    },
+    {
+      "ids": [
+        "F52"
+      ],
+      "name": "Pooled/siloed/hybrid",
+      "status": "delivered",
+      "evidence": "`ee/silo` (per-tenant ClickHouse provisioning/routing delivered across flow, path, eBPF, and OTLP; see `docs/isolation.md`; pinned by `TestProvisionDrivesEveryCHPlane`)"
+    },
+    {
+      "ids": [
+        "F53"
+      ],
+      "name": "Metering/billing export",
+      "status": "delivered",
+      "evidence": "`ee/billing`, `internal/usage` (operator-run export; never phone-home; MSP consumption basis)"
+    },
+    {
+      "ids": [
+        "F54"
+      ],
+      "name": "White-label",
+      "status": "removed",
+      "evidence": "MSPs resell under the probectl banner; one deployment-wide, allowlisted token theme remains, with no per-tenant/provider-master product, logo, domain, login, or email identity override"
+    },
+    {
+      "ids": [
+        "F55"
+      ],
+      "name": "Export/residency/verifiable deletion",
+      "status": "delivered",
+      "evidence": "`internal/lifecycle` (attested erasure — U-027)"
+    },
+    {
+      "ids": [
+        "F56"
+      ],
+      "name": "Per-tenant keys/BYOK",
+      "status": "delivered",
+      "evidence": "`ee/tenantkeys`, `internal/tenantcrypto`"
+    },
+    {
+      "ids": [
+        "F57"
+      ],
+      "name": "Tenant fairness",
+      "status": "delivered",
+      "evidence": "`internal/fairness` (deliberately core, incl. tenant self-view)"
+    }
+  ],
+  "planes": [
+    {
+      "plane": "plane 1",
+      "name": "Active/synthetic",
+      "status": "delivered"
+    },
+    {
+      "plane": "plane 2",
+      "name": "BGP/routing",
+      "status": "delivered"
+    },
+    {
+      "plane": "plane 3",
+      "name": "Flow analytics",
+      "status": "delivered"
+    },
+    {
+      "plane": "plane 4",
+      "name": "Device telemetry",
+      "status": "delivered"
+    },
+    {
+      "plane": "plane 5",
+      "name": "eBPF host/L7",
+      "status": "delivered"
+    }
+  ],
+  "verification": {
+    "workflow_jobs": 62,
+    "workflow_jobs_source": "scripts/count_workflow_jobs.py --total",
+    "rca_eval": {
+      "blocking": true,
+      "answer_accuracy_floor": 0.85,
+      "citation_precision_floor": 0.85
+    }
+  },
+  "parked_external_proofs": [
+    {
+      "id": "E2",
+      "reason": "needs hardware this project does not have; results are developer-machine smoke, not a regression gate"
+    },
+    {
+      "id": "E3",
+      "reason": "needs hardware this project does not have; results are developer-machine smoke, not a regression gate"
+    },
+    {
+      "id": "E4",
+      "reason": "needs hardware this project does not have; results are developer-machine smoke, not a regression gate"
+    },
+    {
+      "id": "L4",
+      "reason": "needs external legal review; a draft commercial paper is not legal approval"
+    }
+  ]
+}

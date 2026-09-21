@@ -104,7 +104,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
 | `PROBECTL_LOG_LEVEL`                | `info`                                                             | `debug` \| `info` \| `warn` \| `error`       |
 | `PROBECTL_LOG_FORMAT`               | `json`                                                             | `json` \| `text`                             |
-| `PROBECTL_THEME_OVERRIDES`          | (none)                                                             | JSON object of deployment-wide design-token overrides, for example `{"--radius-md":"10px"}`. Only allowlisted color/radius/font tokens are accepted; unsafe values or any set that breaks WCAG contrast fails startup. Applies to every tenant while product identity remains probectl |
+| `PROBECTL_THEME_OVERRIDES`          | (none)                                                             | JSON object of deployment-wide design-token overrides, for example `{"--radius-panel":"10px"}`. Only shipped color tokens plus `--radius-control\|panel\|pill` and `--font-sans\|mono\|display` are accepted. A color value must be the bare HSL triplet the stylesheet consumes (`"28 85% 30%"`, optionally `"28 85% 30% / 0.12"`) — a hex or `rgb()` value is refused because the stylesheet reads the token as `hsl(var(--token) / <alpha>)`. Unsafe values, unknown token names, or any set that breaks WCAG contrast in either shipped theme fails startup. Applies to every tenant while product identity remains probectl |
 | `PROBECTL_HSTS_ENABLED`             | `true`                                                             | send `Strict-Transport-Security`             |
 | `PROBECTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
 | `PROBECTL_TLS_CERT_FILE`            | (none)                                                            | PEM server certificate; the process serves HTTPS directly when set together with the key |
@@ -2303,7 +2303,7 @@ separate tombstone-aware maintenance flow.
 It is a JSON object because CSS color functions and font lists can contain
 commas. Startup validates token names, value grammar, the 64-entry size bound,
 and WCAG contrast against both shipped themes; malformed or unsafe config fails
-closed. The dark and aurora operator themes remain built in.
+closed. The light and dark operator themes remain built in; light is the default.
 
 Public `GET /branding` is intentionally available before authentication so the
 login shell and signed-in UI receive the same theme. It always returns

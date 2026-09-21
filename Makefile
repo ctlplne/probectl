@@ -171,7 +171,7 @@ test-performance: ## Enforce wall-clock smoke budgets without race instrumentati
 	$(GO) test -count=1 -run '^TestIndexedStoreXLScaleWhatIf$$' ./internal/topology
 
 .PHONY: test-isolation
-test-isolation: ## Run the cross-tenant isolation gate (CLAUDE.md §7 guardrail 1).
+test-isolation: ## Run the cross-tenant isolation gate (docs/guardrails.md G7-1).
 	$(GO) test -tags=isolation -race -count=1 ./...
 
 .PHONY: test-integration
@@ -460,7 +460,7 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 	./scripts/check_authz_test_coverage.sh SELFTEST && ./scripts/check_authz_test_coverage.sh
 	./scripts/check_domain_errors.sh SELFTEST && ./scripts/check_domain_errors.sh
 	PROBECTL_A11Y_THEMES= SELFTEST=1 bash scripts/web_rendered_a11y_container.sh
-	PROBECTL_A11Y_THEMES=ember SELFTEST=1 bash scripts/web_rendered_a11y_container.sh
+	PROBECTL_A11Y_THEMES=dark SELFTEST=1 bash scripts/web_rendered_a11y_container.sh
 
 .PHONY: lint-python
 lint-python: ## Lint the Python analyzer (ruff + black --check).

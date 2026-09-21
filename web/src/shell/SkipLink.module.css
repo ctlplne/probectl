@@ -4,9 +4,9 @@
   inset-inline-start: var(--space-2);
   z-index: var(--z-toast);
   padding: var(--space-2) var(--space-4);
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
-  border-radius: var(--radius-md);
+  background: hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent-foreground));
+  border-radius: var(--radius-control);
   font-weight: var(--font-weight-medium);
   transform: translateY(-200%);
 }

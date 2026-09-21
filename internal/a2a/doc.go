@@ -10,7 +10,7 @@
 // agent its task when it polls. All state is tenant-scoped: an agent only ever
 // receives tasks queued for its own (tenant, agent) identity, and only a
 // session's responder — in the session's tenant — may report an endpoint, so a
-// session can never cross a tenant boundary (CLAUDE.md §7 guardrail 1).
+// session can never cross a tenant boundary (docs/guardrails.md G7-1).
 //
 // State is in-memory; pair and mesh sessions start through the tenant-scoped,
 // RBAC-gated, audited A2A API/CLI. A2A deliberately stays outside the agent's

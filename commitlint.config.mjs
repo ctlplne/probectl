@@ -1,4 +1,4 @@
-// commitlint configuration enforcing Conventional Commits (CLAUDE.md §6).
+// commitlint configuration enforcing Conventional Commits (CONTRIBUTING.md).
 //
 // Format:  type(scope): subject
 // Every PR references its sprint + requirement IDs, e.g.

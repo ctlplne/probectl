@@ -17,7 +17,7 @@ import (
 
 // Threat detections (S-FE3 surface for S28; S42's NDR detections land in the
 // same store). A Detection is a confidence-scored SIGNAL with source
-// attribution — never a block (CLAUDE.md §7 guardrail 9). Provenance is
+// attribution — never a block (docs/guardrails.md G7-9). Provenance is
 // carried verbatim so the surface can be honest about it: threat-intel feeds
 // can and do list benign infrastructure.
 type Detection struct {

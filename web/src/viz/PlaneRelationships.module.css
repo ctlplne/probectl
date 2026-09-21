@@ -5,7 +5,7 @@
 }
 
 .canvas:focus-visible {
-  outline: 2px solid var(--color-focus);
+  outline: 2px solid hsl(var(--focus));
   outline-offset: 2px;
 }
 
@@ -32,32 +32,32 @@
 }
 
 .bgpLink {
-  stroke: var(--color-info);
+  stroke: hsl(var(--status-info));
   stroke-width: 3;
   stroke-opacity: 0.72;
 }
 
 .flowLink {
-  stroke: var(--color-accent);
+  stroke: hsl(var(--brand-accent));
   stroke-opacity: 0.56;
 }
 
 .node rect {
-  fill: var(--color-surface-raised);
-  stroke: var(--color-border-strong);
+  fill: hsl(var(--muted));
+  stroke: hsl(var(--border));
 }
 
 .source rect {
-  stroke: var(--color-info);
+  stroke: hsl(var(--status-info));
 }
 
 .target rect {
-  stroke: var(--color-accent);
+  stroke: hsl(var(--brand-accent));
 }
 
 .node text {
-  fill: var(--color-text);
+  fill: hsl(var(--foreground));
   font-family: var(--font-sans);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
 }

@@ -17,5 +17,5 @@
 // migration (S43) later replaces. Callers bind a tenant once with ForTenant and
 // then operate through a TenantStore that has no tenant-string arguments. Every
 // graph is tenant-scoped — this foundation never returns another tenant's nodes
-// or edges (CLAUDE.md §7 guardrail 1).
+// or edges (docs/guardrails.md G7-1).
 package topology

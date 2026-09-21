@@ -11,5 +11,5 @@
 //
 // The real probes (icmp/tcp/udp/http/dns, ...) are added from S7 by registering
 // their factories. A probe failure is a Result with Success=false, never a
-// returned error or a panic (CLAUDE.md §6).
+// returned error or a panic (CONTRIBUTING.md).
 package canary

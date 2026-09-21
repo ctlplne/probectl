@@ -13,8 +13,8 @@
 }
 
 .kv dt {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  color: hsl(var(--muted-foreground));
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
@@ -59,7 +59,7 @@
   display: grid;
   gap: var(--space-3);
   padding-block: var(--space-2);
-  border-block: 1px solid var(--color-border-subtle);
+  border-block: 1px solid hsl(var(--border));
 }
 
 .check {
@@ -81,15 +81,15 @@
   display: grid;
   gap: var(--space-2);
   padding: var(--space-4);
-  border: 1px solid var(--color-warning);
+  border: 1px solid hsl(var(--status-warning));
   border-inline-start-width: var(--space-1);
-  border-radius: var(--radius-md);
-  background: var(--color-warning-soft);
+  border-radius: var(--radius-control);
+  background: hsl(var(--status-warning) / 0.12);
 }
 
 .inactiveBanner p {
   margin: 0;
-  color: var(--color-text);
+  color: hsl(var(--foreground));
 }
 
 .inactiveHeading {
@@ -100,7 +100,7 @@
 }
 
 .muted {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -110,8 +110,8 @@
 }
 
 .textareaLabel {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
@@ -120,18 +120,18 @@
 .textarea {
   min-height: calc(var(--space-8) * 2);
   resize: vertical;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-  color: var(--color-text);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
   padding: var(--space-2) var(--space-3);
   font: inherit;
 }
 
 .textarea:focus-visible {
   outline: none;
-  border-color: var(--color-focus);
-  box-shadow: 0 0 0 var(--space-1) var(--color-focus);
+  border-color: hsl(var(--focus));
+  box-shadow: 0 0 0 var(--space-1) hsl(var(--focus));
 }
 
 .stack {
@@ -149,7 +149,7 @@
   gap: var(--space-3);
   margin-block-start: var(--space-5);
   padding-block-start: var(--space-4);
-  border-block-start: 1px solid var(--color-border-subtle);
+  border-block-start: 1px solid hsl(var(--border));
 }
 
 .evaluations h3,
@@ -181,10 +181,10 @@
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-inline-start: var(--space-1) solid var(--color-accent);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  border: 1px solid hsl(var(--border));
+  border-inline-start: var(--space-1) solid hsl(var(--brand-accent));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
   font-size: var(--font-size-sm);
 }
 
@@ -196,7 +196,7 @@
 }
 
 .evaluationFacts dt {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 .evaluationFacts dd {
@@ -209,7 +209,7 @@
   gap: var(--space-3);
   margin-block-start: var(--space-5);
   padding-block-start: var(--space-4);
-  border-block-start: 1px solid var(--color-border-subtle);
+  border-block-start: 1px solid hsl(var(--border));
 }
 
 .workflow h3,
@@ -222,9 +222,9 @@
   display: grid;
   gap: var(--space-1);
   padding: var(--space-3);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-md);
-  background: var(--color-warning-soft);
+  border: 1px solid hsl(var(--status-warning));
+  border-radius: var(--radius-control);
+  background: hsl(var(--status-warning) / 0.12);
   font-size: var(--font-size-sm);
 }
 
@@ -242,9 +242,9 @@
   display: grid;
   gap: var(--space-1);
   padding: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
   font-size: var(--font-size-sm);
 }
 
@@ -259,5 +259,5 @@
 .receiptHeading code,
 .deliveryReceipts code {
   overflow-wrap: anywhere;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }

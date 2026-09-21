@@ -13,9 +13,9 @@
   min-width: 0;
   gap: var(--space-3);
   padding: var(--space-4);
-  background: var(--color-surface-raised);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-md);
+  background: hsl(var(--muted));
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
 }
 
 .receiptHeader {
@@ -45,16 +45,16 @@
 
 .label,
 .facts dt {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
 }
 
 .target {
-  color: var(--color-text);
-  font-size: var(--font-size-md);
+  color: hsl(var(--foreground));
+  font-size: var(--font-size-data);
   line-height: var(--line-height-tight);
   overflow-wrap: break-word;
 }
@@ -62,7 +62,7 @@
 .agent {
   width: fit-content;
   max-width: 100%;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   overflow-wrap: anywhere;
 }
 
@@ -72,7 +72,7 @@
   gap: var(--space-3);
   padding-top: var(--space-3);
   margin: 0;
-  border-top: var(--border-width-thin) solid var(--color-border);
+  border-top: var(--border-width-thin) solid hsl(var(--border));
 }
 
 .fact {
@@ -85,7 +85,7 @@
 .facts dd {
   min-width: 0;
   margin: 0;
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
   overflow-wrap: break-word;
@@ -102,7 +102,7 @@
 }
 
 .reason {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 .numeric {
@@ -111,7 +111,7 @@
 
 .nextAction {
   padding: var(--space-3);
-  background: var(--color-info-soft);
-  border: var(--border-width-thin) solid var(--color-info);
-  border-radius: var(--radius-sm);
+  background: hsl(var(--status-info) / 0.12);
+  border: var(--border-width-thin) solid hsl(var(--status-info));
+  border-radius: var(--radius-control);
 }

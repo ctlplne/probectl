@@ -83,7 +83,7 @@ jobs:
   # package may be published until every shipped capability has 100% spine
   # coverage (concrete proof or genuine none-by-design).
   #
-  # DPR-253, decision D-15 (2026-09-20): docs/quality/completeness.md reserves
+  # DPR-253, decision D-15 (2026-09-20): capabilities.yaml reserves
   # the strict form for a FINAL release, and this job used to apply it to every
   # tag — so v0.6.4 cleared all three entry gates and then published nothing,
   # while publish-chart, deb/rpm and the air-gap bundle went on rotting unrun.

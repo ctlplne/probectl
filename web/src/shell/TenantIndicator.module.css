@@ -1,6 +1,6 @@
 .wrap {
   position: relative;
-  /* The indicator must stay visible at every width (CLAUDE.md §7), so it
+  /* The indicator must stay visible at every width (docs/guardrails.md), so it
    * shrinks with an ellipsized name rather than pushing the shell wider. */
   min-width: 0;
 }
@@ -14,10 +14,10 @@
   padding: 0 var(--space-3);
   max-width: 100%;
   min-width: 0;
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  color: hsl(var(--foreground));
 }
 
 .button {
@@ -29,11 +29,11 @@
 }
 
 .button:hover {
-  border-color: var(--color-accent);
+  border-color: hsl(var(--brand-accent));
 }
 
 .button:focus-visible {
-  outline: 2px solid var(--color-focus);
+  outline: 2px solid hsl(var(--focus));
   outline-offset: 2px;
 }
 
@@ -41,7 +41,7 @@
   width: 8px;
   height: 8px;
   border-radius: var(--radius-pill);
-  background: var(--color-accent);
+  background: hsl(var(--brand-accent));
 }
 
 .meta {
@@ -56,7 +56,7 @@
   font-size: var(--font-size-3xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wider);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 /* DPR-179: at phone widths the identity cluster is squeezed, and the NAME
@@ -85,10 +85,10 @@
   top: calc(100% + var(--space-2));
   inset-inline-start: 0;
   min-width: 220px;
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  box-shadow: var(--elevation-2);
   padding: var(--space-1);
   z-index: var(--z-overlay);
 }
@@ -101,13 +101,13 @@
   padding: var(--space-2) var(--space-3);
   background: transparent;
   border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--color-text);
-  font-size: var(--font-size-md);
+  border-radius: var(--radius-control);
+  color: hsl(var(--foreground));
+  font-size: var(--font-size-data);
   cursor: pointer;
 }
 
 .item:hover {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: hsl(var(--brand-accent) / 0.12);
+  color: hsl(var(--brand-accent));
 }

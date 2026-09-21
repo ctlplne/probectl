@@ -37,7 +37,7 @@ type Doer interface {
 }
 
 // SignatureHeader carries the HMAC-SHA256 signature of the webhook body so the
-// receiver can verify the sender (provider HMAC; receivers verify, CLAUDE.md §6).
+// receiver can verify the sender (provider HMAC; receivers verify, CONTRIBUTING.md).
 const SignatureHeader = "X-Probectl-Signature"
 
 // WebhookChannel POSTs the alert payload to an HTTPS endpoint, optionally signed.
@@ -116,7 +116,7 @@ func (e *EmailChannel) Notify(ctx context.Context, a Alert) error {
 
 // SMTPTLSMode selects how the SMTP connection is secured. There is no
 // plaintext mode: alert mail carries incident detail, and a mail transport
-// without channel security fails closed (CLAUDE.md §7 guardrail 12).
+// without channel security fails closed (docs/guardrails.md G7-12).
 type SMTPTLSMode string
 
 const (

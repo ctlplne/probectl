@@ -27,7 +27,7 @@ func (b ndrFakeBinding) Verify(_ context.Context, tenantID, agentID string) erro
 	return errors.New("agent not bound to tenant")
 }
 
-// ARCH-012 (CLAUDE.md §7.1 accompanying isolation test): the NDR consumer must
+// ARCH-012 (docs/guardrails.md G7-1 accompanying isolation test): the NDR consumer must
 // reject a flow batch whose claimed tenant the sending agent does not belong
 // to. Before the fix it trusted the payload tenant, so a bus actor could raise
 // a detection against any victim tenant. rejectFlows must return true (drop)

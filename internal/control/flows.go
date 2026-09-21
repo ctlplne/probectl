@@ -19,7 +19,7 @@ import (
 
 // Flow analytics (S38, F17): tenant-scoped reads over the flow store. The
 // tenant comes from the authenticated principal — never from a query param —
-// and the store scopes every query by it before anything else (CLAUDE.md §6).
+// and the store scopes every query by it before anything else (CONTRIBUTING.md).
 
 type flowQualityRetention struct {
 	MaxPerTenant  int `json:"max_per_tenant"`

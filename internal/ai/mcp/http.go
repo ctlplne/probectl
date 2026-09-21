@@ -26,7 +26,7 @@ type Authenticator interface {
 // HTTPHandler returns the MCP-over-HTTP handler — the network transport. It is
 // POST-only JSON-RPC, authenticated with a Bearer token mapped to a tenant +
 // RBAC. TLS is applied by the listener (the control plane wires it); this handler
-// must never be exposed without TLS when network-reachable (CLAUDE.md §7
+// must never be exposed without TLS when network-reachable (docs/guardrails.md
 // guardrail 12). Treats the request body as untrusted input.
 func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

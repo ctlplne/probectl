@@ -101,5 +101,5 @@ reintroduces double-counting on redelivery.
 ## Connection security
 
 Every store connection supports TLS in transit and is default-on in the
-multi-tenant/regulated profiles (CLAUDE.md §7 guardrail 12). Do not run the
+multi-tenant/regulated profiles (docs/guardrails.md G7-12). Do not run the
 data tier on plaintext outside a single-node dev box.

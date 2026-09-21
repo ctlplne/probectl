@@ -5,24 +5,27 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useId, type SelectHTMLAttributes } from 'react'
-import styles from './Input.module.css'
+import { cn } from '../lib/cn'
+import { controlInput, controlShell, fieldLabel } from './controlStyles'
 
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string
   options: { value: string; label: string }[]
 }
 
-/** Select is a labeled native select, styled from the same field tokens as Field. */
+/** Select is a labeled native select, sharing Field's control shell so the two
+ *  line up in a row. Native keeps the platform's keyboard and screen-reader
+ *  behaviour, which no custom listbox has matched. */
 export function Select({ label, options, id, className, ...rest }: SelectProps) {
   const reactId = useId()
   const selectId = id ?? reactId
   return (
-    <div className={[styles.field, className].filter(Boolean).join(' ')}>
-      <label className={styles.label} htmlFor={selectId}>
+    <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
+      <label className={fieldLabel} htmlFor={selectId}>
         {label}
       </label>
-      <div className={styles.control}>
-        <select id={selectId} className={styles.input} {...rest}>
+      <div className={cn(controlShell, 'border-border')}>
+        <select id={selectId} className={cn(controlInput, 'cursor-pointer')} {...rest}>
           {options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}

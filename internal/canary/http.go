@@ -33,8 +33,8 @@ const defaultMaxBody = 10 << 20 // 10 MiB
 // httpCanary measures HTTP(S) availability with a full response-time breakdown
 // (DNS / connect / TLS / TTFB / total) and throughput, and captures TLS handshake
 // details (version, cipher, cert chain) into the result for the S27 TLS-posture
-// plane. The crypto stays in crypto/tls + crypto/x509 (FIPS-swappable; CLAUDE.md
-// §7 guardrail 3).
+// plane. The crypto stays in crypto/tls + crypto/x509 (FIPS-swappable;
+// docs/guardrails.md G7-3).
 type httpCanary struct {
 	guard   *TargetGuard
 	url     string

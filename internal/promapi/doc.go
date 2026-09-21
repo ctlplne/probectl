@@ -9,7 +9,7 @@
 // native Prometheus datasource speaks), the /federate exposition endpoint, and
 // the remote-write ingest decoder.
 //
-// # The tenant boundary (CLAUDE.md §7)
+// # The tenant boundary (docs/guardrails.md)
 //
 // Every query expression is parsed into a strict series SELECTOR — a metric
 // name plus label matchers, nothing else. Arbitrary PromQL (functions,

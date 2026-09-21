@@ -14,7 +14,7 @@ import (
 
 // Credential carries the secrets for one device transport. Config files
 // reference credentials by NAME; the material itself lives behind a
-// CredentialSource (CLAUDE.md §7 guardrail 6 — no secrets in config or git).
+// CredentialSource (docs/guardrails.md G7-6 — no secrets in config or git).
 // The String/GoString overrides keep credentials out of logs and %v dumps.
 type Credential struct {
 	// SNMP v2c.

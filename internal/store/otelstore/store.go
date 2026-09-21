@@ -12,7 +12,7 @@
 //
 // Tenancy: every row carries tenant_id; it leads the ClickHouse partition
 // AND ORDER BY, and every query is tenant-scoped before anything else
-// (CLAUDE.md §6/§7.1 — no data path that can return cross-tenant rows).
+// (CONTRIBUTING.md/§7.1 — no data path that can return cross-tenant rows).
 // Attributes are stored as a bounded, flattened key=value set — the OTLP
 // resource/scope/point attribute tree is capped at ingest (cardinality
 // stance, U-017).

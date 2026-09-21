@@ -24,7 +24,7 @@ const (
 // from a matching key), "insecure" (no RRSIG — the zone is unsigned), or "bogus"
 // (RRSIGs present but none verify: tampered, expired, or wrong key). This
 // validates the zone's signature on the answer — it does NOT trust the AD bit
-// (CLAUDE.md / sprint watch-out). Full chain-to-root validation is a refinement.
+// (never the AD bit). Full chain-to-root validation is a refinement.
 func verifyRRSIG(rrset []dns.RR, rrsigs []*dns.RRSIG, keys []*dns.DNSKEY) string {
 	if len(rrsigs) == 0 {
 		return dnssecInsecure

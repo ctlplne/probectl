@@ -14,7 +14,7 @@
 
 .coverage {
   margin: 0;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 

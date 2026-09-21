@@ -26,7 +26,7 @@ import (
 )
 
 // tenant_id leads both the partition and the ORDER BY so tenant-scoped reads
-// prune at the storage layer (CLAUDE.md §4, §6); the day component bounds part
+// prune at the storage layer (docs/architecture.md and CONTRIBUTING.md); the day component bounds part
 // sizes at NetFlow volumes and makes the retention TTL cheap to apply. The
 // LowCardinality columns keep the high-volume dictionary small.
 func createFlowsDDL(table string) string {

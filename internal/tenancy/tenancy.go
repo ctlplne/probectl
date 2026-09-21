@@ -66,7 +66,7 @@ type Scope struct {
 // (via the explicit provider_fleet_read policy) + the tenant registry + the
 // provider-plane tables. It can NEVER read tests, results, incidents, or any
 // telemetry table — the storage layer itself confines the provider plane to
-// operational metadata (CLAUDE.md §7 guardrail 1).
+// operational metadata (docs/guardrails.md G7-1).
 const ProviderRole = "probectl_provider"
 
 // InProvider runs fn inside a transaction bound to the provider plane's
@@ -96,7 +96,7 @@ func InProvider(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context
 // InTenant runs fn inside a transaction bound to the tenant resolved from ctx. It
 // assumes the least-privilege AppRole and sets the probectl.tenant_id GUC so
 // Postgres Row-Level Security scopes every statement to this tenant. It fails
-// closed when no tenant is in context (CLAUDE.md §7 guardrail 1).
+// closed when no tenant is in context (docs/guardrails.md G7-1).
 func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Scope) error) error {
 	id, ok := FromContext(ctx)
 	if !ok {

@@ -205,7 +205,7 @@ export function CommandPalette({
       id: `theme:${themeName}`,
       label: t('command.theme', { theme: themeName }),
       hint: t('command.appearance'),
-      icon: themeName === 'aurora' ? 'sun' : 'moon',
+      icon: themeName === 'light' ? 'sun' : 'moon',
       run: () => setTheme(themeName),
     }))
     const tenant =

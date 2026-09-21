@@ -26,8 +26,8 @@
 
 .summaryGrid dt,
 .inspector dt {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
@@ -70,7 +70,7 @@
 
 .planeGroup h3 {
   margin: 0;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-data);
 }
 
 .coverageGap,
@@ -78,10 +78,10 @@
 .safety {
   margin: 0;
   padding: var(--space-3);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  background: var(--color-surface-raised);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
 }
 
 .coverageWarning,
@@ -100,7 +100,7 @@
   gap: var(--space-3);
   align-items: center;
   padding-block: var(--space-2);
-  border-bottom: 1px solid var(--color-border-strong);
+  border-bottom: 1px solid hsl(var(--border));
   font-size: var(--font-size-sm);
 }
 
@@ -115,23 +115,23 @@
   gap: var(--space-2);
   margin-block-start: var(--space-4);
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-accent);
-  border-radius: var(--radius-md);
-  background: var(--color-accent-soft);
+  border: var(--border-width-thin) solid hsl(var(--brand-accent));
+  border-radius: var(--radius-control);
+  background: hsl(var(--brand-accent) / 0.12);
 }
 
 .topologyPivot a {
-  color: var(--color-accent-strong);
+  color: hsl(var(--primary));
   font-weight: var(--font-weight-semibold);
 }
 
 .topologyPivot a:focus-visible {
-  outline: var(--border-width-thin) solid var(--color-focus);
+  outline: var(--border-width-thin) solid hsl(var(--focus));
   outline-offset: var(--space-1);
 }
 
 .topologyPivot span {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -149,7 +149,7 @@
 
 .journalForm {
   padding-block-end: var(--space-4);
-  border-bottom: var(--border-width-thin) solid var(--color-border-strong);
+  border-bottom: var(--border-width-thin) solid hsl(var(--border));
 }
 
 .textareaField {
@@ -158,7 +158,7 @@
 }
 
 .textareaField label {
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
 }
@@ -168,32 +168,32 @@
   min-height: calc(var(--space-8) * 2);
   resize: vertical;
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  background: var(--color-surface);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
   font: inherit;
 }
 
 .textareaField textarea:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
   outline-offset: var(--focus-ring-offset);
 }
 
 .fieldHint,
 .retention {
   margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
 }
 
 .citationReady {
   margin: 0;
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-success);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  background: var(--color-success-soft);
+  border: var(--border-width-thin) solid hsl(var(--status-success));
+  border-radius: var(--radius-control);
+  color: hsl(var(--foreground));
+  background: hsl(var(--status-success) / 0.12);
 }
 
 .journalEntries {
@@ -210,9 +210,9 @@
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
-  border: var(--border-width-thin) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
 }
 
 .journalMeta {
@@ -220,7 +220,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -232,12 +232,12 @@
 
 .journalCitation {
   padding: var(--space-3);
-  border-inline-start: var(--border-width-strong) solid var(--color-accent);
-  background: var(--color-accent-soft);
+  border-inline-start: var(--border-width-strong) solid hsl(var(--brand-accent));
+  background: hsl(var(--brand-accent) / 0.12);
 }
 
 .journalCitation span {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 @media (max-width: 960px) {

@@ -10,51 +10,51 @@
 .svg {
   display: block;
   inline-size: 100%;
-  background: var(--color-bg);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-md);
+  background: hsl(var(--background));
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
 }
 
 .land {
-  fill: var(--color-surface-raised);
-  stroke: var(--color-border);
+  fill: hsl(var(--muted));
+  stroke: hsl(var(--border));
   stroke-width: var(--border-width-thin);
 }
 
 .graticule {
-  stroke: var(--color-border);
+  stroke: hsl(var(--border));
   stroke-width: var(--border-width-thin);
   opacity: 0.4;
 }
 
 .arc {
   fill: none;
-  stroke: var(--color-chart-1);
-  stroke-width: var(--border-width-thick);
+  stroke: hsl(var(--chart-1));
+  stroke-width: var(--border-width-strong);
   opacity: 0.8;
 }
 
 .marker circle {
   cursor: pointer;
-  stroke: var(--color-bg);
+  stroke: hsl(var(--background));
   stroke-width: var(--border-width-thin);
 }
 
 .marker.ok circle {
-  fill: var(--color-ok);
+  fill: hsl(var(--status-success));
 }
 
 .marker.warning circle {
-  fill: var(--color-warning);
+  fill: hsl(var(--status-warning));
 }
 
 .marker.danger circle {
-  fill: var(--color-danger);
+  fill: hsl(var(--destructive));
 }
 
 .marker.selected circle {
-  stroke: var(--color-accent);
-  stroke-width: var(--border-width-thick);
+  stroke: hsl(var(--brand-accent));
+  stroke-width: var(--border-width-strong);
 }
 
 .marker:focus-visible {
@@ -62,27 +62,27 @@
 }
 
 .marker:focus-visible circle {
-  stroke: var(--color-focus);
-  stroke-width: var(--border-width-thick);
+  stroke: hsl(var(--focus));
+  stroke-width: var(--border-width-strong);
 }
 
 .markerLabel {
-  fill: var(--color-text);
-  font-size: var(--font-size-xs);
+  fill: hsl(var(--foreground));
+  font-size: var(--font-size-caption);
   paint-order: stroke;
-  stroke: var(--color-bg);
-  stroke-width: var(--border-width-thick);
+  stroke: hsl(var(--background));
+  stroke-width: var(--border-width-strong);
 }
 
 .caption,
 .blocked p {
   margin: 0;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
 .blocked {
   padding: var(--space-4);
-  border: var(--border-width-thin) dashed var(--color-border);
-  border-radius: var(--radius-md);
+  border: var(--border-width-thin) dashed hsl(var(--border));
+  border-radius: var(--radius-control);
 }

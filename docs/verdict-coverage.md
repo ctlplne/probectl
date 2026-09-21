@@ -120,6 +120,6 @@ Every one of these was found by driving the product, not by reading it:
 
 ## Related
 
-`docs/quality/coverage.md` (surface coverage: every capability declares native /
+`web/src/test/surface-coverage.test.tsx` (surface coverage: every capability declares native /
 federated / none-by-design) · `docs/features/ai-assistant.md` (silent planes in RCA) ·
 `docs/compliance/` (coverage caveats inside signed evidence).

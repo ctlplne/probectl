@@ -64,7 +64,7 @@ func Sign(b Bundle, privPEM []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// All crypto goes through internal/crypto (CLAUDE.md §7.3, FIPS-swappable);
+	// All crypto goes through internal/crypto (docs/guardrails.md G7-3, FIPS-swappable);
 	// never call crypto/ed25519 primitives directly here.
 	sig, err := crypto.SignEd25519(privPEM, raw)
 	if err != nil {
@@ -87,7 +87,7 @@ func verify(signed []byte, pubPEM []byte, currentEpoch int64) (*Bundle, error) {
 	if err := json.Unmarshal(signed, &s); err != nil {
 		return nil, fmt.Errorf("testsync: malformed signed bundle: %w", err)
 	}
-	// All crypto goes through internal/crypto (CLAUDE.md §7.3, FIPS-swappable).
+	// All crypto goes through internal/crypto (docs/guardrails.md G7-3, FIPS-swappable).
 	ok, err := crypto.VerifyEd25519(pubPEM, s.Bundle, s.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("testsync: verify key: %w", err)

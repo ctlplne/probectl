@@ -13,23 +13,43 @@
     },
     {
       "ecosystem": "font:web",
-      "name": "Inter Variable",
-      "version": "5.2.8",
+      "name": "DM Mono 400",
+      "version": "5.2.7",
       "scope": "runtime (vendored)",
       "license": "OFL-1.1",
-      "path": "web/src/styles/fonts/inter-latin-wght.woff2",
-      "source": "@fontsource-variable/inter@5.2.8 latin wght WOFF2",
-      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62"
+      "path": "web/src/styles/fonts/dm-mono-latin-400-normal.woff2",
+      "source": "@fontsource/dm-mono@5.2.7 latin 400 WOFF2",
+      "sha256": "e1896b13b2b1bb112fac2f9571bd6c40e118746e77a4511edbf43fbb41bf3e1e"
     },
     {
       "ecosystem": "font:web",
-      "name": "JetBrains Mono Variable",
+      "name": "DM Mono 500",
+      "version": "5.2.7",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "web/src/styles/fonts/dm-mono-latin-500-normal.woff2",
+      "source": "@fontsource/dm-mono@5.2.7 latin 500 WOFF2",
+      "sha256": "9964608a849396bd00c4bfd7034afe03486469dcf20b4f6b8cbdfdd310369951"
+    },
+    {
+      "ecosystem": "font:web",
+      "name": "Sora Variable",
       "version": "5.2.8",
       "scope": "runtime (vendored)",
       "license": "OFL-1.1",
-      "path": "web/src/styles/fonts/jetbrains-mono-latin-wght.woff2",
-      "source": "@fontsource-variable/jetbrains-mono@5.2.8 latin wght WOFF2",
-      "sha256": "18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e"
+      "path": "web/src/styles/fonts/sora-latin-wght-normal.woff2",
+      "source": "@fontsource-variable/sora@5.2.8 latin wght WOFF2",
+      "sha256": "fa26406eeda9a3c6ec3d9ea8813c3045d6dc755e30c716d5c094e8ef43be5a7f"
+    },
+    {
+      "ecosystem": "font:web",
+      "name": "Syne Variable",
+      "version": "5.2.7",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "web/src/styles/fonts/syne-latin-wght-normal.woff2",
+      "source": "@fontsource-variable/syne@5.2.7 latin wght WOFF2",
+      "sha256": "68b623f0e45b905041b2edb9b2e4f563a505f13db1cd06b5f1946eb2e1f47048"
     }
   ]
 }

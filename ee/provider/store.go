@@ -26,7 +26,7 @@ import (
 // service logic is unit-testable and the pgx implementation stays thin.
 
 // Operator is a provider-plane operator — NOT a tenant user (a distinct
-// privilege domain; CLAUDE.md §7 guardrail 1). Enrolled reports whether the
+// privilege domain; docs/guardrails.md G7-1). Enrolled reports whether the
 // operator completed enrollment (set a password + bound an authenticator).
 type Operator struct {
 	ID        string    `json:"id"`

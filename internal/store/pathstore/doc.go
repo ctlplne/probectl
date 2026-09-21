@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 // Package pathstore persists discovered network Paths (S10). ClickHouse is the
-// durable store for this high-cardinality, time-series path data (CLAUDE.md §4);
+// durable store for this high-cardinality, time-series path data (docs/architecture.md);
 // an in-memory store backs the lightweight mode and tests. Every write is
 // tenant-scoped — tenant_id is the partition key in ClickHouse — so path data can
 // never cross a tenant boundary.

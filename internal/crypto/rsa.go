@@ -20,7 +20,7 @@ import (
 // SignRS256 signs data with an RSA private key (PKCS#1 v1.5 over SHA-256) —
 // the JWT "RS256" algorithm. The key is PEM ("PRIVATE KEY" PKCS#8 or "RSA
 // PRIVATE KEY" PKCS#1). It lives here so callers never touch crypto
-// primitives directly (CLAUDE.md §7 guardrail 3); a FIPS provider swaps the
+// primitives directly (docs/guardrails.md G7-3); a FIPS provider swaps the
 // implementation, not the callers.
 //
 // Interop note: GCP service-account JWT requires RS256 (PKCS#1 v1.5). New

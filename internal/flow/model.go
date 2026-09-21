@@ -62,7 +62,7 @@ type Record struct {
 
 // transportName maps an IP protocol number onto the OTel network.transport
 // values where one exists; other protocols carry their number as a string
-// (no invented names — CLAUDE.md §6 telemetry conventions).
+// (no invented names — CONTRIBUTING.md telemetry conventions).
 func transportName(p uint8) string {
 	switch p {
 	case 6:

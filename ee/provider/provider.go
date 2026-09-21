@@ -10,7 +10,7 @@
 // the MSP operator surface for tenant lifecycle (provision / configure /
 // suspend / offboard), fleet-across-tenants health, and audited break-glass.
 //
-// The privilege model (CLAUDE.md §7 guardrail 1):
+// The privilege model (docs/guardrails.md G7-1):
 //   - Operators are a privilege domain DISTINCT from tenant users: their own
 //     accounts, mandatory TOTP MFA, their own sessions, their own audit
 //     stream (audit.ProviderAppend).

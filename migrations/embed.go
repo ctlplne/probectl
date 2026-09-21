@@ -6,7 +6,7 @@
 
 // Package migrations embeds the sequential, idempotent SQL migrations applied
 // by internal/store/migrate. Files are named NNNN_description.sql and applied in
-// ascending numeric order (CLAUDE.md §6).
+// ascending numeric order (CONTRIBUTING.md).
 package migrations
 
 import "embed"

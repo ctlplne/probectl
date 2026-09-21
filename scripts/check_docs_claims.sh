@@ -211,7 +211,7 @@ run_checks() { # run_checks <root>
     echo "DOCS-S16: root LICENSE must remain final (unmodified BUSL-1.1 core, unmodified MPL-2.0 client tree); only commercial paper is pending counsel" >&2; f=1
   fi
   if grep -RniE 'legal source-available license text is still|`LICENSE` / commercial license texts.{0,40}(pending|placeholder)|root LICENSE.{0,40}(pending|placeholder)' \
-       "$r/README.md" "$r/LICENSING.md" "$r/probectl-PRD-v1.0.md" "$r/probectl-PRD-v1.1.md" "$r/docs" 2>/dev/null | grep -q .; then
+       "$r/README.md" "$r/LICENSING.md" "$r/CONTRIBUTING.md" "$r/docs" 2>/dev/null | grep -q .; then
     echo "DOCS-S16: stale root-LICENSE placeholder/pending-counsel claim found" >&2; f=1
   fi
 
@@ -401,7 +401,7 @@ EOF
   cat > "$d/LICENSING.md" <<'EOF'
 The complete, unmodified license is in LICENSE. Commercial paper remains counsel-owned.
 EOF
-  cat > "$d/probectl-PRD-v1.0.md" <<'EOF'
+  cat > "$d/CONTRIBUTING.md" <<'EOF'
 Core is final BUSL-1.1 with an MPL-2.0 client tree; only commercial terms remain counsel work.
 EOF
   cat > "$d/docs/compliance/control-evidence.md" <<'EOF'

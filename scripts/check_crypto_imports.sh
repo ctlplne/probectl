@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# FIPS enabler (CLAUDE.md §7 guardrail 3): all cryptographic primitives route
+# FIPS enabler (docs/guardrails.md G7-3): all cryptographic primitives route
 # through internal/crypto so a FIPS 140-3 validated module can be compiled in.
 # This guard fails if any Go file OUTSIDE internal/crypto imports a low-level
 # crypto primitive package or third-party crypto.

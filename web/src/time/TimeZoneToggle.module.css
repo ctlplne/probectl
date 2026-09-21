@@ -3,9 +3,9 @@
   align-items: center;
   min-width: 112px;
   height: 32px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--card));
   overflow: hidden;
 }
 
@@ -14,10 +14,10 @@
   height: 100%;
   padding: 0 var(--space-2);
   border: 0;
-  border-inline-end: 1px solid var(--color-border);
+  border-inline-end: 1px solid hsl(var(--border));
   background: transparent;
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   cursor: pointer;
 }
@@ -27,18 +27,18 @@
 }
 
 .button[aria-pressed='true'] {
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
+  background: hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent-foreground));
 }
 
 .button:disabled {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   cursor: not-allowed;
 }
 
 .button:focus-visible {
   position: relative;
-  outline: 2px solid var(--color-focus);
+  outline: 2px solid hsl(var(--focus));
   outline-offset: -2px;
 }
 

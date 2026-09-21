@@ -30,7 +30,7 @@ import (
 	"github.com/ctlplne/probectl/migrations"
 )
 
-// TestCrossPlaneCorrelationE2E is the full-stack execution of CLAUDE.md §8
+// TestCrossPlaneCorrelationE2E is the full-stack execution of CONTRIBUTING.md
 // standing gate #2 (cross-plane correlation) and the EXC-GATE-05 epic. Where the
 // unit-level TestCrossPlaneCorrelationGate exercises the correlator over a memory
 // store, this drives a genuine multi-plane fault THROUGH THE REAL TRANSPORTS:

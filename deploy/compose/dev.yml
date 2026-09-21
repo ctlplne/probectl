@@ -8,7 +8,7 @@
 #
 # This is a LOCAL, NON-PRODUCTION stack: it uses plaintext listeners and default
 # dev credentials for convenience. The shipped production deploys are
-# HTTPS/TLS-by-default (CLAUDE.md §7 guardrail 12). Service names, ports, and
+# HTTPS/TLS-by-default (docs/guardrails.md G7-12). Service names, ports, and
 # credentials are documented in docs/configuration.md.
 name: probectl-dev
 

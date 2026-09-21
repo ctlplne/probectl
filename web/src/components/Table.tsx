@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import type { ReactNode } from 'react'
-import styles from './Table.module.css'
+import { cn } from '../lib/cn'
 
 export interface Column<Row> {
   key: string
@@ -45,8 +45,12 @@ export function Table<Row>({
   const rendered = rows.length > maxRows ? rows.slice(0, maxRows) : rows
   const truncated = rows.length - rendered.length
   return (
-    <div className={styles.scroll} tabIndex={0} aria-label={`${caption} table region`}>
-      <table className={styles.table}>
+    <div
+      className="max-h-[70vh] overflow-auto rounded-panel border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      tabIndex={0}
+      aria-label={`${caption} table region`}
+    >
+      <table className="w-full border-collapse text-data">
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
@@ -54,7 +58,11 @@ export function Table<Row>({
               <th
                 key={c.key}
                 scope="col"
-                className={c.align === 'end' || c.numeric ? styles.end : undefined}
+                className={cn(
+                  'sticky top-0 z-sticky border-b border-border bg-muted px-cell-inline py-cell-block',
+                  'text-left text-caption font-semibold uppercase tracking-wide text-muted-foreground',
+                  (c.align === 'end' || c.numeric) && 'text-right',
+                )}
               >
                 {c.header}
               </th>
@@ -64,23 +72,28 @@ export function Table<Row>({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td className={styles.emptyCell} colSpan={columns.length}>
+              <td
+                className="px-cell-inline py-6 text-center text-data text-muted-foreground"
+                colSpan={columns.length}
+              >
                 {empty ?? 'No data.'}
               </td>
             </tr>
           ) : (
             <>
               {rendered.map((row) => (
-                <tr key={rowKey(row)}>
+                <tr
+                  key={rowKey(row)}
+                  className="h-row transition-colors duration-fast hover:bg-muted/60"
+                >
                   {columns.map((c) => (
                     <td
                       key={c.key}
-                      className={[
-                        c.align === 'end' || c.numeric ? styles.end : '',
-                        c.numeric ? styles.numeric : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
+                      className={cn(
+                        'border-b border-border px-cell-inline py-cell-block align-middle',
+                        (c.align === 'end' || c.numeric) && 'text-right',
+                        c.numeric && 'font-mono tabular-nums',
+                      )}
                     >
                       {c.render(row)}
                     </td>
@@ -89,7 +102,10 @@ export function Table<Row>({
               ))}
               {truncated > 0 && (
                 <tr>
-                  <td className={styles.emptyCell} colSpan={columns.length}>
+                  <td
+                    className="px-cell-inline py-6 text-center text-data text-muted-foreground"
+                    colSpan={columns.length}
+                  >
                     Showing {rendered.length} of {rows.length} — load more or refine to see the
                     rest.
                   </td>

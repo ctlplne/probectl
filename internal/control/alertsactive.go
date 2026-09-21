@@ -29,7 +29,7 @@ import (
 // expose its state and forward operator actions; nothing is derived or stored
 // client-side. The engine is per tenant (one evaluator per tenant; the default
 // deployment runs the default tenant's), so the caller's tenant selects the
-// engine FIRST and an unknown tenant fails closed (CLAUDE.md §7 guardrail 1).
+// engine FIRST and an unknown tenant fails closed (docs/guardrails.md G7-1).
 
 // AlertStateSource is the engine-truth contract (implemented by *alert.Engine).
 type AlertStateSource interface {

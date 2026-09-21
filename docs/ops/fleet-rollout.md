@@ -87,7 +87,7 @@ instead of guessing or showing dead controls.
 
 ### Web-console walkthrough
 
-The control card uses the same dark-native cards, status dots, compact badges,
+The control card uses the same cards, status dots, compact badges,
 keyboard-focus treatment, and always-visible tenant indicator as the rest of the
 operator console. Start at **Admin & Settings → Staged rollout control**. The
 overview answers four questions without opening another page: which digest is

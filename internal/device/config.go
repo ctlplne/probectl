@@ -40,7 +40,7 @@ type GNMIConfig struct {
 	// SampleInterval for SAMPLE-mode subscriptions (default 30s).
 	SampleInterval time.Duration `yaml:"sample_interval"`
 	// CAFile verifies the device certificate against a private CA. System
-	// roots are used when empty. Verification is never disabled (CLAUDE.md §7
+	// roots are used when empty. Verification is never disabled (docs/guardrails.md
 	// guardrail 12).
 	CAFile string `yaml:"ca_file"`
 	// Plaintext is retained only so legacy YAML fails with a precise validation

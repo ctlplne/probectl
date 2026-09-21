@@ -787,7 +787,7 @@ capabilities:
     api: {none_by_design: "Phase-4 future capability: no marketplace API is promised in the current GA contract."}
     cli: {none_by_design: "Phase-4 future capability: no marketplace CLI is promised in the current GA contract."}
     ui: {none_by_design: "The existing surface registry explicitly marks the plugin/detection marketplace none-by-design and outside the current GA denominator."}
-    docs: {refs: ["file:probectl-PRD-v1.0.md#Plugin/detection marketplace"]}
+    docs: {refs: ["file:docs/contract/product-contract.json#F49"]}
     config_keys: {none_by_design: "No marketplace implementation ships, so accepting marketplace configuration would be misleading."}
     telemetry: {none_by_design: "No marketplace implementation ships, so it has no runtime signal to emit."}
     real_stack_proof: {none_by_design: "No marketplace implementation ships; a real-stack receipt would falsely promote a future capability."}

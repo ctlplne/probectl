@@ -10,7 +10,7 @@
 // signature (HMAC) and tenant-scoped at the control-plane edge; this package is
 // pure — it has no datastore, bus, or HTTP-server dependency, so the normalizers
 // and the correlator are independently testable. Every event body is treated as
-// UNTRUSTED input (CLAUDE.md §7 guardrail 12).
+// UNTRUSTED input (docs/guardrails.md G7-12).
 package change
 
 import "time"

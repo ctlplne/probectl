@@ -55,7 +55,7 @@ import (
 )
 
 // attachEE wires licensed ee/ features onto the core server — the Build* seam
-// pattern (CLAUDE.md §6, editions): one Has() check per feature, here and
+// pattern (CONTRIBUTING.md, editions): one Has() check per feature, here and
 // nowhere else. Unlicensed features are simply never constructed; their
 // surfaces stay hidden (404).
 func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log *slog.Logger,

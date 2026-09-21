@@ -10,7 +10,7 @@ import { applyBrand, fetchBrand, DEFAULT_BRAND, type Brand } from '../api/brand'
 /**
  * BrandProvider fetches the deployment-wide probectl theme pre-auth and
  * applies its validated token overrides to <html>. Product identity stays
- * probectl and failures fall back to the shipped dark/aurora tokens.
+ * probectl and failures fall back to the shipped light/dark tokens.
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export const BrandContext = createContext<Brand>(DEFAULT_BRAND)

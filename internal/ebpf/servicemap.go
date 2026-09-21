@@ -16,7 +16,7 @@ import (
 // edgeKey identifies a directed service edge. The tenant is part of the key so
 // edges from different tenants can NEVER merge — the agent is single-tenant in
 // production, but keying on tenant keeps a replayed multi-tenant fixture
-// correctly separated (defense-in-depth, CLAUDE.md §7 guardrail 1).
+// correctly separated (defense-in-depth, docs/guardrails.md G7-1).
 type edgeKey struct {
 	tenant      string
 	source      string

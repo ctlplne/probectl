@@ -8,7 +8,7 @@ key/fingerprint trusted out of band.
 
 ## Exact-tree authority
 
-`docs/quality/delivery-audit-review-protocols.json` is the single authority for
+`docs/contract/delivery-audit-review-protocols.json` is the single authority for
 both executable and governed-review receipts. The runner reads it from the
 immutable `git archive` source tree. An environment variable or a driver cannot
 relabel an observation as another backlog item, capability, human path, or
@@ -69,7 +69,7 @@ Static, methodology, legal, and release work must not invent API, CLI, browser,
 TLS, or store observations. Use the disjoint governed-review phases:
 
 ```sh
-PROBECTL_AUDIT_REVIEW_SPEC=docs/quality/my-review-spec.json \
+PROBECTL_AUDIT_REVIEW_SPEC=docs/contract/my-review-spec.json \
 PROBECTL_AUDIT_REVIEW_ATTESTATION=/secure/inbox/completed-attestation.json \
 PROBECTL_AUDIT_AUDITOR=independent-auditor \
 PROBECTL_AUDIT_IMPLEMENTATION_OWNER=implementation-owner \
@@ -85,8 +85,8 @@ The tracked review spec has this strict shape:
   "capability_id": "CL-NNN",
   "review_id": "bounded-review-id",
   "kind": "methodology",
-  "methodology_path": "docs/research/method.md",
-  "subjects": ["docs/research/method.md"],
+  "methodology_path": "docs/method.md",
+  "subjects": ["docs/method.md"],
   "required_checks": ["scope", "reproducibility"],
   "summary": "One independently completed governed review."
 }

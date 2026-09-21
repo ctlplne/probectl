@@ -29,7 +29,7 @@ def load_vrp(config: AnalyzerConfig) -> VRPSet | None:
     """Load the RPKI VRP set from a file or (optionally) a validator URL.
 
     A missing/unreachable source degrades to ``None`` (→ RPKI ``unknown``) rather
-    than breaking analysis (CLAUDE.md §7 guardrail 10). The URL fetch validates
+    than breaking analysis (docs/guardrails.md G7-10). The URL fetch validates
     TLS certificates (guardrail 12) and treats the response as untrusted. The
     export is streamed and reduced to the ROAs that overlap the monitored
     prefixes as it arrives (DPR-055): a full validator export (~100 MB, 600k

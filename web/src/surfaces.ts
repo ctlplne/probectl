@@ -68,7 +68,7 @@ const NONE_BY_DESIGN_RECEIPT: SurfaceLiveReceipt = {
   status: 'non-live',
   evidence: [
     'ci:.github/workflows/ci.yml:npm run coverage-gate',
-    'test:web/src/test/surface-coverage.test.tsx:future/non-GA PRD features stay explicit none-by-design declarations',
+    'test:web/src/test/surface-coverage.test.tsx:future/non-GA contract features stay explicit none-by-design declarations',
   ],
   note: 'Deliberately no served surface in the current GA denominator; the gate preserves the explicit product exclusion.',
 }

@@ -24,14 +24,48 @@ export interface Brand {
 export const DEFAULT_BRAND: Brand = { product_name: 'probectl' }
 
 /** Only S8a brandable tokens may be touched at runtime (mirror of the core
- *  allowlist — defense in depth on the client). */
-const TOKEN_NAME = /^--(color-[a-z0-9-]+|radius-(sm|md|lg)|font-sans|font-mono)$/
-const COLOR_VALUE = /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,/% ]+\)|hsla?\([0-9.,/% deg]+\))$/
+ *  allowlist in internal/branding — defense in depth on the client). */
+// Overridable NON-colour tokens, named exhaustively. Colour tokens are absent on
+// purpose: the allowlist for those is the shipped palette itself (isColorToken),
+// so a new colour token becomes overridable the moment it ships and a name the
+// palette does not define can never be set from a deployment config. An earlier
+// version ended this pattern with a bare [a-z0-9-]+ catch-all, which let any
+// --radius-* or --font-* name through — including ones that ship nowhere.
+const OVERRIDABLE_NON_COLOR = new Set([
+  '--radius-control',
+  '--radius-panel',
+  '--radius-pill',
+  '--font-sans',
+  '--font-mono',
+  '--font-display',
+])
+// A colour value is the bare HSL triplet the tokens hold: "28 85% 30%", or
+// "28 85% 30% / 0.12" for a tint. Hex and rgb() are deliberately REFUSED even
+// though they are valid CSS colours: the stylesheet reads every colour token as
+// hsl(var(--token) / <alpha-value>), so a hex value would make each rule that
+// uses the token unparseable — a deployment painted wrong rather than differently.
+// No var(), no url(), no arbitrary text.
+const COLOR_VALUE = /^-?[0-9.]+ +-?[0-9.]+% +-?[0-9.]+%( *\/ *[0-9.]+%?)?$/
 const RADIUS_VALUE = /^[0-9]{1,3}(px|rem|em|%)$/
 const FONT_VALUE = /^[A-Za-z0-9 ,'"-]{1,120}$/
 
 const WCAG_TEXT_CONTRAST = 4.5
 const WCAG_UI_CONTRAST = 3
+/** The tint alpha every shipped chip and tinted panel uses. */
+const CHIP_WASH = 0.12
+const CHIP_TONES = [
+  '--brand-accent',
+  '--status-success',
+  '--status-warning',
+  '--status-info',
+  '--status-neutral',
+  '--destructive',
+  '--risk-critical',
+  '--risk-high',
+  '--risk-medium',
+  '--risk-low',
+  '--risk-none',
+]
 
 interface ContrastColor {
   r: number
@@ -40,83 +74,107 @@ interface ContrastColor {
   a: number
 }
 
-interface ContrastPair {
+export interface ContrastPair {
   fg: string
   bg: string
   min: number
   backdrop?: string
+  /** Check bg as a wash at this alpha over `backdrop`, the way a chip ships. */
+  bgAlpha?: number
 }
 
 const SHIPPED_CONTRAST_THEMES: Record<string, Record<string, string>> = {
-  dark: {
-    '--color-bg': '#0a0c12',
-    '--color-surface': '#0e1119',
-    '--color-surface-raised': '#141823',
-    '--color-surface-high': '#1a1f2c',
-    '--color-text': '#e9ecf4',
-    '--color-text-muted': '#a3acbd',
-    '--color-text-subtle': '#808a9b',
-    '--color-text-inverse': '#0b0e14',
-    '--color-accent': '#2fb6a8',
-    '--color-accent-hover': '#3ccabb',
-    '--color-accent-strong': '#23a394',
-    '--color-accent-contrast': '#04130f',
-    '--color-success': '#46c08a',
-    '--color-success-soft': 'rgba(70, 192, 138, 0.12)',
-    '--color-warning': '#e0b25a',
-    '--color-warning-soft': 'rgba(224, 178, 90, 0.12)',
-    '--color-danger': '#e8736b',
-    '--color-danger-soft': 'rgba(232, 115, 107, 0.12)',
-    '--color-info': '#5aa9e6',
-    '--color-info-soft': 'rgba(90, 169, 230, 0.12)',
-    '--color-focus': '#6fd2c6',
-    '--color-selection': '#7adbd0',
-    '--color-selection-soft': 'rgba(47, 182, 168, 0.22)',
-    '--color-selection-contrast': '#04130f',
-    '--color-chart-1': '#2fb6a8',
-    '--color-chart-2': '#5aa9e6',
-    '--color-chart-3': '#a78bff',
-    '--color-chart-4': '#e0b25a',
-    '--color-chart-5': '#e8736b',
-    '--color-chart-6': '#d783c6',
-    '--color-chart-grid': '#69758a',
-    '--color-chart-axis': '#a3acbd',
-    '--color-chart-neutral': '#808a9b',
+  light: {
+    '--background': '45 33% 95%',
+    '--foreground': '167 16% 11%',
+    '--card': '48 100% 99%',
+    '--card-foreground': '167 16% 11%',
+    '--muted': '75 12% 94%',
+    '--muted-foreground': '163 7% 35%',
+    '--border': '120 7% 86%',
+    '--sidebar': '60 15% 92%',
+    '--sidebar-hover': '108 10% 89%',
+    '--sidebar-active': '150 20% 89%',
+    '--sidebar-foreground': '163 14% 22%',
+    '--primary': '28 85% 30%',
+    '--primary-foreground': '48 100% 99%',
+    '--brand-accent': '28 85% 30%',
+    '--brand-accent-foreground': '0 0% 100%',
+    '--focus': '167 48% 33%',
+    '--destructive': '3 53% 35%',
+    '--destructive-foreground': '0 0% 100%',
+    '--status-success': '166 55% 20%',
+    '--status-warning': '40 86% 27%',
+    '--status-info': '199 49% 31%',
+    '--status-neutral': '163 7% 36%',
+    '--monitor': '199 49% 31%',
+    '--monitor-foreground': '0 0% 100%',
+    '--analyze': '251 85% 62%',
+    '--analyze-foreground': '0 0% 100%',
+    '--secure': '3 53% 35%',
+    '--secure-foreground': '0 0% 100%',
+    '--operate': '28 85% 30%',
+    '--operate-foreground': '0 0% 100%',
+    '--risk-critical': '3 53% 35%',
+    '--risk-high': '24 70% 34%',
+    '--risk-medium': '40 86% 27%',
+    '--risk-low': '166 55% 20%',
+    '--risk-none': '163 7% 36%',
+    '--chart-1': '28 85% 30%',
+    '--chart-2': '213 62% 48%',
+    '--chart-3': '251 85% 62%',
+    '--chart-4': '174 72% 30%',
+    '--chart-5': '350 62% 48%',
+    '--chart-6': '314 42% 43%',
+    '--chart-grid': '223 11% 55%',
+    '--chart-axis': '227 14% 37%',
+    '--chart-neutral': '226 11% 45%',
   },
-  aurora: {
-    '--color-bg': '#f4f6fb',
-    '--color-surface': '#ffffff',
-    '--color-surface-raised': '#ffffff',
-    '--color-surface-high': '#ffffff',
-    '--color-text': '#1b1d2a',
-    '--color-text-muted': '#50566b',
-    '--color-text-subtle': '#676d80',
-    '--color-text-inverse': '#ffffff',
-    '--color-accent': '#6a4cf0',
-    '--color-accent-hover': '#5a3ce0',
-    '--color-accent-strong': '#4f33d6',
-    '--color-accent-contrast': '#ffffff',
-    '--color-success': '#1f9d63',
-    '--color-success-soft': 'rgba(31, 157, 99, 0.12)',
-    '--color-warning': '#b9821f',
-    '--color-warning-soft': 'rgba(185, 130, 31, 0.12)',
-    '--color-danger': '#d2463c',
-    '--color-danger-soft': 'rgba(210, 70, 60, 0.12)',
-    '--color-info': '#2f73c7',
-    '--color-info-soft': 'rgba(47, 115, 199, 0.12)',
-    '--color-focus': '#6a4cf0',
-    '--color-selection': '#593ad9',
-    '--color-selection-soft': 'rgba(106, 76, 240, 0.2)',
-    '--color-selection-contrast': '#ffffff',
-    '--color-chart-1': '#0e9e92',
-    '--color-chart-2': '#2f73c7',
-    '--color-chart-3': '#6a4cf0',
-    '--color-chart-4': '#b9821f',
-    '--color-chart-5': '#d2463c',
-    '--color-chart-6': '#9c3f86',
-    '--color-chart-grid': '#7f8698',
-    '--color-chart-axis': '#50566b',
-    '--color-chart-neutral': '#676d80',
+  dark: {
+    '--background': '165 17% 7%',
+    '--foreground': '45 22% 93%',
+    '--card': '160 16% 10%',
+    '--card-foreground': '45 22% 93%',
+    '--muted': '156 13% 15%',
+    '--muted-foreground': '156 7% 70%',
+    '--border': '156 10% 22%',
+    '--sidebar': '165 18% 8%',
+    '--sidebar-hover': '160 16% 12%',
+    '--sidebar-active': '159 18% 16%',
+    '--sidebar-foreground': '156 7% 70%',
+    '--primary': '34 100% 66%',
+    '--primary-foreground': '30 40% 8%',
+    '--brand-accent': '34 100% 66%',
+    '--brand-accent-foreground': '30 40% 8%',
+    '--focus': '171 77% 64%',
+    '--destructive': '0 100% 72%',
+    '--destructive-foreground': '0 45% 6%',
+    '--status-success': '158 64% 52%',
+    '--status-warning': '32 95% 54%',
+    '--status-info': '218 100% 77%',
+    '--status-neutral': '207 12% 65%',
+    '--monitor': '218 100% 77%',
+    '--monitor-foreground': '223 30% 5%',
+    '--analyze': '254 100% 77%',
+    '--analyze-foreground': '223 30% 5%',
+    '--secure': '0 100% 72%',
+    '--secure-foreground': '0 45% 6%',
+    '--operate': '34 100% 66%',
+    '--operate-foreground': '30 40% 8%',
+    '--risk-critical': '0 100% 72%',
+    '--risk-high': '24 95% 58%',
+    '--risk-medium': '45 93% 56%',
+    '--risk-low': '158 64% 52%',
+    '--risk-none': '207 12% 64%',
+    '--chart-1': '34 100% 66%',
+    '--chart-2': '206 74% 63%',
+    '--chart-3': '254 100% 77%',
+    '--chart-4': '174 62% 55%',
+    '--chart-5': '350 82% 70%',
+    '--chart-6': '312 51% 68%',
+    '--chart-grid': '218 14% 48%',
+    '--chart-axis': '219 16% 69%',
+    '--chart-neutral': '218 12% 55%',
   },
 }
 
@@ -152,92 +210,141 @@ export function sanitizeTokenOverrides(overrides: Record<string, string> | undef
   const safe: Record<string, string> = {}
   for (const [name, rawValue] of Object.entries(overrides ?? {})) {
     const value = rawValue.trim()
-    if (!TOKEN_NAME.test(name) || !tokenValueIsSafe(name, value)) continue
+    if (!tokenValueIsSafe(name, value)) continue
     safe[name] = value
   }
   return tokenOverridesPassContrast(safe) ? safe : {}
 }
 
+/** A token is a colour token iff the shipped palette defines it. That makes the
+ *  palette the single allowlist, so a rename cannot silently open the door to
+ *  overriding layout or stacking tokens — or silently close it on colour, which
+ *  is how the contrast check came to be skipped entirely. */
+function isColorToken(name: string) {
+  return Object.values(SHIPPED_CONTRAST_THEMES).some((theme) => name in theme)
+}
+
 function tokenValueIsSafe(name: string, value: string) {
-  if (name.startsWith('--color-')) return COLOR_VALUE.test(value)
+  if (isColorToken(name)) return COLOR_VALUE.test(value)
+  if (!OVERRIDABLE_NON_COLOR.has(name)) return false
   if (name.startsWith('--radius-')) return RADIUS_VALUE.test(value)
   return FONT_VALUE.test(value)
+}
+
+/**
+ * The ratio a pair actually resolves to for a given palette, including the wash
+ * alpha and the backdrop it composites over. Both the deployment-override check
+ * and the shipped-theme test call THIS, so neither can quietly evaluate a pair
+ * differently from the other — the test had been ignoring bgAlpha and reporting a
+ * tone against itself at 1.00:1.
+ */
+export function contrastRatioForPair(
+  tokens: Record<string, string>,
+  pair: ContrastPair,
+): number | undefined {
+  const fgValue = tokens[pair.fg]
+  const rawBg = tokens[pair.bg]
+  if (!fgValue || !rawBg) return undefined
+  const bgValue = pair.bgAlpha === undefined ? rawBg : `${rawBg} / ${pair.bgAlpha}`
+  return contrastRatioForTokenValues(
+    fgValue,
+    bgValue,
+    pair.backdrop ? tokens[pair.backdrop] : undefined,
+  )
 }
 
 export function tokenOverridesPassContrast(overrides: Record<string, string>) {
   for (const base of Object.values(SHIPPED_CONTRAST_THEMES)) {
     const tokens = { ...base }
     for (const [name, value] of Object.entries(overrides)) {
-      if (name.startsWith('--color-')) tokens[name] = value
+      if (isColorToken(name)) tokens[name] = value
     }
     for (const pair of REQUIRED_CONTRAST_PAIRS) {
-      const fgValue = tokens[pair.fg]
-      const bgValue = tokens[pair.bg]
-      if (!fgValue || !bgValue) continue
-      const ratio = contrastRatioForTokenValues(
-        fgValue,
-        bgValue,
-        pair.backdrop ? tokens[pair.backdrop] : undefined,
-      )
+      if (!tokens[pair.fg] || !tokens[pair.bg]) continue
+      const ratio = contrastRatioForPair(tokens, pair)
       if (ratio === undefined || ratio < pair.min) return false
     }
   }
   return true
 }
 
-function buildContrastPairs(): ContrastPair[] {
+export function buildContrastPairs(): ContrastPair[] {
   const pairs: ContrastPair[] = []
-  const text = ['--color-text', '--color-text-muted', '--color-text-subtle']
-  const backgrounds = [
-    '--color-bg',
-    '--color-surface',
-    '--color-surface-raised',
-    '--color-surface-high',
-  ]
+  // Body text must clear 4.5:1 on every surface it can land on, including the
+  // rail, which is its own tint rather than the page background.
+  const text = ['--foreground', '--muted-foreground']
+  const backgrounds = ['--background', '--card', '--muted', '--sidebar']
   for (const fg of text) {
     for (const bg of backgrounds) pairs.push({ fg, bg, min: WCAG_TEXT_CONTRAST })
   }
-  for (const bg of ['--color-accent', '--color-accent-hover', '--color-accent-strong']) {
-    pairs.push({ fg: '--color-accent-contrast', bg, min: WCAG_TEXT_CONTRAST })
+  // Text on a filled action or a filled status must clear 4.5:1 too — a button
+  // label is body text.
+  for (const [fg, bg] of [
+    ['--primary-foreground', '--primary'],
+    ['--brand-accent-foreground', '--brand-accent'],
+    ['--destructive-foreground', '--destructive'],
+    ['--monitor-foreground', '--monitor'],
+    ['--analyze-foreground', '--analyze'],
+    ['--secure-foreground', '--secure'],
+    ['--operate-foreground', '--operate'],
+  ] as const) {
+    pairs.push({ fg, bg, min: WCAG_TEXT_CONTRAST })
   }
-  pairs.push({
-    fg: '--color-selection-contrast',
-    bg: '--color-selection',
-    min: WCAG_TEXT_CONTRAST,
-  })
-  for (const bg of [
-    '--color-accent-soft',
-    '--color-success-soft',
-    '--color-warning-soft',
-    '--color-danger-soft',
-    '--color-info-soft',
-    '--color-selection-soft',
-  ]) {
-    pairs.push({ fg: '--color-text', bg, min: WCAG_TEXT_CONTRAST, backdrop: '--color-surface' })
+  // A chip is coloured text on a CHIP_WASH tint of itself, composited over
+  // whatever it sits on — a card, a table header or hovered row (--muted), the
+  // page, or the rail. The earlier version checked the tone against the plain
+  // card, which is lighter than the tint that actually ships and therefore
+  // flattering: five light tones measured 3.94-4.30 in the browser while this
+  // function reported them passing. Both are checked now, because a tone is also
+  // used as plain text on a plain surface.
+  for (const tone of CHIP_TONES) {
+    for (const bg of backgrounds) {
+      pairs.push({ fg: tone, bg, min: WCAG_TEXT_CONTRAST })
+      pairs.push({ fg: tone, bg: tone, min: WCAG_TEXT_CONTRAST, backdrop: bg, bgAlpha: CHIP_WASH })
+    }
+    // Secondary text inside a tinted panel, e.g. a <dt> label on an info wash.
+    for (const bg of backgrounds) {
+      pairs.push({
+        fg: '--muted-foreground',
+        bg: tone,
+        min: WCAG_TEXT_CONTRAST,
+        backdrop: bg,
+        bgAlpha: CHIP_WASH,
+      })
+    }
   }
+  // Non-text graphics — focus ring, series strokes, axes — need 3:1. Series also
+  // carry dash patterns, so colour is never the only channel.
   for (const fg of [
-    '--color-accent',
-    '--color-accent-hover',
-    '--color-accent-strong',
-    '--color-focus',
-    '--color-selection',
-    '--color-success',
-    '--color-warning',
-    '--color-danger',
-    '--color-info',
-    '--color-chart-1',
-    '--color-chart-2',
-    '--color-chart-3',
-    '--color-chart-4',
-    '--color-chart-5',
-    '--color-chart-6',
-    '--color-chart-grid',
-    '--color-chart-axis',
-    '--color-chart-neutral',
+    '--focus',
+    '--chart-1',
+    '--chart-2',
+    '--chart-3',
+    '--chart-4',
+    '--chart-5',
+    '--chart-6',
+    '--chart-grid',
+    '--chart-axis',
+    '--chart-neutral',
   ]) {
     for (const bg of backgrounds) pairs.push({ fg, bg, min: WCAG_UI_CONTRAST })
   }
   return pairs
+}
+
+// A bare HSL triplet, the shape every design token now holds: "45 33% 95%", or
+// "45 33% 95% / 0.12" for a soft tint. Tailwind wraps these as
+// hsl(var(--token) / <alpha-value>), so the raw token value is never a colour
+// function and the hex/rgb branches below would all miss it.
+const HSL_TRIPLET = /^(-?[\d.]+)\s+(-?[\d.]+)%\s+(-?[\d.]+)%(?:\s*\/\s*([\d.]+%?))?$/
+
+function parseHSLTriplet(value: string): ContrastColor | undefined {
+  const m = HSL_TRIPLET.exec(value)
+  if (!m) return undefined
+  const alpha =
+    m[4] === undefined ? 1 : m[4].endsWith('%') ? parseFloat(m[4]) / 100 : parseFloat(m[4])
+  if (!Number.isFinite(alpha)) return undefined
+  return parseHSLColor(`hsl(${m[1]} ${m[2]}% ${m[3]}% / ${alpha})`)
 }
 
 function parseContrastColor(value: string): ContrastColor | undefined {
@@ -247,7 +354,7 @@ function parseContrastColor(value: string): ContrastColor | undefined {
     return parseRGBColor(normalized)
   if (normalized.startsWith('hsl(') || normalized.startsWith('hsla('))
     return parseHSLColor(normalized)
-  return undefined
+  return parseHSLTriplet(normalized)
 }
 
 export function contrastRatioForTokenValues(

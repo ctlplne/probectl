@@ -19,7 +19,7 @@ import (
 
 // Provider is probectl's cryptographic abstraction. Every cryptographic operation
 // in the product routes through a Provider so a FIPS 140-3 validated module can
-// be compiled in later (CLAUDE.md §7 guardrail 3). internal/crypto is the only
+// be compiled in later (docs/guardrails.md G7-3). internal/crypto is the only
 // package that imports crypto primitive packages.
 type Provider interface {
 	// Hash returns a SHA-256 digest of data.

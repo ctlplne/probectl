@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
-import styles from './Toast.module.css'
+import { cn } from '../lib/cn'
 import { Icon, type IconName } from './Icon'
 
 export type ToastTone = 'info' | 'success' | 'warning' | 'danger'
@@ -43,13 +43,30 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ push }}>
       {children}
-      <div className={styles.viewport} role="region" aria-label="Notifications">
+      <div
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-toast flex flex-col items-center gap-2 p-4"
+        role="region"
+        aria-label="Notifications"
+      >
         {toasts.map((t) => (
-          <div key={t.id} className={[styles.toast, styles[t.tone]].join(' ')} role="status">
+          <div
+            key={t.id}
+            className={cn(
+              'pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-panel border bg-card',
+              'px-4 py-3 shadow-elevation2 animate-panel-in',
+              t.tone === 'success' && 'border-status-success/40 text-status-success',
+              t.tone === 'warning' && 'border-status-warning/40 text-status-warning',
+              t.tone === 'danger' && 'border-destructive/40 text-destructive',
+              t.tone === 'info' && 'border-status-info/40 text-status-info',
+            )}
+            role="status"
+          >
             <Icon name={toneIcon[t.tone]} />
             <div>
-              <strong className={styles.title}>{t.title}</strong>
-              {t.message ? <p className={styles.message}>{t.message}</p> : null}
+              <strong className="block text-data font-semibold text-card-foreground">
+                {t.title}
+              </strong>
+              {t.message ? <p className="text-caption text-muted-foreground">{t.message}</p> : null}
             </div>
           </div>
         ))}

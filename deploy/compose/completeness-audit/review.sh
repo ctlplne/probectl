@@ -10,7 +10,7 @@ IFS=$'\n\t'
 PHASE="${1:-}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd -P)"
-AUDIT_AUTHORITY_REL="docs/quality/delivery-audit-review-protocols.json"
+AUDIT_AUTHORITY_REL="docs/contract/delivery-audit-review-protocols.json"
 
 log() { printf '[completeness-review] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }

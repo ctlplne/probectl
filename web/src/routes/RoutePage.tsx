@@ -6,10 +6,9 @@
 
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Card, CardBody, EmptyState, ErrorState } from '../components'
+import { Button, Card, CardBody, EmptyState, ErrorState, PageHeader } from '../components'
 import { useI18n } from '../i18n/useI18n'
 import { NAV } from '../nav/ia'
-import styles from './pages.module.css'
 
 /** Page is the lightweight frame shared by lazy route chunks. Keeping it out
  * of TargetsPage prevents that feature's data/forms bundle from entering the
@@ -25,15 +24,12 @@ export function Page({
   actions?: ReactNode
   children: ReactNode
 }) {
+  // Page delegates to PageHeader so every route shares one title hierarchy;
+  // a route that wants the eyebrow or the technical-details layer can use
+  // PageHeader directly instead of growing another prop here.
   return (
-    <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>{title}</h1>
-          {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
-        </div>
-        {actions ? <div className={styles.actions}>{actions}</div> : null}
-      </header>
+    <div className="mx-auto w-full max-w-content px-comfortable py-comfortable">
+      <PageHeader title={title} description={subtitle} actions={actions} />
       {children}
     </div>
   )

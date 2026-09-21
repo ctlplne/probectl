@@ -17,7 +17,7 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 LIVE_COMPOSE_FILE="${REPO_ROOT}/deploy/compose/completeness-audit.yml"
-AUDIT_AUTHORITY_REL="docs/quality/delivery-audit-review-protocols.json"
+AUDIT_AUTHORITY_REL="docs/contract/delivery-audit-review-protocols.json"
 PHASE="${1:-all}"
 
 TENANT_A="aaaaaaaa-0000-4000-8000-000000000001"

@@ -18,7 +18,7 @@ import (
 //
 // A probe FAILURE — target unreachable, timeout, bad response — is reported as a
 // Result with Success=false and a populated Error, NOT as a returned error, and
-// never as a panic (CLAUDE.md §6). A returned error is reserved for an internal
+// never as a panic (CONTRIBUTING.md). A returned error is reserved for an internal
 // plugin fault (misconfiguration, an unrecoverable setup problem).
 type Canary interface {
 	// Describe returns the plugin's static specification.

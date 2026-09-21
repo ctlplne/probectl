@@ -22,7 +22,7 @@
 //     sharing the pooled Postgres stores, measuring query latency AND asserting
 //     isolation (every query sees exactly its tenant's rows — a cross-tenant
 //     leak or a scoping bug shows up as a wrong count). This is where a pooled
-//     cardinality or RLS-cost problem surfaces first (CLAUDE.md §7 guardrail 1).
+//     cardinality or RLS-cost problem surfaces first (docs/guardrails.md G7-1).
 //
 // Baseline holds the floors/ceilings the smoke asserts against; the recorded GA
 // numbers and run instructions live in docs/perf-baseline.md. The smoke tests

@@ -7,17 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { contrastRatioForTokenValues, tokenOverridesPassContrast } from '../api/brand'
-
-interface Pair {
-  fg: string
-  bg: string
-  min: number
-  backdrop?: string
-}
-
-const TEXT_MIN = 4.5
-const UI_MIN = 3
+import { buildContrastPairs, contrastRatioForPair, tokenOverridesPassContrast } from '../api/brand'
 
 // DPR-247: escape EVERY regex metacharacter, not four of them. CodeQL
 // js/incomplete-sanitization is right about the pattern even though the input here
@@ -32,98 +22,76 @@ function themeBlock(css: string, selector: string) {
   return match?.[2] ?? ''
 }
 
+/** Every custom property declared in the block, in the studio vocabulary (the
+ *  names are unprefixed now, so a `--color-*` filter would match nothing). */
 function colorTokens(css: string, selector: string) {
   const block = themeBlock(css, selector)
   const tokens: Record<string, string> = {}
-  const re = /(--color-[a-z0-9-]+)\s*:\s*([^;]+);/g
-  for (const match of block.matchAll(re)) tokens[match[1]] = match[2].trim()
+  for (const match of block.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
+    tokens[match[1]] = match[2].trim()
+  }
   return tokens
 }
 
-function contrastPairs(): Pair[] {
-  const pairs: Pair[] = []
-  const text = ['--color-text', '--color-text-muted', '--color-text-subtle']
-  const backgrounds = [
-    '--color-bg',
-    '--color-surface',
-    '--color-surface-raised',
-    '--color-surface-high',
-  ]
-  for (const fg of text) {
-    for (const bg of backgrounds) pairs.push({ fg, bg, min: TEXT_MIN })
-  }
-  for (const bg of ['--color-accent', '--color-accent-hover', '--color-accent-strong']) {
-    pairs.push({ fg: '--color-accent-contrast', bg, min: TEXT_MIN })
-  }
-  pairs.push({ fg: '--color-selection-contrast', bg: '--color-selection', min: TEXT_MIN })
-  for (const bg of [
-    '--color-accent-soft',
-    '--color-success-soft',
-    '--color-warning-soft',
-    '--color-danger-soft',
-    '--color-info-soft',
-    '--color-selection-soft',
-  ]) {
-    pairs.push({ fg: '--color-text', bg, min: TEXT_MIN, backdrop: '--color-surface' })
-  }
-  for (const fg of [
-    '--color-accent',
-    '--color-accent-hover',
-    '--color-accent-strong',
-    '--color-focus',
-    '--color-selection',
-    '--color-success',
-    '--color-warning',
-    '--color-danger',
-    '--color-info',
-    '--color-chart-1',
-    '--color-chart-2',
-    '--color-chart-3',
-    '--color-chart-4',
-    '--color-chart-5',
-    '--color-chart-6',
-    '--color-chart-grid',
-    '--color-chart-axis',
-    '--color-chart-neutral',
-  ]) {
-    for (const bg of backgrounds) pairs.push({ fg, bg, min: UI_MIN })
-  }
-  return pairs
-}
-
 describe('theme color contrast', () => {
-  test('every shipped theme satisfies text and non-text contrast pairs', () => {
+  test('both shipped themes satisfy every text and non-text contrast pair', () => {
     const css = readFileSync(join(process.cwd(), 'src/styles/tokens.css'), 'utf8')
     const failures: string[] = []
+    // The runtime's own list, not a second copy: a pair the product enforces on a
+    // deployment override has to hold for the palette we ship as well.
+    const pairs = buildContrastPairs()
+    let checked = 0
 
     for (const [theme, selector] of Object.entries({
+      // Light is :root, selected by its color-scheme declaration; dark overrides it.
+      light: 'color-scheme: light',
       dark: "[data-theme='dark']",
-      aurora: "[data-theme='aurora']",
-      ember: "[data-theme='ember']",
     })) {
       const tokens = colorTokens(css, selector)
-      for (const pair of contrastPairs()) {
+      for (const pair of pairs) {
         if (!tokens[pair.fg] || !tokens[pair.bg]) continue
-        const ratio = contrastRatioForTokenValues(
-          tokens[pair.fg],
-          tokens[pair.bg],
-          pair.backdrop ? tokens[pair.backdrop] : undefined,
-        )
+        checked += 1
+        // The runtime's own evaluator, so a wash pair is composited here exactly
+        // as the product composites it.
+        const ratio = contrastRatioForPair(tokens, pair)
         if (ratio === undefined || ratio < pair.min) {
+          const on =
+            pair.bgAlpha === undefined
+              ? pair.bg
+              : `${pair.bg} @${pair.bgAlpha} over ${pair.backdrop}`
           failures.push(
-            `${theme}: ${pair.fg} on ${pair.bg} = ${ratio?.toFixed(2) ?? 'parse-failed'}:1, want ${pair.min}:1`,
+            `${theme}: ${pair.fg} on ${on} = ${ratio?.toFixed(2) ?? 'parse-failed'}:1, want ${pair.min}:1`,
           )
         }
       }
     }
 
     expect(failures).toEqual([])
+    // The guard against the failure this test actually had: when the token names
+    // changed, every pair was skipped and it passed while checking nothing. A
+    // vacuous pass is worse than a red test, so assert the work happened.
+    expect(checked).toBeGreaterThanOrEqual(2 * pairs.length)
   })
 
   test('bad deployment override fixtures fail the same contrast gate', () => {
-    expect(tokenOverridesPassContrast({ '--color-text': '#ffffff' })).toBe(false)
-    expect(tokenOverridesPassContrast({ '--color-accent': '#ff3300' })).toBe(false)
-    expect(tokenOverridesPassContrast({ '--color-chart-1': '#ffffff' })).toBe(false)
-    expect(tokenOverridesPassContrast({ '--color-chart-6': '#ffffff' })).toBe(false)
+    // White body text on warm paper, a brand orange too light to carry its own
+    // label, and chart series indistinguishable from the card behind them.
+    expect(tokenOverridesPassContrast({ '--foreground': '0 0% 100%' })).toBe(false)
+    expect(tokenOverridesPassContrast({ '--primary': '28 100% 92%' })).toBe(false)
+    expect(tokenOverridesPassContrast({ '--chart-1': '0 0% 100%' })).toBe(false)
+    expect(tokenOverridesPassContrast({ '--chart-6': '0 0% 100%' })).toBe(false)
+    // And the shape the parser previously could not read at all must be rejected
+    // on its merits, not silently accepted for being unparseable.
+    expect(tokenOverridesPassContrast({ '--muted-foreground': '45 33% 96%' })).toBe(false)
+  })
+
+  test('a legitimate override still passes', () => {
+    // Deployment theming has to remain usable, not just guarded. The constraint
+    // is real and worth stating: applyBrand sets overrides as INLINE style on
+    // <html>, so one value lands in both themes and has to clear its ratio in
+    // both. That rules out most single-token brand swaps — warm paper wants a
+    // dark brand with a light label, dark wants the reverse — and it admits
+    // mid-tones, which clear 3:1 against near-white and near-black alike.
+    expect(tokenOverridesPassContrast({ '--chart-2': '213 62% 48%' })).toBe(true)
   })
 })

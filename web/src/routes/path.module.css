@@ -21,10 +21,10 @@
   gap: var(--space-2);
   min-width: 0;
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-panel);
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -44,13 +44,13 @@
 
 .triage strong {
   overflow-wrap: anywhere;
-  color: var(--color-text);
-  font-size: var(--font-size-md);
+  color: hsl(var(--foreground));
+  font-size: var(--font-size-data);
 }
 
 .triageLabel {
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
@@ -75,7 +75,7 @@
 
 .evidenceGrid h3 {
   margin: 0 0 var(--space-3);
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -93,9 +93,9 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
 }
 
 .evidenceList li > div {
@@ -103,13 +103,13 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
 }
 
 .noEvidence {
   margin: 0;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -149,7 +149,7 @@
 }
 .summary dt {
   font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 .summary dd {
   margin: 0;

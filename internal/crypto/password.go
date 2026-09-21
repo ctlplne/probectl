@@ -17,7 +17,7 @@ import (
 )
 
 // Password hashing (S-T1): PBKDF2-HMAC-SHA256, implemented here so every
-// primitive call stays inside internal/crypto (CLAUDE.md §7 guardrail 3).
+// primitive call stays inside internal/crypto (docs/guardrails.md G7-3).
 // PBKDF2 is chosen over argon2/bcrypt deliberately: it is the KDF a FIPS
 // 140-3 validated module provides (SP 800-132), so the FIPS build swaps the
 // implementation without changing the stored format. Iterations follow the

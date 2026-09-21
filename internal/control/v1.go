@@ -28,7 +28,7 @@ import (
 
 // apiRoute binds a method+pattern to a handler. This table is the single source
 // of truth for routing AND the OpenAPI-matches-handlers check (no undocumented
-// routes — CLAUDE.md §6, §8).
+// routes — CONTRIBUTING.md).
 type apiRoute struct {
 	Method  string
 	Pattern string

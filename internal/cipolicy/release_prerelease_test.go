@@ -13,7 +13,7 @@ import (
 )
 
 // Decision D-15 (2026-09-20) let a 0.x tag publish while the capability ledger
-// still records acknowledged gaps, because docs/quality/completeness.md reserves
+// still records acknowledged gaps, because capabilities.yaml reserves
 // the strict gate for a FINAL release and release.yml was applying it to every
 // tag — v0.6.4 cleared all three entry gates and published nothing while three
 // publish jobs went on rotting unrun.

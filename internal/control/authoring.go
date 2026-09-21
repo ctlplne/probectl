@@ -46,7 +46,7 @@ type authorRequest struct {
 }
 
 // handleAIAuthor turns a natural-language request into a schema-valid test config
-// pending the user's confirmation. It NEVER creates the test (CLAUDE.md §7
+// pending the user's confirmation. It NEVER creates the test (docs/guardrails.md
 // guardrail 8 — propose, human-gated); the user applies it via POST /v1/tests.
 func (s *Server) handleAIAuthor(w http.ResponseWriter, r *http.Request) error {
 	var req authorRequest

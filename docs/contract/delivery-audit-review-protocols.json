@@ -1,0 +1,87 @@
+{
+  "schema": "probectl.delivery-audit-authority/v1",
+  "executable_protocols": [
+    {
+      "item": "CL-002",
+      "capability_id": "F50",
+      "human_path_id": "f50-tenant-oidc-isolation",
+      "mode": "tenant_plane"
+    }
+  ],
+  "review_protocols": [
+    {
+      "item": "CL-091",
+      "capability_id": "CL-091",
+      "kinds": [
+        "methodology"
+      ],
+      "methodology_roots": [
+        "docs/"
+      ],
+      "subject_roots": [
+        "docs/"
+      ]
+    },
+    {
+      "item": "CL-092",
+      "capability_id": "CL-092",
+      "kinds": [
+        "legal"
+      ],
+      "methodology_roots": [
+        "docs/"
+      ],
+      "subject_roots": [
+        "ee/",
+        "docs/"
+      ]
+    },
+    {
+      "item": "CL-100",
+      "capability_id": "CL-100",
+      "kinds": [
+        "release",
+        "artifact"
+      ],
+      "methodology_roots": [
+        "docs/contract/"
+      ],
+      "subject_roots": [
+        "docs/contract/",
+        "receipts/"
+      ]
+    },
+    {
+      "item": "CL-101",
+      "capability_id": "CL-101",
+      "kinds": [
+        "artifact"
+      ],
+      "methodology_roots": [
+        "docs/contract/",
+        "docs/"
+      ],
+      "subject_roots": [
+        "docs/contract/",
+        "docs/",
+        "receipts/"
+      ]
+    },
+    {
+      "item": "CL-102",
+      "capability_id": "CL-102",
+      "kinds": [
+        "release"
+      ],
+      "methodology_roots": [
+        "docs/contract/",
+        "docs/"
+      ],
+      "subject_roots": [
+        "docs/contract/",
+        "docs/",
+        "receipts/"
+      ]
+    }
+  ]
+}

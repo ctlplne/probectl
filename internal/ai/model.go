@@ -75,7 +75,7 @@ type Synthesis struct {
 // ModelAdapter is the pluggable synthesis backend: the built-in deterministic
 // synthesizer (the default — fully air-gapped, no network, no phone-home), a
 // local Ollama/vLLM (sovereignty), or a cloud provider. Every remote adapter
-// dials over TLS with certificate validation (CLAUDE.md §7 guardrail 12). An
+// dials over TLS with certificate validation (docs/guardrails.md G7-12). An
 // adapter only ever SYNTHESIZES over evidence; it is never handed tools or the
 // ability to act.
 type ModelAdapter interface {

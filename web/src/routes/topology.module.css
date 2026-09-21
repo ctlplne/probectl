@@ -8,10 +8,10 @@
 }
 
 .controls {
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-xs);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-panel);
+  background: hsl(var(--muted));
+  box-shadow: var(--elevation-1);
 }
 
 .controlsSummary {
@@ -25,7 +25,7 @@
 }
 
 .controlsSummary:focus-visible {
-  outline: var(--border-width-thin) solid var(--color-focus);
+  outline: var(--border-width-thin) solid hsl(var(--focus));
   outline-offset: var(--space-1);
 }
 
@@ -35,7 +35,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -45,7 +45,7 @@
 }
 
 .controls[open] .controlsSummary {
-  border-block-end: var(--border-width-thin) solid var(--color-border);
+  border-block-end: var(--border-width-thin) solid hsl(var(--border));
 }
 
 .controlsBody {
@@ -58,10 +58,10 @@
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-xs);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-panel);
+  background: hsl(var(--muted));
+  box-shadow: var(--elevation-1);
 }
 
 .clockCopy {
@@ -73,7 +73,7 @@
 .noChanges,
 .safetyCopy,
 .exportRow span {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -85,9 +85,9 @@
 
 .diffGroup {
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--card));
   min-width: 0;
 }
 
@@ -101,12 +101,12 @@
   padding-inline-start: var(--space-4);
   display: grid;
   gap: var(--space-1);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-caption);
 }
 
 .diffGroup > span {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
 }
 
 .grid {
@@ -138,14 +138,14 @@
 .graphWrap {
   overflow: auto;
   max-height: 70vh;
-  border: var(--border-width-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--card));
   scrollbar-gutter: stable;
 }
 
 .graphWrap:focus-visible {
-  outline: var(--border-width-thin) solid var(--color-focus);
+  outline: var(--border-width-thin) solid hsl(var(--focus));
   outline-offset: var(--space-1);
 }
 
@@ -161,9 +161,9 @@
   gap: var(--space-3);
   margin-block-end: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
 }
 
 .graphNavigatorCopy {
@@ -177,8 +177,8 @@
 }
 
 .graphNavigatorCopy span {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
 }
 
 .graphNavigatorActions {
@@ -211,56 +211,56 @@
   gap: var(--space-1);
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
-  border-inline-start: 3px solid var(--color-warning);
-  background: var(--color-warning-soft);
-  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid hsl(var(--status-warning));
+  background: hsl(var(--status-warning) / 0.12);
+  border-radius: var(--radius-control);
   font-size: var(--font-size-sm);
-  color: var(--color-text);
+  color: hsl(var(--foreground));
 }
 
 .truncated {
   margin: 0 0 var(--space-2);
   font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 /* Kind identity: one custom property carries each kind's categorical color
  * into the node accent, the kind kicker, and the legend swatch. */
 .kindService {
-  --topo-kind: var(--color-chart-1);
+  --topo-kind: hsl(var(--chart-1));
 }
 
 .kindDevice {
-  --topo-kind: var(--color-chart-2);
+  --topo-kind: hsl(var(--chart-2));
 }
 
 .kindAs {
-  --topo-kind: var(--color-chart-3);
+  --topo-kind: hsl(var(--chart-3));
 }
 
 .kindPrefix {
-  --topo-kind: var(--color-chart-4);
+  --topo-kind: hsl(var(--chart-4));
 }
 
 .kindHost {
-  --topo-kind: var(--color-chart-5);
+  --topo-kind: hsl(var(--chart-5));
 }
 
 .kindHop {
-  --topo-kind: var(--color-chart-6);
+  --topo-kind: hsl(var(--chart-6));
 }
 
 .kindAgent,
 .kindOther {
-  --topo-kind: var(--color-chart-neutral);
+  --topo-kind: hsl(var(--chart-neutral));
 }
 
 .colBand {
-  fill: var(--color-surface-raised);
+  fill: hsl(var(--muted));
 }
 
 .colHeader {
-  fill: var(--color-text-subtle);
+  fill: hsl(var(--muted-foreground));
   font-size: var(--font-size-3xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wider);
@@ -275,53 +275,53 @@
 }
 
 .nodeBox {
-  fill: var(--color-surface);
-  stroke: var(--color-border-strong);
+  fill: hsl(var(--card));
+  stroke: hsl(var(--border));
   stroke-width: 1.5;
   rx: 8;
 }
 
 .nodeAccent {
-  fill: var(--topo-kind, var(--color-chart-neutral));
+  fill: var(--topo-kind, hsl(var(--chart-neutral)));
 }
 
 .node:focus-visible .nodeBox,
 .node:hover .nodeBox {
-  stroke: var(--color-accent);
+  stroke: hsl(var(--brand-accent));
   stroke-width: 2.5;
 }
 
 .nodeSelected .nodeBox {
-  stroke: var(--color-accent);
-  fill: var(--color-accent-soft);
+  stroke: hsl(var(--brand-accent));
+  fill: hsl(var(--brand-accent) / 0.12);
 }
 
 .nodeImpacted .nodeBox {
-  stroke: var(--color-danger);
-  fill: var(--color-danger-soft);
+  stroke: hsl(var(--destructive));
+  fill: hsl(var(--destructive) / 0.12);
 }
 
 .nodeFailed .nodeBox {
-  stroke: var(--color-danger);
+  stroke: hsl(var(--destructive));
   stroke-width: 3;
   stroke-dasharray: 6 3;
-  fill: var(--color-danger-soft);
+  fill: hsl(var(--destructive) / 0.12);
 }
 
 .nodeLabel {
   font-size: var(--font-size-2xs);
-  fill: var(--color-text);
+  fill: hsl(var(--foreground));
 }
 
 .nodeKind {
   font-size: var(--font-size-3xs);
-  fill: var(--topo-kind, var(--color-text-muted));
+  fill: var(--topo-kind, hsl(var(--muted-foreground)));
   text-transform: uppercase;
   letter-spacing: var(--tracking-wider);
 }
 
 .edge {
-  stroke: var(--color-chart-grid);
+  stroke: hsl(var(--chart-grid));
   stroke-width: 1.8;
   fill: none;
   opacity: 0.9;
@@ -330,21 +330,21 @@
 /* Edge kinds share the viz grammar: color plus a dash pattern, so the
  * encoding survives monochrome. */
 .edgeFlow {
-  stroke: var(--color-accent);
+  stroke: hsl(var(--brand-accent));
 }
 
 .edgeRouting {
-  stroke: var(--color-warning);
+  stroke: hsl(var(--status-warning));
   stroke-dasharray: var(--viz-series-2-dash);
 }
 
 .edgeDevice {
-  stroke: var(--color-chart-3);
+  stroke: hsl(var(--chart-3));
   stroke-dasharray: var(--viz-series-3-dash);
 }
 
 .edgeImpacted {
-  stroke: var(--color-danger);
+  stroke: hsl(var(--destructive));
   stroke-width: 2.5;
   opacity: 1;
 }
@@ -355,8 +355,8 @@
   align-items: center;
   gap: var(--space-2) var(--space-4);
   margin-block-start: var(--space-3);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-subtle);
+  font-size: var(--font-size-caption);
+  color: hsl(var(--muted-foreground));
 }
 
 .legendItem {
@@ -369,8 +369,8 @@
 .legendNodeSwatch {
   width: 10px;
   height: 10px;
-  border-radius: var(--radius-sm);
-  background: var(--topo-kind, var(--color-chart-neutral));
+  border-radius: var(--radius-control);
+  background: var(--topo-kind, hsl(var(--chart-neutral)));
 }
 
 .legendEdgeSwatch {
@@ -402,22 +402,22 @@
   flex-wrap: wrap;
   margin-block-end: var(--space-3);
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
 }
 
 .safetyBar {
-  background: var(--color-warning-soft);
+  background: hsl(var(--status-warning) / 0.12);
 }
 
 .confidence {
-  background: var(--color-surface-raised);
+  background: hsl(var(--muted));
   font-size: var(--font-size-sm);
 }
 
 .exportRow {
   margin-block: var(--space-4) 0;
-  background: var(--color-accent-soft);
+  background: hsl(var(--brand-accent) / 0.12);
 }
 
 .exportLink {
@@ -425,23 +425,23 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: var(--border-width-thin) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
   padding-inline: var(--space-3);
-  color: var(--color-text);
-  background: var(--color-surface-raised);
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-bold);
   text-decoration: none;
 }
 
 .exportLink:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  border-color: hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent));
 }
 
 .exportLink:focus-visible {
-  outline: var(--border-width-thin) solid var(--color-focus);
+  outline: var(--border-width-thin) solid hsl(var(--focus));
   outline-offset: var(--space-1);
 }
 
@@ -454,7 +454,7 @@
 }
 
 .detailList dt {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 .detailList dd {
@@ -472,6 +472,6 @@
 }
 
 .route {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   word-break: break-all;
 }

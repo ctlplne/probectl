@@ -10,7 +10,7 @@
 // Shape: a Provider looks up CIs by key (an IP address or hostname); the
 // Resolver wraps it with a TTL cache, negative caching, and graceful
 // degradation (a down CMDB serves stale entries and never breaks core
-// function — CLAUDE.md §7 guardrail 10). Correlation is read-only: probectl
+// function — docs/guardrails.md G7-10). Correlation is read-only: probectl
 // never writes to the CMDB. Credentials come from the environment — never
 // config files or logs (guardrail 6); lookups ride TLS with certificate
 // verification (guardrail 12). The CMDB itself is deployment-level

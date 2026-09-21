@@ -43,7 +43,7 @@ const openapi = readFileSync(join(REPO_ROOT, 'internal/control/openapi.json'), '
 const openapiPaths = Object.keys((JSON.parse(openapi) as { paths: Record<string, unknown> }).paths)
 const cliSurfaceSource = readFileSync(join(REPO_ROOT, 'internal/cli/surfaces.go'), 'utf8')
 const cliCommands = cliCommandsFromSurfaceSource(cliSurfaceSource)
-const prd = readPRDv1()
+const contract = readProductContract()
 const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>([
   'native',
   'federated',
@@ -116,18 +116,43 @@ const PRD_ROW_SURFACE_PARITY: Array<{
   },
 ]
 
-function readPRDv1(): string {
-  const candidates = [
-    join(REPO_ROOT, 'probectl-PRD-v1.0.md'),
-    join(REPO_ROOT, '../probectl-PRD-v1.0.md'),
-    join(REPO_ROOT, '../../probectl-PRD-v1.0.md'),
-  ]
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return readFileSync(candidate, 'utf8')
-    }
+interface ContractFeature {
+  ids: string[]
+  name: string
+  status: RequiredFeatureStatus
+  evidence: string
+}
+
+interface ProductContract {
+  schema: string
+  features: ContractFeature[]
+  planes: Array<{ plane: string; name: string; status: RequiredFeatureStatus }>
+}
+
+/**
+ * The feature delivery matrix comes from docs/contract/product-contract.json —
+ * committed beside the code it describes, so this gate holds in CI rather than
+ * only on a machine that happens to have a planning document next to the repo.
+ * The previous reader searched the repo root AND two levels above it, which meant
+ * a checkout without that document silently had no authority to check against.
+ */
+function readProductContract(): ProductContract {
+  const path = join(REPO_ROOT, 'docs/contract/product-contract.json')
+  if (!existsSync(path)) {
+    throw new Error(`product contract not found at ${path}`)
   }
-  throw new Error(`probectl-PRD-v1.0.md not found in ${candidates.join(' or ')}`)
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as ProductContract
+  if (parsed.schema !== 'probectl.product-contract/v1') {
+    throw new Error(`unexpected product-contract schema ${parsed.schema}`)
+  }
+  // A contract this small means the file moved or the parse broke, which would
+  // make every comparison below trivially true.
+  if (parsed.features.length < 50 || parsed.planes.length !== 5) {
+    throw new Error(
+      `product contract looks truncated: ${parsed.features.length} features, ${parsed.planes.length} planes`,
+    )
+  }
+  return parsed
 }
 
 function cliCommandsFromSurfaceSource(source: string): Set<string> {
@@ -330,61 +355,21 @@ function parseLiveReceiptEvidence(ev: string): ['ci' | 'test', string, string] |
   return [kind, ev.slice(first + 1, second), ev.slice(second + 1)]
 }
 
-function prdCellsFor(id: string): string[] | undefined {
-  for (const row of prd.split('\n')) {
-    const cells = row
-      .split('|')
-      .map((cell) => cell.trim())
-      .filter(Boolean)
-    if (cells[0]?.split('/').includes(id)) {
-      return cells
-    }
-  }
-  return undefined
+function contractFeatureFor(id: string): ContractFeature | undefined {
+  return contract.features.find((feature) => feature.ids.includes(id))
 }
 
-function prdRowFor(id: string): string | undefined {
-  return prd.split('\n').find((row) => {
-    const cells = row
-      .split('|')
-      .map((cell) => cell.trim())
-      .filter(Boolean)
-    return cells[0]?.split('/').includes(id)
-  })
-}
-
-function prdStatusFor(id: string): RequiredFeatureStatus | undefined {
-  const cells = prdCellsFor(id)
-  if (!cells) {
-    return undefined
-  }
-  const statusCell = cells[2] ?? ''
-  if (statusCell.includes('✅')) {
-    return 'delivered'
-  }
-  if (statusCell.includes('🚫')) {
-    return 'removed'
-  }
-  if (statusCell.includes('⛔')) {
-    return 'future'
-  }
-  if (statusCell.includes('🔶') || statusCell.includes('⏳')) {
-    return 'partial'
-  }
-  return undefined
-}
-
-function prdCatalogStatusViolations(features: RequiredFeature[]): string[] {
+function contractCatalogStatusViolations(features: RequiredFeature[]): string[] {
   const violations: string[] = []
-  for (const feature of features.filter((f) => f.source === 'prd-v1.0:3')) {
-    const prdStatus = prdStatusFor(feature.id)
-    if (!prdStatus) {
-      violations.push(`${feature.id} ${feature.name}: missing PRD status`)
+  for (const feature of features.filter((f) => f.source === 'contract:features')) {
+    const declared = contractFeatureFor(feature.id)
+    if (!declared) {
+      violations.push(`${feature.id} ${feature.name}: missing contract status`)
       continue
     }
-    if (feature.status !== prdStatus) {
+    if (feature.status !== declared.status) {
       violations.push(
-        `${feature.id} ${feature.name}: catalog status ${feature.status} != PRD status ${prdStatus}`,
+        `${feature.id} ${feature.name}: catalog status ${feature.status} != contract status ${declared.status}`,
       )
     }
   }
@@ -421,19 +406,19 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(violations).toEqual([])
   })
 
-  test('every PRD F-number and telemetry plane declares native, federated, or none-by-design status', () => {
+  test('every contract feature and telemetry plane declares native, federated, or none-by-design status', () => {
     expect(REQUIRED_FEATURES).toHaveLength(62)
     expect(REQUIRED_FEATURES[0].id).toBe('PLANE_ACTIVE_SYNTHETIC')
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F1')).toBe(true)
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F57')).toBe(true)
-    expect(prdCatalogStatusViolations(REQUIRED_FEATURES)).toEqual([])
+    expect(contractCatalogStatusViolations(REQUIRED_FEATURES)).toEqual([])
     expect(featureCoverageViolations(SURFACES)).toEqual([])
     expect(servedEvidenceViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])
   })
 
-  test('audited PRD rows trace to first-class operator surfaces or explicit none-by-design reasons', () => {
+  test('audited contract rows trace to first-class operator surfaces or explicit none-by-design reasons', () => {
     for (const row of PRD_ROW_SURFACE_PARITY) {
-      expect(prdRowFor(row.id), `${row.id}: missing PRD row`).toContain(`| ${row.name} |`)
+      expect(contractFeatureFor(row.id)?.name, `${row.id}: missing contract row`).toBe(row.name)
       const decls = SURFACES.filter((s) => s.featureIds?.includes(row.id))
       expect(decls.length, `${row.id}: no surface declaration`).toBeGreaterThan(0)
       expect(
@@ -457,7 +442,7 @@ describe('frontend-coverage gate (S-FE6)', () => {
     }
   })
 
-  test('future/non-GA PRD features stay explicit none-by-design declarations', () => {
+  test('future/non-GA contract features stay explicit none-by-design declarations', () => {
     const futureFeatures = REQUIRED_FEATURES.filter((f) => f.status === 'future')
     expect(futureFeatures.map((f) => f.id)).toEqual(['F49'])
     expect(futureFeatureViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])
@@ -553,7 +538,7 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(checkRegistryShape(['/planes'], childRoute)).toEqual([])
   })
 
-  test('the gate itself fails when a required PRD feature disappears or has no surface kind', () => {
+  test('the gate itself fails when a required contract feature disappears or has no surface kind', () => {
     const removedF1 = SURFACES.map((s) => ({
       ...s,
       featureIds: (s.featureIds ?? []).filter((id) => id !== 'F1'),
@@ -591,8 +576,8 @@ describe('frontend-coverage gate (S-FE6)', () => {
       }
       return { ...feature, status: 'partial' }
     })
-    expect(prdCatalogStatusViolations(staleCatalog)).toContain(
-      'F28 Zero-downtime lifecycle and fleet rollout: catalog status partial != PRD status delivered',
+    expect(contractCatalogStatusViolations(staleCatalog)).toContain(
+      'F28 Zero-downtime lifecycle and fleet rollout: catalog status partial != contract status delivered',
     )
   })
 

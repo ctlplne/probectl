@@ -19,8 +19,10 @@ duty in `docs/opendata-aup.md`).
 | Ecosystem | Package / module | Version | Scope | License (detected) | Evidence |
 |---|---|---|---|---|---|
 | data:web | `world-atlas land-110m` | 2.0.2 | runtime (vendored) | ISC; Natural Earth public domain | third_party/vendored-assets.json; web/src/viz/geo/land-110m.json; source world-atlas@2.0.2/land-110m.json; Natural Earth 1:110m land; sha256 ead5f68119c49a9250902e7da303bcb209341bbb8fefe7369a439b48b704658a |
-| font:web | `Inter Variable` | 5.2.8 | runtime (vendored) | OFL-1.1 | third_party/vendored-assets.json; web/src/styles/fonts/inter-latin-wght.woff2; source @fontsource-variable/inter@5.2.8 latin wght WOFF2; sha256 3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62 |
-| font:web | `JetBrains Mono Variable` | 5.2.8 | runtime (vendored) | OFL-1.1 | third_party/vendored-assets.json; web/src/styles/fonts/jetbrains-mono-latin-wght.woff2; source @fontsource-variable/jetbrains-mono@5.2.8 latin wght WOFF2; sha256 18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e |
+| font:web | `DM Mono 400` | 5.2.7 | runtime (vendored) | OFL-1.1 | third_party/vendored-assets.json; web/src/styles/fonts/dm-mono-latin-400-normal.woff2; source @fontsource/dm-mono@5.2.7 latin 400 WOFF2; sha256 e1896b13b2b1bb112fac2f9571bd6c40e118746e77a4511edbf43fbb41bf3e1e |
+| font:web | `DM Mono 500` | 5.2.7 | runtime (vendored) | OFL-1.1 | third_party/vendored-assets.json; web/src/styles/fonts/dm-mono-latin-500-normal.woff2; source @fontsource/dm-mono@5.2.7 latin 500 WOFF2; sha256 9964608a849396bd00c4bfd7034afe03486469dcf20b4f6b8cbdfdd310369951 |
+| font:web | `Sora Variable` | 5.2.8 | runtime (vendored) | OFL-1.1 | third_party/vendored-assets.json; web/src/styles/fonts/sora-latin-wght-normal.woff2; source @fontsource-variable/sora@5.2.8 latin wght WOFF2; sha256 fa26406eeda9a3c6ec3d9ea8813c3045d6dc755e30c716d5c094e8ef43be5a7f |
+| font:web | `Syne Variable` | 5.2.7 | runtime (vendored) | OFL-1.1 | third_party/vendored-assets.json; web/src/styles/fonts/syne-latin-wght-normal.woff2; source @fontsource-variable/syne@5.2.7 latin wght WOFF2; sha256 68b623f0e45b905041b2edb9b2e4f563a505f13db1cd06b5f1946eb2e1f47048 |
 | go | `github.com/agext/levenshtein` | v1.2.2 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/apparentlymart/go-textseg/v15` | v15.0.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/cilium/ebpf` | v0.21.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
@@ -89,17 +91,22 @@ duty in `docs/opendata-aup.md`).
 | npm:browser-worker | `playwright-core` | 1.55.1 | runtime | Apache-2.0 | browser-worker/package-lock.json:node_modules/playwright-core |
 | npm:web | `@tanstack/query-core` | 5.100.14 | runtime | MIT | web/package-lock.json:node_modules/@tanstack/query-core |
 | npm:web | `@tanstack/react-query` | 5.100.14 | runtime | MIT | web/package-lock.json:node_modules/@tanstack/react-query |
+| npm:web | `class-variance-authority` | 0.7.1 | runtime | Apache-2.0 | web/package-lock.json:node_modules/class-variance-authority |
+| npm:web | `clsx` | 2.1.1 | runtime | MIT | web/package-lock.json:node_modules/clsx |
 | npm:web | `cookie` | 1.1.1 | runtime | MIT | web/package-lock.json:node_modules/cookie |
 | npm:web | `js-tokens` | 4.0.0 | runtime | MIT | web/package-lock.json:node_modules/js-tokens |
 | npm:web | `loose-envify` | 1.4.0 | runtime | MIT | web/package-lock.json:node_modules/loose-envify |
+| npm:web | `lucide-react` | 0.454.0 | runtime | ISC | web/package-lock.json:node_modules/lucide-react |
 | npm:web | `react` | 18.3.1 | runtime | MIT | web/package-lock.json:node_modules/react |
 | npm:web | `react-dom` | 18.3.1 | runtime | MIT | web/package-lock.json:node_modules/react-dom |
 | npm:web | `react-router` | 7.18.2 | runtime | MIT | web/package-lock.json:node_modules/react-router |
 | npm:web | `react-router-dom` | 7.18.2 | runtime | MIT | web/package-lock.json:node_modules/react-router-dom |
 | npm:web | `scheduler` | 0.23.2 | runtime | MIT | web/package-lock.json:node_modules/scheduler |
 | npm:web | `set-cookie-parser` | 2.7.2 | runtime | MIT | web/package-lock.json:node_modules/set-cookie-parser |
+| npm:web | `tailwind-merge` | 2.6.1 | runtime | MIT | web/package-lock.json:node_modules/tailwind-merge |
 | npm:web | `uplot` | 1.6.32 | runtime | MIT | web/package-lock.json:node_modules/uplot |
 | npm:web | `@adobe/css-tools` | 4.5.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@adobe/css-tools |
+| npm:web | `@alloc/quick-lru` | 5.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@alloc/quick-lru |
 | npm:web | `@asamuzakjp/css-color` | 3.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@asamuzakjp/css-color |
 | npm:web | `@babel/code-frame` | 7.29.7 | dev/build-only | MIT | web/package-lock.json:node_modules/@babel/code-frame |
 | npm:web | `@babel/compat-data` | 7.29.7 | dev/build-only | MIT | web/package-lock.json:node_modules/@babel/compat-data |
@@ -205,6 +212,9 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `@jridgewell/sourcemap-codec` | 1.5.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@jridgewell/sourcemap-codec |
 | npm:web | `@jridgewell/trace-mapping` | 0.3.31 | dev/build-only | MIT | web/package-lock.json:node_modules/@jridgewell/trace-mapping |
 | npm:web | `@napi-rs/wasm-runtime` | 1.1.4 | dev/build-only | MIT | web/package-lock.json:node_modules/@napi-rs/wasm-runtime |
+| npm:web | `@nodelib/fs.scandir` | 2.1.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@nodelib/fs.scandir |
+| npm:web | `@nodelib/fs.stat` | 2.0.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@nodelib/fs.stat |
+| npm:web | `@nodelib/fs.walk` | 1.2.8 | dev/build-only | MIT | web/package-lock.json:node_modules/@nodelib/fs.walk |
 | npm:web | `@oxc-project/types` | 0.133.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@oxc-project/types |
 | npm:web | `@rolldown/binding-android-arm64` | 1.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/@rolldown/binding-android-arm64 |
 | npm:web | `@rolldown/binding-darwin-arm64` | 1.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/@rolldown/binding-darwin-arm64 |
@@ -310,27 +320,37 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `ansi-styles` | 5.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-matcher-utils/node_modules/ansi-styles |
 | npm:web | `ansi-styles` | 5.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-message-util/node_modules/ansi-styles |
 | npm:web | `ansi-styles` | 5.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/pretty-format/node_modules/ansi-styles |
+| npm:web | `any-promise` | 1.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/any-promise |
+| npm:web | `anymatch` | 3.1.3 | dev/build-only | ISC | web/package-lock.json:node_modules/anymatch |
+| npm:web | `arg` | 5.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/arg |
 | npm:web | `aria-query` | 5.3.0 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/aria-query |
 | npm:web | `assertion-error` | 2.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/assertion-error |
 | npm:web | `ast-v8-to-istanbul` | 1.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/ast-v8-to-istanbul |
 | npm:web | `asynckit` | 0.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/asynckit |
+| npm:web | `autoprefixer` | 10.5.0 | dev/build-only | MIT | web/package-lock.json:node_modules/autoprefixer |
 | npm:web | `axe-core` | 3.5.6 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/axe-core |
 | npm:web | `axe-core` | 4.9.1 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/jest-axe/node_modules/axe-core |
 | npm:web | `balanced-match` | 4.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/balanced-match |
 | npm:web | `baseline-browser-mapping` | 2.11.25 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/baseline-browser-mapping |
+| npm:web | `binary-extensions` | 2.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/binary-extensions |
 | npm:web | `brace-expansion` | 5.0.12 | dev/build-only | MIT | web/package-lock.json:node_modules/brace-expansion |
+| npm:web | `braces` | 3.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/braces |
 | npm:web | `browserslist` | 4.29.0 | dev/build-only | MIT | web/package-lock.json:node_modules/browserslist |
 | npm:web | `call-bind-apply-helpers` | 1.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/call-bind-apply-helpers |
+| npm:web | `camelcase-css` | 2.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/camelcase-css |
 | npm:web | `caniuse-lite` | 1.0.30001810 | dev/build-only | CC-BY-4.0 | web/package-lock.json:node_modules/caniuse-lite |
 | npm:web | `chai` | 6.2.2 | dev/build-only | MIT | web/package-lock.json:node_modules/chai |
 | npm:web | `chalk` | 4.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/chalk |
+| npm:web | `chokidar` | 3.6.0 | dev/build-only | MIT | web/package-lock.json:node_modules/chokidar |
 | npm:web | `ci-info` | 4.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/ci-info |
 | npm:web | `color-convert` | 2.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/color-convert |
 | npm:web | `color-name` | 1.1.4 | dev/build-only | MIT | web/package-lock.json:node_modules/color-name |
 | npm:web | `combined-stream` | 1.0.8 | dev/build-only | MIT | web/package-lock.json:node_modules/combined-stream |
+| npm:web | `commander` | 4.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/commander |
 | npm:web | `convert-source-map` | 2.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/convert-source-map |
 | npm:web | `cross-spawn` | 7.0.6 | dev/build-only | MIT | web/package-lock.json:node_modules/cross-spawn |
 | npm:web | `css.escape` | 1.5.1 | dev/build-only | MIT | web/package-lock.json:node_modules/css.escape |
+| npm:web | `cssesc` | 3.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/cssesc |
 | npm:web | `cssstyle` | 4.6.0 | dev/build-only | MIT | web/package-lock.json:node_modules/cssstyle |
 | npm:web | `csstype` | 3.2.3 | dev/build-only | MIT | web/package-lock.json:node_modules/csstype |
 | npm:web | `data-urls` | 5.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/data-urls |
@@ -340,7 +360,9 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `delayed-stream` | 1.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/delayed-stream |
 | npm:web | `dequal` | 2.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/dequal |
 | npm:web | `detect-libc` | 2.1.2 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/detect-libc |
+| npm:web | `didyoumean` | 1.2.2 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/didyoumean |
 | npm:web | `diff-sequences` | 29.6.3 | dev/build-only | MIT | web/package-lock.json:node_modules/diff-sequences |
+| npm:web | `dlv` | 1.1.3 | dev/build-only | MIT | web/package-lock.json:node_modules/dlv |
 | npm:web | `dom-accessibility-api` | 0.5.16 | dev/build-only | MIT | web/package-lock.json:node_modules/dom-accessibility-api |
 | npm:web | `dom-accessibility-api` | 0.6.3 | dev/build-only | MIT | web/package-lock.json:node_modules/@testing-library/jest-dom/node_modules/dom-accessibility-api |
 | npm:web | `dunder-proto` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/dunder-proto |
@@ -371,19 +393,25 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `expect` | 30.4.1 | dev/build-only | MIT | web/package-lock.json:node_modules/expect |
 | npm:web | `expect-type` | 1.3.0 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/expect-type |
 | npm:web | `fast-deep-equal` | 3.1.3 | dev/build-only | MIT | web/package-lock.json:node_modules/fast-deep-equal |
+| npm:web | `fast-glob` | 3.3.3 | dev/build-only | MIT | web/package-lock.json:node_modules/fast-glob |
 | npm:web | `fast-json-stable-stringify` | 2.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/fast-json-stable-stringify |
 | npm:web | `fast-levenshtein` | 2.0.6 | dev/build-only | MIT | web/package-lock.json:node_modules/fast-levenshtein |
+| npm:web | `fastq` | 1.20.3 | dev/build-only | ISC | web/package-lock.json:node_modules/fastq |
 | npm:web | `fdir` | 6.5.0 | dev/build-only | MIT | web/package-lock.json:node_modules/fdir |
 | npm:web | `file-entry-cache` | 8.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/file-entry-cache |
+| npm:web | `fill-range` | 7.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/fill-range |
 | npm:web | `find-up` | 5.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/find-up |
 | npm:web | `flat-cache` | 4.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/flat-cache |
 | npm:web | `flatted` | 3.4.2 | dev/build-only | ISC | web/package-lock.json:node_modules/flatted |
 | npm:web | `form-data` | 4.0.6 | dev/build-only | MIT | web/package-lock.json:node_modules/form-data |
+| npm:web | `fraction.js` | 5.3.4 | dev/build-only | MIT | web/package-lock.json:node_modules/fraction.js |
 | npm:web | `fsevents` | 2.3.3 | dev/build-only | MIT | web/package-lock.json:node_modules/fsevents |
 | npm:web | `function-bind` | 1.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/function-bind |
 | npm:web | `gensync` | 1.0.0-beta.2 | dev/build-only | MIT | web/package-lock.json:node_modules/gensync |
 | npm:web | `get-intrinsic` | 1.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/get-intrinsic |
 | npm:web | `get-proto` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/get-proto |
+| npm:web | `glob-parent` | 5.1.2 | dev/build-only | ISC | web/package-lock.json:node_modules/chokidar/node_modules/glob-parent |
+| npm:web | `glob-parent` | 5.1.2 | dev/build-only | ISC | web/package-lock.json:node_modules/fast-glob/node_modules/glob-parent |
 | npm:web | `glob-parent` | 6.0.2 | dev/build-only | ISC | web/package-lock.json:node_modules/glob-parent |
 | npm:web | `globals` | 15.15.0 | dev/build-only | MIT | web/package-lock.json:node_modules/globals |
 | npm:web | `gopd` | 1.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/gopd |
@@ -403,8 +431,11 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `ignore` | 7.0.5 | dev/build-only | MIT | web/package-lock.json:node_modules/@typescript-eslint/eslint-plugin/node_modules/ignore |
 | npm:web | `imurmurhash` | 0.1.4 | dev/build-only | MIT | web/package-lock.json:node_modules/imurmurhash |
 | npm:web | `indent-string` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/indent-string |
+| npm:web | `is-binary-path` | 2.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/is-binary-path |
+| npm:web | `is-core-module` | 2.17.0 | dev/build-only | MIT | web/package-lock.json:node_modules/is-core-module |
 | npm:web | `is-extglob` | 2.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/is-extglob |
 | npm:web | `is-glob` | 4.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/is-glob |
+| npm:web | `is-number` | 7.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/is-number |
 | npm:web | `is-potential-custom-element-name` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/is-potential-custom-element-name |
 | npm:web | `isexe` | 2.0.0 | dev/build-only | ISC | web/package-lock.json:node_modules/isexe |
 | npm:web | `istanbul-lib-coverage` | 3.2.2 | dev/build-only | BSD-3-Clause | web/package-lock.json:node_modules/istanbul-lib-coverage |
@@ -420,6 +451,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `jest-mock` | 30.4.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-mock |
 | npm:web | `jest-regex-util` | 30.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-regex-util |
 | npm:web | `jest-util` | 30.4.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-util |
+| npm:web | `jiti` | 1.21.7 | dev/build-only | MIT | web/package-lock.json:node_modules/jiti |
 | npm:web | `js-tokens` | 10.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/ast-v8-to-istanbul/node_modules/js-tokens |
 | npm:web | `jsdom` | 25.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jsdom |
 | npm:web | `jsesc` | 3.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/jsesc |
@@ -441,6 +473,8 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `lightningcss-linux-x64-musl` | 1.32.0 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/lightningcss-linux-x64-musl |
 | npm:web | `lightningcss-win32-arm64-msvc` | 1.32.0 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/lightningcss-win32-arm64-msvc |
 | npm:web | `lightningcss-win32-x64-msvc` | 1.32.0 | dev/build-only | MPL-2.0 | web/package-lock.json:node_modules/lightningcss-win32-x64-msvc |
+| npm:web | `lilconfig` | 3.1.3 | dev/build-only | MIT | web/package-lock.json:node_modules/lilconfig |
+| npm:web | `lines-and-columns` | 1.2.4 | dev/build-only | MIT | web/package-lock.json:node_modules/lines-and-columns |
 | npm:web | `locate-path` | 6.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/locate-path |
 | npm:web | `lodash.merge` | 4.6.2 | dev/build-only | MIT | web/package-lock.json:node_modules/lodash.merge |
 | npm:web | `lru-cache` | 10.4.3 | dev/build-only | ISC | web/package-lock.json:node_modules/@asamuzakjp/css-color/node_modules/lru-cache |
@@ -450,15 +484,21 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `magicast` | 0.5.3 | dev/build-only | MIT | web/package-lock.json:node_modules/magicast |
 | npm:web | `make-dir` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/make-dir |
 | npm:web | `math-intrinsics` | 1.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/math-intrinsics |
+| npm:web | `merge2` | 1.4.1 | dev/build-only | MIT | web/package-lock.json:node_modules/merge2 |
+| npm:web | `micromatch` | 4.0.8 | dev/build-only | MIT | web/package-lock.json:node_modules/micromatch |
 | npm:web | `mime-db` | 1.52.0 | dev/build-only | MIT | web/package-lock.json:node_modules/mime-db |
 | npm:web | `mime-types` | 2.1.35 | dev/build-only | MIT | web/package-lock.json:node_modules/mime-types |
 | npm:web | `min-indent` | 1.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/min-indent |
 | npm:web | `minimatch` | 10.2.5 | dev/build-only | BlueOak-1.0.0 | web/package-lock.json:node_modules/minimatch |
 | npm:web | `ms` | 2.1.3 | dev/build-only | MIT | web/package-lock.json:node_modules/ms |
+| npm:web | `mz` | 2.7.0 | dev/build-only | MIT | web/package-lock.json:node_modules/mz |
 | npm:web | `nanoid` | 3.3.18 | dev/build-only | MIT | web/package-lock.json:node_modules/nanoid |
 | npm:web | `natural-compare` | 1.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/natural-compare |
 | npm:web | `node-releases` | 2.0.56 | dev/build-only | MIT | web/package-lock.json:node_modules/node-releases |
+| npm:web | `normalize-path` | 3.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/normalize-path |
 | npm:web | `nwsapi` | 2.2.23 | dev/build-only | MIT | web/package-lock.json:node_modules/nwsapi |
+| npm:web | `object-assign` | 4.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/object-assign |
+| npm:web | `object-hash` | 3.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/object-hash |
 | npm:web | `obug` | 2.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/obug |
 | npm:web | `optionator` | 0.9.4 | dev/build-only | MIT | web/package-lock.json:node_modules/optionator |
 | npm:web | `p-limit` | 3.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/p-limit |
@@ -466,10 +506,21 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `parse5` | 7.3.0 | dev/build-only | MIT | web/package-lock.json:node_modules/parse5 |
 | npm:web | `path-exists` | 4.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/path-exists |
 | npm:web | `path-key` | 3.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/path-key |
+| npm:web | `path-parse` | 1.0.7 | dev/build-only | MIT | web/package-lock.json:node_modules/path-parse |
 | npm:web | `pathe` | 2.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/pathe |
 | npm:web | `picocolors` | 1.1.1 | dev/build-only | ISC | web/package-lock.json:node_modules/picocolors |
+| npm:web | `picomatch` | 2.3.2 | dev/build-only | MIT | web/package-lock.json:node_modules/anymatch/node_modules/picomatch |
+| npm:web | `picomatch` | 2.3.2 | dev/build-only | MIT | web/package-lock.json:node_modules/micromatch/node_modules/picomatch |
+| npm:web | `picomatch` | 2.3.2 | dev/build-only | MIT | web/package-lock.json:node_modules/readdirp/node_modules/picomatch |
 | npm:web | `picomatch` | 4.0.4 | dev/build-only | MIT | web/package-lock.json:node_modules/picomatch |
+| npm:web | `pirates` | 4.0.7 | dev/build-only | MIT | web/package-lock.json:node_modules/pirates |
 | npm:web | `postcss` | 8.5.23 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss |
+| npm:web | `postcss-import` | 15.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss-import |
+| npm:web | `postcss-js` | 4.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss-js |
+| npm:web | `postcss-load-config` | 6.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss-load-config |
+| npm:web | `postcss-nested` | 6.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss-nested |
+| npm:web | `postcss-selector-parser` | 6.1.4 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss-selector-parser |
+| npm:web | `postcss-value-parser` | 4.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/postcss-value-parser |
 | npm:web | `prelude-ls` | 1.2.1 | dev/build-only | MIT | web/package-lock.json:node_modules/prelude-ls |
 | npm:web | `prettier` | 3.8.4 | dev/build-only | MIT | web/package-lock.json:node_modules/prettier |
 | npm:web | `pretty-format` | 27.5.1 | dev/build-only | MIT | web/package-lock.json:node_modules/pretty-format |
@@ -479,16 +530,22 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `pretty-format` | 30.4.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-matcher-utils/node_modules/pretty-format |
 | npm:web | `pretty-format` | 30.4.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-message-util/node_modules/pretty-format |
 | npm:web | `punycode` | 2.3.1 | dev/build-only | MIT | web/package-lock.json:node_modules/punycode |
+| npm:web | `queue-microtask` | 1.2.3 | dev/build-only | MIT | web/package-lock.json:node_modules/queue-microtask |
 | npm:web | `react-is` | 17.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/react-is |
 | npm:web | `react-is` | 18.3.1 | dev/build-only | MIT | web/package-lock.json:node_modules/jest-axe/node_modules/react-is |
 | npm:web | `react-is-18` | 18.3.1 | dev/build-only | MIT | web/package-lock.json:node_modules/react-is-18 |
 | npm:web | `react-is-19` | 19.2.6 | dev/build-only | MIT | web/package-lock.json:node_modules/react-is-19 |
 | npm:web | `react-refresh` | 0.17.0 | dev/build-only | MIT | web/package-lock.json:node_modules/react-refresh |
+| npm:web | `read-cache` | 1.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/read-cache |
+| npm:web | `readdirp` | 3.6.0 | dev/build-only | MIT | web/package-lock.json:node_modules/readdirp |
 | npm:web | `redent` | 3.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/redent |
+| npm:web | `resolve` | 1.22.12 | dev/build-only | MIT | web/package-lock.json:node_modules/resolve |
+| npm:web | `reusify` | 1.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/reusify |
 | npm:web | `rolldown` | 1.0.3 | dev/build-only | MIT | web/package-lock.json:node_modules/rolldown |
 | npm:web | `rollup` | 4.60.4 | dev/build-only | MIT | web/package-lock.json:node_modules/rollup |
 | npm:web | `rrweb-cssom` | 0.7.1 | dev/build-only | MIT | web/package-lock.json:node_modules/rrweb-cssom |
 | npm:web | `rrweb-cssom` | 0.8.0 | dev/build-only | MIT | web/package-lock.json:node_modules/cssstyle/node_modules/rrweb-cssom |
+| npm:web | `run-parallel` | 1.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/run-parallel |
 | npm:web | `safer-buffer` | 2.1.2 | dev/build-only | MIT | web/package-lock.json:node_modules/safer-buffer |
 | npm:web | `saxes` | 6.0.0 | dev/build-only | ISC | web/package-lock.json:node_modules/saxes |
 | npm:web | `semver` | 6.3.1 | dev/build-only | ISC | web/package-lock.json:node_modules/semver |
@@ -503,17 +560,24 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `stackback` | 0.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/stackback |
 | npm:web | `std-env` | 4.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/std-env |
 | npm:web | `strip-indent` | 3.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/strip-indent |
+| npm:web | `sucrase` | 3.35.1 | dev/build-only | MIT | web/package-lock.json:node_modules/sucrase |
 | npm:web | `supports-color` | 7.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/supports-color |
+| npm:web | `supports-preserve-symlinks-flag` | 1.0.0 | dev/build-only | MIT | web/package-lock.json:node_modules/supports-preserve-symlinks-flag |
 | npm:web | `symbol-tree` | 3.2.4 | dev/build-only | MIT | web/package-lock.json:node_modules/symbol-tree |
+| npm:web | `tailwindcss` | 3.4.19 | dev/build-only | MIT | web/package-lock.json:node_modules/tailwindcss |
+| npm:web | `thenify` | 3.3.1 | dev/build-only | MIT | web/package-lock.json:node_modules/thenify |
+| npm:web | `thenify-all` | 1.6.0 | dev/build-only | MIT | web/package-lock.json:node_modules/thenify-all |
 | npm:web | `tinybench` | 2.9.0 | dev/build-only | MIT | web/package-lock.json:node_modules/tinybench |
 | npm:web | `tinyexec` | 1.2.4 | dev/build-only | MIT | web/package-lock.json:node_modules/tinyexec |
 | npm:web | `tinyglobby` | 0.2.17 | dev/build-only | MIT | web/package-lock.json:node_modules/tinyglobby |
 | npm:web | `tinyrainbow` | 3.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/tinyrainbow |
 | npm:web | `tldts` | 6.1.86 | dev/build-only | MIT | web/package-lock.json:node_modules/tldts |
 | npm:web | `tldts-core` | 6.1.86 | dev/build-only | MIT | web/package-lock.json:node_modules/tldts-core |
+| npm:web | `to-regex-range` | 5.0.1 | dev/build-only | MIT | web/package-lock.json:node_modules/to-regex-range |
 | npm:web | `tough-cookie` | 5.1.2 | dev/build-only | BSD-3-Clause | web/package-lock.json:node_modules/tough-cookie |
 | npm:web | `tr46` | 5.1.1 | dev/build-only | MIT | web/package-lock.json:node_modules/tr46 |
 | npm:web | `ts-api-utils` | 2.5.0 | dev/build-only | MIT | web/package-lock.json:node_modules/ts-api-utils |
+| npm:web | `ts-interface-checker` | 0.1.13 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/ts-interface-checker |
 | npm:web | `tslib` | 2.8.1 | dev/build-only | 0BSD | web/package-lock.json:node_modules/tslib |
 | npm:web | `type-check` | 0.4.0 | dev/build-only | MIT | web/package-lock.json:node_modules/type-check |
 | npm:web | `typescript` | 5.9.3 | dev/build-only | Apache-2.0 | web/package-lock.json:node_modules/typescript |
@@ -521,6 +585,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `undici-types` | 6.21.0 | dev/build-only | MIT | web/package-lock.json:node_modules/undici-types |
 | npm:web | `update-browserslist-db` | 1.3.3 | dev/build-only | MIT | web/package-lock.json:node_modules/update-browserslist-db |
 | npm:web | `uri-js` | 4.4.1 | dev/build-only | BSD-2-Clause | web/package-lock.json:node_modules/uri-js |
+| npm:web | `util-deprecate` | 1.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/util-deprecate |
 | npm:web | `vite` | 5.4.21 | dev/build-only | MIT | web/package-lock.json:node_modules/vite |
 | npm:web | `vite` | 8.0.16 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest/node_modules/vite |
 | npm:web | `vitest` | 4.1.8 | dev/build-only | MIT | web/package-lock.json:node_modules/vitest |

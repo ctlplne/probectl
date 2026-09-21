@@ -156,7 +156,7 @@ func (c *gnmiCollector) recvMsgSize() int {
 
 // transport builds the gRPC transport credentials: TLS with certificate
 // verification (system roots or ca_file) — never plaintext or skip-verify
-// (CLAUDE.md §7 guardrail 12).
+// (docs/guardrails.md G7-12).
 func (c *gnmiCollector) transport() ([]grpc.DialOption, error) {
 	if c.dev.GNMI.Plaintext {
 		return nil, fmt.Errorf("gnmi %s: plaintext transport is forbidden; verified TLS is required", c.dev.Address)

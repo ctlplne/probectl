@@ -14,7 +14,7 @@
 // the caller's tenant. Pooled isolation is therefore enforced at the storage +
 // query layer (defense-in-depth), not by application code alone: a query that
 // forgets a predicate still cannot read another tenant's rows, and an absent
-// tenant context fails closed (CLAUDE.md §7 guardrail 1).
+// tenant context fails closed (docs/guardrails.md G7-1).
 //
 // The provider/management plane operates on global tables via the pool directly
 // (no tenant scope); break-glass access to a tenant's data goes through InTenant

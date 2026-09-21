@@ -18,7 +18,7 @@ import (
 // misconfigured fleet cannot grow it without limit. Clean postures are
 // retained too — an inventory that only listed broken certs would hide the
 // fleet. Cross-tenant reads are impossible by construction: every method takes
-// the tenant first and only touches that tenant's partition (CLAUDE.md §7
+// the tenant first and only touches that tenant's partition (docs/guardrails.md
 // guardrail 1).
 type PostureStore struct {
 	mu      sync.Mutex

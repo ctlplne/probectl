@@ -22,7 +22,7 @@ import (
 // therefore absent here — the store never re-derives or back-fills them, and
 // the UI renders absence honestly ("withheld"), never a fabricated value.
 // Tenant partitioning makes cross-tenant reads impossible by construction
-// (CLAUDE.md §7 guardrail 1); both the agent count per tenant and the session
+// (docs/guardrails.md G7-1); both the agent count per tenant and the session
 // targets per agent are bounded (evict-stalest).
 
 // ResultView is the latest observation of one DEM signal type on one endpoint.

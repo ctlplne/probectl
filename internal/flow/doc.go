@@ -14,7 +14,7 @@
 //
 // Design notes:
 //
-//   - All input is untrusted (CLAUDE.md §7 guardrail 12): every decoder is
+//   - All input is untrusted (docs/guardrails.md G7-12): every decoder is
 //     pure, bounds-checked, allocation-capped, and returns errors instead of
 //     panicking. Template state (v9/IPFIX) is TTL'd and size-bounded so a
 //     hostile exporter cannot grow memory without bound.

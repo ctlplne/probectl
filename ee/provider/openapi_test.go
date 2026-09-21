@@ -19,7 +19,7 @@ var providerSpec []byte
 
 // TestProviderOpenAPIMatchesRoutes mirrors the core OpenAPI gate for the
 // provider surface: the route table and the spec must match EXACTLY — no
-// undocumented provider routes, no documented phantoms (CLAUDE.md §6).
+// undocumented provider routes, no documented phantoms (CONTRIBUTING.md).
 func TestProviderOpenAPIMatchesRoutes(t *testing.T) {
 	for _, mismatch := range providerRouteSpecMismatches(providerRouteOps(routes()), providerSpecOps(t)) {
 		t.Error(mismatch)

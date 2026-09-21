@@ -1,2 +1,0 @@
-run_at,git_sha,profile,pg_rows,ch_rows,ch_other_rows,worm_events,postgres_artifact_bytes,clickhouse_artifact_bytes,objectstore_artifact_bytes,artifact_bytes,backup_secs,restore_secs,rpo_seconds,rto_budget_seconds
-2026-07-15T01:37:35Z,1331b664e160,ci-marker,137,251,17,3,2219,7492,20590,30301,1,1,86400,0

@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import type { ReactNode } from 'react'
-import styles from './States.module.css'
+import { cn } from '../lib/cn'
 import { Icon, type IconName } from './Icon'
 
 export function EmptyState({
@@ -26,14 +26,16 @@ export function EmptyState({
   const Heading = headingLevel === 2 ? 'h2' : 'h3'
 
   return (
-    <div className={styles.state}>
-      <span className={styles.glyph}>
+    <div className="flex flex-col items-center justify-center gap-3 rounded-panel border border-dashed border-border px-6 py-10 text-center">
+      <span className="grid size-10 place-items-center rounded-pill bg-muted text-muted-foreground">
         <Icon name={icon} size={24} />
       </span>
-      <Heading className={styles.title}>{title}</Heading>
-      {description ? <p className={styles.description}>{description}</p> : null}
-      {action ? <div className={styles.action}>{action}</div> : null}
-      {preview ? <div className={styles.preview}>{preview}</div> : null}
+      <Heading className="text-title font-semibold text-foreground">{title}</Heading>
+      {description ? (
+        <p className="max-w-prose text-data text-muted-foreground">{description}</p>
+      ) : null}
+      {action ? <div className="pt-1">{action}</div> : null}
+      {preview ? <div className="w-full pt-2">{preview}</div> : null}
     </div>
   )
 }
@@ -52,22 +54,38 @@ export function ErrorState({
   const Heading = headingLevel === 2 ? 'h2' : 'h3'
 
   return (
-    <div className={styles.state} role="alert">
-      <span className={[styles.glyph, styles.danger].join(' ')}>
+    <div
+      className="flex flex-col items-center justify-center gap-3 rounded-panel border border-dashed border-border px-6 py-10 text-center"
+      role="alert"
+    >
+      <span
+        className={cn(
+          'grid size-10 place-items-center rounded-pill bg-muted text-muted-foreground',
+          'bg-destructive/10 text-destructive',
+        )}
+      >
         <Icon name="alert" size={24} />
       </span>
-      <Heading className={styles.title}>{title}</Heading>
-      {description ? <p className={styles.description}>{description}</p> : null}
-      {action ? <div className={styles.action}>{action}</div> : null}
+      <Heading className="text-title font-semibold text-foreground">{title}</Heading>
+      {description ? (
+        <p className="max-w-prose text-data text-muted-foreground">{description}</p>
+      ) : null}
+      {action ? <div className="pt-1">{action}</div> : null}
     </div>
   )
 }
 
 export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   return (
-    <div className={styles.state} aria-busy="true">
-      <span className={styles.spinner} aria-hidden="true" />
-      <p className={styles.description}>{label}</p>
+    <div
+      className="flex flex-col items-center justify-center gap-3 rounded-panel border border-dashed border-border px-6 py-10 text-center"
+      aria-busy="true"
+    >
+      <span
+        className="size-6 animate-spin rounded-pill border-2 border-border border-t-brand-accent [animation-duration:var(--motion-spinner)]"
+        aria-hidden="true"
+      />
+      <p className="max-w-prose text-data text-muted-foreground">{label}</p>
     </div>
   )
 }
@@ -79,5 +97,11 @@ export function Skeleton({
   width?: string | number
   height?: string | number
 }) {
-  return <span className={styles.skeleton} style={{ width, height }} aria-hidden="true" />
+  return (
+    <span
+      className="block animate-pulse rounded-control bg-muted [animation-duration:var(--motion-shimmer)]"
+      style={{ width, height }}
+      aria-hidden="true"
+    />
+  )
 }

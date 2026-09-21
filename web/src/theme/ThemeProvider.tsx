@@ -6,9 +6,9 @@
 
 import { createContext, useCallback, useEffect, useState, type ReactNode } from 'react'
 
-export type ThemeName = 'dark' | 'aurora' | 'ember'
+export type ThemeName = 'light' | 'dark'
 
-const THEMES: ThemeName[] = ['dark', 'aurora', 'ember']
+const THEMES: ThemeName[] = ['light', 'dark']
 const STORAGE_KEY = 'probectl.theme'
 
 export interface ThemeContextValue {
@@ -51,14 +51,20 @@ function readInitial(fallback: ThemeName): ThemeName {
 }
 
 /**
- * ThemeProvider applies the active theme to <html data-theme>, which selects the
- * token set. Deployment-level operator overrides layer onto these tokens with
- * no component changes. The single intentional use of
- * localStorage is the operator's theme preference (CLAUDE.md §7 guardrail 11).
+ * ThemeProvider applies the active theme to <html>, which selects the token set.
+ * It sets BOTH `data-theme` and the `dark` class, deliberately: the tokens accept
+ * either selector, but Tailwind's `dark:` utilities only look at the class, and a
+ * surface styled with one while the other is authoritative is how a theme ends up
+ * half-applied.
+ *
+ * Light is the default operator theme; dark is a fully supported preference.
+ * Deployment-level operator overrides layer onto these tokens with no component
+ * changes. The single intentional use of localStorage is the operator's theme
+ * preference (docs/guardrails.md G7-11).
  */
 export function ThemeProvider({
   children,
-  initialTheme = 'dark',
+  initialTheme = 'light',
 }: {
   children: ReactNode
   initialTheme?: ThemeName
@@ -66,7 +72,9 @@ export function ThemeProvider({
   const [theme, setThemeState] = useState<ThemeName>(() => readInitial(initialTheme))
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
+    const root = document.documentElement
+    root.setAttribute('data-theme', theme)
+    root.classList.toggle('dark', theme === 'dark')
     try {
       browserStorage()?.setItem(STORAGE_KEY, theme)
     } catch {
@@ -75,7 +83,7 @@ export function ThemeProvider({
   }, [theme])
 
   const setTheme = useCallback((t: ThemeName) => setThemeState(t), [])
-  // Cycles the shipped set in order (dark → aurora → ember → dark …).
+  // Cycles the shipped set in order (light → dark → light …).
   const toggleTheme = useCallback(
     () => setThemeState((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]),
     [],

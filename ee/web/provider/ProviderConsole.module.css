@@ -4,14 +4,14 @@
    requires an MSP entitlement and reseller agreement.
 
    The provider console is a VISUALLY-SEPARATE surface from any tenant app
-   (CLAUDE.md §4 frontend): its own shell, a loud domain banner, and no tenant
+   (docs/architecture.md frontend): its own shell, a loud domain banner, and no tenant
    indicator — operators act in the provider privilege domain, never inside a
    tenant. Tokens only (S8a); no hardcoded design values. */
 
 .shell {
   min-height: 100vh;
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
   display: flex;
   flex-direction: column;
 }
@@ -31,15 +31,15 @@
      is layered over the page background instead: same color, no transparency,
      still tokens only. */
   background:
-    linear-gradient(var(--color-warning-soft), var(--color-warning-soft)),
-    var(--color-bg);
-  color: var(--color-text);
-  border-bottom: 1px solid var(--color-warning);
+    linear-gradient(hsl(var(--status-warning) / 0.12), hsl(var(--status-warning) / 0.12)),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+  border-bottom: var(--border-width-thin) solid hsl(var(--status-warning));
   font-size: var(--font-size-sm);
 }
 
 .domainName {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   letter-spacing: var(--tracking-wider);
   font-size: var(--font-size-sm);
   margin: 0;
@@ -89,7 +89,7 @@
 
 .note {
   margin: 0;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -97,12 +97,12 @@
   font-family: var(--font-mono);
   word-break: break-all;
   padding: var(--space-3);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
+  border: var(--border-width-thin) dashed hsl(var(--border));
+  border-radius: var(--radius-panel);
 }
 
 .title {
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-title);
   letter-spacing: var(--tracking-snug);
 }
 
@@ -126,10 +126,10 @@
 .readOnlyNotice {
   margin: 0;
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-panel);
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -142,10 +142,10 @@
   gap: var(--space-2);
   padding: var(--space-2);
   overflow-x: auto;
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-md);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-panel);
+  background: hsl(var(--card));
+  box-shadow: var(--elevation-1);
 }
 
 .taskList {
@@ -164,8 +164,8 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
+  border-radius: var(--radius-panel);
+  color: hsl(var(--foreground));
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   text-decoration: none;
@@ -176,29 +176,29 @@
 .taskLink:focus-visible,
 .exportTask:hover,
 .exportTask:focus-visible {
-  background: var(--color-accent-soft);
-  outline: var(--border-width-thin) solid var(--color-focus);
+  background: hsl(var(--brand-accent) / 0.12);
+  outline: var(--border-width-thin) solid hsl(var(--focus));
   outline-offset: var(--space-1);
 }
 
 .taskRank {
-  color: var(--color-accent);
+  color: hsl(var(--brand-accent));
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-caption);
 }
 
 .taskKey {
   padding: 0 var(--space-1);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  color: hsl(var(--muted-foreground));
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-caption);
 }
 
 .exportTask {
-  border: var(--border-width-thin) solid var(--color-accent);
-  color: var(--color-accent);
+  border: var(--border-width-thin) solid hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent));
 }
 
 .taskSection {
@@ -206,7 +206,7 @@
 }
 
 .taskSection:focus-visible {
-  outline: var(--border-width-strong) solid var(--color-focus);
+  outline: var(--border-width-strong) solid hsl(var(--focus));
   outline-offset: var(--space-2);
 }
 
@@ -216,14 +216,14 @@
   gap: var(--space-2);
   margin-bottom: var(--space-4);
   padding: var(--space-3);
-  border-inline-start: var(--border-width-strong) solid var(--color-warning);
-  border-radius: var(--radius-md);
-  background: var(--color-warning-soft);
-  color: var(--color-text);
+  border-inline-start: var(--border-width-strong) solid hsl(var(--status-warning));
+  border-radius: var(--radius-panel);
+  background: hsl(var(--status-warning) / 0.12);
+  color: hsl(var(--foreground));
 }
 
 .exceptionReceipt a {
-  color: var(--color-accent);
+  color: hsl(var(--brand-accent));
   font-weight: var(--font-weight-semibold);
 }
 

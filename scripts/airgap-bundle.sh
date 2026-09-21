@@ -6,7 +6,7 @@
 # digest-pinned, cosign-verified images (docker save), the packaged Helm chart,
 # signed release binaries/packages + their signatures, and the offline install
 # docs.
-# Makes the CLAUDE.md §4 "air-gapped bundle" claim true.
+# Makes the docs/architecture.md "air-gapped bundle" claim true.
 #
 #   VERSION=0.6.0 DIST=dist ./scripts/airgap-bundle.sh
 set -euo pipefail

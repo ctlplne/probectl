@@ -19,7 +19,7 @@ function fmtLoss(loss: number, locale: string) {
 }
 
 /**
- * PathGraph renders a merged multi-path traceroute as an interactive, dark-native
+ * PathGraph renders a merged multi-path traceroute as an interactive, themed
  * SVG: TTL columns, stable ECMP branch identities, inline loss/latency/MPLS,
  * links colored by loss, focus tooltips, and keyboard-operable selection. Dense
  * paths deliberately summarize only the SVG; PathHopTable keeps every exact row.

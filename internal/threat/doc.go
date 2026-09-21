@@ -16,7 +16,7 @@
 // untrusted-chain, builds a trustctl renewal handoff, and emits threat-plane
 // incident signals (feeding the unified timeline + alerting, S16/S17).
 //
-// Threat detections here are SIGNALS, not an IPS (CLAUDE.md §7 guardrail 9):
+// Threat detections here are SIGNALS, not an IPS (docs/guardrails.md G7-9):
 // confidence-scored, surfaced, and exportable — probectl does not block traffic.
 // Malicious-cert / JA3 threat-intel correlation is deferred (S28/S42).
 package threat

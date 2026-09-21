@@ -12,45 +12,45 @@
 }
 
 .grid {
-  stroke: var(--color-border);
+  stroke: hsl(var(--border));
   stroke-width: var(--border-width-thin);
 }
 
 .gridLabel,
 .axisLabel {
-  fill: var(--color-text-muted);
+  fill: hsl(var(--muted-foreground));
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-caption);
 }
 
 .meanLine {
   fill: none;
-  stroke: var(--color-chart-1);
-  stroke-width: var(--border-width-thick);
+  stroke: hsl(var(--chart-1));
+  stroke-width: var(--border-width-strong);
   opacity: 0.7;
 }
 
 .dot circle {
   cursor: pointer;
-  stroke: var(--color-bg);
+  stroke: hsl(var(--background));
   stroke-width: var(--border-width-thin);
 }
 
 .dot.ok circle {
-  fill: var(--color-ok);
+  fill: hsl(var(--status-success));
 }
 
 .dot.warning circle {
-  fill: var(--color-warning);
+  fill: hsl(var(--status-warning));
 }
 
 .dot.danger circle {
-  fill: var(--color-danger);
+  fill: hsl(var(--destructive));
 }
 
 .dot.selected circle {
-  stroke: var(--color-accent);
-  stroke-width: var(--border-width-thick);
+  stroke: hsl(var(--brand-accent));
+  stroke-width: var(--border-width-strong);
 }
 
 .dot:focus-visible {
@@ -58,6 +58,6 @@
 }
 
 .dot:focus-visible circle {
-  stroke: var(--color-focus);
-  stroke-width: var(--border-width-thick);
+  stroke: hsl(var(--focus));
+  stroke-width: var(--border-width-strong);
 }

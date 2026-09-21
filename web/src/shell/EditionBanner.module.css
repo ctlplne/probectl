@@ -8,13 +8,13 @@
   justify-content: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
-  color: var(--color-text);
-  background: var(--color-warning-soft);
-  border-block-end: var(--border-width-thin) solid var(--color-warning);
+  color: hsl(var(--foreground));
+  background: hsl(var(--status-warning) / 0.12);
+  border-block-end: var(--border-width-thin) solid hsl(var(--status-warning));
   font-size: var(--font-size-sm);
 }
 
 .readOnly {
-  background: var(--color-danger-soft);
-  border-block-end-color: var(--color-danger);
+  background: hsl(var(--destructive) / 0.12);
+  border-block-end-color: hsl(var(--destructive));
 }

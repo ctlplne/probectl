@@ -100,7 +100,7 @@ export function TopBar({
           aria-label={`Switch theme (current: ${theme})`}
           onClick={toggleTheme}
         >
-          <Icon name={theme === 'aurora' ? 'moon' : 'sun'} />
+          <Icon name={theme === 'light' ? 'moon' : 'sun'} />
         </Button>
         <div className={styles.account} ref={accountRef}>
           <button

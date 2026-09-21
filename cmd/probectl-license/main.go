@@ -7,7 +7,7 @@
 // Command probectl-license is the issuer-side license tool (S-T0): generate
 // signing keypairs, sign license files, and verify/inspect them. The private
 // key is the founder's crown jewel — it lives OFFLINE, never in the repo,
-// never on a server (CLAUDE.md §7 guardrail 6). Verification inside the
+// never on a server (docs/guardrails.md G7-6). Verification inside the
 // product uses only the build-time-baked public keys.
 //
 // Usage:

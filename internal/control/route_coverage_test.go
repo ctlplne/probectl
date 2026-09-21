@@ -116,7 +116,7 @@ func TestNonV1SurfacesDocumentedOrExcluded(t *testing.T) {
 		"/ingest/changes/", // signed CI/CD change webhooks (HMAC; docs/change.md)
 		"/ingest/itsm/",    // signed ITSM webhooks (HMAC; docs/change.md)
 		// ARCH-006: the provider/management plane is a separate privilege domain
-		// (CLAUDE.md §3), mounted method-less as a sub-router and documented in
+		// (docs/architecture.md), mounted method-less as a sub-router and documented in
 		// ee/provider/openapi.json — not in the tenant-facing spec.
 		"/provider/",
 	}

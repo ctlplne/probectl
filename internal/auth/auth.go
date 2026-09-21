@@ -7,7 +7,7 @@
 // Package auth is probectl's identity + access foundation (S18, F22): OIDC SSO,
 // server-side sessions, and RBAC enforcement over the S2 role model.
 //
-// The two-level boundary (CLAUDE.md §7 guardrails 1, 5): a request resolves to
+// The two-level boundary (docs/guardrails.md G7-1, 5): a request resolves to
 // exactly one tenant FIRST (the outermost security boundary), THEN RBAC decides
 // whether the caller may perform the route's action within that tenant. A login
 // resolves to a single tenant; provider operators are a separate privilege domain

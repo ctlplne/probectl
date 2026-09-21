@@ -10,7 +10,7 @@ A *VRP* (Validated ROA Payload) is ``(prefix, max_length, asn)``. The analyzer
 loads VRPs from a validator export (the ``rpki-client`` / Routinator JSON
 format) and checks each announcement offline — the "run a validator, check
 ROAs" of S14, with the network fetch kept optional so a down validator degrades
-to ``unknown`` rather than breaking analysis (CLAUDE.md §7 guardrail 10).
+to ``unknown`` rather than breaking analysis (docs/guardrails.md G7-10).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 # DPR-055: a real validator export is ~100 MB / 600k ROAs today. It is streamed,
 # never materialized, and bounded so a hostile or runaway source cannot exhaust
 # the sidecar; a run that hits the bound degrades to RPKI unknown like any other
-# fetch failure (CLAUDE.md §7 guardrail 10).
+# fetch failure (docs/guardrails.md G7-10).
 MAX_VRP_BYTES = 1 << 30
 _STREAM_CHUNK = 1 << 16
 _HEADER_LIMIT = 1 << 20  # metadata before the "roas" array must fit here

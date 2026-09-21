@@ -8,5 +8,5 @@
 // the PostgreSQL connection pool (store.DB) and the readiness Pinger; the
 // migration runner lives in the migrate subpackage. Tenant-scoped repositories
 // (Postgres RLS / predicate scoping), ClickHouse, TSDB, graph, and object-store
-// adapters land in S2 and beyond (CLAUDE.md §5).
+// adapters land in S2 and beyond (docs/repository-layout.md).
 package store

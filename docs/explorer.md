@@ -10,7 +10,7 @@ the table underneath always shows exact values even when a visual summary is sel
 ELI5: a recipe is a pre-filled worksheet, not a magic AI prompt. Choosing “Which SLO error
 budgets are burning?” fills in `source=slo`, the SLO dimensions, burn measures, and a bar view.
 Running it asks the existing SLO engine for the authenticated tenant's rows. The same pattern
-covers the ten canonical operator questions in `docs/ux/teardown.md`.
+covers the ten canonical operator questions an operator arrives with.
 
 ## Query contract
 

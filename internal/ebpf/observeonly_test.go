@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-// TestBPFProgramsAreObserveOnly enforces CLAUDE.md §7 guardrail 8: the eBPF
+// TestBPFProgramsAreObserveOnly enforces docs/guardrails.md G7-8: the eBPF
 // programs may attach only observation hooks and must call no traffic-altering /
 // enforcing helper. It parses the C sources, so it runs in the default build —
 // no kernel, no clang, no -tags ebpf required — and fails the build if a future
@@ -77,7 +77,7 @@ func TestBPFProgramsAreObserveOnly(t *testing.T) {
 
 		for _, h := range forbidden {
 			if regexp.MustCompile(`\b` + regexp.QuoteMeta(h) + `\s*\(`).MatchString(text) {
-				t.Errorf("%s: calls enforcing helper %q — eBPF must be observe-only (CLAUDE.md §7.8)", file, h)
+				t.Errorf("%s: calls enforcing helper %q — eBPF must be observe-only (docs/guardrails.md G7-8)", file, h)
 			}
 		}
 	}

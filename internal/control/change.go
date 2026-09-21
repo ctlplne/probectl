@@ -37,7 +37,7 @@ const changeWebhookMaxBody = 1 << 20
 // verified body is normalized and persisted under the CREDENTIAL's tenant — never
 // the (untrusted) payload's. An unsigned or forged delivery is rejected before any
 // normalization or RCA exposure, so a forged change event can never reach the RCA
-// and one tenant cannot inject another tenant's changes (CLAUDE.md §7 guardrail 12).
+// and one tenant cannot inject another tenant's changes (docs/guardrails.md G7-12).
 func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) error {
 	provider := r.PathValue("provider")
 	id := r.PathValue("id")

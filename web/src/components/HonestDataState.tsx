@@ -9,7 +9,6 @@ import type { HonestDataStateKind } from '../data/classifySurfaceTruth'
 import { Badge, type BadgeTone } from './Badge'
 import { Icon, type IconName } from './Icon'
 import { SampleTourLink } from '../demo/SampleTourLink'
-import styles from './HonestDataState.module.css'
 
 /** Cold states where offering the isolated sample tour helps a fresh install;
  * denied/degraded surfaces must not suggest fiction as a next step, and the
@@ -95,16 +94,21 @@ export function HonestDataState({
 
   return (
     <section
-      className={styles.state}
+      className="flex flex-col items-center gap-3 rounded-panel border border-dashed border-border bg-muted/40 px-6 py-8 text-center"
       data-data-state={state}
       aria-live={state === 'degraded' || state === 'permission-denied' ? 'assertive' : 'polite'}
     >
-      <span className={styles.glyph} aria-hidden="true">
+      <span
+        className="grid size-10 place-items-center rounded-pill bg-card text-muted-foreground shadow-elevation1"
+        aria-hidden="true"
+      >
         <Icon name={icon ?? presentation.icon} size={24} />
       </span>
-      <Heading className={styles.title}>{title ?? presentation.title}</Heading>
+      <Heading className="text-title font-semibold text-foreground">
+        {title ?? presentation.title}
+      </Heading>
       <Badge tone={presentation.tone}>{presentation.badge}</Badge>
-      <dl className={styles.facts}>
+      <dl className="grid w-full max-w-2xl gap-2 text-left text-caption [&_dd]:text-muted-foreground [&_dt]:font-semibold [&_dt]:uppercase [&_dt]:tracking-wide [&_dt]:text-muted-foreground [&>div]:grid [&>div]:gap-0.5">
         <div>
           <dt>Producer readiness</dt>
           <dd>
@@ -126,7 +130,7 @@ export function HonestDataState({
           <dd>{coverageLimitation}</dd>
         </div>
       </dl>
-      <div className={styles.action} data-authorized-next-action>
+      <div className="pt-1" data-authorized-next-action>
         {action}
       </div>
       {SAMPLE_TOUR_STATES.has(state) ? <SampleTourLink /> : null}

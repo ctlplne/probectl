@@ -72,7 +72,7 @@ func permit(p *Principal, permission string, policies []Policy, resource map[str
 // ResourceTenantKey is the resource-attribute key carrying the tenant a resource
 // belongs to. Authorize compares it against the principal's tenant so a request
 // can never be authorized against another tenant's resource (defense-in-depth
-// ABOVE the storage-layer RLS, per CLAUDE.md guardrail 1 — "tenant first, then
+// ABOVE the storage-layer RLS, per docs/guardrails.md G7-1 — "tenant first, then
 // RBAC"). When the key is absent the resource is tenant-agnostic (no boundary
 // check applies; RBAC/ABAC still do).
 const ResourceTenantKey = "tenant"

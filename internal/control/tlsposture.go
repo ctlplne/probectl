@@ -20,7 +20,7 @@ import (
 // TLS/cert posture inventory API (S-FE2): the read side of S27. The inventory
 // is the posture store the TLS consumer maintains from the result stream —
 // the handler only serves the CALLER's tenant partition (tenant first, then
-// the threat.read RBAC check on the route — CLAUDE.md §7 guardrails 1, 5).
+// the threat.read RBAC check on the route — docs/guardrails.md G7-1, 5).
 
 // WithTLSPosture attaches the posture inventory backing GET /v1/tls/posture.
 // nil is a no-op (the endpoint reports collector_running=false). Returns the

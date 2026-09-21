@@ -18,7 +18,7 @@ import (
 )
 
 // BusEmitter publishes FlowBatches to probectl.flow.events, tenant-keyed
-// (pooled tenant-tagging, CLAUDE.md §6), mirroring the eBPF/endpoint emitters.
+// (pooled tenant-tagging, CONTRIBUTING.md), mirroring the eBPF/endpoint emitters.
 type BusEmitter struct {
 	bus       bus.Bus
 	tenant    string

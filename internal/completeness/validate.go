@@ -2109,8 +2109,8 @@ func validateFileLocation(cell, payload string) error {
 			return fmt.Errorf("non-REST API evidence %q must be a Go file with statically checked dispatch", relative)
 		}
 	case "docs":
-		if !hasPrefix("docs/") && relative != "probectl-PRD-v1.0.md" && relative != "probectl-PRD-v1.1.md" {
-			return fmt.Errorf("documentation evidence %q must live under docs/ or be a current PRD", relative)
+		if !hasPrefix("docs/") {
+			return fmt.Errorf("documentation evidence %q must live under docs/", relative)
 		}
 	case "telemetry":
 		if !hasPrefix("internal/", "ee/") {

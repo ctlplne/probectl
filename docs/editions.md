@@ -89,8 +89,8 @@ entitlement tiers riding the same core binary.
 MSPs resell under the **probectl banner**. Per-tenant and provider-master
 rebranding (historical F54) is removed by design and is not an edition feature:
 there is no license entitlement, provider-console card, mutable API, custom
-domain mapping, logo replacement, or email identity override. The native dark
-and aurora themes remain, and every deployment may set one validated,
+domain mapping, logo replacement, or email identity override. The native light
+and dark themes remain, and every deployment may set one validated,
 deployment-wide design-token override through `PROBECTL_THEME_OVERRIDES`.
 That theming mechanism is core and changes presentation tokens only; it cannot
 replace the probectl product name or create tenant-specific presentation.

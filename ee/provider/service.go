@@ -27,7 +27,7 @@ import (
 
 // AuditSink receives provider-plane audit events. The production sink wraps
 // audit.ProviderAppend (the separate, equally tamper-evident provider stream —
-// CLAUDE.md §7 guardrail 7); tests capture events in memory.
+// docs/guardrails.md G7-7); tests capture events in memory.
 type AuditSink interface {
 	Append(ctx context.Context, actor, action, target string, data map[string]any) error
 	AppendBreakGlass(

@@ -9,10 +9,10 @@
 // anomaly baselines. Two implementations share one contract: Memory (default,
 // lightweight mode and tests) and ClickHouse (high-volume production), reached
 // over the ClickHouse HTTP interface like pathstore — TLS in transit via an
-// https URL (CLAUDE.md §7 guardrail 12).
+// https URL (docs/guardrails.md G7-12).
 //
 // Tenancy: every row carries tenant_id; it leads the ClickHouse partition AND
-// ORDER BY, and every query is tenant-scoped before anything else (CLAUDE.md
+// ORDER BY, and every query is tenant-scoped before anything else (docs/guardrails.md
 // §6 — never a data path that can return cross-tenant rows).
 package flowstore
 

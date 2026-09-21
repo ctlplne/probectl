@@ -8,7 +8,7 @@
 
 A ``BGPEvent`` is a routing-security *signal* (not ground truth): every event
 carries a confidence and a severity and is tunable/suppressible downstream
-(CLAUDE.md §7 guardrail 9). The JSON form (snake_case keys, lowercase enum
+(docs/guardrails.md G7-9). The JSON form (snake_case keys, lowercase enum
 values) is the analyzer↔control-plane contract that ``internal/bgp`` translates
 into the canonical ``probectl.bgp.v1.BGPEvent`` protobuf bus message.
 """

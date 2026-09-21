@@ -12,7 +12,7 @@
 // outermost scope — F50), and publish the canonical probectl.bgp.v1.BGPEvent
 // protobuf keyed by tenant plus collector/peer entropy so large tenant route
 // storms spread across tenant-preserving bus buckets. Detections are signals,
-// not actions (CLAUDE.md §7 guardrail 9): this package transports them, it does
+// not actions (docs/guardrails.md G7-9): this package transports them, it does
 // not act on routing.
 package bgp
 
@@ -33,7 +33,7 @@ import (
 )
 
 // maxEventLine bounds a single JSONL record (defensive: collector-derived input
-// is untrusted — CLAUDE.md §7 guardrail 10).
+// is untrusted — docs/guardrails.md G7-10).
 const maxEventLine = 1 << 20
 
 // Publisher is the subset of the bus the bridge needs.

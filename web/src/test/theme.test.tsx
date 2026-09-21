@@ -32,13 +32,13 @@ function colorTokensFor(css: string, selector: string): Set<string> {
   // Grab the declaration block whose selector list contains `selector`.
   const re = new RegExp(`([^}]*${escapeForRegExp(selector)}[^{]*)\\{([^}]*)\\}`)
   const block = re.exec(css)?.[2] ?? ''
-  const names = block.match(/--color-[a-z0-9-]+/g) ?? []
+  const names = block.match(/--[a-z0-9-]+/g) ?? []
   return new Set(names)
 }
 
 describe('deployment theming', () => {
   test('reads and writes the browser-scoped theme preference', () => {
-    const getItem = vi.fn(() => 'ember')
+    const getItem = vi.fn(() => 'dark')
     const setItem = vi.fn()
     const original = Object.getOwnPropertyDescriptor(window, 'localStorage')
     Object.defineProperty(window, 'localStorage', {
@@ -49,14 +49,14 @@ describe('deployment theming', () => {
 
     try {
       render(
-        <ThemeProvider initialTheme="dark">
+        <ThemeProvider initialTheme="light">
           <Probe />
         </ThemeProvider>,
       )
 
-      expect(screen.getByRole('button')).toHaveTextContent('theme:ember')
+      expect(screen.getByRole('button')).toHaveTextContent('theme:dark')
       expect(getItem).toHaveBeenCalledWith('probectl.theme')
-      expect(setItem).toHaveBeenCalledWith('probectl.theme', 'ember')
+      expect(setItem).toHaveBeenCalledWith('probectl.theme', 'dark')
     } finally {
       if (original) Object.defineProperty(window, 'localStorage', original)
       else Reflect.deleteProperty(window, 'localStorage')
@@ -92,23 +92,26 @@ describe('deployment theming', () => {
   test('toggling theme swaps the active token set on <html>', async () => {
     const user = userEvent.setup()
     render(
-      <ThemeProvider initialTheme="dark">
+      <ThemeProvider initialTheme="light">
         <Probe />
       </ThemeProvider>,
     )
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
     await user.click(screen.getByRole('button'))
-    expect(document.documentElement.getAttribute('data-theme')).toBe('aurora')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    // Tailwind's dark: utilities key off the CLASS, so the attribute alone
+    // would leave every utility-styled surface in its light form.
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
-  test('every theme defines the same color tokens, so a swap re-themes the whole UI', () => {
+  test('both themes define the same tokens, so a swap re-themes the whole UI', () => {
     const css = readFileSync(join(process.cwd(), 'src/styles/tokens.css'), 'utf8')
+    // Light is :root (the default operator theme); dark overrides it.
+    const light = colorTokensFor(css, 'color-scheme: light')
     const dark = colorTokensFor(css, "[data-theme='dark']")
-    const aurora = colorTokensFor(css, "[data-theme='aurora']")
-    const ember = colorTokensFor(css, "[data-theme='ember']")
 
-    expect(dark.size).toBeGreaterThan(10)
-    expect([...aurora].sort()).toEqual([...dark].sort())
-    expect([...ember].sort()).toEqual([...dark].sort())
+    expect(light.size).toBeGreaterThan(30)
+    expect([...dark].sort()).toEqual([...light].sort())
   })
 })

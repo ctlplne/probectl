@@ -29,7 +29,7 @@ func chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler 
 }
 
 // contentSecurityPolicy is the strict policy set on every response (U-023,
-// CLAUDE.md §7 guardrail 12). The UI bundle is fully same-origin (external
+// docs/guardrails.md G7-12). The UI bundle is fully same-origin (external
 // Vite-built JS/CSS, CSS modules, hand-rolled SVG viz, fetch to /v1 — no
 // inline <script>/<style>, no third-party origins, sovereignty guardrail 11),
 // so nothing needs 'unsafe-inline' or a nonce. img-src allows data: URIs
@@ -51,7 +51,7 @@ const permissionsPolicy = "accelerometer=(), autoplay=(), camera=(), " +
 
 // securityHeaders sets baseline response headers. HSTS is set now (honored by
 // browsers only over HTTPS) so the posture is correct once TLS terminates at the
-// ingress / lands in S3 (CLAUDE.md §7 guardrail 12). CSP + X-Frame-Options
+// ingress / lands in S3 (docs/guardrails.md G7-12). CSP + X-Frame-Options
 // apply to every UI/API response (U-023).
 func securityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 	var hsts string
@@ -121,7 +121,7 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 }
 
 // recoverer turns a panic in any inner handler into a 500 (never crash a
-// production path — CLAUDE.md §6).
+// production path — CONTRIBUTING.md).
 func recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {

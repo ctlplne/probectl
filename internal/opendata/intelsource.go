@@ -24,7 +24,7 @@ const KindThreatIntel Kind = "threat_intel"
 // ThreatIntelSource is a threat-intel feed adapter (S28): it fetches a public feed
 // and normalizes it into IOCs, with per-source AUP / provenance. SEVERAL feeds
 // restrict commercial redistribution — tracked in the Descriptor's AUP (relevant
-// to MSP resale, NOT to single-tenant OSS use — CLAUDE.md §2/§10).
+// to MSP resale, NOT to single-tenant OSS use — docs/editions.md/§10).
 type ThreatIntelSource interface {
 	Descriptor() Descriptor
 	Fetch(ctx context.Context) ([]IOC, error)

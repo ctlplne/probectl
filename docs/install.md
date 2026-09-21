@@ -29,7 +29,11 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
   both `certgen` and `control`. If GHCR returns `401 Unauthorized`, log in first
   with a token that has `read:packages`, or point `PROBECTL_IMAGE` at an
   internally mirrored digest. A tag-only local/mirror ref is allowed only with
-  `PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable`. The compose preflight
+  `PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable`. Be aware of what the
+  mutable tags point at today: probectl is pre-1.0, so
+  `ghcr.io/ctlplne/probectl-*:latest` resolves to a **pre-release** build, and will
+  only track a stable release once one exists. That is why the digest pin above is
+  the default rather than a recommendation. The compose preflight
   below checks this before the stack starts, so a mutable or private registry
   failure stops with exact repair commands instead of halfway through first boot:
 

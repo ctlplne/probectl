@@ -10,7 +10,7 @@ It yields one :class:`BGPRoute` at a time and never materializes a full RIB in
 memory (S14 watch-out: MRT dumps are large — stream, don't load). Only the record
 types probectl needs are decoded — TABLE_DUMP_V2 RIB (IPv4/IPv6) and BGP4MP UPDATE
 messages — and every read is bounds-checked because collector data is untrusted
-(CLAUDE.md §7 guardrail 10). A malformed record is logged and skipped rather than
+(docs/guardrails.md G7-10). A malformed record is logged and skipped rather than
 aborting the whole stream.
 """
 

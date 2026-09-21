@@ -235,7 +235,7 @@ func (svc *service) StreamConfig(_ *agentv1.StreamConfigRequest, _ grpc.ServerSt
 // StreamResults accepts a stream of results, publishes each to the result bus,
 // and acknowledges the count. The result's tenant + agent are taken from the
 // verified certificate (never the payload), so a result is always attributed to
-// the sending agent's tenant (CLAUDE.md §7 guardrails 1 and 5).
+// the sending agent's tenant (docs/guardrails.md G7-1 and G7-5).
 func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.StreamResultsRequest, agentv1.StreamResultsResponse]) error {
 	id, err := identityFromContext(stream.Context())
 	if err != nil {
@@ -375,7 +375,7 @@ func deterministicResultID(r *resultv1.Result) string {
 
 // PollCoordination returns the next brokered agent-to-agent task for the calling
 // agent. The tenant and agent are taken from the verified certificate, so an
-// agent can only ever receive its own tasks (CLAUDE.md §7 guardrails 1 and 5).
+// agent can only ever receive its own tasks (docs/guardrails.md G7-1 and G7-5).
 func (svc *service) PollCoordination(ctx context.Context, _ *agentv1.PollCoordinationRequest) (*agentv1.PollCoordinationResponse, error) {
 	id, err := identityFromContext(ctx)
 	if err != nil {

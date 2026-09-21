@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 // Package metrics is probectl's self-observability surface (OPS-005): a
-// tiny, dependency-FREE Prometheus text-exposition registry (CLAUDE.md §9 —
+// tiny, dependency-FREE Prometheus text-exposition registry (CONTRIBUTING.md —
 // no new dependency for this). "probectl observes probectl" (§8): the control
 // plane and collector binaries expose their OWN operational health here, never
 // tenant data. Every series is a process/aggregate counter or gauge, so

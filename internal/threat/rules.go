@@ -13,7 +13,7 @@ package threat
 // thresholds, confidence, severity, and suppression are all rule fields
 // because FALSE-POSITIVE MANAGEMENT IS THE PRODUCT (the S42 watch-out).
 // Rules only ever produce signals; there is no action/block field by design
-// (CLAUDE.md §7 guardrail 9).
+// (docs/guardrails.md G7-9).
 
 import (
 	"embed"

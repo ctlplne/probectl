@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# OpenAPI completeness gate (S19, F23 / CLAUDE.md §6, §8): no undocumented routes
+# OpenAPI completeness gate (S19, F23 / CONTRIBUTING.md): no undocumented routes
 # may ship at a GA milestone. This gate:
 #   1. validates internal/control/openapi.json is well-formed JSON,
 #   2. checks it is an OpenAPI 3.1 document with a non-empty paths object,

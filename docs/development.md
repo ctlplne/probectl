@@ -195,8 +195,8 @@ machine, use `make web-rendered-a11y` from the repo root instead; it runs the
 same digest-pinned Playwright container as CI's `web-rendered-a11y` job and does
 not require a local browser install. `PROBECTL_PLAYWRIGHT_IMAGE` overrides the
 image for mirrored or air-gapped environments. `PROBECTL_A11Y_THEMES` overrides
-the theme matrix (default `dark,aurora`; e.g. `dark,aurora,ember` to sweep the
-third theme locally or in a scheduled job). The container wrapper validates and
+the theme matrix (default `light,dark`, which is the whole shipped matrix; e.g.
+`dark` alone to narrow a local run). The container wrapper validates and
 forwards the same value to the browser process; unknown or empty theme names
 fail closed before Docker starts.
 

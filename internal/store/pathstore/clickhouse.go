@@ -29,7 +29,7 @@ import (
 )
 
 // (tenant_id, day) is the partition key (Sprint 16, SCALE-006 — the flowstore
-// pattern): a tenant's path data is physically separated (CLAUDE.md §4) AND
+// pattern): a tenant's path data is physically separated (docs/architecture.md) AND
 // the retention TTL drops whole day-parts cheaply instead of mutating rows.
 // tenant_id leads every ORDER BY so tenant-scoped reads prune by it.
 const (
@@ -152,7 +152,7 @@ func qualify(t Target, table string) (string, error) {
 }
 
 // ClickHouse persists paths to a ClickHouse HTTP endpoint. TLS in transit is
-// supported by using an https URL (CLAUDE.md §7 guardrail 12).
+// supported by using an https URL (docs/guardrails.md G7-12).
 type ClickHouse struct {
 	base   string
 	conn   *chclient.Conn // shared transport (TLS client + breaker), CODE-006

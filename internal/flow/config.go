@@ -81,7 +81,7 @@ type Config struct {
 	BatchSize     int           `yaml:"batch_size"`
 	FlushInterval time.Duration `yaml:"flush_interval"`
 
-	// Template state bounds (v9/IPFIX; untrusted input — CLAUDE.md §7).
+	// Template state bounds (v9/IPFIX; untrusted input — docs/guardrails.md).
 	TemplateTTL  time.Duration `yaml:"template_ttl"`
 	MaxTemplates int           `yaml:"max_templates"`
 

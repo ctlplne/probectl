@@ -23,7 +23,7 @@ artifacts — not one shared consumer with twenty scoped outputs.
   configuration without `tenant_id`. The tenant binding is the process
   boundary itself.
 - The open-data/threat plane genuinely does ingest once and scope per tenant
-  (`internal/opendata`); the old blanket sentence in CLAUDE.md §3 extended
+  (`internal/opendata`); the old blanket sentence in docs/architecture.md extended
   that claim to every external feed, which the BGP plane never implemented.
 - This is the one plane whose data is entirely external, so the ingestion
   model is a real resource-scaling question for MSP deployments.
@@ -67,7 +67,7 @@ fail-closed no-tenant behavior.
 
 ## Consequences
 
-- The proto file comment, CLAUDE.md §3, `docs/architecture.md`'s diagram edge
+- The proto file comment, docs/architecture.md, `docs/architecture.md`'s diagram edge
   and `docs/bgp.md` now state per-tenant ingestion; the claim register binds
   the ingestion-model phrasing so contract text and code cannot drift apart
   silently again.

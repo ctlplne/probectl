@@ -7,13 +7,13 @@
 // Package ebpfstore persists eBPF host/L7 flow + service-edge AGGREGATES
 // (ARCH-008) and serves their tenant-scoped queries. Until now the eBPF plane —
 // probectl's differentiator — built only an in-RAM service map that vanished on
-// restart and had no history; CLAUDE.md's "ClickHouse (… eBPF …)" claim was
+// restart and had no history; the "ClickHouse (… eBPF …)" architecture claim was
 // therefore not true. This store makes it true: two implementations share one
 // contract — Memory (lightweight mode + tests) and ClickHouse (high-volume
 // production over the HTTP interface, like flowstore/otelstore).
 //
 // Tenancy: every row carries tenant_id; it leads the ClickHouse partition AND
-// ORDER BY, every query is tenant-scoped first (CLAUDE.md §6/§7.1), and
+// ORDER BY, every query is tenant-scoped first (CONTRIBUTING.md/§7.1), and
 // DeleteTenant is the verifiable-erasure hook (S-T5). Rows are dedup-keyed
 // (ReplacingMergeTree) like the flow store (CORRECT-002 discipline).
 package ebpfstore

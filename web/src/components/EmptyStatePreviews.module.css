@@ -2,10 +2,10 @@
 .metrics,
 .graph {
   width: 100%;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-sm);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
+  box-shadow: var(--elevation-1);
 }
 
 .panel {
@@ -21,16 +21,16 @@
   gap: var(--space-2);
   min-height: 28px;
   padding: var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  border-radius: var(--radius-control);
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
   text-align: start;
 }
 
 .row strong {
   overflow: hidden;
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -43,11 +43,11 @@
 }
 
 .dotSuccess {
-  background: var(--color-success);
+  background: hsl(var(--status-success));
 }
 
 .dotInfo {
-  background: var(--color-info);
+  background: hsl(var(--status-info));
 }
 
 .graph {
@@ -61,11 +61,11 @@
 .nodeAccent {
   min-width: 0;
   padding: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: var(--font-size-xs);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: var(--font-size-caption);
   font-weight: 650;
   text-align: center;
   text-overflow: ellipsis;
@@ -74,14 +74,14 @@
 }
 
 .nodeAccent {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  border-color: hsl(var(--brand-accent));
+  background: hsl(var(--brand-accent) / 0.12);
+  color: hsl(var(--brand-accent));
 }
 
 .edge {
   height: 2px;
-  background: var(--color-border-strong);
+  background: hsl(var(--border));
 }
 
 .metrics {
@@ -94,8 +94,8 @@
 .metrics span {
   min-width: 0;
   padding: var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
+  border-radius: var(--radius-control);
+  background: hsl(var(--card));
   text-align: start;
 }
 
@@ -108,13 +108,13 @@
 }
 
 .metrics strong {
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   font-size: var(--font-size-sm);
 }
 
 .metrics small {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
 }
 
 @media (max-width: 520px) {

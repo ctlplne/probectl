@@ -49,7 +49,7 @@ type templateKey struct {
 // templateCache holds v9/IPFIX templates per (exporter, observation domain,
 // template ID) with a TTL and a hard size cap: templates come from untrusted
 // datagrams, so an exporter must not be able to grow collector memory without
-// bound (CLAUDE.md §7 guardrail 12). Exceeding the cap evicts the oldest entry.
+// bound (docs/guardrails.md G7-12). Exceeding the cap evicts the oldest entry.
 type templateCache struct {
 	mu  sync.Mutex
 	ttl time.Duration

@@ -169,7 +169,7 @@ tree is refused before any artifact is built.
    nothing silently recommends an incomplete build to a `docker pull` without a
    tag. The first tag outside 0.x is refused until the ledger reaches 100%, and
    any *other* failure of that gate — an invalid registry, a broken toolchain —
-   refuses every tag including 0.x. See `docs/quality/completeness.md`.
+   refuses every tag including 0.x. See `capabilities.yaml`.
 
 ## Provenance & supply chain
 

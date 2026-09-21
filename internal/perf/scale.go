@@ -11,7 +11,7 @@ package perf
 // multi-tenant NOISY-NEIGHBOR scenario (one tenant flooding must not bleed
 // into another tenant's experience — F57, the M14 milestone line).
 //
-// ⚠ The numeric SLO targets are PROVISIONAL / UNVERIFIED (SCALE-004). CLAUDE.md
+// ⚠ The numeric SLO targets are PROVISIONAL / UNVERIFIED (SCALE-004). docs/architecture.md
 // §2 lists numeric SLO targets as a human-owned open decision: these values are
 // engineering estimates recorded so the gate is runnable end to end. They become
 // VERIFIED only when a full L/XL/XXL run on reference hardware is recorded in

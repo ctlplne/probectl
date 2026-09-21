@@ -22,7 +22,7 @@ import (
 )
 
 // Cloud secret-manager backends (S41). All three speak plain HTTPS with
-// stdlib-only auth — no cloud SDK dependencies (CLAUDE.md §9: new external
+// stdlib-only auth — no cloud SDK dependencies (CONTRIBUTING.md: new external
 // dependencies need sign-off; none are needed here). Crypto primitives stay
 // inside internal/crypto (guardrail 3): SigV4's HMAC chain uses the provider's
 // Sign, hashes use Hash, and the GCP service-account JWT is signed by

@@ -312,7 +312,7 @@ func (a *Agent) Run(ctx context.Context) error {
 // The agent is bound to exactly one tenant (its enrolled deployment identity),
 // so a source-asserted FOREIGN tenant — a bad fixture, a corrupt recording —
 // is REFUSED, never forwarded and never silently rewritten: the flow is
-// dropped with an error log (fail closed, CLAUDE.md §7 guardrail 1). The
+// dropped with an error log (fail closed, docs/guardrails.md G7-1). The
 // tenant-verifying pipeline consumer re-checks downstream regardless.
 func (a *Agent) observe(f Flow) {
 	if f.TenantID != "" && f.TenantID != a.cfg.TenantID {

@@ -23,7 +23,7 @@ import (
 const (
 	maxSemanticArtifactBytes = 4 << 20
 	maxScreenshotBytes       = 32 << 20
-	reviewProtocolPath       = "docs/quality/delivery-audit-review-protocols.json"
+	reviewProtocolPath       = "docs/contract/delivery-audit-review-protocols.json"
 )
 
 type deliveryAuditAuthorityRegistry struct {

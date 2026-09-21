@@ -330,7 +330,7 @@ func (c *FlowConsumer) deadLetter(ctx context.Context, msg bus.Message, laneTopi
 
 // enrichRecord fills missing ASN/geo via opendata (S15). Device-asserted AS
 // numbers win (only zero/empty fields are filled); enrichment failures degrade
-// gracefully — a down source never blocks ingest (CLAUDE.md §7 guardrail 10).
+// gracefully — a down source never blocks ingest (docs/guardrails.md G7-10).
 func (c *FlowConsumer) enrichRecord(ctx context.Context, f *flowv1.FlowRecord) {
 	if c.enrich == nil {
 		return

@@ -77,7 +77,7 @@ func (m *Memory) Len() int {
 }
 
 // inWindow snapshots the tenant's rows inside the query window — the tenant
-// filter is applied before anything else (CLAUDE.md §6).
+// filter is applied before anything else (CONTRIBUTING.md).
 func (m *Memory) inWindow(tenant string, from, to time.Time) []Row {
 	m.mu.Lock()
 	defer m.mu.Unlock()

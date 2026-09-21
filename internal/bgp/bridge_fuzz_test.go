@@ -15,7 +15,7 @@ import (
 // FuzzIngest hardens the analyzer→bus boundary, which parses untrusted JSON-Lines.
 // Two invariants must hold for any input: Ingest never panics, and it never
 // publishes an event with an empty tenant key — the fail-closed tenant guarantee
-// (CLAUDE.md §7 guardrail 1) must survive arbitrary/adversarial input.
+// (docs/guardrails.md G7-1) must survive arbitrary/adversarial input.
 func FuzzIngest(f *testing.F) {
 	f.Add([]byte(originChange + "\n"))
 	f.Add([]byte("{ not json\n"))

@@ -98,7 +98,7 @@ gate. It covers tracked `.go`, `.ts`, `.tsx`, and `.py` files outside `ee/`
 and stamps the identifier of the zone each file sits in. The documented
 exclusions are:
 
-- third-party/build trees: any `vendor/`, `dist/`, or `node_modules/` path;
+- third-party/build trees: any vendored, `dist` or `node_modules` directory;
 - Protobuf output: `*.pb.go` / `*.pb.gw.go`;
 - OpenAPI SDK output: `sdk.gen.go` / `sdk.gen.ts`;
 - `bpf2go` output: `*_bpfel.go` / `*_bpfeb.go`.

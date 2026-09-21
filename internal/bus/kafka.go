@@ -23,7 +23,7 @@ import (
 
 // Kafka is a franz-go-backed Bus (pure Go, CGO-free). TLS in transit is supported
 // by passing kgo.DialTLSConfig through extra options (default-on in regulated
-// deploy profiles; the dev stack is plaintext). CLAUDE.md §7 guardrail 12.
+// deploy profiles; the dev stack is plaintext). docs/guardrails.md G7-12.
 //
 // Publishing is ASYNC and BATCHED (U-004): records enter a BOUNDED in-flight
 // buffer (DefaultMaxBuffered, tunable via Security.MaxBufferedRecords) that

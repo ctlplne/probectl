@@ -24,7 +24,7 @@ import (
 // the ASN Cymru resolves. A configured source whose local data cannot be
 // loaded is registered unavailable — visible in GET /v1/threat/intel/status
 // with the load error — and the control plane keeps serving (open data
-// degrades gracefully, CLAUDE.md §7 guardrail 10).
+// degrades gracefully, docs/guardrails.md G7-10).
 func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, bool) {
 	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP {
 		return nil, false

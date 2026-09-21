@@ -19,7 +19,7 @@ Two pieces make it work:
   `npm run coverage-gate`, which is `vitest run src/test/surface-coverage.test.tsx`).
 - **The rendered a11y proof** — a Chromium gate, `npm run a11y:browser`, run by
   CI's `web-rendered-a11y` job in the digest-pinned Playwright container. It
-  starts the real Vite app, renders every native route under the dark and aurora
+  starts the real Vite app, renders every native route under the light and dark
   themes, runs axe with browser-computed WCAG tags, and checks keyboard focus,
   focus-obscured, positive `tabindex`, and 24px minimum interactive targets.
   The `/dashboards` route has an extra data-depth assertion in that same browser

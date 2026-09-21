@@ -21,7 +21,7 @@
   width: 100%;
   flex: 1 1 auto;
   min-height: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   /* Charts are a coordinate island: the canvas plots time left-to-right and
    * uPlot moves its cursor overlays with physical-pixel transforms, so the
    * plot never mirrors under RTL. Pinning direction here makes the logical
@@ -30,7 +30,7 @@
 }
 
 .plot:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
   outline-offset: var(--focus-ring-offset);
 }
 
@@ -73,7 +73,7 @@
 .plot :global(.u-select) {
   position: absolute;
   pointer-events: none;
-  background: var(--color-selection-soft);
+  background: hsl(var(--brand-accent) / 0.22);
 }
 
 .plot :global(.u-cursor-x),
@@ -87,12 +87,12 @@
 
 .plot :global(.u-hz .u-cursor-x) {
   height: 100%;
-  border-inline-end: 1px dashed var(--color-chart-axis);
+  border-inline-end: 1px dashed hsl(var(--chart-axis));
 }
 
 .plot :global(.u-hz .u-cursor-y) {
   width: 100%;
-  border-bottom: 1px dashed var(--color-chart-grid);
+  border-bottom: 1px dashed hsl(var(--chart-grid));
 }
 
 .plot :global(.u-cursor-pt) {
@@ -110,12 +110,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-subtle);
+  font-size: var(--font-size-caption);
+  color: hsl(var(--muted-foreground));
 }
 
 .readoutTime {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-variant-numeric: tabular-nums;
 }
 
@@ -127,7 +127,7 @@
 }
 
 .readoutValue {
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   font-weight: var(--font-weight-medium);
   font-variant-numeric: tabular-nums;
 }
@@ -147,13 +147,13 @@
 .fallbackTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  color: hsl(var(--muted-foreground));
 }
 
 .fallbackTable caption {
   text-align: start;
-  color: var(--color-text-subtle);
+  color: hsl(var(--muted-foreground));
   padding-block-end: var(--space-2);
 }
 
@@ -161,11 +161,11 @@
 .fallbackTable td {
   text-align: start;
   padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid hsl(var(--border));
   font-weight: var(--font-weight-regular);
 }
 
 .fallbackTable thead th {
-  color: var(--color-text-subtle);
+  color: hsl(var(--muted-foreground));
   font-weight: var(--font-weight-semibold);
 }

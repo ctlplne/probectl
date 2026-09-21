@@ -9,28 +9,28 @@
 
 .totals dt {
   font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 .totals dd {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--tracking-snug);
   font-variant-numeric: tabular-nums;
 }
 
 .kind {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
 .notice {
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
-  border-inline-start: 3px solid var(--color-warning);
-  background: var(--color-warning-soft);
-  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid hsl(var(--status-warning));
+  background: hsl(var(--status-warning) / 0.12);
+  border-radius: var(--radius-control);
   font-size: var(--font-size-sm);
 }
 
@@ -39,14 +39,14 @@
   gap: var(--space-1);
   margin: 0 0 var(--space-3);
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
 .scope strong {
-  color: var(--color-text);
+  color: hsl(var(--foreground));
 }
 
 .filters {

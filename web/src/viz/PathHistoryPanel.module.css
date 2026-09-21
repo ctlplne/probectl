@@ -25,14 +25,14 @@
 }
 
 .rounds dt {
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
   text-transform: uppercase;
 }
 
 .rounds dd {
   margin: 0;
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -50,6 +50,6 @@
 
 .empty {
   margin: 0;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }

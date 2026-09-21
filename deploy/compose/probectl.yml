@@ -2,7 +2,7 @@
 #
 # Brings up the control plane behind TLS with a Postgres backing store. The API
 # is exposed ONLY over HTTPS (port 8443) — there is no plaintext listener
-# (CLAUDE.md §7 guardrail 12). A self-signed certificate is generated on first
+# (docs/guardrails.md G7-12). A self-signed certificate is generated on first
 # boot by `probectl-control gen-cert` (the `certgen` one-shot) for an immediate
 # quickstart; production operators bring a CA-issued certificate by setting
 # PROBECTL_TLS_DIR in .env to a directory holding tls.crt, tls.key and the

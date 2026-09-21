@@ -47,16 +47,16 @@
 }
 
 .auditTargetLink {
-  color: var(--color-accent);
+  color: hsl(var(--brand-accent));
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-bold);
   text-underline-offset: var(--space-1);
 }
 
 .auditTargetLink:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
   outline-offset: var(--focus-ring-offset);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 
 .linkButton {
@@ -64,24 +64,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: var(--border-width-thin) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
   padding: 0 var(--space-3);
-  color: var(--color-text);
-  background: var(--color-surface-raised);
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-bold);
   text-decoration: none;
 }
 
 .linkButton:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
   outline-offset: var(--focus-ring-offset);
 }
 
 .linkButton:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  border-color: hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent));
 }
 
 @media (max-width: 980px) {

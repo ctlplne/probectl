@@ -13,6 +13,6 @@
 // boundary FIRST, then the caller's RBAC, at this layer — never relying on a
 // model to self-censor. The tenant is taken from the authenticated principal,
 // never from the query, so a query is incapable of crossing tenants by
-// construction (it inherits the S2 store-level scoping). CLAUDE.md §7
+// construction (it inherits the S2 store-level scoping). docs/guardrails.md
 // guardrails 1 (tenant isolation) and 5 (RBAC on every path, including AI/MCP).
 package ai

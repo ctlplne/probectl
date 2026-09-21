@@ -118,7 +118,7 @@ func reportGaps(out io.Writer, ledger completeness.Ledger) {
 	if len(gaps) == 0 {
 		return
 	}
-	fmt.Fprintln(out, "each row below must become a real receipt (refs) or an approved none_by_design in the registry; see docs/quality/completeness.md:")
+	fmt.Fprintln(out, "each row below must become a real receipt (refs) or an approved none_by_design in capabilities.yaml:")
 	perCell := make(map[string]int, len(gaps))
 	for _, gap := range gaps {
 		perCell[gap.Cell]++

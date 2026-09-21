@@ -60,7 +60,7 @@ func seedFlows(t *testing.T, s *Server) {
 }
 
 // TestFlowTopTalkersAPI: the route serves tenant-scoped, ordered rows and the
-// other tenant's traffic never leaks (tenant boundary first — CLAUDE.md §7).
+// other tenant's traffic never leaks (tenant boundary first — docs/guardrails.md).
 func TestFlowTopTalkersAPI(t *testing.T) {
 	srv := testServer(fakePinger{})
 	seedFlows(t, srv)

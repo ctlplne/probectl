@@ -30,7 +30,7 @@ type KeyProvider interface {
 
 // StaticKeyProvider wraps data keys with a single static KEK. It is for
 // development and tests only — production supplies a KMS/HSM-backed KeyProvider.
-// Never hardcode a KEK in production (CLAUDE.md §7 guardrail 6).
+// Never hardcode a KEK in production (docs/guardrails.md G7-6).
 type StaticKeyProvider struct {
 	provider Provider
 	keyID    string

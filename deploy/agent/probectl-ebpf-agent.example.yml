@@ -3,7 +3,7 @@
 #   probectl-ebpf-agent -config /etc/probectl/ebpf-agent.yml
 #
 # The eBPF agent captures L3/L4 flows and builds a service map — observe-only
-# (CLAUDE.md §7 guardrail 8). The CO-RE loader is compiled in only with
+# (docs/guardrails.md G7-8). The CO-RE loader is compiled in only with
 # `-tags ebpf` on Linux (clang + a BTF kernel + CAP_BPF; see docs/ebpf-agent.md).
 # On any build without it, set fixture_path to replay recorded flows (the
 # no-kernel path). Every key below is overridable via PROBECTL_EBPF_* env vars.

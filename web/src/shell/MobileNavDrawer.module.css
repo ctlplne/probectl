@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
-  background: var(--color-overlay);
+  background: hsl(var(--foreground) / 0.4);
   display: flex;
   align-items: stretch;
   justify-content: flex-start;
@@ -15,16 +15,16 @@
 .drawer {
   width: min(340px, calc(100vw - var(--space-6)));
   height: 100%;
-  background: var(--color-surface);
-  border-inline-end: 1px solid var(--color-border);
-  box-shadow: var(--shadow-lg);
+  background: hsl(var(--card));
+  border-inline-end: 1px solid hsl(var(--border));
+  box-shadow: var(--elevation-3);
   outline: none;
   overflow-y: auto;
 }
 
 :global(html[dir='rtl']) .drawer {
   border-inline-end: 0;
-  border-inline-start: 1px solid var(--color-border);
+  border-inline-start: 1px solid hsl(var(--border));
 }
 
 .header {
@@ -33,11 +33,11 @@
   justify-content: space-between;
   gap: var(--space-4);
   padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid hsl(var(--border));
 }
 
 .title {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-title);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -62,7 +62,7 @@
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wider);
-  color: var(--color-text-subtle);
+  color: hsl(var(--muted-foreground));
 }
 
 .list {
@@ -78,25 +78,25 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-md);
+  border-radius: var(--radius-control);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-data);
   font-weight: var(--font-weight-medium);
 }
 
 .link:hover {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
 }
 
 .link:focus-visible {
-  outline: 2px solid var(--color-focus);
+  outline: 2px solid hsl(var(--focus));
   outline-offset: 2px;
 }
 
 .active {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: hsl(var(--brand-accent) / 0.12);
+  color: hsl(var(--brand-accent));
 }
 
 .active::before {
@@ -108,7 +108,7 @@
   width: 3px;
   height: 18px;
   border-radius: var(--radius-pill);
-  background: var(--gradient-brand);
+  background: linear-gradient(135deg, hsl(var(--brand-accent)) 0%, hsl(var(--primary)) 100%);
 }
 
 .icon {

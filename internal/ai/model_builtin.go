@@ -15,7 +15,7 @@ import (
 
 // BuiltinModel is probectl's default synthesis backend: a deterministic,
 // evidence-grounded root-cause synthesizer that runs entirely in-process — no
-// network, no phone-home (CLAUDE.md §7 guardrail 2). It is the first-class
+// network, no phone-home (docs/guardrails.md G7-2). It is the first-class
 // air-gapped path and the safe default, and it never fabricates: with no
 // evidence it returns InsufficientEvidence. It is also the reference oracle the
 // golden-set tests assert against.

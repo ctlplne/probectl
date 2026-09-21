@@ -16,7 +16,7 @@ import (
 // IntelRefresher periodically refreshes a set of threat-intel feeds into an
 // IOCStore. It keeps each source's LAST-GOOD IOCs, so a feed that is down /
 // rate-limited / malformed leaves the prior indicators in place (graceful
-// degradation — CLAUDE.md §7 guardrail 10). Feeds are shared infrastructure,
+// degradation — docs/guardrails.md G7-10). Feeds are shared infrastructure,
 // ingested once.
 type IntelRefresher struct {
 	store    *IOCStore

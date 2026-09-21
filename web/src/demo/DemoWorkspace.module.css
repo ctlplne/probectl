@@ -16,14 +16,14 @@
 }
 
 .header h1 {
-  color: var(--color-text);
+  color: hsl(var(--foreground));
   font-size: var(--font-size-3xl);
   letter-spacing: var(--tracking-tight);
 }
 
 .header p:not(.kicker) {
   max-width: calc(var(--space-8) * 24);
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 .titleRow,
@@ -39,8 +39,8 @@
 }
 
 .kicker {
-  color: var(--color-warning);
-  font-size: var(--font-size-xs);
+  color: hsl(var(--status-warning));
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
@@ -50,10 +50,10 @@
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -80,14 +80,14 @@
 }
 
 .metricLabel {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
 }
 
 .metricValue {
-  color: var(--color-text);
-  font-size: var(--font-size-2xl);
+  color: hsl(var(--foreground));
+  font-size: var(--font-size-display);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--tracking-tight);
   line-height: var(--line-height-display);
@@ -121,16 +121,16 @@
 
 .vizCaption {
   margin: 0;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
 .vizFallback {
   margin: 0;
   padding: var(--space-4);
-  border: var(--border-width-thin) dashed var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
+  border: var(--border-width-thin) dashed hsl(var(--border));
+  border-radius: var(--radius-control);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 

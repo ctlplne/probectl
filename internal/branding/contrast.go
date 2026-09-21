@@ -9,6 +9,7 @@ package branding
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -16,7 +17,16 @@ import (
 const (
 	wcagTextContrast = 4.5
 	wcagUIContrast   = 3.0
+	// chipWash is the tint alpha every shipped chip and tinted panel uses.
+	chipWash = 0.12
 )
+
+// chipTones are the colors that ship as text on a tint of themselves.
+var chipTones = []string{
+	"--brand-accent", "--status-success", "--status-warning", "--status-info",
+	"--status-neutral", "--destructive", "--risk-critical", "--risk-high",
+	"--risk-medium", "--risk-low", "--risk-none",
+}
 
 type contrastColor struct {
 	r float64
@@ -30,92 +40,178 @@ type contrastPair struct {
 	bg       string
 	min      float64
 	backdrop string
+	// bgAlpha checks bg as a wash at this alpha over backdrop, the way a chip
+	// ships. Zero means the background is used as-is.
+	bgAlpha float64
 }
 
+// shippedContrastThemes is the base palette an operator override is validated
+// against: the values web/src/styles/tokens.css actually ships, as bare HSL
+// triplets. It is duplicated here because the control plane is a compiled binary
+// that cannot read the web tree at runtime — palette_parity_test.go re-derives it
+// from that stylesheet and fails on any drift, which is the check that was missing
+// when the design-language port renamed every token and left this file validating
+// a palette that no longer shipped.
 var shippedContrastThemes = map[string]map[string]string{
-	"dark": {
-		"--color-bg":              "#0b0e14",
-		"--color-surface":         "#11151f",
-		"--color-surface-raised":  "#171c28",
-		"--color-text":            "#e7eaf2",
-		"--color-text-muted":      "#a6adbd",
-		"--color-text-subtle":     "#808a9b",
-		"--color-text-inverse":    "#0b0e14",
-		"--color-accent":          "#2fb6a8",
-		"--color-accent-hover":    "#3ccabb",
-		"--color-accent-strong":   "#23a394",
-		"--color-accent-contrast": "#04130f",
-		"--color-success":         "#46c08a",
-		"--color-success-soft":    "rgba(70, 192, 138, 0.14)",
-		"--color-warning":         "#e0b25a",
-		"--color-warning-soft":    "rgba(224, 178, 90, 0.14)",
-		"--color-danger":          "#e8736b",
-		"--color-danger-soft":     "rgba(232, 115, 107, 0.14)",
-		"--color-info":            "#5aa9e6",
-		"--color-info-soft":       "rgba(90, 169, 230, 0.14)",
-		"--color-focus":           "#6fd2c6",
-		"--color-chart-1":         "#2fb6a8",
-		"--color-chart-2":         "#5aa9e6",
-		"--color-chart-3":         "#a78bff",
-		"--color-chart-4":         "#e0b25a",
-		"--color-chart-5":         "#e8736b",
+	"light": {
+		"--background":              "45 33% 95%",
+		"--foreground":              "167 16% 11%",
+		"--card":                    "48 100% 99%",
+		"--card-foreground":         "167 16% 11%",
+		"--muted":                   "75 12% 94%",
+		"--muted-foreground":        "163 7% 35%",
+		"--border":                  "120 7% 86%",
+		"--sidebar":                 "60 15% 92%",
+		"--sidebar-hover":           "108 10% 89%",
+		"--sidebar-active":          "150 20% 89%",
+		"--sidebar-foreground":      "163 14% 22%",
+		"--primary":                 "28 85% 30%",
+		"--primary-foreground":      "48 100% 99%",
+		"--brand-accent":            "28 85% 30%",
+		"--brand-accent-foreground": "0 0% 100%",
+		"--focus":                   "167 48% 33%",
+		"--destructive":             "3 53% 35%",
+		"--destructive-foreground":  "0 0% 100%",
+		"--status-success":          "166 55% 20%",
+		"--status-warning":          "40 86% 27%",
+		"--status-info":             "199 49% 31%",
+		"--status-neutral":          "163 7% 36%",
+		"--monitor":                 "199 49% 31%",
+		"--monitor-foreground":      "0 0% 100%",
+		"--analyze":                 "251 85% 62%",
+		"--analyze-foreground":      "0 0% 100%",
+		"--secure":                  "3 53% 35%",
+		"--secure-foreground":       "0 0% 100%",
+		"--operate":                 "28 85% 30%",
+		"--operate-foreground":      "0 0% 100%",
+		"--risk-critical":           "3 53% 35%",
+		"--risk-high":               "24 70% 34%",
+		"--risk-medium":             "40 86% 27%",
+		"--risk-low":                "166 55% 20%",
+		"--risk-none":               "163 7% 36%",
+		"--chart-1":                 "28 85% 30%",
+		"--chart-2":                 "213 62% 48%",
+		"--chart-3":                 "251 85% 62%",
+		"--chart-4":                 "174 72% 30%",
+		"--chart-5":                 "350 62% 48%",
+		"--chart-6":                 "314 42% 43%",
+		"--chart-grid":              "223 11% 55%",
+		"--chart-axis":              "227 14% 37%",
+		"--chart-neutral":           "226 11% 45%",
 	},
-	"aurora": {
-		"--color-bg":              "#f6f7fb",
-		"--color-surface":         "#ffffff",
-		"--color-surface-raised":  "#ffffff",
-		"--color-text":            "#1b1d2a",
-		"--color-text-muted":      "#50566b",
-		"--color-text-subtle":     "#676d80",
-		"--color-text-inverse":    "#ffffff",
-		"--color-accent":          "#6a4cf0",
-		"--color-accent-hover":    "#5a3ce0",
-		"--color-accent-strong":   "#4f33d6",
-		"--color-accent-contrast": "#ffffff",
-		"--color-success":         "#1f9d63",
-		"--color-success-soft":    "rgba(31, 157, 99, 0.12)",
-		"--color-warning":         "#b9821f",
-		"--color-warning-soft":    "rgba(185, 130, 31, 0.12)",
-		"--color-danger":          "#d2463c",
-		"--color-danger-soft":     "rgba(210, 70, 60, 0.12)",
-		"--color-info":            "#2f73c7",
-		"--color-info-soft":       "rgba(47, 115, 199, 0.12)",
-		"--color-focus":           "#6a4cf0",
-		"--color-chart-1":         "#0e9e92",
-		"--color-chart-2":         "#2f73c7",
-		"--color-chart-3":         "#6a4cf0",
-		"--color-chart-4":         "#b9821f",
-		"--color-chart-5":         "#d2463c",
+	"dark": {
+		"--background":              "165 17% 7%",
+		"--foreground":              "45 22% 93%",
+		"--card":                    "160 16% 10%",
+		"--card-foreground":         "45 22% 93%",
+		"--muted":                   "156 13% 15%",
+		"--muted-foreground":        "156 7% 70%",
+		"--border":                  "156 10% 22%",
+		"--sidebar":                 "165 18% 8%",
+		"--sidebar-hover":           "160 16% 12%",
+		"--sidebar-active":          "159 18% 16%",
+		"--sidebar-foreground":      "156 7% 70%",
+		"--primary":                 "34 100% 66%",
+		"--primary-foreground":      "30 40% 8%",
+		"--brand-accent":            "34 100% 66%",
+		"--brand-accent-foreground": "30 40% 8%",
+		"--focus":                   "171 77% 64%",
+		"--destructive":             "0 100% 72%",
+		"--destructive-foreground":  "0 45% 6%",
+		"--status-success":          "158 64% 52%",
+		"--status-warning":          "32 95% 54%",
+		"--status-info":             "218 100% 77%",
+		"--status-neutral":          "207 12% 65%",
+		"--monitor":                 "218 100% 77%",
+		"--monitor-foreground":      "223 30% 5%",
+		"--analyze":                 "254 100% 77%",
+		"--analyze-foreground":      "223 30% 5%",
+		"--secure":                  "0 100% 72%",
+		"--secure-foreground":       "0 45% 6%",
+		"--operate":                 "34 100% 66%",
+		"--operate-foreground":      "30 40% 8%",
+		"--risk-critical":           "0 100% 72%",
+		"--risk-high":               "24 95% 58%",
+		"--risk-medium":             "45 93% 56%",
+		"--risk-low":                "158 64% 52%",
+		"--risk-none":               "207 12% 64%",
+		"--chart-1":                 "34 100% 66%",
+		"--chart-2":                 "206 74% 63%",
+		"--chart-3":                 "254 100% 77%",
+		"--chart-4":                 "174 62% 55%",
+		"--chart-5":                 "350 82% 70%",
+		"--chart-6":                 "312 51% 68%",
+		"--chart-grid":              "218 14% 48%",
+		"--chart-axis":              "219 16% 69%",
+		"--chart-neutral":           "218 12% 55%",
 	},
 }
 
 var requiredContrastPairs = buildContrastPairs()
 
+// buildContrastPairs mirrors buildContrastPairs() in web/src/api/brand.ts. Both
+// sides validate the same pairs so an override cannot pass the control plane and
+// then be silently dropped by the browser.
 func buildContrastPairs() []contrastPair {
-	text := []string{"--color-text", "--color-text-muted", "--color-text-subtle"}
-	backgrounds := []string{"--color-bg", "--color-surface", "--color-surface-raised", "--color-surface-high"}
 	pairs := make([]contrastPair, 0, 80)
-	for _, fg := range text {
+	// Body text must clear 4.5:1 on every surface it can land on, including the
+	// rail, which is its own tint rather than the page background.
+	backgrounds := []string{"--background", "--card", "--muted", "--sidebar"}
+	for _, fg := range []string{"--foreground", "--muted-foreground"} {
 		for _, bg := range backgrounds {
 			pairs = append(pairs, contrastPair{fg: fg, bg: bg, min: wcagTextContrast})
 		}
 	}
-	for _, bg := range []string{"--color-accent", "--color-accent-hover", "--color-accent-strong"} {
-		pairs = append(pairs, contrastPair{fg: "--color-accent-contrast", bg: bg, min: wcagTextContrast})
+	// A label on a filled action or a filled status is body text, so 4.5:1 too.
+	for _, pair := range [][2]string{
+		{"--primary-foreground", "--primary"},
+		{"--brand-accent-foreground", "--brand-accent"},
+		{"--destructive-foreground", "--destructive"},
+		{"--monitor-foreground", "--monitor"},
+		{"--analyze-foreground", "--analyze"},
+		{"--secure-foreground", "--secure"},
+		{"--operate-foreground", "--operate"},
+	} {
+		pairs = append(pairs, contrastPair{fg: pair[0], bg: pair[1], min: wcagTextContrast})
 	}
-	for _, bg := range []string{"--color-accent-soft", "--color-success-soft", "--color-warning-soft", "--color-danger-soft", "--color-info-soft"} {
-		pairs = append(pairs, contrastPair{fg: "--color-text", bg: bg, min: wcagTextContrast, backdrop: "--color-surface"})
+	// A chip is colored text on a chipWash tint of itself, composited over
+	// whatever it sits on — a card, a table header or hovered row (--muted), the
+	// page, or the rail. Checking the tone against the plain card instead was
+	// flattering: five light tones measured 3.94-4.30 in a real browser while this
+	// function called them passing. The plain pair is kept too, because a tone is
+	// also used as text directly on a surface.
+	for _, tone := range chipTones {
+		for _, bg := range backgrounds {
+			pairs = append(pairs, contrastPair{fg: tone, bg: bg, min: wcagTextContrast})
+			pairs = append(pairs, contrastPair{fg: tone, bg: tone, min: wcagTextContrast, backdrop: bg, bgAlpha: chipWash})
+			// Secondary text inside a tinted panel, e.g. a <dt> on an info wash.
+			pairs = append(pairs, contrastPair{fg: "--muted-foreground", bg: tone, min: wcagTextContrast, backdrop: bg, bgAlpha: chipWash})
+		}
 	}
+	// Non-text graphics — focus ring, series strokes, axes — need 3:1. Series
+	// also carry dash patterns, so color is never the only channel.
 	for _, fg := range []string{
-		"--color-accent", "--color-accent-hover", "--color-accent-strong", "--color-focus",
-		"--color-success", "--color-warning", "--color-danger", "--color-info",
-		"--color-chart-1", "--color-chart-2", "--color-chart-3", "--color-chart-4", "--color-chart-5",
+		"--focus", "--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5",
+		"--chart-6", "--chart-grid", "--chart-axis", "--chart-neutral",
 	} {
 		for _, bg := range backgrounds {
 			pairs = append(pairs, contrastPair{fg: fg, bg: bg, min: wcagUIContrast})
 		}
 	}
 	return pairs
+}
+
+// isColorToken reports whether the shipped palette defines name. The palette IS
+// the color allowlist, so a color token becomes overridable the moment it ships
+// and a name the palette does not define can never be set from a deployment
+// config — the same rule web/src/api/brand.ts applies on the client.
+func isColorToken(name string) bool {
+	for _, theme := range shippedContrastThemes {
+		if _, ok := theme[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func validateOverrideContrast(overrides map[string]string) error {
@@ -125,7 +221,7 @@ func validateOverrideContrast(overrides map[string]string) error {
 			tokens[name] = value
 		}
 		for name, value := range overrides {
-			if strings.HasPrefix(name, "--color-") {
+			if isColorToken(name) {
 				tokens[name] = strings.TrimSpace(value)
 			}
 		}
@@ -137,6 +233,9 @@ func validateOverrideContrast(overrides map[string]string) error {
 			bgValue, ok := tokens[pair.bg]
 			if !ok {
 				continue
+			}
+			if pair.bgAlpha > 0 {
+				bgValue = fmt.Sprintf("%s / %g", bgValue, pair.bgAlpha)
 			}
 			fg, err := parseContrastColor(fgValue)
 			if err != nil {
@@ -179,7 +278,25 @@ func parseContrastColor(value string) (contrastColor, error) {
 	if strings.HasPrefix(value, "hsl(") || strings.HasPrefix(value, "hsla(") {
 		return parseHSLColor(value)
 	}
-	return contrastColor{}, fmt.Errorf("unsupported color %q", value)
+	return parseHSLTriplet(value)
+}
+
+// hslTripletRe matches the bare triplet every design token now holds:
+// "45 33% 95%", or "45 33% 95% / 0.12" for a soft tint. The stylesheet wraps
+// these as hsl(var(--token) / <alpha-value>), so a token value is never itself a
+// color function and every branch above would miss it.
+var hslTripletRe = regexp.MustCompile(`^(-?[0-9.]+)\s+(-?[0-9.]+)%\s+(-?[0-9.]+)%(?:\s*/\s*([0-9.]+%?))?$`)
+
+func parseHSLTriplet(value string) (contrastColor, error) {
+	m := hslTripletRe.FindStringSubmatch(value)
+	if m == nil {
+		return contrastColor{}, fmt.Errorf("unsupported color %q", value)
+	}
+	alpha := "1"
+	if m[4] != "" {
+		alpha = m[4]
+	}
+	return parseHSLColor(fmt.Sprintf("hsl(%s %s%% %s%% / %s)", m[1], m[2], m[3], alpha))
 }
 
 func parseHexColor(value string) (contrastColor, error) {

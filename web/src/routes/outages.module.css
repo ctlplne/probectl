@@ -6,14 +6,14 @@
   gap: var(--space-1);
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
-  border-inline-start: 3px solid var(--color-warning);
-  background: var(--color-warning-soft);
-  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid hsl(var(--status-warning));
+  background: hsl(var(--status-warning) / 0.12);
+  border-radius: var(--radius-control);
   font-size: var(--font-size-sm);
 }
 
 .meta {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -26,11 +26,11 @@
 }
 
 .scopeName {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
 }
 
 .feedMeta {
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 

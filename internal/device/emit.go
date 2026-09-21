@@ -36,7 +36,7 @@ type CollectionOutcomeEmitter interface {
 }
 
 // BusEmitter publishes DeviceMetricBatches to probectl.device.metrics,
-// tenant-keyed (pooled tenant-tagging, CLAUDE.md §6).
+// tenant-keyed (pooled tenant-tagging, CONTRIBUTING.md).
 type BusEmitter struct {
 	bus       bus.Bus
 	tenant    string

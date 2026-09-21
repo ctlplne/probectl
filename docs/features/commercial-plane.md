@@ -166,7 +166,7 @@ logo, custom-domain, login, email, and token overrides were removed by design
 (historical F54). The tenant indicator still makes scope explicit, and the
 provider console remains visually separate from the tenant shell.
 
-Dark and aurora remain shipped operator themes. A deployment may layer one
+Light and dark remain the shipped operator themes. A deployment may layer one
 allowlisted token map across every tenant through `PROBECTL_THEME_OVERRIDES`.
 The control plane rejects unsafe syntax and token sets that fail WCAG contrast;
 public `GET /branding` returns the same fixed-probectl response for every host

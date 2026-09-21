@@ -166,9 +166,12 @@ describe('dense path visualization', () => {
       expect.stringContaining('ctx_filter=path_test%3Adense-path'),
     )
 
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+    await user.click(screen.getByRole('button', { name: /switch theme \(current: light\)/i }))
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
-    await user.click(screen.getByRole('button', { name: /switch theme \(current: dark\)/i }))
-    expect(document.documentElement).toHaveAttribute('data-theme', 'aurora')
+    // The class is what Tailwind's dark: utilities key off, so an attribute-only
+    // swap would leave every utility-styled surface in light mode.
+    expect(document.documentElement).toHaveClass('dark')
     expect(within(triage).getByText(/review evidence first/i)).toBeVisible()
   })
 })

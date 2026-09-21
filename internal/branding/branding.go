@@ -12,6 +12,7 @@ package branding
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -39,17 +40,42 @@ func Deployment(overrides map[string]string) Branding {
 	return Branding{ProductName: "probectl", TokenOverrides: cloned}
 }
 
-// tokenNameRe allowlists deployment-overridable color, radius, and font
-// families. Spacing and typography scale remain structural product choices.
-var tokenNameRe = regexp.MustCompile(`^--(color-[a-z0-9-]+|radius-(sm|md|lg)|font-sans|font-mono)$`)
+// overridableNonColor lists the non-color tokens a deployment may set, with the
+// value shape each one takes. Color tokens are deliberately absent: the shipped
+// palette is their allowlist (isColorToken), so a renamed or newly shipped color
+// token can never fall out of step with what the stylesheet actually defines.
+// Spacing and typography scale remain structural product choices.
+var overridableNonColor = map[string]string{
+	"--radius-control": "radius",
+	"--radius-panel":   "radius",
+	"--radius-pill":    "radius",
+	"--font-sans":      "font",
+	"--font-mono":      "font",
+	"--font-display":   "font",
+}
 
 // Value shapes are strict by construction: no url(), var(), semicolons, or
 // expressions can make an operator override trigger a browser fetch/injection.
 var (
-	colorRe  = regexp.MustCompile(`^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,/% ]+\)|hsla?\([0-9.,/% deg]+\))$`)
 	radiusRe = regexp.MustCompile(`^[0-9]{1,3}(px|rem|em|%)$`)
 	fontRe   = regexp.MustCompile(`^[A-Za-z0-9 ,'"-]{1,120}$`)
 )
+
+// overridableTokens is the operator-facing list used in error messages.
+func overridableTokens() string {
+	names := make([]string, 0, len(overridableNonColor)+64)
+	for name := range overridableNonColor {
+		names = append(names, name)
+	}
+	for _, theme := range shippedContrastThemes {
+		for name := range theme {
+			names = append(names, name)
+		}
+		break // both themes define the same token names
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
 
 // MaxOverrides bounds the deployment override blob.
 const MaxOverrides = 64
@@ -61,21 +87,28 @@ func ValidateOverrides(overrides map[string]string) error {
 		return fmt.Errorf("branding: too many token overrides (%d > %d)", len(overrides), MaxOverrides)
 	}
 	for name, value := range overrides {
-		if !tokenNameRe.MatchString(name) {
-			return fmt.Errorf("branding: token %q is not overridable (allowed: --color-*, --radius-sm|md|lg, --font-sans, --font-mono)", name)
-		}
 		value = strings.TrimSpace(value)
-		var ok bool
+		kind, isNonColor := overridableNonColor[name]
 		switch {
-		case strings.HasPrefix(name, "--color-"):
-			ok = colorRe.MatchString(value)
-		case strings.HasPrefix(name, "--radius-"):
-			ok = radiusRe.MatchString(value)
+		case isColorToken(name):
+			// A color token must be the bare HSL triplet the stylesheet consumes
+			// as hsl(var(--token) / <alpha-value>). A hex or rgb() value would
+			// validate as a color and then make every rule using the token
+			// unparseable, so it is refused with the shape spelled out rather
+			// than accepted into a deployment that renders wrong.
+			if !hslTripletRe.MatchString(value) {
+				return fmt.Errorf("branding: %s must be a bare HSL triplet such as \"28 85%% 30%%\" (optionally \"28 85%% 30%% / 0.12\"); the stylesheet reads it as hsl(var(%s) / <alpha>), so %q would break every rule that uses it", name, name, value)
+			}
+		case isNonColor && kind == "radius":
+			if !radiusRe.MatchString(value) {
+				return fmt.Errorf("branding: unsafe or malformed value for %s", name)
+			}
+		case isNonColor:
+			if !fontRe.MatchString(value) {
+				return fmt.Errorf("branding: unsafe or malformed value for %s", name)
+			}
 		default:
-			ok = fontRe.MatchString(value)
-		}
-		if !ok {
-			return fmt.Errorf("branding: unsafe or malformed value for %s", name)
+			return fmt.Errorf("branding: token %q is not overridable (allowed: %s)", name, overridableTokens())
 		}
 	}
 	return validateOverrideContrast(overrides)

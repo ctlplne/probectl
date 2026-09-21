@@ -18,13 +18,13 @@
 // (airport/nmcli/netsh for WiFi, traceroute/tracert for the path) are
 // build-tagged per OS, and their OUTPUT PARSERS are portable and fixture-tested
 // on every platform. A device with no Wi-Fi or a metric the OS does not expose
-// degrades gracefully (CLAUDE.md §7 guardrail 10) rather than reporting a false
+// degrades gracefully (docs/guardrails.md G7-10) rather than reporting a false
 // zero.
 //
 // Privacy (the agent runs on an end-user's machine). Only measurements
 // (signal/RTT/loss/timings — not PII) are collected by default; identifying
 // fields (the BSSID/AP-MAC, public last-mile hop IPs) are gated OFF, and the
 // agent DISCLOSES exactly what it collects at startup. Nothing phones home
-// (CLAUDE.md §7 guardrail 2); results flow only to the operator's own bus,
+// (docs/guardrails.md G7-2); results flow only to the operator's own bus,
 // tenant-tagged, exactly like every other agent's results.
 package endpoint

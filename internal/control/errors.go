@@ -55,7 +55,7 @@ func httpStatus(kind apierror.Kind) int {
 
 // apiHandler is an HTTP handler that returns a domain error instead of writing
 // status codes itself. The adapter maps any returned error to a status + JSON
-// envelope, keeping handlers thin (CLAUDE.md §6).
+// envelope, keeping handlers thin (CONTRIBUTING.md).
 type apiHandler func(http.ResponseWriter, *http.Request) error
 
 func (h apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

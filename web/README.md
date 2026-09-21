@@ -24,17 +24,18 @@ the AI **Ask** panel, the provider console, and more) are routes on top of it.
   step, a radius, a motion curve); components reference the name, never the
   value. **No component hardcodes a color/space/type/radius/motion value** —
   which is why re-theming is a variable swap rather than a screen-by-screen
-  hunt. A second theme (`[data-theme="aurora"]`) proves a full re-skin via
-  token swap; an operator-configured deployment theme overrides the same safe
+  hunt. The dark theme (`.dark` / `[data-theme="dark"]`) proves a full re-skin
+  via token swap; an operator-configured deployment theme overrides the same safe
   set for every tenant.
 - **Component library** (`components/`) — Button, Card, Badge, Input, Select,
   Table, Modal, Toast, Icon, ChartShell + Sparkline, and Empty/Error/Loading
   states (`States`). Browse them live at `/gallery`.
 - **App shell** (`shell/`, `nav/`) — sidebar IA, ⌘K command palette,
   always-visible tenant indicator, top bar.
-- **Theming** (`theme/`, `brand/`) — `ThemeProvider` (light/dark + the aurora
-  demo theme) and `BrandProvider` (one deployment-level token override set;
-  the product name is always probectl).
+- **Theming** (`theme/`, `brand/`) — `ThemeProvider` (light and dark; light is
+  the default, and it sets both `data-theme` and the `dark` class Tailwind's
+  `dark:` utilities key off) and `BrandProvider` (one deployment-level token
+  override set; the product name is always probectl).
 - **Auth** (`auth/`) — `AuthProvider` resolves the **real** signed-in identity
   from the session (`GET /v1/me`; the server resolves the tenant from the
   session cookie, never the browser) and exposes it through `useAuth`. There is
@@ -87,7 +88,7 @@ not a generated baseline, so relaxing one requires an explicit reviewed code
 change. The machine-readable result is `receipts/web-ux/bundle-budget.json`.
 
 The rendered gate derives every native route from `src/surfaces.ts`, then checks
-dark and aurora at 1366×900 desktop and 390×844 mobile widths. It also captures
+light and dark at 1366×900 desktop and 390×844 mobile widths. It also captures
 five fresh-context production-build runs for each J1–J6 landing route. Run
 `node scripts/check_web_perf_budgets.mjs` from the repo root to recompute p75 and
 enforce LCP <2.5 s and INP <200 ms. CI retains the route/theme/viewport axe and

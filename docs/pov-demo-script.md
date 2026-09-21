@@ -82,8 +82,8 @@ measured incident workflow that beats your current diagnosis baseline.”
   the `+49 ms` delta.
 - Explorer: run a saved question and use the real time-axis chart and
   crosshair.
-- Themes: cycle dark → aurora → ember. Deployment theming is a token override,
-  and all three themes pass the same contrast gate.
+- Themes: toggle light → dark. Deployment theming is a token override, and both
+  themes pass the same contrast gate.
 
 ## Objection handling
 

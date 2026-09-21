@@ -33,7 +33,7 @@ import (
 // Prometheus writes series via the Prometheus remote-write protocol (a snappy-
 // compressed protobuf POSTed to <url>/api/v1/write). It targets Prometheus (run
 // with --web.enable-remote-write-receiver) and VictoriaMetrics. TLS in transit is
-// supported by using an https URL (CLAUDE.md §7 guardrail 12).
+// supported by using an https URL (docs/guardrails.md G7-12).
 type Prometheus struct {
 	url string
 	// base is the breaker key: chclient keys a breaker PER data-plane endpoint

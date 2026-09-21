@@ -19,7 +19,7 @@ import (
 
 // Ed25519 operations for the offline license scheme (S-T0) and any future
 // detached-signature need. They live here so callers never touch crypto
-// primitives directly (CLAUDE.md §7 guardrail 3 — the crypto-import gate
+// primitives directly (docs/guardrails.md G7-3 — the crypto-import gate
 // enforces this repo-wide); a FIPS provider swaps the implementation behind
 // the same functions, not the callers.
 

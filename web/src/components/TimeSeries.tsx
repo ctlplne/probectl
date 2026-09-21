@@ -18,11 +18,11 @@ import styles from './TimeSeries.module.css'
  * wrapper that renders inside a ChartShell plot slot. Design contract:
  *
  * - Every visual value comes from design tokens, resolved at runtime with
- *   getComputedStyle, so the dark/aurora themes (and any deployment override)
+ *   getComputedStyle, so the light and dark themes (and any deployment override)
  *   restyle the canvas without a code change. A MutationObserver on
  *   <html data-theme> rebuilds the plot on theme swap.
  * - Series carry the non-color encoding too: --viz-series-N-dash patterns
- *   accompany --color-chart-N, matching the SVG viz grammar.
+ *   accompany --chart-N, matching the SVG viz grammar.
  * - Accessibility: the canvas is a labeled role="img"; a sampled sr-only
  *   table exposes the same data to assistive tech, and becomes the visible
  *   rendering when canvas is unavailable (also the jsdom test path).
@@ -54,10 +54,17 @@ function readVizTheme(): VizTheme {
   const computed = getComputedStyle(document.documentElement)
   const rootPx = Number.parseFloat(computed.fontSize) || 16
   const read = (name: string) => computed.getPropertyValue(name).trim()
+  // Colour tokens hold a bare HSL triplet ("28 85% 30%"). uPlot assigns these
+  // straight to ctx.strokeStyle, which silently ignores an unparseable value and
+  // paints black — so the triplet is wrapped here into a real CSS colour.
+  const readColor = (name: string) => {
+    const raw = read(name)
+    return raw && !raw.startsWith('#') && !raw.includes('(') ? `hsl(${raw})` : raw
+  }
   const colors: string[] = []
   const dashes: (number[] | undefined)[] = []
   for (let index = 1; index <= SERIES_TOKEN_COUNT; index += 1) {
-    colors.push(read(`--color-chart-${index}`))
+    colors.push(readColor(`--chart-${index}`))
     const dash = read(`--viz-series-${index}-dash`)
     dashes.push(dash && dash !== 'none' ? dash.split(/\s+/).map(Number) : undefined)
   }
@@ -66,8 +73,8 @@ function readVizTheme(): VizTheme {
   return {
     colors,
     dashes,
-    grid: read('--color-chart-grid'),
-    axis: read('--color-chart-axis'),
+    grid: readColor('--chart-grid'),
+    axis: readColor('--chart-axis'),
     font: `${fontPx}px ${read('--font-sans') || 'sans-serif'}`,
   }
 }
@@ -313,7 +320,7 @@ export function TimeSeries({
                     x2="19"
                     y2="4"
                     style={{
-                      stroke: `var(--color-chart-${(index % SERIES_TOKEN_COUNT) + 1})`,
+                      stroke: `hsl(var(--chart-${(index % SERIES_TOKEN_COUNT) + 1}))`,
                       strokeDasharray: `var(--viz-series-${(index % SERIES_TOKEN_COUNT) + 1}-dash)`,
                     }}
                   />

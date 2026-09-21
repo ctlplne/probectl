@@ -11,7 +11,7 @@
 // seam; ee/remediation implements the workflow (the `remediation` Enterprise
 // feature), installed at the attach seam.
 //
-// The ratified policy (human sign-off, CLAUDE.md §2/§7 guardrail 8):
+// The ratified policy (human sign-off, docs/editions.md/§7 guardrail 8):
 //
 //   - PROPOSAL-ONLY: there is NO executor anywhere in the code. "Approve" is a
 //     recorded, audited human sign-off; operators carry the action out

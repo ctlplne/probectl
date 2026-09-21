@@ -16,7 +16,7 @@ import (
 // openapiJSON is the OpenAPI 3.1 description of the control-plane API. Resource
 // endpoints (under /v1) are added by their sprints (S9+); operational endpoints
 // are documented here. Keeping it in lockstep with the handlers upholds the
-// "no undocumented routes" rule (CLAUDE.md §6, §8).
+// "no undocumented routes" rule (CONTRIBUTING.md).
 //
 //go:embed openapi.json
 var openapiJSON []byte

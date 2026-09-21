@@ -806,19 +806,21 @@ func TestLoadOverrides(t *testing.T) {
 }
 
 func TestDeploymentThemeOverrides(t *testing.T) {
-	raw := `{"--color-accent":"#6a4cf0","--color-accent-hover":"#7054f6","--color-accent-strong":"#684af0","--color-accent-contrast":"#ffffff"}`
+	raw := `{"--primary":"28 85% 30%","--primary-foreground":"0 0% 100%"}`
 	cfg, err := Load(envFunc(map[string]string{"PROBECTL_THEME_OVERRIDES": raw}))
 	if err != nil {
 		t.Fatalf("valid deployment theme: %v", err)
 	}
-	if got := cfg.ThemeOverrides["--color-accent"]; got != "#6a4cf0" {
+	if got := cfg.ThemeOverrides["--primary"]; got != "28 85% 30%" {
 		t.Fatalf("accent = %q", got)
 	}
 	for name, value := range map[string]string{
 		"invalid JSON":    `{`,
 		"unsafe token":    `{"--space-4":"99px"}`,
-		"bad contrast":    `{"--color-text":"#ffffff"}`,
-		"non-string JSON": `{"--color-accent":42}`,
+		"retired token":   `{"--color-accent":"28 85% 30%"}`,
+		"hex for triplet": `{"--primary":"#6a4cf0"}`,
+		"bad contrast":    `{"--foreground":"0 0% 100%"}`,
+		"non-string JSON": `{"--primary":42}`,
 	} {
 		if _, err := Load(envFunc(map[string]string{"PROBECTL_THEME_OVERRIDES": value})); err == nil ||
 			!strings.Contains(err.Error(), "PROBECTL_THEME_OVERRIDES") {

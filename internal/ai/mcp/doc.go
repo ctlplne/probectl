@@ -17,7 +17,7 @@
 // query layer + stores) — so a tool can never return another tenant's data or
 // data outside the caller's scope.
 //
-// The tools here are READ-ONLY (CLAUDE.md §7 guardrail 8 — no action tools);
+// The tools here are READ-ONLY (docs/guardrails.md G7-8 — no action tools);
 // write/remediation tools are deferred to S-EE5 as proposal-only. Tool calls are
 // rate-limited per tenant. The catalog + JSON schemas + auth model are the stable
 // contract other sprints append tools to.

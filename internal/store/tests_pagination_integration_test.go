@@ -20,7 +20,7 @@ import (
 // TestTestsPagination is the SCALE-002 acceptance test: the tests table is paged
 // (ListPage bounds a single query; ListAll pages through the full set) and the
 // page never exceeds the requested limit. It also asserts cross-tenant isolation
-// — a second tenant's tests never appear in the first tenant's pages (CLAUDE.md
+// — a second tenant's tests never appear in the first tenant's pages (docs/guardrails.md
 // §7.1). Pre-fix, Tests.ListPage/ListAll did not exist and List() loaded the
 // whole table unbounded.
 func TestTestsPagination(t *testing.T) {

@@ -12,18 +12,31 @@ work.
 ## What remains: deployment-level theming
 
 The design-token system remains because it is useful for accessibility and
-operator preference. Dark and aurora are the two shipped themes. An operator
-may additionally provide one token map for the entire deployment:
+operator preference. **Light and dark** are the two shipped themes; light is the
+default. An operator may additionally provide one token map for the entire
+deployment:
 
 ```sh
-PROBECTL_THEME_OVERRIDES='{"--color-accent":"#6a4cf0","--color-accent-hover":"#7054f6","--color-accent-strong":"#684af0","--color-accent-contrast":"#ffffff"}'
+PROBECTL_THEME_OVERRIDES='{"--primary":"28 85% 30%","--primary-foreground":"0 0% 100%"}'
 ```
 
-The control plane validates an allowlist of color, small radius, and font
-tokens; rejects browser-fetching/injection syntax; caps the map at 64 entries;
-and checks WCAG contrast against both shipped themes. An invalid set fails
-startup rather than making the UI unreadable. The browser repeats the grammar
-and contrast checks as defense in depth.
+A color value is the **bare HSL triplet** the stylesheet consumes — `28 85% 30%`,
+or `28 85% 30% / 0.12` for a tint. The stylesheet reads each token as
+`hsl(var(--token) / <alpha-value>)`, so a hex or `rgb()` value is refused with the
+expected shape spelled out: accepting one would make every rule that uses the
+token unparseable and paint the deployment wrong rather than differently.
+
+Overridable names are the color tokens the stylesheet actually ships, plus
+`--radius-control|panel|pill` and `--font-sans|mono|display`. The color allowlist
+IS the shipped palette, so a token becomes overridable the moment it ships and a
+name the palette does not define is refused instead of silently applied to
+nothing. Spacing and type scale stay structural.
+
+The control plane rejects browser-fetching/injection syntax, caps the map at 64
+entries, and checks WCAG contrast against **both** shipped themes — so an override
+that reads well in light but not dark fails startup rather than making one theme
+unreadable. The browser repeats the grammar and contrast checks as defense in
+depth.
 
 Public `GET /branding` exposes only this deployment contract:
 
@@ -31,7 +44,7 @@ Public `GET /branding` exposes only this deployment contract:
 {
   "product_name": "probectl",
   "token_overrides": {
-    "--radius-md": "10px"
+    "--radius-panel": "10px"
   }
 }
 ```

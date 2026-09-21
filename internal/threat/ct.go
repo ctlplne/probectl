@@ -26,7 +26,7 @@ import (
 // for issuance anomalies. Implementations MUST fetch over TLS (cert-validated),
 // respect the source's AUP / rate limits, and DEGRADE GRACEFULLY — a down or
 // rate-limited CT source returns ok=false, never an error that breaks posture
-// (CLAUDE.md §7 guardrail 10).
+// (docs/guardrails.md G7-10).
 type CTChecker interface {
 	Check(ctx context.Context, leaf *x509.Certificate) (Finding, bool)
 }

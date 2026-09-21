@@ -16,7 +16,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 )
 
-// WriteLimits bounds a remote-write request (untrusted input — CLAUDE.md §7
+// WriteLimits bounds a remote-write request (untrusted input — docs/guardrails.md
 // guardrail 12). Zero values take the defaults.
 type WriteLimits struct {
 	MaxDecodedBytes int // after snappy decompression (decompression-bomb guard)

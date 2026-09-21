@@ -6,7 +6,7 @@
 
 //go:build isolation
 
-// Cross-tenant isolation gate — the permanent CI gate (CLAUDE.md §7 guardrail 1).
+// Cross-tenant isolation gate — the permanent CI gate (docs/guardrails.md G7-1).
 // Seeded as a placeholder in S0; this is the real suite from S2.
 //
 // It proves isolation at BOTH layers required by PRD §3.2 ("a missing application

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${PROBECTL_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c}"
 DOCKER_BIN="${DOCKER:-docker}"
-A11Y_THEMES="${PROBECTL_A11Y_THEMES:-dark,aurora}"
+A11Y_THEMES="${PROBECTL_A11Y_THEMES:-light,dark}"
 SOURCE_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 SOURCE_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
 if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
@@ -23,9 +23,9 @@ normalized_themes=""
 for raw_theme in "${requested_themes[@]}"; do
   theme="${raw_theme//[[:space:]]/}"
   case "$theme" in
-    dark | aurora | ember) ;;
+    light | dark) ;;
     *)
-      echo "web-rendered-a11y: invalid theme '$raw_theme' (known: dark, aurora, ember)" >&2
+      echo "web-rendered-a11y: invalid theme '$raw_theme' (known: light, dark)" >&2
       exit 2
       ;;
   esac

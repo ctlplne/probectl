@@ -7,14 +7,14 @@
   justify-content: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
-  color: var(--color-text);
-  background: var(--color-warning-soft);
-  border-bottom: var(--border-width-thin) solid var(--color-warning);
+  color: hsl(var(--foreground));
+  background: hsl(var(--status-warning) / 0.12);
+  border-bottom: var(--border-width-thin) solid hsl(var(--status-warning));
   font-size: var(--font-size-sm);
 }
 
 .banner kbd {
   margin-inline-start: var(--space-1);
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-caption);
 }

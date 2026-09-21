@@ -51,7 +51,7 @@ type StatsSnapshot struct {
 // Collector binds the configured UDP listeners, decodes datagrams into
 // records, and emits size/time-bounded batches.
 //
-// Security posture (CLAUDE.md §7 guardrail 12): NetFlow/IPFIX/sFlow are UDP
+// Security posture (docs/guardrails.md G7-12): NetFlow/IPFIX/sFlow are UDP
 // export protocols with no transport security of their own, so every datagram
 // is treated as untrusted input. The listener-level source ACL rejects
 // unlisted exporters before decode, decoders are bounds-checked, and template

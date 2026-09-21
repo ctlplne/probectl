@@ -84,7 +84,7 @@ func TestCommittedReportMatchesEvaluation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	wantPath := filepath.Join("..", "..", "docs", "buyer-scorecard", "report-2026-08-09.md")
+	wantPath := filepath.Join("testdata", "report.golden.md")
 	want, err := os.ReadFile(wantPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", wantPath, err)
@@ -96,9 +96,11 @@ func TestCommittedReportMatchesEvaluation(t *testing.T) {
 
 func readInputs(t *testing.T) (Catalog, Profile) {
 	t.Helper()
-	base := filepath.Join("..", "..", "docs", "buyer-scorecard")
+	// Fixtures live in testdata, not in docs/: they are inputs to this package's
+	// round-trip test, not a document probectl ships to anyone.
+	base := "testdata"
 	var catalog Catalog
-	readJSON(t, filepath.Join(base, "catalog-2026-08-09.json"), &catalog)
+	readJSON(t, filepath.Join(base, "catalog.json"), &catalog)
 	var profile Profile
 	readJSON(t, filepath.Join(base, "msp-design-partner-profile.json"), &profile)
 	return catalog, profile

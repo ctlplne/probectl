@@ -335,7 +335,7 @@ describe('AI assistant surface', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/routes/ask.module.css'), 'utf8')
 
     expect(css).toMatch(
-      /\.cite:focus-visible\s*{[^}]*border-color:\s*var\(--color-accent\);[^}]*outline:\s*2px\s+solid\s+var\(--color-focus\);[^}]*outline-offset:\s*2px;/s,
+      /\.cite:focus-visible\s*{[^}]*border-color:\s*hsl\(var\(--brand-accent\)\);[^}]*outline:\s*2px\s+solid\s+hsl\(var\(--focus\)\);[^}]*outline-offset:\s*2px;/s,
     )
   })
 })

@@ -9,7 +9,7 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { fixtureApiPlugin } from './dev/fixtureApiPlugin'
 
-// HTTPS/CSP/HSTS are enforced by the serving ingress (CLAUDE.md §7 guardrail 12),
+// HTTPS/CSP/HSTS are enforced by the serving ingress (docs/guardrails.md G7-12),
 // not by Vite's dev server. No external origins are referenced anywhere in the
 // build (sovereignty — guardrail 11).
 export default defineConfig({

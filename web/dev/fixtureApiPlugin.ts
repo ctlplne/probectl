@@ -16,7 +16,7 @@ import type { Connect, Plugin, ViteDevServer } from 'vite'
  * frontend iteration gets hot reload without a control plane, database, or
  * IdP on the laptop.
  *
- * Guardrails (SEC-001 / CLAUDE.md §7 stay intact):
+ * Guardrails (SEC-001 / docs/guardrails.md stay intact):
  * - `apply: 'serve'` — `vite build` never evaluates this plugin; nothing here
  *   can reach the embedded production bundle.
  * - Opt-in only: inert unless PROBECTL_WEB_FIXTURES=1 (`npm run dev:fixtures`).

@@ -14,7 +14,7 @@ import (
 // Stats are the cumulative counters the agent exposes so probectl observes probectl:
 // Dropped is the all-up lost-observation count, and the Drop* fields explain
 // which bucket overflowed. Loss is surfaced, never silent — a dropped flow is a
-// correctness gap in an observability tool (CLAUDE.md / S20 watch-out).
+// correctness gap in an observability tool (S20 watch-out).
 type Stats struct {
 	Observed   uint64
 	L7Observed uint64

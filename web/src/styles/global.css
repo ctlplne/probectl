@@ -1,16 +1,22 @@
+/* SPDX-License-Identifier: BUSL-1.1 */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Base element styling — tokens only. */
 body {
   margin: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
   font-family: var(--font-sans);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-data);
   line-height: var(--line-height-normal);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Inter cv05: lowercase l with a tail — l/I/1 disambiguation everywhere
-     (this product is 40% identifiers). Ignored by the fallback stacks. */
-  font-feature-settings: 'cv05';
+  /* Sora carries no stylistic-set alternates, so identifier disambiguation is
+     the mono face's job: DM Mono's 0 is slashed and its l/I/1 are distinct, and
+     every identifier, digest and timestamp in this product is set in it. */
 }
 
 /* Typesetting courtesies (progressive; older engines ignore them). */
@@ -31,15 +37,15 @@ time {
 }
 
 ::selection {
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
+  background: hsl(var(--brand-accent));
+  color: hsl(var(--brand-accent-foreground));
 }
 
 /* A single, consistent keyboard-focus treatment across the app (WCAG 2.4.7). */
 :focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
   outline-offset: var(--focus-ring-offset);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 
 :focus:not(:focus-visible) {
@@ -52,7 +58,7 @@ input[type='checkbox'] {
   height: var(--density-control-block-sm);
   flex: 0 0 var(--density-control-block-sm);
   margin: 0;
-  accent-color: var(--color-accent);
+  accent-color: hsl(var(--brand-accent));
 }
 
 main a[href] {
@@ -63,7 +69,7 @@ main a[href] {
 }
 
 ::selection {
-  background: var(--color-selection-soft);
+  background: hsl(var(--brand-accent) / 0.22);
 }
 
 /* Headings — hierarchy comes from scale + weight + tracking (no web font). */
@@ -84,20 +90,20 @@ kbd {
 /* Refined, unobtrusive scrollbars (token-driven; no third-party calls). */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-color: hsl(var(--border)) transparent;
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-border-strong);
+  background: hsl(var(--border));
   border-radius: var(--radius-pill);
   border: 2px solid transparent;
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-subtle);
+  background: hsl(var(--muted-foreground));
   background-clip: content-box;
 }
 *::-webkit-scrollbar-track {

@@ -49,15 +49,18 @@ out of sync. **Tenant is the outermost scope and security boundary** on every
 record, agent, query, metric, event, and object.
 
 > **Status: alpha.** probectl is pre-1.0 and in active development; expect
-> rough edges and file what you find. The agent-executable remediation ledger
-> is complete; the current delivered-state contract is
-> [`probectl-PRD-v1.1.md`](probectl-PRD-v1.1.md).
-> A fresh local end-gate receipt for its exact source commit is committed in
-> [`dataroom-receipts-20260715/`](dataroom-receipts-20260715/README.md). It
-> covers build, tests, coverage, web, real-store isolation/integration, recovery
-> drills, vulnerability scans, image build, and SBOM evidence. Reference-hardware
-> scale/overhead, representative multi-region DR, and counsel-owned commercial
-> paper remain explicitly outside that local receipt. Compose + Helm are
+> rough edges and file what you find. The delivered-state contract is
+> [`docs/contract/product-contract.json`](docs/contract/product-contract.json):
+> the feature delivery matrix, the telemetry planes, the size of the verification
+> net, and the proofs that are deliberately parked — all machine-readable, and all
+> checked by CI against the code rather than asserted in prose. Reference-hardware
+> scale and overhead, representative multi-region DR, and counsel-owned commercial
+> paper are the parked proofs; they are named there rather than implied to pass.
+>
+> **Container tags:** published releases are pre-1.0, so
+> `ghcr.io/ctlplne/probectl-*:latest` currently resolves to a **pre-release**.
+> Pin an explicit version tag or digest for anything you care about; `:latest`
+> will only track a stable release once there is one. Compose + Helm are
 > **HTTPS-by-default**. probectl is **source-available**: the core is
 > BUSL-1.1 and converts to MPL-2.0 four years after each release, `pkg/`,
 > `proto/` and `examples/` are MPL-2.0, and `ee/` remains commercially

@@ -20,10 +20,8 @@ import (
 func TestBrandingEndpointIsDeploymentScopedAndProbectlBranded(t *testing.T) {
 	srv := testServer(fakePinger{})
 	srv.cfg.ThemeOverrides = map[string]string{
-		"--color-accent":          "#6a4cf0",
-		"--color-accent-hover":    "#7054f6",
-		"--color-accent-strong":   "#684af0",
-		"--color-accent-contrast": "#ffffff",
+		"--primary":            "28 85% 30%",
+		"--primary-foreground": "0 0% 100%",
 	}
 
 	read := func(host, tenant string) (branding.Branding, http.Header) {
@@ -48,7 +46,7 @@ func TestBrandingEndpointIsDeploymentScopedAndProbectlBranded(t *testing.T) {
 	if a.ProductName != "probectl" || b.ProductName != "probectl" {
 		t.Fatalf("product identity changed: A=%+v B=%+v", a, b)
 	}
-	if a.TokenOverrides["--color-accent"] != "#6a4cf0" || b.TokenOverrides["--color-accent"] != "#6a4cf0" {
+	if a.TokenOverrides["--primary"] != "28 85% 30%" || b.TokenOverrides["--primary"] != "28 85% 30%" {
 		t.Fatalf("deployment overrides differ by host: A=%+v B=%+v", a, b)
 	}
 	if vary := headers.Get("Vary"); vary != "" {

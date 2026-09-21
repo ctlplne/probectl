@@ -73,22 +73,33 @@ describe('expert design-token contract', () => {
       '--density-touch-target: 44px',
     )
 
-    const primitives = [
-      'Button.module.css',
-      'Input.module.css',
-      'Table.module.css',
-      'Card.module.css',
-      'ChartShell.module.css',
+    // The primitives are Tailwind now, so the density chain runs
+    // token -> tailwind.config theme -> utility on the component. Assert every
+    // link: a token mapped in the theme but used by nothing is still dead, and a
+    // utility whose theme entry is missing silently resolves to nothing.
+    const tailwindConfig = readFileSync(join(process.cwd(), 'tailwind.config.js'), 'utf8')
+    const primitiveNames = [
+      'Button.tsx',
+      'Input.tsx',
+      'Table.tsx',
+      'Card.tsx',
+      'DataGrid.tsx',
+      'controlStyles.ts',
     ]
+    const primitives = primitiveNames
       .map((name) => readFileSync(join(process.cwd(), 'src/components', name), 'utf8'))
       .join('\n')
-    for (const name of [
-      '--density-control-block',
-      '--density-row-block',
-      '--density-panel-padding',
-      '--density-table-cell-block',
+    for (const [token, utility] of [
+      ['--density-control-block', 'h-control'],
+      ['--density-row-block', 'h-row'],
+      ['--density-panel-padding', 'panel-padding'],
+      ['--density-table-cell-block', 'cell-block'],
+      ['--density-table-cell-inline', 'cell-inline'],
     ]) {
-      expect(primitives, `density token ${name} is defined but unused`).toContain(`var(${name})`)
+      expect(tailwindConfig, `density token ${token} is not mapped in the theme`).toContain(
+        `var(${token})`,
+      )
+      expect(primitives, `density utility ${utility} is mapped but unused`).toContain(utility)
     }
 
     const global = readFileSync(join(process.cwd(), 'src/styles/global.css'), 'utf8')
@@ -120,16 +131,16 @@ describe('expert design-token contract', () => {
       expect(tokens, `missing ${name}`).toContain(`${name}:`)
     }
     for (let index = 1; index <= 6; index += 1) {
-      expect(tokens).toContain(`--color-chart-${index}:`)
+      expect(tokens).toContain(`--chart-${index}:`)
       expect(tokens).toContain(`--viz-series-${index}-dash:`)
     }
 
     const chart = readFileSync(join(process.cwd(), 'src/components/ChartShell.module.css'), 'utf8')
     const path = readFileSync(join(process.cwd(), 'src/viz/PathGraph.module.css'), 'utf8')
-    expect(chart).toContain('stroke: var(--color-chart-1)')
+    expect(chart).toContain('stroke: hsl(var(--chart-1))')
     expect(chart).toContain('stroke-dasharray: var(--viz-series-1-dash)')
     expect(path).toContain('stroke-dasharray: var(--viz-series-2-dash)')
-    expect(path).toContain('stroke: var(--color-selection)')
+    expect(path).toContain('stroke: hsl(var(--brand-accent))')
     expect(path).toContain('stroke-width: var(--selection-outline-width)')
   })
 
@@ -140,7 +151,7 @@ describe('expert design-token contract', () => {
       )?.[1] ?? ''
     for (const name of [
       '--motion-fast',
-      '--motion-normal',
+      '--motion-base',
       '--motion-slow',
       '--motion-spinner',
       '--motion-shimmer',
@@ -167,7 +178,9 @@ describe('expert design-token contract', () => {
     const dimensional =
       /^(?:margin(?:-[a-z-]+)?|padding(?:-[a-z-]+)?|gap|row-gap|column-gap|scroll-margin(?:-[a-z-]+)?|font-size|line-height|letter-spacing|border-radius|z-index)$/
     const motion = /^(?:transition(?:-[a-z-]+)?|animation(?:-[a-z-]+)?)$/
-    const colorLiteral = /#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/i
+    // A colour FUNCTION wrapping a token is the studio vocabulary and is fine;
+    // a literal inside one is not. Matches no-hardcoded-colors.test.ts.
+    const colorLiteral = /#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(\s*(?!var\(\s*--)/i
     const declaration = /([a-z-]+)\s*:\s*([^;{}]+);/g
 
     for (const file of files) {
@@ -197,28 +210,27 @@ describe('expert design-token contract', () => {
     const buttonFocus = declarationBlock(audit, '.linkButton:focus-visible')
 
     expect(target).toContain('font-weight: var(--font-weight-bold)')
-    expect(targetFocus).toContain('outline: var(--focus-ring-width) solid var(--color-focus)')
+    expect(targetFocus).toContain('outline: var(--focus-ring-width) solid hsl(var(--focus))')
     expect(targetFocus).toContain('outline-offset: var(--focus-ring-offset)')
     expect(button).toContain('min-height: var(--density-control-block)')
-    expect(button).toContain('border: var(--border-width-thin) solid var(--color-border-strong)')
+    expect(button).toContain('border: var(--border-width-thin) solid hsl(var(--border))')
     expect(button).toContain('font-weight: var(--font-weight-bold)')
-    expect(buttonFocus).toContain('outline: var(--focus-ring-width) solid var(--color-focus)')
+    expect(buttonFocus).toContain('outline: var(--focus-ring-width) solid hsl(var(--focus))')
     expect(buttonFocus).toContain('outline-offset: var(--focus-ring-offset)')
   })
 
   test('long dialogs stay inside the viewport with a scrollable body', () => {
-    const modal = readFileSync(join(process.cwd(), 'src/components/Modal.module.css'), 'utf8')
-    const dialog = declarationBlock(modal, '.dialog')
-    const body = declarationBlock(modal, '.body')
+    // The dialog is Tailwind now, so the assertion follows the implementation.
+    // The property under test is unchanged: a dialog taller than the viewport
+    // must scroll its BODY, never push its header and footer off-screen.
+    const modal = readFileSync(join(process.cwd(), 'src/components/Modal.tsx'), 'utf8')
 
-    expect(dialog).toContain(
-      'max-height: calc(100dvh - var(--layout-dialog-inset-block) - var(--space-4))',
-    )
-    expect(dialog).toContain('display: flex')
-    expect(dialog).toContain('overflow: hidden')
-    expect(body).toContain('min-height: 0')
-    expect(body).toContain('overflow-y: auto')
-    expect(body).toContain('overscroll-behavior: contain')
+    // The overlay holds the dialog off the top edge by the layout token.
+    expect(modal).toContain('pt-[var(--layout-dialog-inset-block)]')
+    // The dialog is a clipped column, so only the body can scroll.
+    expect(modal).toContain('flex w-full max-w-xl flex-col overflow-hidden')
+    // And the body is the part with a bounded height and its own scrollbar.
+    expect(modal).toContain('max-h-[var(--layout-dialog-scroll-max-block)] overflow-auto')
   })
 
   test('density and theme selectors stay deployment-level, never tenant-addressed', () => {

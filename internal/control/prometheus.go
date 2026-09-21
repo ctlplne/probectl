@@ -31,7 +31,7 @@ import (
 // (never raw caller input). Remote-write overwrites any tenant_id label with
 // the authenticated caller's tenant. RBAC: reads require metrics.read, writes
 // metrics.write — enforced by the route table like every /v1 route, after the
-// tenant boundary (CLAUDE.md §7 guardrails 1, 5).
+// tenant boundary (docs/guardrails.md G7-1, 5).
 
 // maxRemoteWriteBody caps the compressed remote-write request body.
 const maxRemoteWriteBody = 8 << 20 // 8 MiB

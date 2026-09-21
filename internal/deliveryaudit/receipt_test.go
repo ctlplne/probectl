@@ -163,7 +163,7 @@ func TestCurrentStatusRequiresCleanExactCheckout(t *testing.T) {
 		"internal/cli/cli.go", "internal/cli/generic.go", "internal/cli/surfaces.go", "internal/cli/types.go",
 		"internal/completeness/cli_dispatch.go",
 		"scripts/run_completeness_audit.sh", "scripts/completeness_audit_browser.mjs",
-		"docs/quality/delivery-audit-review-protocols.json",
+		"docs/contract/delivery-audit-review-protocols.json",
 		// DPR-255: capabilities.yaml is the registry the validator RUNS against —
 		// the most production of the analyzer inputs — and it was the one missing
 		// here. refreshSourceBoundSelfTestArtifacts digests it from the working
@@ -184,7 +184,7 @@ func TestCurrentStatusRequiresCleanExactCheckout(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runGit(t, repo, "add", "internal/cli", "internal/completeness/cli_dispatch.go", "scripts", "docs/quality/delivery-audit-review-protocols.json", "capabilities.yaml")
+	runGit(t, repo, "add", "internal/cli", "internal/completeness/cli_dispatch.go", "scripts", "docs/contract/delivery-audit-review-protocols.json", "capabilities.yaml")
 	diff := exec.Command("git", "-C", repo, "diff", "--cached", "--quiet")
 	if err := diff.Run(); err != nil {
 		runGit(t, repo, "commit", "-qm", "test: mirror validator inputs")

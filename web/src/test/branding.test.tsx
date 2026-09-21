@@ -36,10 +36,8 @@ describe('deployment-level probectl theming', () => {
       brandingStub({
         product_name: 'probectl',
         token_overrides: {
-          '--color-accent': '#6a4cf0',
-          '--color-accent-hover': '#7054f6',
-          '--color-accent-strong': '#6a4cf0',
-          '--color-accent-contrast': '#ffffff',
+          '--primary': '28 85% 30%',
+          '--primary-foreground': '0 0% 100%',
         },
       }),
     )
@@ -49,7 +47,7 @@ describe('deployment-level probectl theming', () => {
     const nav = await screen.findByRole('navigation', { name: 'Primary' })
     expect(within(nav).getByText('probectl')).toBeInTheDocument()
     await waitFor(() => {
-      expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#6a4cf0')
+      expect(document.documentElement.style.getPropertyValue('--primary')).toBe('28 85% 30%')
     })
     expect(document.title).toBe('probectl')
   })
@@ -60,10 +58,8 @@ describe('deployment-level probectl theming', () => {
       brandingStub({
         product_name: 'OtherProduct',
         token_overrides: {
-          '--color-accent': '#6a4cf0',
-          '--color-accent-hover': '#7054f6',
-          '--color-accent-strong': '#684af0',
-          '--color-accent-contrast': '#ffffff',
+          '--primary': '28 85% 30%',
+          '--primary-foreground': '0 0% 100%',
         },
       }),
     )
@@ -71,7 +67,7 @@ describe('deployment-level probectl theming', () => {
     const nav = await screen.findByRole('navigation', { name: 'Primary' })
     expect(within(nav).getByText('probectl')).toBeInTheDocument()
     await waitFor(() =>
-      expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe(''),
+      expect(document.documentElement.style.getPropertyValue('--primary')).toBe(''),
     )
     expect(screen.queryByText('OtherProduct')).not.toBeInTheDocument()
     expect(document.title).toBe('probectl')
@@ -116,28 +112,43 @@ describe('deployment-level probectl theming', () => {
     ).toBeInTheDocument()
   })
 
+  // One override map is validated against BOTH shipped themes, which is a real
+  // constraint worth pinning: a single chip tone cannot clear 4.5:1 against a
+  // near-white card AND a near-black one, so tones are overridable only as a
+  // colour/foreground pair. Without this test the constraint reads like a bug the
+  // next person "fixes" by validating one theme.
+  test('an override is only valid if it holds in light AND dark', () => {
+    // The shipped light value for a chip tone, which is unreadable on a dark card.
+    expect(tokenOverridesPassContrast({ '--status-success': '166 55% 20%' })).toBe(false)
+    // The shipped dark value for the same tone, unreadable on a light card.
+    expect(tokenOverridesPassContrast({ '--status-success': '158 64% 52%' })).toBe(false)
+    // A colour that carries its own foreground holds in both.
+    expect(
+      tokenOverridesPassContrast({
+        '--primary': '28 85% 30%',
+        '--primary-foreground': '0 0% 100%',
+      }),
+    ).toBe(true)
+  })
+
   test('reapplying deployment config removes tokens omitted by the next config', () => {
     applyBrand({
       product_name: 'probectl',
       token_overrides: {
-        '--color-accent': '#6a4cf0',
-        '--color-accent-hover': '#7054f6',
-        '--color-accent-strong': '#6a4cf0',
-        '--color-accent-contrast': '#ffffff',
-        '--color-focus': '#6a4cf0',
+        '--primary': '28 85% 30%',
+        '--primary-foreground': '0 0% 100%',
+        '--radius-panel': '10px',
       },
     })
     applyBrand({
       product_name: 'probectl',
       token_overrides: {
-        '--color-accent': '#7054f6',
-        '--color-accent-hover': '#6a4cf0',
-        '--color-accent-strong': '#6a4cf0',
-        '--color-accent-contrast': '#ffffff',
+        '--primary': '24 85% 28%',
+        '--primary-foreground': '0 0% 100%',
       },
     })
-    expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#7054f6')
-    expect(document.documentElement.style.getPropertyValue('--color-focus')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('24 85% 28%')
+    expect(document.documentElement.style.getPropertyValue('--radius-panel')).toBe('')
     expect(document.title).toBe('probectl')
   })
 
@@ -145,28 +156,49 @@ describe('deployment-level probectl theming', () => {
     applyBrand({
       product_name: 'probectl',
       token_overrides: {
-        '--space-4': '999px',
-        '--color-accent': 'url(https://evil.example)',
-        '--color-info': '24px',
-        '--color-ok': '#00aa55',
+        '--space-4': '999px', // structural token, never overridable
+        '--primary': 'url(https://evil.example)', // no browser fetch
+        '--radius-control': '24', // unitless
+        '--radius-panel': '10px', // the one legitimate entry
       },
     })
     expect(document.documentElement.style.getPropertyValue('--space-4')).toBe('')
-    expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('')
-    expect(document.documentElement.style.getPropertyValue('--color-info')).toBe('')
-    expect(document.documentElement.style.getPropertyValue('--color-ok')).toBe('#00aa55')
+    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--radius-control')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--radius-panel')).toBe('10px')
 
-    expect(tokenOverridesPassContrast({ '--color-text': '#ffffff' })).toBe(false)
-    expect(tokenOverridesPassContrast({ '--color-accent': '#ff3300' })).toBe(false)
-    expect(tokenOverridesPassContrast({ '--color-chart-1': '#ffffff' })).toBe(false)
+    // A hex value is a valid CSS colour but NOT a valid token value: the
+    // stylesheet reads the token as hsl(var(--primary) / <alpha>), so applying a
+    // hex would break every rule that uses it rather than recolour it.
+    expect(sanitizeTokenOverrides({ '--primary': '#6a4cf0' })).toEqual({})
+    expect(sanitizeTokenOverrides({ '--primary': 'rgb(106 76 240)' })).toEqual({})
+    // The retired vocabulary is refused outright rather than applied to nothing.
+    expect(sanitizeTokenOverrides({ '--color-accent': '28 85% 30%' })).toEqual({})
+    // A token name that ships nowhere, even under an overridable prefix.
+    expect(sanitizeTokenOverrides({ '--radius-nope': '10px' })).toEqual({})
+    expect(sanitizeTokenOverrides({ '--font-nope': 'Sora' })).toEqual({})
+
+    // Contrast: white body text on warm paper, a white series line on it, and an
+    // action colour too light to carry its own white label.
+    expect(tokenOverridesPassContrast({ '--foreground': '0 0% 100%' })).toBe(false)
+    expect(tokenOverridesPassContrast({ '--chart-1': '0 0% 100%' })).toBe(false)
+    expect(tokenOverridesPassContrast({ '--primary': '28 100% 85%' })).toBe(false)
+    // One bad member poisons the whole set — a partially-applied theme is worse
+    // than none, because the operator sees some of their change and trusts it.
     expect(
       sanitizeTokenOverrides({
-        '--color-accent': '#6a4cf0',
-        '--color-accent-hover': '#7054f6',
-        '--color-accent-strong': '#6a4cf0',
-        '--color-accent-contrast': '#ffffff',
-        '--color-text': '#ffffff',
+        '--primary': '28 85% 30%',
+        '--primary-foreground': '0 0% 100%',
+        '--foreground': '0 0% 100%',
       }),
     ).toEqual({})
+    // ...and the same set without the unreadable member goes through, so the test
+    // above cannot pass merely because sanitize rejects everything.
+    expect(
+      sanitizeTokenOverrides({
+        '--primary': '28 85% 30%',
+        '--primary-foreground': '0 0% 100%',
+      }),
+    ).toEqual({ '--primary': '28 85% 30%', '--primary-foreground': '0 0% 100%' })
   })
 })
