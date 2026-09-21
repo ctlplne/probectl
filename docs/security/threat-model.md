@@ -198,7 +198,7 @@ this revision:
 | Large / extra-large full-stack load numbers + SLO sign-off | the load harness and a CI smoke test have landed; the reference-hardware run is human-scheduled |
 | Multi-region RTO/RPO at representative scale | the CI failover drill runs continuously; a representative-scale run and sign-off are pending |
 | Reference-host agent overhead (live kernel ring buffer) | the userspace pipeline is measured; the on-host live row is pending |
-| Core `LICENSE` is MPL-2.0; bespoke `ee/`/reseller terms await counsel | commercial motion remains gated on counsel-approved terms, without making the core grant provisional |
+| Core `LICENSE` is BUSL-1.1 with MPL-2.0 for `pkg/`, `proto/` and `examples/`; bespoke `ee/`/reseller terms await counsel | commercial motion remains gated on counsel-approved terms, without making the core grant provisional |
 | The endpoint/DEM agent has no certificate identity (B9) | declared as a distinct trust tier, contained by mandatory lane verification and asserted as a property (`TestEndpointLanesAlwaysVerify`). Per-device enrollment remains a possible future upgrade, not a silent assumption |
 
 ## 6. Review log

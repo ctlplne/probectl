@@ -15,8 +15,8 @@ and an AI assistant that explains root cause <em>across</em> them. Telemetry nev
 <a href="https://github.com/ctlplne/probectl/tags"><img alt="tag" src="https://img.shields.io/github/v/tag/ctlplne/probectl?label=tag&sort=semver"></a>
 <a href="https://goreportcard.com/report/github.com/ctlplne/probectl"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/ctlplne/probectl"></a>
 <img alt="Go" src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white">
-<img alt="status" src="https://img.shields.io/badge/status-active%20development-orange">
-<a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/core%20license-MPL--2.0-blue"></a>
+<img alt="status" src="https://img.shields.io/badge/status-alpha-orange">
+<a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/core%20license-BUSL--1.1%20(source--available)-blue"></a>
 </p>
 
 <p align="center">
@@ -48,16 +48,20 @@ one-tenant case — there is no separate code path, no enterprise fork to drift
 out of sync. **Tenant is the outermost scope and security boundary** on every
 record, agent, query, metric, event, and object.
 
-> **Status:** the agent-executable remediation ledger is complete; the current
-> delivered-state contract is [`probectl-PRD-v1.1.md`](probectl-PRD-v1.1.md).
+> **Status: alpha.** probectl is pre-1.0 and in active development; expect
+> rough edges and file what you find. The agent-executable remediation ledger
+> is complete; the current delivered-state contract is
+> [`probectl-PRD-v1.1.md`](probectl-PRD-v1.1.md).
 > A fresh local end-gate receipt for its exact source commit is committed in
 > [`dataroom-receipts-20260715/`](dataroom-receipts-20260715/README.md). It
 > covers build, tests, coverage, web, real-store isolation/integration, recovery
 > drills, vulnerability scans, image build, and SBOM evidence. Reference-hardware
 > scale/overhead, representative multi-region DR, and counsel-owned commercial
 > paper remain explicitly outside that local receipt. Compose + Helm are
-> **HTTPS-by-default**. probectl is **open-core**: core is MPL-2.0 and `ee/`
-> remains commercially licensed ([details](#license)).
+> **HTTPS-by-default**. probectl is **source-available**: the core is
+> BUSL-1.1 and converts to MPL-2.0 four years after each release, `pkg/`,
+> `proto/` and `examples/` are MPL-2.0, and `ee/` remains commercially
+> licensed ([details](#license)).
 >
 > **Scale proof:** CI/dev-scale gates are committed, and L/XL/XXL architecture
 > targets are documented, but the buyer-facing verified scale rows remain
@@ -111,10 +115,10 @@ Four choices set it apart:
   The same choice is the no-lock-in story: data portability is under operator
   control through OTLP export and tenant export paths, so you can take your data
   out without turning a commercial feature on.
-- **Its packaging matches the operator.** The full five-plane core is free.
-  Enterprise is flat-rate because the customer bears the hosting cost. MSP is
-  consumption-based because it resells a managed tenant service; meter values
-  leave only through an operator-run export, never a phone-home path.
+- **Its packaging matches the operator.** The full five-plane core is free
+  to run. Enterprise and MSP are commercial tiers with terms set per
+  agreement; there is no published price list. Meter values leave only
+  through an operator-run export, never a phone-home path.
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
   tenant for one org, or as a hard-isolated, individually-metered platform an
   MSP resells under the probectl banner — one codebase, one security boundary.
@@ -274,14 +278,15 @@ security/threat, topology, cost/SLO, and single-tenant self-hosting — is
 **core, and free**. Commercial code lives in a **publicly-readable `ee/` tree**
 (the fence is the license + trademark, not source secrecy) and is gated at
 runtime by an **offline-verifiable, signed license** that never phones home.
-**Enterprise** is a flat-rate self-hosted license that adds the validated-module
-(FIPS) build, BYOK/governance, validated HA support/SLA, guarded remediation,
-and siloed/hybrid physical isolation; the runtime HA reference deployment
-remains core. **MSP** is a consumption-based self-hosted resale license: it
+**Enterprise** is a self-hosted commercial license that adds the
+validated-module (FIPS) build, BYOK/governance, validated HA support/SLA,
+guarded remediation, and siloed/hybrid physical isolation; the runtime HA
+reference deployment remains core. **MSP** is a self-hosted resale license: it
 inherits the Enterprise set and adds the management plane plus local
 metering/export. MSPs set their own customer pricing and resell under the
 probectl banner. Meter reporting is operator-run and never phones home. Hard
-tenant isolation remains a core-platform property.
+tenant isolation remains a core-platform property. No price list or pricing
+model is published; commercial terms are set per agreement.
 Unlicensed commercial features are simply hidden (no lockware). See
 **[`docs/editions.md`](docs/editions.md)** and
 **[`docs/pricing.md`](docs/pricing.md)**.
@@ -424,7 +429,7 @@ Going deeper:
 | Day-2 admin (audit, roles, SSO) | [`docs/admin.md`](docs/admin.md) |
 | Architecture deep-dives | [`docs/architecture.md`](docs/architecture.md) |
 | Every config key | [`docs/configuration.md`](docs/configuration.md) |
-| Editions, pricing & licensing model | [`docs/editions.md`](docs/editions.md) · [`docs/pricing.md`](docs/pricing.md) |
+| Editions, plans & licensing model | [`docs/editions.md`](docs/editions.md) · [`docs/pricing.md`](docs/pricing.md) |
 | Tenant isolation (pooled/siloed/hybrid) | [`docs/isolation.md`](docs/isolation.md) |
 | Provider / MSP plane | [`docs/provider-plane.md`](docs/provider-plane.md) |
 | Using the AI (ask → local model → MCP, in 10 min) | [`docs/ai-quickstart.md`](docs/ai-quickstart.md) |
@@ -455,11 +460,16 @@ only through `internal/crypto`, TLS on every listener) are summarized in
 
 ## License
 
-probectl is **open-core**. All first-party source outside `ee/` is licensed under
-the [Mozilla Public License 2.0](LICENSE), a file-level copyleft license. The
-MPL Exhibit B incompatibility notice is not invoked.
+probectl is **source-available**. All first-party source outside `ee/`,
+`pkg/`, `proto/` and `examples/` is licensed under the
+[Business Source License 1.1](LICENSE): production use is permitted under its
+Additional Use Grant, and each version converts to the Mozilla Public License
+2.0 four years after it is published. `pkg/` (the public Go SDK), `proto/`
+(the wire contracts) and `examples/` are licensed under the
+[Mozilla Public License 2.0](LICENSE), a file-level copyleft license; the MPL
+Exhibit B incompatibility notice is not invoked.
 
-Source under `ee/` is excluded from that grant and governed by the separate
+Source under `ee/` is excluded from both grants and governed by the separate
 commercial terms in `ee/LICENSE`; a valid offline-signed license enables
 Enterprise or MSP capabilities at runtime. See
 [`LICENSING.md`](LICENSING.md) for the boundary, contribution rules, trademark

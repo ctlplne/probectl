@@ -834,7 +834,7 @@
   {
    "id": "DOCS-S16",
    "kind": "legacy-property",
-   "statement": "Root LICENSE is final unmodified MPL-2.0; only commercial paper pends counsel.",
+   "statement": "Root LICENSE is final: unmodified BUSL-1.1 core with unmodified MPL-2.0 client tree; only commercial paper pends counsel.",
    "code": [
     "LICENSE",
     "LICENSING.md"

@@ -69,7 +69,7 @@ read-only; telemetry pipelines continue.”
 deployment keeps telemetry local, makes no call home, and verifies licenses
 with offline math. Any remote AI or export is operator-enabled, consent-gated
 where tenant data is involved, redacted where applicable, and audited. The
-core is MPL-2.0-licensed. A PoV uses your agents and tenants; success is a
+core is BUSL-1.1-licensed and converts to MPL-2.0 four years after each release. A PoV uses your agents and tenants; success is a
 measured incident workflow that beats your current diagnosis baseline.”
 
 ## Deep-dive moments

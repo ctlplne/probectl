@@ -6,10 +6,10 @@
 | **Owner** | Shankar (solo founder) |
 | **Status** | v1.1 — remediation delivered; local software gates green; four explicitly parked operator/counsel proofs remain |
 | **Last Updated** | July 15, 2026 |
-| **License** | Open-core: core is MPL-2.0; `ee/` is separately commercial. Final commercial/reseller paper remains counsel-owned (§4) |
+| **License** | Source-available: core is BUSL-1.1 (Change License MPL-2.0, four years after each version is published); `pkg/`, `proto/` and `examples/` are MPL-2.0; `ee/` is separately commercial. Final commercial/reseller paper remains counsel-owned (§4) |
 | **Supersedes** | v1.0 as the current steering document; `probectl-PRD-v1.0.md` remains the detailed code/evidence inventory and v0.5 remains frozen history |
 
-> **One-sentence delivered state:** probectl is a self-hosted, open-core,
+> **One-sentence delivered state:** probectl is a self-hosted, source-available,
 > multi-tenant network observability platform that unifies active testing,
 > routing, flow, device, and eBPF signals in one OpenTelemetry-aligned control
 > plane, with tenant-scoped cited RCA, security signals, change-aware topology,
@@ -90,7 +90,7 @@ that a source-code agent cannot manufacture:
 | **E2** | needs hardware | Run L/XL load and soak profiles on the declared reference hardware, fill `docs/scale-gate.md`, and remove `PROVISIONAL` only for measured rows. |
 | **E3** | needs hardware | Run the representative-data multi-region DR drill, record measured RTO/RPO, and obtain operator sign-off before removing the provisional banner. |
 | **E4** | needs hardware | Run the agent/eBPF overhead benchmark on the declared reference host and commit the measured table/whitepaper row. |
-| **L4** | needs human | Counsel approves final `ee/LICENSE`, reseller terms, DPA/MSA, trademark treatment, and the open-data commercial-resale AUP matrix. Core MPL-2.0 is already final. |
+| **L4** | needs human | Counsel approves final `ee/LICENSE`, reseller terms, DPA/MSA, trademark treatment, and the open-data commercial-resale AUP matrix. The core BUSL-1.1 grant and the client-tree MPL-2.0 grant are already final. |
 
 Developer-machine performance and recovery smoke results are regression
 detectors, not production capacity, customer RTO/RPO, or reference-host overhead

@@ -1,33 +1,28 @@
-# Pricing & plans
+# Plans and metering
 
 This is the buyer-facing version of the editions contract. The implementation
 source of truth is still the single feature table in
 [`internal/license/license.go`](../internal/license/license.go); this page states
 the public plan boundary and the metering units without inventing legal terms.
 
-## Public price posture
+## Plan boundary
 
-| Plan | Price posture | Boundary |
-|---|---|---|
-| Core | **$0** for self-hosted core use | The full five-plane platform: observability, AI assistant and MCP, security/threat signals, topology, cost/SLO, OIDC SSO, SCIM, RBAC/ABAC, per-tenant export/deletion, fairness enforcement, and support-bundle generation. |
-| Enterprise | **Flat-rate self-hosted license** | Every non-resale `ee/` capability: validated-module/FIPS distribution, BYOK, governance, guarded remediation, HA support/SLA, and siloed/hybrid isolation. |
-| MSP | **Consumption-based self-hosted resale license** | The complete Enterprise set plus the provider plane and usage metering/export. The MSP resells under the probectl banner and sets its own customer prices. |
+| Plan | Boundary |
+|---|---|
+| Core | The full five-plane platform: observability, AI assistant and MCP, security/threat signals, topology, cost/SLO, OIDC SSO, SCIM, RBAC/ABAC, per-tenant export/deletion, fairness enforcement, and support-bundle generation. Free to run in production under the core license. |
+| Enterprise | Every non-resale `ee/` capability: validated-module/FIPS distribution, BYOK, governance, guarded remediation, HA support/SLA, and siloed/hybrid isolation. A self-hosted commercial license. |
+| MSP | The complete Enterprise set plus the provider plane and usage metering/export. A self-hosted resale license: the MSP resells under the probectl banner and sets its own customer prices. |
 
-Enterprise is intentionally flat-rate because the customer bears the deployment
-and telemetry infrastructure cost. MSP is intentionally consumption-based
-because the operator resells a managed tenant service. `tenant_band` remains a
-provisioning ceiling, not a telemetry kill switch. Contract rates and reseller
-terms are counsel-owned artifacts; they do not create another runtime feature
-table.
+**No price list or pricing model is published.** Commercial terms, including
+rates, reseller terms and support commitments, are set per agreement and are
+counsel-owned artifacts; they do not create another runtime feature table.
+`tenant_band` remains a provisioning ceiling, not a telemetry kill switch.
 
-The founder-approved **planning recommendation** is available in the fully
-editable [offline TCO calculator](pricing/tco-calculator.md): Core $0,
-Enterprise $24,000 USD/year flat per deployment, and MSP $12,000 USD/year plus
-$15 USD per peak agent-month. Those dollar inputs are a dated hypothesis for
-design-partner and margin testing—not a quote, offer, final price, or legal term.
-The calculator shows 10/100/1,000-tenant cases, feature boundaries, tenant-band
-caps, infrastructure, retention, backup/HA, labor, support, migration, and
-sensitivity without fetching any price or usage data.
+The [offline TCO calculator](pricing/tco-calculator.md) models the
+infrastructure, operations, support and migration cost of running probectl
+yourself for 10/100/1,000-tenant cases. Its license-fee inputs are recorded as
+unknown, so the commercial plans report an unknown total until a price list
+exists; it fetches no price or usage data.
 
 There is no "SSO tax": OIDC SSO, SCIM, RBAC, and ABAC are core. SAML is not yet
 supported, and is tracked as a capability gap rather than a paid downgrade.
@@ -48,11 +43,12 @@ The commercial features are exactly the ones in the license table:
 
 MSP is a strict superset of Enterprise. Enterprise never grants
 `provider_plane` or `metering`, because those are resale operations rather than
-self-hosted product capabilities.
+self-hosted product capabilities. `pricing_model` in a signed license is a
+reserved, informational field and grants nothing.
 
 ## Metering units
 
-MSP metering is the probectl-to-MSP consumption basis and also feeds showback,
+MSP metering is the probectl-to-MSP usage basis and also feeds showback,
 capacity planning, fairness reviews, and the MSP's own tenant billing. It is
 collected locally from tenant-tagged streams already flowing through the
 deployment.
@@ -86,9 +82,11 @@ inside the control plane and never phones home. Unlicensed commercial surfaces a
 hidden except for Admin -> Editions, and expired commercial features degrade
 read-only after the grace period. Telemetry pipelines keep running.
 
-The core license grant is already final: first-party source outside `ee/` is
-covered by the unmodified MPL-2.0 text in the root [`LICENSE`](../LICENSE),
-without Exhibit B. The draft `ee/LICENSE`, commercial agreements, reseller
-terms, DPA/MSA, trademark posture, and open-data resale review remain
-counsel-owned. This page describes product packaging and metering; it does not
-replace that commercial paper.
+The core license grant is already final: first-party source outside `ee/`,
+`pkg/`, `proto/` and `examples/` is covered by the Business Source License 1.1
+text and parameters in the root [`LICENSE`](../LICENSE), and `pkg/`, `proto/`
+and `examples/` by the unmodified MPL-2.0 text that follows it, without Exhibit
+B. The draft `ee/LICENSE`, commercial agreements, reseller terms, DPA/MSA,
+trademark posture, and open-data resale review remain counsel-owned. This page
+describes product packaging and metering; it does not replace that commercial
+paper.

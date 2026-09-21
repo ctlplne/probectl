@@ -1,4 +1,4 @@
-# Offline pricing and self-hosted TCO calculator
+# Offline self-hosted TCO calculator
 
 The calculator answers a deliberately boring buyer question: **“If I run this
 myself, what must I pay for, and which numbers are still guesses?”** It reads a
@@ -32,20 +32,26 @@ The input decoder rejects unknown JSON fields, known values without provenance,
 and prices without an as-of date. A missing number is never silently changed to
 zero.
 
-## Founder recommendation encoded in revision 1
+## License-fee inputs are unknown on purpose
 
-This is a **planning recommendation, not a quote**:
+No price list or pricing model is published (owner decision, 2026-09-20).
+Revision 2 of the worksheet therefore records every commercial license-fee
+input as `null` with provenance `unknown`, so the Enterprise and MSP totals
+render as `UNKNOWN` and only the Core plan, which is free under the core
+license, produces a complete total. What the calculator does compute for every
+plan is the part the buyer controls: infrastructure, operator labor, support
+and migration.
 
-| Plan | Recommended planning input | Why |
+| Plan | Planning input | Why |
 |---|---:|---|
-| Core | **$0** | The MPL-2.0 five-plane core remains deliberately free. |
-| Enterprise | **$24,000/year per self-hosted deployment**, flat; planning tenant band 100 | The buyer already pays its own infrastructure, so a predictable flat license is easier to budget than telemetry tax. |
-| MSP | **$12,000/year platform + $15/peak-agent-month**, planning tenant band 1,000 | Peak agents are already measured locally, are understandable, and do not punish high telemetry fidelity. There is no ingest-byte fee. |
+| Core | license: 0 | The five-plane core is free to run under the core license. |
+| Enterprise | license: unknown; planning tenant band 100 | Rates are set per agreement; nothing is published. |
+| MSP | license: unknown; planning tenant band 1,000 | Rates are set per agreement; nothing is published. |
 
 The tenant band controls new provisioning; it never drops telemetry. MSP
 metering stays local and leaves only through an operator-run export. The MSP
 resells under the probectl brand; white-label identity replacement is not
-offered. Final rates, discounts, support commitments, reseller language, and
+offered. Rates, discounts, support commitments, reseller language, and
 commercial license terms still need real design-partner evidence and counsel.
 
 ## Formula map
@@ -88,7 +94,7 @@ Each 10-, 100-, and 1,000-tenant scenario is evaluated three ways:
 | Baseline | 1× | 1× | 1× | 1× |
 | High | 3× | 1× | 1.5× | 2× |
 
-Revision 1 intentionally leaves `measured_operator_hours_month` unknown. The
+Revision 2 intentionally leaves `measured_operator_hours_month` unknown. The
 calculator shows that measured line as `null`; the planning TCO uses a separately
 labeled labor hypothesis. Replace it after the MSP design-partner operations
 study. Likewise, compression and ingest volume are engineering assumptions

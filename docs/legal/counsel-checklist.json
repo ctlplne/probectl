@@ -4,11 +4,11 @@
   "authoritative": false,
   "notice": "Engineering-prepared counsel input only; not legal advice or approved terms.",
   "founder_decisions": [
-    {"id": "DEC-01", "status": "locked", "decision": "Core is MPL-2.0; commercial implementation is isolated under ee/."},
+    {"id": "DEC-01", "status": "locked", "decision": "Core is BUSL-1.1 (Licensor certctl LLC; Change Date four years after each version is published; Change License MPL-2.0); pkg/, proto/ and examples/ are MPL-2.0; commercial implementation is isolated under ee/."},
     {"id": "DEC-02", "status": "locked", "decision": "No white-label or OEM identity replacement; MSPs operate under the probectl brand."},
     {"id": "DEC-03", "status": "locked", "decision": "Customer/MSP self-hosted deployments; no first-party public SaaS."},
     {"id": "DEC-04", "status": "locked", "decision": "Offline-signed licensing; no remote license verification."},
-    {"id": "DEC-05", "status": "locked", "decision": "USD pricing; no ingest-byte fee."},
+    {"id": "DEC-05", "status": "open", "decision": "Pricing is not decided; no price list or pricing model is published. Commercial terms are set per agreement."},
     {"id": "DEC-06", "status": "locked", "decision": "Vendor-neutral signed PSA ticket contract; named adapter follows design-partner choice."}
   ],
   "counsel_items": [

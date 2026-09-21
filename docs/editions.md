@@ -1,7 +1,8 @@
 # Editions & licensing
 
-probectl is **open-core**: the core platform is open source under MPL-2.0 and
-free, while the commercial Enterprise and MSP tiers are gated.
+probectl is **source-available**: the core platform is licensed under the
+Business Source License 1.1 and free to run, while the commercial Enterprise
+and MSP tiers are gated.
 This document is the engineering contract for how that split is enforced in the
 codebase.
 
@@ -9,11 +10,13 @@ The one-sentence version: **it is one repo with one binary lineage and no editio
 branches — the commercial boundary is a license file plus a directory fence, never
 a fork.** Everything below is an elaboration of that sentence.
 
-The source-license boundary is final: first-party core files outside `ee/` are
-**MPL-2.0**, while `ee/` is governed by its separate commercial license. MPL's
-Exhibit B incompatibility notice is not used. See
+The source-license boundary is final: first-party core files outside `ee/`,
+`pkg/`, `proto/` and `examples/` are **BUSL-1.1** (production use permitted;
+each version converts to MPL-2.0 four years after publication), `pkg/`,
+`proto/` and `examples/` are **MPL-2.0**, and `ee/` is governed by its separate
+commercial license. MPL's Exhibit B incompatibility notice is not used. See
 [`../LICENSING.md`](../LICENSING.md) for the file-level rules and contributor
-expectations; runtime tier checks do not alter either source license.
+expectations; runtime tier checks do not alter any source license.
 
 ## The model in one paragraph
 
@@ -41,12 +44,13 @@ There is exactly **one** feature→tier table in the whole codebase:
 duplicated anywhere else, so there is a single source of truth.
 
 The buyer-facing boundary follows that table. The full five-plane core is free.
-Enterprise is a flat-rate self-hosted license: the customer bears its own
-infrastructure cost, so one Enterprise entitlement opens every non-resale
-`ee/` capability. MSP is consumption-priced for self-hosted resale under the
-**probectl** banner. Its usage basis is the existing tenant-scoped meters, which
-the operator exports deliberately; no meter is ever transmitted by probectl.
-The public plan summary lives in [`pricing.md`](pricing.md).
+Enterprise is a self-hosted license: the customer bears its own infrastructure
+cost, and one Enterprise entitlement opens every non-resale `ee/` capability.
+MSP is a self-hosted resale license under the **probectl** banner; its usage
+basis is the existing tenant-scoped meters, which the operator exports
+deliberately, and no meter is ever transmitted by probectl. No price list or
+pricing model is published; commercial terms are set per agreement. The plan
+boundary and metering units live in [`pricing.md`](pricing.md).
 
 | Tier | Gated features |
 |---|---|
@@ -62,8 +66,8 @@ in core; Enterprise buys the validated support path around that operation.
 capabilities, and the MSP additionally gets the separately privileged provider
 plane and metering/export surface. Enterprise does **not** get those two resale
 operations: a self-hoster administers its own deployment and does not resell a
-tenant service. `pricing_model` is descriptive metadata only; all enforcement
-still comes from this one tier table and the `Build*` seams.
+tenant service. `pricing_model` is a reserved, descriptive field only; all
+enforcement still comes from this one tier table and the `Build*` seams.
 
 **Some capabilities are deliberately core (free), even though they sound
 commercial:**
@@ -77,8 +81,8 @@ commercial:**
 - Support-bundle *generation* — the tool is core; the support SLA is a contract,
   not a code gate.
 
-And "Starter/Pro" pricing tiers need **no code gating at all**: they are
-entitlement (support/SLA) tiers riding the same core binary.
+Any future support/SLA tiers need **no code gating at all**: they are
+entitlement tiers riding the same core binary.
 
 ## Product identity and deployment theming
 
@@ -135,9 +139,10 @@ The claims inside:
 
 - `tier` implies its feature set from the one table; `features` lists explicit
   bespoke extras on top.
-- `pricing_model` is informational and accepts `flat` or `consumption`. When it
-  is absent, Enterprise implies `flat` and MSP implies `consumption`. It never
-  grants a capability. Existing signed v1 development licenses using the old
+- `pricing_model` is a reserved, informational field that accepts `flat` or
+  `consumption`. When it is absent, Enterprise defaults to `flat` and MSP to
+  `consumption` in memory. It never grants a capability, and it is not a
+  published pricing model: no price list or pricing model is published. Existing signed v1 development licenses using the old
   `provider` tier continue to verify and normalize in memory to `msp`.
 - `tenant_band` is the licensed tenant-count band (`0` or absent = unlimited).
   It is enforced at tenant *provisioning* time (the provider plane refuses to
@@ -319,7 +324,9 @@ Ed25519 math — no sockets.
   commercial license + trademark; the gate is for honest customers.
 - Not a kill-switch: no state in the ladder ever stops ingestion, probing,
   alerting, or dashboards that already exist.
-- Not finalized commercial legal text: the core [`LICENSE`](../LICENSE) is the
-  final, unmodified MPL-2.0 text. The bespoke `ee/LICENSE`, commercial headers,
+- Not finalized commercial legal text: the core [`LICENSE`](../LICENSE) is
+  final, the unmodified BUSL-1.1 text with its parameters followed by the
+  unmodified MPL-2.0 text for `pkg/`, `proto/` and `examples/`. The bespoke
+  `ee/LICENSE`, commercial headers,
   reseller terms, DPA/MSA, and open-data resale review remain counsel work. The
   enforcement mechanics above are complete independently of that review.

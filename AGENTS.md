@@ -26,11 +26,13 @@ Instructions for coding agents (Codex, Claude Code, Cowork, or any other) workin
    coherent change; OpenAPI + docs + idempotent migration in the same commit; conventional
    commits; cross-tenant isolation test with any data-path change).
 
-4. Licensing & business model: core is MPL-2.0; `ee/` is commercial — Enterprise licenses
-   are flat-rate for self-hosters (all ee gates open); MSP licenses are consumption-based and
-   open the ee gates for every tenant the MSP hosts, resold under the probectl banner. There
-   is no white-label. New core files carry the MPL header; new `ee/` files carry the
-   commercial header. Core never imports `ee/` — CI blocks it.
+4. Licensing & business model: the core is BUSL-1.1 (source-available; each version
+   converts to MPL-2.0 four years after publication); `pkg/`, `proto/` and `examples/` are
+   MPL-2.0; `ee/` is commercial. Enterprise licenses open all ee gates for one self-hosted
+   deployment; MSP licenses open the ee gates for every tenant the MSP hosts, resold under
+   the probectl banner. No price list or pricing model is published. There is no
+   white-label. New core files carry the BSL header, new client-tree files the MPL header,
+   and new `ee/` files the commercial header. Core never imports `ee/` — CI blocks it.
 
 5. Verification (from the repo root): `bash scripts/verify_all.sh` is the executed-proof
    umbrella; individual gates are listed by `make help`. Contract-file references are

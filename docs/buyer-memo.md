@@ -47,21 +47,24 @@ service custody path. Provider operators do not get silent tenant telemetry
 access; break-glass is explicit, time-bounded, tenant-consented, and separately
 audited.
 
-## Pricing posture
+## Commercial posture
 
-The pricing posture follows who bears the operating cost:
+The commercial posture follows who bears the operating cost:
 
 - Core stays free as the five-plane self-hosted platform.
-- Enterprise is a flat-rate self-hosted license opening every non-resale `ee/`
-  capability.
-- MSP is consumption-based, receives the Enterprise set plus provider operations,
-  and resells under the probectl banner at its own customer pricing.
+- Enterprise and MSP are commercial tiers. Enterprise is a self-hosted license
+  opening every non-resale `ee/` capability; MSP receives the Enterprise set
+  plus provider operations and resells under the probectl banner at its own
+  customer pricing.
+- No price list or pricing model is published; commercial terms are set per
+  agreement.
 - Usage counters are collected locally and leave only through an operator-run
   export. There is no phone-home billing path.
 
 The split stays legible: a sovereign enterprise that already pays for its
-infrastructure gets flat-rate software; an MSP operating a resale business uses
-the local consumption record while retaining custody of every tenant signal.
+infrastructure licenses the software for its own deployment; an MSP operating a
+resale business uses the local usage record while retaining custody of every
+tenant signal.
 
 ## Proof receipts
 
@@ -88,7 +91,9 @@ not the same thing as a served buyer surface.
 
 These are decision inputs, not footnotes:
 
-- Core is licensed under MPL-2.0; `ee/` remains separately commercial. Counsel
+- Core is licensed under BUSL-1.1 and converts to MPL-2.0 four years after
+  each release; `pkg/`, `proto/` and `examples/` are MPL-2.0; `ee/` remains
+  separately commercial. Counsel
   still must finalize the bespoke `ee/LICENSE`, reseller terms, DPA/MSA, and
   trademark posture before commercial/MSP motion.
 - L/XL/XXL scale rows are targets until reference-cluster runs are recorded.
@@ -114,7 +119,7 @@ For a buyer replacing managed SaaS, the pattern is:
 3. Keep telemetry, AI prompts, evidence, and exports inside that environment.
 4. Federate outward only through explicit operator-configured exports such as
    OTLP, SIEM export, or support bundles.
-5. Price the deployment by fixed license or tenant band, not by consumption.
+5. Budget the deployment on the infrastructure and operations you control; commercial terms are set per agreement.
 
 The strategy intentionally trades a vendor's global hosted fabric for local
 custody, auditable tenant isolation, and predictable economics. If the buyer's
@@ -143,7 +148,7 @@ into a remediation plan, not a sales deck.
 
 - Positioning and quickstart: [`../README.md`](../README.md)
 - Editions and source-available boundary: [`editions.md`](editions.md)
-- Fixed-license pricing: [`pricing.md`](pricing.md)
+- Plans and metering: [`pricing.md`](pricing.md)
 - Tenant isolation: [`security/tenant-isolation.md`](security/tenant-isolation.md)
 - Provider/MSP plane: [`provider-plane.md`](provider-plane.md)
 - Scale receipts and provisional rows: [`scale-gate.md`](scale-gate.md)

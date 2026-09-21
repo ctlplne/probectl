@@ -169,7 +169,7 @@ func (m Model) Validate() error {
 			return fmt.Errorf("pricing: package %d has empty or duplicate name", i)
 		}
 		seenPackages[p.Name] = true
-		if p.PricingModel != "free" && p.PricingModel != "flat" && p.PricingModel != "consumption" {
+		if p.PricingModel != "free" && p.PricingModel != "flat" && p.PricingModel != "consumption" && p.PricingModel != "undecided" {
 			return fmt.Errorf("pricing: package %s has unsupported pricing_model %q", p.Name, p.PricingModel)
 		}
 		if p.TenantCap != nil && *p.TenantCap <= 0 {

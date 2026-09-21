@@ -35,6 +35,11 @@ func TestPricingDocsPublishEnterpriseAndMSPPosture(t *testing.T) {
 		"Fixed annual tenant-band license",
 		"Provider-25",
 		"white_label",
+		"Flat-rate self-hosted license",
+		"Consumption-based self-hosted resale license",
+		"$24,000",
+		"USD/year",
+		"open-core",
 	} {
 		if strings.Contains(combined, stale) {
 			t.Fatalf("pricing posture contains retired packaging %q", stale)
@@ -42,8 +47,8 @@ func TestPricingDocsPublishEnterpriseAndMSPPosture(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"Flat-rate self-hosted license",
-		"Consumption-based self-hosted resale license",
+		"No price list or pricing model is published",
+		"set per agreement",
 		"strict superset",
 		"probectl banner",
 		"operator-run export",

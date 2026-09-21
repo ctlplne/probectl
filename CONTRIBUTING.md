@@ -84,16 +84,20 @@ CI enforces this in the **`dco`** job, which runs a dependency-free
 missing the trailer — and a red `dco` does not get merged. The DCO applies to
 commits going forward.
 
-The repository is open-core and the target file decides the contribution
-license. Core source outside `ee/` is MPL-2.0; commercial source under `ee/`
-uses the terms referenced by `ee/LICENSE`. The DCO certifies that you have the
-right to submit the contribution under that target license; it does not change
-the license boundary. No Contributor License Agreement is required today.
+The repository is source-available and the target file decides the
+contribution license. Core source outside `ee/`, `pkg/`, `proto/` and
+`examples/` is BUSL-1.1; `pkg/`, `proto/` and `examples/` are MPL-2.0;
+commercial source under `ee/` uses the terms referenced by `ee/LICENSE`. The
+DCO certifies that you have the right to submit the contribution under that
+target license; it does not change the license boundary. No Contributor License
+Agreement is required today.
 
 For new first-party source, use these machine-readable identifiers:
 
-- core: `SPDX-License-Identifier: MPL-2.0`, together with the MPL Exhibit A
-  notice; do **not** add Exhibit B;
+- core: `SPDX-License-Identifier: BUSL-1.1`, together with the three-line BSL
+  notice;
+- `pkg/`, `proto/`, `examples/`: `SPDX-License-Identifier: MPL-2.0`, together
+  with the MPL Exhibit A notice; do **not** add Exhibit B;
 - `ee/`: `SPDX-License-Identifier: LicenseRef-Probectl-Commercial`, together
   with a pointer to `ee/LICENSE`.
 

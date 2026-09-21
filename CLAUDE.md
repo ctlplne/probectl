@@ -15,14 +15,15 @@
 
 ## 1. What probectl is
 
-Self-hosted, open-core, **multi-tenant** network observability: five planes — active/synthetic, BGP/routing, flow, device telemetry, eBPF host/L7 — on an OTel-native control plane, with cited cross-plane AI RCA, a TLS/NDR-lite threat layer (signals, never an IPS), change-aware topology, and cost/SLO intelligence. Open-data enriched; **telemetry never leaves the operator's network**. Two modes, one codebase: sovereign single-tenant (deployment = tenant boundary, air-gap capable) and MSP-hosted multi-tenant — single-tenant is the one-tenant case, no separate code path. Solo founder + AI agents. Sibling: `trustctl` (cert/NHI lifecycle; same patterns; receives TLS findings).
+Self-hosted, source-available, **multi-tenant** network observability: five planes — active/synthetic, BGP/routing, flow, device telemetry, eBPF host/L7 — on an OTel-native control plane, with cited cross-plane AI RCA, a TLS/NDR-lite threat layer (signals, never an IPS), change-aware topology, and cost/SLO intelligence. Open-data enriched; **telemetry never leaves the operator's network**. Two modes, one codebase: sovereign single-tenant (deployment = tenant boundary, air-gap capable) and MSP-hosted multi-tenant — single-tenant is the one-tenant case, no separate code path. Solo founder + AI agents. Sibling: `trustctl` (cert/NHI lifecycle; same patterns; receives TLS findings).
 
 ## 2. Editions & business model (decision of record 2026-07-14)
 
-- **Core = MPL-2.0**, free and open source. Commercial code only under **`ee/`** (commercial license; fence is license + trademark, not source secrecy). One repo, no edition branches; `ee/` imports core, **core never imports `ee/`** (CI: `make editions-gate`); core-only build (`-tags probectl_core`) stays green with `ee/` inert.
+- **Core = BUSL-1.1** (source-available; production use permitted under the Additional Use Grant; each version converts to MPL-2.0 four years after publication). **`pkg/`, `proto/` and `examples/` = MPL-2.0** so clients and other implementations can embed them freely. Commercial code only under **`ee/`** (commercial license; fence is license + trademark, not source secrecy). One repo, no edition branches; `ee/` imports core, **core never imports `ee/`** (CI: `make editions-gate`); core-only build (`-tags probectl_core`) stays green with `ee/` inert.
 - **Gating:** offline **Ed25519-signed license files** verified against baked public keys — never phone-home. One feature→tier table (`internal/license` `tierFeatures`), wired only at `main.go` `Build*` seams. Unlicensed = hidden, not lockware (Admin → Editions is the one visibility point). Expiry → 30-day grace → commercial features go **read-only**; telemetry pipelines never break.
-- **Enterprise (self-host): flat rate.** Opens all `ee/` gates for that deployment — the customer bears its own hosting costs.
-- **MSP: consumption-based.** The MSP self-hosts and **resells the service under the probectl banner**; its license opens the `ee/` gates for every tenant it hosts. The MSP sets its own customer pricing (consumption tool). probectl↔MSP consumption reporting is **export-based usage metering** — never phone-home. Provider plane + metering are MSP-tier only (self-hosters don't resell).
+- **Enterprise (self-host).** Opens all `ee/` gates for that deployment — the customer bears its own hosting costs.
+- **MSP.** The MSP self-hosts and **resells the service under the probectl banner**; its license opens the `ee/` gates for every tenant it hosts. The MSP sets its own customer pricing. probectl↔MSP usage reporting is **export-based usage metering** — never phone-home. Provider plane + metering are MSP-tier only (self-hosters don't resell).
+- **No published pricing.** No price list or pricing model is published anywhere in the repo or on the website; commercial terms are set per agreement. `pricing_model` in the license file is a reserved, informational field.
 - **No white-label — removed by design.** Theming is deployment-level design tokens; tenants see probectl branding; the always-visible tenant indicator and the visually-separate provider console remain.
 - Core keeps (deliberately free): per-tenant export/verifiable deletion, fairness enforcement, support-bundle generation.
 
@@ -93,7 +94,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             version (build metadata) · webui (embedded web UI) ·
             wire (bounded reader for untrusted wire input)
 ee/         billing (metering/usage export) · cmd (commercial offline CLIs) ·
-            governance (ee governance workflows) · pricing (offline TCO/pricing model) ·
+            governance (ee governance workflows) · pricing (offline TCO model; no license prices) ·
             provider (provider/management plane) · remediation (guarded remediation workflow) ·
             silo (siloed/hybrid isolation) · tenantkeys (BYOK) · web (embedded provider-console assets)
 analyzer/   Python BGP · proto/ schemas · migrations/ (sequential, idempotent) · web/ frontend
@@ -115,7 +116,7 @@ deploy/     helm · compose · terraform · backup · packaging | docs/ · test/
 - **Editions:** tier checks only in `internal/license` at `Build*` seams; unlicensed hidden except Admin → Editions.
 - **UI:** design tokens + component library only — never hardcode color/spacing/type/radius/motion; WCAG 2.2 AA gate green; tenant indicator visible; no third-party/phoning-home assets.
 - **Telemetry:** new signals map to OTel semantic conventions from first emission.
-- **Licensing headers:** new core files carry MPL-2.0 (Exhibit A/SPDX); new `ee/` files carry the commercial header.
+- **Licensing headers:** new core files carry BUSL-1.1 (SPDX + the BSL notice); new `pkg/`, `proto/` and `examples/` files carry MPL-2.0 (SPDX + Exhibit A); new `ee/` files carry the commercial header.
 
 ## 7. Guardrails (non-negotiable; a task requiring a violation → stop, ask)
 

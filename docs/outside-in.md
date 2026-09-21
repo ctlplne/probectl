@@ -18,7 +18,7 @@ Tokyo, probectl does not imply Tokyo is covered.
 | Vendor-owned probe fleet | Customer/MSP-owned `probectl-agent` fleet, enrolled into the buyer's tenant over mTLS |
 | Vendor data custody | Tenant telemetry stays in the buyer-owned or MSP-owned control plane |
 | Vendor-defined locations | Operator-defined site and region labels, tied to business geography |
-| Vendor-defined consumption and custody | Enterprise stays flat-rate; MSP uses locally collected consumption meters and operator-run export while retaining custody |
+| Vendor-defined consumption and custody | Enterprise and MSP are commercial tiers with no published price; an MSP uses locally collected consumption meters as its consumption basis and operator-run export while retaining custody |
 | Black-box internet weather | `/v1/outages` joins your vantages with opt-in public outage data and says what is not covered |
 
 This is the ThousandEyes-style job, but with a different trust boundary. probectl
@@ -249,8 +249,8 @@ Use these checks before claiming outside-in coverage:
 - `POST /v1/a2a/mesh` succeeds for the sites that should be mesh-tested.
 - `GET /v1/outages` returns coverage notes, and those notes are copied into the
   operations review.
-- `docs/pricing.md` still says Enterprise is flat-rate, MSP is
-  consumption-based, and MSP reporting is an operator-run export.
+- `docs/pricing.md` still says no price list or pricing model is published
+  and MSP reporting is an operator-run export.
 - Public outage feeds are either off by default or explicitly enabled by the
   operator with source/AUP review.
 

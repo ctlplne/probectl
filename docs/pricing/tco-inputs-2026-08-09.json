@@ -1,6 +1,6 @@
 {
   "schema": "probectl-tco-input/v1",
-  "revision": "2026-08-09-founder-recommendation-1",
+  "revision": "2026-09-20-no-published-price-2",
   "currency": "USD",
   "disclaimer": "Editable planning hypothesis only; not an offer, contract, counsel approval, market validation, or production scale receipt.",
   "prices": {
@@ -16,8 +16,8 @@
     {
       "name": "Core",
       "pricing_model": "free",
-      "base_annual_usd": {"value": 0, "unit": "USD/year", "provenance": "product_contract", "as_of": "2026-08-09", "source": "docs/pricing.md"},
-      "per_peak_agent_monthly_usd": {"value": 0, "unit": "USD/peak-agent-month", "provenance": "product_contract", "as_of": "2026-08-09", "source": "docs/pricing.md"},
+      "base_annual_usd": {"value": 0, "unit": "USD/year", "provenance": "product_contract", "as_of": "2026-09-20", "source": "docs/pricing.md: the core is free to run under the core license"},
+      "per_peak_agent_monthly_usd": {"value": 0, "unit": "USD/peak-agent-month", "provenance": "product_contract", "as_of": "2026-09-20", "source": "docs/pricing.md: the core is free to run under the core license"},
       "tenant_cap": null,
       "cap_meaning": "No commercial license cap; infrastructure and fairness limits still apply.",
       "included_features": ["five-plane observability", "AI and MCP", "OIDC/SCIM/RBAC/ABAC", "tenant export and deletion", "fairness", "support bundle"],
@@ -26,25 +26,25 @@
     },
     {
       "name": "Enterprise",
-      "pricing_model": "flat",
-      "base_annual_usd": {"value": 24000, "unit": "USD/year", "provenance": "planning_hypothesis", "as_of": "2026-08-09", "source": "founder-approved Codex recommendation; validate willingness-to-pay and counsel terms before quoting"},
-      "per_peak_agent_monthly_usd": {"value": 0, "unit": "USD/peak-agent-month", "provenance": "planning_hypothesis", "as_of": "2026-08-09", "source": "flat-rate product posture in docs/pricing.md"},
+      "pricing_model": "undecided",
+      "base_annual_usd": {"value": null, "unit": "USD/year", "provenance": "unknown", "note": "no price list or pricing model is published; owner decision 2026-09-20"},
+      "per_peak_agent_monthly_usd": {"value": null, "unit": "USD/peak-agent-month", "provenance": "unknown", "note": "no price list or pricing model is published; owner decision 2026-09-20"},
       "tenant_cap": 100,
       "cap_meaning": "Planning tenant band for one self-hosted deployment; telemetry is never dropped when the cap is reached.",
       "included_features": ["all Core features", "fips distribution", "byok", "governance", "guarded remediation", "ha support", "siloed and hybrid isolation"],
       "unavailable_capabilities": ["provider plane", "metering", "resale rights"],
-      "review_state": "founder_recommended_not_a_quote"
+      "review_state": "not_published"
     },
     {
       "name": "MSP",
-      "pricing_model": "consumption",
-      "base_annual_usd": {"value": 12000, "unit": "USD/year", "provenance": "planning_hypothesis", "as_of": "2026-08-09", "source": "founder-approved Codex recommendation; validate willingness-to-pay and counsel terms before quoting"},
-      "per_peak_agent_monthly_usd": {"value": 15, "unit": "USD/peak-agent-month", "provenance": "planning_hypothesis", "as_of": "2026-08-09", "source": "recommended predictable mapping to the existing local agents gauge; no ingest-byte fee"},
+      "pricing_model": "undecided",
+      "base_annual_usd": {"value": null, "unit": "USD/year", "provenance": "unknown", "note": "no price list or pricing model is published; owner decision 2026-09-20"},
+      "per_peak_agent_monthly_usd": {"value": null, "unit": "USD/peak-agent-month", "provenance": "unknown", "note": "no price list or pricing model is published; owner decision 2026-09-20"},
       "tenant_cap": 1000,
-      "cap_meaning": "Planning tenant band; the local agents gauge sets price and the band controls new provisioning only, never telemetry ingest.",
+      "cap_meaning": "Planning tenant band; the band controls new provisioning only, never telemetry ingest.",
       "included_features": ["all Enterprise features", "provider plane", "local metering and operator-run export", "self-hosted resale under the probectl brand"],
       "unavailable_capabilities": ["white-label identity replacement", "probectl-hosted SaaS"],
-      "review_state": "founder_recommended_not_a_quote"
+      "review_state": "not_published"
     }
   ],
   "sensitivities": [

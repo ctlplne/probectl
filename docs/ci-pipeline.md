@@ -79,7 +79,7 @@ Verification you ran, not verification you described.
   the repo's guard scripts (crypto primitives only via `internal/crypto`, no
   swallowed errors, hardened HTTP clients, no string-built SQL, unified TLS
   config); ruff/black on the BGP analyzer.
-- **editions-gate** — enforces the open-core boundary via `make editions-gate`:
+- **editions-gate** — enforces the editions boundary via `make editions-gate`:
   `scripts/check_editions_imports.sh` (self-tested) proves **core never imports
   `ee/`**, then the core-only build (`-tags probectl_core`) compiles and passes
   its tests with the `ee/` tree linked out entirely.

@@ -4,8 +4,10 @@
 
 **Status: founder-prepared, non-authoritative, counsel approval required.**
 
-ELI5: probectl is one product with two rooms. The core room is open under
-MPL-2.0. The commercial room is visible in the same building under `ee/`, but a
+ELI5: probectl is one product with two rooms. The core room is source-available
+under BUSL-1.1 and becomes MPL-2.0 four years after each release; the SDK, wire
+contracts and examples are MPL-2.0 today. The commercial room is visible in the
+same building under `ee/`, but a
 customer needs paid permission to operate it. This packet tells counsel exactly
 where the walls are, how customers and MSPs are expected to use the product,
 and which legal switches still need a lawyer.
@@ -22,14 +24,14 @@ Counsel should preserve these facts in every document:
 | Topic | Locked product fact | Contract consequence |
 |---|---|---|
 | Brand | The product is **probectl**. No white-label or OEM identity replacement is offered. | MSPs may identify themselves as the managed-service operator, but the probectl name, tenant indicator, and provider-console separation remain visible. |
-| Core license | All core source outside `ee/` is MPL-2.0 under the final root `LICENSE`. | Customer terms must not restrict rights the customer already has under MPL-2.0. Mozilla describes MPL as file-level copyleft and permits separate-file proprietary larger works; counsel should validate the file boundary and distribution notices against the [license](https://www.mozilla.org/en-US/MPL/2.0/) and [official FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/). |
+| Core license | All core source outside `ee/`, `pkg/`, `proto/` and `examples/` is BUSL-1.1 under the final root `LICENSE` (Licensor certctl LLC; production use permitted under the Additional Use Grant; Change Date four years after each version is published; Change License MPL-2.0). `pkg/`, `proto/` and `examples/` are MPL-2.0. | Customer terms must not restrict rights the customer already has under the BSL's Additional Use Grant or, for the client tree, under MPL-2.0. Counsel should validate the tree boundary, the service-provider carve-out and the distribution notices against the [BSL text](https://mariadb.com/bsl11/) and the [MPL](https://www.mozilla.org/en-US/MPL/2.0/). |
 | Commercial boundary | Commercial implementation lives only under `ee/`. Core never imports `ee/`; CI checks the one-way boundary. | The commercial grant must cover only `ee/` and associated commercial artifacts. Source visibility is not a production or resale grant. |
 | Deployment | The customer or MSP self-hosts. probectl does not offer a first-party public SaaS. | An uptime SLA cannot promise infrastructure the licensor does not operate. Support and software-warranty commitments should be separate from customer-operated availability. |
 | Provider model | An MSP self-hosts one provider deployment for hard-isolated customer tenants under the probectl brand. | Resale requires an MSP entitlement plus a reseller agreement. Provider operators have no silent telemetry-read right. |
 | Data posture | Product telemetry remains in the operator-controlled deployment unless the operator explicitly configures an export, remote AI provider, public feed, or support transfer. | The licensor is not automatically a processor merely because software is licensed; processing roles arise when the licensor actually receives or can access personal data. |
 | Licensing mechanism | Entitlements are offline Ed25519-signed files; verification performs local math and does not contact the licensor. | Contract metering and audit language must not promise remote license reporting. Customer reporting or audit must be a contractual process. |
 | Expiry | A 30-day grace banner is followed by read-only degradation of commercial configuration. Telemetry pipelines continue. | Order forms and the commercial license must match the implemented grace/read-only behavior and must not promise remote disablement. |
-| Pricing currency | Prices and examples use **United States dollars (USD)**. | The order form must say whether fees exclude taxes and how FX applies outside the United States. |
+| Pricing | No price list or pricing model is published; rates are set per agreement. | The order form controls fees, currency, taxes and FX. |
 | Remediation | Observe-only by default; any commercial remediation remains dry-run, human-approved, tenant/RBAC-scoped, blast-radius-limited, and audited. | Do not warrant autonomous prevention or describe probectl as an inline IPS. |
 | External data | External feeds are optional, read-only, cached, and source-attributed. Rights differ by source. | Provider use must follow the source schedule; “public” is not equivalent to “commercially redistributable.” |
 
@@ -37,7 +39,7 @@ Counsel should preserve these facts in every document:
 
 One document should not do every job. Recommended stack:
 
-1. **Root MPL-2.0 license and notices** govern core. Do not edit the MPL text.
+1. **Root `LICENSE`** (BUSL-1.1 with its parameters for the core; MPL-2.0 for `pkg/`, `proto/` and `examples/`) governs first-party source outside `ee/`. Do not edit the license texts.
 2. **Commercial source license** governs only `ee/`: review rights, licensed
    production use, modifications, copying, restrictions, term, termination, and
    survival.
@@ -45,7 +47,7 @@ One document should not do every job. Recommended stack:
    payment, warranty, support, confidentiality, security, indemnity, liability,
    and dispute terms.
 4. **Order form** records edition, deployment count, tenant band, support tier,
-   term, USD fees, discounts, and any source-specific data rights.
+   term, fees, discounts, and any source-specific data rights.
 5. **MSP/reseller addendum** grants the narrow third-party managed-service right,
    defines the end-customer chain, preserves probectl branding, and allocates
    first-line support.
@@ -102,8 +104,8 @@ are assigned; do not leave this ambiguous.
 | Issue | Recommended starting position | Why |
 |---|---|---|
 | Contracting entity | Use the actual formed entity and registered address everywhere. If a US venture-financed path is intended but no entity exists, ask corporate/tax counsel whether a Delaware C-corporation is appropriate before publication. | A placeholder licensor cannot cleanly own IP, invoice, indemnify, or receive notice. |
-| Term/payment | One-year initial term, annual prepay in USD, net 30, renew only by signed renewal or explicit order-form auto-renewal. Fees exclude taxes. | Simple cash flow and no hidden evergreen term. |
-| Price exhibit | Core $0. Planning hypotheses: Enterprise $24,000/year per self-hosted deployment up to the stated tenant band; MSP $12,000/year base plus $15 per peak-agent-month. | These are validation hypotheses, not public offers; counsel should make the order form control. |
+| Term/payment | One-year initial term, annual prepay, net 30, renew only by signed renewal or explicit order-form auto-renewal. Fees exclude taxes. | Simple cash flow and no hidden evergreen term. |
+| Price exhibit | None published. The order form states the fees for the edition, deployment count and tenant band it covers. | No price list or pricing model is published; the order form controls. |
 | Acceptance | Software is accepted on delivery of credentials/artifacts unless an order form defines a short objective acceptance test. | Avoid subjective indefinite acceptance. |
 | Software warranty | 30-day substantial-conformance warranty against published documentation; repair, workaround, or refund of affected prepaid fees as the exclusive remedy. | Bounded promise appropriate for self-hosted software. |
 | Availability/SLA | No platform-uptime SLA for customer-hosted infrastructure. Offer support response objectives in a separate support schedule. | The licensor cannot control the customer's cluster, network, or cloud. |
@@ -213,7 +215,7 @@ Recommended counsel work:
    screenshots, nominative references, partner lockups, domains, social handles,
    and termination cleanup;
 5. require real quality control in every reseller trademark license;
-6. state plainly that MPL-2.0 grants no trademark license and that probectl does
+6. state plainly that neither the BSL nor the MPL grants a trademark license and that probectl does
    not offer white-label identity replacement.
 
 ## 8. Counsel questions and recommended remediation

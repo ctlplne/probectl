@@ -20,5 +20,6 @@ for the external-data schedule. The machine-readable mirror is
 [`counsel-checklist.json`](counsel-checklist.json).
 
 Do not describe `ee/LICENSE` as final. The repository root `LICENSE` is the
-final, unmodified MPL-2.0 text for core; the bespoke commercial paper is still
-counsel-owned.
+final text for first-party source outside `ee/`: the unmodified BUSL-1.1 with
+its parameters for the core, then the unmodified MPL-2.0 for `pkg/`, `proto/`
+and `examples/`; the bespoke commercial paper is still counsel-owned.

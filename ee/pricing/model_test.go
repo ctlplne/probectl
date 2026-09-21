@@ -44,13 +44,24 @@ func TestVersionedWorksheetCalculatesTenHundredThousandScenarios(t *testing.T) {
 		}
 	}
 
+	// No price list or pricing model is published (owner decision 2026-09-20):
+	// the commercial license-fee inputs are recorded as unknown, so the
+	// commercial plans' license and total lines must be visibly UNKNOWN
+	// rather than a silent zero, while their tenant-band status still resolves.
 	enterprise := packageFor(t, baseline.Packages, "Enterprise")
-	if enterprise.CapStatus != "within_cap" || value(t, enterprise.MonthlyLicenseUSD) != 2000 {
+	if enterprise.CapStatus != "within_cap" || enterprise.MonthlyLicenseUSD.Value != nil || enterprise.MonthlyTCOUSD.Value != nil {
 		t.Fatalf("unexpected Enterprise baseline: %#v", enterprise)
 	}
+	if !reflect.DeepEqual(enterprise.MonthlyLicenseUSD.UnknownInputs, []string{"base_annual_usd", "per_peak_agent_monthly_usd"}) {
+		t.Fatalf("Enterprise license unknown inputs = %v", enterprise.MonthlyLicenseUSD.UnknownInputs)
+	}
 	msp := packageFor(t, baseline.Packages, "MSP")
-	if got := value(t, msp.MonthlyLicenseUSD); got != 1750 {
-		t.Fatalf("MSP license = %v, want 1750", got)
+	if msp.MonthlyLicenseUSD.Value != nil || msp.PricingModel != "undecided" {
+		t.Fatalf("MSP license must be unknown with an undecided pricing model: %#v", msp)
+	}
+	core := packageFor(t, baseline.Packages, "Core")
+	if got := value(t, core.MonthlyLicenseUSD); got != 0 {
+		t.Fatalf("Core license = %v, want 0", got)
 	}
 	thousand := resultFor(t, report, "1000-tenants", "baseline")
 	if got := packageFor(t, thousand.Packages, "Enterprise").CapStatus; got != "exceeds_cap" {

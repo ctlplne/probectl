@@ -201,7 +201,7 @@ Controls specific to this dependency:
 The default is **no**. A new dependency has to clear all of:
 
 - a maintained upstream,
-- a license compatible with the open-core editions model (see
+- a license compatible with the source-available editions model (see
   [`editions.md`](editions.md)),
 - no phone-home behavior (a
   [non-negotiable](../CONTRIBUTING.md#non-negotiables)),
