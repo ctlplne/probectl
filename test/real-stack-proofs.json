@@ -10,6 +10,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/carbon_live_consumer_integration_test.go#TestCarbonLiveConsumerAttributesBytesPerTenant",
+      "profile": "integration",
+      "capabilities": [
+        "F48"
+      ]
+    },
+    {
       "ref": "test:internal/control/change_integration_test.go#TestChangeWebhookTenantIsolation",
       "profile": "integration",
       "capabilities": [

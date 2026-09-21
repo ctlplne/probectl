@@ -765,7 +765,7 @@ capabilities:
   - id: F48
     name: Carbon/power
     status: delivered
-    evidence_status: partial
+    evidence_status: complete
     owner: product/release
     engine: {refs: ["file:internal/carbon"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCarbon("]}
@@ -775,7 +775,7 @@ capabilities:
     docs: {refs: ["file:docs/carbon.md#Carbon / power observability"]}
     config_keys: {refs: ["config:PROBECTL_CARBON_ENABLED", "config:PROBECTL_CARBON_GRID_GCO2E"]}
     telemetry: {refs: ["file:internal/control/carbonapi.go"]}
-    real_stack_proof: {gap: "The carbon engine has unit and handler coverage but no dedicated real-service execution proof yet."}
+    real_stack_proof: {refs: ["test:internal/control/carbon_live_consumer_integration_test.go#TestCarbonLiveConsumerAttributesBytesPerTenant"]}
     migration: *no_migration
 
   - id: F49
