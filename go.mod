@@ -11,7 +11,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.18.7
 	github.com/miekg/dns v1.1.72
 	github.com/nats-io/nats.go v1.53.1
