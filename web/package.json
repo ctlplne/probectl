@@ -49,7 +49,7 @@
     "autoprefixer": "10.5.0",
     "eslint": "10.8.0",
     "eslint-plugin-react-hooks": "7.1.1",
-    "eslint-plugin-react-refresh": "0.5.3",
+    "eslint-plugin-react-refresh": "0.5.7",
     "globals": "15.15.0",
     "jest-axe": "9.0.0",
     "jsdom": "25.0.1",
