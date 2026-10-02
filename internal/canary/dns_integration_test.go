@@ -204,7 +204,13 @@ func dnssecHandler(a *dns.A, sig *dns.RRSIG, key *dns.DNSKEY) dns.HandlerFunc {
 	}
 }
 
-func TestDNSSECSecure(t *testing.T) {
+// A valid signature verified against the zone's OWN DNSKEY (fetched from the
+// resolver, never anchored to the root via DS) is reported rrsig-only — an
+// honest "signed but not chain-of-trust-verified" signal — NOT "secure". The
+// probe still succeeds (rrsig-only is not bogus). Claiming "secure" here would
+// trust an unanchored key, which a malicious resolver could forge (ING-09,
+// docs/guardrails.md G7-9/G7-10).
+func TestDNSSECRRSIGOnlyWithoutAnchor(t *testing.T) {
 	a, sig, key := signForZone(t, "example.com.", "203.0.113.55", false)
 	udp, _ := serveDNS(t, dnssecHandler(a, sig, key))
 
@@ -220,11 +226,11 @@ func TestDNSSECSecure(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("success=false err=%q", res.Error)
 	}
-	if res.Attributes["probectl.dns.dnssec"] != "secure" {
-		t.Errorf("probectl.dns.dnssec = %q, want secure", res.Attributes["probectl.dns.dnssec"])
+	if got := res.Attributes["probectl.dns.dnssec"]; got != "rrsig-only" {
+		t.Errorf("probectl.dns.dnssec = %q, want rrsig-only (unanchored key must never be reported secure)", got)
 	}
-	if res.Metrics["dns.dnssec.secure"] != 1 {
-		t.Errorf("dns.dnssec.secure = %v, want 1", res.Metrics["dns.dnssec.secure"])
+	if res.Metrics["dns.dnssec.secure"] != 0 {
+		t.Errorf("dns.dnssec.secure = %v, want 0 (not secure without an anchored chain)", res.Metrics["dns.dnssec.secure"])
 	}
 }
 

@@ -39,6 +39,12 @@ type dnsCanary struct {
 	mode           string // resolver | trace
 	dnssec         bool
 	timeout        time.Duration
+	// fetchKeys retrieves the signer zone's DNSKEY RRset for DNSSEC validation.
+	// Nil in production (validateDNSSEC falls back to the real resolver query,
+	// fetchDNSKEYs); tests inject it to drive validation deterministically. The
+	// keys it returns are the zone's own self-published keys, never anchored to
+	// the root — see validateDNSSEC (docs/guardrails.md G7-10).
+	fetchKeys func(ctx context.Context, zone string) ([]*dns.DNSKEY, error)
 }
 
 // NewDNS builds a DNS canary. Target is the query name. Params: server (resolver

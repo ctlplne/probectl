@@ -656,11 +656,27 @@ come from the zone's owner, untampered. With `dnssec: "true"` the canary
 requests DNSSEC records (the DO bit) and **validates the zone's `RRSIG` over the
 answer against the zone `DNSKEY`** — it does **not** trust the resolver's AD bit
 (the resolver's own "I checked" flag, which a misbehaving resolver could simply
-set). The verdict lands in the `dns.dnssec`
-attribute (`secure`, `insecure` for an unsigned zone, or `bogus`) and
-`probectl_probe_dns_dnssec_secure` (1/0); a **bogus** result (tampered, expired, or
-wrong-key signature) fails the probe. Validation verifies the signature on the
-answer RRset; full chain-to-root anchoring is a later refinement.
+set), and it **never trusts a `DNSKEY` carried in the response's own
+Answer/Additional section** (attacker-controlled: a forged answer would ship a
+matching self-made key beside it). The `DNSKEY` is fetched with a separate query
+to the signer zone. The verdict lands in the `dns.dnssec` attribute:
+
+- `rrsig-only` — every answer RRset carries a valid, in-window signature from the
+  zone's `DNSKEY`, but that key is **not yet anchored to the root** through a `DS`
+  chain of trust. This is an honest "signed, but not provably authentic" signal:
+  it does **not** claim `secure`, because a forged answer signed by an attacker's
+  own key (served by a malicious resolver) would verify identically. The probe
+  still **succeeds**.
+- `insecure` — the zone is unsigned (no `RRSIG`).
+- `bogus` — `RRSIG`s are present but some answer RRset does not verify (tampered,
+  expired, or wrong/absent key). A **bogus** result **fails** the probe.
+- `secure` — **reserved** for a fully root-anchored `DS`/`DNSKEY` chain; it is not
+  emitted until that chain validation ships, so an unanchored-but-signed answer is
+  reported `rrsig-only`, never `secure`.
+
+`probectl_probe_dns_dnssec_secure` (1/0) is 1 only for `secure`; `rrsig-only`
+reports 0. Every answer RRset must verify — a single valid `RRSIG` over one RRset
+does not vouch for the rest of the answer.
 
 In **trace mode** the canary performs an **iterative delegation walk** from the
 root hints, following `NS`/glue referrals down to the authoritative server (UDP,
