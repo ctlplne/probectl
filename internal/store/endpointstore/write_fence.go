@@ -67,6 +67,24 @@ func (s *writeFencedStore) ExportTenant(
 	return s.next.ExportTenant(ctx, tenantID, w)
 }
 
+// DeleteSubject/ExportSubject pass through like DeleteTenant/ExportTenant: DSAR
+// erasure and export are not fenced ingestion, so they continue during a
+// lifecycle write lease.
+func (s *writeFencedStore) DeleteSubject(
+	ctx context.Context,
+	tenantID, subject string,
+) (int64, int64, error) {
+	return s.next.DeleteSubject(ctx, tenantID, subject)
+}
+
+func (s *writeFencedStore) ExportSubject(
+	ctx context.Context,
+	tenantID, subject string,
+	w io.Writer,
+) (int64, error) {
+	return s.next.ExportSubject(ctx, tenantID, subject, w)
+}
+
 func (s *writeFencedStore) Close() error {
 	return s.next.Close()
 }

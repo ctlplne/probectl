@@ -250,6 +250,19 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 			"remote_management_address", "remote_platform",
 		},
 	},
+	// WEB-26: migrations 0104/0105 added three durable tenant-owned device tables
+	// that subject erasure was failing closed on because they were unclassified.
+	// device_configs is a per-device configuration archive (device target, source,
+	// redacted content, version hashes) — tenant infrastructure state, not data
+	// about a DSAR data-subject, so it has no first-class subject column. The whole
+	// archive is removed on FULL-tenant erasure through the tenants ON DELETE
+	// CASCADE; a per-subject erase leaves it untouched.
+	"device_configs": {plane: "postgres:device_configs", disposition: subjectTableNoSubject},
+	// device_syslog is the tenant's own device syslog archive (device/source
+	// address/hostname identify the tenant's infrastructure; message/raw/labels are
+	// free-text log bodies). Like device_configs it is tenant operational state
+	// rather than DSAR per-subject data, removed on full-tenant erase via CASCADE.
+	"device_syslog": {plane: "postgres:device_syslog", disposition: subjectTableNoSubject},
 	"flow_ingest_quality_receipts": {
 		plane: "postgres:flow_ingest_quality_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id", "exporter_address"},
@@ -283,6 +296,14 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:incidents", disposition: subjectTableDeleteMatches,
 		exact:    []string{"target", "prefix"},
 		contains: []string{"title"},
+	},
+	// WEB-26 (migration 0105): a saved inventory view is operator UI state, but
+	// owner_id ties it to one operator identity — the same shape as
+	// dashboard_views.owner_id — so an owning operator's DSAR erase deletes their
+	// saved views. filters is the operator's own filter choices, not subject data.
+	"inventory_saved_views": {
+		plane: "postgres:inventory_saved_views", disposition: subjectTableDeleteMatches,
+		exact: []string{"owner_id"},
 	},
 	"mcp_tokens": {
 		plane: "postgres:mcp_tokens", disposition: subjectTableDeleteMatches,
@@ -1462,14 +1483,30 @@ func (r SubjectErasureReport) hash() string {
 	return hex.EncodeToString(crypto.Hash(b))
 }
 
+// filterJSONLLines keeps only the rows of a tenant JSONL export whose values
+// EXACTLY equal the subject (TEN-05). The previous whole-line substring match
+// over-matched — subject "10.0.0.1" also kept rows mentioning "10.0.0.10" or
+// "110.0.0.1". Each row is parsed and its top-level STRING values are compared
+// for exact (case-insensitive) equality; a numeric column or a longer string
+// that merely contains the subject never matches, so a flow row is exported
+// only when one of its identity fields is exactly the subject. The tenant
+// boundary is already applied upstream (ExportTenant is tenant-scoped); this
+// only narrows that tenant's rows to the subject (docs/guardrails.md G7-1).
 func filterJSONLLines(w io.Writer, b []byte, subject string) int64 {
 	subject = strings.ToLower(strings.TrimSpace(subject))
+	if subject == "" {
+		return 0
+	}
 	var n int64
 	for _, line := range bytes.Split(b, []byte{'\n'}) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		if !bytes.Contains(bytes.ToLower(line), []byte(subject)) {
+		var row map[string]json.RawMessage
+		if err := json.Unmarshal(line, &row); err != nil {
+			continue // a non-object line carries no subject-bearing field
+		}
+		if !rowHasExactSubjectValue(row, subject) {
 			continue
 		}
 		_, _ = w.Write(line)
@@ -1477,4 +1514,20 @@ func filterJSONLLines(w io.Writer, b []byte, subject string) int64 {
 		n++
 	}
 	return n
+}
+
+// rowHasExactSubjectValue reports whether any top-level string column of row is
+// exactly the (already lower-cased) subject. Only string columns can carry a
+// subject identifier, so numbers/objects are skipped rather than coerced.
+func rowHasExactSubjectValue(row map[string]json.RawMessage, subject string) bool {
+	for _, raw := range row {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			continue
+		}
+		if strings.ToLower(value) == subject {
+			return true
+		}
+	}
+	return false
 }

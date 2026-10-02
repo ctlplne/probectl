@@ -116,20 +116,36 @@ func (r *Repository) PruneTenantBefore(tenant string, cutoff time.Time) int {
 	return r.cache.PruneTenantBefore(tenant, cutoff)
 }
 
-// ExportSubject ensures restart-loaded state before applying the existing
-// subject filter to the tenant's latest view.
+// ExportSubject streams the tenant's durable events about the subject (ING-15).
+// The durable store is the cross-replica source of truth that a restart rebuilds
+// the per-replica cache from, so the portability bundle reads from it rather than
+// from one replica's bounded view.
 func (r *Repository) ExportSubject(tenant, subject string, w io.Writer) (int64, error) {
-	if err := r.ensureLoaded(context.Background(), tenant); err != nil {
-		return 0, err
+	if r == nil || r.durable == nil {
+		return 0, errors.New("endpoint: durable event store is unavailable")
 	}
-	return r.cache.ExportSubject(tenant, subject, w)
+	return r.durable.ExportSubject(context.Background(), tenant, subject, w)
 }
 
-// DeleteSubject removes subject labels from this replica's derived view. The
-// raw durable event history follows the plane retention/tenant-erasure policy.
+// DeleteSubject erases the subject from the DURABLE event store across replicas
+// and from this replica's derived cache (ING-15). Before the fix only the cache
+// was cleared, so the subject reappeared on the next ensureLoaded/restart and on
+// every other replica while the receipt still reported "complete" — a false
+// attestation. The durable store is the source of truth for the verified-zero
+// count: a nil durable store or a durable error fails closed (remaining > 0) so
+// the plane is never reported complete without a durable delete.
 func (r *Repository) DeleteSubject(tenant, subject string) (deleted, remaining int64) {
-	if err := r.ensureLoaded(context.Background(), tenant); err != nil {
-		return 0, 1 // fail closed: never attest verified-zero after a load error.
+	if r == nil || r.durable == nil {
+		return 0, 1 // no durable delete happened: never attest verified-zero.
 	}
-	return r.cache.DeleteSubject(tenant, subject)
+	// Clear this replica's bounded cache so it does not keep serving the subject
+	// until its next reload; the cache is already loaded for served tenants.
+	if err := r.ensureLoaded(context.Background(), tenant); err == nil {
+		r.cache.DeleteSubject(tenant, subject)
+	}
+	durableDeleted, durableRemaining, err := r.durable.DeleteSubject(context.Background(), tenant, subject)
+	if err != nil {
+		return 0, 1 // fail closed: never attest verified-zero after a durable error.
+	}
+	return durableDeleted, durableRemaining
 }

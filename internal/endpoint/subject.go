@@ -30,7 +30,7 @@ func (s *SnapshotStore) ExportSubject(tenant, subject string, w io.Writer) (int6
 	enc := json.NewEncoder(w)
 	var rows int64
 	for agent, st := range s.tenants[tenant] {
-		agentMatch := strings.Contains(strings.ToLower(agent), subject)
+		agentMatch := strings.ToLower(agent) == subject
 		for _, rv := range st.byType {
 			if !agentMatch && !resultMatchesSubject(rv, subject) {
 				continue
@@ -65,7 +65,7 @@ func (s *SnapshotStore) DeleteSubject(tenant, subject string) (deleted, remainin
 	defer s.mu.Unlock()
 	part := s.tenants[tenant]
 	for agent, st := range part {
-		if strings.Contains(strings.ToLower(agent), subject) {
+		if strings.ToLower(agent) == subject {
 			deleted += int64(len(st.byType) + len(st.sessions))
 			delete(part, agent)
 			continue
@@ -88,7 +88,7 @@ func (s *SnapshotStore) DeleteSubject(tenant, subject string) (deleted, remainin
 		}
 	}
 	for agent, st := range part {
-		agentMatch := strings.Contains(strings.ToLower(agent), subject)
+		agentMatch := strings.ToLower(agent) == subject
 		for _, rv := range st.byType {
 			if agentMatch || resultMatchesSubject(rv, subject) {
 				remaining++
@@ -106,21 +106,20 @@ func (s *SnapshotStore) DeleteSubject(tenant, subject string) (deleted, remainin
 	return deleted, remaining
 }
 
+// resultMatchesSubject reports whether one endpoint latest-view record is about
+// the subject, by EXACT field-typed equality (TEN-05). The subject identifies
+// one endpoint target or attribute value, never a substring of one, so the
+// previous strings.Contains match — which let "alice" erase "alice-laptop" and
+// "alice.service.example" alike — is replaced by equality. Type is a signal
+// category and Error is a free-text message, so neither is subject-bearing;
+// attribute keys are column names, so only attribute VALUES are compared.
+// subject is already trimmed and lower-cased by the caller.
 func resultMatchesSubject(rv ResultView, subject string) bool {
-	if subjectTextContains(subject, rv.Type, rv.Target, rv.Error) {
+	if strings.ToLower(rv.Target) == subject {
 		return true
 	}
-	for k, v := range rv.Attributes {
-		if subjectTextContains(subject, k, v) {
-			return true
-		}
-	}
-	return false
-}
-
-func subjectTextContains(subject string, values ...string) bool {
-	for _, v := range values {
-		if strings.Contains(strings.ToLower(v), subject) {
+	for _, v := range rv.Attributes {
+		if strings.ToLower(v) == subject {
 			return true
 		}
 	}

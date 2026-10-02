@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -93,6 +94,86 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (int64, error)
 	defer m.mu.Unlock()
 	delete(m.events, tenantID)
 	return int64(len(m.events[tenantID])), nil
+}
+
+// DeleteSubject erases one tenant's durable events about the subject and
+// verifies the same tenant+subject predicate then reads zero (ING-15). The
+// per-replica read cache is a derived view; this durable delete is what keeps
+// the subject from reappearing on the next Latest/restart across every replica.
+func (m *Memory) DeleteSubject(_ context.Context, tenantID, subject string) (deleted, remaining int64, err error) {
+	if tenantID == "" {
+		return 0, -1, ErrNoTenant
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return 0, 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	events := m.events[tenantID]
+	kept := events[:0]
+	for _, event := range events {
+		if eventMatchesSubject(event, subject) {
+			deleted++
+			continue
+		}
+		kept = append(kept, event)
+	}
+	if len(kept) == 0 {
+		delete(m.events, tenantID)
+	} else {
+		m.events[tenantID] = kept
+	}
+	for _, event := range m.events[tenantID] {
+		if eventMatchesSubject(event, subject) {
+			remaining++
+		}
+	}
+	return deleted, remaining, nil
+}
+
+// ExportSubject writes one tenant's durable events about the subject as JSONL.
+func (m *Memory) ExportSubject(_ context.Context, tenantID, subject string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return 0, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	enc := json.NewEncoder(w)
+	var rows int64
+	for i := range m.events[tenantID] {
+		if !eventMatchesSubject(m.events[tenantID][i], subject) {
+			continue
+		}
+		if err := enc.Encode(m.events[tenantID][i]); err != nil {
+			return rows, err
+		}
+		rows++
+	}
+	return rows, nil
+}
+
+// eventMatchesSubject reports whether a durable event is about the subject by
+// EXACT, field-typed equality (TEN-05): agent_id, target and signal_key are
+// structured identifiers, and only attribute VALUES (not keys, which are column
+// names) are compared. signal_type and error are not subject-bearing. A
+// substring match here would let "10.0.0.1" erase "10.0.0.10"/"110.0.0.1".
+func eventMatchesSubject(e Event, subject string) bool {
+	if strings.EqualFold(e.AgentID, subject) ||
+		strings.EqualFold(e.Target, subject) ||
+		strings.EqualFold(e.SignalKey, subject) {
+		return true
+	}
+	for _, v := range e.Attributes {
+		if strings.EqualFold(v, subject) {
+			return true
+		}
+	}
+	return false
 }
 
 // ExportTenant writes only the requested tenant's raw event history as JSONL.

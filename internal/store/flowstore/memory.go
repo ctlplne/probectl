@@ -521,6 +521,11 @@ func (m *Memory) rebuildSeenLocked() {
 	}
 }
 
+// flowRowMatchesSubject reports whether a flow row's identity columns EXACTLY
+// equal the subject (TEN-05); subject is already trimmed and lower-cased by the
+// caller. The previous strings.Contains over-matched neighboring addresses
+// ("10.0.0.1" also hit "10.0.0.10"/"110.0.0.1"), mirroring the ClickHouse
+// flowSubjectPredicate bug; both now compare by field-typed equality.
 func flowRowMatchesSubject(r Row, subject string) bool {
 	for _, v := range []string{
 		r.AgentID, r.Exporter, r.SrcAddr, r.DstAddr, r.NextHop,
@@ -528,7 +533,7 @@ func flowRowMatchesSubject(r Row, subject string) bool {
 		strconv.FormatUint(uint64(r.SrcASN), 10),
 		strconv.FormatUint(uint64(r.DstASN), 10),
 	} {
-		if strings.Contains(strings.ToLower(v), subject) {
+		if strings.ToLower(v) == subject {
 			return true
 		}
 	}

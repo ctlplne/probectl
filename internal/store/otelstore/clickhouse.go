@@ -859,26 +859,41 @@ func (c *ClickHouse) countSubject(ctx context.Context, t Target, table, tenant, 
 	return int(i64(rows[0]["n"])), nil
 }
 
+// otelSpanSubjectPredicate / otelLogSubjectPredicate match one tenant's spans
+// and logs about the DSAR subject (TEN-05). The previous positionCaseInsensitive
+// scan ran over EVERY column including the structured identity columns and the
+// raw attrs JSON blob, so subject "10.0.0.1" also hit "10.0.0.10"/"110.0.0.1" in
+// a trace id, service name or attribute value — one request leaked/destroyed
+// three subjects' rows. Now:
+//   - structured identity columns (trace/span ids, service, kind, status,
+//     severity) compare by EXACT equality, so neighboring ids never collide;
+//   - attrs is matched by EXACT attribute VALUE (JSONExtractKeysAndValues), not a
+//     whole-blob substring, so {"ip":"10.0.0.10"} is not hit by "10.0.0.1";
+//   - the span `name` and log `body` are the only genuinely free-text columns —
+//     a subject identifier legitimately appears embedded in prose there (e.g. a
+//     log line "login alice@example.com") — so they keep a documented,
+//     column-scoped case-insensitive contains, mirroring the Postgres policy's
+//     `contains` on free-text columns (docs/guardrails.md G7-1).
 func otelSpanSubjectPredicate() string {
 	return `tenant_id = {tenant:String} AND (
-positionCaseInsensitive(trace_id, {subject:String}) > 0 OR
-positionCaseInsensitive(span_id, {subject:String}) > 0 OR
-positionCaseInsensitive(parent_span_id, {subject:String}) > 0 OR
+trace_id = {subject:String} OR
+span_id = {subject:String} OR
+parent_span_id = {subject:String} OR
+kind = {subject:String} OR
+service = {subject:String} OR
+status_code = {subject:String} OR
 positionCaseInsensitive(name, {subject:String}) > 0 OR
-positionCaseInsensitive(kind, {subject:String}) > 0 OR
-positionCaseInsensitive(service, {subject:String}) > 0 OR
-positionCaseInsensitive(status_code, {subject:String}) > 0 OR
-positionCaseInsensitive(attrs, {subject:String}) > 0)`
+arrayExists(kv -> kv.2 = {subject:String}, JSONExtractKeysAndValues(attrs, 'String')))`
 }
 
 func otelLogSubjectPredicate() string {
 	return `tenant_id = {tenant:String} AND (
-positionCaseInsensitive(service, {subject:String}) > 0 OR
+service = {subject:String} OR
+trace_id = {subject:String} OR
+span_id = {subject:String} OR
+severity_text = {subject:String} OR
 positionCaseInsensitive(body, {subject:String}) > 0 OR
-positionCaseInsensitive(trace_id, {subject:String}) > 0 OR
-positionCaseInsensitive(span_id, {subject:String}) > 0 OR
-positionCaseInsensitive(severity_text, {subject:String}) > 0 OR
-positionCaseInsensitive(attrs, {subject:String}) > 0)`
+arrayExists(kv -> kv.2 = {subject:String}, JSONExtractKeysAndValues(attrs, 'String')))`
 }
 
 func (c *ClickHouse) exportSubjectTable(ctx context.Context, base, tenant, table, predicate string, p chParams, w io.Writer) (int64, error) {

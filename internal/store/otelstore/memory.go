@@ -316,27 +316,42 @@ func (m *Memory) EraseSubject(_ context.Context, tenant, subject string) (delete
 
 var _ Store = (*Memory)(nil)
 
+// spanMatchesSubject/logMatchesSubject/attrsMatchSubject mirror the ClickHouse
+// predicates (TEN-05); subject is already trimmed and lower-cased by the caller.
+// Structured identity columns and attribute VALUES compare by EXACT equality so
+// a neighboring id/value ("10.0.0.10") is never hit by "10.0.0.1"; the span
+// `name` and log `body` are the only genuinely free-text columns and keep a
+// column-scoped case-insensitive contains, so a subject embedded in prose is
+// still erased. The previous whole-field strings.Contains over-matched.
 func spanMatchesSubject(s Span, subject string) bool {
-	for _, v := range []string{s.TraceID, s.SpanID, s.ParentSpanID, s.Name, s.Kind, s.Service, s.StatusCode} {
-		if strings.Contains(strings.ToLower(v), subject) {
+	for _, v := range []string{s.TraceID, s.SpanID, s.ParentSpanID, s.Kind, s.Service, s.StatusCode} {
+		if strings.ToLower(v) == subject {
 			return true
 		}
+	}
+	if strings.Contains(strings.ToLower(s.Name), subject) {
+		return true
 	}
 	return attrsMatchSubject(s.Attrs, subject)
 }
 
 func logMatchesSubject(r LogRecord, subject string) bool {
-	for _, v := range []string{r.Service, r.Body, r.TraceID, r.SpanID, r.SeverityText} {
-		if strings.Contains(strings.ToLower(v), subject) {
+	for _, v := range []string{r.Service, r.TraceID, r.SpanID, r.SeverityText} {
+		if strings.ToLower(v) == subject {
 			return true
 		}
+	}
+	if strings.Contains(strings.ToLower(r.Body), subject) {
+		return true
 	}
 	return attrsMatchSubject(r.Attrs, subject)
 }
 
+// attrsMatchSubject matches by exact attribute VALUE equality: keys are
+// attribute names, not subjects, so only values are compared.
 func attrsMatchSubject(attrs map[string]string, subject string) bool {
-	for k, v := range attrs {
-		if strings.Contains(strings.ToLower(k), subject) || strings.Contains(strings.ToLower(v), subject) {
+	for _, v := range attrs {
+		if strings.ToLower(v) == subject {
 			return true
 		}
 	}

@@ -339,6 +339,12 @@ func (c *ClickHouse) PruneTenantBefore(ctx context.Context, tenantID string, cut
 		return 0, err
 	}
 	params := boundParams(map[string]string{"tenant": tenantID, "cutoff": cutoff.UTC().Format("2006-01-02 15:04:05.000000")})
+	// GAP-04: the pruned-count SELECT must carry the per-request tenant setting so
+	// the reader row policy (tenant_id = getSetting(tenantSetting)) does not hide
+	// the rows and report a count of 0 while rows exist. Mirrors Latest/ExportTenant.
+	if c.tenantScoped {
+		params.Set(tenantSetting, tenantID)
+	}
 	countRows, err := c.queryAt(ctx, target.BaseURL, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String} AND observed_at < {cutoff:DateTime64(6)} FORMAT JSONEachRow", params)
 	if err != nil {
 		return 0, err
@@ -365,6 +371,12 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		return 0, nil
 	}
 	params := boundParams(map[string]string{"tenant": tenantID})
+	// GAP-04: the post-delete verify-count SELECT must carry the per-request
+	// tenant setting so the reader row policy does not hide surviving rows and
+	// falsely attest verified-zero. Mirrors Latest/ExportTenant.
+	if c.tenantScoped {
+		params.Set(tenantSetting, tenantID)
+	}
 	if err := c.execAt(ctx, target.BaseURL, "ALTER TABLE "+eventsTable+" DELETE WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", params, nil); err != nil {
 		return -1, err
 	}
@@ -373,6 +385,113 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		return -1, err
 	}
 	return int64(chclient.Count(rows)), nil
+}
+
+// endpointSubjectPredicate matches one tenant's durable endpoint events about a
+// DSAR subject by EXACT, field-typed equality (TEN-05): agent_id, target and
+// signal_key are structured identifiers compared by equality, and attributes_json
+// is matched by exact attribute VALUE rather than a whole-blob substring that
+// could over-match a neighboring value. tenant_id is the outer boundary
+// (docs/guardrails.md G7-1). Bound params: {tenant:String}, {subject:String}.
+func endpointSubjectPredicate() string {
+	return `tenant_id={tenant:String} AND (
+agent_id = {subject:String} OR
+target = {subject:String} OR
+signal_key = {subject:String} OR
+arrayExists(kv -> kv.2 = {subject:String}, JSONExtractKeysAndValues(attributes_json, 'String')))`
+}
+
+func (c *ClickHouse) countEndpointSubject(ctx context.Context, base, table string, params url.Values) (int64, error) {
+	rows, err := c.queryAt(ctx, base,
+		"SELECT count() AS n FROM "+table+" WHERE "+endpointSubjectPredicate()+" FORMAT JSONEachRow", params)
+	if err != nil {
+		return 0, err
+	}
+	return int64(chclient.Count(rows)), nil
+}
+
+// DeleteSubject erases one tenant's durable events about the subject, then
+// count-verifies the same tenant+subject predicate reads zero (ING-15). The
+// verify count carries the per-request tenant setting so the reader row policy
+// does not hide the surviving rows and falsely attest verified-zero (the GAP-04
+// lesson, applied here from the start).
+func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string) (deleted, remaining int64, err error) {
+	if tenantID == "" {
+		return 0, -1, ErrNoTenant
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return 0, 0, nil
+	}
+	target, err := c.route(ctx, tenantID)
+	if err != nil {
+		return 0, -1, err
+	}
+	table, err := tableFor(target)
+	if err != nil {
+		return 0, -1, err
+	}
+	params := boundParams(map[string]string{"tenant": tenantID, "subject": subject})
+	if c.tenantScoped {
+		params.Set(tenantSetting, tenantID)
+	}
+	before, err := c.countEndpointSubject(ctx, target.BaseURL, table, params)
+	if err != nil {
+		return 0, -1, err
+	}
+	del := "ALTER TABLE " + table + " DELETE WHERE " + endpointSubjectPredicate() + " SETTINGS mutations_sync=2"
+	if err := c.execAt(ctx, target.BaseURL, del, params, nil); err != nil {
+		return 0, -1, err
+	}
+	remaining, err = c.countEndpointSubject(ctx, target.BaseURL, table, params)
+	if err != nil {
+		return 0, -1, err
+	}
+	return before - remaining, remaining, nil
+}
+
+// ExportSubject streams one tenant's durable events about the subject as JSONL,
+// line-by-line like ExportTenant (unbounded by design), re-checking each row's
+// tenant_id at the store layer before it leaves (docs/guardrails.md G7-1).
+func (c *ClickHouse) ExportSubject(ctx context.Context, tenantID, subject string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return 0, nil
+	}
+	target, err := c.route(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	table, err := tableFor(target)
+	if err != nil {
+		return 0, err
+	}
+	params := boundParams(map[string]string{"tenant": tenantID, "subject": subject})
+	if c.tenantScoped {
+		params.Set(tenantSetting, tenantID)
+	}
+	query := "SELECT tenant_id, agent_id, signal_type, signal_key, target, success, error, metrics_json, attributes_json, toString(observed_at) AS observed_at FROM " + table + " FINAL WHERE " + endpointSubjectPredicate() + " ORDER BY observed_at FORMAT JSONEachRow"
+	endpoint := c.baseFor(target.BaseURL) + "/?query=" + url.QueryEscape(query)
+	if len(params) > 0 {
+		endpoint += "&" + params.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.conn.Do(target.BaseURL, req)
+	if err != nil {
+		return 0, fmt.Errorf("endpointstore: export subject: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("endpointstore: export subject status %d: %s", resp.StatusCode, message)
+	}
+	return streamEvents(resp.Body, w, tenantID)
 }
 
 // ExportTenant streams one tenant's event history as JSONL straight from the

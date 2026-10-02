@@ -45,6 +45,13 @@ type Store interface {
 	PruneTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) (deleted int, err error)
 	DeleteTenant(ctx context.Context, tenantID string) (remaining int64, err error)
 	ExportTenant(ctx context.Context, tenantID string, w io.Writer) (int64, error)
+	// DeleteSubject/ExportSubject erase and export one tenant's durable events
+	// about a DSAR subject (ING-15). They are tenant-scoped at the store layer and
+	// match subjects on exact fields (TEN-05); DeleteSubject count-verifies the
+	// subject predicate reads zero after the delete, so the per-replica cache can
+	// never report a subject "complete" while durable rows survive a restart.
+	DeleteSubject(ctx context.Context, tenantID, subject string) (deleted, remaining int64, err error)
+	ExportSubject(ctx context.Context, tenantID, subject string, w io.Writer) (rows int64, err error)
 	Close() error
 }
 

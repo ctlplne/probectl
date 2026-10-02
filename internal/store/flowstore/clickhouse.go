@@ -1223,26 +1223,35 @@ func (c *ClickHouse) countSubject(ctx context.Context, baseURL, tenantID, table 
 	return int64(chToUint64(rows[0]["n"])), nil
 }
 
+// flowSubjectPredicate matches one tenant's flow rows whose identity-bearing
+// columns EXACTLY equal the DSAR subject (TEN-05). The previous substring match
+// (positionCaseInsensitive ... > 0) over-matched: subject "10.0.0.1" also hit
+// "10.0.0.10" and "110.0.0.1", so a single-subject export or erase leaked or
+// destroyed other subjects' rows. Every column here is a structured identity
+// (address, agent/exporter id, AS name/number, country code), so exact, field-
+// typed equality is the correct comparison; no free-text column is scanned
+// (docs/guardrails.md G7-1).
 func flowSubjectPredicate() string {
 	return `tenant_id={tenant:String} AND (
-positionCaseInsensitive(agent_id, {subject:String}) > 0 OR
-positionCaseInsensitive(exporter, {subject:String}) > 0 OR
-positionCaseInsensitive(src_addr, {subject:String}) > 0 OR
-positionCaseInsensitive(dst_addr, {subject:String}) > 0 OR
-positionCaseInsensitive(next_hop, {subject:String}) > 0 OR
-positionCaseInsensitive(src_as_name, {subject:String}) > 0 OR
-positionCaseInsensitive(dst_as_name, {subject:String}) > 0 OR
-positionCaseInsensitive(src_country, {subject:String}) > 0 OR
-positionCaseInsensitive(dst_country, {subject:String}) > 0 OR
-positionCaseInsensitive(toString(src_asn), {subject:String}) > 0 OR
-positionCaseInsensitive(toString(dst_asn), {subject:String}) > 0)`
+agent_id = {subject:String} OR
+exporter = {subject:String} OR
+src_addr = {subject:String} OR
+dst_addr = {subject:String} OR
+next_hop = {subject:String} OR
+src_as_name = {subject:String} OR
+dst_as_name = {subject:String} OR
+src_country = {subject:String} OR
+dst_country = {subject:String} OR
+toString(src_asn) = {subject:String} OR
+toString(dst_asn) = {subject:String})`
 }
 
 func flowRollupSubjectPredicate() string {
-	return `tenant_id={tenant:String} AND arrayExists(
-  value -> positionCaseInsensitive(value, {subject:String}) > 0,
-  subject_keys
-)`
+	// subject_keys is the Array(String) of the same identity columns, so an
+	// exact array-membership test mirrors flowSubjectPredicate's per-column
+	// equality instead of the previous positionCaseInsensitive substring scan
+	// that over-matched neighboring addresses (TEN-05).
+	return `tenant_id={tenant:String} AND has(subject_keys, {subject:String})`
 }
 
 // lineCounter passes bytes through (kept simple; counting via the follow-up
