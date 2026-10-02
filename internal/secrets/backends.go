@@ -250,7 +250,8 @@ func NewCyberArkSource(getenv Getenv) (*CyberArkSource, error) {
 		if err != nil {
 			return nil, fmt.Errorf("secrets: cyberark client cert: %w", err)
 		}
-		client.Transport = &http.Transport{TLSClientConfig: tlsCfg}
+		// PLAT-07: the mTLS override must still honor a mandatory egress proxy.
+		client.Transport = &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: tlsCfg}
 	}
 	return &CyberArkSource{base: base, appID: appID, client: client}, nil
 }

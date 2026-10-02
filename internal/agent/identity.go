@@ -390,7 +390,12 @@ func enrollHTTPClient(caPin, caFile string) (*http.Client, error) {
 		}
 		tlsCfg.RootCAs = pool
 	}
-	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg}}, nil
+	// PLAT-07: the agent enrolls with a (possibly remote) control plane, so the
+	// enrollment client must traverse a mandatory egress proxy when one is set.
+	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: tlsCfg,
+	}}, nil
 }
 
 func postIdentity(ctx context.Context, hc *http.Client, url string, body map[string]string) (*issuedIdentity, error) {
