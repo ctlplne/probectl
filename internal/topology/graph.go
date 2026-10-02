@@ -42,15 +42,62 @@ type Graph struct {
 	// grow the graph without bound). staleness, when > 0, is the horizon Latest()
 	// applies: elements not re-observed within it are treated as gone, so the
 	// "current" graph reflects what is actually live instead of accreting every
-	// node/edge ever seen. Zero values keep the previous unbounded behavior.
+	// node/edge ever seen (a decommissioned element ages out of the live view).
+	// A default deployment ships DefaultBounds (all three non-zero, AI-08); the
+	// stores expose WithBounds constructors to override them. Zero values keep
+	// the previous unbounded / no-horizon behavior (set explicitly in tests).
 	maxNodes  int
 	maxEdges  int
 	staleness time.Duration
-	now       func() time.Time // injectable clock (tests)
+	now       func() time.Time // injectable clock (tests); Latest() fallback reference
 }
 
-// NewGraph returns an empty graph for a tenant.
+// Default per-tenant topology bounds (SCALE-004 / CORRECT-014). They are the
+// shipped values a default deployment reports: non-zero caps so per-tenant
+// memory can't grow without bound, and a non-zero staleness horizon so
+// decommissioned elements age out of Latest() instead of persisting forever.
+// The caps sit well above the largest supported single-tenant graph (the S43
+// XL fabric: ~31k nodes / ~46k edges), so they bound churn without clipping a
+// legitimate topology.
+const (
+	DefaultMaxNodesPerTenant = 100_000
+	DefaultMaxEdgesPerTenant = 300_000
+	DefaultStalenessHorizon  = 24 * time.Hour
+)
+
+// Bounds is a graph's per-tenant node/edge caps and Latest() staleness horizon.
+// A zero field disables that bound (unbounded count / no horizon).
+type Bounds struct {
+	MaxNodes  int
+	MaxEdges  int
+	Staleness time.Duration
+}
+
+// DefaultBounds returns the shipped, non-zero per-tenant bounds (AI-08).
+func DefaultBounds() Bounds {
+	return Bounds{
+		MaxNodes:  DefaultMaxNodesPerTenant,
+		MaxEdges:  DefaultMaxEdgesPerTenant,
+		Staleness: DefaultStalenessHorizon,
+	}
+}
+
+// Bounds reports the graph's configured per-tenant caps and staleness horizon
+// (AI-08: a default deployment reports non-zero caps and a horizon).
+func (g *Graph) Bounds() Bounds {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return Bounds{MaxNodes: g.maxNodes, MaxEdges: g.maxEdges, Staleness: g.staleness}
+}
+
+// NewGraph returns an empty graph for a tenant under the shipped DefaultBounds
+// (non-zero caps + staleness horizon). Use NewGraphWithBounds to override.
 func NewGraph(tenant string) *Graph {
+	return NewGraphWithBounds(tenant, DefaultBounds())
+}
+
+// NewGraphWithBounds returns an empty graph for a tenant under explicit bounds.
+func NewGraphWithBounds(tenant string, b Bounds) *Graph {
 	return &Graph{
 		tenant: tenant, nodes: map[string]*Node{}, edges: map[string]*Edge{},
 		identityClaims:  map[string]*identityClaimSet{},
@@ -58,6 +105,9 @@ func NewGraph(tenant string) *Graph {
 		physicalOwners:  map[string]map[physicalSource]struct{}{},
 		physicalRetired: map[string]time.Time{},
 		now:             time.Now,
+		maxNodes:        b.MaxNodes,
+		maxEdges:        b.MaxEdges,
+		staleness:       b.Staleness,
 	}
 }
 
@@ -222,14 +272,7 @@ func (g *Graph) Latest() Snapshot {
 	// CORRECT-014: when a staleness horizon is set, "latest" means "still live"
 	// — elements not re-observed within the horizon are excluded, so the graph
 	// reflects current reality instead of every node/edge ever seen.
-	var cutoff time.Time
-	if g.staleness > 0 {
-		clock := g.now
-		if clock == nil {
-			clock = time.Now
-		}
-		cutoff = clock().Add(-g.staleness)
-	}
+	cutoff := g.stalenessCutoffLocked()
 	fresh := func(lastSeen time.Time) bool { return cutoff.IsZero() || !lastSeen.Before(cutoff) }
 	for _, n := range g.nodes {
 		if !fresh(n.LastSeen) {
@@ -253,6 +296,49 @@ func (g *Graph) Latest() Snapshot {
 	}
 	sortSnapshot(&s)
 	return s
+}
+
+// stalenessCutoffLocked returns the time before which an element is stale for
+// Latest(), or the zero time when no horizon is configured. The reference is
+// the graph's own leading edge — its newest observation — not the wall clock,
+// so an event-time graph (backfilled/replayed history, clock skew, or a frozen
+// test clock) ages relative to the data it actually holds and is never erased
+// wholesale just because the wall clock ran ahead of ingestion. In production,
+// where live elements are re-observed continuously, the newest observation
+// tracks "now", so a decommissioned element still ages out once the live graph
+// advances a full horizon past its last sighting. The injectable clock is the
+// fallback reference only when the graph holds no observation to anchor on.
+// Caller holds g.mu (at least read).
+func (g *Graph) stalenessCutoffLocked() time.Time {
+	if g.staleness <= 0 {
+		return time.Time{}
+	}
+	ref := g.leadingEdgeLocked()
+	if ref.IsZero() {
+		clock := g.now
+		if clock == nil {
+			clock = time.Now
+		}
+		ref = clock()
+	}
+	return ref.Add(-g.staleness)
+}
+
+// leadingEdgeLocked returns the newest LastSeen across all nodes and edges —
+// the graph's observation leading edge — or the zero time when empty.
+func (g *Graph) leadingEdgeLocked() time.Time {
+	var newest time.Time
+	for _, n := range g.nodes {
+		if n.LastSeen.After(newest) {
+			newest = n.LastSeen
+		}
+	}
+	for _, e := range g.edges {
+		if e.LastSeen.After(newest) {
+			newest = e.LastSeen
+		}
+	}
+	return newest
 }
 
 // Neighbors returns the ids adjacent to nodeID (either direction) over edges

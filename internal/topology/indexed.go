@@ -24,11 +24,19 @@ import (
 type IndexedStore struct {
 	mu     sync.Mutex
 	graphs map[string]*indexedGraph
+	bounds Bounds
 }
 
-// NewIndexedStore returns an empty indexed store.
+// NewIndexedStore returns an empty indexed store whose per-tenant graphs use
+// the shipped DefaultBounds (non-zero caps + staleness horizon, AI-08).
 func NewIndexedStore() *IndexedStore {
-	return &IndexedStore{graphs: map[string]*indexedGraph{}}
+	return NewIndexedStoreWithBounds(DefaultBounds())
+}
+
+// NewIndexedStoreWithBounds returns an empty indexed store whose per-tenant
+// graphs use explicit bounds (configurable but non-zero by default).
+func NewIndexedStoreWithBounds(b Bounds) *IndexedStore {
+	return &IndexedStore{graphs: map[string]*indexedGraph{}, bounds: b}
 }
 
 // ForTenant returns an indexed graph handle bound to one tenant.
@@ -69,7 +77,7 @@ func (s *IndexedStore) graph(tenant string) *indexedGraph {
 	defer s.mu.Unlock()
 	g, ok := s.graphs[tenant]
 	if !ok {
-		g = newIndexedGraph(tenant)
+		g = newIndexedGraph(tenant, s.bounds)
 		s.graphs[tenant] = g
 	}
 	return g
@@ -223,9 +231,9 @@ type indexedGraph struct {
 	rev map[string]map[string]string // to -> from -> edgeID
 }
 
-func newIndexedGraph(tenant string) *indexedGraph {
+func newIndexedGraph(tenant string, b Bounds) *indexedGraph {
 	return &indexedGraph{
-		inner: NewGraph(tenant),
+		inner: NewGraphWithBounds(tenant, b),
 		fwd:   map[string]map[string]string{},
 		rev:   map[string]map[string]string{},
 	}

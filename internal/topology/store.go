@@ -147,10 +147,18 @@ func (t tenantStore) Traverse(from, to string, at time.Time) []string {
 type MemoryStore struct {
 	mu     sync.Mutex
 	graphs map[string]*Graph
+	bounds Bounds
 }
 
-// NewMemoryStore returns an empty in-memory store.
-func NewMemoryStore() *MemoryStore { return &MemoryStore{graphs: map[string]*Graph{}} }
+// NewMemoryStore returns an empty in-memory store whose per-tenant graphs use
+// the shipped DefaultBounds (non-zero caps + staleness horizon, AI-08).
+func NewMemoryStore() *MemoryStore { return NewMemoryStoreWithBounds(DefaultBounds()) }
+
+// NewMemoryStoreWithBounds returns an empty in-memory store whose per-tenant
+// graphs use explicit bounds (configurable but non-zero by default).
+func NewMemoryStoreWithBounds(b Bounds) *MemoryStore {
+	return &MemoryStore{graphs: map[string]*Graph{}, bounds: b}
+}
 
 // ForTenant returns a graph handle bound to one tenant.
 func (s *MemoryStore) ForTenant(tenant string) (TenantStore, error) {
@@ -191,7 +199,7 @@ func (s *MemoryStore) graph(tenant string) *Graph {
 	defer s.mu.Unlock()
 	g, ok := s.graphs[tenant]
 	if !ok {
-		g = NewGraph(tenant)
+		g = NewGraphWithBounds(tenant, s.bounds)
 		s.graphs[tenant] = g
 	}
 	return g
