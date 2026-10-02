@@ -90,6 +90,14 @@ func (req alertRequest) toRule() (alert.Rule, error) {
 	if err := r.Validate(); err != nil {
 		return alert.Rule{}, apierror.Validation(err.Error())
 	}
+	// AUTHZ-16: a webhook channel's URL is tenant-supplied and drives an outbound
+	// request from the control plane, so it must clear the same deny-by-default
+	// SSRF + HTTPS guard the channel-test path applies — a private/link-local/
+	// metadata/loopback (or non-https) destination must not even be stored. The
+	// rejection is identical to the test path's, so neither surface is an oracle.
+	if err := guardAlertChannels(r.Channels); err != nil {
+		return alert.Rule{}, err
+	}
 	return r, nil
 }
 

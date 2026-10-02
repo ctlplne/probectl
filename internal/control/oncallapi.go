@@ -10,18 +10,73 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/notify"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+// webhookTargetGuard is the deny-by-default SSRF guard (canary.TargetGuard — the
+// SAME validator agent canaries and control-plane path discovery use, PLAT-05)
+// applied to tenant-supplied alert-channel webhook destinations. Unlike path
+// discovery, an alert channel has no admin-gated allow_private_targets override,
+// so the guard is always strict: private/link-local/metadata/loopback hosts are
+// never permitted.
+var webhookTargetGuard = canary.NewTargetGuard(false)
+
+// rejectedWebhookDestination is the SINGLE, reason-free error returned for every
+// webhook-URL rejection. It is deliberately identical whether the URL is denied
+// for a private/link-local/metadata/loopback host, a non-https scheme, or a
+// malformed URL, so the alert create/test surface cannot be used as an SSRF
+// success oracle (AUTHZ-16): a caller cannot tell a reachable internal host
+// apart from a bad scheme or a parse error. A fresh *apierror.Error is built per
+// call because handlers may Wrap/WithCode the value they return.
+func rejectedWebhookDestination() *apierror.Error {
+	return apierror.Validation("alert: channel webhook url must be an https endpoint on a public, non-internal host")
+}
+
+// guardOutboundWebhookURL applies the HTTPS-only rule and the deny-by-default
+// SSRF guard to a single tenant-supplied webhook URL (AUTHZ-16, docs/
+// guardrails.md G7-12). A literal private/link-local/metadata/loopback IP (and
+// an ambiguous numeric smuggle such as "2130706433") is refused here, before any
+// socket is opened; a public hostname passes and is re-checked against its
+// RESOLVED address by the GuardedHTTPClient dialer at delivery time, so a host
+// that resolves (or DNS-rebinds) into a reserved range still never connects.
+func guardOutboundWebhookURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || !strings.EqualFold(u.Scheme, "https") {
+		return rejectedWebhookDestination()
+	}
+	if err := webhookTargetGuard.CheckHost(u.Hostname()); err != nil {
+		return rejectedWebhookDestination()
+	}
+	return nil
+}
+
+// guardAlertChannels validates every tenant-supplied outbound destination on a
+// rule's channels. Webhook URLs clear the SSRF + HTTPS guard; email channels
+// carry no network target to guard here. It is called on BOTH the create/update
+// path (toRule) and the channel-test path, so a private webhook can neither be
+// stored nor probed, and both surfaces return the identical rejection.
+func guardAlertChannels(channels []alert.ChannelSpec) error {
+	for _, c := range channels {
+		if c.Type == "webhook" {
+			if err := guardOutboundWebhookURL(c.URL); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 var oncallSupportedProviders = []string{"pagerduty", "opsgenie", "slack", "teams", "servicenow", "jira"}
 
@@ -187,6 +242,15 @@ func (s *Server) handleAlertChannelTest(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := rule.Validate(); err != nil {
 		return apierror.Validation(err.Error())
+	}
+	// AUTHZ-16: a channel's webhook URL is tenant-supplied, so it must clear the
+	// deny-by-default SSRF + HTTPS guard BEFORE any delivery is attempted —
+	// otherwise this test surface is an SSRF probe whose success/failure reveals
+	// whether an internal/metadata host answers. The guard returns one identical
+	// error for every rejection reason (private/metadata/http/malformed), closing
+	// the oracle; it is the same guard the create path (toRule) applies.
+	if err := guardAlertChannels(rule.Channels); err != nil {
+		return err
 	}
 	if s.pool != nil {
 		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
