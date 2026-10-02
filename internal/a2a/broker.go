@@ -49,6 +49,27 @@ type session struct {
 
 type agentKey struct{ tenant, agent string }
 
+// pendingTask is a queued task plus the time it was enqueued, so the broker can
+// reclaim tasks that were never polled (INJ-06): an initiator or responder that
+// never comes back to poll — a ghost or never-enrolled agent id named in a mesh
+// request — would otherwise leave its task in b.pending forever, and gcLocked
+// only ever reclaimed sessions.
+type pendingTask struct {
+	task Task
+	at   time.Time
+}
+
+// maxPendingPerTenant bounds the tasks a single tenant can have queued but
+// unpolled at once (INJ-06). Age-out (gcLocked) reclaims tasks for agents that
+// never poll, but only after the TTL; this cap bounds the memory a burst of
+// mesh requests naming never-polling agent ids can pin WITHIN one TTL window.
+// A full 64-site mesh queues 64*63 = 4032 responder tasks, so this admits ~24
+// outstanding full meshes per tenant (~a few MiB) before new sessions are
+// refused until the queue drains or ages out — a stateless control plane must
+// never let one editor's requests grow memory without bound (docs/guardrails.md
+// G7-1 fail-closed).
+const maxPendingPerTenant = 100_000
+
 // Broker coordinates agent-to-agent sessions. All methods are safe for
 // concurrent use and tenant-scoped.
 type Broker struct {
@@ -57,19 +78,28 @@ type Broker struct {
 	ttl      time.Duration
 	newID    func() (string, error)
 	sessions map[string]*session
-	pending  map[agentKey][]Task
+	pending  map[agentKey][]pendingTask
+	// pendingByTenant counts queued tasks per tenant so the per-tenant cap is
+	// O(1) to check without scanning every agent key.
+	pendingByTenant map[string]int
 }
 
 // NewBroker returns a broker with a 60s session TTL.
 func NewBroker() *Broker {
 	return &Broker{
-		now:      time.Now,
-		ttl:      60 * time.Second,
-		newID:    randomID,
-		sessions: map[string]*session{},
-		pending:  map[agentKey][]Task{},
+		now:             time.Now,
+		ttl:             60 * time.Second,
+		newID:           randomID,
+		sessions:        map[string]*session{},
+		pending:         map[agentKey][]pendingTask{},
+		pendingByTenant: map[string]int{},
 	}
 }
+
+// ErrPendingFull is returned when a tenant already holds the maximum number of
+// unpolled tasks. The mesh/session handlers map it to HTTP 429/400 — the
+// control plane refuses new work rather than growing memory (INJ-06).
+var ErrPendingFull = errors.New("a2a: tenant has too many unpolled tasks; let agents poll or retry later")
 
 func randomID() (string, error) {
 	b, err := crypto.Random(16)
@@ -103,6 +133,11 @@ func (b *Broker) StartSession(tenantID, responderAgent, initiatorAgent, mode str
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.gcLocked()
+	// Fail closed before allocating a session id's worth of state if the tenant
+	// is already at its unpolled-task cap (INJ-06).
+	if b.pendingByTenant[tenantID] >= maxPendingPerTenant {
+		return "", ErrPendingFull
+	}
 	b.sessions[id] = &session{
 		tenantID: tenantID, responder: responderAgent, initiator: initiatorAgent,
 		mode: mode, count: count, createdAt: b.now(),
@@ -111,6 +146,16 @@ func (b *Broker) StartSession(tenantID, responderAgent, initiatorAgent, mode str
 		SessionID: id, Role: RoleResponder, Mode: mode, Count: count, PeerAgentID: initiatorAgent,
 	})
 	return id, nil
+}
+
+// PendingCount returns the number of queued-but-unpolled tasks for a tenant,
+// after reclaiming any that have aged out. Callers use it to reject work that
+// would exceed the per-tenant cap before doing O(n^2) scheduling.
+func (b *Broker) PendingCount(tenantID string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.gcLocked()
+	return b.pendingByTenant[tenantID]
 }
 
 // PollFor returns and removes the next pending task for an agent (at-most-once).
@@ -129,7 +174,8 @@ func (b *Broker) PollFor(tenantID, agentID string) (Task, bool) {
 	} else {
 		b.pending[k] = q[1:]
 	}
-	return t, true
+	b.decPendingLocked(tenantID, 1)
+	return t.task, true
 }
 
 // ReportEndpoint records where the responder is listening and queues the
@@ -162,7 +208,18 @@ func (b *Broker) ReportEndpoint(tenantID, agentID, sessionID, host string, port 
 
 func (b *Broker) enqueueLocked(tenant, agent string, t Task) {
 	k := agentKey{tenant, agent}
-	b.pending[k] = append(b.pending[k], t)
+	b.pending[k] = append(b.pending[k], pendingTask{task: t, at: b.now()})
+	b.pendingByTenant[tenant]++
+}
+
+func (b *Broker) decPendingLocked(tenant string, n int) {
+	if n <= 0 {
+		return
+	}
+	b.pendingByTenant[tenant] -= n
+	if b.pendingByTenant[tenant] <= 0 {
+		delete(b.pendingByTenant, tenant)
+	}
 }
 
 func (b *Broker) gcLocked() {
@@ -170,6 +227,29 @@ func (b *Broker) gcLocked() {
 	for id, s := range b.sessions {
 		if s.createdAt.Before(cutoff) {
 			delete(b.sessions, id)
+		}
+	}
+	// Reclaim tasks that were enqueued before the cutoff and never polled
+	// (INJ-06): a task for an expired session is useless, and an agent id that
+	// never comes back to poll must not pin memory forever. Without this,
+	// b.pending (unlike b.sessions) grew without bound.
+	for k, q := range b.pending {
+		kept := q[:0]
+		dropped := 0
+		for _, pt := range q {
+			if pt.at.Before(cutoff) {
+				dropped++
+				continue
+			}
+			kept = append(kept, pt)
+		}
+		if dropped > 0 {
+			b.decPendingLocked(k.tenant, dropped)
+		}
+		if len(kept) == 0 {
+			delete(b.pending, k)
+		} else {
+			b.pending[k] = kept
 		}
 	}
 }

@@ -136,6 +136,15 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 	if len(bySite) > maxMeshSites {
 		return nil, fmt.Errorf("a2a mesh: too many sites %d (max %d); a full mesh schedules sites*(sites-1) sessions", len(bySite), maxMeshSites)
 	}
+	// INJ-06: a mesh queues one responder task per session (sites*(sites-1)).
+	// Refuse up front if that would push the tenant past the broker's unpolled-
+	// task cap — otherwise a burst of meshes naming never-polling agent ids pins
+	// memory in the broker until the TTL ages it out. Agents that poll keep the
+	// count near zero; this only bites a flood of work no agent is draining.
+	wantSessions := len(bySite) * (len(bySite) - 1)
+	if have := m.broker.PendingCount(tenantID); have+wantSessions > maxPendingPerTenant {
+		return nil, fmt.Errorf("a2a mesh: %w (tenant has %d unpolled tasks, this mesh needs %d, cap %d)", ErrPendingFull, have, wantSessions, maxPendingPerTenant)
+	}
 
 	sites := make([]string, 0, len(bySite))
 	agentForSite := make(map[string]string, len(bySite))

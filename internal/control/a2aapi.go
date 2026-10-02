@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/a2a"
@@ -99,6 +100,11 @@ func (s *Server) handleStartA2AMesh(w http.ResponseWriter, r *http.Request) erro
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		sessions, e := s.a2aMesh.StartMesh(sc.Tenant.String(), req.Agents, req.Mode, req.Count)
 		if e != nil {
+			// INJ-06: an exhausted per-tenant task queue is a transient "retry
+			// later" condition (429), not a permanent client error (400).
+			if errors.Is(e, a2a.ErrPendingFull) {
+				return apierror.RateLimited(e.Error())
+			}
 			return apierror.BadRequest(e.Error())
 		}
 		resp = a2aMeshResponse{
