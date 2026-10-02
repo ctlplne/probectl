@@ -9535,7 +9535,10 @@
           "approvals_disabled",
           "blast_radius_exceeded",
           "blast_radius_unknown",
-          "not_proposed"
+          "not_proposed",
+          "unsupported_media_type",
+          "private_target_denied",
+          "cross_origin_denied"
         ]
       },
       "ErrorDetail": {

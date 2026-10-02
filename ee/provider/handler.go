@@ -702,7 +702,15 @@ var (
 	errBadDecision                     = validationError("provider: decision must be approve or deny")
 )
 
+// errUnsupportedMediaType refuses a form-settable, preflight-free Content-Type
+// on a cookie-authenticated provider mutation (AUTHZ-05); the Origin check rides
+// the shared control-plane csrfGuard that wraps /provider/.
+var errUnsupportedMediaType = errors.New("provider: request body Content-Type must be application/json")
+
 func decode(r *http.Request, v any) error {
+	if httpbody.FormSafeContentType(r) {
+		return errUnsupportedMediaType
+	}
 	if err := httpbody.DecodeHTTPJSONStrict(nil, r, 1<<20, v); err != nil {
 		return errBadJSON{err}
 	}
@@ -777,6 +785,8 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "audit_read_unavailable", http.StatusServiceUnavailable
 	case errors.Is(err, errConsentAuthorizationUnavailable):
 		code, status = "authorization_unavailable", http.StatusServiceUnavailable
+	case errors.Is(err, errUnsupportedMediaType):
+		code, status = "unsupported_media_type", http.StatusUnsupportedMediaType
 	default:
 		var bad errBadJSON
 		var validation errValidation

@@ -677,6 +677,7 @@ func (s *Server) routes() http.Handler {
 		s.accessLog,
 		recoverer,
 		s.authenticate,
+		s.csrfGuard,  // AUTHZ-05: refuse cross-origin cookie-authenticated mutations
 		s.writeFence, // S-EE2: fence mutating requests during a failover / split-brain
 	)
 }

@@ -22,16 +22,17 @@ import (
 type Kind int
 
 const (
-	KindInternal     Kind = iota // unexpected failure
-	KindBadRequest               // malformed / syntactically invalid request
-	KindValidation               // well-formed but semantically invalid
-	KindUnauthorized             // authentication required or failed
-	KindForbidden                // authenticated but not permitted
-	KindNotFound                 // resource does not exist
-	KindConflict                 // state conflict (duplicate, version, ...)
-	KindUnavailable              // a dependency is not ready
-	KindRateLimited              // the caller exceeded a rate/fairness bound
-	KindTooLarge                 // the caller sent a body/payload beyond a hard cap
+	KindInternal             Kind = iota // unexpected failure
+	KindBadRequest                       // malformed / syntactically invalid request
+	KindValidation                       // well-formed but semantically invalid
+	KindUnauthorized                     // authentication required or failed
+	KindForbidden                        // authenticated but not permitted
+	KindNotFound                         // resource does not exist
+	KindConflict                         // state conflict (duplicate, version, ...)
+	KindUnavailable                      // a dependency is not ready
+	KindRateLimited                      // the caller exceeded a rate/fairness bound
+	KindTooLarge                         // the caller sent a body/payload beyond a hard cap
+	KindUnsupportedMediaType             // the request body's Content-Type is not accepted
 )
 
 // Error is a domain error carrying a Kind, a stable machine-readable Code, a
@@ -59,6 +60,8 @@ const (
 	CodeRateLimited  Code = "rate_limited"
 	CodeTooLarge     Code = "too_large"
 
+	CodeUnsupportedMediaType Code = "unsupported_media_type"
+
 	CodeWriterUnavailable   Code = "writer_unavailable"
 	CodeQuotaExceeded       Code = "quota_exceeded"
 	CodeTenantSuspended     Code = "tenant_suspended"
@@ -68,6 +71,8 @@ const (
 	CodeBlastRadiusExceeded Code = "blast_radius_exceeded"
 	CodeBlastRadiusUnknown  Code = "blast_radius_unknown"
 	CodeNotProposed         Code = "not_proposed"
+	CodePrivateTargetDenied Code = "private_target_denied" // PLAT-05
+	CodeCrossOriginDenied   Code = "cross_origin_denied"   // AUTHZ-05
 )
 
 var registeredCodes = []Code{
@@ -90,6 +95,9 @@ var registeredCodes = []Code{
 	CodeBlastRadiusExceeded,
 	CodeBlastRadiusUnknown,
 	CodeNotProposed,
+	CodeUnsupportedMediaType,
+	CodePrivateTargetDenied,
+	CodeCrossOriginDenied,
 }
 
 // RegisteredCodes returns the complete public API error-code registry.
@@ -165,6 +173,9 @@ func RateLimited(message string) *Error {
 	return newError(KindRateLimited, string(CodeRateLimited), message)
 }
 func TooLarge(message string) *Error { return newError(KindTooLarge, string(CodeTooLarge), message) }
+func UnsupportedMediaType(message string) *Error {
+	return newError(KindUnsupportedMediaType, string(CodeUnsupportedMediaType), message)
+}
 
 // localizedMessage returns a localized label for a stable API error code.
 func localizedMessage(locale, code, fallback string) string {

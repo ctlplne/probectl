@@ -36,6 +36,7 @@ func TestConstructorsSetKindAndCode(t *testing.T) {
 		{Unavailable("x"), KindUnavailable, "unavailable"},
 		{RateLimited("x"), KindRateLimited, "rate_limited"},
 		{TooLarge("x"), KindTooLarge, "too_large"},
+		{UnsupportedMediaType("x"), KindUnsupportedMediaType, "unsupported_media_type"},
 	}
 	for _, c := range cases {
 		if c.e.Kind != c.kind {

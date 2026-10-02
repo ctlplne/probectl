@@ -633,6 +633,11 @@ func decodeJSON(r *http.Request, dst any) error {
 }
 
 func decodeJSONLimit(r *http.Request, maxBytes int64, dst any) error {
+	// AUTHZ-05: refuse the preflight-free, form-settable content-types so a
+	// cookie-authenticated JSON mutation cannot be driven cross-origin.
+	if httpbody.FormSafeContentType(r) {
+		return apierror.UnsupportedMediaType("request body Content-Type must be application/json")
+	}
 	if err := httpbody.DecodeHTTPJSONStrict(nil, r, maxBytes, dst); err != nil {
 		if errors.Is(err, httpbody.ErrTooLarge) {
 			return apierror.TooLarge("request body exceeds size cap")

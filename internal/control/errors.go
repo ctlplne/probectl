@@ -44,6 +44,8 @@ func httpStatus(kind apierror.Kind) int {
 		return http.StatusTooManyRequests // 429
 	case apierror.KindTooLarge:
 		return http.StatusRequestEntityTooLarge // 413
+	case apierror.KindUnsupportedMediaType:
+		return http.StatusUnsupportedMediaType // 415
 	case apierror.KindUnavailable:
 		return http.StatusServiceUnavailable // 503
 	case apierror.KindInternal:

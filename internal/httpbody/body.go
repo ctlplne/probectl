@@ -13,8 +13,32 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 )
+
+// FormSafeContentType reports whether the request body carries one of the CORS
+// "simple" request content-types an HTML form can send WITHOUT a preflight
+// (text/plain, application/x-www-form-urlencoded, multipart/form-data). A
+// cookie-authenticated JSON mutation must refuse these, or a cross-/same-site
+// page could drive the request past SameSite=Lax with no preflight (AUTHZ-05).
+// Any other type (application/json, …) forces a preflight the deployment does
+// not CORS-allow. An absent Content-Type is not form-safe.
+func FormSafeContentType(r *http.Request) bool {
+	ct := r.Header.Get("Content-Type")
+	if ct == "" {
+		return false
+	}
+	mt, _, err := mime.ParseMediaType(ct)
+	if err != nil {
+		return false
+	}
+	switch mt {
+	case "text/plain", "application/x-www-form-urlencoded", "multipart/form-data":
+		return true
+	}
+	return false
+}
 
 const (
 	// MaxClientResponseBodyBytes is the shared cap for successful HTTP responses

@@ -30,6 +30,7 @@ func TestHTTPStatusMapping(t *testing.T) {
 		{apierror.KindInternal, http.StatusInternalServerError},
 		{apierror.KindUnavailable, http.StatusServiceUnavailable},
 		{apierror.KindTooLarge, http.StatusRequestEntityTooLarge},
+		{apierror.KindUnsupportedMediaType, http.StatusUnsupportedMediaType},
 	}
 	for _, c := range cases {
 		if got := httpStatus(c.kind); got != c.want {
