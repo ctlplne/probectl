@@ -38,8 +38,25 @@ func TestProvisionSeedsSystemRolesInTheNewTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision: %v", err)
 	}
-	var catalog int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM permissions`).Scan(&catalog); err != nil {
+	// AUTHZ-09: admin holds every catalog permission EXCEPT the
+	// separation-of-duty keys (ir.investigate), which belong only to a dedicated
+	// ir-investigator role. So admin must hold the whole catalog minus the SoD
+	// key(s), and must NOT hold ir.investigate.
+	var catalogKeys []string
+	rows, err := pool.Query(ctx, `SELECT key FROM permissions ORDER BY key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		catalogKeys = append(catalogKeys, k)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -53,8 +70,24 @@ func TestProvisionSeedsSystemRolesInTheNewTenant(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if len(perms) != catalog {
-					return fmt.Errorf("admin holds %d of %d catalog permissions", len(perms), catalog)
+				have := make(map[string]bool, len(perms))
+				for _, k := range perms {
+					have[k] = true
+				}
+				if have["ir.investigate"] {
+					return fmt.Errorf("admin must NOT hold the separation-of-duty key ir.investigate (AUTHZ-09)")
+				}
+				var missing []string
+				for _, k := range catalogKeys {
+					if k == "ir.investigate" {
+						continue // the one SoD key admin is expected to lack
+					}
+					if !have[k] {
+						missing = append(missing, k)
+					}
+				}
+				if len(missing) != 0 {
+					return fmt.Errorf("admin missing non-SoD catalog permissions: %v", missing)
 				}
 			}
 		}
