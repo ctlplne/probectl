@@ -187,6 +187,20 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 	if err := decodeJSON(r, &in); err != nil {
 		return err
 	}
+	// AUTHZ-18: the production deployment profiles (multi-tenant, regulated)
+	// carry a compliance obligation to keep the tenant audit trail. Reject an
+	// audit_retention_days below the profile-mandated floor — a well-formed but
+	// non-compliant value, hence 422 — so the trail cannot be shrunk below it
+	// even when the operator left PROBECTL_AUDIT_RETENTION_MIN unset (0 disables
+	// the explicit AUD-07 floor, but the profile minimum still holds).
+	// docs/guardrails.md G7-N (tamper-evident audit trail).
+	if in.AuditRetentionDays != nil && s.cfg != nil {
+		if profileFloor := profileAuditRetentionFloorDays(s.cfg.DeploymentProfile); profileFloor > 0 && *in.AuditRetentionDays < profileFloor {
+			return apierror.Validation(fmt.Sprintf(
+				"audit_retention_days cannot be below the %s deployment profile minimum of %d days",
+				s.cfg.DeploymentProfile, profileFloor))
+		}
+	}
 	// AUD-07: a tenant admin cannot shrink audit retention below the deployment
 	// compliance floor (PROBECTL_AUDIT_RETENTION_MIN).
 	if in.AuditRetentionDays != nil && s.cfg != nil && s.cfg.AuditRetentionMin > 0 {
@@ -223,6 +237,22 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 	}
 	writeJSON(w, http.StatusOK, status)
 	return nil
+}
+
+// profileAuditRetentionFloorDays returns the mandatory audit-retention floor
+// (in days) that a deployment profile imposes on a tenant override, regardless
+// of the operator-set PROBECTL_AUDIT_RETENTION_MIN (AUTHZ-18). The multi-tenant
+// and regulated profiles carry a compliance obligation to retain the audit
+// trail; this mirrors the config loader's audit-retention-minimum default so
+// the floor holds even when the explicit knob is left unset. 0 = the profile
+// imposes no intrinsic floor (single / unset / dev).
+func profileAuditRetentionFloorDays(profile string) int {
+	switch profile {
+	case "multi-tenant", "regulated":
+		return 30
+	default:
+		return 0
+	}
 }
 
 func validateLifecycleRetentionPolicy(p tenantlife.RetentionPolicy) error {
@@ -269,7 +299,12 @@ func (s *Server) handleLifecycleErase(w http.ResponseWriter, r *http.Request) er
 	if slug == "" || !strings.EqualFold(strings.TrimSpace(in.Confirm), slug) {
 		return apierror.Validation("confirm must equal the tenant slug exactly — erasure is irreversible")
 	}
-	att, err := e.Erase(r.Context(), tid, slug, "tenant:"+tid)
+	// AUTHZ-18: attribute the irreversible erase — its attestation and every
+	// provider audit event (lifecycle.erase_fence, lifecycle.erase) — to the
+	// authenticated human operator who initiated it, never a synthetic
+	// "tenant:<id>" actor. A destructive lifecycle action must name the person
+	// accountable for it. docs/guardrails.md G7-N (tamper-evident audit trail).
+	att, err := e.Erase(r.Context(), tid, slug, auditActor(r))
 	if err != nil {
 		return apierror.Internal("erasure failed").Wrap(err)
 	}
