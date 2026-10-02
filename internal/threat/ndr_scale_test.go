@@ -82,8 +82,8 @@ func TestLateralFiredCounterIsConstantWork(t *testing.T) {
 	}
 	// Bounded working set: <= the cap regardless of the 50k destinations fed.
 	// RED on baseline (grows to ~50k).
-	if cap := lateralCap(rule); len(st.dsts) > cap {
-		t.Fatalf("per-source destination map unbounded: len=%d > cap=%d", len(st.dsts), cap)
+	if capLimit := lateralCap(rule); len(st.dsts) > capLimit {
+		t.Fatalf("per-source destination map unbounded: len=%d > cap=%d", len(st.dsts), capLimit)
 	}
 	// And the O(1) post-fire path actually absorbed the bulk of the scan
 	// (the "keep a counter, don't rescan" path), rather than re-scanning.
@@ -124,8 +124,8 @@ func TestLateralMapCapBoundsGrowth(t *testing.T) {
 	if st == nil {
 		t.Fatal("no lateral state for the source")
 	}
-	if cap := lateralCap(rule); len(st.dsts) > cap {
-		t.Fatalf("per-source destination map unbounded: len=%d > cap=%d", len(st.dsts), cap)
+	if capLimit := lateralCap(rule); len(st.dsts) > capLimit {
+		t.Fatalf("per-source destination map unbounded: len=%d > cap=%d", len(st.dsts), capLimit)
 	}
 }
 

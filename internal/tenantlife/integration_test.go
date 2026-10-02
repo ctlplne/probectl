@@ -238,7 +238,7 @@ func TestEraseWithoutLifecycleFailsClosedOnlyWhenIREvidenceRetained(t *testing.T
 	// VER-01: the fail-closed guard is CONDITIONAL on retained IR evidence, not
 	// on the lifecycle being wired. Remove only tenant A's historical IR
 	// evidence; with nothing left to crypto-shred, tenant A's full erase must now
-	// COMPLETE (the core/Enterprise behaviour) while tenant B — which still holds
+	// COMPLETE (the core/Enterprise behavior) while tenant B — which still holds
 	// IR evidence — keeps failing closed.
 	if _, err := pool.Exec(
 		ctx,

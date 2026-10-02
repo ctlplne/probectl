@@ -175,9 +175,7 @@ func TestAUD04ProviderCannotMutateTenantAuditTrail(t *testing.T) {
 		return tenancy.InTenant(
 			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 			pool,
-			func(ctx context.Context, sc tenancy.Scope) error {
-				return audit.TenantVerify(ctx, sc)
-			},
+			audit.TenantVerify,
 		)
 	}
 	if err := verify(victim); err != nil {

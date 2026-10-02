@@ -47,7 +47,7 @@ type flushResult struct {
 	err  error
 	// fenced maps a tenant_id rejected by the write fence THIS flush to its
 	// fence error. It is keyed per tenant so a coalesced batch fails only the
-	// fenced tenants' callers, never their co-batched neighbours (G7-1).
+	// fenced tenants' callers, never their co-batched neighbors (G7-1).
 	fenced map[string]error
 }
 

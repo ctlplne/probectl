@@ -26,7 +26,7 @@ import (
 // router revoked AFTER its session was established kept publishing routing events
 // on the already-open connection until the certificate expired: the operator
 // believed the revocation had taken hold while the routing plane kept ingesting
-// from the revoked peer. This is the BMP analogue of CRY-01 (the per-RPC agent-
+// from the revoked peer. This is the BMP analog of CRY-01 (the per-RPC agent-
 // transport recheck).
 //
 // These tests exercise the REAL session path: a persistent mTLS connection into

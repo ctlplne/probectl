@@ -56,6 +56,26 @@ import (
 	"github.com/ctlplne/probectl/internal/usage"
 )
 
+// attachMetering wires per-tenant metering + quotas (S-T3) when licensed. The
+// recorder hooks the core usage seam (results/flows/AI calls meter as they
+// already flow); the collector snapshots per-tenant gauges inside each tenant's
+// own scope; the quota checker gates resource creation (telemetry is never
+// quota-dropped). Returns nil when the feature is not licensed.
+func attachMetering(ctx context.Context, lic *license.Manager, pool *pgxpool.Pool, log *slog.Logger) *provider.Metering {
+	if !lic.Has(license.FeatureMetering) {
+		return nil
+	}
+	bstore := billing.NewPGStore(pool)
+	recorder := billing.NewRecorder(bstore, log)
+	usage.SetRecorder(recorder)
+	checker := attachQuotaChecker(lic, pool)
+	collector := billing.NewCollector(bstore, billing.PGTenantLister(pool), billing.PGTenantCounter(pool), log)
+	go recorder.Run(ctx, time.Minute)
+	go collector.Run(ctx, 15*time.Minute)
+	log.Info("per-tenant metering attached (S-T3)", "flush", "1m", "snapshot", "15m")
+	return &provider.Metering{Store: bstore, Quotas: checker}
+}
+
 // attachEE wires licensed ee/ features onto the core server — the Build* seam
 // pattern (CONTRIBUTING.md, editions): one Has() check per feature, here and
 // nowhere else. Unlicensed features are simply never constructed; their
@@ -165,18 +185,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	// seam (results/flows/AI calls meter as they already flow); the collector
 	// snapshots per-tenant gauges INSIDE each tenant's own scope; the quota
 	// checker gates resource creation (telemetry is never quota-dropped).
-	var metering *provider.Metering
-	if lic.Has(license.FeatureMetering) {
-		bstore := billing.NewPGStore(pool)
-		recorder := billing.NewRecorder(bstore, log)
-		usage.SetRecorder(recorder)
-		checker := attachQuotaChecker(lic, pool)
-		collector := billing.NewCollector(bstore, billing.PGTenantLister(pool), billing.PGTenantCounter(pool), log)
-		go recorder.Run(ctx, time.Minute)
-		go collector.Run(ctx, 15*time.Minute)
-		metering = &provider.Metering{Store: bstore, Quotas: checker}
-		log.Info("per-tenant metering attached (S-T3)", "flush", "1m", "snapshot", "15m")
-	}
+	metering := attachMetering(ctx, lic, pool, log)
 
 	// Per-tenant key isolation / BYOK (S-T6). The keyring replaces the
 	// deployment envelope as the PRIMARY sealer; the deployment sealer stays

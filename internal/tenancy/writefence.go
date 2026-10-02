@@ -180,7 +180,7 @@ func (f *PostgresWriterFence) WithPartitionedTenantWrites(
 				if errors.Is(err, pgx.ErrNoRows) {
 					// Absent tenant (fully erased or never existed): fence THIS
 					// tenant per-tenant, never fail the batch — an absent tenant
-					// must not reject its co-batched neighbours (G7-1).
+					// must not reject its co-batched neighbors (G7-1).
 					if fenced == nil {
 						fenced = make(map[string]error, 1)
 					}

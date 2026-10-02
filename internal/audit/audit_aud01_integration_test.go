@@ -237,7 +237,7 @@ func rewriteAndRechainTenantChain(ctx context.Context, t *testing.T, pool *pgxpo
 	for i := range chain {
 		r := &chain[i]
 		if r.seq < rewriteSeq {
-			prev = recomputeStoredHash(t, pool, ctx, tenantID, r.seq)
+			prev = recomputeStoredHash(ctx, t, pool, tenantID, r.seq)
 			continue
 		}
 		if r.seq == rewriteSeq {
@@ -265,7 +265,7 @@ func rewriteAndRechainTenantChain(ctx context.Context, t *testing.T, pool *pgxpo
 
 // recomputeStoredHash returns a row's current stored hash (the predecessor link
 // for the first rewritten row, which is left untouched).
-func recomputeStoredHash(t *testing.T, pool *pgxpool.Pool, ctx context.Context, tenantID any, seq int64) string {
+func recomputeStoredHash(ctx context.Context, t *testing.T, pool *pgxpool.Pool, tenantID any, seq int64) string {
 	t.Helper()
 	var h string
 	if err := pool.QueryRow(ctx,
