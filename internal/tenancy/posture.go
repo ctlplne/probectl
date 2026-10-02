@@ -215,6 +215,9 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	if err := assertProviderPoliciesAreScoped(ctx, q); err != nil {
 		return err
 	}
+	if err := assertAppRoleWriteFence(ctx, q); err != nil {
+		return err
+	}
 	return assertAppGrantsMatchPolicies(ctx, q)
 }
 
@@ -581,6 +584,86 @@ func assertAppGrantsMatchPolicies(ctx context.Context, q postureQuerier) error {
 			"so these tables were created by a different database user than the one that bootstrapped the schema. "+
 			"Re-run the migrations as that user, or GRANT SELECT, INSERT, UPDATE, DELETE on those tables to probectl_app (refusing to start)",
 			strings.Join(ungranted, ", "))
+	}
+	return nil
+}
+
+// appWriteFencedTables are the provider-OWNED per-tenant config tables the
+// tenant request-path role (probectl_app) must never WRITE — only SELECT its
+// own row for the self-view (TEN-02, docs/guardrails.md G7-1). The provider
+// plane owns these settings and is their sole writer, via the probectl_provider
+// role; letting the app role write them would let a tenant (or a SQL-injection
+// on any tenant handler) raise its own quota, widen its own fairness bounds,
+// relax its own governance/AI-egress policy, rewrite the MSP's billing input, or
+// retheme its own deployment branding. Migration 0111 REVOKEs the write grant
+// these tables silently inherited from 0007's ALTER DEFAULT PRIVILEGES; this
+// check fails closed at boot if it ever comes back.
+//
+// Deliberately NOT listed (and so not fenced): tenant_retention and tenant_keys.
+// Both are provider-owned for silo/erasure purposes (tables.go) yet carry a
+// LEGITIMATE app-role tenant self-service write — the tenant sets its own
+// retention/erasure policy (PUT /v1/lifecycle/retention, lifecycle.erase, a core
+// compliance right) and rotates its own at-rest keys/BYOK (POST
+// /v1/security/keys/rotate, security.keys). Both write under tenancy.InTenant,
+// RLS-confined to the tenant's own row, so the app role keeps write there.
+var appWriteFencedTables = map[string]string{
+	"tenant_branding":   "deployment theming the provider console sets per tenant; the app role renders it read-only",
+	"tenant_fairness":   "per-tenant admission bounds the provider sets; the app role reads only its own self-view",
+	"tenant_governance": "data-governance / AI-egress policy the provider administers per tenant; app-role request paths read it",
+	"tenant_quotas":     "MSP quota configuration, provider-owned by definition; the app role reads only its own quota",
+	"usage_records":     "MSP consumption metering (the provider's billing input); the app role reads only its own usage",
+}
+
+func appWriteFencedTableNames() []string {
+	out := make([]string, 0, len(appWriteFencedTables))
+	for t := range appWriteFencedTables {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// assertAppRoleWriteFence refuses to start when probectl_app holds INSERT,
+// UPDATE, or DELETE on a provider-owned config table (TEN-02). It reads the
+// EFFECTIVE privilege with has_table_privilege (so a grant reaching the role by
+// any route — direct, default-privilege spillover, or group membership — is
+// caught), skips a table that is not present via to_regclass, and reports every
+// offender with the exact write privileges held.
+func assertAppRoleWriteFence(ctx context.Context, q postureQuerier) error {
+	rows, err := q.Query(ctx, `
+		SELECT t.tbl,
+		       has_table_privilege('probectl_app', c.oid, 'INSERT') AS can_insert,
+		       has_table_privilege('probectl_app', c.oid, 'UPDATE') AS can_update,
+		       has_table_privilege('probectl_app', c.oid, 'DELETE') AS can_delete
+		  FROM unnest($1::text[]) AS t(tbl)
+		  JOIN pg_catalog.pg_class     c ON c.oid = to_regclass('public.' || quote_ident(t.tbl))
+		  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+		 WHERE has_table_privilege('probectl_app', c.oid, 'INSERT')
+		    OR has_table_privilege('probectl_app', c.oid, 'UPDATE')
+		    OR has_table_privilege('probectl_app', c.oid, 'DELETE')
+		 ORDER BY t.tbl`, appWriteFencedTableNames())
+	if err != nil {
+		return fmt.Errorf("isolation posture: enumerate app-role write grants: %w", err)
+	}
+	defer rows.Close()
+
+	var offenders []string
+	for rows.Next() {
+		var table string
+		var canInsert, canUpdate, canDelete bool
+		if err := rows.Scan(&table, &canInsert, &canUpdate, &canDelete); err != nil {
+			return fmt.Errorf("isolation posture: scan app-role write grant: %w", err)
+		}
+		offenders = append(offenders, fmt.Sprintf("%s(insert=%t,update=%t,delete=%t)",
+			table, canInsert, canUpdate, canDelete))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("isolation posture: iterate app-role write grants: %w", err)
+	}
+	if len(offenders) > 0 {
+		return fmt.Errorf("isolation posture: the tenant app role %q holds write (INSERT/UPDATE/DELETE) on provider-owned config table(s): %s — "+
+			"these are provider-plane settings the probectl_provider role writes; REVOKE INSERT, UPDATE, DELETE ON <table> FROM probectl_app (keep SELECT for the self-view), the way migrations 0111/0075/0109 do (refusing to start; TEN-02, guardrail 1, fail closed)",
+			AppRole, strings.Join(offenders, ", "))
 	}
 	return nil
 }
