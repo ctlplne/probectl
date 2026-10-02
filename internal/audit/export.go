@@ -203,6 +203,19 @@ func normalizeFilter(v string) string {
 	return v
 }
 
+// TenantHeadSeq returns the tenant's durable audit head sequence (0 when the
+// stream is empty), read inside the caller's tenant scope. The SIEM export
+// backlog is this minus the delivery cursor; the poller samples it so a slow or
+// large tenant's growing backlog is visible on /metrics (AUD-16) — as an
+// aggregate, never a per-tenant series (OPS-005).
+func TenantHeadSeq(ctx context.Context, s tenancy.Scope) (int64, error) {
+	head, ok, err := readTenantStreamHead(ctx, s.Q, s.Tenant.String())
+	if err != nil || !ok {
+		return 0, err
+	}
+	return head.HeadSeq, nil
+}
+
 // Drain reads the tenant's audit events after afterSeq and pushes each to sink,
 // returning the highest seq delivered (the new cursor). It is the building block
 // a scheduled SIEM exporter (S32) uses: read a page, deliver, advance the cursor.

@@ -45,6 +45,7 @@ symbol github.com/ctlplne/probectl/internal/store.OTLPTokens.Create — integrat
 symbol github.com/ctlplne/probectl/internal/store.OTLPTokens.Revoke — integration fixture: OTLP ingest suites revoke tenant tokens through RLS
 symbol github.com/ctlplne/probectl/internal/store.ScimTokens.Revoke — integration fixture: SCIM suites revoke provisioning tokens through RLS
 symbol github.com/ctlplne/probectl/internal/store.SIEMDelivery.Cursor — integration fixture: SIEM suites assert the delivery cursor advanced
+symbol github.com/ctlplne/probectl/internal/store.SIEMDelivery.Advance — integration fixture: retention/isolation suites set the SIEM export watermark before asserting pruning (production advances via ClaimPage+CommitCursor, AUD-16)
 
 # ---- shared in-memory fakes injected by dependent packages' tests -----------
 symbol github.com/ctlplne/probectl/ee/billing.NewMemStore — shared fake: metering suites in provider/control inject it for quota paths

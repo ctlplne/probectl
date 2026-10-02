@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -98,15 +99,17 @@ func TestSIEMAuditDrainCursorAndScope(t *testing.T) {
 	if err := poller.drainTenant(context.Background(), tenantA); err != nil {
 		t.Fatalf("drain A: %v", err)
 	}
+	// AUD-16: tenant A's two events are delivered as ONE batched POST (NDJSON),
+	// not one request per event.
 	recs := snk.records()
-	if len(recs) != 2 {
-		t.Fatalf("want 2 records for tenant A, got %d", len(recs))
+	if len(recs) != 1 {
+		t.Fatalf("want 1 batched POST for tenant A, got %d", len(recs))
 	}
-	for _, r := range recs {
-		var doc map[string]any
-		if err := json.Unmarshal(r, &doc); err != nil {
-			t.Fatalf("ecs json: %v", err)
-		}
+	events := ecsBatchDocs(t, recs[0])
+	if len(events) != 2 {
+		t.Fatalf("want 2 events in the batch for tenant A, got %d", len(events))
+	}
+	for _, doc := range events {
 		if org := doc["organization"].(map[string]any); org["id"] != tenantA {
 			t.Fatalf("cross-tenant leak: organization.id=%v want %s", org["id"], tenantA)
 		}
@@ -115,6 +118,9 @@ func TestSIEMAuditDrainCursorAndScope(t *testing.T) {
 				t.Fatalf("secret not redacted on export: %v", labels["password"])
 			}
 		}
+	}
+	if d := fw.Stats().Delivered; d != 2 {
+		t.Fatalf("forwarder delivered %d events, want 2", d)
 	}
 
 	cursor := tenantCursor(t, db, tenantA)
@@ -126,17 +132,42 @@ func TestSIEMAuditDrainCursorAndScope(t *testing.T) {
 	if err := poller.drainTenant(context.Background(), tenantA); err != nil {
 		t.Fatalf("re-drain A: %v", err)
 	}
-	if got := len(snk.records()); got != 2 {
-		t.Fatalf("re-drain duplicated events: now %d records", got)
+	if got := len(snk.records()); got != 1 {
+		t.Fatalf("re-drain re-sent a batch: now %d POSTs", got)
+	}
+	if d := fw.Stats().Delivered; d != 2 {
+		t.Fatalf("re-drain duplicated events: delivered now %d", d)
 	}
 	if again := tenantCursor(t, db, tenantA); again != cursor {
 		t.Fatalf("cursor moved with no new events: %d -> %d", cursor, again)
 	}
 }
 
+// ecsBatchDocs splits a batched NDJSON SIEM POST into its per-event ECS
+// documents (AUD-16: one POST carries a whole page).
+func ecsBatchDocs(t *testing.T, payload []byte) []map[string]any {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	out := make([]map[string]any, 0, len(lines))
+	for _, ln := range lines {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(ln), &doc); err != nil {
+			t.Fatalf("ecs batch line not json: %v (%q)", err, ln)
+		}
+		out = append(out, doc)
+	}
+	return out
+}
+
 // Two replicas may overlap briefly during failover even though the singleton
-// lease is the outer guard. The cursor row lock is the storage-layer backstop:
-// while poller A is delivering, poller B cannot read the same cursor/page.
+// lease is the outer guard. AUD-16 releases the DB transaction during the SIEM
+// POST, so the storage-layer backstop is now the per-tenant export CLAIM (a
+// short lease on siem_delivery): while poller A holds the claim and is
+// delivering, poller B's claim attempt fails and it forwards nothing — so the
+// page is delivered exactly once, with no transaction pinned across the POST.
 func TestSIEMAuditConcurrentPollersDoNotDuplicateForward(t *testing.T) {
 	db := changeDB(t)
 	tenant := freshTenant(t, db, "siem-concurrent")
@@ -148,7 +179,7 @@ func TestSIEMAuditConcurrentPollersDoNotDuplicateForward(t *testing.T) {
 	fw := siem.NewForwarder(fmtr, sender, siem.Config{}, testLog())
 	pollerA := NewSIEMAuditPoller(db.Pool(), fw, nil, true, time.Minute, testLog())
 	pollerB := NewSIEMAuditPoller(db.Pool(), fw, nil, true, time.Minute, testLog())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	start := make(chan struct{})
@@ -162,12 +193,12 @@ func TestSIEMAuditConcurrentPollersDoNotDuplicateForward(t *testing.T) {
 	close(start)
 
 	select {
-	case <-sender.entered: // first poller reached the external delivery
+	case <-sender.entered: // the claim holder reached the external delivery
 	case <-time.After(5 * time.Second):
 		t.Fatal("first poller never reached SIEM sender")
 	}
 	// Keep the first delivery blocked long enough for the second poller to race.
-	// Without the cursor row lock, both enter the sender with the same first event.
+	// Without the export claim, the loser would POST the same page here.
 	select {
 	case <-sender.entered:
 		// A second entry before release is the old duplicate-forward race. Let
@@ -181,11 +212,16 @@ func TestSIEMAuditConcurrentPollersDoNotDuplicateForward(t *testing.T) {
 		}
 	}
 
-	if got := sender.count(); got != 2 {
-		t.Fatalf("concurrent pollers forwarded %d records, want exactly the 2 unique audit events", got)
+	// Exactly one batch POST carrying exactly the 2 unique events — no duplicate
+	// forward from the overlapping replica.
+	if got := sender.count(); got != 1 {
+		t.Fatalf("concurrent pollers sent %d batches, want exactly 1 (claim serializes delivery)", got)
 	}
-	if cursor := tenantCursor(t, db, tenant); cursor <= 0 {
-		t.Fatalf("cursor did not advance after serialized delivery: %d", cursor)
+	if d := fw.Stats().Delivered; d != 2 {
+		t.Fatalf("concurrent pollers delivered %d events, want exactly the 2 unique audit events", d)
+	}
+	if cursor := tenantCursor(t, db, tenant); cursor != 2 {
+		t.Fatalf("cursor did not advance to 2 after delivery: %d", cursor)
 	}
 }
 
@@ -198,7 +234,7 @@ func TestSIEMAuditRetryNoDrop(t *testing.T) {
 		appendAudit(t, db, tenant, fmt.Sprintf("act.%d", i))
 	}
 
-	snk := &capSender{failFirst: 3} // first three deliveries fail
+	snk := &capSender{failFirst: 3} // first three batch POSTs fail
 	fmtr, _ := siem.NewFormatter("cef")
 	fw := siem.NewForwarder(fmtr, snk,
 		siem.Config{RetryBackoff: 2 * time.Millisecond, MaxBackoff: 2 * time.Millisecond}, testLog())
@@ -207,8 +243,18 @@ func TestSIEMAuditRetryNoDrop(t *testing.T) {
 	if err := poller.drainTenant(context.Background(), tenant); err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if got := len(snk.records()); got != 4 {
-		t.Fatalf("retry dropped events: got %d want 4", got)
+	// AUD-16: the 4 events ride one batched POST, retried as a whole until it
+	// lands — so one payload arrives, carrying all 4 CEF records, and nothing
+	// is dropped.
+	recs := snk.records()
+	if len(recs) != 1 {
+		t.Fatalf("retry forwarded %d batches, want 1 (whole batch retried)", len(recs))
+	}
+	if lines := strings.Split(strings.TrimSpace(string(recs[0])), "\n"); len(lines) != 4 {
+		t.Fatalf("batch carried %d CEF records, want 4", len(lines))
+	}
+	if st := fw.Stats(); st.Delivered != 4 {
+		t.Fatalf("retry dropped events: delivered %d want 4 (%+v)", st.Delivered, st)
 	}
 	if st := fw.Stats(); st.Retried < 3 {
 		t.Fatalf("expected at least 3 retries, got %+v", st)

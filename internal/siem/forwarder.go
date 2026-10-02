@@ -96,6 +96,46 @@ func (fw *Forwarder) Deliver(ctx context.Context, e Event) error {
 	}
 }
 
+// DeliverBatch formats a whole batch into ONE payload and sends it in a single
+// POST, retrying with exponential backoff until it succeeds or ctx is canceled.
+// It is the audit poller's export path (AUD-16): one HTTPS request per page of
+// events instead of one per event, so throughput no longer collapses under SIEM
+// latency. The batch is a SINGLE tenant's events (per-tenant draining), so the
+// payload never mixes tenants (docs/guardrails.md G7-N). Like Deliver, it
+// returns ctx.Err() only when canceled mid-retry, so a caller that advances its
+// durable cursor only on a nil return never skips an undelivered batch
+// (at-least-once: a batch re-sent after a mid-flight failure is a duplicate the
+// SIEM dedups on audit.seq, never a drop).
+func (fw *Forwarder) DeliverBatch(ctx context.Context, events []Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	payload := fw.fmt.FormatBatch(events)
+	backoff := fw.cfg.RetryBackoff
+	for {
+		err := fw.sender.Send(ctx, payload)
+		if err == nil {
+			fw.delivered.Add(int64(len(events)))
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		fw.retried.Add(1)
+		fw.log.Warn("siem batch delivery failed; retrying", "format", fw.fmt.Name(), "events", len(events), "error", err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < fw.cfg.MaxBackoff {
+			if backoff *= 2; backoff > fw.cfg.MaxBackoff {
+				backoff = fw.cfg.MaxBackoff
+			}
+		}
+	}
+}
+
 // Enqueue buffers an event for async delivery, BLOCKING when the buffer is full
 // (backpressure — events are never dropped). Returns ctx.Err() if canceled while
 // blocked.

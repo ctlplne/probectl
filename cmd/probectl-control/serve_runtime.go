@@ -772,6 +772,7 @@ func (rt *serveRuntime) startSIEM() error {
 	}
 	rt.g.Go(func() error { return rt.siemFwd.Run(rt.gctx) })
 	poller := control.NewSIEMAuditPoller(rt.db.Pool(), rt.siemFwd, rt.cfg.SIEMRedactKeys, rt.cfg.SIEMAuditIdentity != "pseudonymize", rt.cfg.SIEMPollInterval, rt.log)
+	poller.RegisterMetrics(rt.srv.Metrics()) // AUD-16: per-tenant export backlog (aggregate, OPS-005).
 	if err := rt.singletons.Register("siem-audit-poller", func(ctx context.Context, _ cluster.LeaseToken) error {
 		return poller.Run(ctx)
 	}); err != nil {

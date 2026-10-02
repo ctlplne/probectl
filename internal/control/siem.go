@@ -9,17 +9,21 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/siem"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -208,37 +212,67 @@ func stringifyAny(v any) string {
 	}
 }
 
-// siemAuditSink adapts the forwarder to the audit.Sink contract: it maps each
-// audit event (redacting secrets) and delivers it with a bounded per-event
-// timeout so a SIEM outage pauses the drain (and thus the persisted cursor)
-// instead of holding the database transaction open indefinitely. Because the
-// cursor advances only past delivered events, a paused drain resumes without
-// dropping — durable no-drop delivery (S32 done-when).
-type siemAuditSink struct {
+// bufferSink maps a page of audit events into siem.Events IN MEMORY (scrubbing
+// secrets), with no network I/O, so it implements the audit.Sink contract while
+// the drain reads a page inside a short transaction. The poller then releases
+// that transaction and POSTs the collected batch — a slow SIEM therefore never
+// holds a database connection open (AUD-16). The tenant comes from the drained
+// stream key, never the event body (docs/guardrails.md G7-N).
+type bufferSink struct {
+	redact        map[string]struct{}
+	identityClear bool
+	events        []siem.Event
+}
+
+func (b *bufferSink) Export(_ context.Context, streamKey string, ev audit.Event) error {
+	b.events = append(b.events, auditToSIEM(streamKey, ev, b.redact, b.identityClear))
+	return nil
+}
+
+// Drain-loop tunables (AUD-16).
+const (
+	// siemDrainWorkers bounds the per-tick concurrency: tenants drain in
+	// parallel so one slow or large tenant cannot starve the others, but the
+	// pool is bounded so export never fans out unboundedly.
+	siemDrainWorkers = 8
+	// siemClaimLease is how long an export claim is honored before another
+	// replica may steal it — long enough to cover a batch POST + retries under
+	// the singleton poller, short enough that a crashed poller does not stall a
+	// tenant for long. (Normal operation has a single poller via the lease
+	// singleton; the claim is the storage-layer backstop for failover overlap.)
+	siemClaimLease = 2 * time.Minute
+	// siemPostTimeout bounds one batch POST (including retries) so a wedged SIEM
+	// pauses the drain instead of blocking a worker forever; the next tick
+	// resumes from the unchanged cursor.
+	siemPostTimeout = 30 * time.Second
+)
+
+// SIEMAuditPoller forwards every tenant's audit stream to the SIEM on an
+// interval, resuming from a per-tenant persisted cursor (store.SIEMDelivery) so
+// a restart neither drops events nor re-floods. Each tick it drains tenants
+// CONCURRENTLY through a bounded worker pool; per tenant it reads a page inside
+// a short transaction, POSTs the whole page in ONE request with no transaction
+// open, then advances the cursor with a compare-and-set — so throughput no
+// longer collapses under SIEM latency and a slow tenant cannot starve the rest
+// (AUD-16). Delivery is at-least-once: the cursor only advances past a page
+// whose POST succeeded, and a page re-sent after a mid-flight failure is a
+// duplicate the SIEM dedups on audit.seq, never a drop (S32 done-when).
+type SIEMAuditPoller struct {
+	pool          *pgxpool.Pool
+	tenants       *store.Tenants
 	fw            *siem.Forwarder
 	redact        map[string]struct{}
-	timeout       time.Duration
 	identityClear bool
-}
+	interval      time.Duration
+	pageSize      int
+	workers       int
+	owner         string
+	lease         time.Duration
+	postTimeout   time.Duration
+	log           *slog.Logger
 
-func (s siemAuditSink) Export(ctx context.Context, streamKey string, ev audit.Event) error {
-	dctx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	return s.fw.Deliver(dctx, auditToSIEM(streamKey, ev, s.redact, s.identityClear))
-}
-
-// SIEMAuditPoller forwards every tenant's audit stream to the SIEM on an interval,
-// resuming from a per-tenant persisted cursor (store.SIEMDelivery) so a restart
-// neither drops events nor re-floods. It drains sequentially via audit.Drain,
-// which stops at the first delivery error; the committed cursor still advances
-// past whatever was delivered, so the next tick resumes exactly where it paused.
-type SIEMAuditPoller struct {
-	pool     *pgxpool.Pool
-	tenants  *store.Tenants
-	sink     siemAuditSink
-	interval time.Duration
-	pageSize int
-	log      *slog.Logger
+	mu      sync.Mutex
+	backlog map[string]int64 // per-tenant pending events (headSeq-cursor), sampled each tick
 }
 
 // NewSIEMAuditPoller builds the poller over the forwarder. redact extends the
@@ -250,14 +284,48 @@ func NewSIEMAuditPoller(pool *pgxpool.Pool, fw *siem.Forwarder, redact []string,
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
-	return &SIEMAuditPoller{
-		pool:     pool,
-		tenants:  store.NewTenants(pool),
-		sink:     siemAuditSink{fw: fw, redact: redactionSet(redact), timeout: 10 * time.Second, identityClear: identityClear},
-		interval: interval,
-		pageSize: audit.DefaultExportPageSize,
-		log:      log,
+	// A per-instance owner id so the export claim distinguishes this poller from
+	// an overlapping replica during failover (not security-sensitive; crypto.UUIDv4
+	// keeps randomness inside internal/crypto per the crypto guardrail).
+	owner, err := crypto.UUIDv4()
+	if err != nil || owner == "" {
+		owner = fmt.Sprintf("siem-poller-%d", time.Now().UnixNano())
 	}
+	return &SIEMAuditPoller{
+		pool:          pool,
+		tenants:       store.NewTenants(pool),
+		fw:            fw,
+		redact:        redactionSet(redact),
+		identityClear: identityClear,
+		interval:      interval,
+		pageSize:      audit.DefaultExportPageSize,
+		workers:       siemDrainWorkers,
+		owner:         owner,
+		lease:         siemClaimLease,
+		postTimeout:   siemPostTimeout,
+		log:           log,
+		backlog:       map[string]int64{},
+	}
+}
+
+// RegisterMetrics publishes the SIEM export backlog on /metrics. Per OPS-005 and
+// the /metrics tenant-id guard, the scrape carries NO per-tenant series; these
+// AGGREGATES still make per-tenant backlog visible — the worst single tenant
+// (max) and how many tenants are behind — so a slow or starved tenant is
+// observable (AUD-16).
+func (p *SIEMAuditPoller) RegisterMetrics(m *metrics.Registry) {
+	if m == nil {
+		return
+	}
+	m.Gauge("probectl_siem_export_backlog_events",
+		"Audit events pending SIEM delivery, summed across all tenants (AUD-16).",
+		func() float64 { s, _, _ := p.backlogStats(); return float64(s) })
+	m.Gauge("probectl_siem_export_backlog_max_events",
+		"Largest single-tenant SIEM export backlog, so one slow or large tenant is visible without a per-tenant series (AUD-16, OPS-005).",
+		func() float64 { _, mx, _ := p.backlogStats(); return float64(mx) })
+	m.Gauge("probectl_siem_export_backlog_tenants",
+		"Number of tenants currently behind on SIEM export (AUD-16).",
+		func() float64 { _, _, b := p.backlogStats(); return float64(b) })
 }
 
 // Run polls until ctx is canceled.
@@ -281,23 +349,57 @@ func (p *SIEMAuditPoller) tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	live := make(map[string]struct{}, len(tenants))
 	for _, t := range tenants {
-		if err := p.drainTenant(ctx, t.ID); err != nil {
-			// A single tenant's failure must not stop the others.
-			p.log.Warn("siem drain tenant failed", "tenant", t.ID, "error", err)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		live[t.ID] = struct{}{}
+	}
+	p.pruneBacklog(live)
+
+	workers := p.workers
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(tenants) {
+		workers = len(tenants)
+	}
+	if workers == 0 {
+		return ctx.Err()
+	}
+
+	jobs := make(chan string)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range jobs {
+				if ctx.Err() != nil {
+					continue // drain the queue without new work once canceled
+				}
+				if err := p.drainTenant(ctx, id); err != nil {
+					// One tenant's failure must not stop the others.
+					p.log.Warn("siem drain tenant failed", "tenant", id, "error", err)
+				}
+			}
+		}()
+	}
+queue:
+	for _, t := range tenants {
+		select {
+		case <-ctx.Done():
+			break queue
+		case jobs <- t.ID:
 		}
 	}
-	return nil
+	close(jobs)
+	wg.Wait()
+	return ctx.Err()
 }
 
-// drainTenant forwards a tenant's pending audit events one page (one transaction)
-// at a time until it catches up or a page pauses (SIEM error). The transaction
-// holds the tenant cursor row lock across bounded network delivery: this
-// deliberately trades one database connection for no duplicate page forwarding
-// when two replicas overlap. The sink timeout bounds each delivery attempt.
+// drainTenant forwards a tenant's pending audit events one page at a time until
+// it catches up or a page pauses (claim lost, SIEM error). Each page is a short
+// read transaction, then a POST with no transaction open, then a short
+// compare-and-set cursor advance.
 func (p *SIEMAuditPoller) drainTenant(ctx context.Context, tenantID string) error {
 	for {
 		more, err := p.drainPage(ctx, tenantID)
@@ -307,29 +409,126 @@ func (p *SIEMAuditPoller) drainTenant(ctx context.Context, tenantID string) erro
 	}
 }
 
-// drainPage drains a single page inside one tenant-scoped transaction, persisting
-// the advanced cursor on commit. It returns more=true when a full page committed
-// (another page may remain). On a delivery error it commits the partial progress
-// and returns more=false so the next tick resumes.
+// drainPage reads and forwards a single page. It (1) claims the tenant and reads
+// a page into an in-memory buffer inside a SHORT transaction, (2) POSTs the
+// whole batch in ONE request with NO transaction open, then (3) advances the
+// cursor with a compare-and-set in a second SHORT transaction — only after the
+// POST succeeded. It returns more=true when a full page committed (another page
+// may remain). The cursor never advances past an event whose POST did not
+// succeed (at-least-once).
 func (p *SIEMAuditPoller) drainPage(ctx context.Context, tenantID string) (more bool, err error) {
-	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), p.pool,
-		func(c context.Context, sc tenancy.Scope) error {
-			cursor, e := (store.SIEMDelivery{}).CursorForUpdate(c, sc)
-			if e != nil {
-				return e
-			}
-			next, derr := audit.Drain(c, sc, p.sink, cursor, p.pageSize)
-			if next > cursor {
-				if e := (store.SIEMDelivery{}).Advance(c, sc, next); e != nil {
-					return e
-				}
-				more = derr == nil // delivered a full/partial page cleanly → maybe more
-			}
-			if derr != nil {
-				p.log.Warn("siem drain paused; resumes next tick", "tenant", tenantID, "error", derr)
-				more = false
-			}
-			return nil
-		})
-	return more, err
+	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+
+	var (
+		from    int64
+		toSeq   int64
+		headSeq int64
+		held    bool
+		batch   []siem.Event
+	)
+	// (1) Short read transaction: claim, read head, map a page. No network here.
+	if err = tenancy.InTenant(tctx, p.pool, func(c context.Context, sc tenancy.Scope) error {
+		cur, ok, e := (store.SIEMDelivery{}).ClaimPage(c, sc, p.owner, p.lease)
+		if e != nil || !ok {
+			held = ok
+			return e
+		}
+		held = true
+		from = cur
+		if h, he := audit.TenantHeadSeq(c, sc); he == nil {
+			headSeq = h
+		}
+		buf := &bufferSink{redact: p.redact, identityClear: p.identityClear}
+		next, de := audit.Drain(c, sc, buf, cur, p.pageSize)
+		if de != nil {
+			return de
+		}
+		toSeq = next
+		batch = buf.events
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	if !held {
+		// Another replica holds the claim; it will forward this page.
+		return false, nil
+	}
+	if len(batch) == 0 {
+		// Caught up: nothing to POST. Release the claim; record zero backlog.
+		p.recordBacklog(tenantID, headSeq-from)
+		return false, p.releaseClaim(tctx)
+	}
+
+	// (2) POST the whole batch in ONE request with NO transaction open.
+	postCtx, cancel := context.WithTimeout(ctx, p.postTimeout)
+	defer cancel()
+	if postErr := p.fw.DeliverBatch(postCtx, batch); postErr != nil {
+		// Delivery paused (SIEM down/slow, or ctx canceled). Do NOT advance the
+		// cursor; release the claim so the next tick resumes from `from`.
+		p.log.Warn("siem batch paused; resumes next tick", "tenant", tenantID, "delivered_through", from, "error", postErr)
+		p.recordBacklog(tenantID, headSeq-from)
+		return false, p.releaseClaim(tctx)
+	}
+
+	// (3) Short commit transaction: CAS-advance only after a successful POST.
+	committed := false
+	if err = tenancy.InTenant(tctx, p.pool, func(c context.Context, sc tenancy.Scope) error {
+		ok, e := (store.SIEMDelivery{}).CommitCursor(c, sc, p.owner, from, toSeq)
+		committed = ok
+		return e
+	}); err != nil {
+		return false, err
+	}
+	if !committed {
+		// The cursor moved under us (a concurrent replica advanced it). We
+		// already delivered this page (a duplicate the SIEM dedups on audit.seq);
+		// resume from the new cursor next tick rather than rewind.
+		p.log.Warn("siem cursor advanced concurrently; not rewinding", "tenant", tenantID, "from", from, "to", toSeq)
+		return false, nil
+	}
+	p.recordBacklog(tenantID, headSeq-toSeq)
+	// A full page may mean more remain; a short page means we caught up.
+	return len(batch) == p.pageSize, nil
+}
+
+func (p *SIEMAuditPoller) releaseClaim(tctx context.Context) error {
+	return tenancy.InTenant(tctx, p.pool, func(c context.Context, sc tenancy.Scope) error {
+		return (store.SIEMDelivery{}).ReleaseClaim(c, sc, p.owner)
+	})
+}
+
+func (p *SIEMAuditPoller) recordBacklog(tenantID string, pending int64) {
+	if pending < 0 {
+		pending = 0
+	}
+	p.mu.Lock()
+	p.backlog[tenantID] = pending
+	p.mu.Unlock()
+}
+
+func (p *SIEMAuditPoller) pruneBacklog(live map[string]struct{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for id := range p.backlog {
+		if _, ok := live[id]; !ok {
+			delete(p.backlog, id)
+		}
+	}
+}
+
+// backlogStats is the AGGREGATE view RegisterMetrics publishes: total pending,
+// the largest single-tenant backlog, and how many tenants are behind.
+func (p *SIEMAuditPoller) backlogStats() (sum, peak, behind int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, v := range p.backlog {
+		sum += v
+		if v > peak {
+			peak = v
+		}
+		if v > 0 {
+			behind++
+		}
+	}
+	return sum, peak, behind
 }

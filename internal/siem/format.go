@@ -7,6 +7,7 @@
 package siem
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -31,6 +32,31 @@ type Formatter interface {
 	ContentType() string
 	// Format renders one event.
 	Format(Event) []byte
+	// FormatBatch renders several events into ONE payload using the format's
+	// native multi-record framing — newline-delimited records for the
+	// line/NDJSON formats, a single ExportLogsServiceRequest for OTLP — so one
+	// HTTPS POST carries a whole batch instead of a single event (AUD-16: serial
+	// one-per-POST export collapsed under SIEM latency). The caller batches a
+	// SINGLE tenant's events (per-tenant draining), so a batch never mixes
+	// tenants; OTLP additionally groups records by resource/tenant, keeping the
+	// no-cross-tenant-mixing invariant local to the framing too (docs/guardrails.md
+	// G7-N tenant isolation).
+	FormatBatch(events []Event) []byte
+}
+
+// joinRecords renders each event with one and joins the records with a newline
+// — the multi-record framing the single-line (syslog/CEF) and NDJSON (ECS)
+// formats share, which Splunk HEC, syslog collectors and the Elastic/OpenSearch
+// bulk ingest all accept.
+func joinRecords(events []Event, one func(Event) []byte) []byte {
+	if len(events) == 0 {
+		return nil
+	}
+	parts := make([][]byte, 0, len(events))
+	for _, e := range events {
+		parts = append(parts, one(e))
+	}
+	return bytes.Join(parts, []byte("\n"))
 }
 
 // NewFormatter returns the formatter for a format name (ok=false if unknown).
@@ -101,6 +127,8 @@ type syslogFormatter struct{}
 
 func (syslogFormatter) Name() string        { return "syslog" }
 func (syslogFormatter) ContentType() string { return "text/plain; charset=utf-8" }
+
+func (f syslogFormatter) FormatBatch(events []Event) []byte { return joinRecords(events, f.Format) }
 
 func (syslogFormatter) Format(e Event) []byte {
 	const facility = 13 // security/audit
@@ -173,6 +201,8 @@ type cefFormatter struct{}
 func (cefFormatter) Name() string        { return "cef" }
 func (cefFormatter) ContentType() string { return "text/plain; charset=utf-8" }
 
+func (f cefFormatter) FormatBatch(events []Event) []byte { return joinRecords(events, f.Format) }
+
 func (cefFormatter) Format(e Event) []byte {
 	header := strings.Join([]string{
 		"CEF:0",
@@ -240,6 +270,11 @@ type ecsFormatter struct{}
 func (ecsFormatter) Name() string        { return "ecs" }
 func (ecsFormatter) ContentType() string { return "application/json" }
 
+// FormatBatch emits newline-delimited JSON (NDJSON) — the shape the
+// Elastic/OpenSearch bulk ingest and most JSON log pipelines accept for many
+// documents in one request.
+func (f ecsFormatter) FormatBatch(events []Event) []byte { return joinRecords(events, f.Format) }
+
 func (ecsFormatter) Format(e Event) []byte {
 	doc := map[string]any{
 		"@timestamp": e.time().Format(time.RFC3339Nano),
@@ -301,7 +336,8 @@ type otlpFormatter struct{}
 func (otlpFormatter) Name() string        { return "otlp" }
 func (otlpFormatter) ContentType() string { return "application/json" }
 
-func (otlpFormatter) Format(e Event) []byte {
+// otlpRecord builds one OTLP logRecord for an event.
+func otlpRecord(e Event) map[string]any {
 	attrs := []map[string]any{
 		kv("event.action", e.Action),
 		kv("event.category", string(e.Category)),
@@ -318,25 +354,58 @@ func (otlpFormatter) Format(e Event) []byte {
 	for _, k := range sortedKeys(e.Attributes) {
 		attrs = append(attrs, kv(k, e.Attributes[k]))
 	}
-	rec := map[string]any{
+	return map[string]any{
 		"timeUnixNano":   strconv.FormatInt(e.time().UnixNano(), 10),
 		"severityNumber": e.Severity.otlpNumber(),
 		"severityText":   strings.ToUpper(string(e.Severity)),
 		"body":           map[string]any{"stringValue": e.message()},
 		"attributes":     attrs,
 	}
-	doc := map[string]any{
-		"resourceLogs": []any{map[string]any{
-			"resource": map[string]any{"attributes": []any{
-				kv("service.name", product), kv("probectl.tenant_id", e.TenantID),
-			}},
-			"scopeLogs": []any{map[string]any{
-				"scope":      map[string]any{"name": "probectl.siem"},
-				"logRecords": []any{rec},
-			}},
+}
+
+// otlpResourceLogs wraps records for one tenant in a resourceLogs entry whose
+// resource attributes carry that tenant id.
+func otlpResourceLogs(tenantID string, records []any) map[string]any {
+	return map[string]any{
+		"resource": map[string]any{"attributes": []any{
+			kv("service.name", product), kv("probectl.tenant_id", tenantID),
+		}},
+		"scopeLogs": []any{map[string]any{
+			"scope":      map[string]any{"name": "probectl.siem"},
+			"logRecords": records,
 		}},
 	}
+}
+
+func (otlpFormatter) Format(e Event) []byte {
+	doc := map[string]any{
+		"resourceLogs": []any{otlpResourceLogs(e.TenantID, []any{otlpRecord(e)})},
+	}
 	b, _ := json.Marshal(doc)
+	return b
+}
+
+// FormatBatch emits ONE ExportLogsServiceRequest. Records are grouped by
+// resource/tenant: a per-tenant batch yields a single resourceLogs entry, and
+// the grouping keeps records from different tenants in separate resources even
+// if a caller ever mixed them (docs/guardrails.md G7-N tenant isolation).
+func (otlpFormatter) FormatBatch(events []Event) []byte {
+	if len(events) == 0 {
+		return nil
+	}
+	order := make([]string, 0, len(events))
+	byTenant := map[string][]any{}
+	for _, e := range events {
+		if _, seen := byTenant[e.TenantID]; !seen {
+			order = append(order, e.TenantID)
+		}
+		byTenant[e.TenantID] = append(byTenant[e.TenantID], otlpRecord(e))
+	}
+	resourceLogs := make([]any, 0, len(order))
+	for _, tid := range order {
+		resourceLogs = append(resourceLogs, otlpResourceLogs(tid, byTenant[tid]))
+	}
+	b, _ := json.Marshal(map[string]any{"resourceLogs": resourceLogs})
 	return b
 }
 

@@ -661,15 +661,28 @@ func TestSIEMCursorAndIntegrationLinks(t *testing.T) {
 	}
 
 	inTenant(ctx, t, pool, tn.ID, func(ctx context.Context, s tenancy.Scope) error {
-		// SIEM delivery cursor: starts at zero, advances monotonically.
+		// SIEM delivery cursor (AUD-16): starts at zero; a claim+compare-and-set
+		// advance moves it forward and clears the claim.
 		if cur, err := (SIEMDelivery{}).Cursor(ctx, s); err != nil || cur != 0 {
 			t.Fatalf("initial cursor: %v / %d", err, cur)
 		}
-		if err := (SIEMDelivery{}).Advance(ctx, s, 42); err != nil {
-			t.Fatalf("advance: %v", err)
+		cur, held, err := (SIEMDelivery{}).ClaimPage(ctx, s, "owner-1", time.Minute)
+		if err != nil || !held || cur != 0 {
+			t.Fatalf("claim page: err=%v held=%v cur=%d", err, held, cur)
+		}
+		committed, err := (SIEMDelivery{}).CommitCursor(ctx, s, "owner-1", 0, 42)
+		if err != nil || !committed {
+			t.Fatalf("commit cursor: err=%v committed=%v", err, committed)
 		}
 		if cur, err := (SIEMDelivery{}).Cursor(ctx, s); err != nil || cur != 42 {
 			t.Fatalf("cursor after advance: %v / %d", err, cur)
+		}
+		// Stale compare-and-set (wrong `from`) must not move the cursor.
+		if committed, err := (SIEMDelivery{}).CommitCursor(ctx, s, "owner-1", 0, 99); err != nil || committed {
+			t.Fatalf("stale CAS should not commit: err=%v committed=%v", err, committed)
+		}
+		if cur, err := (SIEMDelivery{}).Cursor(ctx, s); err != nil || cur != 42 {
+			t.Fatalf("cursor must stay at 42 after stale CAS: %v / %d", err, cur)
 		}
 
 		// Incident integration links need a real incident (FK).
