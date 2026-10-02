@@ -237,6 +237,11 @@ func runEnrollToken(ctx context.Context, cfg *config.Config, db *store.DB, args 
 	if err != nil {
 		return err
 	}
+	// AUD-09: audit the mint (token id, never the token) in the tenant and
+	// provider streams, matching the POST /v1/agents/enroll-tokens route.
+	if err := auditCredentialOneShot(ctx, db.Pool(), *tenant, "agent.enroll_token_minted", id, map[string]any{"agent_pin": *agentID, "name": *name, "ttl": ttl.String()}); err != nil {
+		return err
+	}
 	fmt.Println("enrollment token (shown ONCE; single-use; expires", time.Now().Add(*ttl).UTC().Format(time.RFC3339)+"):")
 	fmt.Println()
 	fmt.Println("  " + display)
@@ -295,6 +300,11 @@ func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB,
 	}
 	id, err := svc.RegisterCollector(ctx, *token, *hostname, *plane, csrPEM)
 	if err != nil {
+		return err
+	}
+	// AUD-09: audit the registration (agent id, never any key material) in the
+	// tenant and provider streams, matching the register-collector API route.
+	if err := auditCredentialOneShot(ctx, db.Pool(), id.TenantID, "collector.registered", id.AgentID, map[string]any{"plane": id.Plane, "hostname": *hostname}); err != nil {
 		return err
 	}
 	fmt.Println("collector registered. Configure the collector with:")
@@ -362,6 +372,11 @@ func runRevokeAgent(ctx context.Context, db *store.DB, args []string) error {
 	}
 	serials, spiffeID, err := svc.Revoke(ctx, *tenant, *agent, "cli")
 	if err != nil {
+		return err
+	}
+	// AUD-09: audit the revocation in the tenant and provider streams, matching
+	// the DELETE /v1/agents/{id} route.
+	if err := auditCredentialOneShot(ctx, db.Pool(), *tenant, "agent.revoked", *agent, map[string]any{"spiffe_id": spiffeID, "live_serials": len(serials)}); err != nil {
 		return err
 	}
 	fmt.Printf("revoked %s (%s): %d live serial(s) denied; a running control plane refuses its handshakes within 30s; re-enrollment/rotation refused immediately\n",

@@ -103,9 +103,15 @@ func runMCPToken(log *slog.Logger, db *store.DB, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := store.NewMCPTokens(db.Pool()).Create(context.Background(), *tenant, *user, *name, crypto.Hash([]byte(token)))
+	ctx := context.Background()
+	id, err := store.NewMCPTokens(db.Pool()).Create(ctx, *tenant, *user, *name, crypto.Hash([]byte(token)))
 	if err != nil {
 		return fmt.Errorf("create token: %w", err)
+	}
+	// AUD-09: a credential minted from the control host is audited (token id,
+	// never the secret) in the tenant and provider streams, like the API path.
+	if err := auditCredentialOneShot(ctx, db.Pool(), *tenant, "mcp.token_create", id, map[string]any{"user": *user, "name": *name}); err != nil {
+		return err
 	}
 	log.Info("created mcp token", "id", id, "tenant", *tenant, "user", *user, "name", *name)
 	fmt.Println(token) // the secret is shown once

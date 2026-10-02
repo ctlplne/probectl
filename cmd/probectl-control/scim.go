@@ -33,9 +33,15 @@ func runSCIMToken(log *slog.Logger, db *store.DB, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := store.NewScimTokens(db.Pool()).Create(context.Background(), *tenant, *name, crypto.Hash([]byte(token)))
+	ctx := context.Background()
+	id, err := store.NewScimTokens(db.Pool()).Create(ctx, *tenant, *name, crypto.Hash([]byte(token)))
 	if err != nil {
 		return fmt.Errorf("create scim token: %w", err)
+	}
+	// AUD-09: audit the mint (token id, never the secret) in the tenant and
+	// provider streams, matching the /v1/directory/scim-tokens route.
+	if err := auditCredentialOneShot(ctx, db.Pool(), *tenant, "directory.scim_token_create", id, map[string]any{"name": *name}); err != nil {
+		return err
 	}
 	log.Info("created scim token", "id", id, "tenant", *tenant, "name", *name)
 	fmt.Println(token) // the secret is shown once
