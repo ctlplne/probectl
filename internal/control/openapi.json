@@ -2361,7 +2361,7 @@
       "post": {
         "operationId": "aiDiscover",
         "summary": "Propose monitorable targets from incidents and authorized top flow destinations (ranked, deduped; pending confirmation)",
-        "description": "Merges the caller tenant's incident targets with a bounded one-hour, top-20 flow-destination read when the caller also has flow.read after ABAC. Flow destinations require at least two stored flow records and become reachability proposals; no test or packet is created until the caller separately confirms through POST /v1/tests. The authenticated principal supplies tenant scope; no tenant selector is accepted.",
+        "description": "Merges the caller tenant's incident targets with a bounded one-hour, top-20 flow-destination read when the caller also has flow.read after ABAC. Incident-derived targets are included only when the caller holds incident.read (ABAC-audited) and are withheld otherwise, exactly as flow.read gates the flow read; flow destinations require at least two stored flow records and become reachability proposals; no test or packet is created until the caller separately confirms through POST /v1/tests. The authenticated principal supplies tenant scope; no tenant selector is accepted.",
         "tags": [
           "ai"
         ],
@@ -6074,7 +6074,7 @@
         "tags": [
           "alerts"
         ],
-        "description": "Joins the caller tenant's current evaluator truth to immutable acknowledge/silence audit receipts and, when incident_id is supplied and freshly authorized through tenant RLS, the linked incident plus persisted on-call/ticket delivery receipts. An unavailable fingerprint or cross-tenant incident id fails closed.",
+        "description": "Joins the caller tenant's current evaluator truth to immutable acknowledge/silence audit receipts and, when incident_id is supplied and the caller holds incident.read (enforced and ABAC-audited) and it is freshly authorized through tenant RLS, the linked incident plus persisted on-call/ticket delivery receipts. An unavailable fingerprint or cross-tenant incident id fails closed.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -6140,6 +6140,16 @@
                       "type": "boolean"
                     }
                   }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "incident_id was supplied but the principal lacks incident.read, or an attribute policy denies it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

@@ -325,6 +325,15 @@ func (s *Server) handleAlertWorkflow(w http.ResponseWriter, r *http.Request) err
 		return nil
 	}
 	incidentID := strings.TrimSpace(r.URL.Query().Get("incident_id"))
+	if incidentID != "" {
+		// The incident body and its delivery links are incident-plane data; the
+		// route gate only proves alert.read. Require incident.read through the
+		// ABAC chokepoint (which also audits a deny) before returning any incident
+		// (docs/guardrails.md G7-5).
+		if err := s.authorize(r.Context(), auth.PrincipalFrom(r.Context()), permIncidentRead, auth.RBACGlobal, nil); err != nil {
+			return err
+		}
+	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		events, err := audit.ListAlertWorkflow(ctx, sc, fingerprint, 200)
 		if err != nil {

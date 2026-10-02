@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -217,7 +218,18 @@ func (s *Server) decide(ctx context.Context, p *auth.Principal, perm string, mod
 		}
 		policies = loaded
 	}
-	return auth.Decide(p, perm, mode, policies, resource), nil
+	reason := auth.Decide(p, perm, mode, policies, resource)
+	if reason == auth.DecisionPolicyDeny {
+		// Every ABAC denial is audited (docs/guardrails.md G7-5, G7-7 — the
+		// promise in docs/scim-abac.md): emit it HERE, inside the one chokepoint,
+		// so a deny is recorded no matter which caller reached the decision — not
+		// only s.authorize but the hierarchy listing, Explorer, IR attribution,
+		// incident sharing and onboarding checks that call decide directly. The
+		// append is deduplicated per tenant/user/permission window and never
+		// alters the decision.
+		s.auditABACDenial(ctx, p, perm)
+	}
+	return reason, nil
 }
 
 // authorize is decide with the standard error mapping for handlers that need
@@ -237,7 +249,8 @@ func (s *Server) authorize(ctx context.Context, p *auth.Principal, perm string, 
 	case auth.DecisionRBAC:
 		return apierror.Forbidden("missing permission: " + perm)
 	default:
-		s.auditABACDenial(ctx, p, perm)
+		// decide already audited the deny (the single emission point); authorize
+		// only maps it to the handler's 403.
 		return apierror.Forbidden("denied by an attribute policy: " + perm)
 	}
 }
@@ -284,7 +297,9 @@ func (s *Server) auditABACDenial(ctx context.Context, p *auth.Principal, perm st
 		return err
 	})
 	if err != nil {
-		s.log.Warn("failed to audit ABAC denial", "tenant_id", p.TenantID, "permission", perm, "error", err.Error())
+		// Context logger (never nil), consistent with the policy-refresh path
+		// above and robust when the Server was built without an injected logger.
+		logging.FromContext(ctx).Warn("failed to audit ABAC denial", "tenant_id", p.TenantID, "permission", perm, "error", err.Error())
 	}
 }
 
@@ -303,6 +318,48 @@ func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
+// validatePolicyResourceKeys rejects a policy carrying resource attributes that
+// no route ever supplies for its permission, so a resource-scoped deny can never
+// be silently unenforced (docs/guardrails.md G7-5). The tenant-boundary key is
+// supplied on every resource path; org/team/project are only ever attached by
+// the hierarchy listing (hierarchyapi.go), and only while evaluating a hierarchy
+// permission. attrsSubset can never match a key the request does not carry, so
+// any other resource key would make the policy dead weight — a deny that looks
+// enforced but is not. Reject it at creation (422) rather than accept a lie.
+func validatePolicyResourceKeys(p auth.Policy) error {
+	for k := range p.Resource {
+		if k == auth.ResourceTenantKey {
+			continue
+		}
+		if isHierarchyResourceKey(k) && isHierarchyScopedPermission(p.Permission) {
+			continue
+		}
+		return apierror.Validation("resource key " + strconv.Quote(k) +
+			" is not supplied by any route for permission " + strconv.Quote(p.Permission) +
+			"; only \"tenant\", or \"org\"/\"team\"/\"project\" on a hierarchy permission (org.read or \"*\"), are enforced")
+	}
+	return nil
+}
+
+// isHierarchyResourceKey reports whether k is one of the org/team/project scope
+// keys the hierarchy listing attaches to a resource.
+func isHierarchyResourceKey(k string) bool {
+	switch auth.PermissionScope(k) {
+	case auth.ScopeOrganization, auth.ScopeTeam, auth.ScopeProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// isHierarchyScopedPermission reports whether a route supplies org/team/project
+// resource attributes while evaluating perm. Today only org.read drives the
+// hierarchy listing (hierarchyapi.go); "*" applies to every permission and so
+// reaches that listing too.
+func isHierarchyScopedPermission(perm string) bool {
+	return perm == "*" || perm == permOrgRead
+}
+
 func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) error {
 	var req auth.Policy
 	if err := decodeJSON(r, &req); err != nil {
@@ -310,6 +367,9 @@ func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) erro
 	}
 	if req.Effect != auth.PolicyAllow && req.Effect != auth.PolicyDeny {
 		return apierror.Validation("effect must be \"allow\" or \"deny\"")
+	}
+	if err := validatePolicyResourceKeys(req); err != nil {
+		return err
 	}
 	var created *auth.Policy
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {

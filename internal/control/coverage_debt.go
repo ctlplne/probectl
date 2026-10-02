@@ -431,11 +431,18 @@ func coverageDebtProducerRows(
 // the contract also reads agent registration metadata and topology evidence.
 func (s *Server) handleCoverageDebt(w http.ResponseWriter, r *http.Request) error {
 	principal := auth.PrincipalFrom(r.Context())
-	if principal == nil || !principal.Permissions[permAgentRead] {
-		return apierror.Forbidden("missing permission: " + permAgentRead)
+	if principal == nil {
+		return apierror.Unauthorized("authentication required")
 	}
-	if !principal.Permissions[ai.PermTopologyRead] {
-		return apierror.Forbidden("missing permission: " + ai.PermTopologyRead)
+	// The debt map reads agent registration metadata and topology evidence on top
+	// of the route's test.read; both secondary grants go through the ABAC
+	// chokepoint (not a raw Permissions map read) so a deny policy on either is
+	// enforced and audited (docs/guardrails.md G7-5).
+	if err := s.authorize(r.Context(), principal, permAgentRead, auth.RBACGlobal, nil); err != nil {
+		return err
+	}
+	if err := s.authorize(r.Context(), principal, ai.PermTopologyRead, auth.RBACGlobal, nil); err != nil {
+		return err
 	}
 	tenantID, err := s.principalTenant(r)
 	if err != nil {

@@ -106,6 +106,16 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 	if tenantID == "" {
 		return apierror.Unauthorized("tenant identity required")
 	}
+	// Incident targets are incident.read data, not covered by the route's
+	// test.write. Consult the ABAC chokepoint (which audits a deny) and read
+	// incidents only when incident.read is granted — a caller without it still
+	// receives flow-derived proposals, exactly as flow.read gates the flow read
+	// below, but learns nothing from the incident plane (docs/guardrails.md G7-5).
+	incidentReason, err := s.decide(r.Context(), principal, permIncidentRead, auth.RBACGlobal, nil)
+	if err != nil {
+		return err
+	}
+	incidentsAllowed := incidentReason == auth.DecisionAllowed
 	var obs []author.Observation
 	var existing []string
 	if s.pool != nil {
@@ -116,6 +126,9 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 			}
 			for _, t := range tests {
 				existing = append(existing, t.Target)
+			}
+			if !incidentsAllowed {
+				return nil
 			}
 			incs, _, e := store.Incidents{}.List(ctx, sc, store.DefaultIncidentListLimit)
 			if e != nil {

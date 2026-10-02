@@ -441,8 +441,15 @@ func coverageStatusRank(status string) int {
 // test definitions with agent placement/readiness metadata.
 func (s *Server) handleCoverageMatrix(w http.ResponseWriter, r *http.Request) error {
 	principal := auth.PrincipalFrom(r.Context())
-	if principal == nil || !principal.Permissions[permAgentRead] {
-		return apierror.Forbidden("missing permission: " + permAgentRead)
+	if principal == nil {
+		return apierror.Unauthorized("authentication required")
+	}
+	// A row joins agent placement/readiness onto the route's test.read, so
+	// agent.read is required too — through the ABAC chokepoint, not a raw
+	// Permissions map read, so a deny policy on agent.read is honored and audited
+	// (docs/guardrails.md G7-5).
+	if err := s.authorize(r.Context(), principal, permAgentRead, auth.RBACGlobal, nil); err != nil {
+		return err
 	}
 	tenantID, err := s.principalTenant(r)
 	if err != nil {
