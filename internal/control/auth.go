@@ -172,6 +172,15 @@ func (f *oidcFactory) For(ctx context.Context, tenantID string) (auth.Provider, 
 	return p, nil
 }
 
+// SourceFor reports whether a tenant's login resolves to its OWN IdP ("tenant")
+// or the deployment/environment fallback ("environment"). handleCallback uses it
+// to decide JIT-provisioning eligibility (AUTHZ-06): a deployment-IdP identity
+// must not auto-join a tenant that has no IdP of its own.
+func (f *oidcFactory) SourceFor(ctx context.Context, tenantID string) (string, error) {
+	_, source, err := f.resolveConfig(ctx, tenantID)
+	return source, err
+}
+
 func (f *oidcFactory) resolveConfig(ctx context.Context, tenantID string) (auth.OIDCConfig, string, error) {
 	if f.idps != nil {
 		settings, err := f.idps.Get(ctx, tenantID)
@@ -640,11 +649,32 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// AUTHZ-06: JIT-provision a first-time SSO user ONLY when the login used the
+	// tenant's OWN IdP, or on a single-tenant deployment. Otherwise a user of the
+	// shared deployment/environment IdP could join any tenant that lacks its own
+	// IdP — enumerating tenants and planting rows in other customers' directories.
+	// A fallback-IdP identity must be pre-provisioned (SCIM/directory) in the
+	// tenant it logs into.
+	jitAllowed := s.cfg == nil || s.cfg.DeploymentProfile == "" || s.cfg.DeploymentProfile == "single"
+	if !jitAllowed {
+		if src, ok := s.providers.(interface {
+			SourceFor(context.Context, string) (string, error)
+		}); ok {
+			if source, serr := src.SourceFor(r.Context(), tid.String()); serr == nil && source == "tenant" {
+				jitAllowed = true
+			}
+		}
+	}
+
 	var user *store.User
 	err = tenancy.InTenant(tenancy.WithTenant(r.Context(), tid), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		u, e := store.Users{}.GetByEmail(ctx, sc, ident.Email)
 		if e != nil {
 			if de, ok := apierror.As(e); ok && de.Kind == apierror.KindNotFound {
+				if !jitAllowed {
+					// Fail closed: no row is created in this tenant (AUTHZ-06).
+					return apierror.Forbidden("identity is not provisioned in this tenant")
+				}
 				// Just-in-time provisioning: a first-time SSO user is created with
 				// NO roles (secure default) — an admin grants access explicitly.
 				u, e = store.Users{}.Create(ctx, sc, ident.Email, ident.DisplayName)
@@ -725,8 +755,13 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 	if p == nil {
 		return apierror.Unauthorized("authentication required")
 	}
-	tenantName, tenantSlug := p.TenantID, p.TenantID
-	if s.pool != nil {
+	// AUTHZ-06: the human-readable tenant name/slug is disclosed ONLY to a user
+	// who holds at least one grant in the tenant. A role-less user (e.g. a
+	// just-JIT-provisioned or not-yet-authorized account) sees their tenant_id
+	// but not the name/slug, so /me cannot be used to enumerate tenant names.
+	tenantName, tenantSlug := "", ""
+	if len(p.Permissions) > 0 && s.pool != nil {
+		tenantName, tenantSlug = p.TenantID, p.TenantID
 		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 			// The principal's tenant is both the explicit predicate and the FORCE
 			// RLS setting. /me must never become a tenant-name enumeration path.
