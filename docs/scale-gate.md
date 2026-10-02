@@ -108,6 +108,18 @@ then, treat every absolute SLO number here as unverified; the in-process gate
 proves the *gate's machinery* (profiles drive, the fairness gate sheds, isolation
 and correctness hold), not the platform's absolute numbers.
 
+**Gate integrity (PLAT-10 / RTO-26).** The machinery is not a rubber stamp: a
+deliberately-regressed report must trip the matching violation, and a healthy
+one must trip none. That is proven in CI, with no services, by
+`internal/perf`'s `TestScaleGateCatchesInjectedRegression` (each armed branch —
+throughput floor, publish p95, noisy-neighbor correctness, SCALE-004 fairness
+shedding — plus a healthy negative control), `TestScaleSLOEvaluation`, and
+`TestNoisyHarnessInstallsFairnessGate` (the fairness gate's injected-regression
+self-test). What remains is the reference-hardware half this host cannot
+produce — the measured L/XL/XXL rows and the 72h soak below, and RTO-26's
+sustained-rate receipts from deployed binaries — tracked as a hardware item in
+`design-partner-readiness/decisions-needed.md` (D-27).
+
 ## Running it
 
 There are two harnesses, deliberately. An **in-process** one (fast, runs on every
