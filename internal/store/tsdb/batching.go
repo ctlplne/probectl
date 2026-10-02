@@ -45,6 +45,36 @@ type BatchingWriter struct {
 type flushResult struct {
 	done chan struct{}
 	err  error
+	// fenced maps a tenant_id rejected by the write fence THIS flush to its
+	// fence error. It is keyed per tenant so a coalesced batch fails only the
+	// fenced tenants' callers, never their co-batched neighbours (G7-1).
+	fenced map[string]error
+}
+
+// resultFor returns the error a caller whose contributed series are chunk must
+// surface for this flush. When any of the caller's OWN tenants was fenced this
+// flush it returns that tenant's fence error (which names only that tenant, so
+// a co-batched tenant's id/status never leaks to a different caller); otherwise
+// it returns the shared eligible-write result (nil on success).
+func (r *flushResult) resultFor(chunk []Series) error {
+	if len(r.fenced) > 0 {
+		for i := range chunk {
+			if ferr, ok := r.fenced[chunk[i].Labels[TenantLabel]]; ok {
+				return ferr
+			}
+		}
+	}
+	return r.err
+}
+
+// partitionedWriter is the optional seam the tenant write fence implements so a
+// coalesced MULTI-TENANT batch is fenced PER TENANT: eligible tenants' series
+// are stored and only the fenced tenants' series are rejected, so one tenant's
+// lifecycle state never fails another tenant's write (docs/guardrails.md G7-1).
+// fenced maps each rejected tenant_id to its fence error; every other tenant's
+// series is written and err reports only a batch-wide failure.
+type partitionedWriter interface {
+	WritePartitioned(ctx context.Context, series []Series) (fenced map[string]error, err error)
 }
 
 // NewBatchingWriter wraps w. maxSeries (<=0 => 500) and maxWait (<=0 => 50ms)
@@ -91,7 +121,8 @@ func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 		}
 		n := min(len(series), room)
 		batch := b.batch
-		b.pending = append(b.pending, series[:n]...)
+		chunk := series[:n]
+		b.pending = append(b.pending, chunk...)
 		series = series[n:]
 		full := len(b.pending) >= b.maxSeries
 		b.mu.Unlock()
@@ -99,7 +130,14 @@ func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 		if full {
 			b.flush() // size trigger: flush now rather than wait for the timer
 		}
-		if err := waitFlush(ctx, batch); err != nil {
+		if done, cancelErr := waitFlush(ctx, batch); !done {
+			return cancelErr
+		}
+		// Per-tenant fence attribution (G7-1): this caller fails ONLY when one of
+		// its OWN series' tenants was fenced this flush; a co-batched tenant's
+		// fence never fails this caller, and the error names only this caller's
+		// own tenant.
+		if err := batch.resultFor(chunk); err != nil {
 			return err
 		}
 	}
@@ -136,10 +174,13 @@ func (b *BatchingWriter) WriteGlobal(ctx context.Context, series []Series) error
 // surfacing the cancellation (CORRECT-011). Small: the flush is already running.
 const batchCancelGrace = 250 * time.Millisecond
 
-func waitFlush(ctx context.Context, batch *flushResult) error {
+// waitFlush blocks until this caller's batch has flushed (done=true) or the
+// caller's context is canceled with no result yet (done=false, cancelErr set).
+// The caller reads its per-tenant outcome from the batch only when done is true.
+func waitFlush(ctx context.Context, batch *flushResult) (done bool, cancelErr error) {
 	select {
 	case <-batch.done:
-		return batch.err
+		return true, nil
 	case <-ctx.Done():
 		// CORRECT-011: the caller's context fired while this batch is in flight.
 		// flush() runs under its OWN background context (one caller's cancel must
@@ -152,9 +193,9 @@ func waitFlush(ctx context.Context, batch *flushResult) error {
 		// pipeline now treats as "unknown" and does NOT dead-letter).
 		select {
 		case <-batch.done:
-			return batch.err
+			return true, nil
 		case <-time.After(batchCancelGrace):
-			return ctx.Err()
+			return false, ctx.Err()
 		}
 	}
 }
@@ -188,7 +229,14 @@ func (b *BatchingWriter) flushLocked() {
 	// the real mutation. It still needs an internally-owned deadline: otherwise
 	// a stalled backend pins flushMu and prevents Close from completing.
 	ctx, cancel := context.WithTimeout(context.Background(), tsdbBackgroundFlushTimeout)
-	batch.err = b.w.Write(ctx, pending)
+	if pw, ok := b.w.(partitionedWriter); ok {
+		// Per-tenant fence (G7-1): store every eligible tenant's series and
+		// reject ONLY the fenced tenants', so one offboarding tenant's lifecycle
+		// state cannot fail every co-batched tenant that shares this batch.
+		batch.fenced, batch.err = pw.WritePartitioned(ctx, pending)
+	} else {
+		batch.err = b.w.Write(ctx, pending)
+	}
 	cancel()
 	close(batch.done) // wake every Write that joined this batch with the shared result
 }

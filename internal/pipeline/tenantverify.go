@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/store"
@@ -70,6 +71,14 @@ var (
 	ErrMixedBatch         = errors.New("pipeline: batch mixes tenant/agent identities (fail closed)")
 	ErrNoTenant           = errors.New("pipeline: record carries no tenant id (fail closed)")
 	ErrBindingUnavailable = errors.New("pipeline: tenant binding lookup unavailable (fail closed)")
+	// ErrTenantOffboarded rejects a verified batch whose tenant is offboarding
+	// or deleted BEFORE it reaches any shared writer (G7-1). An offboarding
+	// tenant's agent rows survive until erasure completes, so without this gate
+	// the tenant keeps generating results that enter the shared remote-write
+	// batch and are only stopped at the durable write fence; stopping them at
+	// the pipeline edge keeps a fenced tenant from ever poisoning the shared
+	// batch. The durable write fence remains the hard, fail-closed backstop.
+	ErrTenantOffboarded = errors.New("pipeline: tenant is offboarding/deleted — ingest refused (fail closed)")
 	// ErrSharedLaneForbidden (WIRE-001): in strict-lane mode the shared
 	// pooled lane is refused for agent-published collector planes — the only
 	// authoritative path is a tenant-namespaced lane (single-tenant by
@@ -98,12 +107,13 @@ type RegistryBinding struct {
 
 	pool *pgxpool.Pool
 
-	mu    sync.Mutex
-	cache map[bindingKey]bindingEntry
-	now   func() time.Time
+	mu        sync.Mutex
+	cache     map[bindingKey]bindingEntry
+	lifecycle map[string]lifecycleEntry
+	now       func() time.Time
 
-	posTTL, negTTL time.Duration
-	maxEntries     int
+	posTTL, negTTL, lifecycleTTL time.Duration
+	maxEntries                   int
 }
 
 type bindingKey struct{ tenant, agent string }
@@ -112,14 +122,24 @@ type bindingEntry struct {
 	expires time.Time
 }
 
+// lifecycleEntry is a short-TTL cache of a tenant's lifecycle status so the
+// edge gate (G7-1) costs the hot path at most one registry read per TTL per
+// tenant, independent of the longer-lived (tenant, agent) binding cache.
+type lifecycleEntry struct {
+	status  string
+	expires time.Time
+}
+
 // NewRegistryBinding builds the registry-backed binding. Defaults: positive
 // results cached 60s, negative 10s (a just-registered agent becomes ingestable
-// quickly), 65536 entries (full reset beyond — correctness never depends on
-// the cache).
+// quickly), tenant lifecycle status 10s (offboarding takes effect quickly),
+// 65536 entries (full reset beyond — correctness never depends on the cache).
 func NewRegistryBinding(pool *pgxpool.Pool) *RegistryBinding {
 	return &RegistryBinding{
-		pool: pool, cache: map[bindingKey]bindingEntry{}, now: time.Now,
-		posTTL: 60 * time.Second, negTTL: 10 * time.Second, maxEntries: 65536,
+		pool: pool, cache: map[bindingKey]bindingEntry{},
+		lifecycle: map[string]lifecycleEntry{}, now: time.Now,
+		posTTL: 60 * time.Second, negTTL: 10 * time.Second,
+		lifecycleTTL: 10 * time.Second, maxEntries: 65536,
 	}
 }
 
@@ -187,7 +207,7 @@ func (b *RegistryBinding) Verify(ctx context.Context, tenantID, agentID string) 
 	if e, ok := b.cache[k]; ok && b.now().Before(e.expires) {
 		b.mu.Unlock()
 		if e.bound {
-			return nil
+			return b.gateTenantLifecycle(ctx, tenantID)
 		}
 		return ErrTenantNotBound
 	}
@@ -233,7 +253,71 @@ func (b *RegistryBinding) Verify(ctx context.Context, tenantID, agentID string) 
 	if !bound {
 		return ErrTenantNotBound
 	}
-	return nil
+	return b.gateTenantLifecycle(ctx, tenantID)
+}
+
+// gateTenantLifecycle refuses ingest for a tenant whose durable lifecycle state
+// is offboarding or deleted, BEFORE a verified record reaches any shared writer
+// (G7-1). It is defense-in-depth above the durable write fence: it keeps a
+// fenced tenant's agents from ever poisoning the shared remote-write batch,
+// while the fence remains the hard, fail-closed backstop. It degrades OPEN on a
+// transient lookup failure (an infrastructure blip must not reject a healthy
+// tenant's ingest — the fence still fails closed); an absent tenant row is a
+// definitive "deleted" and is refused. tenantID is the AUTHORITATIVE tenant, so
+// any status named in the error is the caller's OWN, never another tenant's.
+func (b *RegistryBinding) gateTenantLifecycle(ctx context.Context, tenantID string) error {
+	status, ok := b.tenantLifecycleStatus(ctx, tenantID)
+	if !ok {
+		return nil
+	}
+	switch status {
+	case "offboarding", "deleted":
+		return fmt.Errorf("%w: status=%s", ErrTenantOffboarded, status)
+	default:
+		return nil
+	}
+}
+
+// tenantLifecycleStatus reads the tenant's lifecycle status from the registry
+// with a short TTL cache. It reads the caller's OWN tenant row directly on the
+// control pool (the tenants registry is global operational metadata, exactly
+// like the API-edge tenant-status cache) — never another tenant's. ok is false
+// when the status cannot be determined and the gate should degrade open; an
+// absent row resolves to "deleted" (a definitive refusal), matching the API.
+func (b *RegistryBinding) tenantLifecycleStatus(ctx context.Context, tenantID string) (string, bool) {
+	if b.pool == nil {
+		return "", false
+	}
+	b.mu.Lock()
+	if e, ok := b.lifecycle[tenantID]; ok && b.now().Before(e.expires) {
+		b.mu.Unlock()
+		return e.status, true
+	}
+	b.mu.Unlock()
+
+	var status string
+	err := b.pool.QueryRow(ctx,
+		`SELECT status FROM public.tenants WHERE id = $1::uuid`, tenantID).Scan(&status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			status = "deleted"
+		} else {
+			// Degrade open on an infrastructure blip; the durable write fence is
+			// the hard backstop and still fails closed.
+			return "", false
+		}
+	}
+
+	b.mu.Lock()
+	if b.lifecycle == nil {
+		b.lifecycle = map[string]lifecycleEntry{}
+	}
+	if len(b.lifecycle) >= b.maxEntries {
+		b.lifecycle = map[string]lifecycleEntry{} // bounded like the binding cache
+	}
+	b.lifecycle[tenantID] = lifecycleEntry{status: status, expires: b.now().Add(b.lifecycleTTL)}
+	b.mu.Unlock()
+	return status, true
 }
 
 // laneSub is one bus subscription: a topic plus the tenant the lane is bound

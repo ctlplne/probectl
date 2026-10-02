@@ -65,6 +65,16 @@ type batchSaver interface {
 	SaveBatch(ctx context.Context, items []PathItem) error
 }
 
+// partitionedBatchSaver is the optional seam the tenant write fence implements
+// so a coalesced MULTI-TENANT flush is fenced PER TENANT: eligible tenants'
+// paths are persisted and only the fenced tenants' paths are dropped, so one
+// tenant's lifecycle state never fails another tenant's write
+// (docs/guardrails.md G7-1). fenced maps each dropped tenant_id to its fence
+// error; err reports only a batch-wide failure.
+type partitionedBatchSaver interface {
+	SaveBatchPartitioned(ctx context.Context, items []PathItem) (fenced map[string]error, err error)
+}
+
 // PathItem is one queued discovery.
 type PathItem struct {
 	TenantID string
@@ -143,6 +153,43 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 		return
 	}
 	b.flushes.Add(1)
+
+	// Per-tenant fence (G7-1): when the fence can render a per-tenant verdict,
+	// store every eligible tenant's paths and drop ONLY the fenced tenants' —
+	// one offboarding tenant's lifecycle state must not drop every co-batched
+	// tenant's paths from the shared flush.
+	if pbs, ok := b.inner.(partitionedBatchSaver); ok {
+		items := make([]PathItem, len(batch))
+		for i, q := range batch {
+			items[i] = PathItem{TenantID: q.tenantID, P: q.p}
+		}
+		fenced, err := pbs.SaveBatchPartitioned(ctx, items)
+		if err != nil {
+			b.lost.Add(uint64(len(batch)))
+			b.log.Error("PATH BATCH LOST: combined insert failed (paths are re-discoverable; investigate the store)",
+				"paths", len(batch), "error", err.Error())
+			return
+		}
+		if len(fenced) == 0 {
+			b.saved.Add(uint64(len(batch)))
+			return
+		}
+		dropped := 0
+		for i := range items {
+			if _, bad := fenced[items[i].TenantID]; bad {
+				dropped++
+			}
+		}
+		stored := len(batch) - dropped
+		b.saved.Add(uint64(stored))
+		// A fenced tenant's dropped paths are a deliberate lifecycle rejection,
+		// not an unexpected store failure, but they are still paths not persisted
+		// — counted (lostCount) and logged so the drop stays observable.
+		b.lost.Add(uint64(dropped))
+		b.log.Warn("PATH BATCH PARTIAL: dropped offboarding/absent tenants' paths and stored the rest (G7-1: one tenant's lifecycle must not drop another's)",
+			"dropped", dropped, "stored", stored)
+		return
+	}
 
 	if bs, ok := b.inner.(batchSaver); ok {
 		items := make([]PathItem, len(batch))

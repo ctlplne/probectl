@@ -50,6 +50,34 @@ func (w *writeFencedWriter) Write(
 		func(ctx context.Context) error { return w.next.Write(ctx, series) })
 }
 
+// WritePartitioned fences a COALESCED multi-tenant batch per tenant: it stores
+// every eligible tenant's series and returns a map of exactly the tenants whose
+// series were rejected (keyed by tenant_id), so the batching writer can fail
+// only the fenced tenants' callers and let the rest through. One tenant's
+// lifecycle state never decides another tenant's write (docs/guardrails.md
+// G7-1). The returned error is non-nil only for a batch-wide failure (malformed
+// series, a backend write failure for the eligible series, or an unverifiable
+// fence) — never because a co-batched tenant is fenced.
+func (w *writeFencedWriter) WritePartitioned(
+	ctx context.Context,
+	series []Series,
+) (map[string]error, error) {
+	if len(series) == 0 {
+		return nil, nil
+	}
+	if err := ValidateTenantSeries(series); err != nil {
+		return nil, err
+	}
+	return tenancy.PartitionedFencedWrite(ctx, w.fence, series,
+		func(s Series) string { return s.Labels[TenantLabel] }, ErrTenantRequired,
+		func(ctx context.Context, eligible []Series) error {
+			if len(eligible) == 0 {
+				return nil
+			}
+			return w.next.Write(ctx, eligible)
+		})
+}
+
 // WriteGlobal preserves the explicit non-tenant self-metrics escape hatch.
 // Global series are validated and forwarded without a tenant lifecycle lease;
 // tenant-owned callers cannot enter this path because tenant_id is forbidden.

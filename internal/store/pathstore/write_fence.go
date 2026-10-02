@@ -69,6 +69,44 @@ func (s *writeFencedStore) SaveBatch(
 	)
 }
 
+// SaveBatchPartitioned fences a COALESCED multi-tenant flush per tenant: it
+// persists every eligible tenant's paths and returns a map of exactly the
+// tenants whose paths were rejected (keyed by tenant_id), so the write-behind
+// batcher drops only the fenced tenants' paths and stores the rest. One
+// tenant's lifecycle state never decides another tenant's write
+// (docs/guardrails.md G7-1). A non-nil error is a batch-wide failure (an
+// unverifiable fence or a backend failure for the eligible paths), never a
+// co-batched tenant being fenced.
+func (s *writeFencedStore) SaveBatchPartitioned(
+	ctx context.Context,
+	items []PathItem,
+) (map[string]error, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return tenancy.PartitionedFencedWrite(ctx, s.fence, items,
+		func(it PathItem) string { return it.TenantID }, ErrNoTenant,
+		func(ctx context.Context, eligible []PathItem) error {
+			if len(eligible) == 0 {
+				return nil
+			}
+			if batch, ok := s.next.(batchSaver); ok {
+				return batch.SaveBatch(ctx, eligible)
+			}
+			for i := range eligible {
+				if err := s.next.Save(
+					ctx,
+					eligible[i].TenantID,
+					eligible[i].P,
+				); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	)
+}
+
 func (s *writeFencedStore) Latest(
 	ctx context.Context,
 	tenantID string,
