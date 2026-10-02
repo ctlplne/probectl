@@ -95,6 +95,14 @@ func TestSNMPv3TrapReceiverRejectsUnverifiableV3(t *testing.T) {
 			SecurityParameters: &gosnmp.UsmSecurityParameters{UserName: "trap-user", AuthoritativeEngineID: ""},
 			Variables:          snmpTrapVarBinds(oidSNMPColdStart, 0),
 		}},
+		// gosnmp only runs HMAC verification for the USM security model; any
+		// other model is decoded unverified but still parses a username/engine id.
+		{"non-USM security model (gosnmp skips verification)", &gosnmp.SnmpPacket{
+			Version: gosnmp.Version3, MsgFlags: gosnmp.AuthNoPriv, SecurityModel: 0,
+			PDUType:            gosnmp.SNMPv2Trap,
+			SecurityParameters: &gosnmp.UsmSecurityParameters{UserName: "trap-user", AuthoritativeEngineID: snmpTrapFixtureEngineID},
+			Variables:          snmpTrapVarBinds(oidSNMPColdStart, 0),
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

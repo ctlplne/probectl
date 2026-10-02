@@ -251,6 +251,14 @@ func (r *TrapReceiver) authenticate(pkt *gosnmp.SnmpPacket, remote *net.UDPAddr)
 		// id. The previous empty-username single-source fallback laundered exactly
 		// the forged datagrams gosnmp skips into the lone configured source — it
 		// is removed. (docs/guardrails.md G7-12: authenticated ingest, fail closed.)
+		// ING-04: gosnmp gates its HMAC verification on SecurityModel ==
+		// UserSecurityModel (unmarshalTrapBase). A datagram with any other
+		// msgSecurityModel is decoded WITHOUT verification yet still carries a
+		// parsed USM username/engine id, so the receiver — which does no crypto
+		// of its own — must refuse it rather than trust the username.
+		if pkt.SecurityModel != gosnmp.UserSecurityModel {
+			return TrapSource{}, "", errors.New("device trap: snmpv3 trap with non-USM security model refused (gosnmp leaves it unverified)")
+		}
 		if pkt.MsgFlags&gosnmp.AuthNoPriv == 0 {
 			return TrapSource{}, "", errors.New("device trap: snmpv3 trap without authentication (noAuthNoPriv) refused")
 		}
