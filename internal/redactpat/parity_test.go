@@ -163,15 +163,21 @@ var identifierCorpus = map[string]sample{
 		text:   "gateway declined card 3782 822463 10005 on retry",
 		secret: "3782 822463 10005",
 	},
-	// AI-03 reopen #2: JCB (3528-3589, 16-digit) and Diners Club (36, 14-digit
-	// 4-6-4) are two more PCI major networks the first branch set missed.
+	// AI-03 reopen #2/#3: JCB (3528-3589, 16-digit) and Diners Club (14-digit)
+	// are two more PCI major networks; recognition must be grouping-AGNOSTIC, so
+	// the Diners number is exercised in both its native 4-6-4 grouping and the
+	// common group-by-four UI chunking (same digits, Luhn-valid test PAN).
 	"pan_jcb": {
 		text:   "declined JCB card 3530 1113 3330 0000 at checkout",
 		secret: "3530 1113 3330 0000",
 	},
 	"pan_diners": {
-		text:   "diners card 3600 900000 0006 refused by issuer",
-		secret: "3600 900000 0006",
+		text:   "diners card 3056 930902 5904 refused by issuer",
+		secret: "3056 930902 5904",
+	},
+	"pan_diners_group4": {
+		text:   "diners card 3056 9309 0259 04 at checkout",
+		secret: "3056 9309 0259 04",
 	},
 }
 
@@ -287,6 +293,11 @@ var benignCorpus = []string{
 	"AS64512 withdrew the prefix",
 	"the change landed at 12:30 and the alarm cleared at 13:05",
 	"std::vector::iterator in the stack trace",
+	// A long non-card digit run (epoch millis) must NOT be masked as a PAN: no
+	// brand prefix, so IsPAN rejects it before Luhn (AI-03 false-positive guard).
+	"ingest lag spiked at epoch 1696118400000 during cutover",
+	// A 16-digit run with no brand prefix and no Luhn validity stays intact too.
+	"trace id 1234567890123456 carried through the span",
 }
 
 func TestBenignTextSurvivesBothEngines(t *testing.T) {

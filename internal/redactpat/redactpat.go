@@ -118,21 +118,14 @@ var (
 	// path and treated as always-redact on the governance/support path.
 	SSN = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 
-	// PAN matches a payment card number for the PCI major networks, with optional
-	// space/dash grouping (AI-03), by brand because the digit groupings differ:
-	//   - Amex (34/37): 15 digits, 4-6-5
-	//   - Diners Club (300-305, 3095, 36, 38, 39): 14 digits, 4-6-4
-	//   - JCB (3528-3589): 16 digits, 4-4-4-4
-	//   - Visa (4) / Mastercard (51-55, 2221-2720) / Discover (6011, 64-65, 622) /
-	//     UnionPay (62): 16 digits, 4-4-4-4
-	// The leading-digit prefixes keep it off arbitrary long digit runs; it is PII.
-	// RE2 has no backreferences, so the separators are matched independently.
-	PAN = regexp.MustCompile(`\b(?:` +
-		`3[47]\d{2}[ -]?\d{6}[ -]?\d{5}` + // Amex
-		`|3(?:0[0-5]\d|[689]\d{2})[ -]?\d{6}[ -]?\d{4}` + // Diners Club
-		`|35(?:2[89]|[3-8]\d)(?:[ -]?\d{4}){3}` + // JCB
-		`|(?:4\d{3}|5[1-5]\d{2}|6(?:011|[45]\d{2}|2\d{2})|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720))(?:[ -]?\d{4}){2}[ -]?\d{1,4}` + // Visa/MC/Discover/UnionPay
-		`)\b`)
+	// PANCandidate matches a run of 13-19 digits with optional single space/dash
+	// separators in ANY position (AI-03). Encoding fixed per-brand groupings was
+	// brittle — each layout (4-4-4-4 vs 4-6-5 vs 4-6-4 vs group-by-four) needed
+	// its own branch and a missed one leaked. Consumers VALIDATE each candidate
+	// with IsPAN (brand prefix + length + Luhn), the same regex-plus-parse design
+	// the IP shapes use, so recognition is grouping-agnostic and low-false-
+	// positive. It is PII.
+	PANCandidate = regexp.MustCompile(`\b\d(?:[ -]?\d){12,18}\b`)
 
 	// URL matches an absolute http(s) URL, which may embed credentials, hosts
 	// and identifiers all at once.
@@ -189,6 +182,100 @@ func MaskSecrets(s string, placeholder func(shape SecretShape, match string) str
 		})
 	}
 	return s
+}
+
+// IsPAN reports whether a PANCandidate match is a real payment card number: a
+// known PCI-major brand prefix (Visa, Mastercard incl. 2-series, Amex, Discover,
+// Diners Club, JCB, UnionPay), a brand-appropriate length, and a valid Luhn
+// checksum. The Luhn check is what keeps PANCandidate's broad digit-run shape off
+// ordinary long numbers (timestamps, ids, counters): a random run has ~1/10 odds
+// of passing Luhn, and must ALSO carry a brand prefix and length.
+func IsPAN(candidate string) bool {
+	var digits []byte
+	for i := 0; i < len(candidate); i++ {
+		c := candidate[i]
+		switch {
+		case c >= '0' && c <= '9':
+			digits = append(digits, c)
+		case c == ' ' || c == '-':
+		default:
+			return false
+		}
+	}
+	n := len(digits)
+	if n < 13 || n > 19 {
+		return false
+	}
+	if !panHasBrandPrefix(digits) {
+		return false
+	}
+	return luhnValid(digits)
+}
+
+// panHasBrandPrefix reports whether the digit string begins with a PCI-major
+// brand's issuer-identifier prefix, with the brand's length.
+func panHasBrandPrefix(d []byte) bool {
+	s := string(d)
+	n := len(d)
+	p := func(prefix string) bool { return strings.HasPrefix(s, prefix) }
+	// numeric prefix range helper: is the first `width` digits within [lo,hi]?
+	inRange := func(width, lo, hi int) bool {
+		if n < width {
+			return false
+		}
+		v := 0
+		for i := 0; i < width; i++ {
+			v = v*10 + int(d[i]-'0')
+		}
+		return v >= lo && v <= hi
+	}
+	switch {
+	case p("4") && (n == 13 || n == 16 || n == 19): // Visa
+		return true
+	case inRange(2, 51, 55) && n == 16: // Mastercard
+		return true
+	case inRange(4, 2221, 2720) && n == 16: // Mastercard 2-series
+		return true
+	case (p("34") || p("37")) && n == 15: // American Express
+		return true
+	case (p("36") || p("38") || p("39") || inRange(3, 300, 305) || p("3095")) && n == 14: // Diners Club
+		return true
+	case inRange(4, 3528, 3589) && (n == 16 || n == 19): // JCB
+		return true
+	case (p("6011") || inRange(2, 65, 65) || inRange(3, 644, 649) || inRange(6, 622126, 622925)) && (n == 16 || n == 19): // Discover
+		return true
+	case p("62") && n >= 16 && n <= 19: // UnionPay
+		return true
+	}
+	return false
+}
+
+// luhnValid runs the Luhn mod-10 checksum over the digit bytes.
+func luhnValid(d []byte) bool {
+	sum, alt := 0, false
+	for i := len(d) - 1; i >= 0; i-- {
+		n := int(d[i] - '0')
+		if alt {
+			n *= 2
+			if n > 9 {
+				n -= 9
+			}
+		}
+		sum += n
+		alt = !alt
+	}
+	return sum%10 == 0
+}
+
+// MaskPAN replaces every validated payment card number in s with mask(match),
+// pairing PANCandidate with IsPAN so an arbitrary digit run is never masked.
+func MaskPAN(s string, mask func(match string) string) string {
+	return PANCandidate.ReplaceAllStringFunc(s, func(m string) string {
+		if !IsPAN(m) {
+			return m
+		}
+		return mask(m)
+	})
 }
 
 // MaskURLCredentials replaces the password in every scheme://user:PASSWORD@host
