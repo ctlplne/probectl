@@ -8,13 +8,7 @@ package otlp
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"math/big"
 	"net"
 	"sync"
 	"testing"
@@ -28,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/ctlplne/probectl/internal/crypto"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
@@ -52,26 +47,23 @@ var undecodableBody = []byte{0x0a, 0xff, 0x01}
 // TLS-only receiver (newGRPCServer) can run in-process; clients skip verification.
 func testServerTLS(t *testing.T) *tls.Config {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	// Route key/cert generation through internal/crypto (FIPS enabler, G7-3):
+	// a throwaway CA issues a localhost server leaf; the client skips
+	// verification below, so this only needs to complete the TLS handshake.
+	ca, err := crypto.GenerateCA("probectl-otlp-test-ca", time.Hour)
 	if err != nil {
-		t.Fatalf("generate key: %v", err)
+		t.Fatalf("generate CA: %v", err)
 	}
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "localhost"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost"},
-		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	certPEM, keyPEM, err := ca.IssueServerCert("localhost", []string{"localhost", "127.0.0.1", "::1"}, time.Hour)
 	if err != nil {
-		t.Fatalf("create cert: %v", err)
+		t.Fatalf("issue server cert: %v", err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("load server keypair: %v", err)
 	}
 	return &tls.Config{
-		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
+		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}
 }

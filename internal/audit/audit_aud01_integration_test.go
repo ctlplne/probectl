@@ -10,7 +10,6 @@ package audit
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -92,8 +91,8 @@ func TestAudlogTamperMatrix(t *testing.T) {
 		{
 			name: "S9_garbage_signature",
 			tamperHeadSig: func(t *testing.T, _ string, _ int64, _ string, _ []byte) any {
-				forged := make([]byte, crypto.Ed25519SignatureSize)
-				if _, err := rand.Read(forged); err != nil {
+				forged, err := crypto.Random(crypto.Ed25519SignatureSize)
+				if err != nil {
 					t.Fatalf("random forged signature: %v", err)
 				}
 				return forged
