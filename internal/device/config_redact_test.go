@@ -51,6 +51,9 @@ func TestRedactConfigVendorSecrets(t *testing.T) {
 		{"ospfv3 ipsec md5", "ipv6 ospf authentication ipsec spi 500 md5 1234567890ABCDEF1234567890ABCDEF", "1234567890ABCDEF1234567890ABCDEF", "ipsec spi 500 md5"},
 		{"nxos snmpv3 priv aes-128", "snmp-server user admin network-admin auth sha NxAuthPass333 priv aes-128 NxPrivPass444", "NxPrivPass444", "priv aes-128"},
 		{"nxos snmpv3 priv aes-256", "snmp-server user admin network-admin auth sha256 NxAuth5 priv aes-256 NxPriv6", "NxPriv6", "priv aes-256"},
+		{"ikev1 keyring psk address", "pre-shared-key address 203.0.113.1 key MyKeyringPSK123", "MyKeyringPSK123", "pre-shared-key"},
+		{"ikev1 keyring psk hostname", "pre-shared-key hostname peer.example.net key HostKeyPSK456", "HostKeyPSK456", "pre-shared-key"},
+		{"snmpv3 auth sha-256 hyphen", "snmp-server user u g v3 auth sha-256 HyphAuthPass priv aes-128 HyphPrivPass", "HyphAuthPass", "auth sha-256"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

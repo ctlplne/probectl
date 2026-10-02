@@ -318,10 +318,15 @@ var configRedactRules = []struct {
 	// IPsec/ISAKMP: crypto isakmp key VALUE (address|hostname …) — key token only,
 	// so the trailing address/hostname structure is preserved.
 	{regexp.MustCompile(`(?i)\b(crypto\s+isakmp\s+key\s+)` + cfgVal), `${1}[redacted]`},
-	// Pre-shared key (incl. IKEv2 local/remote scope, ascii-text/hexadecimal).
+	// IKEv1 crypto-keyring form: `pre-shared-key {address <peer> [mask]|hostname
+	// <fqdn>} key <PSK>` — the secret is after a SECOND `key` keyword (Cisco IOS/
+	// IOS-XE, stored cleartext by default). Redact the value after that key; the
+	// `.*?` stays on the line (no (?s)).
+	{regexp.MustCompile(`(?i)(\bpre-shared-key\b.*?\bkey\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	// Pre-shared key direct form (incl. IKEv2 local/remote scope, ascii-text/hex).
 	{regexp.MustCompile(`(?i)\b(pre-shared-key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
 	// SNMPv3 user auth/priv passwords.
-	{regexp.MustCompile(`(?i)\b(auth\s+(?:md5|sha(?:\d+)?)\s+)` + cfgVal), `${1}[redacted]`},
+	{regexp.MustCompile(`(?i)\b(auth\s+(?:md5|sha(?:-?\d+)?)\s+)` + cfgVal), `${1}[redacted]`},
 	{regexp.MustCompile(`(?i)\b(priv\s+(?:aes(?:-(?:128|192|256))?|3des|des)(?:\s+(?:128|192|256))?\s+)` + cfgVal), `${1}[redacted]`},
 	// SNMP trap-host community (distinct from `snmp-server community`): the
 	// community is the token after the host and any traps/informs/version/vrf
