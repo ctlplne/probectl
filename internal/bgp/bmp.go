@@ -376,6 +376,20 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 			}
 			return err
 		}
+		// RTP-03: the revocation deny-list is consulted only ONCE, at the
+		// handshake (above), but a BMP session is long-lived. A router revoked
+		// AFTER its session was established keeps publishing route events until
+		// its certificate expires — the operator believes the revocation took
+		// hold while the routing plane keeps ingesting from the revoked peer.
+		// Re-read the SAME in-memory deny-list the listener's refresh feed keeps
+		// current (cmd/probectl-bmp-listener/revocations.go) on every frame, so
+		// the next message from a revoked router closes the session and no
+		// further events publish — within one refresh interval, fail closed
+		// (docs/guardrails.md G7-4/G7-12). The hot path short-circuits on an
+		// empty list, matching the per-RPC agent-transport recheck (CRY-01).
+		if l.identityRevoked(id) {
+			return fmt.Errorf("bgp bmp: registry-revoked router identity refused mid-session (serial %s)", id.Serial)
+		}
 		if msgType != bmpRouteMonitoring {
 			l.log.Debug("skipping unsupported bmp message", "tenant_id", id.TenantID, "message_type", msgType)
 			continue
@@ -432,6 +446,19 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 			)
 		}
 	}
+}
+
+// identityRevoked reports whether the established session's router identity has
+// since been revoked. It consults the SAME registry-driven deny-list the
+// handshake checked (WithBMPRevocationList), re-read per frame so a mid-session
+// revocation takes hold on the next message — matched by serial OR SPIFFE id so
+// a re-issued certificate cannot resurrect a revoked identity. The steady-state
+// hot path exits on an empty list without touching the lock map (RTP-03).
+func (l *BMPListener) identityRevoked(id bmpIdentity) bool {
+	if l.revocations == nil || l.revocations.Empty() {
+		return false
+	}
+	return l.revocations.IsRevoked(id.Serial, id.SPIFFEID)
 }
 
 func bmpRemoteAddr(conn net.Conn) string {
