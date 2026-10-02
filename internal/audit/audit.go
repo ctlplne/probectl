@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -44,6 +45,15 @@ type Event struct {
 	PrevHash  string         `json:"prev_hash"`
 	Hash      string         `json:"hash"`
 	CreatedAt time.Time      `json:"created_at"`
+
+	// canonicalData is the EXACT JSON byte sequence the hash chain covers for
+	// this event (docs/guardrails.md G7-N; AUD-03). It is read verbatim from the
+	// durable data_canonical column so verification hashes the same bytes the
+	// append side hashed — never a re-marshal of the jsonb-decoded map, which
+	// loses >2^53 integer precision and reorders keys. Unexported, so it is never
+	// serialized into API responses or WORM segments; nil for rows written before
+	// the column existed (verification then falls back to the legacy recompute).
+	canonicalData []byte
 }
 
 // streamHead is the small, non-prunable database anchor for one audit chain.
@@ -71,27 +81,88 @@ func (h streamHead) validate(label string) error {
 	return nil
 }
 
-// computeHash returns the hex SHA-256 over an event's canonical, chained fields.
-// streamKey binds the record to its chain (the tenant id, or "provider"), so a
-// record cannot be moved between chains without breaking verification. The data
-// map is canonicalized via encoding/json (Go sorts map keys), so append and
-// verify produce identical bytes.
-func computeHash(streamKey string, seq int64, actor, action, target string, createdAtMicros int64, data map[string]any, prevHash string) (string, error) {
-	if data == nil {
-		data = map[string]any{}
+// escapeHeaderField makes the newline-delimited hash header an unambiguous
+// encoding (docs/guardrails.md G7-N; AUD-03). The header joins string fields
+// with '\n'; without escaping, a field value that itself contains a newline can
+// shift a delimiter, so two DISTINCT field tuples — e.g. (actor "a\nb",
+// action "c") and (actor "a", action "b\nc") — serialize to the same bytes and
+// collide to the same hash. Escaping '\' then '\n' (to the two-byte sequences
+// `\\` and `\n`) makes every boundary recoverable. It is the IDENTITY for any
+// value containing neither byte, so every hash written before AUD-03 — tenant
+// ids, hex prev-hashes and ordinary dotted actions/actors/targets never contain
+// '\' or newlines — stays byte-identical.
+func escapeHeaderField(s string) string {
+	if !strings.ContainsAny(s, "\\\n") {
+		return s
 	}
-	canonicalData, err := json.Marshal(data)
-	if err != nil {
-		return "", fmt.Errorf("canonicalize audit data: %w", err)
-	}
-	// AUD-02: created_at (as Unix microseconds, matching Postgres timestamptz
-	// precision) is part of the chained header, so back- or forward-dating a
-	// stored event with an UPDATE breaks verification at that sequence. Micros
-	// are instant-based, so the hash is stable regardless of the read-back
-	// session time zone.
-	header := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%d\n%s\n", streamKey, seq, actor, action, target, createdAtMicros, prevHash)
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	return s
+}
+
+// auditHeader builds the chained, canonical header hashed ahead of the data
+// bytes. streamKey binds the record to its chain (the tenant id, or "provider"),
+// so a record cannot be moved between chains without breaking verification.
+// AUD-02: created_at (as Unix microseconds, matching Postgres timestamptz
+// precision) is part of the header, so back- or forward-dating a stored event
+// with an UPDATE breaks verification at that sequence. Micros are instant-based,
+// so the hash is stable regardless of the read-back session time zone.
+func auditHeader(streamKey string, seq int64, actor, action, target string, createdAtMicros int64, prevHash string) string {
+	return fmt.Sprintf(
+		"%s\n%d\n%s\n%s\n%s\n%d\n%s\n",
+		escapeHeaderField(streamKey),
+		seq,
+		escapeHeaderField(actor),
+		escapeHeaderField(action),
+		escapeHeaderField(target),
+		createdAtMicros,
+		escapeHeaderField(prevHash),
+	)
+}
+
+// chainEventHash returns the hex SHA-256 over an event's header plus the EXACT
+// canonical data bytes. AUD-03: the caller passes the precise byte sequence that
+// was (or will be) stored, so append and verify hash identical bytes. It never
+// re-marshals a decoded map, which would corrupt >2^53 integers and reorder keys.
+func chainEventHash(streamKey string, seq int64, actor, action, target string, createdAtMicros int64, canonicalData []byte, prevHash string) string {
+	header := auditHeader(streamKey, seq, actor, action, target, createdAtMicros, prevHash)
 	sum := crypto.Hash(append([]byte(header), canonicalData...))
-	return hex.EncodeToString(sum), nil
+	return hex.EncodeToString(sum)
+}
+
+// canonicalAuditData is the single canonicalization door for audit payloads: the
+// bytes produced here are BOTH stored (data_canonical) AND hashed on append, so
+// verification need only hash the stored bytes back. Go's encoding/json sorts
+// map keys, so the output is deterministic for a given map.
+func canonicalAuditData(data map[string]any) ([]byte, error) {
+	canonical, err := json.Marshal(orEmpty(data))
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize audit data: %w", err)
+	}
+	return canonical, nil
+}
+
+// computeHash hashes an event whose data is still an in-memory map. It is the
+// append-time and legacy/in-memory path (rows written before data_canonical
+// existed, and synthetic test events). Readers with durable canonical bytes use
+// chainEventHash directly so they never reconstruct the bytes from the jsonb.
+func computeHash(streamKey string, seq int64, actor, action, target string, createdAtMicros int64, data map[string]any, prevHash string) (string, error) {
+	canonical, err := canonicalAuditData(data)
+	if err != nil {
+		return "", err
+	}
+	return chainEventHash(streamKey, seq, actor, action, target, createdAtMicros, canonical, prevHash), nil
+}
+
+// eventHash recomputes a read-back event's hash over the bytes it is bound to:
+// the durable canonical bytes when present, else (legacy/pre-AUD-03 or synthetic
+// in-memory events) the re-canonicalized map. Both branches are byte-identical
+// for honest data, so mixed-vintage chains link seamlessly.
+func eventHash(streamKey string, ev Event) (string, error) {
+	if len(ev.canonicalData) > 0 {
+		return chainEventHash(streamKey, ev.Seq, ev.Actor, ev.Action, ev.Target, ev.CreatedAt.UnixMicro(), ev.canonicalData, ev.PrevHash), nil
+	}
+	return computeHash(streamKey, ev.Seq, ev.Actor, ev.Action, ev.Target, ev.CreatedAt.UnixMicro(), ev.Data, ev.PrevHash)
 }
 
 // TenantAppend appends an event to the calling tenant's audit chain. It is
@@ -127,18 +198,20 @@ func tenantAppendLocked(ctx context.Context, s tenancy.Scope, actor, action, tar
 		// hash chain (micros to match Postgres timestamptz precision).
 		CreatedAt: auditNow(),
 	}
-	ev.Hash, err = computeHash(s.Tenant.String(), ev.Seq, actor, action, target, ev.CreatedAt.UnixMicro(), data, ev.PrevHash)
+	// AUD-03: marshal the canonical bytes ONCE, then store AND hash the identical
+	// sequence. data_canonical holds those exact bytes so verification hashes them
+	// verbatim; the jsonb data column is the queryable mirror, kept in lock-step
+	// with the hashed bytes by a CHECK constraint (migration 0108).
+	canonical, err := canonicalAuditData(data)
 	if err != nil {
 		return Event{}, err
 	}
-	dataJSON, err := json.Marshal(orEmpty(data))
-	if err != nil {
-		return Event{}, err
-	}
+	ev.canonicalData = canonical
+	ev.Hash = chainEventHash(s.Tenant.String(), ev.Seq, actor, action, target, ev.CreatedAt.UnixMicro(), canonical, ev.PrevHash)
 	if _, err := s.Q.Exec(ctx,
-		`INSERT INTO audit_events (tenant_id, seq, actor, action, target, data, prev_hash, hash, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
-		s.Tenant.String(), ev.Seq, actor, action, target, string(dataJSON), ev.PrevHash, ev.Hash, ev.CreatedAt,
+		`INSERT INTO audit_events (tenant_id, seq, actor, action, target, data, prev_hash, hash, created_at, data_canonical)
+		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)`,
+		s.Tenant.String(), ev.Seq, actor, action, target, string(canonical), ev.PrevHash, ev.Hash, ev.CreatedAt, string(canonical),
 	); err != nil {
 		return Event{}, fmt.Errorf("insert audit event: %w", err)
 	}
@@ -304,18 +377,18 @@ func providerAppendLockedWith(
 		// AUD-02: application-stamped so created_at is covered by the hash chain.
 		CreatedAt: auditNow(),
 	}
-	ev.Hash, err = computeHash(providerStream, ev.Seq, actor, action, target, ev.CreatedAt.UnixMicro(), data, ev.PrevHash)
+	// AUD-03: see tenantAppendLocked — hash the exact bytes stored in
+	// data_canonical, with the jsonb data column as the CHECK-bound mirror.
+	canonical, err := canonicalAuditData(data)
 	if err != nil {
 		return Event{}, err
 	}
-	dataJSON, err := json.Marshal(orEmpty(data))
-	if err != nil {
-		return Event{}, err
-	}
+	ev.canonicalData = canonical
+	ev.Hash = chainEventHash(providerStream, ev.Seq, actor, action, target, ev.CreatedAt.UnixMicro(), canonical, ev.PrevHash)
 	if _, err := q.Exec(ctx,
-		`INSERT INTO provider_audit_events (seq, actor, action, target, data, prev_hash, hash, created_at)
-		 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
-		ev.Seq, actor, action, target, string(dataJSON), ev.PrevHash, ev.Hash, ev.CreatedAt,
+		`INSERT INTO provider_audit_events (seq, actor, action, target, data, prev_hash, hash, created_at, data_canonical)
+		 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)`,
+		ev.Seq, actor, action, target, string(canonical), ev.PrevHash, ev.Hash, ev.CreatedAt, string(canonical),
 	); err != nil {
 		return Event{}, fmt.Errorf("insert provider audit event: %w", err)
 	}
@@ -765,7 +838,7 @@ func verifyTenantExtension(
 ) error {
 	rows, err := q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at, data_canonical
 		   FROM audit_events
 		  WHERE tenant_id = $1::uuid AND seq > $2
 		  ORDER BY seq`,
@@ -794,7 +867,7 @@ func verifyProviderExtension(
 ) error {
 	rows, err := q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at, data_canonical
 		   FROM provider_audit_events
 		  WHERE seq > $1
 		  ORDER BY seq`,
@@ -911,7 +984,7 @@ func tenantVerifyFromLocked(ctx context.Context, s tenancy.Scope, head streamHea
 	}
 	rows, err := s.Q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at, data_canonical
 		   FROM audit_events
 		  WHERE tenant_id = $1::uuid AND seq > $2
 		  ORDER BY seq`,
@@ -979,7 +1052,7 @@ func providerVerifyFromLocked(
 	}
 	rows, err := q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at, data_canonical
 		   FROM provider_audit_events
 		  WHERE seq > $1
 		  ORDER BY seq`,
@@ -1060,13 +1133,10 @@ func verify(rows pgx.Rows, streamKey string, wantSeq int64, startPrev string) (i
 			dataBytes              []byte
 			storedPrev, storedHash string
 			createdAt              time.Time
+			canonical              []byte
 		)
-		if err := rows.Scan(&seq, &actor, &action, &target, &dataBytes, &storedPrev, &storedHash, &createdAt); err != nil {
+		if err := rows.Scan(&seq, &actor, &action, &target, &dataBytes, &storedPrev, &storedHash, &createdAt, &canonical); err != nil {
 			return 0, "", err
-		}
-		var data map[string]any
-		if err := json.Unmarshal(dataBytes, &data); err != nil {
-			return 0, "", fmt.Errorf("seq %d: decode data: %w", seq, err)
 		}
 		if seq != wantSeq {
 			return 0, "", fmt.Errorf(
@@ -1078,9 +1148,24 @@ func verify(rows pgx.Rows, streamKey string, wantSeq int64, startPrev string) (i
 		if storedPrev != prev {
 			return 0, "", fmt.Errorf("audit chain broken at seq %d: prev_hash mismatch (record inserted, deleted, or reordered)", seq)
 		}
-		want, err := computeHash(streamKey, seq, actor, action, target, createdAt.UnixMicro(), data, storedPrev)
-		if err != nil {
-			return 0, "", err
+		// AUD-03: hash the EXACT canonical bytes the append side stored, so a
+		// payload with an integer above 2^53 verifies cleanly (a jsonb-decode +
+		// re-marshal would round-trip it through float64 and corrupt it). Rows
+		// written before the data_canonical column fall back to the pre-AUD-03
+		// recompute so their honest chains stay byte-identical.
+		var want string
+		if len(canonical) > 0 {
+			want = chainEventHash(streamKey, seq, actor, action, target, createdAt.UnixMicro(), canonical, storedPrev)
+		} else {
+			var data map[string]any
+			if err := json.Unmarshal(dataBytes, &data); err != nil {
+				return 0, "", fmt.Errorf("seq %d: decode data: %w", seq, err)
+			}
+			var err error
+			want, err = computeHash(streamKey, seq, actor, action, target, createdAt.UnixMicro(), data, storedPrev)
+			if err != nil {
+				return 0, "", err
+			}
 		}
 		if want != storedHash {
 			return 0, "", fmt.Errorf("audit chain broken at seq %d: hash mismatch (record tampered)", seq)

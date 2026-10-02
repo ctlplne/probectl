@@ -523,16 +523,11 @@ func validateProviderSource(events []Event, lastSeq int64, anchorHash string) er
 		if ev.PrevHash != prevHash {
 			return fmt.Errorf("audit: WORM source previous hash invalid at seq %d", ev.Seq)
 		}
-		wantHash, err := computeHash(
-			providerStream,
-			ev.Seq,
-			ev.Actor,
-			ev.Action,
-			ev.Target,
-			ev.CreatedAt.UnixMicro(),
-			ev.Data,
-			ev.PrevHash,
-		)
+		// AUD-03: hash the event's durable canonical bytes (eventHash falls back
+		// to the in-memory map for legacy/synthetic events), never a re-marshal
+		// of the jsonb-decoded Data — the same precision guarantee the live
+		// verify path relies on, applied here before a segment is signed.
+		wantHash, err := eventHash(providerStream, ev)
 		if err != nil {
 			return fmt.Errorf("audit: canonicalize WORM source event %d: %w", ev.Seq, err)
 		}
@@ -1346,7 +1341,7 @@ func ListProvider(ctx context.Context, pool *pgxpool.Pool, afterSeq int64, limit
 		)
 	}
 	rows, err := tx.Query(ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at, data_canonical
 		   FROM provider_audit_events
 		  WHERE seq > $1
 		  ORDER BY seq
@@ -1393,14 +1388,21 @@ func scanProviderEvent(row interface{ Scan(...any) error }) (Event, error) {
 	var (
 		ev        Event
 		dataBytes []byte
+		canonical []byte
 	)
-	if err := row.Scan(&ev.Seq, &ev.Actor, &ev.Action, &ev.Target, &dataBytes, &ev.PrevHash, &ev.Hash, &ev.CreatedAt); err != nil {
+	if err := row.Scan(&ev.Seq, &ev.Actor, &ev.Action, &ev.Target, &dataBytes, &ev.PrevHash, &ev.Hash, &ev.CreatedAt, &canonical); err != nil {
 		return Event{}, err
 	}
 	if len(dataBytes) > 0 {
 		if err := json.Unmarshal(dataBytes, &ev.Data); err != nil {
 			return Event{}, fmt.Errorf("decode provider audit event %d data: %w", ev.Seq, err)
 		}
+	}
+	// AUD-03: carry the durable canonical bytes so a later re-hash (WORM source
+	// validation) covers the exact stored sequence, not a float64-lossy re-marshal
+	// of ev.Data. Empty for rows written before the column existed.
+	if len(canonical) > 0 {
+		ev.canonicalData = canonical
 	}
 	return ev, nil
 }
