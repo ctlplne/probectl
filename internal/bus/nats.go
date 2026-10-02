@@ -60,11 +60,13 @@ type NATS struct {
 
 	workers    int
 	maxPending int
+	maxDeliver int // bounded redelivery: a poison record is terminated after this many attempts (ING-12)
 
 	produced    atomic.Uint64
 	failed      atomic.Uint64
 	shed        atomic.Uint64
 	handlerErr  atomic.Uint64
+	handlerLost atomic.Uint64 // poison records terminated after exhausting MaxDeliver — a counted loss, never silent
 	inflight    atomic.Int64
 	lastFailure atomic.Pointer[produceFailure]
 
@@ -95,6 +97,12 @@ const (
 	defaultNATSMaxAge            = 7 * 24 * time.Hour
 	defaultNATSInactiveThreshold = 7 * 24 * time.Hour
 	defaultNATSMaxPending        = 4096
+	// defaultNATSMaxDeliver bounds how many times JetStream redelivers a record
+	// whose handler keeps erroring before it is treated as poison and terminated
+	// (ING-12). A transient error gets a few redeliveries; a permanently-failing
+	// record cannot loop forever and wedge the consumer. Parity with the Kafka
+	// transport's redelivery and the in-memory bus's memoryMaxRedeliver.
+	defaultNATSMaxDeliver = 5
 	// natsKeyHeader carries the Kafka-style record key. Tenant attribution
 	// rides on it, so it is not optional metadata: the pipeline reads it.
 	natsKeyHeader = "Probectl-Key"
@@ -138,6 +146,7 @@ func NewNATS(servers []string, policy StreamPolicy, maxPending int, opts ...nats
 		stream:     policy,
 		workers:    1,
 		maxPending: maxPending,
+		maxDeliver: defaultNATSMaxDeliver,
 		streams:    map[string]struct{}{},
 	}, nil
 }
@@ -331,6 +340,13 @@ func (n *NATS) Stats() PublishStats {
 // is acknowledged only after the handler returns nil. A handler error leaves
 // the message unacknowledged (counted in HandlerErrors) and the server
 // redelivers it — the error return gates the ack, it is never discarded.
+//
+// Redelivery is BOUNDED (ING-12): a record whose handler keeps failing is
+// poison, and an unbounded Nak loop would spin the consumer forever. MaxDeliver
+// caps server redeliveries, and on the final attempt handleMessage terminates
+// the record (the server stops redelivering) and counts it as lost — observable,
+// never a silent infinite loop and never a silent drop. A transient error still
+// gets its redeliveries up to the bound, so at-least-once is unchanged for it.
 func (n *NATS) Subscribe(ctx context.Context, topic, group string, handler Handler) error {
 	if err := n.ensureStream(ctx, topic); err != nil {
 		return err
@@ -345,6 +361,9 @@ func (n *NATS) Subscribe(ctx context.Context, topic, group string, handler Handl
 		FilterSubject: topic,
 		AckWait:       30 * time.Second,
 		MaxAckPending: 1024,
+		// ING-12: cap redeliveries at the server too, so a poison record stops
+		// even if this process dies before it can terminate it explicitly.
+		MaxDeliver: n.maxDeliver,
 		// DPR-109: the server retires a durable nobody has used for this long,
 		// so abandoned per-replica view consumers cannot pile up even if no
 		// sweep ever runs.
@@ -352,27 +371,6 @@ func (n *NATS) Subscribe(ctx context.Context, topic, group string, handler Handl
 	})
 	if err != nil {
 		return fmt.Errorf("bus: nats consumer %s on %s: %w", group, topic, err)
-	}
-
-	process := func(msg jetstream.Msg) {
-		// DPR-141: every JetStream message carries the consumer's pending count,
-		// so lag costs nothing to observe here — the same trick as Kafka's high
-		// watermark, and it stays fresh as long as anything is flowing.
-		if md, err := msg.Metadata(); err == nil {
-			n.recordLag(int64(md.NumPending))
-		}
-		m := Message{Topic: msg.Subject(), Value: msg.Data()}
-		if h := msg.Headers().Get(natsKeyHeader); h != "" {
-			m.Key = []byte(h)
-		}
-		if herr := handler(ctx, m); herr != nil {
-			n.handlerErr.Add(1)
-			// No ack: the server redelivers after AckWait. The delay keeps a
-			// permanently failing record from spinning the consumer.
-			_ = msg.NakWithDelay(time.Second)
-			return
-		}
-		_ = msg.Ack()
 	}
 
 	iter, err := cons.Messages(jetstream.PullMaxMessages(256))
@@ -393,10 +391,58 @@ func (n *NATS) Subscribe(ctx context.Context, topic, group string, handler Handl
 			}
 			return fmt.Errorf("bus: nats fetch on %s: %w", topic, err)
 		}
-		process(msg)
+		n.handleMessage(ctx, msg, handler)
 	}
 	return nil
 }
+
+// handleMessage runs the handler for one delivered message and tells the server
+// what to do next (ING-12). On success it acks. On a handler error it counts the
+// error and, while the record is still BELOW its delivery bound, NAKs it for a
+// delayed redelivery (at-least-once for transient errors). Once the bound is
+// reached the record is POISON — redelivering it forever would wedge the
+// consumer — so it is TERMINATED (the server stops redelivering regardless of
+// MaxDeliver) and counted as lost: a bounded, observable failure, never a silent
+// infinite loop and never a silent drop. A non-positive bound means "unbounded"
+// (the pre-ING-12 behavior) and is used only to exercise the poison path.
+func (n *NATS) handleMessage(ctx context.Context, msg jetstream.Msg, handler Handler) {
+	// DPR-141: every JetStream message carries the consumer's pending count, so
+	// lag costs nothing to observe here — the same trick as Kafka's high
+	// watermark, and it stays fresh as long as anything is flowing. The delivery
+	// count on the same metadata is what bounds redelivery.
+	var numDelivered uint64 = 1
+	if md, err := msg.Metadata(); err == nil {
+		n.recordLag(int64(md.NumPending))
+		if md.NumDelivered > 0 {
+			numDelivered = md.NumDelivered
+		}
+	}
+	m := Message{Topic: msg.Subject(), Value: msg.Data()}
+	if h := msg.Headers().Get(natsKeyHeader); h != "" {
+		m.Key = []byte(h)
+	}
+	if herr := handler(ctx, m); herr != nil {
+		n.handlerErr.Add(1)
+		if n.maxDeliver > 0 && numDelivered >= uint64(n.maxDeliver) {
+			// Poison: stop the redelivery loop explicitly and count the loss.
+			// Term tells the server never to redeliver this record again; the
+			// loss is counted in HandlerLost so operators see it, never silent.
+			n.handlerLost.Add(1)
+			_ = msg.Term()
+			return
+		}
+		// Transient (or still within the bound): leave it unacked for a delayed
+		// redelivery. The delay keeps a failing record from spinning the consumer.
+		_ = msg.NakWithDelay(time.Second)
+		return
+	}
+	_ = msg.Ack()
+}
+
+// HandlerLost returns how many poison records were terminated after exhausting
+// their redelivery bound (ING-12). It is a real loss and is counted — never
+// silent — mirroring the in-memory bus's HandlerLost.
+func (n *NATS) HandlerLost() uint64 { return n.handlerLost.Load() }
 
 // Close flushes what is in flight (bounded, so shutdown never hangs on a dead
 // broker) and closes the connection.

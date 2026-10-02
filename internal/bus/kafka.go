@@ -348,6 +348,63 @@ func (k *Kafka) DeleteGroups(ctx context.Context, groups []string) ([]string, er
 	return deleted, refused
 }
 
+// recordOutcome pairs a consumed record with whether its handler succeeded.
+// The commit decision is made over a whole poll batch (and across batches, via
+// the session's first-failure ceiling) rather than per record, so it is
+// collected rather than acted on immediately.
+type recordOutcome struct {
+	rec *kgo.Record
+	ok  bool
+}
+
+// topicPartition identifies a Kafka partition. Commit watermarks are per
+// partition, so the "do not commit past a failure" rule is enforced per
+// partition.
+type topicPartition struct {
+	topic     string
+	partition int32
+}
+
+// markable records this batch's handler failures into the session-scoped
+// first-failure ceiling and returns the records that may be marked for commit
+// WITHOUT advancing any partition's committed offset past a record whose
+// handler errored (ING-12 — silent telemetry loss; the commit-gating sibling of
+// SCALE-007/CODE-007).
+//
+// Why a ceiling that persists across batches: franz-go's MarkCommitRecords
+// advances a partition's uncommitted head to max(current, offset+1), so marking
+// a LATER record commits past an earlier UNMARKED one — the exact defect. And a
+// record left uncommitted is only re-fetched after a rebalance/restart, never
+// again within this session, so once a partition has a failed offset F, every
+// later offset in it must stay uncommitted too (committing F+1 would strand F).
+// firstFail therefore lives for the life of the subscription: the first failure
+// in a partition pins its commit ceiling, the failed record and everything after
+// it are redelivered on the next rebalance/restart (at-least-once), and the
+// committed offset never advances past a failure. Withholding a commit is always
+// safe (it costs reprocessing, not loss); advancing one past a failure is not.
+func markable(firstFail map[topicPartition]int64, outcomes []recordOutcome) []*kgo.Record {
+	for _, o := range outcomes {
+		if o.ok {
+			continue
+		}
+		tp := topicPartition{o.rec.Topic, o.rec.Partition}
+		if cur, seen := firstFail[tp]; !seen || o.rec.Offset < cur {
+			firstFail[tp] = o.rec.Offset
+		}
+	}
+	var marks []*kgo.Record
+	for _, o := range outcomes {
+		if !o.ok {
+			continue
+		}
+		if f, blocked := firstFail[topicPartition{o.rec.Topic, o.rec.Partition}]; blocked && o.rec.Offset >= f {
+			continue // at or after the first failure in this partition: never commit past it
+		}
+		marks = append(marks, o.rec)
+	}
+	return marks
+}
+
 // Subscribe consumes topic in a consumer group until ctx is canceled.
 //
 // Delivery is TRUE at-least-once (SCALE-007): the previous code relied on
@@ -355,10 +412,17 @@ func (k *Kafka) DeleteGroups(ctx context.Context, groups []string) ([]string, er
 // of whether the handler ran — a crash between an auto-commit and the handler
 // silently lost those records, so the "at-least-once" claim was false. We now
 // use AutoCommitMarks: nothing commits until it is MARKED, and a record is
-// marked ONLY after its handler returns nil. A handler that returns an error
-// leaves the record UNMARKED (logged + counted via HandlerErrors), so the next
-// poll/rebalance redelivers it instead of skipping it (CODE-007: the handler's
-// error return is no longer silently discarded — it gates the commit).
+// marked ONLY after its handler returns nil (CODE-007: the handler's error
+// return gates the commit instead of being discarded).
+//
+// Marking is decided per POLL BATCH over the whole batch, not per record, and is
+// held to a session-scoped per-partition first-failure ceiling (markable,
+// ING-12). Marking a later record would otherwise advance the partition's
+// committed head PAST an earlier failed record — franz-go's mark is a single
+// per-partition watermark — silently skipping it. So a record whose handler
+// errors, and everything after it in that partition, stays uncommitted and is
+// redelivered on the next rebalance/restart; the committed offset never jumps a
+// failure.
 func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Handler) error {
 	resetOffset := kgo.NewOffset().AtStart()
 	if k.consumeFromEnd {
@@ -382,18 +446,21 @@ func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Hand
 	}
 	defer cl.Close()
 
-	// process runs the handler and, on success, marks the record for commit.
-	// On error it counts + logs and leaves the offset uncommitted (redelivery).
-	process := func(r *kgo.Record) {
+	// process runs the handler and reports whether it succeeded. A handler error
+	// is counted (HandlerErrors); whether its offset may be committed is decided
+	// by markable, never here. Handlers that have already accounted for a message
+	// (their own DLQ etc.) return nil; a non-nil error means "not safely handled".
+	process := func(r *kgo.Record) bool {
 		if herr := handler(ctx, Message{Topic: r.Topic, Key: r.Key, Value: r.Value}); herr != nil {
 			k.handlerErr.Add(1)
-			// No mark: the offset stays uncommitted so this record is redelivered.
-			// Handlers that have already accounted for a message (DLQ etc.) return
-			// nil; a non-nil error here means "not safely handled — keep it".
-			return
+			return false
 		}
-		cl.MarkCommitRecords(r)
+		return true
 	}
+
+	// firstFail is the session-scoped per-partition commit ceiling (ING-12): once
+	// a partition has a failed offset, nothing at or past it is ever marked.
+	firstFail := map[topicPartition]int64{}
 
 	for ctx.Err() == nil {
 		fetches := cl.PollFetches(ctx)
@@ -405,32 +472,54 @@ func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Hand
 		// EMPTY fetch carries it too, which is what keeps the number fresh on
 		// an idle topic instead of freezing at the last busy moment.
 		k.recordLag(fetches)
-		if k.workers <= 1 {
-			fetches.EachRecord(process)
+
+		// Gather the whole poll batch before deciding what to commit: the commit
+		// decision is per PARTITION (mark up to the first failure), which a
+		// per-record commit cannot make — that is exactly what let a later
+		// success commit PAST an earlier failure (ING-12).
+		var recs []*kgo.Record
+		fetches.EachRecord(func(r *kgo.Record) { recs = append(recs, r) })
+		if len(recs) == 0 {
 			continue
 		}
-		// SCALE-001: shard the poll batch by key across bounded workers; wait
-		// for the batch so offsets never run ahead of processing. Records are
-		// marked per-record inside process; MarkCommitRecords is concurrency-safe.
-		shards := make([][]*kgo.Record, k.workers)
-		fetches.EachRecord(func(r *kgo.Record) {
-			i := int(shardKey(r.Key)) % k.workers
-			shards[i] = append(shards[i], r)
-		})
-		var wg sync.WaitGroup
-		for _, shard := range shards {
-			if len(shard) == 0 {
-				continue
+		outcomes := make([]recordOutcome, len(recs))
+
+		if k.workers <= 1 {
+			for i, r := range recs {
+				outcomes[i] = recordOutcome{rec: r, ok: process(r)}
 			}
-			wg.Add(1)
-			go func(rs []*kgo.Record) {
-				defer wg.Done()
-				for _, r := range rs {
-					process(r)
+		} else {
+			// SCALE-001: shard the batch by key across bounded workers — records
+			// sharing a key stay FIFO (per-tenant order holds), distinct keys run
+			// concurrently. Each worker writes only its own outcome indices, so the
+			// slice is race-free, and the whole batch is awaited before any commit.
+			shards := make([][]int, k.workers)
+			for i, r := range recs {
+				s := int(shardKey(r.Key)) % k.workers
+				shards[s] = append(shards[s], i)
+			}
+			var wg sync.WaitGroup
+			for _, idxs := range shards {
+				if len(idxs) == 0 {
+					continue
 				}
-			}(shard)
+				wg.Add(1)
+				go func(idxs []int) {
+					defer wg.Done()
+					for _, i := range idxs {
+						outcomes[i] = recordOutcome{rec: recs[i], ok: process(recs[i])}
+					}
+				}(idxs)
+			}
+			wg.Wait()
 		}
-		wg.Wait()
+
+		// Mark only what is safe to commit without jumping a failure. Marks feed
+		// AutoCommitMarks; the periodic flusher and the commit-on-leave can only
+		// ever flush these, so neither can outrun the handler or skip a failure.
+		if marks := markable(firstFail, outcomes); len(marks) > 0 {
+			cl.MarkCommitRecords(marks...)
+		}
 	}
 	return nil
 }
