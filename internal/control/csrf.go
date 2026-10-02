@@ -37,16 +37,27 @@ func (s *Server) csrfGuard(next http.Handler) http.Handler {
 	})
 }
 
-// cookieAuthenticated reports whether the request is driven by the ambient
+// cookieAuthenticated reports whether the request is driven by an ambient
 // session cookie rather than an explicit bearer token. A bearer token takes
 // precedence in resolution and is not ambient, so a request that presents one
 // is treated as token-authenticated (no CSRF exposure).
+//
+// BOTH privilege domains' cookies count (AUTHZ-05): the tenant session and the
+// provider-operator session. The operator cookie is SameSite=Strict, but Strict
+// still rides same-site requests, so a sibling subdomain of the MSP's own domain
+// (the finding's threat model) could otherwise drive an operator's browser to
+// suspend/offboard/erase a tenant or approve a break-glass grant. The guard must
+// see the operator cookie or those mutations get no origin check at all.
 func cookieAuthenticated(r *http.Request) bool {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
 		return false
 	}
-	_, err := r.Cookie(auth.SessionCookie)
-	return err == nil
+	for _, name := range []string{auth.SessionCookie, auth.ProviderSessionCookie} {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // sameOriginHost reports whether an Origin header names the same host:port the

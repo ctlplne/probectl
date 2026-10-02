@@ -16,8 +16,16 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 )
 
-// SessionCookie is the name of the session cookie.
+// SessionCookie is the name of the tenant session cookie.
 const SessionCookie = "probectl_session"
+
+// ProviderSessionCookie is the name of the provider-operator session cookie — a
+// privilege domain distinct from the tenant session. It is declared here in the
+// core auth package (the ee/ provider plane references it) so the core CSRF
+// guard can recognize it as an ambient, cross-origin-exploitable cookie without
+// importing ee/ (AUTHZ-05: the guard was blind to this cookie, leaving every
+// operator mutation — suspend/offboard/erase/break-glass — unprotected).
+const ProviderSessionCookie = "probectl_provider_session"
 
 const (
 	// DefaultSessionTTL is the absolute session lifetime used when no positive

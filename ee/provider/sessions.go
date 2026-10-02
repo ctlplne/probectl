@@ -27,8 +27,10 @@ import (
 // re-login after a control-plane restart is an acceptable (even desirable)
 // property for a high-privilege domain.
 
-// SessionCookie is the provider-domain session cookie name.
-const SessionCookie = "probectl_provider_session"
+// SessionCookie is the provider-domain session cookie name. It is sourced from
+// the core auth package so the core CSRF guard and this plane agree on the one
+// wire name (AUTHZ-05); ee/ may import core, never the reverse.
+const SessionCookie = auth.ProviderSessionCookie
 
 const sessionTTL = 4 * time.Hour
 
