@@ -26,10 +26,15 @@ admission:
     # approved dev exception.
     validationFailureAction: Enforce
     background: false
+    # RTO-12: match the agent image under ANY registry (the second glob covers
+    # registry-swapped mirrors), else a mirror pull is admitted unverified.
     imageReferences:
       - ghcr.io/ctlplne/probectl-ebpf-agent*
+      - "*/ctlplne/probectl-ebpf-agent*"
     issuer: https://token.actions.githubusercontent.com
     subjectRegExp: ^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/.*
+    # RTO-12: pin the transparency log so keyless verification is deterministic.
+    rekorURL: https://rekor.sigstore.dev
   # EBPF-007: background/admission audit for the agent's capability posture.
   # This does not block the explicit legacy SYS_ADMIN break-glass by default;
   # it creates Kyverno policy reports when a pod runs legacy or gains any

@@ -44,4 +44,8 @@ spec:
                 - keyless:
                     issuer: {{ $policy.issuer | quote }}
                     subjectRegExp: {{ $policy.subjectRegExp | quote }}
+                    {{- if $policy.rekorURL }}
+                    rekor:
+                      url: {{ $policy.rekorURL | quote }}
+                    {{- end }}
 {{- end }}

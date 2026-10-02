@@ -18,8 +18,15 @@ spec:
               kinds:
                 - Pod
       verifyImages:
+        # RTO-12: match the agent image under ANY registry, not just ghcr.io.
+        # verifyImages only verifies refs that MATCH imageReferences; anything
+        # unmatched is skipped and admitted UNVERIFIED, so a pull from a mirror
+        # (mirror.example.com/ctlplne/probectl-ebpf-agent@sha256:...) bypassed
+        # the signature check entirely. The second glob covers registry-swapped
+        # mirrors; the ghcr.io entry stays for clarity.
         - imageReferences:
             - ghcr.io/ctlplne/probectl-ebpf-agent*
+            - "*/ctlplne/probectl-ebpf-agent*"
           required: true
           mutateDigest: false
           verifyDigest: true
@@ -29,3 +36,8 @@ spec:
                 - keyless:
                     issuer: https://token.actions.githubusercontent.com
                     subjectRegExp: ^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/.*
+                    # RTO-12: pin the transparency log so keyless verification is
+                    # deterministic (the GitHub Actions keyless signature is
+                    # Rekor-logged); without this the tlog endpoint is implicit.
+                    rekor:
+                      url: https://rekor.sigstore.dev
