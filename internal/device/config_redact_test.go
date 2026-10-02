@@ -54,6 +54,10 @@ func TestRedactConfigVendorSecrets(t *testing.T) {
 		{"ikev1 keyring psk address", "pre-shared-key address 203.0.113.1 key MyKeyringPSK123", "MyKeyringPSK123", "pre-shared-key"},
 		{"ikev1 keyring psk hostname", "pre-shared-key hostname peer.example.net key HostKeyPSK456", "HostKeyPSK456", "pre-shared-key"},
 		{"snmpv3 auth sha-256 hyphen", "snmp-server user u g v3 auth sha-256 HyphAuthPass priv aes-128 HyphPrivPass", "HyphAuthPass", "auth sha-256"},
+		{"hsrp auth text", " standby 1 authentication text HsrpTextPass", "HsrpTextPass", "standby 1 authentication"},
+		{"hsrp auth text type7", " standby 1 authentication text 7 09604F0B1A08", "09604F0B1A08", "standby 1 authentication"},
+		{"hsrp auth bare", " standby 1 authentication HsrpPlainPass", "HsrpPlainPass", "standby 1 authentication"},
+		{"vrrp auth text", " vrrp 1 authentication text VrrpTextPass", "VrrpTextPass", "vrrp 1 authentication"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

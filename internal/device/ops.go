@@ -315,6 +315,12 @@ var configRedactRules = []struct {
 	// Routing-protocol auth: (ip ospf / ntp) authentication-key, message-digest-key.
 	{regexp.MustCompile(`(?i)\b(authentication-key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
 	{regexp.MustCompile(`(?i)\b(message-digest-key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	// First-hop redundancy (HSRP/VRRP/GLBP) authentication: `standby N
+	// authentication [text] [7] <key>` and bare `authentication <key>` (Cisco
+	// IOS/IOS-XE, cleartext or reversible type-7 in running-config). The md5
+	// key-chain variant names a chain (not a secret; its key-string is redacted
+	// by the key-string rule), so at worst the `md5` keyword is over-masked.
+	{regexp.MustCompile(`(?i)\b((?:standby|vrrp|glbp)\s+\d+\s+authentication\s+(?:text\s+)?(?:\d+\s+)?)` + cfgVal), `${1}[redacted]`},
 	// IPsec/ISAKMP: crypto isakmp key VALUE (address|hostname …) — key token only,
 	// so the trailing address/hostname structure is preserved.
 	{regexp.MustCompile(`(?i)\b(crypto\s+isakmp\s+key\s+)` + cfgVal), `${1}[redacted]`},
