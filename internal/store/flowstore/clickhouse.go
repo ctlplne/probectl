@@ -1013,10 +1013,30 @@ func (c *ClickHouse) Capacity(ctx context.Context, q CapacityQuery) ([]CapacityP
 	return out, nil
 }
 
+// preDedupName is the data-preserving copy a dedup migration retains
+// (v2 RENAMEs <table> TO <table>_pre_dedup and keeps it). Erasure must reach
+// this copy too (TEN-03): it holds the same per-tenant rows, so a deletion
+// that skipped it would leave a tenant's data behind while the deletion
+// attestation reported verified_zero.
+func preDedupName(table string) string { return table + "_pre_dedup" }
+
+// tableExists reports whether table (optionally db-qualified) exists on base.
+// A fresh install that never ran the dedup migration has no _pre_dedup copy,
+// and DELETE on a missing table errors — so erasure probes first.
+func (c *ClickHouse) tableExists(ctx context.Context, base, table string) (bool, error) {
+	rows, err := c.query(ctx, base, "EXISTS TABLE "+table, chParams{})
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0 && chToUint64(rows[0]["result"]) == 1, nil
+}
+
 // DeleteTenant removes EVERY flow of one tenant. A siloed tenant's database
-// is DROPPED (the whole container); pooled tenants get a synchronous
-// lightweight-delete mutation (mutations_sync=2 — the call returns only when
-// the rows are gone, so the returned remaining-count is a real verification).
+// is DROPPED (the whole container — including any _pre_dedup copy); pooled
+// tenants get a synchronous lightweight-delete mutation (mutations_sync=2 —
+// the call returns only when the rows are gone, so the returned
+// remaining-count is a real verification), applied to the live flows+rollup
+// tables AND the retained pre-dedup flows copy (TEN-03).
 func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, error) {
 	if tenantID == "" {
 		return 0, ErrNoTenant
@@ -1031,7 +1051,18 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		}
 		return 0, nil
 	}
-	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
+	tables := []string{sharedFlowsTable, sharedFlowRollupsTable}
+	// TEN-03: a v2 dedup migration RENAMEs the v1 flows table to
+	// probectl_flows_pre_dedup and retains it with every tenant's pre-dedup
+	// rows. Erase this tenant's rows there too and count them, so verified_zero
+	// cannot report Complete while the tenant's data survives in the retained
+	// copy. (The rollup table has no pre-dedup copy.)
+	if ok, err := c.tableExists(ctx, t.BaseURL, preDedupName(sharedFlowsTable)); err != nil {
+		return -1, fmt.Errorf("flowstore: delete tenant: pre-dedup probe: %w", err)
+	} else if ok {
+		tables = append(tables, preDedupName(sharedFlowsTable))
+	}
+	for _, table := range tables {
 		if err := c.exec(ctx, t.BaseURL,
 			"DELETE FROM "+table+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2",
 			chParams{"tenant": tenantID}, nil); err != nil {
@@ -1039,7 +1070,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		}
 	}
 	var remaining int64
-	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
+	for _, table := range tables {
 		rows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
 			"SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}",
 			chParams{"tenant": tenantID})
@@ -1074,13 +1105,29 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 		return 0, -1, err
 	}
 	p := chParams{"tenant": tenantID, "subject": subject}
-	before, err := c.countSubject(ctx, t.BaseURL, tenantID, table, p)
-	if err != nil {
-		return 0, -1, err
+	// TEN-03: DeleteSubject keeps the database (even for siloed tenants), so the
+	// retained pre-dedup flows copy is not otherwise erased. Include it when a
+	// dedup migration created it (pooled: probectl_flows_pre_dedup; siloed:
+	// <db>.probectl_flows_pre_dedup — tableFor already qualifies `table`).
+	subjectTables := []string{table}
+	if ok, err := c.tableExists(ctx, t.BaseURL, preDedupName(table)); err != nil {
+		return 0, -1, fmt.Errorf("flowstore: delete subject: pre-dedup probe: %w", err)
+	} else if ok {
+		subjectTables = append(subjectTables, preDedupName(table))
 	}
-	if err := c.exec(ctx, t.BaseURL,
-		"DELETE FROM "+table+" WHERE "+flowSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
-		return 0, -1, fmt.Errorf("flowstore: delete subject: %w", err)
+	var before int64
+	for _, tb := range subjectTables {
+		n, err := c.countSubject(ctx, t.BaseURL, tenantID, tb, p)
+		if err != nil {
+			return 0, -1, err
+		}
+		before += n
+	}
+	for _, tb := range subjectTables {
+		if err := c.exec(ctx, t.BaseURL,
+			"DELETE FROM "+tb+" WHERE "+flowSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
+			return 0, -1, fmt.Errorf("flowstore: delete subject: %w", err)
+		}
 	}
 	if rollup, rerr := rollupTableFor(t); rerr != nil {
 		return 0, -1, rerr
@@ -1088,9 +1135,13 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 		"DELETE FROM "+rollup+" WHERE "+flowRollupSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
 		return 0, -1, fmt.Errorf("flowstore: delete subject rollups: %w", err)
 	}
-	remaining, err = c.countSubject(ctx, t.BaseURL, tenantID, table, p)
-	if err != nil {
-		return 0, -1, err
+	remaining = 0
+	for _, tb := range subjectTables {
+		n, err := c.countSubject(ctx, t.BaseURL, tenantID, tb, p)
+		if err != nil {
+			return 0, -1, err
+		}
+		remaining += n
 	}
 	return before - remaining, remaining, nil
 }

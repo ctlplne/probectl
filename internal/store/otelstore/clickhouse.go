@@ -661,6 +661,24 @@ LIMIT {lim:UInt32}`
 // TENANT-008). Like flowstore, the mutation runs mutations_sync=2 so it
 // returns only once the rows are gone — making the post-delete count a REAL
 // verification: deleted = before-after, remaining = after (0 when clean).
+// preDedupName is the data-preserving copy the v2 OTLP dedup migration retains
+// (RENAME <table> TO <table>_pre_dedup). Erasure must reach it too (TEN-03):
+// the retained spans/logs copies hold the same tenant rows, so a deletion that
+// skipped them would leave data behind while the attestation reported
+// verified_zero.
+func preDedupName(table string) string { return table + "_pre_dedup" }
+
+// tableExists reports whether the (db-qualified when siloed) table exists on
+// base. A store that never ran the dedup migration has no _pre_dedup copy, and
+// ALTER ... DELETE on a missing table errors — so erasure probes first.
+func (c *ClickHouse) tableExists(ctx context.Context, base, qualified string) (bool, error) {
+	rows, err := c.query(ctx, base, "", "EXISTS TABLE "+qualified, chParams{})
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0 && i64(rows[0]["result"]) == 1, nil
+}
+
 func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, remaining int, err error) {
 	if tenant == "" {
 		return 0, -1, ErrNoTenant // TENANT-003: never mutate across all tenants
@@ -670,7 +688,8 @@ func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, r
 		return 0, -1, err
 	}
 	// TENANT-001: a siloed tenant's whole database is DROPPED (the spans + logs
-	// tables and the database go together) — count-verified as zero.
+	// tables, their _pre_dedup copies, and the database go together) —
+	// count-verified as zero.
 	if t.Database != "" {
 		if err := c.DropTenantDatabase(ctx, t); err != nil {
 			return 0, -1, err
@@ -678,20 +697,31 @@ func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, r
 		return 0, 0, nil
 	}
 	for _, table := range []string{spansTable, logsTable} {
-		before, err := c.countTenant(ctx, t, table, tenant)
-		if err != nil {
-			return 0, -1, err
+		tables := []string{table}
+		// TEN-03: a v2 dedup migration retains probectl_otel_{spans,logs}_pre_dedup
+		// with every tenant's pre-dedup rows; erase this tenant's rows there too
+		// and count them, so verified_zero reflects the retained copy.
+		if ok, err := c.tableExists(ctx, t.BaseURL, preDedupName(table)); err != nil {
+			return 0, -1, fmt.Errorf("otelstore: erase tenant: pre-dedup probe: %w", err)
+		} else if ok {
+			tables = append(tables, preDedupName(table))
 		}
-		if err := c.execAt(ctx, t.BaseURL, "ALTER TABLE "+table+" DELETE WHERE tenant_id = {tenant:String} SETTINGS mutations_sync = 2",
-			chParams{"tenant": tenant}, nil); err != nil {
-			return 0, -1, err
+		for _, tb := range tables {
+			before, err := c.countTenant(ctx, t, tb, tenant)
+			if err != nil {
+				return 0, -1, err
+			}
+			if err := c.execAt(ctx, t.BaseURL, "ALTER TABLE "+tb+" DELETE WHERE tenant_id = {tenant:String} SETTINGS mutations_sync = 2",
+				chParams{"tenant": tenant}, nil); err != nil {
+				return 0, -1, err
+			}
+			after, err := c.countTenant(ctx, t, tb, tenant)
+			if err != nil {
+				return 0, -1, err
+			}
+			deleted += before - after
+			remaining += after
 		}
-		after, err := c.countTenant(ctx, t, table, tenant)
-		if err != nil {
-			return 0, -1, err
-		}
-		deleted += before - after
-		remaining += after
 	}
 	return deleted, remaining, nil
 }
@@ -720,23 +750,38 @@ func (c *ClickHouse) EraseSubject(ctx context.Context, tenant, subject string) (
 		{spansTable, otelSpanSubjectPredicate()},
 		{logsTable, otelLogSubjectPredicate()},
 	} {
-		before, err := c.countSubject(ctx, t, spec.table, tenant, spec.predicate, p)
+		tables := []string{spec.table}
+		// TEN-03: EraseSubject keeps the database (even for siloed tenants), so
+		// the retained pre-dedup copy is not otherwise erased. Include it when a
+		// dedup migration created it (qualify handles the siloed <db>. prefix).
+		qpre, err := qualify(t, preDedupName(spec.table))
 		if err != nil {
 			return deleted, -1, err
 		}
-		qt, err := qualify(t, spec.table)
-		if err != nil {
-			return deleted, -1, err
+		if ok, err := c.tableExists(ctx, t.BaseURL, qpre); err != nil {
+			return deleted, -1, fmt.Errorf("otelstore: erase subject: pre-dedup probe: %w", err)
+		} else if ok {
+			tables = append(tables, preDedupName(spec.table))
 		}
-		if err := c.execAt(ctx, t.BaseURL, "ALTER TABLE "+qt+" DELETE WHERE "+spec.predicate+" SETTINGS mutations_sync = 2", p, nil); err != nil {
-			return deleted, -1, err
+		for _, tb := range tables {
+			before, err := c.countSubject(ctx, t, tb, tenant, spec.predicate, p)
+			if err != nil {
+				return deleted, -1, err
+			}
+			qt, err := qualify(t, tb)
+			if err != nil {
+				return deleted, -1, err
+			}
+			if err := c.execAt(ctx, t.BaseURL, "ALTER TABLE "+qt+" DELETE WHERE "+spec.predicate+" SETTINGS mutations_sync = 2", p, nil); err != nil {
+				return deleted, -1, err
+			}
+			after, err := c.countSubject(ctx, t, tb, tenant, spec.predicate, p)
+			if err != nil {
+				return deleted, -1, err
+			}
+			deleted += before - after
+			remaining += after
 		}
-		after, err := c.countSubject(ctx, t, spec.table, tenant, spec.predicate, p)
-		if err != nil {
-			return deleted, -1, err
-		}
-		deleted += before - after
-		remaining += after
 	}
 	return deleted, remaining, nil
 }
