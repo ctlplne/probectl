@@ -69,6 +69,40 @@ func TestStoreOpenPingPool(t *testing.T) {
 	}
 }
 
+// TestReadinessPingReflectsReadAvailability is the RTO-18 (code-side) regression.
+// Multi-region: when the writer endpoint is lost, the replica-region node must
+// still be READY to serve READS, so the readiness probe (DB.Ping) must reflect
+// READ-availability, not writer-availability. With a read replica configured and
+// the writer pool closed (writer unreachable), Ping must still succeed. Pre-fix
+// Ping pinged the writer pool and failed the instant the writer was gone — the
+// "/readyz not_ready on every replica" half of the finding. (The authenticated-
+// read-serving half — routing /v1 reads to the replica under writer loss — is a
+// read-locality architecture change parked for a real failover rig; D-28.)
+func TestReadinessPingReflectsReadAvailability(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, dsn(), 5, 1, 5*time.Second)
+	if err != nil {
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
+	}
+	if err := db.Ping(ctx); err != nil {
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
+	}
+	// A reachable local read replica (same DSN stands in for the replica-region
+	// reader) — a distinct pool from the writer.
+	if err := db.WithReadReplica(ctx, dsn(), 2, 0, 5*time.Second); err != nil {
+		t.Fatalf("WithReadReplica: %v", err)
+	}
+	readPool := db.ReadPool()
+	t.Cleanup(func() { readPool.Close() })
+
+	// Simulate the writer endpoint being lost: close the writer pool. Reads must
+	// keep serving off the replica, so readiness must stay healthy.
+	db.Pool().Close()
+	if err := db.Ping(ctx); err != nil {
+		t.Fatalf("RTO-18: readiness ping failed when only the writer is lost (reads should remain available via the replica): %v", err)
+	}
+}
+
 // Users: create, CreateSCIM (+ strOrNil/orEmptyAttrs/statusOrActive), get,
 // getByExternalID, Update, updateStatus, list (all + filtered), Delete.
 func TestUserLifecycleStore(t *testing.T) {

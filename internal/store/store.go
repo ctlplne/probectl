@@ -129,8 +129,13 @@ func (db *DB) afterConnect(ctx context.Context, conn *pgx.Conn) error {
 	return err
 }
 
-// Ping verifies connectivity; used by the readiness probe.
-func (db *DB) Ping(ctx context.Context) error { return db.pool.Ping(ctx) }
+// Ping verifies connectivity for the readiness probe. It pings the READ pool
+// (RTO-18): readiness means the node can serve READS, and in a multi-region
+// deployment the replica-region node must stay ready (200) off its local
+// replica when the writer endpoint is lost — write-availability is reported
+// separately via the cluster view's writes_usable. With no replica configured
+// ReadPool() is the writer pool, so single-region behavior is unchanged.
+func (db *DB) Ping(ctx context.Context) error { return db.ReadPool().Ping(ctx) }
 
 // Pool returns the writer pool for repositories and the migration runner.
 func (db *DB) Pool() *pgxpool.Pool { return db.pool }
