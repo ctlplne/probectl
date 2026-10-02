@@ -415,13 +415,13 @@ func (tc *TopologyConsumer) handleBGPLane(_ context.Context, msg bus.Message, la
 		tc.log.Warn("topology: skipping malformed bgp event", "error", err)
 		return nil
 	}
-	if _, err := bindBGPEventAuthenticatedTenant(&ev, msg, laneTenant); err != nil {
+	if _, err := bindBGPEventAuthenticatedTenant(&ev, msg, laneTenant, tc.strictLane); err != nil {
 		if errors.Is(err, errBGPMissingTenantEnvelope) {
 			tc.ledger.addUnscoped("bgp", 1)
 		} else {
 			tc.ledger.addRejected("bgp", 1)
 		}
-		tc.log.Error("topology: rejecting bgp event tenant envelope (RED-005, fail closed)",
+		tc.log.Error("topology: rejecting bgp event tenant envelope (RED-005/AUTHZ-11, fail closed)",
 			"key_tenant", string(msg.Key), "lane_tenant", laneTenant, "payload_tenant", ev.GetTenantId(), "error", err.Error())
 		return nil
 	}

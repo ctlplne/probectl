@@ -51,6 +51,16 @@ type EBPFTLSPostureConsumer struct {
 	nsTenants map[string]string
 	log       *slog.Logger
 
+	// strictLane (RTP-02, WIRE-001): refuse eBPF batches on the shared pooled
+	// lane so a forged (tenant, agent) pair — even a registered one — cannot
+	// project a TLS posture row under a victim tenant. AUTHZ-11: the consumer
+	// verified only with the non-strict helper, so in a strict (regulated /
+	// multi-tenant) profile a producer-asserted tenant on the shared lane was
+	// still honored. Requiring the tenant-namespaced lane closes it, matching
+	// the flow/device/NDR/carbon consumers. nil binding + strict still refuses
+	// the shared lane (fail closed).
+	strictLane bool
+
 	// DPR-196: skip reasons are counted and summarized, not logged per batch.
 	skipMu     sync.Mutex
 	skipTotals map[string]uint64
@@ -82,6 +92,14 @@ func (cs *EBPFTLSPostureConsumer) WithTenantBinding(binding pipeline.TenantBindi
 // WithNamespaceTenants fans the consumer into siloed/hybrid lanes.
 func (cs *EBPFTLSPostureConsumer) WithNamespaceTenants(ns map[string]string) *EBPFTLSPostureConsumer {
 	cs.nsTenants = ns
+	return cs
+}
+
+// WithStrictTenantLanes refuses agent-published eBPF batches on the shared
+// pooled lane (RTP-02, WIRE-001, AUTHZ-11), requiring the tenant-namespaced
+// lane — the only authoritative path a forged payload tenant_id cannot reach.
+func (cs *EBPFTLSPostureConsumer) WithStrictTenantLanes(strict bool) *EBPFTLSPostureConsumer {
+	cs.strictLane = strict
 	return cs
 }
 
@@ -120,10 +138,15 @@ func (cs *EBPFTLSPostureConsumer) handleLane(ctx context.Context, msg bus.Messag
 	if len(calls) == 0 {
 		return nil
 	}
-	if cs.binding != nil {
-		if _, _, err := pipeline.VerifyBatchTenant(ctx, cs.binding, laneTenant, ids); err != nil {
-			cs.log.Error("REJECTED eBPF TLS posture batch: tenant verification failed (fail closed)",
-				"claimed_tenant", calls[0].GetTenantId(), "agent_id", calls[0].GetAgentId(), "error", err.Error())
+	if cs.binding != nil || cs.strictLane {
+		// RTP-02/AUTHZ-11: strict-lane verification. In a strict profile the
+		// shared pooled lane is refused outright (even for a registered pair,
+		// even with no binding), so a producer-asserted tenant cannot project a
+		// posture row under a victim tenant; non-strict keeps the registry check.
+		if _, _, err := pipeline.VerifyBatchTenantStrict(ctx, cs.binding, laneTenant, cs.strictLane, ids); err != nil {
+			cs.log.Error("REJECTED eBPF TLS posture batch: tenant verification failed (WIRE-001/AUTHZ-11, fail closed)",
+				"claimed_tenant", calls[0].GetTenantId(), "agent_id", calls[0].GetAgentId(),
+				"lane_tenant", laneTenant, "error", err.Error())
 			return nil
 		}
 	} else if !homogeneousTLSIdentities(ids) {

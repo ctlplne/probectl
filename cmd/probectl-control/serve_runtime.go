@@ -726,6 +726,7 @@ func (rt *serveRuntime) startBGPIncidentConsumer() {
 			return control.NewBGPIncidentConsumer(rt.resultBus, rt.correlator, rt.log).
 				WithSIEM(rt.siemFwd). // DPR-079
 				WithNamespaceTenants(snap.tenants).
+				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				Run(ctx)
 		})
 	})
@@ -832,7 +833,8 @@ func (rt *serveRuntime) startTLSPostureSinks() {
 	rt.resultViewSinks = append(rt.resultViewSinks, control.ResultSink{Name: "tls-posture-view", Fn: tlsView.SinkPosture})
 	ebpfTLSView := control.NewEBPFTLSPostureConsumer(rt.resultBus, rt.tlsPostures, tlsAnalyzer, rt.log).
 		WithTenantBinding(rt.tenantBinding).
-		WithNamespaceTenants(rt.nsTenants)
+		WithNamespaceTenants(rt.nsTenants).
+		WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes)
 	rt.g.Go(func() error {
 		return superviseBusLaneRestart(rt.gctx, "tls-posture-ebpf-lanes", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return ebpfTLSView.WithNamespaceTenants(snap.tenants).Run(ctx)

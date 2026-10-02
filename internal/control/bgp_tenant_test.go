@@ -26,7 +26,7 @@ func TestBindBGPEventAuthenticatedTenantAcceptsBucketedKeys(t *testing.T) {
 			ev := &bgpv1.BGPEvent{TenantId: "tenant-a"}
 			got, err := bindBGPEventAuthenticatedTenant(ev, bus.Message{
 				Key: bus.TenantKey("tenant-a", "rrc00"),
-			}, tc.laneTenant)
+			}, tc.laneTenant, false)
 			if err != nil || got != "tenant-a" || ev.GetTenantId() != "tenant-a" {
 				t.Fatalf("binding = %q event=%q error=%v", got, ev.GetTenantId(), err)
 			}
@@ -38,7 +38,7 @@ func TestBindBGPEventAuthenticatedTenantRejectsBucketedCrossTenantPayload(t *tes
 	ev := &bgpv1.BGPEvent{TenantId: "tenant-b"}
 	_, err := bindBGPEventAuthenticatedTenant(ev, bus.Message{
 		Key: bus.TenantKey("tenant-a", "rrc00"),
-	}, "")
+	}, "", false)
 	if !errors.Is(err, errBGPTenantEnvelopeMismatch) {
 		t.Fatalf("error = %v, want tenant envelope mismatch", err)
 	}

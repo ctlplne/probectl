@@ -271,6 +271,10 @@ type BGPIncidentConsumer struct {
 	siem       *siem.Forwarder // DPR-079: routing signals are exported like every other threat-plane signal
 	log        *slog.Logger
 	nsTenants  map[string]string
+	// strictLane (RTP-02, WIRE-001, AUTHZ-11): refuse BGP events on the shared
+	// pooled lane, where the tenant is carried only by the forgeable message
+	// key. The namespaced lane is the authoritative path. fail closed.
+	strictLane bool
 }
 
 // NewBGPIncidentConsumer builds the consumer.
@@ -297,6 +301,13 @@ func (cs *BGPIncidentConsumer) WithNamespaceTenants(ns map[string]string) *BGPIn
 	return cs
 }
 
+// WithStrictTenantLanes refuses BGP events on the shared pooled lane (RTP-02,
+// WIRE-001, AUTHZ-11), requiring the tenant-namespaced lane.
+func (cs *BGPIncidentConsumer) WithStrictTenantLanes(strict bool) *BGPIncidentConsumer {
+	cs.strictLane = strict
+	return cs
+}
+
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cs *BGPIncidentConsumer) LaneFanoutEnabled() bool { return true }
 
@@ -311,8 +322,8 @@ func (cs *BGPIncidentConsumer) handleLane(ctx context.Context, msg bus.Message, 
 		cs.log.Warn("skipping malformed bgp event", "error", err)
 		return nil
 	}
-	if _, err := bindBGPEventAuthenticatedTenant(&ev, msg, laneTenant); err != nil {
-		cs.log.Error("REJECTED bgp event: tenant envelope rejected (RED-005, fail closed)",
+	if _, err := bindBGPEventAuthenticatedTenant(&ev, msg, laneTenant, cs.strictLane); err != nil {
+		cs.log.Error("REJECTED bgp event: tenant envelope rejected (RED-005/AUTHZ-11, fail closed)",
 			"key_tenant", string(msg.Key), "lane_tenant", laneTenant, "payload_tenant", ev.GetTenantId(), "error", err.Error())
 		return nil
 	}

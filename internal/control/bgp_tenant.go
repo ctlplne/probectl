@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/bus"
 	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
 var (
@@ -19,9 +20,23 @@ var (
 	errBGPTenantEnvelopeMismatch = errors.New("bgp event tenant envelope/payload mismatch")
 )
 
-func bindBGPEventAuthenticatedTenant(ev *bgpv1.BGPEvent, msg bus.Message, laneTenant string) (string, error) {
+// bindBGPEventAuthenticatedTenant reconciles the lane envelope, message-key and
+// payload tenant for a BGP event and rewrites the payload to the authenticated
+// value (RED-005, fail closed on any disagreement).
+//
+// strict (RTP-02, WIRE-001, AUTHZ-11): on the SHARED pooled lane (laneTenant
+// == "") the tenant is carried only by the producer-set message key, which a
+// bus actor can forge. In a strict (regulated / multi-tenant) profile the
+// shared lane is refused outright — the only authoritative path is a
+// tenant-namespaced lane (broker-ACL isolated, single-tenant by construction) —
+// so a forged key cannot drive a BGP-derived incident/SIEM/routing record under
+// a victim tenant. Non-strict deployments keep the key-envelope reconciliation.
+func bindBGPEventAuthenticatedTenant(ev *bgpv1.BGPEvent, msg bus.Message, laneTenant string, strict bool) (string, error) {
 	if ev == nil {
 		return "", errBGPMissingTenantEnvelope
+	}
+	if strict && laneTenant == "" {
+		return "", pipeline.ErrSharedLaneForbidden
 	}
 	keyTenant := bus.TenantFromKey(msg.Key)
 	envelopeTenant := laneTenant
