@@ -2,13 +2,20 @@
 
 probectl is built to run in networks with no internet egress (the sovereignty
 posture — telemetry never leaves the operator's network, and there is no
-phone-home). Each release publishes one signed tarball you carry across the air
-gap; everything installs from it offline.
+phone-home). A release that completes the air-gap bundle job publishes one
+signed tarball you carry across the air gap; everything installs from it
+offline. **Not every release carries the bundle** — it depends on the chart,
+image, binary and package jobs all succeeding — so set `version` below to a
+release whose assets actually include `probectl-airgap-<version>.tar.gz`; see
+`docs/ops/verify-artifacts.md` for which releases do (v0.6.5, for example, did
+not — its chart job failed, so the bundle was skipped).
 
 ## Acquiring the bundle (connected side)
 
 ```sh
-version=0.6.5
+# Set this to a release whose assets include the air-gap tarball (see
+# docs/ops/verify-artifacts.md); it is not guaranteed on every tag.
+version="${version:?set to a release that published probectl-airgap-<version>.tar.gz}"
 gh release download "v${version}" --repo ctlplne/probectl \
   --pattern "probectl-airgap-${version}.tar.gz*"
 cosign verify-blob \
@@ -33,13 +40,13 @@ checkout is not enough: first acquire the release inputs into `dist/`, then run
 the builder, which also pulls the tagged images from GHCR:
 
 ```sh
-version=0.6.5
+version="${version:?set to the release tag you are assembling the bundle for}"
 git checkout "v${version}"
 mkdir -p dist
 gh release download "v${version}" --repo ctlplne/probectl --dir dist
 docker login ghcr.io
 DIST=dist make airgap-bundle VERSION="${version}"
-# → probectl-airgap-0.6.5.tar.gz
+# → probectl-airgap-${version}.tar.gz
 ```
 
 The bundle contains:
@@ -76,7 +83,7 @@ The bundle contains:
 3. **Install the control plane** from the bundled chart, pointing image
    repositories at your internal registry:
    ```
-   helm install probectl charts/probectl-0.6.5.tgz \
+   helm install probectl charts/probectl-${version}.tgz \
      -f your-values.yaml \
      --set image.repository=registry.internal/probectl \
      --set-string image.digest='sha256:<internal-mirror-digest>'
