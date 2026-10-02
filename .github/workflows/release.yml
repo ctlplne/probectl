@@ -158,6 +158,11 @@ jobs:
 
   images:
     name: images (${{ matrix.component }})
+    # SUP-03: the publishing jobs run under the `release` GitHub Environment so a
+    # release requires environment approval (a second human) even after a tag is
+    # pushed. The required-reviewers protection is configured on the Environment
+    # in repo settings (D-24); declaring it here is the in-repo half.
+    environment: release
     needs: [require-green-ci, completeness-release-gate, components-match-makefile, license-trust-anchor]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -265,6 +270,7 @@ jobs:
 
   binaries:
     name: binaries + checksums + release
+    environment: release # SUP-03: environment-gated publish (see images job)
     needs: [require-green-ci, completeness-release-gate, license-trust-anchor]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -372,6 +378,7 @@ jobs:
 
   publish-chart:
     name: publish helm chart (OCI)
+    environment: release # SUP-03: environment-gated publish (see images job)
     # OPS-001: a chart that lags the app version is the
     # 0.1.0-chart-deploys-a-control-plane-that-refuses-v0.4.0-agents trap. Assert
     # the chart's appVersion matches the release tag before publishing, and push
@@ -443,6 +450,7 @@ jobs:
 
   packages:
     name: deb/rpm packages (${{ matrix.agent }})
+    environment: release # SUP-03: environment-gated publish (see images job)
     # OPS-004: build a signed deb + rpm per agent type via nfpm and attach them
     # to the release. The binaries job produces the cross-compiled static
     # binaries this consumes; the signed apt/yum repo publish is a follow-on
