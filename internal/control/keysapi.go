@@ -90,8 +90,17 @@ func (s *Server) handleKeysRotate(w http.ResponseWriter, r *http.Request) error 
 		if errors.Is(err, tenantcrypto.ErrKeyRotationUnavailable) {
 			return apierror.Internal("key rotation failed").Wrap(err)
 		}
+		if errors.Is(err, tenantcrypto.ErrBYOKRefRejected) {
+			// AUTHZ-10: a tenant-supplied BYOK reference the deployment policy
+			// refused (forbidden scheme, literal material, wrong namespace, or
+			// unresolvable). Return ONE fixed message for every such rejection —
+			// the specific reason is logged server side only, so this surface is
+			// not an existence oracle for the deployment's secret store
+			// (docs/guardrails.md G7-1, G7-6). Never echo err.Error() here.
+			return apierror.Validation("byok_ref is not an allowed secret reference for this tenant")
+		}
 		// Rotation failures are actionable client problems more often than
-		// server faults (dead BYOK refs are rejected by the lockout guard).
+		// server faults.
 		return apierror.Validation(err.Error())
 	}
 	writeJSON(w, http.StatusOK, kv)

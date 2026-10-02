@@ -40,12 +40,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
@@ -123,15 +125,74 @@ type Store interface {
 // returned bytes when the keyring is done decoding them.
 type RefResolver func(ctx context.Context, ref string) ([]byte, func(), error)
 
+// TenantToken, when it appears in a BYOK reference prefix, is replaced with the
+// tenant id at check time so each tenant is pinned to its OWN reference
+// namespace — a tenant admin cannot name another tenant's (or the deployment's)
+// secret. docs/configuration.md documents the operator knob.
+const TenantToken = "{tenant}"
+
+// BYOKRefPolicy restricts which secret references a TENANT may bind as its BYOK
+// key source. A BYOK reference submitted through the per-tenant keys API is
+// UNTRUSTED tenant input that the keyring resolves with the DEPLOYMENT's own
+// secret-store credentials; without this fence a tenant admin could point the
+// control plane's resolver at any secret it can read (confused deputy / SSRF
+// into the deployment secret store) or store literal key material verbatim in
+// the DB (docs/guardrails.md G7-1, G7-6). The policy pins an operator-configured
+// scheme+prefix; an empty prefix refuses BYOK references entirely (fail closed).
+type BYOKRefPolicy struct {
+	prefix string
+}
+
+// NewBYOKRefPolicy builds the policy from the operator-configured allowed
+// reference prefix (PROBECTL_BYOK_REF_PREFIX), e.g.
+// "vault:secret/data/probectl/byok/{tenant}/". An optional {tenant} token is
+// substituted with the tenant id so references are per-tenant namespaced. An
+// empty prefix means BYOK references are refused (fail closed) until an operator
+// configures the namespace.
+func NewBYOKRefPolicy(prefix string) BYOKRefPolicy {
+	return BYOKRefPolicy{prefix: strings.TrimSpace(prefix)}
+}
+
+func (p BYOKRefPolicy) allowedPrefixFor(tenantID string) string {
+	return strings.ReplaceAll(p.prefix, TenantToken, tenantID)
+}
+
+// reject returns a non-empty SERVER-SIDE reason category when ref is not an
+// allowed BYOK reference for tenantID, or "" when it passes. It is pure (no
+// I/O), the unit-testable core of the tenant-input gate. The reason strings are
+// fixed categories (never tenant input) safe to log; callers must surface only
+// the generic tenantcrypto.ErrBYOKRefRejected to the client.
+func (p BYOKRefPolicy) reject(tenantID, ref string) string {
+	r := strings.TrimSpace(ref)
+	if p.prefix == "" {
+		return "no byok reference namespace is configured for this deployment (PROBECTL_BYOK_REF_PREFIX)"
+	}
+	// env: would read the control plane's OWN process environment; a literal
+	// (or the literal: escape) would store key MATERIAL verbatim in the DB.
+	// Both are refused explicitly before the prefix check for a clear reason.
+	if strings.HasPrefix(r, "env:") {
+		return "env scheme is not tenant-bindable (reads the control plane's process environment)"
+	}
+	if !secrets.IsRef(r) {
+		return "value is a literal, not a secret reference"
+	}
+	if want := p.allowedPrefixFor(tenantID); !strings.HasPrefix(r, want) {
+		return "reference is outside the tenant's configured namespace"
+	}
+	return ""
+}
+
 // Keyring implements tenantcrypto.Sealer + Destroyer over a Store: the
 // per-tenant envelope. KEKs cache briefly; every cache entry is keyed
 // (tenant, version) — one tenant's key can never answer for another's.
 type Keyring struct {
-	store   Store
-	master  *crypto.Envelope // wraps managed KEKs at rest
-	resolve RefResolver      // BYOK material at use time
-	now     func() time.Time
-	ttl     time.Duration
+	store     Store
+	master    *crypto.Envelope // wraps managed KEKs at rest
+	resolve   RefResolver      // BYOK material at use time
+	refPolicy BYOKRefPolicy    // AUTHZ-10: fence on tenant-supplied BYOK refs (fail closed)
+	log       *slog.Logger     // server-side rejection detail (never the ref value)
+	now       func() time.Time
+	ttl       time.Duration
 
 	byokTTL time.Duration // KEYS-002: BYOK cache TTL (default 0 = resolve-on-every-use)
 
@@ -170,7 +231,25 @@ func NewKeyring(store Store, master *crypto.Envelope, resolve RefResolver) (*Key
 		return nil, errors.New("tenantkeys: store and the deployment master envelope are required")
 	}
 	return &Keyring{store: store, master: master, resolve: resolve,
+		refPolicy: BYOKRefPolicy{}, log: slog.Default(),
 		now: time.Now, ttl: 30 * time.Second, byokTTL: 0, cache: map[string]cachedKEK{}}, nil
+}
+
+// WithBYOKRefPolicy pins the deployment's allowed tenant BYOK reference
+// namespace (AUTHZ-10). The attach seam wires it from PROBECTL_BYOK_REF_PREFIX;
+// the zero value refuses every BYOK reference (fail closed).
+func (k *Keyring) WithBYOKRefPolicy(p BYOKRefPolicy) *Keyring {
+	k.refPolicy = p
+	return k
+}
+
+// WithLogger sets the logger used for the server-side detail of a rejected BYOK
+// reference (the generic error alone crosses the API). nil keeps the default.
+func (k *Keyring) WithLogger(l *slog.Logger) *Keyring {
+	if l != nil {
+		k.log = l
+	}
+	return k
 }
 
 // withClock overrides time (tests).
@@ -447,8 +526,19 @@ func (k *Keyring) RotateAudited(ctx context.Context, tenantID, actor, mode, byok
 	}
 
 	if mode == ModeBYOK {
-		if err := k.validateBYOKReference(ctx, byokRef); err != nil {
-			return nil, fmt.Errorf("tenantkeys: byok reference rejected before activation (lockout guard): %w", err)
+		// AUTHZ-10: the reference is untrusted tenant input resolved with the
+		// deployment's own secret-store credentials. Fence it to the operator-
+		// configured per-tenant namespace BEFORE resolving (confused-deputy /
+		// SSRF guard), then require it to resolve to valid material (the lockout
+		// guard). Every rejection — policy OR resolution — surfaces the single
+		// generic tenantcrypto.ErrBYOKRefRejected; the reason is logged server
+		// side only so the surface is not an existence oracle (G7-1, G7-6).
+		if reason := k.refPolicy.reject(tenantID, byokRef); reason != "" {
+			k.logBYOKReject(tenantID, reason)
+			return nil, tenantcrypto.ErrBYOKRefRejected
+		}
+		if err := k.validateBYOKReference(ctx, tenantID, byokRef); err != nil {
+			return nil, err
 		}
 	}
 
@@ -502,14 +592,20 @@ func (k *Keyring) RotateAudited(ctx context.Context, tenantID, actor, mode, byok
 
 // validateBYOKReference resolves and decodes a customer key without populating
 // the key cache. Rotation validation must be side-effect free: a transaction
-// failure cannot leave an uncommitted successor's raw bytes cached.
-func (k *Keyring) validateBYOKReference(ctx context.Context, ref string) error {
+// failure cannot leave an uncommitted successor's raw bytes cached. The caller
+// has already fenced the reference with the BYOK ref policy (AUTHZ-10); a
+// resolution/decode failure here returns the SAME generic rejection as a policy
+// failure (reason logged server side only), so a dead reference is not
+// distinguishable from a forbidden one at the API boundary.
+func (k *Keyring) validateBYOKReference(ctx context.Context, tenantID, ref string) error {
 	if k.resolve == nil {
-		return fmt.Errorf("%w: no secret-reference resolver configured for byok", ErrKeyUnavailable)
+		k.logBYOKReject(tenantID, "no secret-reference resolver is configured for byok")
+		return tenantcrypto.ErrBYOKRefRejected
 	}
 	material, cleanup, err := k.resolve(ctx, ref)
 	if err != nil {
-		return fmt.Errorf("%w: byok reference: %v", ErrKeyUnavailable, err)
+		k.logBYOKReject(tenantID, "reference did not resolve")
+		return tenantcrypto.ErrBYOKRefRejected
 	}
 	if cleanup != nil {
 		defer cleanup()
@@ -519,9 +615,21 @@ func (k *Keyring) validateBYOKReference(ctx context.Context, ref string) error {
 	n, err := base64.StdEncoding.Decode(decoded, trimmed)
 	defer zeroize(decoded)
 	if err != nil || n != 32 {
-		return fmt.Errorf("%w: byok material must be base64 of exactly 32 bytes", ErrKeyUnavailable)
+		k.logBYOKReject(tenantID, "resolved material is not base64 of exactly 32 bytes")
+		return tenantcrypto.ErrBYOKRefRejected
 	}
 	return nil
+}
+
+// logBYOKReject records the SERVER-SIDE reason a tenant BYOK reference was
+// refused. It never logs the reference value or resolved material (G7-6); the
+// reason is always a fixed category string authored here, never tenant input.
+func (k *Keyring) logBYOKReject(tenantID, reason string) {
+	logger := k.log
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Warn("byok reference rejected (AUTHZ-10)", "tenant_id", tenantID, "reason", reason)
 }
 
 // DestroyKeys implements tenantcrypto.Destroyer: cryptographic offboarding.

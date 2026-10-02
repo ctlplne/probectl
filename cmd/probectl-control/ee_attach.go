@@ -198,6 +198,13 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		if err != nil {
 			return err
 		}
+		// AUTHZ-10: fence tenant-supplied BYOK references to the operator-
+		// configured per-tenant namespace. Empty prefix = BYOK refs refused
+		// (fail closed); managed rotation is unaffected.
+		ring = ring.WithBYOKRefPolicy(tenantkeys.NewBYOKRefPolicy(cfg.BYOKRefPrefix)).WithLogger(log)
+		if cfg.BYOKRefPrefix == "" {
+			log.Warn("byok licensed but PROBECTL_BYOK_REF_PREFIX is unset: tenant BYOK references are refused (fail closed); set the allowed per-tenant reference namespace to enable BYOK (docs/configuration.md, AUTHZ-10)")
+		}
 		tenantcrypto.SetPrimary(ring) // dv1 opener stays registered (main)
 		srv.WithKeyManager(tenantcrypto.GateKeyManagerWrites(tenantkeys.NewManager(ring), writeCapability))
 		log.Info("per-tenant key isolation attached (S-T6)", "scheme", "tk1", "modes", "managed|byok")

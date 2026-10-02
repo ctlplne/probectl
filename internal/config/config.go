@@ -131,6 +131,17 @@ type Config struct {
 	// any key material. An explicit EnvelopeKey (KMS/secret-manager injected)
 	// always wins. See docs/hardening.md.
 	EnvelopeKeyFile string
+	// BYOKRefPrefix (AUTHZ-10) fences the S41 secret references a TENANT may
+	// bind as its BYOK key source through /v1/security/keys/rotate. A BYOK ref
+	// is UNTRUSTED tenant input the control plane resolves with its OWN
+	// secret-store credentials, so without this fence a tenant admin could aim
+	// the resolver at any secret it can read (confused deputy) or store literal
+	// key material in the DB. It is the allowed reference prefix, e.g.
+	// "vault:secret/data/probectl/byok/{tenant}/"; an optional {tenant} token is
+	// replaced with the tenant id so each tenant is pinned to its own namespace.
+	// EMPTY (the default) refuses every tenant BYOK reference (fail closed) —
+	// managed-mode rotation is unaffected. See docs/configuration.md, docs/byok.md.
+	BYOKRefPrefix string
 	// PublicTLS (SEC-009) asserts the DEPLOYMENT EDGE serves TLS even when
 	// this process's own listener is plaintext (TLS-terminating ingress) —
 	// it drives the Secure attribute on cookies. The Helm chart sets it.
@@ -897,6 +908,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.EnvelopeKeyID = l.str("PROBECTL_ENVELOPE_KEY_ID", "dev")
 	cfg.EnvelopeOpenerKeys = l.str("PROBECTL_ENVELOPE_OPENER_KEYS", "")
 	cfg.EnvelopeKeyFile = l.str("PROBECTL_ENVELOPE_KEY_FILE", "")
+	cfg.BYOKRefPrefix = l.str("PROBECTL_BYOK_REF_PREFIX", "")
 	cfg.PublicTLS = l.boolean("PROBECTL_PUBLIC_TLS", false)
 	cfg.AllowPlaintextHTTP = l.boolean("PROBECTL_ALLOW_PLAINTEXT_HTTP", false)
 	cfg.BusWorkers = l.intRange("PROBECTL_BUS_WORKERS", 4, 0, 256)

@@ -2455,13 +2455,23 @@ documented in `docs/metering.md`.
 
 BYOK is *bring your own key*: a tenant supplies (and can revoke) the encryption
 key its data is sealed under, instead of trusting the operator's. Unlocked by
-the `byok` feature (Enterprise). No new config keys: the keyring
-wraps managed tenant KEKs under **`PROBECTL_ENVELOPE_KEY`** (required when
-byok is licensed — startup fails loudly without it) and resolves BYOK
-references through the secret backends. Surfaces: `GET/POST
-/v1/security/keys[...]` (permission `security.keys`) + the Admin →
-Encryption keys card. The full model — sealing formats, rotation, the BYOK
-lockout warning, crypto-offboarding — is in `docs/byok.md`.
+the `byok` feature (Enterprise). The keyring wraps managed tenant KEKs under
+**`PROBECTL_ENVELOPE_KEY`** (required when byok is licensed — startup fails
+loudly without it) and resolves BYOK references through the secret backends.
+Surfaces: `GET/POST /v1/security/keys[...]` (permission `security.keys`) + the
+Admin → Encryption keys card. The full model — sealing formats, rotation, the
+BYOK lockout warning, crypto-offboarding — is in `docs/byok.md`.
+
+A BYOK reference submitted through `POST /v1/security/keys/rotate` is
+**untrusted tenant input** that the control plane resolves with its **own**
+secret-store credentials. `PROBECTL_BYOK_REF_PREFIX` fences which references a
+tenant may bind so a tenant admin cannot aim the resolver at any secret it can
+read (confused deputy) or store literal key material in the DB (AUTHZ-10;
+`docs/guardrails.md` G7-1, G7-6):
+
+| key | default | meaning |
+| --- | --- | --- |
+| `PROBECTL_BYOK_REF_PREFIX` | (none) | the allowed secret-reference prefix for tenant BYOK references, e.g. `vault:secret/data/probectl/byok/{tenant}/`. An optional `{tenant}` token is replaced with the tenant id so each tenant is pinned to its **own** namespace. `env:` and literal/bare values are always refused (they would read the control plane's environment, or persist key material). **Empty (the default) refuses every tenant BYOK reference — fail closed**; set it to the operator-owned per-tenant namespace to enable BYOK. Managed-mode rotation is unaffected. A refused reference returns one generic `422`; the specific reason is logged server-side only. |
 
 ### Tenant fairness (core)
 

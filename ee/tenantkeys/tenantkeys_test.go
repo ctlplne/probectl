@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -45,6 +46,11 @@ func newRing(t *testing.T, resolve RefResolver) (*Keyring, *MemStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// AUTHZ-10: the zero-value policy refuses every BYOK reference (fail
+	// closed). Tests that exercise BYOK use the "vault:kv/" namespace, so pin
+	// a matching operator policy here; the dedicated AUTHZ-10 tests install
+	// their own stricter policy.
+	k.WithBYOKRefPolicy(NewBYOKRefPolicy("vault:kv/"))
 	return k, store
 }
 
@@ -874,5 +880,168 @@ func TestStatusNeverLeaksMaterial(t *testing.T) {
 	raw, _ := store.Chain(ctx, "tnA")
 	if len(raw[0].WrappedKEK) == 0 {
 		t.Fatal("the store must retain the wrapped KEK")
+	}
+}
+
+// --- AUTHZ-10: tenant BYOK reference policy -------------------------------
+
+// authz10Prefix is the operator-configured per-tenant allowed namespace used by
+// the AUTHZ-10 tests: each tenant may only name references under its OWN prefix.
+const authz10Prefix = "vault:secret/probectl/byok/{tenant}/"
+
+// authz10Ring builds a keyring whose resolver returns valid 32-byte material
+// ONLY for the one in-namespace reference. The policy must fence every other
+// (untrusted) reference BEFORE resolution, so reaching the resolver for any
+// other value is itself a failure — that is how the confused-deputy path is
+// proven cut, and how literal/bare material is proven never resolved or stored.
+func authz10Ring(t *testing.T, allowedRef string) (*Keyring, *MemStore) {
+	t.Helper()
+	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	resolve := func(_ context.Context, ref string) ([]byte, func(), error) {
+		if ref == allowedRef {
+			b := []byte(material)
+			return b, func() { crypto.Zeroize(b) }, nil
+		}
+		t.Errorf("AUTHZ-10: resolver reached for a ref the policy must refuse: %q", ref)
+		return nil, nil, errors.New("tenantkeys_test: resolver must not be reached")
+	}
+	store := newMemStore()
+	k, err := NewKeyring(store, testMaster(t), resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.WithBYOKRefPolicy(NewBYOKRefPolicy(authz10Prefix))
+	return k, store
+}
+
+// TestBYOKRefPolicyRejectsUntrustedRefs (AUTHZ-10) proves the keyring refuses
+// every tenant-supplied reference outside the operator policy with ONE generic
+// error, accepts an in-namespace reference, and NEVER persists literal material.
+func TestBYOKRefPolicyRejectsUntrustedRefs(t *testing.T) {
+	const tenantA = "tnA"
+	allowed := "vault:secret/probectl/byok/" + tenantA + "/kek"
+	k, store := authz10Ring(t, allowed)
+	m := NewManager(k)
+	ctx := context.Background()
+
+	bare := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	bad := []struct{ name, ref string }{
+		{"env-set", "env:PROBECTL_SESSION_HMAC_KEY"},
+		{"env-missing", "env:NOPE"},
+		{"literal-escape", "literal:" + bare},
+		{"bare-base64-material", bare},
+		{"out-of-namespace-vault", "vault:secret/probectl/byok/tnOTHER/kek"},
+	}
+
+	var messages []string
+	for _, c := range bad {
+		_, err := m.RotateKey(ctx, tenantA, "admin@example.test", ModeBYOK, c.ref)
+		if err == nil {
+			t.Fatalf("%s: ref %q was accepted; must be rejected", c.name, c.ref)
+		}
+		if !errors.Is(err, tenantcrypto.ErrBYOKRefRejected) {
+			t.Fatalf("%s: error is not the generic BYOK rejection: %v", c.name, err)
+		}
+		messages = append(messages, err.Error())
+	}
+	// Existence-oracle check: every rejection yields an IDENTICAL message, so a
+	// forbidden/dead/out-of-namespace ref cannot be told apart at the boundary.
+	for i := 1; i < len(messages); i++ {
+		if messages[i] != messages[0] {
+			t.Fatalf("rejection messages diverge (existence oracle):\n  %q (%s)\n  %q (%s)",
+				messages[0], bad[0].name, messages[i], bad[i].name)
+		}
+	}
+
+	// Plaintext-storage closed: none of the rejected refs (literal or bare
+	// base64 key material) were persisted — the chain stays empty.
+	if chain, err := store.Chain(ctx, tenantA); err != nil || len(chain) != 0 {
+		t.Fatalf("rejected refs must not persist any key version: chain=%+v err=%v", chain, err)
+	}
+
+	// An in-namespace reference is accepted and stored as a POINTER, not material.
+	info, err := m.RotateKey(ctx, tenantA, "admin@example.test", ModeBYOK, allowed)
+	if err != nil || info.Mode != ModeBYOK || info.State != StateActive {
+		t.Fatalf("in-namespace byok ref must rotate in: %+v %v", info, err)
+	}
+	chain, err := store.Chain(ctx, tenantA)
+	if err != nil || len(chain) != 1 {
+		t.Fatalf("accepted byok ref must persist exactly one version: %+v %v", chain, err)
+	}
+	if chain[0].BYOKRef != allowed {
+		t.Fatalf("stored byok_ref = %q, want the reference pointer %q", chain[0].BYOKRef, allowed)
+	}
+	if strings.Contains(chain[0].BYOKRef, bare) {
+		t.Fatal("tenant_keys.byok_ref must never contain key material")
+	}
+}
+
+// TestBYOKRefPolicyRESTGenericError (AUTHZ-10) drives the real handler through
+// the control server and asserts every rejection is a 422 with a single fixed
+// client message (request_id aside), bare key material is refused (never
+// stored), and an in-namespace reference is accepted.
+func TestBYOKRefPolicyRESTGenericError(t *testing.T) {
+	const tenantID = "00000000-0000-0000-0000-000000000011"
+	allowed := "vault:secret/probectl/byok/" + tenantID + "/kek"
+	ring, store := authz10Ring(t, allowed)
+	manager := tenantcrypto.GateKeyManagerWrites(
+		NewManager(ring),
+		license.WriteCapability(func() bool { return true }),
+	)
+	cfg := &config.Config{HTTPAddr: ":0", HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "session"}
+	srv := control.New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil).
+		WithKeyManager(manager)
+
+	post := func(body string) (int, string) {
+		principal := &auth.Principal{
+			TenantID: tenantID, UserID: "admin", Email: "admin@example.test",
+			Permissions: map[string]bool{"security.keys": true},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/v1/security/keys/rotate", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		var env struct {
+			Error struct {
+				Code, Message string
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		return rec.Code, env.Error.Code + "|" + env.Error.Message
+	}
+
+	bare := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	bad := []string{
+		`{"mode":"byok","byok_ref":"env:PROBECTL_SESSION_HMAC_KEY"}`,
+		`{"mode":"byok","byok_ref":"env:NOPE"}`,
+		`{"mode":"byok","byok_ref":"literal:` + bare + `"}`,
+		`{"mode":"byok","byok_ref":"` + bare + `"}`,
+		`{"mode":"byok","byok_ref":"vault:secret/probectl/byok/tnOTHER/kek"}`,
+	}
+	var want string
+	for i, body := range bad {
+		code, msg := post(body)
+		if code != http.StatusUnprocessableEntity {
+			t.Fatalf("rejection %d: status=%d body-msg=%q, want 422", i, code, msg)
+		}
+		if i == 0 {
+			want = msg
+			continue
+		}
+		if msg != want {
+			t.Fatalf("rejection %d returned a DIFFERENT client message (existence oracle):\n  %q\n  %q", i, want, msg)
+		}
+	}
+
+	// Bare base64 key material must never have been stored as a byok version.
+	if chain, err := store.Chain(context.Background(), tenantID); err != nil || len(chain) != 0 {
+		t.Fatalf("a rejected literal must not persist: chain=%+v err=%v", chain, err)
+	}
+
+	// An in-namespace reference is accepted (200).
+	code, msg := post(`{"mode":"byok","byok_ref":"` + allowed + `"}`)
+	if code != http.StatusOK {
+		t.Fatalf("in-namespace byok ref: status=%d msg=%q, want 200", code, msg)
 	}
 }

@@ -291,6 +291,17 @@ type KeyInfo struct {
 // or misclassify a failed mandatory audit append as a client error.
 var ErrKeyRotationUnavailable = errors.New("tenantcrypto: key rotation unavailable")
 
+// ErrBYOKRefRejected marks a tenant-supplied BYOK secret reference that the
+// deployment's reference policy refuses: a forbidden scheme (e.g. env:), a
+// literal/bare value (which would be stored as key MATERIAL, not a pointer), or
+// a path outside the tenant's operator-configured namespace. The reference is
+// untrusted tenant input resolved with the DEPLOYMENT's own secret-store
+// credentials, so the specific reason is logged server-side only and this one
+// generic sentinel crosses the API — the keys surface must never become an
+// existence oracle for the deployment's secret store (docs/guardrails.md G7-1,
+// G7-6). Transport surfaces map it to a single fixed client message.
+var ErrBYOKRefRejected = errors.New("tenantcrypto: byok reference is not an allowed secret reference for this tenant")
+
 // KeyManager manages a tenant's key chain (implemented by ee/tenantkeys;
 // installed at the attach seam; absent = the surface hides). RotateKey must
 // commit its key mutation and mandatory tenant audit event atomically.
