@@ -155,7 +155,23 @@ func (r *TrapReceiver) Listen(ctx context.Context, addr string) error {
 		<-ctx.Done()
 		tl.Close()
 	}()
-	return tl.Listen(addr)
+	// ING-05 defense in depth: a panic inside gosnmp's read loop (e.g. a nil
+	// dereference on a malformed or unexpected v3 datagram) runs on this
+	// goroutine and would otherwise take down the whole device agent. Recover
+	// it into an error so only the listener stops, loudly, and device polling
+	// survives. The primary fix prevents the known panic; this bounds any other.
+	return listenWithRecover(func() error { return tl.Listen(addr) })
+}
+
+// listenWithRecover runs the trap listener and converts a panic into an error
+// instead of letting it unwind past the device-agent goroutine (ING-05).
+func listenWithRecover(listen func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("device trap: listener panicked (recovered): %v", r)
+		}
+	}()
+	return listen()
 }
 
 // decodeAndRecord decodes a raw SNMP trap datagram, authenticates it against the
@@ -224,6 +240,14 @@ func (r *TrapReceiver) authenticate(pkt *gosnmp.SnmpPacket, remote *net.UDPAddr)
 		}
 		return TrapSource{}, "", errors.New("device trap: unauthenticated snmpv2c community/source")
 	case gosnmp.Version3:
+		// ING-04: refuse any v3 trap that does not carry the authentication flag
+		// (noAuthNoPriv). Every configured source has auth credentials, so an
+		// unauthenticated trap is never legitimate; gosnmp's table decode leaves
+		// a noAuthNoPriv packet's HMAC unverified, so this is the authoritative
+		// gate for it. (docs/guardrails.md G7-12: authenticated ingest, fail closed.)
+		if pkt.MsgFlags&gosnmp.AuthNoPriv == 0 {
+			return TrapSource{}, "", errors.New("device trap: snmpv3 trap without authentication (noAuthNoPriv) refused")
+		}
 		user := trapUsername(pkt)
 		var fallback *TrapSource
 		fallbacks := 0
@@ -278,14 +302,25 @@ func trapSNMPParams(sources []TrapSource, health *ingesthealth.Monitor) (*gosnmp
 		}
 	}
 	params := &gosnmp.GoSNMP{Logger: logger}
-	if len(v3Params) == 1 {
+	if len(v3Params) >= 1 {
 		params.Version = gosnmp.Version3
 		params.SecurityModel = gosnmp.UserSecurityModel
+		// ING-04: gosnmp's live listener decodes with UnmarshalTrap(msg,false).
+		// Its non-table path keys authentication on the LISTENER's MsgFlags,
+		// which were never set (noAuthNoPriv=0), so the single-source listener
+		// never verified the HMAC and accepted forged and wrong-key traps.
+		// Requiring AuthNoPriv forces that path to run isAuthentic.
+		params.MsgFlags = gosnmp.AuthNoPriv
+		// ING-05: gosnmp's listenUDP dereferences Params.SecurityParameters for
+		// the listener's authoritative engine ID on every v3 packet. With more
+		// than one source it was left nil (only the table was set) and the first
+		// v3 trap panicked the whole device agent. Always keep a non-nil template
+		// (the first source's USM); the table drives per-credential verification
+		// when there is more than one source.
 		params.SecurityParameters = v3Params[0]
-	} else if len(v3Params) > 1 {
-		params.Version = gosnmp.Version3
-		params.SecurityModel = gosnmp.UserSecurityModel
-		params.TrapSecurityParametersTable = table
+		if len(v3Params) > 1 {
+			params.TrapSecurityParametersTable = table
+		}
 	}
 	return params, nil
 }

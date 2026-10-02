@@ -256,6 +256,10 @@ func snmpTrapFixtureV2C(t *testing.T, community, trapOID string, ifIndex uint32)
 	return raw
 }
 
+// snmpTrapFixtureEngineID is a valid RFC3411 SnmpEngineID (5–32 octets) used by
+// the v3 fixtures so they are authenticated the way a real router trap is.
+const snmpTrapFixtureEngineID = "\x80\x00\x1f\x88\x80\xde\xad\xbe\xef"
+
 func snmpTrapFixtureV3(t *testing.T, user, authPass, trapOID string, ifIndex uint32) []byte {
 	t.Helper()
 	capture, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
@@ -269,6 +273,13 @@ func snmpTrapFixtureV3(t *testing.T, user, authPass, trapOID string, ifIndex uin
 		UserName:                 user,
 		AuthenticationProtocol:   gosnmp.SHA,
 		AuthenticationPassphrase: authPass,
+		// A real router trap is the authoritative engine and carries its own
+		// engine id; without one gosnmp emits an UNauthenticated datagram (flags
+		// noAuthNoPriv) whose HMAC nothing verifies. Set it so the fixture is a
+		// genuinely signed AuthNoPriv trap (ING-04).
+		AuthoritativeEngineID:    snmpTrapFixtureEngineID,
+		AuthoritativeEngineBoots: 1,
+		AuthoritativeEngineTime:  1,
 	}
 	sender := &gosnmp.GoSNMP{
 		Target:             "127.0.0.1",
