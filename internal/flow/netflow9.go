@@ -115,6 +115,17 @@ func (d *nf9Decoder) parseOptionsTemplates(b []byte, exporter string, domain uin
 			return
 		}
 		nScope, nOpt := scopeBytes/4, optionBytes/4
+		// ING-06 (docs/guardrails.md G7-12: untrusted ingest, fail closed): the
+		// scope/option byte counts are only bounded by the flowset length, so a
+		// crafted options template may declare up to a whole flowset of field
+		// specs (~16k). Sizing the field slice from that — and caching it under
+		// a distinct template ID per datagram — lets an exporter accrete
+		// unbounded collector heap in the template cache. Cap the field count at
+		// the same bound the data-template parser enforces and drop anything
+		// larger (keep what we already parsed; the exporter re-sends on error).
+		if nScope+nOpt > 512 {
+			return
+		}
 		fields := make([]templateField, 0, nScope+nOpt)
 		for i := 0; i < nScope+nOpt; i++ {
 			fields = append(fields, templateField{ID: r.U16(), Length: r.U16()})
