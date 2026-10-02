@@ -481,8 +481,8 @@
     "database": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "url": { "type": "string", "minLength": 1 } },
-      "required": ["url"]
+      "$comment": "RTO-10: url is NOT unconditionally required here — it is required only when secrets.existingSecret is unset (enforced by the root allOf below and by templates/secret.yaml). An existingSecret supplies PROBECTL_DATABASE_URL directly, and the Terraform module + Argo CD/Flux GitOps manifests use exactly that path, so a hard minLength:1 here rejected every secret-managed install before the template could run.",
+      "properties": { "url": { "type": "string" } }
     },
     "service": {
       "type": "object",
@@ -579,6 +579,29 @@
     "affinity": { "type": "object" }
   },
   "allOf": [
+    {
+      "$comment": "RTO-10: database.url is required ONLY when no managed secret supplies the DSN. With secrets.existingSecret set, PROBECTL_DATABASE_URL comes from that Secret (templates/secret.yaml renders no DSN itself), which is exactly how the Terraform module and the Argo CD/Flux GitOps manifests install — so requiring database.url there forced the operator to duplicate the DSN into values (and into Git/Terraform state).",
+      "if": {
+        "not": {
+          "properties": {
+            "secrets": {
+              "properties": { "existingSecret": { "type": "string", "minLength": 1 } },
+              "required": ["existingSecret"]
+            }
+          },
+          "required": ["secrets"]
+        }
+      },
+      "then": {
+        "required": ["database"],
+        "properties": {
+          "database": {
+            "required": ["url"],
+            "properties": { "url": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
