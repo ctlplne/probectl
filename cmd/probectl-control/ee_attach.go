@@ -7,7 +7,8 @@
 //go:build !probectl_core
 
 // Commercial linkage seam: imported ee/ source is governed separately by
-// ee/LICENSE; this MPL-licensed wiring file grants no rights to that source.
+// ee/LICENSE; this BUSL-1.1 wiring file (a core cmd/ file, per the SPDX header
+// above) grants no rights to that source.
 //
 // This file is THE sanctioned ee attach seam (allowlisted in
 // scripts/check_editions_imports.sh): the one place core meets ee/. The
