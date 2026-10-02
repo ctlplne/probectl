@@ -40,6 +40,7 @@ func renderHelmConfigMap(t *testing.T, extra ...string) ([]byte, error) {
 	t.Helper()
 	args := []string{
 		"template", "probectl", "deploy/helm/probectl",
+		"--set", "control.trustedProxies={10.244.0.0/16}",
 		"--show-only", "templates/configmap.yaml",
 		"--set", "ingress.host=h.example.com",
 		"--set", "ingress.tlsSecretName=probectl-tls",

@@ -16,6 +16,7 @@ func renderHelmAgentListener(t *testing.T, showOnly string, extra ...string) (st
 	t.Helper()
 	args := []string{
 		"template", "probectl", "deploy/helm/probectl",
+		"--set", "control.trustedProxies={10.244.0.0/16}",
 		"--namespace", "probectl",
 		"--show-only", showOnly,
 		"--set", "ingress.host=h.example.com",

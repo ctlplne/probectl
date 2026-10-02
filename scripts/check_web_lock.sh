@@ -68,14 +68,26 @@ if [ "${SELFTEST:-0}" = "1" ]; then
   trap 'rm -rf "$tmp"' EXIT
   cp web/package.json "$tmp/package.json"
 
-  # (a) a node the tree needs, deleted — the ac90177 shape.
+  # (a) a node the tree needs, deleted — the ac90177 shape. Prefer esbuild (the
+  # original case); when the tree no longer pulls it, fall back to any direct,
+  # non-optional dependency's node, whose removal makes `npm ci` fail with the
+  # same tree-inconsistency (EUSAGE) this must catch. Never assume a specific
+  # transitive package exists — that made the selftest itself crash once the
+  # bundler stopped depending on esbuild.
   python3 - "$tmp/missing-lock.json" <<'PY'
 import json, sys
 lock = json.load(open('web/package-lock.json'))
 pk = lock['packages']
 victim = next((k for k in pk if k.endswith('node_modules/vitest/node_modules/esbuild')), None)
 if victim is None:
-    victim = next(k for k in pk if k.endswith('node_modules/esbuild'))
+    victim = next((k for k in pk if k.endswith('node_modules/esbuild')), None)
+if victim is None:
+    root = pk.get('', {})
+    needed = list(root.get('dependencies') or {}) + list(root.get('devDependencies') or {})
+    victim = next((f'node_modules/{n}' for n in needed
+                   if f'node_modules/{n}' in pk and not pk[f'node_modules/{n}'].get('optional')), None)
+if victim is None:
+    sys.exit('check_web_lock SELFTEST: found no deletable node to plant the missing-dependency shape')
 del pk[victim]
 json.dump(lock, open(sys.argv[1], 'w'), indent=2)
 print(f"planted: removed {victim}", file=sys.stderr)

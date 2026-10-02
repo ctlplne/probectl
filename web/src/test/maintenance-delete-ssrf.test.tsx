@@ -15,7 +15,7 @@ import { useDeleteMaintenanceWindow } from '../api/alerts'
 // into a cross-route, same-origin DELETE (confused deputy).
 describe('maintenance window delete encodes the id (WEB-01)', () => {
   test('a traversal id stays a single encoded segment, not a cross-route path', async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
     const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     const wrapper = ({ children }: { children: React.ReactNode }) => (

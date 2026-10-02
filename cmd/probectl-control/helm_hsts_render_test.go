@@ -36,6 +36,7 @@ func TestHelmRenderedHSTSConfigLoads(t *testing.T) {
 	)
 	common := []string{
 		"template", "probectl", "deploy/helm/probectl",
+		"--set", "control.trustedProxies={10.244.0.0/16}",
 		"--show-only", "templates/configmap.yaml",
 		"--set", "ingress.host=h.example.com",
 		"--set", "ingress.tlsSecretName=probectl-tls",
@@ -62,8 +63,10 @@ func TestHelmRenderedHSTSConfigLoads(t *testing.T) {
 	}{
 		{name: "default", want: wantAge},
 		{name: "strict", extra: []string{"-f", "deploy/helm/probectl/values-strict.yaml"}, want: wantAge},
-		{name: "multi-tenant", extra: []string{"-f", "deploy/helm/probectl/values-multitenant.yaml"}, want: wantAge},
-		{name: "multi-region", extra: []string{"-f", "deploy/helm/probectl/values-multiregion.yaml"}, want: wantAge},
+		// PLAT-02: the multi-replica profiles require shared durable backends, so
+		// supply them (haDurableSets, from ha_reference_coherence_test.go).
+		{name: "multi-tenant", extra: append([]string{"-f", "deploy/helm/probectl/values-multitenant.yaml"}, haDurableSets...), want: wantAge},
+		{name: "multi-region", extra: append([]string{"-f", "deploy/helm/probectl/values-multiregion.yaml"}, haDurableSets...), want: wantAge},
 		{name: "zero", extra: []string{"--set", "ingress.hstsMaxAge=0"}, want: 0},
 		{name: "custom", extra: []string{"--set", "ingress.hstsMaxAge=17"}, want: customAge},
 	}
