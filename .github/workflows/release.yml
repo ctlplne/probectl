@@ -514,8 +514,19 @@ jobs:
           # config with envsubst first (scoped to our 4 vars so no stray $ is
           # touched). Without this, nfpm globbed a literal '${AGENT}' path and
           # built nothing.
+          # SUP-05: render the maintainer scripts per agent so each package's
+          # prerm/postinst act only on its own unit (${AGENT} baked in), then
+          # point nfpm at them via ${PROBECTL_SCRIPTS}. Shipping the raw
+          # templates would embed a literal ${AGENT} in the scriptlets, and the
+          # old shared preremove tore down the whole agent fleet on any upgrade.
+          PROBECTL_SCRIPTS="$(mktemp -d)"
+          for s in preinstall postinstall preremove; do
+            envsubst '${AGENT}' \
+              < "deploy/packaging/scripts/${s}.sh" > "${PROBECTL_SCRIPTS}/${s}.sh"
+          done
+          export PROBECTL_SCRIPTS
           rendered="$(mktemp)"
-          envsubst '${AGENT} ${ARCH} ${FILE_TAG} ${PKG_VERSION}' \
+          envsubst '${AGENT} ${ARCH} ${FILE_TAG} ${PKG_VERSION} ${PROBECTL_SCRIPTS}' \
             < deploy/packaging/nfpm.yaml > "$rendered"
           for pkg in deb rpm; do
             nfpm package -f "$rendered" -p "$pkg" -t dist/

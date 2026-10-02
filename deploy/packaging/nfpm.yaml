@@ -41,17 +41,23 @@ contents:
     file_info:
       mode: 0640
 
+# SUP-05: the maintainer scripts are rendered PER AGENT (postinstall/preremove
+# bake in ${AGENT} so each package touches only its own unit) and dropped in
+# ${PROBECTL_SCRIPTS} by the same build step that renders this file. Pointing
+# nfpm straight at ./deploy/packaging/scripts/*.sh would ship the un-rendered
+# template with a literal ${AGENT}, so always render first (release.yml and
+# scripts/packaging-smoke.sh both do).
 overrides:
   deb:
     scripts:
-      preinstall: ./deploy/packaging/scripts/preinstall.sh
-      postinstall: ./deploy/packaging/scripts/postinstall.sh
-      preremove: ./deploy/packaging/scripts/preremove.sh
+      preinstall: ${PROBECTL_SCRIPTS}/preinstall.sh
+      postinstall: ${PROBECTL_SCRIPTS}/postinstall.sh
+      preremove: ${PROBECTL_SCRIPTS}/preremove.sh
   rpm:
     scripts:
-      preinstall: ./deploy/packaging/scripts/preinstall.sh
-      postinstall: ./deploy/packaging/scripts/postinstall.sh
-      preremove: ./deploy/packaging/scripts/preremove.sh
+      preinstall: ${PROBECTL_SCRIPTS}/preinstall.sh
+      postinstall: ${PROBECTL_SCRIPTS}/postinstall.sh
+      preremove: ${PROBECTL_SCRIPTS}/preremove.sh
 
 # Signed repos: release.yml signs the packages (cosign keyless: a .sig + .pem
 # per artifact) and publishes them to the apt/yum repositories. cosign

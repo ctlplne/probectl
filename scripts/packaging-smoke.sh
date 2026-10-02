@@ -47,8 +47,19 @@ for AGENT in $AGENTS; do
   # Stand-in for the real release binary, named precisely as release.yml writes it.
   printf '#!/bin/true\n' > "$work/dist/probectl-${AGENT}_${FILE_TAG}_linux_${ARCH}"
 
+  # SUP-05: render the maintainer scripts per agent (postinstall/preremove bake
+  # in ${AGENT} so each package only ever touches its own unit) and point nfpm
+  # at them via ${PROBECTL_SCRIPTS}. Shipping the raw templates would embed a
+  # literal ${AGENT} in the deb/rpm scriptlets.
+  PROBECTL_SCRIPTS="$work/scripts"
+  mkdir -p "$PROBECTL_SCRIPTS"
+  for s in preinstall postinstall preremove; do
+    envsubst '${AGENT}' < "deploy/packaging/scripts/$s.sh" > "$PROBECTL_SCRIPTS/$s.sh"
+  done
+  export PROBECTL_SCRIPTS
+
   rendered="$work/nfpm.rendered.yaml"
-  envsubst '${AGENT} ${ARCH} ${FILE_TAG} ${PKG_VERSION}' \
+  envsubst '${AGENT} ${ARCH} ${FILE_TAG} ${PKG_VERSION} ${PROBECTL_SCRIPTS}' \
     < deploy/packaging/nfpm.yaml > "$rendered"
 
   # nfpm resolves contents.src relative to CWD. Render through a second file
