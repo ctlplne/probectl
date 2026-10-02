@@ -601,10 +601,12 @@ func pruneProviderWithProofReceipt(
 }
 
 // PruneTenant applies the same atomic retention transition to one tenant. The
-// transaction runs as the least-privilege provider role because the app role
-// has no DELETE grant on append-only audit rows. The provider's event and head
-// policies are tenant-GUC scoped at PostgreSQL, every query also carries an
-// explicit tenant predicate, and the receipt switches to the app role.
+// transaction runs as the least-privilege app role: verification reads use the
+// app's GUC-scoped SELECT, while the three privileged mutations (prefix delete,
+// head advance, prune-anchor advance) go through SECURITY DEFINER functions
+// that take the tenant id as an argument and enforce prefix-only, monotonic
+// semantics (AUD-04). No role holds a caller-settable-GUC path to mutate a
+// tenant audit row directly (docs/guardrails.md G7-1, G7-7).
 func PruneTenant(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -653,14 +655,14 @@ func pruneTenantWithReceipt(
 	}
 	var pruned int64
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
-	err := tenancy.InTenantProviderMaintenance(
+	err := tenancy.InTenant(
 		tctx,
 		pool,
 		func(ctx context.Context, scope tenancy.Scope) error {
 			if err := requireDatabaseRole(
 				ctx,
 				scope.Q,
-				tenancy.ProviderRole,
+				tenancy.AppRole,
 			); err != nil {
 				return fmt.Errorf("verify tenant audit maintenance role: %w", err)
 			}
@@ -704,15 +706,10 @@ func pruneTenantWithReceipt(
 				return err
 			}
 
-			// Deletion is a tenant-GUC-scoped provider capability; the mandatory
-			// receipt is ordinary tenant audit DML and must prove it works as
-			// the NOBYPASSRLS app role in this same routed transaction.
-			if _, err := scope.Q.Exec(
-				ctx,
-				"SET LOCAL ROLE "+pgx.Identifier{tenancy.AppRole}.Sanitize(),
-			); err != nil {
-				return fmt.Errorf("assume app role for tenant prune receipt: %w", err)
-			}
+			// The prefix delete and anchor advance ran through the SECURITY
+			// DEFINER functions; the mandatory receipt is ordinary tenant audit
+			// DML, appended here as the same NOBYPASSRLS app role that owns the
+			// rest of this routed transaction.
 			if err := receipt(
 				ctx,
 				scope,
@@ -811,6 +808,14 @@ func deleteProviderPrefix(
 	return cutSeq, cutHash, pruned, nil
 }
 
+// deleteTenantPrefix drives the prefix-only retention delete through the
+// SECURITY DEFINER function (AUD-04). The function computes the contiguous
+// eligible (exported AND aged) prefix, projects any subject-erasure markers in
+// it into the append-only projection table, and deletes ONLY that prefix — the
+// retained tail is unreachable even if the caller supplies an arbitrary
+// watermark. The app/provider roles hold no direct DELETE on audit_events; they
+// may only invoke this function. Subject-erasure capture inside the function
+// rolls the whole retention transaction back on a malformed marker.
 func deleteTenantPrefix(
 	ctx context.Context,
 	q tenancy.Querier,
@@ -820,75 +825,20 @@ func deleteTenantPrefix(
 ) (cutSeq int64, cutHash string, pruned int64, err error) {
 	err = q.QueryRow(
 		ctx,
-		`WITH ordered AS (
-		     SELECT seq,
-		            hash,
-		            (seq <= $2 AND created_at < $3) AS eligible,
-		            bool_or(NOT (seq <= $2 AND created_at < $3))
-		              OVER (ORDER BY seq ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS blocked
-		       FROM audit_events
-		      WHERE tenant_id = $1::uuid
-		   ),
-		   cut AS (
-		     SELECT seq, hash
-		       FROM ordered
-		      WHERE eligible AND NOT blocked
-		      ORDER BY seq DESC
-		      LIMIT 1
-		   )
-		   SELECT COALESCE((SELECT seq FROM cut), 0),
-		          COALESCE((SELECT hash FROM cut), '')`,
+		`SELECT cut_seq, cut_hash, deleted
+		   FROM public.probectl_prune_tenant_audit_prefix($1::uuid, $2, $3, $4)`,
 		tenantID,
 		exportedWatermark,
 		cutoff,
-	).Scan(&cutSeq, &cutHash)
+		SubjectErasureAction,
+	).Scan(&cutSeq, &cutHash, &pruned)
 	if err != nil {
 		return 0, "", 0, fmt.Errorf("prune tenant audit: %w", err)
 	}
 	if cutSeq == 0 {
 		return 0, "", 0, nil
 	}
-
-	// Rolling deployments can still have an old writer that records only the
-	// immutable privacy.subject_erase event. Capture every marker in the prefix
-	// into the routed, append-only projection table before deleting any event.
-	// A malformed marker violates the target constraint and rolls this whole
-	// retention transaction back rather than silently losing a projection.
-	if _, err := q.Exec(
-		ctx,
-		`INSERT INTO audit_subject_erasures
-		    (tenant_id, subject_hash, created_at)
-		 SELECT tenant_id,
-		        data->>'subject_hash',
-		        min(created_at)
-		   FROM audit_events
-		  WHERE tenant_id = $1::uuid
-		    AND seq <= $2
-		    AND action = $3
-		  GROUP BY tenant_id, data->>'subject_hash'
-		 ON CONFLICT (tenant_id, subject_hash) DO NOTHING`,
-		tenantID,
-		cutSeq,
-		SubjectErasureAction,
-	); err != nil {
-		return 0, "", 0, fmt.Errorf("capture tenant audit subject erasures: %w", err)
-	}
-
-	tag, err := q.Exec(
-		ctx,
-		`DELETE FROM audit_events
-		  WHERE tenant_id = $1::uuid
-		    AND seq <= $2`,
-		tenantID,
-		cutSeq,
-	)
-	if err != nil {
-		return 0, "", 0, fmt.Errorf("prune tenant audit: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return 0, "", 0, fmt.Errorf("prune tenant audit: eligible prefix disappeared")
-	}
-	return cutSeq, cutHash, tag.RowsAffected(), nil
+	return cutSeq, cutHash, pruned, nil
 }
 
 func updateProviderPruneAnchor(
@@ -930,26 +880,23 @@ func updateTenantPruneAnchor(
 	cutSeq int64,
 	cutHash string,
 ) error {
-	tag, err := q.Exec(
+	// AUD-04: the prune anchor advances through the SECURITY DEFINER function,
+	// which moves pruned_seq forward only and never past the durable head. No
+	// role holds UPDATE on audit_stream_heads directly.
+	var rows int64
+	if err := q.QueryRow(
 		ctx,
-		`UPDATE public.audit_stream_heads
-		    SET pruned_seq = $2,
-		        pruned_hash = $3,
-		        updated_at = now()
-		  WHERE tenant_id = $1::uuid
-		    AND head_seq = $4
-		    AND head_hash = $5
-		    AND pruned_seq < $2`,
+		`SELECT public.probectl_advance_tenant_audit_prune_anchor(
+		     $1::uuid, $2, $3, $4, $5)`,
 		tenantID,
 		cutSeq,
 		cutHash,
 		head.HeadSeq,
 		head.HeadHash,
-	)
-	if err != nil {
+	).Scan(&rows); err != nil {
 		return fmt.Errorf("advance tenant audit prune anchor: %w", err)
 	}
-	if tag.RowsAffected() != 1 {
+	if rows != 1 {
 		return fmt.Errorf("advance tenant audit prune anchor: non-monotonic state transition")
 	}
 	return nil

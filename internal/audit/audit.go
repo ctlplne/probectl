@@ -908,17 +908,15 @@ func updateTenantHead(
 	newSeq int64,
 	newHash string,
 ) error {
-	tag, err := q.Exec(
+	// AUD-04: head advancement is caller-settable-GUC-free and monotonic
+	// forward-only, enforced inside the SECURITY DEFINER function. The app and
+	// provider roles hold no UPDATE grant on audit_stream_heads; they may only
+	// invoke this function, which cannot rewind a head (docs/guardrails.md G7-7).
+	var rows int64
+	if err := q.QueryRow(
 		ctx,
-		`INSERT INTO public.audit_stream_heads AS heads
-		    (tenant_id, head_seq, head_hash, pruned_seq, pruned_hash, updated_at)
-		 VALUES ($1::uuid, $2, $3, $4, $5, now())
-		 ON CONFLICT (tenant_id) DO UPDATE
-		       SET head_seq = EXCLUDED.head_seq,
-		           head_hash = EXCLUDED.head_hash,
-		           updated_at = now()
-		     WHERE heads.head_seq = $6
-		       AND heads.head_hash = $7`,
+		`SELECT public.probectl_advance_tenant_audit_head(
+		     $1::uuid, $2, $3, $4, $5, $6, $7)`,
 		tenantID,
 		newSeq,
 		newHash,
@@ -926,11 +924,10 @@ func updateTenantHead(
 		old.PrunedHash,
 		old.HeadSeq,
 		old.HeadHash,
-	)
-	if err != nil {
+	).Scan(&rows); err != nil {
 		return fmt.Errorf("update tenant audit stream head: %w", err)
 	}
-	if tag.RowsAffected() != 1 {
+	if rows != 1 {
 		return fmt.Errorf("update tenant audit stream head: non-monotonic state transition")
 	}
 	return nil

@@ -240,7 +240,10 @@ SELECT has_schema_privilege('probectl_provider', $1, 'USAGE'),
 	); err != nil {
 		t.Fatalf("inspect repaired audit grants in %s: %v", schema, err)
 	}
-	if !providerUsage || !providerSelect || !providerDelete || providerUpdate ||
+	// AUD-04: the provider keeps schema USAGE but holds NO direct SELECT/DELETE/
+	// UPDATE on audit_events — retention/erase run through SECURITY DEFINER
+	// functions. The app stays append-only (SELECT + INSERT, no DELETE).
+	if !providerUsage || providerSelect || providerDelete || providerUpdate ||
 		!appSelect || !appInsert || appDelete {
 		t.Fatalf(
 			"repaired %s audit privileges provider(usage/select/delete/update)=%t/%t/%t/%t app(select/insert/delete)=%t/%t/%t",

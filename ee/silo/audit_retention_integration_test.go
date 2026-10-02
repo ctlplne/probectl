@@ -440,6 +440,18 @@ func TestAuditRetentionRoutesSiloAndPooledSequenceAnchors(t *testing.T) {
 		t.Fatalf("seed silo cross-tenant audit sentinel: %v", err)
 	}
 
+	// AUD-04: even running as the provider role with its own tenant GUC bound by
+	// InTenantProviderMaintenance, the provider holds NO direct SELECT/DELETE on
+	// audit_events and NO UPDATE on audit_stream_heads — the caller-settable GUC
+	// is not an authority. It keeps SELECT on the deployment-global
+	// audit_stream_heads (the read the retention path legitimately needs).
+	// Retention/erase run through the SECURITY DEFINER functions instead. Each
+	// denied probe runs in its own transaction: a permission error aborts the
+	// surrounding transaction.
+	permDenied := func(err error) bool {
+		var pgErr *pgconn.PgError
+		return errors.As(err, &pgErr) && pgErr.Code == "42501"
+	}
 	for _, tc := range []struct {
 		scoped string
 		other  string
@@ -447,77 +459,71 @@ func TestAuditRetentionRoutesSiloAndPooledSequenceAnchors(t *testing.T) {
 		{scoped: pooledID, other: siloedID},
 		{scoped: siloedID, other: pooledID},
 	} {
-		err := tenancy.InTenantProviderMaintenance(
-			tenancy.WithTenant(ctx, tenancy.ID(tc.scoped)),
-			pool,
-			func(ctx context.Context, scope tenancy.Scope) error {
-				var role string
-				if err := scope.Q.QueryRow(ctx, `SELECT current_user`).Scan(&role); err != nil {
-					return err
-				}
-				if role != tenancy.ProviderRole {
-					return fmt.Errorf(
-						"tenant maintenance role = %q, want %q",
-						role,
-						tenancy.ProviderRole,
-					)
-				}
+		providerScoped := func(fn func(context.Context, tenancy.Scope) error) error {
+			return tenancy.InTenantProviderMaintenance(
+				tenancy.WithTenant(ctx, tenancy.ID(tc.scoped)),
+				pool,
+				fn,
+			)
+		}
 
-				var ownEvents, ownHeads int
-				if err := scope.Q.QueryRow(
-					ctx,
-					`SELECT count(*) FROM audit_events WHERE tenant_id = $1::uuid`,
-					tc.scoped,
-				).Scan(&ownEvents); err != nil {
-					return err
-				}
-				if err := scope.Q.QueryRow(
-					ctx,
-					`SELECT count(*)
-					   FROM public.audit_stream_heads
-					  WHERE tenant_id = $1::uuid`,
-					tc.scoped,
-				).Scan(&ownHeads); err != nil {
-					return err
-				}
-				if ownEvents != 3 || ownHeads != 1 {
-					return fmt.Errorf(
-						"provider maintenance own scope events/heads = %d/%d, want 3/1",
-						ownEvents,
-						ownHeads,
-					)
-				}
+		if err := providerScoped(func(ctx context.Context, scope tenancy.Scope) error {
+			var role string
+			if err := scope.Q.QueryRow(ctx, `SELECT current_user`).Scan(&role); err != nil {
+				return err
+			}
+			if role != tenancy.ProviderRole {
+				return fmt.Errorf(
+					"tenant maintenance role = %q, want %q", role, tenancy.ProviderRole)
+			}
+			var ownHeads int
+			return scope.Q.QueryRow(
+				ctx,
+				`SELECT count(*) FROM public.audit_stream_heads WHERE tenant_id = $1::uuid`,
+				tc.scoped,
+			).Scan(&ownHeads)
+		}); err != nil {
+			t.Fatalf("provider head read for %s: %v", tc.scoped, err)
+		}
 
-				eventTag, err := scope.Q.Exec(
-					ctx,
-					`DELETE FROM audit_events WHERE tenant_id = $1::uuid`,
-					tc.other,
-				)
-				if err != nil {
-					return fmt.Errorf("cross-tenant audit delete probe: %w", err)
-				}
-				headTag, err := scope.Q.Exec(
-					ctx,
-					`UPDATE public.audit_stream_heads
-					    SET updated_at = updated_at
-					  WHERE tenant_id = $1::uuid`,
-					tc.other,
-				)
-				if err != nil {
-					return fmt.Errorf("cross-tenant audit head update probe: %w", err)
-				}
-				if eventTag.RowsAffected() != 0 || headTag.RowsAffected() != 0 {
-					return fmt.Errorf(
-						"cross-tenant maintenance mutated events/heads = %d/%d, want 0/0",
-						eventTag.RowsAffected(),
-						headTag.RowsAffected(),
-					)
-				}
-				return nil
+		for _, probe := range []struct {
+			name string
+			run  func(context.Context, tenancy.Scope) error
+		}{
+			{
+				name: "SELECT audit_events own",
+				run: func(ctx context.Context, scope tenancy.Scope) error {
+					var n int
+					return scope.Q.QueryRow(ctx,
+						`SELECT count(*) FROM audit_events WHERE tenant_id = $1::uuid`,
+						tc.scoped,
+					).Scan(&n)
+				},
 			},
-		)
-		if err != nil {
-			t.Fatalf("prove provider maintenance boundary for %s: %v", tc.scoped, err)
+			{
+				name: "DELETE audit_events other",
+				run: func(ctx context.Context, scope tenancy.Scope) error {
+					_, err := scope.Q.Exec(ctx,
+						`DELETE FROM audit_events WHERE tenant_id = $1::uuid`, tc.other)
+					return err
+				},
+			},
+			{
+				name: "UPDATE audit_stream_heads other",
+				run: func(ctx context.Context, scope tenancy.Scope) error {
+					_, err := scope.Q.Exec(ctx,
+						`UPDATE public.audit_stream_heads SET updated_at = updated_at WHERE tenant_id = $1::uuid`,
+						tc.other)
+					return err
+				},
+			},
+		} {
+			if err := providerScoped(probe.run); !permDenied(err) {
+				t.Fatalf(
+					"provider %s (scoped=%s) = %v, want permission denied (42501)",
+					probe.name, tc.scoped, err,
+				)
+			}
 		}
 	}
 

@@ -10,19 +10,23 @@ package tenantlife
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// TENANT-005 (live Postgres): the provider role must NOT be able to SELECT
-// another tenant's tamper-evident audit log outside the scoped erase path.
-// After 0045 the provider's audit_events SELECT policy is GUC-scoped exactly
-// like the app-role policy: with no probectl.tenant_id set it reads NOTHING
-// (fail closed), and with one tenant's GUC it can never see another tenant's
-// rows. The DELETE capability (USING true + explicit WHERE) still functions so
-// the erase engine works.
+// AUD-04 (live Postgres): the provider role has NO direct read/mutate path to a
+// tenant audit row. Before AUD-04 the provider held GUC-scoped SELECT + DELETE
+// on audit_events, "authorized" by current_setting('probectl.tenant_id') — but
+// any role can set that GUC itself, so it was caller-controlled input, not an
+// authority. Now the provider holds no SELECT/DELETE grant at all: with ANY
+// value of the tenant GUC (including one it sets itself) both operations fail
+// permission-denied. Legitimate retention/erase runs through the SECURITY
+// DEFINER functions, exercised by the retention and S-T5 suites.
 func TestProviderCannotReadCrossTenantAudit(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()
@@ -34,56 +38,60 @@ func TestProviderCannotReadCrossTenantAudit(t *testing.T) {
 	seedTenant(t, pool, ta, "a-probe") // seedTenant also writes one audit_events row
 	seedTenant(t, pool, tb, "b-probe")
 
-	count := func(guc, tenant string) int64 {
-		t.Helper()
-		var n int64
-		if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
-			if guc != "" {
-				if _, err := q.Exec(ctx, `SELECT set_config('probectl.tenant_id', $1, true)`, guc); err != nil {
+	denied := func(err error) bool {
+		var pgErr *pgconn.PgError
+		return errors.As(err, &pgErr) && pgErr.Code == "42501"
+	}
+
+	// A provider SELECT of audit_events is refused at the grant layer for every
+	// GUC the role might set — no GUC, a bystander tenant, or the target itself.
+	// (The old contract returned 0 rows with no GUC and the target's rows when
+	// the role set the target GUC; both are now hard permission denials.)
+	for _, tc := range []struct {
+		name string
+		guc  string
+	}{
+		{name: "no GUC", guc: ""},
+		{name: "GUC = other tenant B", guc: tb},
+		{name: "GUC = target tenant A (the self-set attack)", guc: ta},
+	} {
+		err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+			if tc.guc != "" {
+				if _, err := q.Exec(ctx, `SELECT set_config('probectl.tenant_id', $1, true)`, tc.guc); err != nil {
 					return err
 				}
 			}
-			return q.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id = $1`, tenant).Scan(&n)
-		}); err != nil {
-			t.Fatalf("provider count (guc=%q tenant=%q): %v", guc, tenant, err)
+			var n int64
+			return q.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id = $1`, ta).Scan(&n)
+		})
+		if !denied(err) {
+			t.Fatalf("provider SELECT audit_events (%s) = %v, want permission denied (42501)", tc.name, err)
 		}
-		return n
 	}
 
-	// 1) No GUC: the scoped SELECT policy returns NOTHING (fail closed).
-	if n := count("", ta); n != 0 {
-		t.Fatalf("provider with NO GUC read %d of tenant A's audit rows, want 0 (fail closed)", n)
-	}
-	// 2) GUC = tenant B: the provider cannot see tenant A's rows (the
-	//    cross-tenant read the old FOR ALL USING(true) policy allowed).
-	if n := count(tb, ta); n != 0 {
-		t.Fatalf("provider scoped to B read %d of tenant A's audit rows, want 0 (CROSS-TENANT LEAK)", n)
-	}
-	// 3) GUC = tenant A: the scoped erase-verify read works (>=1 seeded row).
-	if n := count(ta, ta); n < 1 {
-		t.Fatalf("provider scoped to A read %d of A's own audit rows, want >=1 (erase-verify must still work)", n)
-	}
-
-	// 4) The DELETE capability still functions, exactly as the production erase
-	//    drives it: the provider sets the tenant GUC, then DELETEs by explicit
-	//    WHERE. The GUC matters — after 0045 the provider's SELECT policy is
-	//    GUC-scoped, and a `DELETE ... WHERE` must READ the rows to match them,
-	//    so with no GUC the rows are invisible and nothing is deleted. The real
-	//    erase (tenantlife.go) sets probectl.tenant_id in the same provider tx;
-	//    mirror that here. Erasing tenant A's chain leaves zero, B untouched.
-	if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+	// A provider DELETE of audit_events is refused even when the role sets the
+	// target tenant's GUC — the exact move the finding described (truncate the
+	// tail of tenant A's chain).
+	delErr := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
 		if _, err := q.Exec(ctx, `SELECT set_config('probectl.tenant_id', $1, true)`, ta); err != nil {
 			return err
 		}
 		_, err := q.Exec(ctx, `DELETE FROM audit_events WHERE tenant_id = $1`, ta)
 		return err
-	}); err != nil {
-		t.Fatalf("provider DELETE audit_events: %v", err)
+	})
+	if !denied(delErr) {
+		t.Fatalf("provider DELETE audit_events (GUC=A) = %v, want permission denied (42501)", delErr)
 	}
-	if n := count(ta, ta); n != 0 {
-		t.Fatalf("tenant A audit rows remain after provider DELETE: %d", n)
-	}
-	if n := count(tb, tb); n < 1 {
-		t.Fatalf("tenant B audit rows damaged by A's erase: %d", n)
+
+	// Both tenants' seeded rows survive the refused provider mutations.
+	for _, tid := range []string{ta, tb} {
+		var n int64
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM audit_events WHERE tenant_id = $1::uuid`, tid).Scan(&n); err != nil {
+			t.Fatalf("count audit rows for %s: %v", tid, err)
+		}
+		if n < 1 {
+			t.Fatalf("tenant %s audit rows = %d, want >=1 (refused provider mutations must not delete)", tid, n)
+		}
 	}
 }

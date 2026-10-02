@@ -81,9 +81,11 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 //     the immutable tenant UUID encoded by the physical schema; an extra
 //     permissive legacy policy therefore cannot OR-open a silo.
 //  4. grants for the app role (USAGE on the schema; DML on the tables)
-//  5. an audit-only, tenant-GUC-scoped provider maintenance capability:
-//     schema USAGE plus SELECT/DELETE on audit_events. The app role keeps
-//     audit_events append-only (SELECT/INSERT only).
+//  5. schema USAGE for the provider plane (for the audit_subject_erasures /
+//     ir_attribution_records capabilities it still holds directly). audit_events
+//     carries NO direct provider grant (AUD-04): retention/erase run through the
+//     public SECURITY DEFINER functions. The app role keeps audit_events
+//     append-only (SELECT/INSERT only).
 func ProvisionPlan(schema string, tenantTables []string) []string {
 	q := quoteIdent(schema)
 	plan := []string{
@@ -108,11 +110,15 @@ func provisionTablePlan(schema, table string) []string {
 func tableRolePlan(quotedTable, table string) []string {
 	switch table {
 	case "audit_events":
+		// AUD-04: the app role stays append-only (SELECT/INSERT). The provider
+		// role gets NO direct grant — retention/erase run through the public
+		// SECURITY DEFINER functions, which resolve this silo schema and operate
+		// on it, so a caller-settable GUC can never drive a direct provider
+		// DELETE/SELECT of a tenant audit row.
 		return []string{
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
 			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_app",
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
-			"GRANT SELECT, DELETE ON " + quotedTable + " TO probectl_provider",
 		}
 	case "audit_subject_erasures":
 		return []string{

@@ -71,7 +71,8 @@ func TestProvisionPlan(t *testing.T) {
 		`GRANT SELECT, INSERT, UPDATE, DELETE ON "t_abc"."tests" TO probectl_app`,
 		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_app`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`,
-		`GRANT SELECT, DELETE ON "t_abc"."audit_events" TO probectl_provider`,
+		// AUD-04: the provider gets NO direct grant on audit_events.
+		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_provider`,
 		`REVOKE ALL ON "t_abc"."audit_subject_erasures" FROM probectl_app`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_subject_erasures" TO probectl_app`,
 		`GRANT SELECT, INSERT, DELETE ON "t_abc"."audit_subject_erasures" TO probectl_provider`,
@@ -92,6 +93,10 @@ func TestProvisionPlan(t *testing.T) {
 		if strings.Contains(joined, providerOwned) {
 			t.Errorf("provider-owned table %s must never enter a tenant silo", providerOwned)
 		}
+	}
+	// AUD-04: the provider role must get no direct grant on audit_events.
+	if strings.Contains(joined, `ON "t_abc"."audit_events" TO probectl_provider`) {
+		t.Errorf("provider must hold no direct grant on silo audit_events:\n%s", joined)
 	}
 	// Order: schema first, grants before any table.
 	if !strings.HasPrefix(plan[0], "CREATE SCHEMA") {
@@ -199,11 +204,15 @@ func TestCatchUpPlan(t *testing.T) {
 		`CREATE POLICY tenant_schema_isolation ON "t_abc"."audit_events" AS RESTRICTIVE`,
 		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_app`,
 		`GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`,
-		`GRANT SELECT, DELETE ON "t_abc"."audit_events" TO probectl_provider`,
+		// AUD-04: the provider gets NO direct grant on audit_events.
+		`REVOKE ALL ON "t_abc"."audit_events" FROM probectl_provider`,
 	} {
 		if !strings.Contains(repair, want) {
 			t.Errorf("caught-up audit permission repair missing %q in:\n%s", want, repair)
 		}
+	}
+	if strings.Contains(repair, `ON "t_abc"."audit_events" TO probectl_provider`) {
+		t.Errorf("caught-up provider must hold no direct grant on audit_events:\n%s", repair)
 	}
 	policyAt := strings.Index(repair, `CREATE POLICY tenant_schema_isolation ON "t_abc"."audit_events" AS RESTRICTIVE`)
 	grantAt := strings.Index(repair, `GRANT SELECT, INSERT ON "t_abc"."audit_events" TO probectl_app`)

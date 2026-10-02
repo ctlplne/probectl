@@ -977,30 +977,20 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 				fenced,
 			)
 		}
-		for t := range appendOnlyTables {
-			tag, err := sc.Q.Exec(
-				ctx,
-				`DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1::uuid`,
-				tenantID,
-			)
-			if err != nil {
-				return fmt.Errorf("delete %s: %w", t, err)
-			}
-			deleted += tag.RowsAffected()
+		// AUD-04: the append-only audit tables are erased and verified through a
+		// SECURITY DEFINER function that re-checks the storage-layer erasure
+		// fence under the canonical audit lock. The provider role holds no direct
+		// DELETE/SELECT on a tenant audit row, so a caller-settable GUC can never
+		// drive this whole-stream delete for a live tenant.
+		var auditDeleted int64
+		if err := sc.Q.QueryRow(
+			ctx,
+			`SELECT public.probectl_erase_tenant_audit($1::uuid)`,
+			tenantID,
+		).Scan(&auditDeleted); err != nil {
+			return fmt.Errorf("erase tenant append-only audit: %w", err)
 		}
-		for t := range appendOnlyTables {
-			var n int64
-			if err := sc.Q.QueryRow(
-				ctx,
-				`SELECT count(*) FROM `+pgIdent(t)+` WHERE tenant_id = $1::uuid`,
-				tenantID,
-			).Scan(&n); err != nil {
-				return fmt.Errorf("verify %s: %w", t, err)
-			}
-			if n != 0 {
-				return fmt.Errorf("verify %s: %d rows remain", t, n)
-			}
-		}
+		deleted += auditDeleted
 		return nil
 	}); perr != nil {
 		return StoreResult{}, fmt.Errorf("tenantlife: postgres erase and verify (append-only): %w", perr)
@@ -1045,23 +1035,22 @@ func (e *Engine) finalizeSuccessfulErasure(
 					fenced,
 				)
 			}
-			for table := range appendOnlyTables {
-				var remaining int64
-				if err := sc.Q.QueryRow(
-					ctx,
-					`SELECT count(*) FROM `+pgIdent(table)+
-						` WHERE tenant_id = $1::uuid`,
-					tenantID,
-				).Scan(&remaining); err != nil {
-					return fmt.Errorf("verify %s before tombstone: %w", table, err)
-				}
-				if remaining != 0 {
-					return fmt.Errorf(
-						"refuse tombstone: %s has %d tenant rows",
-						table,
-						remaining,
-					)
-				}
+			// AUD-04: the provider role no longer reads tenant audit rows
+			// directly; the append-only tables are counted through the SECURITY
+			// DEFINER function before the tombstone is written.
+			var remainingAudit int64
+			if err := sc.Q.QueryRow(
+				ctx,
+				`SELECT public.probectl_count_tenant_audit_rows($1::uuid)`,
+				tenantID,
+			).Scan(&remainingAudit); err != nil {
+				return fmt.Errorf("verify append-only audit before tombstone: %w", err)
+			}
+			if remainingAudit != 0 {
+				return fmt.Errorf(
+					"refuse tombstone: append-only audit tables have %d tenant rows",
+					remainingAudit,
+				)
 			}
 			providerResult, err := eraseProviderRowsTx(
 				ctx,
