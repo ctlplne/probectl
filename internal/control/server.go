@@ -421,8 +421,10 @@ func (s *Server) WithOTelStore(st otelstore.Store) *Server {
 	return s
 }
 
-// withDeviceOps attaches the tenant-scoped device syslog/config archive store.
-func (s *Server) withDeviceOps(st device.OpsStore) *Server {
+// WithDeviceOps attaches the tenant-scoped device syslog/config archive store
+// (PLAT-06/RTP-08/WEB-26: the serve path wires a durable Postgres-backed store;
+// the default is the in-memory one for the pool-less/lightweight mode + tests).
+func (s *Server) WithDeviceOps(st device.OpsStore) *Server {
 	if st != nil {
 		s.deviceOps = st
 		s.rebuildAnalyzer()

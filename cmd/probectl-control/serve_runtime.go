@@ -342,6 +342,9 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithDeviceNeighbors(rt.neighborStore).
 		WithDeviceCollectionOutcomes(rt.outcomeStore).
 		WithEBPFStore(rt.ebpfStore).
+		// PLAT-06/RTP-08/WEB-26: durable device syslog + config archive (survive
+		// restart, shared across replicas) instead of the process-memory default.
+		WithDeviceOps(device.NewPostgresOpsStore(rt.db.Pool())).
 		WithCost(rt.costEngine).
 		WithCarbon(rt.carbonEngine)
 	if rt.sloEngine != nil {
