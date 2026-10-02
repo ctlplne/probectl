@@ -36,6 +36,15 @@ export default defineConfig({
       // specifiers don't node-resolve upward from ee/, so pin it to web's copy
       // (tsconfig `paths` carries the matching type resolution).
       '@tanstack/react-query': resolve(__dirname, 'node_modules/@tanstack/react-query'),
+      // Same seam, same reason, surfaced by the Vite 8 upgrade (SUP-09): Vite 8's
+      // resolver no longer falls back to the root's node_modules for a bare
+      // import whose importer sits OUTSIDE the root, so react/react-dom imported
+      // from ../ee/web (and the JSX runtime the React plugin injects there) must
+      // be pinned to web's single copy — which also dedupes React across the
+      // src/ and ee/web halves of the bundle. Prefix matching keeps react-dom
+      // and react-router untouched; react/jsx-runtime resolves under the alias.
+      react: resolve(__dirname, 'node_modules/react'),
+      'react-dom': resolve(__dirname, 'node_modules/react-dom'),
     },
   },
   server: {

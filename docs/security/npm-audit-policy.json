@@ -2,30 +2,6 @@
   "version": 2,
   "exceptions": [
     {
-      "id": "SUPPLY-1dbf9837-vite-windows-dev-server-only",
-      "workspace": "web",
-      "packages": [
-        "vite"
-      ],
-      "advisories": [
-        "GHSA-fx2h-pf6j-xcff"
-      ],
-      "advisory_ranges": {
-        "GHSA-fx2h-pf6j-xcff": [
-          "<=6.4.2"
-        ]
-      },
-      "versions": {
-        "vite": [
-          "5.4.21"
-        ]
-      },
-      "max_severity": "high",
-      "dev_only": true,
-      "expires_at": "2026-09-30",
-      "reason": "Accepted documented risk for SUPPLY-1dbf9837. GHSA-fx2h-pf6j-xcff is a Windows-only alternate-path bypass in Vite server.fs.deny. probectl pins Vite 5.4.21 only as local dev/build tooling; Vite is absent from the shipped browser bundle and Go binaries, and the production-only npm audit is unaffected. Decision of record 2026-08-01 (Foundation-Loop E-00330a5d): upgrade to the current Vite 8 line (8.2.0 at decision time) and land it before this exception's 2026-09-30 boundary with the web build, bundle-budget, rendered-a11y, and coverage gates green; the minimal patched hop to 6.4.3 is rejected because it lands two majors behind and pays the migration cost twice. The boundary is therefore a landing deadline, not a rolling renewal \u2014 if the upgrade has not landed by expiry the gate goes red by design. A new advisory, affected-range drift, installed-version change (including the planned Vite bump), production reachability, audit clearance, or expiry fails closed and reopens review."
-    },
-    {
       "id": "SUPPLY-f205d4eb-brace-expansion-build-only",
       "workspace": "web",
       "packages": [
@@ -47,8 +23,8 @@
       "max_severity": "high",
       "dev_only": true,
       "standing": true,
-      "expires_at": "2026-09-30",
-      "reason": "Accepted documented risk for SUPPLY-f205d4eb if the exact historical transitive node reappears: brace-expansion 1.1.16 was reachable only through local dev/build glob tooling, never shipped in the browser runtime, and received no untrusted product input; no patched 1.x exists. The current lock uses patched 5.0.8, so this standing exception is dormant and accepts nothing today. A new advisory, advisory-range drift, any installed-version change, production reachability, or expiry fails closed."
+      "expires_at": "2027-09-30",
+      "reason": "Accepted documented risk for SUPPLY-f205d4eb if the exact historical transitive node reappears: brace-expansion 1.1.16 was reachable only through local dev/build glob tooling, never shipped in the browser runtime, and received no untrusted product input; no patched 1.x exists. The current lock uses patched 5.0.12 (overrides pin), so this standing exception is dormant and accepts nothing today. A new advisory, advisory-range drift, any installed-version change, production reachability, or expiry fails closed."
     }
   ]
 }
