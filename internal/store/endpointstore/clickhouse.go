@@ -7,9 +7,11 @@
 package endpointstore
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +30,16 @@ const (
 	eventsTable      = "probectl_endpoint_events"
 	tenantSetting    = "SQL_probectl_tenant"
 	maxLatestResults = 22_000 // 2k endpoints × (4 singleton + 10 sessions), rounded.
+
+	// maxExportRowBytes bounds a SINGLE JSONEachRow row on the export stream
+	// (GAP-05 / docs/guardrails.md G7-1). The export is unbounded by design — a
+	// tenant's full endpoint history can be hundreds of MiB — so it must stream
+	// (never buffer the whole response under chclient.MaxResponseBytes, which
+	// aborts the portability bundle past 64 MiB). The whole-response cap is
+	// replaced here by a per-ROW cap: any legitimate endpoint event JSON-encodes
+	// far under this, while a runaway/malicious oversized row still fails closed
+	// instead of being buffered without limit.
+	maxExportRowBytes = 8 << 20 // 8 MiB per row
 )
 
 func eventsDDL(table string) string {
@@ -346,7 +358,13 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 	return int64(chclient.Count(rows)), nil
 }
 
-// ExportTenant streams one tenant's event history as JSONL.
+// ExportTenant streams one tenant's event history as JSONL straight from the
+// ClickHouse HTTP response into w (GAP-05). The result set is unbounded by
+// design — a full endpoint history can far exceed chclient.MaxResponseBytes — so
+// this decodes JSONEachRow line-by-line from resp.Body instead of buffering the
+// whole body (which aborted the portability bundle past 64 MiB). Each row is
+// bounded individually (maxExportRowBytes) and its tenant_id is re-checked at
+// the store layer before it is emitted (docs/guardrails.md G7-1).
 func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Writer) (int64, error) {
 	target, err := c.route(ctx, tenantID)
 	if err != nil {
@@ -361,24 +379,67 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 		params.Set(tenantSetting, tenantID)
 	}
 	query := "SELECT tenant_id, agent_id, signal_type, signal_key, target, success, error, metrics_json, attributes_json, toString(observed_at) AS observed_at FROM " + table + " FINAL WHERE tenant_id={tenant:String} ORDER BY observed_at FORMAT JSONEachRow"
-	rows, err := c.queryAt(ctx, target.BaseURL, query, params)
+	endpoint := c.baseFor(target.BaseURL) + "/?query=" + url.QueryEscape(query)
+	if len(params) > 0 {
+		endpoint += "&" + params.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, err
 	}
+	resp, err := c.conn.Do(target.BaseURL, req)
+	if err != nil {
+		return 0, fmt.Errorf("endpointstore: export: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("endpointstore: export status %d: %s", resp.StatusCode, message)
+	}
+	return streamEvents(resp.Body, w, tenantID)
+}
+
+// streamEvents decodes a JSONEachRow endpoint result from r line-by-line and
+// writes each row to w as an Event. It never buffers the whole response: the
+// per-row cap (maxExportRowBytes, enforced by the bounded scanner) fails closed
+// on a runaway/oversized row, and every row's tenant_id is verified before it
+// leaves the store (docs/guardrails.md G7-1). It returns the number of rows
+// emitted so the caller's manifest count stays exact.
+func streamEvents(r io.Reader, w io.Writer, tenantID string) (int64, error) {
 	enc := json.NewEncoder(w)
-	for i, row := range rows {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), maxExportRowBytes)
+	var count int64
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var row map[string]any
+		dec := json.NewDecoder(bytes.NewReader(line))
+		dec.UseNumber()
+		if err := dec.Decode(&row); err != nil {
+			return count, fmt.Errorf("endpointstore: decode export row: %w", err)
+		}
 		event, err := decodeEvent(row)
 		if err != nil {
-			return int64(i), err
+			return count, err
 		}
 		if event.TenantID != tenantID {
-			return int64(i), fmt.Errorf("endpointstore: export boundary returned tenant %q for %q", event.TenantID, tenantID)
+			return count, fmt.Errorf("endpointstore: export boundary returned tenant %q for %q", event.TenantID, tenantID)
 		}
 		if err := enc.Encode(event); err != nil {
-			return int64(i), err
+			return count, err
 		}
+		count++
 	}
-	return int64(len(rows)), nil
+	if err := sc.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return count, fmt.Errorf("endpointstore: export row exceeds %d-byte limit", maxExportRowBytes)
+		}
+		return count, fmt.Errorf("endpointstore: stream export: %w", err)
+	}
+	return count, nil
 }
 
 // EnsureReaderRowPolicy constrains SELECTs by the per-request custom setting.

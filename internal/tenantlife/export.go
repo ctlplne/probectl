@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/audit"
@@ -173,20 +174,20 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 	}
 
 	// 2b) Durable endpoint/DEM event history (tenant-scoped by the store).
+	// The endpoint history is unbounded (GAP-05): the store streams it row by
+	// row and we stage it through a temp file so neither the store read nor the
+	// tar write buffers the whole plane in the shared control-plane heap. The
+	// tar header needs the byte size up front, so the temp file both supplies
+	// that size and holds the (optionally redacted, line-by-line) bytes.
 	if e.endpointEvents != nil {
-		var buf bytes.Buffer
-		n, err := e.endpointEvents.ExportTenant(ctx, tenantID, &buf)
+		n, err := streamPlaneToTar(tw, "endpoint_events.jsonl", man.ExportedAt, redact, pol,
+			func(w io.Writer) (int64, error) {
+				return e.endpointEvents.ExportTenant(ctx, tenantID, w)
+			})
 		if err != nil {
 			return man, fmt.Errorf("tenantlife: export endpoint events: %w", err)
 		}
 		man.EndpointEvents = n
-		out := buf.Bytes()
-		if redact {
-			out = govern.RedactJSONL(pol, out)
-		}
-		if err := writeTarFile(tw, "endpoint_events.jsonl", out, man.ExportedAt); err != nil {
-			return man, err
-		}
 	}
 
 	// 3) Object inventory (both key namespaces).
@@ -306,6 +307,94 @@ func appendProjectedAuditJSONL(
 		}
 	}
 	return count, nil
+}
+
+// streamPlaneToTar stages a large, unbounded export plane through a temp file so
+// it never lands whole in the control-plane heap (GAP-05). produce streams the
+// plane's JSONL into the writer it is handed; when redact is set, each line is
+// redacted on the way to disk via a one-line-at-a-time writer (so the temp file
+// itself holds only redacted bytes). The temp file's size then feeds the tar
+// header and its bytes are copied straight into the archive. It returns the row
+// count produce reports, so the manifest count stays exact.
+func streamPlaneToTar(tw *tar.Writer, name string, mod time.Time, redact bool, pol govern.Policy, produce func(io.Writer) (int64, error)) (int64, error) {
+	tmp, err := os.CreateTemp("", "probectl-export-plane-*.jsonl")
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+
+	var dst io.Writer = tmp
+	var rw *redactingLineWriter
+	if redact {
+		rw = &redactingLineWriter{pol: pol, dst: tmp}
+		dst = rw
+	}
+	n, err := produce(dst)
+	if err != nil {
+		return n, err
+	}
+	if rw != nil {
+		if err := rw.Flush(); err != nil {
+			return n, err
+		}
+	}
+
+	size, err := tmp.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return n, err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return n, err
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: size, ModTime: mod}); err != nil {
+		return n, err
+	}
+	if _, err := io.Copy(tw, tmp); err != nil {
+		return n, err
+	}
+	return n, nil
+}
+
+// redactingLineWriter applies govern.RedactJSONL to a JSONL stream one complete
+// line at a time, buffering at most a single partial line — so a redacted export
+// plane can be staged without holding the whole plane in memory (GAP-05). It is
+// not safe for concurrent use; the export path writes to it from one goroutine.
+type redactingLineWriter struct {
+	pol govern.Policy
+	dst io.Writer
+	rem []byte // bytes after the last newline, not yet a complete line
+}
+
+func (r *redactingLineWriter) Write(p []byte) (int, error) {
+	r.rem = append(r.rem, p...)
+	for {
+		idx := bytes.IndexByte(r.rem, '\n')
+		if idx < 0 {
+			break
+		}
+		if _, err := r.dst.Write(govern.RedactJSONL(r.pol, r.rem[:idx+1])); err != nil {
+			return 0, err
+		}
+		r.rem = r.rem[idx+1:]
+	}
+	if len(r.rem) == 0 {
+		r.rem = r.rem[:0]
+	}
+	return len(p), nil
+}
+
+// Flush redacts and writes any trailing line that did not end in a newline.
+func (r *redactingLineWriter) Flush() error {
+	if len(r.rem) == 0 {
+		return nil
+	}
+	out := govern.RedactJSONL(r.pol, r.rem)
+	r.rem = nil
+	_, err := r.dst.Write(out)
+	return err
 }
 
 func writeTarFile(tw *tar.Writer, name string, data []byte, mod time.Time) error {
