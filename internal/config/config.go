@@ -292,8 +292,10 @@ type Config struct {
 	// TestSyncSigningKeyFile (ARCH-001) is the Ed25519 PKCS#8 PEM the control
 	// plane signs pull-able test bundles with (generated + persisted on first
 	// boot, like the WORM key). Empty = central test distribution is off
-	// (GET /v1/tests/bundle reports 503). Agents verify against the build-baked
-	// public half.
+	// (GET /v1/tests/bundle reports 503). An agent is MEANT to verify a pulled
+	// bundle against the build-baked public half (testsync.Verify); the
+	// agent-side pull loop is not yet shipped (ING-20/PLAT-13), so today this
+	// key only governs whether the bundle endpoint serves.
 	TestSyncSigningKeyFile string
 	// EvidenceSigningKey is a base64-encoded PKCS#8 Ed25519 private key shared
 	// by every control-plane replica. EvidenceSigningKeyFile is the single-node

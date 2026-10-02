@@ -54,7 +54,7 @@ func TestVerifyExportedEntryPoint(t *testing.T) {
 // updated to describe the now-automatic delivery.
 func TestAgentSideBundlePullNotYetWired(t *testing.T) {
 	const importPath = "github.com/ctlplne/probectl/internal/testsync"
-	for _, dir := range []string{"../../cmd/probectl-agent", "../../internal/agent"} {
+	for _, dir := range []string{"../../cmd/probectl-agent", "../../cmd/probectl-endpoint", "../../internal/agent"} {
 		if _, err := os.Stat(dir); err != nil {
 			t.Fatalf("expected agent tree at %s: %v", dir, err)
 		}
