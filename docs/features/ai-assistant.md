@@ -85,14 +85,19 @@ enforcing the same rule.
 3. **Synthesize (a model with no tools).** The question plus the gathered evidence go
    to the model, whose only job is to write prose over evidence it was handed. It is
    never given tools and cannot issue its own queries or take actions — a writer
-   locked in a room with a stack of photocopies. So even hostile evidence content (a
-   prompt-injection payload riding in a log line) cannot drive behavior; the worst it
-   can do is produce a claim the next step throws away.
+   locked in a room with a stack of photocopies. That bounds what hostile evidence
+   content (a prompt-injection payload riding in a log line) can do, but it does not
+   make the model immune: injected text can steer what it writes, and containing that
+   is the next step's job.
 4. **Citation integrity (the trust backstop).** The pipeline drops any finding whose
    citations do not resolve to real gathered evidence — a fact-checking editor who
    walks every footnote back to its source before publication. The root-cause
-   headline itself must also be grounded; an uncited one is rejected and confidence
-   drops. If nothing grounded survives, the answer is an honest "insufficient
+   headline itself must also be grounded; an uncited or fake-cited one is rejected and
+   confidence drops. Resolving the citation is necessary but not sufficient: the
+   headline must also share content with the evidence it cites (a deterministic
+   term-overlap check), so a claim unrelated to the signal it points at — the shape an
+   evidence-borne injection takes — is treated as unverified rather than grounded
+   (AI-02). If nothing grounded survives, the answer is an honest "insufficient
    evidence" rather than a guess. Because the evidence identifiers are randomized per
    request, injected text cannot pre-write a citation to an identifier that will
    exist later.

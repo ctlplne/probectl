@@ -118,23 +118,30 @@ The four steps, and the guardrail each one buys you:
    a "tool" is a function the model may call to fetch data or act on the world)
    and **cannot issue its own queries or take actions**. Picture a writer locked
    in a room with a stack of photocopies: they can describe what's on the desk,
-   but can't leave to fetch another file or pull a lever. So even hostile
-   evidence content (a prompt-injection payload riding in a log line —
-   attacker-written text crafted so an LLM mistakes data for instructions) can't
-   drive behavior: the worst it can do is produce a claim that the next step
-   throws away. The model returns a *structured* answer — findings, each citing
-   evidence IDs — not free text.
+   but can't leave to fetch another file or pull a lever. That bounds what
+   hostile evidence content (a prompt-injection payload riding in a log line —
+   attacker-written text crafted so an LLM mistakes data for instructions) can
+   do, but it does **not** make the model immune: injected text *can* steer what
+   the model writes. Containing that is the next step's job, not this one's. The
+   model returns a *structured* answer — findings, each citing evidence IDs —
+   not free text.
 
 4. **Citation integrity (the trust backstop).** LLMs sometimes *hallucinate*:
-   they state things, fluently, that were never in their input. This step makes
-   that survivable. The pipeline (`internal/ai/rca.go`) drops any finding whose
-   citations don't resolve to real gathered evidence — a fact-checking editor who
-   walks every footnote back to its source before publication. A hallucinated
-   reference can never reach you, no matter which model produced it. The **root
-   cause headline itself must also be grounded**: an uncited or fake-cited root
-   cause is rejected and replaced with a grounded fallback, and confidence drops
-   to low. If nothing grounded survives, the answer is an honest **"insufficient
-   evidence"** rather than a guess.
+   they state things, fluently, that were never in their input — and a steered
+   model can also point a fabricated claim at a *real* piece of evidence. This
+   step makes both survivable. The pipeline (`internal/ai/rca.go`) drops any
+   finding whose citations don't resolve to real gathered evidence — a
+   fact-checking editor who walks every footnote back to its source before
+   publication. A hallucinated reference can never reach you, no matter which
+   model produced it. The **root cause headline itself must also be grounded**:
+   an uncited or fake-cited root cause is rejected and replaced with a grounded
+   fallback, and confidence drops to low. Resolving the citation is *necessary
+   but not sufficient* — the headline must also **share content with the
+   evidence it cites** (a deterministic term-overlap check, so it runs in the
+   air-gapped builtin too). A claim unrelated to the signal it points at — the
+   shape an evidence-borne injection takes — is treated as unverified, not
+   grounded (AI-02). If nothing grounded survives, the answer is an honest
+   **"insufficient evidence"** rather than a guess.
 
 A small but important detail: evidence IDs (`E<random>-1`, `E<random>-2`, …) carry
 a per-request random prefix. Because the IDs aren't predictable, injected text in a

@@ -11,8 +11,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -33,8 +35,9 @@ type Answer struct {
 	RootCause string `json:"root_cause"`
 	// RootCauseCitations are the VALIDATED citations grounding the headline
 	// claim (RED-005); RootCauseGrounded is false when the model's root
-	// cause was rejected for citing nothing real (the claim is replaced,
-	// never surfaced).
+	// cause was rejected — either for citing nothing real, or (AI-02) for
+	// making a claim the cited evidence does not actually support. The
+	// rejected claim is replaced with a grounded fallback, never surfaced.
 	RootCauseCitations []Citation `json:"root_cause_citations,omitempty"`
 	RootCauseGrounded  bool       `json:"root_cause_grounded"`
 	// Degraded: the remote model was unavailable and the air-gapped builtin
@@ -268,8 +271,15 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	// citation check never looked at the root_cause string. Now an uncited
 	// or fake-cited root cause is REJECTED on every adapter path: the claim
 	// is replaced with a grounded fallback and confidence drops to low.
+	//
+	// AI-02: a resolving citation id is NECESSARY but not SUFFICIENT. Checking
+	// only that the cited id exists let a steered adapter (or an evidence-borne
+	// injection) attach a real id to an unrelated headline and pass as grounded.
+	// The headline must also be SUPPORTED by the content of the evidence it
+	// cites — share salient terms with it; a claim the cited signal does not
+	// mention is treated as unverified, not grounded, and is replaced too.
 	rcCitations := groundCitations(syn.RootCauseCitations, evidence)
-	rootCauseGrounded := len(rcCitations) > 0
+	rootCauseGrounded := len(rcCitations) > 0 && rootCauseSupported(syn.RootCause, rcCitations, evidence)
 	if !insufficient && !rootCauseGrounded {
 		syn.RootCause = rejectedRootCause(syn.Findings)
 		syn.Confidence = ConfidenceLow
@@ -346,7 +356,9 @@ func (a *Analyzer) reasoningProvenance(syn Synthesis, egress *EgressEvent) Reaso
 }
 
 // groundCitations keeps only citations that resolve to real gathered
-// evidence (the root-cause variant of groundFindings; RED-005).
+// evidence (the root-cause variant of groundFindings; RED-005). Resolving the
+// id is only the first gate — rootCauseSupported then checks the claim's
+// CONTENT against that evidence (AI-02).
 func groundCitations(cits []Citation, evidence []Evidence) []Citation {
 	ids := make(map[string]bool, len(evidence))
 	for _, e := range evidence {
@@ -362,14 +374,119 @@ func groundCitations(cits []Citation, evidence []Evidence) []Citation {
 }
 
 // rejectedRootCause is the replacement when the model's headline failed
-// citation integrity: it makes NO new claim — it points at the grounded
-// findings, which carry their own validated citations.
+// citation integrity — whether it cited nothing real (RED-005) or cited real
+// evidence its claim does not support (AI-02). It makes NO new claim; it points
+// at the grounded findings, which carry their own validated citations.
 func rejectedRootCause(grounded []Finding) string {
 	if len(grounded) == 0 {
 		return "Insufficient evidence: the gathered signals do not support a confident root cause."
 	}
-	return "The model's root-cause statement was rejected by citation integrity (it cited no gathered evidence). " +
+	return "The model's root-cause statement was rejected by citation integrity (it is not grounded in the gathered evidence it cites). " +
 		"The grounded findings below stand on their own; the strongest is: " + grounded[0].Statement
+}
+
+// rootCauseSupported reports whether the model's root-cause STATEMENT actually
+// shares content with the evidence it cites (AI-02). A resolving citation id is
+// necessary but not sufficient grounding: a steered adapter — or a prompt
+// injection riding the evidence text — can emit an unrelated headline and
+// attach a real id to it. We require the headline to share at least one salient
+// term with the title/summary of its cited evidence; a headline that names
+// nothing the cited signal mentions is treated as unverified, not grounded.
+//
+// It is deliberately a deterministic term-overlap heuristic so it runs in the
+// air-gapped builtin too (no model call). It cannot prove semantic entailment —
+// only reject a claim with no textual grounding in what it points at.
+func rootCauseSupported(rootCause string, cited []Citation, evidence []Evidence) bool {
+	claim := salientTerms(rootCause)
+	if len(claim) == 0 {
+		// A headline with no content words of its own makes no checkable
+		// claim — fail closed (treat as unsupported).
+		return false
+	}
+	byID := make(map[string]Evidence, len(evidence))
+	for _, e := range evidence {
+		byID[e.ID] = e
+	}
+	for _, c := range cited {
+		e, ok := byID[c.EvidenceID]
+		if !ok {
+			continue
+		}
+		for term := range salientTerms(evidenceContent(e)) {
+			if claim[term] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// evidenceContent is the human-readable description of a signal used for
+// grounding — its title and summary. Structural labels (plane/severity/id) are
+// intentionally excluded so the overlap reflects what the signal actually says.
+func evidenceContent(e Evidence) string {
+	return e.Title + " " + e.Summary
+}
+
+// salientTerms lowercases s and returns its content tokens: alphanumeric runs of
+// at least three characters, excluding pure numbers and groundingStopwords.
+func salientTerms(s string) map[string]bool {
+	out := make(map[string]bool)
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		w := b.String()
+		b.Reset()
+		if len(w) < 3 || groundingStopwords[w] || isAllDigits(w) {
+			return
+		}
+		out[w] = true
+	}
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
+}
+
+func isAllDigits(w string) bool {
+	for _, r := range w {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// groundingStopwords are generic tokens ignored when deciding whether a claim
+// shares content with the evidence it cites (AI-02): English function words,
+// plus the synthesizer's own scaffolding ("most likely root cause", "signal",
+// "plane", …) and citation-integrity vocabulary — words that carry no subject
+// and would otherwise manufacture a spurious overlap.
+var groundingStopwords = map[string]bool{
+	// function words
+	"the": true, "and": true, "for": true, "with": true, "that": true,
+	"this": true, "its": true, "are": true, "was": true, "has": true,
+	"have": true, "not": true, "now": true, "you": true, "your": true,
+	"from": true, "into": true, "onto": true, "over": true, "than": true,
+	"then": true, "those": true, "these": true, "them": true, "they": true,
+	"but": true, "any": true, "all": true, "out": true, "off": true,
+	"per": true, "via": true, "may": true, "can": true, "will": true,
+	// synthesizer scaffolding / citation-integrity vocabulary
+	"most": true, "likely": true, "root": true, "cause": true, "causes": true,
+	"signal": true, "signals": true, "plane": true, "planes": true,
+	"evidence": true, "finding": true, "findings": true, "citation": true,
+	"citations": true, "cited": true, "grounded": true, "gathered": true,
+	"integrity": true, "rejected": true, "statement": true, "model": true,
+	"window": true, "layer": true, "layers": true, "unverified": true,
+	"clean": true, "rather": true, "below": true, "stand": true, "their": true,
+	"strongest": true, "corroborating": true, "insufficient": true,
 }
 
 // groundFindings keeps only findings whose citations resolve to real gathered

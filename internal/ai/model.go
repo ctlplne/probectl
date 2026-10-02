@@ -36,9 +36,13 @@ type Finding struct {
 // SynthesisInput is the read-only material handed to a ModelAdapter: the user's
 // question and the already-gathered evidence (tenant-and-RBAC/ABAC-scoped by the S23
 // engine before it ever reaches a model). A model has NO tools and cannot issue
-// queries or actions — it only synthesizes prose over this evidence, so even
-// hostile evidence content (prompt injection) can never drive behavior: the
-// worst it can do is produce a claim the citation-integrity check then rejects.
+// queries or take actions — it only synthesizes prose over this evidence. That
+// contains the blast radius of hostile evidence content (prompt injection) but
+// does NOT neutralize it: injected text CAN steer what a model writes. The
+// pipeline's defense is downstream, in citation integrity — every claim, the
+// root-cause headline included, is kept only if it cites real gathered evidence
+// AND shares content with what it cites (AI-02); an unrelated or injected claim
+// is rejected there, not prevented here.
 type SynthesisInput struct {
 	Question string
 	Evidence []Evidence
