@@ -128,6 +128,11 @@ func HardenedHTTPClient(timeout time.Duration) *http.Client {
 		Timeout:       timeout,
 		CheckRedirect: hardenedHTTPRedirectPolicy,
 		Transport: &http.Transport{
+			// PLAT-07: honor HTTPS_PROXY/HTTP_PROXY/NO_PROXY so outbound
+			// integrations (SIEM, on-call/ITSM, AI, secret managers, S3, CMDB,
+			// feeds) can traverse a mandatory egress proxy. With no proxy env set
+			// (the default) this is a no-op and the dialer behaves as before.
+			Proxy:               http.ProxyFromEnvironment,
 			TLSClientConfig:     hardenedTLS(),
 			ForceAttemptHTTP2:   true,
 			MaxIdleConns:        10,
@@ -243,7 +248,12 @@ func GuardedHTTPClient(timeout time.Duration) *http.Client {
 		Timeout:       timeout,
 		CheckRedirect: hardenedHTTPRedirectPolicy,
 		Transport: &http.Transport{
-			DialContext:         d.DialContext,
+			DialContext: d.DialContext,
+			// PLAT-07: honor a configured egress proxy. When no proxy is set (the
+			// default) this is a no-op and the dial-time SSRF guard above runs on
+			// the real target; when an operator mandates an egress proxy, egress
+			// policy for caller-supplied destinations is the proxy's to enforce.
+			Proxy:               http.ProxyFromEnvironment,
 			TLSClientConfig:     hardenedTLS(),
 			ForceAttemptHTTP2:   true,
 			MaxIdleConns:        10,
