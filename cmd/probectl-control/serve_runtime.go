@@ -37,6 +37,7 @@ import (
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/inventory"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/notify"
 	"github.com/ctlplne/probectl/internal/objectstore"
@@ -342,9 +343,11 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithDeviceNeighbors(rt.neighborStore).
 		WithDeviceCollectionOutcomes(rt.outcomeStore).
 		WithEBPFStore(rt.ebpfStore).
-		// PLAT-06/RTP-08/WEB-26: durable device syslog + config archive (survive
-		// restart, shared across replicas) instead of the process-memory default.
+		// PLAT-06/RTP-08/WEB-26: durable device syslog + config archive + inventory
+		// saved views (survive restart, shared across replicas) instead of the
+		// process-memory defaults.
 		WithDeviceOps(device.NewPostgresOpsStore(rt.db.Pool())).
+		WithInventoryViews(inventory.NewPostgresViewStore(rt.db.Pool())).
 		WithCost(rt.costEngine).
 		WithCarbon(rt.carbonEngine)
 	if rt.sloEngine != nil {

@@ -421,6 +421,16 @@ func (s *Server) WithOTelStore(st otelstore.Store) *Server {
 	return s
 }
 
+// WithInventoryViews attaches the tenant-scoped inventory saved-view store
+// (PLAT-06: durable Postgres-backed on the serve path; in-memory default for the
+// pool-less/lightweight mode + tests).
+func (s *Server) WithInventoryViews(st inventory.ViewStore) *Server {
+	if st != nil {
+		s.inventoryViews = st
+	}
+	return s
+}
+
 // WithDeviceOps attaches the tenant-scoped device syslog/config archive store
 // (PLAT-06/RTP-08/WEB-26: the serve path wires a durable Postgres-backed store;
 // the default is the in-memory one for the pool-less/lightweight mode + tests).
