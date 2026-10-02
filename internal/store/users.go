@@ -23,21 +23,28 @@ import (
 type Users struct{}
 
 const userCols = `id::text, tenant_id::text, email, display_name, status,
-	external_id, user_name, attributes, created_at, updated_at`
+	external_id, user_name, attributes, oidc_issuer, oidc_subject, created_at, updated_at`
 
 func scanUser(row interface{ Scan(...any) error }, u *User) error {
-	var ext, uname *string
+	var ext, uname, oidcIss, oidcSub *string
 	var attrs []byte
 	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.DisplayName, &u.Status,
-		&ext, &uname, &attrs, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		&ext, &uname, &attrs, &oidcIss, &oidcSub, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return err
 	}
 	u.ExternalID, u.UserName, u.Attributes = "", "", nil
+	u.OIDCIssuer, u.OIDCSubject = "", ""
 	if ext != nil {
 		u.ExternalID = *ext
 	}
 	if uname != nil {
 		u.UserName = *uname
+	}
+	if oidcIss != nil {
+		u.OIDCIssuer = *oidcIss
+	}
+	if oidcSub != nil {
+		u.OIDCSubject = *oidcSub
 	}
 	if len(attrs) > 0 {
 		if err := json.Unmarshal(attrs, &u.Attributes); err != nil {
@@ -154,6 +161,40 @@ func (Users) getByExternalID(ctx context.Context, s tenancy.Scope, externalID st
 	var u User
 	if err := scanUser(s.Q.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE external_id = $1`, externalID), &u); err != nil {
 		return nil, notFound("user", err)
+	}
+	return &u, nil
+}
+
+// GetByOIDC returns the user bound to an ID token's stable (issuer, subject)
+// pair within the tenant (AUTHZ-03). This is the authoritative SSO lookup: the
+// email claim is mutable and attacker-settable, (iss, sub) is not.
+func (Users) GetByOIDC(ctx context.Context, s tenancy.Scope, issuer, subject string) (*User, error) {
+	var u User
+	if err := scanUser(s.Q.QueryRow(ctx,
+		`SELECT `+userCols+` FROM users WHERE oidc_issuer = $1 AND oidc_subject = $2`,
+		issuer, subject), &u); err != nil {
+		return nil, notFound("user", err)
+	}
+	return &u, nil
+}
+
+// BindOIDC records an ID token's (issuer, subject) on a user that has none yet
+// (AUTHZ-03). The `oidc_subject IS NULL` guard makes the binding happen EXACTLY
+// ONCE: a pre-provisioned/SCIM account links to its first OIDC subject and is
+// thereafter matched only by that pair. A concurrent login that already bound
+// the row (or a different row that raced to the same pair) leaves zero rows /
+// trips the partial-unique index, and the caller fails the login closed.
+func (Users) BindOIDC(ctx context.Context, s tenancy.Scope, id, issuer, subject string) (*User, error) {
+	var u User
+	err := scanUser(s.Q.QueryRow(ctx,
+		`UPDATE users SET oidc_issuer = $2, oidc_subject = $3, updated_at = now()
+		  WHERE id = $1 AND oidc_subject IS NULL RETURNING `+userCols,
+		id, issuer, subject), &u)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.Conflict("user identity binding already set")
+		}
+		return nil, mapWriteErr("user", err)
 	}
 	return &u, nil
 }

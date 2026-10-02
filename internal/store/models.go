@@ -72,8 +72,14 @@ type User struct {
 	ExternalID  string            `json:"external_id,omitempty"`
 	UserName    string            `json:"user_name,omitempty"`
 	Attributes  map[string]string `json:"attributes,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	// OIDCIssuer/OIDCSubject are the ID token's stable (iss, sub) binding
+	// (AUTHZ-03). Empty until a first OIDC login records them; thereafter only
+	// that exact pair logs into this account, and a second subject presenting
+	// the same email is refused. Never JSON-serialized (internal binding only).
+	OIDCIssuer  string    `json:"-"`
+	OIDCSubject string    `json:"-"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // ScimToken is a per-tenant SCIM bearer-token record (metadata only; the token

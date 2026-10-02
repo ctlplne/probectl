@@ -37,6 +37,9 @@ type mockIDP struct {
 	// claims overrides for the next minted token.
 	sub, email, name, zoneinfo, locale string
 	tokenCodeVerifier                  string
+	// emailVerified, when non-nil, is emitted as the email_verified claim
+	// (AUTHZ-03). nil omits the claim entirely.
+	emailVerified *bool
 }
 
 func newMockIDP(t *testing.T, clientID string) *mockIDP {
@@ -124,6 +127,9 @@ func (m *mockIDP) mintIDToken(t *testing.T) string {
 		"locale":   m.locale,
 		"nonce":    "nonce-abc", // SEC-004: surfaced as Identity.Nonce
 	}
+	if m.emailVerified != nil {
+		claims["email_verified"] = *m.emailVerified // AUTHZ-03
+	}
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		t.Fatalf("marshal claims: %v", err)
@@ -193,6 +199,63 @@ func TestOIDCProviderExchange(t *testing.T) {
 	if idp.tokenCodeVerifier != codeVerifier {
 		t.Fatalf("token endpoint code_verifier = %q, want login verifier", idp.tokenCodeVerifier)
 	}
+}
+
+// AUTHZ-03: Exchange surfaces the verified issuer and the email_verified claim
+// so the callback can bind on the stable (iss, sub) pair and refuse an
+// IdP-unverified email. go-oidc already verifies `iss` against discovery.
+func TestOIDCProviderSurfacesIssuerAndEmailVerified(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("verified_true", func(t *testing.T) {
+		idp := newMockIDP(t, "probectl-client")
+		idp.emailVerified = func(b bool) *bool { return &b }(true)
+		prov, err := NewOIDCProvider(ctx, OIDCConfig{Issuer: idp.issuer, ClientID: "probectl-client"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := prov.Exchange(ctx, "code", "verifier")
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		if id.Issuer != idp.issuer {
+			t.Fatalf("Identity.Issuer = %q, want the verified issuer %q", id.Issuer, idp.issuer)
+		}
+		if id.EmailVerified == nil || !*id.EmailVerified {
+			t.Fatalf("Identity.EmailVerified = %v, want true", id.EmailVerified)
+		}
+	})
+
+	t.Run("verified_false", func(t *testing.T) {
+		idp := newMockIDP(t, "probectl-client")
+		idp.emailVerified = func(b bool) *bool { return &b }(false)
+		prov, err := NewOIDCProvider(ctx, OIDCConfig{Issuer: idp.issuer, ClientID: "probectl-client"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := prov.Exchange(ctx, "code", "verifier")
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		if id.EmailVerified == nil || *id.EmailVerified {
+			t.Fatalf("Identity.EmailVerified = %v, want false", id.EmailVerified)
+		}
+	})
+
+	t.Run("absent_is_nil", func(t *testing.T) {
+		idp := newMockIDP(t, "probectl-client") // no email_verified claim
+		prov, err := NewOIDCProvider(ctx, OIDCConfig{Issuer: idp.issuer, ClientID: "probectl-client"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := prov.Exchange(ctx, "code", "verifier")
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		if id.EmailVerified != nil {
+			t.Fatalf("Identity.EmailVerified = %v, want nil for an absent claim", *id.EmailVerified)
+		}
+	})
 }
 
 func TestOIDCProviderRejectsWrongAudience(t *testing.T) {

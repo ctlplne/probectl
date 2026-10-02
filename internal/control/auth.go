@@ -600,6 +600,59 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// ssoAction is what handleCallback must do once it has resolved an SSO identity
+// against the tenant directory (AUTHZ-03). The ID token's (issuer, subject)
+// pair — not the mutable, IdP-settable email — is the account's stable key.
+type ssoAction int
+
+const (
+	ssoDeny      ssoAction = iota // refuse the login (401)
+	ssoLogin                      // an existing account resolved: log it in as-is
+	ssoLink                       // a pre-provisioned account: bind (iss,sub) once, then log in
+	ssoProvision                  // no account yet: JIT-provision (subject to jitAllowed)
+)
+
+// decideSSOBinding is the pure (issuer, subject)/email binding policy (AUTHZ-03).
+// bySub is the account already bound to the token's (issuer, subject); byEmail
+// is the account currently holding the token's email. Either may be nil. The
+// returned user is the account to proceed with (nil for deny/provision). It
+// touches no database, so the whole policy is exercised in plain `go test`.
+func decideSSOBinding(ident auth.Identity, bySub, byEmail *store.User) (ssoAction, *store.User) {
+	// (a) An IdP that reports the email UNVERIFIED must never authenticate; the
+	// email claim is attacker-controlled otherwise. Absent (nil) is tolerated at
+	// this blanket gate — it is still refused below before it can LINK an account.
+	if ident.EmailVerified != nil && !*ident.EmailVerified {
+		return ssoDeny, nil
+	}
+	bound := ident.Issuer != "" && ident.Subject != ""
+	// An account already bound to this exact (iss, sub) is the authoritative
+	// match — even if the email claim has since changed at the IdP.
+	if bound && bySub != nil {
+		return ssoLogin, bySub
+	}
+	if byEmail != nil {
+		// (b) The email belongs to an account already bound to a DIFFERENT
+		// (iss, sub) — bySub was nil above, so any stored binding differs. A
+		// second subject must not take over the first subject's account.
+		if byEmail.OIDCSubject != "" {
+			return ssoDeny, nil
+		}
+		if bound {
+			// (c) First OIDC login for a pre-provisioned/SCIM account: link the
+			// (iss, sub) exactly once. Linking by the email claim is only safe
+			// when the IdP explicitly VERIFIED that email.
+			if ident.EmailVerified == nil || !*ident.EmailVerified {
+				return ssoDeny, nil
+			}
+			return ssoLink, byEmail
+		}
+		// No (iss, sub) to bind — a non-OIDC provider (e.g. a test fake). Keep
+		// the historical email match; the real OIDC path always carries both.
+		return ssoLogin, byEmail
+	}
+	return ssoProvision, nil
+}
+
 // handleCallback completes login: it checks the CSRF state, exchanges the code,
 // provisions/loads the user within the tenant, mints a session, and sets the
 // session cookie.
@@ -682,20 +735,63 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 
 	var user *store.User
 	err = tenancy.InTenant(tenancy.WithTenant(r.Context(), tid), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		u, e := store.Users{}.GetByEmail(ctx, sc, ident.Email)
-		if e != nil {
-			if de, ok := apierror.As(e); ok && de.Kind == apierror.KindNotFound {
-				if !jitAllowed {
-					// Fail closed: no row is created in this tenant (AUTHZ-06).
-					return apierror.Forbidden("identity is not provisioned in this tenant")
+		// orNil turns a tenant-scoped NotFound into a nil candidate so the pure
+		// binding policy can reason over "present vs absent"; other errors (RLS,
+		// infrastructure) still propagate and fail the login.
+		orNil := func(u *store.User, e error) (*store.User, error) {
+			if e != nil {
+				if de, ok := apierror.As(e); ok && de.Kind == apierror.KindNotFound {
+					return nil, nil
 				}
-				// Just-in-time provisioning: a first-time SSO user is created with
-				// NO roles (secure default) — an admin grants access explicitly.
-				u, e = store.Users{}.Create(ctx, sc, ident.Email, ident.DisplayName)
+				return nil, e
+			}
+			return u, nil
+		}
+		// AUTHZ-03: the (issuer, subject) pair is the stable account key. Resolve
+		// it first; the email lookup only ever links a first-time or legacy row.
+		bound := ident.Issuer != "" && ident.Subject != ""
+		var bySub *store.User
+		if bound {
+			var e error
+			if bySub, e = orNil(store.Users{}.GetByOIDC(ctx, sc, ident.Issuer, ident.Subject)); e != nil {
+				return e
 			}
 		}
+		byEmail, e := orNil(store.Users{}.GetByEmail(ctx, sc, ident.Email))
 		if e != nil {
 			return e
+		}
+		action, u := decideSSOBinding(*ident, bySub, byEmail)
+		switch action {
+		case ssoDeny:
+			// AUTHZ-03: a refused binding — an IdP-unverified email, or a second
+			// subject claiming an account already bound to a different subject —
+			// is an identity-level rejection: 401, no session, no row written.
+			return apierror.Unauthorized("sso identity binding refused")
+		case ssoLink:
+			// First OIDC login for a pre-provisioned account: bind its (iss, sub)
+			// exactly once (the DB guard + partial-unique index fail closed).
+			if u, e = (store.Users{}).BindOIDC(ctx, sc, u.ID, ident.Issuer, ident.Subject); e != nil {
+				return e
+			}
+		case ssoProvision:
+			if !jitAllowed {
+				// Fail closed: no row is created in this tenant (AUTHZ-06).
+				return apierror.Forbidden("identity is not provisioned in this tenant")
+			}
+			// Just-in-time provisioning: a first-time SSO user is created with
+			// NO roles (secure default) — an admin grants access explicitly.
+			if u, e = (store.Users{}).Create(ctx, sc, ident.Email, ident.DisplayName); e != nil {
+				return e
+			}
+			// Bind the JIT account to its (iss, sub) so a later subject reusing
+			// the same email cannot take it over (AUTHZ-03). A non-OIDC provider
+			// carries no pair and keeps the historical email-only behavior.
+			if bound {
+				if u, e = (store.Users{}).BindOIDC(ctx, sc, u.ID, ident.Issuer, ident.Subject); e != nil {
+					return e
+				}
+			}
 		}
 		// A deprovisioned account must not be able to log back in via SSO
 		// (AUTHZ-02). A just-provisioned JIT user is created active, so this

@@ -21,11 +21,23 @@ import (
 
 // Identity is the end-user identity an SSO provider returns after login.
 type Identity struct {
-	Subject     string
+	Subject string
+	// Issuer is the ID token's verified `iss` claim (AUTHZ-03). Together with
+	// Subject it is the account's STABLE binding key — the callback binds an
+	// account to (Issuer, Subject), never to the mutable/attacker-settable
+	// email. It is empty for a non-OIDC provider (e.g. a test fake), in which
+	// case the callback falls back to the historical email match.
+	Issuer      string
 	Email       string
 	DisplayName string
 	TimeZone    string
 	Locale      string
+	// EmailVerified carries the ID token's `email_verified` claim (AUTHZ-03):
+	// true/false when the IdP asserts it, nil when the claim is absent. The
+	// callback refuses a login the IdP reports UNVERIFIED and only ever links a
+	// pre-provisioned account by an email the IdP VERIFIED — the email claim is
+	// attacker-controlled otherwise.
+	EmailVerified *bool
 	// MFASatisfied is set from the ID token's amr/acr claims (SEC-005): true
 	// when the IdP asserts a SECOND factor was used. It flows into the session
 	// → principal → the "mfa" ABAC attribute, and gates PROBECTL_REQUIRE_MFA.

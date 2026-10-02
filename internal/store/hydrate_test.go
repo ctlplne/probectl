@@ -72,7 +72,10 @@ func TestScanPolicySurfacesCorruptJSON(t *testing.T) {
 
 func TestScanUserSurfacesCorruptJSON(t *testing.T) {
 	cols := func(attrs []byte) []any {
-		return []any{"uid", "t1", "e@x", "Name", "active", (*string)(nil), (*string)(nil), attrs, time.Now(), time.Now()}
+		// Positions mirror userCols: …, external_id, user_name, attributes,
+		// oidc_issuer, oidc_subject, created_at, updated_at (AUTHZ-03 added the
+		// two nullable oidc_* columns).
+		return []any{"uid", "t1", "e@x", "Name", "active", (*string)(nil), (*string)(nil), attrs, (*string)(nil), (*string)(nil), time.Now(), time.Now()}
 	}
 	var u User
 	if err := scanUser(fakeRow{cols([]byte(`{"dept":"neteng"}`))}, &u); err != nil {

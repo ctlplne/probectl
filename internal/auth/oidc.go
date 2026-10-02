@@ -89,6 +89,7 @@ func (p *oidcProvider) Exchange(ctx context.Context, code, codeVerifier string) 
 	var claims struct {
 		Subject           string   `json:"sub"`
 		Email             string   `json:"email"`
+		EmailVerified     *bool    `json:"email_verified"` // AUTHZ-03: nil when absent
 		Name              string   `json:"name"`
 		PreferredUsername string   `json:"preferred_username"`
 		ZoneInfo          string   `json:"zoneinfo"`
@@ -104,13 +105,17 @@ func (p *oidcProvider) Exchange(ctx context.Context, code, codeVerifier string) 
 		name = claims.PreferredUsername
 	}
 	return &Identity{
-		Subject:      claims.Subject,
-		Email:        claims.Email,
-		DisplayName:  name,
-		TimeZone:     claims.ZoneInfo,
-		Locale:       claims.Locale,
-		MFASatisfied: mfaFromAuthContext(claims.AMR, claims.ACR),
-		Nonce:        idToken.Nonce,
+		Subject: claims.Subject,
+		// AUTHZ-03: idToken.Issuer is the `iss` the verifier already checked
+		// against the configured issuer, so it is the trustworthy binding key.
+		Issuer:        idToken.Issuer,
+		Email:         claims.Email,
+		EmailVerified: claims.EmailVerified,
+		DisplayName:   name,
+		TimeZone:      claims.ZoneInfo,
+		Locale:        claims.Locale,
+		MFASatisfied:  mfaFromAuthContext(claims.AMR, claims.ACR),
+		Nonce:         idToken.Nonce,
 	}, nil
 }
 
