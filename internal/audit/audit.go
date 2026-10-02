@@ -66,6 +66,15 @@ type streamHead struct {
 	HeadHash   string
 	PrunedSeq  int64
 	PrunedHash string
+
+	// HeadSig is the Ed25519 signature over the canonical head
+	// (tenant_id, head_seq, head_hash) produced by the control plane's offline
+	// WORM key (AUD-01; docs/guardrails.md G7-7). It anchors the chain OUTSIDE
+	// the database's trust domain: a DB writer cannot forge it. Empty for a
+	// legacy head written before the head_sig column, or when head anchoring is
+	// not configured. Only populated for the tenant stream; the provider stream
+	// is anchored separately by the signed WORM export (worm.go).
+	HeadSig []byte
 }
 
 func (h streamHead) validate(label string) error {
@@ -490,11 +499,11 @@ func readTenantStreamHead(ctx context.Context, q tenancy.Querier, tenantID strin
 	var head streamHead
 	err := q.QueryRow(
 		ctx,
-		`SELECT head_seq, head_hash, pruned_seq, pruned_hash
+		`SELECT head_seq, head_hash, pruned_seq, pruned_hash, head_sig
 		   FROM public.audit_stream_heads
 		  WHERE tenant_id = $1::uuid`,
 		tenantID,
-	).Scan(&head.HeadSeq, &head.HeadHash, &head.PrunedSeq, &head.PrunedHash)
+	).Scan(&head.HeadSeq, &head.HeadHash, &head.PrunedSeq, &head.PrunedHash, &head.HeadSig)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return streamHead{}, false, nil
 	}
@@ -650,17 +659,27 @@ func ensureTenantStreamHeadAtCursor(
 				err,
 			)
 		}
+		// AUD-01: this is the anchor's genesis for a tenant whose rows an older
+		// binary appended before the head metadata existed — sign the inferred
+		// head so a later verify under a configured anchor accepts it. The app
+		// role keeps INSERT (not UPDATE) on audit_stream_heads, so this first-time
+		// insert carries the signature directly.
+		sig, serr := signTenantHead(tenantID, head.HeadSeq, head.HeadHash)
+		if serr != nil {
+			return streamHead{}, serr
+		}
 		tag, err := q.Exec(
 			ctx,
 			`INSERT INTO public.audit_stream_heads
-			    (tenant_id, head_seq, head_hash, pruned_seq, pruned_hash, updated_at)
-			 VALUES ($1::uuid, $2, $3, $4, $5, now())
+			    (tenant_id, head_seq, head_hash, pruned_seq, pruned_hash, head_sig, updated_at)
+			 VALUES ($1::uuid, $2, $3, $4, $5, $6, now())
 			 ON CONFLICT (tenant_id) DO NOTHING`,
 			tenantID,
 			head.HeadSeq,
 			head.HeadHash,
 			head.PrunedSeq,
 			head.PrunedHash,
+			sig,
 		)
 		if err != nil {
 			return streamHead{}, fmt.Errorf("initialize tenant audit stream head: %w", err)
@@ -668,6 +687,7 @@ func ensureTenantStreamHeadAtCursor(
 		if tag.RowsAffected() != 1 {
 			return streamHead{}, fmt.Errorf("initialize tenant audit stream head: concurrent state change")
 		}
+		head.HeadSig = sig
 		return head, nil
 	}
 	if bounds.FirstSeq != head.PrunedSeq+1 || bounds.FirstPrevHash != head.PrunedHash {
@@ -696,10 +716,11 @@ func ensureTenantStreamHeadAtCursor(
 	if err := verifyTenantExtension(ctx, q, tenantID, head, bounds); err != nil {
 		return streamHead{}, err
 	}
-	if err := updateTenantHead(ctx, q, tenantID, head, bounds.LastSeq, bounds.LastHash); err != nil {
+	sig, err := updateTenantHead(ctx, q, tenantID, head, bounds.LastSeq, bounds.LastHash)
+	if err != nil {
 		return streamHead{}, err
 	}
-	head.HeadSeq, head.HeadHash = bounds.LastSeq, bounds.LastHash
+	head.HeadSeq, head.HeadHash, head.HeadSig = bounds.LastSeq, bounds.LastHash, sig
 	if err := validateTenantCursorAgainstHead(exportCursor, head); err != nil {
 		return streamHead{}, err
 	}
@@ -894,12 +915,19 @@ func advanceTenantStreamHead(
 	head streamHead,
 	ev Event,
 ) error {
-	if err := updateTenantHead(ctx, q, tenantID, head, ev.Seq, ev.Hash); err != nil {
+	if _, err := updateTenantHead(ctx, q, tenantID, head, ev.Seq, ev.Hash); err != nil {
 		return fmt.Errorf("advance tenant audit stream head: %w", err)
 	}
 	return nil
 }
 
+// updateTenantHead advances the durable head through the AUD-04 SECURITY DEFINER
+// function and returns the Ed25519 signature it stored over the new head (nil
+// when head anchoring is not configured). AUD-01: the signature is computed HERE,
+// in the control plane, over (tenant_id, head_seq, head_hash); only the resulting
+// bytes are passed into the definer, so the signing key never reaches the
+// database or the SQL function (docs/guardrails.md G7-7). The definer still
+// enforces monotonic, forward-only, caller-GUC-free head advancement (AUD-04).
 func updateTenantHead(
 	ctx context.Context,
 	q tenancy.Querier,
@@ -907,16 +935,16 @@ func updateTenantHead(
 	old streamHead,
 	newSeq int64,
 	newHash string,
-) error {
-	// AUD-04: head advancement is caller-settable-GUC-free and monotonic
-	// forward-only, enforced inside the SECURITY DEFINER function. The app and
-	// provider roles hold no UPDATE grant on audit_stream_heads; they may only
-	// invoke this function, which cannot rewind a head (docs/guardrails.md G7-7).
+) ([]byte, error) {
+	sig, err := signTenantHead(tenantID, newSeq, newHash)
+	if err != nil {
+		return nil, err
+	}
 	var rows int64
 	if err := q.QueryRow(
 		ctx,
 		`SELECT public.probectl_advance_tenant_audit_head(
-		     $1::uuid, $2, $3, $4, $5, $6, $7)`,
+		     $1::uuid, $2, $3, $4, $5, $6, $7, $8)`,
 		tenantID,
 		newSeq,
 		newHash,
@@ -924,13 +952,14 @@ func updateTenantHead(
 		old.PrunedHash,
 		old.HeadSeq,
 		old.HeadHash,
+		sig,
 	).Scan(&rows); err != nil {
-		return fmt.Errorf("update tenant audit stream head: %w", err)
+		return nil, fmt.Errorf("update tenant audit stream head: %w", err)
 	}
 	if rows != 1 {
-		return fmt.Errorf("update tenant audit stream head: non-monotonic state transition")
+		return nil, fmt.Errorf("update tenant audit stream head: non-monotonic state transition")
 	}
-	return nil
+	return sig, nil
 }
 
 func advanceProviderStreamHead(ctx context.Context, q tenancy.Querier, head streamHead, ev Event) error {
@@ -996,7 +1025,14 @@ func tenantVerifyFromLocked(ctx context.Context, s tenancy.Scope, head streamHea
 	if err != nil {
 		return err
 	}
-	return verifyReachedHead("tenant", head, lastSeq, lastHash)
+	if err := verifyReachedHead("tenant", head, lastSeq, lastHash); err != nil {
+		return err
+	}
+	// AUD-01: the hash-chain check above is self-contained in the database, so a
+	// writer that rewrites a row, recomputes the chain, and updates
+	// audit_stream_heads passes it. The out-of-trust-domain Ed25519 signature
+	// over the durable head is the check that same writer cannot forge.
+	return verifyTenantHeadAnchor(s.Tenant.String(), head)
 }
 
 func tenantVerificationAnchor(

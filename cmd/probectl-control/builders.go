@@ -1079,6 +1079,14 @@ func buildReconciledAuditWORM(
 		log.Warn("GENERATED a new WORM audit signing key — back this file up like any key material; losing it forfeits cross-restart verification of the exported chain",
 			"key_file", cfg.WormSigningKeyFile)
 	}
+	// AUD-01: anchor every tenant audit stream head with the SAME offline WORM
+	// Ed25519 key. The private half stays here, in the control plane; only the
+	// per-head signature bytes reach the database (docs/guardrails.md G7-7). With
+	// this configured, TenantVerify rejects a head that a DB writer rewrote and
+	// re-chained, because that writer cannot forge the signature.
+	if err := audit.ConfigureTenantHeadAnchor(wormPriv, wormPub); err != nil {
+		return nil, fmt.Errorf("audit tenant head anchor: %w", err)
+	}
 	worm, err := audit.NewWormExporterPG(
 		db.Pool(),
 		wormStore,
