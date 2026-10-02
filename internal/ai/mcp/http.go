@@ -23,6 +23,12 @@ type Authenticator interface {
 	Authenticate(ctx context.Context, bearer string) (*auth.Principal, error)
 }
 
+// ErrForbidden marks an Authenticate failure that is a policy refusal rather
+// than a bad token — a suspended/offboarded tenant or an unmet MFA requirement
+// (AUTHZ-12). The handler maps it to 403, matching the /v1 edge; every other
+// authentication error maps to 401.
+var ErrForbidden = errors.New("mcp: forbidden")
+
 // HTTPHandler returns the MCP-over-HTTP handler — the network transport. It is
 // POST-only JSON-RPC, authenticated with a Bearer token mapped to a tenant +
 // RBAC. TLS is applied by the listener (the control plane wires it); this handler
@@ -45,6 +51,12 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 		if err != nil || p == nil || p.TenantID == "" {
 			if err != nil {
 				s.log.Warn("mcp authentication failed", "error", err)
+			}
+			// AUTHZ-12: a policy refusal (suspended/offboarded tenant, MFA
+			// required) is 403 like /v1; a bad/expired/disabled token is 401.
+			if errors.Is(err, ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
 			}
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "invalid token", http.StatusUnauthorized)

@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -785,6 +786,25 @@ func TestHTTPHandlerRejectsBadToken(t *testing.T) {
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("bad token: status = %d, want 401", resp.StatusCode)
 		}
+	}
+}
+
+// AUTHZ-12: a policy refusal (suspended/offboarded tenant or unmet MFA) surfaces
+// as ErrForbidden and must map to 403, distinct from a 401 for a bad token.
+func TestHTTPHandlerForbiddenMapsTo403(t *testing.T) {
+	s := newTestServer(&fakeBackend{}, testGate())
+	h := s.HTTPHandler(fakeAuthn{err: fmt.Errorf("%w: tenant is suspended", ErrForbidden)})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	req.Header.Set("Authorization", "Bearer suspended")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("forbidden principal: status = %d, want 403", resp.StatusCode)
 	}
 }
 

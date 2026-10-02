@@ -11,12 +11,14 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -174,14 +176,14 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 	if _, err := store.NewMCPTokens(db.Pool()).Create(ctx, tenant, userID, "test", crypto.Hash([]byte(token))); err != nil {
 		t.Fatalf("create token: %v", err)
 	}
-	princ, err := NewMCPAuthenticator(db.Pool()).Authenticate(ctx, token)
+	princ, err := NewMCPAuthenticator(db.Pool(), nil, false).Authenticate(ctx, token)
 	if err != nil {
 		t.Fatalf("authenticate token: %v", err)
 	}
 	if princ.TenantID != tenant || princ.UserID != userID {
 		t.Errorf("token resolved to tenant=%s user=%s, want %s/%s", princ.TenantID, princ.UserID, tenant, userID)
 	}
-	if _, err := NewMCPAuthenticator(db.Pool()).Authenticate(ctx, "bogus-token"); err == nil {
+	if _, err := NewMCPAuthenticator(db.Pool(), nil, false).Authenticate(ctx, "bogus-token"); err == nil {
 		t.Error("an invalid token must fail authentication")
 	}
 }
@@ -223,7 +225,7 @@ func TestMCPABACDenyOverridesRBACTwoTenant(t *testing.T) {
 		if _, err := store.NewMCPTokens(db.Pool()).Create(ctx, tenantID, userID, "abac", crypto.Hash([]byte(token))); err != nil {
 			t.Fatalf("create MCP token: %v", err)
 		}
-		principal, err := NewMCPAuthenticator(db.Pool()).Authenticate(ctx, token)
+		principal, err := NewMCPAuthenticator(db.Pool(), nil, false).Authenticate(ctx, token)
 		if err != nil {
 			t.Fatalf("authenticate MCP token: %v", err)
 		}
@@ -417,7 +419,7 @@ func TestMCPAuthenticatorLoadsTenantAttributes(t *testing.T) {
 		if _, err := store.NewMCPTokens(db.Pool()).Create(ctx, tenantID, userID, "attrs", crypto.Hash([]byte(token))); err != nil {
 			t.Fatalf("create %s token: %v", department, err)
 		}
-		principal, err := NewMCPAuthenticator(db.Pool()).Authenticate(ctx, token)
+		principal, err := NewMCPAuthenticator(db.Pool(), nil, false).Authenticate(ctx, token)
 		if err != nil {
 			t.Fatalf("authenticate %s token: %v", department, err)
 		}
@@ -438,5 +440,70 @@ func TestMCPAuthenticatorLoadsTenantAttributes(t *testing.T) {
 	}
 	if principalA.Attributes["department"] == principalB.Attributes["department"] {
 		t.Fatalf("MCP subject attributes crossed tenants: A=%v B=%v", principalA.Attributes, principalB.Attributes)
+	}
+}
+
+// AUTHZ-12: the MCP authenticator must apply the same tenant-lifecycle and MFA
+// gates as the /v1 edge — a suspended tenant and MFA-required deployments are
+// refused with mcp.ErrForbidden (→403), a disabled user is a bad token (→401),
+// and an active tenant authenticates.
+func TestMCPAuthenticatorEnforcesTenantLifecycleAndMFA(t *testing.T) {
+	_, db := setupAPIServerWithLatest(t, nil)
+	ctx := context.Background()
+	tn, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("mcp-authz12-%d", time.Now().UnixNano()), "MCP AUTHZ12")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	tenant := tn.ID
+	var userID string
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		u, e := store.Users{}.Create(ctx, sc, fmt.Sprintf("authz12-%d@example.com", time.Now().UnixNano()), "AUTHZ12 User")
+		if e != nil {
+			return e
+		}
+		userID = u.ID
+		return nil
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	token, err := auth.RandomToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.NewMCPTokens(db.Pool()).Create(ctx, tenant, userID, "authz12", crypto.Hash([]byte(token))); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+	authn := func(requireMFA bool) mcp.Authenticator {
+		return NewMCPAuthenticator(db.Pool(), NewTenantStatusCache(db.Pool(), 0), requireMFA)
+	}
+
+	// Active tenant, no MFA requirement → authenticates.
+	if _, err := authn(false).Authenticate(ctx, token); err != nil {
+		t.Fatalf("active tenant must authenticate over MCP: %v", err)
+	}
+	// MFA-required deployment → the single-factor MCP token is refused (403).
+	if _, err := authn(true).Authenticate(ctx, token); !errors.Is(err, mcp.ErrForbidden) {
+		t.Fatalf("MFA-required deployment must refuse MCP token with ErrForbidden, got %v", err)
+	}
+	// Suspended tenant → refused with ErrForbidden (403), like /v1.
+	if _, err := db.Pool().Exec(ctx, `UPDATE tenants SET status = 'suspended' WHERE id = $1`, tenant); err != nil {
+		t.Fatalf("suspend tenant: %v", err)
+	}
+	if _, err := authn(false).Authenticate(ctx, token); !errors.Is(err, mcp.ErrForbidden) {
+		t.Fatalf("suspended tenant must be refused with ErrForbidden, got %v", err)
+	}
+	// Reactivate the tenant, disable the user → a bad-token refusal (401-class),
+	// NOT a forbidden policy refusal.
+	if _, err := db.Pool().Exec(ctx, `UPDATE tenants SET status = 'active' WHERE id = $1`, tenant); err != nil {
+		t.Fatalf("reactivate tenant: %v", err)
+	}
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		_, e := sc.Q.Exec(ctx, `UPDATE users SET status = 'disabled' WHERE id = $1::uuid`, userID)
+		return e
+	}); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	if _, derr := authn(false).Authenticate(ctx, token); derr == nil || errors.Is(derr, mcp.ErrForbidden) {
+		t.Fatalf("disabled user must be refused as a bad token (401-class), got %v", derr)
 	}
 }

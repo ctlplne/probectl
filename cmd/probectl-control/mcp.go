@@ -56,7 +56,10 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	if token == "" {
 		return fmt.Errorf("PROBECTL_MCP_TOKEN is required for mcp-stdio")
 	}
-	p, err := control.NewMCPAuthenticator(db.Pool()).Authenticate(context.Background(), token)
+	// AUTHZ-12: the stdio transport enforces the same tenant-lifecycle and MFA
+	// gates as the HTTP listener and /v1.
+	p, err := control.NewMCPAuthenticator(db.Pool(), control.NewTenantStatusCache(db.Pool(), 0), cfg.RequireMFA).
+		Authenticate(context.Background(), token)
 	if err != nil {
 		return fmt.Errorf("authenticate mcp token: %w", err)
 	}

@@ -852,7 +852,7 @@ func (rt *serveRuntime) startEdgeTransports() error {
 		rt.srv.AIEgressGate(), rt.fairGate, rt.srv.RemediationService(),
 		rt.srv.MCPPolicyLoader(),
 		control.AISources{Metrics: rt.tsdbWriter, Flow: rt.flowStore, Topology: rt.topoStore})
-	handler := mcpSrv.HTTPHandler(control.NewMCPAuthenticator(rt.db.Pool()))
+	handler := mcpSrv.HTTPHandler(rt.srv.MCPAuthenticator())
 	rt.g.Go(func() error { return serveMCPHTTP(rt.gctx, rt.cfg.MCPHTTPAddr, tlsCfg, handler, rt.log) })
 	return nil
 }

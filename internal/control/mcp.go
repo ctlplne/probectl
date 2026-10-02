@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 
@@ -401,16 +402,49 @@ func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, q
 // token's tenant plus the owning user's effective permissions and ABAC subject
 // attributes (RLS-scoped). The token lookup is pre-tenant (the token determines
 // the tenant), like sessions.
-func NewMCPAuthenticator(pool *pgxpool.Pool) mcp.Authenticator { return mcpAuthenticator{pool: pool} }
+func NewMCPAuthenticator(pool *pgxpool.Pool, status TenantStatusSource, requireMFA bool) mcp.Authenticator {
+	return mcpAuthenticator{pool: pool, status: status, requireMFA: requireMFA}
+}
 
-type mcpAuthenticator struct{ pool *pgxpool.Pool }
+// MCPAuthenticator builds an MCP authenticator that enforces THIS server's
+// tenant-lifecycle and MFA policy, so the MCP listener gates tokens exactly as
+// the /v1 edge does (AUTHZ-12).
+func (s *Server) MCPAuthenticator() mcp.Authenticator {
+	return NewMCPAuthenticator(s.pool, s.tenantStatus, s.requireMFA)
+}
+
+type mcpAuthenticator struct {
+	pool       *pgxpool.Pool
+	status     TenantStatusSource
+	requireMFA bool
+}
 
 func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*auth.Principal, error) {
 	tenantID, userID, err := store.NewMCPTokens(a.pool).Authenticate(ctx, crypto.Hash([]byte(bearer)))
 	if err != nil {
 		return nil, err
 	}
-	grants, err := permLoader(a).ForUser(ctx, tenantID, userID)
+	// AUTHZ-12: the MCP listener must apply the same tenant lifecycle and MFA
+	// gates as every /v1 route (requirePermissionMode) — otherwise a suspended
+	// or offboarded tenant's token keeps reading telemetry and running AI tools
+	// over MCP, and MFA-required deployments still allow single-factor bearer
+	// tokens. Keyed strictly by the token's OWN tenant.
+	if a.status != nil {
+		switch status, serr := a.status.TenantStatus(ctx, tenantID); {
+		case serr != nil:
+			// degrade open: lifecycle gating must not amplify a DB blip.
+		case status == "suspended":
+			return nil, fmt.Errorf("%w: tenant is suspended", mcp.ErrForbidden)
+		case status == "offboarding", status == "deleted":
+			return nil, fmt.Errorf("%w: tenant is offboarded", mcp.ErrForbidden)
+		}
+	}
+	// MCP tokens are single-factor bearer credentials: when the deployment
+	// requires MFA they are refused outright (no second factor is ever asserted).
+	if a.requireMFA {
+		return nil, fmt.Errorf("%w: multi-factor authentication required", mcp.ErrForbidden)
+	}
+	grants, err := permLoader{pool: a.pool}.ForUser(ctx, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
