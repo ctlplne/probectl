@@ -18,7 +18,7 @@ import (
 // unconditional `required: ["url"]` + `minLength: 1` on the database block
 // rejected every such install before templates/secret.yaml could run.
 //
-// The behavioural proof is the helm-gate CI job (it actually `helm template`s
+// The behavioral proof is the helm-gate CI job (it actually `helm template`s
 // the secret-managed path). This test is the container-runnable anchor: it
 // pins the schema SHAPE that makes that render possible, so the unconditional
 // requirement cannot creep back without failing here first.

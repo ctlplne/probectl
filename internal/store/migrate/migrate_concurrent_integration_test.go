@@ -56,7 +56,7 @@ func TestConcurrentApplyIsDeadlockFree(t *testing.T) {
 			fmt.Sprintf("-- probectl:no-tx: CREATE INDEX CONCURRENTLY cannot run in a migration transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s (value);", index, table))},
 	}
 
-	// Release all appliers at once to maximise contention on the global
+	// Release all appliers at once to maximize contention on the global
 	// migration advisory lock (what parallel isolation packages do).
 	const n = 6
 	var gate sync.WaitGroup

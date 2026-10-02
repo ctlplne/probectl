@@ -168,39 +168,10 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 		}
 	}
 
-	// PLAT-01/RTO-04: volatile telemetry stores. Memory-backed planes lose all
-	// results/metrics/flows/traces on any restart, and the shipped default
-	// install runs this way. Surface it as a named, degraded finding unless the
-	// operator has explicitly acknowledged the dev/test tradeoff — the one thing
-	// the deployment previously never said. Not a reason to drain a replica (the
-	// request path is up), so this rides diagnostics like agent_ca / audit_worm.
+	// PLAT-01/RTO-04: volatile telemetry stores ride diagnostics like agent_ca /
+	// audit_worm — a named, degraded finding (not a reason to drain a replica).
 	if s.cfg != nil {
-		checks["volatile_stores"] = func(context.Context) support.Check {
-			volatile := s.cfg.VolatileStores()
-			if len(volatile) == 0 {
-				return support.Check{Status: support.StatusOK, Detail: "all telemetry planes are durable"}
-			}
-			planes := strings.Join(volatile, ", ")
-			if s.cfg.VolatileAcknowledged() {
-				return support.Check{
-					Status: support.StatusOK,
-					Detail: "volatile stores acknowledged (PROBECTL_ALLOW_VOLATILE): " + planes + " — data is NOT durable across restart",
-				}
-			}
-			return support.Check{
-				Status: support.StatusDegraded,
-				Detail: "telemetry is stored only in memory: " + planes + " — lost on any restart/upgrade/OOM/node-drain",
-				Finding: support.NewReadinessFinding(
-					"readiness.volatile_stores",
-					"Telemetry is stored only in memory",
-					"The bus and/or telemetry stores run in memory mode ("+planes+"). Every synthetic result, metric, path, flow, "+
-						"OTLP trace/log, eBPF edge and endpoint event lives only in RAM and is erased on any restart, upgrade, OOM or node drain; "+
-						"alerts then evaluate only data since the last restart. Configure durable modes (NATS/Kafka bus, Prometheus/VictoriaMetrics TSDB, "+
-						"ClickHouse stores), or acknowledge a deliberate dev/test deployment with PROBECTL_ALLOW_VOLATILE="+config.VolatileAckPhrase+".",
-					support.LocalAction{Label: "Storage configuration", Href: "/docs/configuration", Kind: support.ActionNavigate},
-				),
-			}
-		}
+		checks["volatile_stores"] = newVolatileStoresCheck(s.cfg)
 	}
 
 	// Secrets resolver (S41): degraded if any backend is failing.
@@ -533,4 +504,38 @@ func lastSuccessDetail(t time.Time) string {
 		return "never (no cycle has completed)"
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// newVolatileStoresCheck builds the /v1/diagnostics health check for
+// memory-backed telemetry planes (PLAT-01/RTO-04): OK when all planes are
+// durable or the volatility is acknowledged, otherwise a degraded, named
+// finding. Factored out of deepHealth to keep that function within its
+// complexity budget.
+func newVolatileStoresCheck(cfg *config.Config) support.CheckFunc {
+	return func(context.Context) support.Check {
+		volatile := cfg.VolatileStores()
+		if len(volatile) == 0 {
+			return support.Check{Status: support.StatusOK, Detail: "all telemetry planes are durable"}
+		}
+		planes := strings.Join(volatile, ", ")
+		if cfg.VolatileAcknowledged() {
+			return support.Check{
+				Status: support.StatusOK,
+				Detail: "volatile stores acknowledged (PROBECTL_ALLOW_VOLATILE): " + planes + " — data is NOT durable across restart",
+			}
+		}
+		return support.Check{
+			Status: support.StatusDegraded,
+			Detail: "telemetry is stored only in memory: " + planes + " — lost on any restart/upgrade/OOM/node-drain",
+			Finding: support.NewReadinessFinding(
+				"readiness.volatile_stores",
+				"Telemetry is stored only in memory",
+				"The bus and/or telemetry stores run in memory mode ("+planes+"). Every synthetic result, metric, path, flow, "+
+					"OTLP trace/log, eBPF edge and endpoint event lives only in RAM and is erased on any restart, upgrade, OOM or node drain; "+
+					"alerts then evaluate only data since the last restart. Configure durable modes (NATS/Kafka bus, Prometheus/VictoriaMetrics TSDB, "+
+					"ClickHouse stores), or acknowledge a deliberate dev/test deployment with PROBECTL_ALLOW_VOLATILE="+config.VolatileAckPhrase+".",
+				support.LocalAction{Label: "Storage configuration", Href: "/docs/configuration", Kind: support.ActionNavigate},
+			),
+		}
+	}
 }

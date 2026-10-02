@@ -37,7 +37,7 @@ var sup05OtherUnits = []string{
 	"probectl-endpoint",
 	// NB: "probectl-agent" (the base agent) is intentionally NOT substring-checked
 	// here — "probectl-flow-agent" contains no such substring, but the postinstall
-	// hint text legitimately names the `probectl-agent` binary, so the behavioural
+	// hint text legitimately names the `probectl-agent` binary, so the behavioral
 	// (fake-systemctl) assertions below are what guard the base agent.
 }
 
