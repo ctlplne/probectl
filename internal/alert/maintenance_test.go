@@ -114,3 +114,31 @@ func TestMaintenanceWindowValidation(t *testing.T) {
 		}
 	}
 }
+
+// WEB-01: a maintenance-window id is interpolated into the SPA's DELETE URL, so
+// an id with a path-traversal segment ('../') turns an admin's Delete into a
+// cross-route, cookie-authenticated DELETE. Validate must reject any id that is
+// not a plain, URL-path-safe identifier.
+func TestMaintenanceWindowRejectsUnsafeID(t *testing.T) {
+	valid := MaintenanceWindow{
+		ID: "mw-ok", Name: "ok",
+		StartsAt: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC),
+		EndsAt:   time.Date(2026, 6, 4, 13, 0, 0, 0, time.UTC),
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("a valid id was rejected: %v", err)
+	}
+	for _, bad := range []string{"../../abac/policies/5cc14ff6", "a/b", "..", "", "x/", "a.b", "has space", "tab\tid"} {
+		w := valid
+		w.ID = bad
+		if err := w.Validate(); err == nil {
+			t.Fatalf("unsafe maintenance window id %q was accepted", bad)
+		}
+	}
+	// The server-generated id form ("mw-<nanos>") stays valid.
+	gen := valid
+	gen.ID = "mw-1700000000000000000"
+	if err := gen.Validate(); err != nil {
+		t.Fatalf("server-generated id form rejected: %v", err)
+	}
+}

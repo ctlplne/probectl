@@ -330,7 +330,9 @@ export function useDeleteMaintenanceWindow() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<undefined>(`/alerts/maintenance/${id}`, { method: 'DELETE' }),
+      // WEB-01: encode the id so a stored '../'-bearing window id cannot turn
+      // this Delete into a cross-route, same-origin DELETE (confused deputy).
+      apiFetch<undefined>(`/alerts/maintenance/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['alerts', 'maintenance'] })
       void qc.invalidateQueries({ queryKey: ['alerts', 'active'] })

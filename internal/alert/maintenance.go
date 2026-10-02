@@ -8,6 +8,7 @@ package alert
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -52,7 +53,20 @@ type MaintenancePreview struct {
 	Reason   string    `json:"reason,omitempty"`
 }
 
+// maintenanceIDRE bounds a maintenance-window id to a URL-path-safe charset
+// (WEB-01): no '/' and no '.', so a client-supplied id can never contain a
+// path-traversal segment ('../') that the SPA would turn into a cross-route,
+// cookie-authenticated DELETE when a privileged user clicks Delete. The
+// server-generated form ("mw-<nanos>") satisfies it.
+var maintenanceIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+// ValidMaintenanceID reports whether id is a safe maintenance-window identifier.
+func ValidMaintenanceID(id string) bool { return maintenanceIDRE.MatchString(id) }
+
 func (w MaintenanceWindow) Validate() error {
+	if !ValidMaintenanceID(w.ID) {
+		return fmt.Errorf("alert: maintenance window id may contain only letters, digits, '-' and '_' (1-128 chars)")
+	}
 	if strings.TrimSpace(w.Name) == "" || len(w.Name) > 200 {
 		return fmt.Errorf("alert: maintenance window name is required (1-200 chars)")
 	}

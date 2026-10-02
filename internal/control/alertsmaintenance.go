@@ -124,6 +124,12 @@ func (s *Server) handleUpsertMaintenanceWindow(w http.ResponseWriter, r *http.Re
 	req.ID = strings.TrimSpace(req.ID)
 	if req.ID == "" {
 		req.ID = fmt.Sprintf("mw-%d", time.Now().UTC().UnixNano())
+	} else if !alert.ValidMaintenanceID(req.ID) {
+		// WEB-01: a client-supplied id is stored verbatim and later interpolated
+		// into the SPA's DELETE URL; a '/' or '..' segment turns an admin's
+		// Delete click into a cross-route, cookie-authenticated DELETE. Reject
+		// any id that is not a plain, URL-path-safe identifier.
+		return apierror.BadRequest("maintenance window id may contain only letters, digits, '-' and '_' (no '/' or '..')")
 	}
 	before, existed := maintenanceWindowSnapshot(src, req.ID)
 	createdBy := ""
