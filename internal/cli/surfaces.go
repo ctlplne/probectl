@@ -409,6 +409,7 @@ var surfaceCommands = map[string]surfaceCommand{
 
 var cliCoverageExceptions = []cliCoverage{
 	{Method: http.MethodPost, Path: "/v1/prometheus/write", Command: "none-by-design", Reason: "Prometheus remote-write is a snappy/protobuf ingest endpoint; use Prometheus remote_write, not the JSON CLI."},
+	{Method: http.MethodPost, Path: "/provider/v1/consent/{id}/revoke", Command: "none-by-design", Reason: "Tenant-admin break-glass revoke (AUD-13): the probectl provider CLI is the operator surface, and this route is authenticated as the tenant admin — tenants revoke via the authenticated API/UI, not the operator CLI."},
 }
 
 func cliImplementedCoverage() []cliCoverage {
