@@ -21,6 +21,16 @@ const (
 	meshStatusPending  = "pending"
 	meshStatusHealthy  = "healthy"
 	meshStatusDegraded = "degraded"
+
+	// INJ-06: a full directed mesh is n*(n-1) sessions, allocated and scheduled
+	// up front in the request goroutine. Unbounded, a ~1 MiB request body (tens
+	// of thousands of sites) demanded a ~1e9-element, ~157 GB slice and burned
+	// the CPU for minutes — a single editor request could OOM the stateless
+	// control plane. Cap the distinct sites per request (64 sites = 4032
+	// sessions, a few hundred KB) so the work is bounded, and cap the sessions a
+	// tenant retains (they have no TTL) so repeated requests cannot leak memory.
+	maxMeshSites             = 64
+	maxMeshSessionsPerTenant = 50_000
 )
 
 // SiteAgent is an A2A-capable agent with the operator's site label. Tenant is
@@ -122,6 +132,10 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 	if len(bySite) < 2 {
 		return nil, errors.New("a2a mesh: at least two sites are required")
 	}
+	// INJ-06: reject before the O(n^2) allocation. The handler maps this to 400.
+	if len(bySite) > maxMeshSites {
+		return nil, fmt.Errorf("a2a mesh: too many sites %d (max %d); a full mesh schedules sites*(sites-1) sessions", len(bySite), maxMeshSites)
+	}
 
 	sites := make([]string, 0, len(bySite))
 	agentForSite := make(map[string]string, len(bySite))
@@ -164,7 +178,25 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 		m.sessions[s.SessionID] = s
 		m.byTenant[tenantID] = append(m.byTenant[tenantID], s.SessionID)
 	}
+	m.evictOldestLocked(tenantID)
 	return append([]MeshSession(nil), created...), nil
+}
+
+// evictOldestLocked bounds a tenant's retained sessions (INJ-06): mesh sessions
+// have no TTL, so without this repeated requests leak session + result state
+// until OOM. The oldest session ids are dropped FIFO down to the cap, along
+// with their stored results, keeping memory bounded while new meshes still run.
+func (m *MeshScheduler) evictOldestLocked(tenantID string) {
+	ids := m.byTenant[tenantID]
+	if len(ids) <= maxMeshSessionsPerTenant {
+		return
+	}
+	drop := ids[:len(ids)-maxMeshSessionsPerTenant]
+	for _, id := range drop {
+		delete(m.sessions, id)
+		delete(m.results, id)
+	}
+	m.byTenant[tenantID] = append([]string(nil), ids[len(ids)-maxMeshSessionsPerTenant:]...)
 }
 
 // recordResult attaches one canary result to a tenant-owned mesh session.
