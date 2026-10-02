@@ -627,9 +627,11 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	ident, err := prov.Exchange(r.Context(), code, pkceCookie.Value)
 	if err != nil {
 		s.log.Warn("sso exchange failed", "error", err)
+		s.recordAuthFailure(r, tid.String(), "", "sso_exchange_failed")
 		return apierror.Unauthorized("sso exchange failed")
 	}
 	if ident.Email == "" {
+		s.recordAuthFailure(r, tid.String(), "", "no_email_from_idp")
 		return apierror.Unauthorized("identity provider returned no email")
 	}
 	// SEC-004: the ID token's nonce claim must equal the value minted at
@@ -640,6 +642,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	if nonceCookie == nil || nonceCookie.Value == "" ||
 		!crypto.ConstantTimeEqual([]byte(ident.Nonce), []byte(nonceCookie.Value)) {
 		s.log.Warn("sso nonce mismatch", "have_cookie", nonceCookie != nil)
+		s.recordAuthFailure(r, tid.String(), ident.Email, "oidc_nonce_mismatch")
 		return apierror.Unauthorized("oidc nonce mismatch")
 	}
 	s.clearOAuthCookie(w, oauthNonceCookie)
@@ -692,11 +695,20 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		user = u
 		// Record the authentication as a data-access action, in the same tx
 		// (tamper-evident, RLS-scoped to the tenant the login resolved to).
-		_, e = audit.TenantAppend(ctx, sc, ident.Email, "auth.login", u.ID, map[string]any{"subject": ident.Subject})
+		// AUD-10: carry ip / user-agent hash / request id / outcome.
+		_, e = audit.TenantAppend(ctx, sc, ident.Email, "auth.login", u.ID,
+			s.withRequestContext(r, map[string]any{"subject": ident.Subject}, "success"))
 		return e
 	})
 	if err != nil {
 		s.authLimiter.Fail(acctKey(tid.String(), ident.Email))
+		// AUD-10: audit an identity-level rejection (unprovisioned / deactivated
+		// account). Infrastructure errors are not login failures, so only the
+		// auth-rejection apierror kinds are recorded as such; the rolled-back tx
+		// discarded any in-tx audit, so this runs in its own tx.
+		if de, ok := apierror.As(err); ok && (de.Kind == apierror.KindForbidden || de.Kind == apierror.KindUnauthorized) {
+			s.recordAuthFailure(r, tid.String(), ident.Email, "identity_rejected")
+		}
 		return err
 	}
 
@@ -738,11 +750,32 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 
 // handleLogout revokes the session and clears the cookie.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) error {
+	// AUD-10: logout is not behind the auth middleware, so resolve the principal
+	// from the session token BEFORE revoking it, to attribute the audit.
+	var p *auth.Principal
+	if s.authn != nil {
+		p, _ = s.authn.Resolve(r)
+	}
 	if s.sessions != nil {
 		if err := s.sessions.Revoke(r.Context(), auth.TokenFromRequest(r)); err != nil {
 			return err
 		}
 		s.sessions.ClearCookie(w)
+	}
+	// AUD-10: record the logout (best-effort — the session is already revoked, so
+	// a momentary audit-DB blip must not fail the logout).
+	if p != nil && s.pool != nil && p.TenantID != "" {
+		actor := p.Email
+		if actor == "" {
+			actor = p.UserID
+		}
+		data := s.withRequestContext(r, map[string]any{}, "success")
+		if err := tenancy.InTenant(tenancy.WithTenant(r.Context(), tenancy.ID(p.TenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, e := audit.TenantAppend(ctx, sc, actor, "auth.logout", p.UserID, data)
+			return e
+		}); err != nil {
+			s.log.Warn("could not record logout audit", "error", err.Error())
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil

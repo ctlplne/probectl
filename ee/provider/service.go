@@ -208,6 +208,15 @@ func (s *Service) RecordTenantErase(ctx context.Context, actor, tenantID string,
 	})
 }
 
+// RecordOperatorAccess audits a provider-plane READ or EXPORT on the provider
+// stream (AUD-10). Provider operators see across every tenant, yet their reads
+// of the fleet / tenant list / usage export / provider audit log were not
+// recorded — a cross-tenant data access with no trail. data carries the
+// request's "from where" and outcome; target is optional.
+func (s *Service) RecordOperatorAccess(ctx context.Context, actor, action, target string, data map[string]any) error {
+	return s.audit.Append(ctx, actor, action, target, data)
+}
+
 func (s *Service) invalidateRouter() {
 	if s.routerInvalidate != nil {
 		s.routerInvalidate()

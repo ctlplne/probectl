@@ -10,6 +10,7 @@ package provider
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -21,7 +22,9 @@ import (
 
 	coreaudit "github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/logging"
 )
 
 // The provider HTTP surface, mounted by core at /provider/ (an opaque
@@ -153,13 +156,13 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("GET /provider/v1/operators", h.asOperator(RoleAdmin, h.handleListOperators))
 	h.handle("POST /provider/v1/operators", h.asOperator(RoleAdmin, h.handleCreateOperator))
 	h.handle("POST /provider/v1/operators/{id}/status", h.asOperator(RoleAdmin, h.handleOperatorStatus))
-	h.handle("GET /provider/v1/tenants", h.asOperator("", h.handleListTenants))
+	h.handle("GET /provider/v1/tenants", h.asOperator("", h.auditedRead("provider.tenants_read", false, h.handleListTenants)))
 	h.handle("POST /provider/v1/tenants", h.asOperator("", h.handleProvision))
 	h.handle("PATCH /provider/v1/tenants/{id}", h.asOperator("", h.handleConfigure))
 	h.handle("POST /provider/v1/tenants/{id}/suspend", h.asOperator("", h.handleSuspend))
 	h.handle("POST /provider/v1/tenants/{id}/resume", h.asOperator("", h.handleResume))
 	h.handle("POST /provider/v1/tenants/{id}/offboard", h.asOperator("", h.handleOffboard))
-	h.handle("GET /provider/v1/fleet", h.asOperator("", h.handleFleet))
+	h.handle("GET /provider/v1/fleet", h.asOperator("", h.auditedRead("provider.fleet_read", false, h.handleFleet)))
 	// Stranded provisioning attempts (S-fadcec95): list what never completed
 	// with its last step, and offer an EXPLICIT abandon. Retry is the existing
 	// idempotent POST /provider/v1/tenants with the same body.
@@ -179,7 +182,7 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("GET /provider/v1/tenants/{id}/governance", h.asOperator("", h.handleGovernanceView))
 	h.handle("PUT /provider/v1/tenants/{id}/governance", h.asOperator(RoleAdmin, h.handlePutGovernance))
 	h.handle("GET /provider/v1/usage", h.asOperator("", h.handleUsage))
-	h.handle("GET /provider/v1/usage/export", h.asOperator("", h.handleUsageExport))
+	h.handle("GET /provider/v1/usage/export", h.asOperator("", h.auditedRead("provider.usage_exported", true, h.handleUsageExport)))
 	h.handle("GET /provider/v1/tenants/{id}/quotas", h.asOperator("", h.handleGetQuotas))
 	h.handle("PUT /provider/v1/tenants/{id}/quotas", h.asOperator(RoleAdmin, h.handlePutQuotas))
 
@@ -247,6 +250,40 @@ func (h *Handler) asOperator(role string, fn func(w http.ResponseWriter, r *http
 			return errForbiddenRole
 		}
 		return fn(w, r, *op)
+	}
+}
+
+// providerAccessContext is the "from where" of a provider-plane audit event
+// (AUD-10): the operator's client IP (trusted-proxy aware), a user-agent hash,
+// the request id, and an outcome. The raw UA is hashed, never stored.
+func (h *Handler) providerAccessContext(r *http.Request, outcome string) map[string]any {
+	data := map[string]any{"outcome": outcome}
+	if ip := h.clientIP(r); ip != "" {
+		data["ip"] = ip
+	}
+	if ua := r.UserAgent(); ua != "" {
+		data["user_agent"] = "sha256:" + hex.EncodeToString(crypto.Hash([]byte(ua)))
+	}
+	if id, ok := logging.RequestIDFromContext(r.Context()); ok && id != "" {
+		data["request_id"] = id
+	}
+	return data
+}
+
+// auditedRead records a provider-plane READ or EXPORT in the provider audit
+// stream before serving it (AUD-10): provider operators read across every
+// tenant, and these routes left no trail. An export is a data egress and fails
+// closed if it cannot be recorded; a plain read is best-effort so a momentary
+// audit-DB blip does not deny fleet monitoring during an incident.
+func (h *Handler) auditedRead(action string, export bool, fn func(w http.ResponseWriter, r *http.Request, op Operator) error) func(w http.ResponseWriter, r *http.Request, op Operator) error {
+	return func(w http.ResponseWriter, r *http.Request, op Operator) error {
+		if err := h.svc.RecordOperatorAccess(r.Context(), op.Email, action, "", h.providerAccessContext(r, "success")); err != nil {
+			if export {
+				return err
+			}
+			h.log.Warn("could not record provider access audit", "action", action, "error", err.Error())
+		}
+		return fn(w, r, op)
 	}
 }
 

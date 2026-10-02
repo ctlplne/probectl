@@ -123,6 +123,14 @@ func (s *Server) auditRoute(rt apiRoute, p auditRoutePolicy, next apiHandler) ap
 				"method": rt.Method,
 				"path":   rt.Pattern,
 			}
+			// AUD-10: every access.* event carries the "from where" (ip, hashed
+			// user agent, request id). outcome is "authorized": this event is
+			// written BEFORE the handler and fail-closes a mutation/export/
+			// operation whose audit cannot be recorded, so its presence means the
+			// request cleared authN+authZ and the action was performed; genuine
+			// pass/fail of the credential decision is recorded by the explicit
+			// auth.login / auth.login_failed events.
+			data = s.withRequestContext(r, data, "authorized")
 			if err := s.appendRouteAudit(r, p.Action, p.Target, data); err != nil {
 				if !writesRefused(err) {
 					return err
