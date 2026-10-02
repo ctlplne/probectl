@@ -1,0 +1,61 @@
+-- 0112_tenant_app_role_provider_domain_fence.sql — GAP-03 (docs/guardrails.md G7-1).
+--
+-- The tenant request-path role (probectl_app) must hold NO privilege at all —
+-- not even SELECT — on the provider-DOMAIN tables. These are the provider
+-- privilege domain's OWN state (operators above tenants), not per-tenant config
+-- the tenant has any business reading:
+--   * provider_sessions   — MSP provider-operator sessions (the keyed token
+--                           hashes that authenticate operators on every replica).
+--   * tenant_provisioning — the resumable tenant-provisioning ledger the
+--                           provider console and reaper drive.
+--   * provider_branding   — the provider's master-brand singleton.
+-- Unlike the TEN-02 per-tenant CONFIG tables (0111), which keep app-role SELECT
+-- for the tenant self-view, these have no self-view: a tenant must not read or
+-- extend an operator session, nor read or rewrite the provisioning ledger.
+--
+-- Why the grant existed at all: migration 0007 does
+--   ALTER DEFAULT PRIVILEGES IN SCHEMA public
+--     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO probectl_app;
+-- so every table created afterwards SILENTLY inherited full DML for probectl_app,
+-- even though provider_sessions (0093) declared no grant and tenant_provisioning
+-- (0071) / provider_branding (0027) granted only probectl_provider. Narrow them
+-- back to the intended shape — the provider role is their sole reach — exactly as
+-- 0075/0109 narrowed the audit tables and 0111 narrowed the config tables after
+-- the same default-privilege spillover. The matching boot self-check
+-- (internal/tenancy AssertPostureTx → assertProviderDomainTablesNoAppAccess)
+-- fails closed if ANY app-role privilege ever comes back.
+--
+-- The legitimate writer of each table runs as the PROVIDER role:
+--   provider_sessions   — ee/provider PGStore session methods, under
+--                         tenancy.InProvider; this migration grants the provider
+--                         role the DML those methods need (none existed before,
+--                         because the raw-pool path had been riding probectl_app's
+--                         inherited grant — the very reach GAP-03 closes).
+--   tenant_provisioning — ee/provider provisioning methods, under InProvider;
+--                         already granted to probectl_provider (0071 + 0089).
+--   provider_branding   — provider master brand; already granted to
+--                         probectl_provider (0027); no live code path (W11, 0057).
+--
+-- DELIBERATELY NOT fenced here — these look provider-adjacent but carry a
+-- LEGITIMATE app-role (control-plane) writer and keep their explicit grants:
+--   * agent_ca (0041: GRANT SELECT, INSERT, UPDATE TO probectl_app) — the
+--     deployment-wide agent-CA hierarchy the CONTROL plane writes during agent
+--     enrollment (internal/store AgentCA, internal/enroll); not a provider table.
+--   * cluster_singleton_leases (0054: GRANT SELECT, INSERT, UPDATE TO
+--     probectl_app) — the GLOBAL background-lease fencing ledger the control
+--     plane coordinates (internal/cluster/pglease); not a provider table.
+-- Revoking either would break agent enrollment or background-lease coordination.
+--
+-- Idempotent (REVOKE/GRANT are no-ops when the privilege already (in)exists) and
+-- expand-only — no column/table change (CLAUDE.md §6). All three tables are
+-- created by earlier migrations (0027/0071/0093), so a bare REVOKE is safe here,
+-- matching 0075/0109/0111.
+
+REVOKE ALL PRIVILEGES ON public.provider_sessions   FROM probectl_app;
+REVOKE ALL PRIVILEGES ON public.tenant_provisioning FROM probectl_app;
+REVOKE ALL PRIVILEGES ON public.provider_branding   FROM probectl_app;
+
+-- The provider plane is provider_sessions' sole, legitimate owner. Its session
+-- store now runs under tenancy.InProvider (probectl_provider); grant that role
+-- exactly the DML those methods issue (upsert / read / touch / delete).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.provider_sessions TO probectl_provider;

@@ -218,6 +218,9 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	if err := assertAppRoleWriteFence(ctx, q); err != nil {
 		return err
 	}
+	if err := assertProviderDomainTablesNoAppAccess(ctx, q); err != nil {
+		return err
+	}
 	return assertAppGrantsMatchPolicies(ctx, q)
 }
 
@@ -663,6 +666,84 @@ func assertAppRoleWriteFence(ctx context.Context, q postureQuerier) error {
 	if len(offenders) > 0 {
 		return fmt.Errorf("isolation posture: the tenant app role %q holds write (INSERT/UPDATE/DELETE) on provider-owned config table(s): %s — "+
 			"these are provider-plane settings the probectl_provider role writes; REVOKE INSERT, UPDATE, DELETE ON <table> FROM probectl_app (keep SELECT for the self-view), the way migrations 0111/0075/0109 do (refusing to start; TEN-02, guardrail 1, fail closed)",
+			AppRole, strings.Join(offenders, ", "))
+	}
+	return nil
+}
+
+// providerDomainNoAppAccessTables are the provider-DOMAIN tables the tenant
+// request-path role (probectl_app) must hold NO privilege on — not even SELECT
+// (GAP-03, docs/guardrails.md G7-1). Unlike the TEN-02 per-tenant CONFIG tables
+// (appWriteFencedTables), which keep app-role SELECT for the tenant self-view,
+// these are the provider privilege domain's OWN state and have no tenant
+// self-view: an operator session roster, the tenant-provisioning ledger, and
+// the provider master brand. Their sole legitimate reach is the probectl_provider
+// role (ee/provider under tenancy.InProvider). Migration 0112 REVOKEs the full
+// DML these tables silently inherited from 0007's ALTER DEFAULT PRIVILEGES; this
+// check fails closed at boot if ANY app-role privilege ever comes back.
+//
+// NOT listed (so not asserted): agent_ca and cluster_singleton_leases. They look
+// provider-adjacent but are deployment-wide CONTROL-plane infrastructure with a
+// LEGITIMATE app-role writer and explicit app-role grants (0041 / 0054) — the
+// agent-CA hierarchy written during enrollment and the global background-lease
+// ledger. They are not provider-domain and must keep app access.
+var providerDomainNoAppAccessTables = map[string]string{
+	"provider_sessions":   "MSP provider-operator session roster; operators are the privilege domain above tenants, so the app role gets no read or write",
+	"tenant_provisioning": "resumable tenant-provisioning ledger the provider console and reaper drive; not tenant-readable",
+	"provider_branding":   "the provider master-brand singleton; provider-plane configuration with no tenant self-view",
+}
+
+func providerDomainNoAppAccessTableNames() []string {
+	out := make([]string, 0, len(providerDomainNoAppAccessTables))
+	for t := range providerDomainNoAppAccessTables {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// assertProviderDomainTablesNoAppAccess refuses to start when probectl_app holds
+// ANY privilege (SELECT/INSERT/UPDATE/DELETE) on a provider-domain table
+// (GAP-03). It reads the EFFECTIVE privilege with has_table_privilege (so a grant
+// reaching the role by any route — direct, default-privilege spillover, or group
+// membership — is caught), skips a table not present via to_regclass, and reports
+// every offender with the exact privileges held.
+func assertProviderDomainTablesNoAppAccess(ctx context.Context, q postureQuerier) error {
+	rows, err := q.Query(ctx, `
+		SELECT t.tbl,
+		       has_table_privilege('probectl_app', c.oid, 'SELECT') AS can_select,
+		       has_table_privilege('probectl_app', c.oid, 'INSERT') AS can_insert,
+		       has_table_privilege('probectl_app', c.oid, 'UPDATE') AS can_update,
+		       has_table_privilege('probectl_app', c.oid, 'DELETE') AS can_delete
+		  FROM unnest($1::text[]) AS t(tbl)
+		  JOIN pg_catalog.pg_class     c ON c.oid = to_regclass('public.' || quote_ident(t.tbl))
+		  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+		 WHERE has_table_privilege('probectl_app', c.oid, 'SELECT')
+		    OR has_table_privilege('probectl_app', c.oid, 'INSERT')
+		    OR has_table_privilege('probectl_app', c.oid, 'UPDATE')
+		    OR has_table_privilege('probectl_app', c.oid, 'DELETE')
+		 ORDER BY t.tbl`, providerDomainNoAppAccessTableNames())
+	if err != nil {
+		return fmt.Errorf("isolation posture: enumerate app-role provider-domain grants: %w", err)
+	}
+	defer rows.Close()
+
+	var offenders []string
+	for rows.Next() {
+		var table string
+		var canSelect, canInsert, canUpdate, canDelete bool
+		if err := rows.Scan(&table, &canSelect, &canInsert, &canUpdate, &canDelete); err != nil {
+			return fmt.Errorf("isolation posture: scan app-role provider-domain grant: %w", err)
+		}
+		offenders = append(offenders, fmt.Sprintf("%s(select=%t,insert=%t,update=%t,delete=%t)",
+			table, canSelect, canInsert, canUpdate, canDelete))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("isolation posture: iterate app-role provider-domain grants: %w", err)
+	}
+	if len(offenders) > 0 {
+		return fmt.Errorf("isolation posture: the tenant app role %q holds privilege on provider-domain table(s): %s — "+
+			"these are the provider plane's own state (operator sessions / provisioning ledger / provider brand), reached only by the probectl_provider role; REVOKE ALL PRIVILEGES ON <table> FROM probectl_app the way migration 0112 does (refusing to start; GAP-03, guardrail 1, fail closed)",
 			AppRole, strings.Join(offenders, ", "))
 	}
 	return nil
