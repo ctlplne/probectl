@@ -10,9 +10,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/proto"
+
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 type qualityCaptureEmitter struct {
@@ -176,6 +182,61 @@ func TestCollectorQualitySetIsBoundedAndCountersSaturate(t *testing.T) {
 	}
 	if got := saturatingQualityAdd(MaxQualityCounter-1, 10); got != MaxQualityCounter {
 		t.Fatalf("saturating counter=%d", got)
+	}
+}
+
+// TestMalformedQualityWindowNeverWedgesSubsequentReceiptEmission is the RTP-12
+// regression: untrusted flow ingest must never be able to wedge quality
+// reporting. One malformed/unrepresentable window must not fail the whole
+// receipt batch forever and strand healthy exporters as "stale".
+//
+// The malformed window here models the exact mechanism in the finding: a
+// hostile/corrupt sFlow datagram is accounted as a template miss, but sFlow has
+// no templates, so quality_collector.go marks the window template_missing and
+// the receipt can never validate (quality.go: "protocol has no templates").
+// The real bus emitter validates every receipt and rejects a batch containing
+// any invalid one — so before the fix that single bad window blocked the batch
+// on every tick and the healthy IPFIX exporter's receipt was never emitted.
+// This test drives the real collector + real BusEmitter (over a capture bus).
+func TestMalformedQualityWindowNeverWedgesSubsequentReceiptEmission(t *testing.T) {
+	cb := &captureBus{}
+	c, err := New(testConfig(), NewBusEmitter(cb, "t-acme"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 28, 1, 0, 0, 0, time.UTC)
+
+	// A malformed sFlow datagram mis-recorded as a template miss on a protocol
+	// that has no templates -> a window whose receipt can never validate.
+	c.observeQualityPacket("198.51.100.1", ProtoSFlow5, now, nil, 1, true)
+	// A healthy IPFIX exporter in the same agent/batch.
+	c.observeQualityPacket("192.0.2.10", ProtoIPFIX, now, []Record{{SamplingRate: 100}}, 0, false)
+
+	c.emitQualityReceipts(context.Background(), now.Add(time.Minute))
+
+	if cb.n == 0 {
+		t.Fatalf("one malformed window wedged the whole batch: the healthy exporter's receipt never emitted (publishes=%d)", cb.n)
+	}
+	var batch flowv1.FlowIngestQualityBatch
+	if err := proto.Unmarshal(cb.value, &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.GetReceipts()) != 1 || batch.GetReceipts()[0].GetExporterAddress() != "192.0.2.10" {
+		t.Fatalf("expected only the healthy exporter to emit, got %+v", batch.GetReceipts())
+	}
+	// The bad window is dropped and accounted, not silently swallowed, and a
+	// dropped window must not count as an emit failure.
+	if s := c.StatsSnapshot(); s.QualityInvalidReceipts != 1 || s.QualityReceipts != 1 || s.QualityEmitErrors != 0 {
+		t.Fatalf("quality stats=%+v (want 1 invalid, 1 emitted, 0 emit errors)", s)
+	}
+
+	// And the pipeline stays unwedged: a fresh healthy window on the next tick
+	// still emits even though the malformed window is still present.
+	cb.n = 0
+	c.observeQualityPacket("192.0.2.10", ProtoIPFIX, now.Add(time.Minute), []Record{{SamplingRate: 100}}, 0, false)
+	c.emitQualityReceipts(context.Background(), now.Add(2*time.Minute))
+	if cb.n == 0 {
+		t.Fatalf("subsequent window wedged: healthy exporter stopped emitting after a malformed window")
 	}
 }
 

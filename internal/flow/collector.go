@@ -40,12 +40,18 @@ type Stats struct {
 	DroppedRecords    atomic.Uint64
 	QualityReceipts   atomic.Uint64
 	QualityEmitErrors atomic.Uint64
+	// QualityInvalidReceipts counts receipt windows dropped because they could
+	// not validate at the emit edge (RTP-12). Untrusted flow ingest must never
+	// wedge quality reporting, so a single unrepresentable window is dropped and
+	// counted rather than failing the whole batch — distinct from
+	// QualityEmitErrors (a transient bus failure that is retried, not dropped).
+	QualityInvalidReceipts atomic.Uint64
 }
 
 // StatsSnapshot is a point-in-time copy for logging/tests.
 type StatsSnapshot struct {
 	Packets, Records, DecodeErrors, TemplateMisses, QueueDrops, EmitErrors, SourceDrops, DroppedRecords uint64
-	QualityReceipts, QualityEmitErrors                                                                  uint64
+	QualityReceipts, QualityEmitErrors, QualityInvalidReceipts                                          uint64
 }
 
 // Collector binds the configured UDP listeners, decodes datagrams into
@@ -211,16 +217,17 @@ func (c *Collector) localAddr(protocol string) string {
 // StatsSnapshot returns a copy of the counters.
 func (c *Collector) StatsSnapshot() StatsSnapshot {
 	return StatsSnapshot{
-		Packets:           c.stats.Packets.Load(),
-		Records:           c.stats.Records.Load(),
-		DecodeErrors:      c.stats.DecodeErrors.Load(),
-		TemplateMisses:    c.stats.TemplateMisses.Load(),
-		QueueDrops:        c.stats.QueueDrops.Load(),
-		EmitErrors:        c.stats.EmitErrors.Load(),
-		SourceDrops:       c.stats.SourceDrops.Load(),
-		DroppedRecords:    c.stats.DroppedRecords.Load(),
-		QualityReceipts:   c.stats.QualityReceipts.Load(),
-		QualityEmitErrors: c.stats.QualityEmitErrors.Load(),
+		Packets:                c.stats.Packets.Load(),
+		Records:                c.stats.Records.Load(),
+		DecodeErrors:           c.stats.DecodeErrors.Load(),
+		TemplateMisses:         c.stats.TemplateMisses.Load(),
+		QueueDrops:             c.stats.QueueDrops.Load(),
+		EmitErrors:             c.stats.EmitErrors.Load(),
+		SourceDrops:            c.stats.SourceDrops.Load(),
+		DroppedRecords:         c.stats.DroppedRecords.Load(),
+		QualityReceipts:        c.stats.QualityReceipts.Load(),
+		QualityEmitErrors:      c.stats.QualityEmitErrors.Load(),
+		QualityInvalidReceipts: c.stats.QualityInvalidReceipts.Load(),
 	}
 }
 
@@ -345,6 +352,7 @@ func (c *Collector) flushLoop(ctx context.Context) {
 				"template_misses", s.TemplateMisses, "queue_drops", s.QueueDrops,
 				"emit_errors", s.EmitErrors, "source_drops", s.SourceDrops, "dropped_records", s.DroppedRecords,
 				"quality_receipts", s.QualityReceipts, "quality_emit_errors", s.QualityEmitErrors,
+				"quality_invalid_receipts", s.QualityInvalidReceipts,
 				"templates", c.dec.TemplateCount())
 		}
 	}

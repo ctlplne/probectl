@@ -256,12 +256,37 @@ func (c *Collector) emitQualityReceipts(ctx context.Context, at time.Time) {
 	if len(receipts) == 0 {
 		return
 	}
-	if err := emitter.EmitQuality(ctx, receipts); err != nil {
-		c.restoreQuality(receipts)
-		c.stats.QualityEmitErrors.Add(1)
-		c.log.Error("flow: quality receipt emit failed",
-			"receipts", len(receipts), "error", err.Error())
+	// RTP-12: untrusted flow ingest must never be able to wedge quality
+	// reporting. A single malformed/unrepresentable window (e.g. a hostile
+	// datagram accounted as a template miss on a protocol that has no templates)
+	// would otherwise fail the whole batch at the emit edge, and because the
+	// window state survives a failed emit it would re-fail forever — stranding
+	// every healthy exporter in the batch as "stale". Fail open on the parse:
+	// drop the bad window, count it, and keep emitting the rest so healthy
+	// exporters stay fresh (docs/guardrails.md G12-N, CONTRIBUTING.md).
+	valid := receipts[:0]
+	var invalid int
+	for _, receipt := range receipts {
+		if _, err := ValidateQualityReceipt(receipt); err != nil {
+			invalid++
+			continue
+		}
+		valid = append(valid, receipt)
+	}
+	if invalid > 0 {
+		c.stats.QualityInvalidReceipts.Add(uint64(invalid))
+		c.log.Warn("flow: dropped unrepresentable quality receipt(s); ingest cannot wedge reporting",
+			"dropped", invalid, "emitting", len(valid))
+	}
+	if len(valid) == 0 {
 		return
 	}
-	c.stats.QualityReceipts.Add(uint64(len(receipts)))
+	if err := emitter.EmitQuality(ctx, valid); err != nil {
+		c.restoreQuality(valid)
+		c.stats.QualityEmitErrors.Add(1)
+		c.log.Error("flow: quality receipt emit failed",
+			"receipts", len(valid), "error", err.Error())
+		return
+	}
+	c.stats.QualityReceipts.Add(uint64(len(valid)))
 }
