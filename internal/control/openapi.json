@@ -5285,7 +5285,7 @@
         "tags": [
           "slo"
         ],
-        "description": "The caller's tenant's SLO statuses from the OpenSLO-defined SLIs: attainment over the SLO window, error budget remaining, total events, cold_start honesty flag, and the multi-window burn rates (fast 1h/5m @14.4x, medium 6h/30m @6x, slow 3d/6h @1x \u2014 the Google SRE multi-window multi-burn-rate method) with per-window firing state. slo_running=false distinguishes an unwired engine.",
+        "description": "The caller's tenant's SLO statuses from the OpenSLO-defined SLIs: attainment over the SLO window, error budget remaining, total events, cold_start honesty flag, window_filling honesty flag (true while less than a full budget window has elapsed since the in-RAM accumulators began filling in this process \u2014 e.g. after a control-plane restart \u2014 so a healthy-looking budget is not yet a full-window pass) with data_since marking when they began filling, and the multi-window burn rates (fast 1h/5m @14.4x, medium 6h/30m @6x, slow 3d/6h @1x \u2014 the Google SRE multi-window multi-burn-rate method) with per-window firing state. slo_running=false distinguishes an unwired engine.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -5336,6 +5336,15 @@
                           },
                           "cold_start": {
                             "type": "boolean"
+                          },
+                          "window_filling": {
+                            "type": "boolean",
+                            "description": "True while less than a full budget window has elapsed since the in-RAM accumulators began filling in this process (now - data_since < window). The engine is in-RAM, so a control-plane restart resets it and a burned budget is not reconstructable from the live stream within the window; while true the attainment/error_budget_remaining cover only a partial window and a healthy-looking budget must not be read as a full-window pass. Distinct from cold_start, which only tracks the 50-event floor."
+                          },
+                          "data_since": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "When this tenant's in-RAM accumulators started filling in this process; the window-open time behind window_filling. Omitted when the tenant has produced no data yet."
                           },
                           "burn_rates": {
                             "type": "array",

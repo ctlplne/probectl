@@ -239,6 +239,76 @@ func TestBurnRateNoNoiseAndColdStart(t *testing.T) {
 	}
 }
 
+// --- restart honesty: the in-RAM budget must not read false-healthy (AI-06) ---
+
+// TestSLORestartWindowFillingHonesty proves the CORRECT-008 contract: the engine
+// is in-RAM, so a control-plane restart (modeled as a fresh engine, exactly what
+// serve_runtime builds at boot) resets the budget accumulators. A burned budget
+// is not reconstructable from the live stream within the window, so a fresh
+// engine must NOT present its empty/partial window as a full-window healthy
+// budget — it surfaces WindowFilling=true until a full budget window has elapsed.
+func TestSLORestartWindowFillingHonesty(t *testing.T) {
+	s := parsed(t) // 30d window, 0.99 objective
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := base.Add(s.Window) // the "restart" instant: a full window after base
+
+	// --- before restart: a genuinely burned budget over a FULL, elapsed window.
+	clk := base
+	e1 := NewEngine([]SLO{s}).WithClock(func() time.Time { return clk })
+	// 60 probes spread across the 30d window, half failing → 50% attainment,
+	// which blows the 1% error budget. dataSince pins at base (the clock during
+	// every ObserveResult), so by `now` a full window has elapsed.
+	for i := 0; i < 60; i++ {
+		at := base.Add(time.Duration(i) * 12 * time.Hour)
+		e1.ObserveResult("t1", "http", "checkout.acme.example", "", i%2 == 0, at)
+	}
+	clk = now
+	before := e1.Statuses("t1")[0]
+	if before.ColdStart {
+		t.Fatalf("pre-restart: unexpectedly cold (events=%d)", before.TotalEvents)
+	}
+	if before.ErrorBudgetRemaining != 0 || before.Attainment > 0.51 {
+		t.Fatalf("pre-restart budget not burned: attainment=%.4f budget=%.4f", before.Attainment, before.ErrorBudgetRemaining)
+	}
+	if before.WindowFilling {
+		t.Fatalf("pre-restart: a full window has elapsed — WindowFilling must be false; data_since=%s now=%s", before.DataSince, now)
+	}
+
+	// --- simulated restart (a): a brand-new engine with nothing replayed yet.
+	// The budget mechanically reads 1.0 over an empty window; that is NOT a
+	// healthy full-window pass and must be flagged.
+	e2 := NewEngine([]SLO{s}).WithClock(func() time.Time { return now })
+	cold := e2.Statuses("t1")[0]
+	if cold.ErrorBudgetRemaining != 1.0 || cold.Attainment != 1.0 {
+		t.Fatalf("post-restart cold fixture assumption broken: attainment=%.4f budget=%.4f", cold.Attainment, cold.ErrorBudgetRemaining)
+	}
+	if !cold.WindowFilling {
+		t.Fatal("post-restart cold engine reports a full-window healthy budget (WindowFilling=false) — the false-healthy regression")
+	}
+
+	// --- simulated restart (b): the gap ColdStart alone misses. >50 fresh events
+	// accrue within minutes of the restart, flipping cold_start to false while the
+	// 30d window is still essentially empty. WindowFilling must stay true.
+	e3 := NewEngine([]SLO{s}).WithClock(func() time.Time { return now })
+	for i := 0; i < 60; i++ {
+		e3.ObserveResult("t1", "http", "checkout.acme.example", "", true, now.Add(-time.Duration(i)*time.Minute))
+	}
+	warm := e3.Statuses("t1")[0]
+	if warm.ColdStart {
+		t.Fatalf("post-restart: expected cold_start=false after %d events", warm.TotalEvents)
+	}
+	if !warm.WindowFilling {
+		t.Fatal("post-restart: cold_start cleared but the budget window is minutes old — WindowFilling must stay true (false-healthy regression)")
+	}
+
+	// Per-tenant isolation: a tenant that produced nothing on the fresh engine is
+	// its own filling, empty window — never another tenant's burned budget.
+	other := e3.Statuses("t2")[0]
+	if other.TotalEvents != 0 || !other.WindowFilling || !other.ColdStart {
+		t.Fatalf("cross-tenant restart state leaked: %+v", other)
+	}
+}
+
 // --- the S43 what-if seam ---
 
 func TestImpactedSLOs(t *testing.T) {

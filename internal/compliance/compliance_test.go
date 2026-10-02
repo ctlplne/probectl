@@ -111,6 +111,58 @@ func TestValidationVerdicts(t *testing.T) {
 	}
 }
 
+// TestSegmentationReAlertAfterQuietWindow proves AI-06: the per-rule alert latch
+// re-arms on a bounded quiet-period (reArmInterval), not only on an engine
+// rebuild/restart. A breach that recurs after the re-alert window raises a fresh
+// signal; recurrences inside the window are suppressed (no flapping); the
+// violation count accrues regardless; and the latch is per tenant.
+func TestSegmentationReAlertAfterQuietWindow(t *testing.T) {
+	e := testEngine(t)
+	const corp, cde = "10.20.1.5", "10.10.2.9" // corp→cde: a bidirectional, any-port violation
+
+	violate := func(tenant string, at time.Time) int {
+		return len(e.Observe(tenant, FlowObs{Src: corp, Dst: cde, DstPort: 443, Bytes: 1024, Source: "flow", At: at}))
+	}
+
+	t0 := cT
+	// First violation: one signal.
+	if n := violate("t1", t0); n != 1 {
+		t.Fatalf("first violation signals = %d, want 1", n)
+	}
+	// Recurrence inside the re-alert window: suppressed.
+	if n := violate("t1", t0.Add(reArmInterval-time.Minute)); n != 0 {
+		t.Fatalf("recurrence within re-alert window signaled %d, want 0 (flapping)", n)
+	}
+	// Recurrence AFTER the window: the latch re-arms → a fresh signal. On the
+	// pre-fix engine the latch only re-armed on restart, so this emitted zero.
+	after := t0.Add(reArmInterval + time.Minute)
+	if n := violate("t1", after); n != 1 {
+		t.Fatalf("recurrence after re-alert window signaled %d, want 1 (latch never re-armed)", n)
+	}
+	// A further recurrence inside the NEW window is suppressed again.
+	if n := violate("t1", after.Add(time.Minute)); n != 0 {
+		t.Fatalf("recurrence within the re-armed window signaled %d, want 0", n)
+	}
+
+	// Per-tenant isolation: t2's latch is independent of t1's — its first
+	// violation still signals even while t1 has been alerting.
+	if n := violate("t2", after); n != 1 {
+		t.Fatalf("t2 first violation signals = %d, want 1 (cross-tenant latch leak)", n)
+	}
+
+	// The violation COUNT accrues across every recurrence, independent of the
+	// re-alert latch (the honesty contract: counts never stop at 4 for t1).
+	var t1count uint64
+	for _, r := range e.Results("t1") {
+		if r.RuleID == "corp-to-cde" {
+			t1count = r.Violations
+		}
+	}
+	if t1count != 4 {
+		t.Fatalf("t1 corp-to-cde violation count = %d, want 4 (counts must accrue past the latch)", t1count)
+	}
+}
+
 // The sprint's named coverage test: never conclude beyond what's observed.
 func TestCoverageGapReporting(t *testing.T) {
 	e := testEngine(t)

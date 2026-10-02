@@ -91,6 +91,18 @@ type Coverage struct {
 // maxSamples bounds per-rule violation evidence.
 const maxSamples = 20
 
+// reArmInterval is the bounded re-alert (renotify) window for a segmentation
+// violation. A rule emits at most one signal per interval per tenant: the first
+// violation signals immediately, further violations inside the interval are
+// suppressed (a persistent breach must not spam a fresh alert on every packet),
+// and the next violation observed AFTER the interval re-arms the latch and
+// signals again. Without this a breach that recurs days later — after the first
+// episode's single signal — would stay silent until the control plane happened
+// to restart (the engine is in-RAM; see docs/adr/volatile-stores.md). The gate
+// is driven by observed-traffic time (FlowObs.At), mirroring the alert engine's
+// RenotifySeconds (internal/alert).
+const reArmInterval = 24 * time.Hour
+
 // Engine validates observed traffic against the loaded policies, per tenant.
 type Engine struct {
 	mu       sync.Mutex
@@ -104,7 +116,12 @@ type ruleState struct {
 	observedPairs uint64
 	samples       []ViolationSample
 	first, last   time.Time
-	alerted       bool // one violation signal per rule, latched until the engine is rebuilt (no quiet-period re-arm exists)
+	// lastAlert is the observed-traffic time of the most recent violation signal
+	// this rule emitted (zero = never). It latches re-alerts to one per
+	// reArmInterval: a recurrence after the interval re-arms and signals again,
+	// so a breach that returns days later is not silently swallowed by a latch
+	// that previously only re-armed on an engine rebuild.
+	lastAlert time.Time
 }
 
 type tenantState struct {
@@ -145,9 +162,10 @@ func (e *Engine) tenant(id string) *tenantState {
 	return ts
 }
 
-// Observe validates one conversation and returns violation signals (one per
-// rule per episode — the signal carries the first evidence; the full sample
-// trail lives in the results/evidence).
+// Observe validates one conversation and returns violation signals (at most one
+// per rule per reArmInterval — the signal carries the triggering evidence; the
+// full sample trail lives in the results/evidence, and a breach that recurs
+// after the interval re-arms the latch and signals again).
 func (e *Engine) Observe(tenant string, f FlowObs) []incident.Signal {
 	if tenant == "" || f.Src == "" || f.Dst == "" {
 		return nil
@@ -210,8 +228,12 @@ func (e *Engine) Observe(tenant string, f FlowObs) []incident.Signal {
 			if len(st.samples) < maxSamples {
 				st.samples = append(st.samples, ViolationSample(f))
 			}
-			if !st.alerted {
-				st.alerted = true
+			// Re-alert latch (time-based re-arm): signal on the first violation
+			// and again on any violation observed at least reArmInterval after the
+			// last signal; suppress recurrences inside the interval so a sustained
+			// breach doesn't flap. Counts and samples accrue regardless.
+			if st.lastAlert.IsZero() || f.At.Sub(st.lastAlert) >= reArmInterval {
+				st.lastAlert = f.At
 				sigs = append(sigs, incident.Signal{
 					TenantID: tenant,
 					Plane:    "compliance",

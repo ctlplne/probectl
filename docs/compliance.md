@@ -111,11 +111,17 @@ lump misleads.
 
 A `violation` raises a `compliance.segmentation_violation` signal (plane
 `compliance`, severity `critical`) into the incident pipeline and the SIEM —
-**once per rule** (the `alerted` latch in `ruleState`), so a
-persistent breach doesn't spam a fresh alert on every packet. The latch lives
-in the in-memory engine state, so it re-arms when the validator restarts and
-rebuilds from the stream; the violation *count* and samples keep accumulating
-either way.
+**at most once per rule per re-alert window** (the `lastAlert` latch in
+`ruleState`), so a persistent breach doesn't spam a fresh alert on every packet.
+The latch re-arms on a **bounded quiet-period** (`reArmInterval`, 24h, driven by
+observed-traffic time): the first violation signals immediately, recurrences
+inside the window are suppressed, and a violation observed after the window
+re-arms the latch and signals again — so a breach that returns days later is not
+silently swallowed. (The engine is in-RAM — see
+[`docs/adr/volatile-stores.md`](adr/volatile-stores.md) — so a validator restart
+also re-arms it; the time-based re-arm means a restart is no longer *required*
+for a recurrence to re-signal.) The violation *count* and samples keep
+accumulating either way.
 
 ## Coverage: never claim beyond what was observed
 

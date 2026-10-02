@@ -74,17 +74,33 @@ type BurnRate struct {
 
 // Status is one SLO's tenant-scoped state (the /v1/slos payload).
 type Status struct {
-	Name                 string     `json:"name"`
-	DisplayName          string     `json:"display_name,omitempty"`
-	Service              string     `json:"service"`
-	Team                 string     `json:"team,omitempty"`
-	Objective            float64    `json:"objective"`
-	Window               string     `json:"window"`
-	Attainment           float64    `json:"attainment"` // good/total over the SLO window
-	ErrorBudgetRemaining float64    `json:"error_budget_remaining"`
-	TotalEvents          uint64     `json:"total_events"`
-	ColdStart            bool       `json:"cold_start"`
-	BurnRates            []BurnRate `json:"burn_rates"`
+	Name                 string  `json:"name"`
+	DisplayName          string  `json:"display_name,omitempty"`
+	Service              string  `json:"service"`
+	Team                 string  `json:"team,omitempty"`
+	Objective            float64 `json:"objective"`
+	Window               string  `json:"window"`
+	Attainment           float64 `json:"attainment"` // good/total over the SLO window
+	ErrorBudgetRemaining float64 `json:"error_budget_remaining"`
+	TotalEvents          uint64  `json:"total_events"`
+	ColdStart            bool    `json:"cold_start"`
+	// WindowFilling is true while less than a full budget window has elapsed
+	// since this process started observing the tenant (now-DataSince < Window).
+	// The engine is in-RAM (docs/adr/volatile-stores.md), so a control-plane
+	// restart resets the accumulators and a burned budget is NOT reconstructable
+	// from the live stream within the window: while this flag is set the
+	// Attainment/ErrorBudgetRemaining above cover only a PARTIAL window, so a
+	// healthy-looking budget must NOT be read as a full-window pass (a burned
+	// budget is a real signal regardless). This is the honest "window still
+	// filling" signal — distinct from ColdStart, which only tracks the MinEvents
+	// floor and flips to false once 50 events accrue in the first post-restart
+	// minutes, long before the budget window is representative. CORRECT-008.
+	WindowFilling bool `json:"window_filling"`
+	// DataSince is when this tenant's in-RAM accumulators started filling in THIS
+	// process (zero if the tenant has produced no data yet) — the window-open
+	// time behind WindowFilling. CORRECT-008.
+	DataSince time.Time  `json:"data_since,omitempty"`
+	BurnRates []BurnRate `json:"burn_rates"`
 }
 
 // Engine evaluates the loaded SLOs over the result stream, per tenant.
@@ -313,6 +329,12 @@ func (e *Engine) Statuses(tenant string) []Status {
 				budgetRemaining = 0
 			}
 		}
+		// CORRECT-008: e.state above guarantees dataSince is set for this tenant.
+		// The budget window is only representative once a full Window has elapsed
+		// since the accumulators started filling in THIS process; until then the
+		// attainment/budget are over a partial window (a post-restart reset).
+		dataSince := e.dataSince[tenant]
+		windowFilling := dataSince.IsZero() || now.Sub(dataSince) < s.Window
 		status := Status{
 			Name:                 s.Name,
 			DisplayName:          s.DisplayName,
@@ -324,6 +346,8 @@ func (e *Engine) Statuses(tenant string) []Status {
 			ErrorBudgetRemaining: budgetRemaining,
 			TotalEvents:          total,
 			ColdStart:            total < MinEvents,
+			WindowFilling:        windowFilling,
+			DataSince:            dataSince,
 		}
 		for _, w := range burnWindows {
 			longBurn, _, okL := st.burn(minDur(w.long, s.Window), s.Objective, now)
