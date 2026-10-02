@@ -140,3 +140,8 @@ symbol github.com/ctlplne/probectl/internal/ebpf.DirectionIngress — OTel netwo
 
 # ---- test seams -------------------------------------------------------------
 symbol github.com/ctlplne/probectl/internal/control.Server.WithListener — DPR-103 drain seam: lets a test hand the server a listener on a known port so the drain window can be observed deterministically; production always binds from config
+symbol github.com/ctlplne/probectl/internal/control.CarbonConsumer.RejectedFlowBatches — observability accessor: the RTP-02 strict-lane test asserts the carbon consumer's rejected-flow-batch counter via this getter
+symbol github.com/ctlplne/probectl/internal/store.EnrollTokens.Revoke — enrollment test fixture: the bool-returning revoke variant exercised by the enroll suite; production uses RevokeReturningTenant
+symbol github.com/ctlplne/probectl/internal/store.MCPTokens.Create — mcp-token test fixture: the no-expiry back-compat Create variant seeded by the mcp/directory integration suites; production mints via CreateWithLifetime (INV-03)
+symbol github.com/ctlplne/probectl/internal/store.MCPTokens.Authenticate — mcp-token test fixture: the (tenant,user)-returning back-compat variant exercised by the isolation + tenant-lifecycle suites; production authenticates via AuthenticateFull (INV-03)
+symbol github.com/ctlplne/probectl/internal/testsync.Verify — agent-facing bundle-signature verification entry point for the central-test PULL loop, parked pending the agent-transport decision (PLAT-13 / decisions-needed D-28); no shipped agent consumes it yet (TestAgentSideBundlePullNotYetWired)
