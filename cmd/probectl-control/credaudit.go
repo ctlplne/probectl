@@ -62,3 +62,18 @@ func auditCredentialOneShot(ctx context.Context, pool *pgxpool.Pool, tenantID, a
 	}
 	return nil
 }
+
+// auditProviderOneShot records a deployment-global one-shot (no tenant) in the
+// provider stream only (AUD-09). The agent CA init/renew mint the fleet trust
+// root and issuing intermediate — the highest-value credential material, with
+// no tenant and no API equivalent — so they belong in the provider/system
+// stream rather than any tenant chain. target is an identifier, never key bytes.
+func auditProviderOneShot(ctx context.Context, pool *pgxpool.Pool, action, target string, data map[string]any) error {
+	if data == nil {
+		data = map[string]any{}
+	}
+	if _, err := audit.ProviderAppend(ctx, pool, cliActor(), action, target, data); err != nil {
+		return fmt.Errorf("provider audit %s: %w", action, err)
+	}
+	return nil
+}

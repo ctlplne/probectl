@@ -151,18 +151,26 @@ func (e EnrollTokens) ConsumeForTenant(ctx context.Context, tenantID string, tok
 // id — already redeemed, already revoked, or never existed — so the CLI can
 // tell the operator the truth instead of a blind "ok".
 func (e EnrollTokens) Revoke(ctx context.Context, id string) (bool, error) {
-	tenantID, err := resolveCredentialID(
+	revoked, _, err := e.RevokeReturningTenant(ctx, id)
+	return revoked, err
+}
+
+// RevokeReturningTenant is Revoke plus the token's resolved tenant id, so a
+// caller with only the token id (the `revoke-enroll-token` CLI) can append the
+// revocation to the right tenant's audit chain (AUD-09). tenantID is non-empty
+// only when revoked is true.
+func (e EnrollTokens) RevokeReturningTenant(ctx context.Context, id string) (revoked bool, tenantID string, err error) {
+	resolved, err := resolveCredentialID(
 		ctx, e.pool, credentialAgentEnroll, id,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return false, "", nil
 	}
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	var revoked bool
 	err = tenancy.InTenant(
-		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
+		tenancy.WithTenant(ctx, tenancy.ID(resolved)),
 		e.pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
 			var tokenHash []byte
@@ -174,7 +182,7 @@ func (e EnrollTokens) Revoke(ctx context.Context, id string) (bool, error) {
 				    AND used_at IS NULL
 				    AND revoked_at IS NULL
 				 RETURNING token_hash`,
-				id, tenantID,
+				id, resolved,
 			).Scan(&tokenHash); err != nil {
 				return err
 			}
@@ -189,9 +197,15 @@ func (e EnrollTokens) Revoke(ctx context.Context, id string) (bool, error) {
 	)
 	if errors.Is(err, pgx.ErrNoRows) ||
 		errors.Is(err, errCredentialStateChanged) {
-		return false, nil
+		return false, "", nil
 	}
-	return revoked, err
+	if err != nil {
+		return false, "", err
+	}
+	if !revoked {
+		return false, "", nil
+	}
+	return true, resolved, nil
 }
 
 // AgentIdentities records every issued SVID — the issuance provenance behind

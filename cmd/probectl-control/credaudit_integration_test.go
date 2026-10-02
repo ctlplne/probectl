@@ -128,4 +128,16 @@ func TestOneShotCredentialCommandsAreAudited(t *testing.T) {
 		return runMCPToken(log, db, []string{"--tenant", tn.ID, "--user", userID, "--name", "aud09-mcp"})
 	})
 	assertAudited(t, "mcp.token_create", mcpSecret)
+
+	// revoke-enroll-token: a credential REVOCATION from the control host must be
+	// audited too (AUD-09 reopen). The command takes only -id and resolves the
+	// tenant from the token. Seed an unredeemed token directly (no agent CA
+	// needed) so the test has no global-state dependency.
+	tokHash := []byte(fmt.Sprintf("aud09-revoke-%d", time.Now().UnixNano()))
+	tokID, err := store.NewEnrollTokens(db.Pool()).Create(ctx, tn.ID, "", "aud09-revoke", "cli-test", tokHash, time.Hour)
+	if err != nil {
+		t.Fatalf("seed enroll token: %v", err)
+	}
+	_ = runCapture(t, func() error { return runRevokeEnrollToken(ctx, db, []string{"--id", tokID}) })
+	assertAudited(t, "agent.enroll_token_revoked", "")
 }

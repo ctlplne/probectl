@@ -67,6 +67,11 @@ func runAgentCAInit(ctx context.Context, db *store.DB, args []string) error {
 	if err != nil {
 		return err
 	}
+	// AUD-09: the CA mint is the highest-value credential op; record it in the
+	// provider/system stream (deployment-global, no tenant) — never the key.
+	if err := auditProviderOneShot(ctx, db.Pool(), "agent_ca.initialized", "agent-ca", nil); err != nil {
+		return err
+	}
 	fmt.Println("agent CA initialized: root (10y) -> issuing intermediate (1y, sealed at rest)")
 	fmt.Println()
 	if *keyOut != "" {
@@ -159,6 +164,10 @@ func runAgentCARenew(ctx context.Context, db *store.DB, args []string, stdin io.
 	}
 	notAfter, err := enroll.RenewIntermediate(ctx, db.Pool(), rootKey, time.Duration(*years)*365*24*time.Hour)
 	if err != nil {
+		return err
+	}
+	// AUD-09: record the intermediate renewal in the provider/system stream.
+	if err := auditProviderOneShot(ctx, db.Pool(), "agent_ca.renewed", "agent-ca", map[string]any{"not_after": notAfter.UTC().Format(time.RFC3339)}); err != nil {
 		return err
 	}
 	fmt.Printf("agent CA renewed: new issuing intermediate valid until %s\n", notAfter.UTC().Format(time.RFC3339))
@@ -398,12 +407,17 @@ func runRevokeEnrollToken(ctx context.Context, db *store.DB, args []string) erro
 	if *id == "" {
 		return fmt.Errorf("usage: probectl-control revoke-enroll-token -id <token-id>")
 	}
-	revoked, err := store.NewEnrollTokens(db.Pool()).Revoke(ctx, *id)
+	revoked, tenantID, err := store.NewEnrollTokens(db.Pool()).RevokeReturningTenant(ctx, *id)
 	if err != nil {
 		return err
 	}
 	if !revoked {
 		return fmt.Errorf("no unredeemed token with id %s — it was already redeemed, already revoked, or never existed; nothing changed (a redeemed token's agent is revoked with revoke-agent)", *id)
+	}
+	// AUD-09: a revocation from the control host is audited like the mint, in the
+	// token's own tenant chain (resolved from the id) and the provider stream.
+	if err := auditCredentialOneShot(ctx, db.Pool(), tenantID, "agent.enroll_token_revoked", *id, nil); err != nil {
+		return err
 	}
 	fmt.Printf("voided enroll token %s: it can no longer be redeemed (it was single-use and expiring anyway — this just ends it early)\n", *id)
 	return nil
