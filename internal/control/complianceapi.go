@@ -15,8 +15,10 @@ package control
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,6 +44,19 @@ import (
 func BuildCompliance(cfg *config.Config, log *slog.Logger) (*compliance.Engine, bool, error) {
 	if cfg == nil || !cfg.ComplianceEnabled {
 		return nil, false, nil
+	}
+	// AI-09 (guardrail 7.1, fail closed): a segmentation policy's zones are
+	// CIDR→zone maps applied to EVERY tenant, and its rules alert off them. In a
+	// pooled multi-tenant deployment two tenants that share a prefix would be
+	// cross-validated and cross-alerted off one tenant's zone definitions — a
+	// false segmentation verdict charged to the wrong tenant. The policy
+	// directory carries no tenant binding, so it is deployment-wide and
+	// single-tenant-only; the multi-tenant and regulated profiles refuse it
+	// rather than silently cross-attribute (mirrors the SLO tenant-binding rule,
+	// DPR-068).
+	if (cfg.DeploymentProfile == "multi-tenant" || cfg.DeploymentProfile == "regulated") &&
+		strings.TrimSpace(cfg.CompliancePolicyDir) != "" {
+		return nil, false, fmt.Errorf("compliance: PROBECTL_DEPLOYMENT_PROFILE=%s refuses a deployment-wide segmentation policy directory (PROBECTL_COMPLIANCE_POLICY_DIR): its zone CIDRs are applied to every tenant, so two tenants sharing a prefix would be cross-validated/cross-alerted off one tenant's zones (guardrail 7.1, AI-09, fail closed). The policies carry no per-tenant binding and are single-tenant-only — unset the directory in this profile; see docs/configuration.md", cfg.DeploymentProfile)
 	}
 	policies, err := compliance.LoadDir(cfg.CompliancePolicyDir)
 	if err != nil {

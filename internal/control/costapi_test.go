@@ -51,6 +51,58 @@ func TestBuildCostDisabledAndFailClosed(t *testing.T) {
 	}
 }
 
+// AI-09: the zone/owner/budget maps are DEPLOYMENT-WIDE (one set applied to
+// every tenant), so in a pooled deployment two tenants sharing a prefix would be
+// cross-attributed/cross-alerted. The multi-tenant and regulated profiles must
+// refuse these untenanted maps (fail closed); single-tenant keeps them, and a
+// map-less multi-tenant deployment still loads (per-tenant volume-only).
+func TestBuildCostRefusesUntenantedMapsInMultiTenant(t *testing.T) {
+	// Each deployment-wide map, on its own, is refused under a tenant profile.
+	for _, tc := range []struct {
+		name  string
+		apply func(*config.Config)
+		key   string
+	}{
+		{"zones", func(c *config.Config) { c.CostZones = "10.0.1.0/24=us-east-1a" }, "PROBECTL_COST_ZONES"},
+		{"services", func(c *config.Config) { c.CostServices = "10.0.1.0/24=checkout:payments" }, "PROBECTL_COST_SERVICES"},
+		{"budgets", func(c *config.Config) { c.CostBudgets = "team:payments=0.05" }, "PROBECTL_COST_BUDGETS"},
+	} {
+		for _, profile := range []string{"multi-tenant", "regulated"} {
+			cfg := &config.Config{CostEnabled: true, DeploymentProfile: profile}
+			tc.apply(cfg)
+			_, on, err := BuildCost(cfg, intelTestLog())
+			if err == nil {
+				t.Fatalf("%s/%s: untenanted map accepted — must fail closed", profile, tc.name)
+			}
+			if on {
+				t.Fatalf("%s/%s: engine built despite refusal", profile, tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.key) || !strings.Contains(err.Error(), profile) {
+				t.Fatalf("%s/%s: error must name the key and profile: %v", profile, tc.name, err)
+			}
+		}
+	}
+
+	// Single-tenant keeps the deployment-wide maps (the historical behavior):
+	// the full attribution config loads under both "single" and the empty default.
+	for _, profile := range []string{"single", ""} {
+		cfg := costTestConfig()
+		cfg.DeploymentProfile = profile
+		if _, on, err := BuildCost(cfg, intelTestLog()); err != nil || !on {
+			t.Fatalf("single-tenant (%q) must load deployment-wide maps: on=%v err=%v", profile, on, err)
+		}
+	}
+
+	// A map-less multi-tenant deployment still runs (per-tenant volume-only):
+	// the refusal targets the untenanted maps, not the engine itself.
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		cfg := &config.Config{CostEnabled: true, DeploymentProfile: profile}
+		if _, on, err := BuildCost(cfg, intelTestLog()); err != nil || !on {
+			t.Fatalf("%s without maps must still load (volume-only): on=%v err=%v", profile, on, err)
+		}
+	}
+}
+
 // Flow batch → attributed spend in the summary + a budget breach correlated
 // into an incident (the S44 'Done when', end to end at the consumer).
 func TestCostConsumerAttributesAndAlerts(t *testing.T) {

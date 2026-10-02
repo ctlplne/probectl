@@ -2202,6 +2202,17 @@ posture holds and the numbers are explicitly estimates with stated provenance.
 | `PROBECTL_COST_PRICES_FILE` | (none) | JSON price-table override (maximum 1 MiB; oversized files fail startup closed); embedded public list rates otherwise (provenance + as-of surfaced) |
 | `PROBECTL_COST_PRICED`      | `true` | `false` = volume-only mode (bytes attributed, dollars never invented) |
 
+`PROBECTL_COST_ZONES`, `PROBECTL_COST_SERVICES`, and `PROBECTL_COST_BUDGETS` are
+**deployment-wide and single-tenant-only** (AI-09, guardrail 7.1): one map is
+applied to every tenant, so in a pooled deployment two tenants that share a
+prefix would be cross-attributed (one tenant's bytes booked to the other's
+service/team) and cross-alerted (a budget keyed on a shared owner fires for
+every tenant). Under `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant`/`regulated` these
+keys are therefore **refused at startup** (fail closed); leave them unset and
+cost runs per-tenant in volume-only mode. Pricing (`PROBECTL_COST_PRICES_FILE` /
+`PROBECTL_COST_PRICED`) is list rates that are the same for every tenant and
+stays allowed in all profiles.
+
 Summary at `GET /v1/cost/summary` and the Cost page; deeper cross-plane and
 ad-hoc views are native at `/dashboards` and `/explore`. The
 Prometheus-compatible API is optional interoperability, not a dashboard
@@ -2236,6 +2247,13 @@ a verdict naming the flow that crossed one. It never blocks anything.
 |---|---|---|
 | `PROBECTL_COMPLIANCE_ENABLED`    | `true` | segmentation validator over observed flow/eBPF traffic (validation only — never enforcement) |
 | `PROBECTL_COMPLIANCE_POLICY_DIR` | (none) | segmentation policy YAML directory (strictly validated; malformed or over-1-MiB files fail startup) |
+
+A segmentation policy's zones are CIDR→zone maps applied to **every** tenant, so
+the policy directory is **deployment-wide and single-tenant-only** (AI-09,
+guardrail 7.1): in a pooled deployment two tenants that share a prefix would be
+cross-validated and cross-alerted off one tenant's zone definitions. Under
+`PROBECTL_DEPLOYMENT_PROFILE=multi-tenant`/`regulated` the directory is therefore
+**refused at startup** (fail closed); leave it unset in those profiles.
 
 Verdicts at `GET /v1/compliance`, hash-chained audit evidence at
 `GET /v1/compliance/evidence`, and the Compliance page. See

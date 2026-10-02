@@ -14,8 +14,10 @@ package control
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,6 +39,21 @@ import (
 func BuildCost(cfg *config.Config, log *slog.Logger) (*cost.Engine, bool, error) {
 	if cfg == nil || !cfg.CostEnabled {
 		return nil, false, nil
+	}
+	// AI-09 (guardrail 7.1, fail closed): the zone/owner/budget maps below are
+	// DEPLOYMENT-WIDE — one set applied to every tenant. In a pooled
+	// multi-tenant deployment two tenants that share a prefix would be
+	// cross-attributed (one tenant's bytes booked to the other's service/team)
+	// and cross-alerted (a budget keyed on a shared owner fires for every
+	// tenant that maps to it). The maps carry no tenant binding, so they are
+	// single-tenant-only; the multi-tenant and regulated profiles refuse an
+	// untenanted map rather than silently cross-attribute (mirrors the SLO
+	// tenant-binding rule, DPR-068). Public pricing (list rates) is genuinely
+	// deployment-wide and stays allowed.
+	if cfg.DeploymentProfile == "multi-tenant" || cfg.DeploymentProfile == "regulated" {
+		if set := untenantedCostMaps(cfg); len(set) > 0 {
+			return nil, false, fmt.Errorf("cost: PROBECTL_DEPLOYMENT_PROFILE=%s refuses deployment-wide cost attribution config (%s): these maps are shared across every tenant, so two tenants sharing a prefix would be cross-attributed/cross-alerted (guardrail 7.1, AI-09, fail closed). They carry no per-tenant binding and are single-tenant-only — unset them in this profile (cost then runs per-tenant in volume-only mode); see docs/configuration.md", cfg.DeploymentProfile, strings.Join(set, ", "))
+		}
 	}
 	zones, err := cost.ParseZoneRules(cfg.CostZones)
 	if err != nil {
@@ -64,6 +81,25 @@ func BuildCost(cfg *config.Config, log *slog.Logger) (*cost.Engine, bool, error)
 			"priced", prices != nil)
 	}
 	return eng, true, nil
+}
+
+// untenantedCostMaps names the deployment-wide cost-attribution config keys
+// that are set (AI-09). These are the maps that would cross tenants in a pooled
+// deployment — zone locality, service/team ownership, and budgets — so the
+// multi-tenant/regulated profiles refuse them. Pricing is deliberately excluded:
+// public list rates are the same for every tenant and never cross-attribute.
+func untenantedCostMaps(cfg *config.Config) []string {
+	var set []string
+	if strings.TrimSpace(cfg.CostZones) != "" {
+		set = append(set, "PROBECTL_COST_ZONES")
+	}
+	if strings.TrimSpace(cfg.CostServices) != "" {
+		set = append(set, "PROBECTL_COST_SERVICES")
+	}
+	if strings.TrimSpace(cfg.CostBudgets) != "" {
+		set = append(set, "PROBECTL_COST_BUDGETS")
+	}
+	return set
 }
 
 // WithCost attaches the engine backing /v1/cost/summary. nil is a no-op

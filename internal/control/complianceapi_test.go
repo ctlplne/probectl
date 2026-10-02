@@ -67,6 +67,51 @@ func TestBuildComplianceDisabledAndFailClosed(t *testing.T) {
 	}
 }
 
+// AI-09: a segmentation policy's zones are CIDR→zone maps applied to EVERY
+// tenant, so in a pooled deployment two tenants sharing a prefix would be
+// cross-validated/cross-alerted off one tenant's zones. The multi-tenant and
+// regulated profiles must refuse the deployment-wide policy directory (fail
+// closed); single-tenant keeps it, and a policy-less multi-tenant deployment
+// still loads.
+func TestBuildComplianceRefusesUntenantedPolicyDirInMultiTenant(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pci.yaml"), []byte(testPolicyYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		cfg := &config.Config{ComplianceEnabled: true, CompliancePolicyDir: dir, DeploymentProfile: profile}
+		_, on, err := BuildCompliance(cfg, intelTestLog())
+		if err == nil {
+			t.Fatalf("%s: untenanted policy dir accepted — must fail closed", profile)
+		}
+		if on {
+			t.Fatalf("%s: validator built despite refusal", profile)
+		}
+		if !strings.Contains(err.Error(), "PROBECTL_COMPLIANCE_POLICY_DIR") || !strings.Contains(err.Error(), profile) {
+			t.Fatalf("%s: error must name the key and profile: %v", profile, err)
+		}
+	}
+
+	// Single-tenant keeps the deployment-wide policy directory (historical
+	// behavior) under both "single" and the empty default.
+	for _, profile := range []string{"single", ""} {
+		cfg := &config.Config{ComplianceEnabled: true, CompliancePolicyDir: dir, DeploymentProfile: profile}
+		if _, on, err := BuildCompliance(cfg, intelTestLog()); err != nil || !on {
+			t.Fatalf("single-tenant (%q) must load policy dir: on=%v err=%v", profile, on, err)
+		}
+	}
+
+	// A policy-less multi-tenant deployment still runs (nothing to validate):
+	// the refusal targets the untenanted directory, not the engine itself.
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		cfg := &config.Config{ComplianceEnabled: true, DeploymentProfile: profile}
+		if _, on, err := BuildCompliance(cfg, intelTestLog()); err != nil || !on {
+			t.Fatalf("%s without a policy dir must still load: on=%v err=%v", profile, on, err)
+		}
+	}
+}
+
 // Flow batch with a forbidden conversation → violation verdict + a correlated
 // incident (the S46 'Done when', end to end at the consumer).
 func TestComplianceConsumerFlagsViolation(t *testing.T) {
