@@ -26,22 +26,20 @@ type busTopicEnsurer interface {
 	TopicsMissing(ctx context.Context, topics []string) ([]string, error)
 }
 
-// busSharedTopics are the lanes every deployment publishes or consumes.
+// busSharedTopics are the lanes every deployment publishes or consumes. It is
+// the full producer-topic registry (RTP-01), so every topic a shipped producer
+// writes to — including eBPF flows, flow ingest-quality, device neighbors/
+// collection-outcomes, OTLP traces/logs, and the flow/device/OTLP dead-letters —
+// is ensured at boot, not just the original subset.
 func busSharedTopics() []string {
-	return []string{
-		bus.NetworkResultsTopic, bus.EndpointResultsTopic, bus.RUMEventsTopic,
-		bus.FlowEventsTopic, bus.DeviceMetricsTopic, bus.BGPEventsTopic,
-		bus.OTLPMetricsTopic, bus.DeadLetterResultsTopic,
-	}
+	return bus.AllTopics()
 }
 
-// busLaneTopics are the namespaced copies of the tenant-facing lanes for the
-// given siloed/hybrid tenant namespaces (probectl.<namespace>.<lane>).
+// busLaneTopics are the namespaced copies of the PER-TENANT lanes for the given
+// siloed/hybrid tenant namespaces (probectl.<namespace>.<lane>). Dead-letter
+// topics are deployment-shared, not per-tenant, so they are not namespaced.
 func busLaneTopics(namespaces []string) []string {
-	bases := []string{
-		bus.NetworkResultsTopic, bus.EndpointResultsTopic, bus.RUMEventsTopic,
-		bus.FlowEventsTopic, bus.DeviceMetricsTopic, bus.BGPEventsTopic, bus.OTLPMetricsTopic,
-	}
+	bases := bus.TenantLaneTopics()
 	var out []string
 	for _, ns := range namespaces {
 		if !bus.ValidNamespace(ns) || ns == "" {

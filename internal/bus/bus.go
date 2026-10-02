@@ -108,6 +108,39 @@ const (
 // canonical schema), so RUM flows through the same pipeline → TSDB path.
 const RUMEventsTopic = "probectl.rum.events"
 
+// AllTopics is the single registry of every topic a shipped producer publishes
+// to (RTP-01). The control plane ensures all of them at boot so that on a broker
+// with auto.create.topics.enable=false no plane — eBPF flows, flow
+// ingest-quality, LLDP/CDP neighbors, device collection outcomes, OTLP
+// traces/logs, or the flow/device/OTLP dead-letters — silently loses data. The
+// gate test diffs this against the control plane's ensure list, so a new
+// producer topic cannot be added without also being ensured.
+func AllTopics() []string {
+	return []string{
+		NetworkResultsTopic, EndpointResultsTopic, RUMEventsTopic,
+		FlowEventsTopic, FlowIngestQualityTopic,
+		DeviceMetricsTopic, DeviceNeighborsTopic, DeviceCollectionOutcomesTopic,
+		EBPFFlowsTopic, BGPEventsTopic,
+		OTLPMetricsTopic, OTLPTracesTopic, OTLPLogsTopic,
+		DeadLetterResultsTopic, DeadLetterDeviceTopic, DeadLetterFlowTopic,
+		DeadLetterOTLPMetricsTopic, DeadLetterOTLPTracesTopic, DeadLetterOTLPLogsTopic,
+	}
+}
+
+// TenantLaneTopics is the subset of AllTopics that is published PER TENANT and
+// therefore namespaced for siloed/hybrid tenants (RTP-01). The dead-letter
+// topics are deployment-shared, not per-tenant, so they are ensured once (via
+// AllTopics) and not namespaced.
+func TenantLaneTopics() []string {
+	return []string{
+		NetworkResultsTopic, EndpointResultsTopic, RUMEventsTopic,
+		FlowEventsTopic, FlowIngestQualityTopic,
+		DeviceMetricsTopic, DeviceNeighborsTopic, DeviceCollectionOutcomesTopic,
+		EBPFFlowsTopic, BGPEventsTopic,
+		OTLPMetricsTopic, OTLPTracesTopic, OTLPLogsTopic,
+	}
+}
+
 // Message is one bus record. Key partitions the record (the tenant id, so a
 // tenant's results stay ordered and co-located — pooled tenant-tagging).
 type Message struct {
