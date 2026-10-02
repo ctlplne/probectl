@@ -482,6 +482,30 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 				"claimed_tenant", r.GetTenantId(), "lane_tenant", tenant, "topic", lane.topic)
 		}
 		r.TenantId = tenant
+	} else {
+		// ING-03 (docs/guardrails.md G7-1, fail closed): the pooled, shared lane
+		// (network results, RUM). The control plane re-stamps the certificate /
+		// app-key tenant and sets the bus KEY to it before publishing
+		// (agenttransport.publishResult, serveRuntime.publishRUMEvent), so on
+		// the trusted path the key and the payload carry the same tenant. But on
+		// a shared Kafka/NATS deployment any bus-credential holder can also write
+		// these topics, so the record's own tenant_id is untrusted. Bind the
+		// record to the KEY tenant — the authenticated producer identity, which
+		// per-principal broker ACLs must scope to one tenant — and reject a
+		// record whose payload tenant disagrees, so a credential for tenant A
+		// can never store a record under tenant B. The rejection is counted on
+		// probectl_pipeline_tenant_rejected_total, like every other lane.
+		keyTenant := string(tenantFromKey(msg.Key))
+		if keyTenant == "" || r.GetTenantId() != keyTenant {
+			c.rejectedTenant.Add(1)
+			c.ledger.addTenantRejected(1)
+			noteTenantRejection()
+			c.log.Error("REJECTED result: payload tenant disagrees with the bus key on a pooled lane (ING-03, fail closed)",
+				"claimed_tenant", r.GetTenantId(), "key_tenant", keyTenant, "topic", lane.topic,
+				"rejected_total", c.rejectedTenant.Load())
+			return nil
+		}
+		r.TenantId = keyTenant
 	}
 	// Fairness (S-T7): per-tenant ingest bounds. Shed work is counted on the
 	// gate (surfaced via /v1/fairness, the provider console, and TSDB series)
