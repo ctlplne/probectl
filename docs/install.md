@@ -187,6 +187,7 @@ helm install probectl deploy/helm/probectl \
   --namespace probectl --create-namespace \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
+  --set 'control.trustedProxies={10.244.0.0/16}' \
   --set control.tls.existingSecret=probectl-tls \
   --set-string image.digest='sha256:<release-digest>' \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \

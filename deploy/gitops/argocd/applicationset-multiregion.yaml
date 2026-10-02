@@ -55,6 +55,11 @@ spec:
               value: '{{.backendTrustSecret}}'
             - name: ingress.backendTLS.serverName
               value: '{{.ingressHost}}'
+            # AUTHZ-04: the ingress controller's pod CIDR whose forwarded client
+            # address the auth throttle keys on; the chart refuses to render
+            # behind the bundled ingress without it.
+            - name: control.trustedProxies[0]
+              value: 10.244.0.0/16
             - name: control.tls.existingSecret
               value: '{{.tlsSecret}}'
             - name: image.digest

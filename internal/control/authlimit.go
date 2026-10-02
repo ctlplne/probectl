@@ -76,17 +76,47 @@ func (s *Server) clientIP(r *http.Request) string {
 	return auth.ClientIP(r.RemoteAddr, r.Header, trusted)
 }
 
-// throttleAuth wraps an auth endpoint with the per-IP attempt gate. A locked
-// source gets 429 + Retry-After without the handler running.
+// throttleAuth wraps an auth endpoint with the per-IP gate. It counts only
+// FAILURES (AUTHZ-04): a locked source gets 429 + Retry-After without the
+// handler running (Allow, which does not increment), and a FAILED attempt
+// (the handler returns an auth error) increments the per-IP counter. A
+// successful request — a completed login, or any of the 50 successful
+// enrollments from one shared ingress IP — never counts, so legitimate
+// traffic cannot lock a source out.
 func (s *Server) throttleAuth(h apiHandler) apiHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		ok, retry := s.authLimiter.Attempt("ip:" + s.clientIP(r))
+		ipKey := "ip:" + s.clientIP(r)
+		ok, retry := s.authLimiter.Allow(ipKey)
 		if !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds()+0.5)))
 			return apierror.RateLimited("too many authentication attempts — retry later")
 		}
-		return h(w, r)
+		err := h(w, r)
+		if isAuthFailure(err) {
+			s.authLimiter.Fail(ipKey)
+		}
+		return err
 	}
+}
+
+// isAuthFailure reports whether a handler error is a rejected authentication
+// attempt (bad state/nonce/exchange/token/proof) that should count against the
+// source's budget. Infrastructure errors (an IdP being unavailable, an internal
+// fault) and the rate-limit response itself do not count, so an outage cannot
+// lock out every user.
+func isAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if de, ok := apierror.As(err); ok {
+		switch de.Kind {
+		case apierror.KindUnauthorized, apierror.KindBadRequest, apierror.KindValidation, apierror.KindForbidden:
+			return true
+		}
+		return false
+	}
+	// A non-domain error is an unexpected internal fault: do not count it.
+	return false
 }
 
 // checkAccountThrottle gates the post-exchange account dimension: a locked

@@ -42,7 +42,7 @@ fail() {
 render() {
   helm template probectl "$CHART" \
     --set ingress.host=h.example.com \
-    --set ingress.tlsSecretName=probectl-tls \
+    --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
     --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
     --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -291,10 +291,40 @@ need_fixed "apiVersion: probectl.io/ebpf-agent/v1" "$agent_config" "probectl-age
 need_file "apiVersion: probectl.io/ebpf-agent/v1" "deploy/agent/install.sh" "install.sh generated eBPF config omitted apiVersion (EBPF-001)"
 need_file "apiVersion: probectl.io/ebpf-agent/v1" "test/e2e/e2e_test.go" "e2e fixture generated eBPF config omitted apiVersion (EBPF-001)"
 
+# AUTHZ-04: behind the shipped ingress every client arrives as the ingress pod
+#    IP, so the per-IP auth throttle must key on the forwarded client — which
+#    needs control.trustedProxies. Rendering with ingress enabled (the default)
+#    and NO trustedProxies must FAIL closed, with every other required input
+#    supplied so the ONLY missing piece is the trusted-proxy declaration.
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
+  --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
+  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart rendered behind an ingress with no control.trustedProxies — the auth throttle would key every user on the ingress IP (AUTHZ-04)"
+fi
+# ...and with trustedProxies declared it renders and binds PROBECTL_TRUSTED_PROXIES
+#    (a ConfigMap data entry the control plane reads at startup).
+authz04_render="$(render --set 'control.trustedProxies={10.244.0.0/16}')"
+need_fixed 'PROBECTL_TRUSTED_PROXIES: "10.244.0.0/16"' "$authz04_render" "trustedProxies render must bind PROBECTL_TRUSTED_PROXIES to the declared proxy CIDR (AUTHZ-04)"
+# ...and disabling the ingress lifts the requirement (operator fronts it themselves).
+if ! helm template probectl "$CHART" --set ingress.enabled=false \
+  --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
+  --set image.digest="$CONTROL_IMAGE_DIGEST" \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart with ingress.enabled=false and no trustedProxies must still render (AUTHZ-04)"
+fi
+
 # 1. No default credentials: rendering without required secret material (and no
 #    existingSecret) must FAIL closed.
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -307,7 +337,7 @@ fi
 #     serving-certificate Secret must fail during rendering, before any pod can
 #     start or expose a plaintext fallback.
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
@@ -322,7 +352,7 @@ fi
 #     must fail too — an operator who forgets to override must never materialize a
 #     known password into a Kubernetes Secret.
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -331,7 +361,7 @@ if helm template probectl "$CHART" \
   fail "chart rendered with no database.url — that would be a blank/default DB credential (OPS-001)"
 fi
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -341,7 +371,7 @@ if helm template probectl "$CHART" \
   fail "chart rendered with no secrets.sessionHMACKey — production sessions would lose keyed hashing (KEYS-002/OPS-006)"
 fi
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -352,7 +382,7 @@ if helm template probectl "$CHART" \
   fail "chart rendered an invalid secrets.sessionHMACKey (KEYS-002/OPS-006)"
 fi
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -407,7 +437,7 @@ need "name: https" "$base_ing" "default ingress does not route to the https Serv
 # channel. Both trust inputs are mandatory, and generic annotations cannot turn
 # the chart-owned verification controls off.
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
   --set image.digest="$CONTROL_IMAGE_DIGEST" \
   --set secrets.envelopeKey="$KEY" \
@@ -494,7 +524,7 @@ fi
 # the old tag-only input and malformed digests must fail before rendering.
 need_digest_pinned_control_images "default chart" "$base" 2
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -505,7 +535,7 @@ if helm template probectl "$CHART" \
   fail "chart rendered a tag-only primary control image (SUPPLY-deb3c967)"
 fi
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -517,7 +547,7 @@ if helm template probectl "$CHART" \
   fail "chart accepted obsolete image.tag alongside image.digest; migrate values with --reset-values (SUPPLY-deb3c967)"
 fi
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -548,7 +578,7 @@ need "ingress-nginx"                   "$base_np" "default profile NetworkPolicy
 need "app.kubernetes.io/name: probectl-agent" "$base_np" "default profile NetworkPolicy gives the product's own agents no path to the enrollment/rotation endpoints (DPR-174)"
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 if helm template probectl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -795,7 +825,7 @@ fi
 #     applied.
 if helm template probectl "$CHART" -f "$CHART/values-multitenant.yaml" \
   --set ingress.host=h.example.com \
-  --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
   --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
   --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \
@@ -830,7 +860,7 @@ need_fixed 'PROBECTL_DATAPLANES: "us=https://clickhouse-us:8443"' "$multitenant_
 # multiregion profiles once were).
 for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
   helm lint "$CHART" -f "$CHART/$f" \
-    --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+    --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
     --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
     --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \
     --set control.tls.existingSecret="$CONTROL_TLS_SECRET" \

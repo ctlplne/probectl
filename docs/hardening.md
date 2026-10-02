@@ -468,8 +468,18 @@ deployments, apply the **strict profile**, which closes both holes:
 ```sh
 helm install probectl deploy/helm/probectl \
   -f deploy/helm/probectl/values-strict.yaml \
+  --set 'control.trustedProxies={10.244.0.0/16}' \
   --set-string image.digest='sha256:<release-digest>'
 ```
+
+`control.trustedProxies` is **mandatory** whenever the bundled ingress is
+enabled (the default): behind it every client reaches the control plane as the
+ingress controller's pod IP, so the authentication throttle must key on the
+forwarded client address instead. Set it to the controller's pod CIDR (and any
+L4 load balancer in front of it); the chart refuses to render without it so a
+deployment can never silently collapse every client onto one throttle bucket
+(AUTHZ-04). If you front probectl with your own ingress, disable the bundled one
+(`--set ingress.enabled=false`) and set `control.trustedProxies` to that proxy.
 
 `values-strict.yaml` is full default-deny: a **named** ingress-controller
 selector (plus the monitoring namespace for `/metrics` scraping) and an explicit

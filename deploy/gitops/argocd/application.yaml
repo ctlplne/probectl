@@ -30,6 +30,11 @@ spec:
           value: probectl-backend-ca
         - name: ingress.backendTLS.serverName
           value: probectl.example.com
+        # AUTHZ-04: the ingress controller's pod CIDR (and any L4 LB) whose
+        # forwarded client address the auth throttle keys on. Without it the
+        # chart refuses to render behind the bundled ingress.
+        - name: control.trustedProxies[0]
+          value: 10.244.0.0/16
         # Operator-managed kubernetes.io/tls Secret; reused for pod-listener TLS.
         - name: control.tls.existingSecret
           value: probectl-tls

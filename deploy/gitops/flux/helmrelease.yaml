@@ -42,6 +42,12 @@ spec:
         trustSecret: probectl-backend-ca
         serverName: probectl.example.com
     control:
+      # AUTHZ-04: behind the bundled ingress every client arrives as the ingress
+      # controller's pod IP, so the authentication throttle must key on the
+      # forwarded client. Set this to the controller's pod CIDR (and any L4 load
+      # balancer in front of it); the chart refuses to render without it.
+      trustedProxies:
+        - 10.244.0.0/16
       tls:
         existingSecret: probectl-tls
     image:

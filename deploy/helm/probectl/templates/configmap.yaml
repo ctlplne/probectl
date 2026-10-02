@@ -1,3 +1,10 @@
+{{- /* AUTHZ-04: behind an ingress, every user arrives as the ingress pod IP, so
+       the per-IP auth throttle would lock SSO/provider login for everyone on a
+       few failures by anyone. Refuse to render unless the operator declares the
+       proxy addresses whose forwarded client address the limiter may trust. */ -}}
+{{- if and .Values.ingress.enabled (not .Values.control.trustedProxies) -}}
+{{- fail "control.trustedProxies must be set when ingress.enabled=true (the ingress controller's pod CIDR, e.g. --set 'control.trustedProxies={10.244.0.0/16}'); otherwise the per-IP auth throttle keys every user on the ingress IP and one client can lock out all logins (AUTHZ-04)" -}}
+{{- end -}}
 {{- $extraEnv := .Values.control.extraEnv | default dict -}}
 {{- $reservedControlEnv := list
   "PROBECTL_REQUIRE_AT_REST_ENCRYPTION"

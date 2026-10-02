@@ -53,6 +53,7 @@ helm install probectl deploy/helm/probectl \
   --set ingress.tlsSecretName=probectl-tls \
   --set ingress.backendTLS.trustSecret=probectl-backend-ca \
   --set ingress.backendTLS.serverName=probectl.example.com \
+  --set 'control.trustedProxies={10.244.0.0/16}' \
   --set control.tls.existingSecret=probectl-tls \
   --set-string image.digest='sha256:<release-digest>' \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
@@ -154,6 +155,7 @@ helm install probectl deploy/helm/probectl \
   --set ingress.tlsSecretName=probectl-msp-tls \
   --set ingress.backendTLS.trustSecret=probectl-backend-ca \
   --set ingress.backendTLS.serverName=probectl.msp.example.com \
+  --set 'control.trustedProxies={10.244.0.0/16}' \
   --set control.tls.existingSecret=probectl-msp-tls \
   --set-string image.digest='sha256:<release-digest>' \
   --set secrets.existingSecret=probectl-provider-runtime \
