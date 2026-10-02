@@ -103,6 +103,10 @@ type CostConsumer struct {
 	rejections *rejectionLogger       // DPR-074: fail-closed rejections, loud once per window
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 	nsTenants  map[string]string
+	// strictLane (RTP-02, WIRE-001): refuse agent-published flow batches on the
+	// shared pooled lane so a forged registered pair cannot write another
+	// tenant's cost/ESG accounting.
+	strictLane bool
 	gate       CostBudgetGate // DPR-080: once-only export of a budget breach across replicas
 }
 
@@ -160,6 +164,13 @@ func (cc *CostConsumer) WithNamespaceTenants(ns map[string]string) *CostConsumer
 	return cc
 }
 
+// WithStrictTenantLanes refuses agent-published flow batches on the shared
+// pooled lane (RTP-02, WIRE-001), requiring the tenant-namespaced lane.
+func (cc *CostConsumer) WithStrictTenantLanes(strict bool) *CostConsumer {
+	cc.strictLane = strict
+	return cc
+}
+
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cc *CostConsumer) LaneFanoutEnabled() bool { return true }
 
@@ -174,15 +185,19 @@ func (cc *CostConsumer) handleLane(ctx context.Context, msg bus.Message, laneTen
 		return nil
 	}
 	stampFlowBatchLaneTenant(&batch, laneTenant)
-	if cc.binding != nil && len(batch.GetFlows()) > 0 {
+	if len(batch.GetFlows()) > 0 {
 		ids := make([]pipeline.Identity, len(batch.GetFlows()))
 		for i, f := range batch.GetFlows() {
 			ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
 		}
-		if _, _, err := pipeline.VerifyBatchTenant(ctx, cc.binding, "", ids); err != nil {
+		// RTP-02: strict-lane rejection applies even without a binding; the
+		// shared pooled lane is refused in strict mode so a forged registered
+		// pair cannot write another tenant's cost/ESG accounting.
+		if _, _, err := pipeline.VerifyBatchTenantStrict(ctx, cc.binding, laneTenant, cc.strictLane, ids); err != nil {
 			cc.rejections.Log(cc.log, "REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
 				[]string{"cost", "flow", ids[0].Tenant, ids[0].Agent, err.Error()},
-				"view", "cost", "claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent, "error", err.Error())
+				"view", "cost", "claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent,
+				"lane_tenant", laneTenant, "error", err.Error())
 			return nil
 		}
 	}

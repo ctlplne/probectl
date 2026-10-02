@@ -61,16 +61,15 @@ func TestCostConsumerAttributesAndAlerts(t *testing.T) {
 	correlator := incident.NewCorrelator(incident.NewMemoryStore(), time.Hour, intelTestLog())
 	cc := NewCostConsumer(nil, eng, correlator, intelTestLog())
 
-	// 10 GiB inter-AZ from checkout = $0.10 ≥ the $0.05 payments budget.
+	// 10 GiB inter-AZ from checkout = $0.10 ≥ the $0.05 payments budget. Flow
+	// batches are single-tenant (RTP-02 verifies this); a stray unscoped record
+	// would make the batch mixed and get it rejected wholesale.
 	batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
 		TenantId:           "t1",
 		SourceAddress:      "10.0.1.5",
 		DestinationAddress: "10.0.2.7",
 		Bytes:              10 << 30,
 		EndUnixNano:        time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).UnixNano(),
-	}, {
-		// Unscoped record: dropped, never guessed into a tenant (guardrail 1).
-		SourceAddress: "10.0.1.5", DestinationAddress: "10.0.2.7", Bytes: 1 << 30,
 	}}}
 	raw, err := proto.Marshal(batch)
 	if err != nil {

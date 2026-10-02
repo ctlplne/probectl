@@ -65,20 +65,25 @@ func TestCarbonConsumerAndEndpointIsolation(t *testing.T) {
 	cc := NewCarbonConsumer(nil, eng, intelTestLog())
 	tid := tenancy.DefaultTenantID.String()
 
-	batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{
-		{TenantId: tid, SourceAddress: "10.1.0.5", DestinationAddress: "203.0.113.9",
-			Bytes: 1 << 30, EndUnixNano: time.Now().UnixNano()},
-		{TenantId: "other-tenant", SourceAddress: "10.2.0.5", DestinationAddress: "203.0.113.10",
-			Bytes: 1 << 30, EndUnixNano: time.Now().UnixNano()},
-		{SourceAddress: "10.3.0.5", DestinationAddress: "203.0.113.11", Bytes: 1 << 30}, // unscoped → dropped
-	}}
-	raw, err := proto.Marshal(batch)
-	if err != nil {
-		t.Fatal(err)
+	// Flow batches are single-tenant (one agent = one tenant); RTP-02 made the
+	// consumer verify that and reject anything else, so each tenant's telemetry
+	// arrives in its own batch.
+	send := func(flows ...*flowv1.FlowRecord) {
+		t.Helper()
+		raw, err := proto.Marshal(&flowv1.FlowBatch{Flows: flows})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := cc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
-		t.Fatal(err)
-	}
+	send(&flowv1.FlowRecord{TenantId: tid, SourceAddress: "10.1.0.5", DestinationAddress: "203.0.113.9",
+		Bytes: 1 << 30, EndUnixNano: time.Now().UnixNano()})
+	send(&flowv1.FlowRecord{TenantId: "other-tenant", SourceAddress: "10.2.0.5", DestinationAddress: "203.0.113.10",
+		Bytes: 1 << 30, EndUnixNano: time.Now().UnixNano()})
+	// An unscoped batch carries no tenant and is rejected (never counted).
+	send(&flowv1.FlowRecord{SourceAddress: "10.3.0.5", DestinationAddress: "203.0.113.11", Bytes: 1 << 30})
 	// Malformed payloads skip, never fail.
 	if err := cc.handleLane(context.Background(), bus.Message{Value: []byte("junk")}, ""); err != nil {
 		t.Fatal(err)

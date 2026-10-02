@@ -79,6 +79,10 @@ type NDRConsumer struct {
 	// fail-closed. nil = unit tests only (production always sets it).
 	binding   pipeline.TenantBinding
 	nsTenants map[string]string
+	// strictLane (RTP-02, WIRE-001): refuse agent-published flow/eBPF batches
+	// on the shared pooled lane, so a registered (tenant, agent) pair can no
+	// longer be forged onto it to raise a detection against a victim tenant.
+	strictLane bool
 
 	// SCALE-005: the NDR consumer is a SECOND consumer group on the flow/eBPF
 	// lanes (in addition to the storage FlowConsumer), and it ran with no
@@ -140,20 +144,30 @@ func (cs *NDRConsumer) WithNamespaceTenants(ns map[string]string) *NDRConsumer {
 	return cs
 }
 
+// WithStrictTenantLanes refuses agent-published flow/eBPF batches on the shared
+// pooled lane (RTP-02, WIRE-001), requiring the tenant-namespaced lane.
+func (cs *NDRConsumer) WithStrictTenantLanes(strict bool) *NDRConsumer {
+	cs.strictLane = strict
+	return cs
+}
+
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cs *NDRConsumer) LaneFanoutEnabled() bool { return true }
 
-// rejectFlows verifies the claimed identities against the registry, dropping
-// the whole batch fail-closed on mismatch (TENANT-101, ARCH-012).
-func (cs *NDRConsumer) rejectFlows(ctx context.Context, plane string, ids []pipeline.Identity) bool {
-	if cs.binding == nil || len(ids) == 0 {
+// rejectFlows verifies the claimed identities against the registry and the
+// lane, dropping the whole batch fail-closed on mismatch (TENANT-101,
+// ARCH-012). In strict-lane mode (RTP-02) a batch on the shared pooled lane is
+// refused outright — even a registered pair cannot be forged onto it — so the
+// threat/cost/compliance views match the flow store's isolation contract.
+func (cs *NDRConsumer) rejectFlows(ctx context.Context, plane, laneTenant string, ids []pipeline.Identity) bool {
+	if len(ids) == 0 {
 		return false
 	}
-	if _, _, err := pipeline.VerifyBatchTenant(ctx, cs.binding, "", ids); err != nil {
+	if _, _, err := pipeline.VerifyBatchTenantStrict(ctx, cs.binding, laneTenant, cs.strictLane, ids); err != nil {
 		cs.rejections.Log(cs.log, "REJECTED batch: tenant verification failed (TENANT-101/ARCH-012, fail closed)",
 			[]string{"ndr", plane, ids[0].Tenant, ids[0].Agent, err.Error()},
 			"view", "ndr", "plane", plane, "claimed_tenant", ids[0].Tenant,
-			"agent_id", ids[0].Agent, "error", err.Error())
+			"agent_id", ids[0].Agent, "lane_tenant", laneTenant, "error", err.Error())
 		return true
 	}
 	return false
@@ -242,7 +256,7 @@ func (cs *NDRConsumer) handleFlowBatchLane(ctx context.Context, msg bus.Message,
 	for i, f := range batch.GetFlows() {
 		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
 	}
-	if cs.rejectFlows(ctx, "flow", ids) {
+	if cs.rejectFlows(ctx, "flow", laneTenant, ids) {
 		return nil
 	}
 	// SCALE-005: per-tenant fairness shed before feeding the engine.
@@ -296,7 +310,7 @@ func (cs *NDRConsumer) handleEBPFBatchLane(ctx context.Context, msg bus.Message,
 	for _, c := range batch.GetL7Calls() {
 		ids = append(ids, pipeline.Identity{Tenant: c.GetTenantId(), Agent: c.GetAgentId()})
 	}
-	if cs.rejectFlows(ctx, "ebpf", ids) {
+	if cs.rejectFlows(ctx, "ebpf", laneTenant, ids) {
 		return nil
 	}
 	// SCALE-005: per-tenant fairness shed (flows + L7 calls counted together)

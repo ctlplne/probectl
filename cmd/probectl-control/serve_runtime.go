@@ -656,6 +656,7 @@ func (rt *serveRuntime) startSLOAndComplianceConsumers() {
 				cc := control.NewComplianceConsumer(rt.resultBus, rt.complianceEngine, rt.correlator, rt.log).
 					WithSIEM(rt.siemFwd).
 					WithTenantBinding(rt.tenantBinding).
+					WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 					WithNamespaceTenants(snap.tenants)
 				if rt.db != nil && rt.db.Pool() != nil {
 					cc = cc.WithAlertGate(control.NewPGComplianceGate(rt.db.Pool(), rt.cfg.ComplianceRealert)) // DPR-073, DPR-110
@@ -672,6 +673,7 @@ func (rt *serveRuntime) startCostCarbonConsumers() {
 			return superviseBusLaneRestart(rt.gctx, "cost-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 				cc := control.NewCostConsumer(rt.resultBus, rt.costEngine, rt.correlator, rt.log).
 					WithTenantBinding(rt.tenantBinding).
+					WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 					WithNamespaceTenants(snap.tenants)
 				if rt.db != nil && rt.db.Pool() != nil {
 					cc = cc.WithBudgetGate(control.NewPGCostBudgetGate(rt.db.Pool())) // DPR-080
@@ -684,6 +686,8 @@ func (rt *serveRuntime) startCostCarbonConsumers() {
 		rt.g.Go(func() error {
 			return superviseBusLaneRestart(rt.gctx, "carbon-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 				return control.NewCarbonConsumer(rt.resultBus, rt.carbonEngine, rt.log).
+					WithTenantBinding(rt.tenantBinding).
+					WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 					WithNamespaceTenants(snap.tenants).
 					Run(ctx)
 			})
@@ -797,6 +801,7 @@ func (rt *serveRuntime) startNDR() error {
 	ndrc := control.NewNDRConsumer(rt.resultBus, ndrEngine, rt.correlator, rt.log).
 		WithTenantBinding(rt.tenantBinding).
 		WithNamespaceTenants(rt.nsTenants).
+		WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 		WithFairness(rt.fairGate).
 		WithSIEM(rt.siemFwd)
 	rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "ndr-dns", Fn: ndrc.SinkResult})

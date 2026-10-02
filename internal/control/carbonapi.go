@@ -15,6 +15,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -83,6 +84,15 @@ type CarbonConsumer struct {
 	bus       bus.Bus
 	log       *slog.Logger
 	nsTenants map[string]string // CORRECT-005: namespace -> tenant for siloed lanes
+	// RTP-02: the carbon consumer did NO tenant verification at all — a holder
+	// of bus producer credentials could write arbitrary bytes into any tenant's
+	// energy/carbon (ESG) accounting by claiming its tenant_id in the payload.
+	// binding + strictLane bring it to the same fail-closed contract as the
+	// flow store and the cost/compliance views; rejected counts the drops.
+	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
+	strictLane bool
+	rejections *rejectionLogger
+	rejected   atomic.Uint64
 }
 
 // NewCarbonConsumer builds the consumer over a non-nil engine.
@@ -90,7 +100,7 @@ func NewCarbonConsumer(b bus.Bus, e *carbon.Engine, log *slog.Logger) *CarbonCon
 	if log == nil {
 		log = slog.Default()
 	}
-	return &CarbonConsumer{engine: e, bus: b, log: log}
+	return &CarbonConsumer{engine: e, bus: b, log: log, rejections: newRejectionLogger(0)}
 }
 
 // WithNamespaceTenants subscribes the consumer to each siloed tenant's
@@ -99,6 +109,24 @@ func (cc *CarbonConsumer) WithNamespaceTenants(ns map[string]string) *CarbonCons
 	cc.nsTenants = ns
 	return cc
 }
+
+// WithTenantBinding attaches the registry-backed tenant verification
+// (TENANT-101). Without it the carbon view trusts the payload tenant (RTP-02).
+func (cc *CarbonConsumer) WithTenantBinding(b pipeline.TenantBinding) *CarbonConsumer {
+	cc.binding = b
+	return cc
+}
+
+// WithStrictTenantLanes refuses agent-published flow batches on the shared
+// pooled lane (RTP-02, WIRE-001), requiring the tenant-namespaced lane.
+func (cc *CarbonConsumer) WithStrictTenantLanes(strict bool) *CarbonConsumer {
+	cc.strictLane = strict
+	return cc
+}
+
+// RejectedFlowBatches reports how many flow batches the carbon consumer dropped
+// for failing tenant verification (RTP-02).
+func (cc *CarbonConsumer) RejectedFlowBatches() uint64 { return cc.rejected.Load() }
 
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cc *CarbonConsumer) LaneFanoutEnabled() bool { return true }
@@ -110,11 +138,30 @@ func (cc *CarbonConsumer) Run(ctx context.Context) error {
 	return pipeline.RunLanes(ctx, cc.bus, bus.FlowEventsTopic, viewGroup("carbon-flow"), cc.nsTenants, cc.handleLane)
 }
 
-func (cc *CarbonConsumer) handleLane(_ context.Context, msg bus.Message, laneTenant string) error {
+func (cc *CarbonConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("carbon: skipping malformed flow batch", "error", err)
 		return nil
+	}
+	// RTP-02 (docs/guardrails.md G7-1, fail closed): verify the batch identities
+	// against the registry and the lane before any byte lands in a tenant's ESG
+	// accounting. In strict-lane mode the shared pooled lane is refused outright
+	// (even without a binding), so a forged registered pair cannot write another
+	// tenant's carbon totals; a dropped batch is counted.
+	if len(batch.GetFlows()) > 0 {
+		ids := make([]pipeline.Identity, len(batch.GetFlows()))
+		for i, f := range batch.GetFlows() {
+			ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
+		}
+		if _, _, err := pipeline.VerifyBatchTenantStrict(ctx, cc.binding, laneTenant, cc.strictLane, ids); err != nil {
+			cc.rejected.Add(1)
+			cc.rejections.Log(cc.log, "REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+				[]string{"carbon", "flow", ids[0].Tenant, ids[0].Agent, err.Error()},
+				"view", "carbon", "claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent,
+				"lane_tenant", laneTenant, "rejected_total", cc.rejected.Load(), "error", err.Error())
+			return nil
+		}
 	}
 	for _, f := range batch.GetFlows() {
 		tenant := f.GetTenantId()

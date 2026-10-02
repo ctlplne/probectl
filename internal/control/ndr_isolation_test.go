@@ -39,20 +39,20 @@ func TestNDRRejectsCrossTenantInjection(t *testing.T) {
 
 	// agent-1 really belongs to tenant-real but the payload claims tenant-victim.
 	inject := []pipeline.Identity{{Tenant: "tenant-victim", Agent: "agent-1"}}
-	if !cs.rejectFlows(context.Background(), "flow", inject) {
+	if !cs.rejectFlows(context.Background(), "flow", "", inject) {
 		t.Fatal("cross-tenant injection was NOT rejected — NDR would raise a detection against the victim tenant")
 	}
 
 	// The honest batch (agent in its own tenant) is admitted.
 	ok := []pipeline.Identity{{Tenant: "tenant-real", Agent: "agent-1"}}
-	if cs.rejectFlows(context.Background(), "flow", ok) {
+	if cs.rejectFlows(context.Background(), "flow", "", ok) {
 		t.Fatal("a correctly-bound batch was rejected")
 	}
 
 	// With no binding installed (unit-test/legacy mode) nothing is rejected —
 	// production must always install one (asserted by wiring in main.go).
 	noBind := &NDRConsumer{log: log}
-	if noBind.rejectFlows(context.Background(), "flow", inject) {
+	if noBind.rejectFlows(context.Background(), "flow", "", inject) {
 		t.Fatal("nil-binding consumer should not reject (legacy/test mode)")
 	}
 }

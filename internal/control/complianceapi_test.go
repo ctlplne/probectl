@@ -72,6 +72,8 @@ func TestComplianceConsumerFlagsViolation(t *testing.T) {
 	correlator := incident.NewCorrelator(incident.NewMemoryStore(), time.Hour, intelTestLog())
 	cc := NewComplianceConsumer(nil, eng, correlator, intelTestLog())
 
+	// Single-tenant batch (RTP-02 verifies this); a stray unscoped record would
+	// make the batch mixed and get it rejected wholesale.
 	batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
 		TenantId:           "t1",
 		SourceAddress:      "10.20.1.5", // corp
@@ -79,9 +81,6 @@ func TestComplianceConsumerFlagsViolation(t *testing.T) {
 		DestinationPort:    443,
 		Bytes:              4096,
 		EndUnixNano:        time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).UnixNano(),
-	}, {
-		// Unscoped record: dropped (guardrail 1).
-		SourceAddress: "10.20.1.5", DestinationAddress: "10.10.2.9",
 	}}}
 	raw, err := proto.Marshal(batch)
 	if err != nil {

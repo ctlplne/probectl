@@ -114,6 +114,9 @@ type ComplianceConsumer struct {
 	rejections *rejectionLogger       // DPR-074: fail-closed rejections, loud once per window
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 	nsTenants  map[string]string
+	// strictLane (RTP-02, WIRE-001): refuse agent-published batches on the
+	// shared pooled lane so a forged registered pair cannot raise a violation.
+	strictLane bool
 }
 
 // NewComplianceConsumer builds the consumer over a non-nil engine.
@@ -205,6 +208,13 @@ func (cc *ComplianceConsumer) WithTenantBinding(b pipeline.TenantBinding) *Compl
 	return cc
 }
 
+// WithStrictTenantLanes refuses agent-published batches on the shared pooled
+// lane (RTP-02, WIRE-001), requiring the tenant-namespaced lane.
+func (cc *ComplianceConsumer) WithStrictTenantLanes(strict bool) *ComplianceConsumer {
+	cc.strictLane = strict
+	return cc
+}
+
 // WithNamespaceTenants subscribes compliance to each siloed tenant's flow/eBPF lane.
 func (cc *ComplianceConsumer) WithNamespaceTenants(ns map[string]string) *ComplianceConsumer {
 	cc.nsTenants = ns
@@ -214,16 +224,18 @@ func (cc *ComplianceConsumer) WithNamespaceTenants(ns map[string]string) *Compli
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (cc *ComplianceConsumer) LaneFanoutEnabled() bool { return true }
 
-// rejectFlows verifies claimed identities, dropping the batch fail-closed.
-func (cc *ComplianceConsumer) rejectFlows(ctx context.Context, plane string, ids []pipeline.Identity) bool {
-	if cc.binding == nil || len(ids) == 0 {
+// rejectFlows verifies claimed identities against the registry and the lane,
+// dropping the batch fail-closed. In strict-lane mode (RTP-02) a batch on the
+// shared pooled lane is refused outright.
+func (cc *ComplianceConsumer) rejectFlows(ctx context.Context, plane, laneTenant string, ids []pipeline.Identity) bool {
+	if len(ids) == 0 {
 		return false
 	}
-	if _, _, err := pipeline.VerifyBatchTenant(ctx, cc.binding, "", ids); err != nil {
+	if _, _, err := pipeline.VerifyBatchTenantStrict(ctx, cc.binding, laneTenant, cc.strictLane, ids); err != nil {
 		cc.rejections.Log(cc.log, "REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
 			[]string{"compliance", plane, ids[0].Tenant, ids[0].Agent, err.Error()},
 			"view", "compliance", "plane", plane, "claimed_tenant", ids[0].Tenant,
-			"agent_id", ids[0].Agent, "error", err.Error())
+			"agent_id", ids[0].Agent, "lane_tenant", laneTenant, "error", err.Error())
 		return true
 	}
 	return false
@@ -244,7 +256,7 @@ func (cc *ComplianceConsumer) handleFlowLane(ctx context.Context, msg bus.Messag
 	for i, f := range batch.GetFlows() {
 		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
 	}
-	if cc.rejectFlows(ctx, "flow", ids) {
+	if cc.rejectFlows(ctx, "flow", laneTenant, ids) {
 		return nil
 	}
 	for _, f := range batch.GetFlows() {
@@ -275,7 +287,7 @@ func (cc *ComplianceConsumer) handleEBPFLane(ctx context.Context, msg bus.Messag
 	for i, f := range batch.GetFlows() {
 		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
 	}
-	if cc.rejectFlows(ctx, "ebpf", ids) {
+	if cc.rejectFlows(ctx, "ebpf", laneTenant, ids) {
 		return nil
 	}
 	for _, f := range batch.GetFlows() {
