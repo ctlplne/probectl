@@ -59,6 +59,42 @@ func sortedKeys(m map[string]string) []string {
 	return ks
 }
 
+// lineBreakReplacer escapes the structural whitespace control characters (LF,
+// CR, HT) to their printable backslash forms. The single-line syslog and CEF
+// formatters MUST neutralize these in every tenant-controlled field: a raw CR
+// or LF would otherwise split the record and let one tenant forge an event
+// attributed to another tenant in the shared SIEM stream (docs/guardrails.md
+// G7-N; detection is a signal, never trusted input).
+var lineBreakReplacer = strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`)
+
+// isControl reports whether r is a C0/C1 control character (incl. DEL) or a
+// Unicode line/paragraph separator - anything a line-oriented SIEM parser might
+// treat as a record boundary.
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == '\u2028' || r == '\u2029'
+}
+
+// dropControls removes every control character from s (used for field tokens,
+// e.g. SD-NAME / CEF keys / MSGID, where an escaped backslash sequence is not a
+// legal character).
+func dropControls(s string) string {
+	return strings.Map(func(r rune) rune {
+		if isControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// oneLine makes an arbitrary free-text field safe to interpolate into a
+// single-line record: LF/CR/HT become printable escapes and every other
+// control character is dropped, so the rendered field can never contain a raw
+// line break. Applied to all free-text fields (message, SD values, CEF header
+// and extension values), including nested Attributes map values.
+func oneLine(s string) string {
+	return dropControls(lineBreakReplacer.Replace(s))
+}
+
 // --- RFC 5424 syslog ---
 
 type syslogFormatter struct{}
@@ -86,12 +122,14 @@ func (syslogFormatter) Format(e Event) []byte {
 	}
 	sd.WriteString("]")
 
-	line := fmt.Sprintf("<%d>1 %s %s %s - %s %s %s", pri, ts, product, vendor, msgID, sd.String(), e.message())
+	line := fmt.Sprintf("<%d>1 %s %s %s - %s %s %s", pri, ts, product, vendor, msgID, sd.String(), oneLine(e.message()))
 	return []byte(line)
 }
 
 func writeSDParam(b *strings.Builder, name, value string) {
-	b.WriteString(" " + name + "=\"" + escapeSDValue(value) + "\"")
+	// oneLine neutralizes CR/LF (and other controls) so a tenant-controlled
+	// value cannot split the record; escapeSDValue then quotes the SD specials.
+	b.WriteString(" " + name + "=\"" + escapeSDValue(oneLine(value)) + "\"")
 }
 
 // escapeSDValue escapes the RFC 5424 SD-PARAM value specials: '"', '\', ']'.
@@ -105,6 +143,9 @@ func sanitizeSDName(s string) string {
 		if r == '=' || r == ' ' || r == ']' || r == '"' {
 			return '_'
 		}
+		if isControl(r) { // drop CR/LF/controls so a key cannot split the record
+			return -1
+		}
 		return r
 	}, s)
 	if s == "" {
@@ -113,7 +154,17 @@ func sanitizeSDName(s string) string {
 	return s
 }
 
-func sanitizeSD(s string) string { return strings.ReplaceAll(s, " ", "_") }
+func sanitizeSD(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == ' ' {
+			return '_'
+		}
+		if isControl(r) { // MSGID is a single printable token; drop controls
+			return -1
+		}
+		return r
+	}, s)
+}
 
 // --- ArcSight CEF ---
 
@@ -156,20 +207,27 @@ func writeCEF(b *strings.Builder, key, value string) {
 	b.WriteString(key + "=" + cefEscapeExt(value) + " ")
 }
 
-// cefEscapeHeader escapes '\' and '|' in CEF header fields.
+// cefEscapeHeader escapes '\' and '|' in CEF header fields and neutralizes
+// CR/LF (and other control chars) so a tenant-controlled header field cannot
+// split the single-line record (docs/guardrails.md G7-N).
 func cefEscapeHeader(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `|`, `\|`).Replace(s)
+	return dropControls(strings.NewReplacer(`\`, `\\`, `|`, `\|`, "\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(s))
 }
 
-// cefEscapeExt escapes '\', '=', and newlines in CEF extension values.
+// cefEscapeExt escapes '\', '=', and whitespace controls in CEF extension
+// values, and drops any remaining control chars, so a value (including a nested
+// Attributes value) renders on exactly one line (docs/guardrails.md G7-N).
 func cefEscapeExt(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `=`, `\=`, "\n", `\n`, "\r", `\r`).Replace(s)
+	return dropControls(strings.NewReplacer(`\`, `\\`, `=`, `\=`, "\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(s))
 }
 
 func cefExtKey(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r == '=' || r == ' ' {
 			return '_'
+		}
+		if isControl(r) { // drop CR/LF/controls so a key cannot split the record
+			return -1
 		}
 		return r
 	}, s)
