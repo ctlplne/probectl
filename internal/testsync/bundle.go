@@ -4,16 +4,27 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-// Package testsync implements the SIGNED, PULL-BASED central test distribution
-// from the config-push ADR (ARCH-001). The flagship loop — define a test
-// centrally, have the fleet execute it — must work WITHOUT reintroducing
-// config push (StreamConfig stays an explicit deny). The mechanism mirrors
-// license verification: the control plane serves a tenant's test set as a
-// bundle SIGNED with an Ed25519 key; agents PULL the bundle and verify the
-// signature against a build-baked public key before applying it. Distribution
-// authority therefore stays OUTSIDE the data plane (a compromised bus or API
-// path cannot forge a bundle without the signing key), exactly as the ADR
-// requires.
+// Package testsync is the SIGNED central test-distribution mechanism from the
+// config-push ADR (ARCH-001). The intended flagship loop — define a test
+// centrally, have the fleet execute it — works WITHOUT reintroducing config
+// push (StreamConfig stays an explicit deny): the control plane serves a
+// tenant's test set as a bundle SIGNED with an Ed25519 key, and an agent is
+// meant to PULL the bundle and Verify the signature against a build-baked
+// public key before applying it, so distribution authority stays OUTSIDE the
+// data plane (a compromised bus or API path cannot forge a bundle without the
+// signing key).
+//
+// SHIPPED SCOPE (ING-20/PLAT-13): the control-plane HALF is implemented — Sign,
+// and GET /v1/tests/bundle serving the signed tenant-scoped bundle — and this
+// package's Verify is the agent-facing verification entry point. The agent-side
+// PULL loop (fetch the bundle on an interval, Verify, and apply it to the
+// schedule) is NOT yet wired into any shipped agent: no cmd/probectl-agent or
+// internal/agent code imports this package (asserted by
+// TestAgentSideBundlePullNotYetWired). Until it is, tests reach agents through
+// the agent's own configuration, not through this bundle. Wiring the pull loop
+// requires choosing the agent transport (the agent speaks gRPC/mTLS while the
+// bundle is a REST resource) — a design + operational decision tracked in
+// design-partner-readiness/decisions-needed.md (D-28, PLAT-13).
 package testsync
 
 import (
@@ -77,6 +88,17 @@ func Sign(b Bundle, privPEM []byte) ([]byte, error) {
 // the supplied public key — the agent then REFUSES the bundle (fail closed:
 // keep running the last verified test set rather than apply an unsigned one).
 var ErrBadSignature = errors.New("testsync: bundle signature does not verify (refusing)")
+
+// Verify is the agent-facing verification entry point (PLAT-13): it checks a
+// signed bundle against the build-baked Ed25519 public-key PEM and returns the
+// bundle only if the signature is valid. currentEpoch (the one the agent is
+// already running) is passed so a replayed OLDER bundle is refused even if
+// correctly signed. The agent-side pull loop that will call this is not yet
+// shipped (see the package doc); exporting it fixes the verification contract
+// in place for that loop.
+func Verify(signed []byte, pubPEM []byte, currentEpoch int64) (*Bundle, error) {
+	return verify(signed, pubPEM, currentEpoch)
+}
 
 // verify checks a signed bundle against the build-baked Ed25519 public-key PEM
 // and returns the bundle only if the signature is valid. A current epoch (the

@@ -26,11 +26,15 @@ func (s *Server) WithTestSyncKey(privPEM []byte) *Server {
 }
 
 // handleTestBundle serves GET /v1/tests/bundle — the caller's tenant's enabled
-// tests as a SIGNED, pull-able bundle (ARCH-001). Agents poll this, verify the
-// signature against the build-baked public key, and apply it only if the epoch
-// is newer — so central test definition reaches the fleet WITHOUT config push
-// (StreamConfig stays denied; distribution authority is the signing key, which
-// lives outside the data plane).
+// tests as a SIGNED, pull-able bundle (ARCH-001). This is the control-plane
+// half of central test distribution; it is implemented and signed. An agent is
+// MEANT to poll this, Verify the signature against the build-baked public key,
+// and apply it only if the epoch is newer — so central test definition reaches
+// the fleet WITHOUT config push (StreamConfig stays denied; distribution
+// authority is the signing key, outside the data plane). The agent-side pull
+// loop is NOT yet shipped (ING-20/PLAT-13): no agent imports internal/testsync,
+// so today this endpoint is served but not consumed, and tests reach agents via
+// their own config. See internal/testsync's package doc + D-28 (PLAT-13).
 func (s *Server) handleTestBundle(w http.ResponseWriter, r *http.Request) error {
 	if len(s.testSyncKey) == 0 {
 		return apierror.Unavailable("central test distribution is not configured (no signing key)")
