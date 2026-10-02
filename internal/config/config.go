@@ -547,10 +547,23 @@ type Config struct {
 	// collector/backend. Dormant until an endpoint is set. Protocol grpc|http;
 	// a remote endpoint must be https (Insecure is dev/loopback only — refused
 	// for a non-loopback host, guardrail 12).
+	//
+	// OTLPExportEndpoint is the SHARED endpoint: every tenant's telemetry is
+	// re-exported to it. That is safe only in the single/sovereign profile (one
+	// tenant); under multi-tenant/regulated a shared endpoint crosses tenants and
+	// is refused (RTP-06) — use OTLPExportTenantEndpoints for per-tenant,
+	// tenant-scoped export instead.
 	OTLPExportEndpoint string
 	OTLPExportToken    string
 	OTLPExportProtocol string // "grpc" (default) | "http"
 	OTLPExportInsecure bool
+
+	// OTLPExportTenantEndpoints is the PER-TENANT export map (RTP-06): each
+	// tenant's telemetry is re-exported only to that tenant's own collector, so
+	// one tenant's spans/logs/metrics can never reach another tenant's (or the
+	// provider's) collector. It is the only export shape allowed under the
+	// multi-tenant/regulated profiles; mutually exclusive with OTLPExportEndpoint.
+	OTLPExportTenantEndpoints map[string]OTLPExportTarget
 
 	// AI assistant (S24): the RCA model backend. Provider "builtin" (default) is
 	// the in-process, fully air-gapped synthesizer — no network, no phone-home.
@@ -836,6 +849,19 @@ type NotifyInbound struct {
 	Secret   string
 }
 
+// OTLPExportTarget is one tenant's OTLP re-export destination (RTP-06): the
+// tenant's OWN collector endpoint, with its own bearer token and transport.
+// Keeping the token per-target is itself tenant isolation — a shared token would
+// otherwise be sent to every tenant's collector. Token never surfaces in logs or
+// support bundles (it lives in a map the Config LogValue allowlist does not
+// reach).
+type OTLPExportTarget struct {
+	Endpoint string `json:"endpoint"`
+	Token    string `json:"token,omitempty"`
+	Protocol string `json:"protocol,omitempty"` // "grpc" (default) | "http"
+	Insecure bool   `json:"insecure,omitempty"`
+}
+
 // Load resolves configuration using the supplied getenv function (use
 // LoadFromEnv for the process environment). All validation errors are joined
 // and returned together.
@@ -1070,6 +1096,7 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.OTLPExportToken = l.str("PROBECTL_OTLP_EXPORT_TOKEN", "")
 	cfg.OTLPExportProtocol = l.enum("PROBECTL_OTLP_EXPORT_PROTOCOL", "grpc", "grpc", "http")
 	cfg.OTLPExportInsecure = l.boolean("PROBECTL_OTLP_EXPORT_INSECURE", false)
+	cfg.OTLPExportTenantEndpoints = l.otlpExportTargets("PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS")
 	cfg.OTLPGRPCAddr = l.str("PROBECTL_OTLP_GRPC_ADDR", "")
 	cfg.OTLPHTTPAddr = l.str("PROBECTL_OTLP_HTTP_ADDR", "")
 	cfg.OTLPTLSCertFile = l.str("PROBECTL_OTLP_TLS_CERT_FILE", "")
@@ -1517,18 +1544,7 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 	if len(cfg.OTLPFreshnessHMACKey) > 0 && cfg.OTLPFreshnessWindow <= 0 {
 		l.errf("PROBECTL_OTLP_FRESHNESS_WINDOW must be positive when PROBECTL_OTLP_FRESHNESS_HMAC_KEY is set")
 	}
-	if cfg.OTLPExportEnabled() && !isLoopbackOTLPEndpoint(cfg.OTLPExportEndpoint) {
-		switch cfg.OTLPExportProtocol {
-		case "http":
-			if !strings.HasPrefix(cfg.OTLPExportEndpoint, "https://") {
-				l.errf("PROBECTL_OTLP_EXPORT_ENDPOINT must be https:// for a remote OTLP/HTTP collector — plaintext http:// would egress tenant telemetry + the bearer token in the clear (guardrail 12). Plain http is allowed only for a loopback endpoint.")
-			}
-		default:
-			if cfg.OTLPExportInsecure {
-				l.errf("PROBECTL_OTLP_EXPORT_INSECURE is only allowed for a loopback OTLP/gRPC collector, not %q (guardrail 12)", cfg.OTLPExportEndpoint)
-			}
-		}
-	}
+	validateOTLPExport(l, cfg)
 	if cfg.AIModelEnabled() && cfg.AIModelEndpoint == "" {
 		l.errf("PROBECTL_AI_MODEL_PROVIDER=%s requires PROBECTL_AI_MODEL_ENDPOINT (a remote endpoint must be https; loopback may be http for a local model)", cfg.AIModelProvider)
 	}
@@ -1546,6 +1562,52 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 	}
 	if cfg.MCPHTTPAddr != "" && !cfg.MCPEnabled() {
 		l.errf("the MCP HTTP transport is TLS-only and authenticated: set PROBECTL_MCP_TLS_CERT_FILE and PROBECTL_MCP_TLS_KEY_FILE alongside PROBECTL_MCP_HTTP_ADDR")
+	}
+}
+
+// validateOTLPExport enforces the OTLP re-export egress posture (guardrail 12 +
+// RTP-06). TLS: a remote endpoint must be encrypted (the shape the ARCH-007
+// validation already had, now reused for per-tenant targets too). Tenant
+// isolation: a SHARED endpoint re-exports EVERY tenant's telemetry to one
+// collector, so it is refused under the multi-tenant/regulated profiles — those
+// deployments must configure per-tenant, tenant-scoped endpoints instead, so one
+// tenant's telemetry can never reach another tenant's (or the provider's)
+// collector (guardrail 7.1, fail closed).
+func validateOTLPExport(l *loader, cfg *Config) {
+	if cfg.OTLPExportEndpoint != "" && len(cfg.OTLPExportTenantEndpoints) > 0 {
+		l.errf("PROBECTL_OTLP_EXPORT_ENDPOINT (shared) and PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS (per-tenant) are mutually exclusive; set exactly one (RTP-06)")
+	}
+	if cfg.OTLPExportEndpoint != "" && cfg.DeploymentProfile != "single" {
+		l.errf("PROBECTL_OTLP_EXPORT_ENDPOINT is a SHARED export endpoint and is refused under PROBECTL_DEPLOYMENT_PROFILE=%s: it would re-export every tenant's telemetry to one collector, crossing tenants (guardrail 7.1 / RTP-06). Configure per-tenant, tenant-scoped endpoints via PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS instead.", cfg.DeploymentProfile)
+	}
+	if cfg.OTLPExportEndpoint != "" {
+		validateOTLPExportEndpoint(l, "PROBECTL_OTLP_EXPORT_ENDPOINT", "PROBECTL_OTLP_EXPORT_INSECURE", cfg.OTLPExportEndpoint, cfg.OTLPExportProtocol, cfg.OTLPExportInsecure)
+	}
+	for tenant, tgt := range cfg.OTLPExportTenantEndpoints {
+		name := fmt.Sprintf("PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS[%s].endpoint", tenant)
+		insecureName := fmt.Sprintf("PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS[%s].insecure", tenant)
+		validateOTLPExportEndpoint(l, name, insecureName, tgt.Endpoint, tgt.Protocol, tgt.Insecure)
+	}
+}
+
+// validateOTLPExportEndpoint fails closed unless an OTLP export endpoint is
+// encrypted: for http a remote endpoint must be https://; for grpc the Insecure
+// flag is refused for a remote (non-loopback) endpoint. A loopback collector may
+// use plaintext/Insecure for a co-located sidecar. name/insecureName are the
+// config keys quoted in the error so an operator sees exactly what to change.
+func validateOTLPExportEndpoint(l *loader, name, insecureName, endpoint, protocol string, insecure bool) {
+	if endpoint == "" || isLoopbackOTLPEndpoint(endpoint) {
+		return
+	}
+	switch protocol {
+	case "http":
+		if !strings.HasPrefix(endpoint, "https://") {
+			l.errf("%s must be https:// for a remote OTLP/HTTP collector — plaintext http:// would egress tenant telemetry + the bearer token in the clear (guardrail 12). Plain http is allowed only for a loopback endpoint.", name)
+		}
+	default:
+		if insecure {
+			l.errf("%s is only allowed for a loopback OTLP/gRPC collector, not %q (guardrail 12)", insecureName, endpoint)
+		}
 	}
 }
 
@@ -1731,8 +1793,11 @@ func (c *Config) OTLPEnabled() bool {
 }
 
 // OTLPExportEnabled reports whether the config-driven OTLP export pipeline
-// should run (ARCH-007) — an external collector endpoint is configured.
-func (c *Config) OTLPExportEnabled() bool { return c.OTLPExportEndpoint != "" }
+// should run (ARCH-007) — a shared or per-tenant external collector endpoint is
+// configured.
+func (c *Config) OTLPExportEnabled() bool {
+	return c.OTLPExportEndpoint != "" || len(c.OTLPExportTenantEndpoints) > 0
+}
 
 // AIModelEnabled reports whether the AI assistant should call an external model
 // endpoint. False means the default in-process built-in synthesizer — fully
@@ -2065,6 +2130,47 @@ func (l *loader) stringMapJSON(key string) map[string]string {
 	}
 	if out == nil {
 		return map[string]string{}
+	}
+	return out
+}
+
+// otlpExportTargets parses the per-tenant OTLP re-export map (RTP-06) from a JSON
+// object keyed by tenant id: {"tenant-a":{"endpoint":"https://a:4318",...}}. JSON
+// keeps endpoints/tokens with reserved characters intact. The TLS/profile grammar
+// of each target is validated after parsing (validateExternalEndpoints); here we
+// only reject structurally broken input and empty endpoints.
+func (l *loader) otlpExportTargets(key string) map[string]OTLPExportTarget {
+	raw := strings.TrimSpace(l.getenv(key))
+	if raw == "" {
+		return nil
+	}
+	var parsed map[string]OTLPExportTarget
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		l.errf("%s: must be a JSON object of tenant -> {endpoint, token?, protocol?, insecure?}: %v", key, err)
+		return nil
+	}
+	out := make(map[string]OTLPExportTarget, len(parsed))
+	for tenant, tgt := range parsed {
+		tenant = strings.TrimSpace(tenant)
+		if tenant == "" {
+			l.errf("%s: a tenant key must not be empty", key)
+			continue
+		}
+		tgt.Endpoint = strings.TrimSpace(tgt.Endpoint)
+		if tgt.Endpoint == "" {
+			l.errf("%s: tenant %q has no endpoint", key, tenant)
+			continue
+		}
+		tgt.Protocol = strings.ToLower(strings.TrimSpace(tgt.Protocol))
+		switch tgt.Protocol {
+		case "":
+			tgt.Protocol = "grpc"
+		case "grpc", "http":
+		default:
+			l.errf("%s: tenant %q protocol %q must be grpc or http", key, tenant, tgt.Protocol)
+			continue
+		}
+		out[tenant] = tgt
 	}
 	return out
 }

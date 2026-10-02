@@ -24,18 +24,40 @@ type signalExporter interface {
 	pipeline.LogsExporter
 }
 
-// buildOTLPExporter constructs the configured OTLP export client (ARCH-007,
-// ARCH-003: metrics + traces + logs). A remote (non-loopback) endpoint MUST be
-// TLS — Insecure is refused for it (guardrail 12); loopback may be plaintext for
-// a co-located collector.
+// buildOTLPExporter constructs the configured SHARED OTLP export client
+// (ARCH-007, ARCH-003: metrics + traces + logs). A remote (non-loopback)
+// endpoint MUST be TLS — Insecure is refused for it (guardrail 12); loopback may
+// be plaintext for a co-located collector. Used only in the single/sovereign
+// profile; the multi-tenant/regulated profiles use buildOTLPExportRouter.
 func buildOTLPExporter(cfg *config.Config) (signalExporter, error) {
-	insecure := cfg.OTLPExportInsecure
-	if insecure && !isLoopbackEndpoint(cfg.OTLPExportEndpoint) {
-		return nil, fmt.Errorf("PROBECTL_OTLP_EXPORT_INSECURE is only allowed for a loopback endpoint, not %q (guardrail 12)", cfg.OTLPExportEndpoint)
+	return buildOTLPExportClient(cfg.OTLPExportEndpoint, cfg.OTLPExportToken, cfg.OTLPExportProtocol, cfg.OTLPExportInsecure)
+}
+
+// buildOTLPExportRouter builds the PER-TENANT export router (RTP-06): one export
+// client per tenant with its OWN endpoint and token, and no shared default — a
+// tenant without an endpoint is dropped closed by the consumers, so one tenant's
+// telemetry can never reach another tenant's (or the provider's) collector. This
+// is the only export shape allowed under multi-tenant/regulated.
+func buildOTLPExportRouter(cfg *config.Config) (*pipeline.TenantExportRouter, error) {
+	r := pipeline.NewTenantExportRouter()
+	for tenant, tgt := range cfg.OTLPExportTenantEndpoints {
+		exp, err := buildOTLPExportClient(tgt.Endpoint, tgt.Token, tgt.Protocol, tgt.Insecure)
+		if err != nil {
+			return nil, fmt.Errorf("tenant %q: %w", tenant, err)
+		}
+		r.Add(tenant, exp)
+	}
+	return r, nil
+}
+
+// buildOTLPExportClient constructs one OTLP export client for a single endpoint.
+func buildOTLPExportClient(endpoint, token, protocol string, insecure bool) (signalExporter, error) {
+	if insecure && !isLoopbackEndpoint(endpoint) {
+		return nil, fmt.Errorf("INSECURE is only allowed for a loopback endpoint, not %q (guardrail 12)", endpoint)
 	}
 	ec := otlp.ExporterConfig{
-		Endpoint: cfg.OTLPExportEndpoint,
-		Token:    cfg.OTLPExportToken,
+		Endpoint: endpoint,
+		Token:    token,
 		Insecure: insecure,
 	}
 	if !insecure {
@@ -45,7 +67,7 @@ func buildOTLPExporter(cfg *config.Config) (signalExporter, error) {
 		// (system roots). TLS policy lives only in internal/crypto (WIRE-005).
 		ec.TLS = crypto.HardenedClientTLSConfig()
 	}
-	if cfg.OTLPExportProtocol == "http" {
+	if protocol == "http" {
 		return otlp.NewHTTPExporter(ec)
 	}
 	return otlp.NewGRPCExporter(ec)

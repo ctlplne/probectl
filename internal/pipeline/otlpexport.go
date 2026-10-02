@@ -46,15 +46,19 @@ type LogsExporter interface {
 type OTLPExportConsumer struct {
 	bus      bus.Bus
 	exporter MetricsExporter
+	router   *TenantExportRouter // RTP-06: per-tenant endpoints (nil = shared single endpoint)
 	group    string
 	log      *slog.Logger
 	exported atomic.Uint64
 	failed   atomic.Uint64
+	dropped  atomic.Uint64
 
 	nsTenants map[string]string
 }
 
-// NewOTLPExportConsumer builds the consumer over a non-nil exporter.
+// NewOTLPExportConsumer builds the consumer over a shared exporter (the single/
+// sovereign profile's one endpoint). A multi-tenant/regulated deployment passes
+// a nil exporter here and supplies per-tenant endpoints via WithTenantRouter.
 func NewOTLPExportConsumer(b bus.Bus, exp MetricsExporter, log *slog.Logger) *OTLPExportConsumer {
 	if log == nil {
 		log = slog.Default()
@@ -62,14 +66,24 @@ func NewOTLPExportConsumer(b bus.Bus, exp MetricsExporter, log *slog.Logger) *OT
 	return &OTLPExportConsumer{bus: b, exporter: exp, group: DefaultGroup + "-otlp-export", log: log}
 }
 
-// exported / failed report cumulative export outcomes (observability).
+// exported / failed / dropped report cumulative export outcomes (observability).
 func (c *OTLPExportConsumer) exportedCount() uint64 { return c.exported.Load() }
 func (c *OTLPExportConsumer) failedCount() uint64   { return c.failed.Load() }
+func (c *OTLPExportConsumer) droppedCount() uint64  { return c.dropped.Load() }
 
 // WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP
 // metrics lane and verifies/restamps resource tenants before forwarding.
 func (c *OTLPExportConsumer) WithNamespaceTenants(ns map[string]string) *OTLPExportConsumer {
 	c.nsTenants = ns
+	return c
+}
+
+// WithTenantRouter routes each tenant's metrics to that tenant's OWN collector
+// endpoint (RTP-06). When set it takes precedence over the shared exporter, and
+// a tenant with no configured endpoint is dropped closed — never forwarded to
+// another tenant's or the provider's collector.
+func (c *OTLPExportConsumer) WithTenantRouter(r *TenantExportRouter) *OTLPExportConsumer {
+	c.router = r
 	return c
 }
 
@@ -89,13 +103,24 @@ func (c *OTLPExportConsumer) handleLane(ctx context.Context, msg bus.Message, la
 		c.log.Warn("otlp-export: skipping malformed metrics payload", "error", err)
 		return nil // poison message: drop (counted as handled), never wedge
 	}
-	if tenant := otlpTenantFromLaneOrKey(msg, laneTenant); tenant != "" {
+	tenant := otlpTenantFromLaneOrKey(msg, laneTenant)
+	if tenant != "" {
 		if err := scopeOTLPMetricsToBusTenant(&req, tenant); err != nil {
 			c.log.Warn("otlp-export: skipping metrics payload outside lane tenant", "tenant_id", tenant, "error", err.Error())
 			return nil
 		}
 	}
-	if err := c.exporter.ExportMetrics(ctx, &req); err != nil {
+	exp, ok := c.resolveExporter(tenant)
+	if !ok {
+		c.dropped.Add(1)
+		c.log.Warn("otlp-export: dropping metrics for a tenant with no per-tenant export endpoint (fail closed; RTP-06)", "tenant_id", tenant)
+		return nil
+	}
+	// RTP-06: apply the storage-equivalent redaction before egress so a secret /
+	// Authorization header / URL token that the STORE path masks never leaves to
+	// the external collector in the clear.
+	redactMetricsForExport(ctx, &req, tenant)
+	if err := exp.ExportMetrics(ctx, &req); err != nil {
 		c.failed.Add(1)
 		c.log.Error("otlp-export: forward to external collector failed (will redeliver)", "error", err.Error())
 		return err // leave uncommitted → at-least-once redelivery
@@ -104,21 +129,35 @@ func (c *OTLPExportConsumer) handleLane(ctx context.Context, msg bus.Message, la
 	return nil
 }
 
+// resolveExporter picks the per-tenant endpoint when a router is configured
+// (RTP-06), else the shared single endpoint. A router without an entry for the
+// tenant returns (nil,false) so the record is dropped closed.
+func (c *OTLPExportConsumer) resolveExporter(tenant string) (MetricsExporter, bool) {
+	if c.router != nil {
+		return c.router.exporterFor(tenant)
+	}
+	return c.exporter, c.exporter != nil
+}
+
 // OTLPTraceExportConsumer drains the ingested OTLP-traces topic and re-exports
 // each (already tenant-stamped) batch to an external collector (ARCH-003). Same
 // at-least-once semantics as the metrics export consumer.
 type OTLPTraceExportConsumer struct {
 	bus      bus.Bus
 	exporter TracesExporter
+	router   *TenantExportRouter // RTP-06: per-tenant endpoints (nil = shared single endpoint)
 	group    string
 	log      *slog.Logger
 	exported atomic.Uint64
 	failed   atomic.Uint64
+	dropped  atomic.Uint64
 
 	nsTenants map[string]string
 }
 
-// NewOTLPTraceExportConsumer builds the consumer over a non-nil exporter.
+// NewOTLPTraceExportConsumer builds the consumer over a shared exporter; a
+// multi-tenant/regulated deployment supplies per-tenant endpoints via
+// WithTenantRouter instead.
 func NewOTLPTraceExportConsumer(b bus.Bus, exp TracesExporter, log *slog.Logger) *OTLPTraceExportConsumer {
 	if log == nil {
 		log = slog.Default()
@@ -127,12 +166,27 @@ func NewOTLPTraceExportConsumer(b bus.Bus, exp TracesExporter, log *slog.Logger)
 }
 
 func (c *OTLPTraceExportConsumer) exportedCount() uint64 { return c.exported.Load() }
+func (c *OTLPTraceExportConsumer) droppedCount() uint64  { return c.dropped.Load() }
 
 // WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP
 // trace lane and verifies/restamps resource tenants before forwarding.
 func (c *OTLPTraceExportConsumer) WithNamespaceTenants(ns map[string]string) *OTLPTraceExportConsumer {
 	c.nsTenants = ns
 	return c
+}
+
+// WithTenantRouter routes each tenant's traces to that tenant's OWN collector
+// endpoint (RTP-06); a tenant with no endpoint is dropped closed.
+func (c *OTLPTraceExportConsumer) WithTenantRouter(r *TenantExportRouter) *OTLPTraceExportConsumer {
+	c.router = r
+	return c
+}
+
+func (c *OTLPTraceExportConsumer) resolveExporter(tenant string) (TracesExporter, bool) {
+	if c.router != nil {
+		return c.router.exporterFor(tenant)
+	}
+	return c.exporter, c.exporter != nil
 }
 
 // Run subscribes until ctx is canceled. It blocks.
@@ -151,13 +205,21 @@ func (c *OTLPTraceExportConsumer) handleLane(ctx context.Context, msg bus.Messag
 		c.log.Warn("otlp-export: skipping malformed traces payload", "error", err)
 		return nil
 	}
-	if tenant := otlpTenantFromLaneOrKey(msg, laneTenant); tenant != "" {
+	tenant := otlpTenantFromLaneOrKey(msg, laneTenant)
+	if tenant != "" {
 		if err := scopeOTLPTracesToBusTenant(&req, tenant); err != nil {
 			c.log.Warn("otlp-export: skipping traces payload outside lane tenant", "tenant_id", tenant, "error", err.Error())
 			return nil
 		}
 	}
-	if err := c.exporter.ExportTraces(ctx, &req); err != nil {
+	exp, ok := c.resolveExporter(tenant)
+	if !ok {
+		c.dropped.Add(1)
+		c.log.Warn("otlp-export: dropping traces for a tenant with no per-tenant export endpoint (fail closed; RTP-06)", "tenant_id", tenant)
+		return nil
+	}
+	redactTracesForExport(ctx, &req, tenant)
+	if err := exp.ExportTraces(ctx, &req); err != nil {
 		c.failed.Add(1)
 		c.log.Error("otlp-export: forward traces to external collector failed (will redeliver)", "error", err.Error())
 		return err
@@ -171,15 +233,19 @@ func (c *OTLPTraceExportConsumer) handleLane(ctx context.Context, msg bus.Messag
 type OTLPLogExportConsumer struct {
 	bus      bus.Bus
 	exporter LogsExporter
+	router   *TenantExportRouter // RTP-06: per-tenant endpoints (nil = shared single endpoint)
 	group    string
 	log      *slog.Logger
 	exported atomic.Uint64
 	failed   atomic.Uint64
+	dropped  atomic.Uint64
 
 	nsTenants map[string]string
 }
 
-// NewOTLPLogExportConsumer builds the consumer over a non-nil exporter.
+// NewOTLPLogExportConsumer builds the consumer over a shared exporter; a
+// multi-tenant/regulated deployment supplies per-tenant endpoints via
+// WithTenantRouter instead.
 func NewOTLPLogExportConsumer(b bus.Bus, exp LogsExporter, log *slog.Logger) *OTLPLogExportConsumer {
 	if log == nil {
 		log = slog.Default()
@@ -188,12 +254,27 @@ func NewOTLPLogExportConsumer(b bus.Bus, exp LogsExporter, log *slog.Logger) *OT
 }
 
 func (c *OTLPLogExportConsumer) exportedCount() uint64 { return c.exported.Load() }
+func (c *OTLPLogExportConsumer) droppedCount() uint64  { return c.dropped.Load() }
 
 // WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP log
 // lane and verifies/restamps resource tenants before forwarding.
 func (c *OTLPLogExportConsumer) WithNamespaceTenants(ns map[string]string) *OTLPLogExportConsumer {
 	c.nsTenants = ns
 	return c
+}
+
+// WithTenantRouter routes each tenant's logs to that tenant's OWN collector
+// endpoint (RTP-06); a tenant with no endpoint is dropped closed.
+func (c *OTLPLogExportConsumer) WithTenantRouter(r *TenantExportRouter) *OTLPLogExportConsumer {
+	c.router = r
+	return c
+}
+
+func (c *OTLPLogExportConsumer) resolveExporter(tenant string) (LogsExporter, bool) {
+	if c.router != nil {
+		return c.router.exporterFor(tenant)
+	}
+	return c.exporter, c.exporter != nil
 }
 
 // Run subscribes until ctx is canceled. It blocks.
@@ -212,13 +293,21 @@ func (c *OTLPLogExportConsumer) handleLane(ctx context.Context, msg bus.Message,
 		c.log.Warn("otlp-export: skipping malformed logs payload", "error", err)
 		return nil
 	}
-	if tenant := otlpTenantFromLaneOrKey(msg, laneTenant); tenant != "" {
+	tenant := otlpTenantFromLaneOrKey(msg, laneTenant)
+	if tenant != "" {
 		if err := scopeOTLPLogsToBusTenant(&req, tenant); err != nil {
 			c.log.Warn("otlp-export: skipping logs payload outside lane tenant", "tenant_id", tenant, "error", err.Error())
 			return nil
 		}
 	}
-	if err := c.exporter.ExportLogs(ctx, &req); err != nil {
+	exp, ok := c.resolveExporter(tenant)
+	if !ok {
+		c.dropped.Add(1)
+		c.log.Warn("otlp-export: dropping logs for a tenant with no per-tenant export endpoint (fail closed; RTP-06)", "tenant_id", tenant)
+		return nil
+	}
+	redactLogsForExport(ctx, &req, tenant)
+	if err := exp.ExportLogs(ctx, &req); err != nil {
 		c.failed.Add(1)
 		c.log.Error("otlp-export: forward logs to external collector failed (will redeliver)", "error", err.Error())
 		return err

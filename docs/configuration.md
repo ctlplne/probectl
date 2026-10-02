@@ -1860,12 +1860,29 @@ for `http` a remote endpoint must be `https://`; for `grpc` the `INSECURE` flag 
 refused for a remote endpoint. A *loopback* collector (a co-located sidecar) may use
 plain `http://` / `INSECURE` for development.
 
+**Before egress the re-export runs the SAME redaction the storage path applies**
+(RTP-06): span names, log bodies and every attribute value pass through the
+governance telemetry masking, so an Authorization header, a URL token or a known
+secret shape that storage masks never leaves the operator's network in the clear.
+
+**Tenant isolation (RTP-06).** `PROBECTL_OTLP_EXPORT_ENDPOINT` is a *shared*
+endpoint — every tenant's telemetry is re-exported to it. That is safe only in the
+`single`/sovereign profile (one tenant). Under the `multi-tenant`/`regulated`
+profiles a shared endpoint would cross tenants (one tenant's spans reaching
+another tenant's or the provider's collector) and is **refused at startup**;
+configure a per-tenant, tenant-scoped map with `PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS`
+instead. Each tenant's telemetry then reaches only that tenant's own collector,
+and a tenant with no configured endpoint is **dropped closed** (never forwarded).
+The export configuration is recorded on the provider audit stream at startup
+(tokens excluded).
+
 | Variable                        | Default | Description                                                  |
 | ------------------------------- | ------- | ------------------------------------------------------------ |
-| `PROBECTL_OTLP_EXPORT_ENDPOINT` | (none)  | upstream OTLP collector; enables export. Remote must be `https://` (HTTP) / TLS (gRPC) |
-| `PROBECTL_OTLP_EXPORT_PROTOCOL` | `grpc`  | `grpc` \| `http`                                             |
-| `PROBECTL_OTLP_EXPORT_TOKEN`    | (none)  | bearer token sent to the collector                           |
+| `PROBECTL_OTLP_EXPORT_ENDPOINT` | (none)  | **shared** upstream OTLP collector; enables export. Remote must be `https://` (HTTP) / TLS (gRPC). **Refused under `multi-tenant`/`regulated`** — use the per-tenant map. |
+| `PROBECTL_OTLP_EXPORT_PROTOCOL` | `grpc`  | `grpc` \| `http` (shared endpoint)                           |
+| `PROBECTL_OTLP_EXPORT_TOKEN`    | (none)  | bearer token sent to the shared collector                    |
 | `PROBECTL_OTLP_EXPORT_INSECURE` | `false` | disable TLS — **loopback endpoints only** (refused for a remote target) |
+| `PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS` | (none) | **per-tenant** export, a JSON object `{"<tenant>":{"endpoint":"https://…","token":"…","protocol":"grpc\|http","insecure":false}}`. Each tenant exports only to its own collector. Mutually exclusive with the shared endpoint; the required shape under `multi-tenant`/`regulated`. |
 
 ### Ecosystem integrations
 

@@ -36,6 +36,7 @@ import (
 type ResultOTLPExportConsumer struct {
 	bus      bus.Bus
 	exporter MetricsExporter
+	router   *TenantExportRouter // RTP-06: per-tenant endpoints (nil = shared single endpoint)
 	group    string
 	log      *slog.Logger
 	exported atomic.Uint64
@@ -65,6 +66,22 @@ func (c *ResultOTLPExportConsumer) droppedCount() uint64  { return c.dropped.Loa
 func (c *ResultOTLPExportConsumer) WithNamespaceTenants(ns map[string]string) *ResultOTLPExportConsumer {
 	c.nsTenants = ns
 	return c
+}
+
+// WithTenantRouter routes each tenant's probe metrics to that tenant's OWN
+// collector endpoint (RTP-06); a tenant with no endpoint is dropped closed, so
+// one tenant's self-observability signals never reach another tenant's (or the
+// provider's) collector.
+func (c *ResultOTLPExportConsumer) WithTenantRouter(r *TenantExportRouter) *ResultOTLPExportConsumer {
+	c.router = r
+	return c
+}
+
+func (c *ResultOTLPExportConsumer) resolveExporter(tenant string) (MetricsExporter, bool) {
+	if c.router != nil {
+		return c.router.exporterFor(tenant)
+	}
+	return c.exporter, c.exporter != nil
 }
 
 // Run subscribes the shared lane plus every siloed-tenant lane until ctx is
@@ -101,7 +118,15 @@ func (c *ResultOTLPExportConsumer) handleLane(ctx context.Context, msg bus.Messa
 	// The authoritative tenant governs the exported resource attributes; the
 	// payload matched it above, so the OTLP metric carries the bus-key tenant.
 	r.TenantId = tenant
-	if err := c.exporter.ExportMetrics(ctx, otlp.MetricsForResult(&r)); err != nil {
+	// RTP-06: route to THIS tenant's own collector; a tenant with no configured
+	// endpoint is dropped closed, never forwarded to another tenant's/provider's.
+	exp, ok := c.resolveExporter(tenant)
+	if !ok {
+		c.dropped.Add(1)
+		c.log.Warn("result-otlp-export: dropping probe metrics for a tenant with no per-tenant export endpoint (fail closed; RTP-06)", "tenant_id", tenant)
+		return nil
+	}
+	if err := exp.ExportMetrics(ctx, otlp.MetricsForResult(&r)); err != nil {
 		c.failed.Add(1)
 		c.log.Error("result-otlp-export: forward probe metrics to external collector failed (will redeliver)", "error", err.Error())
 		return err // leave uncommitted → at-least-once redelivery

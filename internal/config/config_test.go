@@ -923,6 +923,64 @@ func TestOTLPExportRequiresEncryptedRemote(t *testing.T) {
 	}
 }
 
+// TestOTLPExportPerTenantEndpointsAndSharedRefusal pins RTP-06: a SHARED OTLP
+// export endpoint re-exports every tenant's telemetry to one collector, so it is
+// refused under the multi-tenant/regulated profiles (which must instead use the
+// per-tenant, tenant-scoped map), while the single/sovereign profile keeps the
+// shared endpoint (one tenant). The shared-refusal assertion is RED on the
+// pre-fix code, where multi-tenant + a shared endpoint loaded cleanly.
+func TestOTLPExportPerTenantEndpointsAndSharedRefusal(t *testing.T) {
+	// multi-tenant + SHARED endpoint => refused (would cross tenants).
+	env := durableTenantProfileEnv("multi-tenant")
+	env["PROBECTL_OTLP_EXPORT_PROTOCOL"] = "http"
+	env["PROBECTL_OTLP_EXPORT_ENDPOINT"] = "https://collector.example:4318"
+	if _, err := Load(envFunc(env)); err == nil || !strings.Contains(err.Error(), "SHARED export endpoint and is refused") {
+		t.Fatalf("multi-tenant must refuse a shared OTLP export endpoint; got: %v", err)
+	}
+
+	// multi-tenant + PER-TENANT endpoints => loads, and export is enabled.
+	env = durableTenantProfileEnv("multi-tenant")
+	env["PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS"] = `{"tenant-a":{"endpoint":"https://a.collector:4318","protocol":"http","token":"ta"},` +
+		`"tenant-b":{"endpoint":"https://b.collector:4318","protocol":"http","token":"tb"}}`
+	cfg, err := Load(envFunc(env))
+	if err != nil {
+		t.Fatalf("multi-tenant per-tenant endpoints should load: %v", err)
+	}
+	if n := len(cfg.OTLPExportTenantEndpoints); n != 2 {
+		t.Fatalf("per-tenant endpoints parsed = %d, want 2", n)
+	}
+	if got := cfg.OTLPExportTenantEndpoints["tenant-a"].Endpoint; got != "https://a.collector:4318" {
+		t.Fatalf("tenant-a endpoint = %q", got)
+	}
+	if !cfg.OTLPExportEnabled() {
+		t.Fatal("per-tenant endpoints must enable OTLP export")
+	}
+
+	// per-tenant endpoint that is remote plaintext http => TLS refused (guardrail 12).
+	env = durableTenantProfileEnv("regulated")
+	env["PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS"] = `{"tenant-a":{"endpoint":"http://a.collector:4318","protocol":"http"}}`
+	if _, err := Load(envFunc(env)); err == nil || !strings.Contains(err.Error(), "must be https://") {
+		t.Fatalf("remote http per-tenant endpoint must be refused; got: %v", err)
+	}
+
+	// SHARED + PER-TENANT set together => mutually exclusive.
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_OTLP_EXPORT_PROTOCOL":         "http",
+		"PROBECTL_OTLP_EXPORT_ENDPOINT":         "https://c.example:4318",
+		"PROBECTL_OTLP_EXPORT_TENANT_ENDPOINTS": `{"tenant-a":{"endpoint":"https://a:4318","protocol":"http"}}`,
+	})); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("shared + per-tenant endpoints must be mutually exclusive; got: %v", err)
+	}
+
+	// single/sovereign profile keeps the shared endpoint (one tenant, no crossing).
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_OTLP_EXPORT_PROTOCOL": "http",
+		"PROBECTL_OTLP_EXPORT_ENDPOINT": "https://c.example:4318",
+	})); err != nil {
+		t.Fatalf("single profile shared OTLP export endpoint should still load: %v", err)
+	}
+}
+
 // SCALE-001: remote-write batching defaults ON in prometheus mode (the
 // default production ingest path must coalesce, not POST per result); stays
 // OFF for memory mode; an explicit env always wins either way.

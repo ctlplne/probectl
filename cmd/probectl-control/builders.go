@@ -875,43 +875,69 @@ func startOTLPSubsystems(
 	})
 
 	if cfg.OTLPExportEnabled() {
-		exp, eerr := buildOTLPExporter(cfg)
-		if eerr != nil {
-			return fmt.Errorf("otlp export: %w", eerr)
+		// RTP-06: the single/sovereign profile re-exports every (one-tenant) signal
+		// to one shared endpoint; the multi-tenant/regulated profiles refuse a
+		// shared endpoint at config time and export PER TENANT — each tenant's
+		// telemetry only ever reaches that tenant's own collector, and a tenant
+		// with no configured endpoint is dropped closed by the consumers.
+		var exp signalExporter
+		var router *pipeline.TenantExportRouter
+		if len(cfg.OTLPExportTenantEndpoints) > 0 {
+			r, rerr := buildOTLPExportRouter(cfg)
+			if rerr != nil {
+				return fmt.Errorf("otlp export (per-tenant): %w", rerr)
+			}
+			router = r
+		} else {
+			e, eerr := buildOTLPExporter(cfg)
+			if eerr != nil {
+				return fmt.Errorf("otlp export: %w", eerr)
+			}
+			exp = e
+		}
+		auditOTLPExportConfig(ctx, db, cfg, log)
+		withRouter := func(apply func(*pipeline.TenantExportRouter)) {
+			if router != nil {
+				apply(router)
+			}
 		}
 		g.Go(func() error {
 			return superviseBusLaneRestart(ctx, "otlp-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
-				return pipeline.NewOTLPExportConsumer(resultBus, exp, log).
-					WithNamespaceTenants(snap.tenants).
-					Run(ctx)
+				c := pipeline.NewOTLPExportConsumer(resultBus, exp, log).WithNamespaceTenants(snap.tenants)
+				withRouter(func(r *pipeline.TenantExportRouter) { c.WithTenantRouter(r) })
+				return c.Run(ctx)
 			})
 		})
 		g.Go(func() error {
 			return superviseBusLaneRestart(ctx, "otlp-trace-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
-				return pipeline.NewOTLPTraceExportConsumer(resultBus, exp, log).
-					WithNamespaceTenants(snap.tenants).
-					Run(ctx)
+				c := pipeline.NewOTLPTraceExportConsumer(resultBus, exp, log).WithNamespaceTenants(snap.tenants)
+				withRouter(func(r *pipeline.TenantExportRouter) { c.WithTenantRouter(r) })
+				return c.Run(ctx)
 			})
 		})
 		g.Go(func() error {
 			return superviseBusLaneRestart(ctx, "otlp-log-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
-				return pipeline.NewOTLPLogExportConsumer(resultBus, exp, log).
-					WithNamespaceTenants(snap.tenants).
-					Run(ctx)
+				c := pipeline.NewOTLPLogExportConsumer(resultBus, exp, log).WithNamespaceTenants(snap.tenants)
+				withRouter(func(r *pipeline.TenantExportRouter) { c.WithTenantRouter(r) })
+				return c.Run(ctx)
 			})
 		})
 		// RTP-07: re-export probectl's OWN probe results as OTLP metrics so the
 		// self-observability signals (probectl.probe.success / .duration) reach
 		// the collector — a live export path, not a dormant doc claim. Reuses the
-		// same exporter and result bus as the sibling signal exporters above.
+		// same exporter/router and result bus as the sibling signal exporters.
 		g.Go(func() error {
 			return superviseBusLaneRestart(ctx, "result-otlp-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
-				return pipeline.NewResultOTLPExportConsumer(resultBus, exp, log).
-					WithNamespaceTenants(snap.tenants).
-					Run(ctx)
+				c := pipeline.NewResultOTLPExportConsumer(resultBus, exp, log).WithNamespaceTenants(snap.tenants)
+				withRouter(func(r *pipeline.TenantExportRouter) { c.WithTenantRouter(r) })
+				return c.Run(ctx)
 			})
 		})
-		log.Info("otlp export enabled (metrics+traces+logs) + probe-results", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
+		if router != nil {
+			log.Info("otlp export enabled (metrics+traces+logs) + probe-results", "mode", "per-tenant", "tenants", router.Len())
+		} else {
+			log.Info("otlp export enabled (metrics+traces+logs) + probe-results", "mode", "shared", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
+		}
 	}
 	g.Go(func() error {
 		return superviseBusLaneRestart(ctx, "otlp-traces-consumer", log, func(ctx context.Context, snap busLaneSnapshot) error {
@@ -932,6 +958,38 @@ func startOTLPSubsystems(
 		})
 	})
 	return nil
+}
+
+// auditOTLPExportConfig records the OTLP re-export configuration to the provider
+// audit stream (RTP-06, guardrail 7): export egresses tenant telemetry off the
+// deployment, so the shape of that egress — shared vs per-tenant, each collector
+// endpoint, the TLS posture — is an auditable configuration decision. Tokens are
+// NEVER recorded (guardrail 6). It is best-effort: an audit-write failure is
+// logged but does not wedge startup, because the egress posture itself is already
+// enforced fail-closed by config validation before this point.
+func auditOTLPExportConfig(ctx context.Context, db *store.DB, cfg *config.Config, log *slog.Logger) {
+	data := map[string]any{"profile": cfg.DeploymentProfile}
+	if len(cfg.OTLPExportTenantEndpoints) > 0 {
+		data["mode"] = "per-tenant"
+		data["tenant_count"] = len(cfg.OTLPExportTenantEndpoints)
+		eps := make(map[string]any, len(cfg.OTLPExportTenantEndpoints))
+		for tenant, tgt := range cfg.OTLPExportTenantEndpoints {
+			proto := tgt.Protocol
+			if proto == "" {
+				proto = "grpc"
+			}
+			eps[tenant] = map[string]any{"endpoint": tgt.Endpoint, "protocol": proto, "insecure": tgt.Insecure}
+		}
+		data["tenant_endpoints"] = eps
+	} else {
+		data["mode"] = "shared"
+		data["endpoint"] = cfg.OTLPExportEndpoint
+		data["protocol"] = cfg.OTLPExportProtocol
+		data["insecure"] = cfg.OTLPExportInsecure
+	}
+	if _, err := audit.ProviderAppend(ctx, db.Pool(), "system", "otlp.export.configure", "deployment-otlp-export", data); err != nil {
+		log.Warn("otlp export: provider audit of export configuration failed (continuing; egress posture is already config-gated)", "error", err.Error())
+	}
 }
 
 func publishOTLPBus(ctx context.Context, resultBus bus.Bus, baseTopic, tenant, entropy string, payload []byte) error {
