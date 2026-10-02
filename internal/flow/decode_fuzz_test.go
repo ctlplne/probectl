@@ -25,6 +25,16 @@ func FuzzDecode(f *testing.F) {
 	// v9 template flowset header (id 0) with a hostile field count.
 	f.Add([]byte{0x00, 0x09, 0x00, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0x00, 0x00, 0x00, 0x0c, 0x01, 0x00, 0xff, 0xff})
+	// ING-02: zero-width IPFIX templates (all fields fixed length 0) — an
+	// options template that once spun a worker forever, and a data template that
+	// once amplified one byte into thousands of fake flows. A single datagram
+	// carries both the template and the data set that triggers it.
+	f.Add(ipfixMsg(1750000000, 9,
+		ipfixTemplateSet(3, 256, 1, []ipfixField{{ID: ieProtocol, Len: 0}}),
+		ipfixDataSet(256, []byte{0x00})))
+	f.Add(ipfixMsg(1750000000, 9,
+		ipfixTemplateSet(2, 257, 0, []ipfixField{{ID: ieProtocol, Len: 0}}),
+		ipfixDataSet(257, []byte{0x00})))
 	f.Add([]byte{})
 	f.Add([]byte{0xff})
 

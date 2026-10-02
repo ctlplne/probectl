@@ -138,6 +138,12 @@ func (d *ipfixDecoder) decodeData(b []byte, tid uint16, exporter string, domain 
 		if set.Empty() || set.Remaining() < len(tmpl.Fields) {
 			break
 		}
+		// ING-02 defense in depth: snapshot the reader before parsing the
+		// record. put() already refuses zero-width templates, but if any record
+		// consumes no bytes (e.g. a fuzzer-crafted set) neither the append below
+		// nor the options `continue` makes progress and the loop would spin or
+		// amplify — so bail when the reader does not advance.
+		before := set.Remaining()
 		rec := Record{
 			Exporter:          exporter,
 			ObservationDomain: domain,
@@ -183,6 +189,9 @@ func (d *ipfixDecoder) decodeData(b []byte, tid uint16, exporter string, domain 
 			}
 		}
 		if bad {
+			break
+		}
+		if set.Remaining() == before { // no byte consumed: see the ING-02 note above
 			break
 		}
 		if tmpl.Options {

@@ -80,6 +80,17 @@ func (c *templateCache) put(k templateKey, t templateRecord) {
 		}
 		t.width += int(f.Length)
 	}
+	// ING-02 (docs/guardrails.md G7-12: untrusted ingest, fail closed): a
+	// template whose fixed fields sum to zero width and declares no
+	// variable-length field (RFC 7011 length 0xFFFF) consumes no bytes per
+	// data record. Storing it lets a later data set spin the IPFIX record
+	// loop forever (an options template never appends) or amplify one byte
+	// into ipfixMaxRecordsPerPacket fabricated flows. NetFlow v9 already
+	// refuses zero width at decode; refuse it here for both decoders so the
+	// template is never usable and its data sets are treated as a miss.
+	if t.width == 0 && !t.variable {
+		return
+	}
 	if _, exists := c.m[k]; !exists && len(c.m) >= c.max {
 		c.evictOldestLocked()
 	}
