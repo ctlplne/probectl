@@ -274,38 +274,54 @@ func SyslogSeverityText(sev int) string {
 	}
 }
 
+// cfgMod is the set of non-secret modifier tokens that can sit between a secret
+// directive and the actual value: key/type numbers, hash/cipher algorithms,
+// key sizes, encoding and scope keywords. A directive rule consumes a run of
+// these first, so the greedy value capture lands on the SECRET, not on an
+// intervening keyword like md5 / local / ascii (WEB-03 reopen).
+const cfgMod = `(?:\d+|md5|sha(?:\d+)?|hmac(?:-[a-z0-9-]+)?|aes|des|3des|rc4|128|192|256|ascii|ascii-text|cleartext|clear|encrypted|hexadecimal|hex|local|remote)`
+
+// cfgVal captures a secret value: a quoted string or a bare token.
+const cfgVal = `(?:"[^"\n]*"|\S+)`
+
 // configRedactRules redact the VALUE (not the whole line) after each vendor
 // secret directive, keeping the directive and any non-secret suffix visible
 // (WEB-03). A single keyword regex missed TACACS/RADIUS keys, key-chain
-// key-strings, routing-protocol auth keys, IPsec/ISAKMP pre-shared keys, and
-// SNMPv3 auth/priv passwords, storing and showing them in clear. Rules cover
-// Cisco IOS/NX-OS, Junos, and Arista EOS forms; redaction is security-first, so
-// a non-secret value occasionally over-masked is acceptable. `\S` never crosses
-// a newline, so each rule stays within its line.
+// key-strings, routing-protocol auth keys (incl. NTP), IPsec/ISAKMP/IKEv2
+// pre-shared keys, Wi-Fi PSKs, SNMPv3 auth/priv passwords, and SNMP trap-host
+// communities. Each directive first consumes a run of cfgMod modifier tokens,
+// then redacts the value — so an algorithm/scope keyword is never mistaken for
+// the secret. Rules cover Cisco IOS/NX-OS, Junos, and Arista EOS; redaction is
+// security-first, so a non-secret value occasionally over-masked is acceptable.
+// `\S`/cfgVal never cross a newline, so each rule stays within its line.
 var configRedactRules = []struct {
 	re   *regexp.Regexp
 	repl string
 }{
-	// TACACS/RADIUS server shared key, optional type number.
-	{regexp.MustCompile(`(?i)\b((?:tacacs|radius)-server\s+key(?:\s+\d+)?\s+)\S+`), `${1}[redacted]`},
-	// Key-chain key-string, optional type number.
-	{regexp.MustCompile(`(?i)\b(key-string\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
-	// Routing-protocol auth: (ip ospf) authentication-key, message-digest-key.
-	{regexp.MustCompile(`(?i)\b(authentication-key\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
-	{regexp.MustCompile(`(?i)\b(message-digest-key\s+\d+\s+md5\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
-	// IPsec/ISAKMP: crypto isakmp key VALUE (address|hostname …) — key only.
-	{regexp.MustCompile(`(?i)\b(crypto\s+isakmp\s+key\s+)\S+`), `${1}[redacted]`},
-	// Pre-shared key, optional ascii-text/hexadecimal, value may be quoted.
-	{regexp.MustCompile(`(?i)\b(pre-shared-key\s+(?:(?:ascii-text|hexadecimal)\s+)?)(?:"[^"]*"|\S+)`), `${1}[redacted]`},
+	// TACACS/RADIUS server shared key.
+	{regexp.MustCompile(`(?i)\b((?:tacacs|radius)-server\s+key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	// Key-chain key-string.
+	{regexp.MustCompile(`(?i)\b(key-string\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	// Routing-protocol auth: (ip ospf / ntp) authentication-key, message-digest-key.
+	{regexp.MustCompile(`(?i)\b(authentication-key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	{regexp.MustCompile(`(?i)\b(message-digest-key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	// IPsec/ISAKMP: crypto isakmp key VALUE (address|hostname …) — key token only,
+	// so the trailing address/hostname structure is preserved.
+	{regexp.MustCompile(`(?i)\b(crypto\s+isakmp\s+key\s+)` + cfgVal), `${1}[redacted]`},
+	// Pre-shared key (incl. IKEv2 local/remote scope, ascii-text/hexadecimal).
+	{regexp.MustCompile(`(?i)\b(pre-shared-key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
 	// SNMPv3 user auth/priv passwords.
-	{regexp.MustCompile(`(?i)\b(auth\s+(?:md5|sha|sha224|sha256|sha384|sha512)\s+)\S+`), `${1}[redacted]`},
-	{regexp.MustCompile(`(?i)\b(priv\s+(?:des|3des|aes)(?:\s+(?:128|192|256))?\s+)\S+`), `${1}[redacted]`},
-	// Generic credential directives, optional type number.
-	{regexp.MustCompile(`(?i)\b((?:password|passwd|secret|passphrase|community|psk|private-key|api[_-]?key|token)\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
+	{regexp.MustCompile(`(?i)\b(auth\s+(?:md5|sha(?:\d+)?)\s+)` + cfgVal), `${1}[redacted]`},
+	{regexp.MustCompile(`(?i)\b(priv\s+(?:des|3des|aes)(?:\s+(?:128|192|256))?\s+)` + cfgVal), `${1}[redacted]`},
+	// SNMP trap-host community (distinct from `snmp-server community`): the
+	// community is the token after the host and any traps/informs/version/vrf
+	// modifiers.
+	{regexp.MustCompile(`(?i)\b(snmp-server\s+host\s+\S+\s+(?:(?:traps|informs)\s+|(?:version|vrf|udp-port)\s+\S+\s+)*)` + cfgVal), `${1}[redacted]`},
+	// Generic credential directives (incl. wpa-psk / psk, with encoding/type mods).
+	{regexp.MustCompile(`(?i)\b((?:wpa-psk|psk|password|passwd|secret|passphrase|community|private-key|api[_-]?key|token)\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
 	// Junos quoted secret.
-	{regexp.MustCompile(`(?i)\b(secret\s+)"[^"]*"`), `${1}"[redacted]"`},
-	// Cisco type-7 wrapper `... 7 <hex>` where the directive was not matched above,
-	// and Junos `$9$…` / Cisco `$1$…`/`$6$…` encoded secrets anywhere on the line.
+	{regexp.MustCompile(`(?i)\b(secret\s+)"[^"\n]*"`), `${1}"[redacted]"`},
+	// Cisco `$1$`/`$5$`/`$6$` and Junos `$9$` encoded secrets anywhere on a line.
 	{regexp.MustCompile(`\$(?:1|5|6|9\$)[^\s"]+`), `[redacted]`},
 }
 

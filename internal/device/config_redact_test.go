@@ -37,6 +37,13 @@ func TestRedactConfigVendorSecrets(t *testing.T) {
 		{"ios enable secret 5", "enable secret 5 $1$abcd$EncLocalHash", "$1$abcd$EncLocalHash", "enable secret"},
 		{"username password 7", "username admin password 7 070C285F4D06", "070C285F4D06", "username admin password"},
 		{"junos secret quoted", `set system login user a authentication encrypted-password "$6$roundsSecret"`, "$6$roundsSecret", "encrypted-password"},
+		{"ntp auth-key md5", "ntp authentication-key 1 md5 NtpSecretKey", "NtpSecretKey", "authentication-key 1 md5"},
+		{"ntp auth-key hex+type", "ntp authentication-key 1 md5 06120A2D40031D1E 7", "06120A2D40031D1E", "authentication-key 1 md5"},
+		{"ikev2 psk local", " pre-shared-key local LocalKey123", "LocalKey123", "pre-shared-key local"},
+		{"ikev2 psk remote", " pre-shared-key remote RemoteKey456", "RemoteKey456", "pre-shared-key remote"},
+		{"wpa psk", "wpa-psk ascii 0 MyWifiPass1", "MyWifiPass1", "wpa-psk"},
+		{"snmp trap-host community", "snmp-server host 10.0.0.1 traps HostCommunity9", "HostCommunity9", "snmp-server host 10.0.0.1"},
+		{"snmp trap-host version vrf", "snmp-server host 10.0.0.1 version 2c vrf mgmt CommVrfX", "CommVrfX", "snmp-server host 10.0.0.1"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
