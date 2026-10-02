@@ -760,17 +760,23 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 	// just-JIT-provisioned or not-yet-authorized account) sees their tenant_id
 	// but not the name/slug, so /me cannot be used to enumerate tenant names.
 	tenantName, tenantSlug := "", ""
-	if len(p.Permissions) > 0 && s.pool != nil {
+	if len(p.Permissions) > 0 {
+		// A user with at least one grant may see the tenant name/slug; the
+		// tenant_id is the safe fallback (e.g. DB-less dev), the DB supplies the
+		// real name when present. A role-less user gets neither (no enumeration).
 		tenantName, tenantSlug = p.TenantID, p.TenantID
-		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-			// The principal's tenant is both the explicit predicate and the FORCE
-			// RLS setting. /me must never become a tenant-name enumeration path.
-			return sc.Q.QueryRow(ctx, `
+		if s.pool != nil {
+			if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+				// The principal's tenant is both the explicit predicate and the
+				// FORCE RLS setting. /me must never become a tenant-name
+				// enumeration path.
+				return sc.Q.QueryRow(ctx, `
 				SELECT name, slug
 				  FROM public.probectl_current_tenant_identity()
 				 WHERE id = $1`, sc.Tenant.String()).Scan(&tenantName, &tenantSlug)
-		}); err != nil {
-			return err
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	perms := make([]string, 0, len(p.Permissions))
