@@ -77,6 +77,17 @@ func auditActor(r *http.Request) string {
 // action it records (RLS confines it to the tenant). Call it inside an inTenant
 // closure, after the audited mutation has succeeded.
 func (s *Server) recordAudit(ctx context.Context, sc tenancy.Scope, r *http.Request, action, target string, data map[string]any) error {
+	// AUD-10: explicit domain events (key rotate, role bind, agent revoke, token
+	// create, …) carry the same "from where" as route events — ip, user-agent
+	// hash, request id — plus outcome=success (they are appended after the
+	// mutation succeeds). A caller that already set an outcome keeps it.
+	outcome := "success"
+	if data != nil {
+		if _, ok := data["outcome"]; ok {
+			outcome = ""
+		}
+	}
+	data = s.withRequestContext(r, data, outcome)
 	_, err := audit.TenantAppend(ctx, sc, auditActor(r), action, target, data)
 	return err
 }
