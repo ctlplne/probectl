@@ -60,6 +60,30 @@ render() {
     "$@"
 }
 
+# PLAT-02: a multi-replica deployment is read-coherent only on SHARED durable
+# backends, so the chart refuses replicaCount>1 unless the bus, the TSDB and
+# every telemetry store are durable and point at real endpoints. These flags
+# supply exactly that, so the HA reference profiles (medium/large/multitenant)
+# render a COMPLETE, coherent deployment. (A store-URL flag given later on a
+# render line overrides its entry here — the WIRE-001 negative tests rely on
+# that to still exercise their plaintext rejection.)
+HA_DURABLE=(
+  --set-string control.extraEnv.PROBECTL_BUS_MODE=kafka
+  --set-string control.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093
+  --set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus
+  --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc:9090
+  --set-string control.extraEnv.PROBECTL_PATHSTORE_MODE=clickhouse
+  --set-string control.extraEnv.PROBECTL_PATHSTORE_URL=https://clickhouse.probectl.svc:8443
+  --set-string control.extraEnv.PROBECTL_FLOWSTORE_MODE=clickhouse
+  --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL=https://clickhouse.probectl.svc:8443
+  --set-string control.extraEnv.PROBECTL_OTELSTORE_MODE=clickhouse
+  --set-string control.extraEnv.PROBECTL_OTELSTORE_URL=https://clickhouse.probectl.svc:8443
+  --set-string control.extraEnv.PROBECTL_EBPFSTORE_MODE=clickhouse
+  --set-string control.extraEnv.PROBECTL_EBPFSTORE_URL=https://clickhouse.probectl.svc:8443
+  --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_MODE=clickhouse
+  --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_URL=https://clickhouse.probectl.svc:8443
+)
+
 render_agent() {
   helm template probectl-agent "$AGENT_CHART" "$@" \
     --set-string tenantID=t-hardening \
@@ -591,7 +615,7 @@ if helm template probectl "$CHART" \
 fi
 
 # 3. Large profile: NetworkPolicy + PodDisruptionBudget + HPA all present.
-large="$(render -f "$CHART/values-large.yaml")"
+large="$(render -f "$CHART/values-large.yaml" "${HA_DURABLE[@]}")"
 need "kind: NetworkPolicy"          "$large" "large profile missing NetworkPolicy"
 need "kind: PodDisruptionBudget"    "$large" "large profile missing PodDisruptionBudget"
 need "kind: HorizontalPodAutoscaler" "$large" "large profile missing HorizontalPodAutoscaler"
@@ -748,19 +772,19 @@ s3_worm="$(render --set objectStore.mode=s3 \
   --set-string objectStore.s3.accessKey=key \
   --set-string secrets.objectStoreS3SecretKey=secret 2>&1)" || fail "chart refused an S3 artifact store with WORM audit segments (DPR-116)"
 need_fixed "claimName: \"$WORM_CLAIM\"" "$s3_worm" "S3 artifact store must still mount the WORM claim (DPR-116)"
-if render --set replicaCount=3 \
+if render --set replicaCount=3 "${HA_DURABLE[@]}" \
     --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="$OBJECTSTORE_MOUNT/audit-worm/worm-ed25519.pem" \
     >/dev/null 2>&1; then
   fail "chart rendered multi-replica WORM with a pod-local signing-key file (CONFIG-09e06212)"
 fi
-if render --set replicaCount=1 --set autoscaling.enabled=true \
+if render --set replicaCount=1 --set autoscaling.enabled=true "${HA_DURABLE[@]}" \
     --set autoscaling.minReplicas=1 --set autoscaling.maxReplicas=3 \
     --set-string secrets.existingSecret= \
     --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="$OBJECTSTORE_MOUNT/audit-worm/worm-ed25519.pem" \
     >/dev/null 2>&1; then
   fail "chart rendered autoscaled WORM with no shared Secret and a pod-local signing-key file (CONFIG-09e06212)"
 fi
-if render --set replicaCount=3 --set-string secrets.existingSecret= >/dev/null 2>&1; then
+if render --set replicaCount=3 "${HA_DURABLE[@]}" --set-string secrets.existingSecret= >/dev/null 2>&1; then
   fail "chart rendered multi-replica WORM without secrets.existingSecret (CONFIG-09e06212)"
 fi
 if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm >/dev/null 2>&1; then
@@ -773,7 +797,7 @@ if render --set-string audit.worm.mountPath=audit-worm >/dev/null 2>&1; then
   fail "chart rendered a relative WORM directory (CONFIG-09e06212)"
 fi
 
-ha_worm="$(render --set replicaCount=3)"
+ha_worm="$(render --set replicaCount=3 "${HA_DURABLE[@]}")"
 ha_worm_dep="$(awk '/kind: Deployment$/,/^---/' <<<"$ha_worm")"
 ha_worm_cm="$(awk '/kind: ConfigMap$/,/^---/' <<<"$ha_worm")"
 need_fixed "name: $RUNTIME_SECRET" "$ha_worm_dep" "HA WORM Deployment did not read the shared runtime Secret (CONFIG-09e06212)"
@@ -794,14 +818,26 @@ need_fixed "PROBECTL_WORM_SIGNING_KEY_FILE: \"$OBJECTSTORE_MOUNT/audit-worm/worm
 
 # 4. Medium + multi-tenant profiles ship a PodDisruptionBudget (zero-downtime, S34).
 for f in values-medium.yaml values-multitenant.yaml; do
-  need "kind: PodDisruptionBudget" "$(render -f "$CHART/$f")" "$f missing PodDisruptionBudget"
+  need "kind: PodDisruptionBudget" "$(render -f "$CHART/$f" "${HA_DURABLE[@]}")" "$f missing PodDisruptionBudget"
+done
+
+# PLAT-02: the single-tenant HA references (replicaCount>1) MUST refuse to render
+# on the in-memory defaults — per-pod RAM bus/TSDB/stores make /v1/results/latest,
+# topology, TLS and endpoint reads diverge pod-to-pod behind the Service. The
+# durable renders above (with ${HA_DURABLE[@]}) prove they render once shared
+# backends are supplied.
+for f in values-medium.yaml values-large.yaml; do
+  if ha_mem_out="$(render -f "$CHART/$f" 2>&1)"; then
+    fail "$f rendered a multi-replica deployment on in-memory stores (PLAT-02)"
+  fi
+  grep -q "multi-replica HA" <<<"$ha_mem_out" || fail "$f render refusal did not cite the PLAT-02 HA-durability guard: $ha_mem_out"
 done
 
 # 4a. TENANT-002: the multi-tenant reference profile must render the
 # ClickHouse scoped-reader envs. The binary fails closed without these in
 # ClickHouse-backed multi-tenant/regulated profiles; the chart must not make
 # operators discover that only at pod startup.
-multitenant="$(render -f "$CHART/values-multitenant.yaml")"
+multitenant="$(render -f "$CHART/values-multitenant.yaml" "${HA_DURABLE[@]}")"
 need_fixed 'PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"' "$multitenant" "multi-tenant profile did not render PROBECTL_DEPLOYMENT_PROFILE=multi-tenant (TENANT-002)"
 for env in PROBECTL_PATHSTORE_READER_USER PROBECTL_FLOWSTORE_READER_USER PROBECTL_OTELSTORE_READER_USER PROBECTL_EBPFSTORE_READER_USER; do
   need_fixed "$env: \"probectl_reader\"" "$multitenant" "multi-tenant profile did not render $env scoped reader user (TENANT-002)"
@@ -824,6 +860,7 @@ fi
 #     same operator mistakes while rendering so a bad Secret/ConfigMap is never
 #     applied.
 if helm template probectl "$CHART" -f "$CHART/values-multitenant.yaml" \
+  "${HA_DURABLE[@]}" \
   --set ingress.host=h.example.com \
   --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
   --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
@@ -835,19 +872,19 @@ if helm template probectl "$CHART" -f "$CHART/values-multitenant.yaml" \
   --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=disable" >/dev/null 2>&1; then
   fail "chart rendered plaintext multi-tenant database.url (WIRE-001)"
 fi
-if render -f "$CHART/values-multitenant.yaml" \
+if render -f "$CHART/values-multitenant.yaml" "${HA_DURABLE[@]}" \
      --set-string control.extraEnv.PROBECTL_DATABASE_READ_URL="postgres://probectl_reader:s3cret-not-default@db-ro:5432/probectl?sslmode=prefer" >/dev/null 2>&1; then
   fail "chart rendered plaintext multi-tenant PROBECTL_DATABASE_READ_URL (WIRE-001)"
 fi
-if render -f "$CHART/values-multitenant.yaml" \
+if render -f "$CHART/values-multitenant.yaml" "${HA_DURABLE[@]}" \
      --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL="http://clickhouse:8123" >/dev/null 2>&1; then
   fail "chart rendered plaintext multi-tenant PROBECTL_FLOWSTORE_URL (WIRE-001)"
 fi
-if render -f "$CHART/values-multitenant.yaml" \
+if render -f "$CHART/values-multitenant.yaml" "${HA_DURABLE[@]}" \
      --set-string control.extraEnv.PROBECTL_DATAPLANES="us=http://clickhouse-us:8123" >/dev/null 2>&1; then
   fail "chart rendered plaintext multi-tenant PROBECTL_DATAPLANES (WIRE-001)"
 fi
-multitenant_tls="$(render -f "$CHART/values-multitenant.yaml" \
+multitenant_tls="$(render -f "$CHART/values-multitenant.yaml" "${HA_DURABLE[@]}" \
   --set-string control.extraEnv.PROBECTL_DATABASE_READ_URL="postgres://probectl_reader:s3cret-not-default@db-ro:5432/probectl?sslmode=verify-full" \
   --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL="https://clickhouse:8443" \
   --set-string control.extraEnv.PROBECTL_DATAPLANES="us=https://clickhouse-us:8443")"
@@ -859,7 +896,9 @@ need_fixed 'PROBECTL_DATAPLANES: "us=https://clickhouse-us:8443"' "$multitenant_
 # profile can never ship un-linted by being forgotten here (the strict and
 # multiregion profiles once were).
 for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
-  helm lint "$CHART" -f "$CHART/$f" \
+  # PLAT-02: HA profiles (replicaCount>1) now require durable bus/TSDB/stores;
+  # supply them so lint renders a complete deployment (harmless at replicaCount=1).
+  helm lint "$CHART" -f "$CHART/$f" "${HA_DURABLE[@]}" \
     --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \
     --set ingress.backendTLS.trustSecret="$BACKEND_TLS_SECRET" \
     --set ingress.backendTLS.serverName="$BACKEND_TLS_SERVER_NAME" \

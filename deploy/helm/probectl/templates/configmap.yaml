@@ -83,6 +83,44 @@
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- /* PLAT-02: multi-replica HA is read-coherent only on SHARED durable
+       backends. The pure-RAM read views (/v1/results/latest, topology, TLS
+       posture, endpoint) are rebuilt per replica from the bus via ARCH-003
+       fan-in, which needs a REAL broker; the TSDB and the flow/otel/ebpf/
+       endpoint/path stores each serve reads directly. With an in-process memory
+       bus or an in-memory TSDB/store, every pod answers from its own slice, so
+       behind the Service the same query changes pod to pod. Refuse to render a
+       multi-replica deployment unless the bus, the TSDB and every telemetry
+       store are durable and point at real endpoints. */ -}}
+{{- $ha := gt (int .Values.replicaCount) 1 -}}
+{{- if and .Values.autoscaling.enabled (gt (int (.Values.autoscaling.maxReplicas | default 1)) 1) -}}
+{{- $ha = true -}}
+{{- end -}}
+{{- if $ha -}}
+{{- $busMode := printf "%v" (default "memory" (get $extraEnv "PROBECTL_BUS_MODE")) -}}
+{{- if not (or (eq $busMode "nats") (eq $busMode "kafka")) -}}
+{{- fail (printf "multi-replica HA (replicaCount=%v) requires a SHARED durable bus: set control.extraEnv.PROBECTL_BUS_MODE to nats or kafka with PROBECTL_BUS_BROKERS. An in-process memory bus gives each replica only its own slice of the stream, so /v1/results/latest, topology, TLS and endpoint views diverge pod-to-pod (PLAT-02; ARCH-003 per-replica fan-in needs a real broker)." (int .Values.replicaCount)) -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" (get $extraEnv "PROBECTL_BUS_BROKERS")))) -}}
+{{- fail "multi-replica HA requires control.extraEnv.PROBECTL_BUS_BROKERS (the shared bus endpoints) (PLAT-02)" -}}
+{{- end -}}
+{{- if ne (printf "%v" (default "memory" (get $extraEnv "PROBECTL_TSDB_MODE"))) "prometheus" -}}
+{{- fail "multi-replica HA requires a SHARED TSDB: set control.extraEnv.PROBECTL_TSDB_MODE=prometheus with PROBECTL_TSDB_URL; an in-memory TSDB holds only what each replica ingested, so metric queries diverge pod-to-pod (PLAT-02)" -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" (get $extraEnv "PROBECTL_TSDB_URL")))) -}}
+{{- fail "multi-replica HA requires control.extraEnv.PROBECTL_TSDB_URL (the shared Prometheus/VictoriaMetrics remote-write endpoint) (PLAT-02)" -}}
+{{- end -}}
+{{- range $se := list "PROBECTL_PATHSTORE" "PROBECTL_FLOWSTORE" "PROBECTL_OTELSTORE" "PROBECTL_EBPFSTORE" "PROBECTL_ENDPOINTSTORE" -}}
+{{- $modeKey := printf "%s_MODE" $se -}}
+{{- $urlKey := printf "%s_URL" $se -}}
+{{- if ne (printf "%v" (default "memory" (get $extraEnv $modeKey))) "clickhouse" -}}
+{{- fail (printf "multi-replica HA requires a SHARED store for every plane: set control.extraEnv.%s=clickhouse with %s; an in-memory store diverges pod-to-pod (PLAT-02)" $modeKey $urlKey) -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" (get $extraEnv $urlKey)))) -}}
+{{- fail (printf "multi-replica HA requires control.extraEnv.%s (the shared ClickHouse endpoint) (PLAT-02)" $urlKey) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- $profile := default "single" (get $extraEnv "PROBECTL_DEPLOYMENT_PROFILE") -}}
 {{- if or (eq $profile "multi-tenant") (eq $profile "regulated") -}}
 {{- $databaseURL := default "" .Values.database.url -}}

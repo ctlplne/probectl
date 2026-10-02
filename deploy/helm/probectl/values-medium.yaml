@@ -9,13 +9,26 @@
 # ingress restricted to the ingress-controller namespace; set egressTo for your
 # datastore/bus/IdP/feed allow-list.
 #
-# READ COHERENCE (RESIL-004): the medium reference now runs multiple
-# control-plane replicas. Pure in-RAM read models (/v1/results/latest,
-# /v1/tls/posture, topology, endpoint) use per-replica bus fan-in, so every pod
-# receives the full stream and answers the same query. Threat detections are
-# served from the tenant-scoped durable incident_signals table instead of
-# per-replica RAM. Data-tier throughput still scales independently in Kafka,
-# ClickHouse, and the TSDB.
+# READ COHERENCE (RESIL-004, PLAT-02): the medium reference runs multiple
+# control-plane replicas, which is read-coherent ONLY on shared durable
+# backends. The pure in-RAM read models (/v1/results/latest, /v1/tls/posture,
+# topology, endpoint) use per-replica bus fan-in, so every pod receives the full
+# stream and answers the same query — but that fan-in needs a REAL broker, and
+# the TSDB/ClickHouse stores serve reads directly, so they must be shared too.
+# The chart therefore REFUSES to render this profile until you supply durable
+# bus, TSDB and store endpoints, e.g.:
+#
+#   --set-string control.extraEnv.PROBECTL_BUS_MODE=kafka \
+#   --set-string control.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
+#   --set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus \
+#   --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc:9090 \
+#   --set-string control.extraEnv.PROBECTL_FLOWSTORE_MODE=clickhouse \
+#   --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL=https://clickhouse.probectl.svc:8443 \
+#   (and PATHSTORE/OTELSTORE/EBPFSTORE/ENDPOINTSTORE alike)
+#
+# Threat detections are served from the tenant-scoped durable incident_signals
+# table instead of per-replica RAM. Data-tier throughput scales independently in
+# Kafka, ClickHouse, and the TSDB. See docs/ha.md.
 
 replicaCount: 3
 

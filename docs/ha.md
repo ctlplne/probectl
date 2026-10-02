@@ -9,6 +9,25 @@ The request and ingest paths stay stateless at any replica count, RAM read
 models fan in the full bus stream per replica, and side-effecting background
 loops run only on the holder of a fenced PostgreSQL lease.
 
+## Precondition: multi-replica REQUIRES shared durable backends (PLAT-02)
+
+Everything below holds **only on shared durable backends**. The per-replica
+fan-in that makes the RAM views coherent reads from the bus, so it needs a
+**real broker** (`PROBECTL_BUS_MODE=nats` or `kafka`), not the in-process
+`memory` bus — with a memory bus each replica has its own private queue and sees
+only its own slice of the stream. The TSDB and the flow/OTel/eBPF/endpoint/path
+stores serve reads directly, so they must be shared too
+(`PROBECTL_TSDB_MODE=prometheus`; each `*_STORE_MODE=clickhouse`), or metric and
+plane queries differ per pod. Run multiple replicas on in-memory stores and the
+same query returns different answers depending on which pod the load balancer
+hits — and each pod loses its share on restart.
+
+The Helm chart enforces this: `replicaCount > 1` (or autoscaling beyond one
+replica) **refuses to render** unless the bus, the TSDB and every telemetry
+store are durable and point at real endpoints. The single-binary `memory`
+defaults are therefore a **single-replica** posture only; see
+[`configuration.md`](configuration.md) for the durable settings.
+
 ## Why this exists
 
 The control plane has a **stateless request path plus leased singletons**. Agent
