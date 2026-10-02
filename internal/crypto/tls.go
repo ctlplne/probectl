@@ -142,6 +142,22 @@ func HardenedHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
+// StreamingHTTPClientFrom returns an HTTP client for a long-lived streaming read
+// (e.g. a large tenant export) that must NOT be bounded by an overall request
+// deadline — http.Client.Timeout caps the entire request including the body
+// read, which would abort a large but healthy stream mid-flight. It drops that
+// overall deadline while preserving the source client's hardened transport and
+// redirect policy (TLS-handshake + idle-conn timeouts still bound a stalled
+// peer; cancellation rides the caller's context). A nil source yields a
+// hardened client with no overall cap. The bare client literal lives here, in
+// the approved constructor (U-036), so callers never hand-roll one.
+func StreamingHTTPClientFrom(src *http.Client) *http.Client {
+	if src == nil {
+		return HardenedHTTPClient(0)
+	}
+	return &http.Client{Transport: src.Transport, CheckRedirect: src.CheckRedirect, Jar: src.Jar}
+}
+
 const hardenedHTTPMaxRedirects = 5
 
 func hardenedHTTPRedirectPolicy(req *http.Request, via []*http.Request) error {

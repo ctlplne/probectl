@@ -113,16 +113,11 @@ func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Clie
 	// but healthy stream mid-flight). The export conn keeps the hardened TLS
 	// transport (TLS handshake + idle-conn timeouts still bound a stalled peer)
 	// but drops the overall deadline; cancellation rides the caller's context.
-	exportClient := client
-	if exportClient == nil {
-		exportClient = crypto.HardenedHTTPClient(0)
-	} else {
-		exportClient = &http.Client{Transport: client.Transport, CheckRedirect: client.CheckRedirect, Jar: client.Jar}
-	}
+	// The client is built by internal/crypto (the approved constructor, U-036).
 	c := &ClickHouse{
 		base:       strings.TrimRight(rawURL, "/"),
 		conn:       chclient.NewWithClient(client),
-		exportConn: chclient.NewWithClient(exportClient),
+		exportConn: chclient.NewWithClient(crypto.StreamingHTTPClientFrom(client)),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
