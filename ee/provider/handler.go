@@ -116,6 +116,7 @@ func routes() []RouteDecl {
 		{http.MethodGet, "/provider/v1/audit"},
 		{http.MethodGet, "/provider/v1/consent"},
 		{http.MethodPost, "/provider/v1/consent/{id}"},
+		{http.MethodPost, "/provider/v1/consent/{id}/revoke"},
 	}
 	base = append(base, meteringRoutes()...)
 	base = append(base, fairnessRoutes()...)
@@ -190,9 +191,12 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	// trigger). Admin SoD; slug-confirmed; audited.
 	h.handle("POST /provider/v1/tenants/{id}/erase", h.asOperator(RoleAdmin, h.handleTenantErase))
 
-	// Tenant-session routes (the consent leg).
+	// Tenant-session routes (the consent leg). The tenant can both decide a
+	// grant and REVOKE one it already approved (AUD-13) — the revoke that the
+	// operator-side route could never give it.
 	h.handle("GET /provider/v1/consent", h.asTenantAdmin(h.handleConsentList))
 	h.handle("POST /provider/v1/consent/{id}", h.asTenantAdmin(h.handleConsentDecide))
+	h.handle("POST /provider/v1/consent/{id}/revoke", h.asTenantAdmin(h.handleConsentRevoke))
 
 	return h
 }
@@ -724,6 +728,19 @@ func (h *Handler) handleConsentDecide(w http.ResponseWriter, r *http.Request, te
 	return h.writeJSON(w, http.StatusOK, g)
 }
 
+// handleConsentRevoke lets a tenant admin end an ACTIVE (or still-pending) grant
+// for their own tenant (AUD-13). It is authenticated by the TENANT session —
+// the authority to stop an access belongs to the tenant that consented to it,
+// not only to provider operators — and takes no body: the path identifies the
+// grant. The service records it on both the provider and tenant audit streams.
+func (h *Handler) handleConsentRevoke(w http.ResponseWriter, r *http.Request, tenantID, userEmail string) error {
+	g, err := h.svc.TenantRevoke(r.Context(), tenantID, r.PathValue("id"), userEmail)
+	if err != nil {
+		return err
+	}
+	return h.writeJSON(w, http.StatusOK, g)
+}
+
 // --- plumbing ---
 
 var (
@@ -802,8 +819,14 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "unauthorized", http.StatusUnauthorized
 	case errors.Is(err, errForbiddenRole), errors.Is(err, ErrForbidden), errors.Is(err, ErrNotGrantee):
 		code, status = "forbidden", http.StatusForbidden
+	case errors.Is(err, ErrConsentSelfApproval):
+		// AUD-13 separation of duties: distinct from a plain RBAC/ABAC forbid so
+		// the console can explain WHY the approval was refused.
+		code, status = "separation_of_duties", http.StatusForbidden
 	case errors.Is(err, ErrNotConsented):
 		code, status = "breakglass_not_active", http.StatusForbidden
+	case errors.Is(err, errTenantAuditUnavailable):
+		code, status = "tenant_audit_unavailable", http.StatusServiceUnavailable
 	case errors.Is(err, ErrTenantIRKeyMissing):
 		// DPR-036: a deployment precondition the operator can fix (install
 		// the tenant's IR public key), not an internal failure — say so.

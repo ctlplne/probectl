@@ -132,6 +132,10 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if d.Silo != nil {
 		svc.WithSilo(d.Silo, d.SiloInvalidate)
 	}
+	// AUD-13 / G7-7: a tenant-side break-glass revoke is recorded on the
+	// tenant's own tamper-evident chain as well as the provider stream. The
+	// append runs inside the tenant's storage scope so RLS confines it.
+	svc.WithTenantAudit(providerTenantAudit{pool: d.Pool})
 	// DPR-035: a published tenant must carry admin/editor/viewer, or nobody can
 	// ever be granted access to it. Seeded inside the tenant's own scope so the
 	// storage layer, not this code, decides which store the rows land in.
@@ -230,6 +234,19 @@ func (a *providerAudit) AppendBreakGlassTx(
 		attribution,
 	)
 	return err
+}
+
+// providerTenantAudit appends a tenant-side break-glass revoke to the TENANT's
+// own audit chain (AUD-13 / G7-7). It runs audit.TenantAppend inside the
+// tenant's storage scope, so RLS confines the write to that tenant exactly as
+// every other tenant-owned write.
+type providerTenantAudit struct{ pool *pgxpool.Pool }
+
+func (a providerTenantAudit) AppendTenantAudit(ctx context.Context, tenantID, actor, action, target string, data map[string]any) error {
+	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := audit.TenantAppend(ctx, sc, actor, action, target, data)
+		return err
+	})
 }
 
 // latestResultsReader adapts the core latest-results read model.

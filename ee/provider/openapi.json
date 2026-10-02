@@ -423,6 +423,23 @@
         }
       }
     },
+    "/provider/v1/consent/{id}/revoke": {
+      "post": {
+        "summary": "Revoke a grant the tenant consented to (tenant session; tenant-first directory.write RBAC plus ABAC). AUD-13: the tenant can end an access it approved, not only the operator.",
+        "x-probectl-request-body": "none: the path identifies the grant; revocation takes no parameters",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "403": {
+            "description": "Forbidden by tenant RBAC or ABAC, or the grant belongs to another tenant"
+          },
+          "503": {
+            "description": "Tenant authorization policy or tenant audit stream is unavailable"
+          }
+        }
+      }
+    },
     "/provider/v1/usage": {
       "get": {
         "summary": "Per-tenant usage (showback): UsageRecords for [from,to) with rollup=hour|day (default day); counters sum, gauges peak. The agents and tests meters carry the tenant's quota and an over_quota flag (DPR-081)",

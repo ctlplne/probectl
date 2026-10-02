@@ -83,7 +83,27 @@ var (
 	// the second writer rather than letting it clobber the first (S-ae06d833).
 	ErrGrantDecided = errors.New("provider: break-glass grant was already decided by a concurrent request")
 	ErrForbidden    = errors.New("provider: forbidden")
+	// ErrConsentSelfApproval rejects a break-glass consent whose verified tenant
+	// identity is also a provider operator — the requesting operator themselves
+	// or any other (AUD-13 separation of duties). The operator who asks for
+	// access can never be the identity that approves it, even when they also
+	// hold a tenant-admin account. docs/guardrails.md G7-1.
+	ErrConsentSelfApproval = errors.New("provider: break-glass consent refused — the consenting tenant identity is a provider operator (separation of duties)")
+	// errTenantAuditUnavailable fails a tenant-side revoke CLOSED when the
+	// tenant's own audit stream cannot be reached: an unauditable security
+	// action is not allowed to happen (docs/guardrails.md G7-7).
+	errTenantAuditUnavailable = errors.New("provider: tenant audit stream is unavailable — the tenant-side revoke cannot be recorded")
 )
+
+// TenantAuditAppender writes to a TENANT's own tamper-evident audit chain
+// (docs/guardrails.md G7-7). The production implementation (provider.go) runs
+// audit.TenantAppend inside the tenant's storage scope; unit tests capture the
+// events in memory. A tenant-side break-glass revoke is recorded on BOTH this
+// tenant stream and the provider break-glass stream, so afterwards neither the
+// tenant nor the operator can deny the grant was ended.
+type TenantAuditAppender interface {
+	AppendTenantAudit(ctx context.Context, tenantID, actor, action, target string, data map[string]any) error
+}
 
 // SiloOps is the S-T2 isolation seam: provisioning/teardown of a tenant's
 // isolated stores plus residency validation. Implemented by silo.Provisioner;
@@ -123,6 +143,12 @@ type Service struct {
 	// seedRoles publishes the tenant's system roles at activation (DPR-035);
 	// nil in unit tests that never activate a tenant.
 	seedRoles func(ctx context.Context, tenantID string) error
+
+	// tenantAudit records a tenant-side break-glass revoke on the tenant's OWN
+	// audit chain, alongside the provider stream (AUD-13 / G7-7). nil only on a
+	// service built without it; TenantRevoke then fails closed so a revoke is
+	// never left unrecorded on the tenant side.
+	tenantAudit TenantAuditAppender
 }
 
 // NewService wires the provider service. envelope is required (TOTP secrets
@@ -161,6 +187,14 @@ func (s *Service) WithRoleSeeder(fn func(ctx context.Context, tenantID string) e
 func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
 	s.silo = ops
 	s.routerInvalidate = invalidate
+	return s
+}
+
+// WithTenantAudit installs the tenant-stream appender used by TenantRevoke so a
+// tenant-side break-glass revoke is recorded on the tenant's own chain as well
+// as the provider stream (AUD-13 / G7-7).
+func (s *Service) WithTenantAudit(a TenantAuditAppender) *Service {
+	s.tenantAudit = a
 	return s
 }
 
@@ -902,6 +936,20 @@ func (s *Service) Consent(ctx context.Context, tenantID, grantID, by string, app
 	if g.TenantID != tenantID {
 		return Grant{}, ErrForbidden // never confirm another tenant's grant exists
 	}
+	// Separation of duties (AUD-13 / G7-1): the operator who requested access —
+	// or ANY provider operator sharing this tenant identity — can never be the
+	// one who approves it, even holding a tenant-admin account. The check runs
+	// before the pending-state check so a self-approval is refused as a
+	// SoD violation rather than leaking the grant's lifecycle state.
+	if approve {
+		self, err := s.consentingIdentityIsProviderOperator(ctx, by, g.OperatorEmail)
+		if err != nil {
+			return Grant{}, err // fail closed on a roster-read failure
+		}
+		if self {
+			return Grant{}, ErrConsentSelfApproval
+		}
+	}
 	if g.State(s.now()) != GrantPending {
 		return Grant{}, validationError(fmt.Sprintf("provider: grant is %s, not pending", g.State(s.now())))
 	}
@@ -980,6 +1028,94 @@ func (s *Service) Revoke(ctx context.Context, actor, grantID string) (Grant, err
 		return Grant{}, err
 	}
 	return *g, nil
+}
+
+// TenantRevoke lets a TENANT admin end a break-glass grant for their OWN tenant
+// (AUD-13): before this, the only revoke route was operator-authenticated, so a
+// tenant that had consented could not stop the access it had granted. The grant
+// must belong to tenantID; the revoke is attributed to the consenting tenant
+// admin and recorded on BOTH the provider break-glass stream AND the tenant's
+// own audit chain (docs/guardrails.md G7-7). The provider-side transition is
+// the same storage-layer, fail-closed primitive the operator revoke uses, so a
+// racing use loses to it exactly as before.
+func (s *Service) TenantRevoke(ctx context.Context, tenantID, grantID, by string) (Grant, error) {
+	if s.tenantAudit == nil {
+		return Grant{}, errTenantAuditUnavailable
+	}
+	g, err := s.store.GetGrant(ctx, grantID)
+	if err != nil {
+		return Grant{}, err
+	}
+	if g.TenantID != tenantID {
+		return Grant{}, ErrForbidden // never confirm another tenant's grant exists
+	}
+	var out *Grant
+	err = s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
+		var err error
+		out, err = store.RevokeGrant(ctx, grantID, by, s.now())
+		if err != nil {
+			return err
+		}
+		return audit.AppendBreakGlass(
+			ctx,
+			by,
+			"provider.breakglass_revoke",
+			grantID,
+			map[string]any{"tenant": tenantID, "reason": out.Reason},
+			coreaudit.IRAttribution{
+				Operator: out.OperatorID,
+				TenantID: tenantID,
+				Grant:    grantID,
+				Surface:  "provider.breakglass.revoke",
+				Consent:  "revoked-by:" + by,
+				Outcome:  GrantRevoked,
+				Reason:   out.Reason,
+			},
+		)
+	})
+	if err != nil {
+		return Grant{}, tenantIRKeyError(tenantID, err)
+	}
+	// The provider revoke already took effect — the safe direction (access is
+	// gone) — so the tenant-chain record follows it. A failure here surfaces as
+	// an error without ever leaving the grant usable.
+	if err := s.tenantAudit.AppendTenantAudit(ctx, tenantID, by, "breakglass.revoke", grantID, map[string]any{
+		"operator":    out.OperatorEmail,
+		"operator_id": out.OperatorID,
+		"reason":      out.Reason,
+	}); err != nil {
+		return Grant{}, fmt.Errorf("provider: break-glass grant revoked, but recording it on the tenant audit stream failed: %w", err)
+	}
+	return *out, nil
+}
+
+// consentingIdentityIsProviderOperator reports whether the verified tenant
+// identity deciding a grant is itself a provider operator — the requesting
+// operator or any other (AUD-13 separation of duties). The grant persists the
+// requesting operator's verified email (Grant.OperatorEmail, the
+// provider_operators.email the storage layer joins on), so the requester is
+// caught even if the roster read is briefly unavailable.
+func (s *Service) consentingIdentityIsProviderOperator(ctx context.Context, by, requestingOperatorEmail string) (bool, error) {
+	if identityEqual(by, requestingOperatorEmail) {
+		return true, nil
+	}
+	ops, err := s.store.ListOperators(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, op := range ops {
+		if identityEqual(by, op.Email) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// identityEqual compares two verified identities case-insensitively after
+// trimming, treating empty as never-matching so two blanks can't collide.
+func identityEqual(a, b string) bool {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	return a != "" && strings.EqualFold(a, b)
 }
 
 // ListGrants returns all grants (operator console).

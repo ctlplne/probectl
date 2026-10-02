@@ -144,6 +144,11 @@ tenant-consented, operator-bound, and audited on every single access**:
    attributes. A policy/attribute-store failure denies the decision rather than
    treating it as an empty policy set. A tenant can only ever see and decide its
    *own* grants. This is the consent that makes the whole mechanism legitimate.
+   **Separation of duties (AUD-13):** an approval is refused (`403
+   separation_of_duties`) when the verified tenant identity deciding the grant
+   is itself a provider operator — the requesting operator, or any other — so an
+   operator who also holds a tenant-admin account can never approve their own
+   access.
 3. **Only an `active` grant unlocks the read** — meaning consented, unexpired, and
    unrevoked — and only for the operator who requested it. The surface today is
    the latest-results read model (`GET /provider/v1/breakglass/{id}/results`).
@@ -151,6 +156,14 @@ tenant-consented, operator-bound, and audited on every single access**:
    an access that cannot be audited is simply not allowed to happen. Revocation,
    denial, or expiry ends access immediately, and the grant's `use_count` shows
    exactly how many audited reads it carried.
+5. **The tenant can revoke what it consented to (AUD-13).** `POST
+   /provider/v1/consent/{id}/revoke`, authenticated by the **tenant** session
+   (the same `directory.write` tenant admin), ends an active or pending grant
+   for that tenant. It is recorded on **both** the provider break-glass stream
+   and the tenant's own tamper-evident audit chain, and fails closed if the
+   tenant side cannot be recorded. Operators keep their own revoke route (`POST
+   /provider/v1/breakglass/{id}/revoke`); neither side can silently keep an
+   access the other has ended.
 
 ## License degrade
 
