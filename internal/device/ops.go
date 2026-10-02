@@ -321,6 +321,11 @@ var configRedactRules = []struct {
 	// key-chain variant names a chain (not a secret; its key-string is redacted
 	// by the key-string rule), so at worst the `md5` keyword is over-masked.
 	{regexp.MustCompile(`(?i)\b((?:standby|vrrp|glbp)\s+\d+\s+authentication\s+(?:text\s+)?(?:\d+\s+)?)` + cfgVal), `${1}[redacted]`},
+	// Cisco DMVPN NHRP authentication: `ip nhrp authentication <key>` — a cleartext
+	// tunnel-authentication string carried in the running-config (weak by design,
+	// but still a credential). `ip ospf authentication <mode>` is NOT matched here:
+	// only `nhrp authentication` triggers, and that form always carries a key.
+	{regexp.MustCompile(`(?i)\b(nhrp\s+authentication\s+)` + cfgVal), `${1}[redacted]`},
 	// IPsec/ISAKMP: crypto isakmp key VALUE (address|hostname …) — key token only,
 	// so the trailing address/hostname structure is preserved.
 	{regexp.MustCompile(`(?i)\b(crypto\s+isakmp\s+key\s+)` + cfgVal), `${1}[redacted]`},

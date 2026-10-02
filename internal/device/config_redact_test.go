@@ -58,6 +58,7 @@ func TestRedactConfigVendorSecrets(t *testing.T) {
 		{"hsrp auth text type7", " standby 1 authentication text 7 09604F0B1A08", "09604F0B1A08", "standby 1 authentication"},
 		{"hsrp auth bare", " standby 1 authentication HsrpPlainPass", "HsrpPlainPass", "standby 1 authentication"},
 		{"vrrp auth text", " vrrp 1 authentication text VrrpTextPass", "VrrpTextPass", "vrrp 1 authentication"},
+		{"nhrp auth dmvpn", " ip nhrp authentication NhrpTunKey1", "NhrpTunKey1", "ip nhrp authentication"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
