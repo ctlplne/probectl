@@ -49,7 +49,12 @@ var (
 	telemetryEmailRE        = redactpat.Email
 	telemetryMACRE          = redactpat.MAC
 	telemetryURLRE          = redactpat.URL
-	telemetryPathIDRE       = regexp.MustCompile(`(?i)^(?:[0-9a-f]{16,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{6,})$`)
+	// AI-03: SSNs and payment card numbers are PII that must never appear
+	// verbatim in a persisted/exported support bundle, regardless of tenant
+	// policy — the same always-mask floor the credential shapes get.
+	telemetrySSNRE    = redactpat.SSN
+	telemetryPANRE    = redactpat.PAN
+	telemetryPathIDRE = regexp.MustCompile(`(?i)^(?:[0-9a-f]{16,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]{6,})$`)
 )
 
 // Redact masks one value of a category under a strategy. It is idempotent for
@@ -162,6 +167,11 @@ func RedactTelemetryText(pol Policy, value string) string {
 	out := redactpat.MaskSecrets(value, func(redactpat.SecretShape, string) string {
 		return telemetryRedacted
 	})
+	// SSN and PAN are an always-mask PII floor (AI-03): never exported verbatim,
+	// regardless of policy. Masked before the URL/email passes so a card or SSN
+	// embedded in a path or address is gone first.
+	out = telemetryPANRE.ReplaceAllString(out, telemetryRedacted)
+	out = telemetrySSNRE.ReplaceAllString(out, telemetryRedacted)
 	out = telemetryURLRE.ReplaceAllStringFunc(out, func(raw string) string {
 		return redactTelemetryURL(pol, raw)
 	})

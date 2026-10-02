@@ -33,23 +33,41 @@ import (
 // regardless of policy: there is no configuration under which a bearer token
 // or a private key should cross a boundary.
 var (
-	// Bearer matches an Authorization header value or a bare bearer token.
-	// The govern engine previously split this into two patterns and the AI
-	// engine into one; the union is what both now use. Group 1 is the
-	// scheme/header prefix, so a consumer that wants to keep the prefix
-	// visible can replace with "${1}"+placeholder, and one that wants the
-	// whole match gone can ignore the group.
-	Bearer = regexp.MustCompile(`(?i)\b((?:bearer|authorization:)\s+)[A-Za-z0-9._~+/=-]{8,}`)
+	// Bearer matches an Authorization/Proxy-Authorization header value or a bare
+	// bearer/basic token. The govern engine previously split this into two
+	// patterns and the AI engine into one; the union is what both now use.
+	// Group 1 is the scheme/header prefix, so a consumer that wants to keep the
+	// prefix visible can replace with "${1}"+placeholder, and one that wants the
+	// whole match gone can ignore the group. "Basic" credentials (base64
+	// user:pass) were previously not recognized at all (AI-03).
+	Bearer = regexp.MustCompile(`(?i)\b((?:bearer|basic)\s+|(?:proxy-)?authorization\s*:\s*(?:bearer\s+|basic\s+)?)[A-Za-z0-9._~+/=-]{8,}`)
 
-	// CredentialKV matches key=value / key: value credentials. The value class
-	// excludes quotes and ampersands so redacting a JSON-rendered payload or a
-	// query string never eats a structural character and corrupts the
-	// document — a property the AI engine had and the govern engine encoded
-	// separately; both now inherit it.
-	CredentialKV = regexp.MustCompile(`(?i)\b((?:api[_\-.]?key|access[_\-.]?key|secret|token|password|passwd|pwd)\s*[=:]\s*)[^\s"'&]+`)
+	// CredentialKV matches key=value / key: value credentials. AI-03 widened it
+	// three ways from the original (which required the key to START at a word
+	// boundary and had a short key list): an OPTIONAL identifier prefix absorbs
+	// snake_case / SCREAMING_CASE / PG-style env keys (db_password, PGPASSWORD,
+	// AWS_SECRET_ACCESS_KEY) that previously failed the leading \b; the key list
+	// covers the common credential nouns; and an optional wrapping quote plus a
+	// quoted-value branch mask JSON-rendered secrets ({"password":"..."}) whole.
+	// The unquoted value class still excludes quotes and ampersands so redacting
+	// a query string never eats a structural character. Group 1 (key + optional
+	// quote + separator) is preserved; the value is replaced.
+	CredentialKV = regexp.MustCompile(`(?i)\b([A-Za-z0-9_.\-]*(?:secret[_\-.]?access[_\-.]?key|secret[_\-.]?key|client[_\-.]?secret|private[_\-.]?key|access[_\-.]?key|api[_\-.]?key|auth[_\-.]?token|password|passwd|pwd|session[_\-.]?id|secret|token|community|session|sid)["']?\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s"'&]+)`)
 
-	// AWSAccessKeyID matches an AKIA-prefixed access key id.
-	AWSAccessKeyID = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
+	// AWSAccessKeyID matches an AKIA/ASIA-prefixed access key id (long-term and
+	// temporary session credentials).
+	AWSAccessKeyID = regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)
+
+	// ProviderToken matches the distinctive prefixes of common cloud/SaaS API
+	// tokens that carry no key=value framing in free text (AI-03): OpenAI,
+	// GitHub, Slack, GitLab, Google, npm, DigitalOcean, Stripe. These are always
+	// secrets regardless of surrounding context.
+	ProviderToken = regexp.MustCompile(`(?i)\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|glpat-[A-Za-z0-9_-]{16,}|AIza[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|dop_v1_[a-f0-9]{32,}|[sprk]k_(?:live|test)_[A-Za-z0-9]{10,})\b`)
+
+	// JWT matches a three-part JSON Web Token (header.payload.signature); the
+	// first two parts base64url-encode a JSON object, so both begin "eyJ".
+	// A JWT is a bearer credential and session cookies routinely carry one.
+	JWT = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
 
 	// PEMBlock matches a whole PEM-armored block (private keys, certificates).
 	PEMBlock = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]+-----[\s\S]*?-----END [A-Z0-9 ]+-----`)
@@ -62,8 +80,9 @@ var (
 	// consumed as part of the address rather than masked separately.
 	Email = regexp.MustCompile(`\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`)
 
-	// MAC matches colon- or dash-separated hardware addresses.
-	MAC = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
+	// MAC matches colon-, dash-, or dot-separated hardware addresses. The dotted
+	// Cisco "vendor" form (001a.2b3c.4d5e) was previously unrecognized (AI-03).
+	MAC = regexp.MustCompile(`\b(?:(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|(?:[0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4})\b`)
 
 	// IPv4 optionally carries a CIDR suffix so a prefix is masked whole.
 	IPv4 = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b`)
@@ -74,8 +93,27 @@ var (
 	// and wrong.
 	IPv6Candidate = regexp.MustCompile(`(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(?:%[0-9a-zA-Z]+)?(?:/\d{1,3})?|::[fF]{4}:(?:\d{1,3}\.){3}\d{1,3}`)
 
-	// Hostname matches dotted DNS names. Applied after Email.
-	Hostname = regexp.MustCompile(`\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,})\b`)
+	// Hostname matches dotted DNS names, CASE-INSENSITIVELY (AI-03: upper- and
+	// mixed-case FQDNs such as DB01.CORP.ACME.COM previously survived). Applied
+	// after Email.
+	Hostname = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,})\b`)
+
+	// Single-label (dot-less) host names are DELIBERATELY not recognized here.
+	// A hyphenated single label (payroll-sql01) is structurally identical to the
+	// operational identifiers probectl keeps for correlation — incident ids
+	// (INC-4412), AP names (wifi-ap-7) — and masking one masks the other. The
+	// egress boundary is the FQDN (an internal dotted name is a service-inventory
+	// disclosure); a bare label is kept so RCA stays useful, a decision enforced
+	// by internal/ai's TestRedactFreeTextPIIRealisticTelemetry (AI-03).
+
+	// SSN matches a US Social Security number (AI-03). PII; masked on the egress
+	// path and treated as always-redact on the governance/support path.
+	SSN = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
+
+	// PAN matches a payment card number for the major networks (Visa, Mastercard
+	// incl. 2-series, Amex, Discover), with optional space/dash grouping (AI-03).
+	// The leading-digit prefixes keep it off arbitrary long digit runs; it is PII.
+	PAN = regexp.MustCompile(`\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2})|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720))(?:[ -]?\d{4}){2}[ -]?\d{1,4}\b`)
 
 	// URL matches an absolute http(s) URL, which may embed credentials, hosts
 	// and identifiers all at once.
@@ -108,6 +146,8 @@ func Secrets() []SecretShape {
 	return []SecretShape{
 		{Name: "pem_block", Pattern: PEMBlock},
 		{Name: "bearer", Pattern: Bearer, KeepPrefix: true},
+		{Name: "provider_token", Pattern: ProviderToken},
+		{Name: "jwt", Pattern: JWT},
 		{Name: "credential_kv", Pattern: CredentialKV, KeepPrefix: true},
 		{Name: "aws_access_key_id", Pattern: AWSAccessKeyID},
 	}

@@ -80,6 +80,11 @@ var (
 	reEmail = redactpat.Email
 	rePhone = regexp.MustCompile(`\+\d{1,3}[ .-]?\(?\d{1,4}\)?(?:[ .-]\d{2,4}){1,3}\b|\(\d{3}\)\s?\d{3}[-.]\d{4}\b|\b\d{3}[-.]\d{3}[-.]\d{4}\b`)
 	reMAC   = redactpat.MAC
+	// AI-03: payment cards and SSNs are PII that must not leave to a remote
+	// model. PAN runs before the phone pass so a card's digit groups are not
+	// half-eaten by a separator-structured phone shape.
+	rePAN = redactpat.PAN
+	reSSN = redactpat.SSN
 )
 
 var processRedactionKey = mustProcessRedactionKey()
@@ -116,9 +121,12 @@ func redactTextForTenant(s string, pol RedactionPolicy, tenantID string) string 
 	}
 	if pol.MaskPII {
 		// Email first (its domain must not survive into the hostname pass);
-		// MAC before phone (a '-'-separated MAC must not half-match a
-		// separator-structured phone shape).
+		// PAN and SSN before MAC/phone so their digit groups are consumed whole
+		// and not half-matched by a separator-structured phone shape; MAC before
+		// phone (a '-'-separated MAC must not half-match a phone shape).
 		s = reEmail.ReplaceAllStringFunc(s, func(m string) string { return mask("email", m, pol, tenantID) })
+		s = rePAN.ReplaceAllStringFunc(s, func(m string) string { return mask("pan", m, pol, tenantID) })
+		s = reSSN.ReplaceAllStringFunc(s, func(m string) string { return mask("ssn", m, pol, tenantID) })
 		s = reMAC.ReplaceAllStringFunc(s, func(m string) string { return mask("mac", m, pol, tenantID) })
 		s = rePhone.ReplaceAllStringFunc(s, func(m string) string { return mask("phone", m, pol, tenantID) })
 	}

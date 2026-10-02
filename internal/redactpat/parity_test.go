@@ -74,6 +74,14 @@ var secretCorpus = map[string]sample{
 		text:   "exporter env api_key=AKxyzSECRET9val and password: hunter22seven set",
 		secret: "AKxyzSECRET9val",
 	},
+	"provider_token": {
+		text:   "deploy cloned with ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789 ok",
+		secret: "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789",
+	},
+	"jwt": {
+		text:   "session eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c set",
+		secret: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+	},
 	"aws_access_key_id": {
 		text:   "cloud importer used AKIAIOSFODNN7EXAMPLE for the metric pull",
 		secret: "AKIAIOSFODNN7EXAMPLE",
@@ -131,6 +139,24 @@ var identifierCorpus = map[string]sample{
 		text:   "edge 2001:db8::1 stopped responding to probes",
 		secret: "2001:db8::1",
 	},
+	// AI-03: the dotted Cisco MAC form. Like the colon form, governance treats a
+	// hardware address as Confidential (below its PII floor), so recognition is
+	// asserted at the policy that covers Confidential.
+	"mac_dotted": {
+		text:         "cisco neighbor 001a.2b3c.4d5e learned on gi0/1",
+		secret:       "001a.2b3c.4d5e",
+		governPolicy: &govern.Policy{RedactFrom: govern.ClassConfidential},
+	},
+	// AI-03: SSN and PAN are an always-mask PII floor on BOTH paths — neither
+	// leaves to a remote model nor persists verbatim in a support bundle.
+	"ssn": {
+		text:   "employee record ssn 123-45-6789 flagged for review",
+		secret: "123-45-6789",
+	},
+	"pan": {
+		text:   "gateway declined card 4111 1111 1111 1111 on retry",
+		secret: "4111 1111 1111 1111",
+	},
 }
 
 func TestIdentifiersMaskedByBothEngines(t *testing.T) {
@@ -138,6 +164,83 @@ func TestIdentifiersMaskedByBothEngines(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			assertMaskedByBoth(t, s)
 		})
+	}
+}
+
+// egressHardeningCorpus is the AI-03 widening: credential and token shapes that
+// the original narrow patterns let through — Basic auth, snake_case/SCREAMING
+// env credentials, JSON-quoted secrets, SNMP community strings, session cookies,
+// and bare provider tokens. All are always-mask secret shapes, so BOTH engines
+// must strip them (the governance path masks them before persistence just as the
+// egress path masks them before a remote model sees them).
+var egressHardeningCorpus = map[string]sample{
+	"basic_auth_header": {
+		text:   "collector sent authorization: Basic dXNlcjpodW50ZXIy to the gateway",
+		secret: "dXNlcjpodW50ZXIy",
+	},
+	"aws_env_lowercase": {
+		text:   "startup read aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY from env",
+		secret: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+	},
+	"aws_env_screaming": {
+		text:   "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY exported to the pod",
+		secret: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+	},
+	"db_password_env": {
+		text:   "dsn builder used db_password=hunter2hunter2 for the pool",
+		secret: "hunter2hunter2",
+	},
+	"pg_password_env": {
+		text:   "libpq picked up PGPASSWORD=hunter2hunter2 from the environment",
+		secret: "hunter2hunter2",
+	},
+	"json_quoted_password": {
+		text:   `config {"password":"Tr0ub4dor&3"} was rejected by the validator`,
+		secret: "Tr0ub4dor&3",
+	},
+	"json_quoted_token": {
+		text:   `webhook body {"token": "ghs_16C7e42F292c6912E7710c838347Ae178B4a"} logged`,
+		secret: "ghs_16C7e42F292c6912E7710c838347Ae178B4a",
+	},
+	"snmp_community": {
+		text:   "poller snmp community=Pr1vateC0mm timed out on the device",
+		secret: "Pr1vateC0mm",
+	},
+	"cookie_session": {
+		text:   "request carried Cookie: session=7f9c2ba4e88f827d616045507605853e inbound",
+		secret: "7f9c2ba4e88f827d616045507605853e",
+	},
+}
+
+func TestEgressHardeningCorpusMaskedByBoth(t *testing.T) {
+	for name, s := range egressHardeningCorpus {
+		t.Run(name, func(t *testing.T) {
+			assertMaskedByBoth(t, s)
+		})
+	}
+}
+
+// TestAIEgressMasksUpperAndMixedCaseFQDNs covers the host-shape half of AI-03:
+// the dotted-name pattern is now case-insensitive, so upper- and mixed-case
+// FQDNs no longer leak to a remote model. This is the egress boundary's
+// responsibility (an internal dotted name is a service-inventory disclosure);
+// the governance path leaves bare hostnames to its column-level strategy, as
+// TestParityDivergesOnlyWhereTheBoundaryDiffers records, so it is asserted on
+// the AI path only.
+//
+// Single-label (dot-less) names are DELIBERATELY not masked: a hyphenated bare
+// label (payroll-sql01) is indistinguishable from the operational identifiers
+// probectl keeps for correlation — incident ids, AP names — and
+// TestRedactFreeTextPIIRealisticTelemetry (internal/ai) enforces that those
+// survive. Masking the FQDN is the boundary; a bare label stays so RCA is useful.
+func TestAIEgressMasksUpperAndMixedCaseFQDNs(t *testing.T) {
+	for _, c := range []struct{ text, host string }{
+		{"node DB01.CORP.ACME.COM unreachable", "DB01.CORP.ACME.COM"},
+		{"link Core-Rtr-01.NYC.Acme.net flapping", "Core-Rtr-01.NYC.Acme.net"},
+	} {
+		if got := redactAI(c.text); strings.Contains(got, c.host) {
+			t.Errorf("AI egress path leaked FQDN %q\n  in:  %q\n  out: %q", c.host, c.text, got)
+		}
 	}
 }
 
