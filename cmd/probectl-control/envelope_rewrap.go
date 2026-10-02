@@ -109,6 +109,11 @@ func collectEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB
 		return receipt, err
 	}
 	alertTotal := store.EnvelopeRewrapStats{Store: "alert_rules.channels"}
+	// PLAT-04: tenant_idp.client_secret_sealed is sealed with the same
+	// deployment envelope, so it must be in the rewrap set too — otherwise a
+	// retired key stays live for every tenant's SSO secret while verify reports
+	// success. Both per-tenant stores are walked in the SAME tenant scope.
+	idpTotal := store.EnvelopeRewrapStats{Store: "tenant_idp.client_secret_sealed"}
 	for _, tn := range tenants {
 		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tn.ID)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 			stats, err := (store.AlertRules{}).RewrapEnvelopeSecrets(ctx, sc, activeKeyID, fromKeyID, dryRun, verifyOpen)
@@ -116,6 +121,11 @@ func collectEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB
 				return err
 			}
 			alertTotal.Add(stats)
+			idpStats, err := (store.TenantIDPs{}).RewrapEnvelopeSecrets(ctx, sc, activeKeyID, fromKeyID, dryRun, verifyOpen)
+			if err != nil {
+				return err
+			}
+			idpTotal.Add(idpStats)
 			return nil
 		}); err != nil {
 			return receipt, err
@@ -123,6 +133,8 @@ func collectEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB
 	}
 	receipt.Stores = append(receipt.Stores, alertTotal)
 	receipt.Total.Add(alertTotal)
+	receipt.Stores = append(receipt.Stores, idpTotal)
+	receipt.Total.Add(idpTotal)
 
 	agentStats, err := enroll.RewrapAgentCA(ctx, db.Pool(), activeKeyID, fromKeyID, dryRun, verifyOpen)
 	if err != nil {
