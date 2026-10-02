@@ -40,6 +40,9 @@ func runPreflight(args []string) error {
 	var findings []preflight.Finding
 	keyConfigured := cfg.EnvelopeKey != "" || cfg.EnvelopeKeyFile != ""
 	findings = append(findings, preflight.CheckEnvelopeKey(keyConfigured, cfg.RequireAtRestEncryption, cfg.AllowKeylessDev))
+	// PLAT-01/RTO-04: fail --strict when any telemetry plane is memory-backed and
+	// the volatility has not been explicitly acknowledged.
+	findings = append(findings, preflight.CheckVolatileStores(cfg.VolatileStores(), cfg.VolatileAcknowledged()))
 
 	attested := strings.EqualFold(os.Getenv("PROBECTL_STORAGE_ENCRYPTION_ATTESTED"), "true")
 	mounts, merr := preflight.ReadSelfMounts()

@@ -522,6 +522,38 @@ address is the host, so two definitions against one host need the id to stay
 separate series). The
 canonical signal→OTel mapping is in [`otel-mapping.md`](otel-mapping.md).
 
+### Volatile stores lose all telemetry on restart (PLAT-01/RTO-04)
+
+The `memory` modes above — the shipped defaults for the bus, the TSDB and every
+telemetry store (`PROBECTL_PATHSTORE_MODE`, `PROBECTL_FLOWSTORE_MODE`,
+`PROBECTL_OTELSTORE_MODE`, `PROBECTL_EBPFSTORE_MODE`,
+`PROBECTL_ENDPOINTSTORE_MODE`) — keep their data in process memory only. **Every
+synthetic result, metric series, path, flow, OTLP trace/log, eBPF edge and
+endpoint event is erased on any restart, upgrade, OOM or node drain**, and
+alerts then evaluate only data since the last restart. The default single-binary
+install runs this way so a cold start needs zero external dependencies; it is a
+**development/test posture, not a durable one**.
+
+The control plane never runs volatile silently:
+
+- it logs a `WARN` at boot naming every memory-backed plane;
+- `/readyz` lists them under `volatile_stores` (the node stays ready — the
+  request path is up);
+- `/v1/diagnostics` reports **degraded** with the named finding
+  `readiness.volatile_stores`;
+- `probectl-control preflight --strict` exits non-zero.
+
+For any deployment whose history must survive, configure durable modes: a `nats`
+(JetStream) or `kafka` bus, `prometheus` TSDB, and ClickHouse-backed stores.
+Production-like profiles (`PROBECTL_DEPLOYMENT_PROFILE` other than `single`)
+**refuse** memory modes outright. To run volatile deliberately on a dev/test
+single-binary deployment and mark the data-loss behavior as understood — which
+downgrades the diagnostics finding and lets `preflight --strict` pass — set:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PROBECTL_ALLOW_VOLATILE` | (none) | Set to `i-understand-data-is-not-durable` to acknowledge that this deployment keeps telemetry in volatile memory and loses it on restart. Acknowledgment never makes storage durable and the boot `WARN` still fires; it only records that the tradeoff was a deliberate dev/test choice. Ignored by production-like profiles, which refuse memory modes. |
+
 ### ICMP test
 
 The `icmp` canary measures echo **loss, latency, and jitter** to a `target`

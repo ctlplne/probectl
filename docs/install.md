@@ -171,6 +171,22 @@ encryption.
 Tear down with `docker compose -f deploy/compose/probectl.yml down` (add `-v` to
 also drop the database and certs).
 
+> **⚠ Telemetry is volatile by default — it is lost on every restart.** The
+> shipped Compose stack runs the bus, TSDB and every telemetry store in process
+> **memory** (`PROBECTL_BUS_MODE`/`PROBECTL_TSDB_MODE`/`*_STORE_MODE` default to
+> `memory`), so a `docker compose restart`, upgrade, OOM or host reboot erases
+> **all** synthetic results, metrics, paths, flows, OTLP traces/logs, eBPF edges
+> and endpoint events. Postgres-backed state (tenants, tokens, config) survives;
+> telemetry history does not. This is a zero-dependency quickstart posture, not a
+> durable one — the control plane logs a boot `WARN`, `/readyz` reports
+> `volatile_stores`, `/v1/diagnostics` is `degraded`, and
+> `probectl-control preflight --strict` exits non-zero until you either configure
+> durable stores (a `nats`/`kafka` bus, `prometheus` TSDB and ClickHouse stores —
+> see [`configuration.md`](configuration.md)) or set
+> `PROBECTL_ALLOW_VOLATILE=i-understand-data-is-not-durable` to acknowledge the
+> tradeoff. Production-like `PROBECTL_DEPLOYMENT_PROFILE`s refuse memory modes
+> outright.
+
 ## Option B — Kubernetes (Helm)
 
 The chart in [`deploy/helm/probectl`](../deploy/helm/probectl) serves TLS on the

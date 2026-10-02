@@ -427,6 +427,14 @@ type Config struct {
 	EndpointStoreMode     string
 	EndpointStoreURL      string
 	EndpointRetentionDays int
+	// AllowVolatile (PLAT-01/RTO-04) is the operator's explicit acknowledgment
+	// that this deployment keeps telemetry in volatile process memory and loses
+	// it on restart. Memory-mode stores stay LOUD regardless (boot WARN,
+	// /readyz, /v1/diagnostics, preflight) — this only distinguishes a
+	// deliberate dev/test choice (set to VolatileAckPhrase) from an operator who
+	// has not been told. It never makes a production-like profile durable; those
+	// profiles refuse memory modes outright (volatileProductionModes).
+	AllowVolatile string
 	// PathRetentionDays bounds the path/traceroute tables (SCALE-006).
 	PathRetentionDays int
 	// DerivedIdentityRetentionDays bounds topology/endpoint identity labels
@@ -960,6 +968,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.EndpointStoreMode = l.enum("PROBECTL_ENDPOINTSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.EndpointStoreURL = l.str("PROBECTL_ENDPOINTSTORE_URL", "")
 	cfg.EndpointRetentionDays = l.intRange("PROBECTL_ENDPOINT_RETENTION_DAYS", 90, 0, 3650)
+	cfg.AllowVolatile = l.str("PROBECTL_ALLOW_VOLATILE", "")
 	// SCALE-016: finite flow retention by default; 0 remains explicit keep-forever.
 	cfg.FlowRetentionDays = l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 90, 0, 3650)
 	cfg.PathRetentionDays = l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650)
@@ -1508,33 +1517,52 @@ func isLoopbackHostname(host string) bool {
 	return false
 }
 
+// VolatileAckPhrase is the exact operator acknowledgment (PROBECTL_ALLOW_VOLATILE)
+// that marks a memory-backed deployment as a deliberate dev/test choice. It
+// never makes storage durable — it only tells the operator-facing surfaces that
+// the volatility is understood. Any production-like profile still refuses memory
+// modes outright (volatileProductionModes).
+const VolatileAckPhrase = "i-understand-data-is-not-durable"
+
+// VolatileStores returns the memory-backed telemetry planes for this config,
+// REGARDLESS of deployment profile — every plane whose data lives only in RAM
+// and is erased on any restart/upgrade/OOM/node-drain. It is the single source
+// of truth for the boot WARN, /readyz, /v1/diagnostics and preflight
+// (PLAT-01/RTO-04). Empty means every plane is durable.
+func (c *Config) VolatileStores() []string {
+	var volatile []string
+	for _, m := range []struct{ env, mode string }{
+		{"PROBECTL_BUS_MODE", c.BusMode},
+		{"PROBECTL_TSDB_MODE", c.TSDBMode},
+		{"PROBECTL_PATHSTORE_MODE", c.PathStoreMode},
+		{"PROBECTL_FLOWSTORE_MODE", c.FlowStoreMode},
+		{"PROBECTL_OTELSTORE_MODE", c.OTelStoreMode},
+		{"PROBECTL_EBPFSTORE_MODE", c.EBPFStoreMode},
+		{"PROBECTL_ENDPOINTSTORE_MODE", c.EndpointStoreMode},
+	} {
+		if m.mode == "memory" {
+			volatile = append(volatile, m.env+"=memory")
+		}
+	}
+	return volatile
+}
+
+// VolatileAcknowledged reports whether the operator explicitly accepted running
+// on volatile stores via PROBECTL_ALLOW_VOLATILE=VolatileAckPhrase.
+func (c *Config) VolatileAcknowledged() bool {
+	return strings.TrimSpace(c.AllowVolatile) == VolatileAckPhrase
+}
+
+// volatileProductionModes is the HARD gate: production-like profiles refuse
+// memory modes at config load (the deployment would silently lose all telemetry
+// per restart). The default "single" profile is allowed to run volatile — it is
+// the dev/sovereign quickstart — but never silently: VolatileStores drives the
+// loud operator-facing surfaces instead.
 func volatileProductionModes(c *Config) []string {
 	if c.DeploymentProfile == "single" {
 		return nil
 	}
-	var volatile []string
-	if c.BusMode == "memory" {
-		volatile = append(volatile, "PROBECTL_BUS_MODE=memory")
-	}
-	if c.TSDBMode == "memory" {
-		volatile = append(volatile, "PROBECTL_TSDB_MODE=memory")
-	}
-	if c.PathStoreMode == "memory" {
-		volatile = append(volatile, "PROBECTL_PATHSTORE_MODE=memory")
-	}
-	if c.FlowStoreMode == "memory" {
-		volatile = append(volatile, "PROBECTL_FLOWSTORE_MODE=memory")
-	}
-	if c.OTelStoreMode == "memory" {
-		volatile = append(volatile, "PROBECTL_OTELSTORE_MODE=memory")
-	}
-	if c.EBPFStoreMode == "memory" {
-		volatile = append(volatile, "PROBECTL_EBPFSTORE_MODE=memory")
-	}
-	if c.EndpointStoreMode == "memory" {
-		volatile = append(volatile, "PROBECTL_ENDPOINTSTORE_MODE=memory")
-	}
-	return volatile
+	return c.VolatileStores()
 }
 
 func productionSessionCookiesEnabled(c *Config) bool {

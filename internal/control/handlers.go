@@ -65,6 +65,14 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) error {
 	if cs := s.clusterStatus(); cs != nil {
 		body["cluster"] = cs
 	}
+	// PLAT-01/RTO-04: the node stays READY (reads/writes work) but surfaces any
+	// memory-backed telemetry planes so an operator or automation sees that the
+	// deployment loses history on restart. Durable deployments omit the field.
+	if s.cfg != nil {
+		if volatile := s.cfg.VolatileStores(); len(volatile) > 0 {
+			body["volatile_stores"] = volatile
+		}
+	}
 	writeJSON(w, http.StatusOK, body)
 	return nil
 }

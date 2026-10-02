@@ -204,6 +204,23 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		closeAll()
 		return nil, nil, err
 	}
+	// PLAT-01/RTO-04: memory-backed planes keep all telemetry in RAM and lose it
+	// on any restart/upgrade/OOM/node-drain. Production-like profiles already
+	// refuse this at config load; the default "single" profile is allowed to run
+	// volatile but must never do so SILENTLY. Warn loudly at boot naming every
+	// volatile plane (the same list drives /readyz, /v1/diagnostics and
+	// preflight). An explicit PROBECTL_ALLOW_VOLATILE acknowledgment is still
+	// warned — it only records that the data-loss behavior was understood.
+	if volatile := cfg.VolatileStores(); len(volatile) > 0 {
+		msg := "VOLATILE TELEMETRY STORES: " + strings.Join(volatile, ", ") +
+			" — every synthetic result, metric, path, flow, OTLP trace/log, eBPF edge and endpoint event lives ONLY in memory and is ERASED on any restart, upgrade, OOM or node drain. " +
+			"Configure durable modes (NATS/Kafka bus; Prometheus/VictoriaMetrics TSDB; ClickHouse stores) for any deployment whose history must survive — see docs/install.md."
+		if cfg.VolatileAcknowledged() {
+			log.Warn(msg + " (acknowledged via PROBECTL_ALLOW_VOLATILE)")
+		} else {
+			log.Warn(msg + " Acknowledge a deliberate dev/test choice with PROBECTL_ALLOW_VOLATILE=" + config.VolatileAckPhrase + ".")
+		}
+	}
 	tsdbAuth, err := datastoreBasicAuthFactory(cfg.TSDBMode == "prometheus", cfg.TSDBBasicAuthFile)
 	if err != nil {
 		return fail(fmt.Errorf("tsdb credentials: %w", err))

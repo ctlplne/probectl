@@ -127,6 +127,23 @@ func CheckEnvelopeKey(keyConfigured bool, required bool, allowKeylessDev bool) F
 	}
 }
 
+// CheckVolatileStores reports the telemetry-durability posture (PLAT-01/RTO-04).
+// Memory-backed planes lose all results/metrics/flows/traces on any restart.
+// Without an explicit acknowledgment this is a Warn, so `preflight --strict`
+// exits non-zero (regulated profiles and CI gate on it); an acknowledged
+// dev/test deployment downgrades to Info (still visible, exit 0). All-durable
+// is OK.
+func CheckVolatileStores(volatilePlanes []string, acknowledged bool) Finding {
+	if len(volatilePlanes) == 0 {
+		return Finding{Check: "volatile-stores", Severity: OK, Detail: "all telemetry planes are durable (survive restart)"}
+	}
+	planes := strings.Join(volatilePlanes, ", ")
+	if acknowledged {
+		return Finding{Check: "volatile-stores", Severity: Info, Detail: "volatile stores acknowledged (PROBECTL_ALLOW_VOLATILE): " + planes + " — data is NOT durable across restart"}
+	}
+	return Finding{Check: "volatile-stores", Severity: Warn, Detail: "telemetry stored only in memory: " + planes + " — ALL results/metrics/flows/traces are lost on any restart/upgrade/OOM/node-drain. Configure durable modes (docs/install.md) or acknowledge with PROBECTL_ALLOW_VOLATILE"}
+}
+
 // ReadSelfMounts loads /proc/self/mounts ("" with an error elsewhere — the
 // caller degrades to a warning, never a crash).
 func ReadSelfMounts() (string, error) {
