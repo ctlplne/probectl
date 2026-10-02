@@ -82,7 +82,13 @@ func TestDistrolessControlImageCommandsNeedNoShell(t *testing.T) {
 	if certgenStart < 0 || controlStart <= certgenStart {
 		t.Fatal("deploy/compose/probectl.yml must contain certgen followed by control")
 	}
-	certgen := compose[certgenStart:controlStart]
+	// Scope to the certgen SERVICE block only — it ends at the next top-level
+	// (2-space-indented) service key, NOT at `control`. TEN-01 placed the
+	// migrate and pg-appuser one-shots between certgen and control, and
+	// pg-appuser legitimately uses a shell entrypoint because it runs the
+	// non-distroless postgres image. This contract is about certgen, which runs
+	// the distroless control image and must not override its entrypoint.
+	certgen := certgenServiceBlock(compose[certgenStart+1:])
 	if strings.Contains(certgen, "/bin/sh") || strings.Contains(certgen, "entrypoint:") {
 		t.Fatal("Compose certgen uses the distroless control image, so it cannot override the image entrypoint with a shell")
 	}
@@ -111,6 +117,30 @@ func TestDistrolessControlImageCommandsNeedNoShell(t *testing.T) {
 			}
 		}
 	}
+}
+
+// certgenServiceBlock returns the YAML of the certgen service only. s must
+// begin at the "  certgen:" header line; the block ends at the next top-level
+// (2-space-indented) line — the following service or the comment that
+// introduces it — so sibling services are never folded in.
+func certgenServiceBlock(s string) string {
+	lines := strings.Split(s, "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 && isComposeTopLevelLine(line) {
+			break
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// isComposeTopLevelLine reports whether line sits at exactly 2 spaces of indent
+// and is not blank — i.e. a service key or an inter-service comment under the
+// compose `services:` map.
+func isComposeTopLevelLine(line string) bool {
+	return strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") && strings.TrimSpace(line) != ""
 }
 
 // backupBadFlags are the flags backup.go does NOT define. Their appearance next
