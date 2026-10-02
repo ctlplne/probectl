@@ -109,6 +109,15 @@ func newMockIDP(t *testing.T, clientID string) *mockIDP {
 	idp.srv = httptest.NewServer(mux)
 	idp.issuer = idp.srv.URL
 	t.Cleanup(idp.srv.Close)
+
+	// The mock IdP binds to loopback (httptest), which the production SSRF guard
+	// (INJ-04) refuses at dial time. For these behavioral tests, point OIDC
+	// discovery/exchange at the loopback-capable — but still certificate-hardened
+	// and redirect-guarded — client; the SSRF dial guard itself is exercised by
+	// the dedicated tests in oidc_ssrf_test.go.
+	prev := discoveryHTTPClient
+	discoveryHTTPClient = func() *http.Client { return crypto.HardenedHTTPClient(oidcDiscoveryTimeout) }
+	t.Cleanup(func() { discoveryHTTPClient = prev })
 	return idp
 }
 

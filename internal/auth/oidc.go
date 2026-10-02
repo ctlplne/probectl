@@ -9,13 +9,33 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
+
+// oidcDiscoveryTimeout bounds each outbound IdP round-trip (the discovery
+// document fetch, the JWKS fetch, and the token exchange).
+const oidcDiscoveryTimeout = 20 * time.Second
+
+// discoveryHTTPClient builds the HTTP client used for every outbound call to a
+// tenant-configured IdP. The issuer URL is tenant-controlled and the discovery
+// document's token_endpoint/jwks_uri are IdP-returned, so this fetched content
+// is untrusted (docs/guardrails.md G7-10): the default is the SSRF-guarded,
+// certificate-hardened client from internal/crypto. Its dialer refuses a
+// connection whose RESOLVED address is loopback/link-local/metadata/RFC1918/ULA/
+// CGNAT/unspecified/multicast BEFORE the socket opens and re-checks every
+// redirect hop over the hardened TLS policy, so a tenant-set issuer that
+// resolves into reserved space cannot drive the control plane into SSRF (INJ-04;
+// missing/forbidden target → fail closed, docs/guardrails.md G7-12). It is a
+// package var only so a test can point discovery at a loopback mock IdP;
+// production never reassigns it.
+var discoveryHTTPClient = func() *http.Client { return crypto.GuardedHTTPClient(oidcDiscoveryTimeout) }
 
 // OIDCConfig configures one tenant's OIDC identity provider.
 type OIDCConfig struct {
@@ -37,6 +57,11 @@ type oidcProvider struct {
 // NewOIDCProvider discovers the IdP metadata and builds a provider. It touches the
 // network at construction (fetching the discovery document + JWKS).
 func NewOIDCProvider(ctx context.Context, c OIDCConfig) (Provider, error) {
+	// INJ-04: the issuer is tenant-controlled, so discovery must run through the
+	// SSRF-guarded, certificate-hardened client — not http.DefaultClient — or an
+	// issuer that resolves to a private/loopback/link-local/metadata address would
+	// let the control plane be driven into SSRF (docs/guardrails.md G7-10, G7-12).
+	ctx = oidc.ClientContext(ctx, discoveryHTTPClient())
 	idp, err := oidc.NewProvider(ctx, c.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: discover issuer %q: %w", c.Issuer, err)
@@ -74,6 +99,11 @@ func (p *oidcProvider) Exchange(ctx context.Context, code, codeVerifier string) 
 	if codeVerifier == "" {
 		return nil, fmt.Errorf("oidc: PKCE code verifier is required")
 	}
+	// INJ-04: the token and JWKS endpoints are taken from the (untrusted) discovery
+	// document, so the code exchange and ID-token verification use the same
+	// SSRF-guarded client as discovery (oidc.ClientContext sets the oauth2 HTTP
+	// client, which both the token exchange and the verifier's JWKS fetch read).
+	ctx = oidc.ClientContext(ctx, discoveryHTTPClient())
 	tok, err := p.oauth.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
 	if err != nil {
 		return nil, fmt.Errorf("oidc: code exchange: %w", err)
