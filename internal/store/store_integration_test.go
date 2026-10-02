@@ -11,48 +11,15 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/ctlplne/probectl/internal/store/migrate"
 	"github.com/ctlplne/probectl/internal/tenancy"
-	"github.com/ctlplne/probectl/internal/testsupport"
-	"github.com/ctlplne/probectl/migrations"
 )
 
-func dsn() string {
-	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
-		return v
-	}
-	return "postgres://probectl@localhost:5432/postgres?sslmode=disable"
-}
-
-func setup(ctx context.Context, t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	pool, err := pgxpool.New(ctx, dsn())
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		testsupport.SkipOrFatal(t, "no database available: %v", err)
-	}
-	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, pool); err != nil {
-		pool.Close()
-		t.Fatalf("apply migrations: %v", err)
-	}
-	return pool
-}
-
-func inTenant(ctx context.Context, t *testing.T, pool *pgxpool.Pool, id string, fn func(context.Context, tenancy.Scope) error) {
-	t.Helper()
-	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id)), pool, fn); err != nil {
-		t.Fatalf("InTenant(%s): %v", id, err)
-	}
-}
+// dsn/setup/inTenant moved to itest_shared_test.go (build tag
+// `integration || isolation`) so the isolation gate can compile the store
+// tests that call them. See that file's header.
 
 func TestTenantLifecycle(t *testing.T) {
 	ctx := context.Background()
