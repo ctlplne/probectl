@@ -529,6 +529,7 @@ func validateProviderSource(events []Event, lastSeq int64, anchorHash string) er
 			ev.Actor,
 			ev.Action,
 			ev.Target,
+			ev.CreatedAt.UnixMicro(),
 			ev.Data,
 			ev.PrevHash,
 		)

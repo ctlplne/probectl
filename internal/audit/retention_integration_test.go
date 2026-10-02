@@ -47,23 +47,26 @@ func TestProviderRetentionPrune(t *testing.T) {
 		t.Fatalf("isolated provider audit stream starts at seq %d, want 0", base)
 	}
 
-	// Append 6 events on the provider chain.
+	// Append 6 events on the provider chain. Since AUD-02 covers created_at in the
+	// hash chain, we no longer backdate rows after the fact (that reads as
+	// tampering); instead we append the FIRST 4 at an aged timestamp so they are
+	// age-eligible with a valid hash, and the last 2 at the current time so they
+	// stay recent.
 	const n = 6
-	for i := 0; i < n; i++ {
+	old := time.Now().Add(-48 * time.Hour)
+	atAuditTime(old, func() {
+		for i := 0; i < 4; i++ {
+			if _, err := ProviderAppend(ctx, pool, "operator-x", "retention.seed",
+				fmt.Sprintf("ret-%d", i), map[string]any{"i": i}); err != nil {
+				t.Fatalf("append %d: %v", i, err)
+			}
+		}
+	})
+	for i := 4; i < n; i++ {
 		if _, err := ProviderAppend(ctx, pool, "operator-x", "retention.seed",
 			fmt.Sprintf("ret-%d", i), map[string]any{"i": i}); err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
-	}
-
-	// Age the FIRST 4 of our appended rows past the retention window so they are
-	// age-eligible; the last 2 stay recent. (We backdate created_at directly —
-	// this is the maintenance/owner path the pruner itself uses.)
-	old := time.Now().Add(-48 * time.Hour)
-	if _, err := pool.Exec(ctx,
-		`UPDATE provider_audit_events SET created_at = $1 WHERE seq > $2 AND seq <= $3`,
-		old, base, base+4); err != nil {
-		t.Fatalf("backdate: %v", err)
 	}
 
 	policy := RetentionPolicy{Window: 24 * time.Hour}
@@ -150,16 +153,20 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 		},
 	)
 	if providerBase == 0 {
-		for i := 0; i < 4; i++ {
-			if _, err := ProviderAppend(ctx, pool, "operator-x", "provider.retention.seed",
-				fmt.Sprintf("provider-%d", i), map[string]any{"i": i}); err != nil {
-				t.Fatalf("append provider %d: %v", i, err)
+		// Append the first 3 at an aged timestamp (age-eligible with a valid
+		// created_at-covered hash) and the 4th at the current time, rather than
+		// backdating rows after append (AUD-02 would read that as tampering).
+		atAuditTime(old, func() {
+			for i := 0; i < 3; i++ {
+				if _, err := ProviderAppend(ctx, pool, "operator-x", "provider.retention.seed",
+					fmt.Sprintf("provider-%d", i), map[string]any{"i": i}); err != nil {
+					t.Fatalf("append provider %d: %v", i, err)
+				}
 			}
-		}
-		if _, err := pool.Exec(ctx,
-			`UPDATE provider_audit_events SET created_at = $1 WHERE seq > $2 AND seq <= $3`,
-			old, providerBase, providerBase+3); err != nil {
-			t.Fatalf("backdate provider: %v", err)
+		})
+		if _, err := ProviderAppend(ctx, pool, "operator-x", "provider.retention.seed",
+			"provider-3", map[string]any{"i": 3}); err != nil {
+			t.Fatalf("append provider 3: %v", err)
 		}
 		wantProviderPruned = 2
 		providerProof = func(context.Context) (ProviderRetentionProof, error) {
@@ -168,14 +175,22 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 	}
 
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tid), pool, func(ctx context.Context, s tenancy.Scope) error {
-		if _, err := TenantAppend(ctx, s, "auditor", "tenant.old.exported.1", "config", map[string]any{"i": 1}); err != nil {
-			return err
-		}
-		if _, err := TenantAppend(ctx, s, "auditor", "tenant.old.exported.2", "config", map[string]any{"i": 2}); err != nil {
-			return err
-		}
-		if _, err := TenantAppend(ctx, s, subject, "tenant.old.unexported", subject, map[string]any{"email": subject}); err != nil {
-			return err
+		// Append the three to-be-aged rows (seq 1-3) at the aged timestamp so they
+		// carry an old created_at with a valid hash; the fresh rows (seq 4-5) are
+		// appended at the current time. This replaces the old post-append
+		// `UPDATE ... SET created_at`, which AUD-02 now treats as tampering.
+		var appendErr error
+		atAuditTime(old, func() {
+			if _, appendErr = TenantAppend(ctx, s, "auditor", "tenant.old.exported.1", "config", map[string]any{"i": 1}); appendErr != nil {
+				return
+			}
+			if _, appendErr = TenantAppend(ctx, s, "auditor", "tenant.old.exported.2", "config", map[string]any{"i": 2}); appendErr != nil {
+				return
+			}
+			_, appendErr = TenantAppend(ctx, s, subject, "tenant.old.unexported", subject, map[string]any{"email": subject})
+		})
+		if appendErr != nil {
+			return appendErr
 		}
 		if _, err := TenantAppend(ctx, s, subject, "tenant.fresh.exported", subject, map[string]any{"email": subject}); err != nil {
 			return err
@@ -187,11 +202,6 @@ func TestRetentionRunnerPrunesExportedPrefixesAndKeepsProjection(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("seed tenant audit: %v", err)
-	}
-	if _, err := pool.Exec(ctx,
-		`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2 AND seq <= 3`,
-		old, tn.ID); err != nil {
-		t.Fatalf("backdate tenant: %v", err)
 	}
 
 	runner := NewRetentionRunnerPG(pool, RetentionPolicy{Window: 24 * time.Hour}, nil, testLog()).
@@ -282,46 +292,62 @@ func TestTenantSubjectErasureRetentionProjection(t *testing.T) {
 
 	subjectA := "retained-alice@example.test"
 	subjectB := "retained-bob@example.test"
+	now := time.Now().UTC()
+	old := now.Add(-48 * time.Hour)
+	// Tenant A's whole stream is aged (every row eligible for pruning); tenant B
+	// stays recent. Rather than backdating A's rows after append (AUD-02 now
+	// treats a created_at UPDATE as tampering), append A's rows at the aged
+	// timestamp so each carries an old created_at with a valid hash.
 	for _, tc := range []struct {
 		tenantID string
 		subject  string
+		aged     bool
 	}{
-		{tenantID: tenantA.ID, subject: subjectA},
-		{tenantID: tenantB.ID, subject: subjectB},
+		{tenantID: tenantA.ID, subject: subjectA, aged: true},
+		{tenantID: tenantB.ID, subject: subjectB, aged: false},
 	} {
 		err := tenancy.InTenant(
 			tenancy.WithTenant(ctx, tenancy.ID(tc.tenantID)),
 			pool,
 			func(ctx context.Context, scope tenancy.Scope) error {
-				if _, err := TenantAppend(
-					ctx,
-					scope,
-					tc.subject,
-					"directory.before_erasure",
-					tc.subject,
-					map[string]any{"email": tc.subject},
-				); err != nil {
+				seed := func() error {
+					if _, err := TenantAppend(
+						ctx,
+						scope,
+						tc.subject,
+						"directory.before_erasure",
+						tc.subject,
+						map[string]any{"email": tc.subject},
+					); err != nil {
+						return err
+					}
+					if _, err := RecordSubjectErasure(
+						ctx,
+						scope,
+						"privacy-admin",
+						tc.subject,
+						"retention regression",
+					); err != nil {
+						return err
+					}
+					_, err := TenantAppend(
+						ctx,
+						scope,
+						tc.subject,
+						"directory.after_erasure",
+						tc.subject,
+						map[string]any{"email": tc.subject},
+					)
 					return err
 				}
-				if _, err := RecordSubjectErasure(
-					ctx,
-					scope,
-					"privacy-admin",
-					tc.subject,
-					"retention regression",
-				); err != nil {
-					return err
+				var seedErr error
+				if tc.aged {
+					atAuditTime(old, func() { seedErr = seed() })
+				} else {
+					seedErr = seed()
 				}
-				_, err := TenantAppend(
-					ctx,
-					scope,
-					tc.subject,
-					"directory.after_erasure",
-					tc.subject,
-					map[string]any{"email": tc.subject},
-				)
-				if err != nil {
-					return err
+				if seedErr != nil {
+					return seedErr
 				}
 				return (store.SIEMDelivery{}).Advance(ctx, scope, 3)
 			},
@@ -329,19 +355,6 @@ func TestTenantSubjectErasureRetentionProjection(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed tenant %s: %v", tc.tenantID, err)
 		}
-	}
-
-	now := time.Now().UTC()
-	old := now.Add(-48 * time.Hour)
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2::uuid`,
-		old,
-		tenantA.ID,
-	); err != nil {
-		t.Fatalf("backdate tenant A: %v", err)
 	}
 
 	policy := RetentionPolicy{Window: 24 * time.Hour}
@@ -634,26 +647,47 @@ func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
 			t.Fatalf("create partial-prune tenant: %v", err)
 		}
 
+		// The full-prune stream ages all four rows; the partial-prune stream ages
+		// only its first two (seq 1-2) and keeps seq 3-4 recent. Instead of
+		// backdating rows after append (AUD-02 now treats a created_at UPDATE as
+		// tampering), append the aged prefix at the old timestamp — each row then
+		// carries an old created_at with a valid, hash-chained created_at.
 		for _, tenant := range []struct {
-			id     string
-			prefix string
+			id          string
+			prefix      string
+			agedThrough int
 		}{
-			{id: tenantA.ID, prefix: "full"},
-			{id: tenantB.ID, prefix: "partial"},
+			{id: tenantA.ID, prefix: "full", agedThrough: 4},
+			{id: tenantB.ID, prefix: "partial", agedThrough: 2},
 		} {
 			err := tenancy.InTenant(
 				tenancy.WithTenant(ctx, tenancy.ID(tenant.id)),
 				pool,
 				func(ctx context.Context, s tenancy.Scope) error {
-					for i := 1; i <= 4; i++ {
-						if _, err := TenantAppend(
+					appendSeed := func(i int) error {
+						_, err := TenantAppend(
 							ctx,
 							s,
 							"anchor-test",
 							"retention.seed",
 							fmt.Sprintf("%s-%d", tenant.prefix, i),
 							map[string]any{"i": i},
-						); err != nil {
+						)
+						return err
+					}
+					var seedErr error
+					atAuditTime(old, func() {
+						for i := 1; i <= tenant.agedThrough; i++ {
+							if seedErr = appendSeed(i); seedErr != nil {
+								return
+							}
+						}
+					})
+					if seedErr != nil {
+						return seedErr
+					}
+					for i := tenant.agedThrough + 1; i <= 4; i++ {
+						if err := appendSeed(i); err != nil {
 							return err
 						}
 					}
@@ -667,23 +701,6 @@ func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
 			if err != nil {
 				t.Fatalf("seed tenant %s: %v", tenant.prefix, err)
 			}
-		}
-
-		if _, err := pool.Exec(
-			ctx,
-			`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2`,
-			old,
-			tenantA.ID,
-		); err != nil {
-			t.Fatalf("backdate full-prune stream: %v", err)
-		}
-		if _, err := pool.Exec(
-			ctx,
-			`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2 AND seq <= 2`,
-			old,
-			tenantB.ID,
-		); err != nil {
-			t.Fatalf("backdate partial-prune stream: %v", err)
 		}
 
 		if n, err := PruneTenant(ctx, pool, tenantA.ID, policy, 4, now); err != nil || n != 4 {
@@ -863,17 +880,30 @@ func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
 		pool := isolatedProviderRetentionPool(t, admin)
 		defer pool.Close()
 
-		for i := 1; i <= 3; i++ {
-			if _, err := ProviderAppend(
-				ctx,
-				pool,
-				"provider-anchor-test",
-				"retention.seed",
-				fmt.Sprintf("provider-%d", i),
-				map[string]any{"i": i},
-			); err != nil {
-				t.Fatalf("append provider seed %d: %v", i, err)
+		// Age events by appending them at an old timestamp (and, for the first
+		// prune's receipt, by running that prune under the same clock) rather than
+		// backdating rows afterward: AUD-02 covers created_at in the hash chain, so
+		// a post-append UPDATE would read as tampering and fail the pre-prune
+		// verify. seq 1-3 are aged here; seq 6 (the blocker) stays genuinely fresh.
+		now := time.Now().UTC()
+		old := now.Add(-48 * time.Hour)
+		var seedErr error
+		atAuditTime(old, func() {
+			for i := 1; i <= 3; i++ {
+				if _, seedErr = ProviderAppend(
+					ctx,
+					pool,
+					"provider-anchor-test",
+					"retention.seed",
+					fmt.Sprintf("provider-%d", i),
+					map[string]any{"i": i},
+				); seedErr != nil {
+					return
+				}
 			}
+		})
+		if seedErr != nil {
+			t.Fatalf("append provider seed: %v", seedErr)
 		}
 
 		objects := objectstore.NewMemory()
@@ -895,36 +925,41 @@ func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
 			t.Fatalf("WORM watermark = (%d, %v), want (3, nil)", watermark, err)
 		}
 
-		now := time.Now().UTC()
-		if _, err := pool.Exec(
-			ctx,
-			`UPDATE provider_audit_events SET created_at = $1`,
-			now.Add(-48*time.Hour),
-		); err != nil {
-			t.Fatalf("backdate provider stream: %v", err)
-		}
 		proof, err := worm.RetentionProof(ctx)
 		if err != nil {
 			t.Fatalf("verified provider retention proof: %v", err)
 		}
-		if n, err := pruneProviderWithProof(
-			ctx,
-			pool,
-			RetentionPolicy{Window: 24 * time.Hour},
-			proof,
-			now,
-		); err != nil || n != 3 {
-			t.Fatalf("full provider prune = (%d, %v), want (3, nil)", n, err)
+		// Run the full prune under the aged clock so its append-only receipt (seq 4)
+		// also carries an old created_at, making it eligible for the second prune
+		// below without any post-append mutation.
+		var firstPruned int64
+		var firstErr error
+		atAuditTime(old, func() {
+			firstPruned, firstErr = pruneProviderWithProof(
+				ctx,
+				pool,
+				RetentionPolicy{Window: 24 * time.Hour},
+				proof,
+				now,
+			)
+		})
+		if firstErr != nil || firstPruned != 3 {
+			t.Fatalf("full provider prune = (%d, %v), want (3, nil)", firstPruned, firstErr)
 		}
 
-		ev, err := ProviderAppend(
-			ctx,
-			pool,
-			"provider-anchor-test",
-			"retention.after",
-			"provider-after-prune",
-			nil,
-		)
+		// provider-after-prune (seq 5) is also aged, so the second prune can reach
+		// it; seq 6 below is the fresh row that must survive.
+		var ev Event
+		atAuditTime(old, func() {
+			ev, err = ProviderAppend(
+				ctx,
+				pool,
+				"provider-anchor-test",
+				"retention.after",
+				"provider-after-prune",
+				nil,
+			)
+		})
 		if err != nil {
 			t.Fatalf("append provider after prune: %v", err)
 		}
@@ -941,20 +976,13 @@ func TestAuditRetentionAnchorSequenceAndCursorVisibility(t *testing.T) {
 			t.Fatalf("WORM chain after full prune: %v", err)
 		}
 
-		// A second pass proves partial pruning too: seq 4-5 are now exported
-		// and aged, while fresh/unexported seq 6 must remain. The receipt and
-		// next append continue at 7-8, immediately after WORM cursor 5.
+		// A second pass proves partial pruning too: seq 4-5 are already exported
+		// and aged (seq 4 the receipt stamped under the aged clock, seq 5 appended
+		// at the old timestamp), while fresh/unexported seq 6 must remain. The
+		// receipt and next append continue at 7-8, immediately after WORM cursor 5.
 		watermark, err = worm.ExportedWatermark(ctx)
 		if err != nil || watermark != 5 {
 			t.Fatalf("second WORM watermark = (%d, %v), want (5, nil)", watermark, err)
-		}
-		if _, err := pool.Exec(
-			ctx,
-			`UPDATE provider_audit_events SET created_at = $1 WHERE seq <= $2`,
-			now.Add(-48*time.Hour),
-			watermark,
-		); err != nil {
-			t.Fatalf("backdate second provider prefix: %v", err)
 		}
 		blocker, err := ProviderAppend(
 			ctx,
@@ -1021,35 +1049,35 @@ func TestAuditRetentionReceiptRollbackPreservesSequenceAnchor(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		now := time.Now().UTC()
+		old := now.Add(-48 * time.Hour)
+		// Append the two seed rows at an aged timestamp so the whole stream is
+		// age-eligible with valid hashes; a post-append created_at UPDATE would,
+		// since AUD-02, fail the pre-prune verify instead of exercising the
+		// receipt-failure rollback this test is about.
 		err = tenancy.InTenant(
 			tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)),
 			pool,
 			func(ctx context.Context, s tenancy.Scope) error {
-				for i := 1; i <= 2; i++ {
-					if _, err := TenantAppend(
-						ctx,
-						s,
-						"rollback-test",
-						"retention.seed",
-						fmt.Sprintf("tenant-%d", i),
-						nil,
-					); err != nil {
-						return err
+				var appendErr error
+				atAuditTime(old, func() {
+					for i := 1; i <= 2; i++ {
+						if _, appendErr = TenantAppend(
+							ctx,
+							s,
+							"rollback-test",
+							"retention.seed",
+							fmt.Sprintf("tenant-%d", i),
+							nil,
+						); appendErr != nil {
+							return
+						}
 					}
-				}
-				return nil
+				})
+				return appendErr
 			},
 		)
 		if err != nil {
-			t.Fatal(err)
-		}
-		now := time.Now().UTC()
-		if _, err := pool.Exec(
-			ctx,
-			`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2::uuid`,
-			now.Add(-48*time.Hour),
-			tenant.ID,
-		); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1112,26 +1140,26 @@ func TestAuditRetentionReceiptRollbackPreservesSequenceAnchor(t *testing.T) {
 		pool := isolatedProviderRetentionPool(t, admin)
 		defer pool.Close()
 
-		for i := 1; i <= 2; i++ {
-			if _, err := ProviderAppend(
-				ctx,
-				pool,
-				"rollback-test",
-				"retention.seed",
-				fmt.Sprintf("provider-%d", i),
-				nil,
-			); err != nil {
-				t.Fatal(err)
-			}
-		}
 		now := time.Now().UTC()
-		if _, err := pool.Exec(
-			ctx,
-			`UPDATE provider_audit_events SET created_at = $1`,
-			now.Add(-48*time.Hour),
-		); err != nil {
-			t.Fatal(err)
-		}
+		old := now.Add(-48 * time.Hour)
+		// Append the two seed rows at an aged timestamp so the stream is
+		// age-eligible with valid hashes (AUD-02 would treat a post-append
+		// created_at UPDATE as tampering, failing the pre-prune verify before the
+		// receipt-failure rollback this test exercises).
+		atAuditTime(old, func() {
+			for i := 1; i <= 2; i++ {
+				if _, err := ProviderAppend(
+					ctx,
+					pool,
+					"rollback-test",
+					"retention.seed",
+					fmt.Sprintf("provider-%d", i),
+					nil,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
 
 		n, err := pruneProviderWithProofReceipt(
 			ctx,
@@ -1206,12 +1234,14 @@ func TestAuditRetentionAnchorFailsClosedAboveLegacySIEMCursor(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tc.legacyEvent {
+				legacyAt := time.Now().UTC().Truncate(time.Microsecond)
 				hash, err := computeHash(
 					tenant.ID,
 					1,
 					"system:audit-retention",
 					RetentionPruneAction,
 					"audit/"+tenant.ID,
+					legacyAt.UnixMicro(),
 					map[string]any{"legacy": true},
 					genesis,
 				)
@@ -1221,15 +1251,16 @@ func TestAuditRetentionAnchorFailsClosedAboveLegacySIEMCursor(t *testing.T) {
 				if _, err := pool.Exec(
 					ctx,
 					`INSERT INTO audit_events
-					    (tenant_id, seq, actor, action, target, data, prev_hash, hash)
+					    (tenant_id, seq, actor, action, target, data, prev_hash, hash, created_at)
 					 VALUES (
 					    $1::uuid, 1, 'system:audit-retention', $2, $3,
-					    '{"legacy":true}'::jsonb, '', $4
+					    '{"legacy":true}'::jsonb, '', $4, $5
 					 )`,
 					tenant.ID,
 					RetentionPruneAction,
 					"audit/"+tenant.ID,
 					hash,
+					legacyAt,
 				); err != nil {
 					t.Fatal(err)
 				}
@@ -1316,12 +1347,14 @@ func TestAuditRetentionAnchorReconcilesRollingUpgradeBeforeCursorValidation(t *t
 				return err
 			}
 			legacyData := map[string]any{"writer": "old-binary"}
+			legacyAt := time.Now().UTC().Truncate(time.Microsecond)
 			legacyHash, err := computeHash(
 				tenant.ID,
 				2,
 				"rolling-upgrade-test",
 				"retention.legacy-append",
 				"second",
+				legacyAt.UnixMicro(),
 				legacyData,
 				first.Hash,
 			)
@@ -1335,8 +1368,8 @@ func TestAuditRetentionAnchorReconcilesRollingUpgradeBeforeCursorValidation(t *t
 			if _, err := s.Q.Exec(
 				ctx,
 				`INSERT INTO audit_events
-				    (tenant_id, seq, actor, action, target, data, prev_hash, hash)
-				 VALUES ($1::uuid, 2, $2, $3, $4, $5::jsonb, $6, $7)`,
+				    (tenant_id, seq, actor, action, target, data, prev_hash, hash, created_at)
+				 VALUES ($1::uuid, 2, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
 				tenant.ID,
 				"rolling-upgrade-test",
 				"retention.legacy-append",
@@ -1344,6 +1377,7 @@ func TestAuditRetentionAnchorReconcilesRollingUpgradeBeforeCursorValidation(t *t
 				string(dataJSON),
 				first.Hash,
 				legacyHash,
+				legacyAt,
 			); err != nil {
 				return err
 			}
@@ -1403,26 +1437,25 @@ func TestAuditRetentionProviderCursorBoundsRollback(t *testing.T) {
 	pool := isolatedProviderRetentionPool(t, admin)
 	defer pool.Close()
 
-	for i := 1; i <= 3; i++ {
-		if _, err := ProviderAppend(
-			ctx,
-			pool,
-			"provider-cursor-test",
-			"retention.seed",
-			fmt.Sprintf("provider-%d", i),
-			nil,
-		); err != nil {
-			t.Fatal(err)
-		}
-	}
 	now := time.Now().UTC()
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE provider_audit_events SET created_at = $1`,
-		now.Add(-48*time.Hour),
-	); err != nil {
-		t.Fatal(err)
-	}
+	old := now.Add(-48 * time.Hour)
+	// Append all three seed rows at an aged timestamp so the stream is
+	// age-eligible with valid hashes, rather than backdating created_at after
+	// append (AUD-02 now treats that as tampering and fails the pre-prune verify).
+	atAuditTime(old, func() {
+		for i := 1; i <= 3; i++ {
+			if _, err := ProviderAppend(
+				ctx,
+				pool,
+				"provider-cursor-test",
+				"retention.seed",
+				fmt.Sprintf("provider-%d", i),
+				nil,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
 	policy := RetentionPolicy{Window: 24 * time.Hour}
 
 	if n, err := pruneProviderWithProof(

@@ -51,6 +51,22 @@ func setup(ctx context.Context, t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// atAuditTime fixes the audit append clock at `at` for the duration of fn, so
+// events appended inside fn get created_at == at with a valid hash. Since AUD-02
+// stamped created_at into the tamper-evident hash chain, a retention test can no
+// longer age events with a post-append `UPDATE ... SET created_at` (that now
+// reads as tampering and fails verification before the prune). Appending at the
+// aged time instead keeps the hash consistent, so verify/prune/WORM-export all
+// work unchanged. auditNow is a package var, so package audit tests can swap it;
+// the previous clock is always restored, even if fn calls t.Fatal (Goexit still
+// runs this deferred restore).
+func atAuditTime(at time.Time, fn func()) {
+	prev := auditNow
+	auditNow = func() time.Time { return at.UTC().Truncate(time.Microsecond) }
+	defer func() { auditNow = prev }()
+	fn()
+}
+
 func TestTenantAuditTamperDetection(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)

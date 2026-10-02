@@ -155,22 +155,18 @@ func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	rawNow := time.Now().UTC()
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE public.provider_audit_events
-		    SET created_at = $1
-		  WHERE seq = $2`,
-		rawNow.Add(-48*time.Hour),
-		ordinaryEvent.Seq,
-	); err != nil {
-		t.Fatal(err)
-	}
+	// AUD-02 covers created_at in the hash chain, so we no longer backdate the
+	// ordinary event to age it. Instead we drive age-eligibility through the
+	// prune clock: a future `now` makes the event age-eligible (so the raw prune
+	// below is refused ONLY for lack of a verified WORM proof, not for being too
+	// recent), while a verified prune at rawNow sees it as still-recent and prunes
+	// nothing.
 	if n, err := PruneProvider(
 		ctx,
 		pool,
 		RetentionPolicy{Window: 24 * time.Hour},
 		ordinaryEvent.Seq,
-		rawNow,
+		rawNow.Add(48*time.Hour),
 	); err == nil || n != 0 ||
 		!strings.Contains(err.Error(), "verified WORM proof") {
 		t.Fatalf(
@@ -178,16 +174,6 @@ func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 			n,
 			err,
 		)
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE public.provider_audit_events
-		    SET created_at = $1
-		  WHERE seq = $2`,
-		rawNow,
-		ordinaryEvent.Seq,
-	); err != nil {
-		t.Fatal(err)
 	}
 	if n, err := pruneProviderWithProof(
 		ctx,
@@ -529,21 +515,18 @@ func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := time.Now().UTC()
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE public.provider_audit_events
-		    SET created_at = $1`,
-		now.Add(-48*time.Hour),
-	); err != nil {
-		t.Fatal(err)
-	}
+	// AUD-02 covers created_at in the hash chain, so we age the provider stream by
+	// moving the prune clock forward rather than backdating rows (which would
+	// break every row's hash and fail the pre-prune verify). pruneNow is past the
+	// retention window, so each already-exported event is age-eligible with its
+	// stored, valid hash.
+	pruneNow := time.Now().UTC().Add(48 * time.Hour)
 	if n, err := PruneProvider(
 		ctx,
 		pool,
 		RetentionPolicy{Window: 24 * time.Hour},
 		protectedEvent.Seq,
-		now,
+		pruneNow,
 	); err == nil || n != 0 ||
 		!strings.Contains(err.Error(), "verified WORM proof") {
 		t.Fatalf("raw-integer IR prune = (%d, %v), want proof refusal", n, err)
@@ -553,7 +536,8 @@ func TestIRWORMCoverageRetentionAndReconstruction(t *testing.T) {
 		RetentionPolicy{Window: 24 * time.Hour},
 		nil,
 		testLog(),
-	).WithProviderRetentionProof(worm.RetentionProof)
+	).WithProviderRetentionProof(worm.RetentionProof).
+		WithNowForTest(func() time.Time { return pruneNow })
 	summary, err := runner.Tick(ctx)
 	if err != nil {
 		t.Fatalf("verified IR retention pass: %v", err)

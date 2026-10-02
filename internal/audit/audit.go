@@ -24,6 +24,13 @@ import (
 // genesis is the prev_hash of the first record in a chain.
 const genesis = ""
 
+// auditNow stamps an event's created_at. It is a package variable only so that
+// integration tests which exercise time-based retention can create events at a
+// chosen time WITHOUT mutating created_at after the fact (which, since AUD-02,
+// is covered by the hash chain and would read as tampering). Production code
+// never overrides it. Microsecond truncation matches Postgres timestamptz.
+var auditNow = func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) }
+
 // providerStream is the chain key bound into provider-stream hashes.
 const providerStream = "provider"
 
@@ -69,7 +76,7 @@ func (h streamHead) validate(label string) error {
 // record cannot be moved between chains without breaking verification. The data
 // map is canonicalized via encoding/json (Go sorts map keys), so append and
 // verify produce identical bytes.
-func computeHash(streamKey string, seq int64, actor, action, target string, data map[string]any, prevHash string) (string, error) {
+func computeHash(streamKey string, seq int64, actor, action, target string, createdAtMicros int64, data map[string]any, prevHash string) (string, error) {
 	if data == nil {
 		data = map[string]any{}
 	}
@@ -77,7 +84,12 @@ func computeHash(streamKey string, seq int64, actor, action, target string, data
 	if err != nil {
 		return "", fmt.Errorf("canonicalize audit data: %w", err)
 	}
-	header := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%s\n", streamKey, seq, actor, action, target, prevHash)
+	// AUD-02: created_at (as Unix microseconds, matching Postgres timestamptz
+	// precision) is part of the chained header, so back- or forward-dating a
+	// stored event with an UPDATE breaks verification at that sequence. Micros
+	// are instant-based, so the hash is stable regardless of the read-back
+	// session time zone.
+	header := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%d\n%s\n", streamKey, seq, actor, action, target, createdAtMicros, prevHash)
 	sum := crypto.Hash(append([]byte(header), canonicalData...))
 	return hex.EncodeToString(sum), nil
 }
@@ -111,8 +123,11 @@ func tenantAppendLocked(ctx context.Context, s tenancy.Scope, actor, action, tar
 		Target:   target,
 		Data:     data,
 		PrevHash: head.HeadHash,
+		// AUD-02: the application stamps created_at so it can be covered by the
+		// hash chain (micros to match Postgres timestamptz precision).
+		CreatedAt: auditNow(),
 	}
-	ev.Hash, err = computeHash(s.Tenant.String(), ev.Seq, actor, action, target, data, ev.PrevHash)
+	ev.Hash, err = computeHash(s.Tenant.String(), ev.Seq, actor, action, target, ev.CreatedAt.UnixMicro(), data, ev.PrevHash)
 	if err != nil {
 		return Event{}, err
 	}
@@ -120,11 +135,11 @@ func tenantAppendLocked(ctx context.Context, s tenancy.Scope, actor, action, tar
 	if err != nil {
 		return Event{}, err
 	}
-	if err := s.Q.QueryRow(ctx,
-		`INSERT INTO audit_events (tenant_id, seq, actor, action, target, data, prev_hash, hash)
-		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8) RETURNING created_at`,
-		s.Tenant.String(), ev.Seq, actor, action, target, string(dataJSON), ev.PrevHash, ev.Hash,
-	).Scan(&ev.CreatedAt); err != nil {
+	if _, err := s.Q.Exec(ctx,
+		`INSERT INTO audit_events (tenant_id, seq, actor, action, target, data, prev_hash, hash, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
+		s.Tenant.String(), ev.Seq, actor, action, target, string(dataJSON), ev.PrevHash, ev.Hash, ev.CreatedAt,
+	); err != nil {
 		return Event{}, fmt.Errorf("insert audit event: %w", err)
 	}
 	if err := advanceTenantStreamHead(ctx, s.Q, s.Tenant.String(), head, ev); err != nil {
@@ -286,8 +301,10 @@ func providerAppendLockedWith(
 		Target:   target,
 		Data:     data,
 		PrevHash: head.HeadHash,
+		// AUD-02: application-stamped so created_at is covered by the hash chain.
+		CreatedAt: auditNow(),
 	}
-	ev.Hash, err = computeHash(providerStream, ev.Seq, actor, action, target, data, ev.PrevHash)
+	ev.Hash, err = computeHash(providerStream, ev.Seq, actor, action, target, ev.CreatedAt.UnixMicro(), data, ev.PrevHash)
 	if err != nil {
 		return Event{}, err
 	}
@@ -295,11 +312,11 @@ func providerAppendLockedWith(
 	if err != nil {
 		return Event{}, err
 	}
-	if err := q.QueryRow(ctx,
-		`INSERT INTO provider_audit_events (seq, actor, action, target, data, prev_hash, hash)
-		 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7) RETURNING created_at`,
-		ev.Seq, actor, action, target, string(dataJSON), ev.PrevHash, ev.Hash,
-	).Scan(&ev.CreatedAt); err != nil {
+	if _, err := q.Exec(ctx,
+		`INSERT INTO provider_audit_events (seq, actor, action, target, data, prev_hash, hash, created_at)
+		 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+		ev.Seq, actor, action, target, string(dataJSON), ev.PrevHash, ev.Hash, ev.CreatedAt,
+	); err != nil {
 		return Event{}, fmt.Errorf("insert provider audit event: %w", err)
 	}
 	if afterInsert != nil {
@@ -748,7 +765,7 @@ func verifyTenantExtension(
 ) error {
 	rows, err := q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
 		   FROM audit_events
 		  WHERE tenant_id = $1::uuid AND seq > $2
 		  ORDER BY seq`,
@@ -777,7 +794,7 @@ func verifyProviderExtension(
 ) error {
 	rows, err := q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
 		   FROM provider_audit_events
 		  WHERE seq > $1
 		  ORDER BY seq`,
@@ -894,7 +911,7 @@ func tenantVerifyFromLocked(ctx context.Context, s tenancy.Scope, head streamHea
 	}
 	rows, err := s.Q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
 		   FROM audit_events
 		  WHERE tenant_id = $1::uuid AND seq > $2
 		  ORDER BY seq`,
@@ -962,7 +979,7 @@ func providerVerifyFromLocked(
 	}
 	rows, err := q.Query(
 		ctx,
-		`SELECT seq, actor, action, target, data, prev_hash, hash
+		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
 		   FROM provider_audit_events
 		  WHERE seq > $1
 		  ORDER BY seq`,
@@ -1042,8 +1059,9 @@ func verify(rows pgx.Rows, streamKey string, wantSeq int64, startPrev string) (i
 			actor, action, target  string
 			dataBytes              []byte
 			storedPrev, storedHash string
+			createdAt              time.Time
 		)
-		if err := rows.Scan(&seq, &actor, &action, &target, &dataBytes, &storedPrev, &storedHash); err != nil {
+		if err := rows.Scan(&seq, &actor, &action, &target, &dataBytes, &storedPrev, &storedHash, &createdAt); err != nil {
 			return 0, "", err
 		}
 		var data map[string]any
@@ -1060,7 +1078,7 @@ func verify(rows pgx.Rows, streamKey string, wantSeq int64, startPrev string) (i
 		if storedPrev != prev {
 			return 0, "", fmt.Errorf("audit chain broken at seq %d: prev_hash mismatch (record inserted, deleted, or reordered)", seq)
 		}
-		want, err := computeHash(streamKey, seq, actor, action, target, data, storedPrev)
+		want, err := computeHash(streamKey, seq, actor, action, target, createdAt.UnixMicro(), data, storedPrev)
 		if err != nil {
 			return 0, "", err
 		}

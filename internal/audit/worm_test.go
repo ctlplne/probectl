@@ -64,6 +64,7 @@ func chainedEvents(n int) []Event {
 			out[i].Actor,
 			out[i].Action,
 			out[i].Target,
+			out[i].CreatedAt.UnixMicro(),
 			out[i].Data,
 			out[i].PrevHash,
 		)
@@ -508,6 +509,7 @@ func TestWORMRetryRepairsExactSegmentAfterSourceGrowth(t *testing.T) {
 				diverged[i].Actor,
 				diverged[i].Action,
 				diverged[i].Target,
+				diverged[i].CreatedAt.UnixMicro(),
 				diverged[i].Data,
 				diverged[i].PrevHash,
 			)
@@ -883,6 +885,7 @@ func TestWORMCatchUpCursorRejectsDiscontinuousSource(t *testing.T) {
 					ev.Actor,
 					ev.Action,
 					ev.Target,
+					ev.CreatedAt.UnixMicro(),
 					ev.Data,
 					ev.PrevHash,
 				)
@@ -1013,6 +1016,7 @@ func TestWormExportRejectsInvalidRawSourceBeforeWriting(t *testing.T) {
 					out[0].Actor,
 					out[0].Action,
 					out[0].Target,
+					out[0].CreatedAt.UnixMicro(),
 					out[0].Data,
 					out[0].PrevHash,
 				)
@@ -1070,6 +1074,7 @@ func TestWormExportRejectsRawSourceDivergingFromSignedAnchor(t *testing.T) {
 		diverged[2].Actor,
 		diverged[2].Action,
 		diverged[2].Target,
+		diverged[2].CreatedAt.UnixMicro(),
 		diverged[2].Data,
 		diverged[2].PrevHash,
 	)
@@ -1267,6 +1272,7 @@ func TestWormExportMinimizesRawPersonalFields(t *testing.T) {
 		events[0].Actor,
 		events[0].Action,
 		events[0].Target,
+		events[0].CreatedAt.UnixMicro(),
 		events[0].Data,
 		events[0].PrevHash,
 	)
