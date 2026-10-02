@@ -2126,6 +2126,42 @@ func parseNamedValues(raw string) map[string]string {
 	return out
 }
 
+// ParseEnvelopeOpenerKeys parses the PROBECTL_ENVELOPE_OPENER_KEYS keyring spec
+// ("keyID=base64,keyID2=base64") into a keyID→base64-KEK map. Unlike
+// parseNamedValues it fails closed on a malformed or duplicate entry, so a
+// retired opener key cannot be silently dropped. It is the single parser shared
+// by the control host's envelope-rewrap/BYOK paths and the provider service
+// (so both open values sealed under a retired key during a rotation overlap).
+func ParseEnvelopeOpenerKeys(spec string) (map[string]string, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for _, item := range strings.Split(spec, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		keyID, keyB64, ok := strings.Cut(item, "=")
+		keyID = strings.TrimSpace(keyID)
+		keyB64 = strings.TrimSpace(keyB64)
+		if !ok || keyID == "" || keyB64 == "" {
+			return nil, fmt.Errorf("envelope opener key %q must be keyID=base64", item)
+		}
+		if _, exists := out[keyID]; exists {
+			return nil, fmt.Errorf("duplicate envelope opener key id %q", keyID)
+		}
+		out[keyID] = keyB64
+	}
+	return out, nil
+}
+
+// EnvelopeOpenerKeyring parses this deployment's configured opener keyring.
+func (c *Config) EnvelopeOpenerKeyring() (map[string]string, error) {
+	return ParseEnvelopeOpenerKeys(c.EnvelopeOpenerKeys)
+}
+
 // validateDataPlaneCredentials (DPR-044) makes the credential model for routed
 // ClickHouse origins explicit: the pooled credential file stays pinned to the
 // pooled store origins, every data plane names its own owner-only file, and a

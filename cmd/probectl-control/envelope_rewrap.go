@@ -152,6 +152,18 @@ func collectEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB
 	}
 	receipt.Stores = append(receipt.Stores, tkStats)
 	receipt.Total.Add(tkStats)
+
+	// PLAT-04: provider-operator TOTP secrets are sealed with the same deployment
+	// envelope, so a rotation must re-seal them too (and verify must fail closed
+	// while they carry the retired key) — otherwise retiring the old key locks
+	// every provider operator out of the console. The core-only build's twin
+	// returns zero.
+	ptStats, err := rewrapProviderTOTPEnvelope(ctx, cfg, db, activeKeyID, fromKeyID, dryRun, verifyOpen)
+	if err != nil {
+		return receipt, err
+	}
+	receipt.Stores = append(receipt.Stores, ptStats)
+	receipt.Total.Add(ptStats)
 	return receipt, nil
 }
 

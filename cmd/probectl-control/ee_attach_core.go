@@ -51,6 +51,13 @@ func rewrapTenantKeysEnvelope(context.Context, *config.Config, *store.DB, string
 	return store.EnvelopeRewrapStats{Store: "tenant_keys.wrapped_kek (ee absent)"}, nil
 }
 
+// rewrapProviderTOTPEnvelope is the core-only no-op twin (PLAT-04): the provider
+// plane (and its operator TOTP secrets) ships only with ee/, so a core build has
+// nothing to re-seal here.
+func rewrapProviderTOTPEnvelope(context.Context, *config.Config, *store.DB, string, string, bool, bool) (store.EnvelopeRewrapStats, error) {
+	return store.EnvelopeRewrapStats{Store: "provider_operators.totp (ee absent)"}, nil
+}
+
 // attachEETenancyRouter is the core-only no-op twin (DPR-045): a core build
 // has no siloed tenants, so every tenant already routes to the pooled schema.
 func attachEETenancyRouter(*config.Config, *pgxpool.Pool, *slog.Logger) error { return nil }

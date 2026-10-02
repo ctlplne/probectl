@@ -408,6 +408,22 @@ func rewrapTenantKeysEnvelope(ctx context.Context, cfg *config.Config, db *store
 	return tenantkeys.RewrapManagedKEKs(ctx, master, tenantkeys.NewPGStore(db.Pool()), activeKeyID, fromKeyID, dryRun, verifyOpen)
 }
 
+// rewrapProviderTOTPEnvelope is the ee half of the envelope-rewrap command for
+// the provider plane (PLAT-04): it re-seals every provider operator's TOTP
+// secret from a retired deployment-envelope key to the active one, using the
+// same opener keyring (byokMaster) so a value sealed under the retired key still
+// opens. The core-only build links the no-op twin in ee_attach_core.go.
+func rewrapProviderTOTPEnvelope(ctx context.Context, cfg *config.Config, db *store.DB, activeKeyID, fromKeyID string, dryRun, verifyOpen bool) (store.EnvelopeRewrapStats, error) {
+	if cfg.EnvelopeKey == "" {
+		return store.EnvelopeRewrapStats{Store: "provider_operators.totp"}, nil
+	}
+	master, err := byokMaster(cfg)
+	if err != nil {
+		return store.EnvelopeRewrapStats{Store: "provider_operators.totp"}, err
+	}
+	return provider.RewrapOperatorTOTP(ctx, master, provider.NewPGStore(db.Pool()), activeKeyID, fromKeyID, dryRun, verifyOpen)
+}
+
 func attachEETenancyRouter(cfg *config.Config, pool *pgxpool.Pool, _ *slog.Logger) error {
 	if pool == nil {
 		return nil

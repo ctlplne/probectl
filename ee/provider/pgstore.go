@@ -230,6 +230,41 @@ func (s *PGStore) SetOperatorTOTP(ctx context.Context, id string, sealed crypto.
 	}))
 }
 
+// OperatorTOTP is one operator's id and its envelope-sealed TOTP secret, for
+// deployment-envelope rewrap (PLAT-04).
+type OperatorTOTP struct {
+	ID     string
+	Sealed crypto.Sealed
+}
+
+// ListOperatorTOTPs returns every operator that has a sealed TOTP secret so a
+// deployment-envelope rotation can re-seal them from a retired KEK to the active
+// one. An operator mid-enrollment with no TOTP yet (empty key id) is skipped.
+func (s *PGStore) ListOperatorTOTPs(ctx context.Context) ([]OperatorTOTP, error) {
+	var out []OperatorTOTP
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		rows, err := q.Query(ctx,
+			`SELECT id::text, totp_key_id, totp_wrapped_dek, totp_ciphertext
+			   FROM provider_operators
+			  WHERE coalesce(totp_key_id, '') <> ''
+			  ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, keyID string
+			var wrapped, ct []byte
+			if err := rows.Scan(&id, &keyID, &wrapped, &ct); err != nil {
+				return err
+			}
+			out = append(out, OperatorTOTP{ID: id, Sealed: crypto.Sealed{KeyID: keyID, WrappedDEK: wrapped, Ciphertext: ct}})
+		}
+		return rows.Err()
+	})
+	return out, mapPGErr(err)
+}
+
 func (s *PGStore) ActivateOperator(ctx context.Context, id, passwordHash string) error {
 	return mapPGErr(s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
 		tag, err := q.Exec(ctx,

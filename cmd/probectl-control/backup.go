@@ -14,9 +14,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/ctlplne/probectl/internal/backup"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
@@ -137,26 +137,7 @@ func backupKeyProvider(keyFile, keyID string) (crypto.KeyProvider, error) {
 }
 
 func parseEnvelopeOpenerKeys(spec string) (map[string]string, error) {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return nil, nil
-	}
-	out := map[string]string{}
-	for _, item := range strings.Split(spec, ",") {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		keyID, keyB64, ok := strings.Cut(item, "=")
-		keyID = strings.TrimSpace(keyID)
-		keyB64 = strings.TrimSpace(keyB64)
-		if !ok || keyID == "" || keyB64 == "" {
-			return nil, fmt.Errorf("envelope opener key %q must be keyID=base64", item)
-		}
-		if _, exists := out[keyID]; exists {
-			return nil, fmt.Errorf("duplicate envelope opener key id %q", keyID)
-		}
-		out[keyID] = keyB64
-	}
-	return out, nil
+	// Single source of truth with the provider service (PLAT-04): both must open
+	// values sealed under a retired key during a rotation overlap.
+	return config.ParseEnvelopeOpenerKeys(spec)
 }

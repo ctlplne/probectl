@@ -30,6 +30,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -103,7 +104,15 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if cfg.EnvelopeKey == "" {
 		return nil, errors.New("provider: PROBECTL_ENVELOPE_KEY is required (operator TOTP secrets are envelope-sealed at rest)")
 	}
-	kek, err := crypto.NewStaticKeyProviderFromBase64(cfg.EnvelopeKeyID, cfg.EnvelopeKey)
+	// PLAT-04: carry the PROBECTL_ENVELOPE_OPENER_KEYS keyring so an operator's
+	// TOTP sealed under a retired key still opens during a rotation overlap
+	// (before envelope-rewrap migrates it) — matching every other
+	// deployment-envelope consumer (BYOK master, backup, builders).
+	openerKeys, err := cfg.EnvelopeOpenerKeyring()
+	if err != nil {
+		return nil, fmt.Errorf("provider: envelope opener keyring: %w", err)
+	}
+	kek, err := crypto.NewStaticKeyProviderFromBase64Keyring(cfg.EnvelopeKeyID, cfg.EnvelopeKey, openerKeys)
 	if err != nil {
 		return nil, err
 	}
