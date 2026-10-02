@@ -8,6 +8,7 @@ package agenttransport
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"time"
@@ -21,23 +22,34 @@ import (
 // now is the clock every expiry check reads, so a test can move it.
 var now = time.Now
 
+// peerLeafFromContext returns the verified mTLS client leaf certificate from the
+// gRPC peer. The transport requires and verifies the client certificate, so the
+// leaf is authoritative. Both the identity derivation (below) and the per-call
+// revocation recheck (CRY-01) read it, so the extraction lives in one place.
+func peerLeafFromContext(ctx context.Context) (*x509.Certificate, error) {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return nil, errors.New("no peer in context")
+	}
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return nil, errors.New("connection is not mTLS")
+	}
+	certs := tlsInfo.State.PeerCertificates
+	if len(certs) == 0 {
+		return nil, errors.New("no client certificate presented")
+	}
+	return certs[0], nil
+}
+
 // identityFromContext extracts the verified SPIFFE identity from the gRPC peer's
 // mTLS client certificate. Because the transport requires and verifies the client
 // certificate, this identity is authoritative — it is the agent's tenant + id.
 func identityFromContext(ctx context.Context) (crypto.SPIFFEID, error) {
-	p, ok := peer.FromContext(ctx)
-	if !ok {
-		return crypto.SPIFFEID{}, errors.New("no peer in context")
+	leaf, err := peerLeafFromContext(ctx)
+	if err != nil {
+		return crypto.SPIFFEID{}, err
 	}
-	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
-	if !ok {
-		return crypto.SPIFFEID{}, errors.New("connection is not mTLS")
-	}
-	certs := tlsInfo.State.PeerCertificates
-	if len(certs) == 0 {
-		return crypto.SPIFFEID{}, errors.New("no client certificate presented")
-	}
-	leaf := certs[0]
 	// DPR-175: TLS checks the certificate ONCE, at the handshake. The agent lane
 	// is a long-lived bidirectional stream, so an SVID that expires mid-stream
 	// keeps being accepted until something unrelated breaks the connection — on
@@ -52,4 +64,46 @@ func identityFromContext(ctx context.Context) (crypto.SPIFFEID, error) {
 			leaf.NotAfter.UTC().Format(time.RFC3339))
 	}
 	return crypto.SPIFFEIDFromCert(leaf)
+}
+
+// authenticate resolves the verified agent identity and re-validates it on EVERY
+// call. identityFromContext already re-reads certificate EXPIRY mid-stream
+// (DPR-175); this additionally re-reads the registry REVOCATION deny-list
+// (CRY-01). mTLS consults that deny-list only ONCE, at the handshake
+// (crypto.revocationGuard, U-038), so an agent revoked AFTER its long-lived
+// bidirectional stream was established keeps attesting, heart-beating and
+// streaming results until its short-lived certificate expires — on the lab that
+// was the full remainder of the cert lifetime, with the operator believing the
+// revocation had taken hold. The deny-list here is the SAME pointer the control
+// plane refreshes from the agent registry (Server.RevocationList(): the periodic
+// reload and the immediate operator push), so the NEXT Attest/Heartbeat/
+// StreamResults on that connection is refused within one refresh interval.
+// Guardrail §7.4/§7.12: a revoked credential fails closed on every path.
+func (svc *service) authenticate(ctx context.Context) (crypto.SPIFFEID, error) {
+	id, err := identityFromContext(ctx)
+	if err != nil {
+		return crypto.SPIFFEID{}, err
+	}
+	rl := svc.revocations
+	if rl == nil || rl.Empty() {
+		// Hot path: nothing revoked (the steady state) — no extra work beyond
+		// the cheap identity read every handler already does.
+		return id, nil
+	}
+	leaf, err := peerLeafFromContext(ctx)
+	if err != nil {
+		return crypto.SPIFFEID{}, err
+	}
+	// Match the handshake guard: deny by serial OR by SPIFFE id, so revoking the
+	// identity catches a re-issued cert too (the no-resurrection guarantee).
+	sid := ""
+	if registered, rerr := crypto.RegisteredSPIFFEIDFromCert(leaf); rerr == nil {
+		sid = registered.String()
+	}
+	if rl.IsRevoked(leaf.SerialNumber.Text(16), sid) {
+		return crypto.SPIFFEID{}, fmt.Errorf(
+			"agent certificate REVOKED (serial %s) — refused mid-stream; re-enroll with a join token after remediation (CRY-01)",
+			leaf.SerialNumber.Text(16))
+	}
+	return id, nil
 }

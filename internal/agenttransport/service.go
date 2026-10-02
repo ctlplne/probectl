@@ -93,12 +93,20 @@ type service struct {
 	// (S-a9f9db46): INJECTED from the runtime like every other plane's — never
 	// constructed ad hoc per call — so the write-fence inventory sees it.
 	fence tenancy.WriterFence
+
+	// revocations is the SAME registry-driven mTLS deny-list the handshake
+	// consults (U-038). mTLS checks it once, at connect; CRY-01 re-checks it on
+	// every RPC so an agent revoked mid-stream is refused on its next
+	// Attest/Heartbeat/StreamResults instead of surviving until cert expiry.
+	// nil (minimal/test servers with no deny-list) = no recheck; the hot path
+	// also short-circuits on an empty list.
+	revocations *crypto.RevocationList
 }
 
 // Register upserts the agent into its tenant's registry. The id and tenant are
 // taken from the verified certificate, so this is always tenant-correct.
 func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) (*agentv1.RegisterResponse, error) {
-	id, err := identityFromContext(ctx)
+	id, err := svc.authenticate(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -191,7 +199,7 @@ func copyServerCapabilities() []string {
 // Attest acknowledges the agent's identity. The mTLS handshake already proved it;
 // SVID-based node/workload attestation is S-EE1.
 func (svc *service) Attest(ctx context.Context, _ *agentv1.AttestRequest) (*agentv1.AttestResponse, error) {
-	id, err := identityFromContext(ctx)
+	id, err := svc.authenticate(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -200,7 +208,7 @@ func (svc *service) Attest(ctx context.Context, _ *agentv1.AttestRequest) (*agen
 
 // Heartbeat marks the agent online.
 func (svc *service) Heartbeat(ctx context.Context, _ *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
-	id, err := identityFromContext(ctx)
+	id, err := svc.authenticate(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -237,7 +245,7 @@ func (svc *service) StreamConfig(_ *agentv1.StreamConfigRequest, _ grpc.ServerSt
 // verified certificate (never the payload), so a result is always attributed to
 // the sending agent's tenant (docs/guardrails.md G7-1 and G7-5).
 func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.StreamResultsRequest, agentv1.StreamResultsResponse]) error {
-	id, err := identityFromContext(stream.Context())
+	id, err := svc.authenticate(stream.Context())
 	if err != nil {
 		return status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -377,7 +385,7 @@ func deterministicResultID(r *resultv1.Result) string {
 // agent. The tenant and agent are taken from the verified certificate, so an
 // agent can only ever receive its own tasks (docs/guardrails.md G7-1 and G7-5).
 func (svc *service) PollCoordination(ctx context.Context, _ *agentv1.PollCoordinationRequest) (*agentv1.PollCoordinationResponse, error) {
-	id, err := identityFromContext(ctx)
+	id, err := svc.authenticate(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -394,7 +402,7 @@ func (svc *service) PollCoordination(ctx context.Context, _ *agentv1.PollCoordin
 // ReportEndpoint records where a responder is listening for a session. The
 // broker verifies the caller is that session's responder in its tenant.
 func (svc *service) ReportEndpoint(ctx context.Context, req *agentv1.ReportEndpointRequest) (*agentv1.ReportEndpointResponse, error) {
-	id, err := identityFromContext(ctx)
+	id, err := svc.authenticate(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}

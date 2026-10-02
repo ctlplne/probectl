@@ -63,6 +63,10 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 		pool: pool, bus: b, broker: broker, log: log, shutdown: srvCtx.Done(),
 		compat: lifecycle.DefaultPolicy(), controlVersion: version.Get().Version,
 		freshness: newNonceCache(DefaultFreshnessWindow),
+		// CRY-01: the handlers share the SAME deny-list the TLS handshake
+		// consults, so a per-RPC revocation recheck refuses an agent revoked
+		// after its long-lived stream was established (see service.authenticate).
+		revocations: revocations,
 	}
 	if pool != nil {
 		// Default fence over the shared pool; the runtime replaces it with the
