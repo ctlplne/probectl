@@ -60,7 +60,17 @@ var (
 	// The unquoted value class still excludes quotes and ampersands so redacting
 	// a query string never eats a structural character. Group 1 (key + optional
 	// quote + separator) is preserved; the value is replaced.
-	CredentialKV = regexp.MustCompile(`(?i)\b([A-Za-z0-9_.\-]*(?:secret[_\-.]?access[_\-.]?key|secret[_\-.]?key|client[_\-.]?secret|private[_\-.]?key|access[_\-.]?key|api[_\-.]?key|auth[_\-.]?token|password|passwd|pwd|session[_\-.]?id|secret|token|community|session|sid)["']?\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s"'&]+)`)
+	//
+	// CRY-06 added the at-rest KEY-MATERIAL nouns that previously had no entry in
+	// the list, so a deployment's own sealing keys leaked verbatim on EVERY path
+	// (MaskSecrets, the AI egress path and the governance/support path) when an
+	// env dump or config line reached a prompt or a support bundle:
+	// PROBECTL_ENVELOPE_KEY (the base64 KEK), encryption/wrapping/master/signing/
+	// hmac keys, and the KEK/DEK abbreviations. Only the specific key-material
+	// compounds are added — never a bare "key" alternative — so operational
+	// identifiers that merely end in "key" (sort_key, partition_key, metadata_key,
+	// idempotency-key) are NOT masked and RCA/telemetry keep their subject.
+	CredentialKV = regexp.MustCompile(`(?i)\b([A-Za-z0-9_.\-]*(?:secret[_\-.]?access[_\-.]?key|secret[_\-.]?key|client[_\-.]?secret|private[_\-.]?key|encryption[_\-.]?key|envelope[_\-.]?key|wrapping[_\-.]?key|master[_\-.]?key|signing[_\-.]?key|hmac[_\-.]?key|access[_\-.]?key|api[_\-.]?key|auth[_\-.]?token|password|passwd|pwd|session[_\-.]?id|secret|token|community|session|sid|kek|dek)["']?\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s"'&]+)`)
 
 	// AWSAccessKeyID matches an AKIA/ASIA-prefixed access key id (long-term and
 	// temporary session credentials).

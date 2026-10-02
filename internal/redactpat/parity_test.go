@@ -249,6 +249,40 @@ var egressHardeningCorpus = map[string]sample{
 		text:   "upstream sent Authorization: Negotiate YIIZkQYGKwYBBQUCoIIZhTCCGYGgDQ== on connect",
 		secret: "YIIZkQYGKwYBBQUCoIIZhTCCGYGgDQ==",
 	},
+	// CRY-06: at-rest KEY-MATERIAL nouns had no entry in the credential key list,
+	// so a deployment's own sealing keys leaked verbatim on every path when an env
+	// dump or config line reached a prompt or a support bundle. The headline shape
+	// is PROBECTL_ENVELOPE_KEY (the base64 KEK); encryption/wrapping/master/signing
+	// keys and the KEK/DEK abbreviations are the same class. All values here are
+	// obviously fake (they read "FAKE..."); the file is gitleaks-allowlisted.
+	"envelope_kek_env": {
+		text:   "startup read PROBECTL_ENVELOPE_KEY=FAKEenvelopeKEKnotARealSecret0000000000000= from env",
+		secret: "FAKEenvelopeKEKnotARealSecret0000000000000=",
+	},
+	"envelope_key_lc": {
+		text:   `sealer config {"envelope_key":"FAKEenvelopeKEKnotARealSecret0000000000000="} rejected`,
+		secret: "FAKEenvelopeKEKnotARealSecret0000000000000=",
+	},
+	"encryption_key_kv": {
+		text:   "at-rest encryption_key=FAKEencryptionKEYnotARealSecret00000000000= loaded",
+		secret: "FAKEencryptionKEYnotARealSecret00000000000=",
+	},
+	"data_encryption_key_kv": {
+		text:   "DATA_ENCRYPTION_KEY=FAKEdataDEKnotARealSecret0000000000000000000= wrapped",
+		secret: "FAKEdataDEKnotARealSecret0000000000000000000=",
+	},
+	"kek_abbrev_kv": {
+		text:   "rewrap used kek=FAKEkekNotARealSecret00000000000000000000000= for the walk",
+		secret: "FAKEkekNotARealSecret00000000000000000000000=",
+	},
+	"signing_key_env": {
+		text:   "worm watermark PROBECTL_WORM_SIGNING_KEY=FAKEsigningKEYnotARealSecret000000000000= set",
+		secret: "FAKEsigningKEYnotARealSecret000000000000=",
+	},
+	"master_key_kv": {
+		text:   "deployment master_key: FAKEmasterKEYnotARealSecret0000000000000000= cached",
+		secret: "FAKEmasterKEYnotARealSecret0000000000000000=",
+	},
 }
 
 func TestEgressHardeningCorpusMaskedByBoth(t *testing.T) {
@@ -298,6 +332,16 @@ var benignCorpus = []string{
 	"ingest lag spiked at epoch 1696118400000 during cutover",
 	// A 16-digit run with no brand prefix and no Luhn validity stays intact too.
 	"trace id 1234567890123456 carried through the span",
+	// CRY-06 precision: operational identifiers that merely END in "key" are NOT
+	// key material, and must survive — the fix added only the specific key-material
+	// compounds (encryption/envelope/wrapping/master/signing/hmac key, kek, dek),
+	// never a bare "key" noun. A sort/partition/metadata/idempotency key is a
+	// column or request identifier RCA needs, not a secret.
+	"ClickHouse sort_key=event_time kept the parts ordered",
+	"partition_key: tenant_id drives the shard layout",
+	"span carried metadata_key=region for the rollup",
+	"request header idempotency-key: order-4412 deduped the retry",
+	"the primary key constraint failed on the id column",
 }
 
 func TestBenignTextSurvivesBothEngines(t *testing.T) {
