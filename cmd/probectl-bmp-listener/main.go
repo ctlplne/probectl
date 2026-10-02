@@ -63,7 +63,10 @@ func run() error {
 	readTimeoutRaw := fs.String("read-timeout", envOr("PROBECTL_BMP_READ_TIMEOUT", bgp.DefaultBMPReadTimeout.String()), "maximum time for a BMP frame in progress (header + payload once its first byte arrived)")
 	idleTimeoutRaw := fs.String("idle-timeout", envOr("PROBECTL_BMP_IDLE_TIMEOUT", bgp.DefaultBMPIdleTimeout.String()), "maximum quiet time between frames on an authenticated session; 0 = unbounded (TCP keepalive detects dead peers)")
 	eventSuppressionRaw := fs.String("event-suppression", envOr("PROBECTL_BMP_EVENT_SUPPRESSION", bgp.DefaultBMPEventSuppression.String()), "publish an unchanged route from the same peer at most once per window; 0 = every observation")
-	maxSessionsRaw := fs.String("max-sessions", envOr("PROBECTL_BMP_MAX_SESSIONS", strconv.Itoa(bgp.DefaultBMPMaxSessions)), "maximum concurrent BMP sessions")
+	maxSessionsRaw := fs.String("max-sessions", envOr("PROBECTL_BMP_MAX_SESSIONS", strconv.Itoa(bgp.DefaultBMPMaxSessions)), "maximum concurrent post-auth BMP sessions")
+	maxPreAuthRaw := fs.String("max-preauth-handshakes", envOr("PROBECTL_BMP_MAX_PREAUTH_HANDSHAKES", strconv.Itoa(bgp.DefaultBMPMaxPreAuthHandshakes)), "maximum concurrent UNAUTHENTICATED mTLS handshakes (kept smaller than --max-sessions so idle sockets cannot exhaust the post-auth pool)")
+	maxPerSourceRaw := fs.String("max-sessions-per-source", envOr("PROBECTL_BMP_MAX_SESSIONS_PER_SOURCE", strconv.Itoa(bgp.DefaultBMPMaxSessionsPerSource)), "maximum concurrent connections (pre-auth + admitted) from one remote IP")
+	maxPerIdentityRaw := fs.String("max-sessions-per-identity", envOr("PROBECTL_BMP_MAX_SESSIONS_PER_IDENTITY", strconv.Itoa(bgp.DefaultBMPMaxSessionsPerIdentity)), "maximum concurrent admitted sessions for one registered router identity")
 	revocationRefreshRaw := fs.String("revocation-refresh", envOr("PROBECTL_BMP_REVOCATION_REFRESH", defaultBMPRevocationRefresh.String()), "authoritative revocation snapshot refresh interval")
 	revocationTimeoutRaw := fs.String("revocation-timeout", envOr("PROBECTL_BMP_REVOCATION_TIMEOUT", defaultBMPRevocationTimeout.String()), "maximum time for one revocation snapshot")
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -86,6 +89,18 @@ func run() error {
 		return err
 	}
 	maxSessions, err := parsePositiveBMPInt("max sessions", *maxSessionsRaw)
+	if err != nil {
+		return err
+	}
+	maxPreAuth, err := parsePositiveBMPInt("max preauth handshakes", *maxPreAuthRaw)
+	if err != nil {
+		return err
+	}
+	maxPerSource, err := parsePositiveBMPInt("max sessions per source", *maxPerSourceRaw)
+	if err != nil {
+		return err
+	}
+	maxPerIdentity, err := parsePositiveBMPInt("max sessions per identity", *maxPerIdentityRaw)
 	if err != nil {
 		return err
 	}
@@ -208,6 +223,9 @@ func run() error {
 		"idle_timeout", idleTimeout,
 		"event_suppression", eventSuppression,
 		"max_sessions", maxSessions,
+		"max_preauth_handshakes", maxPreAuth,
+		"max_sessions_per_source", maxPerSource,
+		"max_sessions_per_identity", maxPerIdentity,
 		"revocation_refresh", revocationRefresh,
 		"revocations_loaded", revocations.Size(),
 	)
@@ -237,6 +255,14 @@ func run() error {
 			bgp.WithBMPIdleTimeout(idleTimeout),
 			bgp.WithBMPEventSuppression(eventSuppression),
 			bgp.WithBMPMaxSessions(maxSessions),
+			bgp.WithBMPMaxPreAuthHandshakes(maxPreAuth),
+			bgp.WithBMPMaxSessionsPerSource(maxPerSource),
+			bgp.WithBMPMaxSessionsPerIdentity(maxPerIdentity),
+			// ING-11: re-check admitted sessions against the revocation snapshot
+			// (and leaf expiry) on the SAME cadence the snapshot refreshes, so a
+			// revoked or expired router's live session is torn down within one
+			// refresh even if it has gone quiet.
+			bgp.WithBMPLivenessRefresh(revocationRefresh),
 			bgp.WithBMPSessionMetrics(metricsRuntime),
 			bgp.WithBMPRevocationList(revocations),
 			bgp.WithBMPIssuedIdentityVerifier(verifyIssued),

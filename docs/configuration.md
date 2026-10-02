@@ -1038,7 +1038,10 @@ path is introduced.
 | `PROBECTL_BMP_READ_TIMEOUT` | `2m` | maximum for a BMP frame in progress: once its first byte arrived, the rest of the header and the payload must complete within this; must be positive. Idle time between frames is governed by `PROBECTL_BMP_IDLE_TIMEOUT` (DPR-060) |
 | `PROBECTL_BMP_IDLE_TIMEOUT` | `0` | how long an authenticated router session may wait for its next frame; `0` = unbounded (BGP tables are quiet most of the time; TCP keepalive every 30 s detects a dead peer). The earlier behavior — dropping a quiet session after the read timeout, which made the router reconnect and re-dump its table — is `PROBECTL_BMP_IDLE_TIMEOUT=2m` (DPR-060) |
 | `PROBECTL_BMP_EVENT_SUPPRESSION` | `5m` | an unchanged route observation from the same peer of the same router is published at most once per window (a reconnecting router re-sends its whole Adj-RIB-In); `0` publishes every observation. The peer inventory still counts every announcement (DPR-060) |
-| `PROBECTL_BMP_MAX_SESSIONS` | `256` | process-wide concurrent BMP session limit; excess sockets are refused |
+| `PROBECTL_BMP_MAX_SESSIONS` | `256` | process-wide concurrent POST-AUTH BMP session limit; excess sockets are refused |
+| `PROBECTL_BMP_MAX_PREAUTH_HANDSHAKES` | `64` | concurrent UNAUTHENTICATED mTLS handshakes; kept smaller than `PROBECTL_BMP_MAX_SESSIONS` so idle or slow-dripping sockets that never authenticate can occupy at most this many slots (for at most the handshake timeout) and can never consume a post-auth session slot (ING-11); must be positive |
+| `PROBECTL_BMP_MAX_SESSIONS_PER_SOURCE` | `32` | concurrent connections (pre-auth + admitted) allowed from one remote IP, so one noisy source cannot monopolize the pools (ING-11); must be positive |
+| `PROBECTL_BMP_MAX_SESSIONS_PER_IDENTITY` | `4` | concurrent admitted sessions allowed for one registered router identity, so one compromised credential cannot monopolize the post-auth pool (ING-11); must be positive |
 | `PROBECTL_BMP_BUS_MODE` | `memory` | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka` |
 | `PROBECTL_BMP_BUS_BROKERS` | (none) | comma-separated Kafka brokers (required for kafka mode) |
 | `PROBECTL_BMP_BUS_TLS_ENABLED` | `false` | TLS to Kafka brokers; required in kafka mode unless the explicit dev-only plaintext flag is set |

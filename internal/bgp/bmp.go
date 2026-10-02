@@ -54,6 +54,28 @@ const (
 	DefaultBMPHandshakeTimeout = 10 * time.Second
 	DefaultBMPReadTimeout      = 2 * time.Minute
 	DefaultBMPMaxSessions      = 256
+	// DefaultBMPMaxPreAuthHandshakes bounds concurrent UNAUTHENTICATED mTLS
+	// handshakes with a pool deliberately SMALLER than the post-auth session
+	// pool. A connection holds a pre-auth slot only until mTLS + registry
+	// verification succeed (then it is promoted and the slot freed) or the
+	// handshake deadline fires (ING-11): idle or slow-dripping sockets that
+	// never authenticate can therefore occupy at most this many slots, for at
+	// most the handshake timeout, and can NEVER consume a post-auth slot
+	// (docs/guardrails.md G7-4/G7-12).
+	DefaultBMPMaxPreAuthHandshakes = 64
+	// DefaultBMPMaxSessionsPerSource and DefaultBMPMaxSessionsPerIdentity cap how
+	// many concurrent connections one remote IP (across pre-auth + admitted) or
+	// one registered router identity (admitted) may hold, so one noisy source or
+	// one compromised credential cannot monopolize either pool (ING-11).
+	DefaultBMPMaxSessionsPerSource   = 32
+	DefaultBMPMaxSessionsPerIdentity = 4
+	// DefaultBMPLivenessRefresh is how often admitted sessions are re-checked
+	// against the registry revocation snapshot and their own leaf NotAfter. A
+	// router revoked or whose certificate expires AFTER its session was
+	// established is torn down within one tick even if it has gone quiet and
+	// sends no further frame for the per-frame recheck to catch (ING-11, building
+	// on RTP-03). 0 disables the sweep.
+	DefaultBMPLivenessRefresh = 30 * time.Second
 	// DefaultBMPIdleTimeout is 0: an authenticated router session may stay
 	// quiet indefinitely (BGP tables are quiet most of the time); TCP
 	// keepalive detects a dead peer. The read timeout bounds a frame in
@@ -106,6 +128,36 @@ type BMPListener struct {
 	activeSessions   atomic.Int64
 	verifyIssued     BMPIdentityVerifier
 	revocations      *probectlc.RevocationList
+
+	// Pre-auth admission (ING-11): a small semaphore bounding concurrent
+	// unauthenticated handshakes, held only until promotion, plus per-source-IP
+	// and per-identity connection caps.
+	maxPreAuth     int
+	preAuthSlots   chan struct{}
+	maxPerSource   int
+	maxPerIdentity int
+	admitMu        sync.Mutex
+	perSource      map[netip.Addr]int
+	perIdentity    map[string]int
+
+	// Live-session liveness sweep (ING-11): every admitted session registers
+	// here so a revocation-snapshot refresh or leaf expiry can terminate it
+	// mid-session, even while it is quiet.
+	livenessRefresh time.Duration
+	liveMu          sync.Mutex
+	live            map[uint64]*bmpLiveSession
+	liveSeq         uint64
+}
+
+// bmpLiveSession is one admitted BMP session tracked for mid-session revocation
+// and certificate-expiry termination. cancel unblocks the session's read (it
+// sets the connection deadline) so the handler returns and tears the session
+// down; killReason records why the sweep closed it, for the handler's log.
+type bmpLiveSession struct {
+	id         bmpIdentity
+	notAfter   time.Time
+	cancel     context.CancelFunc
+	killReason string
 }
 
 // BMPSessionMetrics receives process-aggregate session health without tenant
@@ -205,6 +257,58 @@ func WithBMPSessionMetrics(m BMPSessionMetrics) BMPOption {
 	return func(l *BMPListener) { l.sessionMetrics = m }
 }
 
+// WithBMPMaxPreAuthHandshakes bounds concurrent unauthenticated handshakes. The
+// pool should stay SMALLER than the post-auth session pool so unauthenticated
+// sockets cannot consume admitted-router capacity (ING-11).
+func WithBMPMaxPreAuthHandshakes(maxHandshakes int) BMPOption {
+	return func(l *BMPListener) {
+		if maxHandshakes > 0 {
+			l.maxPreAuth = maxHandshakes
+		}
+	}
+}
+
+// WithBMPMaxSessionsPerSource caps concurrent connections (pre-auth + admitted)
+// from one remote IP (ING-11); 0 leaves the default. A nonpositive value is
+// ignored.
+func WithBMPMaxSessionsPerSource(maxPerSource int) BMPOption {
+	return func(l *BMPListener) {
+		if maxPerSource > 0 {
+			l.maxPerSource = maxPerSource
+		}
+	}
+}
+
+// WithBMPMaxSessionsPerIdentity caps concurrent admitted sessions for one
+// registered router identity (ING-11). A nonpositive value is ignored.
+func WithBMPMaxSessionsPerIdentity(maxPerIdentity int) BMPOption {
+	return func(l *BMPListener) {
+		if maxPerIdentity > 0 {
+			l.maxPerIdentity = maxPerIdentity
+		}
+	}
+}
+
+// WithBMPLivenessRefresh sets how often admitted sessions are re-checked for
+// revocation and leaf expiry (ING-11). 0 disables the sweep.
+func WithBMPLivenessRefresh(interval time.Duration) BMPOption {
+	return func(l *BMPListener) {
+		if interval >= 0 {
+			l.livenessRefresh = interval
+		}
+	}
+}
+
+// withBMPNow overrides the listener clock. Tests use it to advance past a leaf
+// certificate's NotAfter deterministically; production keeps time.Now.
+func withBMPNow(now func() time.Time) BMPOption {
+	return func(l *BMPListener) {
+		if now != nil {
+			l.now = now
+		}
+	}
+}
+
 // NewBMPListener constructs a BMP listener around an already-created TLS
 // listener. The caller owns TLS policy; production callers should use
 // internal/crypto.ServerMTLSConfig so the tenant comes from the verified SPIFFE
@@ -231,6 +335,13 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 		baseline:         make(map[bmpOriginBaselineKey]uint32),
 		maxSessions:      DefaultBMPMaxSessions,
 		revocations:      probectlc.NewRevocationList(),
+		maxPreAuth:       DefaultBMPMaxPreAuthHandshakes,
+		maxPerSource:     DefaultBMPMaxSessionsPerSource,
+		maxPerIdentity:   DefaultBMPMaxSessionsPerIdentity,
+		livenessRefresh:  DefaultBMPLivenessRefresh,
+		perSource:        make(map[netip.Addr]int),
+		perIdentity:      make(map[string]int),
+		live:             make(map[uint64]*bmpLiveSession),
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -239,6 +350,7 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 		l.inventory = NewBMPPeerInventory()
 	}
 	l.sessionSlots = make(chan struct{}, l.maxSessions)
+	l.preAuthSlots = make(chan struct{}, l.maxPreAuth)
 	return l
 }
 
@@ -257,6 +369,9 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 		<-ctx.Done()
 		_ = l.ln.Close()
 	}()
+	if l.livenessRefresh > 0 {
+		go l.runLivenessSweep(ctx)
+	}
 	for {
 		conn, err := l.ln.Accept()
 		enableTCPKeepAlive(conn)
@@ -266,22 +381,194 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 			}
 			return fmt.Errorf("bgp bmp: accept: %w", err)
 		}
-		if !l.acquireSession() {
+		// ING-11: admit into the SMALL pre-auth pool before spawning any work,
+		// so an unauthenticated flood is bounded here and never reaches the
+		// post-auth session pool. The real session slot is taken only after
+		// mTLS + registry verification succeed, inside handleConn.
+		src := bmpSourceIP(conn)
+		if ok, reason := l.admitPreAuth(src); !ok {
 			l.log.Warn("bmp peer session rejected",
 				"remote", bmpRemoteAddr(conn),
-				"reason", "session_limit",
-				"max_sessions", l.maxSessions,
+				"reason", reason,
+				"source", src.String(),
 			)
+			if l.sessionMetrics != nil {
+				l.sessionMetrics.SessionAdmissionRejected()
+			}
 			_ = conn.Close()
 			continue
 		}
 		go func() {
-			defer l.releaseSession()
-			if err := l.handleConn(ctx, conn); err != nil && ctx.Err() == nil {
+			preAuthReleased := false
+			releasePreAuth := func() {
+				if !preAuthReleased {
+					preAuthReleased = true
+					<-l.preAuthSlots
+				}
+			}
+			defer func() {
+				// Frees the pre-auth slot if handleConn never promoted, and
+				// always drops this connection's per-source reservation.
+				releasePreAuth()
+				l.releaseSource(src)
+			}()
+			if err := l.handleConn(ctx, conn, releasePreAuth); err != nil && ctx.Err() == nil {
 				l.log.Warn("bmp peer session closed", "remote", bmpRemoteAddr(conn), "error", err)
 			}
 		}()
 	}
+}
+
+// admitPreAuth reserves a pre-auth handshake slot and a per-source-IP slot for a
+// freshly accepted connection, atomically. It fails closed when either the small
+// pre-auth pool or the per-source cap is full, naming which (ING-11).
+func (l *BMPListener) admitPreAuth(src netip.Addr) (bool, string) {
+	l.admitMu.Lock()
+	defer l.admitMu.Unlock()
+	if l.maxPerSource > 0 && l.perSource[src] >= l.maxPerSource {
+		return false, "source_limit"
+	}
+	select {
+	case l.preAuthSlots <- struct{}{}:
+	default:
+		return false, "preauth_limit"
+	}
+	l.perSource[src]++
+	return true, ""
+}
+
+// releaseSource drops one per-source-IP reservation when a connection ends.
+func (l *BMPListener) releaseSource(src netip.Addr) {
+	l.admitMu.Lock()
+	defer l.admitMu.Unlock()
+	if l.perSource[src] > 0 {
+		l.perSource[src]--
+		if l.perSource[src] == 0 {
+			delete(l.perSource, src)
+		}
+	}
+}
+
+// acquireIdentity reserves one per-identity session slot after authentication,
+// failing closed when the identity is already at its cap (ING-11).
+func (l *BMPListener) acquireIdentity(spiffeID string) bool {
+	l.admitMu.Lock()
+	defer l.admitMu.Unlock()
+	if l.maxPerIdentity > 0 && l.perIdentity[spiffeID] >= l.maxPerIdentity {
+		return false
+	}
+	l.perIdentity[spiffeID]++
+	return true
+}
+
+// releaseIdentity drops one per-identity session slot when a session ends.
+func (l *BMPListener) releaseIdentity(spiffeID string) {
+	l.admitMu.Lock()
+	defer l.admitMu.Unlock()
+	if l.perIdentity[spiffeID] > 0 {
+		l.perIdentity[spiffeID]--
+		if l.perIdentity[spiffeID] == 0 {
+			delete(l.perIdentity, spiffeID)
+		}
+	}
+}
+
+// bmpSourceIP extracts the remote IP of a connection for per-source accounting;
+// an unparseable or missing address collapses to the zero Addr, a single shared
+// bucket that is still bounded by the per-source cap.
+func bmpSourceIP(conn net.Conn) netip.Addr {
+	if conn == nil || conn.RemoteAddr() == nil {
+		return netip.Addr{}
+	}
+	raw := conn.RemoteAddr().String()
+	if ap, err := netip.ParseAddrPort(raw); err == nil {
+		return ap.Addr().Unmap()
+	}
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		if a, e := netip.ParseAddr(host); e == nil {
+			return a.Unmap()
+		}
+	}
+	return netip.Addr{}
+}
+
+// runLivenessSweep re-checks admitted sessions against the revocation snapshot
+// and leaf expiry on each refresh tick (ING-11).
+func (l *BMPListener) runLivenessSweep(ctx context.Context) {
+	ticker := time.NewTicker(l.livenessRefresh)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			l.sweepLiveSessions()
+		}
+	}
+}
+
+// sweepLiveSessions terminates every admitted session whose router identity is
+// now revoked or whose leaf certificate NotAfter has passed. It marks each
+// victim's reason under the lock, then cancels outside it so the session's read
+// unblocks and the handler tears the session down and publishes no more
+// (fail closed — docs/guardrails.md G7-4/G7-12).
+func (l *BMPListener) sweepLiveSessions() {
+	now := l.now()
+	l.liveMu.Lock()
+	var victims []*bmpLiveSession
+	for _, s := range l.live {
+		if s.killReason != "" {
+			continue
+		}
+		switch {
+		case l.identityRevoked(s.id):
+			s.killReason = "registry-revoked router identity terminated mid-session"
+		case !s.notAfter.IsZero() && !s.notAfter.After(now):
+			s.killReason = "router leaf certificate expired mid-session"
+		default:
+			continue
+		}
+		victims = append(victims, s)
+	}
+	l.liveMu.Unlock()
+	for _, s := range victims {
+		l.log.Warn("bmp live session terminated",
+			"reason", s.killReason,
+			"tenant_id", s.id.TenantID,
+			"agent_id", s.id.AgentID,
+			"serial", s.id.Serial,
+		)
+		s.cancel()
+	}
+}
+
+// registerLive records an admitted session for the liveness sweep and returns
+// its handle for deregistration.
+func (l *BMPListener) registerLive(s *bmpLiveSession) uint64 {
+	l.liveMu.Lock()
+	defer l.liveMu.Unlock()
+	l.liveSeq++
+	handle := l.liveSeq
+	l.live[handle] = s
+	return handle
+}
+
+// deregisterLive removes a session from the liveness sweep on teardown.
+func (l *BMPListener) deregisterLive(handle uint64) {
+	l.liveMu.Lock()
+	defer l.liveMu.Unlock()
+	delete(l.live, handle)
+}
+
+// sessionKillReason reports why the sweep closed a session, if it did, so the
+// handler can log a revocation/expiry cause instead of a bare read timeout.
+func (l *BMPListener) sessionKillReason(handle uint64) string {
+	l.liveMu.Lock()
+	defer l.liveMu.Unlock()
+	if s, ok := l.live[handle]; ok {
+		return s.killReason
+	}
+	return ""
 }
 
 func (l *BMPListener) acquireSession() bool {
@@ -313,9 +600,21 @@ type bmpIdentity struct {
 	AgentID  string
 	SPIFFEID string
 	Serial   string
+	// NotAfter is the verified leaf certificate's expiry, remembered so the
+	// liveness sweep can terminate a session whose credential expires mid-flight
+	// even though the mTLS layer only checks expiry once, at the handshake
+	// (ING-11).
+	NotAfter time.Time
 }
 
-func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr error) {
+// handleConn runs one accepted connection: a pre-auth phase (mTLS + registry
+// verification) bounded by the handshake deadline and the caller's pre-auth
+// slot, then — only on success — promotion out of the pre-auth pool into a
+// post-auth session slot that is served until the peer, a revocation, an
+// expiry, or ctx ends it. releasePreAuth leaves the pre-auth pool on promotion
+// (or on any pre-promotion exit via the caller's defer); it may be nil for
+// direct unit tests that never entered the pre-auth pool (ING-11).
+func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreAuth func()) (retErr error) {
 	defer func() {
 		// A TLS close_notify write must not let an already-timed-out peer keep
 		// the session goroutine alive. Hard-close the underlying connection on
@@ -335,13 +634,18 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 			l.sessionMetrics.SessionTimeout()
 		}
 	}()
-	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	// A session-scoped context so BOTH parent cancellation AND a sweep-driven
+	// termination (sessCancel, held in the live-session registry) unblock the
+	// read by setting the connection deadline (ING-11).
+	sessCtx, sessCancel := context.WithCancel(ctx)
+	defer sessCancel()
+	stop := context.AfterFunc(sessCtx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
 
 	if err := conn.SetDeadline(time.Now().Add(l.handshakeTimeout)); err != nil {
 		return fmt.Errorf("bgp bmp: set mtls handshake deadline: %w", err)
 	}
-	handshakeCtx, cancel := context.WithTimeout(ctx, l.handshakeTimeout)
+	handshakeCtx, cancel := context.WithTimeout(sessCtx, l.handshakeTimeout)
 	id, err := bmpPeerIdentity(handshakeCtx, conn)
 	if err != nil {
 		cancel()
@@ -372,6 +676,36 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return fmt.Errorf("bgp bmp: clear mtls handshake deadline: %w", err)
 	}
+
+	// --- Promotion (ING-11): authentication succeeded, so leave the small
+	// pre-auth pool and reserve a real post-auth session slot plus a per-identity
+	// slot. Reserving AFTER verification is what keeps idle/unauthenticated
+	// sockets from ever consuming post-auth capacity. ---
+	if releasePreAuth != nil {
+		releasePreAuth()
+	}
+	if !l.acquireSession() {
+		l.log.Warn("bmp peer session rejected",
+			"remote", bmpRemoteAddr(conn), "reason", "session_limit", "max_sessions", l.maxSessions)
+		return nil
+	}
+	defer l.releaseSession()
+	if !l.acquireIdentity(id.SPIFFEID) {
+		l.log.Warn("bmp peer session rejected",
+			"remote", bmpRemoteAddr(conn), "reason", "identity_limit",
+			"spiffe_id", id.SPIFFEID, "max_per_identity", l.maxPerIdentity)
+		if l.sessionMetrics != nil {
+			l.sessionMetrics.SessionAdmissionRejected()
+		}
+		return nil
+	}
+	defer l.releaseIdentity(id.SPIFFEID)
+
+	// Register for the liveness sweep so a later revocation or leaf expiry closes
+	// this session within one refresh tick, even if it goes quiet (ING-11).
+	liveHandle := l.registerLive(&bmpLiveSession{id: id, notAfter: id.NotAfter, cancel: sessCancel})
+	defer l.deregisterLive(liveHandle)
+
 	l.log.Info("bmp peer session admitted",
 		"tenant_id", id.TenantID, "agent_id", id.AgentID, "spiffe_id", id.SPIFFEID, "remote", bmpRemoteAddr(conn))
 	var published, suppressed uint64
@@ -383,6 +717,13 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 	for {
 		msgType, payload, err := readBMPMessageWithDeadline(conn, l.idleTimeout, l.readTimeout)
 		if err != nil {
+			// ING-11: the liveness sweep unblocked this read because the router
+			// was revoked or its leaf expired mid-session. Report that cause
+			// rather than the raw deadline error, so the closure is not mislabeled
+			// as an idle timeout.
+			if reason := l.sessionKillReason(liveHandle); reason != "" {
+				return fmt.Errorf("bgp bmp: %s (serial %s)", reason, id.Serial)
+			}
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -543,6 +884,7 @@ func bmpPeerIdentity(ctx context.Context, conn net.Conn) (bmpIdentity, error) {
 		AgentID:  id.AgentID,
 		SPIFFEID: id.String(),
 		Serial:   leaf.SerialNumber.Text(16),
+		NotAfter: leaf.NotAfter,
 	}, nil
 }
 

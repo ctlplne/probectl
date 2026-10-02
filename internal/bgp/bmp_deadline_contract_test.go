@@ -36,7 +36,7 @@ func TestBMPHandshakeDeadlineAppliedBeforePeerBytes(t *testing.T) {
 	server := tls.Server(probe, &tls.Config{})
 	listener := NewBMPListener(nil, &capturePublisher{}, "test", discardLogger())
 	done := make(chan error, 1)
-	go func() { done <- listener.handleConn(context.Background(), server) }()
+	go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 
 	var applied bool
 	select {

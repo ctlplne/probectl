@@ -42,7 +42,7 @@ func TestBMPFullTableDumpEmitsNoOriginChange(t *testing.T) {
 		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 	)
 	done := make(chan error, 1)
-	go func() { done <- listener.handleConn(context.Background(), server) }()
+	go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 	if err := client.Handshake(); err != nil {
 		t.Fatalf("client handshake: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestBMPGenuineOriginFlipEmitsOneScoredOriginChange(t *testing.T) {
 		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 	)
 	done := make(chan error, 1)
-	go func() { done <- listener.handleConn(context.Background(), server) }()
+	go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 	if err := client.Handshake(); err != nil {
 		t.Fatalf("client handshake: %v", err)
 	}

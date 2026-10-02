@@ -45,7 +45,7 @@ func TestBMPHandshakeStallDeadline(t *testing.T) {
 		WithBMPSessionMetrics(metrics),
 	)
 	done := make(chan error, 1)
-	go func() { done <- listener.handleConn(context.Background(), server) }()
+	go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 
 	select {
 	case err := <-done:
@@ -79,7 +79,7 @@ func TestBMPAuthenticatedFrameStallDeadline(t *testing.T) {
 				WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 			)
 			done := make(chan error, 1)
-			go func() { done <- listener.handleConn(context.Background(), server) }()
+			go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 
 			if err := client.Handshake(); err != nil {
 				t.Fatalf("client handshake: %v", err)
@@ -223,7 +223,7 @@ func TestBMPIdleAuthenticatedSessionSurvivesReadTimeout(t *testing.T) {
 		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 	)
 	done := make(chan error, 1)
-	go func() { done <- listener.handleConn(context.Background(), server) }()
+	go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 	if err := client.Handshake(); err != nil {
 		t.Fatalf("client handshake: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestBMPIdleTimeoutBoundsQuietSessionsWhenSet(t *testing.T) {
 		WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 	)
 	done := make(chan error, 1)
-	go func() { done <- listener.handleConn(context.Background(), server) }()
+	go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 	if err := client.Handshake(); err != nil {
 		t.Fatalf("client handshake: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestBMPRepeatedRouteObservationIsSuppressedWithinWindow(t *testing.T) {
 				WithBMPIssuedIdentityVerifier(allowBMPIdentity),
 			)
 			done := make(chan error, 1)
-			go func() { done <- listener.handleConn(context.Background(), server) }()
+			go func() { done <- listener.handleConn(context.Background(), server, nil) }()
 			if err := client.Handshake(); err != nil {
 				t.Fatalf("client handshake: %v", err)
 			}
