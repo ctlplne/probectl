@@ -39,7 +39,11 @@ func envFunc(m map[string]string) func(string) string {
 
 func durableTenantProfileEnv(profile string) map[string]string {
 	return map[string]string{
-		"PROBECTL_DEPLOYMENT_PROFILE":        profile,
+		"PROBECTL_DEPLOYMENT_PROFILE": profile,
+		// CRY-05: production-like profiles must verify the PostgreSQL server
+		// certificate, so the baseline writer DSN pins a trust anchor rather
+		// than relying on the server-unverified sslmode=require default.
+		"PROBECTL_DATABASE_URL":              "postgres://probectl:test-only@pg.example:5432/probectl?sslmode=verify-full&sslrootcert=/run/secrets/pg-ca.pem",
 		"PROBECTL_SESSION_HMAC_KEY":          testSessionHMACKeyHex,
 		"PROBECTL_BUS_MODE":                  "kafka",
 		"PROBECTL_BUS_BROKERS":               "kafka.example:9093",
@@ -405,7 +409,7 @@ func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
 	for _, profile := range []string{"multi-tenant", "regulated"} {
 		t.Run(profile+" accepts TLS datastores", func(t *testing.T) {
 			env := durableTenantProfileEnv(profile)
-			env["PROBECTL_DATABASE_READ_URL"] = "postgres://probectl_reader:secret@pg-ro.example:5432/probectl?sslmode=verify-full"
+			env["PROBECTL_DATABASE_READ_URL"] = "postgres://probectl_reader:secret@pg-ro.example:5432/probectl?sslmode=verify-full&sslrootcert=/run/secrets/pg-ca.pem"
 			env["PROBECTL_DATAPLANES"] = "us=https://clickhouse-us.example:8443;eu=https://clickhouse-eu.example:8443"
 			// DPR-044: routed planes carry their own credential files; the
 			// pooled file stays pinned to the pooled origins.
@@ -422,8 +426,8 @@ func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
 			env := durableTenantProfileEnv(profile)
 			env["PROBECTL_DATABASE_URL"] = "postgres://probectl:secret@pg.example:5432/probectl?sslmode=disable"
 			_, err := Load(envFunc(env))
-			if err == nil || !strings.Contains(err.Error(), "PROBECTL_DATABASE_URL") || !strings.Contains(err.Error(), "sslmode=require") {
-				t.Fatalf("plaintext writer DSN should fail closed with sslmode guidance, got %v", err)
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_DATABASE_URL") || !strings.Contains(err.Error(), "sslrootcert") {
+				t.Fatalf("plaintext writer DSN should fail closed with server-verification guidance, got %v", err)
 			}
 		})
 
@@ -431,8 +435,8 @@ func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
 			env := durableTenantProfileEnv(profile)
 			env["PROBECTL_DATABASE_READ_URL"] = "postgres://probectl_reader:secret@pg-ro.example:5432/probectl"
 			_, err := Load(envFunc(env))
-			if err == nil || !strings.Contains(err.Error(), "PROBECTL_DATABASE_READ_URL") || !strings.Contains(err.Error(), "sslmode=require") {
-				t.Fatalf("plaintext read-replica DSN should fail closed with sslmode guidance, got %v", err)
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_DATABASE_READ_URL") || !strings.Contains(err.Error(), "sslrootcert") {
+				t.Fatalf("plaintext read-replica DSN should fail closed with server-verification guidance, got %v", err)
 			}
 		})
 

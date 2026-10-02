@@ -79,8 +79,9 @@ A note on the defaults: the listen address is `:8080`, but the database URL —
 the one `postgres://` or `postgresql://` connection string carrying host, user,
 password, database, and TLS mode — is required and has no default credential.
 PostgreSQL keyword/value strings are rejected so credentials can never bypass
-config-log and support-bundle redaction. Production URLs should use
-**`sslmode=require`** or stronger. HSTS — the response header
+config-log and support-bundle redaction. Production URLs should verify the
+server certificate with **`sslmode=verify-full`** and an `sslrootcert` trust
+anchor; the `multi-tenant`/`regulated` profiles require it. HSTS — the response header
 that tells browsers to only ever reach this host over HTTPS — is on. Shipped
 Helm and Compose deployments set the TLS cert/key pair below so the process
 serves HTTPS directly, including behind an ingress.
@@ -97,7 +98,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_VIEW_GROUP_SWEEP`        | `15m`                                                              | how often this instance deletes the per-replica view consumer groups left behind by control-plane processes that are gone (every restart and rolling upgrade abandons a set); shared durable groups are never touched; `0` disables (DPR-109) |
 | `PROBECTL_CLUSTER_PROBE_TIMEOUT`   | `5s`                                                               | bound on each multi-region role probe, so one unreachable endpoint cannot stall the refresh loop that drives the write fence (DPR-095) |
 | `PROBECTL_COMPLIANCE_REALERT`      | `24h`                                                              | how long a segmentation violation stays claimed before the (policy, rule) pair re-arms: inside the window every replica and replay collapses to one incident/SIEM export, the next window reports it again (DPR-110) |
-| `PROBECTL_DATABASE_URL`             | *(required; no default)*                                             | PostgreSQL URL (`postgres://` or `postgresql://`; keyword/value DSNs are rejected). Direct binary startup fails closed when it is absent; Compose and Helm supply it explicitly. Use `sslmode=require`, `verify-ca`, or `verify-full` in production; `multi-tenant`/`regulated` profiles enforce those modes on writer and read-replica URLs and reject query-string `host=` overrides so pgx cannot replace the TLS-checked authority. Explicit dev-only `sslmode=disable` remains accepted under the `single` profile |
+| `PROBECTL_DATABASE_URL`             | *(required; no default)*                                             | PostgreSQL URL (`postgres://` or `postgresql://`; keyword/value DSNs are rejected). Direct binary startup fails closed when it is absent; Compose and Helm supply it explicitly. `multi-tenant`/`regulated` profiles require server-certificate verification on writer and read-replica URLs: `sslmode=verify-ca` or `verify-full` **with** `sslrootcert` set (a trust anchor); server-unverified or plaintext modes (`require`, `prefer`, `allow`, `disable`, or omitted) are rejected because `require` encrypts but trusts any presented certificate (CRY-05). These profiles also reject query-string `host=` overrides so pgx cannot replace the TLS-checked authority. Explicit dev-only `sslmode=require`/`disable` remains accepted under the `single` profile |
 | `PROBECTL_MIGRATE_DATABASE_URL`     | *(empty = use `PROBECTL_DATABASE_URL`)*                              | TEN-01: separate PRIVILEGED DSN used ONLY to apply schema migrations (which `CREATE SCHEMA`/`ROLE`/`EXTENSION`). The serving control plane connects with the least-privilege runtime login in `PROBECTL_DATABASE_URL` (NOSUPERUSER, NOBYPASSRLS) and never this one, so a superuser serve login cannot silently disable tenant RLS. Empty keeps the single-login behaviour (migrations use `PROBECTL_DATABASE_URL`) |
 | `PROBECTL_DANGEROUS_ALLOW_SUPERUSER_DB` | `false`                                                          | TEN-01 escape hatch: by default the control plane REFUSES to serve as a SUPERUSER/BYPASSRLS Postgres login, because such a login silently disables the storage-layer tenant isolation (guardrail 7.1). Set `true` ONLY to override that fail-closed posture check (dangerous; never in production) |
 | `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (2–1000). One session is reserved by the singleton advisory-lock lease, leaving at least one for work; per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
@@ -1650,8 +1651,9 @@ profiles, so startup refuses volatile raw-ingest/serving defaults. Set
 `PROBECTL_BUS_MODE=kafka`, `PROBECTL_TSDB_MODE=prometheus`, and
 `PROBECTL_PATHSTORE_MODE`, `PROBECTL_FLOWSTORE_MODE`, `PROBECTL_OTELSTORE_MODE`,
 `PROBECTL_EBPFSTORE_MODE`, and `PROBECTL_ENDPOINTSTORE_MODE` to `clickhouse` with their required `https://`
-URLs before using those profiles. Postgres writer/read-replica URLs must carry
-`sslmode=require`, `verify-ca`, or `verify-full`. Each ClickHouse lane also needs the corresponding scoped
+URLs before using those profiles. Postgres writer/read-replica URLs must verify the
+server certificate: `sslmode=verify-ca` or `verify-full` with `sslrootcert` set; the
+server-unverified `sslmode=require` is single-profile dev only (CRY-05). Each ClickHouse lane also needs the corresponding scoped
 reader user (`PROBECTL_PATHSTORE_READER_USER`, `PROBECTL_FLOWSTORE_READER_USER`,
 `PROBECTL_OTELSTORE_READER_USER`, `PROBECTL_EBPFSTORE_READER_USER`, and
 `PROBECTL_ENDPOINTSTORE_READER_USER`) so boot

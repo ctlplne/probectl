@@ -1348,6 +1348,15 @@ func validateDatastoreTLS(l *loader, c *Config) {
 	validateDataPlaneURLTLS(l, c)
 }
 
+// validatePostgresURLTLS fails closed unless a multi-tenant/regulated
+// PostgreSQL DSN actually verifies the server certificate (CRY-05,
+// docs/guardrails.md G7-12). sslmode=require encrypts but trusts any
+// certificate the peer presents, so it leaves the control plane open to an
+// in-path TLS impersonator; under the production-like profiles only
+// verify-ca/verify-full WITH an sslrootcert trust anchor is accepted.
+// require/prefer/allow/disable and an omitted mode are single-profile dev only
+// (validateDatastoreTLS already returns early for the single profile, so this
+// function only ever runs for multi-tenant/regulated).
 func validatePostgresURLTLS(l *loader, profile, name, raw string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1355,7 +1364,7 @@ func validatePostgresURLTLS(l *loader, profile, name, raw string) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
-		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be a postgres:// or postgresql:// URL with sslmode=require, verify-ca, or verify-full", profile, name)
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be a postgres:// or postgresql:// URL with sslmode=verify-ca or verify-full and sslrootcert set", profile, name)
 		return
 	}
 	query := u.Query()
@@ -1363,10 +1372,14 @@ func validatePostgresURLTLS(l *loader, profile, name, raw string) {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to use its URL authority host; query host overrides are not allowed", profile, name)
 		return
 	}
-	switch strings.ToLower(strings.TrimSpace(query.Get("sslmode"))) {
-	case "require", "verify-ca", "verify-full":
+	mode := strings.ToLower(strings.TrimSpace(query.Get("sslmode")))
+	switch mode {
+	case "verify-ca", "verify-full":
+		if strings.TrimSpace(query.Get("sslrootcert")) == "" {
+			l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to pin a trust anchor: sslmode=%s needs sslrootcert set so the PostgreSQL server certificate is verified", profile, name, mode)
+		}
 	default:
-		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to use PostgreSQL TLS: set sslmode=require, verify-ca, or verify-full; plaintext/degrade modes (disable, allow, prefer, or omitted) are single-profile dev only", profile, name)
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to verify the PostgreSQL server certificate: set sslmode=verify-ca or verify-full with sslrootcert; server-unverified or plaintext modes (require, prefer, allow, disable, or omitted) are single-profile dev only", profile, name)
 	}
 }
 
