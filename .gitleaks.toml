@@ -113,6 +113,14 @@ regexTarget = "line"
 regexes = ["PROBECTL_SESSION_HMAC_KEY:\\s*0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\s*$"]
 
 [[rules.allowlists]]
+description = "AUTHZ-24: the provider-bootstrap entropy-floor test's 128-bit boundary fixture (16 distinct hex symbols x2) is a documented throwaway, not a credential; commit + path + exact value must all match, so a later real key in this file is still a finding. The value is computed (strings.Repeat) at HEAD; this covers the historical 53a07ba literal."
+condition = "AND"
+commits = ['''53a07ba6b251c7f4b3d4bc15c3a53e8f65ef155d''']
+paths = ['''internal/config/provider_bootstrap_token_test\.go''']
+regexTarget = "line"
+regexes = ['''boundaryToken\s*=\s*"0123456789abcdef0123456789abcdef"''']
+
+[[rules.allowlists]]
 description = "Historical all-compose render fixture: exact W35 commit + workflow path + documented throwaway value must all match."
 condition = "AND"
 commits = ['''1dadbc56716b91eee24acb6ff5017ec182018efa''']
