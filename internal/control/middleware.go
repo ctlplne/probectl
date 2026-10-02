@@ -167,6 +167,15 @@ func (s *statusRecorder) Status() int {
 	return s.status
 }
 
+// Unwrap exposes the wrapped ResponseWriter so http.NewResponseController can
+// reach the underlying connection (WEB-04). Without it, SetWriteDeadline (used
+// by extendWriteDeadline to lift the global WriteTimeout for long-running
+// responses) returns ErrNotSupported and the extension is a silent no-op, since
+// every request is wrapped in this access-log recorder.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
 // newRequestID returns a random 128-bit hex correlation ID. This is a
 // non-security trace identifier, so a non-cryptographic source is intentional
 // (cryptographic randomness routes through internal/crypto from S3).

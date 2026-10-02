@@ -42,7 +42,14 @@ func TestExtendWriteDeadlineSurvivesWriteTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	srv := &http.Server{Handler: mux, WriteTimeout: 200 * time.Millisecond}
+	// Route through the SAME access-log wrapper production uses: every request's
+	// ResponseWriter is a *statusRecorder, so http.NewResponseController must be
+	// able to Unwrap() it to reach the socket. Testing on a bare mux hid the
+	// original no-op (the recorder had no Unwrap) — WEB-04 reopen.
+	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(&statusRecorder{ResponseWriter: w}, r)
+	})
+	srv := &http.Server{Handler: wrapped, WriteTimeout: 200 * time.Millisecond}
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 	base := "http://" + ln.Addr().String()
