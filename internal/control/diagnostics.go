@@ -274,6 +274,8 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) error
 
 // handleDiagnosticsBundle streams the secret-stripped support bundle (tar.gz).
 func (s *Server) handleDiagnosticsBundle(w http.ResponseWriter, r *http.Request) error {
+	// WEB-04: lift the global WriteTimeout for this long-running response.
+	extendWriteDeadline(w, exportWriteBudget)
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err

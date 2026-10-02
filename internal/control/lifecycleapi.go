@@ -68,6 +68,8 @@ func (s *Server) tenantSlugAndMeta(ctx context.Context, tenantID string) (slug, 
 
 // handleLifecycleExport streams the tenant's portability bundle (tar.gz).
 func (s *Server) handleLifecycleExport(w http.ResponseWriter, r *http.Request) error {
+	// WEB-04: lift the global WriteTimeout for this long-running response.
+	extendWriteDeadline(w, exportWriteBudget)
 	e, err := s.lifecycleEngine()
 	if err != nil {
 		return err
@@ -97,6 +99,8 @@ type lifecycleSubjectExportRequest struct {
 // handleLifecycleSubjectExport streams a subject-scoped portability bundle. It
 // is POST, not GET, so the subject identifier does not land in URLs.
 func (s *Server) handleLifecycleSubjectExport(w http.ResponseWriter, r *http.Request) error {
+	// WEB-04: lift the global WriteTimeout for this long-running response.
+	extendWriteDeadline(w, exportWriteBudget)
 	e, err := s.lifecycleEngine()
 	if err != nil {
 		return err

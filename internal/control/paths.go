@@ -139,6 +139,8 @@ func parsePathHistoryQuery(r *http.Request) (pathstore.HistoryQuery, error) {
 
 // handleDiscoverPath runs a path discovery for a test, stores it, and returns it.
 func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) error {
+	// WEB-04: lift the global WriteTimeout for this long-running response.
+	extendWriteDeadline(w, pathDiscoveryWriteBudget)
 	target, params, err := s.testTargetParams(r)
 	if err != nil {
 		return err

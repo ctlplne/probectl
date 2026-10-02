@@ -542,14 +542,36 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	s.authorEngine = buildAuthor(cfg, log, s.egressGate)
 
 	s.http = &http.Server{
-		Addr:         cfg.HTTPAddr,
-		Handler:      s.routes(),
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		IdleTimeout:  cfg.IdleTimeout,
-		ErrorLog:     slog.NewLogLogger(log.Handler(), slog.LevelError),
+		Addr:        cfg.HTTPAddr,
+		Handler:     s.routes(),
+		ReadTimeout: cfg.ReadTimeout,
+		// WEB-04: an explicit header deadline bounds slow-header (slowloris)
+		// attacks independently of ReadTimeout (which also covers body reads).
+		ReadHeaderTimeout: cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelError),
 	}
 	return s
+}
+
+// Write-deadline budgets for long-running responses (WEB-04). The server's
+// absolute WriteTimeout (default 15s) would otherwise reset path discovery,
+// remote-model AI answers, and large/slow exports mid-response while the work
+// keeps running server-side.
+const (
+	pathDiscoveryWriteBudget = 150 * time.Second // 120s discovery budget + margin
+	aiAnswerWriteBudget      = 90 * time.Second  // 60s model timeout + margin
+	exportWriteBudget        = 15 * time.Minute  // large tar.gz over slow WAN/VPN
+)
+
+// extendWriteDeadline lifts the server's absolute WriteTimeout for one
+// long-running response, so it is not reset at the short global deadline
+// (WEB-04). A positive d sets the deadline to now+d; it is best-effort — a
+// ResponseWriter whose chain does not support a write deadline (e.g. httptest)
+// is left unchanged. Ordinary routes keep the short global deadline.
+func extendWriteDeadline(w http.ResponseWriter, d time.Duration) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(d))
 }
 
 // Handler returns the fully wired HTTP handler (used by httptest in unit tests).
