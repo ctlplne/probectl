@@ -103,6 +103,21 @@ export interface AIReasoningProvenance {
   execution: "builtin_local" | "local_adapter" | "external_adapter" | "builtin_fallback"
 }
 
+export interface APIToken {
+  created_at?: string
+  expires_at?: string
+  id?: string
+  last_used_at?: string
+  name?: string
+  revoked_at?: string
+  scopes?: string[]
+  user_id?: string
+}
+
+export interface APITokenList {
+  items?: APIToken[]
+}
+
 export interface Agent {
   agent_version?: string
   capabilities: string[]
@@ -438,6 +453,20 @@ export interface CoverageNextAction {
   href: string
   kind: "enroll_vantage" | "author_test"
   label: string
+}
+
+export interface CreateAPITokenRequest {
+  expires_in_hours?: number
+  name: string
+  scopes?: string[]
+}
+
+export interface CreatedAPIToken {
+  expires_at?: string
+  id?: string
+  name?: string
+  scopes?: string[]
+  token?: string
 }
 
 export interface DashboardCreateRequest {
@@ -2111,6 +2140,22 @@ export interface ListAlertEvaluationsRequest {
 
 export type ListAlertEvaluationsResponse = AlertEvaluationsResponse
 
+export interface GetV1ApiTokensRequest {
+}
+
+export type GetV1ApiTokensResponse = APITokenList
+
+export interface PostV1ApiTokensRequest {
+  body: CreateAPITokenRequest
+}
+
+export type PostV1ApiTokensResponse = CreatedAPIToken
+
+export interface DeleteV1ApiTokensIdRequest {
+}
+
+export type DeleteV1ApiTokensIdResponse = void
+
 export interface ListAuditRequest {
   after?: number
   limit?: number
@@ -3262,6 +3307,24 @@ export class ProbectlSDKClient {
     if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListAlertEvaluationsResponse>("GET", path, query, undefined)
+  }
+
+  async getV1ApiTokens(): Promise<GetV1ApiTokensResponse> {
+    let path = "/v1/api-tokens"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetV1ApiTokensResponse>("GET", path, query, undefined)
+  }
+
+  async postV1ApiTokens(request: PostV1ApiTokensRequest): Promise<PostV1ApiTokensResponse> {
+    let path = "/v1/api-tokens"
+    const query = new URLSearchParams()
+    return this.requestJSON<PostV1ApiTokensResponse>("POST", path, query, request.body)
+  }
+
+  async deleteV1ApiTokensId(): Promise<DeleteV1ApiTokensIdResponse> {
+    let path = "/v1/api-tokens/{id}"
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
   }
 
   async listAudit(request: ListAuditRequest = {}): Promise<ListAuditResponse> {

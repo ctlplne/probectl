@@ -179,6 +179,22 @@ type AIReasoningProvenance struct {
 	Execution        string `json:"execution"`
 }
 
+// API token metadata; the secret and its hash never cross this API.
+type APIToken struct {
+	CreatedAt  string   `json:"created_at,omitempty"`
+	ExpiresAt  string   `json:"expires_at,omitempty"`
+	Id         string   `json:"id,omitempty"`
+	LastUsedAt string   `json:"last_used_at,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	RevokedAt  string   `json:"revoked_at,omitempty"`
+	Scopes     []string `json:"scopes,omitempty"`
+	UserId     string   `json:"user_id,omitempty"`
+}
+
+type APITokenList struct {
+	Items []APIToken `json:"items,omitempty"`
+}
+
 type Agent struct {
 	AgentVersion string            `json:"agent_version,omitempty"`
 	Capabilities []string          `json:"capabilities"`
@@ -519,6 +535,20 @@ type CoverageNextAction struct {
 	Href  string `json:"href"`
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
+}
+
+type CreateAPITokenRequest struct {
+	ExpiresInHours int      `json:"expires_in_hours,omitempty"`
+	Name           string   `json:"name"`
+	Scopes         []string `json:"scopes,omitempty"`
+}
+
+type CreatedAPIToken struct {
+	ExpiresAt string   `json:"expires_at,omitempty"`
+	Id        string   `json:"id,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Scopes    []string `json:"scopes,omitempty"`
+	Token     string   `json:"token,omitempty"`
 }
 
 type DashboardCreateRequest struct {
@@ -2587,6 +2617,45 @@ func (c *Client) ListAlertEvaluations(ctx context.Context, req ListAlertEvaluati
 		return nil, err
 	}
 	return &out, nil
+}
+
+// List the tenant's API tokens (metadata only; the secret and its hash never cross this API).
+type GetV1ApiTokensRequest struct {
+}
+
+func (c *Client) GetV1ApiTokens(ctx context.Context, req GetV1ApiTokensRequest) (*APITokenList, error) {
+	path := "/v1/api-tokens"
+	query := url.Values{}
+	var out APITokenList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Mint an API bearer token for the calling user (INV-03/RT-02): mandatory bounded expiry (<=365d) and an optional scope subset; the token value is returned exactly once. Audited.
+type PostV1ApiTokensRequest struct {
+	Body *CreateAPITokenRequest `json:"-"`
+}
+
+func (c *Client) PostV1ApiTokens(ctx context.Context, req PostV1ApiTokensRequest) (*CreatedAPIToken, error) {
+	path := "/v1/api-tokens"
+	query := url.Values{}
+	var out CreatedAPIToken
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Revoke exactly one API token by id, leaving the user's other tokens working (INV-03/RT-02). Audited.
+type DeleteV1ApiTokensIdRequest struct {
+}
+
+func (c *Client) DeleteV1ApiTokensId(ctx context.Context, req DeleteV1ApiTokensIdRequest) error {
+	path := "/v1/api-tokens/{id}"
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
 // Read a page of the tenant's tamper-evident audit trail
