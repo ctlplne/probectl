@@ -32,6 +32,7 @@ type SyslogEvent struct {
 	Facility      int               `json:"facility,omitempty"`
 	Severity      int               `json:"severity"`
 	SeverityText  string            `json:"severity_text"`
+	Version       int               `json:"version,omitempty"`
 	Hostname      string            `json:"hostname,omitempty"`
 	AppName       string            `json:"app_name,omitempty"`
 	Message       string            `json:"message"`
@@ -193,9 +194,11 @@ func (m *MemoryOpsStore) ListConfigs(_ context.Context, tenant string, f OpsFilt
 	return out, nil
 }
 
-// ParseSyslogLine normalizes common RFC3164/RFC5424-ish syslog lines. It is
+// ParseSyslogLine normalizes common RFC3164/RFC5424 syslog lines. It is
 // intentionally conservative: authentication and tenant binding happen outside
-// the parser, and unparsable prefixes still preserve the message body.
+// the parser, and unparsable prefixes still preserve the message body. RTP-09:
+// the RFC 5424 VERSION field is recognized (so the header after it parses into
+// hostname/app-name) and the STRUCTURED-DATA block is stripped from the MSG.
 func ParseSyslogLine(raw, fallbackDevice string, observedAt time.Time) SyslogEvent {
 	msg := strings.TrimSpace(raw)
 	ev := SyslogEvent{Raw: msg, Message: msg, Device: strings.TrimSpace(fallbackDevice), ObservedAt: observedAt.UTC()}
@@ -206,14 +209,24 @@ func ParseSyslogLine(raw, fallbackDevice string, observedAt time.Time) SyslogEve
 		msg = strings.TrimSpace(rest)
 		ev.Message = msg
 	}
-	fields := strings.Fields(msg)
-	if len(fields) >= 4 && looksRFC3164Timestamp(fields[:3]) {
-		ev.Hostname = fields[3]
-		ev.Message = strings.TrimSpace(strings.TrimPrefix(msg, strings.Join(fields[:4], " ")))
-	} else if len(fields) >= 3 && strings.Contains(fields[0], "T") {
-		ev.Hostname = fields[1]
-		ev.AppName = strings.TrimSuffix(fields[2], ":")
-		ev.Message = strings.TrimSpace(strings.TrimPrefix(msg, strings.Join(fields[:3], " ")))
+	if v, host, app, body, ok := parseRFC5424Header(msg); ok {
+		ev.Version = v
+		ev.Hostname = host
+		ev.AppName = app
+		ev.Message = body
+	} else {
+		fields := strings.Fields(msg)
+		switch {
+		case len(fields) >= 4 && looksRFC3164Timestamp(fields[:3]):
+			ev.Hostname = fields[3]
+			ev.Message = strings.TrimSpace(strings.TrimPrefix(msg, strings.Join(fields[:4], " ")))
+		case len(fields) >= 3 && strings.Contains(fields[0], "T"):
+			// RFC5424-ish line emitted without a VERSION token (ISO timestamp
+			// first). Kept as a best-effort fallback for non-conformant senders.
+			ev.Hostname = fields[1]
+			ev.AppName = strings.TrimSuffix(fields[2], ":")
+			ev.Message = strings.TrimSpace(strings.TrimPrefix(msg, strings.Join(fields[:3], " ")))
+		}
 	}
 	if ev.Device == "" {
 		ev.Device = ev.Hostname
@@ -225,6 +238,81 @@ func ParseSyslogLine(raw, fallbackDevice string, observedAt time.Time) SyslogEve
 		ev.SeverityText = SyslogSeverityText(ev.Severity)
 	}
 	return ev
+}
+
+// parseRFC5424Header parses the RFC 5424 header on the post-PRI remainder:
+//
+//	VERSION SP TIMESTAMP SP HOSTNAME SP APP-NAME SP PROCID SP MSGID SP SD [SP MSG]
+//
+// It returns ok=true only when the VERSION (a 1–999 integer, "1" in practice)
+// and TIMESTAMP tokens have the RFC 5424 shape, so RFC 3164 and free-form lines
+// fall through. NILVALUE ("-") header fields become empty strings, and the
+// STRUCTURED-DATA block is removed so the returned message is the real MSG.
+func parseRFC5424Header(s string) (version int, hostname, appName, message string, ok bool) {
+	fields := strings.SplitN(s, " ", 7)
+	if len(fields) < 6 {
+		return 0, "", "", "", false
+	}
+	v, err := strconv.Atoi(fields[0])
+	if err != nil || v < 1 || v > 999 {
+		return 0, "", "", "", false
+	}
+	if !looksRFC5424Timestamp(fields[1]) {
+		return 0, "", "", "", false
+	}
+	rest := ""
+	if len(fields) == 7 {
+		rest = fields[6]
+	}
+	return v, nilToEmpty(fields[2]), nilToEmpty(fields[3]), stripStructuredData(rest), true
+}
+
+// looksRFC5424Timestamp reports whether s is the NILVALUE "-" or an RFC 3339
+// timestamp — the two forms RFC 5424 allows in the TIMESTAMP position.
+func looksRFC5424Timestamp(s string) bool {
+	if s == "-" {
+		return true
+	}
+	_, err := time.Parse(time.RFC3339Nano, s)
+	return err == nil
+}
+
+// stripStructuredData removes the leading STRUCTURED-DATA element(s) from the
+// MSG region and returns the remaining human-readable message. "-" is the
+// NILVALUE (no SD). A bracketed block is skipped honoring "\]"/"\\" escapes,
+// including consecutive elements; an unterminated block yields no message.
+func stripStructuredData(s string) string {
+	s = strings.TrimLeft(s, " ")
+	if s == "" {
+		return ""
+	}
+	if s[0] == '-' {
+		return strings.TrimLeft(s[1:], " ")
+	}
+	if s[0] != '[' {
+		return s
+	}
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case escaped:
+			escaped = false
+		case c == '\\':
+			escaped = true
+		case c == ']':
+			if i+1 >= len(s) || s[i+1] != '[' {
+				return strings.TrimLeft(s[i+1:], " ")
+			}
+		}
+	}
+	return ""
+}
+
+func nilToEmpty(s string) string {
+	if s == "-" {
+		return ""
+	}
+	return s
 }
 
 func parsePriority(s string) (int, string, bool) {

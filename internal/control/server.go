@@ -442,6 +442,12 @@ func (s *Server) WithDeviceOps(st device.OpsStore) *Server {
 	return s
 }
 
+// DeviceOps returns the tenant-scoped device ops store the API reads at
+// GET /v1/device/syslog. The authenticated TLS syslog receiver (RTP-09) writes
+// accepted events into THIS store via NewDeviceSyslogSink, so ingested lines
+// surface on the same read path.
+func (s *Server) DeviceOps() device.OpsStore { return s.deviceOps }
+
 // WithDeviceNeighbors attaches bounded tenant-scoped LLDP/CDP current
 // evidence. nil keeps the endpoint honest with collection_running=false.
 func (s *Server) WithDeviceNeighbors(st device.NeighborStore) *Server {

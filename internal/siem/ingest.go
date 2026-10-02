@@ -41,11 +41,14 @@ var (
 	ErrSyslogPersistence     = errors.New("siem syslog ingest: persistence")
 )
 
-// SyslogSource is one authenticated sender allowed to emit syslog records for a
-// receiver's tenant. Tenant identity is stamped from this config, never from the
-// syslog payload.
+// SyslogSource is one authenticated sender allowed to emit syslog records.
+// Tenant identity is stamped from this config, never from the syslog payload: a
+// non-empty TenantID binds the source to its own tenant (so one authenticated
+// TLS listener can serve many tenants, like the OTLP receiver's token→tenant
+// map); when empty the record falls back to the receiver's default tenant.
 type SyslogSource struct {
 	Name             string
+	TenantID         string
 	Address          string
 	HMACSecret       string
 	TLSClientSubject string
@@ -115,11 +118,11 @@ type SyslogReceiver struct {
 	hits map[string][]time.Time
 }
 
-// newSyslogReceiver validates cfg and builds a tenant-bound receiver.
-func newSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogReceiver, error) {
-	if cfg.TenantID == "" {
-		return nil, errors.New("siem syslog ingest: tenant_id is required")
-	}
+// NewSyslogReceiver validates cfg and builds a tenant-scoped receiver. cfg.TenantID
+// is the default tenant stamped on records from sources that carry no TenantID of
+// their own; it may be empty only when every source names its own tenant (fail
+// closed: a record must always resolve to a non-empty tenant).
+func NewSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogReceiver, error) {
 	if store == nil {
 		return nil, errors.New("siem syslog ingest: store is required")
 	}
@@ -139,6 +142,9 @@ func newSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogRece
 		}
 		if sources[i].HMACSecret == "" && sources[i].TLSClientSubject == "" {
 			return nil, fmt.Errorf("siem syslog ingest: source %q requires hmac_secret or tls_client_subject", sources[i].Name)
+		}
+		if cfg.TenantID == "" && sources[i].TenantID == "" {
+			return nil, fmt.Errorf("siem syslog ingest: source %q needs a tenant_id (no default receiver tenant is set)", sources[i].Name)
 		}
 	}
 	return &SyslogReceiver{
@@ -181,8 +187,12 @@ func (r *SyslogReceiver) Record(ctx context.Context, env SyslogEnvelope) (Syslog
 	if err != nil {
 		return SyslogEvent{}, err
 	}
+	tenantID := source.TenantID
+	if tenantID == "" {
+		tenantID = r.cfg.TenantID
+	}
 	event := SyslogEvent{
-		TenantID:        r.cfg.TenantID,
+		TenantID:        tenantID,
 		Source:          SourceSyslog,
 		SourceName:      source.Name,
 		SourceAddress:   hostOnly(env.SourceAddress),
@@ -225,9 +235,12 @@ func (r *SyslogReceiver) healthSnapshot() ingesthealth.Snapshot {
 	return r.health.Snapshot()
 }
 
-// listenTLS serves newline-delimited syslog over a TLS listener until ctx is
-// canceled. A nil TLS config fails closed: inbound listeners must be TLS-only.
-func (r *SyslogReceiver) listenTLS(ctx context.Context, addr string, tlsCfg *tls.Config) error {
+// ListenTLS serves newline-delimited syslog over a TLS listener bound to addr
+// until ctx is canceled. A nil TLS config fails closed: inbound listeners must
+// be TLS-only. The control plane builds tlsCfg from internal/crypto (server
+// cert + client-cert CA), so per-source credentials and the TLS floor stay in
+// the FIPS-swappable seam (docs/guardrails.md G7-4, G7-12).
+func (r *SyslogReceiver) ListenTLS(ctx context.Context, addr string, tlsCfg *tls.Config) error {
 	if addr == "" {
 		return errors.New("siem syslog ingest: listen address is required")
 	}
@@ -239,10 +252,13 @@ func (r *SyslogReceiver) listenTLS(ctx context.Context, addr string, tlsCfg *tls
 		return fmt.Errorf("siem syslog ingest: listen %q: %w", addr, err)
 	}
 	defer ln.Close()
-	return r.serve(ctx, ln)
+	return r.Serve(ctx, ln)
 }
 
-func (r *SyslogReceiver) serve(ctx context.Context, ln net.Listener) error {
+// Serve accepts newline-delimited syslog connections on ln until ctx is
+// canceled. ln must already enforce the transport policy (TLS, client-cert
+// verification): Serve authenticates each line per source and fails closed.
+func (r *SyslogReceiver) Serve(ctx context.Context, ln net.Listener) error {
 	errc := make(chan error, 1)
 	go func() {
 		<-ctx.Done()

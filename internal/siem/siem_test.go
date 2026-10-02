@@ -270,7 +270,7 @@ func TestPreset(t *testing.T) {
 func TestSyslogIngestReplaysRFC5424AndRFC3164PerTenant(t *testing.T) {
 	now := time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC)
 	store := newMemorySyslogStore(10)
-	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Sources: []SyslogSource{
@@ -349,7 +349,7 @@ func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
 	line := []byte(`<34>1 2026-06-30T13:00:00Z edge-1 firewall - link_down - first`)
 
 	unsignedStore := newMemorySyslogStore(10)
-	unsigned, err := newSyslogReceiver(SyslogReceiverConfig{
+	unsigned, err := NewSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Sources:  []SyslogSource{{Name: "edge-fw", HMACSecret: "edge-secret"}},
@@ -365,7 +365,7 @@ func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
 	}
 
 	store := newMemorySyslogStore(10)
-	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Sources: []SyslogSource{{
@@ -401,7 +401,7 @@ func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
 
 func TestSyslogIngestRejectsMalformedAndPlainListener(t *testing.T) {
 	store := newMemorySyslogStore(10)
-	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
 		TenantID:     "tenant-a",
 		MaxLineBytes: 32,
 		Sources:      []SyslogSource{{Name: "edge-fw", HMACSecret: "edge-secret"}},
@@ -427,10 +427,10 @@ func TestSyslogIngestRejectsMalformedAndPlainListener(t *testing.T) {
 	if got := len(store.listSyslogEvents("tenant-a")); got != 0 {
 		t.Fatalf("malformed syslog stored %d rows", got)
 	}
-	if err := receiver.listenTLS(context.Background(), "127.0.0.1:0", nil); err == nil || !strings.Contains(err.Error(), "TLS config required") {
+	if err := receiver.ListenTLS(context.Background(), "127.0.0.1:0", nil); err == nil || !strings.Contains(err.Error(), "TLS config required") {
 		t.Fatalf("nil TLS config should fail closed, got %v", err)
 	}
-	if _, err := newSyslogReceiver(SyslogReceiverConfig{
+	if _, err := NewSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Sources:  []SyslogSource{{Name: "plain-source"}},
 	}, newMemorySyslogStore(1)); err == nil {
@@ -449,7 +449,7 @@ func TestSyslogLiveConnectionSurfacesSafeBoundedHealth(t *testing.T) {
 		}
 		return event, nil
 	})
-	receiver, err := newSyslogReceiver(SyslogReceiverConfig{
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
 		TenantID: "tenant-a",
 		Now:      func() time.Time { return now },
 		Log:      slog.New(slog.NewJSONHandler(&logs, nil)),

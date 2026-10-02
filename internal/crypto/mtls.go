@@ -83,6 +83,28 @@ func ServerBMPMTLSConfigRegistered(certFile, keyFile, caFile string, verify Issu
 	return cfg, nil
 }
 
+// ServerClientCertTLSConfig builds a server TLS config that requires and
+// verifies a client certificate against the CA bundle in caFile, WITHOUT the
+// probectl SPIFFE trust-domain pin. It is for authenticated THIRD-PARTY senders
+// over TLS (e.g. rsyslog ingest, RTP-09) whose certificates carry an
+// operator-chosen subject rather than a probectl SVID: the ingest surface
+// authenticates the specific subject per source above this layer. A connection
+// that presents no certificate is rejected at the handshake (fail closed,
+// docs/guardrails.md G7-12); the TLS floor stays the hardened server policy.
+func ServerClientCertTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
+	cfg, err := ServerTLSConfig(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := LoadCertPool(caFile)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ClientCAs = pool
+	cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	return cfg, nil
+}
+
 func serverMTLSConfig(certFile, keyFile, caFile string, verify func([][]byte, [][]*x509.Certificate) error) (*tls.Config, error) {
 	cfg, err := ServerTLSConfig(certFile, keyFile)
 	if err != nil {

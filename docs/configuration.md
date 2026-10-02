@@ -1850,6 +1850,31 @@ is never anonymous plaintext. Missing, unknown, revoked, or freshness-invalid
 credentials fail per request. Ingested metrics are tenant-tagged and published
 to the `probectl.otlp.metrics` bus topic.
 
+### Syslog receiver
+
+An authenticated, TLS-only syslog listener for network devices and appliances
+that forward RFC 3164 / RFC 5424 syslog over TLS (e.g. rsyslog `omfwd` with
+`StreamDriverMode=1`). It is **off by default** and holds the same posture as the
+rest of probectl: **TLS-only, authenticated, tenant-scoped, fail closed**. Each
+sender is an explicit *source* authenticated per message by a TLS
+client-certificate subject (verified against `PROBECTL_SYSLOG_TLS_CA_FILE`) or an
+HMAC-SHA256 shared secret; the tenant is bound to the source here and never read
+from the payload, so one listener can serve many tenants. A sender that matches
+no source is rejected and nothing is stored. Accepted lines are normalized and
+land on the `GET /v1/device/syslog` read path. Setting a listen address without a
+server cert/key pair, a source without a credential, or a source without a tenant
+fails config validation — the listener is never anonymous plaintext.
+
+| Variable                          | Default | Description                                                  |
+| --------------------------------- | ------- | ------------------------------------------------------------ |
+| `PROBECTL_SYSLOG_LISTEN_ADDR`      | (none)  | syslog-over-TLS listen address (e.g. `:6514`); enables the receiver |
+| `PROBECTL_SYSLOG_TLS_CERT_FILE`    | (none)  | PEM server certificate (required to enable)                  |
+| `PROBECTL_SYSLOG_TLS_KEY_FILE`     | (none)  | PEM server private key (required to enable)                  |
+| `PROBECTL_SYSLOG_TLS_CA_FILE`      | (none)  | PEM client-certificate CA bundle; required when any source authenticates by `tls_client_subject` — the listener requests and verifies the client cert against it |
+| `PROBECTL_SYSLOG_DEFAULT_TENANT_ID`| (none)  | tenant stamped on records from a source that carries no `tenant_id` of its own |
+| `PROBECTL_SYSLOG_MAX_LINE_BYTES`   | `65536` | maximum accepted syslog line length (1 B–1 MiB; `0` uses the 64 KiB default) |
+| `PROBECTL_SYSLOG_SOURCES`          | (none)  | JSON array of authenticated senders: `[{"name":"edge-fw","tenant_id":"tenant-a","tls_client_subject":"CN=edge-fw,O=probectl","address":"192.0.2.10","hmac_secret":"","rate_limit":120}]`. Each source needs a `name`, a credential (`tls_client_subject` **or** `hmac_secret`), and a tenant (`tenant_id` or the default); `address` optionally pins the source host and `rate_limit` bounds lines per minute |
+
 ### OTLP export
 
 probectl can *export* OTLP to an upstream collector. All three signals are

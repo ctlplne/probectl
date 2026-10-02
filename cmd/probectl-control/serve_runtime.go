@@ -850,6 +850,9 @@ func (rt *serveRuntime) startEdgeTransports() error {
 	if err := startOTLPSubsystems(rt.gctx, rt.g, rt.cfg, rt.db, rt.resultBus, rt.ingestWriter, rt.otelStore, rt.fairGate, rt.srv, rt.log); err != nil {
 		return err
 	}
+	if err := startSyslogSubsystem(rt.gctx, rt.g, rt.cfg, rt.srv, rt.log); err != nil {
+		return err
+	}
 	if !rt.cfg.MCPEnabled() {
 		return nil
 	}

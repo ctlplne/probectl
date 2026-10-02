@@ -14190,6 +14190,9 @@
           "severity_text": {
             "type": "string"
           },
+          "version": {
+            "type": "integer"
+          },
           "hostname": {
             "type": "string"
           },

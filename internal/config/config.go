@@ -543,6 +543,20 @@ type Config struct {
 	OTLPFreshnessHMACKey []byte
 	OTLPFreshnessWindow  time.Duration
 
+	// Syslog receiver (RTP-09): TLS-only, authenticated, tenant-scoped ingest of
+	// device/appliance syslog over TLS. Enabled when an address + server cert/key
+	// are set. Senders authenticate per source by TLS client-certificate subject
+	// (SyslogTLSCAFile verifies the client cert) or HMAC-SHA256. Accepted lines
+	// land on the GET /v1/device/syslog read path. Unauthenticated senders are
+	// rejected (fail closed, docs/guardrails.md G7-12).
+	SyslogListenAddr      string
+	SyslogTLSCertFile     string
+	SyslogTLSKeyFile      string
+	SyslogTLSCAFile       string
+	SyslogDefaultTenantID string
+	SyslogMaxLineBytes    int
+	SyslogSources         []SyslogSourceConfig
+
 	// OTLP EXPORT (ARCH-007): forward ingested OTLP metrics on to an external
 	// collector/backend. Dormant until an endpoint is set. Protocol grpc|http;
 	// a remote endpoint must be https (Insecure is dev/loopback only — refused
@@ -862,6 +876,23 @@ type OTLPExportTarget struct {
 	Insecure bool   `json:"insecure,omitempty"`
 }
 
+// SyslogSourceConfig is one authenticated syslog sender on the TLS syslog
+// ingest listener (RTP-09). The tenant is bound to the source here, never read
+// from the payload: a non-empty TenantID stamps that tenant (so one listener
+// serves many tenants), otherwise the record falls back to the deployment's
+// default syslog tenant. Each source authenticates by a TLS client-certificate
+// subject (client-cert mode) or an HMAC-SHA256 shared secret; HMACSecret never
+// surfaces in logs or support bundles (it is not on the Config LogValue
+// allowlist). An optional Address pins the sender's source host.
+type SyslogSourceConfig struct {
+	Name             string `json:"name"`
+	TenantID         string `json:"tenant_id,omitempty"`
+	Address          string `json:"address,omitempty"`
+	TLSClientSubject string `json:"tls_client_subject,omitempty"`
+	HMACSecret       string `json:"hmac_secret,omitempty"`
+	RateLimit        int    `json:"rate_limit,omitempty"`
+}
+
 // Load resolves configuration using the supplied getenv function (use
 // LoadFromEnv for the process environment). All validation errors are joined
 // and returned together.
@@ -1104,6 +1135,13 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.OTLPTokens = l.tokenMap("PROBECTL_OTLP_TOKENS")
 	cfg.OTLPFreshnessHMACKey = l.hexBytes("PROBECTL_OTLP_FRESHNESS_HMAC_KEY", 32)
 	cfg.OTLPFreshnessWindow = l.dur("PROBECTL_OTLP_FRESHNESS_WINDOW", 5*time.Minute)
+	cfg.SyslogListenAddr = l.str("PROBECTL_SYSLOG_LISTEN_ADDR", "")
+	cfg.SyslogTLSCertFile = l.str("PROBECTL_SYSLOG_TLS_CERT_FILE", "")
+	cfg.SyslogTLSKeyFile = l.str("PROBECTL_SYSLOG_TLS_KEY_FILE", "")
+	cfg.SyslogTLSCAFile = l.str("PROBECTL_SYSLOG_TLS_CA_FILE", "")
+	cfg.SyslogDefaultTenantID = l.str("PROBECTL_SYSLOG_DEFAULT_TENANT_ID", "")
+	cfg.SyslogMaxLineBytes = l.intRange("PROBECTL_SYSLOG_MAX_LINE_BYTES", 0, 0, 1<<20)
+	cfg.SyslogSources = l.syslogSources("PROBECTL_SYSLOG_SOURCES")
 	cfg.AIModelProvider = l.enum("PROBECTL_AI_MODEL_PROVIDER", "builtin", "builtin", "ollama", "openai", "anthropic")
 	cfg.AIModelEndpoint = l.str("PROBECTL_AI_MODEL_ENDPOINT", "")
 	cfg.AIModelName = l.str("PROBECTL_AI_MODEL_NAME", "")
@@ -1545,6 +1583,7 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 		l.errf("PROBECTL_OTLP_FRESHNESS_WINDOW must be positive when PROBECTL_OTLP_FRESHNESS_HMAC_KEY is set")
 	}
 	validateOTLPExport(l, cfg)
+	validateSyslog(l, cfg)
 	if cfg.AIModelEnabled() && cfg.AIModelEndpoint == "" {
 		l.errf("PROBECTL_AI_MODEL_PROVIDER=%s requires PROBECTL_AI_MODEL_ENDPOINT (a remote endpoint must be https; loopback may be http for a local model)", cfg.AIModelProvider)
 	}
@@ -1608,6 +1647,40 @@ func validateOTLPExportEndpoint(l *loader, name, insecureName, endpoint, protoco
 		if insecure {
 			l.errf("%s is only allowed for a loopback OTLP/gRPC collector, not %q (guardrail 12)", insecureName, endpoint)
 		}
+	}
+}
+
+// validateSyslog enforces the authenticated TLS syslog ingest posture (RTP-09 +
+// guardrails G7-4/G7-12), failing closed: a listen address demands a server
+// cert+key and at least one source; every source must carry a credential (TLS
+// client-cert subject or HMAC secret) and resolve to a non-empty tenant (its own
+// or the default); a client-cert source demands a client-CA bundle so the
+// listener can request and verify client certificates.
+func validateSyslog(l *loader, cfg *Config) {
+	hasListenerConfig := cfg.SyslogListenAddr != "" ||
+		cfg.SyslogTLSCertFile != "" || cfg.SyslogTLSKeyFile != "" || len(cfg.SyslogSources) > 0
+	if !hasListenerConfig {
+		return
+	}
+	if cfg.SyslogListenAddr == "" {
+		l.errf("PROBECTL_SYSLOG_LISTEN_ADDR is required to enable the TLS syslog receiver")
+	}
+	if cfg.SyslogTLSCertFile == "" || cfg.SyslogTLSKeyFile == "" {
+		l.errf("the syslog receiver is TLS-only: set PROBECTL_SYSLOG_TLS_CERT_FILE and PROBECTL_SYSLOG_TLS_KEY_FILE alongside PROBECTL_SYSLOG_LISTEN_ADDR (guardrail 12)")
+	}
+	if len(cfg.SyslogSources) == 0 {
+		l.errf("PROBECTL_SYSLOG_SOURCES must list at least one authenticated source when the syslog receiver is enabled; an unauthenticated listener is refused (guardrail 12)")
+	}
+	for _, src := range cfg.SyslogSources {
+		if src.TLSClientSubject == "" && src.HMACSecret == "" {
+			l.errf("PROBECTL_SYSLOG_SOURCES: source %q needs tls_client_subject or hmac_secret — an unauthenticated source is refused (guardrail 12)", src.Name)
+		}
+		if src.TenantID == "" && cfg.SyslogDefaultTenantID == "" {
+			l.errf("PROBECTL_SYSLOG_SOURCES: source %q needs tenant_id (or set PROBECTL_SYSLOG_DEFAULT_TENANT_ID) so every ingested line is tenant-scoped (guardrail 7.1)", src.Name)
+		}
+	}
+	if cfg.SyslogClientCertRequired() && cfg.SyslogTLSCAFile == "" {
+		l.errf("PROBECTL_SYSLOG_TLS_CA_FILE is required when a syslog source authenticates by tls_client_subject: the listener must verify the client certificate against it (guardrail 12)")
 	}
 }
 
@@ -1790,6 +1863,28 @@ func (c *Config) AgentTransportEnabled() bool {
 func (c *Config) OTLPEnabled() bool {
 	return (c.OTLPGRPCAddr != "" || c.OTLPHTTPAddr != "") &&
 		c.OTLPTLSCertFile != "" && c.OTLPTLSKeyFile != ""
+}
+
+// SyslogEnabled reports whether the authenticated TLS syslog receiver should run
+// (RTP-09) — a listen address, server cert+key, and at least one source are all
+// configured. Authentication is mandatory: the receiver rejects a sender that
+// matches no source (fail closed).
+func (c *Config) SyslogEnabled() bool {
+	return c.SyslogListenAddr != "" &&
+		c.SyslogTLSCertFile != "" && c.SyslogTLSKeyFile != "" &&
+		len(c.SyslogSources) > 0
+}
+
+// SyslogClientCertRequired reports whether any configured syslog source
+// authenticates by TLS client-certificate subject, which requires the listener
+// to request and verify client certs against PROBECTL_SYSLOG_TLS_CA_FILE.
+func (c *Config) SyslogClientCertRequired() bool {
+	for _, src := range c.SyslogSources {
+		if src.TLSClientSubject != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // OTLPExportEnabled reports whether the config-driven OTLP export pipeline
@@ -2171,6 +2266,36 @@ func (l *loader) otlpExportTargets(key string) map[string]OTLPExportTarget {
 			continue
 		}
 		out[tenant] = tgt
+	}
+	return out
+}
+
+// syslogSources parses the authenticated TLS syslog senders (RTP-09) from a JSON
+// array: [{"name":"edge-fw","tenant_id":"t-a","tls_client_subject":"CN=edge-fw,O=probectl"}].
+// JSON keeps subjects/secrets with reserved characters intact; the full
+// credential + tenant-resolution grammar is enforced in validateSyslog after
+// parsing. Here we only reject structurally broken input and empty names.
+func (l *loader) syslogSources(key string) []SyslogSourceConfig {
+	raw := strings.TrimSpace(l.getenv(key))
+	if raw == "" {
+		return nil
+	}
+	var parsed []SyslogSourceConfig
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		l.errf("%s: must be a JSON array of {name, tenant_id?, address?, tls_client_subject?, hmac_secret?, rate_limit?}: %v", key, err)
+		return nil
+	}
+	out := make([]SyslogSourceConfig, 0, len(parsed))
+	for _, src := range parsed {
+		src.Name = strings.TrimSpace(src.Name)
+		src.TenantID = strings.TrimSpace(src.TenantID)
+		src.Address = strings.TrimSpace(src.Address)
+		src.TLSClientSubject = strings.TrimSpace(src.TLSClientSubject)
+		if src.Name == "" {
+			l.errf("%s: a source name must not be empty", key)
+			continue
+		}
+		out = append(out, src)
 	}
 	return out
 }
