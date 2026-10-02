@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -236,11 +237,26 @@ func (s *AzureSource) bearer(ctx context.Context) (string, error) {
 	return s.tok, nil
 }
 
+// azureVaultNameRe is the Azure Key Vault naming rule: 3-24 characters, a
+// leading letter, then letters/digits/hyphens, ending alphanumeric. CRY-04:
+// when the request host is derived from the vault name
+// ("https://<vault>.vault.azure.net"), an unvalidated name containing '?', '#',
+// '/', '@' or '.' would redirect the request — and the AAD bearer token scoped
+// to vault.azure.net — to an attacker-chosen host (SSRF / token exfiltration).
+// A conforming name cannot contain any of those characters.
+var azureVaultNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{1,22}[A-Za-z0-9]$`)
+
 // Fetch implements Source.
 func (s *AzureSource) Fetch(ctx context.Context, ref Ref) (string, error) {
 	vault, name, ok := strings.Cut(ref.Path, "/")
 	if !ok {
 		return "", fmt.Errorf("azure reference needs <vault-name>/<secret-name>")
+	}
+	// CRY-04: when the host is derived from the vault name, validate it BEFORE
+	// any request is dialed — including the AAD token request below — so a
+	// crafted name can never redirect the bearer token off *.vault.azure.net.
+	if s.vaultBase == "" && !azureVaultNameRe.MatchString(vault) {
+		return "", fmt.Errorf("azure vault name %q is invalid (must be 3-24 chars: a letter, then letters/digits/hyphens, ending alphanumeric); refusing to build a request host from it", vault)
 	}
 	tok, err := s.bearer(ctx)
 	if err != nil {
