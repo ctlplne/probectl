@@ -10,7 +10,10 @@
 // link health, the local gateway, the ISP/last-mile path, and browser-session
 // timings — then ATTRIBUTES a slowdown to the user's WiFi, their LAN, their ISP,
 // or the wider network. It emits like every other agent (results to the
-// operator's own bus, tenant-tagged); it never phones home.
+// operator's own bus, tenant-tagged); it never phones home. It is, however, a
+// deliberately LOWER-TRUST tier (threat model B9): it has no certificate/SPIFFE
+// identity, so the tenant_id it stamps is a local ASSERTION the control plane
+// re-verifies against the agent registry before storage, never authoritative.
 //
 //	probectl-endpoint -config /etc/probectl/endpoint.yml
 //	probectl-endpoint version

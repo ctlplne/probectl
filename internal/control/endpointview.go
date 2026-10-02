@@ -77,6 +77,9 @@ func (cs *EndpointViewConsumer) LaneFanoutEnabled() bool { return true }
 // Run consumes until ctx is done. Malformed messages are dropped (untrusted
 // input never wedges the consumer).
 func (cs *EndpointViewConsumer) Run(ctx context.Context) error {
+	if err := requireEndpointBinding(cs.binding); err != nil {
+		return err
+	}
 	// Pure in-RAM view → per-replica fan-in for coherence (ARCH-003).
 	return pipeline.RunLanes(ctx, cs.bus, bus.EndpointResultsTopic, viewGroup("endpoint-view"), cs.nsTenants, cs.handleLane)
 }
@@ -148,7 +151,32 @@ func (*EndpointEventConsumer) LaneFanoutEnabled() bool { return true }
 
 // Run consumes until cancellation using one shared durable consumer group.
 func (cs *EndpointEventConsumer) Run(ctx context.Context) error {
+	if err := requireEndpointBinding(cs.binding); err != nil {
+		return err
+	}
 	return pipeline.RunLanes(ctx, cs.bus, bus.EndpointResultsTopic, "endpoint-events", cs.nsTenants, cs.handleLane)
+}
+
+// requireEndpointBinding fails closed when an endpoint consumer has no registry
+// binding (INV-08 / threat model B9). The endpoint/DEM agent asserts its tenant
+// from local YAML with NO certificate or SPIFFE identity, so every endpoint lane
+// is a VERIFYING lane — and RunLanes always subscribes the shared (pooled) lane,
+// where VerifyBatchTenantStrict with a nil binding returns the payload's CLAIMED
+// tenant verbatim. Without this guard that safety was a wiring convention
+// ("production remembers WithTenantBinding"): a consumer that skipped it still
+// subscribed and still stored whatever tenant a laptop's payload claimed.
+// Refusing to start makes "the endpoint payload's tenant is never authoritative"
+// a code invariant, exactly as the TSDB result pipeline does (pipeline.Consumer
+// .Run). Production wires rt.tenantBinding on both endpoint consumers
+// (serve_runtime.go), so this only bites a misconfiguration or a bare test.
+func requireEndpointBinding(binding pipeline.TenantBinding) error {
+	if binding == nil {
+		return fmt.Errorf("control: refusing to consume %s without a tenant binding: "+
+			"the endpoint lane verifies agent-published results against the registry, and without a "+
+			"binding the payload's tenant claim would be authoritative (INV-08 / TENANT-101, fail closed)",
+			bus.EndpointResultsTopic)
+	}
+	return nil
 }
 
 func (cs *EndpointEventConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {

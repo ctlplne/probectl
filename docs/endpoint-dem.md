@@ -16,9 +16,16 @@ then does the part that makes it useful: it **attributes a slowdown to the
 closest impaired layer**, so an operator can finally answer the hybrid-work
 question, *"is it us, or the user's Wi-Fi / ISP?"*
 
-It behaves like every other probectl agent: it emits DEM results to the
-operator's **own** bus, tenant-tagged, and it **never phones home**. This is
-"Digital Experience Monitoring" (DEM) done on-device and sovereignty-respecting.
+It emits like every other probectl agent — DEM results to the operator's
+**own** bus, tenant-tagged, and it **never phones home** — but it sits in a
+deliberately **lower-trust tier** (threat model B9), *not* as an identity peer
+of the mTLS canary agents. Unlike those, it has **no certificate or SPIFFE
+identity**: the `tenant_id` it stamps is a **local assertion, never
+authoritative**. The control plane re-verifies every endpoint result against the
+agent registry before anything is cached or stored and refuses to consume the
+lane at all without that binding (INV-08), so a device claiming another tenant
+reaches no tenant's storage. This is "Digital Experience Monitoring" (DEM) done
+on-device and sovereignty-respecting.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%

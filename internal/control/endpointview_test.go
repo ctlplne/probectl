@@ -35,14 +35,21 @@ func endpointResult(tenant, agent, typ, target string, metrics map[string]float6
 func TestEndpointViewEndToEnd(t *testing.T) {
 	b := bus.NewMemory()
 	store := endpoint.NewSnapshotStore(0)
-	consumer := NewEndpointViewConsumer(b, store, nil)
+	def := tenancy.DefaultTenantID.String()
+	// INV-08: the view consumer now fails closed without a tenant binding, so
+	// wire the registry binding the production path always supplies. Each tenant
+	// enrolls its own agent; the test then proves each sees ONLY its own
+	// endpoint (an agent is bound to exactly one tenant, so a forged pair can
+	// never be both enrolled and cross-tenant).
+	const tenant2 = "00000000-0000-0000-0000-000000000002"
+	consumer := NewEndpointViewConsumer(b, store, nil).
+		WithTenantBinding(endpointTestBinding{{def, "laptop-1"}: true, {tenant2, "secret-ep"}: true})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = consumer.Run(ctx) }()
 	time.Sleep(20 * time.Millisecond)
 
 	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	def := tenancy.DefaultTenantID.String()
 	publish := func(r *resultv1.Result) {
 		value, err := proto.Marshal(r)
 		if err != nil {

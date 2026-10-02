@@ -191,14 +191,14 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			name:   "endpoint-view",
 			topics: []string{bus.EndpointResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
-				return NewEndpointViewConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+				return NewEndpointViewConsumer(b, nil, log).WithTenantBinding(endpointTestBinding{}).WithNamespaceTenants(ns).Run(ctx)
 			},
 		},
 		{
 			name:   "endpoint-events",
 			topics: []string{bus.EndpointResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
-				return NewEndpointEventConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+				return NewEndpointEventConsumer(b, nil, log).WithTenantBinding(endpointTestBinding{}).WithNamespaceTenants(ns).Run(ctx)
 			},
 		},
 		{
