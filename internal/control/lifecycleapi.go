@@ -9,9 +9,11 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -184,6 +186,14 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		return err
+	}
+	// AUD-07: a tenant admin cannot shrink audit retention below the deployment
+	// compliance floor (PROBECTL_AUDIT_RETENTION_MIN).
+	if in.AuditRetentionDays != nil && s.cfg != nil && s.cfg.AuditRetentionMin > 0 {
+		floorDays := int((s.cfg.AuditRetentionMin + 24*time.Hour - 1) / (24 * time.Hour))
+		if *in.AuditRetentionDays < floorDays {
+			return apierror.BadRequest(fmt.Sprintf("audit_retention_days cannot be below the deployment floor of %d days", floorDays))
+		}
 	}
 	policy := tenantlife.RetentionPolicy{
 		TenantID:                     tid,

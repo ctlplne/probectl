@@ -998,7 +998,8 @@ func startHAAndTenantLifecycle(
 		providerAuditWatermark,
 		log,
 	).WithProviderRetentionProof(providerAuditProof).
-		WithTenantRetentionWindow(lifeEngine.ProviderAuditRetentionWindowFor)
+		WithTenantRetentionWindow(lifeEngine.ProviderAuditRetentionWindowFor).
+		WithRetentionFloor(cfg.AuditRetentionMin)
 	if err := singletons.Register("audit-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
 		retention.Run(ctx, time.Hour)
 		return nil

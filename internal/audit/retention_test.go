@@ -42,6 +42,7 @@ func TestTenantAuditRetentionEffectiveBound(t *testing.T) {
 		name       string
 		deployment RetentionPolicy
 		requested  time.Duration
+		floor      time.Duration
 		want       time.Duration
 	}{
 		{
@@ -49,6 +50,21 @@ func TestTenantAuditRetentionEffectiveBound(t *testing.T) {
 			deployment: RetentionPolicy{Window: threeSixtyFive},
 			requested:  thirtyDays,
 			want:       thirtyDays,
+		},
+		{
+			// AUD-07: a tenant request below the floor is clamped UP to it.
+			name:       "tenant shrink below floor is clamped to floor",
+			deployment: RetentionPolicy{Window: threeSixtyFive},
+			requested:  24 * time.Hour,
+			floor:      thirtyDays,
+			want:       thirtyDays,
+		},
+		{
+			name:       "tenant above floor keeps its request",
+			deployment: RetentionPolicy{Window: threeSixtyFive},
+			requested:  thirtyDays * 2,
+			floor:      thirtyDays,
+			want:       thirtyDays * 2,
 		},
 		{
 			name:       "tenant default",
@@ -69,7 +85,7 @@ func TestTenantAuditRetentionEffectiveBound(t *testing.T) {
 		{name: "keep forever without tenant override"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := effectiveTenantRetentionPolicy(tc.deployment, tc.requested)
+			got := effectiveTenantRetentionPolicy(tc.deployment, tc.requested, tc.floor)
 			if got.Window != tc.want {
 				t.Fatalf("effective window = %v, want %v", got.Window, tc.want)
 			}

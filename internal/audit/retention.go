@@ -105,8 +105,17 @@ type RetentionRunner struct {
 	tenantWatermark   TenantWatermarkFunc
 	tenantIDs         TenantIDsFunc
 	tenantWindow      TenantRetentionWindowFunc
+	floor             time.Duration
 	log               *slog.Logger
 	now               func() time.Time
+}
+
+// WithRetentionFloor sets the compliance floor (AUD-07): a tenant-requested
+// window is clamped UP to this minimum, so the runner never prunes audit rows
+// younger than the floor regardless of a shorter tenant override. Zero disables.
+func (r *RetentionRunner) WithRetentionFloor(d time.Duration) *RetentionRunner {
+	r.floor = d
+	return r
 }
 
 // NewRetentionRunnerPG wires the production runner over Postgres. The provider
@@ -243,7 +252,7 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 				r.log.Warn("tenant audit retention policy failed", "tenant", tenantID, "error", err)
 				continue
 			}
-			policy = effectiveTenantRetentionPolicy(r.policy, requested)
+			policy = effectiveTenantRetentionPolicy(r.policy, requested, r.floor)
 		}
 		if !policy.Enabled() {
 			continue
@@ -270,9 +279,14 @@ func (r *RetentionRunner) Tick(ctx context.Context) (RetentionSummary, error) {
 	return sum, nil
 }
 
-func effectiveTenantRetentionPolicy(deployment RetentionPolicy, requested time.Duration) RetentionPolicy {
+func effectiveTenantRetentionPolicy(deployment RetentionPolicy, requested, floor time.Duration) RetentionPolicy {
 	if requested <= 0 {
 		return deployment
+	}
+	// AUD-07: a tenant override cannot shrink retention below the deployment
+	// floor. Clamp the request UP so the runner never prunes rows younger than it.
+	if floor > 0 && requested < floor {
+		requested = floor
 	}
 	if !deployment.Enabled() || requested < deployment.Window {
 		return RetentionPolicy{Window: requested}

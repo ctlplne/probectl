@@ -35,6 +35,10 @@ import (
 
 const productionAuditRetentionDefault = 365 * 24 * time.Hour
 
+// auditRetentionMinDefault is the compliance floor below which a tenant override
+// cannot shrink audit retention (AUD-07, D-23: default 30 days).
+const auditRetentionMinDefault = 30 * 24 * time.Hour
+
 // Config is the fully resolved, validated control-plane configuration.
 type Config struct {
 	// HTTP server.
@@ -240,6 +244,10 @@ type Config struct {
 	// never gapped). Set per the org's SOC2 CC7 / ISO A.12.4 evidence-retention
 	// requirement.
 	AuditRetention time.Duration
+	// AuditRetentionMin (AUD-07) is the deployment-level floor a tenant override
+	// of audit_retention_days cannot go below, so a tenant admin cannot erase the
+	// audit trail within a day or two of SIEM delivery.
+	AuditRetentionMin time.Duration
 	// WORM signing key (KEYS-002 / D2): the Ed25519 key that signs WORM
 	// segments. WormSigningKey is a base64-encoded PKCS#8 PEM private key
 	// (KMS/secret-manager injected, like EnvelopeKey); WormSigningKeyFile is a
@@ -888,6 +896,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.AuditWORMDir = l.str("PROBECTL_AUDIT_WORM_DIR", "")
 	cfg.AuditWORMInterval = l.dur("PROBECTL_AUDIT_WORM_INTERVAL", time.Hour)
 	cfg.AuditRetention = l.dur("PROBECTL_AUDIT_RETENTION", auditRetentionDefault(cfg.DeploymentProfile))
+	cfg.AuditRetentionMin = l.dur("PROBECTL_AUDIT_RETENTION_MIN", auditRetentionMinDefault)
 	cfg.WormSigningKey = l.str("PROBECTL_WORM_SIGNING_KEY", "")
 	cfg.WormSigningKeyFile = l.str("PROBECTL_WORM_SIGNING_KEY_FILE", "")
 	cfg.IRPublicKeyDir = l.str("PROBECTL_IR_PUBLIC_KEY_DIR", "")
