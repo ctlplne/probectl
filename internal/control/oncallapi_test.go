@@ -149,11 +149,15 @@ func TestAlertChannelTestDeliverySignsWebhookAndRedactsSecret(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/alerts/test-channel", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("alert channel test status = %d body=%s", rec.Code, rec.Body.String())
+	// INJ-01: the test-channel endpoint is tenant-controlled and must not be an
+	// SSRF oracle. The sink here is a loopback httptest server, so the guarded
+	// client refuses delivery; the endpoint reports failure and must still not
+	// echo the secret, and no request must reach the loopback sink.
+	if rec.Code == http.StatusAccepted {
+		t.Fatalf("test-channel delivered to a loopback target (SSRF): status %d", rec.Code)
 	}
-	if !strings.HasPrefix(signature, "sha256=") {
-		t.Fatalf("webhook signature missing: %q", signature)
+	if signature != "" {
+		t.Fatal("test-channel opened a request to the loopback sink")
 	}
 	if strings.Contains(rec.Body.String(), "sign-me") {
 		t.Fatalf("alert channel test response leaked secret: %s", rec.Body.String())

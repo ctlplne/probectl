@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	neturl "net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -47,11 +48,13 @@ type WebhookChannel struct {
 	client Doer
 }
 
-// NewWebhookChannel builds a webhook channel. A nil client uses a default HTTPS
-// client (TLS certificate validation on, per guardrail 12).
+// NewWebhookChannel builds a webhook channel. A nil client uses the SSRF-guarded
+// HTTPS client (TLS validation on per guardrail 12, and the dialer refuses
+// loopback/link-local/metadata/private destinations), because the webhook URL
+// is tenant-controlled.
 func NewWebhookChannel(url, secret string, client Doer) *WebhookChannel {
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = crypto.GuardedHTTPClient(10 * time.Second)
 	}
 	return &WebhookChannel{url: url, secret: secret, client: client}
 }
@@ -59,6 +62,12 @@ func NewWebhookChannel(url, secret string, client Doer) *WebhookChannel {
 func (w *WebhookChannel) Type() string { return "webhook" }
 
 func (w *WebhookChannel) Notify(ctx context.Context, a Alert) error {
+	// Guardrail 12: a webhook destination is tenant-controlled, so it must be
+	// HTTPS. A plaintext http:// endpoint is refused (the SSRF-guarded dialer
+	// additionally blocks loopback/private/metadata addresses at connect time).
+	if u, perr := neturl.Parse(w.url); perr != nil || !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("webhook: url must be https")
+	}
 	body, err := json.Marshal(a.Payload())
 	if err != nil {
 		return err

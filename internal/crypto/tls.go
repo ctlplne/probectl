@@ -10,11 +10,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -191,6 +193,64 @@ func checkRedirectURL(u *url.URL) error {
 		return fmt.Errorf("crypto: redirect rejected: private/link-local target %s", addr)
 	}
 	return nil
+}
+
+// reservedAddr returns a non-nil error when addr is in a loopback, link-local
+// (incl. 169.254.169.254 cloud metadata), multicast, private (RFC1918/ULA),
+// unspecified, CGNAT, this-network (0.0.0.0/8) or broadcast range — the ranges
+// a request to a caller-supplied destination must never reach (SSRF guard).
+func reservedAddr(addr netip.Addr) error {
+	addr = addr.Unmap()
+	switch {
+	case !addr.IsValid(),
+		addr.IsLoopback(),
+		addr.IsLinkLocalUnicast(),
+		addr.IsLinkLocalMulticast(),
+		addr.IsMulticast(),
+		addr.IsPrivate(),
+		addr.IsUnspecified(),
+		addr.Is4() && redirectCGNAT.Contains(addr),
+		addr.Is4() && redirectZeroNet.Contains(addr),
+		addr.Is4() && addr == netip.AddrFrom4([4]byte{255, 255, 255, 255}):
+		return fmt.Errorf("destination %s is a private/link-local/reserved address", addr)
+	}
+	return nil
+}
+
+// GuardedHTTPClient is HardenedHTTPClient plus an SSRF egress guard: the dialer
+// rejects a connection whose RESOLVED address is loopback/link-local/metadata/
+// private/CGNAT/this-net/broadcast BEFORE the socket opens, so a hostname that
+// resolves (or DNS-rebinds) into those ranges cannot be reached. Redirects are
+// re-checked by the hardened policy. Use it for requests to destinations a
+// tenant or other untrusted caller controls (webhooks, notification channels).
+func GuardedHTTPClient(timeout time.Duration) *http.Client {
+	d := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				host = address
+			}
+			a, err := netip.ParseAddr(strings.Trim(host, "[]"))
+			if err != nil {
+				return fmt.Errorf("crypto: unparseable dial address %q", address)
+			}
+			return reservedAddr(a)
+		},
+	}
+	return &http.Client{
+		Timeout:       timeout,
+		CheckRedirect: hardenedHTTPRedirectPolicy,
+		Transport: &http.Transport{
+			DialContext:         d.DialContext,
+			TLSClientConfig:     hardenedTLS(),
+			ForceAttemptHTTP2:   true,
+			MaxIdleConns:        10,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
+	}
 }
 
 func redirectMetadataHost(host string) bool {
