@@ -70,6 +70,46 @@ services:
     networks: [probectl]
     restart: "no"
 
+  # One-shot: apply schema migrations as the PRIVILEGED owner login (they do
+  # CREATE SCHEMA/ROLE/EXTENSION). TEN-01: the serving control plane must NOT run
+  # as this superuser — migrations and serving use different logins.
+  migrate:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}"
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}@postgres:5432/probectl?sslmode=require
+      PROBECTL_LOG_FORMAT: json
+    networks: [probectl]
+    restart: "no"
+
+  # One-shot: provision the least-privilege runtime LOGIN role the control plane
+  # serves as (TEN-01). It is NOSUPERUSER NOBYPASSRLS and a member of
+  # probectl_app (created by the migrations above), so RLS is enforced on every
+  # path — a superuser/BYPASSRLS serve login would silently disable tenant
+  # isolation. Idempotent; runs after migrate so probectl_app exists.
+  pg-appuser:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}
+      # The least-privilege runtime DB login's password (TEN-01). Passed to psql
+      # as a client variable and safe-quoted by :'app_password' in the SQL file,
+      # so it is never interpolated into the SQL text.
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env (openssl rand -hex 24, URL-safe) — the least-privilege runtime DB login (TEN-01)}
+    entrypoint:
+      - bash
+      - -c
+      - exec psql "host=postgres user=probectl dbname=probectl sslmode=require" -v ON_ERROR_STOP=1 -v app_password="$$POSTGRES_APP_PASSWORD" -f /provision-app-login.sql
+    volumes:
+      - ./provision-app-login.sql:/provision-app-login.sql:ro
+    networks: [probectl]
+    restart: "no"
+
   control:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}" # SUPPLY-001: digest required, never a mutable default
     # DPR-010: any other PROBECTL_* key from docs/configuration.md (provider
@@ -84,15 +124,23 @@ services:
         condition: service_healthy
       certgen:
         condition: service_completed_successfully
+      # TEN-01: migrations (privileged) and the runtime login are provisioned by
+      # the one-shots above before the control plane serves as the least-priv role.
+      pg-appuser:
+        condition: service_completed_successfully
     environment:
       # HTTPS only. TLS cert/key make the listener serve TLS; HSTS is on.
       PROBECTL_HTTP_ADDR: ":8443"
       PROBECTL_TLS_CERT_FILE: /certs/tls.crt
       PROBECTL_TLS_KEY_FILE: /certs/tls.key
       PROBECTL_HSTS_ENABLED: "true"
-      # sslmode=require (U-039): encrypted to the in-network Postgres above.
-      PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}@postgres:5432/probectl?sslmode=require
-      PROBECTL_MIGRATE_ON_BOOT: "true"
+      # TEN-01: the SERVE login is probectl_runtime — NOSUPERUSER NOBYPASSRLS, so
+      # RLS is the enforced tenant boundary on every path (a superuser serve login
+      # bypasses RLS and boot now fails closed). Migrations ran as the privileged
+      # owner in the `migrate` one-shot, so the control plane does not migrate on
+      # boot. sslmode=require (U-039): encrypted to the in-network Postgres above.
+      PROBECTL_DATABASE_URL: postgres://probectl_runtime:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env (openssl rand -hex 24, URL-safe) — the least-privilege runtime DB login (TEN-01)}@postgres:5432/probectl?sslmode=require
+      PROBECTL_MIGRATE_ON_BOOT: "false"
       # At-rest encryption is ON BY DEFAULT (SEC-002): when PROBECTL_ENVELOPE_KEY
       # is unset, the control plane GENERATES a KEK at the key-file path on
       # first boot and persists it on the controldata volume (0600). Back that

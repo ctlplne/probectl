@@ -47,6 +47,37 @@ func AssertIsolationPosture(ctx context.Context, pool *pgxpool.Pool) error {
 	return AssertPostureTx(ctx, tx)
 }
 
+// AssertLoginRolePosture verifies the raw CONNECTION/LOGIN role (session_user,
+// BEFORE any SET LOCAL ROLE) is non-superuser and non-BYPASSRLS. The assumed
+// AppRole check (AssertIsolationPosture) only constrains tenant-scoped
+// transactions; a superuser / BYPASSRLS LOGIN role still reads across tenants on
+// every BARE-POOL path (no SET LOCAL ROLE), so a single SQL injection on such a
+// path escalates to a full-database read (TEN-01, guardrail 1). The control
+// plane must run as a least-privilege login. allowSuperuser is the explicit,
+// dangerous operator override (non-production sandboxes only); production fails
+// closed. It runs on a bare pooled connection — never inside a SET ROLE tx.
+func AssertLoginRolePosture(ctx context.Context, pool *pgxpool.Pool, allowSuperuser bool) error {
+	var roleName string
+	var isSuper, canBypass bool
+	if err := pool.QueryRow(ctx,
+		`SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = session_user`,
+	).Scan(&roleName, &isSuper, &canBypass); err != nil {
+		return fmt.Errorf("isolation posture: read login role: %w", err)
+	}
+	if !isSuper && !canBypass {
+		return nil
+	}
+	if allowSuperuser {
+		return nil
+	}
+	reason := "a SUPERUSER (rolsuper)"
+	if !isSuper {
+		reason = "BYPASSRLS"
+	}
+	return fmt.Errorf("isolation posture: the control plane's Postgres LOGIN role %q is %s — it bypasses RLS on every bare-pool path, so tenant isolation is OFF (guardrail 1, refusing to start). Point PROBECTL_DATABASE_URL at a NOSUPERUSER NOBYPASSRLS login that is a member of %s, and run migrations with a separate privileged PROBECTL_MIGRATE_DATABASE_URL. To override in a NON-PRODUCTION sandbox only, set PROBECTL_DANGEROUS_ALLOW_SUPERUSER_DB=true",
+		roleName, reason, AppRole)
+}
+
 // postureQuerier is the minimal surface AssertPostureTx needs (a pgx tx).
 type postureQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row

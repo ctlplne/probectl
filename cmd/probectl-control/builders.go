@@ -158,15 +158,23 @@ func validateDevAuthMode(cfg *config.Config) error {
 // verified at the storage/query layer before any listener starts.
 func verifyServePosture(ctx context.Context, cfg *config.Config, db *store.DB, log *slog.Logger) error {
 	if cfg.MigrateOnBoot {
-		if err := runMigrations(ctx, db, log); err != nil {
+		if err := runMigrations(ctx, cfg, db, log); err != nil {
 			return err
 		}
+	}
+
+	// TEN-01: the serve LOGIN role must not be a superuser / BYPASSRLS, or RLS is
+	// off on every bare-pool path. Checked before the assumed-role posture so the
+	// most dangerous misconfiguration (serving as a superuser login) is named
+	// first; fails closed unless the operator set the dangerous sandbox override.
+	if err := tenancy.AssertLoginRolePosture(ctx, db.Pool(), cfg.AllowSuperuserDB); err != nil {
+		return fmt.Errorf("tenant isolation self-check failed: %w", err)
 	}
 
 	if err := tenancy.AssertIsolationPosture(ctx, db.Pool()); err != nil {
 		return fmt.Errorf("tenant isolation self-check failed: %w", err)
 	}
-	log.Info("tenant isolation posture verified (RLS forced, app role non-bypass)")
+	log.Info("tenant isolation posture verified (RLS forced, serve login + app role non-bypass)")
 
 	chScoped := cfg.FlowCHTenantScoping && cfg.OTelCHTenantScoping &&
 		cfg.EBPFCHTenantScoping && cfg.PathCHTenantScoping && cfg.EndpointCHTenantScoping && cfg.IngestStrictTenantLanes
@@ -583,7 +591,7 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 // verbatim from run()'s second switch (CODE-001).
 func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.Logger) (handled bool, err error) {
 	if cmd == "migrate" {
-		return true, runMigrations(context.Background(), db, log)
+		return true, runMigrations(context.Background(), cfg, db, log)
 	}
 	// DPR-045: every other DB-backed one-shot command must see siloed tenants
 	// exactly as the serving process does, or its rows land in the wrong schema.

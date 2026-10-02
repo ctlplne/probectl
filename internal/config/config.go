@@ -64,7 +64,18 @@ type Config struct {
 	ComplianceRealert time.Duration
 
 	// Database.
-	DatabaseURL         string
+	DatabaseURL string
+	// MigrateDatabaseURL is the PRIVILEGED DSN used only for schema migrations
+	// (CREATE ROLE/SCHEMA/EXTENSION) — TEN-01. The serve path uses the
+	// least-privilege DatabaseURL (NOSUPERUSER NOBYPASSRLS); migrations need more,
+	// so they run as a separate owner/superuser login. Empty = migrations reuse
+	// DatabaseURL (the legacy single-DSN behavior).
+	MigrateDatabaseURL string
+	// AllowSuperuserDB is the explicit, dangerous override that lets the serve
+	// path run as a SUPERUSER/BYPASSRLS Postgres login (TEN-01). Default false:
+	// such a login bypasses RLS on bare-pool paths, so boot fails closed. For
+	// non-production sandboxes only.
+	AllowSuperuserDB    bool
 	DatabaseReadURL     string // optional read-replica endpoint (S-EE2); empty = reads use the writer
 	HopGeoFile          string // optional operator-supplied CIDR→location table for path hop geo; empty = no enrichment
 	DatabaseMaxConns    int32
@@ -838,6 +849,8 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.ClusterProbeTimeout = l.dur("PROBECTL_CLUSTER_PROBE_TIMEOUT", cluster.DefaultProbeTimeout)
 	cfg.ComplianceRealert = l.dur("PROBECTL_COMPLIANCE_REALERT", 24*time.Hour)
 	cfg.DatabaseURL = strings.TrimSpace(l.getenv("PROBECTL_DATABASE_URL"))
+	cfg.MigrateDatabaseURL = strings.TrimSpace(l.getenv("PROBECTL_MIGRATE_DATABASE_URL"))
+	cfg.AllowSuperuserDB = l.boolean("PROBECTL_DANGEROUS_ALLOW_SUPERUSER_DB", false)
 	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
 	cfg.HopGeoFile = l.str("PROBECTL_HOP_GEO_FILE", "")
 	// SCALE-009: warmer pool defaults for high fan-in API + consumers.

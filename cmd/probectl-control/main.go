@@ -39,6 +39,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -171,8 +172,22 @@ func run(cmd string) error {
 // (WIRE-005: the bespoke loadServerTLS is gone — every probectl listener
 // takes crypto.ServerTLSConfig, the ONE hardened policy: TLS 1.3 floor.)
 
-func runMigrations(ctx context.Context, db *store.DB, log *slog.Logger) error {
-	applied, err := migrate.New(migrations.FS, log).Apply(ctx, db.Pool())
+func runMigrations(ctx context.Context, cfg *config.Config, db *store.DB, log *slog.Logger) error {
+	pool := db.Pool()
+	// TEN-01: migrations do CREATE ROLE / SCHEMA / EXTENSION, which the
+	// least-privilege serve login (NOSUPERUSER NOBYPASSRLS) lacks. When a
+	// separate privileged DSN is configured, run them on their own pool so the
+	// serve path never needs those rights.
+	if strings.TrimSpace(cfg.MigrateDatabaseURL) != "" {
+		mdb, err := store.Open(ctx, cfg.MigrateDatabaseURL, 2, 0, cfg.DatabaseConnTimeout)
+		if err != nil {
+			return fmt.Errorf("open migrate database (PROBECTL_MIGRATE_DATABASE_URL): %w", err)
+		}
+		defer mdb.Close()
+		pool = mdb.Pool()
+		log.Info("running migrations with the privileged migrate DSN")
+	}
+	applied, err := migrate.New(migrations.FS, log).Apply(ctx, pool)
 	if err != nil {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
