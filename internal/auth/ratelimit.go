@@ -19,7 +19,14 @@ import (
 // the key for Lockout, doubling on each consecutive lockout (capped at
 // MaxLockout) until a Success resets the key. State is in-memory and
 // per-replica by design — the goal is making online brute force impractical,
-// not cross-replica accounting; stale keys are swept lazily.
+// not cross-replica accounting.
+//
+// The table is strictly bounded to maxEntries via an intrusive LRU list: each
+// touched key moves to the front, and a new key inserted at capacity evicts
+// the least-recently-used entry (preferring one that is not currently locked
+// out) in O(1). An attacker rotating through unbounded distinct keys can
+// neither grow memory past the cap nor force a full-map sweep — every
+// Attempt/Allow is O(1) regardless of table size. See docs/guardrails.md G7-N.
 type Limiter struct {
 	maxFailures int
 	window      time.Duration
@@ -33,18 +40,25 @@ type Limiter struct {
 
 	mu      sync.Mutex
 	entries map[string]*entry
+	// LRU list over entries: head is most-recently-used, tail least.
+	head, tail *entry
 }
 
 type entry struct {
+	key         string
 	failures    int
 	windowStart time.Time
 	lockedUntil time.Time
 	lockouts    int // consecutive lockouts -> exponential backoff
 	lastSeen    time.Time
+
+	// Intrusive doubly-linked LRU list pointers (guarded by Limiter.mu).
+	prev, next *entry
 }
 
-// maxEntries bounds the table; beyond it a sweep evicts expired/stale keys
-// (an attacker rotating keys cannot grow memory unboundedly).
+// maxEntries strictly bounds the table: at capacity, inserting a new key
+// evicts the least-recently-used entry first, so an attacker rotating keys can
+// neither grow memory unboundedly nor force an O(n) sweep.
 const maxEntries = 100_000
 
 // NewLimiter builds a Limiter. Non-positive arguments fall back to safe
@@ -81,6 +95,7 @@ func (l *Limiter) Allow(key string) (bool, time.Duration) {
 	}
 	now := l.now()
 	e.lastSeen = now
+	l.touchLocked(e)
 	if now.Before(e.lockedUntil) {
 		return false, e.lockedUntil.Sub(now)
 	}
@@ -95,9 +110,9 @@ func (l *Limiter) Attempt(key string) (bool, time.Duration) {
 	now := l.now()
 	e := l.entries[key]
 	if e == nil {
-		l.sweepLocked(now)
-		e = &entry{windowStart: now}
-		l.entries[key] = e
+		e = l.insertLocked(key, now)
+	} else {
+		l.touchLocked(e)
 	}
 	e.lastSeen = now
 
@@ -140,23 +155,85 @@ func (l *Limiter) Fail(key string) { _, _ = l.Attempt(key) }
 // Success clears key entirely — a legitimate login ends the backoff chain.
 func (l *Limiter) Success(key string) {
 	l.mu.Lock()
-	delete(l.entries, key)
+	if e := l.entries[key]; e != nil {
+		l.removeLocked(e)
+	}
 	l.mu.Unlock()
 }
 
-// sweepLocked evicts stale entries when the table is at capacity. Caller
+// insertLocked creates and tracks a new entry for key. When the table is at
+// capacity it first evicts one entry (O(1)), so len(entries) never exceeds
+// maxEntries — no full-map sweep. Caller holds l.mu.
+func (l *Limiter) insertLocked(key string, now time.Time) *entry {
+	if len(l.entries) >= maxEntries {
+		l.evictLocked(now)
+	}
+	e := &entry{key: key, windowStart: now, lastSeen: now}
+	l.entries[key] = e
+	l.pushFrontLocked(e)
+	return e
+}
+
+// evictLocked removes exactly one entry to make room, preferring the
+// least-recently-used entry that is not currently locked out so an active
+// lockout is not cleared by key churn. The scan from the tail is bounded to a
+// small constant, keeping eviction O(1) irrespective of table size. Caller
 // holds l.mu.
-func (l *Limiter) sweepLocked(now time.Time) {
-	if len(l.entries) < maxEntries {
-		return
-	}
-	stale := l.window
-	if l.maxLockout > stale {
-		stale = l.maxLockout
-	}
-	for k, e := range l.entries {
-		if now.Sub(e.lastSeen) > stale && now.After(e.lockedUntil) {
-			delete(l.entries, k)
+func (l *Limiter) evictLocked(now time.Time) {
+	const scan = 8
+	victim := l.tail
+	for e, i := l.tail, 0; e != nil && i < scan; e, i = e.prev, i+1 {
+		if !now.Before(e.lockedUntil) { // not currently locked out
+			victim = e
+			break
 		}
 	}
+	if victim != nil {
+		l.removeLocked(victim)
+	}
+}
+
+// removeLocked unlinks e from the LRU list and drops it from the map. Caller
+// holds l.mu.
+func (l *Limiter) removeLocked(e *entry) {
+	l.unlinkLocked(e)
+	delete(l.entries, e.key)
+}
+
+// touchLocked marks e most-recently-used. Caller holds l.mu.
+func (l *Limiter) touchLocked(e *entry) {
+	if l.head == e {
+		return
+	}
+	l.unlinkLocked(e)
+	l.pushFrontLocked(e)
+}
+
+// pushFrontLocked inserts e at the head (most-recently-used). Caller holds
+// l.mu.
+func (l *Limiter) pushFrontLocked(e *entry) {
+	e.prev = nil
+	e.next = l.head
+	if l.head != nil {
+		l.head.prev = e
+	}
+	l.head = e
+	if l.tail == nil {
+		l.tail = e
+	}
+}
+
+// unlinkLocked detaches e from the LRU list. Caller holds l.mu.
+func (l *Limiter) unlinkLocked(e *entry) {
+	if e.prev != nil {
+		e.prev.next = e.next
+	} else if l.head == e {
+		l.head = e.next
+	}
+	if e.next != nil {
+		e.next.prev = e.prev
+	} else if l.tail == e {
+		l.tail = e.prev
+	}
+	e.prev, e.next = nil, nil
 }
