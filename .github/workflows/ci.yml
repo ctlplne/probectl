@@ -664,6 +664,8 @@ jobs:
         # mirroring the dummy envelopeKey the helm renders above pass.
         env:
           POSTGRES_PASSWORD: ci-validate-only
+          # TEN-01: the pg-appuser one-shot requires the runtime login password.
+          POSTGRES_APP_PASSWORD: ci-validate-only
           PROBECTL_SESSION_HMAC_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           PROBECTL_IMAGE: ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         run: docker compose -f deploy/compose/probectl.yml config >/dev/null
@@ -1453,6 +1455,7 @@ jobs:
           # YAML/interpolation typos; the :? guards keep protecting actual
           # deployments (operators must set these in .env).
           export POSTGRES_PASSWORD="ci-render-only"
+          export POSTGRES_APP_PASSWORD="ci-render-only"  # TEN-01 pg-appuser one-shot
           export PROBECTL_JOIN_TOKEN="pjt_ci-render-only"
           export PROBECTL_SESSION_HMAC_KEY="0000000000000000000000000000000000000000000000000000000000000000"
           export PROBECTL_IMAGE="ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

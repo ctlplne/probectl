@@ -4,7 +4,14 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-//go:build integration
+//go:build integration && !probectl_core
+
+// This integration test exercises the EE attach seam
+// (rewrapProviderTOTPEnvelope in ee_attach.go, itself //go:build !probectl_core)
+// and so legitimately imports ee/provider. The !probectl_core constraint keeps
+// it out of the core-only build exactly like the seam it tests, so core-only
+// still builds with ee/ absent; scripts/check_editions_imports.sh allowlists
+// this path for that reason.
 
 package main
 

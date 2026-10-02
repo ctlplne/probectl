@@ -23,8 +23,12 @@ cd "$(dirname "$0")/.."
 
 module='github.com/ctlplne/probectl'
 
-# The sanctioned ee attach seams (one per binary that links ee features).
-allowlist='cmd/probectl-control/ee_attach.go'
+# The sanctioned ee attach seams (one per binary that links ee features), plus
+# the integration test that exercises the provider-rewrap seam end to end. Every
+# allowlisted path MUST carry //go:build !probectl_core (enforced below), so the
+# core-only build excludes all of them and still builds with ee/ absent.
+allowlist='cmd/probectl-control/ee_attach.go
+cmd/probectl-control/envelope_rewrap_provider_integration_test.go'
 
 is_allowlisted() {
   local f="${1#./}"
