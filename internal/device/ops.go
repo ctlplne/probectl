@@ -274,22 +274,49 @@ func SyslogSeverityText(sev int) string {
 	}
 }
 
-var sensitiveConfigLine = regexp.MustCompile(`(?i)\b(password|secret|community|private-key|api[_-]?key|token)\b`)
+// configRedactRules redact the VALUE (not the whole line) after each vendor
+// secret directive, keeping the directive and any non-secret suffix visible
+// (WEB-03). A single keyword regex missed TACACS/RADIUS keys, key-chain
+// key-strings, routing-protocol auth keys, IPsec/ISAKMP pre-shared keys, and
+// SNMPv3 auth/priv passwords, storing and showing them in clear. Rules cover
+// Cisco IOS/NX-OS, Junos, and Arista EOS forms; redaction is security-first, so
+// a non-secret value occasionally over-masked is acceptable. `\S` never crosses
+// a newline, so each rule stays within its line.
+var configRedactRules = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	// TACACS/RADIUS server shared key, optional type number.
+	{regexp.MustCompile(`(?i)\b((?:tacacs|radius)-server\s+key(?:\s+\d+)?\s+)\S+`), `${1}[redacted]`},
+	// Key-chain key-string, optional type number.
+	{regexp.MustCompile(`(?i)\b(key-string\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
+	// Routing-protocol auth: (ip ospf) authentication-key, message-digest-key.
+	{regexp.MustCompile(`(?i)\b(authentication-key\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
+	{regexp.MustCompile(`(?i)\b(message-digest-key\s+\d+\s+md5\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
+	// IPsec/ISAKMP: crypto isakmp key VALUE (address|hostname …) — key only.
+	{regexp.MustCompile(`(?i)\b(crypto\s+isakmp\s+key\s+)\S+`), `${1}[redacted]`},
+	// Pre-shared key, optional ascii-text/hexadecimal, value may be quoted.
+	{regexp.MustCompile(`(?i)\b(pre-shared-key\s+(?:(?:ascii-text|hexadecimal)\s+)?)(?:"[^"]*"|\S+)`), `${1}[redacted]`},
+	// SNMPv3 user auth/priv passwords.
+	{regexp.MustCompile(`(?i)\b(auth\s+(?:md5|sha|sha224|sha256|sha384|sha512)\s+)\S+`), `${1}[redacted]`},
+	{regexp.MustCompile(`(?i)\b(priv\s+(?:des|3des|aes)(?:\s+(?:128|192|256))?\s+)\S+`), `${1}[redacted]`},
+	// Generic credential directives, optional type number.
+	{regexp.MustCompile(`(?i)\b((?:password|passwd|secret|passphrase|community|psk|private-key|api[_-]?key|token)\s+(?:\d+\s+)?)\S+`), `${1}[redacted]`},
+	// Junos quoted secret.
+	{regexp.MustCompile(`(?i)\b(secret\s+)"[^"]*"`), `${1}"[redacted]"`},
+	// Cisco type-7 wrapper `... 7 <hex>` where the directive was not matched above,
+	// and Junos `$9$…` / Cisco `$1$…`/`$6$…` encoded secrets anywhere on the line.
+	{regexp.MustCompile(`\$(?:1|5|6|9\$)[^\s"]+`), `[redacted]`},
+}
 
+// RedactConfig masks secret values in a device running-config before it is
+// stored or shown (WEB-03). It is applied at archive time, so the at-rest copy
+// and every read are redacted.
 func RedactConfig(content string) string {
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if sensitiveConfigLine.MatchString(line) {
-			prefix := strings.TrimRight(line[:len(line)-len(strings.TrimLeft(line, " \t"))], " \t")
-			key := strings.Fields(strings.TrimSpace(line))
-			if len(key) > 0 {
-				lines[i] = prefix + key[0] + " [redacted]"
-			} else {
-				lines[i] = prefix + "[redacted]"
-			}
-		}
+	for _, rule := range configRedactRules {
+		content = rule.re.ReplaceAllString(content, rule.repl)
 	}
-	return strings.Join(lines, "\n")
+	return content
 }
 
 func hashConfig(content string) string {
