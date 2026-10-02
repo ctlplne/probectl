@@ -77,7 +77,12 @@ symbol github.com/ctlplne/probectl/internal/apierror.RegisteredCodes — error-v
 symbol github.com/ctlplne/probectl/internal/apierror.IsRegisteredCode — error-vocabulary membership check consumed by contract tests
 symbol github.com/ctlplne/probectl/internal/change.ProviderNames — webhook-provider census consumed by the docs/OpenAPI contract tests
 symbol github.com/ctlplne/probectl/internal/govern.RequiredDataInventoryIDs — governance-census contract consumed by docs accuracy tests
-symbol github.com/ctlplne/probectl/internal/compliance.VerifyEvidence — evidence-artifact verifier exercised by the compliance export tests
+symbol github.com/ctlplne/probectl/internal/compliance.VerifySignedEvidence — signed-evidence (Ed25519) verifier exercised by the compliance evidence-signing tests
+symbol github.com/ctlplne/probectl/internal/bus.NATS.HandlerLost — redelivery-exhaustion counter mirroring Memory.HandlerLost, asserted by the NATS poison-message test
+symbol github.com/ctlplne/probectl/internal/pipeline.VerifyBatchTenant — non-strict tenant-batch verifier (thin wrapper over VerifyBatchTenantStrict with strict=false), comprehensively unit+fuzz tested; production callers use the Strict variant
+symbol github.com/ctlplne/probectl/internal/otel/otlp.NewBusSink — no-limit metrics sink constructor exercised by the OTLP receiver + pipeline isolation tests (production uses NewBusSinkWithLimit)
+symbol github.com/ctlplne/probectl/internal/otel/otlp.NewBusTraceSink — no-limit trace sink constructor exercised by the OTLP signals + pipeline isolation tests (production uses NewBusTraceSinkWithLimit)
+symbol github.com/ctlplne/probectl/internal/otel/otlp.NewBusLogSink — no-limit log sink constructor exercised by the OTLP signals + pipeline isolation tests (production uses NewBusLogSinkWithLimit)
 symbol github.com/ctlplne/probectl/internal/support.ReadBundle — support-bundle verifier exercised by the bundle round-trip tests
 symbol github.com/ctlplne/probectl/internal/browsercanary.New — browser canary engine constructed by the agent plugin contract tests
 symbol github.com/ctlplne/probectl/internal/browsercanary.MarshalScript — script wire-format contract asserted by browser synthetic tests

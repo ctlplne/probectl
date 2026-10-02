@@ -72,11 +72,6 @@ func ConfigureTenantHeadAnchor(privPEM, pubPEM []byte) error {
 	return nil
 }
 
-// TenantHeadAnchorConfigured reports whether a head anchor key is installed.
-func TenantHeadAnchorConfigured() bool {
-	return configuredHeadAnchor.Load() != nil
-}
-
 // headAnchorMessage is the canonical, domain-separated byte sequence signed over
 // a tenant's durable head. The leading label keeps this signature from ever
 // being confused with a WORM segment signature (which signs JSON). tenant ids
