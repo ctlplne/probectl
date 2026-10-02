@@ -16,6 +16,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/topology"
 )
 
@@ -170,6 +171,19 @@ func (s *Server) handleIngestDeviceSyslog(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return apierror.BadRequest(err.Error())
 	}
+	// AUD-08 (docs/guardrails.md G7): this mutation is declared explicit-mode in
+	// the audit-policy matrix, so the handler — not the route wrapper — must
+	// append the declared tenant-chain event once the ingest has persisted. A
+	// pool-less lightweight server has no audit chain to write, so it skips the
+	// append (matching the explicit-mode pattern in handleOncallTest).
+	if s.pool != nil {
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			return s.recordAudit(ctx, sc, r, "device.syslog_ingest", row.Device,
+				map[string]any{"syslog_id": row.ID, "severity": row.Severity})
+		}); err != nil {
+			return err
+		}
+	}
 	writeJSON(w, http.StatusCreated, row)
 	return nil
 }
@@ -222,6 +236,18 @@ func (s *Server) handleArchiveDeviceConfig(w http.ResponseWriter, r *http.Reques
 	})
 	if err != nil {
 		return apierror.BadRequest(err.Error())
+	}
+	// AUD-08 (docs/guardrails.md G7): config archive is declared explicit-mode in
+	// the audit-policy matrix, so the handler appends the declared tenant-chain
+	// event after the snapshot is stored. Pool-less lightweight servers have no
+	// audit chain and skip the append (see handleOncallTest for the pattern).
+	if s.pool != nil {
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			return s.recordAudit(ctx, sc, r, "device.config_archive", row.Device,
+				map[string]any{"config_id": row.ID, "version": row.Version, "drifted": row.Drifted})
+		}); err != nil {
+			return err
+		}
 	}
 	writeJSON(w, http.StatusCreated, row)
 	return nil
