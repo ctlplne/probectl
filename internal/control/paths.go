@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/pathstore"
@@ -137,7 +139,7 @@ func parsePathHistoryQuery(r *http.Request) (pathstore.HistoryQuery, error) {
 
 // handleDiscoverPath runs a path discovery for a test, stores it, and returns it.
 func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) error {
-	target, err := s.testTarget(r)
+	target, params, err := s.testTargetParams(r)
 	if err != nil {
 		return err
 	}
@@ -146,7 +148,21 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	cfg := path.Config{Target: target, Mode: "icmp", MaxHops: 30, TraceCount: 3, PerHopTimeout: 2 * time.Second}
+	// PLAT-05: path discovery runs from the control-plane host, so it must honor
+	// the SAME deny-by-default SSRF guard as agent canaries — otherwise any
+	// test.write user turns the control plane into an SSRF proxy that maps the
+	// provider's internal/link-local network (e.g. 169.254.169.254, the DB host).
+	// allow_private_targets on the test is admin-gated + audited at write time
+	// (guardAllowPrivate), so GuardFromParams reflects an authorized override.
+	// Resolve once and trace the CHECKED IP so DNS rebinding cannot slip a
+	// private address past the check at trace time.
+	guard := canary.GuardFromParams(params)
+	traceTarget, err := resolveGuardedPathTarget(r.Context(), target, guard)
+	if err != nil {
+		return err
+	}
+
+	cfg := path.Config{Target: traceTarget, Mode: "icmp", MaxHops: 30, TraceCount: 3, PerHopTimeout: 2 * time.Second}
 	dctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 	p, err := s.discover(dctx, cfg)
@@ -190,19 +206,52 @@ func normalizePathCollections(p *path.Path) {
 
 // testTarget resolves the path target (the host) of the test named in the route.
 func (s *Server) testTarget(r *http.Request) (string, error) {
+	target, _, err := s.testTargetParams(r)
+	return target, err
+}
+
+// testTargetParams resolves the path target host AND the test's params (for the
+// SSRF allow_private_targets override, PLAT-05) of the test named in the route.
+func (s *Server) testTargetParams(r *http.Request) (string, map[string]string, error) {
 	id := r.PathValue("id")
 	var target string
+	var params map[string]string
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		t, e := store.Tests{}.Get(ctx, sc, id)
 		if e != nil {
 			return e
 		}
 		target = pathHost(t.Target)
+		params = t.Params
 		return nil
 	}); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return target, nil
+	return target, params, nil
+}
+
+// resolveGuardedPathTarget applies the SSRF guard to a path-discovery target and
+// returns the concrete IPv4 literal to trace (PLAT-05). A literal target is
+// checked directly; a hostname is resolved ONCE here and the checked address is
+// returned, so the tracer never re-resolves and DNS rebinding cannot substitute
+// a private address after the check. Denied targets are refused (403).
+func resolveGuardedPathTarget(ctx context.Context, host string, guard *canary.TargetGuard) (string, error) {
+	if err := guard.CheckHost(host); err != nil {
+		return "", apierror.Forbidden(err.Error()).WithCode("private_target_denied")
+	}
+	if a, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		return a.String(), nil // literal target, already checked by CheckHost
+	}
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip4", host)
+	if err != nil || len(addrs) == 0 {
+		return "", apierror.Validation(fmt.Sprintf("path: cannot resolve target %q", host))
+	}
+	for _, a := range addrs {
+		if err := guard.CheckIP(a); err != nil {
+			return "", apierror.Forbidden(err.Error()).WithCode("private_target_denied")
+		}
+	}
+	return addrs[0].Unmap().String(), nil
 }
 
 // pathDiscoveryError maps a discovery failure to the error the caller should
