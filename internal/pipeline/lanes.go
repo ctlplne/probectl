@@ -110,3 +110,6 @@ func (*OTLPTraceExportConsumer) LaneFanoutEnabled() bool { return true }
 
 // LaneFanoutEnabled satisfies LaneFanout for the OTLP logs exporter.
 func (*OTLPLogExportConsumer) LaneFanoutEnabled() bool { return true }
+
+// LaneFanoutEnabled satisfies LaneFanout for the probe-result OTLP exporter.
+func (*ResultOTLPExportConsumer) LaneFanoutEnabled() bool { return true }

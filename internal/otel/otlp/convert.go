@@ -75,6 +75,18 @@ func metricsRequest(rms ...*metricspb.ResourceMetrics) *colmetricspb.ExportMetri
 	return &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: rms}
 }
 
+// MetricsForResult converts a single probe Result into an OTLP metrics export
+// request (probectl.probe.success + probectl.probe.duration + any per-probe
+// metrics, with the canonical S6 resource attributes). It is the export-side
+// counterpart to the ingest converters: the result re-export pipeline uses it
+// to turn probectl's OWN probe signals into OTLP that reaches a collector, so
+// the self-observability claim is a live path, not a dormant doc assertion
+// (RTP-07). Reuses resultResourceMetrics + metricsRequest so the resource
+// attributes and pinned semantic-convention version stay identical to ingest.
+func MetricsForResult(r *resultv1.Result) *colmetricspb.ExportMetricsServiceRequest {
+	return metricsRequest(resultResourceMetrics(r))
+}
+
 // ResourceTenant returns the probectl.tenant.id resource attribute, if present.
 // The receiver uses it to enforce that a push matches its authenticated tenant.
 func ResourceTenant(rm *metricspb.ResourceMetrics) string {

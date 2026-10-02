@@ -35,6 +35,7 @@ func TestConsumersFanOutAcrossLanes(t *testing.T) {
 		(*pipeline.OTLPExportConsumer)(nil),
 		(*pipeline.OTLPTraceExportConsumer)(nil),
 		(*pipeline.OTLPLogExportConsumer)(nil),
+		(*pipeline.ResultOTLPExportConsumer)(nil),
 		(*ResultFan)(nil),
 		(*ResultViewConsumer)(nil),
 		(*TLSPostureConsumer)(nil),
@@ -262,6 +263,13 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			topics: []string{bus.OTLPLogsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
 				return pipeline.NewOTLPLogExportConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "result-otlp-export",
+			topics: []string{bus.NetworkResultsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewResultOTLPExportConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
 			},
 		},
 	}

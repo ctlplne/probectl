@@ -900,7 +900,18 @@ func startOTLPSubsystems(
 					Run(ctx)
 			})
 		})
-		log.Info("otlp export enabled (metrics+traces+logs)", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
+		// RTP-07: re-export probectl's OWN probe results as OTLP metrics so the
+		// self-observability signals (probectl.probe.success / .duration) reach
+		// the collector — a live export path, not a dormant doc claim. Reuses the
+		// same exporter and result bus as the sibling signal exporters above.
+		g.Go(func() error {
+			return superviseBusLaneRestart(ctx, "result-otlp-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
+				return pipeline.NewResultOTLPExportConsumer(resultBus, exp, log).
+					WithNamespaceTenants(snap.tenants).
+					Run(ctx)
+			})
+		})
+		log.Info("otlp export enabled (metrics+traces+logs) + probe-results", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
 	}
 	g.Go(func() error {
 		return superviseBusLaneRestart(ctx, "otlp-traces-consumer", log, func(ctx context.Context, snap busLaneSnapshot) error {
