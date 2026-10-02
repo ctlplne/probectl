@@ -247,6 +247,43 @@ func redactHeaderValues(region []byte, policy headerValuePolicy) {
 	}
 }
 
+// redactRequestTargetQuery zeroes the query-string bytes of an HTTP/1 request
+// target in place, within the kept (metadata) header region. The request line
+// is "METHOD TARGET HTTP/VERSION"; TARGET can carry query-parameter secrets
+// (?token=, ?api_key=, ?sig=) that would otherwise survive in the retained
+// metadata region just because they precede the body (ING-16, the request-line
+// companion to redactHeaderValues). The path up to '?', the '?' marker, and the
+// line framing survive so topology/RED attribution and the HTTP/1 parse stay
+// intact; everything after the first '?' in TARGET is zeroed. A line that is
+// not a well-formed HTTP/1 request line (status lines, non-HTTP detection
+// windows) is left untouched. Runs only in "headers" mode.
+func redactRequestTargetQuery(region []byte) {
+	line := region
+	if eol := bytes.Index(region, []byte("\r\n")); eol >= 0 {
+		line = region[:eol]
+	}
+	sp1 := bytes.IndexByte(line, ' ')
+	if sp1 < 0 {
+		return
+	}
+	rest := line[sp1+1:]
+	sp2 := bytes.IndexByte(rest, ' ')
+	if sp2 < 0 {
+		return
+	}
+	target := rest[:sp2]
+	if !bytes.HasPrefix(rest[sp2+1:], []byte("HTTP/")) {
+		return // not a well-formed HTTP/1 request line
+	}
+	q := bytes.IndexByte(target, '?')
+	if q < 0 {
+		return
+	}
+	for i := q + 1; i < len(target); i++ {
+		target[i] = 0
+	}
+}
+
 func redactHeaderValueBytes(value []byte, action headerValueRedaction) {
 	switch action {
 	case headerValueZero:
@@ -333,6 +370,11 @@ func redactPayloadWithPolicy(p []byte, mode string, policy headerValuePolicy) []
 		kept = p[:keep]
 	}
 	redactHeaderValues(kept, policy)
+	// ING-16: zero query-string secrets in the request-line target too. Like a
+	// credential-bearing header value, a query parameter (?token=, ?api_key=,
+	// ?sig=) sits inside the kept metadata region and would otherwise survive
+	// just because it precedes the body. The path and line framing stay.
+	redactRequestTargetQuery(kept)
 	if keep >= len(p) {
 		return p
 	}

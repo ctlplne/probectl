@@ -141,7 +141,24 @@ func parseRequestLine(msg []byte) (method, path string, ok bool) {
 	if len(parts) != 3 || !strings.HasPrefix(parts[2], "HTTP/") {
 		return "", "", false
 	}
-	return parts[0], parts[1], true
+	// ING-16: the request target can carry query-string secrets (?token=,
+	// ?api_key=, ?sig=). Keep the path — the useful unit for topology and RED
+	// metrics — but never let a query-parameter value reach the control plane in
+	// an emitted L7Call.Resource. The capture-boundary redaction
+	// (ebpf.redactRequestTargetQuery) already zeroes these bytes under the
+	// default "headers" mode; stripping here keeps the emitted Resource clean
+	// for every mode and every L7 source.
+	return parts[0], stripQueryString(parts[1]), true
+}
+
+// stripQueryString returns the request target up to (but excluding) the first
+// '?', so query-parameter values never survive into an emitted Resource
+// (ING-16). A target without a query is returned unchanged.
+func stripQueryString(target string) string {
+	if i := strings.IndexByte(target, '?'); i >= 0 {
+		return target[:i]
+	}
+	return target
 }
 
 func parseStatusLine(msg []byte) (int, bool) {

@@ -208,7 +208,7 @@ func (p *http2Parser) finish(stream uint32, st *h2stream, ts time.Time) (Call, b
 	if isGRPC {
 		c.Protocol = ProtoGRPC
 		c.Method = strings.TrimPrefix(st.path, "/")
-		c.Resource = st.path
+		c.Resource = stripQueryString(st.path)
 		c.Status = st.grpcStatus
 		if c.Status == "" {
 			c.Status = "0" // OK when trailers omit grpc-status alongside HTTP 200
@@ -217,7 +217,7 @@ func (p *http2Parser) finish(stream uint32, st *h2stream, ts time.Time) (Call, b
 	} else {
 		c.Protocol = ProtoHTTP2
 		c.Method = st.method
-		c.Resource = st.path
+		c.Resource = stripQueryString(st.path)
 		c.Status = st.status
 		if code, err := strconv.Atoi(st.status); err == nil {
 			c.Error = code >= 400

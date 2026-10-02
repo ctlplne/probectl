@@ -14,6 +14,8 @@ import (
 func TestHTTP1MethodPathStatusLatency(t *testing.T) {
 	p := newHTTP1Parser()
 	t0 := time.Unix(100, 0)
+	// The query string is dropped from the emitted Resource (ING-16); the path
+	// survives. See TestHTTP1StripsQueryStringSecrets for the secret-leak guard.
 	req := "GET /api/v1/users?id=7 HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n"
 	resp := "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi"
 
@@ -25,7 +27,7 @@ func TestHTTP1MethodPathStatusLatency(t *testing.T) {
 		t.Fatalf("calls = %d, want 1", len(calls))
 	}
 	c := calls[0]
-	if c.Protocol != ProtoHTTP1 || c.Method != "GET" || c.Resource != "/api/v1/users?id=7" || c.Status != "200" || c.Error {
+	if c.Protocol != ProtoHTTP1 || c.Method != "GET" || c.Resource != "/api/v1/users" || c.Status != "200" || c.Error {
 		t.Errorf("call = %+v", c)
 	}
 	if c.Latency != 15*time.Millisecond {
