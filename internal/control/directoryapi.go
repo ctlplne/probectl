@@ -139,6 +139,14 @@ func (s *Server) handleDirectoryRoleList(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+// restrictedDirectoryRole reports whether a role slug may not be bound through
+// the tenant directory API (AUTHZ-09). ir-investigator is a separation-of-duty
+// group populated only via SCIM; every directory bind path checks this so a new
+// path cannot silently reintroduce the self-binding SoD bypass.
+func restrictedDirectoryRole(slug string) bool {
+	return slug == "ir-investigator"
+}
+
 // handleDirectoryUserCreate serves POST /v1/directory/users: create a person
 // before their first SSO login (so a role can be waiting for them) and
 // optionally bind one role in the same audited step.
@@ -167,6 +175,11 @@ func (s *Server) handleDirectoryUserCreate(w http.ResponseWriter, r *http.Reques
 		displayName = email
 	}
 	slug := strings.ToLower(strings.TrimSpace(in.Role))
+	// AUTHZ-09: ir-investigator is a SCIM-only separation-of-duty group; the
+	// directory API must not bind it on the create path either.
+	if restrictedDirectoryRole(slug) {
+		return apierror.Forbidden("the ir-investigator role is a separation-of-duty group and can only be assigned through SCIM")
+	}
 
 	var created directoryUser
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
@@ -230,7 +243,7 @@ func (s *Server) handleDirectoryRoleBind(w http.ResponseWriter, r *http.Request)
 	// this directory-write API — otherwise any directory.write holder (incl. a
 	// tenant admin binding the role to themselves) defeats the SoD, letting them
 	// reveal encrypted IR attribution.
-	if slug == "ir-investigator" {
+	if restrictedDirectoryRole(slug) {
 		return apierror.Forbidden("the ir-investigator role is a separation-of-duty group and can only be assigned through SCIM")
 	}
 	var updated directoryUser

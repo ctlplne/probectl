@@ -84,10 +84,14 @@ func TestSystemRolesExcludeOperatorAndSoDKeys(t *testing.T) {
 		t.Error("admin role lost test.write; seeding is broken")
 	}
 
-	// AUTHZ-09: the directory API must refuse to bind the ir-investigator role.
+	// AUTHZ-09: EVERY directory bind path must refuse the ir-investigator role —
+	// the role-bind endpoint AND the user-create endpoint (which binds a role by
+	// slug in the same step).
 	uid := createUserWithPerm(t, db, tenantID, "authz79@x.com", nil, "test.read")
-	rec := apiReq(t, h, http.MethodPost, "/v1/directory/users/"+uid+"/roles", tenantID, map[string]any{"role": "ir-investigator"})
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("directory bind of ir-investigator = %d, want 403: %s", rec.Code, rec.Body.String())
+	if rec := apiReq(t, h, http.MethodPost, "/v1/directory/users/"+uid+"/roles", tenantID, map[string]any{"role": "ir-investigator"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("directory role-bind of ir-investigator = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if rec := apiReq(t, h, http.MethodPost, "/v1/directory/users", tenantID, map[string]any{"email": "ir-sneak@x.com", "role": "ir-investigator"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("directory user-create with ir-investigator = %d, want 403: %s", rec.Code, rec.Body.String())
 	}
 }
