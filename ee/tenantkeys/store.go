@@ -98,6 +98,48 @@ func (s *PGStore) Insert(ctx context.Context, kv KeyVersion) error {
 	})
 }
 
+// AllManaged lists every managed, non-destroyed version that still carries a
+// wrapped KEK, across all tenants (provider scope) — the rewrap inventory (CRY-02).
+func (s *PGStore) AllManaged(ctx context.Context) ([]KeyVersion, error) {
+	var out []KeyVersion
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		rows, err := q.Query(ctx, `SELECT `+keyCols+` FROM tenant_keys
+			WHERE mode = 'managed' AND state <> 'destroyed' AND wrapped_kek IS NOT NULL
+			ORDER BY tenant_id, version`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			kv, err := scanKey(rows)
+			if err != nil {
+				return err
+			}
+			if kv != nil {
+				out = append(out, *kv)
+			}
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+// UpdateWrappedKEK re-seals one managed version's KEK in place (CRY-02 rewrap).
+func (s *PGStore) UpdateWrappedKEK(ctx context.Context, tenantID string, version int, wrapped []byte) error {
+	return s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		tag, err := q.Exec(ctx, `UPDATE tenant_keys SET wrapped_kek = $3
+			WHERE tenant_id = $1 AND version = $2 AND mode = 'managed' AND state <> 'destroyed'`,
+			tenantID, version, wrapped)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("tenantkeys: no managed key row to rewrap for tenant %s version %d", tenantID, version)
+		}
+		return nil
+	})
+}
+
 func (s *PGStore) Retire(ctx context.Context, tenantID string, at time.Time) error {
 	return s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
 		_, err := q.Exec(ctx, `
@@ -349,6 +391,44 @@ func (m *MemStore) Chain(_ context.Context, tenantID string) ([]KeyVersion, erro
 	out := append([]KeyVersion(nil), m.keys[tenantID]...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Version > out[j].Version })
 	return out, nil
+}
+
+func (m *MemStore) AllManaged(_ context.Context) ([]KeyVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return nil, context.DeadlineExceeded
+	}
+	tenants := make([]string, 0, len(m.keys))
+	for t := range m.keys {
+		tenants = append(tenants, t)
+	}
+	sort.Strings(tenants)
+	var out []KeyVersion
+	for _, t := range tenants {
+		for _, kv := range m.keys[t] {
+			if kv.Mode == ModeManaged && kv.State != StateDestroyed && len(kv.WrappedKEK) > 0 {
+				out = append(out, kv)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *MemStore) UpdateWrappedKEK(_ context.Context, tenantID string, version int, wrapped []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return context.DeadlineExceeded
+	}
+	for i := range m.keys[tenantID] {
+		kv := &m.keys[tenantID][i]
+		if kv.Version == version && kv.Mode == ModeManaged && kv.State != StateDestroyed {
+			kv.WrappedKEK = append([]byte(nil), wrapped...)
+			return nil
+		}
+	}
+	return fmt.Errorf("tenantkeys: no managed key row to rewrap for tenant %s version %d", tenantID, version)
 }
 
 // RotateAtomic gives unit tests the same publish-after-audit semantics as the

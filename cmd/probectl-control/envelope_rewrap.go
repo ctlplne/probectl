@@ -73,7 +73,7 @@ func runEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB, lo
 		}
 	}
 
-	receipt, err := collectEnvelopeRewrap(ctx, db, cfg.EnvelopeKeyID, *fromKeyID, *dryRun, verifyOpen)
+	receipt, err := collectEnvelopeRewrap(ctx, cfg, db, cfg.EnvelopeKeyID, *fromKeyID, *dryRun, verifyOpen)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func runEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB, lo
 	return writeEnvelopeRewrapReceipt(*jsonOut, receipt)
 }
 
-func collectEnvelopeRewrap(ctx context.Context, db *store.DB, activeKeyID, fromKeyID string, dryRun bool, verifyOpen bool) (envelopeRewrapReceipt, error) {
+func collectEnvelopeRewrap(ctx context.Context, cfg *config.Config, db *store.DB, activeKeyID, fromKeyID string, dryRun bool, verifyOpen bool) (envelopeRewrapReceipt, error) {
 	var receipt envelopeRewrapReceipt
 	tenants, err := store.NewTenants(db.Pool()).List(ctx)
 	if err != nil {
@@ -130,6 +130,16 @@ func collectEnvelopeRewrap(ctx context.Context, db *store.DB, activeKeyID, fromK
 	}
 	receipt.Stores = append(receipt.Stores, agentStats)
 	receipt.Total.Add(agentStats)
+
+	// CRY-02: re-seal managed per-tenant KEKs (ee/tenantkeys) too, so a
+	// deployment-envelope rotation can fully retire the old key. The core-only
+	// build's twin returns zero.
+	tkStats, err := rewrapTenantKeysEnvelope(ctx, cfg, db, activeKeyID, fromKeyID, dryRun, verifyOpen)
+	if err != nil {
+		return receipt, err
+	}
+	receipt.Stores = append(receipt.Stores, tkStats)
+	receipt.Total.Add(tkStats)
 	return receipt, nil
 }
 

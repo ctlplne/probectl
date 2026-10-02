@@ -42,6 +42,7 @@ import (
 	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -188,11 +189,11 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			// would silently store managed tenant KEKs unprotectable.
 			return fmt.Errorf("byok is licensed but PROBECTL_ENVELOPE_KEY is not set (the deployment master wraps managed tenant keys)")
 		}
-		kp, err := crypto.NewStaticKeyProviderFromBase64(cfg.EnvelopeKeyID, cfg.EnvelopeKey)
-		if err != nil {
-			return fmt.Errorf("byok master key: %w", err)
+		master, merr := byokMaster(cfg)
+		if merr != nil {
+			return merr
 		}
-		ring, err := tenantkeys.NewKeyring(tenantkeys.NewPGStore(pool), crypto.NewEnvelope(kp), tenantkeys.RefResolver(resolveSecret))
+		ring, err := tenantkeys.NewKeyring(tenantkeys.NewPGStore(pool), master, tenantkeys.RefResolver(resolveSecret))
 		if err != nil {
 			return err
 		}
@@ -376,6 +377,37 @@ func siloCatchUpTenants(ctx context.Context, ids []string, prov siloCatchUpper, 
 // schema, where the serving control plane never looks — the documented
 // first-admin path left a siloed tenant with no admin and every token minted
 // for it answered 401. The core build is a no-op: siloed isolation is ee/.
+// byokMaster builds the deployment master envelope that wraps managed/BYOK
+// tenant KEKs. It carries the active key plus the PROBECTL_ENVELOPE_OPENER_KEYS
+// keyring (CRY-02) so values sealed under a retired key still open after a
+// rotation — the single source of truth used by both attach and envelope-rewrap.
+func byokMaster(cfg *config.Config) (*crypto.Envelope, error) {
+	openerKeys, err := parseEnvelopeOpenerKeys(cfg.EnvelopeOpenerKeys)
+	if err != nil {
+		return nil, fmt.Errorf("byok master opener keyring: %w", err)
+	}
+	kp, err := crypto.NewStaticKeyProviderFromBase64Keyring(cfg.EnvelopeKeyID, cfg.EnvelopeKey, openerKeys)
+	if err != nil {
+		return nil, fmt.Errorf("byok master key: %w", err)
+	}
+	return crypto.NewEnvelope(kp), nil
+}
+
+// rewrapTenantKeysEnvelope is the ee half of the envelope-rewrap command (CRY-02):
+// it re-seals every managed tenant KEK from a retired deployment-envelope key to
+// the active one. The core-only build links the no-op twin in ee_attach_core.go.
+// With no master configured there are no managed KEKs to touch.
+func rewrapTenantKeysEnvelope(ctx context.Context, cfg *config.Config, db *store.DB, activeKeyID, fromKeyID string, dryRun, verifyOpen bool) (store.EnvelopeRewrapStats, error) {
+	if cfg.EnvelopeKey == "" {
+		return store.EnvelopeRewrapStats{Store: "tenant_keys.wrapped_kek"}, nil
+	}
+	master, err := byokMaster(cfg)
+	if err != nil {
+		return store.EnvelopeRewrapStats{Store: "tenant_keys.wrapped_kek"}, err
+	}
+	return tenantkeys.RewrapManagedKEKs(ctx, master, tenantkeys.NewPGStore(db.Pool()), activeKeyID, fromKeyID, dryRun, verifyOpen)
+}
+
 func attachEETenancyRouter(cfg *config.Config, pool *pgxpool.Pool, _ *slog.Logger) error {
 	if pool == nil {
 		return nil

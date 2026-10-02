@@ -100,7 +100,7 @@ func TestEnvelopeRewrapWorkflowRetiresOldDeploymentKey(t *testing.T) {
 		t.Fatalf("new keyring: %v", err)
 	}
 	tenantcrypto.SetPrimary(newWithOld)
-	receipt, err := collectEnvelopeRewrap(ctx, db, "new-keys002", "old-keys002", true, false)
+	receipt, err := collectEnvelopeRewrap(ctx, &config.Config{EnvelopeKeyID: "new-keys002"}, db, "new-keys002", "old-keys002", true, false)
 	if err != nil {
 		t.Fatalf("dry-run inventory: %v", err)
 	}

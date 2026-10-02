@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/control"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -41,6 +42,13 @@ func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*fairness.Gate, topology.Store,
 	*cluster.Coordinator) error {
 	return nil
+}
+
+// rewrapTenantKeysEnvelope is the core-only no-op twin: a core build has no
+// managed per-tenant KEKs (the tenant_keys store ships only with ee/), so the
+// deployment envelope rewrap has nothing to re-seal here (CRY-02).
+func rewrapTenantKeysEnvelope(context.Context, *config.Config, *store.DB, string, string, bool, bool) (store.EnvelopeRewrapStats, error) {
+	return store.EnvelopeRewrapStats{Store: "tenant_keys.wrapped_kek (ee absent)"}, nil
 }
 
 // attachEETenancyRouter is the core-only no-op twin (DPR-045): a core build

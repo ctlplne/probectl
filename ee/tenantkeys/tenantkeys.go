@@ -104,6 +104,13 @@ type Store interface {
 	// retirement, successor insertion, and the mandatory audit event as one
 	// unit. Any failure leaves the previous active version unchanged.
 	RotateAtomic(ctx context.Context, tenantID, actor string, at time.Time, build RotationBuilder) (*KeyVersion, error)
+	// AllManaged lists every managed, non-destroyed version that still holds a
+	// wrapped KEK, across ALL tenants (provider scope). It is the inventory the
+	// deployment-envelope rewrap walks (CRY-02).
+	AllManaged(ctx context.Context) ([]KeyVersion, error)
+	// UpdateWrappedKEK replaces one managed version's sealed KEK in place — the
+	// re-seal step of an envelope rewrap. It never touches BYOK rows.
+	UpdateWrappedKEK(ctx context.Context, tenantID string, version int, wrapped []byte) error
 }
 
 // RefResolver resolves a BYOK secret reference to base64-encoded key material

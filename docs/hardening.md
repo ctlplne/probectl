@@ -145,11 +145,16 @@ probectl-control envelope-rewrap --from-key-id=old-id
 ```
 
 The execute step walks the registered deployment-envelope stores in
-tenant-scoped batches (`alert_rules.channels` plus the deployment-global
-`agent_ca.key_sealed`), re-seals old `dv1:old-id:` values under the active key,
-and appends a no-secret provider-audit receipt (`envelope.rewrap`). After
-removing `old-id` from `PROBECTL_ENVELOPE_OPENER_KEYS` and restarting, prove the
-old key is retired:
+tenant-scoped batches (`alert_rules.channels`, the deployment-global
+`agent_ca.key_sealed`, and — on BYOK-licensed deployments — the managed
+per-tenant KEKs in `tenant_keys.wrapped_kek`), re-seals values sealed under the
+retired key under the active key, and appends a no-secret provider-audit receipt
+(`envelope.rewrap`). The managed per-tenant KEKs are sealed under the deployment
+master, so the master is built with the same `PROBECTL_ENVELOPE_OPENER_KEYS`
+ring: during the overlap phase they keep opening under the retired key, and this
+step re-seals them under the active key so the old key can be fully retired
+(CRY-02). After removing `old-id` from `PROBECTL_ENVELOPE_OPENER_KEYS` and
+restarting, prove the old key is retired:
 
 ```sh
 probectl-control envelope-rewrap --verify-retired-key-id=old-id
