@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -92,7 +93,12 @@ func countTests(t *testing.T, pool *pgxpool.Pool, tenantID string) int64 {
 	return n
 }
 
-func TestIRErasureWithoutLifecycleFailsClosedTwoTenant(t *testing.T) {
+// TestEraseWithoutLifecycleFailsClosedOnlyWhenIREvidenceRetained proves the
+// VER-01/RTT-04 contract for a DB-backed engine with NO IR crypto-shred
+// lifecycle (core/Enterprise): erasure fails closed ONLY while encrypted IR
+// attribution evidence is retained (nothing can shred it), and COMPLETES once
+// there is no such evidence — never bricking a bystander tenant.
+func TestEraseWithoutLifecycleFailsClosedOnlyWhenIREvidenceRetained(t *testing.T) {
 	pool := itPool(t)
 	t.Cleanup(pool.Close)
 	ctx := context.Background()
@@ -229,9 +235,11 @@ func TestIRErasureWithoutLifecycleFailsClosedTwoTenant(t *testing.T) {
 		}
 	}
 
-	// Remove only tenant A's historical IR evidence. Empty sidecar tables are
-	// not proof that its operator-owned IR key domain is absent, so erasure must
-	// still fail closed without the lifecycle. Tenant B remains untouched.
+	// VER-01: the fail-closed guard is CONDITIONAL on retained IR evidence, not
+	// on the lifecycle being wired. Remove only tenant A's historical IR
+	// evidence; with nothing left to crypto-shred, tenant A's full erase must now
+	// COMPLETE (the core/Enterprise behaviour) while tenant B — which still holds
+	// IR evidence — keeps failing closed.
 	if _, err := pool.Exec(
 		ctx,
 		`DELETE FROM public.ir_attribution_records WHERE tenant_id = $1::uuid`,
@@ -247,20 +255,34 @@ func TestIRErasureWithoutLifecycleFailsClosedTwoTenant(t *testing.T) {
 		t.Fatalf("remove tenant A IR head: %v", err)
 	}
 	att, err = engine.Erase(ctx, tenantA, "tenant-a", "investigator")
-	if err == nil {
-		t.Fatal("Erase succeeded without the IR lifecycle after sidecar rows were removed")
+	if err != nil {
+		t.Fatalf("Erase must complete for a tenant with no retained IR evidence and no lifecycle: %v", err)
 	}
-	if att.Complete {
-		t.Fatalf("row-empty failed erasure returned Complete=true: %+v", att)
+	if !att.Complete {
+		t.Fatalf("IR-empty erase returned Complete=false: %+v", att.Stores)
 	}
-	if len(events) != 0 || !flows.rows[tenantA] || !flows.rows[tenantB] {
-		t.Fatalf("row-empty refusal reached destructive flow store: events=%v rows=%v", events, flows.rows)
-	}
-	if got := countTests(t, pool, tenantA); got != 1 {
-		t.Fatalf("tenant A test rows after row-empty refusal = %d, want 1", got)
+	if got := countTests(t, pool, tenantA); got != 0 {
+		t.Fatalf("tenant A test rows after completed erase = %d, want 0", got)
 	}
 	if got := countTests(t, pool, tenantB); got != 1 {
-		t.Fatalf("tenant B test rows after row-empty tenant A refusal = %d, want 1", got)
+		t.Fatalf("tenant B test rows after tenant A erase = %d, want 1", got)
+	}
+	// The flow store was reached for tenant A exactly once; tenant B stays seeded.
+	if len(events) != 1 || events[0] != "store:"+tenantA || flows.rows[tenantA] || !flows.rows[tenantB] {
+		t.Fatalf("completed erase flow-store state wrong: events=%v rows=%v", events, flows.rows)
+	}
+	// Tenant B still holds IR evidence, so its erase must still fail closed and
+	// leave tenant B fully usable (not fenced).
+	bEvents := append([]string(nil), events...)
+	attB, errB := engine.Erase(ctx, tenantB, "tenant-b", "investigator")
+	if errB == nil {
+		t.Fatal("Erase succeeded for a tenant that still holds IR evidence without a lifecycle")
+	}
+	if attB.Complete {
+		t.Fatalf("IR-retained erase returned Complete=true: %+v", attB)
+	}
+	if !reflect.DeepEqual(events, bEvents) || !flows.rows[tenantB] {
+		t.Fatalf("fail-closed refusal reached destructive flow store: events=%v rows=%v", events, flows.rows)
 	}
 	var recordsB, headsB int
 	var statusA, statusB string
@@ -276,11 +298,12 @@ func TestIRErasureWithoutLifecycleFailsClosedTwoTenant(t *testing.T) {
 		tenantB,
 		tenantA,
 	).Scan(&recordsB, &headsB, &statusA, &statusB); err != nil {
-		t.Fatalf("verify tenants after row-empty refusal: %v", err)
+		t.Fatalf("verify tenants after conditional erase: %v", err)
 	}
-	if recordsB != 1 || headsB != 1 || statusA != "active" || statusB != "active" {
+	// Tenant A tombstoned by its completed erase; tenant B untouched and active.
+	if recordsB != 1 || headsB != 1 || statusA != "deleted" || statusB != "active" {
 		t.Fatalf(
-			"tenant state changed after row-empty refusal: recordsB=%d headsB=%d statusA=%s statusB=%s",
+			"tenant state after conditional erase: recordsB=%d headsB=%d statusA=%s statusB=%s",
 			recordsB,
 			headsB,
 			statusA,

@@ -222,10 +222,15 @@ type Engine struct {
 	// Full-erasure fence and tombstone mutations use the caller's transaction
 	// so audit failure rolls the provider mutation back.
 	appendProviderAuditTx providerAuditTxAppender
-	// irAttribution is optional until the encrypted attribution sidecar is
-	// composed at the control-plane seam. Nil preserves the core erasure
-	// behavior; when present it fails closed before any deletion if planning
-	// or coverage verification fails.
+	// irAttribution is composed only when the provider plane (MSP tier) is
+	// licensed; core and Enterprise deployments leave it nil because the IR
+	// attribution sidecar never runs there. When present it validates the
+	// key-destruction capability and records its signed plan BEFORE the
+	// irreversible audit-write fence, so a precondition failure is reported
+	// with the tenant still usable (fail fast, retryable). When nil there is no
+	// IR key material to crypto-shred and the step is skipped, so full-tenant
+	// erasure completes normally on core/Enterprise — unless encrypted IR
+	// evidence somehow survives without a lifecycle, which fails closed.
 	irAttribution IRAttributionLifecycle
 
 	// BackupNote is the operator's backup-retention statement, included
@@ -677,10 +682,44 @@ func (e *Engine) prepareErasure(
 	ctx context.Context,
 	tenantID, actor string,
 ) (string, error) {
-	if e.pool != nil && e.irAttribution == nil {
-		return "", errors.New(
-			"tenantlife: database-backed erasure requires the IR crypto-shred lifecycle",
-		)
+	// RTT-04 / VER-01: the IR-attribution crypto-shred is CONDITIONAL, and any
+	// capability or precondition it needs is validated BEFORE the irreversible
+	// tenant audit-write fence — so a failure is reported with the tenant still
+	// usable and the erase safely retryable.
+	//
+	//   - Provider plane (MSP): the lifecycle is composed. Plan validates the
+	//     key-destruction capability and records the signed plan first. A
+	//     capability/precondition failure — e.g. PROBECTL_IR_PRIVATE_KEY_DIR is
+	//     unset so no destroyer is mounted — fails fast with NO fence applied,
+	//     leaving the tenant usable (RTT-04).
+	//   - Core / Enterprise: no provider plane is composed, so there is no IR
+	//     sidecar and no key material to crypto-shred. The step is skipped and
+	//     the normal store erasure + attestation run to completion (VER-01).
+	//     Encrypted IR evidence that somehow survives without a lifecycle (a
+	//     downgraded/misconfigured deployment) carries no DELETE grant and has
+	//     no key to shred, so it fails closed rather than silently leaving
+	//     tenant data behind.
+	planID := ""
+	switch {
+	case e.irAttribution != nil:
+		var err error
+		planID, err = e.irAttribution.Plan(ctx, tenantID, actor)
+		if err != nil {
+			return "", fmt.Errorf("tenantlife: plan IR attribution crypto-shred: %w", err)
+		}
+		if strings.TrimSpace(planID) == "" {
+			return "", errors.New("tenantlife: plan IR attribution crypto-shred: empty plan id")
+		}
+	case e.pool != nil:
+		retained, err := e.tenantHasRetainedIRAttribution(ctx, tenantID)
+		if err != nil {
+			return "", err
+		}
+		if retained {
+			return "", errors.New(
+				"tenantlife: tenant retains encrypted IR attribution evidence but no IR crypto-shred lifecycle is composed",
+			)
+		}
 	}
 	if e.pool != nil {
 		if err := e.fenceTenantAuditWrites(ctx, tenantID, actor); err != nil {
@@ -690,18 +729,44 @@ func (e *Engine) prepareErasure(
 			)
 		}
 	}
-	planID := ""
-	if e.irAttribution != nil {
-		var err error
-		planID, err = e.irAttribution.Plan(ctx, tenantID, actor)
-		if err != nil {
-			return "", fmt.Errorf("tenantlife: plan IR attribution crypto-shred: %w", err)
-		}
-		if strings.TrimSpace(planID) == "" {
-			return "", errors.New("tenantlife: plan IR attribution crypto-shred: empty plan id")
-		}
-	}
 	return planID, nil
+}
+
+// tenantHasRetainedIRAttribution reports whether the tenant still holds
+// encrypted IR-attribution evidence that only the IR crypto-shred lifecycle can
+// retire. It is consulted ONLY when no lifecycle is composed (core/Enterprise):
+// those deployments never run the provider-plane IR writer, so the sidecar is
+// empty and full-tenant erasure proceeds. A non-empty result (a downgraded or
+// misconfigured deployment) is the one case that must fail closed — the
+// retained-evidence tables carry no DELETE grant and there is no key to shred,
+// so skipping them would leave tenant data behind.
+func (e *Engine) tenantHasRetainedIRAttribution(ctx context.Context, tenantID string) (bool, error) {
+	var present bool
+	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
+		// The provider SELECT policies on the IR sidecar require the tenant GUC
+		// (and, for a pooled tenant, the RESTRICTIVE public-route check passes).
+		if _, err := q.Exec(
+			ctx,
+			`SELECT set_config('probectl.tenant_id', $1, true)`,
+			tenantID,
+		); err != nil {
+			return fmt.Errorf("bind tenant scope for IR evidence probe: %w", err)
+		}
+		return q.QueryRow(
+			ctx,
+			`SELECT EXISTS (
+			          SELECT 1 FROM public.ir_attribution_records
+			           WHERE tenant_id = $1::uuid)
+			     OR  EXISTS (
+			          SELECT 1 FROM public.ir_attribution_heads
+			           WHERE tenant_id = $1::uuid)`,
+			tenantID,
+		).Scan(&present)
+	})
+	if err != nil {
+		return false, fmt.Errorf("tenantlife: probe retained IR attribution evidence: %w", err)
+	}
+	return present, nil
 }
 
 func (e *Engine) fenceTenantAuditWrites(
@@ -792,6 +857,14 @@ func (e *Engine) finalizeIRAttribution(
 	att *Attestation,
 ) error {
 	if e.irAttribution == nil {
+		// VER-01: core/Enterprise deployments compose no IR sidecar. Record the
+		// absence honestly in the attestation instead of a crypto-shred result;
+		// prepareErasure has already proven no retained IR evidence survives.
+		att.Stores = append(att.Stores, StoreResult{
+			Store:        "ir_attribution_keys",
+			VerifiedZero: true,
+			Notes:        "no provider IR attribution sidecar deployed; no key material to crypto-shred",
+		})
 		return nil
 	}
 	if !att.Complete {
