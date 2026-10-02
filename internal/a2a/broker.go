@@ -160,6 +160,17 @@ func (b *Broker) StartSession(tenantID, responderAgent, initiatorAgent, mode str
 	return id, nil
 }
 
+// SweepNow forces the pending/session reclaim immediately, bypassing the gc
+// throttle (AI-01). The control plane's janitor calls it on a ticker so a broker
+// with no live traffic still releases tasks whose agents never polled, rather
+// than waiting for the next StartSession/PollFor to trigger a throttled sweep.
+func (b *Broker) SweepNow() {
+	b.mu.Lock()
+	b.lastGC = time.Time{}
+	b.gcLocked()
+	b.mu.Unlock()
+}
+
 // PendingCount returns the number of queued-but-unpolled tasks for a tenant,
 // after reclaiming any that have aged out. Callers use it to reject work that
 // would exceed the per-tenant cap before doing O(n^2) scheduling.

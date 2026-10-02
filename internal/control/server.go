@@ -704,6 +704,14 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}
 
+	// AI-01: a background janitor releases A2A broker/mesh state whose agents
+	// never polled, so "empty after the TTL" holds even for a tenant that stops
+	// calling or while only other tenants are active (lazy on-call eviction alone
+	// cannot). Bounded by ctx; a no-op when A2A is not attached.
+	if s.a2aBroker != nil || s.a2aMesh != nil {
+		go s.runA2AJanitor(ctx)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		s.log.Info("control-plane listening", "addr", s.cfg.HTTPAddr, "tls", tlsEnabled)

@@ -199,6 +199,20 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 	return append([]MeshSession(nil), created...), nil
 }
 
+// SweepExpired evicts EVERY tenant's sessions older than meshSessionTTL
+// (AI-01). StartMesh only sweeps the calling tenant, so a tenant that stops
+// calling — or any tenant's state while other tenants are active — would never
+// be reclaimed. The control plane's janitor calls this on a ticker so mesh state
+// for agents that never poll is emptied after the TTL regardless of traffic.
+func (m *MeshScheduler) SweepExpired() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	for tenantID := range m.byTenant {
+		m.evictExpiredLocked(tenantID, now)
+	}
+}
+
 // evictExpiredLocked drops a tenant's sessions older than meshSessionTTL
 // (AI-01): state for agents that never poll must not be retained indefinitely.
 // Swept lazily on the tenant's next StartMesh.

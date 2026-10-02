@@ -70,3 +70,40 @@ func TestMeshRejectsUnenrolledAgent(t *testing.T) {
 		t.Fatalf("mesh naming a malformed agent id = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestA2ASessionRejectsUnenrolledAgent is the AI-01 regression for the
+// single-session endpoint: POST /v1/a2a/sessions called Broker.StartSession with
+// arbitrary responder/initiator strings and no validation, so it could seed
+// ghost broker tasks. It must validate both agents against the caller tenant's
+// enrolled agents, like /v1/a2a/mesh.
+func TestA2ASessionRejectsUnenrolledAgent(t *testing.T) {
+	srv, db := setupAPIServerWithLatest(t, nil)
+	srv.WithA2ABroker(a2a.NewBroker())
+	h := srv.Handler()
+	ctx := context.Background()
+
+	tenantID := freshTenant(t, db, "a2asess")
+	responder, initiator := uuid(t), uuid(t)
+	for _, id := range []string{responder, initiator} {
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			_, e := (store.Agents{}).Register(ctx, sc, id, id+"-secret", id+".example", "v1.4.0",
+				"spiffe://probectl/tenant/"+tenantID+"/agent/"+id, []string{"http"})
+			return e
+		})
+		if err != nil {
+			t.Fatalf("enroll %s: %v", id, err)
+		}
+	}
+	session := func(resp, init string) *httptest.ResponseRecorder {
+		return apiReq(t, h, http.MethodPost, "/v1/a2a/sessions", tenantID, map[string]any{
+			"responder_agent": resp, "initiator_agent": init, "mode": "udp",
+		})
+	}
+
+	if rec := session(responder, initiator); rec.Code != http.StatusCreated {
+		t.Fatalf("session over two enrolled agents = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	if rec := session(responder, uuid(t)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("session naming an unenrolled initiator = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}

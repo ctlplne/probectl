@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	guuid "github.com/google/uuid"
 
@@ -63,6 +64,31 @@ func (s *Server) validateMeshAgents(ctx context.Context, sc tenancy.Scope, agent
 // RBAC-scoped, audited session-start API over the existing Broker.StartSession.
 // The broker remains in-process; this only exposes its start path.
 
+// a2aJanitorInterval is how often the background janitor sweeps expired A2A
+// broker tasks and mesh sessions (AI-01). Well under meshSessionTTL / the broker
+// TTL, so state is emptied within one interval of the TTL.
+const a2aJanitorInterval = 1 * time.Minute
+
+// runA2AJanitor periodically releases A2A state whose agents never polled, until
+// ctx is canceled. Started from Server.Run only when A2A is attached.
+func (s *Server) runA2AJanitor(ctx context.Context) {
+	t := time.NewTicker(a2aJanitorInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if s.a2aBroker != nil {
+				s.a2aBroker.SweepNow()
+			}
+			if s.a2aMesh != nil {
+				s.a2aMesh.SweepExpired()
+			}
+		}
+	}
+}
+
 // WithA2ABroker attaches the agent-to-agent session broker backing
 // POST /v1/a2a/sessions and /v1/a2a/mesh. nil leaves the endpoints reporting 503.
 func (s *Server) WithA2ABroker(b *a2a.Broker) *Server {
@@ -109,6 +135,14 @@ func (s *Server) handleStartA2ASession(w http.ResponseWriter, r *http.Request) e
 
 	var sessionID string
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		// AI-01: both agents must be enrolled in the caller tenant, so this
+		// endpoint cannot seed ghost broker tasks any more than /mesh can.
+		if e := s.validateMeshAgents(ctx, sc, []a2a.SiteAgent{
+			{AgentID: req.ResponderAgent, Site: "responder"},
+			{AgentID: req.InitiatorAgent, Site: "initiator"},
+		}); e != nil {
+			return e
+		}
 		id, e := s.a2aBroker.StartSession(sc.Tenant.String(), req.ResponderAgent, req.InitiatorAgent, req.Mode, req.Count)
 		if e != nil {
 			return apierror.BadRequest(e.Error())
