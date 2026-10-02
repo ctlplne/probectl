@@ -495,7 +495,10 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 		// record whose payload tenant disagrees, so a credential for tenant A
 		// can never store a record under tenant B. The rejection is counted on
 		// probectl_pipeline_tenant_rejected_total, like every other lane.
-		keyTenant := string(tenantFromKey(msg.Key))
+		// Use the hardened bus.TenantFromKey, which strips only the exact
+		// |b[a-p] bucket suffix: a malformed suffix stays part of the key so the
+		// comparison rejects it rather than silently stripping at the first '|'.
+		keyTenant := bus.TenantFromKey(msg.Key)
 		if keyTenant == "" || r.GetTenantId() != keyTenant {
 			c.rejectedTenant.Add(1)
 			c.ledger.addTenantRejected(1)
