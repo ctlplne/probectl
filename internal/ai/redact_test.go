@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/redactpat"
 )
 
 // C8 (U-013) table-driven redaction: IPs, v6, secrets, hostnames-per-policy.
@@ -209,6 +210,93 @@ func capturePrompt(t *testing.T, m *HTTPModel) string {
 		t.Fatalf("synthesize: %v", err)
 	}
 	return got
+}
+
+// captureRemoteBody runs an OpenAI-shaped httptest server behind a REMOTE
+// HTTPModel carrying pol and returns the full outbound request body — exactly
+// what crosses to the provider — for in. It exercises the real egress path
+// (Synthesize → redactSynthesisInputForTenant → redactTextForTenant), not a
+// stand-in.
+func captureRemoteBody(t *testing.T, pol RedactionPolicy, in SynthesisInput) string {
+	t.Helper()
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{
+				"content": `{"root_cause":"x","root_cause_citations":["E1"],"confidence":"low","insufficient_evidence":false,"findings":[{"statement":"s","citations":["E1"]}]}`,
+			}}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	m, err := NewHTTPModel(HTTPModelConfig{Kind: KindOpenAI, Endpoint: "http://127.0.0.1:1", Model: "m", Redaction: &pol})
+	if err != nil {
+		t.Fatalf("new http model: %v", err)
+	}
+	m.remote = true // force the remote classification onto the local test server
+	m.endpoint = srv.URL
+	if _, err := m.Synthesize(context.Background(), in); err != nil {
+		t.Fatalf("synthesize: %v", err)
+	}
+	return body
+}
+
+// RTA-06: built-in secret/credential AND common-PII (SSN, payment card) are an
+// always-on egress floor — masked even when the operator has turned the policy
+// PII knob OFF — while the operational IP/hostname knobs keep working. A real
+// credential, SSN, or card number crossing to a remote model is a leak no knob
+// should be able to allow.
+func TestRemoteEgressRedactsBuiltinSecretAndCommonPII(t *testing.T) {
+	const (
+		apiKey = "sk-live-abcdef1234567890ABCDEF"
+		ssn    = "457-55-5462"
+		card   = "4111 1111 1111 1111"
+		ip     = "10.1.2.3"
+		host   = "db1.corp.example.com"
+	)
+	// Both policies mask IPs/hostnames; they differ only in the PII knob. The
+	// always-on floor must hold in BOTH — most sharply when MaskPII is off.
+	cases := []struct {
+		name string
+		pol  RedactionPolicy
+	}{
+		{"operator disabled the PII knob", RedactionPolicy{MaskIPs: true, MaskHostnames: true, MaskPII: false}},
+		{"default policy", DefaultRedaction},
+	}
+	placeholder := regexp.MustCompile(`\[[a-z]+:[0-9a-f]{32}\]`)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q := "triage: customer SSN " + ssn + " paid with card " + card +
+				" and token " + apiKey + " from host " + host + " at " + ip
+			body := captureRemoteBody(t, tc.pol, SynthesisInput{
+				Question: q,
+				Evidence: []Evidence{{ID: "E1", Title: "auth failures", Summary: "elevated 5xx"}},
+			})
+			// No raw secret/PII token crosses verbatim; IP/hostname masking
+			// (the operational knobs) still works alongside the built-in floor.
+			for _, raw := range []string{apiKey, ssn, card, "4111111111111111", ip, host} {
+				if strings.Contains(body, raw) {
+					t.Fatalf("raw %q crossed to the remote provider: %s", raw, body)
+				}
+			}
+			// And no KNOWN secret/PII pattern survives, once our own placeholders
+			// are removed (so a placeholder's hex can never masquerade as a hit).
+			scrubbed := placeholder.ReplaceAllString(body, "")
+			if redactpat.ProviderToken.MatchString(scrubbed) {
+				t.Fatalf("a provider API-key pattern survived egress: %s", scrubbed)
+			}
+			if redactpat.Bearer.MatchString(scrubbed) {
+				t.Fatalf("a bearer-credential pattern survived egress: %s", scrubbed)
+			}
+			if redactpat.SSN.MatchString(scrubbed) {
+				t.Fatalf("an SSN pattern survived egress: %s", scrubbed)
+			}
+			if pan := redactpat.MaskPAN(scrubbed, func(string) string { return "[PAN]" }); pan != scrubbed {
+				t.Fatalf("a payment-card number survived egress: %s", scrubbed)
+			}
+		})
+	}
 }
 
 // Remote path: the wire prompt is masked. Local (loopback) path: untouched —

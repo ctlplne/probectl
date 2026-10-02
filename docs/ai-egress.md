@@ -57,9 +57,12 @@ in the prompt to begin with — a model cannot leak what was never fetched.
 ¹ **After the redaction pass** (`internal/ai/redact.go`). **Redaction** means
 masking sensitive values inside text before it leaves, and it runs in three
 tiers: secrets (bearer/authorization values, `key=value` credentials, AWS
-access key IDs, PEM blocks) are **always** masked — no setting turns that off;
-IP addresses, hostnames and free-text PII (emails, phone numbers, MAC
-addresses) are masked **by default** (`PROBECTL_AI_REDACT_IPS`,
+access key IDs, PEM blocks) — together with the common-PII that behaves like a
+secret, US Social Security numbers and payment-card numbers (PAN, recognized by
+brand prefix + length + Luhn) — are **always** masked, no setting turns that off
+(RTA-06); the operational identifiers an operator may legitimately keep for
+correlation — IP addresses, hostnames and free-text PII (emails, phone numbers,
+MAC addresses) — are masked **by default** (`PROBECTL_AI_REDACT_IPS`,
 `PROBECTL_AI_REDACT_HOSTNAMES`, `PROBECTL_AI_REDACT_PII`); any
 operator-supplied custom patterns (`PROBECTL_AI_REDACT_PATTERNS`,
 `;;`-separated regexes — `;;` because regexes routinely contain commas; one

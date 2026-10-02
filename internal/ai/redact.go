@@ -80,10 +80,13 @@ var (
 	reEmail = redactpat.Email
 	rePhone = regexp.MustCompile(`\+\d{1,3}[ .-]?\(?\d{1,4}\)?(?:[ .-]\d{2,4}){1,3}\b|\(\d{3}\)\s?\d{3}[-.]\d{4}\b|\b\d{3}[-.]\d{3}[-.]\d{4}\b`)
 	reMAC   = redactpat.MAC
-	// AI-03: payment cards and SSNs are PII that must not leave to a remote
-	// model. PAN runs (via redactpat.MaskPAN, grouping-agnostic + Luhn-validated)
-	// before the phone pass so a card's digit groups are not half-eaten by a
-	// separator-structured phone shape.
+	// AI-03/RTA-06: payment cards and SSNs are PII that must NEVER leave to a
+	// remote model — they are masked ALWAYS (an always-on floor in
+	// redactTextForTenant), not under the MaskPII policy flag, because a real card
+	// or SSN is a secret by any other name. PAN runs (via redactpat.MaskPAN,
+	// grouping-agnostic + brand-prefix + Luhn-validated) before the SSN and phone
+	// passes so a card's digit groups are not half-eaten by a separator-structured
+	// phone shape.
 	reSSN = redactpat.SSN
 )
 
@@ -117,6 +120,18 @@ func redactTextForTenant(s string, pol RedactionPolicy, tenantID string) string 
 	s = redactpat.MaskURLCredentials(s, func(pw string) string {
 		return mask("secret", pw, pol, tenantID)
 	})
+	// Common-PII that is a secret by any other name (RTA-06, docs/guardrails.md
+	// G7-6): a real US SSN or a payment-card number has no operational use to a
+	// remote model and must never egress, exactly like a credential — so it is an
+	// ALWAYS-ON built-in floor, independent of the MaskPII policy flag and of any
+	// operator custom patterns. PAN runs before SSN (and before the MAC/phone
+	// passes below) so a card's digit groups are consumed whole via
+	// redactpat.MaskPAN (grouping-agnostic + brand-prefix + Luhn) and are not
+	// half-eaten by a separator-structured phone/SSN shape. The MaskPII flag below
+	// still governs the OPERATIONAL identifiers (email/MAC/phone) an operator may
+	// legitimately keep for correlation.
+	s = redactpat.MaskPAN(s, func(m string) string { return mask("pan", m, pol, tenantID) })
+	s = reSSN.ReplaceAllStringFunc(s, func(m string) string { return mask("ssn", m, pol, tenantID) })
 
 	if pol.MaskIPs {
 		// Recognition (regex + parse + standalone-token check) is shared;
@@ -125,13 +140,9 @@ func redactTextForTenant(s string, pol RedactionPolicy, tenantID string) string 
 		s = redactpat.MaskIPv4(s, func(m string) string { return mask("ip", m, pol, tenantID) })
 	}
 	if pol.MaskPII {
-		// Email first (its domain must not survive into the hostname pass);
-		// PAN and SSN before MAC/phone so their digit groups are consumed whole
-		// and not half-matched by a separator-structured phone shape; MAC before
-		// phone (a '-'-separated MAC must not half-match a phone shape).
+		// Email first (its domain must not survive into the hostname pass); MAC
+		// before phone (a '-'-separated MAC must not half-match a phone shape).
 		s = reEmail.ReplaceAllStringFunc(s, func(m string) string { return mask("email", m, pol, tenantID) })
-		s = redactpat.MaskPAN(s, func(m string) string { return mask("pan", m, pol, tenantID) })
-		s = reSSN.ReplaceAllStringFunc(s, func(m string) string { return mask("ssn", m, pol, tenantID) })
 		s = reMAC.ReplaceAllStringFunc(s, func(m string) string { return mask("mac", m, pol, tenantID) })
 		s = rePhone.ReplaceAllStringFunc(s, func(m string) string { return mask("phone", m, pol, tenantID) })
 	}
