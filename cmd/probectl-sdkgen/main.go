@@ -453,11 +453,13 @@ func (g generator) goSDK(ops []operation) ([]byte, error) {
 	b.WriteString("package sdk\n\n")
 	b.WriteString("import (\n")
 	b.WriteString("\t\"bytes\"\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"net/url\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n")
-	b.WriteString("\n\t\"github.com/ctlplne/probectl/internal/crypto\"\n\t\"github.com/ctlplne/probectl/internal/httpbody\"\n")
+	// PLAT-12: the MPL-2.0 SDK must not import BUSL-1.1 core (internal/*); the
+	// hardened client + bounded body reader live in the MPL pkg/transport.
+	b.WriteString("\n\t\"github.com/ctlplne/probectl/pkg/transport\"\n")
 	b.WriteString(")\n\n")
-	b.WriteString("// MaxResponseBodyBytes is the largest successful response buffered by one SDK call.\nconst MaxResponseBodyBytes int64 = httpbody.MaxClientResponseBodyBytes\n\n")
-	b.WriteString("// MaxErrorResponseBodyBytes is the largest error envelope buffered for decoding.\nconst MaxErrorResponseBodyBytes int64 = httpbody.MaxClientErrorResponseBodyBytes\n\n")
-	b.WriteString("// ErrResponseBodyTooLarge reports a response that exceeded its documented cap.\nvar ErrResponseBodyTooLarge = httpbody.ErrTooLarge\n\n")
+	b.WriteString("// MaxResponseBodyBytes is the largest successful response buffered by one SDK call.\nconst MaxResponseBodyBytes int64 = transport.MaxClientResponseBodyBytes\n\n")
+	b.WriteString("// MaxErrorResponseBodyBytes is the largest error envelope buffered for decoding.\nconst MaxErrorResponseBodyBytes int64 = transport.MaxClientErrorResponseBodyBytes\n\n")
+	b.WriteString("// ErrResponseBodyTooLarge reports a response that exceeded its documented cap.\nvar ErrResponseBodyTooLarge = transport.ErrTooLarge\n\n")
 	b.WriteString("type SDKError struct {\n\tStatusCode int\n\tCode string\n\tMessage string\n\tBody []byte\n}\n\n")
 	b.WriteString("func (e *SDKError) Error() string {\n\tif e.Message != \"\" {\n\t\tif e.Code != \"\" { return fmt.Sprintf(\"%s (%s)\", e.Message, e.Code) }\n\t\treturn e.Message\n\t}\n\treturn fmt.Sprintf(\"probectl API status %d\", e.StatusCode)\n}\n\n")
 	b.WriteString("type Client struct {\n\tBaseURL string\n\tToken string\n\tTenant string\n\tHTTPClient *http.Client\n\tUserAgent string\n}\n\n")
@@ -466,7 +468,7 @@ func (g generator) goSDK(ops []operation) ([]byte, error) {
 	b.WriteString("func WithTenant(tenant string) Option { return func(c *Client) { c.Tenant = tenant } }\n")
 	b.WriteString("func WithHTTPClient(hc *http.Client) Option { return func(c *Client) { if hc != nil { c.HTTPClient = hc } } }\n")
 	b.WriteString("func WithUserAgent(userAgent string) Option { return func(c *Client) { c.UserAgent = userAgent } }\n\n")
-	b.WriteString("func NewClient(baseURL string, opts ...Option) *Client {\n\tif strings.TrimSpace(baseURL) == \"\" { baseURL = \"https://localhost:8443\" }\n\tc := &Client{BaseURL: strings.TrimRight(baseURL, \"/\"), HTTPClient: crypto.HardenedHTTPClient(15 * time.Second), UserAgent: \"probectl-go-sdk\"}\n\tfor _, opt := range opts { opt(c) }\n\treturn c\n}\n\n")
+	b.WriteString("func NewClient(baseURL string, opts ...Option) *Client {\n\tif strings.TrimSpace(baseURL) == \"\" { baseURL = \"https://localhost:8443\" }\n\tc := &Client{BaseURL: strings.TrimRight(baseURL, \"/\"), HTTPClient: transport.HardenedHTTPClient(15 * time.Second), UserAgent: \"probectl-go-sdk\"}\n\tfor _, opt := range opts { opt(c) }\n\treturn c\n}\n\n")
 	b.WriteString("func String(v string) *string { return &v }\nfunc Int(v int) *int { return &v }\nfunc Bool(v bool) *bool { return &v }\nfunc Float64(v float64) *float64 { return &v }\n\n")
 
 	g.writeGoModels(&b)
@@ -665,7 +667,7 @@ func (g generator) writeGoRuntime(b *bytes.Buffer) {
 	b.WriteString("\treq, err := http.NewRequestWithContext(ctx, method, u.String(), r)\n\tif err != nil { return nil, err }\n")
 	b.WriteString("\treq.Header.Set(\"Accept\", \"application/json\")\n\tif body != nil { req.Header.Set(\"Content-Type\", \"application/json\") }\n\tif c.UserAgent != \"\" { req.Header.Set(\"User-Agent\", c.UserAgent) }\n\tif c.Token != \"\" { req.Header.Set(\"Authorization\", \"Bearer \"+c.Token) }\n\tif c.Tenant != \"\" { req.Header.Set(\"X-Probectl-Tenant\", c.Tenant) }\n")
 	b.WriteString("\thc := c.HTTPClient\n\tif hc == nil { hc = http.DefaultClient }\n\tresp, err := hc.Do(req)\n\tif err != nil { return nil, err }\n\tdefer resp.Body.Close()\n\tdata, err := readResponseBody(resp)\n\tif err != nil { return nil, err }\n\tif resp.StatusCode/100 != 2 { return nil, decodeError(resp.StatusCode, data) }\n\treturn data, nil\n}\n\n")
-	b.WriteString("func readResponseBody(resp *http.Response) ([]byte, error) {\n\tlimit := MaxResponseBodyBytes\n\tif resp.StatusCode/100 != 2 { limit = MaxErrorResponseBodyBytes }\n\tdata, err := httpbody.ReadLimited(resp.Body, limit)\n\tif err != nil { return nil, fmt.Errorf(\"probectl SDK: read response body (limit %d bytes): %w\", limit, err) }\n\treturn data, nil\n}\n\n")
+	b.WriteString("func readResponseBody(resp *http.Response) ([]byte, error) {\n\tlimit := MaxResponseBodyBytes\n\tif resp.StatusCode/100 != 2 { limit = MaxErrorResponseBodyBytes }\n\tdata, err := transport.ReadLimited(resp.Body, limit)\n\tif err != nil { return nil, fmt.Errorf(\"probectl SDK: read response body (limit %d bytes): %w\", limit, err) }\n\treturn data, nil\n}\n\n")
 	b.WriteString("func decodeError(status int, body []byte) error {\n\tvar env struct { Error struct { Code string `json:\"code\"`; Message string `json:\"message\"` } `json:\"error\"` }\n\t_ = json.Unmarshal(body, &env)\n\treturn &SDKError{StatusCode: status, Code: env.Error.Code, Message: env.Error.Message, Body: body}\n}\n\n")
 	b.WriteString("func formatQueryValue(v any) string {\n\tswitch x := v.(type) {\n\tcase string:\n\t\treturn x\n\tcase int:\n\t\treturn strconv.Itoa(x)\n\tcase bool:\n\t\treturn strconv.FormatBool(x)\n\tcase float64:\n\t\treturn strconv.FormatFloat(x, 'f', -1, 64)\n\tdefault:\n\t\treturn fmt.Sprint(x)\n\t}\n}\n")
 }

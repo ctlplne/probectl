@@ -15,18 +15,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctlplne/probectl/internal/crypto"
-	"github.com/ctlplne/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/pkg/transport"
 )
 
 // MaxResponseBodyBytes is the largest successful response buffered by one SDK call.
-const MaxResponseBodyBytes int64 = httpbody.MaxClientResponseBodyBytes
+const MaxResponseBodyBytes int64 = transport.MaxClientResponseBodyBytes
 
 // MaxErrorResponseBodyBytes is the largest error envelope buffered for decoding.
-const MaxErrorResponseBodyBytes int64 = httpbody.MaxClientErrorResponseBodyBytes
+const MaxErrorResponseBodyBytes int64 = transport.MaxClientErrorResponseBodyBytes
 
 // ErrResponseBodyTooLarge reports a response that exceeded its documented cap.
-var ErrResponseBodyTooLarge = httpbody.ErrTooLarge
+var ErrResponseBodyTooLarge = transport.ErrTooLarge
 
 type SDKError struct {
 	StatusCode int
@@ -70,7 +69,7 @@ func NewClient(baseURL string, opts ...Option) *Client {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://localhost:8443"
 	}
-	c := &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: crypto.HardenedHTTPClient(15 * time.Second), UserAgent: "probectl-go-sdk"}
+	c := &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: transport.HardenedHTTPClient(15 * time.Second), UserAgent: "probectl-go-sdk"}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -5153,7 +5152,7 @@ func readResponseBody(resp *http.Response) ([]byte, error) {
 	if resp.StatusCode/100 != 2 {
 		limit = MaxErrorResponseBodyBytes
 	}
-	data, err := httpbody.ReadLimited(resp.Body, limit)
+	data, err := transport.ReadLimited(resp.Body, limit)
 	if err != nil {
 		return nil, fmt.Errorf("probectl SDK: read response body (limit %d bytes): %w", limit, err)
 	}

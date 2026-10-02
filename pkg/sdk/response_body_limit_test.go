@@ -14,8 +14,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
 const (
@@ -98,7 +96,7 @@ func TestSDKResponseBodyLimitSuccess(t *testing.T) {
 			return sdkSizedBody(expectedSDKResponseBodyLimit+1, 'x')
 		})
 		_, err := c.doRaw(context.Background(), http.MethodGet, "/v1/tests", url.Values{}, nil)
-		if !errors.Is(err, httpbody.ErrTooLarge) {
+		if !errors.Is(err, ErrResponseBodyTooLarge) {
 			t.Fatalf("one-past success response error = %v, want ErrTooLarge", err)
 		}
 	})

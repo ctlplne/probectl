@@ -46,9 +46,9 @@ func TestGoSDKResponseBodyLimitGenerated(t *testing.T) {
 	}
 	source := string(generated)
 	for _, want := range []string{
-		"const MaxResponseBodyBytes int64 = httpbody.MaxClientResponseBodyBytes",
-		"const MaxErrorResponseBodyBytes int64 = httpbody.MaxClientErrorResponseBodyBytes",
-		"data, err := httpbody.ReadLimited(resp.Body, limit)",
+		"const MaxResponseBodyBytes int64 = transport.MaxClientResponseBodyBytes",
+		"const MaxErrorResponseBodyBytes int64 = transport.MaxClientErrorResponseBodyBytes",
+		"data, err := transport.ReadLimited(resp.Body, limit)",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("generated SDK missing bounded response code %q", want)
