@@ -98,6 +98,7 @@ func tableFor(target Target) (string, error) {
 type ClickHouse struct {
 	base         string
 	conn         *chclient.Conn
+	exportConn   *chclient.Conn // GAP-05: streaming export, no overall-duration cap
 	router       TargetRouter
 	tenantScoped bool
 }
@@ -106,7 +107,23 @@ type ClickHouse struct {
 // deployment authenticates ClickHouse without URL userinfo, then applies the
 // idempotent v1 schema and optional retention TTL.
 func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Client) (*ClickHouse, error) {
-	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.NewWithClient(client)}
+	// GAP-05: the tenant export streams a whole plane that can far exceed any
+	// fixed wall-clock budget, so it must NOT ride an http.Client.Timeout (which
+	// caps the entire request including the body read and would abort a large
+	// but healthy stream mid-flight). The export conn keeps the hardened TLS
+	// transport (TLS handshake + idle-conn timeouts still bound a stalled peer)
+	// but drops the overall deadline; cancellation rides the caller's context.
+	exportClient := client
+	if exportClient == nil {
+		exportClient = crypto.HardenedHTTPClient(0)
+	} else {
+		exportClient = &http.Client{Transport: client.Transport, CheckRedirect: client.CheckRedirect, Jar: client.Jar}
+	}
+	c := &ClickHouse{
+		base:       strings.TrimRight(rawURL, "/"),
+		conn:       chclient.NewWithClient(client),
+		exportConn: chclient.NewWithClient(exportClient),
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if _, err := chmigrate.Apply(ctx, endpointCHExec{store: c}, "endpointstore", chMigrations(), nil); err != nil {
@@ -387,7 +404,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if err != nil {
 		return 0, err
 	}
-	resp, err := c.conn.Do(target.BaseURL, req)
+	resp, err := c.exportConn.Do(target.BaseURL, req)
 	if err != nil {
 		return 0, fmt.Errorf("endpointstore: export: %w", err)
 	}
