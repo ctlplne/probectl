@@ -65,6 +65,15 @@ const (
 	DefaultBMPEventSuppression = 5 * time.Minute
 	bmpKeepAlivePeriod         = 30 * time.Second
 	bmpMaxSuppressionKeys      = 100_000
+	// bmpMaxBaselineKeys bounds the per-(tenant,router,peer,prefix) origin
+	// baseline map used to tell a genuine origin change from a plain
+	// re-announcement (ING-17). The ceiling keeps the same posture as the parser
+	// limits above — an authenticated but faulty or compromised router must not
+	// turn a stream of UPDATEs into unbounded memory. A full IPv4 table fits; when
+	// the map is nonetheless exhausted it resets, which can only LOSE a baseline
+	// (the next sighting re-baselines as an observation), never manufacture a
+	// false origin_change (docs/guardrails.md G7-9/G7-10).
+	bmpMaxBaselineKeys = 1 << 20
 )
 
 var (
@@ -89,6 +98,8 @@ type BMPListener struct {
 	suppression      time.Duration
 	seenMu           sync.Mutex
 	seen             map[bmpRouteKey]int64
+	baseMu           sync.Mutex
+	baseline         map[bmpOriginBaselineKey]uint32
 	maxSessions      int
 	sessionSlots     chan struct{}
 	sessionMetrics   BMPSessionMetrics
@@ -217,6 +228,7 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 		idleTimeout:      DefaultBMPIdleTimeout,
 		suppression:      DefaultBMPEventSuppression,
 		seen:             make(map[bmpRouteKey]int64),
+		baseline:         make(map[bmpOriginBaselineKey]uint32),
 		maxSessions:      DefaultBMPMaxSessions,
 		revocations:      probectlc.NewRevocationList(),
 	}
@@ -414,24 +426,46 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 		})
 
 		for _, route := range obs.routes {
+			// ING-17: a plain BMP announcement is an OBSERVATION, not an
+			// origin_change. Only a prefix whose origin AS differs from the
+			// baseline this listener already recorded for that router peer is a
+			// genuine origin change — a scored detection (docs/guardrails.md G7-9).
+			// A first sighting sets the baseline and an unchanged re-announcement
+			// (e.g. a reconnecting router re-dumping its full Adj-RIB-In) stays an
+			// observation, so a 1000-route table dump no longer becomes 1000
+			// origin_change incidents + 1000 SIEM events. Observations are typed
+			// EVENT_TYPE_ROUTE_OBSERVATION; the incident consumer never opens an
+			// incident or pages the SIEM for them (internal/control/incidents.go).
+			prior, known := l.recordOrigin(id, obs.peer, route)
+			ev := Event{
+				TenantID:     id.TenantID,
+				EventType:    "route_observation",
+				Severity:     "info",
+				Confidence:   0,
+				Prefix:       route.Prefix,
+				NewOriginASN: route.OriginASN,
+				NewASPath:    route.ASPath,
+				RPKIStatus:   "unknown",
+				Collector:    l.collectorFor(id.AgentID),
+				PeerASN:      obs.peer.ASN,
+				PeerAddress:  obs.peer.Address,
+				Message: "BMP route announcement observed for " + route.Prefix +
+					" from AS" + strconv.FormatUint(uint64(route.OriginASN), 10),
+				DetectedAtUnixNano: detectedAt,
+			}
+			if known && prior != route.OriginASN {
+				// A real origin flip for an already-seen prefix: a tunable, scored
+				// signal (never an action — G7-9), mirroring the Python analyzer's
+				// origin_change (analyzer/probectl_analyzer/monitor.py).
+				ev.EventType = "origin_change"
+				ev.Severity = "warning"
+				ev.Confidence = 0.7
+				ev.OldOriginASN = prior
+				ev.Message = fmt.Sprintf("origin for %s changed AS%d -> AS%d", route.Prefix, prior, route.OriginASN)
+			}
 			if l.repeated(id, obs.peer, route, detectedAt) {
 				suppressed++
 				continue
-			}
-			ev := Event{
-				TenantID:           id.TenantID,
-				EventType:          "origin_change",
-				Severity:           "info",
-				Confidence:         0.5,
-				Prefix:             route.Prefix,
-				NewOriginASN:       route.OriginASN,
-				NewASPath:          route.ASPath,
-				RPKIStatus:         "unknown",
-				Collector:          l.collectorFor(id.AgentID),
-				PeerASN:            obs.peer.ASN,
-				PeerAddress:        obs.peer.Address,
-				Message:            "BMP route announcement observed from AS" + strconv.FormatUint(uint64(obs.peer.ASN), 10),
-				DetectedAtUnixNano: detectedAt,
 			}
 			if err := PublishEvent(ctx, l.pub, ev); err != nil {
 				return err
@@ -440,6 +474,7 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn) (retErr err
 			l.log.Info("bmp route event published",
 				"tenant_id", ev.TenantID,
 				"agent_id", id.AgentID,
+				"event_type", ev.EventType,
 				"prefix", ev.Prefix,
 				"origin_asn", ev.NewOriginASN,
 				"peer_asn", ev.PeerASN,
@@ -586,6 +621,40 @@ func enableTCPKeepAlive(conn net.Conn) {
 type bmpRouteKey struct {
 	tenantID, agentID, peerAddress, prefix, asPath string
 	peerASN, originASN                             uint32
+}
+
+// bmpOriginBaselineKey identifies a prefix whose last-seen origin AS the
+// listener remembers per router peer, so a re-announcement of the same origin
+// stays a plain observation and only a real origin flip becomes an origin_change
+// detection (ING-17).
+type bmpOriginBaselineKey struct {
+	tenantID, agentID, peerAddress, prefix string
+	peerASN                                uint32
+}
+
+// recordOrigin remembers the latest origin AS observed for a prefix from one
+// router peer and returns the prior origin and whether one had been recorded. A
+// first sighting (known==false) only establishes the baseline; a later sighting
+// with a different origin is a genuine origin change (ING-17). The map is bounded
+// exactly like the suppression map: when full it resets, which can only lose a
+// baseline — the next sighting re-baselines as an observation — and never
+// manufactures a false origin_change.
+func (l *BMPListener) recordOrigin(id bmpIdentity, peer bmpPeer, route bmpRouteAnnouncement) (uint32, bool) {
+	key := bmpOriginBaselineKey{
+		tenantID:    id.TenantID,
+		agentID:     id.AgentID,
+		peerAddress: peer.Address,
+		prefix:      route.Prefix,
+		peerASN:     peer.ASN,
+	}
+	l.baseMu.Lock()
+	defer l.baseMu.Unlock()
+	prior, known := l.baseline[key]
+	if !known && len(l.baseline) >= bmpMaxBaselineKeys {
+		l.baseline = make(map[bmpOriginBaselineKey]uint32)
+	}
+	l.baseline[key] = route.OriginASN
+	return prior, known
 }
 
 // repeated reports whether the same observation was published less than the

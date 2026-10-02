@@ -29,6 +29,7 @@ enum EventType {
   EVENT_TYPE_POSSIBLE_HIJACK = 2; // an unexpected origin announced a monitored prefix (or a more-specific)
   EVENT_TYPE_POSSIBLE_LEAK = 3;   // an AS-path anomaly suggesting a route leak
   EVENT_TYPE_RPKI_INVALID = 4;    // the announcement is RPKI-invalid (RFC 6811)
+  EVENT_TYPE_ROUTE_OBSERVATION = 5; // a plain route announcement, origin unchanged from baseline; an observation, not a detection — never opens an incident or pages the SIEM (ING-17)
 }
 
 // RpkiStatus is the RFC 6811 route-origin validation state.

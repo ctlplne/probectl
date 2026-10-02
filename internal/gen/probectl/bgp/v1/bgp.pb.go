@@ -44,11 +44,12 @@ const (
 type EventType int32
 
 const (
-	EventType_EVENT_TYPE_UNSPECIFIED     EventType = 0
-	EventType_EVENT_TYPE_ORIGIN_CHANGE   EventType = 1 // the origin AS for a monitored prefix changed
-	EventType_EVENT_TYPE_POSSIBLE_HIJACK EventType = 2 // an unexpected origin announced a monitored prefix (or a more-specific)
-	EventType_EVENT_TYPE_POSSIBLE_LEAK   EventType = 3 // an AS-path anomaly suggesting a route leak
-	EventType_EVENT_TYPE_RPKI_INVALID    EventType = 4 // the announcement is RPKI-invalid (RFC 6811)
+	EventType_EVENT_TYPE_UNSPECIFIED       EventType = 0
+	EventType_EVENT_TYPE_ORIGIN_CHANGE     EventType = 1 // the origin AS for a monitored prefix changed
+	EventType_EVENT_TYPE_POSSIBLE_HIJACK   EventType = 2 // an unexpected origin announced a monitored prefix (or a more-specific)
+	EventType_EVENT_TYPE_POSSIBLE_LEAK     EventType = 3 // an AS-path anomaly suggesting a route leak
+	EventType_EVENT_TYPE_RPKI_INVALID      EventType = 4 // the announcement is RPKI-invalid (RFC 6811)
+	EventType_EVENT_TYPE_ROUTE_OBSERVATION EventType = 5 // a plain route announcement, origin unchanged from baseline; an observation, not a detection — never opens an incident or pages the SIEM (ING-17)
 )
 
 // Enum value maps for EventType.
@@ -59,13 +60,15 @@ var (
 		2: "EVENT_TYPE_POSSIBLE_HIJACK",
 		3: "EVENT_TYPE_POSSIBLE_LEAK",
 		4: "EVENT_TYPE_RPKI_INVALID",
+		5: "EVENT_TYPE_ROUTE_OBSERVATION",
 	}
 	EventType_value = map[string]int32{
-		"EVENT_TYPE_UNSPECIFIED":     0,
-		"EVENT_TYPE_ORIGIN_CHANGE":   1,
-		"EVENT_TYPE_POSSIBLE_HIJACK": 2,
-		"EVENT_TYPE_POSSIBLE_LEAK":   3,
-		"EVENT_TYPE_RPKI_INVALID":    4,
+		"EVENT_TYPE_UNSPECIFIED":       0,
+		"EVENT_TYPE_ORIGIN_CHANGE":     1,
+		"EVENT_TYPE_POSSIBLE_HIJACK":   2,
+		"EVENT_TYPE_POSSIBLE_LEAK":     3,
+		"EVENT_TYPE_RPKI_INVALID":      4,
+		"EVENT_TYPE_ROUTE_OBSERVATION": 5,
 	}
 )
 
@@ -448,13 +451,14 @@ const file_probectl_bgp_v1_bgp_proto_rawDesc = "" +
 	"\amessage\x18\x0f \x01(\tR\amessage\x121\n" +
 	"\x15detected_at_unix_nano\x18\x10 \x01(\x03R\x12detectedAtUnixNano\"B\n" +
 	"\rBGPEventBatch\x121\n" +
-	"\x06events\x18\x01 \x03(\v2\x19.probectl.bgp.v1.BGPEventR\x06events*\xa0\x01\n" +
+	"\x06events\x18\x01 \x03(\v2\x19.probectl.bgp.v1.BGPEventR\x06events*\xc2\x01\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18EVENT_TYPE_ORIGIN_CHANGE\x10\x01\x12\x1e\n" +
 	"\x1aEVENT_TYPE_POSSIBLE_HIJACK\x10\x02\x12\x1c\n" +
 	"\x18EVENT_TYPE_POSSIBLE_LEAK\x10\x03\x12\x1b\n" +
-	"\x17EVENT_TYPE_RPKI_INVALID\x10\x04*\x8d\x01\n" +
+	"\x17EVENT_TYPE_RPKI_INVALID\x10\x04\x12 \n" +
+	"\x1cEVENT_TYPE_ROUTE_OBSERVATION\x10\x05*\x8d\x01\n" +
 	"\n" +
 	"RpkiStatus\x12\x1b\n" +
 	"\x17RPKI_STATUS_UNSPECIFIED\x10\x00\x12\x15\n" +

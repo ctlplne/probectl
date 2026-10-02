@@ -247,6 +247,8 @@ func bgpKind(t bgpv1.EventType) string {
 		return "possible_leak"
 	case bgpv1.EventType_EVENT_TYPE_RPKI_INVALID:
 		return "rpki_invalid"
+	case bgpv1.EventType_EVENT_TYPE_ROUTE_OBSERVATION:
+		return "route_observation"
 	default:
 		return "unknown"
 	}
@@ -325,6 +327,14 @@ func (cs *BGPIncidentConsumer) handleLane(ctx context.Context, msg bus.Message, 
 	if _, err := bindBGPEventAuthenticatedTenant(&ev, msg, laneTenant, cs.strictLane); err != nil {
 		cs.log.Error("REJECTED bgp event: tenant envelope rejected (RED-005/AUTHZ-11, fail closed)",
 			"key_tenant", string(msg.Key), "lane_tenant", laneTenant, "payload_tenant", ev.GetTenantId(), "error", err.Error())
+		return nil
+	}
+	if ev.GetEventType() == bgpv1.EventType_EVENT_TYPE_ROUTE_OBSERVATION {
+		// ING-17: a plain route announcement (origin unchanged from baseline) is an
+		// observation, not a detection. It must never open an incident or page the
+		// SIEM (docs/guardrails.md G7-9: detection is a scored, tunable signal — not
+		// noise). Genuine routing anomalies (origin_change, possible_hijack,
+		// possible_leak, rpki_invalid) still forward and correlate below.
 		return nil
 	}
 	sig := signalFromBGPEvent(&ev)

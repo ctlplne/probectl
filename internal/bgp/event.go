@@ -83,6 +83,8 @@ func eventTypeProto(s string) bgpv1.EventType {
 		return bgpv1.EventType_EVENT_TYPE_POSSIBLE_LEAK
 	case "rpki_invalid":
 		return bgpv1.EventType_EVENT_TYPE_RPKI_INVALID
+	case "route_observation":
+		return bgpv1.EventType_EVENT_TYPE_ROUTE_OBSERVATION
 	default:
 		return bgpv1.EventType_EVENT_TYPE_UNSPECIFIED
 	}
