@@ -424,6 +424,10 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 		if err != nil {
 			return err
 		}
+		// A token for a deprovisioned user is rejected (AUTHZ-02).
+		if u.Status != "active" {
+			return store.ErrInvalidToken
+		}
 		p.Email = u.Email
 		p.DisplayName = u.DisplayName
 		directoryAttributes = u.Attributes

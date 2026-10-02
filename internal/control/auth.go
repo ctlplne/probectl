@@ -395,15 +395,22 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 		&auth.Principal{TenantID: tenantID, UserID: userID},
 		grants,
 	)
-	_ = s.inTenantID(ctx, tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+	// A token for a deprovisioned user is rejected as unauthenticated, not
+	// merely stripped of permissions (AUTHZ-02).
+	if err := s.inTenantID(ctx, tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := (store.Users{}).Get(ctx, sc, userID)
 		if err != nil {
 			return err
 		}
+		if u.Status != "active" {
+			return store.ErrInvalidToken
+		}
 		p.Email = u.Email
 		p.DisplayName = u.DisplayName
 		return nil
-	})
+	}); err != nil {
+		return nil, err
+	}
 	return p, nil
 }
 
@@ -645,6 +652,12 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		}
 		if e != nil {
 			return e
+		}
+		// A deprovisioned account must not be able to log back in via SSO
+		// (AUTHZ-02). A just-provisioned JIT user is created active, so this
+		// only refuses a pre-existing non-active user; no session is minted.
+		if u.Status != "active" {
+			return apierror.Unauthorized("account is not active")
 		}
 		user = u
 		// Record the authentication as a data-access action, in the same tx

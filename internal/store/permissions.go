@@ -24,11 +24,17 @@ type Permissions struct{}
 // is security data: flattening it would promote a delegated resource grant to
 // the whole tenant.
 func (Permissions) ForSubject(ctx context.Context, s tenancy.Scope, subjectType, subjectID string) ([]auth.PermissionGrant, error) {
+	// A deprovisioned user (users.status <> 'active') holds no permissions,
+	// even while their role bindings remain, so a re-login or a surviving token
+	// grants nothing (AUTHZ-02). Service-account subjects are not in the users
+	// table, so the predicate only constrains user subjects.
 	rows, err := s.Q.Query(ctx,
 		`SELECT DISTINCT rp.permission_key, rb.scope_type, COALESCE(rb.scope_id::text, '')
 		 FROM role_bindings rb
 		 JOIN role_permissions rp ON rp.role_id = rb.role_id
 		 WHERE rb.subject_type = $1 AND rb.subject_id = $2
+		   AND ($1 <> 'user' OR EXISTS (
+		         SELECT 1 FROM users u WHERE u.id = rb.subject_id::uuid AND u.status = 'active'))
 		 ORDER BY rp.permission_key, rb.scope_type, COALESCE(rb.scope_id::text, '')`, subjectType, subjectID)
 	if err != nil {
 		return nil, err
