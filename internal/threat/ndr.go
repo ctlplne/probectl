@@ -76,11 +76,18 @@ type FlowObservation struct {
 // Engine evaluates the rule set over observations and emits threat-plane
 // signals. Safe for concurrent use.
 type Engine struct {
+	// mu guards ONLY the tenants registry (lookup/creation). It is held for
+	// the O(1) map access and released before any detector runs; the per-flow
+	// work then serializes on the tenant's OWN lock (tenantState.mu). A single
+	// engine-wide lock over every detector meant one tenant's expensive scan
+	// stalled every other tenant's ObserveFlow — a cross-tenant latency
+	// coupling (ING-18, docs/guardrails.md G7-1: one tenant's work must not
+	// degrade another's).
 	mu      sync.Mutex
-	all     []DetectionRule // merged set incl. disabled (DPR-075 read-back)
-	rules   map[RuleKind][]DetectionRule
-	intel   IntelSource
-	topo    NeighborSource
+	all     []DetectionRule              // merged set incl. disabled (DPR-075 read-back)
+	rules   map[RuleKind][]DetectionRule // immutable after NewEngine (no lock)
+	intel   IntelSource                  // concurrency-safe reads (opendata RWMutex)
+	topo    NeighborSource               // concurrency-safe reads (topology store)
 	tenants map[string]*tenantState
 	clock   func() time.Time
 
@@ -157,8 +164,9 @@ type ewmaState struct {
 }
 
 type lateralState struct {
-	dsts    map[string]time.Time // internal destination -> last seen
-	touched time.Time
+	dsts     map[string]time.Time // internal destination -> last seen (bounded; see lateralCap)
+	touched  time.Time
+	postFire int // flows absorbed by the O(1) post-fire short-circuit (ING-18)
 }
 
 type dnsState struct {
@@ -172,6 +180,10 @@ type exfilState struct {
 }
 
 type tenantState struct {
+	// mu serializes this tenant's detector state ONLY; a different tenant's
+	// state has its own mu, so cross-tenant ObserveFlow/ObserveDNS never
+	// contend (ING-18, docs/guardrails.md G7-1).
+	mu       sync.Mutex
 	dga      map[string]*dnsState    // by source
 	exfil    map[string]*exfilState  // by source|registered-domain
 	beacon   map[string]*beaconState // by src|dst:port
@@ -183,7 +195,12 @@ type tenantState struct {
 const beaconRing = 32
 const maxWindowEntries = 512
 
+// tenant returns (creating if absent) the per-tenant state. Only this brief
+// registry access is serialized on e.mu; the caller then takes the returned
+// state's own lock for the detector work (ING-18).
 func (e *Engine) tenant(id string) *tenantState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	ts, ok := e.tenants[id]
 	if !ok {
 		ts = &tenantState{
@@ -213,6 +230,16 @@ func evictStalest[V any](m map[string]V, capacity int, touched func(V) time.Time
 		}
 	}
 	delete(m, oldestK)
+}
+
+// quiet reports whether (rule, entity) is still inside its post-fire
+// suppression window WITHOUT arming it — the read-only companion to
+// suppressed. The suppression deadline that firing armed doubles as the
+// "already fired" marker, so a detector can cheaply skip re-evaluating an
+// entity that cannot fire again yet (ING-18).
+func (ts *tenantState) quiet(rule DetectionRule, entity string, at time.Time) bool {
+	until, ok := ts.suppress[rule.ID+"|"+entity]
+	return ok && at.Before(until)
 }
 
 // suppressed reports (and records) the per-(rule, entity) re-fire window.
@@ -277,9 +304,9 @@ func (e *Engine) ObserveDNS(tenant string, obs DNSObservation) []incident.Signal
 	if tenant == "" || obs.QName == "" || obs.Source == "" {
 		return nil
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
 	ts := e.tenant(tenant)
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
 	var out []incident.Signal
 	out = append(out, e.observeDGA(tenant, ts, obs)...)
 	out = append(out, e.observeExfil(tenant, ts, obs)...)
@@ -400,9 +427,9 @@ func (e *Engine) ObserveFlow(tenant string, obs FlowObservation) []incident.Sign
 	if tenant == "" || obs.Src == "" || obs.Dst == "" {
 		return nil
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
 	ts := e.tenant(tenant)
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
 	var out []incident.Signal
 	out = append(out, e.observeBeacon(tenant, ts, obs)...)
 	out = append(out, e.observeEgressVolume(tenant, ts, obs)...)
@@ -587,8 +614,30 @@ func (e *Engine) observeLateral(tenant string, ts *tenantState, obs FlowObservat
 			evictStalest(ts.lateral, e.maxEntities, func(v *lateralState) time.Time { return v.touched })
 		}
 		st.touched = obs.At
+
+		// Hot-path short-circuit (ING-18): once this (rule, source) has fired it
+		// is inside its suppression window and CANNOT fire again until the
+		// window reopens. Re-pruning and re-counting the whole working set on
+		// every subsequent flow is then pure waste — and on an unbounded map it
+		// was O(destinations), so one scanner stalled the whole engine. While
+		// suppressed we only bump a counter and return, so ObserveFlow is O(1)
+		// no matter how many hosts a scanner sweeps. The detection is not lost:
+		// it already fired and is held off by suppression policy, not dropped
+		// (docs/guardrails.md G7-9 — detection stays a tunable signal).
+		if ts.quiet(rule, obs.Src, obs.At) {
+			st.postFire++
+			continue
+		}
+
+		// Record the destination into the BOUNDED working set. lateralCap caps
+		// it (stalest evicted, exactly like the other per-entity maps), so one
+		// source can never grow this map without limit (docs/guardrails.md
+		// G7-1). The cap sits far above the fan-out threshold, so a genuine
+		// fan-out still crosses the threshold and fires before anything is
+		// evicted (docs/guardrails.md G7-9).
 		st.dsts[obs.Dst] = obs.At
-		for d, at := range st.dsts { // prune the window
+		evictStalest(st.dsts, lateralCap(rule), func(t time.Time) time.Time { return t })
+		for d, at := range st.dsts { // prune the window (bounded by lateralCap)
 			if at.Before(obs.At.Add(-window)) {
 				delete(st.dsts, d)
 			}
@@ -614,6 +663,7 @@ func (e *Engine) observeLateral(tenant string, ts *tenantState, obs FlowObservat
 		if ts.suppressed(rule, obs.Src, obs.At) {
 			continue
 		}
+		st.postFire = 0 // firing (re)arms the window; subsequent flows take the O(1) path above
 		conf := rule.BaseConfidence + int(math.Min(30, float64(fanout)-rule.Threshold("fanout", 10)+10))
 		out = append(out, e.signal(tenant, rule, obs.Src, rule.Name,
 			fmt.Sprintf("%s reached %d distinct internal hosts on east-west ports within %s",
@@ -669,6 +719,22 @@ func portWatched(rule DetectionRule, port uint16) bool {
 		}
 	}
 	return false
+}
+
+// lateralCap bounds the distinct east-west destinations one source tracks
+// (ING-18). It mirrors the 512-entry window cap the other detectors use
+// (maxWindowEntries) and is always at least 4x the fan-out threshold, so a
+// GENUINE fan-out crosses the threshold and fires long before the cap evicts
+// anything — bounding never silently swallows a real detection
+// (docs/guardrails.md G7-9). Over the cap, only the STALEST destination is
+// dropped, so one source sweeping unboundedly many hosts cannot grow this map
+// without limit nor make per-flow work scale with destination count
+// (docs/guardrails.md G7-1).
+func lateralCap(rule DetectionRule) int {
+	if c := int(rule.Threshold("fanout", 10)) * 4; c > maxWindowEntries {
+		return c
+	}
+	return maxWindowEntries
 }
 
 // appendPruned appends en and drops entries older than cutoff (and caps the
