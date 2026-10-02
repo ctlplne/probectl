@@ -4,8 +4,13 @@
 under that tenant's **own** encryption key. That makes tenants cryptographically
 separable — even with raw database access, you cannot read tenant A's sealed
 data without tenant A's key — and it turns offboarding into a
-**key-destruction** event: destroy the key, and any sealed data that ever
-lingers in a backup becomes permanently unreadable.
+**key-destruction** event. How far that reaches depends on the key mode: under
+**BYOK** probectl never holds the key, so destroying it makes even a pre-offboard
+backup permanently unreadable; under **managed** mode the tenant key is wrapped
+by the deployment master, which survives offboarding, so key destruction
+crypto-shreds the live stores but a pre-offboard backup restored beside the live
+deployment master still decrypts (see the Cryptographic offboarding section
+below).
 
 Think of it as the cryptographic complement to siloed storage (see
 [isolation.md](isolation.md)): silos separate *where* a tenant's data lives;
@@ -113,18 +118,34 @@ backup/escrow policy accordingly.
 ## Cryptographic offboarding
 
 Tenant erasure destroys the tenant's entire key chain **before** the deletion
-attestation is sealed: every version's wrapped key is nulled and the chain's
-state set to `destroyed`. The `tenant_keys` rows survive as evidence, but
-material-free. Any `tk1:` ciphertext that ever escaped into a backup window is
-now permanently unreadable.
+attestation is sealed: every version's wrapped key is nulled (managed) or its
+reference cleared (BYOK) and the chain's state set to `destroyed`. The
+`tenant_keys` rows survive as evidence, but material-free. From the next call
+on, the **live** keyring can no longer open any `tk1:` value for that tenant.
+
+**How far this reaches into backups depends on the mode — and this is the one
+place the distinction matters:**
+
+- **BYOK:** the tenant key never lived inside probectl — a backup holds only the
+  *reference*. Destroy the key in your secret manager and any `tk1:` ciphertext
+  that reached a backup is permanently unreadable: there is no key, anywhere
+  probectl can reach, to resolve. This is true crypto-shred of backups.
+- **Managed:** the tenant key is wrapped under the deployment master
+  (`PROBECTL_ENVELOPE_KEY`), which is deployment-wide and **survives
+  offboarding**. Destroying the tenant key nulls the wrapped copy in the *live*
+  store and purges the cache, but a pre-offboard backup still contains that
+  wrapped key, so a backup restored beside the live deployment master still
+  decrypts. Managed-mode offboarding therefore relies on verifiable deletion of
+  the live stores plus your backup-retention/TTL policy (see
+  [data-retention.md](data-retention.md)) — **not** on crypto-shredding backups.
+  To get backup crypto-shred for a managed tenant, move it to BYOK (or destroy
+  the backups themselves).
 
 The deletion attestation carries a `tenant_keys` line recording how many key
-versions were crypto-shredded (**crypto-shredding**: destroying the only key is
-equivalent to shredding every copy of the data at once — including copies in
-backups and snapshots you can no longer enumerate or reach). Deployments
-*without* the `byok` feature record "no per-tenant keyring installed" — stated
-honestly, never implied. Destroyed chains refuse re-keying: a destroyed tenant
-cannot silently get a fresh v1 by writing new data.
+versions were destroyed. Deployments *without* the `byok` feature record "no
+per-tenant keyring installed" — stated honestly, never implied. Destroyed
+chains refuse re-keying: a destroyed tenant cannot silently get a fresh v1 by
+writing new data.
 
 ## API and UI surfaces
 

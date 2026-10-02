@@ -9,10 +9,15 @@
 // Package tenantkeys is per-tenant key isolation / BYOK (S-T6, F56),
 // unlocked by the byok license feature: each tenant's sensitive at-rest data
 // is encrypted under ITS OWN key chain, rotation is downtime-free, and
-// destroying a tenant's keys is a cryptographic offboarding event — every
-// remaining ciphertext (including backups within their TTL) becomes
-// permanently unreadable. The cryptographic complement to S-T2's physical
-// isolation.
+// destroying a tenant's keys is a cryptographic offboarding event. How far that
+// reaches into backups depends on the mode: under BYOK (probectl never holds
+// the key) a pre-offboard backup becomes permanently unreadable once the
+// customer destroys the key — true crypto-shred; under managed mode the tenant
+// KEK is wrapped by the deployment master, which survives offboarding, so
+// destruction crypto-shreds the live stores but a pre-offboard backup restored
+// beside the live master still decrypts (managed offboarding relies on
+// verifiable deletion + backup TTL, not backup crypto-shred — see
+// docs/byok.md). The cryptographic complement to S-T2's physical isolation.
 //
 // Key modes:
 //   - managed (default): probectl generates the tenant KEK and stores it

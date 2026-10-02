@@ -190,7 +190,7 @@ rerun the idempotent erase.
 | ClickHouse flows | pooled: synchronous lightweight delete (`SETTINGS mutations_sync=2`); siloed: `DROP DATABASE` | post-delete count == 0 |
 | ClickHouse endpoint/DEM events | pooled: tenant-predicate mutation; siloed: `DROP DATABASE` | post-delete count == 0 (`endpoint_events` in the attestation) |
 | Object store (`PROBECTL_OBJECTSTORE_DIR`, when configured) | `DeletePrefix` on `tenant/<id>/` and `silo/<id>/`; browser synthetic artifacts use the same tenant-prefixed namespace | post-delete list is empty |
-| Tenant keys (BYOK editions) | **crypto-shred** — every key version's wrapped key is nulled and the chain marked `destroyed`, so any ciphertext (including in still-live backups) is permanently unreadable, and destroyed chains refuse re-keying | versions-destroyed count on the attestation; unlicensed deployments record "no per-tenant keyring installed" |
+| Tenant keys (BYOK editions) | wipe every key version's material (managed: wrapped key nulled; BYOK: reference cleared) and mark the chain `destroyed`, so the **live** keyring can no longer open any ciphertext and destroyed chains refuse re-keying. **Backups:** only **BYOK** crypto-shreds them (probectl never held the key); a **managed** tenant's pre-offboard backup is still decryptable by the surviving deployment master, so it is covered by verifiable deletion + your backup TTL, not crypto-shred | versions-destroyed count on the attestation; unlicensed deployments record "no per-tenant keyring installed" |
 | Provider IR attribution key | before any store delete, verify signed sidecar/WORM coverage and commit a signed exact-artifact plan; after every ordinary store succeeds, remove only that tenant's local public/encrypted-private artifacts and commit a signed tombstone. The encrypted sidecar remains as unreadable proof | `ir_attribution_keys` is verified only after exact artifact absence; plan/completion/failure receipts survive deletion. Mount the owner-only private-key directory for erase; missing capability or incomplete coverage fails before deletion |
 | Time-series (TSDB) | memory mode: in-place series delete. Prometheus mode: the engine calls the admin `delete_series` API itself and verifies. **If that admin API is disabled, this becomes a MANUAL STEP** — run `delete_series` for `{tenant_id="<id>"}` yourself (or let retention expire it); the attestation marks this store incomplete until you do | per mode |
 
@@ -204,11 +204,15 @@ encrypted IR sidecar.
 > attestation's store list too. The table above is the representative subset most
 > often asked about.
 
-**Crypto-shred**, in one image: the tenant's data sitting inside your still-live
-backups is a locked safe you can no longer walk up to — but you hold the only
-key. Destroy every copy of the key and every such safe, reachable or not,
-becomes scrap metal. That is how the engine can honestly attest deletion of
-data *inside backups it never touches*: ciphertext without a key is not data.
+**Crypto-shred**, in one image: a tenant's data sitting inside your still-live
+backups is a locked safe. Crypto-shred works only when you destroy *every* copy
+of the key — so the engine can honestly attest deletion of data inside backups
+it never touches only when probectl held no copy of the key to begin with. That
+is **BYOK**: the key lived in your secret manager, you destroy it there, and
+every such safe becomes scrap metal (ciphertext without a key is not data). In
+**managed** mode the deployment master is a surviving copy of the key — it wraps
+the per-tenant key — so a pre-offboard backup is not scrap metal: it is covered
+by verifiable deletion plus your backup TTL, not by crypto-shred.
 
 For IR attribution, overwrite/unlink covers only the exact local artifacts
 mounted to probectl. Destroy operator backups, snapshots, escrow copies, or an
