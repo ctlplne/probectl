@@ -832,14 +832,19 @@ func startOTLPSubsystems(
 	otlpAuth := otlp.NewDBTokenAuthenticator(store.NewOTLPTokens(db.Pool()), cfg.OTLPTokens, log)
 	srv.WithOTLPTokenAuth(otlpAuth)
 
+	// The bus publishes asynchronously (Kafka Publish returns before the broker
+	// accepts the record), so a batch over the broker's max message size would be
+	// acked 200 and dropped later. The sinks reject an oversized marshaled batch
+	// BEFORE publish with a retryable 503/UNAVAILABLE instead (ING-13).
+	busMaxMsg := cfg.BusMaxMessageBytes
 	sinks := otlp.Sinks{
-		Metrics: otlp.NewBusSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
+		Metrics: otlp.NewBusSinkWithLimit(busMaxMsg, func(ctx context.Context, tenant, entropy string, payload []byte) error {
 			return publishOTLPBus(ctx, resultBus, bus.OTLPMetricsTopic, tenant, entropy, payload)
 		}),
-		Traces: otlp.NewBusTraceSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
+		Traces: otlp.NewBusTraceSinkWithLimit(busMaxMsg, func(ctx context.Context, tenant, entropy string, payload []byte) error {
 			return publishOTLPBus(ctx, resultBus, bus.OTLPTracesTopic, tenant, entropy, payload)
 		}),
-		Logs: otlp.NewBusLogSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
+		Logs: otlp.NewBusLogSinkWithLimit(busMaxMsg, func(ctx context.Context, tenant, entropy string, payload []byte) error {
 			return publishOTLPBus(ctx, resultBus, bus.OTLPLogsTopic, tenant, entropy, payload)
 		}),
 	}

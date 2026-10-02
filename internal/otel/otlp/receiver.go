@@ -39,6 +39,65 @@ import (
 
 const defaultMaxRecvBytes = 4 << 20 // 4 MiB
 
+// ErrBusUnavailable marks a sink failure meaning the batch was NOT durably
+// accepted onto the bus: the broker would reject it (it exceeds the bus's
+// configured max message size), the in-flight buffer shed it, or the transport
+// is down. The receiver answers the OTLP client with a RETRYABLE status
+// (HTTP 503 / gRPC Unavailable) rather than a success, so the client retries
+// and telemetry is never acked-then-silently-dropped (ING-13; telemetry loss is
+// never silent, docs/guardrails.md G7-2). 503/UNAVAILABLE is the OTLP-spec
+// retryable response — the whole point is that the client keeps the batch.
+//
+// It exists because the default Kafka transport publishes ASYNCHRONOUSLY: its
+// Publish returns nil as soon as the record enters the in-flight buffer, long
+// before the broker accepts or rejects it. An oversized record is accepted into
+// the buffer, Publish returns nil, the sink returns nil, and the push is acked
+// 200 — then the broker drops the record. A pre-publish size check against the
+// configured bus max closes that window by failing synchronously, before the ack.
+var ErrBusUnavailable = errors.New("otlp: bus unavailable — batch not durably accepted; retry")
+
+// busPublish is the oversize + publish-failure gate shared by the three bus
+// sinks. A payload larger than maxPublishBytes (0 = unbounded) is rejected
+// BEFORE publish with a retryable ErrBusUnavailable, so the async Kafka
+// producer can never accept-then-ack a record the broker will drop (ING-13).
+// A publish error is likewise wrapped retryable — a record the bus did not take
+// must surface to the client as 503/UNAVAILABLE, not as a 200 or a 500.
+func busPublish(
+	ctx context.Context,
+	maxPublishBytes int,
+	publish func(ctx context.Context, tenant, entropy string, payload []byte) error,
+	tenant, entropy string, payload []byte,
+) error {
+	if maxPublishBytes > 0 && len(payload) > maxPublishBytes {
+		return fmt.Errorf("%w: marshaled batch is %d bytes, over the configured bus max message size of %d bytes",
+			ErrBusUnavailable, len(payload), maxPublishBytes)
+	}
+	if err := publish(ctx, tenant, entropy, payload); err != nil {
+		return fmt.Errorf("%w: %v", ErrBusUnavailable, err)
+	}
+	return nil
+}
+
+// sinkHTTPStatus maps a sink/publish error to the HTTP status the OTLP client
+// sees. A bus that did not durably accept the batch (ErrBusUnavailable:
+// oversize or a publish failure) is RETRYABLE — 503, so the client retries and
+// nothing is acked-then-dropped (ING-13). Any other sink error is a 500.
+func sinkHTTPStatus(err error) (int, string) {
+	if errors.Is(err, ErrBusUnavailable) {
+		return http.StatusServiceUnavailable, "bus unavailable"
+	}
+	return http.StatusInternalServerError, "sink error"
+}
+
+// sinkGRPCError mirrors sinkHTTPStatus for OTLP/gRPC: Unavailable (retryable)
+// when the bus did not accept the batch, Internal otherwise.
+func sinkGRPCError(err error) error {
+	if errors.Is(err, ErrBusUnavailable) {
+		return status.Error(codes.Unavailable, "otlp: bus unavailable")
+	}
+	return status.Error(codes.Internal, "otlp: sink error")
+}
+
 // Sink consumes ingested OTLP metrics — already authenticated and tenant-scoped.
 type Sink interface {
 	ConsumeMetrics(ctx context.Context, tenant string, req *colmetricspb.ExportMetricsServiceRequest) error
@@ -54,14 +113,26 @@ func (f SinkFunc) ConsumeMetrics(ctx context.Context, tenant string, req *colmet
 
 // NewBusSink returns a Sink that marshals each (already tenant-scoped) request
 // and hands it to publish — e.g. a tenant-keyed bus topic. It keeps the OTLP
-// package decoupled from internal/bus.
+// package decoupled from internal/bus. A publish failure surfaces to the OTLP
+// client as a retryable 503/UNAVAILABLE (never a success), so a batch the bus
+// did not accept is retried, not silently dropped (ING-13).
 func NewBusSink(publish func(ctx context.Context, tenant, entropy string, payload []byte) error) Sink {
+	return NewBusSinkWithLimit(0, publish)
+}
+
+// NewBusSinkWithLimit is NewBusSink with the bus's configured max message size
+// (maxPublishBytes; 0 = unbounded). A marshaled batch larger than the limit is
+// rejected with a retryable ErrBusUnavailable BEFORE publish, so the default
+// asynchronous Kafka producer — whose Publish returns before the broker sees
+// the record — can never accept an oversized batch, ack it 200, and have the
+// broker drop it afterwards (ING-13).
+func NewBusSinkWithLimit(maxPublishBytes int, publish func(ctx context.Context, tenant, entropy string, payload []byte) error) Sink {
 	return SinkFunc(func(ctx context.Context, tenant string, req *colmetricspb.ExportMetricsServiceRequest) error {
 		payload, err := proto.Marshal(req)
 		if err != nil {
 			return fmt.Errorf("otlp: marshal ingested metrics: %w", err)
 		}
-		return publish(ctx, tenant, metricsBusEntropy(req), payload)
+		return busPublish(ctx, maxPublishBytes, publish, tenant, metricsBusEntropy(req), payload)
 	})
 }
 
@@ -125,7 +196,7 @@ func (s *metricsService) Export(ctx context.Context, req *colmetricspb.ExportMet
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if err := s.sink.ConsumeMetrics(ctx, tenant, req); err != nil {
-		return nil, status.Error(codes.Internal, "otlp: sink error")
+		return nil, sinkGRPCError(err)
 	}
 	return &colmetricspb.ExportMetricsServiceResponse{}, nil
 }
@@ -178,7 +249,8 @@ func MetricsHTTPHandlerWithFreshness(auth Authenticator, sink Sink, maxBytes int
 			return
 		}
 		if err := sink.ConsumeMetrics(r.Context(), tenant, &req); err != nil {
-			http.Error(w, "sink error", http.StatusInternalServerError)
+			code, msg := sinkHTTPStatus(err)
+			http.Error(w, msg, code)
 			return
 		}
 		resp, _ := proto.Marshal(&colmetricspb.ExportMetricsServiceResponse{})

@@ -225,6 +225,14 @@ type Config struct {
 	// BusMaxBuffered bounds the async producer's in-flight buffer (U-004);
 	// 0 = the bus default (65536). Full buffer = shed + counted, never block.
 	BusMaxBuffered int
+	// BusMaxMessageBytes is the broker's configured max message size — the
+	// largest single record the bus will accept. The OTLP receiver rejects a
+	// marshaled batch over this BEFORE publish with a retryable 503/UNAVAILABLE,
+	// so the async Kafka producer can never ack a push 200 and have the broker
+	// drop the oversized record afterwards (ING-13; no silent telemetry loss).
+	// Default 1 MiB matches Kafka's out-of-the-box message.max.bytes; raise it to
+	// match a broker tuned higher. 0 = unbounded (no pre-publish cap).
+	BusMaxMessageBytes int
 	// Ingest cardinality caps (U-017): active series identities per agent /
 	// per tenant; new identities past the cap are rejected + counted.
 	// 0 = defaults (1000 / 50000).
@@ -919,6 +927,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.BusTopicReplication = l.intRange("PROBECTL_BUS_TOPIC_REPLICATION", -1, -1, 32)
 	cfg.BusAllowPlaintext = l.boolean("PROBECTL_BUS_ALLOW_PLAINTEXT", false)
 	cfg.BusMaxBuffered = l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000)
+	cfg.BusMaxMessageBytes = l.intRange("PROBECTL_BUS_MAX_MESSAGE_BYTES", 1<<20, 0, 1<<30)
 	cfg.IngestMaxSeriesPerAgent = l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_AGENT", 0, 0, 10_000_000)
 	cfg.IngestMaxSeriesPerTenant = l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_TENANT", 0, 0, 100_000_000)
 	cfg.IngestWriteWorkers = l.intRange("PROBECTL_INGEST_WRITE_WORKERS", 4, 0, 4096)

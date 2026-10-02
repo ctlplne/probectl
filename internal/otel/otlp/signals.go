@@ -71,23 +71,35 @@ func (s Sinks) validate() error {
 
 // NewBusTraceSink mirrors NewBusSink for the traces topic.
 func NewBusTraceSink(publish func(ctx context.Context, tenant, entropy string, payload []byte) error) TraceSink {
+	return NewBusTraceSinkWithLimit(0, publish)
+}
+
+// NewBusTraceSinkWithLimit mirrors NewBusSinkWithLimit for the traces topic
+// (pre-publish oversize gate; maxPublishBytes 0 = unbounded).
+func NewBusTraceSinkWithLimit(maxPublishBytes int, publish func(ctx context.Context, tenant, entropy string, payload []byte) error) TraceSink {
 	return TraceSinkFunc(func(ctx context.Context, tenant string, req *coltracepb.ExportTraceServiceRequest) error {
 		payload, err := proto.Marshal(req)
 		if err != nil {
 			return fmt.Errorf("otlp: marshal ingested traces: %w", err)
 		}
-		return publish(ctx, tenant, traceBusEntropy(req), payload)
+		return busPublish(ctx, maxPublishBytes, publish, tenant, traceBusEntropy(req), payload)
 	})
 }
 
 // NewBusLogSink mirrors NewBusSink for the logs topic.
 func NewBusLogSink(publish func(ctx context.Context, tenant, entropy string, payload []byte) error) LogSink {
+	return NewBusLogSinkWithLimit(0, publish)
+}
+
+// NewBusLogSinkWithLimit mirrors NewBusSinkWithLimit for the logs topic
+// (pre-publish oversize gate; maxPublishBytes 0 = unbounded).
+func NewBusLogSinkWithLimit(maxPublishBytes int, publish func(ctx context.Context, tenant, entropy string, payload []byte) error) LogSink {
 	return LogSinkFunc(func(ctx context.Context, tenant string, req *collogspb.ExportLogsServiceRequest) error {
 		payload, err := proto.Marshal(req)
 		if err != nil {
 			return fmt.Errorf("otlp: marshal ingested logs: %w", err)
 		}
-		return publish(ctx, tenant, logBusEntropy(req), payload)
+		return busPublish(ctx, maxPublishBytes, publish, tenant, logBusEntropy(req), payload)
 	})
 }
 
@@ -169,7 +181,7 @@ func (s *traceService) Export(ctx context.Context, req *coltracepb.ExportTraceSe
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 	if err := s.sink.ConsumeTraces(ctx, tenant, req); err != nil {
-		return nil, status.Error(codes.Internal, "otlp: sink error")
+		return nil, sinkGRPCError(err)
 	}
 	return &coltracepb.ExportTraceServiceResponse{}, nil
 }
@@ -189,7 +201,7 @@ func (s *logsService) Export(ctx context.Context, req *collogspb.ExportLogsServi
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 	if err := s.sink.ConsumeLogs(ctx, tenant, req); err != nil {
-		return nil, status.Error(codes.Internal, "otlp: sink error")
+		return nil, sinkGRPCError(err)
 	}
 	return &collogspb.ExportLogsServiceResponse{}, nil
 }
@@ -239,7 +251,8 @@ func signalHTTPHandler[Req proto.Message, Resp proto.Message](
 			return
 		}
 		if err := consume(r.Context(), tenant, req); err != nil {
-			http.Error(w, "sink error", http.StatusInternalServerError)
+			code, msg := sinkHTTPStatus(err)
+			http.Error(w, msg, code)
 			return
 		}
 		resp, _ := proto.Marshal(newResp())
