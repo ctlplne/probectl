@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/bus"
@@ -30,6 +32,64 @@ import (
 // OTLP receiver; agent result frames are far smaller, so this is purely a
 // safety ceiling against an oversized/hostile message (returns ResourceExhausted).
 const maxRecvBytes = 4 << 20 // 4 MiB
+
+// gRPC server keepalive / lifetime caps for the agent-transport listener.
+// Without them the server inherits gRPC's permissive defaults: an idle or
+// half-open agent connection is never reaped, a long-lived stream connection is
+// never cycled, an agent may ping as fast as it likes, and the concurrent
+// stream count is unbounded — so a stuck, idle, or abusive agent can pin
+// connections and streams open (docs/guardrails.md G7-12).
+const (
+	grpcMaxConnectionIdle     = 5 * time.Minute
+	grpcMaxConnectionAge      = 30 * time.Minute
+	grpcMaxConnectionAgeGrace = 1 * time.Minute
+	grpcKeepaliveMinTime      = 30 * time.Second
+	grpcMaxConcurrentStreams  = 256
+	grpcConnectionTimeout     = 20 * time.Second
+)
+
+// grpcKeepalive bundles the gRPC server keepalive / lifetime / stream caps so
+// the agent-transport server shares one spec (mirrors the OTLP receiver's).
+type grpcKeepalive struct {
+	maxConnectionIdle     time.Duration
+	maxConnectionAge      time.Duration
+	maxConnectionAgeGrace time.Duration
+	minClientPingInterval time.Duration
+	maxConcurrentStreams  uint32
+	connectionTimeout     time.Duration
+}
+
+// defaultGRPCKeepalive is the production keepalive spec (docs/guardrails.md
+// G7-12).
+func defaultGRPCKeepalive() grpcKeepalive {
+	return grpcKeepalive{
+		maxConnectionIdle:     grpcMaxConnectionIdle,
+		maxConnectionAge:      grpcMaxConnectionAge,
+		maxConnectionAgeGrace: grpcMaxConnectionAgeGrace,
+		minClientPingInterval: grpcKeepaliveMinTime,
+		maxConcurrentStreams:  grpcMaxConcurrentStreams,
+		connectionTimeout:     grpcConnectionTimeout,
+	}
+}
+
+// serverOptions renders the keepalive spec as gRPC server options: bounded
+// connection idle/age, a ping-rate floor that permits keepalive pings without
+// an active stream, a concurrent stream ceiling, and a handshake/setup timeout.
+func (k grpcKeepalive) serverOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     k.maxConnectionIdle,
+			MaxConnectionAge:      k.maxConnectionAge,
+			MaxConnectionAgeGrace: k.maxConnectionAgeGrace,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             k.minClientPingInterval,
+			PermitWithoutStream: true,
+		}),
+		grpc.MaxConcurrentStreams(k.maxConcurrentStreams),
+		grpc.ConnectionTimeout(k.connectionTimeout),
+	}
+}
 
 // Server is the control-plane's agent-transport gRPC server. All connections are
 // mTLS; non-mTLS clients are rejected at the TLS layer.
@@ -85,10 +145,14 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 	// result frames are small protobufs; an over-limit message returns
 	// ResourceExhausted before it is decoded — defense against a hostile or
 	// buggy client flooding the decoder.
-	gs := grpc.NewServer(
+	opts := []grpc.ServerOption{
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.MaxRecvMsgSize(maxRecvBytes),
-	)
+	}
+	// Bound keepalive, connection age/idle, and concurrent streams so a stuck or
+	// idle agent cannot pin connections and streams open (G7-12).
+	opts = append(opts, defaultGRPCKeepalive().serverOptions()...)
+	gs := grpc.NewServer(opts...)
 	agentv1.RegisterAgentServiceServer(gs, svc)
 	return &Server{grpc: gs, log: log, cancel: cancel, svc: svc, revocations: revocations}, nil
 }

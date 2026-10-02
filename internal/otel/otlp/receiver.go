@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	// ARCH-006: register the gRPC gzip decompressor so the OTLP/gRPC receiver
 	// can decode gzip-compressed messages (the OTel Collector's otlp exporter
@@ -38,6 +40,67 @@ import (
 )
 
 const defaultMaxRecvBytes = 4 << 20 // 4 MiB
+
+// gRPC server keepalive / lifetime caps for the OTLP/gRPC receiver. Without
+// them the server inherits gRPC's permissive defaults: an idle or half-open
+// connection is never reaped, a long-lived connection is never cycled, a client
+// may ping as fast as it likes, and the stream count is unbounded — so a slow,
+// idle, or abusive peer can pin connections and streams open (docs/guardrails.md
+// G7-12). Every listener gets bounded keepalive enforcement, connection age, and
+// a concurrent-stream ceiling.
+const (
+	grpcMaxConnectionIdle     = 5 * time.Minute  // reap an idle connection
+	grpcMaxConnectionAge      = 30 * time.Minute // cycle a long-lived connection
+	grpcMaxConnectionAgeGrace = 1 * time.Minute  // drain grace after the age limit
+	grpcKeepaliveMinTime      = 30 * time.Second // reject client pings faster than this
+	grpcMaxConcurrentStreams  = 256              // per-connection stream ceiling
+	grpcConnectionTimeout     = 20 * time.Second // handshake + setup deadline
+)
+
+// grpcKeepalive bundles the gRPC server keepalive / lifetime / stream caps so
+// the OTLP/gRPC receiver and its tests share one spec (tests inject a short idle
+// to observe the reap without waiting minutes).
+type grpcKeepalive struct {
+	maxConnectionIdle     time.Duration
+	maxConnectionAge      time.Duration
+	maxConnectionAgeGrace time.Duration
+	minClientPingInterval time.Duration
+	maxConcurrentStreams  uint32
+	connectionTimeout     time.Duration
+}
+
+// defaultGRPCKeepalive is the production keepalive spec (docs/guardrails.md
+// G7-12).
+func defaultGRPCKeepalive() grpcKeepalive {
+	return grpcKeepalive{
+		maxConnectionIdle:     grpcMaxConnectionIdle,
+		maxConnectionAge:      grpcMaxConnectionAge,
+		maxConnectionAgeGrace: grpcMaxConnectionAgeGrace,
+		minClientPingInterval: grpcKeepaliveMinTime,
+		maxConcurrentStreams:  grpcMaxConcurrentStreams,
+		connectionTimeout:     grpcConnectionTimeout,
+	}
+}
+
+// serverOptions renders the keepalive spec as gRPC server options: bounded
+// connection idle/age (KeepaliveParams), a ping-rate floor that permits
+// keepalive pings without an active stream (EnforcementPolicy), a concurrent
+// stream ceiling, and a handshake/setup timeout.
+func (k grpcKeepalive) serverOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     k.maxConnectionIdle,
+			MaxConnectionAge:      k.maxConnectionAge,
+			MaxConnectionAgeGrace: k.maxConnectionAgeGrace,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             k.minClientPingInterval,
+			PermitWithoutStream: true,
+		}),
+		grpc.MaxConcurrentStreams(k.maxConcurrentStreams),
+		grpc.ConnectionTimeout(k.connectionTimeout),
+	}
+}
 
 // ErrBusUnavailable marks a sink failure meaning the batch was NOT durably
 // accepted onto the bus: the broker would reject it (it exceeds the bus's
@@ -145,8 +208,17 @@ func newGRPCServer(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvB
 }
 
 // NewGRPCServerWithFreshness builds an OTLP/gRPC receiver that also enforces
-// the optional signed timestamp+nonce envelope when freshness is enabled.
+// the optional signed timestamp+nonce envelope when freshness is enabled. It
+// applies the production keepalive / connection-lifetime caps (G7-12).
 func NewGRPCServerWithFreshness(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int, freshness *FreshnessVerifier) (*grpc.Server, error) {
+	return newGRPCServerWithKeepalive(tlsCfg, auth, sinks, maxRecvBytes, freshness, defaultGRPCKeepalive())
+}
+
+// newGRPCServerWithKeepalive is the internal seam that builds the OTLP/gRPC
+// receiver with an explicit keepalive spec. Production goes through
+// defaultGRPCKeepalive(); tests inject a short idle to observe idle-connection
+// reaping without waiting minutes.
+func newGRPCServerWithKeepalive(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int, freshness *FreshnessVerifier, ka grpcKeepalive) (*grpc.Server, error) {
 	if tlsCfg == nil {
 		return nil, errors.New("otlp: TLS config required (the OTLP receiver is TLS-only)")
 	}
@@ -159,7 +231,7 @@ func NewGRPCServerWithFreshness(tlsCfg *tls.Config, auth Authenticator, sinks Si
 	if maxRecvBytes <= 0 {
 		maxRecvBytes = defaultMaxRecvBytes
 	}
-	srv := grpc.NewServer(
+	opts := []grpc.ServerOption{
 		grpc.Creds(credentials.NewTLS(tlsCfg)),
 		// Authenticate at the transport layer, BEFORE the gRPC runtime reads,
 		// decompresses, or proto-decodes the request body: an unauthenticated
@@ -168,7 +240,11 @@ func NewGRPCServerWithFreshness(tlsCfg *tls.Config, auth Authenticator, sinks Si
 		grpc.InTapHandle(authTapHandle(auth)),
 		grpc.UnaryInterceptor(authUnaryInterceptorWithFreshness(auth, freshness)),
 		grpc.MaxRecvMsgSize(maxRecvBytes),
-	)
+	}
+	// Bound keepalive, connection age/idle, and concurrent streams so a slow or
+	// idle peer cannot pin connections and streams open (G7-12).
+	opts = append(opts, ka.serverOptions()...)
+	srv := grpc.NewServer(opts...)
 	// ARCH-001: all three OTLP signals, one contract.
 	colmetricspb.RegisterMetricsServiceServer(srv, newMetricsService(sinks.Metrics))
 	coltracepb.RegisterTraceServiceServer(srv, &traceService{sink: sinks.Traces})
