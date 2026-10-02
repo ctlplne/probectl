@@ -157,6 +157,12 @@ var identifierCorpus = map[string]sample{
 		text:   "gateway declined card 4111 1111 1111 1111 on retry",
 		secret: "4111 1111 1111 1111",
 	},
+	// AI-03 reopen: American Express uses a 15-digit 4-6-5 grouping, not the
+	// 16-digit 4-4-4-4 the first PAN pattern assumed.
+	"pan_amex": {
+		text:   "gateway declined card 3782 822463 10005 on retry",
+		secret: "3782 822463 10005",
+	},
 }
 
 func TestIdentifiersMaskedByBothEngines(t *testing.T) {
@@ -209,6 +215,23 @@ var egressHardeningCorpus = map[string]sample{
 	"cookie_session": {
 		text:   "request carried Cookie: session=7f9c2ba4e88f827d616045507605853e inbound",
 		secret: "7f9c2ba4e88f827d616045507605853e",
+	},
+	// AI-03 reopen: a DSN/connection-string password where the host is an IP or a
+	// single label the host pass never touches.
+	"dsn_password_ip": {
+		text:   "pool dsn postgres://svc_user:Pa55w0rdSecret@10.0.0.5:5432/telemetry failed",
+		secret: "Pa55w0rdSecret",
+	},
+	"dsn_password_single_label": {
+		text:   "cache redis://default:R3disPass2@cache01:6379/0 unreachable",
+		secret: "R3disPass2",
+	},
+	// AI-03 reopen: a non-Bearer/Basic Authorization scheme (SPNEGO/Kerberos).
+	// The widened Bearer pattern must consume the scheme word and mask the
+	// ticket, not mask the scheme word and leak the ticket.
+	"negotiate_header": {
+		text:   "upstream sent Authorization: Negotiate YIIZkQYGKwYBBQUCoIIZhTCCGYGgDQ== on connect",
+		secret: "YIIZkQYGKwYBBQUCoIIZhTCCGYGgDQ==",
 	},
 }
 

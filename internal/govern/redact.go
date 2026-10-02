@@ -167,6 +167,9 @@ func RedactTelemetryText(pol Policy, value string) string {
 	out := redactpat.MaskSecrets(value, func(redactpat.SecretShape, string) string {
 		return telemetryRedacted
 	})
+	// A DSN/URL password is always a secret, even with an IP or single-label host
+	// the URL pass below (http(s)-only) would never reach (AI-03).
+	out = redactpat.MaskURLCredentials(out, func(string) string { return telemetryRedacted })
 	// SSN and PAN are an always-mask PII floor (AI-03): never exported verbatim,
 	// regardless of policy. Masked before the URL/email passes so a card or SSN
 	// embedded in a path or address is gone first.

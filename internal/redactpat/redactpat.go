@@ -40,7 +40,15 @@ var (
 	// prefix visible can replace with "${1}"+placeholder, and one that wants the
 	// whole match gone can ignore the group. "Basic" credentials (base64
 	// user:pass) were previously not recognized at all (AI-03).
-	Bearer = regexp.MustCompile(`(?i)\b((?:bearer|basic)\s+|(?:proxy-)?authorization\s*:\s*(?:bearer\s+|basic\s+)?)[A-Za-z0-9._~+/=-]{8,}`)
+	Bearer = regexp.MustCompile(`(?i)\b((?:bearer|basic)\s+|(?:proxy-)?authorization\s*:\s*(?:[a-z]+\s+)?)[A-Za-z0-9._~+/=-]{8,}`)
+
+	// URLCredential matches the password in a URL/DSN authority
+	// (scheme://user:PASSWORD@host). Group 2 is the password; MaskURLCredentials
+	// replaces only it, keeping scheme://user: and @host so the connection string
+	// stays readable. The old redaction only caught these by accident when the
+	// host was an FQDN the email/host pass happened to consume — an IP or
+	// single-label host left the password in the clear (AI-03).
+	URLCredential = regexp.MustCompile(`(?i)([a-z][a-z0-9+.\-]*://[^\s:/@]+:)([^\s:/@]+)(@)`)
 
 	// CredentialKV matches key=value / key: value credentials. AI-03 widened it
 	// three ways from the original (which required the key to START at a word
@@ -110,10 +118,12 @@ var (
 	// path and treated as always-redact on the governance/support path.
 	SSN = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 
-	// PAN matches a payment card number for the major networks (Visa, Mastercard
-	// incl. 2-series, Amex, Discover), with optional space/dash grouping (AI-03).
-	// The leading-digit prefixes keep it off arbitrary long digit runs; it is PII.
-	PAN = regexp.MustCompile(`\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2})|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720))(?:[ -]?\d{4}){2}[ -]?\d{1,4}\b`)
+	// PAN matches a payment card number for the major networks, with optional
+	// space/dash grouping (AI-03). Amex is 15 digits in its own 4-6-5 grouping;
+	// Visa/Mastercard (incl. 2-series)/Discover are 16 in 4-4-4-4. The
+	// leading-digit prefixes keep it off arbitrary long digit runs; it is PII.
+	// RE2 has no backreferences, so the separators are matched independently.
+	PAN = regexp.MustCompile(`\b(?:3[47]\d{2}[ -]?\d{6}[ -]?\d{5}|(?:4\d{3}|5[1-5]\d{2}|6(?:011|5\d{2})|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720))(?:[ -]?\d{4}){2}[ -]?\d{1,4})\b`)
 
 	// URL matches an absolute http(s) URL, which may embed credentials, hosts
 	// and identifiers all at once.
@@ -170,6 +180,21 @@ func MaskSecrets(s string, placeholder func(shape SecretShape, match string) str
 		})
 	}
 	return s
+}
+
+// MaskURLCredentials replaces the password in every scheme://user:PASSWORD@host
+// authority with mask(password), preserving scheme://user: and @host so the
+// connection string stays diagnostic (AI-03). Both redaction engines call this
+// so a DSN password leaves to neither a remote model nor a support bundle,
+// regardless of whether the host is an FQDN, an IP, or a single label.
+func MaskURLCredentials(s string, mask func(password string) string) string {
+	return URLCredential.ReplaceAllStringFunc(s, func(m string) string {
+		g := URLCredential.FindStringSubmatch(m)
+		if len(g) < 4 {
+			return m
+		}
+		return g[1] + mask(g[2]) + g[3]
+	})
 }
 
 // TrimIPSuffix strips a CIDR prefix length from an IPv4/IPv6 candidate so the

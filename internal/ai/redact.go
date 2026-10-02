@@ -112,6 +112,11 @@ func redactTextForTenant(s string, pol RedactionPolicy, tenantID string) string 
 	s = redactpat.MaskSecrets(s, func(_ redactpat.SecretShape, m string) string {
 		return mask("secret", m, pol, tenantID)
 	})
+	// A DSN/URL password (scheme://user:PASSWORD@host) is always a secret, even
+	// when the host is an IP or single label the host pass would not touch.
+	s = redactpat.MaskURLCredentials(s, func(pw string) string {
+		return mask("secret", pw, pol, tenantID)
+	})
 
 	if pol.MaskIPs {
 		// Recognition (regex + parse + standalone-token check) is shared;
