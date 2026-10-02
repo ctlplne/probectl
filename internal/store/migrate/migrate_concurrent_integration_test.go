@@ -4,13 +4,14 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-//go:build integration
+//go:build integration || isolation
 
 package migrate_test
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -23,19 +24,25 @@ import (
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
-// TestConcurrentApplyIsDeadlockFree is the TQ-02 regression. The cross-tenant
-// isolation gate runs its packages in parallel, and each applied migrations on
-// a fresh database at once. Without a serializing lock, a blocking advisory lock
+// TestConcurrentApplyIsDeadlockFree is the TQ-02 regression, and it must run
+// under the gate it protects. `make test-isolation` is where the deadlock bit:
+// it runs its packages in PARALLEL (no -p=1) and each applies migrations on the
+// shared database at once. Without a serializing lock, a blocking advisory lock
 // held an open snapshot while a peer's CREATE INDEX CONCURRENTLY waited on it —
 // deadlocking (40P01) and non-deterministically wedging the gate. PLAT-03's
 // pg_try_advisory_lock + backoff makes concurrent Apply serialize safely; this
 // proves it under contention, including a no-tx CONCURRENTLY index (the exact
 // statement that used to deadlock), and that the resulting index is VALID.
+//
+// TQ-02: the `integration || isolation` constraint is the fix here — the proof
+// now compiles and runs under BOTH `make test-integration` AND the
+// `-tags=isolation` cross-tenant gate whose non-determinism this closes, rather
+// than only the serialized (-p=1) integration suite where the race can't recur.
 func TestConcurrentApplyIsDeadlockFree(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, dsn())
+	pool, err := pgxpool.New(ctx, concurrentDSN())
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -92,4 +99,15 @@ SELECT i.indisvalid
 	if !valid {
 		t.Fatalf("TQ-02: concurrent index %q is INVALID after concurrent apply", index)
 	}
+}
+
+// concurrentDSN resolves the test Postgres DSN without depending on the
+// integration-only dsn() helper (migrate_integration_test.go), so this
+// regression also compiles and runs under -tags=isolation. Same resolution
+// order as dsn(): PROBECTL_DATABASE_URL, then the local default.
+func concurrentDSN() string {
+	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable"
 }
