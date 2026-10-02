@@ -71,6 +71,10 @@ module "probectl_region_a" {
   envelope_key      = var.envelope_key
   session_hmac_key  = var.session_hmac_key
 
+  # AUTHZ-04: the ingress controller/LB CIDRs the auth throttle trusts.
+  # Override to match this region's controller pod network.
+  trusted_proxies = ["10.244.0.0/16"]
+
   set_values = {
     "control.extraEnv.PROBECTL_REGION"           = var.region_a.name
     "control.extraEnv.PROBECTL_REGIONS"          = local.regions_csv
@@ -78,6 +82,24 @@ module "probectl_region_a" {
     "control.extraEnv.PROBECTL_RPO_SECONDS"      = "0"
     "control.extraEnv.PROBECTL_RTO_SECONDS"      = "60"
     "control.extraEnv.PROBECTL_RESIDENCY"        = var.region_a.name
+    # PLAT-02: a multi-replica (multiregion) deployment is read-coherent only on
+    # SHARED durable backends. These point at the in-cluster services each region
+    # runs; override with your real endpoints. The chart refuses to render
+    # replicaCount>1 without them.
+    "control.extraEnv.PROBECTL_BUS_MODE"           = "kafka"
+    "control.extraEnv.PROBECTL_BUS_BROKERS"        = "kafka.probectl.svc:9093"
+    "control.extraEnv.PROBECTL_TSDB_MODE"          = "prometheus"
+    "control.extraEnv.PROBECTL_TSDB_URL"           = "https://prometheus.probectl.svc:9090"
+    "control.extraEnv.PROBECTL_PATHSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_PATHSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_FLOWSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_FLOWSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_OTELSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_OTELSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_EBPFSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_EBPFSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_ENDPOINTSTORE_MODE" = "clickhouse"
+    "control.extraEnv.PROBECTL_ENDPOINTSTORE_URL"  = "https://clickhouse.probectl.svc:8443"
   }
 }
 
@@ -104,6 +126,10 @@ module "probectl_region_b" {
   envelope_key      = var.envelope_key
   session_hmac_key  = var.session_hmac_key
 
+  # AUTHZ-04: the ingress controller/LB CIDRs the auth throttle trusts.
+  # Override to match this region's controller pod network.
+  trusted_proxies = ["10.244.0.0/16"]
+
   set_values = {
     "control.extraEnv.PROBECTL_REGION"           = var.region_b.name
     "control.extraEnv.PROBECTL_REGIONS"          = local.regions_csv
@@ -111,5 +137,23 @@ module "probectl_region_b" {
     "control.extraEnv.PROBECTL_RPO_SECONDS"      = "0"
     "control.extraEnv.PROBECTL_RTO_SECONDS"      = "60"
     "control.extraEnv.PROBECTL_RESIDENCY"        = var.region_b.name
+    # PLAT-02: a multi-replica (multiregion) deployment is read-coherent only on
+    # SHARED durable backends. These point at the in-cluster services each region
+    # runs; override with your real endpoints. The chart refuses to render
+    # replicaCount>1 without them.
+    "control.extraEnv.PROBECTL_BUS_MODE"           = "kafka"
+    "control.extraEnv.PROBECTL_BUS_BROKERS"        = "kafka.probectl.svc:9093"
+    "control.extraEnv.PROBECTL_TSDB_MODE"          = "prometheus"
+    "control.extraEnv.PROBECTL_TSDB_URL"           = "https://prometheus.probectl.svc:9090"
+    "control.extraEnv.PROBECTL_PATHSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_PATHSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_FLOWSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_FLOWSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_OTELSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_OTELSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_EBPFSTORE_MODE"     = "clickhouse"
+    "control.extraEnv.PROBECTL_EBPFSTORE_URL"      = "https://clickhouse.probectl.svc:8443"
+    "control.extraEnv.PROBECTL_ENDPOINTSTORE_MODE" = "clickhouse"
+    "control.extraEnv.PROBECTL_ENDPOINTSTORE_URL"  = "https://clickhouse.probectl.svc:8443"
   }
 }

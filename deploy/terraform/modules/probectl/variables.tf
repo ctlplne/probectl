@@ -84,6 +84,12 @@ variable "ingress_backend_tls_server_name" {
   default     = ""
 }
 
+variable "trusted_proxies" {
+  description = "CIDRs of the ingress controller (and any L4 load balancer) whose forwarded client address the per-IP auth throttle may trust (control.trustedProxies). REQUIRED when the ingress is enabled (AUTHZ-04): behind an ingress every user arrives as the controller's pod IP, so without this one client's failed logins would lock out everyone. Example: the ingress-nginx pod CIDR, e.g. [\"10.244.0.0/16\"]."
+  type        = list(string)
+  default     = []
+}
+
 variable "image_repository" {
   description = "Override the control-plane image repository (empty = chart default)."
   type        = string

@@ -5,9 +5,9 @@ variable "kubeconfig" {
 }
 
 variable "size" {
-  description = "Reference sizing profile: small | medium | large."
+  description = "Reference sizing profile: small | medium | large. Defaults to the single-replica 'small' profile so this getting-started example applies against any cluster with no external dependencies. The medium/large profiles run multiple replicas and therefore REQUIRE shared durable backends — a nats/kafka bus, a Prometheus/VictoriaMetrics TSDB and ClickHouse stores (PLAT-02); supply those via set_values/values_files before choosing them, or the chart refuses to render."
   type        = string
-  default     = "medium"
+  default     = "small"
 }
 
 variable "ingress_host" {
@@ -19,6 +19,12 @@ variable "ingress_tls_secret" {
   description = "Name of the TLS Secret holding the ingress cert (e.g. from cert-manager)."
   type        = string
   default     = "probectl-tls"
+}
+
+variable "trusted_proxies" {
+  description = "CIDRs of the ingress controller (and any L4 LB) whose forwarded client address the per-IP auth throttle may trust (AUTHZ-04). Defaults to the common ingress-nginx pod CIDR; override to match YOUR controller's pod network, or logins may be throttled incorrectly."
+  type        = list(string)
+  default     = ["10.244.0.0/16"]
 }
 
 variable "image_digest" {

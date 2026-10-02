@@ -39,6 +39,10 @@ locals {
       "image.digest"                   = local.image_digest
       "secrets.existingSecret"         = kubernetes_secret.probectl.metadata[0].name
     },
+    # AUTHZ-04: the ingress-controller/LB proxy CIDRs the auth throttle trusts.
+    # Rendered as a Helm list (control.trustedProxies[i]); the chart refuses to
+    # render an ingress-enabled release without it.
+    { for idx, cidr in var.trusted_proxies : "control.trustedProxies[${idx}]" => cidr },
     var.image_repository == "" ? {} : { "image.repository" = var.image_repository },
     var.oidc_issuer == "" ? {} : {
       "oidc.issuer"      = var.oidc_issuer

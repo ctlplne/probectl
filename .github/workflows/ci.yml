@@ -629,7 +629,10 @@ jobs:
           # install with secrets.existingSecret carrying the DSN and NO database.url
           # in values (the DSN must not be duplicated into Git/Terraform state). The
           # values.schema.json must accept exactly that, and still require the DSN
-          # when no managed secret supplies it.
+          # when no managed secret supplies it. (trustedProxies below is part of
+          # every ingress-enabled render per AUTHZ-04; the TF module now sets it
+          # from var.trusted_proxies and the GitOps manifests set it inline, so
+          # this value set faithfully represents both install paths.)
           common=(
             --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls
             --set 'control.trustedProxies={10.244.0.0/16}'

@@ -1,9 +1,15 @@
 # Copy to terraform.tfvars and fill in. NEVER commit real secrets — source them
 # from your secret manager / CI variables / a *.auto.tfvars that is gitignored.
 
-kubeconfig         = "~/.kube/config"
-size               = "medium"
-ingress_host       = "probectl.example.com"
+kubeconfig = "~/.kube/config"
+# small = single replica (no external deps). medium/large run multiple replicas
+# and REQUIRE a shared durable bus + TSDB + ClickHouse stores (PLAT-02); supply
+# those via set_values/values_files before choosing them.
+size         = "small"
+ingress_host = "probectl.example.com"
+# CIDRs of your ingress controller (and any L4 LB) whose forwarded client address
+# the per-IP auth throttle may trust (AUTHZ-04). Match YOUR controller's pod CIDR.
+trusted_proxies    = ["10.244.0.0/16"]
 ingress_tls_secret = "probectl-tls"
 image_digest       = "sha256:REPLACE_WITH_64_HEX_RELEASE_DIGEST"
 
