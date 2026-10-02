@@ -73,6 +73,11 @@ var surfaceCommands = map[string]surfaceCommand{
 		"create": {Method: http.MethodPost, Path: "/v1/abac/policies"},
 		"delete": {Method: http.MethodDelete, Path: "/v1/abac/policies/{id}", ArgName: "id"},
 	}},
+	"api-tokens": {Name: "api-tokens", Summary: "API bearer tokens", Ops: map[string]apiOp{
+		"create": {Method: http.MethodPost, Path: "/v1/api-tokens", Description: "mint an API token (returned once): name, expires_in_hours (<=8760), optional scopes (e.g. [\"read\"])"},
+		"list":   {Method: http.MethodGet, Path: "/v1/api-tokens", Description: "list the tenant's API tokens (metadata only; never the secret)"},
+		"revoke": {Method: http.MethodDelete, Path: "/v1/api-tokens/{id}", ArgName: "id", Description: "revoke one API token by id, leaving the user's others working"},
+	}},
 	"ai": {Name: "ai", Summary: "AI/RCA and authoring", Ops: map[string]apiOp{
 		"ask":      {Method: http.MethodPost, Path: "/v1/ai/ask", Description: "ask once; add --handoff for a deterministic local Markdown investigation receipt"},
 		"author":   {Method: http.MethodPost, Path: "/v1/ai/author"},

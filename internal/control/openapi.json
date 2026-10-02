@@ -7595,6 +7595,48 @@
         }
       }
     },
+    "/v1/api-tokens": {
+      "post": {
+        "summary": "Mint an API bearer token for the calling user (INV-03/RT-02): mandatory bounded expiry (<=365d) and an optional scope subset; the token value is returned exactly once. Audited.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateAPITokenRequest"}}}
+        },
+        "responses": {
+          "201": {
+            "description": "The created token's metadata plus the one-time secret.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreatedAPIToken"}}}
+          },
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "403": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      },
+      "get": {
+        "summary": "List the tenant's API tokens (metadata only; the secret and its hash never cross this API).",
+        "responses": {
+          "200": {
+            "description": "The tenant's API tokens.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/APITokenList"}}}
+          },
+          "403": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
+    "/v1/api-tokens/{id}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantHeader"},
+        {"$ref": "#/components/parameters/IdPath"}
+      ],
+      "delete": {
+        "summary": "Revoke exactly one API token by id, leaving the user's other tokens working (INV-03/RT-02). Audited.",
+        "responses": {
+          "200": {"description": "The token was revoked."},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "403": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
     "/v1/security/keys/rotate": {
       "post": {
         "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation \u2014 the lockout guard); retired versions stay decrypt-only (no downtime). A license that transitions past grace denies rotation with license_read_only while status and decrypt remain available",
@@ -9212,6 +9254,45 @@
         "properties": {
           "mode": {"type": "string", "enum": ["managed", "byok"], "default": "managed"},
           "byok_ref": {"type": "string", "description": "Secret-backend reference of the customer key (required when mode=byok); resolved before activation."}
+        }
+      },
+      "CreateAPITokenRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string", "description": "A label for the token."},
+          "expires_in_hours": {"type": "integer", "description": "Token lifetime in hours; omitted defaults to 90 days and the value must be <= 8760 (365 days)."},
+          "scopes": {"type": "array", "items": {"type": "string"}, "description": "Optional permission subset: [\"read\"] for read-only, or explicit permission keys. Empty = the owner's full RBAC."}
+        }
+      },
+      "CreatedAPIToken": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "scopes": {"type": "array", "items": {"type": "string"}},
+          "expires_at": {"type": "string", "format": "date-time"},
+          "token": {"type": "string", "description": "The bearer token, shown exactly once and never retrievable again."}
+        }
+      },
+      "APIToken": {
+        "type": "object",
+        "description": "API token metadata; the secret and its hash never cross this API.",
+        "properties": {
+          "id": {"type": "string"},
+          "user_id": {"type": "string"},
+          "name": {"type": "string"},
+          "scopes": {"type": "array", "items": {"type": "string"}},
+          "created_at": {"type": "string", "format": "date-time"},
+          "last_used_at": {"type": "string", "format": "date-time"},
+          "expires_at": {"type": "string", "format": "date-time"},
+          "revoked_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "APITokenList": {
+        "type": "object",
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/APIToken"}}
         }
       },
       "DashboardDefinition": {

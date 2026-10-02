@@ -96,6 +96,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/incidents/{id}/journal":      recordSurface,
 	"GET /v1/inventory/views":             recordSurface,
 	"GET /v1/isolation/status":            recordSurface,
+	"GET /v1/api-tokens":                  recordSurface,
 	"GET /v1/otlp-tokens":                 recordSurface,
 	"GET /v1/remediation/proposals":       recordSurface,
 	"GET /v1/security/keys":               recordSurface,

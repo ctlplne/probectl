@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -93,6 +94,9 @@ func runMCPToken(log *slog.Logger, db *store.DB, args []string) error {
 	tenant := fs.String("tenant", tenancy.DefaultTenantID.String(), "tenant id")
 	user := fs.String("user", "", "user id (uuid) the token acts as (required)")
 	name := fs.String("name", "mcp", "a label for the token")
+	// INV-03/RT-02: mandatory, bounded expiry and an optional scope subset.
+	expiresDays := fs.Int("expires-days", 90, "token lifetime in days (0 = never expires; discouraged)")
+	scope := fs.String("scope", "", "optional permission subset: 'read' for read-only, or a comma-separated list of permission keys (empty = full RBAC of the user)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -103,19 +107,40 @@ func runMCPToken(log *slog.Logger, db *store.DB, args []string) error {
 	if err != nil {
 		return err
 	}
+	var expiresAt time.Time
+	if *expiresDays > 0 {
+		expiresAt = time.Now().Add(time.Duration(*expiresDays) * 24 * time.Hour)
+	}
+	scopes := parseScopeList(*scope)
 	ctx := context.Background()
-	id, err := store.NewMCPTokens(db.Pool()).Create(ctx, *tenant, *user, *name, crypto.Hash([]byte(token)))
+	id, err := store.NewMCPTokens(db.Pool()).CreateWithLifetime(ctx, *tenant, *user, *name, crypto.Hash([]byte(token)), expiresAt, scopes)
 	if err != nil {
 		return fmt.Errorf("create token: %w", err)
 	}
 	// AUD-09: a credential minted from the control host is audited (token id,
 	// never the secret) in the tenant and provider streams, like the API path.
-	if err := auditCredentialOneShot(ctx, db.Pool(), *tenant, "mcp.token_create", id, map[string]any{"user": *user, "name": *name}); err != nil {
+	if err := auditCredentialOneShot(ctx, db.Pool(), *tenant, "mcp.token_create", id, map[string]any{"user": *user, "name": *name, "scopes": scopes, "expires_days": *expiresDays}); err != nil {
 		return err
 	}
-	log.Info("created mcp token", "id", id, "tenant", *tenant, "user", *user, "name", *name)
+	log.Info("created mcp token", "id", id, "tenant", *tenant, "user", *user, "name", *name, "scopes", scopes, "expires_days", *expiresDays)
 	fmt.Println(token) // the secret is shown once
 	return nil
+}
+
+// parseScopeList splits a --scope flag into token scopes ("read" or a
+// comma-separated permission-key list); empty means full RBAC.
+func parseScopeList(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // serveMCPHTTP runs the MCP HTTP transport (TLS, bearer-authenticated) until the

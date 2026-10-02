@@ -420,10 +420,11 @@ type mcpAuthenticator struct {
 }
 
 func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*auth.Principal, error) {
-	tenantID, userID, err := store.NewMCPTokens(a.pool).Authenticate(ctx, crypto.Hash([]byte(bearer)))
+	res, err := store.NewMCPTokens(a.pool).AuthenticateFull(ctx, crypto.Hash([]byte(bearer)))
 	if err != nil {
 		return nil, err
 	}
+	tenantID, userID := res.TenantID, res.UserID
 	// AUTHZ-12: the MCP listener must apply the same tenant lifecycle and MFA
 	// gates as every /v1 route (requirePermissionMode) — otherwise a suspended
 	// or offboarded tenant's token keeps reading telemetry and running AI tools
@@ -470,6 +471,9 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 		return nil, err
 	}
 	p.Attributes = composeSubjectAttributes(directoryAttributes, p.MFASatisfied)
+	// INV-03/RT-02: a scoped token exercises only its permission subset over MCP
+	// too, not the owner's full RBAC.
+	p = narrowPrincipalToScopes(p, res.Scopes)
 	return p, nil
 }
 

@@ -389,10 +389,11 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 		return nil, store.ErrInvalidToken
 	}
 	ctx := r.Context()
-	tenantID, userID, err := store.NewMCPTokens(s.pool).Authenticate(ctx, crypto.Hash([]byte(token)))
+	res, err := store.NewMCPTokens(s.pool).AuthenticateFull(ctx, crypto.Hash([]byte(token)))
 	if err != nil {
 		return nil, err
 	}
+	tenantID, userID := res.TenantID, res.UserID
 	if asserted := strings.TrimSpace(r.Header.Get("X-Probectl-Tenant")); asserted != "" && asserted != tenantID {
 		return nil, store.ErrInvalidToken
 	}
@@ -419,6 +420,16 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 		return nil
 	}); err != nil {
 		return nil, err
+	}
+	// INV-03/RT-02: a scoped token exercises only its permission subset, not the
+	// owner's full RBAC (e.g. a read-only token cannot call a write route).
+	p = narrowPrincipalToScopes(p, res.Scopes)
+	// INV-03/RT-02: audit the first use of a token (id only, never the secret) in
+	// the tenant chain, best-effort so an audit hiccup never turns into a 401.
+	if res.FirstUse {
+		_ = s.inTenantID(ctx, tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+			return s.recordAudit(ctx, sc, r, "apitoken.first_use", res.TokenID, map[string]any{"user": userID})
+		})
 	}
 	return p, nil
 }
