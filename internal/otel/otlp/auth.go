@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/tap"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
@@ -169,6 +170,32 @@ func tenantFromContext(ctx context.Context) (string, bool) {
 	return t, ok && t != ""
 }
 
+// authTapHandle authenticates each inbound gRPC stream's bearer token at the
+// transport layer — BEFORE gRPC reads, decompresses, or proto-decodes the
+// request body — and rejects an unauthenticated caller with codes.Unauthenticated
+// so an unauthenticated peer's oversized or decompression-bomb payload is never
+// decompressed or decoded (ING-14). A gRPC UnaryServerInterceptor cannot gate
+// this: it runs only AFTER the runtime has already decompressed and unmarshalled
+// the message. The tap handle (grpc.InTapHandle) runs in operateHeaders, before
+// the request body is read, and the metadata carrying the bearer is already on
+// the context there. The resolved tenant is placed on the returned context —
+// which becomes the stream context — so the unary interceptor and the service
+// handler reuse it without re-authenticating. Fails closed (every ingest surface
+// authenticated, tenant-scoped, untrusted, fail closed: docs/guardrails.md G7-12).
+//
+// It runs in the per-connection I/O goroutine, so the Authenticator must resolve
+// quickly: TokenAuthenticator is an in-memory constant-time compare, and the
+// DB-backed authenticator answers the hot path from its warm in-process cache.
+func authTapHandle(auth Authenticator) tap.ServerInHandle {
+	return func(ctx context.Context, _ *tap.Info) (context.Context, error) {
+		tenant, err := auth.Authenticate(ctx, bearerFromMetadata(ctx))
+		if err != nil {
+			return ctx, status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
+		}
+		return withTenant(ctx, tenant), nil
+	}
+}
+
 // authUnaryInterceptor authenticates each RPC's bearer token and puts the
 // resolved tenant on the context; it fails closed with Unauthenticated.
 func authUnaryInterceptor(auth Authenticator) grpc.UnaryServerInterceptor {
@@ -177,16 +204,26 @@ func authUnaryInterceptor(auth Authenticator) grpc.UnaryServerInterceptor {
 
 func authUnaryInterceptorWithFreshness(auth Authenticator, freshness *FreshnessVerifier) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		tenant, err := auth.Authenticate(ctx, bearerFromMetadata(ctx))
-		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
+		// On the production receiver the pre-decode tap handle (authTapHandle)
+		// has already authenticated the caller and stamped the tenant on the
+		// context, so an unauthenticated call never reaches here. Re-authenticate
+		// only when no tenant is present — a server wired with the interceptor
+		// alone (no tap handle) still fails closed (defense in depth).
+		tenant, ok := tenantFromContext(ctx)
+		if !ok {
+			var err error
+			tenant, err = auth.Authenticate(ctx, bearerFromMetadata(ctx))
+			if err != nil {
+				return nil, status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
+			}
+			ctx = withTenant(ctx, tenant)
 		}
 		if freshness.Enabled() {
 			if err := freshness.VerifyGRPC(ctx, info.FullMethod, tenant, req); err != nil {
 				return nil, status.Error(codes.Unauthenticated, "otlp: freshness envelope rejected")
 			}
 		}
-		return handler(withTenant(ctx, tenant), req)
+		return handler(ctx, req)
 	}
 }
 

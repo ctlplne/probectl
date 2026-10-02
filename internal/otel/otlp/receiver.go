@@ -65,10 +65,10 @@ func NewBusSink(publish func(ctx context.Context, tenant, entropy string, payloa
 	})
 }
 
-// newGRPCServer builds a TLS-only OTLP/gRPC receiver: the MetricsService with an
-// authenticating, tenant-scoping interceptor and a bounded receive size. It
-// fails closed if no TLS config is supplied — the receiver is never plaintext
-// (docs/guardrails.md G7-12).
+// newGRPCServer builds a TLS-only OTLP/gRPC receiver: the three signal services
+// with a pre-decode authenticating tap handle (ING-14), a tenant-scoping unary
+// interceptor, and a bounded receive size. It fails closed if no TLS config is
+// supplied — the receiver is never plaintext (docs/guardrails.md G7-12).
 func newGRPCServer(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int) (*grpc.Server, error) {
 	return NewGRPCServerWithFreshness(tlsCfg, auth, sinks, maxRecvBytes, nil)
 }
@@ -90,6 +90,11 @@ func NewGRPCServerWithFreshness(tlsCfg *tls.Config, auth Authenticator, sinks Si
 	}
 	srv := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsCfg)),
+		// Authenticate at the transport layer, BEFORE the gRPC runtime reads,
+		// decompresses, or proto-decodes the request body: an unauthenticated
+		// caller is rejected without any decode, so a decompression bomb from an
+		// unauthenticated peer does no decoding (ING-14, docs/guardrails.md G7-12).
+		grpc.InTapHandle(authTapHandle(auth)),
 		grpc.UnaryInterceptor(authUnaryInterceptorWithFreshness(auth, freshness)),
 		grpc.MaxRecvMsgSize(maxRecvBytes),
 	)
