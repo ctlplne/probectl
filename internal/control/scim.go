@@ -54,7 +54,12 @@ const (
 	scimDefaultRatePerMin         = 600
 )
 
-var errSCIMInvalidUserPatch = errors.New("control: invalid SCIM user patch")
+var (
+	errSCIMInvalidUserPatch = errors.New("control: invalid SCIM user patch")
+	// errSCIMUnsupportedPatchPath maps a PATCH op whose path the server does not
+	// implement to 400 invalidPath (AUTHZ-32: fail closed, never a silent 200).
+	errSCIMUnsupportedPatchPath = errors.New("control: unsupported SCIM user patch path")
+)
 
 // withSCIMControls overrides the built-in SCIM directory caps and token-scoped
 // rate limit. Non-positive caps keep the hardened defaults; a non-positive rate
@@ -153,13 +158,19 @@ func (s *Server) scimCreateUser(w http.ResponseWriter, r *http.Request, tenantID
 }
 
 func (s *Server) scimListUsers(w http.ResponseWriter, r *http.Request, tenantID string) {
-	filter := scimEqFilter(r.URL.Query().Get("filter"), "userName")
+	filter, err := scimUserFilter(r.URL.Query().Get("filter"))
+	if err != nil {
+		// AUTHZ-32: an unsupported filter is REJECTED, never silently widened to
+		// a tenant-wide list (the old fail-open). docs/guardrails.md G7-5.
+		writeSCIMError(w, http.StatusBadRequest, "invalidFilter", "unsupported SCIM filter")
+		return
+	}
 	start, count := scimPage(r)
 	base := scimBase(r)
 
 	var resources []any
 	total := 0
-	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+	err = s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		users, n, e := store.Users{}.ListPage(ctx, sc, filter, start, count)
 		if e != nil {
 			return e
@@ -212,9 +223,13 @@ func (s *Server) scimPatchUser(w http.ResponseWriter, r *http.Request, tenantID 
 	s.applyUserWrite(w, r, tenantID, id, func(cur *store.User) (store.User, error) {
 		su := userToSCIM(*cur, scimBase(r))
 		if err := scim.ApplyUserPatch(&su, patch.Operations); err != nil {
-			// Do not wrap or log the parser error: it can contain the
-			// untrusted PATCH value. The fixed sentinel is enough to map the
-			// request to a generic SCIM invalidValue response.
+			// Do not wrap or log the parser error: it can contain the untrusted
+			// PATCH value. Translate it to a fixed sentinel that maps to the
+			// right generic SCIM error — invalidPath for an unsupported path,
+			// invalidValue for everything else — echoing nothing (SEC-008).
+			if errors.Is(err, scim.ErrUnsupportedPatchPath) {
+				return store.User{}, errSCIMUnsupportedPatchPath
+			}
 			return store.User{}, errSCIMInvalidUserPatch
 		}
 		return scimToUser(su), nil
@@ -253,6 +268,10 @@ func (s *Server) applyUserWrite(
 		return auditSCIM(ctx, sc, action, u.ID, map[string]any{"active": !deactivated})
 	})
 	if err != nil {
+		if errors.Is(err, errSCIMUnsupportedPatchPath) {
+			writeSCIMError(w, http.StatusBadRequest, "invalidPath", "unsupported PATCH path")
+			return
+		}
 		if errors.Is(err, errSCIMInvalidUserPatch) {
 			writeSCIMError(w, http.StatusBadRequest, "invalidValue", "invalid user PATCH value")
 			return
@@ -344,14 +363,19 @@ func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request, tenantI
 }
 
 func (s *Server) scimListGroups(w http.ResponseWriter, r *http.Request, tenantID string) {
-	start, count := scimPage(r)
 	// DPR-041: ServiceProviderConfig advertises filtering, and an IdP looks a
 	// group up by `displayName eq "…"` before it binds members — answering
-	// with every role bound users to whichever role came first.
-	filter := scimEqFilter(r.URL.Query().Get("filter"), "displayName")
+	// with every role bound users to whichever role came first. AUTHZ-32: an
+	// unsupported filter is rejected, never silently widened to the full list.
+	filter, err := scimGroupFilter(r.URL.Query().Get("filter"))
+	if err != nil {
+		writeSCIMError(w, http.StatusBadRequest, "invalidFilter", "unsupported SCIM filter")
+		return
+	}
+	start, count := scimPage(r)
 	var resources []any
 	total := 0
-	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+	err = s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		roles, n, e := store.Roles{}.ListPageFiltered(ctx, sc, filter, start, count)
 		if e != nil {
 			return e
@@ -430,6 +454,20 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 				}
 			}
 		}
+		// AUTHZ-32 / RFC 7644: a valueless `remove` on members unbinds EVERY
+		// current member — not the old silent no-op that answered 200 while the
+		// members stayed bound.
+		if gp.RemoveAll {
+			cur, e := store.RoleBindings{}.MembersOfRole(ctx, sc, role.ID)
+			if e != nil {
+				return e
+			}
+			for _, m := range cur {
+				if e := (store.RoleBindings{}).Unbind(ctx, sc, "user", m, role.ID); e != nil {
+					return e
+				}
+			}
+		}
 		for _, m := range gp.Add {
 			if e := (store.RoleBindings{}).Bind(ctx, sc, "user", m, role.ID); e != nil {
 				return e
@@ -442,7 +480,8 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 		}
 		g = s.groupToSCIMScoped(ctx, sc, r, *role)
 		return auditSCIM(ctx, sc, "directory.group_update", role.ID, map[string]any{
-			"added": len(gp.Add), "removed": len(gp.Remove), "renamed": gp.DisplayName != nil,
+			"added": len(gp.Add), "removed": len(gp.Remove),
+			"removed_all": gp.RemoveAll, "renamed": gp.DisplayName != nil,
 		})
 	})
 	if err != nil {
@@ -627,15 +666,75 @@ func scimPage(r *http.Request) (int, int) {
 	return start, count
 }
 
-func scimEqFilter(filter, attr string) string {
-	// minimal SCIM filter support: `<attr> eq "value"`
-	f := strings.TrimSpace(filter)
-	low := strings.ToLower(f)
-	prefix := strings.ToLower(attr) + " eq "
-	if !strings.HasPrefix(low, prefix) {
-		return ""
+// errSCIMUnsupportedFilter marks a SCIM query filter the server does not
+// implement. The list handlers map it to 400 invalidFilter so an unsupported
+// filter fails closed instead of listing every resource in the tenant.
+var errSCIMUnsupportedFilter = errors.New("control: unsupported SCIM filter")
+
+// scimUserFilter resolves the SCIM Users `filter` query to a typed store filter.
+// An empty filter lists every user; `userName eq "…"` and `externalId eq "…"`
+// are the supported exact-match filters; anything else is rejected (AUTHZ-32).
+func scimUserFilter(raw string) (store.UserFilter, error) {
+	attr, val, err := scimParseEqFilter(raw, "username", "externalid")
+	if err != nil {
+		return store.UserFilter{}, err
 	}
-	return strings.Trim(strings.TrimSpace(f[len(prefix):]), `"`)
+	switch attr {
+	case "username":
+		return store.UserFilter{UserName: val}, nil
+	case "externalid":
+		return store.UserFilter{ExternalID: val}, nil
+	default: // empty filter → list all
+		return store.UserFilter{}, nil
+	}
+}
+
+// scimGroupFilter resolves the SCIM Groups `filter` query to the role-name
+// filter. Only `displayName eq "…"` is supported; anything else is rejected.
+func scimGroupFilter(raw string) (string, error) {
+	_, val, err := scimParseEqFilter(raw, "displayname")
+	if err != nil {
+		return "", err
+	}
+	return val, nil
+}
+
+// scimParseEqFilter parses a SCIM filter restricted to a single
+// `<attr> eq "value"` term for one of the allowed (lower-cased) attributes. An
+// empty filter returns ("","",nil) — "no filter, list all". Anything else — an
+// unknown attribute, a non-eq operator, a compound and/or expression, or a
+// malformed term — returns errSCIMUnsupportedFilter so the caller fails closed.
+func scimParseEqFilter(raw string, allowed ...string) (string, string, error) {
+	f := strings.TrimSpace(raw)
+	if f == "" {
+		return "", "", nil
+	}
+	for _, attr := range allowed {
+		prefix := attr + " eq "
+		if len(f) >= len(prefix) && strings.EqualFold(f[:len(prefix)], prefix) {
+			val, ok := parseQuotedSCIMValue(f[len(prefix):])
+			if !ok {
+				return "", "", errSCIMUnsupportedFilter
+			}
+			return attr, val, nil
+		}
+	}
+	return "", "", errSCIMUnsupportedFilter
+}
+
+// parseQuotedSCIMValue requires rest to be exactly one double-quoted string with
+// no trailing tokens, so `… eq "a" or … eq "b"` is rejected rather than
+// half-applied against only the first term.
+func parseQuotedSCIMValue(rest string) (string, bool) {
+	rest = strings.TrimSpace(rest)
+	if len(rest) < 2 || rest[0] != '"' || rest[len(rest)-1] != '"' {
+		return "", false
+	}
+	inner := rest[1 : len(rest)-1]
+	if strings.Contains(inner, `"`) { // embedded quote → compound/malformed
+		return "", false
+	}
+	return inner, true
 }
 
 func atoiDefault(s string, def int) int {

@@ -77,7 +77,7 @@ func (s *Server) handleDirectoryUserList(w http.ResponseWriter, r *http.Request)
 		total int
 	)
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		users, n, err := (store.Users{}).ListPage(ctx, sc, "", 1, directoryListMax)
+		users, n, err := (store.Users{}).ListPage(ctx, sc, store.UserFilter{}, 1, directoryListMax)
 		if err != nil {
 			return err
 		}

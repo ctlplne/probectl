@@ -143,11 +143,14 @@ func TestUserLifecycleStore(t *testing.T) {
 		if got, err := (Users{}).updateStatus(ctx, s, scim.ID, "suspended"); err != nil || got.Status != "suspended" {
 			t.Fatalf("updateStatus: %v / %+v", err, got)
 		}
-		if all, err := (Users{}).list(ctx, s, ""); err != nil || len(all) < 2 {
+		if all, err := (Users{}).list(ctx, s, UserFilter{}); err != nil || len(all) < 2 {
 			t.Fatalf("list all: %v / %d", err, len(all))
 		}
-		if filtered, err := (Users{}).list(ctx, s, "s2-"+sfx); err != nil || len(filtered) != 1 {
+		if filtered, err := (Users{}).list(ctx, s, UserFilter{UserName: "s2-" + sfx}); err != nil || len(filtered) != 1 {
 			t.Fatalf("list filtered: %v / %d", err, len(filtered))
+		}
+		if byExt, err := (Users{}).list(ctx, s, UserFilter{ExternalID: "ext-" + sfx}); err != nil || len(byExt) != 1 {
+			t.Fatalf("list by externalId: %v / %d", err, len(byExt))
 		}
 		if err := (Users{}).Delete(ctx, s, u.ID); err != nil {
 			t.Fatalf("delete: %v", err)

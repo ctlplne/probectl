@@ -199,26 +199,44 @@ func (Users) BindOIDC(ctx context.Context, s tenancy.Scope, id, issuer, subject 
 	return &u, nil
 }
 
-// list returns the tenant's users, optionally filtered by exact userName (the
-// SCIM `userName eq` filter).
-func (Users) list(ctx context.Context, s tenancy.Scope, userNameFilter string) ([]User, error) {
-	total, err := (Users{}).Count(ctx, s, userNameFilter)
+// UserFilter is an exact-match user query filter for the SCIM `eq` filters we
+// support (`userName eq` and `externalId eq`). A zero UserFilter matches every
+// user in the tenant. At most one field is set at a time; the control plane
+// rejects any other SCIM filter before it reaches the store (AUTHZ-32), so a
+// malformed or unsupported filter can never widen to a tenant-wide list.
+type UserFilter struct {
+	UserName   string
+	ExternalID string
+}
+
+// clause builds the optional WHERE for the filter, using $argN for the bound
+// value so it composes with the caller's existing positional args.
+func (f UserFilter) clause(argN int) (string, []any) {
+	switch {
+	case f.UserName != "":
+		return fmt.Sprintf(" WHERE user_name = $%d", argN), []any{f.UserName}
+	case f.ExternalID != "":
+		return fmt.Sprintf(" WHERE external_id = $%d", argN), []any{f.ExternalID}
+	}
+	return "", nil
+}
+
+// list returns the tenant's users, optionally filtered (SCIM `eq` filter).
+func (Users) list(ctx context.Context, s tenancy.Scope, filter UserFilter) ([]User, error) {
+	total, err := (Users{}).Count(ctx, s, filter)
 	if err != nil {
 		return nil, err
 	}
-	users, _, err := (Users{}).ListPage(ctx, s, userNameFilter, 1, total)
+	users, _, err := (Users{}).ListPage(ctx, s, filter, 1, total)
 	return users, err
 }
 
 // Count returns the number of users visible in the caller's tenant, optionally
-// filtered by exact SCIM userName.
-func (Users) Count(ctx context.Context, s tenancy.Scope, userNameFilter string) (int, error) {
+// filtered by an exact SCIM `eq` filter.
+func (Users) Count(ctx context.Context, s tenancy.Scope, filter UserFilter) (int, error) {
 	sql := `SELECT count(*) FROM users`
-	args := []any{}
-	if userNameFilter != "" {
-		sql += ` WHERE user_name = $1`
-		args = append(args, userNameFilter)
-	}
+	where, args := filter.clause(1)
+	sql += where
 	var n int
 	if err := s.Q.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
 		return 0, err
@@ -228,8 +246,8 @@ func (Users) Count(ctx context.Context, s tenancy.Scope, userNameFilter string) 
 
 // ListPage returns a SQL-bounded page of tenant users plus the total matching
 // count. startIndex is SCIM's 1-based cursor; count=0 is a real empty page.
-func (Users) ListPage(ctx context.Context, s tenancy.Scope, userNameFilter string, startIndex, count int) ([]User, int, error) {
-	total, err := (Users{}).Count(ctx, s, userNameFilter)
+func (Users) ListPage(ctx context.Context, s tenancy.Scope, filter UserFilter, startIndex, count int) ([]User, int, error) {
+	total, err := (Users{}).Count(ctx, s, filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -239,10 +257,9 @@ func (Users) ListPage(ctx context.Context, s tenancy.Scope, userNameFilter strin
 	offset := startIndex - 1
 	sql := `SELECT ` + userCols + ` FROM users`
 	args := []any{count, offset}
-	if userNameFilter != "" {
-		sql += ` WHERE user_name = $3`
-		args = append(args, userNameFilter)
-	}
+	where, wargs := filter.clause(3)
+	sql += where
+	args = append(args, wargs...)
 	sql += ` ORDER BY created_at, id LIMIT $1 OFFSET $2`
 	rows, err := s.Q.Query(ctx, sql, args...)
 	if err != nil {
