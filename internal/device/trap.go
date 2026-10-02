@@ -240,17 +240,24 @@ func (r *TrapReceiver) authenticate(pkt *gosnmp.SnmpPacket, remote *net.UDPAddr)
 		}
 		return TrapSource{}, "", errors.New("device trap: unauthenticated snmpv2c community/source")
 	case gosnmp.Version3:
-		// ING-04: refuse any v3 trap that does not carry the authentication flag
-		// (noAuthNoPriv). Every configured source has auth credentials, so an
-		// unauthenticated trap is never legitimate; gosnmp's table decode leaves
-		// a noAuthNoPriv packet's HMAC unverified, so this is the authoritative
-		// gate for it. (docs/guardrails.md G7-12: authenticated ingest, fail closed.)
+		// ING-04: refuse any v3 trap whose HMAC gosnmp did not verify. gosnmp
+		// verifies only when the packet carries the auth flag AND escapes its
+		// "engine discovery" skip, which fires on an empty USM username + empty
+		// authoritative engine id (RFC3414 §4; at that point the variable list is
+		// always empty too, so only the username/engine-id clauses bind). A real
+		// router trap is the authoritative engine and always carries a non-empty
+		// username and engine id, so we require all three: the auth flag, a
+		// non-empty username matching a configured source, and a non-empty engine
+		// id. The previous empty-username single-source fallback laundered exactly
+		// the forged datagrams gosnmp skips into the lone configured source — it
+		// is removed. (docs/guardrails.md G7-12: authenticated ingest, fail closed.)
 		if pkt.MsgFlags&gosnmp.AuthNoPriv == 0 {
 			return TrapSource{}, "", errors.New("device trap: snmpv3 trap without authentication (noAuthNoPriv) refused")
 		}
 		user := trapUsername(pkt)
-		var fallback *TrapSource
-		fallbacks := 0
+		if user == "" || trapEngineID(pkt) == "" {
+			return TrapSource{}, "", errors.New("device trap: snmpv3 trap with empty USM username or engine id refused (unauthenticated)")
+		}
 		for _, src := range r.sources {
 			if src.Transport != TransportSNMPv3 {
 				continue
@@ -258,15 +265,9 @@ func (r *TrapReceiver) authenticate(pkt *gosnmp.SnmpPacket, remote *net.UDPAddr)
 			if !sourceAddressMatches(src.Address, remote) {
 				continue
 			}
-			cp := src
-			fallback = &cp
-			fallbacks++
 			if src.Credential.Username == user {
 				return src, user, nil
 			}
-		}
-		if user == "" && fallback != nil && fallbacks == 1 {
-			return *fallback, fallback.Credential.Username, nil
 		}
 		return TrapSource{}, "", errors.New("device trap: unauthenticated snmpv3 user/source")
 	default:
@@ -522,6 +523,20 @@ func trapUsername(pkt *gosnmp.SnmpPacket) string {
 	}
 	if usm, ok := pkt.SecurityParameters.(*gosnmp.UsmSecurityParameters); ok {
 		return usm.UserName
+	}
+	return ""
+}
+
+// trapEngineID returns the packet's authoritative engine id (empty for a nil or
+// non-USM security block). A genuinely authenticated v3 trap always carries one;
+// an empty engine id is one half of gosnmp's HMAC-skipping discovery case
+// (ING-04), so the receiver treats it as unauthenticated.
+func trapEngineID(pkt *gosnmp.SnmpPacket) string {
+	if pkt.SecurityParameters == nil {
+		return ""
+	}
+	if usm, ok := pkt.SecurityParameters.(*gosnmp.UsmSecurityParameters); ok {
+		return usm.AuthoritativeEngineID
 	}
 	return ""
 }
