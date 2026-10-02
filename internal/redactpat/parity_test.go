@@ -163,6 +163,16 @@ var identifierCorpus = map[string]sample{
 		text:   "gateway declined card 3782 822463 10005 on retry",
 		secret: "3782 822463 10005",
 	},
+	// AI-03 reopen #2: JCB (3528-3589, 16-digit) and Diners Club (36, 14-digit
+	// 4-6-4) are two more PCI major networks the first branch set missed.
+	"pan_jcb": {
+		text:   "declined JCB card 3530 1113 3330 0000 at checkout",
+		secret: "3530 1113 3330 0000",
+	},
+	"pan_diners": {
+		text:   "diners card 3600 900000 0006 refused by issuer",
+		secret: "3600 900000 0006",
+	},
 }
 
 func TestIdentifiersMaskedByBothEngines(t *testing.T) {

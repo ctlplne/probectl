@@ -118,12 +118,21 @@ var (
 	// path and treated as always-redact on the governance/support path.
 	SSN = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 
-	// PAN matches a payment card number for the major networks, with optional
-	// space/dash grouping (AI-03). Amex is 15 digits in its own 4-6-5 grouping;
-	// Visa/Mastercard (incl. 2-series)/Discover are 16 in 4-4-4-4. The
-	// leading-digit prefixes keep it off arbitrary long digit runs; it is PII.
+	// PAN matches a payment card number for the PCI major networks, with optional
+	// space/dash grouping (AI-03), by brand because the digit groupings differ:
+	//   - Amex (34/37): 15 digits, 4-6-5
+	//   - Diners Club (300-305, 3095, 36, 38, 39): 14 digits, 4-6-4
+	//   - JCB (3528-3589): 16 digits, 4-4-4-4
+	//   - Visa (4) / Mastercard (51-55, 2221-2720) / Discover (6011, 64-65, 622) /
+	//     UnionPay (62): 16 digits, 4-4-4-4
+	// The leading-digit prefixes keep it off arbitrary long digit runs; it is PII.
 	// RE2 has no backreferences, so the separators are matched independently.
-	PAN = regexp.MustCompile(`\b(?:3[47]\d{2}[ -]?\d{6}[ -]?\d{5}|(?:4\d{3}|5[1-5]\d{2}|6(?:011|5\d{2})|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720))(?:[ -]?\d{4}){2}[ -]?\d{1,4})\b`)
+	PAN = regexp.MustCompile(`\b(?:` +
+		`3[47]\d{2}[ -]?\d{6}[ -]?\d{5}` + // Amex
+		`|3(?:0[0-5]\d|[689]\d{2})[ -]?\d{6}[ -]?\d{4}` + // Diners Club
+		`|35(?:2[89]|[3-8]\d)(?:[ -]?\d{4}){3}` + // JCB
+		`|(?:4\d{3}|5[1-5]\d{2}|6(?:011|[45]\d{2}|2\d{2})|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720))(?:[ -]?\d{4}){2}[ -]?\d{1,4}` + // Visa/MC/Discover/UnionPay
+		`)\b`)
 
 	// URL matches an absolute http(s) URL, which may embed credentials, hosts
 	// and identifiers all at once.
