@@ -107,7 +107,7 @@ func TestAuditToSIEMRedactsAndMaps(t *testing.T) {
 			"enabled":    true,
 		},
 	}
-	got := auditToSIEM("tenant-A", ev, redact)
+	got := auditToSIEM("tenant-A", ev, redact, false)
 	if got.TenantID != "tenant-A" || got.Category != siem.CategoryAudit {
 		t.Fatalf("tenant/category: %+v", got)
 	}
@@ -144,7 +144,7 @@ func TestAuditToSIEMRedactsPIIPatternsBeforeFormatting(t *testing.T) {
 			"note":       "Authorization: Bearer abcdefghijklmnop",
 		},
 	}
-	got := auditToSIEM("tenant-A", ev, redactionSet(nil))
+	got := auditToSIEM("tenant-A", ev, redactionSet(nil), false)
 
 	if got.Actor != "j***@example.com" {
 		t.Fatalf("actor not redacted: %q", got.Actor)
@@ -206,7 +206,7 @@ func eventContains(e siem.Event, needle string) bool {
 
 func TestAuditSeverityFailureWarns(t *testing.T) {
 	ev := audit.Event{Action: "login", Data: map[string]any{"outcome": "failure"}}
-	if got := auditToSIEM("t", ev, redactionSet(nil)); got.Severity != siem.SeverityWarning {
+	if got := auditToSIEM("t", ev, redactionSet(nil), false); got.Severity != siem.SeverityWarning {
 		t.Fatalf("failed outcome should warn, got %v", got.Severity)
 	}
 }

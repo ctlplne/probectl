@@ -118,6 +118,21 @@ func (r *RetentionRunner) WithRetentionFloor(d time.Duration) *RetentionRunner {
 	return r
 }
 
+// WithTenantExportAttributable gates tenant pruning on the SIEM copy being a
+// full-fidelity (attributable) copy (AUD-06). The tenant SIEM-delivery cursor is
+// the pruning watermark; when the SIEM copy is identity-masked
+// (PROBECTL_SIEM_AUDIT_IDENTITY=pseudonymize) and the operator has not opted
+// into pruning a masked-only history, pruning past that watermark would destroy
+// the only attributable record. Passing attributable=false makes the tenant
+// watermark read as 0, so nothing is export-confirmed and the local
+// full-fidelity rows are kept. Default (no call) leaves the real watermark.
+func (r *RetentionRunner) WithTenantExportAttributable(attributable bool) *RetentionRunner {
+	if !attributable {
+		r.tenantWatermark = func(context.Context, string) (int64, error) { return 0, nil }
+	}
+	return r
+}
+
 // NewRetentionRunnerPG wires the production runner over Postgres. The provider
 // watermark usually comes from the signed WORM segment ledger; tenant
 // watermarks come from the RLS-scoped siem_delivery cursor table.

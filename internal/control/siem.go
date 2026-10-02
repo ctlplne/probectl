@@ -88,11 +88,26 @@ func redactionSet(extra []string) map[string]struct{} {
 // auditToSIEM maps one audit event to a SIEM event, scrubbing redacted keys. The
 // tenant comes from the audit stream key (the drained scope's tenant), never the
 // event body.
-func auditToSIEM(tenantID string, ev audit.Event, redact map[string]struct{}) siem.Event {
-	pol := govern.DefaultPIIPolicy()
+// auditToSIEM renders one audit event for the SIEM. AUD-06: the SIEM is the
+// OPERATOR'S own SOC, so by default (identityClear) the real actor/target
+// identity is forwarded — only secret keys (redact) are scrubbed — so the SOC
+// can attribute actions. In pseudonymize mode the PII-masking policy is applied
+// so identities are partially masked in the SIEM copy (a deliberate, lossy
+// choice that then gates retention pruning; see the retention runner).
+func auditToSIEM(tenantID string, ev audit.Event, redact map[string]struct{}, identityClear bool) siem.Event {
+	// clear (default): scrub secrets/PAN/SSN but keep identities, so the SOC can
+	// attribute. pseudonymize: apply the full PII-masking policy too. Secrets are
+	// NEVER exported in clear in either mode.
+	mask := govern.RedactSecretsOnlyText
+	maskAttr := func(_, v string) string { return govern.RedactSecretsOnlyText(v) }
+	if !identityClear {
+		pol := govern.DefaultPIIPolicy()
+		mask = func(v string) string { return govern.RedactTelemetryText(pol, v) }
+		maskAttr = func(k, v string) string { return govern.RedactTelemetryAttribute(pol, k, v) }
+	}
 	attrs := map[string]string{
-		"audit.seq":  redactSIEMAttribute(pol, "audit.seq", strconv.FormatInt(ev.Seq, 10)),
-		"audit.hash": redactSIEMAttribute(pol, "audit.hash", ev.Hash),
+		"audit.seq":  maskAttr("audit.seq", strconv.FormatInt(ev.Seq, 10)),
+		"audit.hash": maskAttr("audit.hash", ev.Hash),
 	}
 	var outcome string
 	for k, v := range ev.Data {
@@ -104,27 +119,19 @@ func auditToSIEM(tenantID string, ev audit.Event, redact map[string]struct{}) si
 		if strings.ToLower(k) == "outcome" {
 			outcome = sv
 		}
-		attrs[k] = redactSIEMAttribute(pol, k, sv)
+		attrs[k] = maskAttr(k, sv)
 	}
 	return siem.Event{
 		Time:       ev.CreatedAt,
 		TenantID:   tenantID,
 		Category:   siem.CategoryAudit,
-		Action:     redactSIEMText(pol, ev.Action),
+		Action:     mask(ev.Action),
 		Severity:   auditSeverity(outcome),
-		Actor:      redactSIEMText(pol, ev.Actor),
-		Target:     redactSIEMText(pol, ev.Target),
-		Outcome:    redactSIEMText(pol, outcome),
+		Actor:      mask(ev.Actor),
+		Target:     mask(ev.Target),
+		Outcome:    mask(outcome),
 		Attributes: attrs,
 	}
-}
-
-func redactSIEMAttribute(pol govern.Policy, key, value string) string {
-	return govern.RedactTelemetryAttribute(pol, key, value)
-}
-
-func redactSIEMText(pol govern.Policy, value string) string {
-	return govern.RedactTelemetryText(pol, value)
 }
 
 // auditSeverity bumps a failed/denied action to warning; audit is otherwise info.
@@ -208,15 +215,16 @@ func stringifyAny(v any) string {
 // cursor advances only past delivered events, a paused drain resumes without
 // dropping — durable no-drop delivery (S32 done-when).
 type siemAuditSink struct {
-	fw      *siem.Forwarder
-	redact  map[string]struct{}
-	timeout time.Duration
+	fw            *siem.Forwarder
+	redact        map[string]struct{}
+	timeout       time.Duration
+	identityClear bool
 }
 
 func (s siemAuditSink) Export(ctx context.Context, streamKey string, ev audit.Event) error {
 	dctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	return s.fw.Deliver(dctx, auditToSIEM(streamKey, ev, s.redact))
+	return s.fw.Deliver(dctx, auditToSIEM(streamKey, ev, s.redact, s.identityClear))
 }
 
 // SIEMAuditPoller forwards every tenant's audit stream to the SIEM on an interval,
@@ -235,7 +243,7 @@ type SIEMAuditPoller struct {
 
 // NewSIEMAuditPoller builds the poller over the forwarder. redact extends the
 // built-in PII/secret denylist.
-func NewSIEMAuditPoller(pool *pgxpool.Pool, fw *siem.Forwarder, redact []string, interval time.Duration, log *slog.Logger) *SIEMAuditPoller {
+func NewSIEMAuditPoller(pool *pgxpool.Pool, fw *siem.Forwarder, redact []string, identityClear bool, interval time.Duration, log *slog.Logger) *SIEMAuditPoller {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -245,7 +253,7 @@ func NewSIEMAuditPoller(pool *pgxpool.Pool, fw *siem.Forwarder, redact []string,
 	return &SIEMAuditPoller{
 		pool:     pool,
 		tenants:  store.NewTenants(pool),
-		sink:     siemAuditSink{fw: fw, redact: redactionSet(redact), timeout: 10 * time.Second},
+		sink:     siemAuditSink{fw: fw, redact: redactionSet(redact), timeout: 10 * time.Second, identityClear: identityClear},
 		interval: interval,
 		pageSize: audit.DefaultExportPageSize,
 		log:      log,

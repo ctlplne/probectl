@@ -739,6 +739,15 @@ type Config struct {
 	SIEMPollInterval time.Duration
 	SIEMBufferSize   int
 	SIEMRedactKeys   []string
+	// SIEMAuditIdentity controls how actor/target identity is rendered in the
+	// SIEM copy of the audit stream (AUD-06). "clear" (default) forwards the real
+	// actor identity so the operator's own SOC can attribute actions; secret
+	// keys are still scrubbed. "pseudonymize" keeps the PII-masking policy
+	// (partial masking) for operators who want minimized identities in the SIEM
+	// copy — but then the exported copy is lossy, so it does not authorize
+	// pruning the local full-fidelity rows unless SIEMAuditPruneMasked is set.
+	SIEMAuditIdentity    string
+	SIEMAuditPruneMasked bool
 
 	// Change intelligence (S29): inbound, per-provider-signed change webhooks. Each
 	// entry maps a public webhook id (the URL selector) to a tenant + provider +
@@ -1106,6 +1115,11 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.SIEMPollInterval = l.dur("PROBECTL_SIEM_POLL_INTERVAL", 30*time.Second)
 	cfg.SIEMBufferSize = l.intRange("PROBECTL_SIEM_BUFFER", 1024, 1, 1_000_000)
 	cfg.SIEMRedactKeys = l.list("PROBECTL_SIEM_REDACT_KEYS")
+	// AUD-06: default "clear" — the SIEM is the OPERATOR'S own SOC, which needs
+	// real actor identities to attribute actions; a lossy pseudonymized copy left
+	// the SOC unable to say who did what.
+	cfg.SIEMAuditIdentity = l.enum("PROBECTL_SIEM_AUDIT_IDENTITY", "clear", "clear", "pseudonymize")
+	cfg.SIEMAuditPruneMasked = l.boolean("PROBECTL_SIEM_AUDIT_PRUNE_MASKED", false)
 	cfg.ChangeWebhooks = l.changeWebhooks("PROBECTL_CHANGE_WEBHOOKS")
 	cfg.ChangeCorrelationWindow = l.dur("PROBECTL_CHANGE_CORRELATION_WINDOW", 24*time.Hour)
 	cfg.NotifyConnectors = l.notifyConnectors("PROBECTL_NOTIFY_CONNECTORS")

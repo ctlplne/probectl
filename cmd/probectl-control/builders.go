@@ -999,7 +999,10 @@ func startHAAndTenantLifecycle(
 		log,
 	).WithProviderRetentionProof(providerAuditProof).
 		WithTenantRetentionWindow(lifeEngine.ProviderAuditRetentionWindowFor).
-		WithRetentionFloor(cfg.AuditRetentionMin)
+		WithRetentionFloor(cfg.AuditRetentionMin).
+		// AUD-06: a pseudonymized SIEM copy is lossy, so it must not authorize
+		// pruning the local attributable rows unless the operator opted in.
+		WithTenantExportAttributable(cfg.SIEMAuditIdentity != "pseudonymize" || cfg.SIEMAuditPruneMasked)
 	if err := singletons.Register("audit-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
 		retention.Run(ctx, time.Hour)
 		return nil

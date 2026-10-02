@@ -156,24 +156,33 @@ func TelemetryPIIPolicy(ctx context.Context, tenantID string) Policy {
 // RedactTelemetryText masks common PII/secret shapes in unstructured telemetry
 // text, such as log bodies and span names. It is intentionally pattern-based:
 // the receiver treats inbound OTLP as untrusted and redacts before persistence.
+// RedactSecretsOnlyText scrubs the always-mask shapes — API keys, bearer and
+// other credential patterns, DSN/URL passwords, PANs and SSNs — but LEAVES
+// identities (emails, IPs, MACs, hostnames) intact. It is for a TRUSTED sink
+// that must stay attributable yet never export a secret: the operator's own
+// SIEM audit copy in clear-identity mode (AUD-06). The SOC needs the real actor
+// to attribute an action; a secret or a PAN/SSN must never be exported in clear
+// regardless of identity mode.
+func RedactSecretsOnlyText(value string) string {
+	if value == "" {
+		return value
+	}
+	out := redactpat.MaskSecrets(value, func(redactpat.SecretShape, string) string {
+		return telemetryRedacted
+	})
+	out = redactpat.MaskURLCredentials(out, func(string) string { return telemetryRedacted })
+	out = redactpat.MaskPAN(out, func(string) string { return telemetryRedacted })
+	out = telemetrySSNRE.ReplaceAllString(out, telemetryRedacted)
+	return out
+}
+
 func RedactTelemetryText(pol Policy, value string) string {
 	if value == "" {
 		return value
 	}
-	// Always-masked shapes come from redactpat.Secrets() in its order; this
-	// path keeps the diagnostic prefix ("api_key=", "Authorization: Bearer ")
-	// and drops the value.
-	out := redactpat.MaskSecrets(value, func(redactpat.SecretShape, string) string {
-		return telemetryRedacted
-	})
-	// A DSN/URL password is always a secret, even with an IP or single-label host
-	// the URL pass below (http(s)-only) would never reach (AI-03).
-	out = redactpat.MaskURLCredentials(out, func(string) string { return telemetryRedacted })
-	// SSN and PAN are an always-mask PII floor (AI-03): never exported verbatim,
-	// regardless of policy. Masked before the URL/email passes so a card or SSN
-	// embedded in a path or address is gone first.
-	out = redactpat.MaskPAN(out, func(string) string { return telemetryRedacted })
-	out = telemetrySSNRE.ReplaceAllString(out, telemetryRedacted)
+	// Always-masked shapes (secrets, DSN/URL passwords, PAN, SSN) come first and
+	// are policy-independent (the fail-closed secret floor, AI-03).
+	out := RedactSecretsOnlyText(value)
 	out = telemetryURLRE.ReplaceAllStringFunc(out, func(raw string) string {
 		return redactTelemetryURL(pol, raw)
 	})

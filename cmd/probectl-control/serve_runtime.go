@@ -764,7 +764,7 @@ func (rt *serveRuntime) startSIEM() error {
 		return nil
 	}
 	rt.g.Go(func() error { return rt.siemFwd.Run(rt.gctx) })
-	poller := control.NewSIEMAuditPoller(rt.db.Pool(), rt.siemFwd, rt.cfg.SIEMRedactKeys, rt.cfg.SIEMPollInterval, rt.log)
+	poller := control.NewSIEMAuditPoller(rt.db.Pool(), rt.siemFwd, rt.cfg.SIEMRedactKeys, rt.cfg.SIEMAuditIdentity != "pseudonymize", rt.cfg.SIEMPollInterval, rt.log)
 	if err := rt.singletons.Register("siem-audit-poller", func(ctx context.Context, _ cluster.LeaseToken) error {
 		return poller.Run(ctx)
 	}); err != nil {

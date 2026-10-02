@@ -93,7 +93,7 @@ func TestSIEMAuditDrainCursorAndScope(t *testing.T) {
 	snk := &capSender{}
 	fmtr, _ := siem.NewFormatter("ecs")
 	fw := siem.NewForwarder(fmtr, snk, siem.Config{}, testLog())
-	poller := NewSIEMAuditPoller(db.Pool(), fw, nil, time.Minute, testLog())
+	poller := NewSIEMAuditPoller(db.Pool(), fw, nil, true, time.Minute, testLog())
 
 	if err := poller.drainTenant(context.Background(), tenantA); err != nil {
 		t.Fatalf("drain A: %v", err)
@@ -146,8 +146,8 @@ func TestSIEMAuditConcurrentPollersDoNotDuplicateForward(t *testing.T) {
 	sender := &blockingSIEMSender{entered: make(chan struct{}, 4), release: make(chan struct{})}
 	fmtr, _ := siem.NewFormatter("ecs")
 	fw := siem.NewForwarder(fmtr, sender, siem.Config{}, testLog())
-	pollerA := NewSIEMAuditPoller(db.Pool(), fw, nil, time.Minute, testLog())
-	pollerB := NewSIEMAuditPoller(db.Pool(), fw, nil, time.Minute, testLog())
+	pollerA := NewSIEMAuditPoller(db.Pool(), fw, nil, true, time.Minute, testLog())
+	pollerB := NewSIEMAuditPoller(db.Pool(), fw, nil, true, time.Minute, testLog())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -202,7 +202,7 @@ func TestSIEMAuditRetryNoDrop(t *testing.T) {
 	fmtr, _ := siem.NewFormatter("cef")
 	fw := siem.NewForwarder(fmtr, snk,
 		siem.Config{RetryBackoff: 2 * time.Millisecond, MaxBackoff: 2 * time.Millisecond}, testLog())
-	poller := NewSIEMAuditPoller(db.Pool(), fw, nil, time.Minute, testLog())
+	poller := NewSIEMAuditPoller(db.Pool(), fw, nil, true, time.Minute, testLog())
 
 	if err := poller.drainTenant(context.Background(), tenant); err != nil {
 		t.Fatalf("drain: %v", err)
