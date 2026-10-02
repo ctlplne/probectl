@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -107,7 +109,11 @@ func TestComplianceEndpointsAndIsolation(t *testing.T) {
 	eng.Observe(tid, compliance.FlowObs{Src: "10.20.1.5", Dst: "10.10.2.9", DstPort: 443, Source: "flow", At: at})
 	eng.Observe("other-tenant", compliance.FlowObs{Src: "10.20.9.9", Dst: "10.10.9.9", DstPort: 443, Source: "flow", At: at})
 
-	srv := testServer(fakePinger{}).WithCompliance(eng)
+	priv, _, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	srv := testServer(fakePinger{}).WithCompliance(eng).WithEvidenceSigningKey(priv)
 	rec := do(srv, http.MethodGet, "/v1/compliance")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -132,20 +138,110 @@ func TestComplianceEndpointsAndIsolation(t *testing.T) {
 		t.Fatalf("coverage notes = %v", resp.Coverage.Notes)
 	}
 
-	// Evidence export verifies and carries the framework mapping.
+	// Evidence export is a SIGNED package whose signature verifies over the exact
+	// evidence bytes, and the inner document carries the framework mapping.
 	rec = do(srv, http.MethodGet, "/v1/compliance/evidence")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("evidence status = %d", rec.Code)
 	}
+	var pkg signedEvidenceWire
+	if err := json.Unmarshal(rec.Body.Bytes(), &pkg); err != nil {
+		t.Fatal(err)
+	}
+	if len(pkg.Evidence) == 0 || len(pkg.Signing.Signature) == 0 || pkg.Signing.PublicKey == "" {
+		t.Fatalf("evidence export is not signed (AI-04): %s", rec.Body.String())
+	}
+	if ok, err := crypto.VerifyEd25519([]byte(pkg.Signing.PublicKey), pkg.Evidence, pkg.Signing.Signature); err != nil || !ok {
+		t.Fatalf("exported evidence signature failed verification: ok=%v err=%v", ok, err)
+	}
 	var ev compliance.Evidence
-	if err := json.Unmarshal(rec.Body.Bytes(), &ev); err != nil {
+	if err := json.Unmarshal(pkg.Evidence, &ev); err != nil {
 		t.Fatal(err)
 	}
 	if err := compliance.VerifyEvidence(ev); err != nil {
-		t.Fatalf("exported evidence failed verification: %v", err)
+		t.Fatalf("exported evidence failed chain verification: %v", err)
 	}
-	if !strings.Contains(rec.Body.String(), "Req 1.3") {
+	if !strings.Contains(string(pkg.Evidence), "Req 1.3") {
 		t.Fatal("PCI mapping missing from evidence")
+	}
+}
+
+// signedEvidenceWire mirrors the signed export envelope with only the fields the
+// HTTP tests inspect, so these tests exercise the real wire shape without
+// depending on the compliance package's concrete signing types.
+type signedEvidenceWire struct {
+	Evidence json.RawMessage `json:"evidence"`
+	Signing  struct {
+		Algorithm string `json:"algorithm"`
+		PublicKey string `json:"public_key_pem"`
+		Signature []byte `json:"signature"`
+	} `json:"signing"`
+}
+
+// AI-04: the /v1/compliance/evidence export must be tamper-evident against EDITS,
+// not merely a self-recomputable hash chain. The export is sealed with the
+// deployment Ed25519 evidence-signing key; editing any field of the exported
+// document breaks the detached signature, and a deployment with no signing key
+// is refused rather than served bytes nobody vouched for.
+func TestComplianceEvidenceExportIsSignedAndTamperEvident(t *testing.T) {
+	eng := complianceTestEngine(t)
+	tid := tenancy.DefaultTenantID.String()
+	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng.Observe(tid, compliance.FlowObs{Src: "10.20.1.5", Dst: "10.10.2.9", DstPort: 443, Source: "flow", At: at})
+
+	// No signing key → refused (an unsigned evidence export is not tamper-evident).
+	bare := testServer(fakePinger{}).WithCompliance(eng)
+	if rec := do(bare, http.MethodGet, "/v1/compliance/evidence"); rec.Code != http.StatusConflict {
+		t.Fatalf("export without a signing key must be refused, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	priv, _, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	srv := testServer(fakePinger{}).WithCompliance(eng).WithEvidenceSigningKey(priv)
+	rec := do(srv, http.MethodGet, "/v1/compliance/evidence")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("evidence status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var pkg signedEvidenceWire
+	if err := json.Unmarshal(rec.Body.Bytes(), &pkg); err != nil {
+		t.Fatalf("decode signed evidence: %v", err)
+	}
+	if len(pkg.Evidence) == 0 || len(pkg.Signing.Signature) == 0 || pkg.Signing.PublicKey == "" {
+		t.Fatalf("evidence export is not signed (AI-04): %s", rec.Body.String())
+	}
+	// The signature verifies over the exact exported bytes.
+	if ok, err := crypto.VerifyEd25519([]byte(pkg.Signing.PublicKey), pkg.Evidence, pkg.Signing.Signature); err != nil || !ok {
+		t.Fatalf("exported evidence signature does not verify: ok=%v err=%v", ok, err)
+	}
+	// The signing PRIVATE key must never travel with the document it signed.
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") {
+		t.Fatal("the evidence export must not carry a private key")
+	}
+
+	// THE ATTACK (AI-04): edit any field of the exported document. The signature,
+	// bound to the ORIGINAL bytes, must no longer verify — editing is detectable.
+	var ev compliance.Evidence
+	if err := json.Unmarshal(pkg.Evidence, &ev); err != nil {
+		t.Fatalf("decode inner evidence: %v", err)
+	}
+	if len(ev.Records) == 0 {
+		t.Fatal("no records to tamper with")
+	}
+	ev.Records[0].Result.Violations++ // forge the violation count
+	mutated, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatalf("re-encode mutated evidence: %v", err)
+	}
+	if bytes.Equal(mutated, pkg.Evidence) {
+		t.Fatal("precondition: the edit must change the evidence bytes")
+	}
+	if ok, err := crypto.VerifyEd25519([]byte(pkg.Signing.PublicKey), mutated, pkg.Signing.Signature); err != nil {
+		t.Fatalf("verify mutated evidence: %v", err)
+	} else if ok {
+		t.Fatal("AI-04: an edited evidence document still verified against the signature")
 	}
 }
 

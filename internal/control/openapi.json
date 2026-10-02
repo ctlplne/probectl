@@ -5848,7 +5848,7 @@
         "tags": [
           "compliance"
         ],
-        "description": "A self-verifying, timestamped evidence document: per-rule results with PCI DSS / NIST / zero-trust framework mappings and bounded violation samples, hash-chained via the internal crypto provider (any post-export tampering breaks verification), with the coverage caveats embedded \u2014 an auditor sees exactly what was and wasn't observed. Requires audit read.",
+        "description": "A tenant-scoped evidence document: per-rule results with PCI DSS / NIST / zero-trust framework mappings and bounded violation samples, hash-chained via the internal crypto provider, with the coverage caveats embedded \u2014 an auditor sees exactly what was and wasn't observed. The document is SEALED with the deployment's Ed25519 evidence-signing key (envelope probectl-compliance-evidence-signed/v1, the same key the auditor bundle and incident-evidence exports use): editing any field and recomputing the hash chain still fails verification because the detached signature no longer covers the bytes. The hash chain ALONE is not tamper-evident against an editor who recomputes it. Verify it offline with the public key the package carries. Refused with 409 when the deployment has no evidence signing key, because an unsigned evidence export is not tamper-evident. Requires audit read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -5856,7 +5856,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The evidence document (probectl-compliance-evidence/v1).",
+            "description": "The signed evidence document (probectl-compliance-evidence-signed/v1).",
             "content": {
               "application/json": {
                 "schema": {
@@ -5864,6 +5864,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }

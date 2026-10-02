@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/config"
@@ -83,7 +84,10 @@ func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) error 
 }
 
 // handleComplianceEvidence serves GET /v1/compliance/evidence — the
-// audit-grade, hash-chained export (PCI/NIST mappings + coverage caveats).
+// audit-grade export (PCI/NIST mappings + coverage caveats), SIGNED with the
+// deployment's Ed25519 evidence-signing key. The hash chain alone is not
+// tamper-evident against an editor who recomputes it (finding AI-04); the
+// signature is what makes an edited document fail verification.
 func (s *Server) handleComplianceEvidence(w http.ResponseWriter, r *http.Request) error {
 	tid, err := s.principalTenant(r)
 	if err != nil {
@@ -93,12 +97,25 @@ func (s *Server) handleComplianceEvidence(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusOK, map[string]any{"compliance_running": false})
 		return nil
 	}
+	if len(s.evidenceSigningKey) == 0 {
+		// An UNSIGNED evidence export is not tamper-evident: its hash chain is
+		// self-recomputable, so an edited document re-chains and still verifies
+		// (finding AI-04). Refusing is the honest answer — the same stance the
+		// auditor bundle takes — rather than serving bytes nobody vouched for.
+		return apierror.Conflict("compliance evidence export requires an evidence signing key (PROBECTL_EVIDENCE_SIGNING_KEY or _FILE)")
+	}
 	ev, err := s.complianceEngine.Export(tid)
 	if err != nil {
 		return err
 	}
+	raw, err := compliance.SignEvidence(ev, s.evidenceSigningKey)
+	if err != nil {
+		return apierror.Internal("compliance evidence signing failed").Wrap(err)
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", `attachment; filename="probectl-compliance-evidence.json"`)
-	writeJSON(w, http.StatusOK, ev)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(raw)
 	return nil
 }
 

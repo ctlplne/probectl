@@ -7,13 +7,22 @@
 package compliance
 
 // Audit-grade evidence export (the S46 watch-out: immutable, timestamped).
-// The export is a self-verifying JSON document: every record is timestamped,
-// the records are hash-chained (each record's hash covers its canonical
-// content + the previous hash, via the internal crypto provider — guardrail
-// 3), and the document carries a final chain head. Any post-export tampering
-// breaks verification. Framework mappings (PCI DSS / NIST / zero-trust) ride
-// each rule's declared tags; coverage caveats are embedded IN the evidence —
-// an auditor sees exactly what was and wasn't observed.
+//
+// The evidence document is a hash chain: every record is timestamped and each
+// record's hash covers its canonical content + the previous hash (via the
+// internal crypto provider — guardrail 3), ending in a final chain head. The
+// chain alone is NOT tamper-evident against an editor who also recomputes it —
+// nothing in the chain is secret, so a mutated document can be re-hashed and
+// VerifyEvidence will accept the result (finding AI-04). Tamper-evidence comes
+// from the SIGNATURE: Export builds the document, SignEvidence seals its exact
+// bytes with the deployment's Ed25519 evidence-signing key (the same key the
+// auditor bundle and incident-evidence exports use), and VerifySignedEvidence
+// rejects any edited document because the detached signature no longer covers
+// its bytes — recomputing the chain does not help the forger.
+//
+// Framework mappings (PCI DSS / NIST / zero-trust) ride each rule's declared
+// tags; coverage caveats are embedded IN the evidence — an auditor sees exactly
+// what was and wasn't observed.
 
 import (
 	"encoding/hex"
@@ -108,4 +117,100 @@ func recordHash(seq int, res RuleResult, prev string) (string, error) {
 		return "", fmt.Errorf("compliance: canonicalize evidence record: %w", err)
 	}
 	return hex.EncodeToString(crypto.Default.Hash(canonical)), nil
+}
+
+// SignedEvidenceContract identifies the signed export envelope.
+const SignedEvidenceContract = "probectl-compliance-evidence-signed/v1"
+
+// EvidenceSignatureAlg is the signature suite sealing the evidence export. It
+// matches the auditor bundle and the incident-evidence package, so an auditor
+// verifies all three the same way.
+const EvidenceSignatureAlg = "ed25519"
+
+// EvidenceSigning carries the detached signature over the exact evidence bytes.
+type EvidenceSigning struct {
+	Algorithm   string `json:"algorithm"`
+	PublicKey   string `json:"public_key_pem"`
+	Fingerprint string `json:"public_key_fingerprint"`
+	Signature   []byte `json:"signature"`
+}
+
+// SignedEvidence is the portable wire form of the evidence export: the evidence
+// document as the exact signed bytes, plus the detached signature over them. The
+// document is preserved as raw bytes so offline verification checks EXACTLY what
+// was signed — editing any field and re-serializing breaks the signature even
+// when the inner hash chain has been recomputed (finding AI-04).
+type SignedEvidence struct {
+	Contract string          `json:"contract"`
+	Evidence json.RawMessage `json:"evidence"`
+	Signing  EvidenceSigning `json:"signing"`
+}
+
+// SignEvidence seals the exact evidence bytes with the deployment Ed25519
+// evidence-signing key and returns the portable package. The hash chain alone
+// is not tamper-evident against an editor who recomputes it, so the endpoint
+// that serves the export refuses when no key is configured rather than vouch
+// for bytes nobody signed.
+func SignEvidence(ev Evidence, privatePEM []byte) ([]byte, error) {
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return nil, fmt.Errorf("compliance: encode evidence: %w", err)
+	}
+	sig, err := crypto.SignEd25519(privatePEM, raw)
+	if err != nil {
+		return nil, fmt.Errorf("compliance: sign evidence: %w", err)
+	}
+	publicPEM, err := crypto.PublicPEMFromPrivate(privatePEM)
+	if err != nil {
+		return nil, fmt.Errorf("compliance: derive public key: %w", err)
+	}
+	fp := crypto.Hash(publicPEM)
+	return json.Marshal(SignedEvidence{
+		Contract: SignedEvidenceContract,
+		Evidence: raw,
+		Signing: EvidenceSigning{
+			Algorithm:   EvidenceSignatureAlg,
+			PublicKey:   string(publicPEM),
+			Fingerprint: "sha256:" + hex.EncodeToString(fp),
+			Signature:   sig,
+		},
+	})
+}
+
+// VerifySignedEvidence performs every offline check a reader needs: the
+// contract, the Ed25519 signature over the EXACT evidence bytes, that the
+// signing-key fingerprint matches its key, and the inner hash chain. It returns
+// the decoded evidence only when all hold. Editing any field of the document and
+// recomputing the chain still fails here, because the detached signature no
+// longer covers the mutated bytes (finding AI-04).
+func VerifySignedEvidence(raw []byte) (Evidence, error) {
+	var pkg SignedEvidence
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		return Evidence{}, fmt.Errorf("compliance: decode signed evidence: %w", err)
+	}
+	if pkg.Contract != SignedEvidenceContract {
+		return Evidence{}, fmt.Errorf("compliance: unexpected evidence contract %q", pkg.Contract)
+	}
+	if pkg.Signing.Algorithm != EvidenceSignatureAlg {
+		return Evidence{}, fmt.Errorf("compliance: unexpected signature algorithm %q", pkg.Signing.Algorithm)
+	}
+	ok, err := crypto.VerifyEd25519([]byte(pkg.Signing.PublicKey), pkg.Evidence, pkg.Signing.Signature)
+	if err != nil {
+		return Evidence{}, fmt.Errorf("compliance: evidence signature: %w", err)
+	}
+	if !ok {
+		return Evidence{}, fmt.Errorf("compliance: evidence signature does not verify (tampered)")
+	}
+	fp := crypto.Hash([]byte(pkg.Signing.PublicKey))
+	if want := "sha256:" + hex.EncodeToString(fp); pkg.Signing.Fingerprint != want {
+		return Evidence{}, fmt.Errorf("compliance: signing-key fingerprint does not match its key")
+	}
+	var ev Evidence
+	if err := json.Unmarshal(pkg.Evidence, &ev); err != nil {
+		return Evidence{}, fmt.Errorf("compliance: decode evidence: %w", err)
+	}
+	if err := VerifyEvidence(ev); err != nil {
+		return Evidence{}, err
+	}
+	return ev, nil
 }

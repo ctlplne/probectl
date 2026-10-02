@@ -135,20 +135,29 @@ between what probectl confirmed and what it simply couldn't see.
 
 ## Audit-grade evidence
 
-`GET /v1/compliance/evidence` (RBAC `audit.read`) exports a **self-verifying**
-JSON document (format version `probectl-compliance-evidence/v1`). It contains
-timestamped, per-rule records with their framework mappings and violation
-samples, and the records are **hash-chained**: each record's hash covers its
-own canonical content **plus the previous record's hash** (`recordHash` in
-`evidence.go`), and the document ends with the final chain head.
+`GET /v1/compliance/evidence` (RBAC `audit.read`) exports a **signed** evidence
+document (envelope `probectl-compliance-evidence-signed/v1`). Inside the envelope
+is a `probectl-compliance-evidence/v1` document: timestamped, per-rule records
+with their framework mappings and violation samples, **hash-chained** — each
+record's hash covers its own canonical content **plus the previous record's
+hash** (`recordHash` in `evidence.go`) — ending with the final chain head. The
+coverage caveats are embedded *inside* the document, so they cannot be quietly
+dropped.
 
-Why a hash chain? So tampering is detectable. Picture a notebook where every
-page is stamped with a seal derived from the previous page's seal: tear out or
-rewrite one page and every later seal stops matching. If anyone edits a single
-violation count after export, `VerifyEvidence` re-walks the chain, the hashes
-stop matching, and verification fails (the test for this flips one violation
-count and watches the chain break). The coverage caveats are embedded *inside*
-the signed document, so they cannot be quietly dropped either.
+Why *sign* it, and not rely on the chain alone? Because the chain is
+self-recomputable. Picture a notebook where every page is stamped with a seal
+derived from the previous page's seal: it catches a page torn out with nothing
+put back, but an editor who rewrites a page can also recompute every later seal,
+and the chain reads as intact again. So the hash chain **alone is not
+tamper-evident** against an editor who recomputes it (finding AI-04). The
+tamper-evidence comes from the **signature**: the control plane seals the exact
+exported bytes with the deployment's Ed25519 evidence-signing key
+(`SignEvidence`) — the same key the auditor bundle and incident-evidence exports
+use. Edit any field, recompute the whole chain, and `VerifySignedEvidence` still
+rejects the document, because the detached signature no longer covers the bytes
+(the regression test flips a violation count, re-chains it, and watches the
+signature fail). A deployment with **no** evidence signing key is **refused**
+(HTTP 409) rather than served an unsigned document that nothing vouches for.
 
 The hashing goes through the internal crypto provider (`crypto.Default.Hash`),
 never a raw primitive — the same FIPS-swappable abstraction the rest of probectl
