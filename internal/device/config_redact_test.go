@@ -49,6 +49,8 @@ func TestRedactConfigVendorSecrets(t *testing.T) {
 		{"tacacs host cleartext key", "tacacs-server host 10.0.0.1 key MyClearTacKey", "MyClearTacKey", "tacacs-server host 10.0.0.1"},
 		{"radius host key 7 w/ options", "radius-server host 10.0.0.1 auth-port 1812 key 7 09604F0B1A08", "09604F0B1A08", "radius-server host 10.0.0.1"},
 		{"ospfv3 ipsec md5", "ipv6 ospf authentication ipsec spi 500 md5 1234567890ABCDEF1234567890ABCDEF", "1234567890ABCDEF1234567890ABCDEF", "ipsec spi 500 md5"},
+		{"nxos snmpv3 priv aes-128", "snmp-server user admin network-admin auth sha NxAuthPass333 priv aes-128 NxPrivPass444", "NxPrivPass444", "priv aes-128"},
+		{"nxos snmpv3 priv aes-256", "snmp-server user admin network-admin auth sha256 NxAuth5 priv aes-256 NxPriv6", "NxPriv6", "priv aes-256"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -322,7 +322,7 @@ var configRedactRules = []struct {
 	{regexp.MustCompile(`(?i)\b(pre-shared-key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
 	// SNMPv3 user auth/priv passwords.
 	{regexp.MustCompile(`(?i)\b(auth\s+(?:md5|sha(?:\d+)?)\s+)` + cfgVal), `${1}[redacted]`},
-	{regexp.MustCompile(`(?i)\b(priv\s+(?:des|3des|aes)(?:\s+(?:128|192|256))?\s+)` + cfgVal), `${1}[redacted]`},
+	{regexp.MustCompile(`(?i)\b(priv\s+(?:aes(?:-(?:128|192|256))?|3des|des)(?:\s+(?:128|192|256))?\s+)` + cfgVal), `${1}[redacted]`},
 	// SNMP trap-host community (distinct from `snmp-server community`): the
 	// community is the token after the host and any traps/informs/version/vrf
 	// modifiers.
