@@ -10,53 +10,58 @@ import (
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
-// TestBusSharedTopicsCoverEveryProducerTopic is the RTP-01 regression: the
-// control plane ensured only a subset of topics at boot, so on a broker with
-// auto.create.topics.enable=false the eBPF service map, flow ingest-quality,
-// LLDP/CDP neighbors, device collection outcomes, OTLP traces/logs and the
-// flow/device/OTLP dead-letters silently lost all data. busSharedTopics() must
-// now ensure every topic a shipped producer publishes to, and the per-tenant
-// lanes must be namespaced for siloed tenants.
+// TestBusSharedTopicsCoverEveryProducerTopic is the RTP-01 regression. The
+// control plane ensured only a subset of topics, so on a broker with
+// auto.create.topics.enable=false the eBPF/flow-quality/neighbors/outcomes/
+// OTLP-traces-logs planes and the dead-letter queues silently lost data.
+//
+// The expected set is DERIVED, not hand-listed — every per-tenant lane, each
+// lane's dead-letter topic via bus.DeadLetterTopicFor (which computes the
+// endpoint/RUM sub-DLQs and the per-tenant namespaced DLQs at runtime), and the
+// replay DLQ set — so a producer topic whose name is computed cannot drift out
+// of coverage undetected.
 func TestBusSharedTopicsCoverEveryProducerTopic(t *testing.T) {
-	// Every topic a producer publishes to (the constants in internal/bus).
-	producer := []string{
-		bus.NetworkResultsTopic, bus.EndpointResultsTopic, bus.RUMEventsTopic,
-		bus.FlowEventsTopic, bus.FlowIngestQualityTopic,
-		bus.DeviceMetricsTopic, bus.DeviceNeighborsTopic, bus.DeviceCollectionOutcomesTopic,
-		bus.EBPFFlowsTopic, bus.BGPEventsTopic,
-		bus.OTLPMetricsTopic, bus.OTLPTracesTopic, bus.OTLPLogsTopic,
-		bus.DeadLetterResultsTopic, bus.DeadLetterDeviceTopic, bus.DeadLetterFlowTopic,
-		bus.DeadLetterOTLPMetricsTopic, bus.DeadLetterOTLPTracesTopic, bus.DeadLetterOTLPLogsTopic,
-	}
-	ensured := map[string]bool{}
+	ensuredShared := map[string]bool{}
 	for _, tpc := range busSharedTopics() {
-		ensured[tpc] = true
+		ensuredShared[tpc] = true
 	}
-	for _, tpc := range producer {
-		if !ensured[tpc] {
-			t.Errorf("producer topic %q is never ensured at boot (busSharedTopics); on a broker without auto-create this plane silently loses all data (RTP-01)", tpc)
+
+	expected := map[string]bool{}
+	for _, lane := range bus.TenantLaneTopics() {
+		expected[lane] = true
+		if dlq, err := bus.DeadLetterTopicFor(lane); err == nil {
+			expected[dlq] = true
+		}
+	}
+	for _, tpc := range pipeline.ReplayableTopics() {
+		expected[tpc] = true
+	}
+	for tpc := range expected {
+		if !ensuredShared[tpc] {
+			t.Errorf("producer topic %q is never ensured at boot (busSharedTopics); on a broker without auto-create this plane silently loses data (RTP-01)", tpc)
 		}
 	}
 
-	// The per-tenant data lanes must also exist namespaced for a siloed tenant.
+	// Per-tenant lanes AND their namespaced dead-letters are provisioned for a
+	// siloed tenant.
 	const ns = "t-abc123"
-	lanes := map[string]bool{}
+	laneSet := map[string]bool{}
 	for _, l := range busLaneTopics([]string{ns}) {
-		lanes[l] = true
+		laneSet[l] = true
 	}
-	for _, base := range []string{
-		bus.EBPFFlowsTopic, bus.FlowIngestQualityTopic,
-		bus.DeviceNeighborsTopic, bus.DeviceCollectionOutcomesTopic,
-		bus.OTLPTracesTopic, bus.OTLPLogsTopic,
-	} {
-		want, err := bus.TopicFor(ns, base)
+	for _, base := range bus.TenantLaneTopics() {
+		lt, err := bus.TopicFor(ns, base)
 		if err != nil {
 			t.Fatalf("TopicFor(%s,%s): %v", ns, base, err)
 		}
-		if !lanes[want] {
-			t.Errorf("per-tenant lane %q is not provisioned for a siloed tenant (RTP-01)", want)
+		if !laneSet[lt] {
+			t.Errorf("per-tenant lane %q is not provisioned for a siloed tenant (RTP-01)", lt)
+		}
+		if dlq, err := bus.DeadLetterTopicFor(lt); err == nil && !laneSet[dlq] {
+			t.Errorf("per-tenant dead-letter %q is not provisioned for a siloed tenant (RTP-01)", dlq)
 		}
 	}
 }

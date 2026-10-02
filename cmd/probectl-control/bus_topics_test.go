@@ -56,9 +56,18 @@ func TestEnsureBusTopicsCreatesLanesOrFailsClosed(t *testing.T) {
 
 	// Tenant lanes follow the namespace set; invalid namespaces are skipped.
 	lanes := busLaneTopics([]string{"t-globex-eu", "", "not valid!"})
-	// RTP-01: every per-tenant producer lane is namespaced (bus.TenantLaneTopics).
-	if len(lanes) != len(bus.TenantLaneTopics()) || lanes[0] != "probectl.t-globex-eu.bgp.events" {
-		t.Fatalf("lane topics = %v", lanes)
+	// RTP-01: every per-tenant producer lane is namespaced, plus each lane's
+	// namespaced dead-letter topic (bus.DeadLetterTopicFor).
+	wantLanes := len(bus.TenantLaneTopics())
+	for _, base := range bus.TenantLaneTopics() {
+		if lt, err := bus.TopicFor("t-globex-eu", base); err == nil {
+			if _, derr := bus.DeadLetterTopicFor(lt); derr == nil {
+				wantLanes++
+			}
+		}
+	}
+	if len(lanes) != wantLanes || lanes[0] != "probectl.t-globex-eu.bgp.events" {
+		t.Fatalf("lane topics (%d, want %d) = %v", len(lanes), wantLanes, lanes)
 	}
 	installLaneTopicEnsurer(b, create, log)
 	ensureLaneTopics(ctx, log, []string{"t-globex-eu"})

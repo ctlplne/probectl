@@ -46,8 +46,16 @@ func busLaneTopics(namespaces []string) []string {
 			continue
 		}
 		for _, base := range bases {
-			if t, err := bus.TopicFor(ns, base); err == nil {
-				out = append(out, t)
+			t, err := bus.TopicFor(ns, base)
+			if err != nil {
+				continue
+			}
+			out = append(out, t)
+			// RTP-01: the lane's dead-letter topic is namespaced under the SAME
+			// tenant, so a siloed tenant's exhausted records have somewhere to
+			// park. Lanes without a DLQ (DeadLetterTopicFor errors) are skipped.
+			if dlq, derr := bus.DeadLetterTopicFor(t); derr == nil {
+				out = append(out, dlq)
 			}
 		}
 	}

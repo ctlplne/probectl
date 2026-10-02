@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -116,15 +117,37 @@ const RUMEventsTopic = "probectl.rum.events"
 // gate test diffs this against the control plane's ensure list, so a new
 // producer topic cannot be added without also being ensured.
 func AllTopics() []string {
-	return []string{
-		NetworkResultsTopic, EndpointResultsTopic, RUMEventsTopic,
-		FlowEventsTopic, FlowIngestQualityTopic,
-		DeviceMetricsTopic, DeviceNeighborsTopic, DeviceCollectionOutcomesTopic,
-		EBPFFlowsTopic, BGPEventsTopic,
-		OTLPMetricsTopic, OTLPTracesTopic, OTLPLogsTopic,
-		DeadLetterResultsTopic, DeadLetterDeviceTopic, DeadLetterFlowTopic,
-		DeadLetterOTLPMetricsTopic, DeadLetterOTLPTracesTopic, DeadLetterOTLPLogsTopic,
+	topics := append([]string(nil), TenantLaneTopics()...)
+	seen := map[string]bool{}
+	for _, t := range topics {
+		seen[t] = true
 	}
+	// The dead-letter topics are DERIVED from the lane→DLQ source of truth
+	// (deadLetterBySource) so a lane whose DLQ name is computed at runtime — e.g.
+	// the endpoint/RUM sub-DLQs `...results.endpoint`/`.rum` — is ensured, not
+	// just the bare constants (RTP-01 reopen). Order is fixed for determinism.
+	for _, dlq := range deadLetterTopicsSorted() {
+		if !seen[dlq] {
+			topics = append(topics, dlq)
+			seen[dlq] = true
+		}
+	}
+	return topics
+}
+
+// deadLetterTopicsSorted returns the distinct pooled dead-letter topics in a
+// stable order.
+func deadLetterTopicsSorted() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, dlq := range deadLetterBySource {
+		if !seen[dlq] {
+			out = append(out, dlq)
+			seen[dlq] = true
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TenantLaneTopics is the subset of AllTopics that is published PER TENANT and
