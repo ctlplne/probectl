@@ -102,16 +102,23 @@ var KnownAttributes = map[string]bool{
 	"probectl.voice.jitter_buffer_ms": true,
 }
 
+// identityAttrs are the keys whose values come from the result's own identity
+// fields (re-stamped from the agent's mTLS identity on ingest), never from the
+// free-form attributes map an agent fills in.
+var identityAttrs = map[string]bool{
+	AttrTenantID:   true,
+	AttrAgentID:    true,
+	AttrCanaryType: true,
+}
+
 // ResultAttributes maps a Result to its OTel resource + network attributes — the
 // canonical mapping the TSDB labels (S6) and the OTLP layer (S22) build on. The
 // result's own attributes map is passed through; canaries populate it with
-// OTel-convention keys.
+// OTel-convention keys. Identity keys are written from the result's identity
+// fields and cannot be overridden by an attribute of the same name: tenant_id
+// is the TSDB isolation label (docs/guardrails.md G7-1).
 func ResultAttributes(r *resultv1.Result) map[string]string {
-	attrs := map[string]string{
-		AttrTenantID:   r.GetTenantId(),
-		AttrAgentID:    r.GetAgentId(),
-		AttrCanaryType: r.GetCanaryType(),
-	}
+	attrs := make(map[string]string, len(r.GetAttributes())+8)
 	if v := r.GetServerAddress(); v != "" {
 		attrs[AttrServerAddress] = v
 	}
@@ -125,7 +132,13 @@ func ResultAttributes(r *resultv1.Result) map[string]string {
 		attrs[AttrNetworkProtocol] = v
 	}
 	for k, v := range r.GetAttributes() {
+		if identityAttrs[k] {
+			continue
+		}
 		attrs[k] = v
 	}
+	attrs[AttrTenantID] = r.GetTenantId()
+	attrs[AttrAgentID] = r.GetAgentId()
+	attrs[AttrCanaryType] = r.GetCanaryType()
 	return attrs
 }
