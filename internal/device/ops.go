@@ -298,8 +298,18 @@ var configRedactRules = []struct {
 	re   *regexp.Regexp
 	repl string
 }{
-	// TACACS/RADIUS server shared key.
-	{regexp.MustCompile(`(?i)\b((?:tacacs|radius)-server\s+key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	// TACACS/RADIUS shared key, including the host form with intervening
+	// auth-port/acct-port/timeout/single-connection options before `key`.
+	{regexp.MustCompile(`(?i)\b((?:tacacs|radius)-server\s+(?:host\s+\S+\s+)?(?:(?:auth-port|acct-port|timeout|single-connection|retransmit|key-wrap)\s+\S+\s+|\d+\s+)*key\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
+	// Standalone type-encoded key subcommand — the modern `radius server NAME` /
+	// `tacacs server NAME` block (and `key 7 <hash>` generally). `[ \t]` (not \s)
+	// keeps it on one line so a key-chain `key 7` key-IDENTIFIER (alone on its
+	// line, value on the next `key-string` line) is NOT mistaken for a secret.
+	{regexp.MustCompile(`(?i)(\bkey[ \t]+(?:0|5|6|7)[ \t]+)\S+`), `${1}[redacted]`},
+	// A hex key after a hash algorithm (OSPFv3/IPsec `authentication ipsec spi N
+	// md5|sha1 <hex>`, and similar). 16+ hex digits keeps it off incidental small
+	// values; the algorithm name is preserved.
+	{regexp.MustCompile(`(?i)\b((?:md5|sha1|sha256|sha384|sha512)[ \t]+)[0-9a-fA-F]{16,}\b`), `${1}[redacted]`},
 	// Key-chain key-string.
 	{regexp.MustCompile(`(?i)\b(key-string\s+(?:` + cfgMod + `\s+)*)` + cfgVal), `${1}[redacted]`},
 	// Routing-protocol auth: (ip ospf / ntp) authentication-key, message-digest-key.

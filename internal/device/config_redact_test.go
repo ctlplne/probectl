@@ -44,6 +44,11 @@ func TestRedactConfigVendorSecrets(t *testing.T) {
 		{"wpa psk", "wpa-psk ascii 0 MyWifiPass1", "MyWifiPass1", "wpa-psk"},
 		{"snmp trap-host community", "snmp-server host 10.0.0.1 traps HostCommunity9", "HostCommunity9", "snmp-server host 10.0.0.1"},
 		{"snmp trap-host version vrf", "snmp-server host 10.0.0.1 version 2c vrf mgmt CommVrfX", "CommVrfX", "snmp-server host 10.0.0.1"},
+		{"radius named-block key 7", "radius server RAD-1\n address ipv4 192.0.2.10 auth-port 1812\n key 7 070C285F4D06", "070C285F4D06", "radius server RAD-1"},
+		{"tacacs named-block key 7", "tacacs server TAC-1\n address ipv4 192.0.2.11\n key 7 00071A150754", "00071A150754", "tacacs server TAC-1"},
+		{"tacacs host cleartext key", "tacacs-server host 10.0.0.1 key MyClearTacKey", "MyClearTacKey", "tacacs-server host 10.0.0.1"},
+		{"radius host key 7 w/ options", "radius-server host 10.0.0.1 auth-port 1812 key 7 09604F0B1A08", "09604F0B1A08", "radius-server host 10.0.0.1"},
+		{"ospfv3 ipsec md5", "ipv6 ospf authentication ipsec spi 500 md5 1234567890ABCDEF1234567890ABCDEF", "1234567890ABCDEF1234567890ABCDEF", "ipsec spi 500 md5"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -74,5 +79,16 @@ func TestRedactConfigVendorSecrets(t *testing.T) {
 	}
 	if !strings.Contains(out, "interface GigabitEthernet0/0") || !strings.Contains(out, "no shutdown") {
 		t.Error("non-secret config lines were lost")
+	}
+
+	// A key-chain key IDENTIFIER (`key 1`, alone on its line) is NOT a secret and
+	// must survive; the secret is the following key-string, which must be masked.
+	chain := "key chain OSPF-KC\n key 1\n  key-string 7 06120A2D4003\n"
+	kc := RedactConfig(chain)
+	if !strings.Contains(kc, "key chain OSPF-KC") || !strings.Contains(kc, "key 1\n") {
+		t.Errorf("key-chain structure (chain name / key id) was destroyed: %q", kc)
+	}
+	if strings.Contains(kc, "06120A2D4003") {
+		t.Errorf("key-chain key-string secret survived: %q", kc)
 	}
 }
