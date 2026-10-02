@@ -21,6 +21,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/promapi"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -41,10 +42,14 @@ type metricSource struct {
 }
 
 func (m metricSource) Current(_ context.Context, metric string, match map[string]string) ([]alert.Sample, error) {
-	scoped := map[string]string{"tenant_id": m.tenant}
+	scoped := make(map[string]string, len(match)+1)
 	for k, v := range match {
+		if k == promapi.TenantLabel { // never let a match key override the pin
+			continue
+		}
 		scoped[k] = v
 	}
+	scoped["tenant_id"] = m.tenant // applied LAST: the tenant pin cannot be overwritten
 	rows := m.q.Query(metric, scoped)
 
 	latest := make(map[string]alert.Sample, len(rows))
@@ -79,19 +84,24 @@ type promMetricSource struct {
 }
 
 func (m promMetricSource) Current(ctx context.Context, metric string, match map[string]string) ([]alert.Sample, error) {
-	var b strings.Builder
-	b.WriteString(metric)
-	b.WriteByte('{')
-	b.WriteString(`tenant_id=`)
-	b.WriteString(promQuote(m.tenant))
-	for k, v := range match {
-		b.WriteByte(',')
-		b.WriteString(k)
-		b.WriteByte('=')
-		b.WriteString(promQuote(v))
+	// Build the instant query through the validating selector, never by string
+	// concatenation: a non-identifier metric name or match key would otherwise
+	// let a rule inject a second selector and escape the tenant_id pin (G7-1).
+	// ForceTenant drops any caller tenant_id matcher and pins exactly one.
+	if !promapi.ValidMetricName(metric) {
+		return nil, fmt.Errorf("alert: metric is not a bare metric name")
 	}
-	b.WriteByte('}')
-	rows, err := m.q.InstantVector(ctx, b.String())
+	sel := promapi.Selector{Metric: metric}
+	for k, v := range match {
+		if k == promapi.TenantLabel {
+			continue
+		}
+		if !promapi.ValidLabelName(k) {
+			return nil, fmt.Errorf("alert: match key %q is not a valid label name", k)
+		}
+		sel.Matchers = append(sel.Matchers, promapi.Matcher{Name: k, Op: "=", Value: v})
+	}
+	rows, err := m.q.InstantVector(ctx, promapi.ForceTenant(sel, m.tenant).String())
 	if err != nil {
 		return nil, err
 	}
@@ -100,11 +110,6 @@ func (m promMetricSource) Current(ctx context.Context, metric string, match map[
 		out = append(out, alert.Sample{Labels: r.Labels, Value: r.Value})
 	}
 	return out, nil
-}
-
-// promQuote renders a PromQL label-matcher value (double-quoted, escaped).
-func promQuote(v string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`
 }
 
 func labelFingerprint(labels map[string]string) string {

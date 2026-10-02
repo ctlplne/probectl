@@ -190,6 +190,14 @@ func isAlnum(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
+// ValidMetricName reports whether s is a bare Prometheus metric name
+// (^[a-zA-Z_:][a-zA-Z0-9_:]*$) — no braces, operators or other PromQL syntax.
+func ValidMetricName(s string) bool { return metricRe.MatchString(s) }
+
+// ValidLabelName reports whether s is a valid Prometheus label name
+// (^[a-zA-Z_][a-zA-Z0-9_]*$).
+func ValidLabelName(s string) bool { return labelRe.MatchString(s) }
+
 // ForceTenant returns the selector with every caller-supplied tenant_id matcher
 // REMOVED and a single tenant_id="<tenant>" equality injected. This is the
 // tenant boundary: whatever the caller asked for, they get their own tenant.

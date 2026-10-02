@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/promapi"
 )
 
 // RuleType selects the evaluation strategy.
@@ -100,6 +102,22 @@ func (r Rule) Validate() error {
 	}
 	if strings.TrimSpace(r.Metric) == "" {
 		return fmt.Errorf("alert: metric is required")
+	}
+	// The metric name and match keys are concatenated into a tenant-scoped
+	// instant query; a non-identifier here would let a rule inject a second
+	// selector and escape the tenant_id pin (G7-1). Reject anything but a bare
+	// metric name / label name, and forbid the reserved scoping labels so a
+	// caller cannot supply their own tenant_id / __name__ matcher.
+	if !promapi.ValidMetricName(r.Metric) {
+		return fmt.Errorf("alert: metric must be a bare metric name")
+	}
+	for k := range r.Match {
+		if k == promapi.TenantLabel || k == "__name__" {
+			return fmt.Errorf("alert: match key %q is reserved", k)
+		}
+		if !promapi.ValidLabelName(k) {
+			return fmt.Errorf("alert: match key %q is not a valid label name", k)
+		}
 	}
 	switch r.Type {
 	case Threshold:
