@@ -339,7 +339,24 @@ func (s *Service) Bootstrap(ctx context.Context, configuredToken, presentedToken
 	if configuredToken == "" {
 		return Operator{}, "", errors.New("provider: bootstrap is not configured (set PROBECTL_PROVIDER_BOOTSTRAP_TOKEN)")
 	}
-	if !crypto.ConstantTimeEqual([]byte(configuredToken), []byte(presentedToken)) {
+	// AUTHZ-24: decide on the ROSTER state first, and answer identically whether
+	// or not the presented token is correct once bootstrap is CLOSED. Checking
+	// the token before the roster made the response differ (403 wrong-token vs
+	// 409 right-token-but-closed), an oracle that confirms the static bootstrap
+	// token to any caller long after the first admin exists. The constant-time
+	// compare still runs so timing does not leak either; its result is discarded
+	// when closed. The atomic empty-roster guard in BootstrapOperator remains the
+	// authority for the concurrent race (it still returns ErrConflict to a loser
+	// that observed an empty roster before the winner committed).
+	count, err := s.store.CountOperators(ctx)
+	if err != nil {
+		return Operator{}, "", err
+	}
+	tokenOK := crypto.ConstantTimeEqual([]byte(configuredToken), []byte(presentedToken))
+	if count > 0 {
+		return Operator{}, "", ErrForbidden // closed: uniform response, no oracle
+	}
+	if !tokenOK {
 		return Operator{}, "", ErrForbidden
 	}
 	token, err := randomToken()

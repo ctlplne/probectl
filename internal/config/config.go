@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/netip"
 	"net/url"
 	"os"
@@ -1213,6 +1214,7 @@ func validateConfig(l *loader, cfg *Config) {
 	if cfg.SingletonLeaseInterval < 250*time.Millisecond {
 		l.errf("PROBECTL_SINGLETON_LEASE_INTERVAL must be at least 250ms")
 	}
+	validateProviderBootstrapToken(l, cfg)
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
 	}
@@ -1294,6 +1296,59 @@ func validateConfig(l *loader, cfg *Config) {
 			l.errf("PROBECTL_DATABASE_READ_URL must be a postgres:// or postgresql:// URL")
 		}
 	}
+}
+
+// providerBootstrapTokenMinBytes is the length floor on the provider bootstrap
+// token (AUTHZ-24). The bootstrap endpoint is PUBLIC and gated only by this
+// static token, so it must carry real entropy — a 32-byte random secret, e.g.
+// `openssl rand -hex 32`. providerBootstrapTokenMinEntropyBits is a secondary
+// guard that rejects a long-but-degenerate value (e.g. a repeated character)
+// that clears the length floor but carries almost no entropy.
+const (
+	providerBootstrapTokenMinBytes       = 32
+	providerBootstrapTokenMinEntropyBits = 128
+)
+
+// validateProviderBootstrapToken refuses to start when the provider bootstrap
+// token is set but too weak (AUTHZ-24, guardrail 7.12, fail closed). An empty
+// token means bootstrap is simply not configured and is left alone.
+func validateProviderBootstrapToken(l *loader, cfg *Config) {
+	t := cfg.ProviderBootstrapToken
+	if t == "" {
+		return
+	}
+	if n := len(t); n < providerBootstrapTokenMinBytes {
+		l.errf("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN is too weak: it must carry at least %d bytes of entropy (a %d+ byte random secret, e.g. `openssl rand -hex 32`); got %d bytes — the provider bootstrap endpoint is public, so a short token is brute-forceable (AUTHZ-24, guardrail 7.12, fail closed)",
+			providerBootstrapTokenMinBytes, providerBootstrapTokenMinBytes, n)
+		return
+	}
+	if bits := shannonEntropyBits(t); bits < providerBootstrapTokenMinEntropyBits {
+		l.errf("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN is too weak: it is %d bytes but only ~%.0f bits of entropy (a repetitive or low-variety value); use a random secret such as `openssl rand -hex 32` (AUTHZ-24, guardrail 7.12, fail closed)",
+			len(t), bits)
+	}
+}
+
+// shannonEntropyBits estimates the total Shannon entropy of s in bits: the
+// per-byte entropy of its byte-frequency distribution, times its length. A
+// uniformly random secret approaches 8 bits/byte; a repeated character is 0.
+func shannonEntropyBits(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	var freq [256]int
+	for i := 0; i < len(s); i++ {
+		freq[s[i]]++
+	}
+	n := float64(len(s))
+	var perByte float64
+	for _, c := range freq {
+		if c == 0 {
+			continue
+		}
+		p := float64(c) / n
+		perByte -= p * math.Log2(p)
+	}
+	return perByte * n
 }
 
 func validateAuditRetentionProfile(l *loader, cfg *Config) {

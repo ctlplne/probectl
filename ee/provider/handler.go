@@ -389,10 +389,22 @@ func (h *Handler) handleBootstrap(w http.ResponseWriter, r *http.Request) error 
 	if err := decode(r, &in); err != nil {
 		return err
 	}
+	// AUTHZ-24: the bootstrap endpoint is PUBLIC and gated only by a static
+	// token, so throttle it per source IP with the same brake as the operator
+	// login — reusing that limiter under a distinct key namespace. Without this
+	// the token is brute-forceable at line rate. Throttle BEFORE the token check;
+	// count only failed attempts so the single legitimate bootstrap is not spent.
+	key := "pboot:" + h.clientIP(r)
+	if ok, retry := h.limiter.Allow(key); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+		return errRateLimited
+	}
 	op, enroll, err := h.svc.Bootstrap(r.Context(), h.bootstrapToken, in.Token, in.Email, in.Name)
 	if err != nil {
+		h.limiter.Fail(key)
 		return err
 	}
+	h.limiter.Success(key)
 	return h.writeJSON(w, http.StatusCreated, enrollTokenResponse(op, enroll))
 }
 

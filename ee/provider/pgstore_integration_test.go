@@ -336,9 +336,13 @@ func TestPGBootstrapConcurrentRequestsSerializeInitialOperatorAndRetry(t *testin
 		t.Fatalf("PostgreSQL bootstrap success audits = %d, want 1", got)
 	}
 
+	// AUTHZ-24: a retry once bootstrap is CLOSED answers with the uniform
+	// ErrForbidden (not the old ErrConflict), so the response cannot confirm the
+	// bootstrap token after the first admin exists. The concurrent loser above
+	// still observed an empty roster and so still got ErrConflict.
 	op, token, err := svc.Bootstrap(ctx, bootToken, bootToken, loserEmail, "PG Bootstrap Retry")
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("PostgreSQL bootstrap retry error = %v, want %v", err, ErrConflict)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("PostgreSQL bootstrap retry error = %v, want %v", err, ErrForbidden)
 	}
 	if op.ID != "" || token != "" {
 		t.Fatalf("PostgreSQL bootstrap retry leaked success material: op=%+v token=%q", op, token)

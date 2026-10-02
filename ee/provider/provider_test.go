@@ -471,6 +471,11 @@ func assertBootstrapSerializesInitialOperatorAndRetry(
 		t.Fatalf("bootstrap success audits = %d, want 1", got)
 	}
 
+	// AUTHZ-24: once bootstrap is CLOSED a retry — even with the correct token —
+	// answers with the uniform ErrForbidden, never the old ErrConflict, so the
+	// response cannot confirm the bootstrap token after the first admin exists.
+	// (The concurrent loser above still saw an empty roster and so still got
+	// ErrConflict from BootstrapOperator's atomic guard.)
 	op, token, err := svc.Bootstrap(
 		context.Background(),
 		bootToken,
@@ -478,8 +483,8 @@ func assertBootstrapSerializesInitialOperatorAndRetry(
 		loserEmail,
 		"Bootstrap Retry",
 	)
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("bootstrap retry error = %v, want %v", err, ErrConflict)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("bootstrap retry error = %v, want %v", err, ErrForbidden)
 	}
 	if op.ID != "" || token != "" {
 		t.Fatalf("bootstrap retry leaked success material: op=%+v token=%q", op, token)
@@ -1222,10 +1227,13 @@ func TestAuthHardening(t *testing.T) {
 	}
 	admin := f.bootstrapAndLogin(t)
 
-	// Bootstrap is single-use: inert once operators exist, even with the right token.
+	// Bootstrap is single-use: inert once operators exist, even with the right
+	// token — and (AUTHZ-24) the closed response is the SAME uniform 403 a wrong
+	// token gets, not a distinguishable 409, so it reveals nothing about the
+	// token.
 	rec = doReq(f.h, newReq(http.MethodPost, "/provider/v1/auth/bootstrap",
 		map[string]string{"token": bootToken, "email": "again@msp.example", "name": "Again"}))
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"conflict"`) {
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"code":"forbidden"`) {
 		t.Fatalf("bootstrap reuse: %d %s", rec.Code, rec.Body.String())
 	}
 
