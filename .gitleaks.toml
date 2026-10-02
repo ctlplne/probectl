@@ -38,6 +38,14 @@ paths = [
   # the stored alert channel is envelope-sealed and never contains the raw
   # value. The string is the test's INPUT, not a credential.
   '''internal/control/alerts_integration_test\.go''',
+  # AUD-06: the SIEM audit-identity test plants a fake token
+  # ("hunter2-secret-value") and an "api_key=sk...SECRET" string to prove the
+  # audit identity/redaction path handles them. Test INPUT, not credentials.
+  '''internal/control/siem_identity_test\.go''',
+  # The device config-redaction test plants fake network-device secrets
+  # (radius/tacacs/key-string values) to prove they are scrubbed. The strings
+  # are the test's INPUT, not credentials.
+  '''internal/device/config_redact_test\.go''',
 ]
 regexes = [
   # gosnmp protocol constants (e.g. AuthenticationProtocol = gosnmp.SHA512)
