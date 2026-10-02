@@ -70,8 +70,10 @@ func buildTools(b Backend) []Tool {
 		{
 			Name:        "get_bgp_events",
 			Permission:  permEventsRead,
-			Description: "Query recent BGP/routing events (announcements, withdrawals, possible hijacks) for a prefix or origin AS.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"prefix":{"type":"string","description":"CIDR to filter by"},"asn":{"type":"string","description":"origin AS number"},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":false}`),
+			Description: "Query recent BGP/routing events (announcements, withdrawals, possible hijacks) for a prefix.",
+			// AI-07: only `prefix` actually filters BGP/change events (origin-AS
+			// is not a field on those events), so the schema advertises just it.
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"prefix":{"type":"string","description":"CIDR to filter by"},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":false}`),
 			Invoke: func(ctx context.Context, p *auth.Principal, args json.RawMessage) (any, error) {
 				var a struct {
 					Prefix string `json:"prefix"`
@@ -87,8 +89,10 @@ func buildTools(b Backend) []Tool {
 		{
 			Name:        "query_flows",
 			Permission:  permEventsRead,
-			Description: "Query network flow/service-map records (eBPF) by service or source/destination.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"service":{"type":"string"},"src":{"type":"string"},"dst":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":false}`),
+			Description: "Query network flow/service-map records (eBPF) by source or destination.",
+			// AI-07: `service` is not a flow-store dimension, so it is not
+			// advertised; src and dst each pick the grouping and filter the rows.
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"src":{"type":"string"},"dst":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":false}`),
 			Invoke: func(ctx context.Context, p *auth.Principal, args json.RawMessage) (any, error) {
 				var a struct {
 					Service string `json:"service"`

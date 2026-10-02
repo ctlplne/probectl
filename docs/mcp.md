@@ -93,7 +93,7 @@ must hold. The catalog is deliberately small and legible: eight tools.
 | --------------------- | ---------------------- | ------------------------------------------------------------------------ |
 | `list_tests`          | `test.read`            | List at most 200 tenant tests, with `limit` + `truncated` metadata.       |
 | `get_path`            | `test.read`            | Most recently discovered path to a target (hops, per-hop loss/latency).  |
-| `get_bgp_events`      | `events.read`          | Recent BGP/routing events for a prefix or origin AS.                     |
+| `get_bgp_events`      | `events.read`          | Recent BGP/routing events for a prefix.                     |
 | `query_flows`         | `events.read`          | Network flow / service-map records (eBPF).                               |
 | `get_incident`        | `incident.read`        | One incident with its full cross-plane timeline.                         |
 | `correlate_incident`  | `incident.read`        | Which planes contributed to an incident, plus the signal timeline.       |

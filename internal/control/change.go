@@ -326,21 +326,30 @@ func (s changeEventsSource) queryFlowEvents(ctx context.Context, tenant string, 
 	if now.IsZero() {
 		now = time.Now()
 	}
+	// AI-07: honor the advertised filters. The grouping key is the value the
+	// filter matches against, so each of dst/target/asn/src both selects the
+	// grouping AND becomes a row filter below (`want`). Previously only `target`
+	// filtered and src/dst/asn were silently ignored, so the tool returned
+	// unrelated top-talkers regardless of the requested filter.
 	by := flowstore.BySrc
+	var want string
 	switch {
-	case sel["dst"] != "" || sel["target"] != "":
-		by = flowstore.ByDst
+	case sel["dst"] != "":
+		by, want = flowstore.ByDst, sel["dst"]
+	case sel["target"] != "":
+		by, want = flowstore.ByDst, sel["target"]
 	case sel["asn"] != "":
-		by = flowstore.BySrcASN
+		by, want = flowstore.BySrcASN, sel["asn"]
+	case sel["src"] != "":
+		by, want = flowstore.BySrc, sel["src"]
 	}
 	tops, err := s.flow.TopTalkers(ctx, flowstore.TopQuery{TenantID: tenant, By: by, Window: window, Limit: limit, Now: now})
 	if err != nil {
 		return nil, err
 	}
-	target := sel["target"]
 	out := make([]ai.Row, 0, len(tops))
 	for i, row := range tops {
-		if target != "" && row.Key != target && row.Detail != target {
+		if want != "" && row.Key != want && row.Detail != want {
 			continue
 		}
 		out = append(out, ai.Row{

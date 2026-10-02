@@ -373,7 +373,7 @@ func TestAllToolsReachBackend(t *testing.T) {
 		{"list_tests", nil},
 		{"get_path", map[string]any{"target": "x"}},
 		{"get_bgp_events", map[string]any{"prefix": "10.0.0.0/24", "limit": 5}},
-		{"query_flows", map[string]any{"service": "api"}},
+		{"query_flows", map[string]any{"src": "10.0.0.1"}},
 		{"get_incident", map[string]any{"id": "i1"}},
 		{"correlate_incident", map[string]any{"id": "i1"}},
 		{"explain_degradation", map[string]any{"question": "why slow?"}},
