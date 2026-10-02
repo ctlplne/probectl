@@ -31,6 +31,12 @@ const (
 	// tenant retains (they have no TTL) so repeated requests cannot leak memory.
 	maxMeshSites             = 64
 	maxMeshSessionsPerTenant = 50_000
+
+	// meshSessionTTL bounds how long mesh metadata/results are retained
+	// (AI-01): without a TTL, state for agents that never poll lingered until the
+	// FIFO cap alone evicted it. Expired sessions are swept lazily on the tenant's
+	// next StartMesh, matching the broker's lazy TTL model.
+	meshSessionTTL = 15 * time.Minute
 )
 
 // SiteAgent is an A2A-capable agent with the operator's site label. Tenant is
@@ -183,6 +189,8 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Sweep this tenant's expired sessions before adding new ones (AI-01).
+	m.evictExpiredLocked(tenantID, m.now())
 	for _, s := range created {
 		m.sessions[s.SessionID] = s
 		m.byTenant[tenantID] = append(m.byTenant[tenantID], s.SessionID)
@@ -191,21 +199,76 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 	return append([]MeshSession(nil), created...), nil
 }
 
+// evictExpiredLocked drops a tenant's sessions older than meshSessionTTL
+// (AI-01): state for agents that never poll must not be retained indefinitely.
+// Swept lazily on the tenant's next StartMesh.
+func (m *MeshScheduler) evictExpiredLocked(tenantID string, now time.Time) {
+	ids := m.byTenant[tenantID]
+	if len(ids) == 0 {
+		return
+	}
+	cutoff := now.Add(-meshSessionTTL)
+	kept := make([]string, 0, len(ids))
+	var drop []string
+	for _, id := range ids {
+		s, ok := m.sessions[id]
+		if !ok {
+			continue
+		}
+		if s.CreatedAt.Before(cutoff) {
+			drop = append(drop, id)
+			continue
+		}
+		kept = append(kept, id)
+	}
+	m.forgetSessionsLocked(tenantID, kept, drop)
+}
+
 // evictOldestLocked bounds a tenant's retained sessions (INJ-06): mesh sessions
-// have no TTL, so without this repeated requests leak session + result state
-// until OOM. The oldest session ids are dropped FIFO down to the cap, along
-// with their stored results, keeping memory bounded while new meshes still run.
+// are FIFO-capped, so repeated requests cannot leak session + result state until
+// OOM. The oldest session ids are dropped down to the cap, along with their
+// stored results.
 func (m *MeshScheduler) evictOldestLocked(tenantID string) {
 	ids := m.byTenant[tenantID]
 	if len(ids) <= maxMeshSessionsPerTenant {
 		return
 	}
 	drop := ids[:len(ids)-maxMeshSessionsPerTenant]
+	kept := append([]string(nil), ids[len(ids)-maxMeshSessionsPerTenant:]...)
+	m.forgetSessionsLocked(tenantID, kept, drop)
+}
+
+// forgetSessionsLocked removes the dropped sessions from m.sessions and prunes
+// their results from the tenant's result slice (results are keyed by tenant, not
+// by session id — the earlier per-id delete was a silent no-op), then sets the
+// tenant's retained id list to kept.
+func (m *MeshScheduler) forgetSessionsLocked(tenantID string, kept, drop []string) {
+	if len(drop) == 0 {
+		return
+	}
+	dropped := make(map[string]struct{}, len(drop))
 	for _, id := range drop {
 		delete(m.sessions, id)
-		delete(m.results, id)
+		dropped[id] = struct{}{}
 	}
-	m.byTenant[tenantID] = append([]string(nil), ids[len(ids)-maxMeshSessionsPerTenant:]...)
+	if results := m.results[tenantID]; len(results) > 0 {
+		pruned := results[:0]
+		for _, r := range results {
+			if _, gone := dropped[r.SessionID]; !gone {
+				pruned = append(pruned, r)
+			}
+		}
+		if len(pruned) == 0 {
+			delete(m.results, tenantID)
+		} else {
+			m.results[tenantID] = pruned
+		}
+	}
+	if len(kept) == 0 {
+		delete(m.byTenant, tenantID)
+	} else {
+		m.byTenant[tenantID] = kept
+	}
 }
 
 // recordResult attaches one canary result to a tenant-owned mesh session.

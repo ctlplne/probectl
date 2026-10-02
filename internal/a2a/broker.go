@@ -59,6 +59,15 @@ type pendingTask struct {
 	at   time.Time
 }
 
+// gcMinInterval throttles the pending/session sweep (AI-01/RTA-02): gcLocked
+// scans b.pending and b.sessions, so running it on every StartSession made a
+// single 64-site mesh (4032 StartSessions) O(sites^2 * pending) — up to seconds
+// of CPU once a tenant had inflated the pending backlog. The sweep now runs at
+// most once per interval regardless of call rate (O(1) amortized per call); the
+// per-tenant caps bound a single sweep's cost, and TTL reclamation still happens
+// within one interval of the TTL. An injected clock jump (tests) always sweeps.
+const gcMinInterval = 1 * time.Second
+
 // maxPendingPerTenant bounds the tasks a single tenant can have queued but
 // unpolled at once (INJ-06). Age-out (gcLocked) reclaims tasks for agents that
 // never poll, but only after the TTL; this cap bounds the memory a burst of
@@ -82,6 +91,9 @@ type Broker struct {
 	// pendingByTenant counts queued tasks per tenant so the per-tenant cap is
 	// O(1) to check without scanning every agent key.
 	pendingByTenant map[string]int
+	// lastGC is when the sweep last ran, so gcLocked can throttle to at most once
+	// per gcMinInterval (AI-01/RTA-02). Zero means never, so the first call runs.
+	lastGC time.Time
 }
 
 // NewBroker returns a broker with a 60s session TTL.
@@ -223,7 +235,14 @@ func (b *Broker) decPendingLocked(tenant string, n int) {
 }
 
 func (b *Broker) gcLocked() {
-	cutoff := b.now().Add(-b.ttl)
+	// Throttle the scan to O(1) amortized per call (AI-01/RTA-02): a burst of
+	// StartSessions from one mesh sweeps at most once, not once per session.
+	now := b.now()
+	if !b.lastGC.IsZero() && now.Sub(b.lastGC) < gcMinInterval {
+		return
+	}
+	b.lastGC = now
+	cutoff := now.Add(-b.ttl)
 	for id, s := range b.sessions {
 		if s.createdAt.Before(cutoff) {
 			delete(b.sessions, id)

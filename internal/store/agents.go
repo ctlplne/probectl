@@ -245,6 +245,30 @@ func (Agents) Get(ctx context.Context, s tenancy.Scope, id string) (*Agent, erro
 	return &a, nil
 }
 
+// ExistingIDs returns the subset of ids that are enrolled agents of the scoped
+// tenant, as a set, in one query (RLS fences the result to the tenant). Callers
+// must pass well-formed UUIDs — agents.id is uuid-typed, and a malformed value
+// would raise a 22P02 that aborts the tenant transaction.
+func (Agents) ExistingIDs(ctx context.Context, s tenancy.Scope, ids []string) (map[string]struct{}, error) {
+	present := make(map[string]struct{}, len(ids))
+	if len(ids) == 0 {
+		return present, nil
+	}
+	rows, err := s.Q.Query(ctx, `SELECT id FROM agents WHERE id = ANY($1::uuid[])`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		present[id] = struct{}{}
+	}
+	return present, rows.Err()
+}
+
 // ProducerReadiness reports all six shipped producer planes in a fixed-size
 // query. The query runs through the tenant transaction, so Postgres RLS is the
 // outer boundary; application code never receives another tenant's agents.

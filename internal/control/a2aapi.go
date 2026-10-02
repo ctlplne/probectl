@@ -9,12 +9,53 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+
+	guuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+// validateMeshAgents rejects a mesh request naming any agent_id that is not an
+// enrolled agent of the caller's tenant (AI-01), so a caller cannot inflate the
+// broker/scheduler with never-polling ghost agents. agent ids are UUIDs
+// (agents.id), so a non-UUID id is rejected up front — issuing it to the
+// UUID-typed column would raise a 22P02 that aborts the tenant transaction.
+// Existence is checked in one scoped query (not N round-trips).
+func (s *Server) validateMeshAgents(ctx context.Context, sc tenancy.Scope, agents []a2a.SiteAgent) error {
+	ids := make([]string, 0, len(agents))
+	seen := make(map[string]struct{}, len(agents))
+	for _, a := range agents {
+		if a.AgentID == "" {
+			continue // StartMesh rejects empty ids with its own validation error
+		}
+		if _, dup := seen[a.AgentID]; dup {
+			continue
+		}
+		seen[a.AgentID] = struct{}{}
+		if _, err := guuid.Parse(a.AgentID); err != nil {
+			return apierror.BadRequest(fmt.Sprintf("unknown agent_id %q for this tenant", a.AgentID))
+		}
+		ids = append(ids, a.AgentID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	present, err := (store.Agents{}).ExistingIDs(ctx, sc, ids)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, ok := present[id]; !ok {
+			return apierror.BadRequest(fmt.Sprintf("unknown agent_id %q for this tenant", id))
+		}
+	}
+	return nil
+}
 
 // ARCH-009: the A2A broker brokered agent-to-agent measurement sessions but had
 // no caller — the comment said "started by the test API in a later sprint", so
@@ -98,6 +139,13 @@ func (s *Server) handleStartA2AMesh(w http.ResponseWriter, r *http.Request) erro
 	}
 	var resp a2aMeshResponse
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		// AI-01: every agent_id must be one of this tenant's ENROLLED agents.
+		// Without this, a caller inflates the broker's in-memory queues with
+		// never-polling ghost agent ids — the quadratic-work / retention DoS.
+		// Rejected cheaply, before any O(n^2) scheduling.
+		if e := s.validateMeshAgents(ctx, sc, req.Agents); e != nil {
+			return e
+		}
 		sessions, e := s.a2aMesh.StartMesh(sc.Tenant.String(), req.Agents, req.Mode, req.Count)
 		if e != nil {
 			// INJ-06: an exhausted per-tenant task queue is a transient "retry
