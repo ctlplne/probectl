@@ -225,6 +225,14 @@ func (s *Server) handleDirectoryRoleBind(w http.ResponseWriter, r *http.Request)
 	if slug == "" {
 		return apierror.Validation("role is required")
 	}
+	// AUTHZ-09: ir-investigator is a separation-of-duty group (migration 0081).
+	// It must be populated through the SCIM group-binding surface, never through
+	// this directory-write API — otherwise any directory.write holder (incl. a
+	// tenant admin binding the role to themselves) defeats the SoD, letting them
+	// reveal encrypted IR attribution.
+	if slug == "ir-investigator" {
+		return apierror.Forbidden("the ir-investigator role is a separation-of-duty group and can only be assigned through SCIM")
+	}
 	var updated directoryUser
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := (store.Users{}).Get(ctx, sc, id)

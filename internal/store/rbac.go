@@ -330,24 +330,47 @@ func (Roles) EnsureSystemRoles(ctx context.Context, s tenancy.Scope) error {
 		 ON CONFLICT (tenant_id, slug) DO NOTHING`, tid); err != nil {
 		return err
 	}
-	for _, q := range []string{
-		`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
+	// AUTHZ-07/09: the broad seeding must exclude operator-only / separation-of-
+	// duty keys. admin gets every permission EXCEPT the SoD keys (ir.investigate
+	// is held only by its dedicated ir-investigator role, per migration 0081);
+	// viewer/editor additionally exclude the operator/provider-infrastructure
+	// read keys (diagnostics.read, fairness.read), which would otherwise leak
+	// deployment-global config, the license record, and SIEM/secrets health to
+	// every tenant's read-only users on a shared MSP control plane.
+	type seed struct {
+		q    string
+		excl []string
+	}
+	for _, s2 := range []seed{
+		{`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
 		   SELECT r.tenant_id, r.id, p.key FROM roles r CROSS JOIN permissions p
 		   WHERE r.tenant_id = $1 AND r.slug = 'admin' AND r.is_system
-		 ON CONFLICT (role_id, permission_key) DO NOTHING`,
-		`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
+		     AND p.key <> ALL($2)
+		 ON CONFLICT (role_id, permission_key) DO NOTHING`, sodPermissionKeys},
+		{`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
 		   SELECT r.tenant_id, r.id, p.key FROM roles r CROSS JOIN permissions p
 		   WHERE r.tenant_id = $1 AND r.slug = 'viewer' AND r.is_system AND p.key LIKE '%.read'
-		 ON CONFLICT (role_id, permission_key) DO NOTHING`,
-		`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
+		     AND p.key <> ALL($2)
+		 ON CONFLICT (role_id, permission_key) DO NOTHING`, viewerEditorExcludedKeys},
+		{`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
 		   SELECT r.tenant_id, r.id, p.key FROM roles r CROSS JOIN permissions p
 		   WHERE r.tenant_id = $1 AND r.slug = 'editor' AND r.is_system
-		     AND (p.key LIKE '%.read' OR p.key IN ('test.write', 'alert.write', 'incident.write'))
-		 ON CONFLICT (role_id, permission_key) DO NOTHING`,
+		     AND ((p.key LIKE '%.read' AND p.key <> ALL($2)) OR p.key IN ('test.write', 'alert.write', 'incident.write'))
+		 ON CONFLICT (role_id, permission_key) DO NOTHING`, viewerEditorExcludedKeys},
 	} {
-		if _, err := s.Q.Exec(ctx, q, tid); err != nil {
+		if _, err := s.Q.Exec(ctx, s2.q, tid, s2.excl); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// systemRoleExcludedKeys: permission keys the broad system-role seeding must not
+// grant. sodPermissionKeys are separation-of-duty keys held only by a dedicated
+// role (AUTHZ-09); operatorOnlyReadKeys are operator/provider-infrastructure
+// reads viewer/editor must not hold (AUTHZ-07).
+var (
+	sodPermissionKeys        = []string{"ir.investigate"}
+	operatorOnlyReadKeys     = []string{"diagnostics.read", "fairness.read"}
+	viewerEditorExcludedKeys = append(append([]string{}, sodPermissionKeys...), operatorOnlyReadKeys...)
+)
