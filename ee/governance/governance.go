@@ -77,6 +77,28 @@ func (s *Store) PolicyFor(ctx context.Context, tenantID string) (govern.Policy, 
 
 // Upsert stores a tenant's governance policy (the provider tuning surface).
 func (s *Store) Upsert(ctx context.Context, tenantID string, pol govern.Policy, by string) error {
+	return tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
+		return upsertTx(ctx, q, tenantID, pol, by)
+	})
+}
+
+// UpsertAudited stores the policy AND runs auditTx in the SAME provider
+// transaction (AUD-11). A consent/redaction change must never persist without
+// its audit record: if auditTx returns an error the whole transaction rolls
+// back, so tenant_governance is left unchanged and the caller's PUT fails.
+func (s *Store) UpsertAudited(ctx context.Context, tenantID string, pol govern.Policy, by string, auditTx func(context.Context, tenancy.Querier) error) error {
+	return tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
+		if err := upsertTx(ctx, q, tenantID, pol, by); err != nil {
+			return err
+		}
+		return auditTx(ctx, q)
+	})
+}
+
+// upsertTx is the policy write, parameterized on a querier so it can run either
+// standalone (Upsert) or inside a provider transaction shared with the audit
+// append (UpsertAudited).
+func upsertTx(ctx context.Context, q tenancy.Querier, tenantID string, pol govern.Policy, by string) error {
 	classes := map[string]string{}
 	for cat, cls := range pol.Overrides {
 		classes[string(cat)] = cls.String()
@@ -89,18 +111,16 @@ func (s *Store) Upsert(ctx context.Context, tenantID string, pol govern.Policy, 
 	if pol.RedactFrom != govern.ClassUnset {
 		from = pol.RedactFrom.String()
 	}
-	return tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
-		_, err := q.Exec(ctx, `
-			INSERT INTO tenant_governance (tenant_id, classifications, redact_from, redact_export, ai_remote_egress, updated_at, updated_by)
-			VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7)
-			ON CONFLICT (tenant_id) DO UPDATE SET
-				classifications  = excluded.classifications,
-				redact_from      = excluded.redact_from,
-				redact_export    = excluded.redact_export,
-				ai_remote_egress = excluded.ai_remote_egress,
-				updated_at       = excluded.updated_at,
-				updated_by       = excluded.updated_by`,
-			tenantID, string(classesJSON), from, pol.RedactExport, pol.AIRemoteEgress, time.Now().UTC(), by)
-		return err
-	})
+	_, err = q.Exec(ctx, `
+		INSERT INTO tenant_governance (tenant_id, classifications, redact_from, redact_export, ai_remote_egress, updated_at, updated_by)
+		VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7)
+		ON CONFLICT (tenant_id) DO UPDATE SET
+			classifications  = excluded.classifications,
+			redact_from      = excluded.redact_from,
+			redact_export    = excluded.redact_export,
+			ai_remote_egress = excluded.ai_remote_egress,
+			updated_at       = excluded.updated_at,
+			updated_by       = excluded.updated_by`,
+		tenantID, string(classesJSON), from, pol.RedactExport, pol.AIRemoteEgress, time.Now().UTC(), by)
+	return err
 }

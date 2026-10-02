@@ -285,16 +285,28 @@ type fixture struct {
 const bootToken = "boot-secret-0123456789"
 
 func newFixture(t *testing.T, lic *license.Manager) *fixture {
+	return newFixtureWithAudit(t, lic, &memAudit{})
+}
+
+// newFixtureWithAudit builds the fixture with a caller-supplied audit sink so a
+// test can inject a failing/partial sink (AUD-11). When the sink is the plain
+// *memAudit, f.audit is populated for recorded-event assertions.
+func newFixtureWithAudit(t *testing.T, lic *license.Manager, sink AuditSink) *fixture {
 	t.Helper()
 	store := NewMemStore()
-	sink := &memAudit{}
 	now := time.Now()
 	telemetry := fakeTelemetry{byTenant: map[string][]string{}}
 	svc, err := NewService(store, sink, lic, telemetry, testEnvelope(t), 4*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{store: store, svc: svc, audit: sink, now: &now}
+	f := &fixture{store: store, svc: svc, now: &now}
+	switch a := sink.(type) {
+	case *memAudit:
+		f.audit = a
+	case *govFailAudit:
+		f.audit = a.memAudit
+	}
 	svc.withClock(func() time.Time { return *f.now })
 	ta := &fakeTenantAuth{
 		sessions: map[string]*auth.Session{

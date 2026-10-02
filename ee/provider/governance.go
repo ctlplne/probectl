@@ -31,6 +31,9 @@ import (
 type GovernanceStore interface {
 	PolicyFor(ctx context.Context, tenantID string) (govern.Policy, bool, error)
 	Upsert(ctx context.Context, tenantID string, pol govern.Policy, by string) error
+	// UpsertAudited stores the policy and runs auditTx in the SAME transaction,
+	// so a failing audit append rolls the policy change back (AUD-11).
+	UpsertAudited(ctx context.Context, tenantID string, pol govern.Policy, by string, auditTx func(context.Context, tenancy.Querier) error) error
 }
 
 // Governance bundles the ee/ governance capability for the handler.
@@ -45,6 +48,7 @@ type composed struct {
 	Classifications map[string]string `json:"classifications"` // category -> class (effective)
 	RedactFrom      string            `json:"redact_from"`
 	RedactExport    bool              `json:"redact_export"`
+	AIRemoteEgress  bool              `json:"ai_remote_egress"`         // U-013: remote-AI telemetry consent (AUD-11: now visible on read)
 	Residency       string            `json:"residency,omitempty"`      // S-T2/S-EE2
 	IsolationModel  string            `json:"isolation_model"`          // S-T2
 	RetentionDays   *int              `json:"retention_days,omitempty"` // S-T5
@@ -63,6 +67,7 @@ func (h *Handler) handleGovernanceView(w http.ResponseWriter, r *http.Request, _
 	view := composed{
 		Classifications: map[string]string{},
 		RedactExport:    pol.RedactExport,
+		AIRemoteEgress:  pol.AIRemoteEgress,
 		BYOK:            "none",
 	}
 	if pol.RedactFrom != govern.ClassUnset {
@@ -139,10 +144,19 @@ func (h *Handler) handlePutGovernance(w http.ResponseWriter, r *http.Request, op
 		}
 	}
 	tenantID := r.PathValue("id")
-	if err := h.governance.Store.Upsert(r.Context(), tenantID, pol, op.Email); err != nil {
+	// AUD-11: read the prior policy so the audit event can record the consent +
+	// redaction OLD/NEW, then upsert the new policy and append the provider
+	// audit event in ONE transaction (UpsertAudited). A failing audit sink rolls
+	// the policy change back, so a consent change (ai_remote_egress) can never
+	// persist unaudited.
+	prior, priorFound, err := h.governance.Store.PolicyFor(r.Context(), tenantID)
+	if err != nil {
 		return err
 	}
-	if err := h.svc.RecordGovernanceChange(r.Context(), op.Email, tenantID, in.RedactFrom, in.RedactExport, len(in.Overrides)); err != nil {
+	if err := h.governance.Store.UpsertAudited(r.Context(), tenantID, pol, op.Email,
+		func(ctx context.Context, q tenancy.Querier) error {
+			return h.svc.AppendGovernanceAuditTx(ctx, q, op.Email, tenantID, prior, priorFound, pol)
+		}); err != nil {
 		return err
 	}
 	return h.writeJSON(w, http.StatusOK, map[string]any{"ok": true})

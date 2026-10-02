@@ -39,6 +39,82 @@ func (m *memGovStore) Upsert(_ context.Context, tenantID string, pol govern.Poli
 	return nil
 }
 
+// UpsertAudited mirrors the PG transaction (ee/governance.Store.UpsertAudited):
+// the audit append and the policy write commit or roll back together, so a
+// failing audit leaves the policy unchanged (AUD-11).
+func (m *memGovStore) UpsertAudited(ctx context.Context, tenantID string, pol govern.Policy, _ string, auditTx func(context.Context, tenancy.Querier) error) error {
+	if err := auditTx(ctx, nil); err != nil {
+		return err
+	}
+	m.pols[tenantID] = pol
+	return nil
+}
+
+// govFailAudit wraps memAudit and fails only the governance_set append once
+// armed, so the AUD-11 rollback regression can exercise the real handler
+// (bootstrap/login still audit normally before the failure is armed).
+type govFailAudit struct {
+	*memAudit
+	failGovernance bool
+}
+
+func (a *govFailAudit) Append(ctx context.Context, actor, action, target string, data map[string]any) error {
+	if a.failGovernance && action == "provider.governance_set" {
+		return errAuditUnavailable
+	}
+	return a.memAudit.Append(ctx, actor, action, target, data)
+}
+
+// TestGovernancePutRollsBackOnAuditFailure is the AUD-11 atomicity regression:
+// a consent/redaction change must NOT persist when the provider audit append
+// fails. Pre-fix the handler committed the upsert and then appended separately,
+// so a failing sink left the new policy stored with no audit record.
+func TestGovernancePutRollsBackOnAuditFailure(t *testing.T) {
+	sink := &govFailAudit{memAudit: &memAudit{}}
+	f := newFixtureWithAudit(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour), sink)
+	store := newMemGov()
+	store.pols["tn_1"] = govern.Policy{AIRemoteEgress: false, RedactFrom: govern.ClassPII}
+	f.h.WithGovernance(&Governance{Store: store})
+	token := f.bootstrapAndLoginFast(t)
+
+	sink.failGovernance = true
+	rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance", map[string]any{
+		"ai_remote_egress": true, "redact_from": "restricted", "redact_export": true,
+	})
+	if rec.Code == http.StatusOK {
+		t.Fatalf("AUD-11: governance PUT must fail when the audit append fails; got 200")
+	}
+	if got := store.pols["tn_1"]; got.AIRemoteEgress || got.RedactFrom != govern.ClassPII {
+		t.Fatalf("AUD-11: consent change persisted despite a failing audit sink: %+v", got)
+	}
+}
+
+// TestGovernancePutAuditRecordsConsentOldNew is the AUD-11 audit-completeness
+// regression: the provider governance_set event must carry ai_remote_egress
+// old/new (the prior event omitted the consent value entirely).
+func TestGovernancePutAuditRecordsConsentOldNew(t *testing.T) {
+	f, store, token := governedFixture(t)
+	store.pols["tn_1"] = govern.Policy{AIRemoteEgress: false}
+
+	rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance", map[string]any{
+		"ai_remote_egress": true, "redact_from": "restricted",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", rec.Code, rec.Body.String())
+	}
+	data := f.audit.lastData("provider.governance_set")
+	if data == nil {
+		t.Fatalf("AUD-11: no provider.governance_set audit event recorded")
+	}
+	egress, ok := data["ai_remote_egress"].(map[string]any)
+	if !ok {
+		t.Fatalf("AUD-11: audit event omits ai_remote_egress old/new: %+v", data)
+	}
+	if egress["old"] != false || egress["new"] != true {
+		t.Fatalf("AUD-11: ai_remote_egress old/new wrong: %+v", egress)
+	}
+}
+
 func governedFixture(t *testing.T) (*fixture, *memGovStore, string) {
 	t.Helper()
 	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))

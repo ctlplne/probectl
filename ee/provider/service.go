@@ -21,6 +21,7 @@ import (
 	coreaudit "github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -167,11 +168,40 @@ func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
 // writes) that live outside this file.
 func (s *Service) CheckWritable() error { return s.writable() }
 
-// RecordGovernanceChange audits a data-governance policy update.
-func (s *Service) RecordGovernanceChange(ctx context.Context, actor, tenantID, redactFrom string, redactExport bool, overrides int) error {
-	return s.audit.Append(ctx, actor, "provider.governance_set", tenantID, map[string]any{
-		"redact_from": redactFrom, "redact_export": redactExport, "classification_overrides": overrides,
-	})
+// AppendGovernanceAuditTx appends the provider governance-set audit event
+// (AUD-11). It records the consent and redaction OLD/NEW values — crucially
+// ai_remote_egress, the remote-AI telemetry consent (U-013), which the prior
+// event omitted entirely. When q is non-nil and the sink can join a
+// transaction, the append runs ON that transaction so the policy upsert and
+// this record commit or roll back together (ee/governance.Store.UpsertAudited);
+// otherwise (unit sinks) it appends directly.
+func (s *Service) AppendGovernanceAuditTx(ctx context.Context, q tenancy.Querier, actor, tenantID string, prior govern.Policy, priorFound bool, next govern.Policy) error {
+	data := governanceAuditData(prior, priorFound, next)
+	if tx, ok := s.audit.(transactionalAuditSink); ok && q != nil {
+		return tx.AppendTx(ctx, q, actor, "provider.governance_set", tenantID, data)
+	}
+	return s.audit.Append(ctx, actor, "provider.governance_set", tenantID, data)
+}
+
+// governanceAuditData renders the before/after of a governance change so the
+// provider audit event is self-describing (who changed what consent to what).
+func governanceAuditData(prior govern.Policy, priorFound bool, next govern.Policy) map[string]any {
+	oldEgress := priorFound && prior.AIRemoteEgress
+	oldExport := priorFound && prior.RedactExport
+	return map[string]any{
+		"ai_remote_egress":         map[string]any{"old": oldEgress, "new": next.AIRemoteEgress},
+		"redact_from":              map[string]any{"old": classString(prior, priorFound), "new": classString(next, true)},
+		"redact_export":            map[string]any{"old": oldExport, "new": next.RedactExport},
+		"classification_overrides": len(next.Overrides),
+		"prior_policy_existed":     priorFound,
+	}
+}
+
+func classString(pol govern.Policy, found bool) string {
+	if !found || pol.RedactFrom == govern.ClassUnset {
+		return ""
+	}
+	return pol.RedactFrom.String()
 }
 
 // RecordFairnessChange audits a fairness-policy update on the provider stream.
