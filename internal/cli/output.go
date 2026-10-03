@@ -13,7 +13,43 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 )
+
+// clean renders a server-supplied string safe for an operator's terminal
+// (GAP-07): every control rune — C0 (incl. \n and \t, which would also break a
+// table row/column), DEL, and C1 — is replaced with a visible \xNN / \uNNNN
+// escape, so an agent-reported hostname, name, version, capability or test
+// field cannot inject ANSI escape sequences (cursor moves, screen clears, title
+// rewrites) into the CLI output. Printable text (including multibyte UTF-8) is
+// untouched.
+func clean(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case !unicode.IsControl(r):
+			b.WriteRune(r)
+		case r <= 0xff:
+			fmt.Fprintf(&b, "\\x%02x", r)
+		default:
+			fmt.Fprintf(&b, "\\u%04x", r)
+		}
+	}
+	return b.String()
+}
+
+// cleanAll applies clean to each element (for capability lists).
+func cleanAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = clean(s)
+	}
+	return out
+}
 
 func printJSON(w io.Writer, v any) int {
 	enc := json.NewEncoder(w)
@@ -40,23 +76,23 @@ func printTests(w io.Writer, tests []Test) {
 	fmt.Fprintln(tw, "ID\tNAME\tTYPE\tTARGET\tINTERVAL\tENABLED")
 	for _, t := range tests {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%ds\t%t\n",
-			short(t.ID), t.Name, t.Type, t.Target, t.IntervalSeconds, t.Enabled)
+			clean(short(t.ID)), clean(t.Name), clean(t.Type), clean(t.Target), t.IntervalSeconds, t.Enabled)
 	}
 	_ = tw.Flush()
 }
 
 func printTest(w io.Writer, t Test) {
-	fmt.Fprintf(w, "id:        %s\n", t.ID)
-	fmt.Fprintf(w, "name:      %s\n", t.Name)
-	fmt.Fprintf(w, "type:      %s\n", t.Type)
-	fmt.Fprintf(w, "target:    %s\n", t.Target)
+	fmt.Fprintf(w, "id:        %s\n", clean(t.ID))
+	fmt.Fprintf(w, "name:      %s\n", clean(t.Name))
+	fmt.Fprintf(w, "type:      %s\n", clean(t.Type))
+	fmt.Fprintf(w, "target:    %s\n", clean(t.Target))
 	fmt.Fprintf(w, "interval:  %ds\n", t.IntervalSeconds)
 	fmt.Fprintf(w, "timeout:   %ds\n", t.TimeoutSeconds)
 	fmt.Fprintf(w, "enabled:   %t\n", t.Enabled)
 	if len(t.Params) > 0 {
 		var kv []string
 		for k, v := range t.Params {
-			kv = append(kv, k+"="+v)
+			kv = append(kv, clean(k)+"="+clean(v))
 		}
 		fmt.Fprintf(w, "params:    %s\n", strings.Join(kv, " "))
 	}
@@ -71,7 +107,7 @@ func printAgents(w io.Writer, agents []Agent) {
 	fmt.Fprintln(tw, "ID\tNAME\tHOSTNAME\tSTATUS\tIDENTITY\tCAPABILITIES")
 	for _, a := range agents {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			short(a.ID), a.Name, a.Hostname, a.Status, identityCell(a), strings.Join(a.Capabilities, ","))
+			clean(short(a.ID)), clean(a.Name), clean(a.Hostname), clean(a.Status), identityCell(a), strings.Join(cleanAll(a.Capabilities), ","))
 	}
 	_ = tw.Flush()
 }
@@ -95,19 +131,19 @@ func identityCell(a Agent) string {
 	case "expired":
 		return "EXPIRED"
 	default:
-		return a.IdentityState
+		return clean(a.IdentityState)
 	}
 }
 
 func printAgent(w io.Writer, a Agent) {
-	fmt.Fprintf(w, "id:            %s\n", a.ID)
-	fmt.Fprintf(w, "name:          %s\n", a.Name)
-	fmt.Fprintf(w, "hostname:      %s\n", a.Hostname)
-	fmt.Fprintf(w, "agent_version: %s\n", a.AgentVersion)
-	fmt.Fprintf(w, "status:        %s\n", a.Status)
-	fmt.Fprintf(w, "capabilities:  %s\n", strings.Join(a.Capabilities, ", "))
+	fmt.Fprintf(w, "id:            %s\n", clean(a.ID))
+	fmt.Fprintf(w, "name:          %s\n", clean(a.Name))
+	fmt.Fprintf(w, "hostname:      %s\n", clean(a.Hostname))
+	fmt.Fprintf(w, "agent_version: %s\n", clean(a.AgentVersion))
+	fmt.Fprintf(w, "status:        %s\n", clean(a.Status))
+	fmt.Fprintf(w, "capabilities:  %s\n", strings.Join(cleanAll(a.Capabilities), ", "))
 	fmt.Fprintf(w, "identity:      %s\n", identityCell(a))
 	if a.IdentityReason != "" {
-		fmt.Fprintf(w, "identity_note: %s\n", a.IdentityReason)
+		fmt.Fprintf(w, "identity_note: %s\n", clean(a.IdentityReason))
 	}
 }

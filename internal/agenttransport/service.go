@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -40,6 +41,52 @@ const (
 	heartbeatIntervalSeconds = 30
 	agentProtocolVersion     = "probectl.agent.v1"
 )
+
+// Descriptor bounds (GAP-07): hostname/version/capability are agent-reported
+// strings that fan out to the operator's CLI, the web console, audit records and
+// cross-tenant provider listings. They are untrusted payload (the tenant comes
+// from the cert, never the payload — CLAUDE.md §3), so Register rejects any that
+// carries a control rune (ANSI/terminal-escape injection) or exceeds a sane
+// bound, fail-closed and before the agent joins the registry, mirroring
+// agentlabel.Normalize. CONTRIBUTING.md.
+const (
+	maxHostnameBytes     = 253 // RFC 1035 DNS name ceiling
+	maxAgentVersionBytes = 64
+	maxAgentCapabilities = 64
+	maxCapabilityBytes   = 64
+)
+
+// validateDescriptor rejects control characters and over-length values in the
+// agent-reported hostname, version and capability list. A control rune anywhere
+// — C0 (incl. CR/LF/TAB/NUL), DEL or C1 — fails closed with InvalidArgument so a
+// crafted RegisterRequest can neither inject terminal escapes into downstream
+// renderers nor smuggle unbounded data into the registry.
+func validateDescriptor(hostname, version string, capabilities []string) error {
+	if len(hostname) > maxHostnameBytes {
+		return fmt.Errorf("hostname exceeds %d bytes", maxHostnameBytes)
+	}
+	if strings.ContainsFunc(hostname, unicode.IsControl) {
+		return fmt.Errorf("hostname contains control characters")
+	}
+	if len(version) > maxAgentVersionBytes {
+		return fmt.Errorf("agent_version exceeds %d bytes", maxAgentVersionBytes)
+	}
+	if strings.ContainsFunc(version, unicode.IsControl) {
+		return fmt.Errorf("agent_version contains control characters")
+	}
+	if len(capabilities) > maxAgentCapabilities {
+		return fmt.Errorf("capabilities exceed limit %d", maxAgentCapabilities)
+	}
+	for _, c := range capabilities {
+		if len(c) > maxCapabilityBytes {
+			return fmt.Errorf("capability exceeds %d bytes", maxCapabilityBytes)
+		}
+		if strings.ContainsFunc(c, unicode.IsControl) {
+			return fmt.Errorf("capability contains control characters")
+		}
+	}
+	return nil
+}
 
 var serverCapabilities = []string{
 	"agent.register",
@@ -109,6 +156,14 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 	id, err := svc.authenticate(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
+	}
+	// Descriptor sanitation (GAP-07): reject control characters / over-length in
+	// the agent-reported hostname, version and capabilities before they enter the
+	// registry and fan out to operator-facing renderers. Fail closed.
+	if verr := validateDescriptor(req.GetHostname(), req.GetAgentVersion(), req.GetCapabilities()); verr != nil {
+		svc.log.Warn("rejecting malformed agent descriptor",
+			"tenant", id.TenantID, "agent", id.AgentID, "reason", verr.Error())
+		return nil, status.Error(codes.InvalidArgument, verr.Error())
 	}
 	// Version-skew gate (S34): reject an agent outside the supported window before it
 	// joins the registry. FailedPrecondition signals "upgrade required" (retrying
