@@ -248,12 +248,32 @@ func TestHelmControlImageRequiresImmutableDigest(t *testing.T) {
 	if schemaPullSecrets < 0 {
 		t.Fatal("primary image schema missing the imagePullSecrets anchor")
 	}
+	// RTO-14: image.digest immutability is enforced at render by the
+	// probectl.image helper (required + ^sha256:...$ + fail, asserted above) and
+	// listed in the regulated profile's single aggregated preflight message. The
+	// values schema therefore keeps digest a required, typed field and rejects a
+	// MALFORMED non-empty digest, but must allow the empty default: a non-empty
+	// `^sha256:...$` schema pattern would make a bare `helm template
+	// -f values-strict.yaml` die with a cryptic JSON-schema error before the
+	// aggregated preflight can name image.digest alongside the other
+	// operator-supplied values (check_helm_hardening.sh RTO-14).
 	for _, want := range []string{
-		`"digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }`,
+		`"digest": { "type": "string", "pattern": "^(|sha256:[0-9a-f]{64})$" }`,
 		`"required": ["repository", "digest", "pullPolicy"]`,
 	} {
 		if !strings.Contains(schema[:schemaPullSecrets], want) {
 			t.Errorf("primary image schema missing %q", want)
+		}
+	}
+	// The regulated preflight is the single source that still requires a pinned
+	// digest for that profile: it rejects a non-sha256 digest and names
+	// image.digest in the must-supply list.
+	for _, want := range []string{
+		`regexMatch "^sha256:[0-9a-f]{64}$" (printf "%v" (default "" .Values.image.digest))`,
+		`--set-string image.digest=sha256:<64-hex>`,
+	} {
+		if !strings.Contains(helper, want) {
+			t.Errorf("regulated preflight missing image.digest enforcement %q", want)
 		}
 	}
 	for _, want := range []string{

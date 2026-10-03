@@ -79,7 +79,7 @@ helm_control_image_contract_is_mutable() {
   grep -Fq 'required "image.digest is required' "$helper" || return 0
   grep -Fq 'printf "%s@%s"' "$helper" || return 0
   grep -Eq '^[[:space:]]*digest:' <<<"$primary_values" || return 0
-  grep -Fq '"digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }' <<<"$primary_schema" || return 0
+  grep -Fq '"digest": { "type": "string", "pattern": "^(|sha256:[0-9a-f]{64})$" }' <<<"$primary_schema" || return 0
   grep -Fq '"required": ["repository", "digest", "pullPolicy"]' <<<"$primary_schema" || return 0
   return 1
 }
@@ -321,7 +321,7 @@ YAML
   "properties": {
     "image": {
       "properties": {
-        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        "digest": { "type": "string", "pattern": "^(|sha256:[0-9a-f]{64})$" }
       },
       "required": ["repository", "digest", "pullPolicy"]
     }

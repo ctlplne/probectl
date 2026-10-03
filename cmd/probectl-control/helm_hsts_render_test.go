@@ -62,7 +62,15 @@ func TestHelmRenderedHSTSConfigLoads(t *testing.T) {
 		want  time.Duration
 	}{
 		{name: "default", want: wantAge},
-		{name: "strict", extra: []string{"-f", "deploy/helm/probectl/values-strict.yaml"}, want: wantAge},
+		// RTO-14: the regulated profile validates a full production surface at
+		// startup and the chart refuses to render until the operator supplies the
+		// durable bus/TSDB/stores (haDurableSets) plus bus TLS (U-010). Supply them
+		// so this renders a complete, installable strict config — the same inputs
+		// values-strict.yaml documents.
+		{name: "strict", extra: append(
+			append([]string{"-f", "deploy/helm/probectl/values-strict.yaml"}, haDurableSets("")...),
+			"--set-string", "control.extraEnv.PROBECTL_BUS_TLS_ENABLED=true",
+		), want: wantAge},
 		// PLAT-02: the multi-replica profiles require shared durable backends, so
 		// supply them (haDurableSets, from ha_reference_coherence_test.go).
 		{name: "multi-tenant", extra: append([]string{"-f", "deploy/helm/probectl/values-multitenant.yaml"}, haDurableSets("")...), want: wantAge},
