@@ -478,6 +478,18 @@ type Config struct {
 	FlowEnrichGeoDB  string
 	FlowEnrichRIRDir string
 	FlowEnrichIXP    bool
+	// FlowEnrichASNFile points at an operator-supplied local IP→ASN file
+	// (the MaxMind GeoLite2-ASN CSV edition, or any compatible
+	// "network,asn,organization" CSV). When set, ASN enrichment reads origin
+	// AS number / name / prefix from this local file INSTEAD of the Team Cymru
+	// IP-to-ASN DNS service, so ASN enrichment works air-gapped with no
+	// outbound lookup (the no-phone-home guardrail — docs/guardrails.md G7-2).
+	// It supersedes PROBECTL_FLOW_ENRICH_ASN: when this is set the Cymru DNS
+	// source is not registered at all. Local file, no egress — like the geo
+	// .mmdb and RIR stats. An unreadable path degrades honestly (the source
+	// shows "unavailable" in GET /v1/threat/intel/status; the control plane
+	// keeps serving).
+	FlowEnrichASNFile string
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -648,6 +660,16 @@ type Config struct {
 	ThreatIntelEnabled bool
 	ThreatIntelRefresh time.Duration
 	ThreatIntelFeeds   []string
+	// ThreatIntelMirror, when set, makes every threat-intel feed load from an
+	// operator-hosted mirror instead of its public internet URL — so feeds
+	// load on an air-gapped deployment with NO outbound internet call (the
+	// no-phone-home guardrail — docs/guardrails.md G7-2). It is a base
+	// location: a local directory / file:// URL (fully offline) or an
+	// operator-hosted https base URL. Each feed is mirrored at
+	// <base>/<feed-name> (e.g. <base>/spamhaus_drop). Mirror content stays
+	// UNTRUSTED (parsed defensively), cached, and graceful-degrading (G7-10);
+	// an https mirror validates TLS via the hardened client (G7-12).
+	ThreatIntelMirror string
 
 	// NDR-lite behavioral detection (S42, F37): DGA/exfil/beaconing/egress/
 	// lateral detectors over the locally-collected flow/eBPF/DNS substrate.
@@ -703,6 +725,14 @@ type Config struct {
 	OutageRefresh      time.Duration
 	OutageRetention    time.Duration
 	OutageRadarToken   string
+	// OutageMirror, when set, makes the public outage feeds (IODA /
+	// Cloudflare Radar) load from an operator-hosted or file:// mirror instead
+	// of their public APIs — air-gap support with no outbound call (G7-2). Same
+	// shape as PROBECTL_THREATINTEL_MIRROR: a base directory / file:// URL or
+	// https base URL, with each feed mirrored at <base>/<feed-name>
+	// (<base>/ioda, <base>/cloudflare_radar). Mirrored bodies stay untrusted,
+	// cached, and graceful-degrading; an https mirror validates TLS.
+	OutageMirror string
 
 	// RUM convergence (S47b, F20). OFF by default: enabling opens the beacon
 	// ingest (an unauthenticated-session inbound surface). RUMApps maps public
@@ -1058,6 +1088,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowEnrichCacheMax = l.intRange("PROBECTL_FLOW_ENRICH_CACHE_MAX", 65536, 1, 10_000_000)
 	cfg.FlowEnrichGeoDB = l.str("PROBECTL_FLOW_ENRICH_GEOIP_DB", "")
 	cfg.FlowEnrichRIRDir = l.str("PROBECTL_FLOW_ENRICH_RIR_DIR", "")
+	cfg.FlowEnrichASNFile = l.str("PROBECTL_FLOW_ENRICH_ASN_FILE", "")
 	cfg.FlowEnrichIXP = l.boolean("PROBECTL_FLOW_ENRICH_IXP", false)
 	if cfg.FlowEnrichIXP && !cfg.FlowEnrichASN {
 		l.errf("PROBECTL_FLOW_ENRICH_IXP requires PROBECTL_FLOW_ENRICH_ASN=true (PeeringDB keys on the ASN the Team Cymru source resolves; without it the IXP source can never contribute)")
@@ -1170,6 +1201,7 @@ func loadFeaturePlaneConfig(l *loader, cfg *Config) {
 	cfg.ThreatIntelEnabled = l.boolean("PROBECTL_THREATINTEL_ENABLED", false)
 	cfg.ThreatIntelRefresh = l.dur("PROBECTL_THREATINTEL_REFRESH", 6*time.Hour)
 	cfg.ThreatIntelFeeds = l.list("PROBECTL_THREATINTEL_FEEDS")
+	cfg.ThreatIntelMirror = l.str("PROBECTL_THREATINTEL_MIRROR", "")
 	cfg.NDREnabled = l.boolean("PROBECTL_NDR_ENABLED", true)
 	cfg.NDRRulesDir = l.str("PROBECTL_NDR_RULES_DIR", "")
 	cfg.TopologyEngine = l.str("PROBECTL_TOPOLOGY_ENGINE", "indexed")
@@ -1189,6 +1221,7 @@ func loadFeaturePlaneConfig(l *loader, cfg *Config) {
 	cfg.OutageRefresh = l.dur("PROBECTL_OUTAGE_REFRESH", 10*time.Minute)
 	cfg.OutageRetention = l.dur("PROBECTL_OUTAGE_RETENTION", 48*time.Hour)
 	cfg.OutageRadarToken = l.str("PROBECTL_OUTAGE_RADAR_TOKEN", "")
+	cfg.OutageMirror = l.str("PROBECTL_OUTAGE_MIRROR", "")
 	cfg.RUMEnabled = l.boolean("PROBECTL_RUM_ENABLED", false)
 	cfg.RUMApps = l.tokenMap("PROBECTL_RUM_APPS")
 	cfg.RUMRatePerMin = l.intRange("PROBECTL_RUM_RATE_PER_MIN", 300, 0, 1_000_000)
@@ -1964,6 +1997,7 @@ func (c *Config) Redacted() map[string]any {
 		"flow_enrich_asn":             c.FlowEnrichASN,
 		"flow_enrich_geoip_db":        c.FlowEnrichGeoDB != "", // a boolean, never the operator's path
 		"flow_enrich_rir_dir":         c.FlowEnrichRIRDir != "",
+		"flow_enrich_asn_file":        c.FlowEnrichASNFile != "", // a boolean, never the operator's path
 		"flow_enrich_ixp":             c.FlowEnrichIXP,
 		"alert_smtp_configured":       c.AlertSMTPAddr != "", // a boolean, never address or credentials
 		"alert_smtp_tls_mode":         c.AlertSMTPTLSMode,

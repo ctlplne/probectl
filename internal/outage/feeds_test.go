@@ -12,9 +12,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/opendata"
 )
 
 // fakeDoer serves canned responses per URL substring and records requests.
@@ -153,12 +157,40 @@ func TestRadarFetchAPIFailure(t *testing.T) {
 	}
 }
 
+// RTP-14: a file:// mirror lets outage feeds load fully offline — the feed is
+// read from the local filesystem and the network client is never reached
+// (air-gap — docs/guardrails.md G7-2).
+func TestFeedsLoadFromFileMirror(t *testing.T) {
+	dir := t.TempDir()
+	// Operator mirrors the feed under its source name.
+	if err := os.WriteFile(filepath.Join(dir, "ioda"), []byte(iodaFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A net Doer with no canned responses: any outbound call errors AND is
+	// recorded, so reaching it fails the air-gap assertion.
+	blocked := &fakeDoer{}
+	feeds := NewFeeds([]string{"ioda"}, "", blocked, opendata.NewMirror("file://"+dir))
+	if len(feeds) != 1 {
+		t.Fatalf("built %d feeds, want 1", len(feeds))
+	}
+	evs, err := feeds[0].Fetch(context.Background(), time.Now().Add(-2*time.Hour))
+	if err != nil {
+		t.Fatalf("fetch from the file mirror: %v", err)
+	}
+	if len(evs) != 3 {
+		t.Fatalf("parsed %d events from the file mirror, want 3", len(evs))
+	}
+	if len(blocked.requests) != 0 {
+		t.Fatalf("air-gap violated: %d outbound request(s) made", len(blocked.requests))
+	}
+}
+
 func TestNewFeedsOmitsRadarWithoutToken(t *testing.T) {
-	feeds := NewFeeds(nil, "", &fakeDoer{})
+	feeds := NewFeeds(nil, "", &fakeDoer{}, opendata.Mirror{})
 	if len(feeds) != 1 || feeds[0].Descriptor().Name != "ioda" {
 		t.Fatalf("without a token only ioda should build, got %d feeds", len(feeds))
 	}
-	feeds = NewFeeds(nil, "tok", &fakeDoer{})
+	feeds = NewFeeds(nil, "tok", &fakeDoer{}, opendata.Mirror{})
 	if len(feeds) != 2 {
 		t.Fatalf("with a token both feeds should build, got %d", len(feeds))
 	}

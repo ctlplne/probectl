@@ -51,19 +51,28 @@ func FeedNames() []string { return []string{"ioda", "cloudflare_radar"} }
 // NewFeeds builds the named feeds (empty names = all built-ins). The
 // Cloudflare Radar API requires a token; without one the radar feed is
 // omitted (the caller logs it — degraded honestly, not silently). client nil
-// = the hardened-TLS default.
-func NewFeeds(names []string, radarToken string, client opendata.Doer) []Feed {
+// = the hardened-TLS default. When mirror is enabled, each feed loads from the
+// operator's mirror (file:// or an operator-hosted URL) instead of its public
+// API, so outage feeds load air-gapped with no outbound call
+// (docs/guardrails.md G7-2); a disabled (zero-value) mirror leaves behavior
+// unchanged.
+func NewFeeds(names []string, radarToken string, client opendata.Doer, mirror opendata.Mirror) []Feed {
 	if len(names) == 0 {
 		names = FeedNames()
 	}
+	doer := mirror.Client(client)
 	var out []Feed
 	for _, n := range names {
 		switch strings.ToLower(strings.TrimSpace(n)) {
 		case "ioda":
-			out = append(out, NewIODA(client))
+			f := NewIODA(doer).(*ioda)
+			f.base = mirror.Resolve("ioda", urlIODA)
+			out = append(out, f)
 		case "cloudflare_radar", "cloudflare-radar", "radar":
 			if radarToken != "" {
-				out = append(out, NewRadar(radarToken, client))
+				f := NewRadar(radarToken, doer).(*radar)
+				f.base = mirror.Resolve("cloudflare_radar", urlRadar)
+				out = append(out, f)
 			}
 		}
 	}

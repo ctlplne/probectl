@@ -292,7 +292,7 @@ func TestIntelRefresherUnionAcrossSources(t *testing.T) {
 }
 
 func TestNewIntelFeeds(t *testing.T) {
-	feeds := NewIntelFeeds(append(IntelFeedNames(), "bogus"), nil)
+	feeds := NewIntelFeeds(append(IntelFeedNames(), "bogus"), nil, Mirror{})
 	if len(feeds) != len(IntelFeedNames()) {
 		t.Fatalf("built %d feeds, want %d (bogus skipped)", len(feeds), len(IntelFeedNames()))
 	}

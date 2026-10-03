@@ -39,7 +39,9 @@ func BuildOutageFeeds(cfg *config.Config, log *slog.Logger) (*outage.Store, *out
 	if cfg == nil || !cfg.OutageFeedsEnabled {
 		return nil, nil, false
 	}
-	feeds := outage.NewFeeds(cfg.OutageFeeds, cfg.OutageRadarToken, nil) // nil → hardened-TLS default client
+	// nil client → hardened-TLS default; a configured mirror makes feeds load
+	// from an operator/file:// mirror (air-gap) instead of their public APIs.
+	feeds := outage.NewFeeds(cfg.OutageFeeds, cfg.OutageRadarToken, nil, opendata.NewMirror(cfg.OutageMirror))
 	if cfg.OutageRadarToken == "" {
 		log.Info("outage feeds: cloudflare_radar omitted (no PROBECTL_OUTAGE_RADAR_TOKEN)")
 	}

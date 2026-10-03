@@ -37,7 +37,9 @@ func BuildThreatIntel(cfg *config.Config, log *slog.Logger) (*opendata.IOCStore,
 	if len(names) == 0 {
 		names = opendata.IntelFeedNames() // empty → all built-in feeds
 	}
-	feeds := opendata.NewIntelFeeds(names, nil) // nil → hardened-TLS default client
+	// nil client → hardened-TLS default; a configured mirror makes feeds load
+	// from an operator/file:// mirror (air-gap) instead of their public URLs.
+	feeds := opendata.NewIntelFeeds(names, nil, opendata.NewMirror(cfg.ThreatIntelMirror))
 	if len(feeds) == 0 {
 		log.Warn("threat-intel enabled but no known feeds configured", "feeds", names)
 		return nil, nil, false

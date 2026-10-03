@@ -201,13 +201,26 @@ func NewIntelFeed(name string, client Doer) (ThreatIntelSource, bool) {
 	}
 }
 
-// NewIntelFeeds builds the named feeds (unknown names are skipped).
-func NewIntelFeeds(names []string, client Doer) []ThreatIntelSource {
+// NewIntelFeeds builds the named feeds (unknown names are skipped). When
+// mirror is enabled, each feed loads from the operator's mirror (file:// or an
+// operator-hosted URL) instead of its public internet URL, so feeds load
+// air-gapped with no outbound call (docs/guardrails.md G7-2); a disabled
+// (zero-value) mirror leaves behavior unchanged — the canonical URLs and the
+// supplied client are used as before.
+func NewIntelFeeds(names []string, client Doer, mirror Mirror) []ThreatIntelSource {
+	doer := mirror.Client(orDefault(client))
 	var out []ThreatIntelSource
 	for _, n := range names {
-		if f, ok := NewIntelFeed(n, client); ok {
-			out = append(out, f)
+		f, ok := NewIntelFeed(n, doer)
+		if !ok {
+			continue
 		}
+		// Point the feed at its mirror endpoint; the fetch seam (lineFeed) is
+		// otherwise untouched — the body is still parsed defensively.
+		if lf, ok := f.(*lineFeed); ok {
+			lf.url = mirror.Resolve(lf.desc.Name, lf.url)
+		}
+		out = append(out, f)
 	}
 	return out
 }

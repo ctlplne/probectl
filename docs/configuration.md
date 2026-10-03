@@ -1133,6 +1133,7 @@ pluggable and individually enable-able:
 | Source | Kind | Enable with | Notes |
 | ------ | ---- | ----------- | ----- |
 | Team Cymru | `asn` | `PROBECTL_FLOW_ENRICH_ASN=true` | IP→ASN/prefix/registry/AS-name via the Cymru IP-to-ASN DNS service (outbound DNS) |
+| ASN local file | `asn` | `PROBECTL_FLOW_ENRICH_ASN_FILE=<path>` | IP→ASN/AS-name/prefix from an **operator-supplied** MaxMind GeoLite2-ASN CSV (or any compatible `network,asn,organization` CSV). Local file, no egress — **air-gap friendly**. **Supersedes** `PROBECTL_FLOW_ENRICH_ASN`: when set, the Team Cymru DNS source is not registered, so no outbound DNS is issued |
 | MaxMind GeoLite2 | `geo` | `PROBECTL_FLOW_ENRICH_GEOIP_DB=<path>` | country/city/lat-lon from an **operator-supplied** `.mmdb` (not shipped); local file, no egress |
 | RIR delegated-stats | `allocation` | `PROBECTL_FLOW_ENRICH_RIR_DIR=<dir>` | RIR/country/status/date from delegated-extended stats files; parsed once into a sorted index; local files, no egress |
 | PeeringDB | `ixp` | `PROBECTL_FLOW_ENRICH_IXP=true` | IXP/facility presence via the PeeringDB REST API (outbound HTTPS); cached per ASN; requires `PROBECTL_FLOW_ENRICH_ASN` |
@@ -1672,6 +1673,7 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_EBPF_RETENTION_DAYS`    | `30` | delete-after-N-days TTL for the eBPF ClickHouse tables. `0` disables the TTL and keeps eBPF history indefinitely; use a finite value for high-churn L7/service-edge deployments |
 | `PROBECTL_ENDPOINT_RETENTION_DAYS` | `90` | delete-after-N-days TTL for raw endpoint/DEM event history. `0` disables the table TTL; tenant derived-identity policy can still enforce a tighter window |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
+| `PROBECTL_FLOW_ENRICH_ASN_FILE`   | *(unset)* | path to an operator-supplied local IP→ASN file — the MaxMind GeoLite2-ASN CSV edition, or any compatible `network,asn,organization` CSV (ASN, AS-name, prefix). Local file — no egress, **air-gap friendly**. **Supersedes** `PROBECTL_FLOW_ENRICH_ASN`: when set, ASN enrichment reads from this file and the Team Cymru DNS source is not registered (no outbound DNS). An unreadable path degrades honestly (`unavailable` in `GET /v1/threat/intel/status`; the control plane keeps serving) |
 | `PROBECTL_FLOW_ENRICH_CACHE_MAX`  | `65536`  | hard maximum entries in the shared open-data enrichment cache. When more distinct IPs arrive, stale entries expire first and then the least-recently-used entry is evicted; cache size/hits/misses/evictions are exposed on `/metrics` |
 | `PROBECTL_FLOW_ENRICH_GEOIP_DB`   | *(unset)* | path to an operator-supplied MaxMind GeoLite2 `.mmdb` (country/city/lat-lon). probectl never ships or fetches the database (see `opendata-aup.md` for licensing). Local file — no egress, air-gap friendly. An unreadable path degrades honestly: the source shows `unavailable` in `GET /v1/threat/intel/status` and the control plane keeps serving |
 | `PROBECTL_FLOW_ENRICH_RIR_DIR`    | *(unset)* | directory of RIR delegated-extended stats files (RIR, allocation status/date; drop in all five registries' files for the global view). Local files — no egress. Same honest `unavailable` degradation as the geo source |
@@ -2072,6 +2074,7 @@ signals (a **signal, not an IPS** — never blocks). See
 | `PROBECTL_THREATINTEL_ENABLED` | `false` | master switch (outbound feed fetches); off ⇒ no IOC code runs     |
 | `PROBECTL_THREATINTEL_REFRESH` | `6h`    | feed refresh cadence                                              |
 | `PROBECTL_THREATINTEL_FEEDS`   | (all)   | comma-separated feed names (`spamhaus_drop`, `feodo_tracker`, `sslbl`, `sslbl_ja3`, `urlhaus`, `tor_exit`, `firehol_level1`); empty ⇒ all |
+| `PROBECTL_THREATINTEL_MIRROR`  | *(unset)* | operator-hosted/offline mirror base for **all** feeds — a local directory or `file://` URL (fully offline, **air-gap**) or an operator-hosted `https://` base URL. Each feed loads from `<base>/<feed-name>` (e.g. `<base>/spamhaus_drop`) instead of its public URL, so no hardcoded internet URL is contacted. Mirrored bodies stay untrusted (parsed defensively), cached, and graceful-degrading; an `https://` mirror validates TLS |
 
 **Off by default** (an outbound fetch — sovereignty / no-phone-home). The
 refresher keeps each source's **last-good** indicators, so a feed outage degrades
@@ -2319,6 +2322,7 @@ networks or countries.
 | `PROBECTL_OUTAGE_REFRESH`       | `10m`   | feed refresh cadence (last-good kept on failure) |
 | `PROBECTL_OUTAGE_RETENTION`     | `48h`   | event window kept/queried |
 | `PROBECTL_OUTAGE_RADAR_TOKEN`   | (none)  | Cloudflare API token the radar feed requires (a secret reference is accepted); the feed is omitted without it |
+| `PROBECTL_OUTAGE_MIRROR`        | *(unset)* | operator-hosted/offline mirror base for the outage feeds — a local directory or `file://` URL (fully offline, **air-gap**) or an operator-hosted `https://` base URL. Each feed loads from `<base>/<feed-name>` (`<base>/ioda`, `<base>/cloudflare_radar`) instead of its public API. Mirrored bodies stay untrusted, cached, and graceful-degrading; an `https://` mirror validates TLS |
 
 The collective view at `GET /v1/outages` (events + the caller-tenant's
 affected tests + vantage detections + feed AUP/health + coverage notes) and

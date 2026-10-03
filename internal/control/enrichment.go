@@ -26,7 +26,7 @@ import (
 // with the load error — and the control plane keeps serving (open data
 // degrades gracefully, docs/guardrails.md G7-10).
 func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, bool) {
-	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP {
+	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" {
 		return nil, false
 	}
 	en := opendata.NewEnricher(log, opendata.WithCacheMaxEntries(cfg.FlowEnrichCacheMax))
@@ -50,7 +50,22 @@ func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, 
 				"files", files, "v4_ranges", v4, "v6_prefixes", v6)
 		}
 	}
-	if cfg.FlowEnrichASN {
+	// ASN: a local ASN file supersedes the Team Cymru DNS lookup. When it is
+	// configured we register the local-file source and do NOT register Cymru —
+	// so no outbound DNS is issued even if PROBECTL_FLOW_ENRICH_ASN is also set
+	// (air-gap: the whole ASN path is a local-file read, docs/guardrails.md
+	// G7-2). A path that cannot be loaded registers "unavailable" for
+	// visibility and the control plane keeps serving (G7-10).
+	switch {
+	case cfg.FlowEnrichASNFile != "":
+		if idx, err := opendata.LoadASNFile(cfg.FlowEnrichASNFile); err != nil {
+			log.Error("ASN enrichment configured but unavailable", "error", err)
+			en.RegisterUnavailable(opendata.NewASNFile(), err)
+		} else {
+			en.Register(idx)
+			log.Info("ASN enrichment enabled", "source", "asn-file", "prefixes", idx.Size())
+		}
+	case cfg.FlowEnrichASN:
 		en.Register(opendata.NewCymru(net.DefaultResolver))
 		log.Info("ASN enrichment enabled", "source", "team-cymru")
 	}
