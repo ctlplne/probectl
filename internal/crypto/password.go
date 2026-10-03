@@ -7,7 +7,7 @@
 package crypto
 
 import (
-	"crypto/hmac"
+	"crypto/pbkdf2"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -16,12 +16,21 @@ import (
 	"strings"
 )
 
-// Password hashing (S-T1): PBKDF2-HMAC-SHA256, implemented here so every
-// primitive call stays inside internal/crypto (docs/guardrails.md G7-3).
-// PBKDF2 is chosen over argon2/bcrypt deliberately: it is the KDF a FIPS
-// 140-3 validated module provides (SP 800-132), so the FIPS build swaps the
-// implementation without changing the stored format. Iterations follow the
-// OWASP 2023+ recommendation for PBKDF2-SHA256.
+// Password hashing (S-T1): PBKDF2-HMAC-SHA256, routed through the standard
+// library's FIPS 140-3 validated module (crypto/pbkdf2) while staying inside
+// internal/crypto (docs/guardrails.md G7-3). PBKDF2 is chosen over
+// argon2/bcrypt deliberately: it is the KDF a FIPS 140-3 validated module
+// provides (SP 800-132), so the FIPS build swaps the implementation without
+// changing the stored format. Iterations follow the OWASP 2023+ recommendation
+// for PBKDF2-SHA256.
+//
+// Using crypto/pbkdf2 rather than driving crypto/hmac by hand is what keeps the
+// FIPS build sound under GODEBUG=fips140=only: the module treats the password
+// as a password (a low-entropy KDF input is expected), so a short user password
+// does NOT trip the 112-bit HMAC key floor that a raw crypto/hmac call would
+// PANIC on. It still enforces the SP 800-132 128-bit salt floor, returning an
+// error (never a panic) for a short salt — and HashPassword always mints a
+// 16-byte salt, so real hashing clears that floor (RTT-05).
 
 const (
 	pbkdf2Iterations = 600_000
@@ -29,30 +38,16 @@ const (
 	pbkdf2KeySize    = 32
 )
 
-// pbkdf2Key derives a key per RFC 2898 §5.2 using HMAC-SHA256.
-func pbkdf2Key(password, salt []byte, iter, keyLen int) []byte {
-	prf := func(data []byte) []byte {
-		mac := hmac.New(sha256.New, password)
-		mac.Write(data)
-		return mac.Sum(nil)
+// pbkdf2Key derives a key per RFC 2898 §5.2 using PBKDF2-HMAC-SHA256 from the
+// validated module. It returns an error (fail closed) rather than panicking
+// when the module rejects an input under FIPS 140-only mode (e.g. a salt
+// shorter than 128 bits).
+func pbkdf2Key(password, salt []byte, iter, keyLen int) ([]byte, error) {
+	dk, err := pbkdf2.Key(sha256.New, string(password), salt, iter, keyLen)
+	if err != nil {
+		return nil, fmt.Errorf("crypto: pbkdf2: %w", err)
 	}
-	hLen := sha256.Size
-	blocks := (keyLen + hLen - 1) / hLen
-	dk := make([]byte, 0, blocks*hLen)
-	buf := make([]byte, 4)
-	for block := 1; block <= blocks; block++ {
-		buf[0], buf[1], buf[2], buf[3] = byte(block>>24), byte(block>>16), byte(block>>8), byte(block)
-		u := prf(append(append([]byte{}, salt...), buf...))
-		t := append([]byte{}, u...)
-		for i := 1; i < iter; i++ {
-			u = prf(u)
-			for j := range t {
-				t[j] ^= u[j]
-			}
-		}
-		dk = append(dk, t...)
-	}
-	return dk[:keyLen]
+	return dk, nil
 }
 
 // HashPassword derives a versioned, self-describing password record:
@@ -66,7 +61,10 @@ func HashPassword(password string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dk := pbkdf2Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeySize)
+	dk, err := pbkdf2Key([]byte(password), salt, pbkdf2Iterations, pbkdf2KeySize)
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf("pbkdf2$sha256$%d$%s$%s",
 		pbkdf2Iterations,
 		base64.RawStdEncoding.EncodeToString(salt),
@@ -93,6 +91,9 @@ func VerifyPassword(record, password string) bool {
 	if err != nil || len(want) == 0 {
 		return false
 	}
-	got := pbkdf2Key([]byte(password), salt, iter, len(want))
+	got, err := pbkdf2Key([]byte(password), salt, iter, len(want))
+	if err != nil {
+		return false
+	}
 	return ConstantTimeEqual(got, want)
 }

@@ -94,19 +94,29 @@ func LogPowerOnSelfTestStatus(log *slog.Logger) {
 // Known-answer test vectors (published, standardized — the transparent-swap
 // guarantee is that these hold in EVERY build):
 //   - SHA-256("abc")                                   FIPS 180-4
-//   - HMAC-SHA-256("Jefe", "what do ya want…")         RFC 4231 TC2
-//   - PBKDF2-HMAC-SHA-256("password","salt",1,32)      SP 800-132 vector
+//   - HMAC-SHA-256(20×0x0b, "Hi There")                RFC 4231 TC1
+//   - PBKDF2-HMAC-SHA-256("password",16B salt,1,32)    SP 800-132
 var (
 	katSHA256Input  = []byte("abc")
 	katSHA256Expect = mustHex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 
-	katHMACKey    = []byte("Jefe")
-	katHMACData   = []byte("what do ya want for nothing?")
-	katHMACExpect = mustHex("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+	// RFC 4231 TC1 keys on 20 bytes (160 bits). The earlier RFC 4231 TC2 vector
+	// keyed on "Jefe" (4 bytes / 32 bits), which PANICS under
+	// GODEBUG=fips140=only — FIPS 140-only mode forbids HMAC keys shorter than
+	// 112 bits. TC1's key clears that floor, so this KAT (a genuine known-answer
+	// test: fixed key, fixed message, fixed expected MAC) runs and passes in
+	// fips140=only as well as on/off (docs/guardrails.md G7-3; RTT-05).
+	katHMACKey    = bytes.Repeat([]byte{0x0b}, 20)
+	katHMACData   = []byte("Hi There")
+	katHMACExpect = mustHex("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
 
+	// The salt is 16 bytes (128 bits). crypto/pbkdf2 rejects a salt shorter than
+	// 128 bits under GODEBUG=fips140=only (SP 800-132), so a 4-byte salt would
+	// fail the KAT there; 16 bytes matches the salt HashPassword actually mints.
+	// The expected key is recomputed for this salt (RTT-05).
 	katPBKDF2Pass   = []byte("password")
-	katPBKDF2Salt   = []byte("salt")
-	katPBKDF2Expect = mustHex("120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b")
+	katPBKDF2Salt   = []byte("probectl-fips-ok") // 16 bytes
+	katPBKDF2Expect = mustHex("a137a47f7e27f27bd5049246ae820d059a9a06c667c634aa88691f511881d215")
 )
 
 func mustHex(s string) []byte {
@@ -151,8 +161,12 @@ func PowerOnSelfTest() error {
 	}
 
 	// PBKDF2-HMAC-SHA-256 (password KDF, SP 800-132) — known answer.
-	if got := pbkdf2Key(katPBKDF2Pass, katPBKDF2Salt, 1, 32); !bytes.Equal(got, katPBKDF2Expect) {
-		return fmt.Errorf("crypto POST: PBKDF2-SHA-256 KAT failed: got %x", got)
+	dk, err := pbkdf2Key(katPBKDF2Pass, katPBKDF2Salt, 1, 32)
+	if err != nil {
+		return fmt.Errorf("crypto POST: PBKDF2-SHA-256 KAT: %w", err)
+	}
+	if !bytes.Equal(dk, katPBKDF2Expect) {
+		return fmt.Errorf("crypto POST: PBKDF2-SHA-256 KAT failed: got %x", dk)
 	}
 
 	// AES-256-GCM (Encrypt/Decrypt) — operational KAT: round-trip recovers the

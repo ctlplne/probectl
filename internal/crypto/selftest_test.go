@@ -30,6 +30,13 @@ func TestPowerOnSelfTest(t *testing.T) {
 // SP 800-132 PBKDF2.)
 func TestTransparentSwap(t *testing.T) {
 	p := Default
+	// pbkdf2Key now returns an error (it routes through crypto/pbkdf2); this
+	// golden vector runs only in the standard/on builds, where the 4-byte salt
+	// is accepted, so a nil error is expected here.
+	pbdk, err := pbkdf2Key([]byte("password"), []byte("salt"), 1, 32)
+	if err != nil {
+		t.Fatalf("pbkdf2Key: %v", err)
+	}
 	cases := []struct {
 		name string
 		got  []byte
@@ -37,7 +44,7 @@ func TestTransparentSwap(t *testing.T) {
 	}{
 		{"sha256", p.Hash([]byte("abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
 		{"hmac-sha256", p.Sign([]byte("Jefe"), []byte("what do ya want for nothing?")), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"},
-		{"pbkdf2-sha256", pbkdf2Key([]byte("password"), []byte("salt"), 1, 32), "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"},
+		{"pbkdf2-sha256", pbdk, "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"},
 	}
 	for _, c := range cases {
 		if got := hex.EncodeToString(c.got); got != c.want {

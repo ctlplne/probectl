@@ -65,12 +65,13 @@ func (stdProvider) Encrypt(key, plaintext, aad []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("crypto: nonce: %w", err)
-	}
-	// Seal appends to its first argument, so the nonce is prepended to the output.
-	return gcm.Seal(nonce, nonce, plaintext, aad), nil
+	// NewGCMWithRandomNonce generates a fresh 96-bit nonce for every message and
+	// prepends it to the ciphertext — the same wire layout the earlier
+	// caller-managed nonce produced, so data sealed by previous builds still
+	// opens. The nonce argument must be nil (the AEAD owns nonce selection).
+	// This is the FIPS-approved GCM path: fips140=only rejects a caller-chosen
+	// IV (docs/guardrails.md G7-3).
+	return gcm.Seal(nil, nil, plaintext, aad), nil
 }
 
 func (stdProvider) Decrypt(key, ciphertext, aad []byte) ([]byte, error) {
@@ -78,12 +79,13 @@ func (stdProvider) Decrypt(key, ciphertext, aad []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ns := gcm.NonceSize()
-	if len(ciphertext) < ns {
+	// newGCM is NewGCMWithRandomNonce: it reads the 12-byte nonce it prepended
+	// from the front of the ciphertext, so the nonce argument is empty. This
+	// also opens ciphertext written by earlier builds (identical wire layout).
+	if len(ciphertext) < gcm.Overhead() {
 		return nil, errors.New("crypto: ciphertext too short")
 	}
-	nonce, ct := ciphertext[:ns], ciphertext[ns:]
-	pt, err := gcm.Open(nil, nonce, ct, aad)
+	pt, err := gcm.Open(nil, nil, ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("crypto: decrypt: %w", err)
 	}
@@ -108,7 +110,13 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 	if err != nil {
 		return nil, fmt.Errorf("crypto: cipher: %w", err)
 	}
-	gcm, err := cipher.NewGCM(block)
+	// NewGCMWithRandomNonce: the AEAD owns nonce generation, prepending a fresh
+	// 96-bit nonce to every ciphertext, so no caller-chosen IV is ever used.
+	// GODEBUG=fips140=only rejects a caller-managed GCM nonce, so this is the
+	// path a FIPS build must take; the 12-byte-nonce-prefix wire layout is
+	// identical to the earlier caller-managed nonce, so ciphertext written by
+	// previous builds still opens (RTT-05, docs/guardrails.md G7-3).
+	gcm, err := cipher.NewGCMWithRandomNonce(block)
 	if err != nil {
 		return nil, fmt.Errorf("crypto: gcm: %w", err)
 	}
