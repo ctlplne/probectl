@@ -58,8 +58,23 @@ func TestEnsureSystemRolesSeedsAFreshTenantIdempotently(t *testing.T) {
 			}
 			switch r.Slug {
 			case "admin":
-				if len(perms) != catalog {
-					return fmt.Errorf("admin holds %d of %d catalog permissions", len(perms), catalog)
+				// AUTHZ-09 (migrations 0081/0103, rbac.go): the tenant admin holds
+				// every catalog permission EXCEPT the separation-of-duty keys, which
+				// live only on their dedicated role (ir.investigate → ir-investigator).
+				// So the expected count is the catalog minus those SoD keys, and admin
+				// must hold NONE of them.
+				if len(perms) != catalog-len(sodPermissionKeys) {
+					return fmt.Errorf(
+						"admin holds %d of %d catalog permissions, want all except the %d separation-of-duty key(s) %v",
+						len(perms), catalog, len(sodPermissionKeys), sodPermissionKeys,
+					)
+				}
+				for _, p := range perms {
+					for _, sod := range sodPermissionKeys {
+						if p == sod {
+							return fmt.Errorf("admin must not hold separation-of-duty key %q (AUTHZ-09)", sod)
+						}
+					}
 				}
 			case "viewer":
 				for _, p := range perms {
