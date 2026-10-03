@@ -843,6 +843,51 @@ func setupSecretsAndEnvelope(cfg *config.Config) (*secrets.Resolver, bool, error
 	return resolver, envelopeGenerated, nil
 }
 
+// revocationLister reads the persisted agent revocation state (revoked
+// certificate serials and SPIFFE IDs). *enroll.Service satisfies it; tests
+// inject a fake to exercise the mandatory boot-time load.
+type revocationLister interface {
+	ListRevoked(ctx context.Context) (serials, spiffeIDs []string, err error)
+}
+
+const (
+	// initialRevocationAttempts/Backoff bound the mandatory first deny-list load
+	// (AUTHZ-26). Production retries a few times over a short window so a
+	// transient database blip at boot does not fail closed unnecessarily.
+	initialRevocationAttempts = 5
+	initialRevocationBackoff  = 2 * time.Second
+)
+
+// loadInitialRevocation performs the MANDATORY first revocation deny-list load
+// before the agent listener serves (AUTHZ-26 / G7-4). The boot-time deny-list is
+// empty, so serving after a failed load would accept a revoked agent — fail
+// open. It retries with backoff and, if the persisted revocation state is still
+// unreadable, returns an error so the caller refuses to start agent traffic
+// (fail closed). The running refresh loop keeps the last good list on later
+// transient failures; only this first load is allowed to block serving.
+func loadInitialRevocation(ctx context.Context, lister revocationLister, apply func(serials, ids []string), attempts int, backoff time.Duration, log *slog.Logger) error {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		serials, ids, err := lister.ListRevoked(ctx)
+		if err == nil {
+			apply(serials, ids)
+			return nil
+		}
+		lastErr = err
+		log.Error("mandatory initial agent revocation load failed; retrying before serving (fail closed)",
+			"attempt", i+1, "attempts", attempts, "error", err.Error())
+		if i == attempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return fmt.Errorf("agent revocation deny-list could not be loaded after %d attempts (refusing agent traffic, fail closed): %w", attempts, lastErr)
+}
+
 // startAgentTransport wires the optional mTLS agent listener and its revocation
 // refresh loop. It stays disabled unless the agent TLS config is complete; when
 // enabled, every handshake is tenant-bound and checked against the persisted
@@ -895,7 +940,15 @@ func startAgentTransport(
 				log.Info("agent CA renewal picked up without a restart")
 			}
 		}
-		reload()
+		// AUTHZ-26 / G7-4: the first deny-list load is mandatory and fails closed
+		// — refuse to serve the agent listener with the empty boot-time list,
+		// which would accept a revoked agent. The periodic reload() below keeps
+		// the last good list on later transient failures.
+		if err := loadInitialRevocation(ctx, enrollSvc, func(serials, ids []string) {
+			grpcSrv.RevocationList().Replace(serials, ids)
+		}, initialRevocationAttempts, initialRevocationBackoff, log); err != nil {
+			return fmt.Errorf("agent transport: %w", err)
+		}
 		srv.SetAgentRevocationPush(func(serials, ids []string) {
 			for _, s := range serials {
 				grpcSrv.RevocationList().RevokeSerial(s)
