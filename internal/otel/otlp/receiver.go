@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/httpbody"
 	"github.com/ctlplne/probectl/internal/otel"
 )
@@ -146,16 +147,31 @@ func busPublish(
 // oversize or a publish failure) is RETRYABLE — 503, so the client retries and
 // nothing is acked-then-dropped (ING-13). Any other sink error is a 500.
 func sinkHTTPStatus(err error) (int, string) {
-	if errors.Is(err, ErrBusUnavailable) {
+	if isRetryableSinkErr(err) {
 		return http.StatusServiceUnavailable, "bus unavailable"
 	}
 	return http.StatusInternalServerError, "sink error"
 }
 
+// isRetryableSinkErr reports whether a sink/publish error means the batch was
+// NOT durably accepted and the OTLP client should RETRY (503 / UNAVAILABLE),
+// never a success or a terminal 500 (ING-13, ING-37; telemetry loss is never
+// silent, G7-2). It covers the pre-publish/publish-failure wrapper
+// (ErrBusUnavailable — which already carries a shed/dropped bus error from
+// busPublish) and a bare backpressure drop or context cancel/deadline that
+// reached the mapper WITHOUT that wrapper: all mean "the bus did not take it."
+func isRetryableSinkErr(err error) bool {
+	return errors.Is(err, ErrBusUnavailable) ||
+		errors.Is(err, bus.ErrPublishShed) ||
+		errors.Is(err, bus.ErrMemoryDropped) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded)
+}
+
 // sinkGRPCError mirrors sinkHTTPStatus for OTLP/gRPC: Unavailable (retryable)
 // when the bus did not accept the batch, Internal otherwise.
 func sinkGRPCError(err error) error {
-	if errors.Is(err, ErrBusUnavailable) {
+	if isRetryableSinkErr(err) {
 		return status.Error(codes.Unavailable, "otlp: bus unavailable")
 	}
 	return status.Error(codes.Internal, "otlp: sink error")

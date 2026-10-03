@@ -25,8 +25,49 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/bus"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
+
+// TestOTLPBackpressureAndContextAreRetryable proves ING-37: a backpressure drop
+// (bus shed / memory-dropped) or a context cancel/deadline maps to a RETRYABLE
+// status (HTTP 503 / gRPC Unavailable) so a standards-compliant OTLP client
+// keeps and retries the batch instead of dropping it, while a genuine terminal
+// sink error stays 500/Internal. The shed path is already retryable via
+// busPublish -> ErrBusUnavailable (ING-13); this adds the bare backpressure and
+// context cases that reached the mapper unwrapped.
+func TestOTLPBackpressureAndContextAreRetryable(t *testing.T) {
+	// A shed error wrapped by busPublish (as a bus sink would) is retryable.
+	shedErr := busPublish(context.Background(), 0, func(context.Context, string, string, []byte) error {
+		return bus.ErrPublishShed
+	}, "t", "e", []byte("x"))
+	if shedErr == nil {
+		t.Fatal("expected a shed publish error")
+	}
+	if st, _ := sinkHTTPStatus(shedErr); st != http.StatusServiceUnavailable {
+		t.Fatalf("busPublish shed -> HTTP %d, want 503", st)
+	}
+
+	// Bare backpressure / context errors reaching the mapper unwrapped are
+	// retryable too (the ING-37 gap).
+	for _, e := range []error{bus.ErrPublishShed, bus.ErrMemoryDropped, context.Canceled, context.DeadlineExceeded} {
+		if st, _ := sinkHTTPStatus(e); st != http.StatusServiceUnavailable {
+			t.Fatalf("%v -> HTTP %d, want 503 (retryable)", e, st)
+		}
+		if s, _ := status.FromError(sinkGRPCError(e)); s.Code() != codes.Unavailable {
+			t.Fatalf("%v -> gRPC %v, want Unavailable", e, s.Code())
+		}
+	}
+
+	// Non-vacuity: a genuine terminal sink error stays 500 / Internal.
+	generic := errors.New("marshal boom")
+	if st, _ := sinkHTTPStatus(generic); st != http.StatusInternalServerError {
+		t.Fatalf("generic sink error -> HTTP %d, want 500", st)
+	}
+	if s, _ := status.FromError(sinkGRPCError(generic)); s.Code() != codes.Internal {
+		t.Fatalf("generic sink error -> gRPC %v, want Internal", s.Code())
+	}
+}
 
 // ING-13: the OTLP receiver used to ack a push 200/OK and only THEN hand the
 // batch to the bus. The default Kafka bus publishes asynchronously — Publish
