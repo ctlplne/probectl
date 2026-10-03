@@ -624,6 +624,25 @@ need "ingress-nginx"                   "$base_np" "default profile NetworkPolicy
 # kills every in-cluster agent one identity lifetime after it enrolls — silently,
 # because an established stream keeps working until the control plane restarts.
 need "app.kubernetes.io/name: probectl-agent" "$base_np" "default profile NetworkPolicy gives the product's own agents no path to the enrollment/rotation endpoints (DPR-174)"
+# RTO-13: admitting the agents by pod label is not enough — the label is
+# self-applied, so a bare podSelector (or an empty namespaceSelector, {} = ALL
+# namespaces) lets ANY pod in ANY namespace self-label and reach the full
+# control API port. The agent-enrollment peer MUST combine the pod label with a
+# namespaceSelector scoping to the namespace where agents run (default: this
+# release's namespace, rendered here as "default"), both in ONE `from` entry.
+need_fixed "kubernetes.io/metadata.name: default" "$base_np" "default profile NetworkPolicy agent-enrollment peer is not scoped to the agent namespace — a labelled pod in any namespace could reach the control API port (RTO-13)"
+if grep -qE 'namespaceSelector:[[:space:]]*\{\}' <<<"$base_np"; then
+  fail "default profile NetworkPolicy has an all-namespaces agent peer (namespaceSelector: {}) — a labelled pod in any namespace could reach the control API port (RTO-13)"
+fi
+# SELFTEST (non-vacuity): the RTO-13 matchers must flag the pre-fix all-namespaces
+# shape and accept the namespace-scoped fixed shape — otherwise the assertions
+# above would pass against a reintroduced hole.
+rto13_bad=$'      from:\n        - namespaceSelector: {}\n          podSelector:\n            matchLabels:\n              app.kubernetes.io/name: probectl-agent'
+rto13_good=$'      from:\n        - namespaceSelector:\n            matchLabels:\n              kubernetes.io/metadata.name: default\n          podSelector:\n            matchLabels:\n              app.kubernetes.io/name: probectl-agent'
+grep -qE 'namespaceSelector:[[:space:]]*\{\}' <<<"$rto13_bad" || fail "RTO-13 selftest: the empty-namespaceSelector matcher failed to flag the pre-fix shape"
+if grep -qE 'namespaceSelector:[[:space:]]*\{\}' <<<"$rto13_good"; then fail "RTO-13 selftest: the empty-namespaceSelector matcher false-positived on the namespace-scoped shape"; fi
+grep -Fq 'kubernetes.io/metadata.name: default' <<<"$rto13_good" || fail "RTO-13 selftest: the namespace-scope matcher failed on the fixed shape"
+if grep -Fq 'kubernetes.io/metadata.name: default' <<<"$rto13_bad"; then fail "RTO-13 selftest: the namespace-scope matcher matched the pre-fix shape"; fi
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls --set 'control.trustedProxies={10.244.0.0/16}' \

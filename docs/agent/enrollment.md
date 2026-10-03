@@ -256,8 +256,9 @@ rule, a DNS change — the retries expire with the certificate, and an expired
 SVID **cannot rotate itself**: the server verifies the presented chain at the
 current time and refuses it, exactly as it would refuse a stranger. The agent
 must then enroll again with a fresh join token. In Kubernetes this is the whole
-reason the chart opens the API port to agent pods
-(`networkPolicy.agentEnrollmentFrom`, DPR-174).
+reason the chart opens the API port to agent pods — scoped to the namespace
+where agents run plus their pod label, never a label alone
+(`networkPolicy.agentNamespace` / `agentEnrollmentFrom`, DPR-174 / RTO-13).
 
 The failure is quiet by nature, which is why the product now says it out loud in
 three places (DPR-176):

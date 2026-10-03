@@ -434,17 +434,35 @@ networkPolicy:
   # eBPF, endpoint) publish to the bus with a registered collector identity and
   # never redeem an SVID, so they never rotate one.
   #
-  # The default names the product's OWN agent pods (the probectl-agent chart),
-  # in any namespace, and nothing else; this release's browser agent is named by
-  # the template itself, because the chart deploys both ends of that hop. Add
-  # your own selectors here for SVID-holding agents deployed by other means. An
-  # empty list restores the broken behavior and is correct only when every such
-  # agent lives outside the cluster and arrives through the ingress.
-  agentEnrollmentFrom:
-    - namespaceSelector: {}
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: probectl-agent
+  # RTO-13: the chart admits the product's OWN agent pods (the probectl-agent
+  # chart) to this port, but scoped to BOTH the namespace where they run AND
+  # their pod label, combined in ONE NetworkPolicy peer so both selectors must
+  # match. A pod that merely self-applies the label in some OTHER namespace is
+  # not an agent and is denied; an empty namespaceSelector ({}) would have
+  # admitted it from anywhere in the cluster. This release's browser agent is
+  # named by the template itself, because the chart deploys both ends of that
+  # hop.
+  #
+  # agentNamespace: where the product's own in-cluster agents run. EMPTY means
+  # this release's own namespace (.Release.Namespace). Point it at the namespace
+  # your agents are installed into when that differs from the control plane's.
+  agentNamespace: ""
+  # agentPodLabels: the pod label selector for the product's own agents. The
+  # template renders NO in-cluster agent peer when this map is empty/unset (the
+  # right posture when every SVID-holding agent is external and arrives through
+  # the ingress); because Helm MERGES maps, clearing the shipped label means
+  # editing it out here rather than overriding it with {}.
+  agentPodLabels:
+    app.kubernetes.io/name: probectl-agent
+  # agentEnrollmentFrom: additional SVID-holding agents deployed by other means.
+  # Each entry is a full NetworkPolicy `from` peer and SHOULD combine a
+  # namespaceSelector with its podSelector (RTO-13) so admission is scoped, not
+  # cluster-wide:
+  #   - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: probectl-agents } }
+  #     podSelector:       { matchLabels: { app: my-flow-collector } }
+  # Agents that run OUTSIDE the cluster reach this endpoint through the ingress
+  # and need nothing here.
+  agentEnrollmentFrom: []
   # Egress beyond DNS (which is always allowed): the Postgres/bus/IdP/SIEM/feeds
   # this deployment must reach. EMPTY ⇒ the HOLE above (allow-all egress); see
   # values-large.yaml for the filled reference allow-list.

@@ -355,10 +355,23 @@ months; an agent that cannot reach this endpoint keeps running on the identity
 it has, goes silent one lifetime later, and can then only return by enrolling
 again with a fresh join token (DPR-174).
 
-`networkPolicy.agentEnrollmentFrom` is the path for that, and it ships naming
-the product's own agent pods (`app.kubernetes.io/name: probectl-agent`) in any
-namespace — nothing else. Agents you deploy another way need their own selector
-here:
+The chart opens this path for the product's own agent pods
+(`app.kubernetes.io/name: probectl-agent`), but scoped to BOTH the namespace
+where those agents run AND their pod label — combined in one NetworkPolicy peer
+so both must match. The label alone is not a credential (any pod can self-apply
+it), so a labelled pod in some other namespace is denied; `networkPolicy.agentNamespace`
+sets where agents run and defaults to this release's own namespace (RTO-13):
+
+```yaml
+networkPolicy:
+  # Namespace the product's own agents are installed into (empty => this
+  # release's namespace). The agent pod-label selector is agentPodLabels.
+  agentNamespace: probectl-agents
+```
+
+Agents you deploy another way get their own fully-scoped peer via
+`networkPolicy.agentEnrollmentFrom` (combine a namespaceSelector with a
+podSelector, not a bare label):
 
 ```yaml
 networkPolicy:
@@ -368,8 +381,7 @@ networkPolicy:
 ```
 
 Agents that run OUTSIDE the cluster reach the same endpoint through the
-ingress, so they need nothing here. Setting the list empty restores the
-previous behavior and is only correct when every agent is external.
+ingress, so they need nothing here.
 
 ## Optional rendered-browser synthetic agent
 

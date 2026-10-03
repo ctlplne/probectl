@@ -569,6 +569,8 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "ingressFrom": { "type": "array" },
+        "agentNamespace": { "type": "string" },
+        "agentPodLabels": { "type": "object" },
         "agentEnrollmentFrom": { "type": "array" },
         "egressTo": { "type": "array" }
       }

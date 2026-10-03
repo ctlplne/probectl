@@ -34,12 +34,32 @@ spec:
               {{- include "probectl.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: browser-agent
         {{- end }}
-        {{- with .Values.networkPolicy.agentEnrollmentFrom }}
+        {{- if .Values.networkPolicy.agentPodLabels }}
         # DPR-174: agent enrollment and identity ROTATION are HTTP endpoints on
         # this port, and rotation cannot use the mTLS listener because the
         # certificate it exists to replace is the one about to expire. Without a
         # path here, every in-cluster agent dies one identity lifetime after it
         # enrolls.
+        #
+        # RTO-13: this peer is scoped to BOTH the namespace where the product's
+        # own agents run (networkPolicy.agentNamespace; empty => this release's
+        # namespace) AND the agent pod label, combined in ONE `from` entry so
+        # both selectors must match. A pod that merely self-applies the label in
+        # another namespace is not an agent and is denied — a bare podSelector,
+        # or an empty namespaceSelector ({} = all namespaces), would admit it
+        # from anywhere in the cluster.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.agentNamespace | default .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.agentPodLabels | nindent 14 }}
+        {{- end }}
+        {{- with .Values.networkPolicy.agentEnrollmentFrom }}
+        # DPR-174: additional SVID-holding agents deployed by other means. Each
+        # entry is a full NetworkPolicy peer and SHOULD scope a namespaceSelector
+        # together with its podSelector (RTO-13) so admission is not cluster-wide.
+        # Agents that run OUTSIDE the cluster arrive through the ingress instead.
         {{- toYaml . | nindent 8 }}
         {{- end }}
     {{- if .Values.control.agentListener.enabled }}
