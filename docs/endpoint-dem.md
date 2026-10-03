@@ -123,9 +123,18 @@ unmeasured: …", and the sample carries the reasons (`unavailable`, e.g.
 `last_mile: traceroute: exit status 2`). The agent logs a warning whenever the
 set of unavailable signals changes and an info line when every layer is
 measured again. The last-mile trace targets the **host** of the first
-configured target (`https://1.1.1.1` → `1.1.1.1`), and a hop that never
-answered (`* * *`) is silence, not a 100%-loss ISP edge: the ISP segment is the
-first *answering* public hop, or unmeasured.
+configured target (e.g. a configured `https://portal.internal` → `portal.internal`),
+and a hop that never answered (`* * *`) is silence, not a 100%-loss ISP edge:
+the ISP segment is the first *answering* public hop, or unmeasured.
+
+**No probe targets ship by default** (no-phone-home, [`guardrails.md`](guardrails.md)
+G7-2). Targets are operator-chosen input, never a built-in default — shipping an
+external anycast host (Cloudflare/Google) would make a freshly installed agent
+beacon out every interval with no operator intent, which contradicts the
+sovereign / air-gap posture. An agent with no configured `targets` still measures
+local Wi-Fi and gateway health; it simply runs no last-mile trace or session
+probe until you point it at your own key destinations
+(`targets:` in config, or `PROBECTL_ENDPOINT_TARGETS`).
 
 ## Privacy — it runs on someone's personal device
 

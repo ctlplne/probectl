@@ -11,9 +11,12 @@ bus:
   brokers: ["BROKER-HOST:9093"]
   namespace: ""               # siloed bus lane for this tenant; empty = pooled
 interval: 60s                 # how often a sample is collected
-targets:                      # first target drives the last-mile trace
-  - "https://1.1.1.1"
-  - "https://www.google.com"
+targets: []                   # key destinations to probe; the first target's
+                              # host drives the last-mile trace, all drive the
+                              # session-timing probes. NO external hosts ship by
+                              # default (no-phone-home, docs/guardrails.md G7-2):
+                              # an unconfigured agent probes nothing off-device.
+                              # Add your own, e.g. ["https://portal.internal"]
 max_hops: 20                  # cap the last-mile trace length
 probes: 3                     # samples per hop
 session_timeout: 15s          # bound each session probe

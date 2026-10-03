@@ -16,12 +16,69 @@ import (
 
 func TestDefaultConfig(t *testing.T) {
 	c := Default()
-	if c.Bus.Mode != "memory" || c.Interval <= 0 || len(c.Targets) == 0 {
-		t.Fatalf("unexpected defaults: %+v", c)
+	// Updated for PLAT-20 / G7-2: the default ships NO probe targets (was
+	// Cloudflare/Google anycast, a default outbound phone-home). The old
+	// assertion required a non-empty target list, which encoded that beacon.
+	if c.Bus.Mode != "memory" || c.Interval <= 0 || len(c.Targets) != 0 {
+		t.Fatalf("unexpected defaults (no external probe targets must ship by default, G7-2): %+v", c)
 	}
 	if !c.Privacy.CollectSSID || c.Privacy.CollectBSSID {
 		t.Errorf("default privacy should be balanced (SSID on, BSSID off)")
 	}
+}
+
+// TestDefaultShipsNoExternalTargets locks in the endpoint agent's no-phone-home
+// guarantee (docs/guardrails.md G7-2, finding PLAT-20): neither the built-in
+// defaults nor a Load() with no configured targets may contact an external
+// probe host, so an agent installed with no explicit targets beacons nowhere
+// off-device until an operator configures it.
+func TestDefaultShipsNoExternalTargets(t *testing.T) {
+	// forbidden are the external anycast hosts that used to ship as defaults and
+	// would silently probe out every interval.
+	forbidden := []string{"1.1.1.1", "www.google.com"}
+	assertNoExternalTargets := func(t *testing.T, where string, targets []string) {
+		t.Helper()
+		for _, tgt := range targets {
+			for _, host := range forbidden {
+				if strings.Contains(tgt, host) {
+					t.Errorf("%s ships external probe target %q (host %q) — a default outbound beacon violates no-phone-home (docs/guardrails.md G7-2)", where, tgt, host)
+				}
+			}
+		}
+	}
+
+	t.Run("Default has no targets", func(t *testing.T) {
+		if got := Default().Targets; len(got) != 0 {
+			t.Errorf("Default().Targets = %v, want none (no-phone-home, G7-2)", got)
+		}
+		assertNoExternalTargets(t, "Default().Targets", Default().Targets)
+	})
+
+	t.Run("Load with no configured targets stays empty", func(t *testing.T) {
+		t.Setenv("PROBECTL_ENDPOINT_TENANT_ID", "t-no-targets")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load with no targets must succeed (agent probes nothing until configured), got %v", err)
+		}
+		if len(cfg.Targets) != 0 {
+			t.Errorf("Load() with no configured targets = %v, want none", cfg.Targets)
+		}
+		assertNoExternalTargets(t, "Load() with no configured targets", cfg.Targets)
+	})
+
+	// Non-vacuity: an explicitly configured target is still honored end to end,
+	// so this test cannot pass merely because targets are always dropped.
+	t.Run("explicit target is honored", func(t *testing.T) {
+		t.Setenv("PROBECTL_ENDPOINT_TENANT_ID", "t-explicit")
+		t.Setenv("PROBECTL_ENDPOINT_TARGETS", "https://portal.internal")
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load with an explicit target: %v", err)
+		}
+		if len(cfg.Targets) != 1 || cfg.Targets[0] != "https://portal.internal" {
+			t.Fatalf("explicit target not honored by Load(): %v", cfg.Targets)
+		}
+	})
 }
 
 func TestLoadYAMLAndValidate(t *testing.T) {
@@ -203,12 +260,16 @@ func TestValidateErrors(t *testing.T) {
 			t.Errorf("kafka without brokers should fail")
 		}
 	})
-	t.Run("no targets", func(t *testing.T) {
+	t.Run("no targets is accepted", func(t *testing.T) {
+		// Updated for PLAT-20 / G7-2: validate() used to reject an empty target
+		// list ("at least one target is required"), the very rule that forced an
+		// external default to exist. It now accepts none — the agent starts and
+		// simply probes nothing off-device until an operator configures targets.
 		c := Default()
 		c.TenantID = "t"
 		c.Targets = nil
-		if err := c.validate(); err == nil {
-			t.Errorf("at least one target is required")
+		if err := c.validate(); err != nil {
+			t.Errorf("empty targets must be accepted (probe nothing until configured, G7-2), got %v", err)
 		}
 	})
 }

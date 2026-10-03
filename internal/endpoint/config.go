@@ -76,14 +76,21 @@ type BusConfig struct {
 }
 
 // Default returns the built-in defaults: memory bus, a 60s interval, balanced
-// privacy, default thresholds, and Cloudflare/Google anycast as neutral targets.
+// privacy, default thresholds, and — deliberately — NO probe targets.
+//
+// Shipping external anycast hosts (Cloudflare/Google) as defaults would make a
+// freshly installed agent beacon out every interval with no operator intent,
+// a default outbound phone-home that contradicts the sovereign/air-gap
+// positioning (docs/guardrails.md G7-2). Targets are operator-chosen input
+// instead: until one is configured the agent probes nothing off-device (it
+// still measures local Wi-Fi/gateway health). See docs/endpoint-dem.md.
 func Default() *Config {
 	host, _ := os.Hostname()
 	return &Config{
 		AgentID:        host,
 		Bus:            BusConfig{Mode: "memory"},
 		Interval:       60 * time.Second,
-		Targets:        []string{"https://1.1.1.1", "https://www.google.com"},
+		Targets:        nil,
 		MaxHops:        20,
 		Probes:         3,
 		SessionTimeout: 15 * time.Second,
@@ -194,9 +201,10 @@ func (c *Config) validate() error {
 	if c.Interval <= 0 {
 		return fmt.Errorf("endpoint: interval must be > 0")
 	}
-	if len(c.Targets) == 0 {
-		return fmt.Errorf("endpoint: at least one target is required")
-	}
+	// No target is required: the agent ships none by default (no-phone-home,
+	// docs/guardrails.md G7-2) and simply probes nothing off-device until an
+	// operator configures targets. The collector handles an empty list
+	// gracefully — the last-mile trace and session probes are skipped.
 	if c.MaxHops <= 0 {
 		c.MaxHops = 20
 	}
