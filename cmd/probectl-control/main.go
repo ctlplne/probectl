@@ -24,6 +24,8 @@
 //	probectl-control backup-seal          encrypt a backup container
 //	probectl-control backup-open          decrypt a backup container for restore
 //	probectl-control backup-rewrap        re-encrypt a backup container under the active KEK
+//	probectl-control backup-control-state seal the control-state key material (evidence key, KEK id, agent CA) for restore
+//	probectl-control restore-control-state write a sealed control-state artifact onto a fresh host before boot
 //	probectl-control envelope-rewrap      rewrap live deployment-envelope secrets
 //	probectl-control preflight            validate config/connectivity and exit
 //	probectl-control bgp-analyzer         run the optional Python analyzer bridge

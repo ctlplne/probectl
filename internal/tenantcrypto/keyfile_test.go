@@ -99,6 +99,47 @@ func TestLoadKeyFileRejectsEmptyPath(t *testing.T) {
 	}
 }
 
+// RTO-16: the KEK id is pinned in a sidecar beside the key file and the sidecar
+// is AUTHORITATIVE, so a fresh-host restore reloads the SAME id instead of
+// renumbering to the boot default and leaving the restored dv1 values
+// unopenable.
+func TestLoadOrPersistKeyIDPinsTheSealingID(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "envelope.key")
+
+	// First boot: no sidecar yet — the resolved id is persisted and returned.
+	id, err := LoadOrPersistKeyID(keyFile, "host-a")
+	if err != nil {
+		t.Fatalf("first LoadOrPersistKeyID: %v", err)
+	}
+	if id != "host-a" {
+		t.Fatalf("first boot id = %q, want host-a", id)
+	}
+	if _, err := os.Stat(keyFile + EnvelopeKeyIDSuffix); err != nil {
+		t.Fatalf("sidecar not persisted: %v", err)
+	}
+
+	// A later boot that resolves a DIFFERENT default (e.g. the operator forgot
+	// PROBECTL_ENVELOPE_KEY_ID on the restored host) must NOT renumber: the
+	// sidecar that named the sealing id wins.
+	got, err := LoadOrPersistKeyID(keyFile, "wrong-boot-default")
+	if err != nil {
+		t.Fatalf("second LoadOrPersistKeyID: %v", err)
+	}
+	if got != "host-a" {
+		t.Fatalf("reloaded id = %q, want the pinned host-a (never the boot default)", got)
+	}
+}
+
+func TestLoadOrPersistKeyIDEmptyPathIsPassthrough(t *testing.T) {
+	id, err := LoadOrPersistKeyID("", "env-provided")
+	if err != nil {
+		t.Fatalf("empty path: %v", err)
+	}
+	if id != "env-provided" {
+		t.Fatalf("empty path id = %q, want env-provided (env-KEK path is untouched)", id)
+	}
+}
+
 // A corrupt/truncated key file must REFUSE (fail closed), not seal weakly.
 func TestLoadKeyFileRejectsMalformedAtRest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "envelope.key")

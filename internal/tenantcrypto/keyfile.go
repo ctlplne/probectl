@@ -79,6 +79,46 @@ func LoadExistingKeyFile(path string) (string, error) {
 	return kek, nil
 }
 
+// EnvelopeKeyIDSuffix is the sidecar extension beside a file-based deployment
+// KEK that pins the key-id its data was sealed under (RTO-16).
+const EnvelopeKeyIDSuffix = ".id"
+
+// LoadOrPersistKeyID returns the deployment envelope key-id for a file-based
+// KEK, pinning it in a sidecar beside the key file. If the sidecar already
+// exists it is AUTHORITATIVE — it names the id that sealed the at-rest data, so
+// a fresh-host restore reloads that same id instead of silently renumbering to
+// the boot default and leaving the restored dv1 values unopenable (RTO-16).
+// Otherwise resolvedID is persisted and returned.
+//
+// The id is not secret (it is stamped in the clear in every dv1 value and every
+// .pbk container header); the sidecar only makes it survive a restore. Change
+// the active id through the envelope-rewrap workflow, which re-seals under the
+// new id — never by editing env in place, which would strand the sealed data.
+func LoadOrPersistKeyID(keyFilePath, resolvedID string) (string, error) {
+	if keyFilePath == "" {
+		return resolvedID, nil
+	}
+	sidecar := keyFilePath + EnvelopeKeyIDSuffix
+	if b, rerr := os.ReadFile(sidecar); rerr == nil {
+		if id := strings.TrimSpace(string(b)); id != "" {
+			return id, nil
+		}
+	} else if !os.IsNotExist(rerr) {
+		return "", fmt.Errorf("tenantcrypto: read key-id sidecar: %w", rerr)
+	}
+	if err := os.MkdirAll(filepath.Dir(sidecar), 0o700); err != nil {
+		return "", fmt.Errorf("tenantcrypto: key dir: %w", err)
+	}
+	tmp := sidecar + ".tmp"
+	if err := os.WriteFile(tmp, []byte(resolvedID+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("tenantcrypto: write key-id sidecar: %w", err)
+	}
+	if err := os.Rename(tmp, sidecar); err != nil {
+		return "", fmt.Errorf("tenantcrypto: persist key-id sidecar: %w", err)
+	}
+	return resolvedID, nil
+}
+
 // validKEK enforces the 32-byte base64 contract before anything seals with it.
 func validKEK(kekB64 string) error {
 	raw, err := base64.StdEncoding.DecodeString(kekB64)

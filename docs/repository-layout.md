@@ -32,6 +32,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             compliance (segmentation validation + evidence) ·
             completeness (capability/surface completeness contract) · config (config load/validate) ·
             configschema (config YAML schema helpers) · control (HTTP API server) ·
+            controlstate (fresh-host restore artifact: KEK id + evidence-signing key + agent CA) ·
             cost (FinOps/egress cost engine) · crypto (the only crypto door) ·
             deliveryaudit (independent signed delivery evidence) ·
             device (SNMP/device telemetry plane) · docslint (doc-accuracy tests) ·

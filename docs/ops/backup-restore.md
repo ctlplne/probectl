@@ -25,6 +25,7 @@ one day be running under pressure.
 | **ClickHouse** | flow/path/threat/change/cost events + the `probectl_ch_migrations` ledger | **Yes** — native `BACKUP DATABASE … TO File()`, nightly |
 | Prometheus/VictoriaMetrics | metric series | Optional — operational telemetry, rebuildable by re-ingesting the retention window. Use the snapshot API if your org requires it. |
 | **Object store** | tenant objects, support bundles, Ed25519-signed WORM audit exports | **Yes** — encrypted filesystem archive or verified S3/MinIO copy into a COMPLIANCE Object Lock destination. WORM = write-once-read-many: appendable, never rewritable during retention. |
+| **Control-state** (controldata volume) | deployment KEK + its key-id sidecar, incident evidence-signing key, agent-CA public trust bundle | **Yes** — the KEK is the one secret you carry out of band; the rest is a single sealed artifact from `probectl-control backup-control-state`. Without it a fresh-host restore boots WRONG: a new evidence-signing key (previously signed evidence stops verifying), a renumbered KEK id (restored secrets stop opening), and a missing agent-CA export. |
 | Kafka | results/events in transit | No — it's transit, not a system of record. Consumers drain it into the stores above. |
 
 **Backups contain tenant data**, so they are **encrypted at rest by default.**
@@ -84,10 +85,27 @@ PROBECTL_OBJECTSTORE_DIR=/var/lib/probectl/objects \
 PROBECTL_ENVELOPE_KEY=<base64 KEK> \
   ./scripts/backup_objectstore.sh /srv/probectl-backups # → objectstore-<ts>.tar.pbk + .sha256
 
+# Control-state: the evidence-signing key, the KEK id, and the agent-CA public
+# bundle that live on the controldata volume beside the stores. One sealed
+# artifact; run it against a live control plane (it reads the agent CA from the
+# database). Keep it off-box with the others.
+  probectl-control backup-control-state > /srv/probectl-backups/controlstate-<ts>.pcs
+(cd /srv/probectl-backups && sha256sum controlstate-<ts>.pcs > controlstate-<ts>.pcs.sha256)
+
 # Raw fallback only when both the ClickHouse staging path and off-box target are encrypted:
 PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target \
   ./scripts/backup_clickhouse.sh /srv/probectl-backups # → clickhouse-<db>-<ts>.zip + .sha256
 ```
+
+`backup-control-state` reads the same `PROBECTL_*` config the control plane
+serves with (it is a one-shot of the same binary and image), so it finds the
+deployment KEK, the evidence-signing key file, and the database automatically.
+The `.pcs` artifact is envelope-encrypted under the deployment KEK — the
+evidence PRIVATE key is never written in the clear — so it is opened on restore
+with the same single secret the database and object backups need. A deployment
+that injects `PROBECTL_EVIDENCE_SIGNING_KEY` from a secret manager (rather than
+the file) re-injects it on the restored host and does not need this artifact;
+`backup-control-state` says so and exits.
 
 The database scripts run the dump *inside* the running compose container (so you need
 no Postgres/ClickHouse client on the host), write a SHA-256 manifest next to
@@ -219,14 +237,42 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
     /srv/probectl-backups/objectstore-<ts>.tar.pbk \
     /var/lib/probectl/objects
 
-# 5. Start probectl-control. On boot it re-runs the Postgres migrations
-#    idempotently; the restored probectl_ch_migrations ledger keeps the
-#    ClickHouse schema state consistent with the restored data.
+# 5. Restore the control-state onto the FRESH controldata volume BEFORE boot.
+#    This verifies the checksum, opens the sealed artifact with the KEK, and
+#    writes the evidence-signing key, the KEK-id sidecar, and the agent-CA
+#    trust bundle into place. The paths default to the deployment's own
+#    PROBECTL_EVIDENCE_SIGNING_KEY_FILE / PROBECTL_AGENT_TLS_CA_FILE /
+#    PROBECTL_ENVELOPE_KEY_FILE env, so inside the shipped compose image you
+#    pass nothing but the KEK. It writes NO database — only files — so it runs
+#    before the control plane does, and it refuses to overwrite a live key.
+(cd /srv/probectl-backups && sha256sum -c controlstate-<ts>.pcs.sha256)
+PROBECTL_ENVELOPE_KEY=<base64 KEK> \
+PROBECTL_EVIDENCE_SIGNING_KEY_FILE=/var/lib/probectl/evidence-signing-ed25519.pem \
+PROBECTL_AGENT_TLS_CA_FILE=/var/lib/probectl/agent-ca.crt \
+PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key \
+  probectl-control restore-control-state < /srv/probectl-backups/controlstate-<ts>.pcs
 
-# 6. Sanity-check: /readyz is green; a tenant-scoped query returns pre-incident
+# 6. Start probectl-control. On boot it re-runs the Postgres migrations
+#    idempotently; the restored probectl_ch_migrations ledger keeps the
+#    ClickHouse schema state consistent with the restored data. It RELOADS the
+#    control-state restored in step 5 — the same evidence-signing key (unchanged
+#    public fingerprint), the same KEK id (restored dv1 values keep opening),
+#    and the agent-CA bundle — instead of generating fresh. No manual step.
+
+# 7. Sanity-check: /readyz is green; a tenant-scoped query returns pre-incident
 #    data; the audit chain verifies (the WORM verify job also re-checks the
-#    exported provider chain against object storage).
+#    exported provider chain against object storage); an incident evidence
+#    export verifies against the SAME public fingerprint as before the restore.
 ```
+
+The KEK-id sidecar (`<PROBECTL_ENVELOPE_KEY_FILE>.id`) is why a restore cannot
+silently renumber the key id: the id that sealed the at-rest data is pinned
+beside the key and is authoritative on every boot, so even a restore that omits
+`PROBECTL_ENVELOPE_KEY_ID` opens the restored database's `dv1` values. Rotate
+the id through `envelope-rewrap`, never by editing env in place. If the original
+deployment used a custom id and you restore the KEK via `PROBECTL_ENVELOPE_KEY`,
+pass that id to `restore-control-state` with `--key-id` (the same contract as
+`backup-open`); the shipped default id is `file` and needs no flag.
 
 The `backup-open` step is the normal restore path because shipped Postgres and
 ClickHouse backups are `.pbk` by default. Checksum sidecars are required restore inputs:

@@ -689,14 +689,19 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 		// KEYS-002: stream an old backup through open+seal so its header
 		// carries the active deployment KEK id and no plaintext lands on disk.
 		return true, backupRewrap(os.Args[2:])
+	case "restore-control-state":
+		// RTO-16: write the sealed control-state (evidence-signing key, KEK id,
+		// agent-CA bundle) onto a fresh controldata volume before boot. Needs
+		// only the KEK, like backup-open — no database.
+		return true, restoreControlState(os.Args[2:], os.Stdin)
 	case "bgp-analyzer":
 		// W1: optional Python analyzer supervisor + tenant-bound Kafka bridge.
 		return true, runBGPAnalyzer(os.Getenv)
-	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "bootstrap-admin", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap":
+	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "bootstrap-admin", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap", "backup-control-state":
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | stage-credentials | ir-key-install | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | stage-credentials | ir-key-install | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | backup-control-state | restore-control-state | version)", cmd)
 	}
 }
 
@@ -769,6 +774,12 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 	case "envelope-rewrap":
 		// KEYS-002: deployment envelope KEK rotation completion workflow.
 		return true, runEnvelopeRewrap(context.Background(), cfg, db, log, os.Args[2:])
+	case "backup-control-state":
+		// RTO-16: seal the control-state key material (evidence-signing key, KEK
+		// id, agent-CA public bundle) the store backups do not carry, so a
+		// fresh-host restore boots with no manual steps and an unchanged
+		// evidence-signing fingerprint.
+		return true, backupControlState(context.Background(), cfg, db)
 	}
 	return false, nil
 }
@@ -799,6 +810,16 @@ func setupSecretsAndEnvelope(cfg *config.Config) (*secrets.Resolver, bool, error
 		if cfg.EnvelopeKeyID == "dev" {
 			cfg.EnvelopeKeyID = "file"
 		}
+		// RTO-16: pin/reload the resolved KEK id in a sidecar beside the key file
+		// so a fresh-host restore seals and opens under the SAME id — never a
+		// silently renumbered one that cannot open the restored database's dv1
+		// values. The sidecar rides the controldata volume and the control-state
+		// backup artifact alongside the key material it describes.
+		keyID, iderr := tenantcrypto.LoadOrPersistKeyID(cfg.EnvelopeKeyFile, cfg.EnvelopeKeyID)
+		if iderr != nil {
+			return nil, false, fmt.Errorf("envelope key id: %w", iderr)
+		}
+		cfg.EnvelopeKeyID = keyID
 		envelopeGenerated = generated
 	}
 	if cfg.EnvelopeKey != "" {
