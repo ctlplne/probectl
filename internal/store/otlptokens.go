@@ -34,14 +34,18 @@ func NewOTLPTokens(pool *pgxpool.Pool) OTLPTokens { return OTLPTokens{pool: pool
 // ErrInvalidOTLPToken is returned when a token hash does not resolve to a live token.
 var ErrInvalidOTLPToken = errors.New("store: invalid or revoked otlp token")
 
-// OTLPToken is the metadata record returned to operators (never the hash).
+// OTLPToken is the metadata record returned to operators (never the hash). The
+// JSON tags are the GET /v1/otlp-tokens wire contract: the admin handler
+// serializes this struct directly, so the keys must be snake_case (not Go field
+// names). tenant_id is intentionally never serialized — the caller is already
+// tenant-scoped and the POST /v1/otlp-tokens DTO omits it (CONTRIBUTING.md).
 type OTLPToken struct {
-	ID         string
-	TenantID   string
-	Name       string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
-	RevokedAt  *time.Time
+	ID         string     `json:"id"`
+	TenantID   string     `json:"-"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
 // Create stores a new OTLP token (by hash) for a tenant and returns its id.
