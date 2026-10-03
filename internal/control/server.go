@@ -654,12 +654,12 @@ func (s *Server) routes() http.Handler {
 	// delivery itself by verifying the provider's HMAC/token signature, then binds
 	// the event to the credential's tenant (never the payload). Mounted off /v1 (an
 	// ingest surface, like the OTLP receiver), so it bypasses the session-RBAC chain.
-	mux.Handle("POST /ingest/changes/{provider}/{id}", apiHandler(s.handleChangeWebhook))
+	mux.Handle("POST /ingest/changes/{provider}/{id}", s.throttleWebhook(s.handleChangeWebhook))
 
 	// ITSM/on-call status-sync ingest (S33) — same model as the change webhook: it
 	// verifies the connector's HMAC/token signature, binds to the credential's
 	// tenant, and resolves the linked incident (then loop-protected cross-sync).
-	mux.Handle("POST /ingest/itsm/{provider}/{id}", apiHandler(s.handleITSMWebhook))
+	mux.Handle("POST /ingest/itsm/{provider}/{id}", s.throttleWebhook(s.handleITSMWebhook))
 
 	// RUM beacon ingest (S47b) — mounted off /v1, but the app key is a public
 	// routing key, not authentication. The server binds to the KEY's tenant

@@ -128,8 +128,16 @@ func (s *Server) handleITSMWebhook(w http.ResponseWriter, r *http.Request) error
 
 	cred, ok := s.cfg.NotifyInbound[id]
 	if !ok || !strings.EqualFold(cred.Provider, provider) {
-		// Unknown id, or the URL provider doesn't match: fail closed (no oracle).
-		return apierror.Unauthorized("unknown or unauthorized webhook")
+		// Unknown id, or the URL provider doesn't match: fail closed with the one
+		// shared response (no enumeration oracle) — identical to the change webhook.
+		return webhookAuthFailed()
+	}
+	// Tenant lifecycle (S-T1) is the outermost boundary: a suspended/offboarded
+	// tenant's inbound sync is refused before the delivery is read or processed,
+	// keyed strictly by the credential's own tenant. Its 403 path does not name
+	// the tenant.
+	if err := s.checkTenantLifecycle(r, cred.TenantID); err != nil {
+		return err
 	}
 	body, err := httpbody.ReadLimited(r.Body, itsmWebhookMaxBody)
 	if err != nil {
@@ -140,7 +148,7 @@ func (s *Server) handleITSMWebhook(w http.ResponseWriter, r *http.Request) error
 	}
 	if !notify.VerifyInbound(cred.Secret, body, r.Header) {
 		// unsigned / forged / wrong-token → reject before any state change.
-		return apierror.Unauthorized("invalid webhook signature")
+		return webhookAuthFailed()
 	}
 	res, ok := notify.ParseInbound(provider, body)
 	if !ok {

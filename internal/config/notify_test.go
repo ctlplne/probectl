@@ -80,9 +80,10 @@ func TestNotifyConnectorsRejectPlaintextRemoteEndpoints(t *testing.T) {
 
 func TestNotifyInboundConfig(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
-		// colon form (no endpoint); the secret is last and may contain ':'.
-		"PROBECTL_NOTIFY_INBOUND": "snow1:11111111-1111-1111-1111-111111111111:servicenow:sh:h:secret," +
-			"jira1:22222222-2222-2222-2222-222222222222:jira:tok",
+		// colon form (no endpoint); the secret is last and may contain ':'. Secrets
+		// are >= 32 bytes (AUTHZ-19 floor).
+		"PROBECTL_NOTIFY_INBOUND": "snow1:11111111-1111-1111-1111-111111111111:servicenow:sh:h:secret:padded:to:thirty:two:bytes," +
+			"jira1:22222222-2222-2222-2222-222222222222:jira:abcdefghijklmnopqrstuvwxyz012345",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -90,7 +91,7 @@ func TestNotifyInboundConfig(t *testing.T) {
 	if len(cfg.NotifyInbound) != 2 {
 		t.Fatalf("NotifyInbound = %+v, want 2", cfg.NotifyInbound)
 	}
-	if w := cfg.NotifyInbound["snow1"]; w.Provider != "servicenow" || w.Secret != "sh:h:secret" ||
+	if w := cfg.NotifyInbound["snow1"]; w.Provider != "servicenow" || w.Secret != "sh:h:secret:padded:to:thirty:two:bytes" ||
 		w.TenantID != "11111111-1111-1111-1111-111111111111" {
 		t.Errorf("snow1 = %+v (secret should keep its colons)", w)
 	}
@@ -101,8 +102,12 @@ func TestNotifyInboundConfig(t *testing.T) {
 	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_INBOUND": "bad-entry"})); err == nil {
 		t.Error("a malformed inbound entry should be a load error")
 	}
-	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_INBOUND": "id:tenant:bogus:secret"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_INBOUND": "id:11111111-1111-1111-1111-111111111111:bogus:abcdefghijklmnopqrstuvwxyz012345"})); err == nil {
 		t.Error("an unknown inbound provider should be a load error")
+	}
+	// AUTHZ-19: an inbound secret under the 32-byte floor fails closed at load.
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_INBOUND": "snow1:11111111-1111-1111-1111-111111111111:servicenow:tooshort"})); err == nil {
+		t.Error("an inbound webhook secret under 32 bytes should be a load error")
 	}
 }
 

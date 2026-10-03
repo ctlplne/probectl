@@ -866,6 +866,13 @@ type Config struct {
 	NotifyInbound    map[string]NotifyInbound
 }
 
+// minWebhookSecretBytes is the fail-closed floor for an inbound webhook
+// HMAC/token secret (AUTHZ-19). The change- and ITSM-webhook ingress surfaces
+// are unauthenticated and authenticate each delivery by this secret alone, so a
+// short secret is online brute-forceable; 32 bytes matches the HMAC-SHA256 key
+// width probectl signs with.
+const minWebhookSecretBytes = 32
+
 // ChangeWebhook is one configured inbound change-webhook credential (S29).
 type ChangeWebhook struct {
 	TenantID string
@@ -2402,6 +2409,12 @@ func (l *loader) changeWebhooks(key string) map[string]ChangeWebhook {
 			l.errf("%s: unknown provider %q (want generic|github|gitlab)", key, provider)
 			continue
 		}
+		if len(secret) < minWebhookSecretBytes {
+			// AUTHZ-19: fail closed at load — a short HMAC/token secret is online
+			// brute-forceable on an unauthenticated ingress.
+			l.errf("%s: secret for webhook %q must be at least %d bytes", key, id, minWebhookSecretBytes)
+			continue
+		}
 		out[id] = ChangeWebhook{TenantID: tenant, Provider: provider, Secret: secret}
 	}
 	return out
@@ -2493,6 +2506,12 @@ func (l *loader) notifyInbound(key string) map[string]NotifyInbound {
 		}
 		if !knownNotifyProviders[provider] {
 			l.errf("%s: unknown provider %q", key, provider)
+			continue
+		}
+		if len(secret) < minWebhookSecretBytes {
+			// AUTHZ-19: fail closed at load — a short HMAC/token secret is online
+			// brute-forceable on an unauthenticated ingress.
+			l.errf("%s: secret for inbound webhook %q must be at least %d bytes", key, id, minWebhookSecretBytes)
 			continue
 		}
 		out[id] = NotifyInbound{TenantID: tenant, Provider: provider, Secret: secret}

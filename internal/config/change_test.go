@@ -15,7 +15,8 @@ import (
 
 func TestChangeWebhooksConfig(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
-		"PROBECTL_CHANGE_WEBHOOKS":           "wh1:11111111-1111-1111-1111-111111111111:generic:sec:ret:colons,wh2:22222222-2222-2222-2222-222222222222:github:abc",
+		// Secrets are >= 32 bytes (AUTHZ-19 floor); the last field still keeps its colons.
+		"PROBECTL_CHANGE_WEBHOOKS":           "wh1:11111111-1111-1111-1111-111111111111:generic:sec:ret:colons:padded:to:thirty:two:bytes,wh2:22222222-2222-2222-2222-222222222222:github:abcdefghijklmnopqrstuvwxyz012345",
 		"PROBECTL_CHANGE_CORRELATION_WINDOW": "12h",
 	}))
 	if err != nil {
@@ -25,7 +26,7 @@ func TestChangeWebhooksConfig(t *testing.T) {
 		t.Fatalf("ChangeWebhooks = %+v, want 2", cfg.ChangeWebhooks)
 	}
 	// the secret is the last field, so it may contain ':'
-	if w := cfg.ChangeWebhooks["wh1"]; w.Provider != "generic" || w.Secret != "sec:ret:colons" ||
+	if w := cfg.ChangeWebhooks["wh1"]; w.Provider != "generic" || w.Secret != "sec:ret:colons:padded:to:thirty:two:bytes" ||
 		w.TenantID != "11111111-1111-1111-1111-111111111111" {
 		t.Errorf("wh1 = %+v (secret should keep its colons)", w)
 	}
@@ -40,8 +41,16 @@ func TestChangeWebhooksConfig(t *testing.T) {
 	if _, err := Load(envFunc(map[string]string{"PROBECTL_CHANGE_WEBHOOKS": "bad-entry"})); err == nil {
 		t.Error("a malformed webhook entry should be a load error")
 	}
-	if _, err := Load(envFunc(map[string]string{"PROBECTL_CHANGE_WEBHOOKS": "id:tenant:bogus:secret"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_CHANGE_WEBHOOKS": "id:11111111-1111-1111-1111-111111111111:bogus:abcdefghijklmnopqrstuvwxyz012345"})); err == nil {
 		t.Error("an unknown provider should be a load error")
+	}
+	// AUTHZ-19: a secret under the 32-byte floor fails closed at load.
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_CHANGE_WEBHOOKS": "wh:11111111-1111-1111-1111-111111111111:generic:tooshort"})); err == nil {
+		t.Error("a webhook secret under 32 bytes should be a load error")
+	}
+	// Exactly 32 bytes is accepted.
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_CHANGE_WEBHOOKS": "wh:11111111-1111-1111-1111-111111111111:generic:abcdefghijklmnopqrstuvwxyz012345"})); err != nil {
+		t.Errorf("a 32-byte webhook secret should load: %v", err)
 	}
 }
 

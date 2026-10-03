@@ -280,6 +280,74 @@ func TestChangeWebhookDeduplicatesSignedDeliveries(t *testing.T) {
 	}
 }
 
+// AUTHZ-19 (sub-issue 2): a suspended/offboarded tenant's webhook is refused
+// before the delivery is processed (403, no event stored), and the refusal does
+// not name the tenant.
+func TestChangeWebhookRefusesSuspendedTenant(t *testing.T) {
+	db := changeDB(t)
+	tenant := freshTenant(t, db, "chgsusp")
+	id, secret := "wh-"+tenant[:8], "suspend-secret-0123456789abcdef0123"
+	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev",
+		ChangeWebhooks:          map[string]config.ChangeWebhook{id: {TenantID: tenant, Provider: "generic", Secret: secret}},
+		ChangeCorrelationWindow: 24 * time.Hour, AIMaxEvidence: 50}
+	h := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
+		WithTenantStatus(&fakeStatus{statuses: map[string]string{tenant: "suspended"}}).
+		Handler()
+
+	body := []byte(`{"kind":"deploy","title":"suspended-tenant deploy","target":"api.example.com","actor":"ci"}`)
+	rec := postWebhook(t, h, "generic", id, body, signedGenericHeaders(secret, body, "susp-"+tenant[:8], time.Now().UTC()))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("suspended tenant webhook: code = %d, want 403; body=%s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), tenant) {
+		t.Fatalf("refusal must not name the tenant: %s", rec.Body)
+	}
+	if got := countTenantRows(t, db, tenant, `SELECT count(*) FROM change_events`); got != 0 {
+		t.Fatalf("a suspended tenant's webhook must store no event; change_events = %d, want 0", got)
+	}
+}
+
+// AUTHZ-19 (sub-issue 3): replay protection survives a rotated delivery-id
+// header. The SAME signed body re-sent under a NEW delivery id is a duplicate
+// (the server-computed body fingerprint catches it) and is not re-stored; a
+// genuinely different body is stored.
+func TestChangeWebhookDedupesReplayedBodyWithNewDeliveryID(t *testing.T) {
+	db := changeDB(t)
+	tenant := freshTenant(t, db, "chgfp")
+	id, secret := "wh-"+tenant[:8], "fingerprint-secret-0123456789abcdef"
+	h := buildChangeHandler(db, map[string]config.ChangeWebhook{id: {TenantID: tenant, Provider: "generic", Secret: secret}})
+	now := time.Now().UTC()
+
+	body := []byte(`{"kind":"deploy","title":"replayed deploy","target":"api.example.com","actor":"ci"}`)
+
+	first := postWebhook(t, h, "generic", id, body, signedGenericHeaders(secret, body, "delivery-A", now))
+	if first.Code != http.StatusAccepted || strings.Contains(first.Body.String(), `"duplicate":true`) {
+		t.Fatalf("first delivery: %d %s", first.Code, first.Body)
+	}
+
+	// Same body, NEW delivery id, re-signed with a fresh timestamp: a duplicate.
+	replay := postWebhook(t, h, "generic", id, body, signedGenericHeaders(secret, body, "delivery-B", now.Add(time.Second)))
+	if replay.Code != http.StatusAccepted {
+		t.Fatalf("replay delivery: %d %s", replay.Code, replay.Body)
+	}
+	if !strings.Contains(replay.Body.String(), `"duplicate":true`) {
+		t.Fatalf("a replay with a NEW delivery id must be reported as duplicate: %s", replay.Body)
+	}
+	if got := countTenantRows(t, db, tenant, `SELECT count(*) FROM change_events`); got != 1 {
+		t.Fatalf("a replayed body must not be re-stored; change_events = %d, want 1", got)
+	}
+
+	// A genuinely DIFFERENT body (new delivery id) is stored.
+	body2 := []byte(`{"kind":"deploy","title":"genuinely new deploy","target":"db.internal","actor":"ci"}`)
+	fresh := postWebhook(t, h, "generic", id, body2, signedGenericHeaders(secret, body2, "delivery-C", now.Add(2*time.Second)))
+	if fresh.Code != http.StatusAccepted || strings.Contains(fresh.Body.String(), `"duplicate":true`) {
+		t.Fatalf("a different body must be stored fresh: %d %s", fresh.Code, fresh.Body)
+	}
+	if got := countTenantRows(t, db, tenant, `SELECT count(*) FROM change_events`); got != 2 {
+		t.Fatalf("a different body must add an event; change_events = %d, want 2", got)
+	}
+}
+
 // An incident surfaces the recent changes that share its target within the window,
 // ranked as candidate causes; unrelated changes are not surfaced.
 func TestIncidentChangesCorrelation(t *testing.T) {

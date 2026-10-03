@@ -99,6 +99,36 @@ func (s *Server) throttleAuth(h apiHandler) apiHandler {
 	}
 }
 
+// throttleWebhook rate-limits the UNAUTHENTICATED webhook ingress (AUTHZ-19)
+// against credential-id / signature brute force. It reuses the U-024 per-IP
+// limiter, clientIP source, and failure-accounting of throttleAuth, but keys on
+// a webhook-specific namespace so a flood against the ingest surface never locks
+// a deployment's SSO out (and vice versa). Each FAILED delivery — the shared
+// generic 401 (webhookAuthFailed) or the lifecycle 403 — counts against BOTH the
+// source IP AND the targeted credential id; a locked source OR a hammered
+// credential id gets 429 + Retry-After without the handler running. A successful
+// (accepted) delivery never counts, so a busy legitimate webhook source is never
+// locked out.
+func (s *Server) throttleWebhook(h apiHandler) apiHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		keys := []string{"wh-ip:" + s.clientIP(r), "wh-cred:" + r.PathValue("id")}
+		for _, key := range keys {
+			ok, retry := s.authLimiter.Allow(key)
+			if !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds()+0.5)))
+				return apierror.RateLimited("too many webhook attempts — retry later")
+			}
+		}
+		err := h(w, r)
+		if isAuthFailure(err) {
+			for _, key := range keys {
+				s.authLimiter.Fail(key)
+			}
+		}
+		return err
+	}
+}
+
 // isAuthFailure reports whether a handler error is a rejected authentication
 // attempt (bad state/nonce/exchange/token/proof) that should count against the
 // source's budget. Infrastructure errors (an IdP being unavailable, an internal

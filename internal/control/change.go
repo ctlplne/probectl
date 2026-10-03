@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/change"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/httpbody"
 	"github.com/ctlplne/probectl/internal/store"
@@ -29,6 +31,17 @@ import (
 
 // changeWebhookMaxBody caps an (untrusted) webhook payload at 1 MiB.
 const changeWebhookMaxBody = 1 << 20
+
+// webhookAuthFailed is the SINGLE pre-verification rejection shared by BOTH
+// webhook ingress handlers (AUTHZ-19). An unknown credential id, a provider
+// mismatch, an unknown provider, a bad or missing signature, and a missing
+// delivery id all return this one identical 401 — same code, same message — so
+// the response can never be used as an oracle to tell a valid credential id apart
+// from an invalid one, or a signature miss from an unknown id. Fail closed and
+// reveal nothing (docs/guardrails.md G7-12).
+func webhookAuthFailed() error {
+	return apierror.Unauthorized("webhook authentication failed")
+}
 
 // handleChangeWebhook ingests a per-provider-signed change webhook (S29). It is
 // mounted OUTSIDE the session-authenticated /v1 surface (like /auth/login) and
@@ -45,12 +58,19 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 	cred, ok := s.cfg.ChangeWebhooks[id]
 	if !ok || !strings.EqualFold(cred.Provider, provider) {
 		// Unknown id, or the URL provider doesn't match the credential: fail closed
-		// without revealing which (no enumeration oracle).
-		return apierror.Unauthorized("unknown or unauthorized webhook")
+		// with the one shared response (no enumeration oracle).
+		return webhookAuthFailed()
 	}
 	p, ok := change.ProviderByName(cred.Provider)
 	if !ok {
-		return apierror.Unauthorized("unknown or unauthorized webhook")
+		return webhookAuthFailed()
+	}
+	// Tenant lifecycle (S-T1) is the outermost boundary: a suspended/offboarded
+	// tenant's webhook is refused before the delivery is read or processed, keyed
+	// strictly by the credential's own tenant (never the payload). Its 403 path
+	// does not name the tenant.
+	if err := s.checkTenantLifecycle(r, cred.TenantID); err != nil {
+		return err
 	}
 
 	body, err := httpbody.ReadLimited(r.Body, changeWebhookMaxBody)
@@ -63,12 +83,17 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 	now := time.Now().UTC()
 	if !p.Verify(cred.Secret, body, r.Header, now) {
 		// unsigned / forged / wrong-token → reject before normalization (fail closed).
-		return apierror.Unauthorized("invalid webhook signature")
+		return webhookAuthFailed()
 	}
 	deliveryID, ok := p.DeliveryID(r.Header)
 	if !ok {
-		return apierror.Unauthorized("missing webhook delivery id")
+		return webhookAuthFailed()
 	}
+	// AUTHZ-19: the replay key is a server-computed fingerprint of the exact
+	// authenticated bytes (the body the HMAC signed), so a replay cannot slip
+	// through by rotating the client-supplied delivery-id header. It is scoped per
+	// credential+provider+tenant in the store.
+	bodyFingerprint := hex.EncodeToString(crypto.Hash(body))
 
 	events, err := p.Normalize(body, r.Header, now)
 	if err != nil {
@@ -84,10 +109,11 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 		ctx := tenancy.WithTenant(r.Context(), tenancy.ID(cred.TenantID))
 		if err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			fresh, e := (store.WebhookDeliveries{}).Record(ctx, sc, store.WebhookDelivery{
-				CredentialID: id,
-				Provider:     cred.Provider,
-				DeliveryID:   deliveryID,
-				EventCount:   len(events),
+				CredentialID:    id,
+				Provider:        cred.Provider,
+				DeliveryID:      deliveryID,
+				EventCount:      len(events),
+				BodyFingerprint: bodyFingerprint,
 			})
 			if e != nil {
 				return e
