@@ -7,11 +7,50 @@
 # deployments and adds a monitoring namespace ingress selector for /metrics.
 # Nothing else is reachable unless it is named here.
 #
+# OPERATOR-SUPPLIED VALUES (RTO-14): this overlay sets PROBECTL_DEPLOYMENT_PROFILE
+# =regulated (below), which makes the control plane validate a full production
+# surface at STARTUP — verified-TLS Postgres, durable bus/stores, WORM/SIEM audit
+# watermarks. Those inputs are operator- and environment-specific, so the overlay
+# cannot ship defaults for them. The chart therefore REFUSES TO RENDER until every
+# one is supplied and prints the full list in a single message
+# (templates/_helpers.tpl `probectl.regulatedPreflight`): a bare
+# `helm template -f values-strict.yaml` fails LOUDLY and completely instead of
+# rendering a config the pod then rejects at boot ("deployed" → CrashLoopBackOff).
+# A complete, installable invocation (match every value to your cluster):
+#
 #   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-strict.yaml \
+#     --set-string image.digest='sha256:<release-digest>' \
+#     --set control.tls.existingSecret=probectl-metrics-tls \
+#     --set ingress.host=probectl.example.com \
 #     --set ingress.backendTLS.trustSecret=probectl-backend-ca \
 #     --set ingress.backendTLS.serverName=probectl.example.com \
-#     --set-string image.digest='sha256:<release-digest>' \
-#     --set 'networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=ingress-nginx'
+#     --set 'control.trustedProxies={10.244.0.0/16}' \
+#     --set secrets.existingSecret=probectl-runtime \
+#     --set audit.worm.enabled=true \
+#     --set-string audit.worm.existingClaim=probectl-audit-worm \
+#     --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
+#     --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest \
+#     --set-string control.extraEnv.PROBECTL_BUS_MODE=kafka \
+#     --set-string control.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
+#     --set-string control.extraEnv.PROBECTL_BUS_TLS_ENABLED=true \
+#     --set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus \
+#     --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc:9090 \
+#     --set-string control.extraEnv.PROBECTL_PATHSTORE_MODE=clickhouse \
+#     --set-string control.extraEnv.PROBECTL_PATHSTORE_URL=https://clickhouse.probectl.svc:8443 \
+#     --set-string control.extraEnv.PROBECTL_FLOWSTORE_MODE=clickhouse \
+#     --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL=https://clickhouse.probectl.svc:8443 \
+#     --set-string control.extraEnv.PROBECTL_OTELSTORE_MODE=clickhouse \
+#     --set-string control.extraEnv.PROBECTL_OTELSTORE_URL=https://clickhouse.probectl.svc:8443 \
+#     --set-string control.extraEnv.PROBECTL_EBPFSTORE_MODE=clickhouse \
+#     --set-string control.extraEnv.PROBECTL_EBPFSTORE_URL=https://clickhouse.probectl.svc:8443 \
+#     --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_MODE=clickhouse \
+#     --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_URL=https://clickhouse.probectl.svc:8443
+#
+# The secrets.existingSecret above MUST contain PROBECTL_DATABASE_URL (with
+# sslmode=verify-ca or verify-full and sslrootcert — plain `require` is rejected
+# for this profile), PROBECTL_ENVELOPE_KEY, PROBECTL_SESSION_HMAC_KEY, and a
+# base64 PROBECTL_WORM_SIGNING_KEY. The ClickHouse scoped-reader users are shipped
+# below (RED-001); point the bus/TSDB/store endpoints at TLS listeners.
 #
 # REVIEW BEFORE APPLYING: the selectors + CIDRs below are a REFERENCE that
 # you MUST match to your cluster (ingress-controller namespace, monitoring
@@ -114,3 +153,13 @@ control:
     # and strict-lane validators instead of silently defaulting to "single".
     PROBECTL_DEPLOYMENT_PROFILE: "regulated"
     PROBECTL_AI_REDACT_HOSTNAMES: "true"
+    # RED-001: every ClickHouse-backed lane needs its scoped SELECT-only reader
+    # whose setting-scoped row policy is installed at boot. Shipped here (not an
+    # environment value) so a regulated ClickHouse deployment is not left to
+    # discover the missing reader only at pod startup. Operators may split these
+    # per plane; the reference uses one reader account.
+    PROBECTL_PATHSTORE_READER_USER: "probectl_reader"
+    PROBECTL_FLOWSTORE_READER_USER: "probectl_reader"
+    PROBECTL_OTELSTORE_READER_USER: "probectl_reader"
+    PROBECTL_EBPFSTORE_READER_USER: "probectl_reader"
+    PROBECTL_ENDPOINTSTORE_READER_USER: "probectl_reader"

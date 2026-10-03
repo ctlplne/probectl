@@ -70,6 +70,7 @@ render() {
 HA_DURABLE=(
   --set-string control.extraEnv.PROBECTL_BUS_MODE=kafka
   --set-string control.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093
+  --set-string control.extraEnv.PROBECTL_BUS_TLS_ENABLED=true
   --set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus
   --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc:9090
   --set-string control.extraEnv.PROBECTL_PATHSTORE_MODE=clickhouse
@@ -666,7 +667,10 @@ need "kind: HorizontalPodAutoscaler" "$large" "large profile missing HorizontalP
 # 3a. STRICT profile (OPS-004): full default-deny — a NAMED ingress selector
 #     and an explicit egress allow-list, with NO allow-all holes. Plus the
 #     regulated-profile ops surfaces (OPS-005/009): ServiceMonitor + backups.
-strict="$(render -f "$CHART/values-strict.yaml")"
+#     RTO-14: the regulated profile also requires the durable bus/TSDB/stores
+#     the control plane validates at startup, so render with them supplied (the
+#     operator-supplied durable backends documented in values-strict.yaml).
+strict="$(render -f "$CHART/values-strict.yaml" "${HA_DURABLE[@]}")"
 need "kind: NetworkPolicy"          "$strict" "strict profile missing NetworkPolicy"
 need "ingress-nginx"                "$strict" "strict profile: ingress selector hole not closed (HOLE 1)"
 need "port: 5432"                   "$strict" "strict profile: datastore egress allow-list missing (HOLE 2)"
@@ -714,7 +718,7 @@ need_fixed 'nginx.ingress.kubernetes.io/proxy-ssl-verify: "on"' "$strict_ing" "s
 need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-secret: \"default/$BACKEND_TLS_SECRET\"" "$strict_ing" "strict ingress does not use the backend CA Secret (CRYPTO-bced5da5)"
 need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-name: \"$BACKEND_TLS_SERVER_NAME\"" "$strict_ing" "strict ingress does not verify the backend name (CRYPTO-bced5da5)"
 need "name: https" "$strict_ing" "strict ingress backend does not route to the https Service port (RUNOPS-004)"
-if render -f "$CHART/values-strict.yaml" --set control.tls.enabled=false >/dev/null 2>&1; then
+if render -f "$CHART/values-strict.yaml" "${HA_DURABLE[@]}" --set control.tls.enabled=false >/dev/null 2>&1; then
   fail "strict ServiceMonitor rendered an HTTPS scrape without an HTTPS control listener (RUNOPS-004)"
 fi
 need "kind: PrometheusRule"         "$strict" "strict profile missing self-alert PrometheusRule (OPS-004)"
@@ -731,6 +735,55 @@ need "kind: CronJob"                "$strict" "strict profile missing backup Cro
 if [ "$(grep -c '^kind: CronJob$' <<<"$strict")" -ne 3 ]; then
   fail "strict profile must render exactly Postgres + ClickHouse + object-store backup CronJobs (H8)"
 fi
+
+# 3a-i. RTO-14: a BARE `helm template -f values-strict.yaml` (no operator values)
+#   must FAIL with ONE message that enumerates EVERY operator-supplied value — not
+#   a partial Helm JSON-schema error, not a cascade of one-at-a-time template
+#   failures, and never a successful render the pod then rejects at boot
+#   ("deployed" → CrashLoopBackOff). The regulated preflight is the single source.
+strict_bare_err="$(helm template probectl "$CHART" -f "$CHART/values-strict.yaml" 2>&1 >/dev/null || true)"
+need_fixed "cannot be installed without operator-supplied values" "$strict_bare_err" \
+  "bare strict render must fail with the aggregated regulated preflight message, not a partial/cryptic error (RTO-14)"
+if grep -q "don't meet the specifications of the schema" <<<"$strict_bare_err"; then
+  fail "bare strict render still fails with a cryptic partial Helm schema error instead of the aggregated preflight (RTO-14)"
+fi
+for required_value in \
+  "image.digest" \
+  "ingress.backendTLS.trustSecret" \
+  "ingress.backendTLS.serverName" \
+  "control.trustedProxies" \
+  "secrets.existingSecret" \
+  "audit.worm.enabled" \
+  "audit.worm.existingClaim" \
+  "PROBECTL_SIEM_ENABLED" \
+  "PROBECTL_SIEM_ENDPOINT" \
+  "PROBECTL_BUS_MODE" \
+  "PROBECTL_BUS_BROKERS" \
+  "PROBECTL_BUS_TLS_ENABLED" \
+  "PROBECTL_TSDB_MODE" \
+  "PROBECTL_TSDB_URL" \
+  "PROBECTL_PATHSTORE_MODE" \
+  "PROBECTL_FLOWSTORE_MODE" \
+  "PROBECTL_OTELSTORE_MODE" \
+  "PROBECTL_EBPFSTORE_MODE" \
+  "PROBECTL_ENDPOINTSTORE_MODE" \
+  "PROBECTL_ENDPOINTSTORE_URL"; do
+  need_fixed "$required_value" "$strict_bare_err" \
+    "bare strict render message must list the required value $required_value (RTO-14)"
+done
+# Supplying only SOME of them must still fail with the same aggregated message
+# (a cascade would instead surface a different single value each time).
+strict_partial_err="$(helm template probectl "$CHART" -f "$CHART/values-strict.yaml" \
+  --set-string image.digest="$CONTROL_IMAGE_DIGEST" \
+  --set secrets.existingSecret="$RUNTIME_SECRET" 2>&1 >/dev/null || true)"
+need_fixed "cannot be installed without operator-supplied values" "$strict_partial_err" \
+  "a partially-configured strict render must still fail with the aggregated preflight (RTO-14)"
+need_fixed "PROBECTL_BUS_MODE" "$strict_partial_err" \
+  "a partially-configured strict render must still list the remaining durable-backend values (RTO-14)"
+# GREEN: with the documented durable backends + secrets supplied the strict
+# profile renders ($strict above). That rendered config also PASSES control-plane
+# startup validation — proven by `go test ./internal/config -run
+# TestStrictProfileRenderedConfigPassesStartupValidation` (no deployed-then-crashloop).
 
 # 3b. /metrics + backup are chart-managed and gated. Default profile must
 #     NOT ship the operator-CRD ServiceMonitor or the opt-in CronJobs.

@@ -63,11 +63,10 @@ func TestHelmSchemaMakesDatabaseURLConditionalOnExistingSecret(t *testing.T) {
 	for _, entry := range allOf {
 		e, _ := entry.(map[string]any)
 		ifBlock, _ := e["if"].(map[string]any)
-		not, _ := ifBlock["not"].(map[string]any)
-		if not == nil {
+		if ifBlock == nil {
 			continue
 		}
-		if !mentionsExistingSecret(not) {
+		if !ifMentionsNotExistingSecret(ifBlock) {
 			continue
 		}
 		if thenRequiresDatabaseURL(e["then"]) {
@@ -78,6 +77,26 @@ func TestHelmSchemaMakesDatabaseURLConditionalOnExistingSecret(t *testing.T) {
 	if !found {
 		t.Error("no root allOf branch requires database.url under `not(secrets.existingSecret)`; the conditional DSN requirement is gone (RTO-10)")
 	}
+}
+
+// ifMentionsNotExistingSecret reports whether an allOf branch's `if` carries a
+// `not(secrets.existingSecret)` clause — either directly (`if.not`) or as one
+// conjunct of an `if.allOf` (RTO-14 composes it with `not(isRegulatedProfile)`
+// so the regulated profile, which requires secrets.existingSecret anyway, reaches
+// the aggregated render-time preflight instead of a partial schema error).
+func ifMentionsNotExistingSecret(ifBlock map[string]any) bool {
+	if not, ok := ifBlock["not"].(map[string]any); ok && mentionsExistingSecret(not) {
+		return true
+	}
+	if conj, ok := ifBlock["allOf"].([]any); ok {
+		for _, c := range conj {
+			cm, _ := c.(map[string]any)
+			if not, ok := cm["not"].(map[string]any); ok && mentionsExistingSecret(not) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func mentionsExistingSecret(not map[string]any) bool {

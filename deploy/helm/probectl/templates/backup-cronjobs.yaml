@@ -1,3 +1,5 @@
+{{- /* RTO-14: for the regulated profile, surface the complete required-value list before this template's own checks (image digest etc.). */ -}}
+{{- include "probectl.regulatedPreflight" . -}}
 {{- if .Values.backup.enabled }}
 {{- if and (or .Values.backup.postgres.enabled .Values.backup.objectStore.enabled) (not .Values.backup.encryption.enabled) (ne .Values.backup.plaintextAck "allow-plaintext-tenant-backup") }}
 {{- fail "plaintext Postgres/object-store backups require backup.plaintextAck=allow-plaintext-tenant-backup when backup.encryption.enabled=false" }}

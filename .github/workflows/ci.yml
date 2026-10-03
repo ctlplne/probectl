@@ -606,8 +606,13 @@ jobs:
             --set secrets.sessionHMACKey="${PROBECTL_HELM_TEST_SESSION_HMAC_KEY}" \
             --set database.url="${PROBECTL_HELM_TEST_DATABASE_URL}" \
             | /tmp/kubeconform -strict -summary
-          # OPS-004/005/009: the strict regulated profile renders valid too
+          # OPS-004/005/009 + RTO-14: the strict regulated profile renders valid too
           # (ServiceMonitor and PrometheusRule are Prometheus-Operator CRDs — skip them).
+          # The regulated profile validates a full production surface at startup, so
+          # the chart refuses to render without the operator-supplied runtime Secret,
+          # WORM/SIEM watermarks, and durable bus/TSDB/stores (templates/_helpers.tpl
+          # probectl.regulatedPreflight); supply them here exactly as values-strict.yaml
+          # documents, so this render proves the COMPLETE strict manifest is valid k8s.
           helm template probectl deploy/helm/probectl \
             -f deploy/helm/probectl/values-strict.yaml \
             --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
@@ -616,9 +621,26 @@ jobs:
             --set ingress.backendTLS.serverName=probectl-control.probectl.svc \
             --set control.tls.existingSecret=probectl-tls \
             --set image.digest="${PROBECTL_HELM_TEST_IMAGE_DIGEST}" \
-            --set secrets.envelopeKey="${PROBECTL_HELM_TEST_ENVELOPE_KEY}" \
-            --set secrets.sessionHMACKey="${PROBECTL_HELM_TEST_SESSION_HMAC_KEY}" \
-            --set database.url="${PROBECTL_HELM_TEST_DATABASE_URL}" \
+            --set secrets.existingSecret=probectl-runtime \
+            --set audit.worm.enabled=true \
+            --set-string audit.worm.existingClaim=probectl-audit-worm \
+            --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
+            --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest \
+            --set-string control.extraEnv.PROBECTL_BUS_MODE=kafka \
+            --set-string control.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
+            --set-string control.extraEnv.PROBECTL_BUS_TLS_ENABLED=true \
+            --set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus \
+            --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc:9090 \
+            --set-string control.extraEnv.PROBECTL_PATHSTORE_MODE=clickhouse \
+            --set-string control.extraEnv.PROBECTL_PATHSTORE_URL=https://clickhouse.probectl.svc:8443 \
+            --set-string control.extraEnv.PROBECTL_FLOWSTORE_MODE=clickhouse \
+            --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL=https://clickhouse.probectl.svc:8443 \
+            --set-string control.extraEnv.PROBECTL_OTELSTORE_MODE=clickhouse \
+            --set-string control.extraEnv.PROBECTL_OTELSTORE_URL=https://clickhouse.probectl.svc:8443 \
+            --set-string control.extraEnv.PROBECTL_EBPFSTORE_MODE=clickhouse \
+            --set-string control.extraEnv.PROBECTL_EBPFSTORE_URL=https://clickhouse.probectl.svc:8443 \
+            --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_MODE=clickhouse \
+            --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_URL=https://clickhouse.probectl.svc:8443 \
             | /tmp/kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule
       - name: secret-managed DSN renders without database.url (RTO-10)
         env:

@@ -10,7 +10,7 @@
       "additionalProperties": false,
       "properties": {
         "repository": { "type": "string", "minLength": 1 },
-        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "digest": { "type": "string" },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
       },
       "required": ["repository", "digest", "pullPolicy"]
@@ -580,19 +580,52 @@
     "tolerations": { "type": "array" },
     "affinity": { "type": "object" }
   },
-  "allOf": [
-    {
-      "$comment": "RTO-10: database.url is required ONLY when no managed secret supplies the DSN. With secrets.existingSecret set, PROBECTL_DATABASE_URL comes from that Secret (templates/secret.yaml renders no DSN itself), which is exactly how the Terraform module and the Argo CD/Flux GitOps manifests install — so requiring database.url there forced the operator to duplicate the DSN into values (and into Git/Terraform state).",
-      "if": {
-        "not": {
+  "definitions": {
+    "isRegulatedProfile": {
+      "$comment": "RTO-14: true when the regulated (strict) profile is selected via control.extraEnv.PROBECTL_DEPLOYMENT_PROFILE=regulated. The universal secret requirements below are deferred for this profile to 00-regulated-preflight.yaml, which lists EVERY operator-supplied value (secrets, backend TLS, durable bus/stores, WORM/SIEM) in one message instead of a partial schema error; templates still enforce each one, so nothing is weakened.",
+      "properties": {
+        "control": {
           "properties": {
-            "secrets": {
-              "properties": { "existingSecret": { "type": "string", "minLength": 1 } },
-              "required": ["existingSecret"]
+            "extraEnv": {
+              "properties": { "PROBECTL_DEPLOYMENT_PROFILE": { "const": "regulated" } },
+              "required": ["PROBECTL_DEPLOYMENT_PROFILE"]
             }
           },
-          "required": ["secrets"]
+          "required": ["extraEnv"]
         }
+      },
+      "required": ["control"]
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "RTO-14: the sha256 digest pattern applies to every profile EXCEPT regulated. For regulated, 00-regulated-preflight.yaml lists image.digest among the required operator values and templates/_helpers.tpl probectl.image still refuses a missing/malformed digest at render, so relaxing the pattern here lets the strict profile fail with ONE aggregated message rather than a schema error that omits the profile's other required values.",
+      "if": { "not": { "$ref": "#/definitions/isRegulatedProfile" } },
+      "then": {
+        "properties": {
+          "image": {
+            "properties": { "digest": { "pattern": "^sha256:[0-9a-f]{64}$" } }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "RTO-10: database.url is required ONLY when no managed secret supplies the DSN. With secrets.existingSecret set, PROBECTL_DATABASE_URL comes from that Secret (templates/secret.yaml renders no DSN itself), which is exactly how the Terraform module and the Argo CD/Flux GitOps manifests install — so requiring database.url there forced the operator to duplicate the DSN into values (and into Git/Terraform state). RTO-14: also skipped for the regulated profile, where 00-regulated-preflight.yaml requires secrets.existingSecret (the DSN's only home for that profile).",
+      "if": {
+        "allOf": [
+          {
+            "not": {
+              "properties": {
+                "secrets": {
+                  "properties": { "existingSecret": { "type": "string", "minLength": 1 } },
+                  "required": ["existingSecret"]
+                }
+              },
+              "required": ["secrets"]
+            }
+          },
+          { "not": { "$ref": "#/definitions/isRegulatedProfile" } }
+        ]
       },
       "then": {
         "required": ["database"],
@@ -605,23 +638,29 @@
       }
     },
     {
+      "$comment": "RTO-14: the backend-TLS trust/name requirement is skipped for the regulated profile, where 00-regulated-preflight.yaml lists ingress.backendTLS.trustSecret/serverName in its single aggregated message.",
       "if": {
-        "properties": {
-          "ingress": {
-            "properties": { "enabled": { "const": true } },
-            "required": ["enabled"]
-          },
-          "control": {
+        "allOf": [
+          {
             "properties": {
-              "tls": {
+              "ingress": {
                 "properties": { "enabled": { "const": true } },
                 "required": ["enabled"]
+              },
+              "control": {
+                "properties": {
+                  "tls": {
+                    "properties": { "enabled": { "const": true } },
+                    "required": ["enabled"]
+                  }
+                },
+                "required": ["tls"]
               }
             },
-            "required": ["tls"]
-          }
-        },
-        "required": ["ingress", "control"]
+            "required": ["ingress", "control"]
+          },
+          { "not": { "$ref": "#/definitions/isRegulatedProfile" } }
+        ]
       },
       "then": {
         "properties": {

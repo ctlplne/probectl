@@ -473,9 +473,47 @@ deployments, apply the **strict profile**, which closes both holes:
 ```sh
 helm install probectl deploy/helm/probectl \
   -f deploy/helm/probectl/values-strict.yaml \
+  --set-string image.digest='sha256:<release-digest>' \
+  --set control.tls.existingSecret=probectl-metrics-tls \
+  --set ingress.host=probectl.example.com \
+  --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+  --set ingress.backendTLS.serverName=probectl.example.com \
   --set 'control.trustedProxies={10.244.0.0/16}' \
-  --set-string image.digest='sha256:<release-digest>'
+  --set secrets.existingSecret=probectl-runtime \
+  --set audit.worm.enabled=true \
+  --set-string audit.worm.existingClaim=probectl-audit-worm \
+  --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
+  --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest \
+  --set-string control.extraEnv.PROBECTL_BUS_MODE=kafka \
+  --set-string control.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
+  --set-string control.extraEnv.PROBECTL_BUS_TLS_ENABLED=true \
+  --set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus \
+  --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc:9090 \
+  --set-string control.extraEnv.PROBECTL_PATHSTORE_MODE=clickhouse \
+  --set-string control.extraEnv.PROBECTL_PATHSTORE_URL=https://clickhouse.probectl.svc:8443 \
+  --set-string control.extraEnv.PROBECTL_FLOWSTORE_MODE=clickhouse \
+  --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL=https://clickhouse.probectl.svc:8443 \
+  --set-string control.extraEnv.PROBECTL_OTELSTORE_MODE=clickhouse \
+  --set-string control.extraEnv.PROBECTL_OTELSTORE_URL=https://clickhouse.probectl.svc:8443 \
+  --set-string control.extraEnv.PROBECTL_EBPFSTORE_MODE=clickhouse \
+  --set-string control.extraEnv.PROBECTL_EBPFSTORE_URL=https://clickhouse.probectl.svc:8443 \
+  --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_MODE=clickhouse \
+  --set-string control.extraEnv.PROBECTL_ENDPOINTSTORE_URL=https://clickhouse.probectl.svc:8443
 ```
+
+**Required operator-supplied values (RTO-14).** The strict overlay sets
+`PROBECTL_DEPLOYMENT_PROFILE=regulated`, which makes the control plane validate a
+full production surface at startup: a verified-TLS Postgres DSN
+(`sslmode=verify-ca`/`verify-full` — plain `require` is single-profile dev only),
+durable bus/TSDB/telemetry stores (an in-memory bus or store is refused), and
+WORM + SIEM audit-retention watermarks. Those values are environment-specific, so
+the overlay cannot ship defaults — and the chart therefore **refuses to render**
+until all of them are supplied, printing the complete list in one message instead
+of letting a pod boot and then crash-loop. `secrets.existingSecret` must carry
+`PROBECTL_DATABASE_URL` (verify-ca/verify-full), `PROBECTL_ENVELOPE_KEY`,
+`PROBECTL_SESSION_HMAC_KEY`, and a base64 `PROBECTL_WORM_SIGNING_KEY`; the
+ClickHouse scoped-reader users (`RED-001`) are shipped by the overlay. The full
+annotated command lives at the top of `values-strict.yaml`.
 
 `control.trustedProxies` is **mandatory** whenever the bundled ingress is
 enabled (the default): behind it every client reaches the control plane as the

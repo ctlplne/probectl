@@ -194,6 +194,95 @@ DPR-046: agent listener values with defaults, so `helm upgrade --reuse-values
 {{- end -}}
 
 {{/*
+RTO-14: regulated (strict) profile preflight. The strict overlay sets
+PROBECTL_DEPLOYMENT_PROFILE=regulated, which makes the control plane validate a
+whole production-like surface at startup (internal/config validateConfig:
+verified-TLS Postgres, durable bus/stores, WORM/SIEM audit watermarks). Those
+inputs are operator- and environment-specific, so the chart cannot ship sane
+defaults for them — but it CAN refuse to render until every one is supplied, in
+ONE message, instead of leaving the operator to discover them as a Helm schema
+error, a cascade of one-at-a-time template failures, and finally a crash-looping
+pod ("deployed" then CrashLoopBackOff). A secret-provided value (the DSN, keys,
+WORM signing key inside secrets.existingSecret) is validated at startup, not
+here, because the chart cannot read a Secret's contents; this guard requires the
+Secret to be named. Fires only for the regulated profile; every other profile is
+untouched. See deploy/helm/probectl/values-strict.yaml and docs/hardening.md.
+*/}}
+{{- define "probectl.regulatedPreflight" -}}
+{{- $extraEnv := .Values.control.extraEnv | default dict -}}
+{{- $profile := printf "%v" (default "single" (get $extraEnv "PROBECTL_DEPLOYMENT_PROFILE")) -}}
+{{- if eq $profile "regulated" -}}
+{{- $missing := list -}}
+{{- $tls := .Values.control.tls | default dict -}}
+{{- $ingress := .Values.ingress | default dict -}}
+{{- $backendTLS := $ingress.backendTLS | default dict -}}
+{{- $secrets := .Values.secrets | default dict -}}
+{{- $worm := (.Values.audit | default dict).worm | default dict -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (printf "%v" (default "" .Values.image.digest))) -}}
+{{- $missing = append $missing "--set-string image.digest=sha256:<64-hex>  (the signed release/mirror digest; SUPPLY-deb3c967)" -}}
+{{- end -}}
+{{- if not (and $tls.enabled (trim (printf "%v" (default "" $tls.existingSecret)))) -}}
+{{- $missing = append $missing "--set control.tls.existingSecret=<secret>  (operator TLS cert/key for the HTTPS listener; CONFIG-aa08042e)" -}}
+{{- end -}}
+{{- if $ingress.enabled -}}
+{{- if not (trim (printf "%v" (default "" $backendTLS.trustSecret))) -}}
+{{- $missing = append $missing "--set ingress.backendTLS.trustSecret=<secret>  (ingress-nginx proxy-ssl CA for the verified backend; CRYPTO-bced5da5)" -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" $backendTLS.serverName))) -}}
+{{- $missing = append $missing "--set ingress.backendTLS.serverName=<name>  (a SAN in the control listener certificate; CRYPTO-bced5da5)" -}}
+{{- end -}}
+{{- if not .Values.control.trustedProxies -}}
+{{- $missing = append $missing "--set 'control.trustedProxies={<ingress CIDR>}'  (the forwarded-client trust for the auth throttle; AUTHZ-04)" -}}
+{{- end -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" $secrets.existingSecret))) -}}
+{{- $missing = append $missing "--set secrets.existingSecret=<secret>  (the operator-managed runtime Secret holding PROBECTL_DATABASE_URL with sslmode=verify-ca|verify-full, PROBECTL_ENVELOPE_KEY, PROBECTL_SESSION_HMAC_KEY and PROBECTL_WORM_SIGNING_KEY; WIRE-001/PRIVACY-001)" -}}
+{{- end -}}
+{{- if not $worm.enabled -}}
+{{- $missing = append $missing "--set audit.worm.enabled=true  (signed WORM audit export watermark; PRIVACY-001)" -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" $worm.existingClaim))) -}}
+{{- $missing = append $missing "--set-string audit.worm.existingClaim=<claim>  (a WORM/object-lock PVC for the signed audit segments; DPR-116)" -}}
+{{- end -}}
+{{- if ne (printf "%v" (default "" (get $extraEnv "PROBECTL_SIEM_ENABLED"))) "true" -}}
+{{- $missing = append $missing "--set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true  (tenant audit rows prune only below the SIEM watermark; PRIVACY-001)" -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" (get $extraEnv "PROBECTL_SIEM_ENDPOINT")))) -}}
+{{- $missing = append $missing "--set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://<siem>/ingest  (the SIEM export endpoint; PRIVACY-001)" -}}
+{{- end -}}
+{{- $busMode := printf "%v" (default "memory" (get $extraEnv "PROBECTL_BUS_MODE")) -}}
+{{- if not (or (eq $busMode "kafka") (eq $busMode "nats")) -}}
+{{- $missing = append $missing "--set-string control.extraEnv.PROBECTL_BUS_MODE=kafka|nats  (a durable shared bus; an in-memory bus is refused for this profile; PLAT-02/DPR-029)" -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" (get $extraEnv "PROBECTL_BUS_BROKERS")))) -}}
+{{- $missing = append $missing "--set-string control.extraEnv.PROBECTL_BUS_BROKERS=<host:port[,...]>  (the shared bus endpoints; PLAT-02)" -}}
+{{- end -}}
+{{- if ne (printf "%v" (default "" (get $extraEnv "PROBECTL_BUS_TLS_ENABLED"))) "true" -}}
+{{- $missing = append $missing "--set-string control.extraEnv.PROBECTL_BUS_TLS_ENABLED=true  (a networked bus without TLS is refused; U-010)" -}}
+{{- end -}}
+{{- if ne (printf "%v" (default "memory" (get $extraEnv "PROBECTL_TSDB_MODE"))) "prometheus" -}}
+{{- $missing = append $missing "--set-string control.extraEnv.PROBECTL_TSDB_MODE=prometheus  (a durable shared TSDB; an in-memory TSDB is refused; PLAT-02)" -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" (get $extraEnv "PROBECTL_TSDB_URL")))) -}}
+{{- $missing = append $missing "--set-string control.extraEnv.PROBECTL_TSDB_URL=https://<prometheus>  (the shared TSDB remote-write/query endpoint; PLAT-02)" -}}
+{{- end -}}
+{{- range $se := list "PROBECTL_PATHSTORE" "PROBECTL_FLOWSTORE" "PROBECTL_OTELSTORE" "PROBECTL_EBPFSTORE" "PROBECTL_ENDPOINTSTORE" -}}
+{{- $modeKey := printf "%s_MODE" $se -}}
+{{- $urlKey := printf "%s_URL" $se -}}
+{{- if ne (printf "%v" (default "memory" (get $extraEnv $modeKey))) "clickhouse" -}}
+{{- $missing = append $missing (printf "--set-string control.extraEnv.%s=clickhouse  (a durable shared store per plane; an in-memory store is refused; PLAT-02)" $modeKey) -}}
+{{- end -}}
+{{- if not (trim (printf "%v" (default "" (get $extraEnv $urlKey)))) -}}
+{{- $missing = append $missing (printf "--set-string control.extraEnv.%s=https://<clickhouse>:8443  (the shared ClickHouse endpoint; PLAT-02)" $urlKey) -}}
+{{- end -}}
+{{- end -}}
+{{- if gt (len $missing) 0 -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=regulated (the strict/regulated profile, deploy/helm/probectl/values-strict.yaml) cannot be installed without operator-supplied values. The control plane validates ALL of these at startup, so the chart fails here, before deploy, rather than letting a pod crash-loop. Supply every value below (see values-strict.yaml and docs/hardening.md), then re-run:\n  %s" (join "\n  " $missing)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 probectl.jobContainerSecurityContext (DPR-088): the container hardening every
 backup CronJob and restore Job container carries — the same posture as the
 control-plane container. These pods write only to their mounted volumes, so

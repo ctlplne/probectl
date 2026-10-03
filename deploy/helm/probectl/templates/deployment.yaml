@@ -1,3 +1,5 @@
+{{- /* RTO-14: for the regulated profile, surface the complete required-value list before this template's own checks (image digest, control.tls.existingSecret). */ -}}
+{{- include "probectl.regulatedPreflight" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
