@@ -794,6 +794,7 @@ export interface DeviceSyslogEvent {
   severity_text?: string
   source_address?: string
   tenant_id?: string
+  version?: number
 }
 
 export interface DeviceSyslogList {
@@ -2498,6 +2499,17 @@ export interface FlowTopTalkersRequest {
 
 export type FlowTopTalkersResponse = FlowTopList
 
+export interface GetV1GovernancePolicyRequest {
+}
+
+export type GetV1GovernancePolicyResponse = void
+
+export interface PutV1GovernancePolicyRequest {
+  body: JsonObject
+}
+
+export type PutV1GovernancePolicyResponse = void
+
 export interface PromLabelValuesRequest {
   name: string
   match?: string
@@ -3708,6 +3720,18 @@ export class ProbectlSDKClient {
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     if (request.filter !== undefined) for (const value of request.filter) query.append("filter", String(value))
     return this.requestJSON<FlowTopTalkersResponse>("GET", path, query, undefined)
+  }
+
+  async getV1GovernancePolicy(): Promise<GetV1GovernancePolicyResponse> {
+    let path = "/v1/governance/policy"
+    const query = new URLSearchParams()
+    await this.request("GET", path, query, undefined)
+  }
+
+  async putV1GovernancePolicy(request: PutV1GovernancePolicyRequest): Promise<PutV1GovernancePolicyResponse> {
+    let path = "/v1/governance/policy"
+    const query = new URLSearchParams()
+    await this.request("PUT", path, query, request.body)
   }
 
   async promLabelValues(request: PromLabelValuesRequest): Promise<PromLabelValuesResponse> {
