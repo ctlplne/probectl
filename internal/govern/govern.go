@@ -232,6 +232,30 @@ func PolicyFor(ctx context.Context, tenantID string) Policy {
 	return Policy{}
 }
 
+// PolicyForStrict is PolicyFor for callers that must FAIL CLOSED on a
+// policy-store error instead of silently degrading to the default (AUTHZ-29):
+// it returns the source error so the caller can refuse or redact maximally. A
+// missing per-tenant row is NOT an error — it yields the zero policy, exactly
+// like PolicyFor — so only a genuine source failure surfaces. The data-export
+// redaction path uses this: a redact_export tenant must never receive an
+// unredacted bundle during a transient governance-store failure.
+func PolicyForStrict(ctx context.Context, tenantID string) (Policy, error) {
+	mu.RLock()
+	s := source
+	mu.RUnlock()
+	if s == nil {
+		return Policy{}, nil
+	}
+	p, ok, err := s.PolicyFor(ctx, tenantID)
+	if err != nil {
+		return Policy{}, err
+	}
+	if !ok {
+		return Policy{}, nil
+	}
+	return p, nil
+}
+
 // Categories lists the known categories (sorted) — the governance surface.
 func Categories() []Category {
 	out := make([]Category, 0, len(defaultClass))

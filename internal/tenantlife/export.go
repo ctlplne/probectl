@@ -78,7 +78,15 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 	// policy that forces it) uses the tenant's governance policy, defaulting to
 	// PII-floor partial masking when nothing is configured — the redaction
 	// MECHANISM is core, the per-tenant POLICY is the governance feature.
-	pol := govern.PolicyFor(ctx, tenantID)
+	pol, perr := govern.PolicyForStrict(ctx, tenantID)
+	if perr != nil {
+		// AUTHZ-29: the tenant's redaction policy cannot be read. Fail CLOSED —
+		// never ship an unredacted bundle during a transient governance-store
+		// failure (a redact_export tenant would otherwise leak PII). Force
+		// maximal (PII-floor) redaction regardless of what the request asked.
+		pol = govern.DefaultPIIPolicy()
+		redact = true
+	}
 	redact = redact || pol.RedactExport
 	if redact && pol.RedactFrom == govern.ClassUnset {
 		pol = govern.DefaultPIIPolicy()

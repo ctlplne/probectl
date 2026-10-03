@@ -12,6 +12,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -93,6 +94,42 @@ type forceRedact struct{}
 
 func (forceRedact) PolicyFor(context.Context, string) (govern.Policy, bool, error) {
 	return govern.Policy{RedactExport: true, RedactFrom: govern.ClassPII}, true, nil
+}
+
+type failGovern struct{}
+
+func (failGovern) PolicyFor(context.Context, string) (govern.Policy, bool, error) {
+	return govern.Policy{}, false, errors.New("governance store unavailable")
+}
+
+// TestRedactedExportFailsClosedOnPolicyError proves AUTHZ-29: when the tenant's
+// governance policy cannot be read (a transient store failure), a non-redacted
+// export request is forced to REDACT (fail closed) rather than shipping an
+// unredacted bundle — a redact_export tenant must never leak PII during the
+// outage. Before the fix PolicyFor swallowed the error and the export went out
+// unredacted.
+func TestRedactedExportFailsClosedOnPolicyError(t *testing.T) {
+	defer govern.Reset()
+	govern.SetSource(failGovern{})
+
+	flows := flowstore.NewMemory()
+	_ = flows.Insert(context.Background(), []flowstore.Row{
+		{TenantID: "tnA", TS: t0, SrcAddr: "10.0.0.5", Bytes: 1},
+	})
+	e := New(nil, flows, nil, nil, (&capturedAudit{}).sink, "", testLog()).
+		WithClock(func() time.Time { return t0 })
+
+	var buf bytes.Buffer
+	man, err := e.Export(context.Background(), "tnA", &buf) // redact=false; policy UNREADABLE
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !man.Redacted {
+		t.Fatal("AUTHZ-29: export must fail closed (redacted) when the governance policy cannot be read")
+	}
+	if got := flowsFromBundle(t, &buf)["src_addr"]; got != "10.0.0.0/24" {
+		t.Fatalf("fail-closed export should mask the PII IP, got %q", got)
+	}
 }
 
 // flowsFromBundle untars a bundle and returns the first flows.jsonl record.
