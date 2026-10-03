@@ -39,12 +39,18 @@ type dnsCanary struct {
 	mode           string // resolver | trace
 	dnssec         bool
 	timeout        time.Duration
-	// fetchKeys retrieves the signer zone's DNSKEY RRset for DNSSEC validation.
-	// Nil in production (validateDNSSEC falls back to the real resolver query,
-	// fetchDNSKEYs); tests inject it to drive validation deterministically. The
-	// keys it returns are the zone's own self-published keys, never anchored to
-	// the root — see validateDNSSEC (docs/guardrails.md G7-10).
-	fetchKeys func(ctx context.Context, zone string) ([]*dns.DNSKEY, error)
+	// fetchKeys retrieves the signer zone's DNSKEY response (keys plus the RRSIG
+	// that self-signs the keyset) for DNSSEC validation. Nil in production
+	// (validateDNSSEC falls back to the real resolver query, fetchDNSKEYs); tests
+	// inject it to drive validation deterministically. The keys it returns are the
+	// zone's own self-published keys, trusted only once they chain to a trust
+	// anchor — see validateDNSSEC (docs/guardrails.md G7-10).
+	fetchKeys func(ctx context.Context, zone string) (*dns.Msg, error)
+	// trustAnchors pins the DNSSEC chain-of-trust entry points. Empty means the
+	// baked IANA root anchors (rootTrustAnchors); an operator pins their own DS
+	// via the trust_anchor param. A keyset that does not chain to one of these is
+	// never reported "secure" (docs/guardrails.md G7-9/G7-10).
+	trustAnchors []*dns.DS
 }
 
 // NewDNS builds a DNS canary. Target is the query name. Params: server (resolver
@@ -99,6 +105,27 @@ func NewDNS(cfg Config) (Canary, error) {
 		return nil, fmt.Errorf("dns: unknown mode %q (want resolver|trace)", p["mode"])
 	}
 	c.dnssec = p["dnssec"] == "true"
+	// trust_anchor pins one or more DNSSEC trust anchors (DS records in
+	// presentation format, ";"-separated) the operator trusts in place of the
+	// baked IANA root anchors — e.g. a sovereign/air-gapped internal root. A
+	// keyset that does not chain to a configured anchor is never "secure".
+	if v := strings.TrimSpace(p["trust_anchor"]); v != "" {
+		for _, part := range strings.Split(v, ";") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			rr, err := dns.NewRR(part)
+			if err != nil {
+				return nil, fmt.Errorf("dns: trust_anchor %q: %w", part, err)
+			}
+			ds, ok := rr.(*dns.DS)
+			if !ok {
+				return nil, fmt.Errorf("dns: trust_anchor must be a DS record, got %s", dns.TypeToString[rr.Header().Rrtype])
+			}
+			c.trustAnchors = append(c.trustAnchors, ds)
+		}
+	}
 	if c.server == "" {
 		c.server = defaultServer(c.transport)
 	}

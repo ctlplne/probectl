@@ -638,6 +638,7 @@ optional DNSSEC verdict**. The `target` is the **query name**. Parameters:
 | `server` | `host[:port]` or a DoH URL | per-transport | resolver to query. Omitted = the host's default resolver from `/etc/resolv.conf` (`1.1.1.1:53` when none is configured). A resolver you name here is request input and is SSRF-guarded like any target (a loopback or private resolver needs `allow_private_targets`); the host's default resolver is operator infrastructure and is deliberately exempt, so Docker's `127.0.0.11` and systemd-resolved's `127.0.0.53` stubs work out of the box |
 | `mode` | `resolver` \| `trace` | `resolver` | single query vs. delegation walk |
 | `dnssec` | `true` \| `false` | `false` | validate the zone signature |
+| `trust_anchor` | one or more `DS` records (presentation format, `;`-separated) | baked IANA root anchors | DNSSEC chain-of-trust entry point(s). Pin your own (e.g. a sovereign/air-gapped internal root) in place of the baked IANA root `DS`. A keyset that does not chain to a configured anchor is never reported `secure` |
 
 `server` defaults by transport: the first nameserver in `/etc/resolv.conf` (or
 `1.1.1.1:53`) for `udp`/`tcp`, `1.1.1.1:853` for **DoT** (DNS over TLS — the
@@ -654,27 +655,28 @@ rcode or an empty answer.
 DNSSEC adds cryptographic signatures to DNS, so an answer can be *proven* to
 come from the zone's owner, untampered. With `dnssec: "true"` the canary
 requests DNSSEC records (the DO bit) and **validates the zone's `RRSIG` over the
-answer against the zone `DNSKEY`** — it does **not** trust the resolver's AD bit
-(the resolver's own "I checked" flag, which a misbehaving resolver could simply
-set), and it **never trusts a `DNSKEY` carried in the response's own
-Answer/Additional section** (attacker-controlled: a forged answer would ship a
-matching self-made key beside it). The `DNSKEY` is fetched with a separate query
-to the signer zone. The verdict lands in the `dns.dnssec` attribute:
+answer against the zone `DNSKEY`, then chains that `DNSKEY` to a trust anchor
+through a `DS`** — it does **not** trust the resolver's AD bit (the resolver's own
+"I checked" flag, which a misbehaving resolver could simply set), and it **never
+trusts a `DNSKEY` carried in the response's own Answer/Additional section**
+(attacker-controlled: a forged answer would ship a matching self-made key beside
+it). The `DNSKEY` is fetched with a separate query to the signer zone. The
+verdict lands in the `dns.dnssec` attribute:
 
-- `rrsig-only` — every answer RRset carries a valid, in-window signature from the
-  zone's `DNSKEY`, but that key is **not yet anchored to the root** through a `DS`
-  chain of trust. This is an honest "signed, but not provably authentic" signal:
-  it does **not** claim `secure`, because a forged answer signed by an attacker's
-  own key (served by a malicious resolver) would verify identically. The probe
-  still **succeeds**.
+- `secure` — every answer RRset carries a valid, in-window signature **and** the
+  signing `DNSKEY` RRset chains to a configured trust anchor: a key in the set is
+  pinned by an anchor `DS` and self-signs the keyset (RFC 4035). The anchor is the
+  baked IANA root `DS` by default, or an operator-pinned `DS` (`trust_anchor`).
+- `indeterminate` — every answer RRset carries a valid, in-window signature from
+  the zone's `DNSKEY`, but that keyset **does not chain to a trust anchor**. This
+  is an honest "signed, but not provably authentic" signal: it does **not** claim
+  `secure`, because a forged answer signed by an attacker's own key (served by a
+  malicious resolver) would verify identically. The probe still **succeeds**.
 - `insecure` — the zone is unsigned (no `RRSIG`).
 - `bogus` — `RRSIG`s are present but some answer RRset does not verify (tampered,
   expired, or wrong/absent key). A **bogus** result **fails** the probe.
-- `secure` — **reserved** for a fully root-anchored `DS`/`DNSKEY` chain; it is not
-  emitted until that chain validation ships, so an unanchored-but-signed answer is
-  reported `rrsig-only`, never `secure`.
 
-`probectl_probe_dns_dnssec_secure` (1/0) is 1 only for `secure`; `rrsig-only`
+`probectl_probe_dns_dnssec_secure` (1/0) is 1 only for `secure`; `indeterminate`
 reports 0. Every answer RRset must verify — a single valid `RRSIG` over one RRset
 does not vouch for the rest of the answer.
 
