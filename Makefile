@@ -264,6 +264,10 @@ migration-gate: ## Migration gate (S34/SCHEMA-001/003): reject destructive, lock
 .PHONY: helm-gate
 helm-gate: ## Helm chart lint + secure-by-default hardening assertions (S35). Needs helm.
 	bash scripts/check_helm_hardening.sh
+	@# RTO-09: the copy-paste install command in docs/install.md must satisfy
+	@# values.schema.json and render — the hardening gate above uses its own value
+	@# set, so it never exercised the exact flags the docs tell operators to run.
+	bash scripts/check_install_docs_helm.sh
 	@# DPR-258: the release publishes this chart as an OCI artifact and reads the
 	@# digest back out of helm's output. helm writes it to STDERR, which cost
 	@# v0.6.5 a chart that published and then failed. The planted self-test runs

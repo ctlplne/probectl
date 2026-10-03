@@ -203,11 +203,14 @@ helm install probectl deploy/helm/probectl \
   --namespace probectl --create-namespace \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
+  --set ingress.backendTLS.trustSecret=probectl-backend-ca \
+  --set ingress.backendTLS.serverName=probectl.example.com \
   --set 'control.trustedProxies={10.244.0.0/16}' \
   --set control.tls.existingSecret=probectl-tls \
   --set-string image.digest='sha256:<release-digest>' \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
   --set secrets.envelopeKey="$(openssl rand -base64 32)" \
+  --set secrets.sessionHMACKey="$(openssl rand -hex 32)" \
   --set control.authMode=session \
   --set oidc.issuer=https://idp.example.com \
   --set oidc.clientId=probectl \
@@ -219,7 +222,12 @@ Provide the TLS Secret via cert-manager (add the issuer to `ingress.annotations`
 or create it first. It must contain `tls.crt` and `tls.key`; the example reuses
 the same host certificate for `ingress.tlsSecretName` and
 `control.tls.existingSecret`. Helm fails closed when the control-listener Secret
-is omitted. `image.digest` is also required: use the `probectl-control` digest
+is omitted. The ingress controller separately verifies the control listener's
+certificate, so `ingress.backendTLS.trustSecret` names a same-namespace
+ingress-nginx proxy-ssl Secret (`tls.crt`, `tls.key`, `ca.crt`) and
+`ingress.backendTLS.serverName` names a DNS SAN on that certificate; Helm also
+fails closed if either is missing — create that Secret as shown in
+[`deploy/helm/README.md`](../deploy/helm/README.md). `image.digest` is also required: use the `probectl-control` digest
 whose keyless signature verifies for the release workflow, or the corresponding
 digest in your approved internal mirror. A mutable tag is rejected before any
 workload renders. For the MSP / provider reference sizing, add
