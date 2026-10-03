@@ -40,6 +40,9 @@
     "device.parsePriority": {
       "target": "FuzzDeviceSyslogLine"
     },
+    "device.parseRFC5424Header": {
+      "target": "FuzzDeviceSyslogLine"
+    },
     "endpoint.decodeConfigYAML": {
       "exempt": "operator-supplied agent config file, not network input"
     },

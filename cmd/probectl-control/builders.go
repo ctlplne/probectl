@@ -440,26 +440,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		return fail(err)
 	}
 
-	if cfg.ObjectStoreMode == "s3" {
-		objectStore, err := objectstore.NewS3(objectstore.S3Config{
-			Endpoint: cfg.ObjectStoreS3Endpoint, Bucket: cfg.ObjectStoreS3Bucket,
-			Region: cfg.ObjectStoreS3Region, AccessKey: cfg.ObjectStoreS3AccessKey,
-			SecretKey: cfg.ObjectStoreS3SecretKey, SessionToken: cfg.ObjectStoreS3SessionToken,
-			Prefix: cfg.ObjectStoreS3Prefix,
-		})
-		if err != nil {
-			return fail(fmt.Errorf("object store: %w", err))
-		}
-		s.objectStore = objectStore
-		log.Info("tenant object store enabled", "mode", "s3", "bucket", cfg.ObjectStoreS3Bucket)
-	} else if cfg.ObjectStoreDir != "" {
-		objectStore, err := objectstore.NewFS(cfg.ObjectStoreDir)
-		if err != nil {
-			return fail(fmt.Errorf("object store: %w", err))
-		}
-		s.objectStore = objectStore
-		log.Info("tenant object store enabled", "mode", "filesystem", "dir", cfg.ObjectStoreDir)
+	objectStore, err := openObjectStore(cfg, log)
+	if err != nil {
+		return fail(err)
 	}
+	s.objectStore = objectStore
 
 	// PLAT-09: wire the deep-health reachability probes from the live clients, so
 	// /v1/diagnostics surfaces a bus/TSDB/ClickHouse/object-store outage instead
@@ -473,6 +458,36 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	}
 
 	return s, closeAll, nil
+}
+
+// openObjectStore builds the per-tenant object store from config: S3 when
+// configured, a filesystem directory as the fallback, or nil (no object store)
+// when neither is set. Extracted from buildServeStores to keep that builder
+// under the production complexity budget (internal/cipolicy). A construction
+// failure is returned wrapped; the caller unwinds its other stores.
+func openObjectStore(cfg *config.Config, log *slog.Logger) (objectstore.Store, error) {
+	switch {
+	case cfg.ObjectStoreMode == "s3":
+		store, err := objectstore.NewS3(objectstore.S3Config{
+			Endpoint: cfg.ObjectStoreS3Endpoint, Bucket: cfg.ObjectStoreS3Bucket,
+			Region: cfg.ObjectStoreS3Region, AccessKey: cfg.ObjectStoreS3AccessKey,
+			SecretKey: cfg.ObjectStoreS3SecretKey, SessionToken: cfg.ObjectStoreS3SessionToken,
+			Prefix: cfg.ObjectStoreS3Prefix,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("object store: %w", err)
+		}
+		log.Info("tenant object store enabled", "mode", "s3", "bucket", cfg.ObjectStoreS3Bucket)
+		return store, nil
+	case cfg.ObjectStoreDir != "":
+		store, err := objectstore.NewFS(cfg.ObjectStoreDir)
+		if err != nil {
+			return nil, fmt.Errorf("object store: %w", err)
+		}
+		log.Info("tenant object store enabled", "mode", "filesystem", "dir", cfg.ObjectStoreDir)
+		return store, nil
+	}
+	return nil, nil
 }
 
 // objectStoreHealthKey is the key the object-store reachability probe stats. A
