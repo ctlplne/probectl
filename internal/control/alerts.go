@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/alert"
@@ -169,6 +170,10 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
+	// WEB-09: nothing to resolve a redacted secret against on create.
+	if err := rejectUnresolvedRedactedSecrets(&rule); err != nil {
+		return err
+	}
 	var created *alert.Rule
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		x, e := store.AlertRules{}.Create(ctx, sc, rule)
@@ -228,6 +233,11 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 			return e
 		}
 		preserveRedactedAlertSecrets(&rule, before)
+		// WEB-09: a redacted secret that could not be preserved (e.g. the URL
+		// changed) must not be stored as the literal "***" and signed with.
+		if e := rejectUnresolvedRedactedSecrets(&rule); e != nil {
+			return e
+		}
 		x, e := store.AlertRules{}.Update(ctx, sc, id, rule)
 		if e != nil {
 			return e
@@ -272,4 +282,27 @@ func preserveRedactedAlertSecrets(next *alert.Rule, before *alert.Rule) {
 			next.Channels[i].Secret = prev.Secret
 		}
 	}
+}
+
+// rejectUnresolvedRedactedSecrets fails closed (WEB-09): a channel whose secret
+// is still the redaction sentinel "***" after preserveRedactedAlertSecrets would
+// be stored verbatim and the alert engine would then sign webhook deliveries
+// with the literal "***" (a publicly known value) — receivers reject them or
+// accept forgeable signatures. preserveRedactedAlertSecrets only carries the
+// stored secret forward when the channel's type AND URL are unchanged, so a
+// routine URL edit that leaves the secret redacted lands here. On create there
+// is nothing to resolve it against. Either way the operator must re-enter the
+// real secret; a redacted sentinel can never become the stored secret.
+func rejectUnresolvedRedactedSecrets(r *alert.Rule) error {
+	if r == nil {
+		return nil
+	}
+	for i := range r.Channels {
+		if r.Channels[i].Secret == redactedAlertSecret {
+			return apierror.Validation(fmt.Sprintf(
+				"channel %d: the redacted webhook secret %q cannot be stored — re-enter the secret (it is kept automatically only when the channel URL is unchanged)",
+				i+1, redactedAlertSecret))
+		}
+	}
+	return nil
 }

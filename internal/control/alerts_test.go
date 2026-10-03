@@ -46,6 +46,51 @@ func TestAlertRequestValidationRejected(t *testing.T) {
 	}
 }
 
+// TestRejectUnresolvedRedactedWebhookSecret proves WEB-09: a redacted "***"
+// webhook secret that preserveRedactedAlertSecrets cannot carry forward (the
+// channel URL changed, or there is no prior channel on create) is refused rather
+// than stored verbatim and signed with. A same-URL edit still preserves the
+// stored secret.
+func TestRejectUnresolvedRedactedWebhookSecret(t *testing.T) {
+	stored := &alert.Rule{Channels: []alert.ChannelSpec{
+		{Type: "webhook", URL: "https://hooks.example/a", Secret: "real-hmac-key"},
+	}}
+
+	// 1) Same URL + redacted secret: preserve restores the stored secret, so the
+	// write is accepted and never signed with "***".
+	sameURL := &alert.Rule{Channels: []alert.ChannelSpec{
+		{Type: "webhook", URL: "https://hooks.example/a", Secret: redactedAlertSecret},
+	}}
+	preserveRedactedAlertSecrets(sameURL, stored)
+	if err := rejectUnresolvedRedactedSecrets(sameURL); err != nil {
+		t.Fatalf("same-URL redacted secret should be preserved and accepted, got: %v", err)
+	}
+	if sameURL.Channels[0].Secret != "real-hmac-key" {
+		t.Fatalf("stored secret not preserved on same-URL edit: %q", sameURL.Channels[0].Secret)
+	}
+
+	// 2) Changed URL + redacted secret: preserve cannot carry it forward, so the
+	// literal "***" would otherwise be stored and signed with. Must be refused.
+	changedURL := &alert.Rule{Channels: []alert.ChannelSpec{
+		{Type: "webhook", URL: "https://hooks.example/b", Secret: redactedAlertSecret},
+	}}
+	preserveRedactedAlertSecrets(changedURL, stored)
+	if changedURL.Channels[0].Secret != redactedAlertSecret {
+		t.Fatalf("precondition: changed-URL secret should remain redacted, got %q", changedURL.Channels[0].Secret)
+	}
+	if err := rejectUnresolvedRedactedSecrets(changedURL); err == nil {
+		t.Fatal(`WEB-09: a changed-URL redacted secret must be refused, not stored as "***"`)
+	}
+
+	// 3) Create (no prior rule) + redacted secret: nothing to resolve -> refused.
+	created := &alert.Rule{Channels: []alert.ChannelSpec{
+		{Type: "webhook", URL: "https://hooks.example/c", Secret: redactedAlertSecret},
+	}}
+	if err := rejectUnresolvedRedactedSecrets(created); err == nil {
+		t.Fatal("WEB-09: a redacted secret on create must be refused")
+	}
+}
+
 func TestRedactRuleBlanksSecretsButKeepsOriginal(t *testing.T) {
 	r := &alert.Rule{Channels: []alert.ChannelSpec{
 		{Type: "webhook", URL: "https://h/a", Secret: "topsecret"},
