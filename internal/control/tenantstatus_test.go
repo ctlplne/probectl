@@ -81,14 +81,21 @@ func TestTenantLifecycleGate(t *testing.T) {
 	}
 }
 
-// TestTenantLifecycleDegradesOpen proves a status-source failure does not take
-// the API down (lifecycle is an administrative state; the security boundary
-// remains RLS, which fails closed independently).
-func TestTenantLifecycleDegradesOpen(t *testing.T) {
+// TestTenantLifecycleFailsClosedOnStatusError proves AUTHZ-22: a status-source
+// failure with no cached status FAILS CLOSED (503) at the /v1 gate rather than
+// degrading open to "active" — a suspended tenant on a fresh replica whose
+// status read fails must not be served. RLS remains the storage boundary; this
+// refuses earlier, at the lifecycle gate. (Previously this degraded open to 200,
+// which let a suspended tenant through during a status-store blip.)
+func TestTenantLifecycleFailsClosedOnStatusError(t *testing.T) {
 	src := &fakeStatus{err: errors.New("db down")}
 	srv := testServer(fakePinger{}).WithTenantStatus(src)
-	if rec := do(srv, http.MethodGet, "/v1/editions"); rec.Code != http.StatusOK {
-		t.Fatalf("status-source failure must not reject: %d", rec.Code)
+	rec := do(srv, http.MethodGet, "/v1/editions")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status-source failure must fail closed with 503, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !contains(rec.Body.String(), "tenant_status_unavailable") {
+		t.Fatalf("missing tenant_status_unavailable code: %s", rec.Body.String())
 	}
 }
 

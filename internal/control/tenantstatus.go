@@ -64,9 +64,21 @@ func NewTenantStatusCache(pool *pgxpool.Pool, ttl time.Duration) TenantStatusSou
 	return &tenantStatusCache{pool: pool, ttl: ttl, entries: map[string]statusEntry{}}
 }
 
+// terminalStatus reports a lifecycle state that only ever tightens access
+// (suspended/offboarding/deleted). AUTHZ-22: once observed, these are cached
+// persistently (not aged out) so a later status-read failure can never let an
+// expired suspended entry degrade back to "active".
+func terminalStatus(s string) bool {
+	switch s {
+	case "suspended", "offboarding", "deleted":
+		return true
+	}
+	return false
+}
+
 func (c *tenantStatusCache) TenantStatus(ctx context.Context, tenantID string) (string, error) {
 	c.mu.Lock()
-	if e, ok := c.entries[tenantID]; ok && time.Since(e.fetched) < c.ttl {
+	if e, ok := c.entries[tenantID]; ok && (terminalStatus(e.status) || time.Since(e.fetched) < c.ttl) {
 		c.mu.Unlock()
 		return e.status, nil
 	}
@@ -81,14 +93,18 @@ func (c *tenantStatusCache) TenantStatus(ctx context.Context, tenantID string) (
 			c.mu.Unlock()
 			return "deleted", nil
 		}
-		// Serve stale on infrastructure errors; absent prior knowledge, preserve
-		// availability. RLS still fails closed independently.
+		// AUTHZ-22: serve stale ONLY when we have prior knowledge of this tenant
+		// (a transient blip after a successful read keeps the API up). With an
+		// EMPTY cache a lookup error must FAIL CLOSED — returning "active" here
+		// would serve a suspended/offboarded tenant on a fresh replica whose
+		// status read happens to fail. RLS still protects data independently;
+		// this refuses the request earlier, at the lifecycle gate.
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if e, ok := c.entries[tenantID]; ok {
 			return e.status, nil
 		}
-		return "active", nil //nolint:nilerr // deliberate: degrade open for lifecycle (not isolation) state
+		return "", err
 	}
 	c.mu.Lock()
 	c.entries[tenantID] = statusEntry{status: status, fetched: time.Now()}
@@ -110,7 +126,11 @@ func (s *Server) checkTenantLifecycle(r *http.Request, tenantID string) error {
 	}
 	status, err := s.tenantStatus.TenantStatus(r.Context(), tenantID)
 	if err != nil {
-		return nil // degrade open: lifecycle gating must not amplify a DB blip
+		// AUTHZ-22: the lifecycle state is unknown (no cached value, lookup
+		// failed). Fail closed with a retryable 503 rather than assume active —
+		// a suspended tenant must not be served just because its status read
+		// failed on a fresh replica.
+		return apierror.Unavailable("tenant lifecycle state is temporarily unavailable").WithCode("tenant_status_unavailable")
 	}
 	switch status {
 	case "suspended":
