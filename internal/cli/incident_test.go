@@ -114,7 +114,7 @@ func TestIncidentVerifyOfflineAndTrustedFingerprint(t *testing.T) {
 		code int
 		want string
 	}{
-		{name: "integrity only", args: []string{"incident", "verify", path}, code: 0, want: "NOTICE signer integrity is proven"},
+		{name: "integrity only", args: []string{"incident", "verify", path}, code: 3, want: "INTEGRITY-ONLY probectl-evidence/v1"},
 		{name: "trusted signer", args: []string{"incident", "verify", path, "--trusted-key-fingerprint", pkg.Signing.Fingerprint}, code: 0, want: "VERIFIED probectl-evidence/v1"},
 		{name: "wrong signer", args: []string{"incident", "verify", path, "--trusted-key-fingerprint", "sha256:wrong"}, code: 1, want: "does not match trusted fingerprint"},
 	} {
@@ -125,5 +125,65 @@ func TestIncidentVerifyOfflineAndTrustedFingerprint(t *testing.T) {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
 		})
+	}
+}
+
+// TestIncidentVerifyUnpinnedIsNotAuthenticated proves AUD-19: a package signed
+// with an attacker's OWN key passes integrity (evidence.Verify checks only the
+// embedded key), so an unpinned `incident verify` must NOT report it VERIFIED
+// and must exit non-zero — otherwise a forged package is indistinguishable from
+// a genuine one. Only a pinned fingerprint that matches yields VERIFIED/exit 0.
+func TestIncidentVerifyUnpinnedIsNotAuthenticated(t *testing.T) {
+	// A "forged" package: a real-looking incident signed with a key the
+	// operator never published (the attacker's own Ed25519 key).
+	forgedPriv, _, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	manifest, attachments, err := evidence.Build(evidence.BuildInput{
+		TenantID: "tenant-a", CreatedAt: now,
+		Incident: incident.Incident{ID: "inc-forged", StartedAt: now, LastSeenAt: now},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := evidence.Sign(manifest, attachments, forgedPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "forged.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var pkg evidence.Package
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Unpinned: the forged package is internally consistent, so integrity
+	// passes — but it must NOT be presented as verified, and must exit non-zero.
+	var stdout, stderr bytes.Buffer
+	code := RunWithStdin([]string{"incident", "verify", path}, func(string) string { return "" }, bytes.NewReader(nil), &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("unpinned verify of a forged package exited 0 (treated as trusted): stdout=%q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "VERIFIED") {
+		t.Fatalf("unpinned verify printed VERIFIED for an unauthenticated package: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "INTEGRITY-ONLY") {
+		t.Fatalf("unpinned verify did not state the signer is unauthenticated: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+
+	// Pinning the forged package's OWN fingerprint prints VERIFIED (the pin is
+	// the operator's attestation of which key to trust) — proving the gate is
+	// the pin, and that an operator who pins the genuine fingerprint instead
+	// would reject this forgery (the "wrong signer" case above).
+	stdout.Reset()
+	stderr.Reset()
+	code = RunWithStdin([]string{"incident", "verify", path, "--trusted-key-fingerprint", pkg.Signing.Fingerprint},
+		func(string) string { return "" }, bytes.NewReader(nil), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), "VERIFIED") {
+		t.Fatalf("pinned verify of its own fingerprint should succeed: code=%d stdout=%q", code, stdout.String())
 	}
 }

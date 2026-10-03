@@ -172,14 +172,25 @@ func cmdIncidentVerify(args []string, stdout, stderr io.Writer) int {
 	if err := json.Unmarshal(raw, &pkg); err != nil {
 		return fail(stderr, err)
 	}
-	if *trusted != "" && !strings.EqualFold(strings.TrimSpace(*trusted), pkg.Signing.Fingerprint) {
+	// AUD-19: evidence.Verify proves only that the package is internally
+	// consistent with the Ed25519 key EMBEDDED in it — any package re-signed
+	// with an attacker's own key passes. Integrity is not authenticity, so
+	// without a pinned fingerprint (published by the operator out of band) we
+	// must not print VERIFIED or claim the signer is proven, and must exit
+	// non-zero so a script never treats an unauthenticated package as trusted.
+	// docs/guardrails.md G7-7.
+	if *trusted == "" {
+		fmt.Fprintf(stdout, "INTEGRITY-ONLY %s package=%s incident=%s evidence=%d signer=%s\n",
+			manifest.Contract, manifest.PackageID, manifest.Incident.ID, len(manifest.Evidence), pkg.Signing.Fingerprint)
+		fmt.Fprintln(stderr, "NOTICE the package is internally consistent but its signer is NOT authenticated; "+
+			"re-run with --trusted-key-fingerprint <sha256:...> (published by the operator out of band) to verify operator identity")
+		return 3
+	}
+	if !strings.EqualFold(strings.TrimSpace(*trusted), pkg.Signing.Fingerprint) {
 		return fail(stderr, fmt.Errorf("signer fingerprint %s does not match trusted fingerprint %s", pkg.Signing.Fingerprint, *trusted))
 	}
 	fmt.Fprintf(stdout, "VERIFIED %s package=%s incident=%s evidence=%d signer=%s\n",
 		manifest.Contract, manifest.PackageID, manifest.Incident.ID, len(manifest.Evidence), pkg.Signing.Fingerprint)
-	if *trusted == "" {
-		fmt.Fprintln(stdout, "NOTICE signer integrity is proven; compare the signer fingerprint out of band to prove operator identity")
-	}
 	return 0
 }
 

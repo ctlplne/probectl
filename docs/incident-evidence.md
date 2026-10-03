@@ -47,19 +47,23 @@ probectl incident export <incident-id> --out incident-evidence.json
 probectl incident verify incident-evidence.json
 ```
 
-The first verification proves that the package has not changed. Authenticity
-requires one extra human step: compare the reported signer fingerprint with a
-fingerprint published by the probectl operator through a separate trusted
-channel, then pin it:
+The first command proves only that the package is internally consistent with
+the key embedded in it — it does **not** prove who signed it, because a package
+re-signed with any other key is just as internally consistent. So that command
+reports `INTEGRITY-ONLY` and exits non-zero (3): never treat its output as a
+verified package. Authenticity requires one extra human step — compare the
+reported signer fingerprint with a fingerprint published by the probectl
+operator through a separate trusted channel, then pin it:
 
 ```sh
 probectl incident verify incident-evidence.json \
   --trusted-key-fingerprint 'sha256:<operator-published-fingerprint>'
 ```
 
-This is the same distinction as checking that an envelope seal is intact versus
-also checking whose seal it is. Verification is local cryptographic math; it
-makes no network request.
+Only this pinned command prints `VERIFIED` and exits 0; a package whose signer
+does not match the pin is rejected. This is the same distinction as checking
+that an envelope seal is intact versus checking whose seal it is. Verification
+is local cryptographic math; it makes no network request.
 
 ## Key operations
 
