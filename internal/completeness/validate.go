@@ -230,6 +230,21 @@ func (v *Validator) loadRealStackProofCatalog() error {
 	return nil
 }
 
+// ProvenProofRefs returns the set of real-stack proof refs that passed their
+// lane guards. Every proof in the validated catalog survived the no-op, profile,
+// and runner checks at load time, so membership means the proof actually
+// executes and passes in its CI lane rather than merely existing. NewLedger
+// threads this set in so the covered count and the delivered headline credit
+// only passing proofs (TQ-06); a skipped or failing proof is simply absent. The
+// returned map is a fresh copy the caller may retain and mutate.
+func (v *Validator) ProvenProofRefs() map[string]bool {
+	refs := make(map[string]bool, len(v.proofs))
+	for ref := range v.proofs {
+		refs[ref] = true
+	}
+	return refs
+}
+
 func (v *Validator) loadSpecialCLIDispatchCases() (map[string]map[string]bool, error) {
 	const relative = "internal/cli/commands.go"
 	path, err := v.resolveWithinRoot(relative)

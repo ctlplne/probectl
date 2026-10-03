@@ -24,7 +24,7 @@ func TestLedgerUIAliasesAreVisibleAndSorted(t *testing.T) {
 			"F10": "The earlier feature owns the shared operator page and controls.",
 		},
 	}}}
-	ledger := NewLedger("capabilities.yaml", registry)
+	ledger := NewLedger("capabilities.yaml", registry, nil)
 
 	aliases := ledger.Capabilities[0].UIAliases
 	if len(aliases) != 2 || aliases[0].FeatureID != "F10" || aliases[1].FeatureID != "F90" {

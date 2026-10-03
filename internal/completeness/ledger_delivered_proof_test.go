@@ -38,7 +38,9 @@ func TestLedgerDeliveredHeadlineCountsOnlyProvenRealStackProofs(t *testing.T) {
 		},
 	}
 
-	ledger := NewLedger("capabilities.yaml", registry)
+	// F-PROVEN's proof is in the proven set (it passed its lane guards), so the
+	// ledger credits it; F-STUB binds no proof, so it never does.
+	ledger := NewLedger("capabilities.yaml", registry, fixtureProvenProofs())
 
 	// The naive, string-only count the OLD ledger produced.
 	naive := 0

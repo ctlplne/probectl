@@ -76,7 +76,12 @@ func run(args []string) int {
 		}
 		return 1
 	}
-	ledger := completeness.NewLedger(filepath.ToSlash(*registryPath), registry)
+	// The ledger renders only after Validate accepts every reference, and it
+	// credits a real_stack_proof cell only when the proof is in the validated
+	// catalog — the set of proofs that passed their lane guards (TQ-06), so a
+	// skipped or failing proof lowers the covered count rather than riding on
+	// the bare existence of its ref.
+	ledger := completeness.NewLedger(filepath.ToSlash(*registryPath), registry, validator.ProvenProofRefs())
 	if err := completeness.WriteJSON(*jsonPath, ledger); err != nil {
 		fmt.Fprintln(os.Stderr, "completeness:", err)
 		return 2

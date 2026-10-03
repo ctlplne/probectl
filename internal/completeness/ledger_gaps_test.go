@@ -35,7 +35,7 @@ func TestLedgerGapsNameEveryBlockingRowInSpineOrder(t *testing.T) {
 		},
 	}}
 
-	ledger := NewLedger("capabilities.yaml", registry)
+	ledger := NewLedger("capabilities.yaml", registry, nil)
 	gaps := ledger.Gaps()
 
 	if len(gaps) != ledger.Summary.GapCells {
@@ -68,7 +68,7 @@ func TestLedgerGapsExcludeUndispositionedCells(t *testing.T) {
 		Name:  "Undispositioned fixture row",
 		Owner: "internal/fixture",
 	}}}
-	ledger := NewLedger("capabilities.yaml", registry)
+	ledger := NewLedger("capabilities.yaml", registry, nil)
 	if got := ledger.Gaps(); len(got) != 0 {
 		t.Fatalf("Gaps() = %#v, want no acknowledged gaps for undispositioned cells", got)
 	}

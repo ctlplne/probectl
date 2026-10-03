@@ -140,7 +140,11 @@ func TestStrictGateGapCountMatchesTheRowsItNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ledger := completeness.NewLedger("capabilities.yaml", registry)
+	validator, err := completeness.NewValidator(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger := completeness.NewLedger("capabilities.yaml", registry, validator.ProvenProofRefs())
 	if got := len(ledger.Gaps()); got != ledger.Summary.GapCells {
 		t.Fatalf("the shipped registry reports %d acknowledged gap(s) but names %d row(s)", ledger.Summary.GapCells, got)
 	}

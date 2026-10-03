@@ -28,16 +28,19 @@ type Ledger struct {
 
 // LedgerSummary counts every explicit wiring disposition.
 //
-// PLAT-11: DeliveredCapabilities is the HONEST delivered headline — a capability
-// counts as delivered only when it declares status "delivered" AND carries a
-// passing real-stack proof (its real_stack_proof cell is wired). Because the
-// gate renders a ledger only after Validate accepts every evidence reference, a
-// wired real_stack_proof ref has already been resolved against the proof catalog
-// and its no-op/profile/runner guards, so "wired" here means "proven". Status
-// alone is a string the author writes; it never, on its own, credits delivery.
-// ClaimedDeliveredCapabilities preserves the raw count of rows whose status
-// string is "delivered" so the gap between claimed and proven delivery stays
-// visible rather than hidden.
+// PLAT-11/TQ-06: DeliveredCapabilities is the HONEST delivered headline, and the
+// real_stack_proof contribution to WiredCells is the HONEST covered count — a
+// capability counts as delivered, and its real_stack_proof cell counts as
+// covered, only when every bound proof is a PASSING proof. NewLedger decides this
+// from the proof catalog the caller threads in (Validator.ProvenProofRefs), which
+// holds only proofs that survived the no-op/profile/runner guards, so a
+// wired-but-skipping or failing proof is absent from the set and credits neither
+// the delivered headline nor coverage. The ledger enforces this itself rather
+// than only trusting that Validate ran first, so the bare existence of a ref can
+// no longer inflate either count. Status alone is a string the author writes; it
+// never, on its own, credits delivery. ClaimedDeliveredCapabilities preserves the
+// raw count of rows whose status string is "delivered" so the gap between claimed
+// and proven delivery stays visible rather than hidden.
 type LedgerSummary struct {
 	Capabilities                 int `json:"capabilities"`
 	FullyDispositioned           int `json:"fully_dispositioned"`
@@ -81,7 +84,14 @@ type LedgerCell struct {
 
 // NewLedger projects the registry without clocks, host paths, or other
 // nondeterministic values, so identical source produces byte-identical output.
-func NewLedger(source string, registry Registry) Ledger {
+//
+// provenProofs is the set of real-stack proof refs that passed their lane guards
+// (Validator.ProvenProofRefs): the delivered headline and the covered count
+// credit a real_stack_proof cell only when every ref it binds is a member, so a
+// wired-but-skipping or failing proof — one absent from the set — never counts
+// (TQ-06). Callers without a validated catalog pass nil, which leaves every
+// real_stack_proof cell unproven.
+func NewLedger(source string, registry Registry, provenProofs map[string]bool) Ledger {
 	ledger := Ledger{
 		Schema:        LedgerSchema,
 		Source:        filepath.ToSlash(source),
@@ -89,10 +99,12 @@ func NewLedger(source string, registry Registry) Ledger {
 		Capabilities:  make([]LedgerCapability, 0, len(registry.Capabilities)),
 	}
 	for _, capability := range registry.Capabilities {
-		// A wired real_stack_proof cell is a passing real-stack proof at ledger
-		// time (Validate resolved it against the proof catalog first). Only such
-		// a capability counts toward the honest delivered headline.
-		provenRealStack := len(capability.RealStackProof.Refs) > 0
+		// A real_stack_proof cell credits delivery only when every bound proof is
+		// a passing proof — present in the proof catalog the caller threads in
+		// (PLAT-11/TQ-06). The ledger enforces this itself rather than trusting
+		// that Validate ran first, so a wired-but-skipping or failing proof never
+		// inflates the honest delivered headline.
+		provenRealStack := proofsAllProven(capability.RealStackProof.Refs, provenProofs)
 		switch capability.Status {
 		case "delivered":
 			ledger.Summary.ClaimedDeliveredCapabilities++
@@ -137,6 +149,18 @@ func NewLedger(source string, registry Registry) Ledger {
 			ledger.Summary.TotalCells++
 			if len(named.Cell.Refs) > 0 {
 				refs := append([]string(nil), named.Cell.Refs...)
+				// A real_stack_proof cell is coverage only when every bound proof
+				// is a passing proof (TQ-06): the validated catalog, not the bare
+				// presence of a ref, decides. A wired proof that skips or fails in
+				// its CI lane is absent from the proven set, so it renders as
+				// "unproven" and is NOT counted toward covered cells. Every other
+				// cell is a static artifact whose existence the validator proved
+				// directly, so a ref there is coverage.
+				if named.Name == "real_stack_proof" && !proofsAllProven(named.Cell.Refs, provenProofs) {
+					row.Cells[named.Name] = LedgerCell{State: "unproven", Evidence: refs}
+					complete = false
+					continue
+				}
 				row.Cells[named.Name] = LedgerCell{State: "wired", Evidence: refs}
 				ledger.Summary.WiredCells++
 				continue
@@ -162,6 +186,24 @@ func NewLedger(source string, registry Registry) Ledger {
 	}
 	ledger.Summary.Capabilities = len(ledger.Capabilities)
 	return ledger
+}
+
+// proofsAllProven reports whether every bound proof ref is a passing proof —
+// present in the validated proof catalog the caller threads in. The catalog
+// (Validator.ProvenProofRefs) holds only proofs that survived the no-op,
+// profile, and runner guards, so membership means the proof actually executes
+// and passes in its CI lane rather than merely existing. An empty ref set is
+// not proven: a capability with no real-stack proof has nothing passing.
+func proofsAllProven(refs []string, proven map[string]bool) bool {
+	if len(refs) == 0 {
+		return false
+	}
+	for _, raw := range refs {
+		if !proven[strings.TrimSpace(raw)] {
+			return false
+		}
+	}
+	return true
 }
 
 // LedgerGap is one acknowledged gap cell: the row that -require-complete
@@ -257,6 +299,7 @@ var ledgerTemplate = template.Must(template.New("ledger").Funcs(template.FuncMap
     .none-by-design { color: #f0c674; }
     .gap { color: #ff9e64; }
     .missing { color: #ff8282; }
+    .unproven { color: #ff6b6b; }
     .aliases { border-top: 1px solid #465563; color: #c8d8e7; margin-top: .55rem; padding-top: .45rem; }
     details { max-width: 18rem; }
     summary { cursor: pointer; font-weight: 650; }

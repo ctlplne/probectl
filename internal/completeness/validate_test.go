@@ -845,7 +845,7 @@ func TestReasonedUIAliasPasses(t *testing.T) {
 
 func TestLedgerArtifactsAreDeterministic(t *testing.T) {
 	registry := fixtureRegistry()
-	ledger := NewLedger("capabilities.yaml", registry)
+	ledger := NewLedger("capabilities.yaml", registry, fixtureProvenProofs())
 	if ledger.Summary.Capabilities != 1 || ledger.Summary.FullyDispositioned != 1 || ledger.Summary.DeliveredCapabilities != 1 || ledger.Summary.EvidenceCompleteCapabilities != 1 || ledger.Summary.TotalCells != len(CellNames) {
 		t.Fatalf("summary = %#v", ledger.Summary)
 	}
@@ -890,7 +890,7 @@ func TestLedgerDoesNotCountAcknowledgedGapAsCoverage(t *testing.T) {
 	registry := fixtureRegistry()
 	registry.Capabilities[0].EvidenceStatus = "partial"
 	registry.Capabilities[0].RealStackProof = Cell{Gap: "No real-service execution receipt exists for this fixture capability yet."}
-	ledger := NewLedger("capabilities.yaml", registry)
+	ledger := NewLedger("capabilities.yaml", registry, nil)
 	if ledger.Summary.GapCells != 1 || ledger.Summary.FullyDispositioned != 0 || ledger.Summary.EvidencePartialCapabilities != 1 {
 		t.Fatalf("summary = %#v", ledger.Summary)
 	}
@@ -1132,6 +1132,17 @@ func TestValidatorPrecomputesVisibleConfigurationDocument(t *testing.T) {
 			t.Fatalf("non-exact configuration key %s became visible", substring)
 		}
 	}
+}
+
+// fixtureRealStackProofRef is the proof the fixture repo wires, catalogs, and
+// runs. It is a passing proof, so it appears in Validator.ProvenProofRefs.
+const fixtureRealStackProofRef = "test:test/integration/foo_integration_test.go#TestFooRealStack"
+
+// fixtureProvenProofs is the proven-proof set a validator built over fixtureRepo
+// returns: the fixture proof passed its lane guards, so the ledger credits its
+// real_stack_proof cell as covered and its capability as delivered.
+func fixtureProvenProofs() map[string]bool {
+	return map[string]bool{fixtureRealStackProofRef: true}
 }
 
 func fixtureRegistry() Registry {
