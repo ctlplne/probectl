@@ -12,8 +12,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -22,7 +20,6 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/audit"
-	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/objectstore"
 )
 
@@ -78,12 +75,16 @@ func chainedEvents(nonce string, count int) ([]audit.Event, error) {
 		actor := "restore-drill"
 		action := "backup.fixture"
 		target := fmt.Sprintf("object-%d", i)
-		canonical, err := json.Marshal(data)
+		createdAt := time.Unix(1_700_000_000+int64(i), 0).UTC()
+		// Hash through the production canonicalization door (audit.CanonicalEventHash)
+		// so the fixture stays byte-identical to what the real verifier recomputes
+		// — including the AUD-02 created_at field and the AUD-03 header escaping.
+		// Hand-rolling the header previously drifted from auditHeader and made the
+		// freshly generated chain fail verification.
+		hash, err := audit.CanonicalEventHash(stream, int64(i), actor, action, target, createdAt.UnixMicro(), data, previous)
 		if err != nil {
 			return nil, err
 		}
-		header := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%s\n", stream, i, actor, action, target, previous)
-		hash := hex.EncodeToString(crypto.Hash(append([]byte(header), canonical...)))
 		out = append(out, audit.Event{
 			Seq:       int64(i),
 			Actor:     actor,
@@ -92,7 +93,7 @@ func chainedEvents(nonce string, count int) ([]audit.Event, error) {
 			Data:      data,
 			PrevHash:  previous,
 			Hash:      hash,
-			CreatedAt: time.Unix(1_700_000_000+int64(i), 0).UTC(),
+			CreatedAt: createdAt,
 		})
 		previous = hash
 	}

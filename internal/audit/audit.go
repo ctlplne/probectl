@@ -163,6 +163,19 @@ func computeHash(streamKey string, seq int64, actor, action, target string, crea
 	return chainEventHash(streamKey, seq, actor, action, target, createdAtMicros, canonical, prevHash), nil
 }
 
+// CanonicalEventHash computes an event's canonical chain hash from its in-memory
+// data map — byte-identical to the append path and to eventHash's
+// synthetic/legacy fallback (it delegates to computeHash). It is exported ONLY
+// for the backup/restore drill's WORM fixture (test/drill/wormfixture), which
+// must mint a provider chain the real verifier accepts: hand-rolling the header
+// there let it drift from auditHeader (it missed the AUD-02 created_at field and
+// the AUD-03 escaping), so the freshly generated fixture failed verification.
+// Routing the fixture through this door keeps test tooling from ever drifting
+// from the production canonicalization again.
+func CanonicalEventHash(streamKey string, seq int64, actor, action, target string, createdAtMicros int64, data map[string]any, prevHash string) (string, error) {
+	return computeHash(streamKey, seq, actor, action, target, createdAtMicros, data, prevHash)
+}
+
 // eventHash recomputes a read-back event's hash over the bytes it is bound to:
 // the durable canonical bytes when present, else (legacy/pre-AUD-03 or synthetic
 // in-memory events) the re-canonicalized map. Both branches are byte-identical
