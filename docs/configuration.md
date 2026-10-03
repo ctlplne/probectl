@@ -2720,6 +2720,29 @@ probectl renews before it runs out:
 Backend health (counters + redacted last error, never secret material) is
 served at `GET /v1/secrets/health` and on the Admin page.
 
+## Shipped all-in-one stack (`deploy/compose/probectl.yml`)
+
+The production-shaped stack reads `deploy/compose/.env` (copy it from
+`.env.example`). Alongside the required secrets and the image/TLS/license keys
+documented there, these optional variables control host exposure and container
+resource ceilings. They are **Compose-file interpolation variables** (consumed by
+`docker compose`), not control-plane config read by the binary.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PROBECTL_BIND_ADDR` | `127.0.0.1` | Host interface the HTTPS API (8443) is published on. The shipped stack binds loopback by default — it does **not** expose the API on every interface (RTO-03, `docs/guardrails.md` G7-12). Set a specific LAN address, or `0.0.0.0` to publish on all interfaces (only behind a firewall/load balancer). HTTPS only; no plaintext port is ever published. |
+| `PROBECTL_CONTROL_MEM_LIMIT` | `2g` | Memory ceiling (`mem_limit`) for the control service. Accepts Docker byte suffixes (`512m`, `2g`). Raise for larger deployments. |
+| `PROBECTL_CONTROL_PIDS_LIMIT` | `512` | Process/thread ceiling (`pids_limit`) for the control service. |
+| `PROBECTL_POSTGRES_MEM_LIMIT` | `1g` | Memory ceiling for the bundled Postgres. Raise for a large database. |
+
+Every service in this stack ships hardened (RTO-03): the control plane and the
+`certgen`/`migrate` one-shots run the distroless control image with a read-only
+root filesystem (writable paths limited to an in-memory `/tmp` and the
+`controldata` volume at `/var/lib/probectl`), all Linux capabilities dropped, and
+`no-new-privileges`. The upstream Postgres image keeps its own root filesystem
+and capabilities (its entrypoint chowns the data dir and drops to the `postgres`
+user) but still runs with `no-new-privileges`. See `deploy/compose/README.md`.
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext

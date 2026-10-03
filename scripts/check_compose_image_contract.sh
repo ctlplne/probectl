@@ -48,8 +48,13 @@ run_checks() {
   image_count="$(printf '%s\n' "$images" | sed '/^$/d' | wc -l | tr -d ' ')"
   required_refs="$(grep -c '\${PROBECTL_IMAGE:?' "$root/deploy/compose/probectl.yml" || true)"
   if [ "$image_count" -eq 0 ]; then
-    if [ "$required_refs" -ne 2 ]; then
-      err "deploy/compose/probectl.yml must either use one digest default twice or require PROBECTL_IMAGE for both certgen/control; found $required_refs required refs"
+    # Every first-party service that runs the control image must either share
+    # one digest default or fail closed on PROBECTL_IMAGE. TEN-01 added the
+    # `migrate` one-shot alongside certgen+control, so there are at least two
+    # fail-closed refs and may be more; a mutable default on any of them trips
+    # the image_count branches above instead.
+    if [ "$required_refs" -lt 2 ]; then
+      err "deploy/compose/probectl.yml must either use one digest default or require PROBECTL_IMAGE for every first-party service (certgen, migrate, control); found $required_refs required refs"
     fi
   elif [ "$image_count" -ne 1 ]; then
     err "deploy/compose/probectl.yml must have exactly one PROBECTL_IMAGE default when a default exists; found $image_count"
@@ -107,7 +112,13 @@ run_checks() {
   [ -f "$root/scripts/compose_image_preflight.sh" ] \
     || err "scripts/compose_image_preflight.sh must exist"
 
-  certgen="$(sed -n '/^  certgen:[[:space:]]*$/,/^  control:[[:space:]]*$/p' "$root/deploy/compose/probectl.yml")"
+  # Scope to the certgen SERVICE block only — it ends at the next top-level
+  # (2-space-indented) key, NOT at `control`. TEN-01 placed the migrate and
+  # pg-appuser one-shots between certgen and control, and pg-appuser
+  # legitimately overrides its entrypoint (it runs the non-distroless postgres
+  # image); a certgen→control range would wrongly fold that in. Mirrors
+  # cmd/probectl-control/backup_cli_contract_test.go.
+  certgen="$(awk '/^  certgen:[[:space:]]*$/{f=1;print;next} f&&/^  [^ ]/{f=0} f{print}' "$root/deploy/compose/probectl.yml")"
   if [ -z "$certgen" ]; then
     err "deploy/compose/probectl.yml must contain the certgen service"
   else
@@ -165,6 +176,24 @@ run_checks() {
     || err "deploy/compose/probectl.yml control service must load the optional ./control.env"
   grep -Fq 'required: false' <<<"$control_block" \
     || err "deploy/compose/probectl.yml control.env must be optional (required: false)"
+
+  # RTO-03: the shipped control service must run hardened (docs/guardrails.md
+  # G7-12) — an immutable root filesystem, no Linux capabilities, no privilege
+  # escalation, and NOT published on every interface. Each of these keeps the
+  # default production stack from shipping a writable-root, fully-capable,
+  # world-exposed container.
+  grep -Eq '^[[:space:]]+read_only:[[:space:]]+true[[:space:]]*$' <<<"$control_block" \
+    || err "control service must set read_only: true (RTO-03 container hardening)"
+  grep -A3 -E '^[[:space:]]+cap_drop:' <<<"$control_block" | grep -qw ALL \
+    || err "control service must cap_drop ALL (RTO-03 container hardening)"
+  grep -A3 -E '^[[:space:]]+security_opt:' <<<"$control_block" | grep -qE 'no-new-privileges:[[:space:]]*true' \
+    || err "control service must set security_opt no-new-privileges:true (RTO-03 container hardening)"
+  # The 8443 publish must bind a specific host interface (a \${PROBECTL_BIND_ADDR}
+  # variable, loopback, …) — never an unconditional all-interfaces bind.
+  if grep -Eq '^[[:space:]]+-[[:space:]]*"?(0\.0\.0\.0:)?8443:8443"?[[:space:]]*$' <<<"$control_block"; then
+    err "control service must not publish 8443 on all interfaces — bind 127.0.0.1 or a \${PROBECTL_BIND_ADDR} variable (RTO-03)"
+  fi
+
   [ -f "$root/deploy/compose/control.env.example" ] \
     || err "deploy/compose/control.env.example must exist"
   grep -Fq 'control.env' "$root/docs/install.md" \
@@ -232,6 +261,13 @@ services:
         required: false
     volumes:
       - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+    ports:
+      - "${PROBECTL_BIND_ADDR:-127.0.0.1}:8443:8443"
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
 volumes:
   certs: {}
 YAML
@@ -333,6 +369,13 @@ services:
         required: false
     volumes:
       - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+    ports:
+      - "${PROBECTL_BIND_ADDR:-127.0.0.1}:8443:8443"
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
 volumes:
   certs: {}
 YAML
@@ -392,6 +435,13 @@ services:
         required: false
     volumes:
       - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+    ports:
+      - "${PROBECTL_BIND_ADDR:-127.0.0.1}:8443:8443"
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
 volumes:
   certs: {}
 YAML
@@ -422,6 +472,27 @@ ENV
     echo "SELFTEST FAILED: good fixture did not recover after negative cases" >&2
     exit 1
   fi
+
+  # RTO-03 non-vacuity: the recovered fixture above is fully hardened. Removing
+  # any single control hardening key — or widening the 8443 publish to all
+  # interfaces — must make the contract fail.
+  cp "$tmp/deploy/compose/probectl.yml" "$tmp/harden-good.yml"
+  grep -v '^    read_only: true$' "$tmp/harden-good.yml" > "$tmp/deploy/compose/probectl.yml"
+  expect_fixture_failure "control-not-read-only"
+  grep -v '^    cap_drop: \["ALL"\]$' "$tmp/harden-good.yml" > "$tmp/deploy/compose/probectl.yml"
+  expect_fixture_failure "control-no-cap-drop"
+  grep -v '^    security_opt:$' "$tmp/harden-good.yml" | grep -v '^      - no-new-privileges:true$' > "$tmp/deploy/compose/probectl.yml"
+  expect_fixture_failure "control-no-no-new-privileges"
+  sed 's#- "${PROBECTL_BIND_ADDR:-127.0.0.1}:8443:8443"#- "8443:8443"#' "$tmp/harden-good.yml" > "$tmp/deploy/compose/probectl.yml"
+  expect_fixture_failure "control-8443-all-interfaces"
+  cp "$tmp/harden-good.yml" "$tmp/deploy/compose/probectl.yml"
+  fail=0
+  run_checks "$tmp"
+  if [ "$fail" -ne 0 ]; then
+    echo "SELFTEST FAILED: hardened fixture did not recover after RTO-03 negative cases" >&2
+    exit 1
+  fi
+
   echo "compose-image-contract SELFTEST: OK"
   exit 0
 fi

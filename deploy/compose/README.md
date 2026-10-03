@@ -66,6 +66,26 @@ real certificates, switching to SSO). This stack runs **no producer**: once
 `/readyz` is green, deploy an agent to see data
 ([`docs/deploying-agents.md`](../../docs/deploying-agents.md)).
 
+### Container hardening & host exposure (RTO-03)
+
+Every service ships hardened (`docs/guardrails.md` G7-12). The control plane and
+the `certgen`/`migrate` one-shots run the distroless control image with a
+**read-only root filesystem** (a small in-memory `/tmp`, plus the `controldata`
+volume at `/var/lib/probectl` for keys and the tenant object store), **all Linux
+capabilities dropped**, and **`no-new-privileges`**. The upstream Postgres image
+keeps its own root filesystem and capabilities (its entrypoint chowns its data
+dir and drops to the `postgres` user) but still runs with `no-new-privileges`.
+All services carry conservative, tunable memory/PID ceilings.
+
+The HTTPS API is published on **`127.0.0.1` by default** — the shipped stack does
+not expose the API on every interface. Set `PROBECTL_BIND_ADDR` in `.env` to a
+specific LAN address, or to `0.0.0.0` to publish on all interfaces (only behind a
+firewall/load balancer). Resource ceilings are tunable via
+`PROBECTL_CONTROL_MEM_LIMIT` (default `2g`), `PROBECTL_CONTROL_PIDS_LIMIT`
+(default `512`) and `PROBECTL_POSTGRES_MEM_LIMIT` (default `1g`); raise them for
+larger deployments. All four are documented in `.env.example` and
+[`docs/configuration.md`](../../docs/configuration.md).
+
 ### Local demo login (Dex overlay)
 
 When a laptop demo needs an interactive login but has no real IdP, layer the
