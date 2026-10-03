@@ -110,8 +110,29 @@ jobs:
         run: make scale-gate-m
       - name: M-tier FULL-STACK regression (real Kafka + Prometheus + ClickHouse)
         run: |
+          set -euo pipefail
           docker compose -f deploy/compose/dev.yml up -d --wait kafka prometheus clickhouse
+          # DECLARE the stack present so the gates RUN against it (TQ-04): with
+          # these set, a declared-but-unreachable dependency FAILS the step
+          # instead of skipping — a step that brought the stack up must never
+          # pass vacuously. Without them both gates skipped and the step was a
+          # green check that proved nothing.
+          PROBECTL_RUN_FULLSTACK_LOAD=1 \
           PROBECTL_SCALE_TIER=M \
+          PROBECTL_TEST_KAFKA=localhost:9092 \
+          PROBECTL_PROM_URL=http://localhost:9090 \
           PROBECTL_FLOWSTORE_URL=http://probectl:probectl@localhost:8123 \
             go test -tags=integration -count=1 -v -timeout 20m \
-            -run '^TestFullStack(Load|Flow)Gate$' ./internal/perf/
+            -run '^TestFullStack(Load|Flow)Gate$' ./internal/perf/ | tee fullstack-regression.log
+          # Fail closed if the stack was declared present yet a gate SKIPPED, or
+          # if either gate left no RESULT ROW verdict — both are the vacuity
+          # TQ-04 removed. (set -o pipefail already propagates a gate FAIL.)
+          if grep -q "RESULT ROW: SKIP" fullstack-regression.log; then
+            echo "TQ-04: a full-stack gate SKIPPED though the stack was declared present — vacuous run" >&2
+            exit 1
+          fi
+          rows=$(grep -c "RESULT ROW" fullstack-regression.log || true)
+          if [ "$rows" -lt 2 ]; then
+            echo "TQ-04: expected a RESULT ROW for BOTH full-stack gates, found $rows" >&2
+            exit 1
+          fi
