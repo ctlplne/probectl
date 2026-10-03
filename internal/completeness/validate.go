@@ -506,6 +506,15 @@ func (v *Validator) Validate(registry Registry) []Violation {
 			}
 			out = append(out, v.validateCell(capability.ID, named.Name, evidenceStatus, named.Cell, uiAliases)...)
 			if named.Name == "real_stack_proof" {
+				// PLAT-11: a wired real_stack_proof asserts a passing real-stack
+				// proof, and the honest delivered headline is tied to that proof
+				// set (see ledger.NewLedger). Only a delivered capability may
+				// legitimately claim one, so a proof on a future/partial/removed
+				// row — a stub dressing an unshipped capability as proven — fails
+				// the gate rather than silently inflating the proven count.
+				if len(named.Cell.Refs) > 0 && capability.Status != "delivered" {
+					out = append(out, Violation{Capability: capability.ID, Cell: "real_stack_proof", Code: "proof-requires-delivered", Problem: fmt.Sprintf("a real_stack_proof is a passing real-stack proof and may be declared only on a delivered capability, not status %q", capability.Status)})
+				}
 				for _, ref := range named.Cell.Refs {
 					if declaredProofs[ref] == nil {
 						declaredProofs[ref] = map[string]bool{}

@@ -27,10 +27,22 @@ type Ledger struct {
 }
 
 // LedgerSummary counts every explicit wiring disposition.
+//
+// PLAT-11: DeliveredCapabilities is the HONEST delivered headline — a capability
+// counts as delivered only when it declares status "delivered" AND carries a
+// passing real-stack proof (its real_stack_proof cell is wired). Because the
+// gate renders a ledger only after Validate accepts every evidence reference, a
+// wired real_stack_proof ref has already been resolved against the proof catalog
+// and its no-op/profile/runner guards, so "wired" here means "proven". Status
+// alone is a string the author writes; it never, on its own, credits delivery.
+// ClaimedDeliveredCapabilities preserves the raw count of rows whose status
+// string is "delivered" so the gap between claimed and proven delivery stays
+// visible rather than hidden.
 type LedgerSummary struct {
 	Capabilities                 int `json:"capabilities"`
 	FullyDispositioned           int `json:"fully_dispositioned"`
 	DeliveredCapabilities        int `json:"delivered_capabilities"`
+	ClaimedDeliveredCapabilities int `json:"claimed_delivered_capabilities"`
 	PartialCapabilities          int `json:"partial_capabilities"`
 	FutureCapabilities           int `json:"future_capabilities"`
 	RemovedCapabilities          int `json:"removed_capabilities"`
@@ -77,9 +89,16 @@ func NewLedger(source string, registry Registry) Ledger {
 		Capabilities:  make([]LedgerCapability, 0, len(registry.Capabilities)),
 	}
 	for _, capability := range registry.Capabilities {
+		// A wired real_stack_proof cell is a passing real-stack proof at ledger
+		// time (Validate resolved it against the proof catalog first). Only such
+		// a capability counts toward the honest delivered headline.
+		provenRealStack := len(capability.RealStackProof.Refs) > 0
 		switch capability.Status {
 		case "delivered":
-			ledger.Summary.DeliveredCapabilities++
+			ledger.Summary.ClaimedDeliveredCapabilities++
+			if provenRealStack {
+				ledger.Summary.DeliveredCapabilities++
+			}
 		case "partial":
 			ledger.Summary.PartialCapabilities++
 		case "future":
@@ -247,7 +266,7 @@ var ledgerTemplate = template.Must(template.New("ledger").Funcs(template.FuncMap
 </head>
 <body>
   <h1>probectl capability completeness ledger</h1>
-  <p class="summary">{{.Ledger.Summary.Capabilities}} capabilities ({{.Ledger.Summary.DeliveredCapabilities}} delivered · {{.Ledger.Summary.PartialCapabilities}} partial · {{.Ledger.Summary.FutureCapabilities}} future · {{.Ledger.Summary.RemovedCapabilities}} removed) · evidence {{.Ledger.Summary.EvidenceCompleteCapabilities}} complete / {{.Ledger.Summary.EvidencePartialCapabilities}} partial · {{.Ledger.Summary.WiredCells}} wired cells · {{.Ledger.Summary.NoneByDesignCells}} explicit none-by-design cells · {{.Ledger.Summary.GapCells}} acknowledged gaps · source <code>{{.Ledger.Source}}</code></p>
+  <p class="summary">{{.Ledger.Summary.Capabilities}} capabilities ({{.Ledger.Summary.DeliveredCapabilities}} real-stack-proven delivered of {{.Ledger.Summary.ClaimedDeliveredCapabilities}} claimed · {{.Ledger.Summary.PartialCapabilities}} partial · {{.Ledger.Summary.FutureCapabilities}} future · {{.Ledger.Summary.RemovedCapabilities}} removed) · evidence {{.Ledger.Summary.EvidenceCompleteCapabilities}} complete / {{.Ledger.Summary.EvidencePartialCapabilities}} partial · {{.Ledger.Summary.WiredCells}} wired cells · {{.Ledger.Summary.NoneByDesignCells}} explicit none-by-design cells · {{.Ledger.Summary.GapCells}} acknowledged gaps · source <code>{{.Ledger.Source}}</code></p>
   <div class="table-wrap">
     <table>
       <thead><tr><th>Capability</th><th>Status / owner</th>{{range .Cells}}<th>{{label .}}</th>{{end}}</tr></thead>
