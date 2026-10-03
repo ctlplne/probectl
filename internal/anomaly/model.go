@@ -67,16 +67,21 @@ type Query struct {
 
 // Finding is one anomalous subject/metric, with model and training provenance.
 type Finding struct {
-	TenantID       string             `json:"tenant_id"`
-	Plane          string             `json:"plane"`
-	Source         string             `json:"source"`
-	Subject        string             `json:"subject"`
-	Metric         string             `json:"metric"`
-	TS             time.Time          `json:"ts"`
-	Current        float64            `json:"current"`
-	Baseline       float64            `json:"baseline"`
-	Stddev         float64            `json:"stddev"`
-	Score          float64            `json:"score"`
+	TenantID string    `json:"tenant_id"`
+	Plane    string    `json:"plane"`
+	Source   string    `json:"source"`
+	Subject  string    `json:"subject"`
+	Metric   string    `json:"metric"`
+	TS       time.Time `json:"ts"`
+	Current  float64   `json:"current"`
+	Baseline float64   `json:"baseline"`
+	Stddev   float64   `json:"stddev"`
+	Score    float64   `json:"score"`
+	// Direction records which way the current value deviated from the learned
+	// baseline: "up" for a spike, "down" for a collapse/drop. Score is a
+	// direction-agnostic magnitude, so callers that care about an outage (a
+	// metric falling to zero) versus a surge read it here.
+	Direction      string             `json:"direction,omitempty"`
 	Model          string             `json:"model"`
 	TrainingWindow TrainingWindow     `json:"training_window"`
 	Citations      []Citation         `json:"citations"`
@@ -135,22 +140,23 @@ func (m LocalZScoreModel) Evaluate(ctx context.Context, features []Feature, q Qu
 			continue
 		}
 		mean, std := meanStddev(base)
-		score, ok := highScore(cur.Value, mean, std, q.Sensitivity)
+		score, direction, ok := highScore(cur.Value, mean, std, q.Sensitivity)
 		if !ok {
 			continue
 		}
 		out = append(out, Finding{
-			TenantID: cur.TenantID,
-			Plane:    cur.Plane,
-			Source:   cur.Source,
-			Subject:  cur.Subject,
-			Metric:   cur.Metric,
-			TS:       cur.TS,
-			Current:  cur.Value,
-			Baseline: mean,
-			Stddev:   std,
-			Score:    score,
-			Model:    m.Name(),
+			TenantID:  cur.TenantID,
+			Plane:     cur.Plane,
+			Source:    cur.Source,
+			Subject:   cur.Subject,
+			Metric:    cur.Metric,
+			TS:        cur.TS,
+			Current:   cur.Value,
+			Baseline:  mean,
+			Stddev:    std,
+			Score:     score,
+			Direction: direction,
+			Model:     m.Name(),
 			TrainingWindow: TrainingWindow{
 				Start:   base[0].TS,
 				End:     base[len(base)-1].TS,
@@ -231,19 +237,48 @@ func meanStddev(base []Feature) (float64, float64) {
 	return mean, math.Sqrt(sq / float64(len(base)))
 }
 
-func highScore(value, mean, std, sensitivity float64) (float64, bool) {
+// highScore measures how far the current value sits from the learned baseline
+// and in which direction. It is deliberately TWO-SIDED: a metric that collapses
+// from a stable non-zero baseline (a link going dark, L7 traffic stopping) has
+// deviated downward just as surely as a spike has deviated upward, and an
+// observability signal that only ever fired on spikes would miss the outage
+// entirely. The returned score is a magnitude (always >= 0) so callers rank
+// findings by severity regardless of direction; the sign lives in the returned
+// direction ("up"/"down"). Detection is a signal, never an action — see
+// docs/guardrails.md G9-N — so this only decides whether to surface the
+// deviation.
+func highScore(value, mean, std, sensitivity float64) (score float64, direction string, ok bool) {
+	direction = deviationDirection(value, mean)
 	if std == 0 {
+		// A perfectly flat baseline has no natural scale, so fall back to a
+		// proportional band around the mean. Both a jump above the band and a
+		// collapse below it are anomalies; staying in-band is not. The band is
+		// symmetric, so a drop from a non-zero mean toward zero now fires where
+		// the old one-sided test silently dropped it.
 		switch {
-		case mean == 0 && value > 0:
-			return sensitivity + 1, true
-		case mean > 0 && value > mean*1.5:
-			return sensitivity + (value/mean - 1), true
-		default:
-			return 0, false
+		case mean == 0:
+			// Flat zero baseline: any departure from zero is anomalous.
+			if value != 0 {
+				return sensitivity + 1, direction, true
+			}
+		case value > mean*1.5:
+			return sensitivity + (value/mean - 1), direction, true
+		case value < mean*0.5:
+			return sensitivity + (1 - value/mean), direction, true
 		}
+		return 0, direction, false
 	}
-	score := (value - mean) / std
-	return score, score > sensitivity
+	score = math.Abs(value-mean) / std
+	return score, direction, score > sensitivity
+}
+
+// deviationDirection reports whether value sits above ("up") or below ("down")
+// the learned baseline mean.
+func deviationDirection(value, mean float64) string {
+	if value < mean {
+		return "down"
+	}
+	return "up"
 }
 
 func currentCitation(f Feature) []Citation {

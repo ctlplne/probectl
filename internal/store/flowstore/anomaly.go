@@ -34,7 +34,15 @@ func DetectAnomaliesWithModel(ctx context.Context, points []CapacityPoint, q Ano
 	}
 	out := make([]Anomaly, 0, len(findings))
 	for _, f := range findings {
-		if f.Metric != "bps" || f.Current < q.MinBps {
+		if f.Metric != "bps" {
+			continue
+		}
+		// MinBps ignores genuinely tiny links. A link that COLLAPSED from a
+		// significant baseline (baseline >= MinBps) must NOT be filtered just
+		// because its current value has fallen below the floor — that outage is
+		// exactly the downward anomaly AI-10 surfaces. Only skip when both the
+		// current value and the learned baseline are below the floor.
+		if f.Current < q.MinBps && f.Baseline < q.MinBps {
 			continue
 		}
 		exporter, iface, ok := splitCapacitySubject(f.Subject)
@@ -49,6 +57,7 @@ func DetectAnomaliesWithModel(ctx context.Context, points []CapacityPoint, q Ano
 			BaselineBps:      f.Baseline,
 			StdDevBps:        f.Stddev,
 			Sigma:            f.Score,
+			Deviation:        f.Direction,
 			Model:            f.Model,
 			TrainingWindow:   f.TrainingWindow,
 			FeatureCitations: f.Citations,

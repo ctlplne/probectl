@@ -211,13 +211,17 @@ type AnomalyQuery struct {
 
 // Anomaly is one flagged interface.
 type Anomaly struct {
-	Exporter         string                 `json:"exporter"`
-	Iface            uint32                 `json:"iface"`
-	TS               time.Time              `json:"ts"`
-	CurrentBps       float64                `json:"current_bps"`
-	BaselineBps      float64                `json:"baseline_bps"`
-	StdDevBps        float64                `json:"stddev_bps"`
-	Sigma            float64                `json:"sigma"`
+	Exporter    string    `json:"exporter"`
+	Iface       uint32    `json:"iface"`
+	TS          time.Time `json:"ts"`
+	CurrentBps  float64   `json:"current_bps"`
+	BaselineBps float64   `json:"baseline_bps"`
+	StdDevBps   float64   `json:"stddev_bps"`
+	Sigma       float64   `json:"sigma"`
+	// Deviation is which way the current value departed from the baseline:
+	// "up" for a surge, "down" for a collapse/outage (AI-10). Distinct from
+	// AnomalyQuery.Direction, which selects ingress vs egress traffic.
+	Deviation        string                 `json:"deviation,omitempty"`
 	Model            string                 `json:"model,omitempty"`
 	TrainingWindow   anomaly.TrainingWindow `json:"training_window,omitempty"`
 	FeatureCitations []anomaly.Citation     `json:"feature_citations,omitempty"`

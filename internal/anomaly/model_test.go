@@ -66,6 +66,73 @@ func TestLocalModelFindsMultiPlaneAnomalyWithCitations(t *testing.T) {
 	}
 }
 
+// TestLocalModelFlagsCollapseToZero is the AI-10 regression: the local z-score
+// model used to score only upward deviations, so a metric collapsing from a
+// stable non-zero baseline to zero (an outage) produced a negative score that
+// was silently dropped. The two collapse subtests assert the drop now surfaces
+// (direction "down"); the in-band subtest is the non-vacuity guard that the
+// two-sided score is not merely trigger-happy. Before the model.go fix the two
+// collapse subtests fail with "yielded no finding".
+func TestLocalModelFlagsCollapseToZero(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+
+	// series builds a single-subject bps series, oldest first, one minute
+	// apart, so the newest sample (the one scored) is last.
+	series := func(values ...float64) []Feature {
+		out := make([]Feature, 0, len(values))
+		n := len(values)
+		for i, v := range values {
+			out = append(out, Feature{
+				TenantID: "tenant-a", Plane: "flow", Source: "edge-r1", Subject: "uplink",
+				Metric: "bps", TS: now.Add(-time.Duration(n-1-i) * time.Minute), Value: v,
+				Citation: "fixtures/anomaly/tenant-a-collapse.jsonl:1",
+			})
+		}
+		return out
+	}
+	eval := func(t *testing.T, feats []Feature) []Finding {
+		t.Helper()
+		findings, err := NewLocalZScoreModel().Evaluate(context.Background(), feats, Query{TenantID: "tenant-a", Sensitivity: 3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return findings
+	}
+
+	t.Run("collapse from jittery non-zero baseline is flagged downward", func(t *testing.T) {
+		// A stable ~1000 bps link with normal jitter that falls to 0: a classic
+		// outage, and the std>0 path the old one-sided z-score dropped.
+		findings := eval(t, series(1000, 1010, 990, 1005, 995, 0))
+		if len(findings) < 1 {
+			t.Fatalf("collapse to zero yielded no finding: %+v", findings)
+		}
+		if got := findings[0]; got.Direction != "down" {
+			t.Fatalf("direction = %q, want \"down\" (current=%v baseline=%v)", got.Direction, got.Current, got.Baseline)
+		}
+	})
+
+	t.Run("collapse from perfectly flat baseline is flagged downward", func(t *testing.T) {
+		// std == 0 exercises the zero-stddev branch, which used to fire only on
+		// an upward jump; a collapse to zero from a non-zero mean must fire too.
+		findings := eval(t, series(1000, 1000, 1000, 1000, 0))
+		if len(findings) < 1 {
+			t.Fatalf("collapse from flat baseline yielded no finding: %+v", findings)
+		}
+		if got := findings[0]; got.Direction != "down" {
+			t.Fatalf("direction = %q, want \"down\"", got.Direction)
+		}
+	})
+
+	t.Run("in-band jitter is not trigger-happy", func(t *testing.T) {
+		// Non-vacuity guard: a noisy-but-stable series whose final sample stays
+		// inside the normal band must produce NO finding.
+		findings := eval(t, series(980, 1020, 990, 1010, 1000, 1005))
+		if len(findings) != 0 {
+			t.Fatalf("in-band jitter produced %d finding(s), want 0: %+v", len(findings), findings)
+		}
+	})
+}
+
 func TestLocalModelRefusesCrossTenantFeatures(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	features := []Feature{
