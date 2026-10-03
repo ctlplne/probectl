@@ -80,6 +80,14 @@ func TestProductionEnvKeysAndConfigurationDocsAreBidirectional(t *testing.T) {
 	}
 
 	missing, stale := configurationParityViolations(codeKeys, string(doc))
+	// A documented PROBECTL_ var that is a compose .env interpolation
+	// (${PROBECTL_...} in deploy/compose/*.yml) is a legitimate deployment knob,
+	// not a stale control-plane key: the Go code never reads it, the compose
+	// stack does. Exempt those (e.g. PROBECTL_BIND_ADDR and the container
+	// resource limits documented in the shipped-stack section). This never masks
+	// a real stale control-plane key, which by definition is not a live compose
+	// interpolation var.
+	stale = dropComposeInterpolationKeys(t, stale)
 	if len(missing) != 0 || len(stale) != 0 {
 		t.Fatalf(
 			"configuration parity failed\nundocumented production keys:\n%s\nstale documented keys:\n%s",
@@ -87,6 +95,45 @@ func TestProductionEnvKeysAndConfigurationDocsAreBidirectional(t *testing.T) {
 			strings.Join(stale, "\n"),
 		)
 	}
+}
+
+// dropComposeInterpolationKeys removes keys that are real compose .env
+// interpolation variables (${KEY} / ${KEY:-default} in deploy/compose/*.yml)
+// from the stale set: such a key is a deployment knob the compose stack reads,
+// so documenting it is correct even though no Go config call references it.
+func dropComposeInterpolationKeys(t *testing.T, stale []string) []string {
+	t.Helper()
+	compose := composeInterpolationEnvKeys(t)
+	kept := stale[:0:0]
+	for _, key := range stale {
+		if _, ok := compose[key]; ok {
+			continue
+		}
+		kept = append(kept, key)
+	}
+	return kept
+}
+
+// composeInterpolationEnvKeys collects every ${PROBECTL_...} interpolation
+// variable referenced by the shipped compose files.
+func composeInterpolationEnvKeys(t *testing.T) map[string]struct{} {
+	t.Helper()
+	keys := map[string]struct{}{}
+	files, err := filepath.Glob("../deploy/compose/*.yml")
+	if err != nil {
+		t.Fatalf("glob compose files: %v", err)
+	}
+	interp := regexp.MustCompile(`\$\{(PROBECTL_[A-Z0-9_]+)`)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for _, m := range interp.FindAllSubmatch(data, -1) {
+			keys[string(m[1])] = struct{}{}
+		}
+	}
+	return keys
 }
 
 func TestConfigurationParityRejectsPlantedDrift(t *testing.T) {
