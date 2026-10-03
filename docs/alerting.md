@@ -57,6 +57,7 @@ flowchart LR
   R[(alert rules\nPostgres)] --> E[evaluator engine\nper tenant]
   T[(TSDB)] --> E
   O[(alert_ops\nsilences/acks · RLS)] -. restore on boot .-> E
+  N[(alert_notifications\nfiring-since · last-notified · RLS)] -. restore on leader acquisition .-> E
   M[(alert_maintenance_windows\nplanned work · RLS)] -. restore on boot .-> E
   E -- state transitions --> V[(alert_evaluation_receipts\nforced RLS · 7d / row caps)]
   E -- notify --> C[channels: webhook/email]
@@ -236,6 +237,19 @@ The mechanics are restart-safe without leaking across episodes:
 - When an episode resolves, a resolve hook (`Engine.SetResolveHook`) deletes the
   persisted row, so a *future* episode of the same series starts with no inherited
   state.
+- **Notification bookkeeping survives a singleton-leader failover (RTO-20).** The
+  alert evaluator is a cluster singleton: one leased replica evaluates, and on
+  failover a *different* replica builds fresh per-tenant engines. The per-series
+  firing-since and last-notified a notification is dedup'd/renotified against used
+  to live only in the old leader's memory, so a still-firing `renotify_seconds=0`
+  ("notify once") alert was re-sent after the lease moved. That bookkeeping is now
+  persisted per series in `alert_notifications` (migration `0115`, forced tenant
+  RLS): the engine persists it on every delivery (`Engine.SetNotifyHook`), and the
+  newly-elected leader rehydrates it (`Engine.RestoreNotifications`) so a
+  continuously-firing alert is **not** re-notified and a `renotify_seconds>0`
+  cadence resumes relative to the persisted timestamp rather than resetting to the
+  moment of failover. The row is deleted by the same resolve hook, so a future
+  episode notifies afresh.
 - Planned maintenance is also operator intent, so it is stored in
   `alert_maintenance_windows` (migration `0058`, forced tenant RLS) and restored
   into each tenant evaluator at startup. Create/update/delete changes the engine,

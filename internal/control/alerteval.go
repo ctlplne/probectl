@@ -256,6 +256,21 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 				engine.RestoreOps(restored)
 				log.Info("alert silences/acks restored", "tenant", tenant.String(), "ops", len(ops))
 			}
+			// RTO-20: rehydrate persisted notification bookkeeping so a newly
+			// elected leader does NOT re-send a still-firing renotify=0 alert and
+			// preserves the renotify cadence across failover.
+			notifs, lerr := (store.AlertNotifications{}).List(ctx, sc)
+			if lerr != nil {
+				return lerr
+			}
+			if len(notifs) > 0 {
+				ns := make(map[string]alert.NotifyState, len(notifs))
+				for _, n := range notifs {
+					ns[n.Fingerprint] = alert.NotifyState{FiringSince: n.FiringSince, LastNotified: n.LastNotified}
+				}
+				engine.RestoreNotifications(ns)
+				log.Info("alert notification state restored", "tenant", tenant.String(), "series", len(notifs))
+			}
 			windows, lerr := (store.AlertMaintenance{}).List(ctx, sc)
 			if lerr != nil {
 				return lerr
@@ -275,12 +290,32 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 		log.Warn("alert operator-state reload failed (silences/acks or maintenance windows from before the restart are unavailable)",
 			"tenant", tenant.String(), "error", err.Error())
 	}
+	// RTO-20: persist notification bookkeeping on every delivery so a leader
+	// failover rehydrates it (RestoreNotifications above). The hook runs outside
+	// the engine lock; a persist failure is logged but never blocks delivery.
+	engine.SetNotifyHook(func(key string, ns alert.NotifyState) {
+		hctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tenancy.InTenant(tenancy.WithTenant(hctx, tenant), pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				return (store.AlertNotifications{}).Upsert(ctx, sc, store.AlertNotification{
+					Fingerprint: key, FiringSince: ns.FiringSince, LastNotified: ns.LastNotified,
+				})
+			}); err != nil {
+			log.Warn("alert notification-state persist failed", "tenant", tenant.String(), "fingerprint", key, "error", err.Error())
+		}
+	})
 	engine.SetResolveHook(func(fingerprint string) {
 		hctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := tenancy.InTenant(tenancy.WithTenant(hctx, tenant), pool,
 			func(ctx context.Context, sc tenancy.Scope) error {
-				return (store.AlertOps{}).Delete(ctx, sc, fingerprint)
+				if err := (store.AlertOps{}).Delete(ctx, sc, fingerprint); err != nil {
+					return err
+				}
+				// RTO-20: drop the notification row too, so a FUTURE episode of the
+				// same series notifies afresh instead of restoring a stale timestamp.
+				return (store.AlertNotifications{}).Delete(ctx, sc, fingerprint)
 			}); err != nil {
 			// CODE-002: a failed resolve-cleanup leaves a stale ops row; log it
 			// (the alert still resolves) rather than discard silently.

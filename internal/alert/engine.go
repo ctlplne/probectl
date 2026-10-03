@@ -52,6 +52,28 @@ type Engine struct {
 	// delete the persisted row when an episode ends.
 	restored  map[string]RestoredOp
 	onResolve func(fingerprint string)
+
+	// Persisted notification state (RTO-20): the per-series firing-since and
+	// last-notified that dedupe/renotify decisions are made against lived only
+	// in this engine's memory, so a singleton-leader failover re-sent a
+	// still-firing renotify=0 ("notify once") alert. They are now durable:
+	// onNotify persists them on every delivery (called outside the lock), and a
+	// newly-elected leader's fresh engine rehydrates them through
+	// RestoreNotifications so a continuously-firing alert is not re-notified and
+	// a renotify cadence resumes relative to the persisted timestamp.
+	// restoredNotify holds rows awaiting their series to fire again (mirrors
+	// `restored`).
+	restoredNotify map[string]NotifyState
+	onNotify       func(key string, ns NotifyState)
+}
+
+// NotifyState is one firing series' durable notification bookkeeping: the start
+// of the current firing episode and when it was last notified. It is persisted
+// on every notification and rehydrated into a newly-elected singleton leader so
+// a continuously-firing alert is not re-notified across failover (RTO-20).
+type NotifyState struct {
+	FiringSince  time.Time
+	LastNotified time.Time
 }
 
 // RestoredOp is one persisted silence/ack awaiting its series to fire again.
@@ -71,6 +93,23 @@ func (en *Engine) RestoreOps(ops map[string]RestoredOp) {
 	}
 	for fp, op := range ops {
 		en.restored[fp] = op
+	}
+}
+
+// RestoreNotifications seeds persisted per-series notification state on
+// leadership acquisition / boot reload (RTO-20). Like RestoreOps, each entry
+// applies the first time its series fires again: a still-firing renotify=0
+// alert is not re-notified after a singleton-leader failover, and a renotify>0
+// cadence resumes relative to the persisted last-notified instead of resetting
+// to now. Rows whose series never fires again are swept by the resolve hook.
+func (en *Engine) RestoreNotifications(ns map[string]NotifyState) {
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	if en.restoredNotify == nil {
+		en.restoredNotify = map[string]NotifyState{}
+	}
+	for key, st := range ns {
+		en.restoredNotify[key] = st
 	}
 }
 
@@ -122,6 +161,13 @@ func (en *Engine) ReplaceMaintenanceWindows(windows []MaintenanceWindow) {
 }
 
 func (en *Engine) SetResolveHook(fn func(fingerprint string)) { en.onResolve = fn }
+
+// SetNotifyHook wires the durable persistence of notification state (RTO-20):
+// fn is called — outside the engine lock — whenever a firing notification is
+// delivered, so a newly-elected singleton leader rehydrates it through
+// RestoreNotifications and honors renotify across failover. Persistence failure
+// is the caller's to log; it never blocks delivery.
+func (en *Engine) SetNotifyHook(fn func(key string, ns NotifyState)) { en.onNotify = fn }
 
 // EngineOption configures an Engine.
 type EngineOption func(*Engine)
@@ -177,7 +223,7 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 
 	var acted []Alert
 	for _, s := range samples {
-		alert, notify, receipt := en.evalSample(rule, s)
+		alert, notify, receipt, pending := en.evalSample(rule, s)
 		en.recordEvaluation(ctx, receipt)
 		if notify {
 			if en.notifier != nil {
@@ -186,16 +232,30 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 			if en.sink != nil {
 				en.sink(ctx, alert)
 			}
+			// RTO-20: persist the notification bookkeeping after delivery, on the
+			// evaluation goroutine (ticks are serialized per engine), so the write
+			// order matches the notify order and a failover rehydrates the latest.
+			if pending != nil && en.onNotify != nil {
+				en.onNotify(pending.key, pending.state)
+			}
 			acted = append(acted, alert)
 		}
 	}
 	return acted, nil
 }
 
+// pendingNotify carries one series' notification state out of the locked
+// evaluation so Evaluate can persist it after delivery, never under the engine
+// lock (RTO-20).
+type pendingNotify struct {
+	key   string
+	state NotifyState
+}
+
 // evalSample evaluates one sample under the engine lock: the same state is read
 // by the active-alert surface (Active/Silence/Acknowledge), so every mutation
 // happens locked. Notification delivery stays outside the lock.
-func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationReceipt) {
+func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationReceipt, *pendingNotify) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
 	key := stateKey(rule.ID, s.Labels)
@@ -210,10 +270,17 @@ func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationRecei
 	st.lastSeen = en.clock()
 
 	acted, notify, state := en.transition(key, rule, st, s, decision)
+	// RTO-20: a firing notification (not a resolve) hands the caller the durable
+	// notification state to persist after delivery. The snapshot is taken under
+	// the lock; the write happens outside it in Evaluate.
+	var pending *pendingNotify
+	if notify && acted.State == StateFiring {
+		pending = &pendingNotify{key: key, state: NotifyState{FiringSince: st.since, LastNotified: st.lastNotified}}
+	}
 	record := state != st.lastEvaluationState || state == EvaluationWarming
 	st.lastEvaluationState = state
 	if !record {
-		return acted, notify, nil
+		return acted, notify, nil, pending
 	}
 	value := s.Value
 	return acted, notify, &EvaluationReceipt{
@@ -231,7 +298,7 @@ func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationRecei
 		WarmupRequired:   decision.warmupNeeded,
 		Reason:           decision.reason,
 		Labels:           receiptLabels(s.Labels),
-	}
+	}, pending
 }
 
 // stateForLocked returns (creating if needed) the per-series state. en.mu held.
@@ -326,6 +393,20 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 					st.ackedBy, st.ackedAt = op.AckedBy, op.AckedAt
 				}
 			}
+			// RTO-20: rehydrate persisted notification bookkeeping the first time
+			// this series fires after a singleton-leader failover. A non-zero
+			// last-notified means the previous leader already notified this
+			// still-firing episode, so the fresh engine must NOT treat this as a
+			// first firing to notify (the notify decision below keys off
+			// last-notified, never firstFiring), and a renotify cadence is measured
+			// from the persisted timestamp rather than reset to now.
+			if ns, ok := en.restoredNotify[key]; ok {
+				delete(en.restoredNotify, key)
+				if !ns.FiringSince.IsZero() {
+					st.since = ns.FiringSince
+				}
+				st.lastNotified = ns.LastNotified
+			}
 		}
 		if occ, ok := en.activeMaintenanceLocked(rule, s, now); ok {
 			if occ.EndsAt.After(st.silencedUntil) {
@@ -344,9 +425,15 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 			}
 			return Alert{}, false, EvaluationSteady
 		}
+		// RTO-20: the first notification of an episode is driven by a zero
+		// last-notified (reset on resolve), NOT by firstFiring. A fresh engine
+		// that rehydrated a non-zero last-notified across a leader failover is
+		// therefore within a firing episode that already notified, so a
+		// renotify=0 ("notify once") alert is not re-sent and a renotify>0 cadence
+		// resumes from the persisted timestamp.
 		renotify := rule.RenotifySeconds > 0 &&
 			now.Sub(st.lastNotified) >= time.Duration(rule.RenotifySeconds)*time.Second
-		if firstFiring || st.lastNotified.IsZero() || renotify {
+		if st.lastNotified.IsZero() || renotify {
 			st.lastNotified = now
 			state := EvaluationSteady
 			if firstFiring {
@@ -364,8 +451,15 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 		// The episode is over: operator state does not leak into the next one.
 		st.silencedUntil = time.Time{}
 		st.ackedBy, st.ackedAt = "", time.Time{}
+		// RTO-20: notification bookkeeping is per-episode. Clear the in-memory
+		// last-notified so the NEXT episode's first firing notifies (the decision
+		// above keys off a zero last-notified), and so a stale persisted timestamp
+		// can never suppress a genuinely new episode. The resolve hook deletes the
+		// durable row for the same reason.
+		st.lastNotified = time.Time{}
 		if en.onResolve != nil {
-			// Delete the persisted op so a future episode starts clean.
+			// Delete the persisted op + notification state so a future episode
+			// starts clean.
 			go en.onResolve(key)
 		}
 		return en.alert(rule, s, StateResolved, "value recovered"), true, EvaluationResolved

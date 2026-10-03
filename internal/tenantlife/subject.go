@@ -201,6 +201,12 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		exact:    []string{"created_by"},
 		contains: []string{"match"},
 	},
+	// RTO-20: per-series notification bookkeeping — tenant_id, fingerprint (the
+	// rule+label state key, the same opaque handle alert_ops stores without
+	// treating it as a subject), firing_since, last_notified, updated_at. No
+	// subject-bearing column to match on (like alert_evaluator_status); the row
+	// is deleted when the firing episode resolves and cascades on tenant delete.
+	"alert_notifications": {plane: "postgres:alert_notifications", disposition: subjectTableNoSubject},
 	"alert_ops": {
 		plane: "postgres:alert_ops", disposition: subjectTableDeleteMatches,
 		exact: []string{"acked_by"},
