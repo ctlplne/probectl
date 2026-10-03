@@ -95,3 +95,13 @@ safe.
   other ingest path — no cross-tenant mixing.
 - A failed re-publish or broker flush leaves the record on the dead-letter topic
   (uncommitted), so a transient bus error during replay never loses a record.
+- **Permanent rejects are terminal, not replayable.** A sample the TSDB rejects
+  with a 4xx (out-of-order / too-old / malformed) is one it will *never* accept,
+  so on re-ingest the result consumer drops it with a log and counts it on
+  `probectl_pipeline_results_terminally_rejected_total` — it is **not** re-queued
+  to the dead-letter topic. This is what lets a drain terminate: a record that
+  could only be re-rejected would otherwise loop DLQ → source → reject → DLQ
+  forever. If that counter climbs during replay, the records are late beyond the
+  receiver's out-of-order window — widen it (`tsdb.out_of_order_time_window` /
+  VictoriaMetrics `-search.maxStalenessInterval`; see `docs/ops/tsdb.md`) and
+  re-ingest at the source, rather than expecting replay to land them.

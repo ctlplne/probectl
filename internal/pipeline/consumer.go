@@ -62,9 +62,16 @@ type Consumer struct {
 	sleep      func(context.Context, time.Duration) // injectable for tests
 
 	retried      atomic.Uint64 // write attempts beyond the first
-	deadLettered atomic.Uint64 // records routed to the DLQ after exhaustion
-	dropped      atomic.Uint64 // records lost entirely (DLQ publish ALSO failed)
-	ledger       *integrityLedger
+	deadLettered atomic.Uint64 // records routed to the replayable DLQ after exhaustion
+	// terminallyRejected counts records the store PERMANENTLY rejected
+	// (tsdb.ErrPermanentReject — a 4xx remote-write: out-of-order/too-old/
+	// malformed sample it will NEVER accept). These are terminal: dropped with a
+	// metric+log, NOT re-queued to the replayable DLQ, because re-ingesting them
+	// only earns the same rejection — which is how dead-letter replay looped
+	// forever (RTO-17). Counted ONCE per record.
+	terminallyRejected atomic.Uint64
+	dropped            atomic.Uint64 // records lost entirely (DLQ publish ALSO failed)
+	ledger             *integrityLedger
 
 	// Write-stage decoupling (SCALE-001): decode/verify enqueue onto a
 	// BOUNDED channel drained by writeWorkers goroutines doing the remote
@@ -76,6 +83,7 @@ type Consumer struct {
 	writeQueueDepth            int
 	writeQueueSaturated        atomic.Uint64
 	writeQueueSaturationMetric *metrics.Counter
+	terminallyRejectedMetric   *metrics.Counter // RTO-17: permanent-reject terminal drops
 
 	// card caps per-agent/per-tenant series identities (U-017); always set.
 	card *CardinalityLimiter
@@ -85,6 +93,7 @@ type Consumer struct {
 type ConsumerStats struct {
 	Retried             uint64
 	DeadLettered        uint64
+	TerminallyRejected  uint64 // permanent (4xx) store rejects dropped terminally (RTO-17)
 	Dropped             uint64
 	WriteQueueSaturated uint64
 }
@@ -94,6 +103,7 @@ func (c *Consumer) Stats() ConsumerStats {
 	return ConsumerStats{
 		Retried:             c.retried.Load(),
 		DeadLettered:        c.deadLettered.Load(),
+		TerminallyRejected:  c.terminallyRejected.Load(),
 		Dropped:             c.dropped.Load(),
 		WriteQueueSaturated: c.writeQueueSaturated.Load(),
 	}
@@ -221,6 +231,8 @@ func (c *Consumer) WithMetrics(reg *metrics.Registry) *Consumer {
 	c.ledger.withMetrics(reg)
 	c.writeQueueSaturationMetric = reg.Counter("probectl_pipeline_results_write_queue_saturated_total",
 		"Times the result write-stage queue was observed full before enqueue; backpressure was applied to the bus consumer.")
+	c.terminallyRejectedMetric = reg.Counter("probectl_pipeline_results_terminally_rejected_total",
+		"Results the store permanently rejected (4xx remote-write: out-of-order/too-old/malformed) and dropped terminally — counted once per record, never re-queued to the replayable dead-letter topic (RTO-17).")
 	reg.Gauge("probectl_pipeline_results_write_queue_depth",
 		"Current result write-stage queued records waiting for TSDB writes.", func() float64 {
 			return float64(c.WriteChDepth())
@@ -398,6 +410,17 @@ func (c *Consumer) writeOne(ctx context.Context, it writeItem) error {
 		// (CORRECT-002/003/004) settle it on replay. Never meter (unknown).
 		if unknownWriteOutcome(ctx, err) {
 			return err
+		}
+		// RTO-17: a PERMANENT reject (tsdb.ErrPermanentReject — a 4xx remote-write:
+		// out-of-order/too-old/malformed sample) is TERMINAL. The store will never
+		// accept it, so it must NOT land on the replayable DLQ: re-ingesting it
+		// earns the identical rejection, which re-queues it, which replay drains
+		// again — an unterminating loop that amplified the DLQ ~170x. Route it
+		// terminally (counted ONCE, logged, dropped) so replay drains monotonically
+		// and terminates. Only a TRANSIENT failure (store outage) is replayable.
+		if permanentWrite(err) {
+			c.terminalReject(it, err)
+			return nil // terminally handled: safe to commit, never replayed
 		}
 		before := c.dropped.Load()
 		c.deadLetter(ctx, it, err)
@@ -660,4 +683,25 @@ func (c *Consumer) deadLetter(ctx context.Context, it writeItem, writeErr error)
 		"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
 		"topic", dlqTopic, "error", writeErr.Error(),
 		"dead_lettered_total", c.deadLettered.Load())
+}
+
+// terminalReject ends a PERMANENTLY-rejected record (tsdb.ErrPermanentReject: a
+// 4xx remote-write — an out-of-order/too-old/malformed sample the store will
+// NEVER accept). It is counted ONCE and logged, then dropped — deliberately NOT
+// published to the lane's replayable dead-letter topic. Parking it there was the
+// RTO-17 bug: dead-letter replay re-ingested it, the store re-rejected it, it
+// returned to the DLQ, and the drain never terminated (~170x DLQ amplification).
+// The only recovery for these samples is widening the receiver's out-of-order
+// window (see tsdb.ErrPermanentReject / docs/ops/tsdb.md), an operator action
+// outside replay — so dropping with a metric+log is honest, not silent loss.
+func (c *Consumer) terminalReject(it writeItem, writeErr error) {
+	r := it.r
+	c.terminallyRejected.Add(1)
+	if c.terminallyRejectedMetric != nil {
+		c.terminallyRejectedMetric.Inc()
+	}
+	c.log.Error("result PERMANENTLY rejected by the store — dropped, NOT replayable "+
+		"(widen the TSDB out-of-order ingestion window to accept late samples)",
+		"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(), "lane", it.sourceTopic,
+		"error", writeErr.Error(), "terminally_rejected_total", c.terminallyRejected.Load())
 }
