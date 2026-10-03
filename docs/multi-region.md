@@ -110,10 +110,14 @@ defense is an app-layer **fence** — *fencing* is refusing to let a
 possibly-confused node touch shared state — that refuses to write unless the
 target is
 *provably* the current primary. The control plane probes the writer endpoint
-every 5 seconds and **fails writes closed** (HTTP 503 `writer_unavailable`, with a
-`Retry-After`) whenever it can't prove that — while **reads keep serving** and
-**telemetry ingest never pauses**. The principle: degrade to read-only, never lose
-or corrupt data.
+every 5 seconds, **and re-verifies it synchronously on each mutating request**,
+and **fails writes closed** (HTTP 503 `writer_unavailable`, with a `Retry-After`)
+whenever it can't prove that — while **reads keep serving** and **telemetry
+ingest never pauses**. The per-request re-check is what makes the fence
+authoritative *at write time*: a node that stops being the primary between
+probes fences the **very next** write, instead of acknowledging (201) up to one
+probe interval of writes the promoted primary never sees. The principle: degrade
+to read-only, never lose or corrupt data.
 
 There are two specific failure modes it catches:
 
@@ -138,16 +142,20 @@ This fence is the application-layer complement to whatever failover controller y
 actually run (Patroni, a managed database, etc.): even if your endpoint briefly
 resolves to the wrong node mid-flip, probectl will not write to it.
 
-The fence is enforced at two layers. Requests that would write get the `503`
-above. Everything else the control plane writes on its own — agent heartbeats,
-incident signals, alert state, once-only export gates, audit — goes through the
-same writer pool, and while the writer endpoint resolves to a **stale
-ex-primary** that pool is switched to read-only sessions
-(`default_transaction_read_only = on`; the existing connections are recycled),
-so those background writers fail closed exactly as they would on a standby.
-`/readyz` reports it as `cluster.pool_fenced: true` and the control plane logs
-`writer pool fenced read-only`; the fence lifts on the next probe once the
-endpoint resolves to the current primary. Reads keep serving throughout.
+The fence is enforced at two layers. Mutating requests get the `503` above, and
+that decision is taken from a **synchronous re-probe at write time** — not a
+cached verdict — so the request layer never acknowledges a write in the window
+before the next periodic probe would have caught the failover. Everything else
+the control plane writes on its own — agent heartbeats, incident signals, alert
+state, once-only export gates, audit — goes through the same writer pool, and
+while the writer endpoint resolves to a **stale ex-primary** that pool is
+switched to read-only sessions (`default_transaction_read_only = on`; the
+existing connections are recycled), so those background writers fail closed
+exactly as they would on a standby. `/readyz` reports it as
+`cluster.pool_fenced: true` and the control plane logs `writer pool fenced
+read-only`; that connection-level pool fence engages and lifts on the periodic
+probe once the endpoint resolves to the current primary. Reads keep serving
+throughout.
 
 Reads keep serving even though their audit events cannot be written: a
 sensitive read (`access.read.*`) is served and its event is kept in a bounded
@@ -164,9 +172,11 @@ failure. Here, RTO = failover detection + standby promotion + writer-endpoint re
 probectl re-probe (≤ one 5s cycle). Each probe is itself bounded to 5 seconds,
 so a primary that vanishes without closing its connections is detected within
 one cycle rather than after the kernel's TCP give-up. The dominant terms are
-your Postgres failover controller's detection + promotion times. probectl resumes writes
-automatically on the next probe once the endpoint resolves to the promoted
-primary — no probectl restart required.
+your Postgres failover controller's detection + promotion times. probectl resumes
+writes automatically once the endpoint resolves to the promoted primary: a
+mutating request re-probes synchronously, so it need not wait for the next
+periodic cycle (reads, status, and the connection-level pool fence follow the
+≤ 5 s cycle) — no probectl restart required.
 
 ## The RPO/RTO targets: locally rehearsed, regional proof still required
 

@@ -275,47 +275,118 @@ func (m *Manager) probe(ctx context.Context, p Prober) Probe {
 	}
 }
 
-// classify resolves a probe into a role under the current high-water epoch.
+// roleUnder resolves a probe to a role under a given promotion high-water epoch.
+// It is pure (no shared state) so the authoritative write-path re-check
+// (WriterUsableNow) can classify a FRESH probe against a locally-computed
+// high-water mark without holding the manager lock.
+func roleUnder(p Probe, highestEpoch int64) Role {
+	switch {
+	case p.Err != nil:
+		return RoleUnknown
+	case p.InRecovery:
+		return RoleReader
+	case p.Epoch < highestEpoch:
+		// A primary on a superseded epoch: a stale ex-primary that a promotion
+		// elsewhere has fenced off. NEVER write to it.
+		return RoleStale
+	default:
+		return RoleWriter
+	}
+}
+
+// classify resolves a probe into the surfaced status under the current
+// high-water epoch.
 func (m *Manager) classify(p Probe) NodeStatus {
 	ns := NodeStatus{Epoch: p.Epoch, WriterRegion: p.WriterRegion, InRecovery: p.InRecovery, LagSeconds: p.LagSeconds}
 	if !m.checkedAt.IsZero() {
 		ns.CheckedAgo = m.now().Sub(m.checkedAt).Round(time.Millisecond).String()
 	}
-	switch {
-	case p.Err != nil:
-		ns.Role = RoleUnknown
+	ns.Role = roleUnder(p, m.highestEpoch)
+	if p.Err != nil {
 		ns.Error = p.Err.Error()
-	case p.InRecovery:
-		ns.Role = RoleReader
-	case p.Epoch < m.highestEpoch:
-		// A primary on a superseded epoch: a stale ex-primary that a promotion
-		// elsewhere has fenced off. NEVER write to it.
-		ns.Role = RoleStale
-	default:
-		ns.Role = RoleWriter
 	}
 	return ns
 }
 
-// WriterUsable reports whether the writer endpoint is provably the current
-// primary, and a human-readable reason when it is not. Mutating API requests
-// are fenced (503) when this is false (fail closed — split-brain safety).
-func (m *Manager) WriterUsable() (bool, string) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if !m.started {
-		return false, "initial cluster probe has not completed"
-	}
-	switch m.writerState.Role {
+// writerVerdict turns a classified writer role into the fence decision and a
+// human-readable reason when writes are refused. One voice for the cached read
+// path (writerUsableLocked) and the authoritative write-path re-check
+// (WriterUsableNow).
+func writerVerdict(role Role, epoch, highestEpoch int64, errMsg string) (bool, string) {
+	switch role {
 	case RoleWriter:
 		return true, ""
 	case RoleReader:
 		return false, "writer endpoint points at a read-only standby (failover in progress)"
 	case RoleStale:
-		return false, fmt.Sprintf("writer endpoint points at a stale primary (epoch %d < current %d) — fenced to prevent split-brain", m.writerState.Epoch, m.highestEpoch)
+		return false, fmt.Sprintf("writer endpoint points at a stale primary (epoch %d < current %d) — fenced to prevent split-brain", epoch, highestEpoch)
 	default:
-		return false, "writer endpoint unreachable: " + m.writerState.Error
+		return false, "writer endpoint unreachable: " + errMsg
 	}
+}
+
+// WriterUsable reports whether the writer endpoint was, as of the last periodic
+// probe, provably the current primary, and a human-readable reason when it is
+// not. It is the cheap cached read used by /readyz, metrics, and background
+// gates. Mutating API requests go through WriterUsableNow, which re-probes so
+// the fence is authoritative at write time (RTO-19) rather than up to one probe
+// interval stale.
+func (m *Manager) WriterUsable() (bool, string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.writerUsableLocked()
+}
+
+// WriterUsableNow is the AUTHORITATIVE write-path fence check (RTO-19;
+// docs/guardrails.md G7-1 and the house doctrine: degrade to read-only, never
+// lose data). WriterUsable only reports the verdict cached by the last periodic
+// Refresh (every ~5s); in the window between probes a node that has just stopped
+// being the primary — demoted to a standby, killed, or superseded by a
+// promotion elsewhere — still reads as usable, so a config write to it would be
+// acknowledged (201) and then lost once the promoted primary takes over. This
+// re-probes the endpoints SYNCHRONOUSLY and classifies the writer against the
+// freshest promotion high-water mark, so the VERY NEXT write after the switch is
+// fenced (503) — zero acknowledged-and-lost writes — instead of waiting for the
+// next probe tick. It never mutates cached state (the periodic Refresh still
+// owns that), and any probe error fails closed. The happy path is a single
+// bounded round-trip to the local writer (and read replica, when configured),
+// which mutating API traffic — never telemetry ingest — can afford.
+func (m *Manager) WriterUsableNow(ctx context.Context) (bool, string) {
+	if m == nil {
+		return false, "cluster manager not configured"
+	}
+	if m.writer == nil {
+		// No writer endpoint to re-probe: fall back to the cached verdict rather
+		// than claim an authority we do not have.
+		return m.WriterUsable()
+	}
+	m.mu.RLock()
+	started := m.started
+	highest := m.highestEpoch
+	reader := m.reader
+	m.mu.RUnlock()
+	if !started {
+		// Startup is the riskiest moment for split-brain; until the first probe
+		// has established a baseline, fail closed (matches WriterUsable).
+		return false, "initial cluster probe has not completed"
+	}
+	// Re-probe synchronously. The replica follows the TRUE primary, so its epoch
+	// can raise the high-water mark the moment a promotion lands — letting us
+	// detect a stale ex-primary before the next periodic Refresh folds it in.
+	wp := m.probe(ctx, m.writer)
+	if reader != nil {
+		if rp := m.probe(ctx, reader); rp.Err == nil && rp.Epoch > highest {
+			highest = rp.Epoch
+		}
+	}
+	if wp.Err == nil && wp.Epoch > highest {
+		highest = wp.Epoch
+	}
+	errMsg := ""
+	if wp.Err != nil {
+		errMsg = wp.Err.Error()
+	}
+	return writerVerdict(roleUnder(wp, highest), wp.Epoch, highest, errMsg)
 }
 
 // poolFencedLocked prefers the pool's own answer over the manager's last
@@ -347,21 +418,13 @@ func (m *Manager) Status() Status {
 	return st
 }
 
-// writerUsableLocked is WriterUsable without re-locking (callers hold mu).
+// writerUsableLocked is the cached WriterUsable verdict without re-locking
+// (callers hold mu).
 func (m *Manager) writerUsableLocked() (bool, string) {
 	if !m.started {
 		return false, "initial cluster probe has not completed"
 	}
-	switch m.writerState.Role {
-	case RoleWriter:
-		return true, ""
-	case RoleReader:
-		return false, "writer endpoint points at a read-only standby (failover in progress)"
-	case RoleStale:
-		return false, fmt.Sprintf("writer endpoint points at a stale primary (epoch %d < current %d) — fenced to prevent split-brain", m.writerState.Epoch, m.highestEpoch)
-	default:
-		return false, "writer endpoint unreachable: " + m.writerState.Error
-	}
+	return writerVerdict(m.writerState.Role, m.writerState.Epoch, m.highestEpoch, m.writerState.Error)
 }
 
 // Run refreshes on a ticker until ctx is canceled (call once at startup).

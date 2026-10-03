@@ -35,10 +35,15 @@ func (s *Server) WithCluster(m *cluster.Manager) *Server {
 // a failover the region keeps serving reads while writes pause until the
 // promotion settles, rather than risk a write to the wrong primary. Telemetry
 // ingest (the bus consumers) is unaffected — it never crosses this chain.
+//
+// It uses WriterUsableNow, not the cached WriterUsable: the check re-probes the
+// writer synchronously so a node that stopped being the primary between the
+// periodic ~5s probes fences THIS request, instead of acknowledging (201) up to
+// one probe interval of writes the promoted primary never sees (RTO-19).
 func (s *Server) writeFence(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.cluster != nil && isMutating(r.Method) && !fenceExempt(r.URL.Path) {
-			if ok, reason := s.cluster.WriterUsable(); !ok {
+			if ok, reason := s.cluster.WriterUsableNow(r.Context()); !ok {
 				w.Header().Set("Retry-After", "2")
 				writeError(w, r, apierror.Unavailable("writer unavailable: "+reason).WithCode("writer_unavailable"))
 				return
