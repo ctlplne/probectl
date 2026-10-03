@@ -215,6 +215,40 @@ func TestApprove_RequiresHumanAndAudits(t *testing.T) {
 	}
 }
 
+// TestApprove_SelfApprovalBlocked proves four-eyes (AUTHZ-20, docs/guardrails.md
+// G7-8): the proposer can never approve their own proposal, even with a
+// within-limit blast radius; the blocked attempt is audited, the state is
+// unchanged, and a DIFFERENT authorizer can then approve.
+func TestApprove_SelfApprovalBlocked(t *testing.T) {
+	est := &fakeEstimator{dry: rem.DryRun{BlastRadius: 5}}
+	aud := &recAudit{}
+	s := newSvc(true, 50, est, aud.fn())
+
+	p := mustPropose(t, s, "user:alice@example.com")
+
+	// The same human approving their own proposal is refused (four-eyes) and the
+	// attempt is audited. Before the four-eyes check this succeeded.
+	if _, err := s.Approve(context.Background(), testTenant, "user:alice@example.com", p.ID, "self"); !errors.Is(err, rem.ErrSelfApproval) {
+		t.Fatalf("self-approval: err=%v, want ErrSelfApproval", err)
+	}
+	if !aud.has("remediation.approve_blocked") {
+		t.Fatalf("blocked self-approval not audited; actions=%v", aud.actions())
+	}
+	if got, _ := s.Get(context.Background(), testTenant, p.ID); got.State != rem.StateProposed {
+		t.Fatalf("after blocked self-approval, state=%q, want proposed", got.State)
+	}
+
+	// A DIFFERENT authorizer can approve the same proposal — proving the test is
+	// not vacuously rejecting every approval.
+	out, err := s.Approve(context.Background(), testTenant, "user:bob@example.com", p.ID, "four-eyes ok")
+	if err != nil {
+		t.Fatalf("distinct approver: %v", err)
+	}
+	if out.State != rem.StateApproved || out.DecidedBy != "user:bob@example.com" {
+		t.Fatalf("distinct approver result: %+v", out)
+	}
+}
+
 // TestApprove_BlastRadiusOverLimit_Blocked proves an over-limit proposal cannot
 // be approved (fail closed), the attempt is audited as blocked, and the state
 // is unchanged.

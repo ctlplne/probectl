@@ -101,11 +101,18 @@ type ResourceLineage struct {
 // the effective permission set (RBAC), and the subject attributes that ABAC
 // policies evaluate (e.g. department, mfa) — the two layers of the S31 model.
 type Principal struct {
-	TenantID       string
-	UserID         string
-	Email          string
-	DisplayName    string
-	MFASatisfied   bool
+	TenantID     string
+	UserID       string
+	Email        string
+	DisplayName  string
+	MFASatisfied bool
+	// ViaBearerToken is true when this principal was resolved from an API/MCP
+	// bearer token rather than an interactive session (AUTHZ-20). Sensitive,
+	// human-gated actions (e.g. remediation approval, G7-8 four-eyes) refuse a
+	// bearer principal so an automated/AI client holding a user's token cannot
+	// stand in for the deliberate human authorizer. It is config-independent
+	// (unlike MFASatisfied, which is off when no IdP MFA is configured).
+	ViaBearerToken bool
 	TimeZone       string
 	Locale         string
 	TenantTimeZone string

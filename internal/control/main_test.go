@@ -41,6 +41,11 @@ func init() { devModeHook = testDevAuthHook }
 // by main_test.go and never exists in a shipped binary).
 const testWithholdPermissionsHeader = "X-Probectl-Test-Withhold-Permissions"
 
+// testViaBearerHeader marks the dev principal as resolved from an API/MCP bearer
+// token (vs an interactive session) for ONE request, so AUTHZ-20 tests can drive
+// the bearer-vs-session branch of human-gated handlers.
+const testViaBearerHeader = "X-Probectl-Test-Via-Bearer"
+
 func testDevAuthHook(_ *Server, w http.ResponseWriter, r *http.Request) (*auth.Principal, bool) {
 	tid := tenancy.DefaultTenantID
 	if h := r.Header.Get("X-Probectl-Tenant"); h != "" {
@@ -71,6 +76,8 @@ func testDevAuthHook(_ *Server, w http.ResponseWriter, r *http.Request) (*auth.P
 		UserID:         "dev",
 		Email:          "dev@probectl.local",
 		DisplayName:    "Dev",
+		MFASatisfied:   true,
+		ViaBearerToken: r.Header.Get(testViaBearerHeader) == "true",
 		TimeZone:       "UTC",
 		Locale:         "en",
 		TenantTimeZone: "UTC",

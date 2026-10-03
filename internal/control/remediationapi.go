@@ -140,6 +140,13 @@ func (s *Server) decideRemediation(w http.ResponseWriter, r *http.Request, appro
 	if p == nil {
 		return apierror.Unauthorized("authentication required")
 	}
+	// AUTHZ-20 / G7-8: approval is a deliberate human authorization. Refuse an
+	// API/MCP bearer token so an automated or AI client holding a user's token
+	// cannot stand in for the approver (four-eyes is also enforced downstream).
+	// Rejection is unaffected — a user may always decline through any path.
+	if approve && p.ViaBearerToken {
+		return apierror.Forbidden("remediation approval requires an interactive session, not an API/MCP bearer token")
+	}
 	var in struct {
 		Note string `json:"note"`
 	}
@@ -178,6 +185,9 @@ func mapRemediationErr(err error) error {
 			return apierror.Validation(re.Message)
 		case "approvals_disabled", "blast_radius_exceeded", "blast_radius_unknown", "not_proposed":
 			return apierror.Conflict(re.Message).WithCode(re.Code)
+		case "self_approval":
+			// Four-eyes refusal (AUTHZ-20 / G7-8): forbidden, not a conflict.
+			return apierror.Forbidden(re.Message).WithCode(re.Code)
 		}
 		return apierror.BadRequest(re.Message).WithCode(re.Code)
 	}

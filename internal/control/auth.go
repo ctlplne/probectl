@@ -405,7 +405,10 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 		return nil, err
 	}
 	p := auth.PrincipalWithPermissionGrants(
-		&auth.Principal{TenantID: tenantID, UserID: userID},
+		// AUTHZ-20: mark this principal as bearer-resolved so human-gated actions
+		// (remediation approval) can refuse an API/MCP token standing in for a
+		// deliberate human authorizer.
+		&auth.Principal{TenantID: tenantID, UserID: userID, ViaBearerToken: true},
 		grants,
 	)
 	// A token for a deprovisioned user is rejected as unauthenticated, not

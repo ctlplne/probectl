@@ -144,4 +144,8 @@ var (
 	ErrBlastRadiusExceeded = Error{Code: "blast_radius_exceeded", Message: "the proposal's blast radius exceeds the configured limit — it cannot be approved"}
 	ErrNotProposed         = Error{Code: "not_proposed", Message: "only a proposed remediation can be decided"}
 	ErrUnknownBlastRadius  = Error{Code: "blast_radius_unknown", Message: "the blast radius could not be simulated (topology unavailable) — approval is blocked, fail closed"}
+	// ErrSelfApproval enforces four-eyes (AUTHZ-20, docs/guardrails.md G7-8): the
+	// proposer can never approve their own remediation — a different authorizer
+	// must decide. The blocked attempt is audited.
+	ErrSelfApproval = Error{Code: "self_approval", Message: "the proposer cannot approve their own remediation — a different authorizer is required (four-eyes)"}
 )

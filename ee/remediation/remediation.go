@@ -144,6 +144,18 @@ func (s *Service) Approve(ctx context.Context, tenantID, approver, id, note stri
 	if p.State != rem.StateProposed {
 		return rem.Proposal{}, rem.ErrNotProposed
 	}
+	// Four-eyes (AUTHZ-20, docs/guardrails.md G7-8): the proposer can never
+	// approve their own proposal, however they authenticated. Audit the blocked
+	// attempt, then fail closed — this is checked before the blast-radius guards
+	// so a self-approval is refused even when the radius is within limits.
+	if approver == p.ProposedBy {
+		if err := s.record(ctx, tenantID, approver, "remediation.approve_blocked", id, map[string]any{
+			"reason": "self_approval", "proposed_by": p.ProposedBy,
+		}); err != nil {
+			return rem.Proposal{}, err
+		}
+		return rem.Proposal{}, rem.ErrSelfApproval
+	}
 	// Blast-radius guard (fail closed): an unknown or over-limit radius blocks
 	// approval. The audit records the BLOCKED attempt either way.
 	if p.DryRun.BlastRadius < 0 || p.DryRun.Note == noteUnknown {

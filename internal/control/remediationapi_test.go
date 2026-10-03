@@ -176,6 +176,68 @@ func TestRemediationApproveAdvisoryOnly(t *testing.T) {
 	}
 }
 
+// TestRemediationApproveRejectsBearerToken: AUTHZ-20 / G7-8. Approval is a
+// deliberate human authorization, so an API/MCP bearer-token principal is
+// refused (403) BEFORE the service is called; an interactive session reaches it.
+func TestRemediationApproveRejectsBearerToken(t *testing.T) {
+	f := &fakeRemed{approvals: true}
+	srv := testServer(nil)
+	srv.WithRemediation(f)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/remediation/proposals/abc/approve", strings.NewReader(`{"note":"go"}`))
+	req.Header.Set(testViaBearerHeader, "true")
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("bearer approve status=%d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+	if f.approveN != 0 {
+		t.Fatalf("bearer approve reached the service (approveN=%d); the gate must refuse before Approve", f.approveN)
+	}
+
+	// An interactive session principal (no bearer header) reaches the service.
+	rr2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr2, httptest.NewRequest(http.MethodPost, "/v1/remediation/proposals/abc/approve", strings.NewReader(`{"note":"go"}`)))
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("session approve status=%d, want 200; body=%s", rr2.Code, rr2.Body.String())
+	}
+	if f.approveN != 1 {
+		t.Fatalf("session approve did not reach the service (approveN=%d)", f.approveN)
+	}
+
+	// Rejection is unaffected: a bearer principal may still decline.
+	rr3 := httptest.NewRecorder()
+	rej := httptest.NewRequest(http.MethodPost, "/v1/remediation/proposals/abc/reject", strings.NewReader(`{"note":"no"}`))
+	rej.Header.Set(testViaBearerHeader, "true")
+	srv.Handler().ServeHTTP(rr3, rej)
+	if rr3.Code != http.StatusOK {
+		t.Fatalf("bearer reject status=%d, want 200 (reject is not gated); body=%s", rr3.Code, rr3.Body.String())
+	}
+}
+
+// TestRemediationApproveSelfApprovalForbidden: the four-eyes domain refusal
+// (ErrSelfApproval) maps to 403 with the self_approval code.
+func TestRemediationApproveSelfApprovalForbidden(t *testing.T) {
+	f := &fakeRemed{approvals: true, approveErr: remediation.ErrSelfApproval}
+	srv := testServer(nil)
+	srv.WithRemediation(f)
+
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/v1/remediation/proposals/abc/approve", strings.NewReader(`{"note":"go"}`)))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("self-approval status=%d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+	var e struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &e)
+	if e.Error.Code != "self_approval" {
+		t.Fatalf("code=%q, want self_approval; body=%s", e.Error.Code, rr.Body.String())
+	}
+}
+
 // TestRemediationApproveBlastRadius: an over-limit proposal maps to 409 with the
 // blast_radius_exceeded code.
 func TestRemediationApproveBlastRadius(t *testing.T) {
