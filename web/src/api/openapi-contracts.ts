@@ -187,7 +187,7 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'DELETE',
-    path: '`/alerts/maintenance/${id}`',
+    path: '`/alerts/maintenance/${encodeURIComponent(id)}`',
     response: 'undefined',
     generated: 'DeleteMaintenanceWindowResponse',
   },
