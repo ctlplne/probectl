@@ -34,3 +34,35 @@ func TestIsInternalClassification(t *testing.T) {
 		}
 	}
 }
+
+// TestIsInternalIPv6Forms proves ING-33: a PUBLIC IPv6 destination is classified
+// external (so the egress detectors fire) in EVERY surface form — compressed,
+// full (no "::"), and bracketed [addr]:port — while the internal IPv6 ranges
+// stay internal. The full form regressed before: a naive cut on ":" mangled it
+// into an unparseable string that then fell through to "internal", so exfil to a
+// full-form public IPv6 was never flagged.
+func TestIsInternalIPv6Forms(t *testing.T) {
+	external := []string{
+		"2606:4700::1111",                         // compressed public
+		"2606:4700:0000:0000:0000:0000:0000:1111", // FULL FORM public (the ING-33 bug)
+		"[2606:4700::1111]:443",                   // bracketed public + port
+		"[2606:4700:0:0:0:0:0:1111]:8443",         // bracketed full-form + port
+	}
+	for _, a := range external {
+		if isInternal(a) {
+			t.Errorf("public IPv6 %q must be external so egress detectors fire", a)
+		}
+	}
+	internal := []string{
+		"::1",                            // loopback
+		"fe80::1",                        // link-local
+		"fc00::1", "fd12:3456:789a:1::1", // ULA
+		"fc00:0000:0000:0000:0000:0000:0000:0001", // ULA full form
+		"[fc00::1]:443", // bracketed ULA + port
+	}
+	for _, a := range internal {
+		if !isInternal(a) {
+			t.Errorf("internal IPv6 %q must be internal", a)
+		}
+	}
+}

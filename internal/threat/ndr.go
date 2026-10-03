@@ -830,20 +830,31 @@ var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
 // Non-IP entities (hostnames from eBPF edges) are treated as internal —
 // they are resolved service names inside the cluster.
 func isInternal(addr string) bool {
-	ip, err := netip.ParseAddr(hostOf(addr))
-	if err != nil {
+	ip, ok := parseEntityAddr(addr)
+	if !ok {
+		// A non-IP entity (e.g. a Kubernetes service name foo.svc.cluster.local)
+		// is an internal destination, not an egress target (THREAT-001) — firing
+		// the egress detectors on it would be a false positive.
 		return true
 	}
 	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || cgnatPrefix.Contains(ip.Unmap())
 }
 
-// hostOf strips a trailing ":port" from an IPv4/hostname entity (an IPv6
-// literal, which contains "::", is returned whole).
-func hostOf(addr string) string {
-	if h, _, ok := strings.Cut(addr, ":"); ok && !strings.Contains(addr, "::") {
-		return h
+// parseEntityAddr parses a flow entity that may be a bare IP (IPv4, or IPv6 in
+// full OR compressed form), a bracketed [IPv6]:port, or an IPv4:port. It uses
+// netip directly (ParseAddrPort, then ParseAddr) rather than cutting on ":" —
+// ING-33: a naive cut-on-":" mangled a full-form IPv6 (one with no "::") into an
+// unparseable string, so a genuine PUBLIC IPv6 destination was then classified
+// internal and silently escaped the egress detectors. Robust parsing classifies
+// it by its actual range (public IPv6 -> external -> egress fires).
+func parseEntityAddr(addr string) (netip.Addr, bool) {
+	if ap, err := netip.ParseAddrPort(addr); err == nil {
+		return ap.Addr(), true
 	}
-	return addr
+	if ip, err := netip.ParseAddr(addr); err == nil {
+		return ip, true
+	}
+	return netip.Addr{}, false
 }
 
 // selfTraffic reports a flow whose two ends are the same host, or whose
@@ -856,8 +867,8 @@ func selfTraffic(obs FlowObservation) bool {
 	if obs.Src == obs.Dst {
 		return true
 	}
-	ip, err := netip.ParseAddr(hostOf(obs.Dst))
-	return err == nil && ip.Unmap().IsLoopback()
+	ip, ok := parseEntityAddr(obs.Dst)
+	return ok && ip.Unmap().IsLoopback()
 }
 
 func firstGenerated(entries []dnsEntry) string {
