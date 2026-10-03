@@ -35,6 +35,14 @@ type CollectionOutcomeEmitter interface {
 	EmitCollectionOutcome(context.Context, CollectionOutcome) error
 }
 
+// TrapEventEmitter is an optional extension implemented by the production bus
+// emitter. It publishes one authenticated, already-deduplicated SNMP trap as a
+// tenant-scoped event so accepted traps leave the agent and become queryable
+// (RTP-10). It never carries credential material.
+type TrapEventEmitter interface {
+	EmitTrapEvent(context.Context, TrapEvent) error
+}
+
 // BusEmitter publishes DeviceMetricBatches to probectl.device.metrics,
 // tenant-keyed (pooled tenant-tagging, CONTRIBUTING.md).
 type BusEmitter struct {
@@ -128,4 +136,51 @@ func (e *BusEmitter) EmitCollectionOutcome(ctx context.Context, outcome Collecti
 		return err
 	}
 	return e.bus.Publish(ctx, topic, bus.TenantKey(e.tenant, valid.AgentID), value)
+}
+
+// EmitTrapEvent publishes one authenticated SNMP trap as a tenant-scoped event
+// on probectl.device.trap-events. The record is partitioned by the emitter's
+// enrolled tenant (never the trap payload — docs/guardrails.md G7-1); the trap
+// receiver suppresses replays before calling, so each fingerprint publishes once.
+func (e *BusEmitter) EmitTrapEvent(ctx context.Context, event TrapEvent) error {
+	if event.TenantID == "" {
+		return fmt.Errorf("device: refusing to publish trap without tenant (fail closed)")
+	}
+	batch := &devicev1.DeviceTrapEventBatch{Events: []*devicev1.DeviceTrapEvent{trapEventToProto(event)}}
+	value, err := proto.Marshal(batch)
+	if err != nil {
+		return fmt.Errorf("device: marshal trap event: %w", err)
+	}
+	topic, err := bus.TopicFor(e.namespace, bus.DeviceTrapEventsTopic)
+	if err != nil {
+		return err
+	}
+	return e.bus.Publish(ctx, topic, bus.TenantKey(e.tenant, event.AgentID), value)
+}
+
+// trapEventToProto maps the normalized trap event onto its tenant-keyed bus
+// payload. Secret material never reaches TrapEvent, so none can leak here.
+func trapEventToProto(e TrapEvent) *devicev1.DeviceTrapEvent {
+	binds := make([]*devicev1.DeviceTrapVarBind, 0, len(e.VarBinds))
+	for _, vb := range e.VarBinds {
+		binds = append(binds, &devicev1.DeviceTrapVarBind{Oid: vb.OID, Type: vb.Type, Value: vb.Value})
+	}
+	return &devicev1.DeviceTrapEvent{
+		TenantId:           e.TenantID,
+		AgentId:            e.AgentID,
+		SourceAddress:      e.SourceAddress,
+		DeviceAddress:      e.DeviceAddress,
+		Source:             e.Source,
+		AuthPrincipal:      e.AuthPrincipal,
+		Version:            e.Version,
+		Kind:               e.Kind,
+		Severity:           e.Severity,
+		TrapOid:            e.TrapOID,
+		RequestId:          int64(e.RequestID),
+		UptimeTicks:        e.UptimeTicks,
+		IfIndex:            e.IfIndex,
+		Varbinds:           binds,
+		Fingerprint:        e.Fingerprint,
+		ObservedAtUnixNano: e.ObservedAt.UnixNano(),
+	}
 }

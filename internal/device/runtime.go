@@ -210,10 +210,18 @@ func (r *Runtime) trapReceiver() (*TrapReceiver, error) {
 			Credential: cred,
 		})
 	}
+	// The production BusEmitter also implements TrapEventEmitter, so accepted
+	// traps publish to the tenant's device.trap-events lane (RTP-10). A metric-
+	// only emitter (older tests) simply leaves traps store-only.
+	var trapEmitter TrapEventEmitter
+	if e, ok := r.emit.(TrapEventEmitter); ok {
+		trapEmitter = e
+	}
 	return NewTrapReceiver(TrapReceiverConfig{
 		TenantID: r.cfg.TenantID,
 		AgentID:  r.cfg.AgentID,
 		Sources:  sources,
+		Emitter:  trapEmitter,
 		Log:      r.log,
 	}, r.traps)
 }

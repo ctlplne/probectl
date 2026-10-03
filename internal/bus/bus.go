@@ -67,6 +67,12 @@ const DeviceNeighborsTopic = "probectl.device.neighbors"
 // readiness receipts. Payload: devicev1.DeviceCollectionOutcomeBatch.
 const DeviceCollectionOutcomesTopic = "probectl.device.collection-outcomes"
 
+// DeviceTrapEventsTopic carries authenticated, normalized SNMP trap events from
+// the device collector's trap receiver (RTP-10), tenant-tagged via the message
+// key. Payload: devicev1.DeviceTrapEventBatch. The agent deduplicates replays
+// (fingerprint) before publishing, so a retransmitted trap never re-emits.
+const DeviceTrapEventsTopic = "probectl.device.trap-events"
+
 // EndpointResultsTopic carries DEM results from the endpoint agent (S37) — WiFi /
 // gateway / last-mile / session signals and the slowdown attribution — tenant-
 // tagged via the message key. Payload: resultv1.Result (the canonical canary
@@ -159,6 +165,7 @@ func TenantLaneTopics() []string {
 		NetworkResultsTopic, EndpointResultsTopic, RUMEventsTopic,
 		FlowEventsTopic, FlowIngestQualityTopic,
 		DeviceMetricsTopic, DeviceNeighborsTopic, DeviceCollectionOutcomesTopic,
+		DeviceTrapEventsTopic,
 		EBPFFlowsTopic, BGPEventsTopic,
 		OTLPMetricsTopic, OTLPTracesTopic, OTLPLogsTopic,
 	}

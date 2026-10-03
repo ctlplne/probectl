@@ -645,6 +645,286 @@ func (x *DeviceCollectionOutcomeBatch) GetOutcomes() []*DeviceCollectionOutcome 
 	return nil
 }
 
+// One normalized varbind carried by an authenticated SNMP trap. Values are the
+// device's own payload; no credential material is ever carried here.
+type DeviceTrapVarBind struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Oid           string                 `protobuf:"bytes,1,opt,name=oid,proto3" json:"oid,omitempty"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Value         string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceTrapVarBind) Reset() {
+	*x = DeviceTrapVarBind{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceTrapVarBind) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceTrapVarBind) ProtoMessage() {}
+
+func (x *DeviceTrapVarBind) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceTrapVarBind.ProtoReflect.Descriptor instead.
+func (*DeviceTrapVarBind) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DeviceTrapVarBind) GetOid() string {
+	if x != nil {
+		return x.Oid
+	}
+	return ""
+}
+
+func (x *DeviceTrapVarBind) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *DeviceTrapVarBind) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+// DeviceTrapEvent is one authenticated, normalized SNMP trap surfaced as a
+// tenant-scoped event. The tenant and agent come from the receiver's enrolled
+// identity, never the trap payload (RTP-10); auth_principal names the matched
+// configured source, not its secret community/USM material. The fingerprint is
+// the agent-side dedup key: a retransmitted trap carries the same fingerprint
+// and is suppressed before this event is ever produced.
+type DeviceTrapEvent struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TenantId           string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`                // -> "probectl.tenant.id" (outermost scope, F50)
+	AgentId            string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                   // -> "probectl.agent.id" (the listening collector)
+	SourceAddress      string                 `protobuf:"bytes,3,opt,name=source_address,json=sourceAddress,proto3" json:"source_address,omitempty"` // remote UDP source IP
+	DeviceAddress      string                 `protobuf:"bytes,4,opt,name=device_address,json=deviceAddress,proto3" json:"device_address,omitempty"` // -> "probectl.device.address"
+	Source             string                 `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`                                    // always "snmp_trap"
+	AuthPrincipal      string                 `protobuf:"bytes,6,opt,name=auth_principal,json=authPrincipal,proto3" json:"auth_principal,omitempty"` // matched source name / USM user (never a secret)
+	Version            string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`                                  // snmpv2c | snmpv3
+	Kind               string                 `protobuf:"bytes,8,opt,name=kind,proto3" json:"kind,omitempty"`                                        // snmp.trap.link_down | ... | snmp.trap
+	Severity           string                 `protobuf:"bytes,9,opt,name=severity,proto3" json:"severity,omitempty"`                                // info | warning
+	TrapOid            string                 `protobuf:"bytes,10,opt,name=trap_oid,json=trapOid,proto3" json:"trap_oid,omitempty"`
+	RequestId          int64                  `protobuf:"varint,11,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UptimeTicks        uint32                 `protobuf:"varint,12,opt,name=uptime_ticks,json=uptimeTicks,proto3" json:"uptime_ticks,omitempty"`
+	IfIndex            uint32                 `protobuf:"varint,13,opt,name=if_index,json=ifIndex,proto3" json:"if_index,omitempty"`
+	Varbinds           []*DeviceTrapVarBind   `protobuf:"bytes,14,rep,name=varbinds,proto3" json:"varbinds,omitempty"`
+	Fingerprint        string                 `protobuf:"bytes,15,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	ObservedAtUnixNano int64                  `protobuf:"varint,16,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *DeviceTrapEvent) Reset() {
+	*x = DeviceTrapEvent{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceTrapEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceTrapEvent) ProtoMessage() {}
+
+func (x *DeviceTrapEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceTrapEvent.ProtoReflect.Descriptor instead.
+func (*DeviceTrapEvent) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DeviceTrapEvent) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetSourceAddress() string {
+	if x != nil {
+		return x.SourceAddress
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetDeviceAddress() string {
+	if x != nil {
+		return x.DeviceAddress
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetAuthPrincipal() string {
+	if x != nil {
+		return x.AuthPrincipal
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetTrapOid() string {
+	if x != nil {
+		return x.TrapOid
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetRequestId() int64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *DeviceTrapEvent) GetUptimeTicks() uint32 {
+	if x != nil {
+		return x.UptimeTicks
+	}
+	return 0
+}
+
+func (x *DeviceTrapEvent) GetIfIndex() uint32 {
+	if x != nil {
+		return x.IfIndex
+	}
+	return 0
+}
+
+func (x *DeviceTrapEvent) GetVarbinds() []*DeviceTrapVarBind {
+	if x != nil {
+		return x.Varbinds
+	}
+	return nil
+}
+
+func (x *DeviceTrapEvent) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
+	}
+	return ""
+}
+
+func (x *DeviceTrapEvent) GetObservedAtUnixNano() int64 {
+	if x != nil {
+		return x.ObservedAtUnixNano
+	}
+	return 0
+}
+
+// DeviceTrapEventBatch is the tenant-keyed payload on
+// probectl.device.trap-events: one authenticated, deduplicated trap per batch
+// today; the repeated field keeps the wire contract additive if the agent later
+// coalesces.
+type DeviceTrapEventBatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*DeviceTrapEvent     `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceTrapEventBatch) Reset() {
+	*x = DeviceTrapEventBatch{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceTrapEventBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceTrapEventBatch) ProtoMessage() {}
+
+func (x *DeviceTrapEventBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceTrapEventBatch.ProtoReflect.Descriptor instead.
+func (*DeviceTrapEventBatch) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DeviceTrapEventBatch) GetEvents() []*DeviceTrapEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
 var File_probectl_device_v1_device_proto protoreflect.FileDescriptor
 
 const file_probectl_device_v1_device_proto_rawDesc = "" +
@@ -710,7 +990,32 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	" \x01(\tR\n" +
 	"nextAction\"g\n" +
 	"\x1cDeviceCollectionOutcomeBatch\x12G\n" +
-	"\boutcomes\x18\x01 \x03(\v2+.probectl.device.v1.DeviceCollectionOutcomeR\boutcomesBFZDgithub.com/ctlplne/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
+	"\boutcomes\x18\x01 \x03(\v2+.probectl.device.v1.DeviceCollectionOutcomeR\boutcomes\"O\n" +
+	"\x11DeviceTrapVarBind\x12\x10\n" +
+	"\x03oid\x18\x01 \x01(\tR\x03oid\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\tR\x05value\"\xb0\x04\n" +
+	"\x0fDeviceTrapEvent\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12%\n" +
+	"\x0esource_address\x18\x03 \x01(\tR\rsourceAddress\x12%\n" +
+	"\x0edevice_address\x18\x04 \x01(\tR\rdeviceAddress\x12\x16\n" +
+	"\x06source\x18\x05 \x01(\tR\x06source\x12%\n" +
+	"\x0eauth_principal\x18\x06 \x01(\tR\rauthPrincipal\x12\x18\n" +
+	"\aversion\x18\a \x01(\tR\aversion\x12\x12\n" +
+	"\x04kind\x18\b \x01(\tR\x04kind\x12\x1a\n" +
+	"\bseverity\x18\t \x01(\tR\bseverity\x12\x19\n" +
+	"\btrap_oid\x18\n" +
+	" \x01(\tR\atrapOid\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\v \x01(\x03R\trequestId\x12!\n" +
+	"\fuptime_ticks\x18\f \x01(\rR\vuptimeTicks\x12\x19\n" +
+	"\bif_index\x18\r \x01(\rR\aifIndex\x12A\n" +
+	"\bvarbinds\x18\x0e \x03(\v2%.probectl.device.v1.DeviceTrapVarBindR\bvarbinds\x12 \n" +
+	"\vfingerprint\x18\x0f \x01(\tR\vfingerprint\x121\n" +
+	"\x15observed_at_unix_nano\x18\x10 \x01(\x03R\x12observedAtUnixNano\"S\n" +
+	"\x14DeviceTrapEventBatch\x12;\n" +
+	"\x06events\x18\x01 \x03(\v2#.probectl.device.v1.DeviceTrapEventR\x06eventsBFZDgithub.com/ctlplne/probectl/internal/gen/probectl/device/v1;devicev1b\x06proto3"
 
 var (
 	file_probectl_device_v1_device_proto_rawDescOnce sync.Once
@@ -724,7 +1029,7 @@ func file_probectl_device_v1_device_proto_rawDescGZIP() []byte {
 	return file_probectl_device_v1_device_proto_rawDescData
 }
 
-var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_probectl_device_v1_device_proto_goTypes = []any{
 	(*DeviceMetric)(nil),                 // 0: probectl.device.v1.DeviceMetric
 	(*DeviceMetricBatch)(nil),            // 1: probectl.device.v1.DeviceMetricBatch
@@ -732,16 +1037,21 @@ var file_probectl_device_v1_device_proto_goTypes = []any{
 	(*DeviceNeighborSnapshot)(nil),       // 3: probectl.device.v1.DeviceNeighborSnapshot
 	(*DeviceCollectionOutcome)(nil),      // 4: probectl.device.v1.DeviceCollectionOutcome
 	(*DeviceCollectionOutcomeBatch)(nil), // 5: probectl.device.v1.DeviceCollectionOutcomeBatch
+	(*DeviceTrapVarBind)(nil),            // 6: probectl.device.v1.DeviceTrapVarBind
+	(*DeviceTrapEvent)(nil),              // 7: probectl.device.v1.DeviceTrapEvent
+	(*DeviceTrapEventBatch)(nil),         // 8: probectl.device.v1.DeviceTrapEventBatch
 }
 var file_probectl_device_v1_device_proto_depIdxs = []int32{
 	0, // 0: probectl.device.v1.DeviceMetricBatch.metrics:type_name -> probectl.device.v1.DeviceMetric
 	2, // 1: probectl.device.v1.DeviceNeighborSnapshot.neighbors:type_name -> probectl.device.v1.DeviceNeighborEvidence
 	4, // 2: probectl.device.v1.DeviceCollectionOutcomeBatch.outcomes:type_name -> probectl.device.v1.DeviceCollectionOutcome
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	6, // 3: probectl.device.v1.DeviceTrapEvent.varbinds:type_name -> probectl.device.v1.DeviceTrapVarBind
+	7, // 4: probectl.device.v1.DeviceTrapEventBatch.events:type_name -> probectl.device.v1.DeviceTrapEvent
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_probectl_device_v1_device_proto_init() }
@@ -755,7 +1065,7 @@ func file_probectl_device_v1_device_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_device_v1_device_proto_rawDesc), len(file_probectl_device_v1_device_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

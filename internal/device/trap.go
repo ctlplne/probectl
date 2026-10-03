@@ -58,8 +58,12 @@ type TrapReceiverConfig struct {
 	TenantID string
 	AgentID  string
 	Sources  []TrapSource
-	Now      func() time.Time
-	Log      *slog.Logger
+	// Emitter publishes each newly accepted (non-duplicate) trap as a
+	// tenant-scoped bus event (RTP-10). When nil the receiver only records to
+	// the store (older callers / tests); production wires the bus emitter.
+	Emitter TrapEventEmitter
+	Now     func() time.Time
+	Log     *slog.Logger
 }
 
 // TrapVarBind is one normalized SNMP varbind.
@@ -113,6 +117,7 @@ type TrapStore interface {
 type TrapReceiver struct {
 	cfg     TrapReceiverConfig
 	store   TrapStore
+	emitter TrapEventEmitter
 	sources []TrapSource
 	params  *gosnmp.GoSNMP
 	health  *ingesthealth.Monitor
@@ -138,7 +143,7 @@ func NewTrapReceiver(cfg TrapReceiverConfig, store TrapStore) (*TrapReceiver, er
 	if err != nil {
 		return nil, err
 	}
-	return &TrapReceiver{cfg: cfg, store: store, sources: sources, params: params, health: health}, nil
+	return &TrapReceiver{cfg: cfg, store: store, emitter: cfg.Emitter, sources: sources, params: params, health: health}, nil
 }
 
 // Listen runs a gosnmp-backed UDP trap listener until ctx is canceled.
@@ -203,6 +208,16 @@ func (r *TrapReceiver) RecordPacket(ctx context.Context, pkt *gosnmp.SnmpPacket,
 	storedEvent, storedAlert, inserted, err := r.store.RecordTrap(ctx, event, alert)
 	if err != nil {
 		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("%w: %w", ErrTrapPersistence, err)
+	}
+	if inserted && r.emitter != nil {
+		// RTP-10: an accepted trap must leave the agent as a tenant-scoped event,
+		// not die in the in-process store. Publish only on insert — the store's
+		// fingerprint dedup already suppressed replays, so a retransmitted trap
+		// is never re-published. A publish failure is surfaced (fail loud) so the
+		// listener's health counts it rather than silently dropping the signal.
+		if perr := r.emitter.EmitTrapEvent(ctx, storedEvent); perr != nil {
+			return storedEvent, storedAlert, inserted, fmt.Errorf("%w: publish: %w", ErrTrapPersistence, perr)
+		}
 	}
 	return storedEvent, storedAlert, inserted, nil
 }

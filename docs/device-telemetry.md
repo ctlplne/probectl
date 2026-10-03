@@ -31,8 +31,12 @@ operator-owned paths:
   they change, over a gRPC channel.
 - **SNMP traps** — the agent *listens* for device-pushed events such as link
   up/down and cold start. Traps are off by default and accepted only from
-  configured sources with a matching v2c community or authenticated v3 USM user;
-  accepted traps become tenant-scoped event and alert rows.
+  configured sources with a matching v2c community or authenticated v3 USM user.
+  Each accepted trap is normalized into a tenant-scoped event + alert row,
+  deduplicated by fingerprint against retransmits, and published to the bus on
+  `probectl.device.trap-events` (tenant-keyed) so it leaves the agent and is
+  ingested like every other device signal. The tenant comes from the agent's
+  enrolled identity, never the trap payload.
 - **Syslog and config archive** — authenticated control-plane APIs let an
   operator or owned collector submit device syslog lines and versioned network
   configs. Rows are tenant-bound at write/read time; configs are redacted before
@@ -54,7 +58,8 @@ flowchart LR
   D -- "gNMI Subscribe (stream, TLS)" --> A
   A -- "probectl.device.metrics (DeviceMetricBatch, tenant-keyed)" --> B[(bus)]
   A -- "probectl.device.neighbors (bounded LLDP/CDP snapshot)" --> B
-  A -- "SNMP trap events + alerts (tenant-scoped)" --> E[(trap store)]
+  A -- "probectl.device.trap-events (DeviceTrapEventBatch, tenant-keyed; deduped)" --> B
+  A -- "accepted traps recorded + fingerprint-deduped" --> E[(agent trap store)]
   A -- "syslog + config snapshots (tenant-scoped)" --> O[(device ops store)]
   B --> P[control plane DeviceConsumer]
   P --> T[(TSDB: probectl_device_* series)]

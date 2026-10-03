@@ -104,3 +104,44 @@ message DeviceCollectionOutcome {
 message DeviceCollectionOutcomeBatch {
   repeated DeviceCollectionOutcome outcomes = 1;
 }
+
+// One normalized varbind carried by an authenticated SNMP trap. Values are the
+// device's own payload; no credential material is ever carried here.
+message DeviceTrapVarBind {
+  string oid = 1;
+  string type = 2;
+  string value = 3;
+}
+
+// DeviceTrapEvent is one authenticated, normalized SNMP trap surfaced as a
+// tenant-scoped event. The tenant and agent come from the receiver's enrolled
+// identity, never the trap payload (RTP-10); auth_principal names the matched
+// configured source, not its secret community/USM material. The fingerprint is
+// the agent-side dedup key: a retransmitted trap carries the same fingerprint
+// and is suppressed before this event is ever produced.
+message DeviceTrapEvent {
+  string tenant_id = 1;      // -> "probectl.tenant.id" (outermost scope, F50)
+  string agent_id = 2;       // -> "probectl.agent.id" (the listening collector)
+  string source_address = 3; // remote UDP source IP
+  string device_address = 4; // -> "probectl.device.address"
+  string source = 5;         // always "snmp_trap"
+  string auth_principal = 6; // matched source name / USM user (never a secret)
+  string version = 7;        // snmpv2c | snmpv3
+  string kind = 8;           // snmp.trap.link_down | ... | snmp.trap
+  string severity = 9;       // info | warning
+  string trap_oid = 10;
+  int64 request_id = 11;
+  uint32 uptime_ticks = 12;
+  uint32 if_index = 13;
+  repeated DeviceTrapVarBind varbinds = 14;
+  string fingerprint = 15;
+  int64 observed_at_unix_nano = 16;
+}
+
+// DeviceTrapEventBatch is the tenant-keyed payload on
+// probectl.device.trap-events: one authenticated, deduplicated trap per batch
+// today; the repeated field keeps the wire contract additive if the agent later
+// coalesces.
+message DeviceTrapEventBatch {
+  repeated DeviceTrapEvent events = 1;
+}
