@@ -94,8 +94,8 @@ func TestTenantLifecycleFailsClosedOnStatusError(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status-source failure must fail closed with 503, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if !contains(rec.Body.String(), "tenant_status_unavailable") {
-		t.Fatalf("missing tenant_status_unavailable code: %s", rec.Body.String())
+	if !contains(rec.Body.String(), `"code":"unavailable"`) {
+		t.Fatalf("expected the registered unavailable code: %s", rec.Body.String())
 	}
 }
 

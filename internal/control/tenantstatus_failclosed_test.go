@@ -42,8 +42,8 @@ func TestCheckTenantLifecycleFailsClosedOnStatusError(t *testing.T) {
 	if !errors.As(err, &ae) || ae.Kind != apierror.KindUnavailable {
 		t.Fatalf("an unreadable tenant status must fail closed with 503 Unavailable, got %v", err)
 	}
-	if ae.Code != "tenant_status_unavailable" {
-		t.Fatalf("code=%q, want tenant_status_unavailable", ae.Code)
+	if ae.Code != string(apierror.CodeUnavailable) {
+		t.Fatalf("code=%q, want %q (registered)", ae.Code, apierror.CodeUnavailable)
 	}
 
 	// Non-vacuity: a readable "active" status is allowed through.

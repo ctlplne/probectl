@@ -127,10 +127,10 @@ func (s *Server) checkTenantLifecycle(r *http.Request, tenantID string) error {
 	status, err := s.tenantStatus.TenantStatus(r.Context(), tenantID)
 	if err != nil {
 		// AUTHZ-22: the lifecycle state is unknown (no cached value, lookup
-		// failed). Fail closed with a retryable 503 rather than assume active —
-		// a suspended tenant must not be served just because its status read
-		// failed on a fresh replica.
-		return apierror.Unavailable("tenant lifecycle state is temporarily unavailable").WithCode("tenant_status_unavailable")
+		// failed). Fail closed with a retryable 503 (the registered "unavailable"
+		// code) rather than assume active — a suspended tenant must not be served
+		// just because its status read failed on a fresh replica.
+		return apierror.Unavailable("tenant lifecycle state is temporarily unavailable")
 	}
 	switch status {
 	case "suspended":
