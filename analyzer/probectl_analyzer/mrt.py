@@ -50,6 +50,10 @@ AFI_IPV6 = 2
 
 BGP_UPDATE = 2
 
+# RFC 4271 BGP message header: 16-byte marker + 2-byte length + 1-byte type. The
+# Length field counts this header, so the message body is (length - 19) bytes.
+BGP_MESSAGE_HEADER_LENGTH = 19
+
 # Public MRT dumps are untrusted external input. A single legitimate MRT record
 # is nowhere near multi-gigabyte scale; this cap rejects pathological record
 # headers before the parser asks the stream for attacker-sized memory.
@@ -257,10 +261,21 @@ class MRTReader:
         )
         r.read(addr_len)  # local ip
         r.read(16)  # BGP marker
-        r.u16()  # message length
+        msg_len = r.u16()  # BGP message length (RFC 4271) — bounds the message body
         if r.u8() != BGP_UPDATE:
             return
-        yield from self._parse_update(r, peer_as, peer_ip, four_byte, event_time_unix_nano)
+        # G7-10: bound the UPDATE parse by the *declared* BGP message length, not
+        # the MRT record length. An MRT record may frame up to
+        # MAX_MRT_RECORD_LENGTH (16 MiB), so without this the trailing-NLRI scan
+        # in _parse_update runs to the end of the record and materializes a prefix
+        # list sized to the record — one crafted record then allocates >1 GiB. The
+        # 19-byte header (marker + length + type) is already consumed; a message
+        # that under-claims it, or over-claims past the bytes actually present,
+        # is malformed and fails closed (_Reader.read raises MRTError).
+        if msg_len < BGP_MESSAGE_HEADER_LENGTH:
+            raise MRTError(f"BGP message length {msg_len} below header minimum")
+        message = _Reader(r.read(msg_len - BGP_MESSAGE_HEADER_LENGTH))
+        yield from self._parse_update(message, peer_as, peer_ip, four_byte, event_time_unix_nano)
 
     def _parse_update(
         self, r: _Reader, peer_as: int, peer_ip: str, four_byte: bool, event_time_unix_nano: int
