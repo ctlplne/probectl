@@ -359,14 +359,25 @@ func TestTenantAuditRetentionEffectivePrunePooledIsolationPG(t *testing.T) {
 	})
 
 	now := time.Now().UTC()
+	// AUD-02: created_at is hash-covered, so each tenant's fixture is stamped at
+	// its target age at append time rather than backdated with a raw UPDATE
+	// afterward (which the prune-time TenantVerify now correctly rejects as
+	// tampering). tenantA/tenantB age 40 days (inside the 365-day deployment
+	// window but past their 30-day policy); tenantStale ages 400 days.
+	agedAt := map[string]time.Time{
+		tenantA:     now.Add(-40 * 24 * time.Hour),
+		tenantB:     now.Add(-40 * 24 * time.Hour),
+		tenantStale: now.Add(-400 * 24 * time.Hour),
+	}
 	for _, tenantID := range []string{tenantA, tenantB, tenantStale} {
 		err := tenancy.InTenant(
 			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 			pool,
 			func(ctx context.Context, sc tenancy.Scope) error {
-				if _, err := audit.TenantAppend(
+				if _, err := audit.AppendAtForTest(
 					ctx,
 					sc,
+					agedAt[tenantID],
 					"retention-fixture",
 					"retention.old.exported",
 					tenantID,
@@ -380,27 +391,6 @@ func TestTenantAuditRetentionEffectivePrunePooledIsolationPG(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed tenant %s audit stream: %v", tenantID, err)
 		}
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2 OR tenant_id = $3`,
-		now.Add(-40*24*time.Hour),
-		tenantA,
-		tenantB,
-	); err != nil {
-		t.Fatalf("backdate tenant audit fixtures: %v", err)
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2`,
-		now.Add(-400*24*time.Hour),
-		tenantStale,
-	); err != nil {
-		t.Fatalf("backdate stale-policy audit fixture: %v", err)
 	}
 
 	const deploymentWindow = 365 * 24 * time.Hour
@@ -579,13 +569,17 @@ func TestTenantAuditRetentionEffectivePruneWithGlobalKeepForeverPG(t *testing.T)
 		}
 	})
 
+	now := time.Now().UTC()
+	// AUD-02: stamp the fixture 40 days old at append time instead of backdating
+	// a hash-covered created_at (which the prune-time TenantVerify rejects).
 	err := tenancy.InTenant(
 		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 		pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
-			if _, err := audit.TenantAppend(
+			if _, err := audit.AppendAtForTest(
 				ctx,
 				sc,
+				now.Add(-40*24*time.Hour),
 				"retention-fixture",
 				"retention.old.exported",
 				tenantID,
@@ -598,15 +592,6 @@ func TestTenantAuditRetentionEffectivePruneWithGlobalKeepForeverPG(t *testing.T)
 	)
 	if err != nil {
 		t.Fatalf("seed keep-forever tenant audit: %v", err)
-	}
-	now := time.Now().UTC()
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE audit_events SET created_at = $1 WHERE tenant_id = $2`,
-		now.Add(-40*24*time.Hour),
-		tenantID,
-	); err != nil {
-		t.Fatalf("backdate keep-forever tenant audit: %v", err)
 	}
 
 	engine := New(pool, nil, nil, nil, nil, "", testLog()).

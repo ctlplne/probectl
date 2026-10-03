@@ -93,6 +93,7 @@ symbol github.com/ctlplne/probectl/internal/pipeline.LaneFanout — bus-lane fan
 # ---- test-clock / injection options on production types ---------------------
 symbol github.com/ctlplne/probectl/internal/audit.RetentionRunner.WithNowForTest — clock injection consumed by dependent packages' retention tests (name declares intent)
 symbol github.com/ctlplne/probectl/internal/audit.RetentionRunner.WithTenantIDsForTest — tenant-set injection consumed by dependent packages' retention tests
+symbol github.com/ctlplne/probectl/internal/audit.AppendAtForTest — cross-package append-at-a-chosen-time seam (AUD-02 follow-up): ee/silo retention integration tests seed genuinely-aged, hash-consistent chains through it because created_at is now hash-covered and a post-hoc UPDATE reads as tampering; must be exported from a production file since _test.go helpers are not importable across packages (name declares intent)
 symbol github.com/ctlplne/probectl/internal/slo.Engine.WithClock — clock injection consumed by control-plane SLO API tests
 symbol github.com/ctlplne/probectl/internal/tenantlife.Engine.WithClock — clock injection consumed by lifecycle integration suites
 symbol github.com/ctlplne/probectl/internal/fairness.Gate.WithPolicyTTL — TTL injection consumed by cmd fairness integration tests
