@@ -514,6 +514,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		irRevealLimiter: newKeyLimiter(3)}
 	s.registerAuditRetentionMetrics()
 	s.registerEnrollmentFailureMetrics()
+	s.registerSelfObservabilityMetrics()
 	s.enrollmentFailureAudit = s.persistEnrollmentFailure
 	s.identityAudit = s.persistIdentityAudit
 

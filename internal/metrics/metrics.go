@@ -28,13 +28,14 @@ import (
 
 // Registry holds the process's metrics. The zero value is unusable; call New.
 type Registry struct {
-	mu        sync.RWMutex
-	counters  map[string]*Counter
-	gauges    map[string]*gaugeFunc
-	help      map[string]string
-	startTime time.Time
-	version   string
-	commit    string
+	mu         sync.RWMutex
+	counters   map[string]*Counter
+	counterFns map[string]*gaugeFunc
+	gauges     map[string]*gaugeFunc
+	help       map[string]string
+	startTime  time.Time
+	version    string
+	commit     string
 }
 
 // Counter is a monotonically increasing value, safe for concurrent use.
@@ -58,12 +59,13 @@ type gaugeFunc struct {
 // probectl_build_info).
 func New(version, commit string) *Registry {
 	return &Registry{
-		counters:  map[string]*Counter{},
-		gauges:    map[string]*gaugeFunc{},
-		help:      map[string]string{},
-		startTime: time.Now(),
-		version:   version,
-		commit:    commit,
+		counters:   map[string]*Counter{},
+		counterFns: map[string]*gaugeFunc{},
+		gauges:     map[string]*gaugeFunc{},
+		help:       map[string]string{},
+		startTime:  time.Now(),
+		version:    version,
+		commit:     commit,
 	}
 }
 
@@ -88,6 +90,18 @@ func (r *Registry) Gauge(name, help string, fn func() float64) {
 	r.gauges[name] = &gaugeFunc{help: help, fn: fn}
 }
 
+// CounterFunc registers a sampled counter backed by fn (evaluated at scrape
+// time) and emitted with # TYPE counter. Use it for a cumulative _total whose
+// authoritative running value lives in another subsystem (e.g. the fairness
+// gate's per-tenant accounting aggregated process-wide) rather than in a
+// registry-owned Counter. fn must return a monotonically non-decreasing value
+// across the process lifetime so increase()/rate() stay meaningful.
+func (r *Registry) CounterFunc(name, help string, fn func() float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.counterFns[name] = &gaugeFunc{help: help, fn: fn}
+}
+
 // Handler serves the Prometheus text exposition at /metrics. It exposes the
 // registered counters/gauges plus Go runtime + process stats. No tenant data
 // ever appears here (OPS-005 — self-metrics only).
@@ -106,10 +120,19 @@ func (r *Registry) Handler() http.Handler {
 		// Go runtime stats (the standard go_* names operators expect).
 		var ms runtime.MemStats
 		runtime.ReadMemStats(&ms)
-		writeGauge(w, "go_goroutines", "Number of goroutines.", float64(runtime.NumGoroutine()))
+		goroutines := float64(runtime.NumGoroutine())
+		writeGauge(w, "go_goroutines", "Number of goroutines.", goroutines)
 		writeGauge(w, "go_memstats_heap_alloc_bytes", "Heap bytes allocated and in use.", float64(ms.HeapAlloc))
 		writeGauge(w, "go_memstats_sys_bytes", "Bytes obtained from the OS.", float64(ms.Sys))
 		writeGauge(w, "go_threads", "OS threads created.", float64(runtimeThreads()))
+
+		// probectl_self_* aliases (RTO-08): the shipped PrometheusRule's
+		// ProbectlHighGoroutines/ProbectlHighMemory alerts reference these names,
+		// so a ServiceMonitor scrape of /metrics must carry them, not only the
+		// go_* twins. Same process values, matching the TSDB self series emitted
+		// by internal/support (probectl observes probectl).
+		writeGauge(w, "probectl_self_goroutines", "Live goroutine count (self-observability twin of go_goroutines).", goroutines)
+		writeGauge(w, "probectl_self_mem_sys_bytes", "Bytes obtained from the OS (self-observability twin of go_memstats_sys_bytes).", float64(ms.Sys))
 
 		// Registered counters (sorted for stable output).
 		r.mu.RLock()
@@ -122,6 +145,19 @@ func (r *Registry) Handler() http.Handler {
 		for _, n := range names {
 			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n", n, r.help[n], n)
 			fmt.Fprintf(w, "%s %d\n", n, r.counters[n].Value())
+		}
+
+		// Sampled counter-funcs (sorted) — cumulative _total values owned by
+		// another subsystem and read at scrape time; emitted as counter type.
+		cfnames := make([]string, 0, len(r.counterFns))
+		for n := range r.counterFns {
+			cfnames = append(cfnames, n)
+		}
+		sort.Strings(cfnames)
+		for _, n := range cfnames {
+			cf := r.counterFns[n]
+			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n", n, cf.help, n)
+			fmt.Fprintf(w, "%s %g\n", n, cf.fn())
 		}
 
 		// Registered gauges (sorted).
