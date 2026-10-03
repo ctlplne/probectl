@@ -54,6 +54,21 @@ func ValidKind(k Kind) bool {
 	return false
 }
 
+// KindRequiresTarget reports whether a kind acts on a network element whose
+// blast radius must be simulated before approval. reroute/traffic-shift change
+// the data path, so a proposal of these kinds with no (simulatable) target has
+// an UNKNOWN blast radius and must fail closed at approval (AUD-18) — otherwise
+// omitting the target would bypass the unknown-blast-radius block. open_ticket
+// and trustctl_renewal carry no network blast radius, so a missing target is
+// benign for them.
+func KindRequiresTarget(k Kind) bool {
+	switch k {
+	case KindRerouteSuggestion, KindTrafficShiftSuggestion:
+		return true
+	}
+	return false
+}
+
 // State is a proposal's lifecycle. There is deliberately NO "executed" state —
 // probectl never executes. "applied" is an OPERATOR-recorded note that a human
 // carried the suggestion out elsewhere; it changes nothing in probectl.

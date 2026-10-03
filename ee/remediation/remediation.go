@@ -92,8 +92,19 @@ func (s *Service) Propose(ctx context.Context, tenantID, proposedBy string, in r
 	}
 	// The dry-run is a read-only topology simulation — it EXECUTES NOTHING.
 	dry := rem.DryRun{Note: "no target to simulate"}
-	if s.estimator != nil && in.Target != "" {
-		dry = s.estimator.Estimate(ctx, tenantID, in.Target)
+	switch {
+	case in.Target != "":
+		if s.estimator != nil {
+			dry = s.estimator.Estimate(ctx, tenantID, in.Target)
+		}
+	case rem.KindRequiresTarget(in.Kind):
+		// AUD-18: a network-changing kind (reroute/traffic-shift) with no target
+		// is NOT simulatable, so its blast radius is UNKNOWN — mark it so the
+		// Approve guard fails closed. Otherwise omitting the target would leave
+		// BlastRadius at the zero value and silently bypass the
+		// "unknown blast radius blocks approval" rule. Benign kinds (open_ticket,
+		// trustctl_renewal) carry no network blast radius, so no target is fine.
+		dry = rem.DryRun{BlastRadius: -1, Note: noteUnknown}
 	}
 	p := rem.Proposal{
 		TenantID:   tenantID,

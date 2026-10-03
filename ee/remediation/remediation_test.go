@@ -249,6 +249,35 @@ func TestApprove_SelfApprovalBlocked(t *testing.T) {
 	}
 }
 
+// TestApprove_TargetlessProposalBlocked proves AUD-18: a proposal with no
+// target is not simulatable, so its blast radius is UNKNOWN and approval is
+// blocked (fail closed). Omitting the target must not leave the blast radius at
+// the zero value and silently bypass the unknown-blast-radius rule.
+func TestApprove_TargetlessProposalBlocked(t *testing.T) {
+	est := &fakeEstimator{dry: rem.DryRun{BlastRadius: 5}} // never consulted: no target
+	aud := &recAudit{}
+	s := newSvc(true, 50, est, aud.fn())
+
+	p, err := s.Propose(context.Background(), testTenant, "ai:propose_remediation", rem.ProposeInput{
+		Kind: rem.KindRerouteSuggestion, Title: "no target supplied", Rationale: "incident", Target: "",
+	})
+	if err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	if p.DryRun.BlastRadius >= 0 {
+		t.Fatalf("target-less proposal blast radius = %d, want unknown (< 0)", p.DryRun.BlastRadius)
+	}
+	if _, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrUnknownBlastRadius) {
+		t.Fatalf("approve target-less proposal: err=%v, want ErrUnknownBlastRadius", err)
+	}
+	if !aud.has("remediation.approve_blocked") {
+		t.Fatalf("blocked approval not audited; actions=%v", aud.actions())
+	}
+	if got, _ := s.Get(context.Background(), testTenant, p.ID); got.State != rem.StateProposed {
+		t.Fatalf("after blocked approval, state=%q, want proposed", got.State)
+	}
+}
+
 // TestApprove_BlastRadiusOverLimit_Blocked proves an over-limit proposal cannot
 // be approved (fail closed), the attempt is audited as blocked, and the state
 // is unchanged.
