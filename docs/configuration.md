@@ -1848,7 +1848,11 @@ else: **TLS-only, token-authenticated, tenant-scoped**, on its own listeners
 separate from the `/v1` REST API. There is no anonymous-plaintext mode: setting
 a listen address without a TLS cert/key pair fails config validation. Bearer
 tokens can be DB-backed and hot-revoked through `/v1/otlp-tokens`; static
-`PROBECTL_OTLP_TOKENS` entries are legacy/bootstrap only. See [`otlp.md`](otlp.md).
+`PROBECTL_OTLP_TOKENS` entries are legacy/bootstrap only. Because those static
+tokens never expire, each one must clear a strength floor at config load —
+**at least 32 characters** of a real random secret (e.g. `openssl rand -hex 32`);
+a short or low-entropy token fails validation and the process refuses to start
+(AUTHZ-27, fail closed). See [`otlp.md`](otlp.md).
 
 | Variable                    | Default | Description                                                  |
 | --------------------------- | ------- | ------------------------------------------------------------ |
@@ -1859,7 +1863,7 @@ tokens can be DB-backed and hot-revoked through `/v1/otlp-tokens`; static
 | `PROBECTL_OTEL_RETENTION_DAYS` | `30`   | delete-TTL for stored OTLP traces+logs (0 disables) |
 | `PROBECTL_OTLP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable)                  |
 | `PROBECTL_OTLP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable)                  |
-| `PROBECTL_OTLP_TOKENS`        | (none)  | optional legacy/bootstrap bearer-token→tenant map: `token1=tenant1,token2=tenant2`; DB tokens from `/v1/otlp-tokens` can be the only token source |
+| `PROBECTL_OTLP_TOKENS`        | (none)  | optional legacy/bootstrap bearer-token→tenant map: `token1=tenant1,token2=tenant2`; DB tokens from `/v1/otlp-tokens` can be the only token source. Each static token must be ≥ 32 characters of real randomness (AUTHZ-27 strength floor); a weak token fails config validation |
 | `PROBECTL_OTLP_FRESHNESS_HMAC_KEY` | (none) | optional hex-encoded 32-byte HMAC key for first-party OTLP replay protection. When set, every OTLP/gRPC and OTLP/HTTP request must include a signed timestamp+nonce envelope |
 | `PROBECTL_OTLP_FRESHNESS_WINDOW` | `5m` | accepted clock-skew/replay window for the OTLP freshness envelope |
 

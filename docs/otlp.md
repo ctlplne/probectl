@@ -188,8 +188,15 @@ revocation is hot: no config change and no restart.
 `PROBECTL_OTLP_TOKENS=token=tenant,...` remains available for legacy/bootstrap
 deployments. Those static tokens are checked in constant time over a SHA-256
 hash and can overlap during rotation, but because they live in process config
-they are revoked by removing the entry and restarting. Prefer DB-backed tokens
-for production operations.
+they are revoked by removing the entry and restarting. Because they never
+expire, each static token must clear a strength floor at config load — at least
+32 characters of a real random secret (e.g. `openssl rand -hex 32`); a short or
+low-entropy token fails validation and the process refuses to start (AUTHZ-27,
+fail closed). The Helm chart goes further and refuses to render a secret-bearing
+`control.extraEnv` key (one whose name matches token/password/secret/key) at
+all, since `control.extraEnv` lands in a plaintext ConfigMap — inject tokens
+through `secrets.existingSecret` instead. Prefer DB-backed tokens for production
+operations.
 
 ## Exporter — outbound
 

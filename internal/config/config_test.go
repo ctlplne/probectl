@@ -1161,7 +1161,9 @@ func TestOTLPConfig(t *testing.T) {
 		"PROBECTL_OTLP_HTTP_ADDR":     ":4318",
 		"PROBECTL_OTLP_TLS_CERT_FILE": "/c.pem",
 		"PROBECTL_OTLP_TLS_KEY_FILE":  "/k.pem",
-		"PROBECTL_OTLP_TOKENS":        "tok1=tenant-a, tok2=tenant-b",
+		// AUTHZ-27: static ingest tokens must clear the strength floor
+		// (>= 32 chars of a real random secret); these are 64-char hex.
+		"PROBECTL_OTLP_TOKENS": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90=tenant-a, f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d1e0f=tenant-b",
 	}))
 	if err != nil {
 		t.Fatalf("valid OTLP config rejected: %v", err)
@@ -1169,7 +1171,9 @@ func TestOTLPConfig(t *testing.T) {
 	if !cfg.OTLPEnabled() {
 		t.Error("OTLP should be enabled when address + TLS are set")
 	}
-	if len(cfg.OTLPTokens) != 2 || cfg.OTLPTokens["tok1"] != "tenant-a" || cfg.OTLPTokens["tok2"] != "tenant-b" {
+	if len(cfg.OTLPTokens) != 2 ||
+		cfg.OTLPTokens["a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"] != "tenant-a" ||
+		cfg.OTLPTokens["f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d1e0f"] != "tenant-b" {
 		t.Errorf("OTLPTokens = %v, want 2 trimmed entries", cfg.OTLPTokens)
 	}
 
@@ -1230,6 +1234,57 @@ func TestOTLPConfig(t *testing.T) {
 		"PROBECTL_OTLP_FRESHNESS_HMAC_KEY": "abcd",
 	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_OTLP_FRESHNESS_HMAC_KEY") {
 		t.Errorf("short OTLP freshness key should fail, got %v", err)
+	}
+}
+
+// TestOTLPTokenStrengthFloor pins AUTHZ-27: static PROBECTL_OTLP_TOKENS bearer
+// tokens never expire, so config load imposes a strength floor and fails closed
+// on a weak one. Reverting validateOTLPTokenStrength makes the short-token and
+// degenerate-token cases accept, failing this test (non-vacuity).
+func TestOTLPTokenStrengthFloor(t *testing.T) {
+	base := map[string]string{
+		"PROBECTL_OTLP_GRPC_ADDR":     ":4317",
+		"PROBECTL_OTLP_TLS_CERT_FILE": "/c.pem",
+		"PROBECTL_OTLP_TLS_KEY_FILE":  "/k.pem",
+	}
+	withTokens := func(v string) map[string]string {
+		m := map[string]string{}
+		for k, val := range base {
+			m[k] = val
+		}
+		m["PROBECTL_OTLP_TOKENS"] = v
+		return m
+	}
+
+	// RED pre-fix: a short token (< 32 chars) was accepted; now rejected.
+	if _, err := Load(envFunc(withTokens("shorttok=tenant-a"))); err == nil ||
+		!strings.Contains(err.Error(), "PROBECTL_OTLP_TOKENS") ||
+		!strings.Contains(err.Error(), "AUTHZ-27") {
+		t.Errorf("a short static OTLP token must be rejected with a tokens/AUTHZ-27 error, got %v", err)
+	}
+
+	// The rejection must not echo the secret value (guardrail 7.6).
+	if _, err := Load(envFunc(withTokens("supersecretbuttooshort=tenant-a"))); err != nil &&
+		strings.Contains(err.Error(), "supersecretbuttooshort") {
+		t.Errorf("OTLP token rejection must not log the token value, got %v", err)
+	}
+
+	// A long-but-degenerate token clears the length floor but fails the
+	// entropy guard (fail closed on low-variety secrets).
+	degenerate := strings.Repeat("a", 48)
+	if _, err := Load(envFunc(withTokens(degenerate + "=tenant-a"))); err == nil ||
+		!strings.Contains(err.Error(), "PROBECTL_OTLP_TOKENS") {
+		t.Errorf("a long-but-degenerate static OTLP token must be rejected, got %v", err)
+	}
+
+	// GREEN: a strong token (64-char hex, high entropy) is accepted.
+	strong := "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+	cfg, err := Load(envFunc(withTokens(strong + "=tenant-a")))
+	if err != nil {
+		t.Fatalf("a strong static OTLP token was rejected: %v", err)
+	}
+	if cfg.OTLPTokens[strong] != "tenant-a" {
+		t.Errorf("strong OTLP token not parsed: OTLPTokens = %v", cfg.OTLPTokens)
 	}
 }
 

@@ -58,6 +58,21 @@
 {{- fail (printf "control.extraEnv.%s is reserved; configure it through the chart's typed value or Secret" $envName) -}}
 {{- end -}}
 {{- end -}}
+{{- /* AUTHZ-27: control.extraEnv renders verbatim into a plaintext ConfigMap, so
+       a secret value placed here lands unencrypted at rest. Refuse to render any
+       key whose NAME looks like a secret (token/password/secret/key, case-
+       insensitive). Operators inject secrets through secrets.existingSecret (a
+       Secret projected as env) instead. Keys that merely *reference* a mounted
+       secret by path — a *_FILE or *_DIR value, or a *_ID identifier — are not
+       the secret itself and stay allowed (guardrail 7.6, fail closed). */ -}}
+{{- range $k, $v := $extraEnv -}}
+{{- $lk := lower $k -}}
+{{- if not (or (hasSuffix "_FILE" $k) (hasSuffix "_DIR" $k) (hasSuffix "_ID" $k)) -}}
+{{- if or (contains "token" $lk) (contains "password" $lk) (contains "passwd" $lk) (contains "secret" $lk) (regexMatch "(^|_)key(_|$)" $lk) -}}
+{{- fail (printf "control.extraEnv.%s looks like a secret (its name matches token/password/secret/key): control.extraEnv is written verbatim into a plaintext ConfigMap, so the value would sit unencrypted at rest. Inject it through secrets.existingSecret (a Secret projected as env), or pass a *_FILE path to a mounted Secret, instead of control.extraEnv (AUTHZ-27, guardrail 7.6)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- if get $extraEnv "PROBECTL_AUDIT_WORM_DIR" -}}
 {{- fail "control.extraEnv.PROBECTL_AUDIT_WORM_DIR is reserved; set audit.worm.enabled=true with audit.worm.existingClaim (DPR-116) — signed audit segments have their own object-lock volume and no longer ride on the tenant artifact store" -}}
 {{- end -}}

@@ -1313,6 +1313,7 @@ func validateConfig(l *loader, cfg *Config) {
 		l.errf("PROBECTL_SINGLETON_LEASE_INTERVAL must be at least 250ms")
 	}
 	validateProviderBootstrapToken(l, cfg)
+	validateOTLPTokenStrength(l, cfg)
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
 	}
@@ -1423,6 +1424,39 @@ func validateProviderBootstrapToken(l *loader, cfg *Config) {
 	if bits := shannonEntropyBits(t); bits < providerBootstrapTokenMinEntropyBits {
 		l.errf("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN is too weak: it is %d bytes but only ~%.0f bits of entropy (a repetitive or low-variety value); use a random secret such as `openssl rand -hex 32` (AUTHZ-24, guardrail 7.12, fail closed)",
 			len(t), bits)
+	}
+}
+
+// otlpStaticTokenMinChars is the length floor on each static OTLP ingest bearer
+// token (PROBECTL_OTLP_TOKENS, AUTHZ-27). Unlike the DB-backed tokens minted at
+// /v1/otlp-tokens — which are hashed at rest and hot-revocable — these static
+// bootstrap tokens never expire, so a short one is brute-forceable against the
+// authenticated ingest surface. otlpStaticTokenMinEntropyBits is a secondary
+// guard that rejects a long-but-degenerate value (e.g. a repeated character)
+// that clears the length floor but carries almost no entropy. The floor is
+// lower than the public provider-bootstrap endpoint's because OTLP ingest is
+// TLS-only and per-request authenticated; the bar is "a real random secret".
+const (
+	otlpStaticTokenMinChars       = 32
+	otlpStaticTokenMinEntropyBits = 64
+)
+
+// validateOTLPTokenStrength refuses to start when any static OTLP ingest token
+// is set but too weak (AUTHZ-27, guardrails 7.6/7.12, fail closed). An empty
+// map means no static tokens are configured (DB-backed tokens may be the only
+// source) and is left alone. The error names the length/entropy only — never
+// the token value — so no secret is logged.
+func validateOTLPTokenStrength(l *loader, cfg *Config) {
+	for tok := range cfg.OTLPTokens {
+		if n := len(tok); n < otlpStaticTokenMinChars {
+			l.errf("PROBECTL_OTLP_TOKENS contains a token that is too weak: each static OTLP ingest token must be at least %d characters (a random secret, e.g. `openssl rand -hex 32`); got one of %d characters — static ingest tokens never expire, so a short one is brute-forceable (AUTHZ-27, guardrail 7.12, fail closed); prefer DB-backed tokens from /v1/otlp-tokens",
+				otlpStaticTokenMinChars, n)
+			continue
+		}
+		if bits := shannonEntropyBits(tok); bits < otlpStaticTokenMinEntropyBits {
+			l.errf("PROBECTL_OTLP_TOKENS contains a token that is too weak: one token is %d characters but only ~%.0f bits of entropy (a repetitive or low-variety value); use a random secret such as `openssl rand -hex 32` (AUTHZ-27, guardrail 7.12, fail closed)",
+				len(tok), bits)
+		}
 	}
 }
 

@@ -522,6 +522,30 @@ duplicate_env="$(
   || fail "ConfigMap rendered duplicate environment keys: $duplicate_env (CONFIG-11b3ac1d)"
 need_fixed 'PROBECTL_BUS_MODE: "memory"' "$ordinary_cm" "ordinary control.extraEnv key was not preserved (CONFIG-11b3ac1d)"
 need_fixed 'PROBECTL_REGION: "local"' "$ordinary_cm" "second ordinary control.extraEnv key was not preserved (CONFIG-11b3ac1d)"
+# AUTHZ-27: control.extraEnv renders verbatim into a plaintext ConfigMap, so a
+# key whose NAME looks like a secret (token/password/secret/key) must be refused
+# at render time — a short-lived typed value or a Secret is the only safe home.
+# PROBECTL_OTLP_TOKENS is the motivating case: it is NOT in the reserved list,
+# so before this guard it rendered a never-expiring bearer token in cleartext.
+for secret_env in \
+  PROBECTL_OTLP_TOKENS PROBECTL_BUS_SASL_PASSWORD PROBECTL_AI_MODEL_TOKEN \
+  PROBECTL_OUTAGE_RADAR_TOKEN FOO_API_KEY SOME_SECRET DB_PASSWORD; do
+  if render --show-only templates/configmap.yaml \
+    --set-string "control.extraEnv.${secret_env}=plaintext-secret-value" >/dev/null 2>&1; then
+    fail "chart rendered a secret-bearing control.extraEnv.${secret_env} into a plaintext ConfigMap (AUTHZ-27)"
+  fi
+done
+# The guard keys on the NAME, not the value, and must not break legitimate
+# non-secret keys — including the *_FILE / *_DIR path references that POINT at a
+# mounted Secret (the secure pattern the guard steers operators toward). The
+# multi-tenant reference profile sets control.extraEnv.PROBECTL_IR_PUBLIC_KEY_DIR.
+ref_cm="$(render --show-only templates/configmap.yaml \
+  --set-string control.extraEnv.PROBECTL_IR_PUBLIC_KEY_DIR=/var/lib/probectl/ir-keys \
+  --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE=/etc/probectl/worm/signing.key)"
+need_fixed 'PROBECTL_IR_PUBLIC_KEY_DIR: "/var/lib/probectl/ir-keys"' "$ref_cm" \
+  "a *_DIR path-reference control.extraEnv key (name contains 'key') must still render (AUTHZ-27 must not over-match)"
+need_fixed 'PROBECTL_WORM_SIGNING_KEY_FILE: "/etc/probectl/worm/signing.key"' "$ref_cm" \
+  "a *_FILE secret-reference control.extraEnv key (name contains 'key') must still render (AUTHZ-27 must not over-match)"
 # BL-026: durable S3/MinIO mode renders only non-secret coordinates into the
 # ConfigMap, assumes signing material comes from the runtime Secret, and does
 # not mount the filesystem fallback volume.
