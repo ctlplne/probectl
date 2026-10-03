@@ -25,6 +25,47 @@
       "standing": true,
       "expires_at": "2027-09-30",
       "reason": "Accepted documented risk for SUPPLY-f205d4eb if the exact historical transitive node reappears: brace-expansion 1.1.16 was reachable only through local dev/build glob tooling, never shipped in the browser runtime, and received no untrusted product input; no patched 1.x exists. The current lock uses patched 5.0.12 (overrides pin), so this standing exception is dormant and accepts nothing today. A new advisory, advisory-range drift, any installed-version change, production reachability, or expiry fails closed."
+    },
+    {
+      "id": "SUPPLY-vfj7-braces-stackexhaustion-build-only",
+      "workspace": "web",
+      "packages": [
+        "braces",
+        "chokidar",
+        "fast-glob",
+        "micromatch",
+        "tailwindcss"
+      ],
+      "advisories": [
+        "GHSA-vfj7-8cjw-p6xm"
+      ],
+      "advisory_ranges": {
+        "GHSA-vfj7-8cjw-p6xm": [
+          "<=3.0.3"
+        ]
+      },
+      "versions": {
+        "braces": [
+          "3.0.3"
+        ],
+        "chokidar": [
+          "3.6.0"
+        ],
+        "fast-glob": [
+          "3.3.3"
+        ],
+        "micromatch": [
+          "4.0.8"
+        ],
+        "tailwindcss": [
+          "3.4.19"
+        ]
+      },
+      "max_severity": "high",
+      "dev_only": true,
+      "standing": false,
+      "expires_at": "2027-04-03",
+      "reason": "Accepted, expiring, dev-only risk for GHSA-vfj7-8cjw-p6xm (braces stack-exhaustion DoS through deeply nested patterns, CWE-674). The advisory range is <=3.0.3 and 3.0.3 is the latest published braces, so NO patched version exists; braces is reachable only transitively through tailwindcss 3.4.19's build-time content globbing/file watching (chokidar, fast-glob, micromatch), never shipped in the browser runtime and never fed untrusted input \u2014 the only glob patterns are the project's own tailwind content globs, authored by developers. npm's only fix is tailwindcss 4.3.3 (isSemVerMajor: a config-model rewrite that would risk the just-completed design port and the WCAG gate), so it is deferred to Shankar as a stack decision (design-partner-readiness/decisions-needed.md D-30). Expires 2027-04-03 to force that revisit. A new advisory, advisory-range drift, any installed-version change, production reachability, or expiry fails closed."
     }
   ]
 }
