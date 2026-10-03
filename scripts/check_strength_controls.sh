@@ -261,7 +261,7 @@ need_pattern RESIL-S03 docs/chaos.md 'TestChaosRunDetectedBySLO|TestChaosLatency
 need_pattern RESIL-S03 deploy/helm/probectl/values-multitenant.yaml 'replicaCount: 3|minAvailable: 2'
 need_pattern RESIL-S03 internal/control/clusterapi.go 'Retry-After|writer_unavailable'
 need_pattern RESIL-S03 internal/control/cluster_test.go 'TestWriteFenceDuringFailover|Retry-After|writer_unavailable'
-need_pattern RESIL-S03 cmd/probectl-control/ha_reference_coherence_test.go 'TestMediumReferenceShipsCoherentTopology|replicaCount: 3|PodDisruptionBudget'
+need_pattern RESIL-S03 cmd/probectl-control/ha_reference_coherence_test.go 'TestMediumHAReferenceRequiresDurableBackends|replicaCount|podDisruptionBudget'
 need_pattern SCALE-006 internal/pipeline/cardinality.go 'DefaultMaxSeriesPerAgent|DefaultMaxSeriesPerTenant|TenantActiveSeries|TenantDropped'
 need_pattern SCALE-006 internal/pipeline/cardinality_test.go 'TestCardinalityStatsExposeTenantActiveSeries|tenant.*unaffected|TenantDropped'
 need_pattern SCALE-006 internal/pipeline/otlp_fairness_test.go 'OTLPCardinalityCapAndFairness|fairness gate shed nothing'
