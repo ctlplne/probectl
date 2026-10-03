@@ -15,6 +15,8 @@ package cli
 // does NOT establish as prominently as what it does.
 
 import (
+	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -26,11 +28,22 @@ import (
 const maxAuditorBundleBytes = 64 << 20 // a bundle is JSON; 64 MiB is generous
 
 func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-		fmt.Fprintln(stderr, "usage: probectl verify-bundle <probectl-auditor-bundle.json>")
+	fs := flag.NewFlagSet("verify-bundle", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	// AI-05: VerifyAuditorBundle proves the bundle is internally consistent with
+	// the key EMBEDDED in it — a bundle re-signed with an attacker's own key
+	// passes. The signer is only authenticated when the operator pins, out of
+	// band, the fingerprint of the key they actually sign with. docs/guardrails.md G7-7.
+	expected := fs.String("expected-fingerprint", "", "pinned signer fingerprint published by the operator out of band (sha256:...)")
+	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	f, err := os.Open(args[0])
+	rest := fs.Args()
+	if len(rest) != 1 || strings.TrimSpace(rest[0]) == "" {
+		fmt.Fprintln(stderr, "usage: probectl verify-bundle [--expected-fingerprint sha256:...] <probectl-auditor-bundle.json>")
+		return 2
+	}
+	f, err := os.Open(rest[0])
 	if err != nil {
 		fmt.Fprintf(stderr, "verify-bundle: %v\n", err)
 		return 1
@@ -52,10 +65,38 @@ func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "verify-bundle: NOT VERIFIED: %v\n", err)
 		return 1
 	}
-	if cfg.JSON {
-		return printJSON(stdout, m)
+	// VerifyAuditorBundle already proved the bundle parses; re-read the signer
+	// fingerprint so it can be pinned and shown.
+	var pkg compliance.AuditorPackage
+	_ = json.Unmarshal(raw, &pkg)
+	signer := pkg.Signing.Fingerprint
+	authenticated := false
+	if *expected != "" {
+		if !strings.EqualFold(strings.TrimSpace(*expected), strings.TrimSpace(signer)) {
+			fmt.Fprintf(stderr, "verify-bundle: NOT VERIFIED: signer fingerprint %s does not match expected %s\n", signer, *expected)
+			return 1
+		}
+		authenticated = true
 	}
-	fmt.Fprintf(stdout, "VERIFIED  %s\n", m.Contract)
+	if cfg.JSON {
+		code := 0
+		if !authenticated {
+			code = 3
+		}
+		_ = printJSON(stdout, map[string]any{
+			"authenticated": authenticated,
+			"signer":        signer,
+			"verdict":       map[bool]string{true: "verified", false: "integrity-only"}[authenticated],
+			"manifest":      m,
+		})
+		return code
+	}
+	verdict := "INTEGRITY-ONLY"
+	if authenticated {
+		verdict = "VERIFIED"
+	}
+	fmt.Fprintf(stdout, "%s  %s\n", verdict, m.Contract)
+	fmt.Fprintf(stdout, "  signer          %s\n", signer)
 	fmt.Fprintf(stdout, "  bundle          %s\n", m.BundleID)
 	fmt.Fprintf(stdout, "  generated       %s\n", m.CreatedAt.Format("2006-01-02 15:04:05 MST"))
 	fmt.Fprintf(stdout, "  tenant scope    %s\n", m.TenantScopeDigest)
@@ -72,6 +113,11 @@ func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "  read this before relying on it")
 	for _, c := range m.Caveats {
 		fmt.Fprintln(stdout, "    - "+c)
+	}
+	if !authenticated {
+		fmt.Fprintln(stdout, "  SIGNER NOT AUTHENTICATED — re-run with --expected-fingerprint <sha256:...> "+
+			"(published by the operator out of band) to prove who signed this bundle")
+		return 3
 	}
 	return 0
 }

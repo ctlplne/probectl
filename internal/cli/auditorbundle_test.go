@@ -8,6 +8,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,10 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 )
 
-func writeBundle(t *testing.T, sections []compliance.SectionInput) string {
+// writeBundle signs an auditor bundle and returns the file path plus the
+// signer's fingerprint (what an operator would publish out of band and an
+// auditor would pin with --expected-fingerprint).
+func writeBundle(t *testing.T, sections []compliance.SectionInput) (string, string) {
 	t.Helper()
 	priv, _, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
@@ -36,11 +40,15 @@ func writeBundle(t *testing.T, sections []compliance.SectionInput) string {
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
+	var pkg compliance.AuditorPackage
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	path := filepath.Join(t.TempDir(), "bundle.json")
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	return path
+	return path, pkg.Signing.Fingerprint
 }
 
 func allVerified() []compliance.SectionInput {
@@ -56,12 +64,13 @@ func allVerified() []compliance.SectionInput {
 // has to ask the producing server whether its export is genuine has verified
 // nothing.
 func TestVerifyBundleWorksOfflineAndPrintsTheCaveats(t *testing.T) {
-	path := writeBundle(t, allVerified())
+	path, fp := writeBundle(t, allVerified())
 	var out, errb bytes.Buffer
 	// A deliberately unreachable endpoint: if the command touched the network
-	// this would fail rather than pass.
+	// this would fail rather than pass. Pinning the signer fingerprint is what
+	// makes the verdict VERIFIED (authenticity), not just integrity.
 	cfg := Config{BaseURL: "https://127.0.0.1:1", Token: ""}
-	if code := cmdVerifyBundle(cfg, []string{path}, &out, &errb); code != 0 {
+	if code := cmdVerifyBundle(cfg, []string{"--expected-fingerprint", fp, path}, &out, &errb); code != 0 {
 		t.Fatalf("exit %d, stderr: %s", code, errb.String())
 	}
 	s := out.String()
@@ -75,9 +84,50 @@ func TestVerifyBundleWorksOfflineAndPrintsTheCaveats(t *testing.T) {
 	}
 }
 
+// AI-05: VerifyAuditorBundle checks the signature against the key EMBEDDED in
+// the bundle, so a bundle re-signed with an attacker's own key passes integrity.
+// Without a pinned --expected-fingerprint the command must NOT print VERIFIED
+// and must exit non-zero, so a forged bundle is never mistaken for an
+// operator-authenticated one.
+func TestVerifyBundleUnpinnedIsNotAuthenticated(t *testing.T) {
+	path, fp := writeBundle(t, allVerified())
+
+	// Unpinned: integrity holds but the signer is not authenticated. The
+	// verdict is the FIRST line (section status lines legitimately contain the
+	// word "VERIFIED", so we check the verdict line specifically).
+	var out, errb bytes.Buffer
+	code := cmdVerifyBundle(Config{}, []string{path}, &out, &errb)
+	if code == 0 {
+		t.Fatalf("unpinned verify exited 0 (treated as trusted): %s", out.String())
+	}
+	verdict := strings.SplitN(out.String(), "\n", 2)[0]
+	if !strings.HasPrefix(verdict, "INTEGRITY-ONLY") {
+		t.Fatalf("unpinned verdict line should be INTEGRITY-ONLY, got %q", verdict)
+	}
+
+	// A pin that does not match the signer is rejected.
+	out.Reset()
+	errb.Reset()
+	if code := cmdVerifyBundle(Config{}, []string{"--expected-fingerprint", "sha256:deadbeef", path}, &out, &errb); code != 1 {
+		t.Fatalf("mismatched pin should exit 1, got %d", code)
+	}
+	if !strings.Contains(errb.String(), "NOT VERIFIED") {
+		t.Fatalf("mismatched pin must say NOT VERIFIED: %s", errb.String())
+	}
+
+	// The correct pin authenticates it (verdict line is VERIFIED).
+	out.Reset()
+	errb.Reset()
+	code = cmdVerifyBundle(Config{}, []string{"--expected-fingerprint", fp, path}, &out, &errb)
+	verdict = strings.SplitN(out.String(), "\n", 2)[0]
+	if code != 0 || !strings.HasPrefix(verdict, "VERIFIED") {
+		t.Fatalf("correct pin should verify: code=%d verdict=%q", code, verdict)
+	}
+}
+
 // A tampered bundle must exit non-zero, or a script cannot tell the difference.
 func TestVerifyBundleFailsLoudlyOnTampering(t *testing.T) {
-	path := writeBundle(t, allVerified())
+	path, _ := writeBundle(t, allVerified())
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -103,9 +153,9 @@ func TestVerifyBundleShowsUngatheredSections(t *testing.T) {
 	sections := allVerified()
 	sections[4] = compliance.SectionInput{Kind: compliance.SectionDeletion,
 		Status: compliance.StatusUnavailable, Reason: "no subject erasure has been requested"}
-	path := writeBundle(t, sections)
+	path, fp := writeBundle(t, sections)
 	var out, errb bytes.Buffer
-	if code := cmdVerifyBundle(Config{}, []string{path}, &out, &errb); code != 0 {
+	if code := cmdVerifyBundle(Config{}, []string{"--expected-fingerprint", fp, path}, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 	s := out.String()
