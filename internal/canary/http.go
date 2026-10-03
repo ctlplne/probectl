@@ -36,18 +36,40 @@ const defaultMaxBody = 10 << 20 // 10 MiB
 // plane. The crypto stays in crypto/tls + crypto/x509 (FIPS-swappable;
 // docs/guardrails.md G7-3).
 type httpCanary struct {
-	guard   *TargetGuard
-	url     string
-	method  string
-	scheme  string
-	host    string
-	port    string
-	body    string
-	expect  []statusRange
-	follow  bool
-	caFile  string
-	maxBody int64
-	timeout time.Duration
+	guard *TargetGuard
+	// url carries the full target INCLUDING any userinfo — the HTTP client needs
+	// it to set Basic auth. It is used only to build the request and is NEVER
+	// stored in a Result (ING-32): results use `redacted` instead.
+	url string
+	// redacted is url with any userinfo masked to REDACTED:REDACTED (OTel
+	// semconv for url.full). It is what lands in Result.Target / url.full, so a
+	// probe URL's basic-auth credentials never reach result storage where every
+	// tenant reader could see them (docs/guardrails.md G7-6).
+	redacted string
+	method   string
+	scheme   string
+	host     string
+	port     string
+	body     string
+	expect   []statusRange
+	follow   bool
+	caFile   string
+	maxBody  int64
+	timeout  time.Duration
+}
+
+// redactURLUserinfo returns u as a string with any userinfo (user:password@)
+// masked to the OTel-semconv sentinel REDACTED:REDACTED (ING-32). Basic-auth
+// credentials placed in a probe URL must never land in a stored Result, where
+// every tenant reader of that result could see them. The request itself still
+// uses the un-redacted URL so the probe can authenticate.
+func redactURLUserinfo(u *url.URL) string {
+	if u.User == nil {
+		return u.String()
+	}
+	clone := *u
+	clone.User = url.UserPassword("REDACTED", "REDACTED")
+	return clone.String()
 }
 
 // NewHTTP builds an HTTP canary. Target is the URL. Params: method (GET),
@@ -72,14 +94,15 @@ func NewHTTP(cfg Config) (Canary, error) {
 	}
 
 	c := &httpCanary{
-		guard:   GuardFromParams(cfg.Params),
-		url:     u.String(),
-		method:  http.MethodGet,
-		scheme:  u.Scheme,
-		host:    u.Hostname(),
-		follow:  true,
-		maxBody: defaultMaxBody,
-		timeout: cfg.Timeout,
+		guard:    GuardFromParams(cfg.Params),
+		url:      u.String(),
+		redacted: redactURLUserinfo(u),
+		method:   http.MethodGet,
+		scheme:   u.Scheme,
+		host:     u.Hostname(),
+		follow:   true,
+		maxBody:  defaultMaxBody,
+		timeout:  cfg.Timeout,
 	}
 	if c.timeout <= 0 {
 		c.timeout = 10 * time.Second
@@ -130,12 +153,12 @@ func (c *httpCanary) Describe() Spec {
 // Run performs one HTTP request, timing each phase and capturing TLS details.
 func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	start := time.Now()
-	res := Result{Type: httpType, Target: c.url, StartedAt: start, Metrics: map[string]float64{}, Attributes: map[string]string{
+	res := Result{Type: httpType, Target: c.redacted, StartedAt: start, Metrics: map[string]float64{}, Attributes: map[string]string{
 		"network.transport":     "tcp",
 		"network.protocol.name": "http",
 		"server.address":        c.host,
 		"server.port":           c.port,
-		"url.full":              c.url,
+		"url.full":              c.redacted,
 		"http.request.method":   c.method,
 	}}
 	roots, err := c.trustRoots()

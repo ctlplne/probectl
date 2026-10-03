@@ -13,10 +13,59 @@ import (
 	"crypto/x509/pkix"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// TestHTTPCanaryRedactsURLCredentials proves ING-32: a probe URL with userinfo
+// authenticates the request (the creds are still sent) but the STORED result
+// (Target / url.full) carries only the OTel-semconv REDACTED:REDACTED sentinel,
+// never the basic-auth credentials — they must not reach result storage where
+// every tenant reader could see them.
+func TestHTTPCanaryRedactsURLCredentials(t *testing.T) {
+	var gotUser, gotPass string
+	var gotAuth bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, gotAuth = r.BasicAuth()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword("probeuser", "s3cr3t-probe-password")
+	c, err := NewHTTP(Config{
+		Target:  u.String(),
+		Timeout: 5 * time.Second,
+		Params:  map[string]string{AllowPrivateParam: "true"}, // loopback httptest target
+	})
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The probe still authenticated — redaction is display-only, not a drop.
+	if !gotAuth || gotUser != "probeuser" || gotPass != "s3cr3t-probe-password" {
+		t.Fatalf("probe must still send basic auth, got auth=%v user=%q", gotAuth, gotUser)
+	}
+	// The stored result must never contain the credential.
+	for label, v := range map[string]string{"Target": res.Target, "url.full": res.Attributes["url.full"]} {
+		if strings.Contains(v, "s3cr3t-probe-password") || strings.Contains(v, "probeuser") {
+			t.Fatalf("stored %s leaks probe credentials: %q", label, v)
+		}
+		if !strings.Contains(v, "REDACTED:REDACTED") {
+			t.Fatalf("stored %s not redacted per OTel semconv: %q", label, v)
+		}
+	}
+}
 
 func TestNewHTTPDefaults(t *testing.T) {
 	c, err := NewHTTP(Config{Target: "https://example.com/health"})
