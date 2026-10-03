@@ -209,6 +209,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// ING-19: this is a standalone listener — nothing consumes the bus in this
+	// process. Memory mode would silently drop every observation, so warn loudly.
+	bus.WarnIfInProcess(log, "probectl-bmp-listener", *busMode)
 	b := agentmetrics.ObserveBus(rawBus, metricsRuntime)
 	defer func() { _ = b.Close() }()
 

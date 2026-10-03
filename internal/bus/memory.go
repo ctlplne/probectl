@@ -47,6 +47,7 @@ type Memory struct {
 	dropped     atomic.Uint64 // messages dropped under the drop policy
 	handlerErr  atomic.Uint64 // handler errors observed (CORRECT-007 — never silent)
 	handlerLost atomic.Uint64 // records dropped after redelivery attempts exhausted
+	noSub       atomic.Uint64 // records discarded because no subscriber was present (ING-19 — never silent)
 	workers     int           // opt-in parallel handler workers; default preserves serial delivery
 
 	flushMu   sync.Mutex
@@ -122,6 +123,15 @@ func (m *Memory) HandlerErrors() uint64 { return m.handlerErr.Load() }
 // budget was exhausted (a permanently-failing handler). It is a real loss and
 // is counted — never silent.
 func (m *Memory) HandlerLost() uint64 { return m.handlerLost.Load() }
+
+// NoSubscriberDrops returns how many records Publish discarded because the
+// topic had NO subscriber registered at publish time. The in-memory bus is a
+// LIVE pub/sub with no backlog, so such a record is dropped then and there — in
+// a STANDALONE collector process (memory mode, nothing subscribing in-process)
+// that is every batch (ING-19). It is counted so the loss is observable rather
+// than reported as a silent Publish success, mirroring Dropped/HandlerLost.
+// Satisfies NoSubscriberReporter, surfaced on each agent's metrics endpoint.
+func (m *Memory) NoSubscriberDrops() uint64 { return m.noSub.Load() }
 
 // memoryGroup is one consumer group's members on one topic, plus the
 // round-robin cursor that spreads the topic's messages across them. Each member
@@ -215,6 +225,17 @@ func (m *Memory) Publish(ctx context.Context, topic string, key, value []byte) e
 		g.next = (g.next + 1) % len(g.members)
 	}
 	m.mu.Unlock()
+
+	if len(chans) == 0 {
+		// No subscriber on this topic: the in-memory bus has no backlog, so the
+		// record is discarded here and now. Count it as loss (ING-19) rather than
+		// returning nil as though it were delivered — a standalone collector in
+		// memory mode (no co-located consumer) would otherwise drop every batch
+		// while the publish path reported success. The count is surfaced on the
+		// metrics endpoint and the collectors warn loudly at startup in this mode.
+		m.noSub.Add(1)
+		return nil
+	}
 
 	msg := Message{Topic: topic, Key: key, Value: value}
 	var dropped bool

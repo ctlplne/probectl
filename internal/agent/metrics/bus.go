@@ -37,6 +37,16 @@ func ObserveBus(inner bus.Bus, metrics *Runtime) bus.Bus {
 			"Records dropped at this agent's full in-flight producer buffer (broker-degraded backpressure). Also lost after published_total counted them.",
 			func() float64 { _, shed, _ := r.PublishFailures(); return float64(shed) })
 	}
+	// ING-19: the VOLATILE in-process memory bus only delivers to a consumer in
+	// the SAME process. A standalone collector has none, so every batch is
+	// dropped — this surfaces that loss as a number an operator can alert on
+	// instead of a silence that looks like a healthy publisher. A networked
+	// broker does not implement the capability, so the gauge is absent there.
+	if r, ok := inner.(bus.NoSubscriberReporter); ok {
+		metrics.WatchGauge("probectl_agent_bus_no_subscriber_total",
+			"Records this agent dropped because the in-process (memory) bus had NO subscriber at publish time. In a standalone collector this is every batch: memory mode only delivers to a co-located consumer (ING-19).",
+			func() float64 { return float64(r.NoSubscriberDrops()) })
+	}
 	return &observedBus{Bus: inner, metrics: metrics}
 }
 
@@ -68,6 +78,17 @@ func (b *observedBus) PublishFailures() (failed, shed uint64, last error) {
 		return r.PublishFailures()
 	}
 	return 0, 0, nil
+}
+
+// NoSubscriberDrops forwards the wrapped bus's no-subscriber loss counter
+// (bus.NoSubscriberReporter) so a standalone memory-mode collector surfaces the
+// batches it dropped for want of a co-located consumer (ING-19); a bus without
+// the capability reports nothing.
+func (b *observedBus) NoSubscriberDrops() uint64 {
+	if r, ok := b.Bus.(bus.NoSubscriberReporter); ok {
+		return r.NoSubscriberDrops()
+	}
+	return 0
 }
 
 func (b *observedBus) WaitForSubscribers(ctx context.Context, topic string, n int) bool {

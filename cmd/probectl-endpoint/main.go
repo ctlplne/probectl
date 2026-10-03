@@ -82,6 +82,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// ING-19: this is a standalone collector — nothing consumes the bus in this
+	// process. Memory mode would silently drop every batch, so warn loudly.
+	bus.WarnIfInProcess(log, "probectl-endpoint", cfg.Bus.Mode)
 	b := agentmetrics.ObserveBus(rawBus, metricsRuntime)
 	defer func() { _ = b.Close() }()
 

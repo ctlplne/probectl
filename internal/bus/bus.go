@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -270,6 +271,19 @@ type PublishFailureReporter interface {
 	PublishFailures() (failed, shed uint64, last error)
 }
 
+// NoSubscriberReporter is an optional Bus capability: the cumulative count of
+// records a publish discarded because the topic had NO subscriber at publish
+// time. The in-memory lightweight bus is a LIVE pub/sub with no backlog, so a
+// publish with no co-located consumer is an immediate, unrecoverable loss
+// rather than a buffered record — in a STANDALONE collector process (memory
+// mode, nothing subscribing in-process) that is every batch (ING-19). A
+// networked broker persists independently of any live consumer, so it has
+// nothing to report here and does not implement this; callers type-assert for
+// it and treat a missing implementation as "not an in-process bus".
+type NoSubscriberReporter interface {
+	NoSubscriberDrops() uint64
+}
+
 // namespaceRe is the shape a per-tenant topic namespace must have (S-T2,
 // siloed bus isolation): lowercase alphanumerics and hyphens, no dots — it
 // becomes one topic segment.
@@ -340,6 +354,26 @@ func New(mode string, brokers []string, sec Security, memOpts ...MemoryOption) (
 	default:
 		return nil, fmt.Errorf("bus: unknown mode %q (want memory|nats|kafka)", mode)
 	}
+}
+
+// WarnIfInProcess logs a LOUD startup warning when mode selects the VOLATILE
+// in-process memory bus (New's "" / "memory" case), so a standalone collector
+// misconfigured onto it is obvious at boot instead of silently discarding
+// telemetry (ING-19). The memory bus is a LIVE pub/sub with no backlog: it only
+// delivers to a consumer running in the SAME process, which a standalone
+// agent/listener binary does not have, so every published batch is dropped
+// (counted via NoSubscriberReporter). Memory mode stays valid for the embedded
+// single-process/test case — this only warns, it never refuses. component names
+// the binary for the operator; a nil logger and the durable networked modes are
+// no-ops.
+func WarnIfInProcess(log *slog.Logger, component, mode string) {
+	if log == nil || (mode != "" && mode != "memory") {
+		return
+	}
+	log.Warn("bus mode is the VOLATILE in-process memory bus: telemetry is DROPPED unless a consumer runs in THIS process — a standalone collector delivers nothing. Set a durable bus (PROBECTL_*_BUS_MODE=nats|kafka with brokers) for anything but an embedded single-process or test run.",
+		"component", component,
+		"bus_mode", "memory",
+		"finding", "ING-19")
 }
 
 // TenantBuckets is the sub-partition fan per tenant (Sprint 15, SCALE-007).

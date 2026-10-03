@@ -353,10 +353,11 @@ an operator should alert on them:
 | ------ | ------- |
 | `probectl_agent_bus_publish_failed_total` | records the transport accepted that never reached the broker, after its own retries |
 | `probectl_agent_bus_publish_shed_total` | records dropped at a full in-flight buffer under broker-degraded backpressure |
+| `probectl_agent_bus_no_subscriber_total` | records dropped because the **volatile in-process memory bus** had no subscriber at publish time — in a standalone collector that is every batch (ING-19), since memory mode only delivers to a consumer in the same process |
 
-Both describe records that `published_total` has **already counted**, which is
-why a climbing `published_total` alongside a climbing `failed_total` is data
-loss rather than throughput. A transport that cannot report undelivered records
+All three describe records that `published_total` has **already counted**, which
+is why a climbing `published_total` alongside a climbing `failed_total` or
+`no_subscriber_total` is data loss rather than throughput. A transport that cannot report undelivered records
 exposes neither series, rather than a zero that would read as healthy. The
 canary agent needs neither: it removes a result from its buffer only after the
 control plane's accepted count, so its `published_total` is verified delivery.
@@ -505,6 +506,19 @@ In `memory` mode, `Flush` waits for current subscriber handlers to finish before
 the agent stream is ACKed. That makes the volatile path at-least-once with
 respect to the in-process store/DLQ handlers, but it is still not a broker log:
 a crash loses what it held, which is why it is not a production transport.
+
+The memory bus is also a **live, in-process-only** pub/sub: it delivers only to
+a consumer running in the *same* process and keeps no backlog. The standalone
+collector binaries — `probectl-flow-agent`, `probectl-device-agent`,
+`probectl-ebpf-agent`, `probectl-endpoint` and `probectl-bmp-listener` — have no
+such consumer, so a collector left on `memory` mode (the shipped default) would
+discard **every** batch it publishes. Each therefore logs a loud `WARN` at boot
+when its `PROBECTL_*_BUS_MODE` is `memory`/unset, and any batch dropped for want
+of a subscriber is counted at `probectl_agent_bus_no_subscriber_total` (and, on
+the control plane's own in-process bus, `probectl_bus_memory_no_subscriber`)
+rather than reported as a silent publish success (ING-19). Memory mode stays
+valid for the embedded single-process/test case; point a standalone collector at
+a durable `nats`/`kafka` bus (with `PROBECTL_*_BUS_BROKERS`).
 
 In `nats` mode each topic is a JetStream stream of its own (so a siloed tenant's
 lane stays its own lane), each consumer group is a durable consumer whose
