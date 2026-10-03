@@ -29,7 +29,12 @@ func TestThresholdFiresToWebhook(t *testing.T) {
 	const secret = "s3cret-key"
 	received := make(chan WebhookPayload, 1)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// INJ-01/RTA-01 made webhook delivery https-only (a plaintext http:// URL is
+	// refused), so this integration server must be TLS; srv.Client() (injected
+	// below) trusts its self-signed cert. The SSRF-guarded dialer still blocks
+	// loopback/private/metadata for a nil/default client — that is covered by the
+	// dedicated SSRF regression tests, not this delivery test.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		sig := r.Header.Get(SignatureHeader)
 		mac, err := hex.DecodeString(strings.TrimPrefix(sig, "sha256="))
