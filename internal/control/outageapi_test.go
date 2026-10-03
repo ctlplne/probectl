@@ -190,6 +190,74 @@ func TestOutageConsumerRaisesSignals(t *testing.T) {
 	}
 }
 
+// RTP-13 regression: HTTP/browser test targets are full URLs, so the host must
+// be extracted before ASN enrichment — otherwise two failing HTTP tests to IPs
+// in one ASN raise NO outage.vantage_detected, while equivalent ICMP/TCP tests
+// do. Drives the real consumer → engine → /v1/outages aggregation with no
+// network.peer.address attribute, so peerHost(ServerAddress) is the extraction
+// point under test.
+func TestOutageConsumerDetectsVantageFromHTTPURLTargets(t *testing.T) {
+	eng := outage.NewEngine(nil, outageTestResolver)
+	oc := NewOutageConsumer(nil, eng, nil, intelTestLog())
+	tid := tenancy.DefaultTenantID.String()
+	now := time.Now()
+
+	push := func(target string, at time.Time) {
+		raw, err := proto.Marshal(&resultv1.Result{
+			TenantId: tid, CanaryType: "http", ServerAddress: target,
+			Success: false, StartTimeUnixNano: at.UnixNano(),
+			// No network.peer.address — peerHost(ServerAddress) must resolve the URL host.
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := oc.handle(context.Background(), bus.Message{Value: raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Two distinct failing HTTP(S) targets, both to IPs in AS64500 (the fixture
+	// resolver maps 10.9.* → AS64500). Repeats clear the per-target window bar.
+	targetA := "http://10.9.0.1/"
+	targetB := "https://10.9.0.2:8443/health"
+	for i := 0; i < 3; i++ {
+		push(targetA, now.Add(time.Duration(i)*time.Minute))
+		push(targetB, now.Add(time.Duration(i)*time.Minute))
+	}
+
+	srv := testServer(fakePinger{}).WithOutage(eng)
+	rec := do(srv, http.MethodGet, "/v1/outages")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var resp struct {
+		ScopeResolution bool               `json:"scope_resolution"`
+		Vantage         []outage.EventView `json:"vantage_events"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.ScopeResolution {
+		t.Fatal("resolver wired — scope_resolution must be true")
+	}
+	// Pre-fix: peerHost returns the raw URL, enrichment drops it, and NO vantage
+	// episode fires — this assertion is RED before the URL-host-extraction fix.
+	if len(resp.Vantage) == 0 {
+		t.Fatal("want outage.vantage_detected from the failing HTTP URL targets, got no vantage_events")
+	}
+	v := resp.Vantage[0]
+	if v.Source != "vantage" || v.Scope.Code != "AS64500" {
+		t.Fatalf("want a vantage event scoped to AS64500, got source=%q scope=%+v", v.Source, v.Scope)
+	}
+	got := map[string]bool{}
+	for _, a := range v.Affected {
+		got[a.Target] = true
+	}
+	if !got[targetA] || !got[targetB] {
+		t.Fatalf("vantage event must list the failing HTTP URL targets, got %+v", v.Affected)
+	}
+}
+
 func TestOutageConsumerFallsBackToServerAddress(t *testing.T) {
 	eng := outage.NewEngine(nil, outageTestResolver)
 	oc := NewOutageConsumer(nil, eng, nil, intelTestLog())

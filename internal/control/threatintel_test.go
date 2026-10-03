@@ -78,6 +78,27 @@ func TestIOCConsumerCIDRPortAndDomain(t *testing.T) {
 	}
 }
 
+// peerHost must pull the host out of HTTP(S)/browser URL targets (so they
+// enrich to an IP/ASN like ICMP/TCP), while still stripping plain host:port and
+// passing bare hosts/IPs through unchanged (RTP-13).
+func TestPeerHostExtractsURLHost(t *testing.T) {
+	cases := []struct{ addr, want string }{
+		{"http://203.0.113.10/", "203.0.113.10"},             // URL → IP host
+		{"https://[2001:db8::1]:8443/path", "2001:db8::1"},   // URL → bracketed IPv6 host
+		{"http://web.example:8080/x", "web.example"},         // URL → hostname
+		{"web.testland.example:443", "web.testland.example"}, // plain host:port (unchanged behavior)
+		{"10.9.7.7:443", "10.9.7.7"},                         // IPv4:port
+		{"10.9.0.1", "10.9.0.1"},                             // bare IPv4
+		{"2001:db8::1", "2001:db8::1"},                       // bare IPv6
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := peerHost(c.addr); got != c.want {
+			t.Errorf("peerHost(%q) = %q, want %q", c.addr, got, c.want)
+		}
+	}
+}
+
 func TestIOCConsumerNoMatch(t *testing.T) {
 	cs := NewIOCConsumer(nil, nil, loadedIOCStore(), nil)
 	if s := cs.signals(&resultv1.Result{TenantId: "t", ServerAddress: "8.8.8.8"}); s != nil {

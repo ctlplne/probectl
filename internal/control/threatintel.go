@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -182,11 +183,23 @@ func severityForConfidence(confidence int) incident.Severity {
 	}
 }
 
-// peerHost extracts the host portion of a result's server address (stripping a
-// :port when present), so an IP or hostname can be scored.
+// peerHost extracts the host portion of a result's server address so an IP or
+// hostname can be scored (and, downstream, enriched to an ASN/geo scope).
+// HTTP(S)/browser test targets are full URLs — "http://203.0.113.10/",
+// "https://[2001:db8::1]:8443/path" — so the host is taken from the URL
+// authority when a scheme+host is present; otherwise a plain "host:port" has
+// its port stripped and a bare host or IP is returned unchanged. Without this,
+// a URL target reaches ASN enrichment verbatim, fails to parse as an IP, and is
+// silently dropped — so failing HTTP/browser tests would never count toward
+// vantage outage detection the way ICMP/TCP tests do.
 func peerHost(addr string) string {
 	if addr == "" {
 		return ""
+	}
+	if u, err := url.Parse(addr); err == nil && u.Scheme != "" && u.Host != "" {
+		if host := u.Hostname(); host != "" {
+			return host
+		}
 	}
 	if h, _, err := net.SplitHostPort(addr); err == nil {
 		return h
