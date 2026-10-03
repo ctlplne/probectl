@@ -61,6 +61,8 @@ const (
 	permLifecycleErase     = "lifecycle.erase"
 	permSecurityKeys       = "security.keys"
 	permFairnessRead       = "fairness.read"
+	permGovernanceRead     = "governance.read"  // AUD-12: read the tenant's own governance policy
+	permGovernanceWrite    = "governance.write" // AUD-12: update the tenant's own governance policy (incl ai_remote_egress)
 	permDiagnosticsRead    = "diagnostics.read"
 	permRemediationPropose = "remediation.propose"
 	permRemediationApprove = "remediation.approve"
@@ -82,6 +84,7 @@ var allPermissionKeys = []string{
 	permLifecycleExp, permLifecycleErase,
 	permSecurityKeys,
 	permFairnessRead,
+	permGovernanceRead, permGovernanceWrite,
 	permDiagnosticsRead,
 	permRemediationPropose, permRemediationApprove,
 	permAuditRead,

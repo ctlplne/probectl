@@ -331,6 +331,13 @@ type Server struct {
 	// unlicensed and the surface 404s. probectl NEVER executes.
 	remediation remediation.Service
 
+	// Tenant governance policy management (S-EE3, ee-gated via `governance`):
+	// the tenant admin's self-service read/update of its OWN governance policy
+	// (incl ai_remote_egress consent), audited in the tenant chain (AUD-12). Set
+	// via WithGovernance at the main.go Build* seam when the `governance` feature
+	// is licensed; nil = unlicensed and the surface 404s (hidden-unlicensed).
+	governance governancePolicyStore
+
 	// startedAt is the process start (S-EE4): the support bundle reports uptime.
 	startedAt time.Time
 

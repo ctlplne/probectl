@@ -221,8 +221,23 @@ PROBECTL_AI_EGRESS_ACK=yes-send-tenant-data-to-the-remote-model
 `tenant_governance.ai_remote_egress` (default **false**), and there are two ways
 to set it depending on your edition:
 
-- **Enterprise / Provider (the governance feature):** the governance console or
-  its API —
+- **Enterprise / Provider (the governance feature):** there are two equivalent
+  ways, depending on who is setting it.
+
+  A **tenant admin** sets its OWN tenant's consent through the core tenant API
+  (`governance.write`; AUD-12) — no operator or raw SQL needed. The change is
+  recorded in the tenant's own tamper-evident audit chain (`governance.policy_set`):
+
+  ```sh
+  curl -sS --cacert ca.crt -X PUT \
+    -H "Authorization: Bearer $TENANT_TOKEN" -H 'Content-Type: application/json' \
+    https://probectl.example.com/v1/governance/policy \
+    -d '{"ai_remote_egress": true}'
+  ```
+
+  (`GET /v1/governance/policy` reads it back. `probectl governance set-policy` /
+  `probectl governance policy` are the CLI equivalents.) A **provider operator**
+  may still set any hosted tenant's consent cross-tenant from the provider plane —
 
   ```sh
   curl -sS --cacert ca.crt -X PUT \

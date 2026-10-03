@@ -339,6 +339,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/api-tokens":                                                 auditExplicit(auditFacetMutation, "apitoken.create"),
 	"DELETE /v1/api-tokens/{id}":                                          auditExplicit(auditFacetMutation, "apitoken.revoke"),
 	"GET /v1/fairness":                                                    auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/governance/policy":                                           auditWrapped(auditFacetSensitiveRead),
+	"PUT /v1/governance/policy":                                           auditExplicit(auditFacetMutation, governancePolicyAuditAction),
 	"GET /v1/diagnostics":                                                 auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/diagnostics/bundle":                                          auditWrapped(auditFacetExport),
 	"GET /v1/remediation/proposals":                                       auditWrapped(auditFacetOperational),

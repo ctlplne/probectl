@@ -229,7 +229,15 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		gstore := governance.NewStore(pool)
 		govern.SetSource(gstore)
 		governanceCap = &provider.Governance{Store: gstore, Pool: pool}
-		log.Info("advanced data governance attached (S-EE3)")
+		// AUD-12: unlock the TENANT-scoped governance policy management surface
+		// on the core /v1 API (GET/PUT /v1/governance/policy). It lets an
+		// Enterprise tenant admin read/update its own policy — incl the
+		// ai_remote_egress consent — audited in the tenant chain, instead of an
+		// operator hand-editing SQL. The store is core (govern.PolicyStore); only
+		// this attach (the Build* seam, under the license Has check) turns the
+		// surface on — unlicensed/core builds never reach here, so it 404s.
+		srv.WithGovernance(govern.NewPolicyStore(pool))
+		log.Info("advanced data governance attached (S-EE3; tenant policy management AUD-12)")
 	}
 
 	// Guarded agentic remediation (S-EE5, F44 — guardrail-critical). The AI

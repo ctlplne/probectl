@@ -199,7 +199,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"capacity":  {Method: http.MethodGet, Path: "/v1/flows/capacity"},
 		"anomalies": {Method: http.MethodGet, Path: "/v1/flows/anomalies"},
 	}},
-	"governance": {Name: "governance", Summary: "provider data-governance policy", Ops: map[string]apiOp{
+	"governance": {Name: "governance", Summary: "data-governance policy (tenant self-service + provider)", Ops: map[string]apiOp{
+		"policy":     {Method: http.MethodGet, Path: "/v1/governance/policy", Description: "read the calling tenant's own governance policy incl ai_remote_egress (Enterprise governance feature; AUD-12)"},
+		"set-policy": {Method: http.MethodPut, Path: "/v1/governance/policy", Description: "set the calling tenant's own governance policy incl ai_remote_egress; audited in the tenant chain (AUD-12)"},
 		"tenant":     {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
 		"set-tenant": {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
 	}},

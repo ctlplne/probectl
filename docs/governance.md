@@ -125,10 +125,34 @@ The provider plane exposes one place for a tenant's data governance
 The policy persists in `tenant_governance` (migration `0033`; migration `0037`
 adds the `ai_remote_egress` consent column): a tenant reads its
 own policy under RLS (row-level security — the database enforces the tenant
-boundary itself), the provider plane writes it. It is on the silo deny list
+boundary itself). It is on the silo deny list
 (never copied into a per-tenant silo schema) and is erased with the tenant at
 offboarding. The resolver installs onto the core `govern` seam, so redacted
 exports honor per-tenant overrides.
+
+### Tenant self-service management (AUD-12)
+
+An Enterprise **tenant admin** manages its OWN tenant's policy from the core
+tenant API, so granting AI-egress consent or setting governance policy never
+requires an operator or raw SQL:
+
+- `GET /v1/governance/policy` — the calling tenant's remote-AI egress consent,
+  redaction policy, and the effective classification of every category
+  (`governance.read`).
+- `PUT /v1/governance/policy` — set classification overrides, the redaction floor
+  (`redact_from`), `redact_export`, and the remote-AI egress consent
+  (`ai_remote_egress`). The tenant comes from the authenticated principal, never
+  the request body; the change is written to the tenant's own tamper-evident
+  audit chain (`governance.policy_set`) in the same transaction (`governance.write`).
+
+Both routes are unlocked only by the Enterprise `governance` feature and 404
+when unlicensed (hidden, not locked). This is a MANAGEMENT surface for the
+existing consent, not a relaxation: the row stays write-fenced off the tenant
+app role (migration `0111`) — the handler writes it through the provider role in
+a tenant-GUC-bound transaction — and the core AI egress gate still fails closed
+and redacts regardless of who set the bit. The provider plane's
+`/provider/v1/tenants/{id}/governance` remains the operator's cross-tenant path
+for hosted tenants.
 
 ### Remote-AI egress consent
 

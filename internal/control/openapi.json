@@ -7689,6 +7689,51 @@
         }
       }
     },
+    "/v1/governance/policy": {
+      "get": {
+        "summary": "The calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature \u2014 404 when unlicensed): the remote-AI egress consent (ai_remote_egress), the redaction policy, and the effective classification of every category. Tenant-scoped at the storage layer (RLS); governance.read.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set the calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature \u2014 404 when unlicensed): classification overrides, the redaction floor (redact_from), redact_export, and the remote-AI egress consent (ai_remote_egress). Tenant comes from the authenticated principal, never the body; audited atomically in the tenant chain (governance.policy_set); governance.write. A management surface for the existing consent, not a relaxation \u2014 the AI egress gate still fails closed and redacts.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ai_remote_egress": {
+                    "type": "boolean"
+                  },
+                  "redact_export": {
+                    "type": "boolean"
+                  },
+                  "redact_from": {
+                    "type": "string"
+                  },
+                  "classifications": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/v1/diagnostics": {
       "get": {
         "summary": "Native local self-observability (S-EE4): redacted per-component health, process metrics, and build identity with deterministic findings and safe local next actions \u2014 admin diagnostics.read; no tenant telemetry",

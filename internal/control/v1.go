@@ -165,6 +165,12 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/api-tokens", s.handleListAPITokens, permSecurityKeys},
 		{http.MethodDelete, "/v1/api-tokens/{id}", s.handleRevokeAPIToken, permSecurityKeys},
 		{http.MethodGet, "/v1/fairness", s.handleFairnessSelf, permFairnessRead},
+		// AUD-12: the tenant admin's self-service governance policy surface
+		// (ee-gated via `governance`; hidden 404 when unlicensed). Read/update the
+		// calling tenant's OWN policy incl ai_remote_egress; the update is audited
+		// in the tenant chain.
+		{http.MethodGet, "/v1/governance/policy", s.handleGovernancePolicyGet, permGovernanceRead},
+		{http.MethodPut, "/v1/governance/policy", s.handleGovernancePolicyPut, permGovernanceWrite},
 		{http.MethodGet, "/v1/diagnostics", s.handleDiagnostics, permDiagnosticsRead},
 		{http.MethodGet, "/v1/diagnostics/bundle", s.handleDiagnosticsBundle, permDiagnosticsRead},
 		{http.MethodGet, "/v1/remediation/proposals", s.handleRemediationList, permRemediationPropose},
