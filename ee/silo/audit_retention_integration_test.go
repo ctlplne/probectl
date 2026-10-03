@@ -388,15 +388,22 @@ func TestAuditRetentionRoutesSiloAndPooledSequenceAnchors(t *testing.T) {
 	tenancy.SetRouter(router)
 	t.Cleanup(func() { tenancy.SetRouter(nil) })
 
+	// AUD-02: created_at is covered by the chain hash, so an event must be
+	// stamped old at append time, not backdated with a raw UPDATE afterward
+	// (which the prune-time verify now correctly rejects as tampering). Seed the
+	// chain 48h in the past so the 24h-window prune below sees genuinely aged,
+	// hash-consistent records.
+	agedAt := time.Now().UTC().Add(-48 * time.Hour)
 	for _, tenantID := range []string{pooledID, siloedID} {
 		err := tenancy.InTenant(
 			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 			pool,
 			func(ctx context.Context, scope tenancy.Scope) error {
 				for seq := 1; seq <= 3; seq++ {
-					if _, err := audit.TenantAppend(
+					if _, err := audit.AppendAtForTest(
 						ctx,
 						scope,
+						agedAt,
 						"silo-retention-test",
 						"retention.seed",
 						fmt.Sprintf("%s-%d", tenantID, seq),
@@ -573,27 +580,9 @@ func TestAuditRetentionRoutesSiloAndPooledSequenceAnchors(t *testing.T) {
 		}
 	}
 
+	// The chain was stamped 48h old at append time (above), so the prune's
+	// now/window see aged, hash-verifiable records — no post-hoc backdating.
 	now := time.Now().UTC()
-	old := now.Add(-48 * time.Hour)
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE public.audit_events SET created_at = $1 WHERE tenant_id = $2::uuid`,
-		old,
-		pooledID,
-	); err != nil {
-		t.Fatalf("backdate pooled audit stream: %v", err)
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE `+quotedSchema+`.audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2::uuid`,
-		old,
-		siloedID,
-	); err != nil {
-		t.Fatalf("backdate silo audit stream: %v", err)
-	}
-
 	policy := audit.RetentionPolicy{Window: 24 * time.Hour}
 	for _, tenantID := range []string{pooledID, siloedID} {
 		if pruned, err := audit.PruneTenant(
@@ -701,7 +690,6 @@ func TestSubjectErasureRetentionIsolationPooledAndSiloProgress(t *testing.T) {
 		}
 	})
 	schema := SchemaName(siloedID)
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
 
 	router := NewRouter(pool, nil, time.Second)
 	tenancy.SetRouter(router)
@@ -711,6 +699,10 @@ func TestSubjectErasureRetentionIsolationPooledAndSiloProgress(t *testing.T) {
 		pooledID: "pooled-subject@example.test",
 		siloedID: "silo-subject@example.test",
 	}
+	// AUD-02: created_at is hash-covered, so the aged prefix is stamped old at
+	// append time rather than backdated with a raw UPDATE (which the prune-time
+	// verify now correctly rejects as tampering). 48h back clears the 24h window.
+	agedAt := time.Now().UTC().Add(-48 * time.Hour)
 	for _, tenantID := range []string{pooledID, siloedID} {
 		subject := subjects[tenantID]
 		hash := audit.SubjectErasureHash(tenantID, subject)
@@ -718,9 +710,10 @@ func TestSubjectErasureRetentionIsolationPooledAndSiloProgress(t *testing.T) {
 			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 			pool,
 			func(ctx context.Context, scope tenancy.Scope) error {
-				if _, err := audit.TenantAppend(
+				if _, err := audit.AppendAtForTest(
 					ctx,
 					scope,
+					agedAt,
 					subject,
 					"directory.before_erasure",
 					subject,
@@ -730,9 +723,10 @@ func TestSubjectErasureRetentionIsolationPooledAndSiloProgress(t *testing.T) {
 				}
 				// Simulate a rolling old writer: it emits the immutable marker
 				// but does not know about audit_subject_erasures yet.
-				if _, err := audit.TenantAppend(
+				if _, err := audit.AppendAtForTest(
 					ctx,
 					scope,
+					agedAt,
 					"privacy-admin",
 					audit.SubjectErasureAction,
 					"subject:"+hash[:12],
@@ -740,9 +734,10 @@ func TestSubjectErasureRetentionIsolationPooledAndSiloProgress(t *testing.T) {
 				); err != nil {
 					return err
 				}
-				if _, err := audit.TenantAppend(
+				if _, err := audit.AppendAtForTest(
 					ctx,
 					scope,
+					agedAt,
 					subject,
 					"directory.after_erasure",
 					subject,
@@ -758,29 +753,9 @@ func TestSubjectErasureRetentionIsolationPooledAndSiloProgress(t *testing.T) {
 		}
 	}
 
+	// The prefix was stamped 48h old at append time (above); the prune's
+	// now/window see aged, hash-verifiable records with no post-hoc backdating.
 	now := time.Now().UTC()
-	old := now.Add(-48 * time.Hour)
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE public.audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2::uuid`,
-		old,
-		pooledID,
-	); err != nil {
-		t.Fatalf("backdate pooled subject-erasure stream: %v", err)
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE `+quotedSchema+`.audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2::uuid`,
-		old,
-		siloedID,
-	); err != nil {
-		t.Fatalf("backdate silo subject-erasure stream: %v", err)
-	}
-
 	policy := audit.RetentionPolicy{Window: 24 * time.Hour}
 	if pruned, err := audit.PruneTenant(
 		ctx,
@@ -1475,20 +1450,25 @@ func TestTenantAuditRetentionEffectivePruneSiloIsolation(t *testing.T) {
 		}
 	})
 	schema := SchemaName(siloedID)
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
 
 	router := NewRouter(pool, nil, time.Second)
 	tenancy.SetRouter(router)
 	t.Cleanup(func() { tenancy.SetRouter(nil) })
 
+	// AUD-02: created_at is hash-covered, so the exported record is stamped 40
+	// days old at append time rather than backdated with a raw UPDATE (which the
+	// prune-time verify now correctly rejects as tampering). 40 days clears the
+	// silo tenant's 30-day policy but not the 365-day deployment window.
+	agedAt := time.Now().UTC().Add(-40 * 24 * time.Hour)
 	for _, tenantID := range []string{siloedID, pooledID} {
 		err := tenancy.InTenant(
 			tenancy.WithTenant(ctx, tenancy.ID(tenantID)),
 			pool,
 			func(ctx context.Context, scope tenancy.Scope) error {
-				if _, err := audit.TenantAppend(
+				if _, err := audit.AppendAtForTest(
 					ctx,
 					scope,
+					agedAt,
 					"audit-policy-test",
 					"retention.old.exported",
 					tenantID,
@@ -1503,28 +1483,9 @@ func TestTenantAuditRetentionEffectivePruneSiloIsolation(t *testing.T) {
 			t.Fatalf("seed audit-policy stream %s: %v", tenantID, err)
 		}
 	}
+	// The record was stamped 40 days old at append time (above); the runner's
+	// now sees aged, hash-verifiable records with no post-hoc backdating.
 	now := time.Now().UTC()
-	old := now.Add(-40 * 24 * time.Hour)
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE public.audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2::uuid`,
-		old,
-		pooledID,
-	); err != nil {
-		t.Fatalf("backdate pooled audit-policy stream: %v", err)
-	}
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE `+quotedSchema+`.audit_events
-		    SET created_at = $1
-		  WHERE tenant_id = $2::uuid`,
-		old,
-		siloedID,
-	); err != nil {
-		t.Fatalf("backdate silo audit-policy stream: %v", err)
-	}
 
 	const deploymentWindow = 365 * 24 * time.Hour
 	life := tenantlife.New(

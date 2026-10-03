@@ -201,10 +201,26 @@ func TenantAppend(ctx context.Context, s tenancy.Scope, actor, action, target st
 	if err := lockTenantStream(ctx, s.Q, s.Tenant.String()); err != nil {
 		return Event{}, fmt.Errorf("lock audit chain: %w", err)
 	}
-	return tenantAppendLocked(ctx, s, actor, action, target, data)
+	return tenantAppendLocked(ctx, s, auditNow(), actor, action, target, data)
 }
 
-func tenantAppendLocked(ctx context.Context, s tenancy.Scope, actor, action, target string, data map[string]any) (Event, error) {
+// AppendAtForTest appends one audit event stamped at a caller-chosen instant.
+// TEST/DEV ONLY — production code uses TenantAppend, which stamps created_at
+// from the trusted clock. Integration tests that exercise time-based retention
+// need genuinely-aged, hash-consistent events; since AUD-02 covers created_at
+// in the chain hash, backdating a row with a raw UPDATE after it is written now
+// (correctly) reads as tampering. This appends the aged event the same way
+// production would have at that instant — the hash is computed over the chosen
+// created_at and stored alongside it — so the chain still verifies. It takes
+// the same per-tenant advisory lock as TenantAppend.
+func AppendAtForTest(ctx context.Context, s tenancy.Scope, at time.Time, actor, action, target string, data map[string]any) (Event, error) {
+	if err := lockTenantStream(ctx, s.Q, s.Tenant.String()); err != nil {
+		return Event{}, fmt.Errorf("lock audit chain: %w", err)
+	}
+	return tenantAppendLocked(ctx, s, at.UTC().Truncate(time.Microsecond), actor, action, target, data)
+}
+
+func tenantAppendLocked(ctx context.Context, s tenancy.Scope, createdAt time.Time, actor, action, target string, data map[string]any) (Event, error) {
 	head, err := ensureTenantStreamHead(ctx, s.Q, s.Tenant.String())
 	if err != nil {
 		return Event{}, fmt.Errorf("read audit head: %w", err)
@@ -217,8 +233,10 @@ func tenantAppendLocked(ctx context.Context, s tenancy.Scope, actor, action, tar
 		Data:     data,
 		PrevHash: head.HeadHash,
 		// AUD-02: the application stamps created_at so it can be covered by the
-		// hash chain (micros to match Postgres timestamptz precision).
-		CreatedAt: auditNow(),
+		// hash chain (micros to match Postgres timestamptz precision). The caller
+		// supplies the stamp — TenantAppend passes auditNow(); AppendAtForTest a
+		// chosen instant — so the hashed and stored created_at are identical.
+		CreatedAt: createdAt,
 	}
 	// AUD-03: marshal the canonical bytes ONCE, then store AND hash the identical
 	// sequence. data_canonical holds those exact bytes so verification hashes them

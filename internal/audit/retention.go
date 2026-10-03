@@ -626,6 +626,7 @@ func PruneTenant(
 			if _, err := tenantAppendLocked(
 				ctx,
 				s,
+				auditNow(),
 				"system:audit-retention",
 				RetentionPruneAction,
 				"audit/"+tenantID,

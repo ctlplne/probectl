@@ -61,7 +61,7 @@ func RecordSubjectErasure(ctx context.Context, s tenancy.Scope, actor, subject, 
 		return Event{}, fmt.Errorf("persist audit subject erasure: %w", err)
 	}
 	data := map[string]any{"subject_hash": hash}
-	return tenantAppendLocked(ctx, s, actor, SubjectErasureAction, "subject:"+hash[:12], data)
+	return tenantAppendLocked(ctx, s, auditNow(), actor, SubjectErasureAction, "subject:"+hash[:12], data)
 }
 
 func subjectErasureHashes(ctx context.Context, s tenancy.Scope) (map[string]struct{}, error) {
