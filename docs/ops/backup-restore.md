@@ -45,6 +45,30 @@ key-encryption key) — so an attacker holding the artifact but not the KEK
 holds nothing readable, and a restore on a fresh machine needs exactly one
 secret.
 
+### Container integrity (format `PBK2`)
+
+The `.pbk` container is **tamper-evident end to end**, not just encrypted. Each
+1 MiB chunk is sealed with its position bound in, a DEK-keyed running MAC chains
+the header and every ordered chunk, and a final **sealed trailer** fixes the
+exact chunk count and that chain. On restore, `backup-open` verifies the trailer
+before it reports success, so a container that was **truncated** (at or between
+chunk boundaries), had its **chunks reordered**, had its **header substituted**,
+or had **bytes appended** fails closed with a clear error — an incomplete or
+altered backup can never open as if it were whole (PLAT-14, guardrail
+[G7-6](../guardrails.md)). This is in addition to, not a replacement for, the
+`.sha256` sidecar operators verify before `backup-open`.
+
+> **Format bump — `PBK2` supersedes `PBK1`.** The authenticated trailer is a
+> deliberate on-disk format change. Legacy `PBK1` containers predate it and
+> cannot be made truncation-evident after the fact, so `backup-open`,
+> `backup-rewrap`, and control-state restore on this build **reject** them with
+> an actionable error rather than silently accepting an unverifiable backup.
+> New backups are written as `PBK2`. If you still hold pre-release `PBK1`
+> artifacts, take a fresh `PBK2` backup from the live data; where that is not
+> possible, open the `PBK1` container with a pre-`PBK2` build (with the original
+> KEK) and pipe it straight into `backup-seal` on this build, then retire the
+> `PBK1` copy under retention.
+
 When rotating the deployment envelope key, long-lived `.pbk` files must either
 expire under retention or be rewrapped before the old opener key is removed:
 

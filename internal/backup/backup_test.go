@@ -297,8 +297,12 @@ func TestOpenRejectsOversizedHeaderLengthsNoHugeAlloc(t *testing.T) {
 }
 
 // FuzzBackupOpen drives Open with arbitrary container bytes: no panic, no
-// unbounded allocation (bounds enforced in openHeader/Open). Mirrors the
-// flow/OTLP fuzz targets.
+// unbounded allocation (bounds enforced in openHeader/Open), and — PLAT-14 —
+// Open never ACCEPTS a mutated container as valid-but-different. The fuzzer
+// holds the KEK but not a way to forge AES-256-GCM tags or the DEK-bound MAC
+// chain, so the only input that opens successfully is one that reproduces the
+// exact original plaintext; a successful open whose output differs is a
+// forgery the trailer/MAC must prevent. Mirrors the flow/OTLP fuzz targets.
 func FuzzBackupOpen(f *testing.F) {
 	kek, err := crypto.Random(crypto.KeySize)
 	if err != nil {
@@ -310,9 +314,12 @@ func FuzzBackupOpen(f *testing.F) {
 	}
 	ctx := context.Background()
 
+	original := []byte("TENANT-SECRET seed payload for the backup fuzz target\n" +
+		strings.Repeat("row data more data\n", 128))
+
 	// Seed: a real sealed container, plus a few hostile headers.
 	var sealed bytes.Buffer
-	if err := Seal(ctx, &sealed, strings.NewReader("seed payload"), keys); err == nil {
+	if err := Seal(ctx, &sealed, bytes.NewReader(original), keys); err == nil {
 		f.Add(sealed.Bytes())
 	}
 	f.Add([]byte(magic))
@@ -320,11 +327,165 @@ func FuzzBackupOpen(f *testing.F) {
 	f.Add([]byte("not a container"))
 	f.Add([]byte{})
 
-	f.Fuzz(func(_ *testing.T, data []byte) {
-		// Must never panic and must never hang on a huge allocation; an
-		// error return is the expected outcome for hostile input.
-		_ = Open(ctx, &bytes.Buffer{}, bytes.NewReader(data), keys)
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Must never panic and must never hang on a huge allocation; an error
+		// return is the expected outcome for hostile input.
+		var out bytes.Buffer
+		if err := Open(ctx, &out, bytes.NewReader(data), keys); err == nil {
+			// Open accepted the container. It MUST be the genuine backup: a
+			// mutation that changed the authenticated content and still opened
+			// would be silently-accepted tampering (PLAT-14).
+			if !bytes.Equal(out.Bytes(), original) {
+				t.Fatalf("Open accepted a mutated container whose output differs from the original (%d bytes) — tamper accepted", out.Len())
+			}
+		}
 	})
+}
+
+// TestBackupContainerTamperEvidencePLAT14 drives the real write-then-open path
+// and asserts the container is tamper-evident end to end: a genuine backup
+// round-trips, while truncation (at or between frame boundaries), frame
+// reordering, header substitution, and an appended tail all fail to open.
+// Before the PBK2 authenticated trailer, a cut-at-a-frame-boundary container
+// with a forged end-of-chunks marker opened as a valid-but-incomplete backup.
+func TestBackupContainerTamperEvidencePLAT14(t *testing.T) {
+	keys := testKeys(t)
+	ctx := context.Background()
+
+	// A multi-chunk dump so there is a real interior frame boundary to cut at.
+	var plain bytes.Buffer
+	plain.WriteString("PGDMP fake header\n")
+	for i := 0; i < 70000; i++ { // comfortably > chunkSize → ≥2 data frames
+		plain.WriteString("row data TENANT-SECRET more data\n")
+	}
+	original := plain.Bytes()
+
+	seal := func(t *testing.T) []byte {
+		t.Helper()
+		var b bytes.Buffer
+		if err := Seal(ctx, &b, bytes.NewReader(original), keys); err != nil {
+			t.Fatalf("seal: %v", err)
+		}
+		return b.Bytes()
+	}
+
+	opens := func(container []byte) error {
+		return Open(ctx, &bytes.Buffer{}, bytes.NewReader(container), keys)
+	}
+
+	t.Run("genuine backup round-trips", func(t *testing.T) {
+		var restored bytes.Buffer
+		if err := Open(ctx, &restored, bytes.NewReader(seal(t)), keys); err != nil {
+			t.Fatalf("genuine backup must open: %v", err)
+		}
+		if !bytes.Equal(restored.Bytes(), original) {
+			t.Fatalf("restore mismatch: %d vs %d bytes", restored.Len(), len(original))
+		}
+	})
+
+	// Truncation at a frame boundary with a FORGED end-of-chunks marker — the
+	// PLAT-14 case. Drop the last data frame and the real trailer, keep a
+	// forged zero-length marker so the stream looks "cleanly" ended.
+	t.Run("truncation at frame boundary (forged marker) fails", func(t *testing.T) {
+		header, frames, _ := parsePBK(t, seal(t))
+		if len(frames) < 2 {
+			t.Fatalf("need ≥2 data frames to cut at an interior boundary, got %d", len(frames))
+		}
+		var cut bytes.Buffer
+		cut.Write(header)
+		for _, fr := range frames[:len(frames)-1] { // drop the last data frame
+			cut.Write(fr)
+		}
+		cut.Write([]byte{0, 0, 0, 0}) // forged end-of-chunks marker, no trailer
+		if err := opens(cut.Bytes()); err == nil {
+			t.Fatal("PLAT-14: truncation at a frame boundary with a forged marker must fail to open")
+		}
+	})
+
+	t.Run("truncation mid-frame fails", func(t *testing.T) {
+		good := seal(t)
+		header, frames, _ := parsePBK(t, good)
+		// Keep the header and a partial first data frame (chop its last byte).
+		mid := append([]byte(nil), header...)
+		mid = append(mid, frames[0][:len(frames[0])-1]...)
+		if err := opens(mid); err == nil {
+			t.Fatal("a mid-frame truncation must fail to open")
+		}
+	})
+
+	t.Run("frame reordering fails", func(t *testing.T) {
+		header, frames, tail := parsePBK(t, seal(t))
+		if len(frames) < 2 {
+			t.Fatalf("need ≥2 data frames to reorder, got %d", len(frames))
+		}
+		var reordered bytes.Buffer
+		reordered.Write(header)
+		reordered.Write(frames[1]) // swap the first two data frames
+		reordered.Write(frames[0])
+		for _, fr := range frames[2:] {
+			reordered.Write(fr)
+		}
+		reordered.Write(tail)
+		if err := opens(reordered.Bytes()); err == nil {
+			t.Fatal("reordered frames must fail to open")
+		}
+	})
+
+	t.Run("header substitution fails", func(t *testing.T) {
+		// A second genuine backup sealed under the SAME keys: its header wraps a
+		// different fresh DEK. Splicing it onto this body must not validate.
+		otherHeader, _, _ := parsePBK(t, seal(t))
+		_, frames, tail := parsePBK(t, seal(t))
+		var spliced bytes.Buffer
+		spliced.Write(otherHeader)
+		for _, fr := range frames {
+			spliced.Write(fr)
+		}
+		spliced.Write(tail)
+		if err := opens(spliced.Bytes()); err == nil {
+			t.Fatal("a substituted header must fail to open")
+		}
+	})
+
+	t.Run("appended tail fails", func(t *testing.T) {
+		appended := append(seal(t), []byte("extra trailing bytes")...)
+		if err := opens(appended); err == nil {
+			t.Fatal("data appended after the authenticated trailer must fail to open")
+		}
+	})
+
+	t.Run("legacy PBK1 container is rejected", func(t *testing.T) {
+		good := seal(t)
+		legacy := append([]byte(nil), good...)
+		copy(legacy, []byte("PBK1"))
+		err := opens(legacy)
+		if err == nil || !strings.Contains(err.Error(), "legacy") {
+			t.Fatalf("a downgraded/legacy PBK1 magic must be rejected loudly, got: %v", err)
+		}
+	})
+}
+
+// parsePBK splits a PBK2 container into its header, ordered data-frame byte
+// slices (each the full uint32-length-prefixed frame), and the tail (the
+// zero-length end-of-chunks marker plus the sealed trailer frame).
+func parsePBK(t *testing.T, c []byte) (header []byte, frames [][]byte, tail []byte) {
+	t.Helper()
+	off := len(magic)
+	keyIDLen := int(c[off])<<8 | int(c[off+1])
+	off += 2 + keyIDLen
+	wrappedLen := int(c[off])<<24 | int(c[off+1])<<16 | int(c[off+2])<<8 | int(c[off+3])
+	off += 4 + wrappedLen
+	header = append([]byte(nil), c[:off]...)
+	for {
+		n := int(c[off])<<24 | int(c[off+1])<<16 | int(c[off+2])<<8 | int(c[off+3])
+		if n == 0 {
+			break // end-of-chunks marker
+		}
+		frames = append(frames, append([]byte(nil), c[off:off+4+n]...))
+		off += 4 + n
+	}
+	tail = append([]byte(nil), c[off:]...) // marker + sealed trailer frame
+	return header, frames, tail
 }
 
 func functionSource(src, name string) (string, bool) {
