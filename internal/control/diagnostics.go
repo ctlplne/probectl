@@ -170,8 +170,14 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 
 	// PLAT-01/RTO-04: volatile telemetry stores ride diagnostics like agent_ca /
 	// audit_worm — a named, degraded finding (not a reason to drain a replica).
+	// PLAT-09: per-subsystem reachability for the configured external backends
+	// (bus, TSDB, ClickHouse event store, object store). An outage of any of
+	// these used to be invisible — diagnostics reported `overall: ok` while the
+	// bus/TSDB/ClickHouse/object store was down or running a volatile memory
+	// backend. See subsystemhealth.go.
 	if s.cfg != nil {
 		checks["volatile_stores"] = newVolatileStoresCheck(s.cfg)
+		s.registerSubsystemChecks(checks)
 	}
 
 	// Secrets resolver (S41): degraded if any backend is failing.

@@ -94,6 +94,23 @@ func (u *Upstream) get(ctx context.Context, path string, params url.Values) (Res
 	return Result{Status: resp.StatusCode, ContentType: ct, Body: body}, nil
 }
 
+// Ping reports whether the upstream TSDB answers the Prometheus HTTP API
+// (PLAT-09). It issues the cheapest possible scalar query so /v1/diagnostics can
+// surface a TSDB outage instead of silently reporting metrics healthy. A
+// transport error or a 5xx/429 is unreachable/unhealthy; any other status proves
+// the endpoint is answering. It carries no tenant selector (it is not a tenant
+// read), so it bypasses requireScoped by design.
+func (u *Upstream) Ping(ctx context.Context) error {
+	res, err := u.get(ctx, "/api/v1/query", url.Values{"query": {"1"}})
+	if err != nil {
+		return err
+	}
+	if res.Status >= 500 || res.Status == http.StatusTooManyRequests {
+		return fmt.Errorf("upstream tsdb: status %d", res.Status)
+	}
+	return nil
+}
+
 // QueryInstant forwards an instant query for sel at time at.
 func (u *Upstream) QueryInstant(ctx context.Context, sel Selector, at time.Time) (Result, error) {
 	if err := requireScoped(sel); err != nil {

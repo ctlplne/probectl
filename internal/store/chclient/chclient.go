@@ -24,10 +24,12 @@
 package chclient
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -147,6 +149,29 @@ func (c *Conn) Do(base string, req *http.Request) (*http.Response, error) {
 
 // Stats exposes the default (pooled) breaker's state for fallback metrics.
 func (c *Conn) Stats() breaker.Stats { return c.def.Stats() }
+
+// Ping reports whether the ClickHouse HTTP endpoint at base is reachable
+// (PLAT-09): it issues the cheapest query through the same breaker-guarded,
+// TLS-validated transport the stores use, so /v1/diagnostics can surface a
+// ClickHouse outage instead of silently reporting the event stores healthy.
+// A transport error or a non-2xx status is unreachable/unhealthy; connection
+// details stay inside the error the caller chooses to redact.
+func (c *Conn) Ping(ctx context.Context, base string) error {
+	u := strings.TrimRight(base, "/") + "/?query=" + url.QueryEscape("SELECT 1")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Do(base, req)
+	if err != nil {
+		return fmt.Errorf("chclient: clickhouse ping: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("chclient: clickhouse ping status %d", resp.StatusCode)
+	}
+	return nil
+}
 
 // Params carries SERVER-BOUND query parameters: each key k is sent as param_k
 // and bound by ClickHouse to the {k:Type} placeholder, so a value is data, not

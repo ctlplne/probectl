@@ -194,6 +194,14 @@ func (k *Kafka) Flush(ctx context.Context) error {
 	return k.flushError(k.producer.Flush(ctx))
 }
 
+// Healthy reports whether the Kafka brokers are reachable (PLAT-09). It pings
+// the seed/known brokers so /v1/diagnostics can surface a broker outage instead
+// of silently reporting the result bus healthy while ingestion is stalled.
+// docs/guardrails.md G7-12.
+func (k *Kafka) Healthy(ctx context.Context) error {
+	return k.producer.Ping(ctx)
+}
+
 // flushError decorates a failed flush with the last asynchronous produce
 // failure, so "context deadline exceeded" is never the whole story.
 func (k *Kafka) flushError(err error) error {

@@ -97,6 +97,19 @@ checks are wired up in `internal/control/diagnostics.go`:
 | `secrets_resolver` | a configured secret backend is failing → `degraded` |
 | `cluster` | writes are fenced during a multi-region failover → `degraded` |
 | `license` | expired into the grace period or read-only state → `degraded` |
+| `bus` | the result bus runs in memory mode → `degraded`; a configured NATS/Kafka bus is unreachable → `down` |
+| `tsdb` | the metrics store runs in memory mode → `degraded`; a configured Prometheus/VictoriaMetrics backend is unreachable → `down` |
+| `event_store` | a configured ClickHouse event store is unreachable → `down` |
+| `object_store` | a configured S3/MinIO object store is unreachable → `down` |
+
+`bus`, `tsdb`, `event_store` and `object_store` (PLAT-09) make each configured
+external backend observable: an outage of the result bus, TSDB, ClickHouse event
+store or object store used to be invisible (diagnostics reported `ok`). A
+memory-backed bus/TSDB is a named `degraded` warning (dev/test only — data is
+lost on restart), and `/readyz` surfaces volatile planes while staying `200`.
+Reachability is probed on this deep-health surface, not on the hot `/readyz`
+path, because these backends are shared infrastructure — draining a replica over
+a shared-backend blip removes serving capacity without routing around the fault.
 
 Every `degraded` or `down` check carries one `finding`; an `ok` check never
 fabricates a task. A finding contains:

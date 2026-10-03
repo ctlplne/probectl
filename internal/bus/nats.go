@@ -281,6 +281,20 @@ func (n *NATS) flushError(err error) error {
 	return err
 }
 
+// Healthy reports whether the NATS server is reachable (PLAT-09): a round-trip
+// to the server fails when the connection is down, so /v1/diagnostics can
+// surface a bus outage instead of silently reporting the result bus healthy
+// while ingestion is stalled.
+func (n *NATS) Healthy(_ context.Context) error {
+	if !n.conn.IsConnected() {
+		return fmt.Errorf("bus: nats not connected (%s)", n.conn.Status())
+	}
+	if _, err := n.conn.RTT(); err != nil {
+		return fmt.Errorf("bus: nats round-trip failed: %w", err)
+	}
+	return nil
+}
+
 func (n *NATS) recordFailure(topic string, err error) {
 	n.lastFailure.Store(&produceFailure{topic: topic, err: err})
 }

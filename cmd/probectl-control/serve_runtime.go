@@ -83,6 +83,7 @@ type serveRuntime struct {
 	ebpfStore        ebpfstore.Store
 	endpointStore    endpointstore.Store
 	objectStore      objectstore.Store
+	subsystemProbes  control.SubsystemProbes
 	writerFence      tenancy.WriterFence
 
 	ctx  context.Context
@@ -201,8 +202,9 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		tenantTSDBWriter: tenantTSDBWriter, ingestWriter: ingestWriter,
 		pathStore: pathStore, pathCH: st.pathCH, otelStore: otelStore,
 		flowStore: flowStore, ebpfStore: ebpfStore, endpointStore: endpointStore, objectStore: st.objectStore,
-		writerFence: writerFence,
-		ctx:         ctx, stop: stop, g: g, gctx: gctx,
+		subsystemProbes: st.subsystemProbes,
+		writerFence:     writerFence,
+		ctx:             ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
 	}
 }
@@ -349,7 +351,11 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithDeviceOps(device.NewPostgresOpsStore(rt.db.Pool())).
 		WithInventoryViews(inventory.NewPostgresViewStore(rt.db.Pool())).
 		WithCost(rt.costEngine).
-		WithCarbon(rt.carbonEngine)
+		WithCarbon(rt.carbonEngine).
+		// PLAT-09: external-backend reachability probes so an outage of the bus,
+		// TSDB, ClickHouse event store or object store is visible on
+		// /v1/diagnostics instead of silently reported healthy.
+		WithSubsystemProbes(rt.subsystemProbes)
 	if rt.sloEngine != nil {
 		rt.srv.WithSLO(rt.sloEngine)
 	}

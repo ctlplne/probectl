@@ -46,6 +46,7 @@ import (
 	"github.com/ctlplne/probectl/internal/promapi"
 	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -77,6 +78,11 @@ type serveStores struct {
 	ebpfStore     ebpfstore.Store
 	endpointStore endpointstore.Store
 	objectStore   objectstore.Store
+	// subsystemProbes are the external-backend reachability probes the API
+	// server's deep-health checks call (PLAT-09). Built from the live clients
+	// below so an outage of the bus/TSDB/ClickHouse/object store is visible on
+	// /v1/diagnostics instead of silently reported healthy.
+	subsystemProbes control.SubsystemProbes
 }
 
 var devAuthAvailable = control.DevModeAvailable
@@ -455,7 +461,81 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 		log.Info("tenant object store enabled", "mode", "filesystem", "dir", cfg.ObjectStoreDir)
 	}
 
+	// PLAT-09: wire the deep-health reachability probes from the live clients, so
+	// /v1/diagnostics surfaces a bus/TSDB/ClickHouse/object-store outage instead
+	// of silently reporting them healthy. Memory-mode volatility needs no probe
+	// (the checks read it from config); only external backends are probed here.
+	s.subsystemProbes = control.SubsystemProbes{
+		Bus:         busReachabilityProbe(resultBus),
+		TSDB:        tsdbReachabilityProbe(s.promUpstream),
+		EventStore:  clickHouseReachabilityProbe(cfg, flowClient, otelClient, ebpfClient, endpointClient, pathClient),
+		ObjectStore: objectStoreReachabilityProbe(cfg, s.objectStore),
+	}
+
 	return s, closeAll, nil
+}
+
+// objectStoreHealthKey is the key the object-store reachability probe stats. A
+// missing object is "reachable" (not an error); only a transport/credential
+// failure surfaces as unreachable.
+const objectStoreHealthKey = "probectl-health-probe"
+
+// busReachabilityProbe returns a probe for an external (NATS/Kafka) result bus,
+// or nil for the in-memory bus (memory-mode volatility is reported from config).
+func busReachabilityProbe(b bus.Bus) func(context.Context) error {
+	switch t := b.(type) {
+	case *bus.Kafka:
+		return t.Healthy
+	case *bus.NATS:
+		return t.Healthy
+	default:
+		return nil
+	}
+}
+
+// tsdbReachabilityProbe returns a probe for the upstream TSDB in prometheus
+// mode, or nil when the metrics store is in memory mode (no upstream).
+func tsdbReachabilityProbe(up *promapi.Upstream) func(context.Context) error {
+	if up == nil {
+		return nil
+	}
+	return up.Ping
+}
+
+// clickHouseReachabilityProbe returns a probe for the ClickHouse event store,
+// pinging the first ClickHouse-backed plane's origin through the same hardened,
+// origin-bound client the stores use. nil when no plane is ClickHouse-backed.
+func clickHouseReachabilityProbe(cfg *config.Config, flowClient, otelClient, ebpfClient, endpointClient, pathClient *http.Client) func(context.Context) error {
+	for _, lane := range []struct {
+		mode, url string
+		client    *http.Client
+	}{
+		{cfg.FlowStoreMode, cfg.FlowStoreURL, flowClient},
+		{cfg.OTelStoreMode, cfg.OTelStoreURL, otelClient},
+		{cfg.EBPFStoreMode, cfg.EBPFStoreURL, ebpfClient},
+		{cfg.EndpointStoreMode, cfg.EndpointStoreURL, endpointClient},
+		{cfg.PathStoreMode, cfg.PathStoreURL, pathClient},
+	} {
+		if lane.mode != "clickhouse" || strings.TrimSpace(lane.url) == "" {
+			continue
+		}
+		conn := chclient.NewWithClient(lane.client)
+		chURL := lane.url
+		return func(ctx context.Context) error { return conn.Ping(ctx, chURL) }
+	}
+	return nil
+}
+
+// objectStoreReachabilityProbe returns a probe for an external (S3/MinIO) object
+// store, or nil for a filesystem/unconfigured store (local, always reachable).
+func objectStoreReachabilityProbe(cfg *config.Config, objStore objectstore.Store) func(context.Context) error {
+	if cfg.ObjectStoreMode != "s3" || objStore == nil {
+		return nil
+	}
+	return func(ctx context.Context) error {
+		_, _, err := objStore.Stat(ctx, objectStoreHealthKey)
+		return err
+	}
 }
 
 // datastoreBasicAuthFactory loads one owner-only credential file exactly once

@@ -347,6 +347,13 @@ type Server struct {
 	// off — single-factor deployments are unaffected.
 	requireMFA bool
 
+	// subsystemProbes are the optional external-backend reachability probes for
+	// the bus/tsdb/event_store/object_store deep-health checks (PLAT-09). Set via
+	// WithSubsystemProbes at the serve seam; the zero value leaves each check
+	// with a cfg-only view (volatile warnings still fire; external backends read
+	// as configured-but-not-probed).
+	subsystemProbes SubsystemProbes
+
 	// listener, when set, is served instead of binding cfg.HTTPAddr (tests).
 	listener net.Listener
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
