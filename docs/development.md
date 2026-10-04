@@ -101,7 +101,8 @@ Intentional artifact downloads remain streaming and do not use this helper.
 > per-surface gates have an identically-named `make` target you can run
 > yourself: `editions-gate`, `fips-gate`, `openapi-gate`, `completeness-gate`, `sdk-gate`, `migration-gate`,
 > `helm-gate`, `gitops-gate`, `terraform-gate`, `cover-gate`, `interop-offline`, `perf-smoke`,
-> `e2e`.
+> `e2e`, `journey-e2e`, `test-integration-isolated`, `evidence-receipt-gate`, `release-claim-gate`
+> (the last four are release/nightly or `make lint` bundles run locally, not per-PR CI jobs).
 
 ## CI jobs (`.github/workflows/ci.yml`)
 
@@ -148,10 +149,6 @@ This is the full list; `ci.yml` is the source of truth.
 | `proto`                  | `buf lint` + `buf breaking` vs `main` (additive-only wire contract) + generated-code drift                                                                                                                                       |
 | `web`                    | typecheck + lint + the frontend surface-coverage gate + jsdom axe/theme/no-hardcoded-token gates + `npm audit` + production build                                                                                                |
 | `web-rendered-a11y`      | rendered Chromium route/theme/viewport accessibility plus J1–J6 LCP/INP and bundle-budget gates; writes JSON receipts under `receipts/web-ux/`                                                                                   |
-| `journey-e2e`            | canonical J1–J6 browser execution plus isolated real-store integration, black-box agent mTLS, editions/FIPS, evidence-receipt, backup/restore, failover, and dependency-chaos gates                                            |
-| `evidence-receipt-gate`  | planted positive/negative checks for immutable receipt sealing, artifact integrity, explicit dirty state, current-SHA promotion/demotion, and claim lookup (`docs/evidence-receipts.md`)                                  |
-| `release-claim-gate`     | requires one owner and one strict-status catalog slot for F1–F57, N1–N13, BL-001–BL-048, and every governed repository claim                                                                                                  |
-| `test-integration-isolated` | full Postgres/Kafka/ClickHouse/Prometheus integration suite in a uniquely named disposable Compose project; teardown cannot target shared `probectl-dev` volumes                                                               |
 | `dependency-scan`        | `govulncheck` + Trivy filesystem scan (**vulnerabilities only**)                                                                                                                                                                 |
 | `image-scan`             | Trivy image scan (**vulnerabilities only**)                                                                                                                                                                                      |
 | `build-images`           | multi-arch image build for every component (Buildx + QEMU)                                                                                                                                                                       |
