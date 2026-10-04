@@ -20,6 +20,8 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      # SUP-19: these one-shot jobs never call the Kubernetes API; do not mount the SA token.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         # DPR-088: runAsNonRoot alone cannot start the root-default postgres image;
@@ -35,6 +37,8 @@ spec:
         # plaintext never lands on the backups PVC (OPS-002 symmetry).
         - name: stage-probectl
           image: {{ include "probectl.image" . }}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
           securityContext:
             {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
           # The control-plane image installs its single static binary at
@@ -151,6 +155,8 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      # SUP-19: these one-shot jobs never call the Kubernetes API; do not mount the SA token.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 101 # the clickhouse image's clickhouse uid
@@ -161,6 +167,8 @@ spec:
       initContainers:
         - name: stage-probectl
           image: {{ include "probectl.image" . }}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
           securityContext:
             {{- include "probectl.jobContainerSecurityContext" . | nindent 12 }}
           command: ["/usr/local/bin/app"]

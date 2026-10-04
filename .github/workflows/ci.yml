@@ -688,6 +688,11 @@ jobs:
         run: |
           ./scripts/check_helm_readme_install.sh SELFTEST
           ./scripts/check_helm_readme_install.sh
+      - name: Rendered pods carry init-container limits + drop job SA tokens (SUP-19)
+        run: |
+          sudo apt-get install -y -q python3-yaml >/dev/null 2>&1 || pip install --quiet pyyaml
+          ./scripts/check_helm_pod_hardening.sh SELFTEST
+          ./scripts/check_helm_pod_hardening.sh
       - name: compose config is valid
         # POSTGRES_PASSWORD is a required var with no default (SEC-006 fails
         # closed); supply a throwaway so interpolation can validate the file,

@@ -189,6 +189,11 @@ resources:
     cpu: 500m
     memory: 256Mi
 
+
+# SUP-19: explicit requests+limits for the install-seccomp-profile init step.
+initResources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: 250m, memory: 128Mi }
 logLevel: info
 logFormat: json
 

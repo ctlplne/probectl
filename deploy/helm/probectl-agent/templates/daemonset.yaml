@@ -96,6 +96,8 @@ spec:
       initContainers:
         - name: install-seccomp-profile
           image: {{ .Values.seccomp.installerImage | quote }}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
           command:
             - /bin/sh
             - -c

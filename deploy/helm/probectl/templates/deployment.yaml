@@ -38,6 +38,8 @@ spec:
         - name: stage-credentials
           image: {{ include "probectl.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
           command: ["/usr/local/bin/app"]
           args: ["stage-credentials", "/etc/probectl/credentials-source", {{ .Values.control.credentialFiles.mountPath | quote }}]
           securityContext:
@@ -53,6 +55,8 @@ spec:
         - name: migrate
           image: {{ include "probectl.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
           args: ["migrate"]
           envFrom:
             - configMapRef:
@@ -93,6 +97,8 @@ spec:
         - name: export-agent-ca
           image: {{ include "probectl.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
           args: ["agent-ca", "export", {{ include "probectl.agentListener.caFile" . | quote }}]
           envFrom:
             - configMapRef:

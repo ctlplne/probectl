@@ -93,8 +93,10 @@ control:
   authMode: session
   logFormat: json
   logLevel: info
-  # RFC 9116 disclosure contact served at /.well-known/security.txt.
-  securityContact: "mailto:security@your-org.example"
+  # RFC 9116 disclosure contact served at /.well-known/security.txt. SUP-19:
+  # default to the project's published policy URL so a default install ships a
+  # real contact, not a your-org.example placeholder; operators override this.
+  securityContact: "https://github.com/ctlplne/probectl/blob/main/SECURITY.md"
   # The control process serves TLS directly on service.port. Service, probes,
   # ingress backend, and ServiceMonitor all use the named "https" target.
   # existingSecret is required and must contain tls.crt/tls.key, unless certKey
@@ -356,6 +358,18 @@ resources:
   limits:
     cpu: "1"
     memory: 512Mi
+
+# SUP-19: every init/stage container (migrate, stage-credentials, export-agent-ca,
+# stage-probectl, backup/restore job steps) carries explicit requests+limits, so a
+# namespace with a LimitRange-less ResourceQuota or a "require limits" policy
+# (trivy KSV-0011/15/16/18) admits the pod. Modest by default; they run briefly.
+initResources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
 
 # Hardened pod/container security context (non-root, read-only root FS). The
 # image is distroless `nonroot` (uid/gid 65532), so we pin the numeric ids too —

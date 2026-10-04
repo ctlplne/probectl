@@ -49,6 +49,8 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      # SUP-19: these one-shot jobs never call the Kubernetes API; do not mount the SA token.
+      automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -88,6 +90,8 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          # SUP-19: these one-shot jobs never call the Kubernetes API; do not mount the SA token.
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: 999 # the postgres image's postgres uid
@@ -101,6 +105,8 @@ spec:
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
+              resources:
+                {{- toYaml .Values.initResources | nindent 16 }}
               securityContext:
                 {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/usr/local/bin/app"]
@@ -203,6 +209,8 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          # SUP-19: these one-shot jobs never call the Kubernetes API; do not mount the SA token.
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: 101 # the clickhouse image's clickhouse uid
@@ -213,6 +221,8 @@ spec:
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
+              resources:
+                {{- toYaml .Values.initResources | nindent 16 }}
               securityContext:
                 {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/usr/local/bin/app"]
@@ -325,6 +335,8 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          # SUP-19: these one-shot jobs never call the Kubernetes API; do not mount the SA token.
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532
@@ -336,6 +348,8 @@ spec:
           initContainers:
             - name: stage-probectl
               image: {{ include "probectl.image" . }}
+              resources:
+                {{- toYaml .Values.initResources | nindent 16 }}
               securityContext:
                 {{- include "probectl.jobContainerSecurityContext" . | nindent 16 }}
               command: ["/usr/local/bin/app"]
