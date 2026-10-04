@@ -14,7 +14,7 @@ sees one coherent governance view per tenant rather than five scattered settings
 | Redaction / masking | `internal/govern` | core mechanism |
 | Configurable retention + cross-store erasure | `internal/tenantlife` | **core** (a compliance right) |
 | Residency controls | siloed stores / region topology | provider / core |
-| BYOK / HYOK + no-downtime rotation | `ee/tenantkeys` | `byok` (Enterprise) |
+| BYOK + no-downtime rotation (HYOK planned) | `ee/tenantkeys` | `byok` (Enterprise) |
 | Remote-AI egress consent (enforcement) | `internal/ai` egress gate | core (fail-closed; consent is *set* via the governance policy) |
 | **The governance POLICY + composed view** | `ee/governance` | **`governance`** (Enterprise) |
 
@@ -200,12 +200,14 @@ owned by its own subsystem — governance is the dashboard, not a second engine:
   ones) so their stores stay in the permitted region rather
   than replicating globally. See [`isolation.md`](isolation.md),
   [`multi-region.md`](multi-region.md).
-- **BYOK / HYOK + no-downtime rotation** is the `byok` Enterprise feature
-  (`ee/tenantkeys`): per-tenant customer-held keys (bring-your-own-key /
-  hold-your-own-key — the tenant, not the platform, controls the key material),
-  rotation with
-  retired-versions-decrypt-only (no downtime), and crypto-offboarding. See
-  [`byok.md`](byok.md).
+- **BYOK + no-downtime rotation** is the `byok` Enterprise feature
+  (`ee/tenantkeys`): per-tenant customer-held keys (bring-your-own-key — the
+  tenant supplies the key material the platform wraps per-tenant DEKs with),
+  rotation with retired-versions-decrypt-only (no downtime), and
+  crypto-offboarding. See [`byok.md`](byok.md). **HYOK** (hold-your-own-key —
+  key material that never resides on the platform at all) is **planned, not yet
+  available**: it is tracked as F56/Phase 2 (`internal/crypto/envelope.go`), and
+  BYOK is the shipped per-tenant-key capability today.
 
 ## Watch-outs
 

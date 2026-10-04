@@ -116,6 +116,15 @@ list:
   **JA3** are scored against the SSLBL feeds. This reuses TLS data probectl
   already observed — it **never re-handshakes** with the target.
 
+  > **JA3 client matching is scoring-only today — not served on live traffic.**
+  > The matcher reads `tls.ja3` / `tls.ja3s` off an observation
+  > (`internal/threat/observation.go`) and the SSLBL JA3 feed is loaded, but **no
+  > shipped producer emits a client JA3 from live traffic** (neither the HTTPS
+  > canary nor the eBPF L7 TLS path sets those attributes), so JA3 scoring is
+  > inert on real traffic. **Certificate SHA-1 matching is the delivered TLS
+  > indicator**; JA3 client-fingerprint emission is planned. Nothing here claims
+  > JA3 blocks or detects on live traffic until a producer lands.
+
 The "already captured" part matters: probectl is not making new connections to
 test things. It scores what it saw passively, which keeps it observe-only —
 checking the guard's own camera footage against the list, never knocking on

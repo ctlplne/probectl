@@ -278,3 +278,57 @@ func TestDocsAdvertiseCLIOnlyUntilTUIExists(t *testing.T) {
 		}
 	}
 }
+
+// TestAdvertisedCapabilitiesAreServedOrQualified closes INV-05: a capability the
+// docs advertise must either be served or be explicitly qualified as not-yet.
+// Two concrete claims had drifted ahead of the code:
+//
+//   - HYOK (hold-your-own-key) was advertised alongside BYOK in governance.md,
+//     but it is F56/Phase 2 (internal/crypto/envelope.go) — unimplemented.
+//   - JA3 client-fingerprint matching was described as a live threat indicator
+//     in threat-intel.md, but no shipped producer emits tls.ja3 from real
+//     traffic, so the matcher is inert (cert-SHA1 matching is the delivered one).
+//
+// Fail-before: with the unqualified "BYOK / HYOK" wording and the JA3 claim
+// lacking a scoring-only qualifier, the assertions below fire.
+func TestAdvertisedCapabilitiesAreServedOrQualified(t *testing.T) {
+	t.Parallel()
+
+	// Match on whitespace-normalized prose so markdown line-wrapping / blockquote
+	// markers do not change what the gate reads.
+	gov := normalizeDocProse(readDoc(t, "governance.md"))
+	// The old wording advertised HYOK as a shipped Enterprise feature.
+	if strings.Contains(gov, "BYOK / HYOK + no-downtime rotation") {
+		t.Error("governance.md still advertises 'BYOK / HYOK + no-downtime rotation' as shipped; HYOK is F56/Phase 2 (not implemented) and must be qualified as planned")
+	}
+	// Any HYOK mention must now carry the planned/not-yet qualifier.
+	if strings.Contains(gov, "HYOK") && !strings.Contains(gov, "planned, not yet available") {
+		t.Error("governance.md mentions HYOK without qualifying it as 'planned, not yet available'")
+	}
+
+	ti := normalizeDocProse(readDoc(t, "threat-intel.md"))
+	// JA3 client matching must be qualified as scoring-only / not served live.
+	for _, want := range []string{
+		"JA3 client matching is scoring-only",
+		"no shipped producer emits a client JA3",
+		"Certificate SHA-1 matching is the delivered TLS",
+	} {
+		if !strings.Contains(ti, want) {
+			t.Errorf("threat-intel.md must qualify JA3 client matching; missing %q", want)
+		}
+	}
+}
+
+// normalizeDocProse strips markdown blockquote markers and collapses every run
+// of whitespace to a single space, so a phrase the gate looks for still matches
+// when the author wraps it across lines (including inside a `>` blockquote).
+func normalizeDocProse(s string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimLeft(line, " \t")
+		trimmed = strings.TrimPrefix(trimmed, ">")
+		b.WriteString(trimmed)
+		b.WriteByte(' ')
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
