@@ -30,7 +30,7 @@ dev = [
   "pytest==8.4.2",
   "pytest-cov==7.1.0",
   "ruff==0.15.16",
-  "black==25.11.0",
+  "black==26.5.1",
   "hypothesis==6.141.1",
 ]
 
