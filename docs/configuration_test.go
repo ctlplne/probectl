@@ -74,8 +74,12 @@ func TestFairnessQueryDefaultsMatchConfig(t *testing.T) {
 }
 
 func configurationDefaultsTestEnv(key string) string {
-	if key == "PROBECTL_DATABASE_URL" {
+	switch key {
+	case "PROBECTL_DATABASE_URL":
 		return "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require"
+	case "PROBECTL_SESSION_HMAC_KEY":
+		// AUTHZ-31: session auth (the default mode) requires a keyed token hash.
+		return "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 	}
 	return ""
 }

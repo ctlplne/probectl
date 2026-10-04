@@ -94,7 +94,9 @@ func TestHelmRenderedHSTSConfigLoads(t *testing.T) {
 			}
 			env := map[string]string{
 				"PROBECTL_DATABASE_URL": database,
-				"PROBECTL_HSTS_MAX_AGE": string(match[1]),
+				// AUTHZ-31: session auth (the default mode) requires a keyed token hash.
+				"PROBECTL_SESSION_HMAC_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+				"PROBECTL_HSTS_MAX_AGE":     string(match[1]),
 			}
 			cfg, err := config.Load(func(key string) string { return env[key] })
 			if err != nil {

@@ -21,8 +21,10 @@ func TestBuildIngestWriterDefaultsBatchedForPrometheus(t *testing.T) {
 	cfg, err := config.Load(func(k string) string {
 		return map[string]string{
 			"PROBECTL_DATABASE_URL": "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require",
-			"PROBECTL_TSDB_MODE":    "prometheus",
-			"PROBECTL_TSDB_URL":     "https://prom.example.com:9090",
+			// AUTHZ-31: session auth (the default mode) requires a keyed token hash.
+			"PROBECTL_SESSION_HMAC_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"PROBECTL_TSDB_MODE":        "prometheus",
+			"PROBECTL_TSDB_URL":         "https://prom.example.com:9090",
 		}[k]
 	})
 	if err != nil {

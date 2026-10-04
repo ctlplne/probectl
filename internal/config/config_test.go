@@ -22,6 +22,17 @@ const testSessionHMACKeyHex = "000102030405060708090a0b0c0d0e0f10111213141516171
 const testDatabaseURL = "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require"
 
 func envFunc(m map[string]string) func(string) string {
+	return envFuncOpts(m, true)
+}
+
+// envFuncNoSessionKey is envFunc WITHOUT the auto-provided session HMAC key, for
+// the tests that specifically exercise the AUTHZ-31 key requirement — presence,
+// absence and bad values must come from the caller's own map, never this helper.
+func envFuncNoSessionKey(m map[string]string) func(string) string {
+	return envFuncOpts(m, false)
+}
+
+func envFuncOpts(m map[string]string, withSessionKey bool) func(string) string {
 	return func(k string) string {
 		if value, ok := m[k]; ok {
 			return value
@@ -32,6 +43,15 @@ func envFunc(m map[string]string) func(string) string {
 		// this helper and proves production loading fails closed.
 		if k == "PROBECTL_DATABASE_URL" {
 			return testDatabaseURL
+		}
+		// AUTHZ-31: PROBECTL_AUTH_MODE defaults to "session", so the production
+		// loader now requires a session HMAC key on every default load (an
+		// unkeyed session-token digest is an offline second-preimage oracle on a
+		// DB read). Provide it here like the DSN above so the many tests that
+		// exercise unrelated defaults keep loading; the key-requirement tests use
+		// envFuncNoSessionKey and the empty-environment test proves fail-closed.
+		if withSessionKey && k == "PROBECTL_SESSION_HMAC_KEY" {
+			return testSessionHMACKeyHex
 		}
 		return ""
 	}
@@ -503,29 +523,16 @@ func TestDatastoreTLSAllowsSingleProfileDevLoopback(t *testing.T) {
 
 func TestSessionHMACKeyRequiredForTenantProfiles(t *testing.T) {
 	t.Run("single oidc session requires session hmac key", func(t *testing.T) {
-		_, err := Load(envFunc(singleOIDCSessionEnv()))
+		_, err := Load(envFuncNoSessionKey(singleOIDCSessionEnv()))
 		if err == nil || !strings.Contains(err.Error(), "PROBECTL_SESSION_HMAC_KEY is required") {
 			t.Fatalf("single-profile OIDC session auth without session HMAC key should fail closed; got %v", err)
-		}
-	})
-
-	t.Run("single local session without oidc may omit session hmac key", func(t *testing.T) {
-		cfg, err := Load(envFunc(map[string]string{
-			"PROBECTL_DEPLOYMENT_PROFILE": "single",
-			"PROBECTL_AUTH_MODE":          "session",
-		}))
-		if err != nil {
-			t.Fatalf("single-profile local session config without OIDC should remain loadable: %v", err)
-		}
-		if len(cfg.SessionHMACKey) != 0 {
-			t.Fatalf("SessionHMACKey length = %d, want omitted local/dev key", len(cfg.SessionHMACKey))
 		}
 	})
 
 	t.Run("single oidc session accepts valid session hmac key", func(t *testing.T) {
 		env := singleOIDCSessionEnv()
 		env["PROBECTL_SESSION_HMAC_KEY"] = testSessionHMACKeyHex
-		cfg, err := Load(envFunc(env))
+		cfg, err := Load(envFuncNoSessionKey(env))
 		if err != nil {
 			t.Fatalf("single-profile OIDC session auth with HMAC key should load: %v", err)
 		}
@@ -536,7 +543,7 @@ func TestSessionHMACKeyRequiredForTenantProfiles(t *testing.T) {
 
 	for _, profile := range []string{"multi-tenant", "regulated"} {
 		t.Run(profile+" requires session hmac key", func(t *testing.T) {
-			_, err := Load(envFunc(map[string]string{
+			_, err := Load(envFuncNoSessionKey(map[string]string{
 				"PROBECTL_DEPLOYMENT_PROFILE": profile,
 				"PROBECTL_AUTH_MODE":          "session",
 			}))
@@ -548,9 +555,53 @@ func TestSessionHMACKeyRequiredForTenantProfiles(t *testing.T) {
 		t.Run(profile+" accepts valid session hmac key", func(t *testing.T) {
 			env := durableTenantProfileEnv(profile)
 			env["PROBECTL_AUTH_MODE"] = "session"
-			cfg, err := Load(envFunc(env))
+			cfg, err := Load(envFuncNoSessionKey(env))
 			if err != nil {
 				t.Fatalf("load with session HMAC key: %v", err)
+			}
+			if len(cfg.SessionHMACKey) != crypto.KeySize {
+				t.Fatalf("SessionHMACKey length = %d, want %d", len(cfg.SessionHMACKey), crypto.KeySize)
+			}
+		})
+	}
+}
+
+// TestSessionHMACKeyRequiredForSingleProfileSessionAuth pins AUTHZ-31: a
+// single-profile, session-mode install with NO OIDC configured still mints and
+// stores session-token digests, so PROBECTL_SESSION_HMAC_KEY is required even
+// there. Before the fix this exact combination (also the shipped default, since
+// PROBECTL_AUTH_MODE and PROBECTL_DEPLOYMENT_PROFILE both default to
+// session/single) loaded successfully and internal/auth then silently hashed
+// session tokens with UNKEYED SHA-256 — a DB read of the session table became an
+// offline second-preimage oracle. The table drives the real exported loader
+// (config.Load) with a session-key-free env so the key must come from the case.
+func TestSessionHMACKeyRequiredForSingleProfileSessionAuth(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{name: "no key fails closed", key: "", wantErr: true},
+		{name: "valid key loads", key: testSessionHMACKeyHex, wantErr: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := map[string]string{
+				"PROBECTL_DEPLOYMENT_PROFILE": "single",
+				"PROBECTL_AUTH_MODE":          "session",
+				// No OIDC vars on purpose: the vulnerable path had no IdP.
+			}
+			if tc.key != "" {
+				env["PROBECTL_SESSION_HMAC_KEY"] = tc.key
+			}
+			cfg, err := Load(envFuncNoSessionKey(env))
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "PROBECTL_SESSION_HMAC_KEY is required") {
+					t.Fatalf("single-profile session auth with no OIDC and no HMAC key must fail closed (AUTHZ-31); got err=%v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("single-profile session auth with a valid HMAC key should load; got %v", err)
 			}
 			if len(cfg.SessionHMACKey) != crypto.KeySize {
 				t.Fatalf("SessionHMACKey length = %d, want %d", len(cfg.SessionHMACKey), crypto.KeySize)

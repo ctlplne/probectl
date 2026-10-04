@@ -172,6 +172,17 @@ type Config struct {
 	// single-factor deployments); set in hardened/regulated profiles.
 	RequireMFA bool
 
+	// MetricsScrapeToken (AUTHZ-25) gates the control-plane `GET /metrics`
+	// exposition on the public API listener. The Prometheus text carries build
+	// provenance (probectl_build_info{version,commit}) and pipeline counters — a
+	// fingerprinting surface that must not answer an anonymous caller. When set,
+	// a legitimate ServiceMonitor scrapes with this value as a bearer token
+	// (`Authorization: Bearer <token>`); an anonymous or mismatched scrape gets
+	// 401. Empty on a non-dev deployment means no scrape credential is
+	// configured and `/metrics` fails closed. It is a secret: never logged and
+	// never reflected into the support bundle (like CMDBSecret).
+	MetricsScrapeToken string
+
 	// Agent transport (gRPC). Enabled when the address and all three TLS files
 	// are set; the transport is mTLS-only (never plaintext).
 	AgentGRPCAddr    string
@@ -389,10 +400,13 @@ type Config struct {
 	SessionIdleTimeout time.Duration
 	// SessionHMACKey is the 32-byte key used to HMAC session tokens before
 	// storing their digest in the DB (PROBECTL_SESSION_HMAC_KEY, hex-encoded
-	// 64-char string). Production session-cookie deployments refuse to start
-	// without it: all multi-tenant/regulated session auth, plus single-profile
-	// session auth once an OIDC IdP is configured. Single-profile dev/test may
-	// omit it only when no real browser SSO path can mint sessions.
+	// 64-char string). Every session-cookie deployment refuses to start without
+	// it (AUTHZ-31): whenever PROBECTL_AUTH_MODE=session, regardless of
+	// deployment profile or whether an OIDC IdP is configured. Session auth
+	// always mints and stores token digests, so an unkeyed single-profile
+	// install would leave those digests vulnerable to an offline second-preimage
+	// oracle on a DB read — the keyless internal/auth fallback is for unit tests
+	// only. Omit it only by running the -tags devauth PROBECTL_AUTH_MODE=dev path.
 	SessionHMACKey []byte
 	// Auth brute-force guard (U-024): failures per window before a lockout,
 	// the window, and the base lockout (doubles per consecutive lockout,
@@ -995,6 +1009,8 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.LogFormat = l.enum("PROBECTL_LOG_FORMAT", "json", "json", "text")
 	cfg.ThemeOverrides = l.stringMapJSON("PROBECTL_THEME_OVERRIDES")
 	cfg.RequireMFA = l.boolean("PROBECTL_REQUIRE_MFA", false)
+	// AUTHZ-25: the /metrics scrape credential (env only, never logged).
+	cfg.MetricsScrapeToken = strings.TrimSpace(l.getenv("PROBECTL_METRICS_SCRAPE_TOKEN"))
 	cfg.HSTSEnabled = l.boolean("PROBECTL_HSTS_ENABLED", true)
 	cfg.HSTSMaxAge = l.dur("PROBECTL_HSTS_MAX_AGE", 365*24*time.Hour)
 	cfg.TLSCertFile = l.str("PROBECTL_TLS_CERT_FILE", "")
@@ -1866,22 +1882,19 @@ func volatileProductionModes(c *Config) []string {
 }
 
 func productionSessionCookiesEnabled(c *Config) bool {
-	if c.AuthMode != "session" {
-		return false
-	}
-	if c.DeploymentProfile != "single" {
-		return true
-	}
-	return strings.TrimSpace(c.OIDCIssuer) != "" ||
-		strings.TrimSpace(c.OIDCClientID) != "" ||
-		strings.TrimSpace(c.OIDCClientSecret) != "" ||
-		strings.TrimSpace(c.OIDCRedirectURL) != ""
+	// AUTHZ-31: auth_mode=session mints real session tokens and stores their
+	// digest in the DB. The 32-byte HMAC key (KEYS-002) is the ONLY thing that
+	// keeps a read of the session table from being an offline second-preimage
+	// oracle; without it internal/auth falls back to UNKEYED SHA-256. That
+	// risk is identical in EVERY session-mode deployment — a single-profile
+	// install with no OIDC still mints and stores session-token digests — so
+	// the key is required whenever session auth is enabled, not only for
+	// multi-tenant/regulated profiles or OIDC-configured single profiles. Fail
+	// closed (docs/guardrails.md G7-6) rather than silently hashing unkeyed.
+	return c.AuthMode == "session"
 }
 
 func sessionHMACRequirementReason(c *Config) string {
-	if c.DeploymentProfile == "single" {
-		return "PROBECTL_AUTH_MODE=session under the single deployment profile with OIDC configured"
-	}
 	return fmt.Sprintf("PROBECTL_AUTH_MODE=session under the %s deployment profile", c.DeploymentProfile)
 }
 
@@ -2047,6 +2060,8 @@ func (c *Config) Redacted() map[string]any {
 		"envelope_key_configured":     c.envelopeKeySource() != "none", // RTO-06: resolved keyring (env key OR key file), never the key
 		"envelope_key_source":         c.envelopeKeySource(),           // non-secret label: "env" | "file" | "none"
 		"session_hmac_key_configured": len(c.SessionHMACKey) == crypto.KeySize,
+		// AUTHZ-25: a boolean only — the token value is never reflected.
+		"metrics_scrape_token_configured": c.MetricsScrapeToken != "",
 	}
 }
 

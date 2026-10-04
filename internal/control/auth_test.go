@@ -220,8 +220,13 @@ func TestUnauthenticatedSessionModeIs401(t *testing.T) {
 // only as an explicit PROBECTL_AUTH_MODE=dev opt-in.
 func TestBootNoAuthModeRefusesUnauthenticated(t *testing.T) {
 	cfg, err := config.Load(func(key string) string {
-		if key == "PROBECTL_DATABASE_URL" {
+		switch key {
+		case "PROBECTL_DATABASE_URL":
 			return "postgres://probectl:test-only@localhost:5432/probectl?sslmode=require"
+		case "PROBECTL_SESSION_HMAC_KEY":
+			// AUTHZ-31: session mode (the fail-closed default this test asserts)
+			// now requires a keyed token hash, so the default load must carry one.
+			return "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 		}
 		return ""
 	})
