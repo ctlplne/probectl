@@ -76,8 +76,11 @@ type Topology struct {
 // and what promotion epoch + writer-region does its cluster_state row carry.
 // LagSeconds is the replica's replay lag (0 / unset on a primary).
 type Probe struct {
-	InRecovery   bool
-	Epoch        int64   // cluster_state.writer_epoch (monotonic across promotions)
+	InRecovery bool
+	Epoch      int64 // cluster_state.writer_epoch (monotonic across promotions)
+	// Timeline is the WAL timeline id — it advances AUTOMATICALLY on a Postgres
+	// failover with no cluster_promote() step; 0 means unknown (PLAT-19).
+	Timeline     int64
 	WriterRegion string  // cluster_state.writer_region
 	LagSeconds   float64 // replica replay lag, when observable
 	Err          error
@@ -93,6 +96,7 @@ type Prober interface {
 type NodeStatus struct {
 	Role         Role    `json:"role"`
 	Epoch        int64   `json:"epoch"`
+	Timeline     int64   `json:"timeline,omitempty"`
 	WriterRegion string  `json:"writer_region,omitempty"`
 	InRecovery   bool    `json:"in_recovery"`
 	LagSeconds   float64 `json:"lag_seconds,omitempty"`
@@ -131,13 +135,14 @@ type Manager struct {
 	// engaged only then. Bounded, a lost primary is detected within one cycle.
 	probeTimeout time.Duration
 
-	mu           sync.RWMutex
-	writerState  NodeStatus
-	readerState  *NodeStatus
-	highestEpoch int64
-	checkedAt    time.Time
-	started      bool
-	poolFenced   bool // the fencer's current state (stale writer endpoint)
+	mu              sync.RWMutex
+	writerState     NodeStatus
+	readerState     *NodeStatus
+	highestEpoch    int64
+	highestTimeline int64 // PLAT-19: WAL-timeline high-water (automatic failover signal)
+	checkedAt       time.Time
+	started         bool
+	poolFenced      bool // the fencer's current state (stale writer endpoint)
 }
 
 // NewManager builds a Manager. writer is required (the primary endpoint);
@@ -224,13 +229,25 @@ func (m *Manager) Refresh(ctx context.Context) {
 	m.checkedAt = m.now()
 	m.started = true
 
-	// The replica follows the TRUE primary, so its epoch advances the
-	// high-water mark even while the writer endpoint is briefly stale.
-	if rp != nil && rp.Err == nil && rp.Epoch > m.highestEpoch {
-		m.highestEpoch = rp.Epoch
+	// The replica follows the TRUE primary, so its epoch AND WAL timeline advance
+	// the high-water marks even while the writer endpoint is briefly stale. The
+	// timeline is the automatic signal: a Postgres failover advances it with no
+	// cluster_promote() step (PLAT-19).
+	if rp != nil && rp.Err == nil {
+		if rp.Epoch > m.highestEpoch {
+			m.highestEpoch = rp.Epoch
+		}
+		if rp.Timeline > m.highestTimeline {
+			m.highestTimeline = rp.Timeline
+		}
 	}
-	if wp.Err == nil && wp.Epoch > m.highestEpoch {
-		m.highestEpoch = wp.Epoch
+	if wp.Err == nil {
+		if wp.Epoch > m.highestEpoch {
+			m.highestEpoch = wp.Epoch
+		}
+		if wp.Timeline > m.highestTimeline {
+			m.highestTimeline = wp.Timeline
+		}
 	}
 
 	m.writerState = m.classify(wp)
@@ -279,15 +296,21 @@ func (m *Manager) probe(ctx context.Context, p Prober) Probe {
 // It is pure (no shared state) so the authoritative write-path re-check
 // (WriterUsableNow) can classify a FRESH probe against a locally-computed
 // high-water mark without holding the manager lock.
-func roleUnder(p Probe, highestEpoch int64) Role {
+func roleUnder(p Probe, highestEpoch, highestTimeline int64) Role {
 	switch {
 	case p.Err != nil:
 		return RoleUnknown
 	case p.InRecovery:
 		return RoleReader
 	case p.Epoch < highestEpoch:
-		// A primary on a superseded epoch: a stale ex-primary that a promotion
-		// elsewhere has fenced off. NEVER write to it.
+		// A primary on a superseded epoch: a stale ex-primary that an operator
+		// promotion (cluster_promote) has fenced off. NEVER write to it.
+		return RoleStale
+	case p.Timeline > 0 && highestTimeline > 0 && p.Timeline < highestTimeline:
+		// PLAT-19: a primary on a superseded WAL timeline — a Postgres failover
+		// advanced the timeline on the true primary (and its followers) with no
+		// cluster_promote() step, so this ex-primary is stale even though its
+		// epoch was never bumped. Fence it automatically.
 		return RoleStale
 	default:
 		return RoleWriter
@@ -297,11 +320,11 @@ func roleUnder(p Probe, highestEpoch int64) Role {
 // classify resolves a probe into the surfaced status under the current
 // high-water epoch.
 func (m *Manager) classify(p Probe) NodeStatus {
-	ns := NodeStatus{Epoch: p.Epoch, WriterRegion: p.WriterRegion, InRecovery: p.InRecovery, LagSeconds: p.LagSeconds}
+	ns := NodeStatus{Epoch: p.Epoch, Timeline: p.Timeline, WriterRegion: p.WriterRegion, InRecovery: p.InRecovery, LagSeconds: p.LagSeconds}
 	if !m.checkedAt.IsZero() {
 		ns.CheckedAgo = m.now().Sub(m.checkedAt).Round(time.Millisecond).String()
 	}
-	ns.Role = roleUnder(p, m.highestEpoch)
+	ns.Role = roleUnder(p, m.highestEpoch, m.highestTimeline)
 	if p.Err != nil {
 		ns.Error = p.Err.Error()
 	}
@@ -312,14 +335,14 @@ func (m *Manager) classify(p Probe) NodeStatus {
 // human-readable reason when writes are refused. One voice for the cached read
 // path (writerUsableLocked) and the authoritative write-path re-check
 // (WriterUsableNow).
-func writerVerdict(role Role, epoch, highestEpoch int64, errMsg string) (bool, string) {
+func writerVerdict(role Role, epoch, highestEpoch, timeline, highestTimeline int64, errMsg string) (bool, string) {
 	switch role {
 	case RoleWriter:
 		return true, ""
 	case RoleReader:
 		return false, "writer endpoint points at a read-only standby (failover in progress)"
 	case RoleStale:
-		return false, fmt.Sprintf("writer endpoint points at a stale primary (epoch %d < current %d) — fenced to prevent split-brain", epoch, highestEpoch)
+		return false, fmt.Sprintf("writer endpoint points at a stale ex-primary (epoch %d/%d, timeline %d/%d) — fenced to prevent split-brain", epoch, highestEpoch, timeline, highestTimeline)
 	default:
 		return false, "writer endpoint unreachable: " + errMsg
 	}
@@ -363,6 +386,7 @@ func (m *Manager) WriterUsableNow(ctx context.Context) (bool, string) {
 	m.mu.RLock()
 	started := m.started
 	highest := m.highestEpoch
+	highestTL := m.highestTimeline
 	reader := m.reader
 	m.mu.RUnlock()
 	if !started {
@@ -371,22 +395,34 @@ func (m *Manager) WriterUsableNow(ctx context.Context) (bool, string) {
 		return false, "initial cluster probe has not completed"
 	}
 	// Re-probe synchronously. The replica follows the TRUE primary, so its epoch
-	// can raise the high-water mark the moment a promotion lands — letting us
-	// detect a stale ex-primary before the next periodic Refresh folds it in.
+	// and WAL timeline can raise the high-water marks the moment a promotion
+	// lands — letting us detect a stale ex-primary before the next periodic
+	// Refresh folds it in. The timeline raises automatically on a Postgres
+	// failover with no cluster_promote() step (PLAT-19).
 	wp := m.probe(ctx, m.writer)
 	if reader != nil {
-		if rp := m.probe(ctx, reader); rp.Err == nil && rp.Epoch > highest {
-			highest = rp.Epoch
+		if rp := m.probe(ctx, reader); rp.Err == nil {
+			if rp.Epoch > highest {
+				highest = rp.Epoch
+			}
+			if rp.Timeline > highestTL {
+				highestTL = rp.Timeline
+			}
 		}
 	}
-	if wp.Err == nil && wp.Epoch > highest {
-		highest = wp.Epoch
+	if wp.Err == nil {
+		if wp.Epoch > highest {
+			highest = wp.Epoch
+		}
+		if wp.Timeline > highestTL {
+			highestTL = wp.Timeline
+		}
 	}
 	errMsg := ""
 	if wp.Err != nil {
 		errMsg = wp.Err.Error()
 	}
-	return writerVerdict(roleUnder(wp, highest), wp.Epoch, highest, errMsg)
+	return writerVerdict(roleUnder(wp, highest, highestTL), wp.Epoch, highest, wp.Timeline, highestTL, errMsg)
 }
 
 // poolFencedLocked prefers the pool's own answer over the manager's last
@@ -424,7 +460,7 @@ func (m *Manager) writerUsableLocked() (bool, string) {
 	if !m.started {
 		return false, "initial cluster probe has not completed"
 	}
-	return writerVerdict(m.writerState.Role, m.writerState.Epoch, m.highestEpoch, m.writerState.Error)
+	return writerVerdict(m.writerState.Role, m.writerState.Epoch, m.highestEpoch, m.writerState.Timeline, m.highestTimeline, m.writerState.Error)
 }
 
 // Run refreshes on a ticker until ctx is canceled (call once at startup).

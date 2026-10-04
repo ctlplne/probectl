@@ -84,6 +84,9 @@ func InProvider(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{ProviderRole}.Sanitize()); err != nil {
 		return fmt.Errorf("assume provider role: %w", err)
 	}
+	if err := runTxGuard(ctx, tx); err != nil {
+		return err
+	}
 	if err := fn(ctx, tx); err != nil {
 		return err
 	}
@@ -136,6 +139,9 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 		return fmt.Errorf("bind tenant scope: %w", err)
 	}
 
+	if err := runTxGuard(ctx, tx); err != nil {
+		return err
+	}
 	if err := fn(ctx, Scope{Tenant: id, Q: tx}); err != nil {
 		return err
 	}
@@ -195,6 +201,9 @@ func InTenantProviderMaintenance(
 		"SET LOCAL ROLE "+pgx.Identifier{ProviderRole}.Sanitize(),
 	); err != nil {
 		return fmt.Errorf("assume provider role for tenant maintenance: %w", err)
+	}
+	if err := runTxGuard(ctx, tx); err != nil {
+		return err
 	}
 	if err := fn(ctx, Scope{Tenant: id, Q: tx}); err != nil {
 		return err

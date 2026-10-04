@@ -42,6 +42,41 @@ type Token struct {
 	Epoch    int64
 }
 
+// Queryer is the minimal surface Guard needs — satisfied by pgx.Tx,
+// pgxpool.Pool and tenancy.Querier.
+type Queryer interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// Guard verifies, INSIDE the caller's write transaction, that token is still
+// the current lease term, and returns ErrFenced otherwise (PLAT-19). It takes a
+// FOR SHARE row-lock on the lease row, which serializes against Acquire's
+// `epoch = epoch + 1` UPDATE: a superseded holder's write transaction either
+// sees the new epoch (0 rows → ErrFenced) or blocks the promotion until it
+// finishes and is fenced on its next transaction — so a singleton task can
+// never commit a write under a stale epoch, closing the up-to-one-renew-interval
+// window the asynchronous Renew check left open. A zero (empty) token is a
+// no-op: a single-node/non-cluster deployment runs no lease.
+func Guard(ctx context.Context, token Token, q Queryer) error {
+	if token.Name == "" || token.Epoch == 0 {
+		return nil
+	}
+	var ok bool
+	err := q.QueryRow(ctx,
+		`SELECT true FROM cluster_singleton_leases
+		  WHERE lease_name = $1 AND epoch = $2 AND holder_id = $3 AND released_at IS NULL
+		  FOR SHARE`,
+		token.Name, token.Epoch, token.HolderID,
+	).Scan(&ok)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrFenced
+	}
+	if err != nil {
+		return fmt.Errorf("cluster: verify singleton lease epoch: %w", err)
+	}
+	return nil
+}
+
 type leasePool interface {
 	Acquire(context.Context) (leaseConn, error)
 }

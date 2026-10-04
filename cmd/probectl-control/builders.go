@@ -1237,8 +1237,10 @@ func startHAAndTenantLifecycle(
 		lifeEngine.WithEBPF(ed)
 	}
 	srv.WithTenantLife(lifeEngine)
-	if err := singletons.Register("tenant-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
-		lifeEngine.RunRetention(ctx, 24*time.Hour)
+	if err := singletons.Register("tenant-retention", func(ctx context.Context, token cluster.LeaseToken) error {
+		// PLAT-19: every write this task opens verifies it still holds the lease
+		// epoch, transactionally, before committing.
+		lifeEngine.RunRetention(tenancy.WithTxGuard(ctx, cluster.LeaseGuard(token)), 24*time.Hour)
 		return nil
 	}); err != nil {
 		return nil, nil, err
@@ -1256,8 +1258,8 @@ func startHAAndTenantLifecycle(
 		worm.WithMetrics(srv.Metrics())
 		providerAuditWatermark = worm.ExportedWatermark
 		providerAuditProof = worm.RetentionProof
-		if err := singletons.Register("audit-worm-export", func(ctx context.Context, _ cluster.LeaseToken) error {
-			worm.Run(ctx, cfg.AuditWORMInterval)
+		if err := singletons.Register("audit-worm-export", func(ctx context.Context, token cluster.LeaseToken) error {
+			worm.Run(tenancy.WithTxGuard(ctx, cluster.LeaseGuard(token)), cfg.AuditWORMInterval)
 			return nil
 		}); err != nil {
 			return nil, nil, err
@@ -1275,8 +1277,8 @@ func startHAAndTenantLifecycle(
 		// AUD-06: a pseudonymized SIEM copy is lossy, so it must not authorize
 		// pruning the local attributable rows unless the operator opted in.
 		WithTenantExportAttributable(cfg.SIEMAuditIdentity != "pseudonymize" || cfg.SIEMAuditPruneMasked)
-	if err := singletons.Register("audit-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
-		retention.Run(ctx, time.Hour)
+	if err := singletons.Register("audit-retention", func(ctx context.Context, token cluster.LeaseToken) error {
+		retention.Run(tenancy.WithTxGuard(ctx, cluster.LeaseGuard(token)), time.Hour)
 		return nil
 	}); err != nil {
 		return nil, nil, err

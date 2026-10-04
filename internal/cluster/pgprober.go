@@ -51,5 +51,13 @@ func (p *PGProber) Probe(ctx context.Context) Probe {
 		Scan(&pr.Epoch, &pr.WriterRegion); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Probe{Err: err}
 	}
+	// PLAT-19: the WAL timeline id — advances AUTOMATICALLY on a Postgres
+	// failover with no cluster_promote() step. Best-effort: a missing function
+	// (pre-migration) or NULL is treated as unknown (0), which never fences on
+	// its own, so this read never turns a healthy probe into an error.
+	var tl *int64
+	if err := p.pool.QueryRow(ctx, `SELECT cluster_timeline()`).Scan(&tl); err == nil && tl != nil {
+		pr.Timeline = *tl
+	}
 	return pr
 }

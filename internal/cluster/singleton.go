@@ -20,6 +20,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/cluster/pglease"
 	"github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 const (
@@ -42,6 +43,18 @@ var (
 // LeaseToken fences one leadership term. It aliases the PostgreSQL backend's
 // transport-neutral token so callers do not depend on backend internals.
 type LeaseToken = pglease.Token
+
+// LeaseGuard returns a tenancy.TxGuard that fences a singleton task's write
+// transaction the moment its leadership term is superseded (PLAT-19). A task
+// sets it on its context (tenancy.WithTxGuard); every InTenant/InProvider
+// transaction it then opens verifies the epoch FOR SHARE before committing, so
+// a demoted ex-leader cannot commit a write in the window before its renew tick
+// observes the fence. The zero token (single-node/no-lease) is a no-op.
+func LeaseGuard(token LeaseToken) tenancy.TxGuard {
+	return func(ctx context.Context, q tenancy.Querier) error {
+		return pglease.Guard(ctx, token, q)
+	}
+}
 
 // LeaseBackend is the acquire/renew/release seam used by Coordinator. Unit
 // tests use an in-process implementation to deterministically exercise two
