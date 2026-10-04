@@ -29,7 +29,7 @@ rislive = [
 dev = [
   "pytest==8.4.2",
   "pytest-cov==7.1.0",
-  "ruff==0.15.16",
+  "ruff==0.16.9",
   "black==25.11.0",
   "hypothesis==6.141.1",
 ]
