@@ -162,6 +162,17 @@ APIs by itself. Any `tenant_id` field in the input file is ignored; the emitted
 remote-write request is authenticated and tenant-bound by the API header, and
 the control plane forces `tenant_id` again when decoding remote-write.
 
+For `aws_cloudwatch_export` the importer accepts both the native **CloudWatch
+Metric Streams** JSON that Kinesis Firehose delivers — a numeric
+epoch-millisecond `timestamp` and a statistic-set `value` object
+(`{"max","min","sum","count"}`) — and the simpler hand-shaped form (a quoted
+RFC3339 or numeric-string `timestamp` and a scalar `value`). A statistic set is
+reduced to a single sample: by default the **average** (`sum / count`), the
+representative central value over the aggregation window and the same
+first-choice aggregation the Azure decoder uses; it falls back to `sum`, then
+`maximum`, `minimum`, and `count` for a partial set. The statistic actually used
+is recorded on the `aggregation` label of the emitted series.
+
 ## CMDB correlation
 
 This links probectl's view of the network to your system of record for assets.

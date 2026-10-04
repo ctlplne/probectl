@@ -62,6 +62,62 @@ func TestParseCloudMetricExportsForceTenantAndNormalizeProviders(t *testing.T) {
 	}
 }
 
+func TestDecodeAWSAcceptsNativeMetricStreamsAndJSONL(t *testing.T) {
+	const tenant = "tenant-a"
+	jsonlAt := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name       string
+		raw        string
+		wantValue  float64
+		wantMillis int64
+		wantAgg    string
+	}{
+		{
+			// Native CloudWatch Metric Streams (Kinesis Firehose JSON): a bare
+			// numeric millisecond timestamp and a statistic-set value object.
+			// Before the fix this errors unmarshaling the number into the
+			// string timestamp field and the object into a scalar value.
+			name:       "native_metric_streams_statistic_set",
+			raw:        `{"metric_stream_name":"ms","account_id":"123456789012","region":"us-east-1","namespace":"AWS/EC2","metric_name":"CPUUtilization","dimensions":{"InstanceId":"i-abc"},"timestamp":1700000000000,"value":{"count":4,"sum":100,"max":40,"min":10},"unit":"Percent"}`,
+			wantValue:  25, // average = sum(100) / count(4)
+			wantMillis: 1700000000000,
+			wantAgg:    "average",
+		},
+		{
+			// The importer's existing hand-shaped JSONL shape: quoted RFC3339
+			// timestamp and a scalar value. Must still import (back-compat).
+			name:       "hand_shaped_jsonl_scalar",
+			raw:        `{"namespace":"AWS/EC2","metric_name":"NetworkIn","dimensions":[{"Name":"InstanceId","Value":"i-abc"}],"timestamp":"2026-06-30T12:00:00Z","value":1024,"unit":"Bytes"}`,
+			wantValue:  1024,
+			wantMillis: jsonlAt.UnixMilli(),
+			wantAgg:    "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			series, err := decodeAWS(tenant, []byte(tc.raw))
+			if err != nil {
+				t.Fatalf("decodeAWS: %v", err)
+			}
+			if len(series) != 1 {
+				t.Fatalf("series = %+v, want 1", series)
+			}
+			s := series[0]
+			if s.Value != tc.wantValue {
+				t.Fatalf("value = %v, want %v", s.Value, tc.wantValue)
+			}
+			if s.TimeMillis != tc.wantMillis {
+				t.Fatalf("timestamp millis = %d, want %d", s.TimeMillis, tc.wantMillis)
+			}
+			if got := s.Labels["aggregation"]; got != tc.wantAgg {
+				t.Fatalf("aggregation = %q, want %q", got, tc.wantAgg)
+			}
+			if s.Labels[tsdb.TenantLabel] != tenant {
+				t.Fatalf("tenant = %q, want %q", s.Labels[tsdb.TenantLabel], tenant)
+			}
+		})
+	}
+}
+
 func TestLoadWritesTenantScopedTSDBSeries(t *testing.T) {
 	mem := tsdb.NewMemory()
 	raw := `{"namespace":"AWS/ApplicationELB","metric_name":"TargetResponseTime","dimensions":{"LoadBalancer":"app/api/123"},"timestamp":"2026-06-30T12:00:00Z","value":"0.123","unit":"Seconds"}`

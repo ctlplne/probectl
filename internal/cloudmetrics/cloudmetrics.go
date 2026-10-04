@@ -217,7 +217,7 @@ func decodeAWS(tenantID string, raw []byte) ([]tsdb.Series, error) {
 		MetricName string            `json:"metric_name"`
 		Metric     string            `json:"metric"`
 		Dimensions json.RawMessage   `json:"dimensions"`
-		Timestamp  string            `json:"timestamp"`
+		Timestamp  json.RawMessage   `json:"timestamp"`
 		Value      json.RawMessage   `json:"value"`
 		Unit       string            `json:"unit"`
 		AccountID  string            `json:"account_id"`
@@ -228,17 +228,18 @@ func decodeAWS(tenantID string, raw []byte) ([]tsdb.Series, error) {
 	if err := json.Unmarshal(raw, &row); err != nil {
 		return nil, err
 	}
-	at, err := parseTime(row.Timestamp)
+	at, err := parseAWSTime(row.Timestamp)
 	if err != nil {
 		return nil, err
 	}
-	value, err := parseValue(row.Value)
+	value, aggregation, err := parseAWSValue(row.Value)
 	if err != nil {
 		return nil, err
 	}
 	labels := mergeLabels(row.Labels, parseDimensions(row.Dimensions, "aws_dimension_"))
 	copyLabel(labels, "cloud_account_id", row.AccountID)
 	copyLabel(labels, "cloud_region", row.Region)
+	copyLabel(labels, "aggregation", aggregation)
 	point := cloudPoint{
 		Metric:     first(row.MetricName, row.Metric),
 		Source:     first(row.Namespace, "AWS") + "/" + first(row.MetricName, row.Metric),
@@ -423,6 +424,73 @@ func parseValue(raw json.RawMessage) (float64, error) {
 		return strconv.ParseFloat(strings.TrimSpace(s), 64)
 	}
 	return 0, fmt.Errorf("parse value %s", string(raw))
+}
+
+// parseAWSTime reads a CloudWatch timestamp. The hand-shaped JSONL export quotes
+// it (RFC3339, or a numeric string); native CloudWatch Metric Streams (Kinesis
+// Firehose JSON) deliver a bare numeric epoch-millisecond value that would fail
+// to unmarshal into a Go string. Both forms route through parseTime, which
+// already distinguishes epoch-second from epoch-millisecond integers.
+func parseAWSTime(raw json.RawMessage) (time.Time, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return time.Time{}, errors.New("empty timestamp")
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return parseTime(s)
+	}
+	// Native numeric millisecond timestamp (not JSON-quoted).
+	return parseTime(strings.TrimSpace(string(raw)))
+}
+
+// parseAWSValue reads a CloudWatch metric value. The hand-shaped JSONL export
+// carries a scalar number (or a numeric string); native CloudWatch Metric
+// Streams carry a statistic-set object {max,min,sum,count}. For a statistic set
+// the importer emits the average (sum/count) by default — the representative
+// central value over the aggregation window, and the same first-choice
+// aggregation the Azure decoder prefers (azureValue), which keeps the single
+// scalar probectl stores consistent across providers. It falls back to sum,
+// maximum, minimum, then count when the set is partial. The chosen statistic is
+// recorded in the "aggregation" label so a consumer can tell which it is. The
+// data is still a local operator export — no cloud API is ever polled
+// (docs/guardrails.md G2-N).
+func parseAWSValue(raw json.RawMessage) (float64, string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, "", errors.New("value is required")
+	}
+	// Scalar form, as emitted by the hand-shaped JSONL export.
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return f, "", nil
+	}
+	// Numeric-string form, also accepted by the JSONL export.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		return v, "", err
+	}
+	// Native CloudWatch Metric Streams statistic set.
+	var stat struct {
+		Max   *float64 `json:"max"`
+		Min   *float64 `json:"min"`
+		Sum   *float64 `json:"sum"`
+		Count *float64 `json:"count"`
+	}
+	if err := json.Unmarshal(raw, &stat); err == nil {
+		switch {
+		case stat.Sum != nil && stat.Count != nil && *stat.Count != 0:
+			return *stat.Sum / *stat.Count, "average", nil
+		case stat.Sum != nil:
+			return *stat.Sum, "sum", nil
+		case stat.Max != nil:
+			return *stat.Max, "maximum", nil
+		case stat.Min != nil:
+			return *stat.Min, "minimum", nil
+		case stat.Count != nil:
+			return *stat.Count, "count", nil
+		}
+	}
+	return 0, "", fmt.Errorf("parse value %s", string(raw))
 }
 
 func azureValue(vals ...*float64) (float64, string, error) {
