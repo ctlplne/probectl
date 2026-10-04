@@ -15,6 +15,7 @@ import {
   type Column,
 } from '../components'
 import { a, latencyFamily, m, useLatestResults, type LatestResult } from '../api/results'
+import { browserStepCount } from '../lib/clientGuards'
 import type { Test } from '../api/tests'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
@@ -230,7 +231,9 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
         .filter((v): v is string => Boolean(v))
         .map((v) => Number(v)),
     ) + 1
-  const count = Math.max(Number.isFinite(declared) ? declared : 0, metricStepCount)
+  // WEB-24: browser.step_count is agent-reported; clamp before allocating so a
+  // forged count cannot freeze the tab.
+  const count = browserStepCount(declared, metricStepCount)
   const rows: BrowserStepRow[] = Array.from({ length: count }, (_, index) => ({
     index,
     name: a(r, `browser.step.${index}.name`) ?? `step ${index + 1}`,

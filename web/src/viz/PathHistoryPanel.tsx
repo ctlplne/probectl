@@ -8,6 +8,7 @@ import { Badge, Field, Select, Table, type Column } from '../components'
 import type { HopNode, PathSnapshot } from '../api/paths'
 import { DateTime } from '../time/DateTime'
 import { layoutPath } from './layout'
+import { safeISOString } from '../lib/clientGuards'
 import styles from './PathHistoryPanel.module.css'
 
 type DiffState = 'common' | 'changed' | 'unique to selected' | 'unique to comparison'
@@ -148,7 +149,7 @@ export function PathHistoryPanel({
               .filter((round) => round.id !== selected?.id)
               .map((round, index) => ({
                 value: round.id,
-                label: `Round ${index + 1} · ${new Date(round.observed_at).toISOString()}`,
+                label: `Round ${index + 1} · ${safeISOString(round.observed_at)}`,
               })),
           ]}
         />
