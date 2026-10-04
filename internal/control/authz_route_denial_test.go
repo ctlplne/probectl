@@ -74,12 +74,15 @@ func TestEveryRouteRefusesAnUnderPrivilegedPrincipal(t *testing.T) {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 
-		// The route must refuse. 403 is the expected shape; 401 is also a
-		// refusal. Anything else means the caller reached the handler without
-		// the permission the table says it needs.
-		if rec.Code != http.StatusForbidden && rec.Code != http.StatusUnauthorized {
+		// AUTHZ-30: the principal IS authenticated (the test only WITHHOLDS one
+		// permission), so the correct refusal is 403 Forbidden — not 401, which
+		// means "not authenticated" and would misreport an authorization failure
+		// as an authentication one. Requiring 403 here (previously 401 was also
+		// accepted) stops the suite from masking a route that denies with the
+		// wrong status.
+		if rec.Code != http.StatusForbidden {
 			uncovered = append(uncovered, key+" returned "+http.StatusText(rec.Code)+
-				" without permission "+rt.Permission)
+				" (want 403 Forbidden) without permission "+rt.Permission)
 		}
 	}
 	sort.Strings(uncovered)
