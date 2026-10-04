@@ -278,9 +278,24 @@ describe('TLS/cert posture surface (S-FE2)', () => {
     const rendered = JSON.parse(pre.textContent ?? '{}') as Record<string, unknown>
     expect(rendered).toEqual(fixtures[0].handoff as unknown as Record<string, unknown>)
 
-    // The trustctl deep link uses the payload URL untouched.
+    // The trustctl deep link uses the payload URL untouched (a safe https URL).
     const link = within(dialog).getByRole('link', { name: 'Open in trustctl' })
     expect(link.getAttribute('href')).toBe(fixtures[0].handoff?.url)
+  })
+
+  test('a hostile-scheme trustctl handoff URL is not rendered as a link (WEB-14)', async () => {
+    const fixtures = postureFixtures()
+    fixtures[0].handoff!.url = 'javascript:alert(1)'
+    const { fetcher } = tlsBackend(fixtures)
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/security')
+
+    const inv = within(await screen.findByRole('table', { name: 'Certificate inventory' }))
+    await userEvent.click(inv.getAllByRole('button', { name: 'Details' })[0])
+    const dialog = await screen.findByRole('dialog')
+    // The handoff detail still renders, but a javascript: URL is never a link.
+    expect(within(dialog).getByText('CN=expired.acme.example')).toBeDefined()
+    expect(within(dialog).queryByRole('link', { name: 'Open in trustctl' })).toBeNull()
   })
 
   test('tenant scoping: renders exactly the tenant-scoped API items, no tenant params sent', async () => {

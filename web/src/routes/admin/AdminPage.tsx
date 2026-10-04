@@ -53,6 +53,7 @@ const BreakGlassConsentCard = lazy(() =>
 )
 import { DateTime } from '../../time/DateTime'
 import { formatDuration } from '../../i18n/number'
+import { safeInternalTo } from '../../lib/links'
 import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
 import { FilterBar, SavedViews } from '../listControls'
@@ -223,7 +224,9 @@ function FleetActionDialog({
           </p>
         </div>
         <p className={styles.editionsLede}>{t('admin.fleet.dialog.guardrails')}</p>
-        <Link to={action?.href || '/docs/api#rollouts'}>{t('admin.fleet.dialog.openRunbook')}</Link>
+        <Link to={safeInternalTo(action?.href) || '/docs/api#rollouts'}>
+          {t('admin.fleet.dialog.openRunbook')}
+        </Link>
       </div>
     </Modal>
   )

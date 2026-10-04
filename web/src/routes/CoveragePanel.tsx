@@ -36,6 +36,7 @@ import {
 } from '../api/coverage'
 import { DateTime } from '../time/DateTime'
 import { formatInteger } from '../i18n/number'
+import { safeInternalTo } from '../lib/links'
 import { useI18n } from '../i18n/useI18n'
 import type { I18nContextValue } from '../i18n/context'
 import type { MessageKey } from '../i18n/messages'
@@ -196,7 +197,10 @@ export function CoveragePanel({ canCreateTest }: { canCreateTest: boolean }) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => void navigate(item.next_action!.href)}
+              onClick={() => {
+                const to = safeInternalTo(item.next_action!.href)
+                if (to) void navigate(to)
+              }}
             >
               {item.next_action.label}
             </Button>
@@ -415,7 +419,10 @@ export function CoveragePanel({ canCreateTest }: { canCreateTest: boolean }) {
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => void navigate(item.next_action!.href)}
+                          onClick={() => {
+                            const to = safeInternalTo(item.next_action!.href)
+                            if (to) void navigate(to)
+                          }}
                         >
                           {item.next_action.label}
                         </Button>

@@ -1770,3 +1770,23 @@ func TestDurableLightweightBusPassesTheProductionProfiles(t *testing.T) {
 		})
 	}
 }
+
+func TestTrustctlURLRejectsPlaintextRemote(t *testing.T) {
+	// WEB-14: the UI deep-links cert renewals to this base; a plaintext remote
+	// base would send operators off-site over http, so it fails closed.
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_TRUSTCTL_URL": "http://phish.example",
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_TRUSTCTL_URL") {
+		t.Fatalf("plaintext remote trustctl URL should fail closed, got %v", err)
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_TRUSTCTL_URL": "https://trustctl.example",
+	})); err != nil {
+		t.Fatalf("https trustctl URL should be allowed: %v", err)
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_TRUSTCTL_URL": "http://localhost:9999",
+	})); err != nil {
+		t.Fatalf("loopback plaintext trustctl fixture should be allowed: %v", err)
+	}
+}

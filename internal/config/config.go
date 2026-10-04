@@ -1663,6 +1663,14 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 			l.errf("PROBECTL_CMDB_URL must be https (plain http is allowed only for loopback test instances)")
 		}
 	}
+	if cfg.TrustctlURL != "" {
+		// WEB-14: the UI deep-links cert findings to this base for renewal; a
+		// plaintext base would send operators off-site over http. Enforce https
+		// (loopback http stays allowed for dev), matching CMDB/SIEM endpoints.
+		if err := validateHTTPSOrLoopbackHTTP(cfg.TrustctlURL, "PROBECTL_TRUSTCTL_URL"); err != nil {
+			l.errf("%v", err)
+		}
+	}
 	if cfg.SIEMEnabled && cfg.SIEMEndpoint != "" {
 		if err := validateHTTPSOrLoopbackHTTP(cfg.SIEMEndpoint, "PROBECTL_SIEM_ENDPOINT"); err != nil {
 			l.errf("%v", err)

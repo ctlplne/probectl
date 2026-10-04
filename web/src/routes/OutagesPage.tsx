@@ -24,6 +24,7 @@ import { useOutages, type FeedHealth, type OutageEvent } from '../api/outages'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
 import { DateTime } from '../time/DateTime'
+import { safeHref } from '../lib/links'
 
 type T = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -178,10 +179,10 @@ function makeEventColumns(t: T): Column<OutageEvent>[] {
           <strong>{e.title}</strong>
           <div className={styles.meta}>
             {e.summary ?? ''}
-            {e.evidence_url ? (
+            {safeHref(e.evidence_url) ? (
               <>
                 {e.summary ? ' · ' : ''}
-                <a href={e.evidence_url} target="_blank" rel="noreferrer">
+                <a href={safeHref(e.evidence_url)} target="_blank" rel="noreferrer">
                   {t('outages.link.evidence')}
                 </a>
               </>

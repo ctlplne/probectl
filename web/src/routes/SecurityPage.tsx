@@ -26,6 +26,7 @@ import {
   type Column,
 } from '../components'
 import { severityTone } from '../api/incidents'
+import { safeHref } from '../lib/links'
 import { daysUntil, findingLabel, useTLSPosture, type TLSPosture } from '../api/tls'
 import {
   formatThreatConfidence,
@@ -180,8 +181,8 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
             <Button variant="secondary" onClick={copyHandoff}>
               Copy handoff JSON
             </Button>
-            {posture.handoff.url ? (
-              <a href={posture.handoff.url} target="_blank" rel="noreferrer">
+            {safeHref(posture.handoff.url) ? (
+              <a href={safeHref(posture.handoff.url)} target="_blank" rel="noreferrer">
                 Open in trustctl
               </a>
             ) : null}
@@ -318,8 +319,8 @@ function SourceLastSuccess({ value }: { value: string }) {
 
 function AUPCell({ source }: { source: OpenDataSourceStatus }) {
   const label = aupLabel(source)
-  return source.aup.url ? (
-    <a href={source.aup.url} target="_blank" rel="noreferrer">
+  return safeHref(source.aup.url) ? (
+    <a href={safeHref(source.aup.url)} target="_blank" rel="noreferrer">
       {label}
     </a>
   ) : (
