@@ -11,10 +11,16 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
+  # SUP-23: deploy the SIGNED, immutable OCI chart the release workflow
+  # publishes (oci://ghcr.io/ctlplne/charts/probectl), pinned to a released
+  # version — never a moving git branch. Enforce the chart's keyless cosign
+  # signature cluster-side with a sigstore policy-controller / Kyverno rule (or
+  # the manual `cosign verify` in docs/ops/verify-artifacts.md) that admits only
+  # the release.yml tagged-workflow identity; ArgoCD has no inline chart-verify.
   source:
-    repoURL: https://github.com/your-org/probectl.git
-    targetRevision: main
-    path: deploy/helm/probectl
+    repoURL: ghcr.io/ctlplne/charts
+    chart: probectl
+    targetRevision: 0.6.5
     helm:
       # Pick the sizing profile (small | medium | large), and/or the provider one.
       valueFiles:

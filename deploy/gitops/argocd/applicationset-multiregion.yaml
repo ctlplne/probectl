@@ -29,10 +29,13 @@ spec:
         probectl.io/region: '{{.region}}'
     spec:
       project: default
+      # SUP-23: the signed, immutable OCI chart pinned to a release (never a
+      # moving git branch); enforce its cosign signature cluster-side (see
+      # argocd/application.yaml and docs/ops/verify-artifacts.md).
       source:
-        repoURL: https://github.com/your-org/probectl.git
-        targetRevision: main
-        path: deploy/helm/probectl
+        repoURL: ghcr.io/ctlplne/charts
+        chart: probectl
+        targetRevision: 0.6.5
         helm:
           valueFiles:
             - values-multiregion.yaml

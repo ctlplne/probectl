@@ -1,0 +1,24 @@
+# Flux source for the SIGNED probectl OCI chart (S35, SUP-23). The release
+# workflow publishes a cosign-signed chart to oci://ghcr.io/ctlplne/charts/probectl
+# at an immutable digest. This pins a released chart version and VERIFIES its
+# keyless signature before Flux will reconcile it — never a moving git branch.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: probectl
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: oci://ghcr.io/ctlplne/charts/probectl
+  ref:
+    # Pin an immutable release. A digest is strongest; a tag is acceptable only
+    # when the registry enforces tag immutability. Bump this deliberately.
+    tag: "0.6.5"
+    # digest: sha256:REPLACE_WITH_64_HEX_CHART_DIGEST
+  # Refuse any chart whose keyless cosign signature was not produced by THIS
+  # repository's tagged release workflow (docs/ops/verify-artifacts.md).
+  verify:
+    provider: cosign
+    matchOIDCIdentity:
+      - issuer: https://token.actions.githubusercontent.com
+        subject: "^https://github\\.com/ctlplne/probectl/\\.github/workflows/release\\.yml@refs/tags/"

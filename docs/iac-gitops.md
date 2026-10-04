@@ -150,8 +150,8 @@ examples live in `deploy/terraform/examples/provider-data-sources`.
 
 `deploy/gitops/` has an ArgoCD `Application` (`argocd/application.yaml`), a
 two-region ArgoCD `ApplicationSet`
-(`argocd/applicationset-multiregion.yaml`), and a Flux `GitRepository` +
-`HelmRelease` (`flux/`). All reference
+(`argocd/applicationset-multiregion.yaml`), and a Flux `OCIRepository` +
+`HelmRelease` (`flux/`) that pin and cosign-verify the signed OCI chart. All reference
 `secrets.existingSecret` rather than inlining credentials — Git history is
 forever, so a secret must never enter it. Manage that Secret
 with **Sealed Secrets** or the **External Secrets Operator** (both keep only an

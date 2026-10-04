@@ -1,4 +1,4 @@
-# Flux HelmRelease for probectl (S35). Reconciles the chart from the GitRepository.
+# Flux HelmRelease for probectl (S35). Reconciles the signed OCI chart from the OCIRepository (SUP-23).
 # Secrets are referenced via secrets.existingSecret (manage the Secret with Sealed
 # Secrets / External Secrets Operator), never inlined here.
 # Required keys: PROBECTL_ENVELOPE_KEY, PROBECTL_SESSION_HMAC_KEY,
@@ -11,14 +11,10 @@ metadata:
 spec:
   interval: 10m
   releaseName: probectl
-  chart:
-    spec:
-      chart: deploy/helm/probectl
-      sourceRef:
-        kind: GitRepository
-        name: probectl
-        namespace: flux-system
-      interval: 5m
+  chartRef:
+    kind: OCIRepository
+    name: probectl
+    namespace: flux-system
   install:
     createNamespace: true
     remediation:

@@ -82,12 +82,13 @@ stored in the ApplicationSet.
 ## Flux
 
 ```bash
-kubectl apply -f deploy/gitops/flux/gitrepository.yaml
+kubectl apply -f deploy/gitops/flux/ocirepository.yaml
 kubectl apply -f deploy/gitops/flux/helmrelease.yaml
 ```
 
-Edit the GitRepository `url` (Flux's pointer to the repo it watches) and the
-HelmRelease `values`, including replacing the deliberately invalid
+Pin the OCIRepository `ref` to the released chart version/digest you want
+(it verifies the chart's keyless cosign signature before reconciling) and edit
+the HelmRelease `values`, including replacing the deliberately invalid
 `image.digest` placeholder with the signed release or approved-mirror digest
 (or use `valuesFrom` with a ConfigMap holding a full size profile).
 `install.createNamespace` and the upgrade/install `remediation.retries` give
