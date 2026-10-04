@@ -77,6 +77,23 @@ for AGENT in $AGENTS; do
   rpm="$(ls "$work"/dist/probectl-"${AGENT}"-"${PKG_VERSION}"-*.rpm 2>/dev/null || true)"
   [ -n "$deb" ] || { echo "::error::OPS-002: ${AGENT}: no .deb with numeric version ${PKG_VERSION} produced"; rm -rf "$work"; exit 1; }
   [ -n "$rpm" ] || { echo "::error::OPS-002: ${AGENT}: no .rpm with numeric version ${PKG_VERSION} produced"; rm -rf "$work"; exit 1; }
+
+  # RTO-22: install the deb and prove the conffile is readable by the User= the
+  # unit runs as — a root:root 0640 config makes every packaged agent die with
+  # "read config: permission denied". (Debian host only; the postinstall's
+  # systemctl calls are already guarded for a non-systemd environment.)
+  if command -v dpkg >/dev/null 2>&1; then
+    SUDO=""; [ "$(id -u)" = 0 ] || SUDO=sudo
+    $SUDO dpkg -i "$deb" >/dev/null 2>&1 || true
+    if ! $SUDO runuser -u probectl -- test -r "/etc/probectl/${AGENT}.yaml" 2>/dev/null \
+         && ! $SUDO su -s /bin/sh probectl -c "test -r /etc/probectl/${AGENT}.yaml" 2>/dev/null; then
+      echo "::error::RTO-22: /etc/probectl/${AGENT}.yaml is not readable by the probectl service user — the packaged agent would fail with 'read config: permission denied'"
+      $SUDO dpkg -r "probectl-${AGENT}" >/dev/null 2>&1 || true
+      rm -rf "$work"; exit 1
+    fi
+    $SUDO dpkg -r "probectl-${AGENT}" >/dev/null 2>&1 || true
+  fi
+
   built="${built}${built:+ }${AGENT}"
   rm -rf "$work"
 done

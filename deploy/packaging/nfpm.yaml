@@ -45,6 +45,12 @@ contents:
     type: config|noreplace   # operator edits survive upgrades
     file_info:
       mode: 0640
+      # RTO-22: the systemd unit runs as User=probectl; a root:root 0640 conffile
+      # is unreadable by it ("read config: permission denied"). The preinstall
+      # script creates this user before unpack, and postinstall chowns the tree
+      # as a belt-and-suspenders in case the owner name did not resolve at unpack.
+      owner: probectl
+      group: probectl
 
 # SUP-05: the maintainer scripts are rendered PER AGENT (postinstall/preremove
 # bake in ${AGENT} so each package touches only its own unit) and dropped in

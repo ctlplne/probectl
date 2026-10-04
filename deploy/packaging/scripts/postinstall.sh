@@ -20,6 +20,14 @@ set -e
 
 svc="probectl-${AGENT}"
 
+# RTO-22: the unit runs as User=probectl, so its /etc/probectl config must be
+# readable by that user. nfpm records the owner by name and some unpack paths
+# leave the conffile root-owned, so chown the config tree here — the probectl
+# user already exists (preinstall created it).
+if getent passwd probectl >/dev/null 2>&1; then
+    chown -R probectl:probectl /etc/probectl 2>/dev/null || true
+fi
+
 upgrade=0
 case "${1:-}" in
     configure)                 [ -n "${2:-}" ] && upgrade=1 ;;   # deb
