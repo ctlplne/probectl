@@ -28,7 +28,12 @@ probectl_registry_agent_id: ""        # expected control-plane registry id for t
 probectl_registry_expected_version: "{{ probectl_version }}"
 probectl_verify_registry_heartbeat: true
 probectl_registry_heartbeat_freshness_seconds: 300
-probectl_install_method: repo         # repo | package_url | airgap
+# SUP-08: default to the self-contained, cosign-verified air-gap method. The
+# `repo` method's shipped URLs below are PLACEHOLDERS (…​.probectl.example) —
+# probectl does not operate a public package repo — so `repo` cannot install
+# anything until an operator points it at a real, signed repository. The role
+# guards against the placeholder (tasks/main.yml) rather than silently no-op.
+probectl_install_method: airgap      # airgap | package_url | repo
 probectl_apt_repo: "deb [signed-by=/usr/share/keyrings/probectl.gpg] https://apt.probectl.example stable main"
 probectl_yum_repo_baseurl: "https://yum.probectl.example/stable"
 probectl_package_url: ""              # when install_method=package_url

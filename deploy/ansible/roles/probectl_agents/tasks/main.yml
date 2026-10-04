@@ -63,6 +63,22 @@
       - probectl_endpoint_targets | length > 0
     fail_msg: "endpoint requires at least one target URL before install."
 
+- name: Guard the repo method against the placeholder repositories (SUP-08)
+  # probectl ships no public package repo; the default apt/yum URLs are
+  # …​.probectl.example placeholders. Fail closed rather than "succeed" while
+  # installing nothing, so an operator must point at a real signed repo (or use
+  # the airgap / package_url methods).
+  when: probectl_install_method == 'repo'
+  ansible.builtin.assert:
+    that:
+      - "'.probectl.example' not in probectl_apt_repo"
+      - "'.probectl.example' not in probectl_yum_repo_baseurl"
+    fail_msg: >-
+      probectl_install_method=repo but the apt/yum repository is still the shipped
+      placeholder (…​.probectl.example). probectl operates no public package repo —
+      set probectl_apt_repo / probectl_yum_repo_baseurl to your own signed repo, or
+      use probectl_install_method=airgap (offline, cosign-verified) or package_url.
+
 - name: Install from the signed apt repo (Debian/Ubuntu)
   when: probectl_install_method == 'repo' and ansible_os_family == 'Debian'
   block:
@@ -103,9 +119,14 @@
       (shipped: x86_64->amd64, aarch64->arm64).
 
 - name: Resolve the air-gap package path
+  # SUP-08: derive the package EXTENSION from the OS family. nfpm ships a .deb
+  # for Debian/Ubuntu and a .rpm for the RHEL family; hardcoding .deb made the
+  # air-gap path never exist on RHEL hosts (the install then failed on a missing
+  # file). The arch mapping above already handles amd64/arm64.
   when: probectl_install_method == 'airgap'
   ansible.builtin.set_fact:
-    probectl_airgap_pkg_path: "{{ probectl_airgap_dir }}/probectl-{{ probectl_agent_type }}_{{ probectl_version }}_{{ probectl_pkg_arch }}.deb"
+    probectl_airgap_pkg_path: >-
+      {{ probectl_airgap_dir }}/probectl-{{ probectl_agent_type }}_{{ probectl_version }}_{{ probectl_pkg_arch }}.{{ 'rpm' if ansible_os_family == 'RedHat' else 'deb' }}
 
 # SUPPLY-001: air-gap packages are local files, so apt/yum repository metadata
 # cannot protect this path. Verify the copied package's detached cosign

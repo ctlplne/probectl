@@ -3,10 +3,15 @@
 apiVersion: probectl.io/agent/v1
 control_plane:
   grpc_addr: "{{ probectl_control_grpc_addr }}"
+{# SUP-08: these MUST match the filenames the agent actually writes at
+   enrollment (internal/agent/identity.go: cert.pem / key.pem / server-ca.pem).
+   The old agent.crt/agent.key/ca.crt names were never created, so the rendered
+   config pointed the agent at files that do not exist and it could not load its
+   mTLS identity or verify the control plane. #}
 tls:
-  cert_file: "{{ probectl_state_dir }}/identity/agent.crt"
-  key_file: "{{ probectl_state_dir }}/identity/agent.key"
-  ca_file: "{{ probectl_state_dir }}/identity/ca.crt"
+  cert_file: "{{ probectl_state_dir }}/identity/cert.pem"
+  key_file: "{{ probectl_state_dir }}/identity/key.pem"
+  ca_file: "{{ probectl_state_dir }}/identity/server-ca.pem"
 agent:
   hostname: "{{ inventory_hostname }}"
   heartbeat_interval: 30s
