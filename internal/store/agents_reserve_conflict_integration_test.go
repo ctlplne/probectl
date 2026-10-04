@@ -10,19 +10,20 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func randAgentUUID(t *testing.T) string {
 	t.Helper()
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	// Crypto primitives route through internal/crypto (docs/guardrails.md G7-3).
+	b, err := crypto.Random(16)
+	if err != nil {
 		t.Fatal(err)
 	}
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
