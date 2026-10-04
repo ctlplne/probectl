@@ -8,6 +8,7 @@ package cloudflow
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,7 +48,7 @@ func TestConnectorLoadsCloudFixturesAndKeepsTenantIsolation(t *testing.T) {
 		{ProviderGCPVPC, "gcp-vpc-flow.jsonl"},
 	} {
 		raw := readFixture(t, tc.fixture)
-		n, err := conn.load(ctx, tc.provider, "tenant-a", bytes.NewReader(raw))
+		n, _, err := conn.load(ctx, tc.provider, "tenant-a", bytes.NewReader(raw))
 		if err != nil {
 			t.Fatalf("%s load: %v", tc.provider, err)
 		}
@@ -57,7 +58,7 @@ func TestConnectorLoadsCloudFixturesAndKeepsTenantIsolation(t *testing.T) {
 	}
 
 	foreign := []byte("2 123456789012 eni-foreign 172.16.0.10 172.16.0.11 44444 443 6 1000 9000000 1782820800 1782820860 ACCEPT OK\n")
-	if n, err := conn.load(ctx, ProviderAWSVPC, "tenant-b", bytes.NewReader(foreign)); err != nil || n != 1 {
+	if n, _, err := conn.load(ctx, ProviderAWSVPC, "tenant-b", bytes.NewReader(foreign)); err != nil || n != 1 {
 		t.Fatalf("foreign tenant load inserted %d rows: %v", n, err)
 	}
 
@@ -118,7 +119,7 @@ func TestConnectorLoadsCloudFixturesAndKeepsTenantIsolation(t *testing.T) {
 
 func TestEmitPublishesTenantBoundCloudRecords(t *testing.T) {
 	em := &captureEmitter{}
-	n, err := Emit(context.Background(), ProviderAWSVPC, "tenant-a", "agent-cloud", bytes.NewReader(readFixture(t, "aws-vpc-flow.log")), em)
+	n, _, err := Emit(context.Background(), ProviderAWSVPC, "tenant-a", "agent-cloud", bytes.NewReader(readFixture(t, "aws-vpc-flow.log")), em)
 	if err != nil {
 		t.Fatalf("emit cloud flow: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestEmitPublishesTenantBoundCloudRecords(t *testing.T) {
 
 func TestConnectorRefusesMissingTenant(t *testing.T) {
 	conn := newConnector(flowstore.NewMemory(), "cloud-agent-1")
-	_, err := conn.load(context.Background(), ProviderAWSVPC, "", strings.NewReader(""))
+	_, _, err := conn.load(context.Background(), ProviderAWSVPC, "", strings.NewReader(""))
 	if !errors.Is(err, ErrNoTenant) {
 		t.Fatalf("missing tenant must fail closed, got %v", err)
 	}
@@ -176,7 +177,7 @@ func TestCloudflowDoesNotCountDeniedFlowsAsTraffic(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			em := &captureEmitter{}
-			n, err := Emit(context.Background(), tc.provider, "tenant-a", "agent-cloud", strings.NewReader(tc.line), em)
+			n, _, err := Emit(context.Background(), tc.provider, "tenant-a", "agent-cloud", strings.NewReader(tc.line), em)
 			if err != nil {
 				t.Fatalf("emit %s: %v", tc.provider, err)
 			}
@@ -189,6 +190,80 @@ func TestCloudflowDoesNotCountDeniedFlowsAsTraffic(t *testing.T) {
 				}
 			} else if n != 0 || len(em.recs) != 0 {
 				t.Fatalf("a REJECT/deny flow must NOT be counted as delivered traffic, but it imported n=%d recs=%d (indistinguishable from ACCEPT/allow)", n, len(em.recs))
+			}
+		})
+	}
+}
+
+// TestCloudflowSkipsMalformedLinesAndAcceptsGzip (RTP-20) drives the real
+// import path (Emit → scan) and asserts two things the connector got wrong:
+//
+//  1. A single malformed line in the middle of a file must be SKIPPED and
+//     counted, not abort the whole import. Before the fix, scan returned an
+//     error on the first bad line, which discarded every valid line — including
+//     the ones already buffered in pending but never flushed (flush only fires
+//     at 1000 records or at a clean end that the abort prevented). So a
+//     valid/garbage/valid file imported ZERO records.
+//  2. A gzip-compressed export (how AWS delivers VPC flow logs to S3 as
+//     .log.gz) must import the same as the uncompressed bytes. Before the fix,
+//     scan read the raw gzip bytes as text lines, which failed to parse and
+//     aborted with zero records stored.
+//
+// The all_valid case is the non-vacuity guard: the skip path must not be
+// masking a total failure to import.
+func TestCloudflowSkipsMalformedLinesAndAcceptsGzip(t *testing.T) {
+	// Two valid AWS VPC default-format lines (field 12 ACCEPT, field 13 OK) and
+	// one line that cannot be decoded (far fewer than the 14 required fields).
+	const (
+		valid1  = "2 123456789012 eni-0abc1234 10.10.0.5 10.20.0.9 51514 443 6 11 2048 1782820800 1782820860 ACCEPT OK"
+		valid2  = "2 123456789012 eni-0def5678 10.10.0.6 10.20.0.10 51515 443 6 22 4096 1782820800 1782820860 ACCEPT OK"
+		garbage = "this-is-not-a-valid-aws-vpc-flow-log-line"
+	)
+	allValid := valid1 + "\n" + valid2 + "\n"
+	validGarbageValid := valid1 + "\n" + garbage + "\n" + valid2 + "\n"
+
+	gzipBytes := func(t *testing.T, s string) []byte {
+		t.Helper()
+		var buf bytes.Buffer
+		gw := gzip.NewWriter(&buf)
+		if _, err := gw.Write([]byte(s)); err != nil {
+			t.Fatalf("gzip write: %v", err)
+		}
+		if err := gw.Close(); err != nil {
+			t.Fatalf("gzip close: %v", err)
+		}
+		return buf.Bytes()
+	}
+
+	for _, tc := range []struct {
+		name          string
+		input         []byte
+		wantInserted  int
+		wantMalformed int
+	}{
+		// Non-vacuity: an all-valid file must import every line.
+		{"all_valid_imports_fully", []byte(allValid), 2, 0},
+		// The RTP-20 regression: a bad line between two good ones skips one and
+		// keeps both valid lines. Fails before the fix (aborts at line 2, 0 stored).
+		{"valid_garbage_valid_skips_one_and_imports_the_rest", []byte(validGarbageValid), 2, 1},
+		// Gzip input must import the same as plain. Fails before the fix (the gzip
+		// bytes are scanned as text and never parse).
+		{"gzip_valid_imports_same_as_plain", gzipBytes(t, allValid), 2, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			em := &captureEmitter{}
+			inserted, malformed, err := Emit(context.Background(), ProviderAWSVPC, "tenant-a", "agent-cloud", bytes.NewReader(tc.input), em)
+			if err != nil {
+				t.Fatalf("import aborted with error, but RTP-20 requires a bad line or gzip input to import without aborting: %v", err)
+			}
+			if inserted != tc.wantInserted {
+				t.Fatalf("inserted=%d, want %d: valid lines before and after a malformed line (or inside a gzip export) must still import", inserted, tc.wantInserted)
+			}
+			if len(em.recs) != tc.wantInserted {
+				t.Fatalf("emitted %d records, want %d", len(em.recs), tc.wantInserted)
+			}
+			if malformed != tc.wantMalformed {
+				t.Fatalf("malformed=%d, want %d: malformed lines must be counted and reported", malformed, tc.wantMalformed)
 			}
 		})
 	}

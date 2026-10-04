@@ -12,6 +12,7 @@ package cloudflow
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -59,10 +60,11 @@ func newConnector(store flowstore.Store, agentID string) *Connector {
 }
 
 // load reads newline-delimited provider records, normalizes them, and inserts
-// them into the store. Blank lines and '#' comments are ignored.
-func (c *Connector) load(ctx context.Context, provider Provider, tenantID string, r io.Reader) (int, error) {
+// them into the store. Blank lines and '#' comments are ignored. It reports the
+// number of rows inserted and the number of malformed lines skipped (RTP-20).
+func (c *Connector) load(ctx context.Context, provider Provider, tenantID string, r io.Reader) (inserted, malformed int, err error) {
 	if c == nil || c.store == nil {
-		return 0, ErrNoStore
+		return 0, 0, ErrNoStore
 	}
 	return scan(ctx, provider, tenantID, c.agentID, r, c.now, func(ctx context.Context, recs []flow.Record) error {
 		rows := make([]flowstore.Row, 0, len(recs))
@@ -75,10 +77,11 @@ func (c *Connector) load(ctx context.Context, provider Provider, tenantID string
 
 // Emit reads cloud flow-log lines and publishes them through the normal flow
 // emitter path (`probectl.flow.events` in production). It is the flow-agent
-// import mode used for local/exported cloud logs.
-func Emit(ctx context.Context, provider Provider, tenantID, agentID string, r io.Reader, emit flow.Emitter) (int, error) {
+// import mode used for local/exported cloud logs. It reports the number of
+// records emitted and the number of malformed lines skipped (RTP-20).
+func Emit(ctx context.Context, provider Provider, tenantID, agentID string, r io.Reader, emit flow.Emitter) (inserted, malformed int, err error) {
 	if emit == nil {
-		return 0, errors.New("cloudflow: emitter is required")
+		return 0, 0, errors.New("cloudflow: emitter is required")
 	}
 	if agentID == "" {
 		agentID = "cloud-flow-importer"
@@ -88,28 +91,43 @@ func Emit(ctx context.Context, provider Provider, tenantID, agentID string, r io
 
 type recordSink func(context.Context, []flow.Record) error
 
-func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io.Reader, now func() time.Time, sink recordSink) (int, error) {
+func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io.Reader, now func() time.Time, sink recordSink) (inserted, malformed int, err error) {
 	if tenantID == "" {
-		return 0, ErrNoTenant
+		return 0, 0, ErrNoTenant
 	}
 	if !validProvider(provider) {
-		return 0, fmt.Errorf("%w %q", ErrUnknownProvider, provider)
+		return 0, 0, fmt.Errorf("%w %q", ErrUnknownProvider, provider)
 	}
 	if now == nil {
 		now = time.Now
 	}
 
-	scanner := bufio.NewScanner(r)
+	// RTP-20: AWS delivers VPC flow logs to S3 as gzip (.log.gz), so the export
+	// an operator feeds us is often compressed. Peek the first two bytes for the
+	// gzip magic (0x1f 0x8b) and transparently decompress — Peek does not consume
+	// the stream, so an uncompressed export is scanned unchanged. This is content
+	// detection, not filename detection, so it works for stdin and any entry path.
+	br := bufio.NewReader(r)
+	var src io.Reader = br
+	if magic, perr := br.Peek(2); perr == nil && magic[0] == 0x1f && magic[1] == 0x8b {
+		gz, gerr := gzip.NewReader(br)
+		if gerr != nil {
+			return 0, 0, fmt.Errorf("cloudflow: %s gzip: %w", provider, gerr)
+		}
+		defer func() { _ = gz.Close() }()
+		src = gz
+	}
+
+	scanner := bufio.NewScanner(src)
 	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
 
-	inserted := 0
 	pending := make([]flow.Record, 0, 256)
 	flush := func() error {
 		if len(pending) == 0 {
 			return nil
 		}
-		if err := sink(ctx, pending); err != nil {
-			return err
+		if serr := sink(ctx, pending); serr != nil {
+			return serr
 		}
 		inserted += len(pending)
 		pending = pending[:0]
@@ -123,24 +141,32 @@ func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		recs, err := decodeLine(provider, tenantID, agentID, line, now().UTC())
-		if err != nil {
-			return inserted, fmt.Errorf("cloudflow: %s line %d: %w", provider, lineNo, err)
+		recs, derr := decodeLine(provider, tenantID, agentID, line, now().UTC())
+		if derr != nil {
+			// RTP-20: a single malformed line must not abort the whole import.
+			// Aborting discarded every valid line, including ones already buffered
+			// in pending but not yet flushed (flush happens only at 1000 records or
+			// at a clean end that was never reached). The documented contract is
+			// that malformed lines are skipped, so count the bad line and continue
+			// — valid lines before and after it still import. A dropped denied flow
+			// (ING-41) is recs==nil with derr==nil and is not counted here.
+			malformed++
+			continue
 		}
 		pending = append(pending, recs...)
 		if len(pending) >= 1000 {
-			if err := flush(); err != nil {
-				return inserted, err
+			if ferr := flush(); ferr != nil {
+				return inserted, malformed, ferr
 			}
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return inserted, fmt.Errorf("cloudflow: read %s: %w", provider, err)
+	if serr := scanner.Err(); serr != nil {
+		return inserted, malformed, fmt.Errorf("cloudflow: read %s: %w", provider, serr)
 	}
-	if err := flush(); err != nil {
-		return inserted, err
+	if ferr := flush(); ferr != nil {
+		return inserted, malformed, ferr
 	}
-	return inserted, nil
+	return inserted, malformed, nil
 }
 
 func validProvider(p Provider) bool {

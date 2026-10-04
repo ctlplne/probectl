@@ -115,14 +115,17 @@ func runCloudImport(ctx context.Context, cfg *flow.Config, emitter flow.Emitter,
 		defer func() { _ = f.Close() }()
 		r = f
 	}
-	n, err := cloudflow.Emit(ctx, cloudflow.Provider(cfg.CloudImport.Provider), cfg.TenantID, cfg.AgentID, r, emitter)
+	n, malformed, err := cloudflow.Emit(ctx, cloudflow.Provider(cfg.CloudImport.Provider), cfg.TenantID, cfg.AgentID, r, emitter)
 	if err != nil {
 		return err
 	}
+	// RTP-20: malformed lines are skipped, not fatal; report how many so an
+	// operator sees that a partial export still imported its valid records.
 	log.Info("flow: cloud import complete",
 		"provider", cfg.CloudImport.Provider,
 		"path", cfg.CloudImport.Path,
 		"records", n,
+		"malformed", malformed,
 		"tenant", cfg.TenantID)
 	return nil
 }
