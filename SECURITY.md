@@ -101,8 +101,9 @@ and findings against the intentionally non-production
 
 ## Revoked / untrusted keys
 
-A test RSA private key once lived at `internal/auth/testdata/oidc_test_key.pem`
-(added in `95d313bd9d`, removed in `425143b`). Because it was committed, it is
+A test RSA private key once lived at the (now-removed) path
+internal/auth/testdata/oidc_test_key.pem — added in `95d313bd9d`, removed in
+`425143b`. Because it was committed, it is
 **public forever in the git history** and must be treated as **compromised**: it
 is trusted by nothing at HEAD and must never be configured as an OIDC signing or
 verification key, a fixture the product trusts, or anywhere else. It is a test

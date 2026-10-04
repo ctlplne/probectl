@@ -26,8 +26,10 @@ if ! grep -Fq "$FINGERPRINT" SECURITY.md; then
 fi
 
 # (b) No tracked file at HEAD may embed the leaked key's public modulus.
-# SECURITY.md itself documents only the fingerprint, never the modulus.
-matches="$(git grep -lF "$MODULUS_SLICE" -- . || true)"
+# SECURITY.md documents only the fingerprint, never the modulus; this gate
+# script itself carries the slice as its search pattern — both are excluded so
+# the scan flags a genuine reintroduction, not its own machinery.
+matches="$(git grep -lF "$MODULUS_SLICE" -- . ':(exclude)scripts/check_untrusted_keys.sh' ':(exclude)SECURITY.md' || true)"
 if [ -n "$matches" ]; then
   echo "::error::a tracked file embeds the leaked (public, compromised) RSA key modulus — it must never be reintroduced (SUP-17):" >&2
   echo "$matches" >&2
