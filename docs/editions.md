@@ -259,6 +259,23 @@ In code, this is why there are two methods: `Manager.Has(f)` stays true in
 `read_only` (so read paths still construct and serve), while `Manager.Mode(f)`
 distinguishes `enabled` / `read_only` / `off` for *write* gating.
 
+**The ladder is tamper-resistant against the host clock** (two hardenings, so
+"offline" never means "trust whatever time the box reports"):
+
+- **Not-before.** A correctly-signed but *future-dated* license (its `issued_at`
+  more than 24h ahead of the verifier's clock) is rejected at `Verify` as
+  not-yet-valid — the ladder reads `expires_at`, so without this a post-dated
+  file would have been treated as already active.
+- **Monotonic time anchor.** The control plane records the highest wall-clock it
+  has ever observed in a small sibling file next to the license file
+  (`.probectl-license-time`). Effective lifecycle time is `max(clock, anchor)`,
+  so **rolling the host clock backwards cannot move an expired license from
+  `read_only` back to `active`**. It is best-effort and fails *safe for the
+  operator*, not closed: a read-only license directory simply never persists the
+  anchor (rollback protection degrades off) and a missing/corrupt anchor reads as
+  first-run — neither ever refuses a valid license or breaks startup, because a
+  bad anchor must not become a denial-of-service lever.
+
 ## Gating pattern (the only sanctioned shape)
 
 Tier checks are wired **only at the `main.go` `Build*` seams** — never inside

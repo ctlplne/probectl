@@ -33,6 +33,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -53,6 +56,26 @@ const (
 	// development licenses. New licenses are always issued as TierMSP.
 	legacyTierProvider  Tier = "provider"
 	maxLicenseFileBytes      = 1 << 20
+
+	// maxIssuanceSkew is how far into the future a license's issued_at may sit
+	// (issuer-vs-verifier clock drift, mislabeled-timezone timestamps) before
+	// Verify rejects it as not-yet-valid (CRY-08). Generous enough for any real
+	// clock difference, tight enough to catch a deliberately post-dated license.
+	maxIssuanceSkew = 24 * time.Hour
+
+	// licenseAnchorFile is the sibling state file (next to the license file)
+	// that records the highest wall-clock the deployment has ever observed, so
+	// rolling the host clock backwards cannot re-activate an expired license
+	// (CRY-08). Best-effort: on a read-only license directory it simply never
+	// writes and rollback protection degrades off, never breaking startup.
+	licenseAnchorFile = ".probectl-license-time"
+
+	// anchorPersistInterval throttles disk writes of the time high-water-mark.
+	// State() is a hot path (every Mode/Has/WriteCapability check calls it); the
+	// in-memory mark is always current, the on-disk mark lags by at most this,
+	// which is far finer than the days/weeks of rollback the defense exists to
+	// stop.
+	anchorPersistInterval = time.Hour
 )
 
 // PricingModel is descriptive commercial metadata. It never grants a feature
@@ -210,6 +233,10 @@ func (c WriteCapability) Enabled() bool { return c != nil && c() }
 type Manager struct {
 	claims *Claims
 	clock  func() time.Time
+	// anchor, when non-nil, persists a monotonic wall-clock high-water-mark so
+	// a host-clock rollback cannot move effective time backwards (CRY-08).
+	// Community and bare test managers leave it nil (raw clock, no persistence).
+	anchor *timeAnchor
 }
 
 // Community returns the unlicensed Core manager: every gated feature off.
@@ -276,6 +303,15 @@ func Verify(raw []byte, trustedPubPEMs [][]byte) (*Claims, error) {
 	if c.ExpiresAt.IsZero() || c.IssuedAt.IsZero() || !c.ExpiresAt.After(c.IssuedAt) {
 		return nil, fmt.Errorf("license: invalid validity window")
 	}
+	// CRY-08 (not-before): reject a correctly-signed but future-dated license.
+	// The lifecycle ladder (State) only ever consulted ExpiresAt, so a license
+	// whose issued_at is in the future was already treated as active — "not yet
+	// valid" was unenforceable. Issuance is checked against real wall-clock at
+	// load time (independent of any per-manager test clock), with a skew
+	// tolerance for honest issuer/verifier clock drift.
+	if c.IssuedAt.After(time.Now().Add(maxIssuanceSkew)) {
+		return nil, fmt.Errorf("license: not yet valid (issued_at %s is in the future)", c.IssuedAt.UTC().Format(time.RFC3339))
+	}
 	return &c, nil
 }
 
@@ -295,7 +331,15 @@ func Load(path string, trustedPubPEMs [][]byte) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{claims: claims, clock: time.Now}, nil
+	// CRY-08: anchor the monotonic time high-water-mark beside the license file
+	// (the one directory the deployment configured for licensing). Reading a
+	// missing/corrupt anchor yields a zero mark — first-run behaviour — never a
+	// startup error.
+	return &Manager{
+		claims: claims,
+		clock:  time.Now,
+		anchor: newTimeAnchor(filepath.Join(filepath.Dir(path), licenseAnchorFile)),
+	}, nil
 }
 
 func readLicenseFile(path string) ([]byte, error) {
@@ -336,12 +380,86 @@ func Sign(c Claims, privPEM []byte) ([]byte, error) {
 	return json.MarshalIndent(f, "", "  ")
 }
 
+// timeAnchor persists the highest wall-clock the deployment has ever observed
+// so a host-clock rollback cannot rewind license lifecycle time (CRY-08). The
+// in-memory mark is authoritative and always current; the on-disk copy is a
+// throttled, best-effort mirror used to survive restarts.
+//
+// It fails SAFE for the operator, not closed: a missing or corrupt anchor reads
+// as the zero time (identical to first run) and a non-writable directory simply
+// never persists. We deliberately do NOT refuse the license on a bad anchor —
+// that would hand an attacker (or a read-only mount) a denial-of-service lever
+// far worse than the backwards-clock re-activation this guards against, which
+// only matters once a license is already past its grace window.
+type timeAnchor struct {
+	path      string
+	mu        sync.Mutex
+	hwm       time.Time // highest wall-clock observed (authoritative, in-memory)
+	persisted time.Time // last value written to disk
+}
+
+// newTimeAnchor returns an anchor seeded from path's recorded high-water-mark.
+// A missing or unparseable file yields the zero time (first-run behaviour).
+func newTimeAnchor(path string) *timeAnchor {
+	a := &timeAnchor{path: path}
+	if raw, err := os.ReadFile(path); err == nil {
+		if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(raw))); err == nil {
+			a.hwm = t.UTC()
+			a.persisted = a.hwm
+		}
+	}
+	return a
+}
+
+// observe records now against the high-water-mark and returns effective time:
+// max(now, hwm). Advancing the mark is throttled to disk at anchorPersistInterval.
+func (a *timeAnchor) observe(now time.Time) time.Time {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if now.After(a.hwm) {
+		a.hwm = now.UTC()
+	}
+	if a.hwm.Sub(a.persisted) >= anchorPersistInterval {
+		if a.persist(a.hwm) == nil {
+			a.persisted = a.hwm
+		}
+	}
+	return a.hwm
+}
+
+// persist atomically writes t to the anchor file (temp + rename). Best-effort:
+// a write failure (read-only mount, missing directory) is returned but never
+// fatal — the caller leaves persisted unchanged and retries on the next tick.
+func (a *timeAnchor) persist(t time.Time) error {
+	if a.path == "" {
+		return errors.New("license: no anchor path")
+	}
+	tmp := a.path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(t.UTC().Format(time.RFC3339Nano)), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, a.path)
+}
+
+// effectiveNow is the manager's clock lifted through the monotonic time
+// high-water-mark (CRY-08): it never reports a time earlier than the highest
+// the deployment has ever observed, so rolling the host clock backwards cannot
+// move a license from read-only back to active. With no anchor (Community, bare
+// test managers) it is the raw clock.
+func (m *Manager) effectiveNow() time.Time {
+	now := m.clock()
+	if m.anchor == nil {
+		return now
+	}
+	return m.anchor.observe(now)
+}
+
 // State reports the lifecycle state at the manager's clock.
 func (m *Manager) State() State {
 	if m == nil || m.claims == nil {
 		return StateCommunity
 	}
-	now := m.clock()
+	now := m.effectiveNow()
 	switch {
 	case now.Before(m.claims.ExpiresAt):
 		return StateActive

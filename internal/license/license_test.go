@@ -443,3 +443,92 @@ func TestTrustedKeysParsesLdflagsPayload(t *testing.T) {
 		}
 	}
 }
+
+// TestLicenseRefusesFutureIssuedAt closes the CRY-08 not-before gap: the
+// lifecycle ladder only ever consulted ExpiresAt, so a correctly-signed license
+// whose issued_at was in the future was treated as already active. Verify must
+// now reject one issued beyond the clock-skew tolerance, while still accepting a
+// normally-issued license.
+// Fail-before: pre-fix Verify has no not-before check, so the future license is
+// accepted and the first assertion (err == nil) fires.
+func TestLicenseRefusesFutureIssuedAt(t *testing.T) {
+	priv, pub := testKeypair(t)
+
+	future := Claims{
+		V: 1, ID: "lic_future", Customer: "Acme Corp", Tier: TierEnterprise,
+		IssuedAt:  time.Now().Add(90 * 24 * time.Hour),
+		ExpiresAt: time.Now().Add(455 * 24 * time.Hour),
+	}
+	raw, err := Sign(future, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(raw, [][]byte{pub}); err == nil {
+		t.Fatal("CRY-08: a future-dated (not-yet-valid) license must be rejected by Verify")
+	} else if !strings.Contains(err.Error(), "not yet valid") {
+		t.Fatalf("CRY-08: want a not-yet-valid error, got %v", err)
+	}
+
+	// A license issued just now (inside the skew window) still verifies.
+	ok := Claims{
+		V: 1, ID: "lic_ok", Customer: "Acme Corp", Tier: TierEnterprise,
+		IssuedAt:  time.Now().Add(-time.Hour),
+		ExpiresAt: time.Now().Add(365 * 24 * time.Hour),
+	}
+	rawOK, err := Sign(ok, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(rawOK, [][]byte{pub}); err != nil {
+		t.Fatalf("CRY-08: a normally-issued license must still verify, got %v", err)
+	}
+}
+
+// TestClockRollbackKeepsReadOnly closes the CRY-08 rollback gap: once a
+// deployment has observed a wall-clock past the grace window, rolling the host
+// clock backwards must not re-activate the expired license. The monotonic time
+// high-water-mark, persisted beside the license file, makes effective time
+// non-decreasing across manager (re)construction.
+// Fail-before: pre-fix State() reads the raw clock, so the rolled-back manager
+// reports StateActive and the rollback assertion fires.
+func TestClockRollbackKeepsReadOnly(t *testing.T) {
+	priv, pub := testKeypair(t)
+	expires := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	raw, err := Sign(testClaims(TierEnterprise, expires), priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := Verify(raw, [][]byte{pub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchorPath := filepath.Join(t.TempDir(), licenseAnchorFile)
+
+	// Evaluate at a time well past expiry + grace: read-only, and the evaluation
+	// records the high-water-mark to disk.
+	past := expires.Add(GracePeriod + 90*24*time.Hour)
+	m1 := &Manager{claims: claims, clock: func() time.Time { return past }, anchor: newTimeAnchor(anchorPath)}
+	if got := m1.State(); got != StateReadOnly {
+		t.Fatalf("expired-past-grace manager: State = %v, want %v", got, StateReadOnly)
+	}
+	if _, err := os.Stat(anchorPath); err != nil {
+		t.Fatalf("CRY-08: time high-water-mark was not persisted: %v", err)
+	}
+
+	// Someone now rolls the host clock back to before the license ever expired.
+	// A fresh manager (process restart) reloads the anchor; effective time may
+	// not rewind, so the license must stay read-only.
+	rolledBack := expires.Add(-30 * 24 * time.Hour)
+	m2 := &Manager{claims: claims, clock: func() time.Time { return rolledBack }, anchor: newTimeAnchor(anchorPath)}
+	if got := m2.State(); got != StateReadOnly {
+		t.Fatalf("CRY-08: after a clock rollback State = %v, want %v (an expired license must not re-activate)", got, StateReadOnly)
+	}
+
+	// Control: the same rolled-back clock with NO anchor would wrongly read
+	// active — proving the rollback time genuinely precedes expiry and that the
+	// anchor is what holds the line.
+	bare := &Manager{claims: claims, clock: func() time.Time { return rolledBack }}
+	if got := bare.State(); got != StateActive {
+		t.Fatalf("control: a bare (anchorless) manager at the rolled-back clock should read %v, got %v", StateActive, got)
+	}
+}
