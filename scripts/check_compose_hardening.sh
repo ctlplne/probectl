@@ -102,7 +102,7 @@ run_gate() {
   local tmp; tmp="$(mktemp)"; trap "rm -f '$tmp'" RETURN
   POSTGRES_PASSWORD=ci-validate-only \
   POSTGRES_APP_PASSWORD=ci-validate-only \
-  PROBECTL_SESSION_HMAC_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  PROBECTL_SESSION_HMAC_KEY=session-hmac-ci-validate-only \
   PROBECTL_IMAGE=ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     docker compose -f "$COMPOSE_FILE" config --format json > "$tmp"
   judge "$tmp"
