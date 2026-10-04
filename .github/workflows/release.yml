@@ -22,9 +22,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # create the GitHub release
-  packages: write # push images to GHCR
-  id-token: write # SLSA provenance / keyless attestation
+  # SUP-04: least privilege — the default token every job inherits is READ-ONLY.
+  # Write authority (contents/packages/id-token) is granted per-job, only on the
+  # publishing/signing jobs that need it (images, binaries, publish-chart,
+  # packages, airgap-bundle). Gate: scripts/check_release_permissions.sh.
+  contents: read
   actions: read # require-green-ci reads the ci workflow's runs (U-083)
 
 env:
@@ -39,6 +41,9 @@ jobs:
   # is built. Branch protection on main is the second layer (docs/ops/
   # branch-protection.md); this gate holds even for tags cut off-branch.
   require-green-ci:
+    permissions:
+      contents: read
+      actions: read
     name: require green ci on the tagged sha
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -95,6 +100,8 @@ jobs:
   # block. `gaps` and `prerelease` are read by the binaries job, so a release
   # carrying acknowledged gaps cannot be published without saying so.
   completeness-release-gate:
+    permissions:
+      contents: read
     name: capability ledger 100% complete
     needs: require-green-ci
     runs-on: ubuntu-latest
@@ -104,6 +111,8 @@ jobs:
       prerelease: ${{ steps.ledger.outputs.prerelease }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -116,11 +125,15 @@ jobs:
   # Makefile's BINARIES plus the analyzer/browser runtime images — drift fails the
   # release instead of silently shipping an incomplete set.
   components-match-makefile:
+    permissions:
+      contents: read
     name: published components complete
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - name: Assert every Makefile binary is a published component
         run: |
           set -euo pipefail
@@ -143,11 +156,15 @@ jobs:
   # artifact is built. Anchors are the committed internal/license/trusted_keys/*.pub
   # files plus the optional PROBECTL_LICENSE_PUBKEYS_B64 repository variable.
   license-trust-anchor:
+    permissions:
+      contents: read
     name: license trust anchor present
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - name: At least one valid Ed25519 license public key must ship
         env:
           PROBECTL_LICENSE_PUBKEYS_B64: ${{ vars.PROBECTL_LICENSE_PUBKEYS_B64 }}
@@ -157,6 +174,10 @@ jobs:
           bash scripts/check_license_trust_anchor.sh --release
 
   images:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     name: images (${{ matrix.component }})
     # SUP-03: the publishing jobs run under the `release` GitHub Environment so a
     # release requires environment approval (a second human) even after a tag is
@@ -194,6 +215,8 @@ jobs:
             dockerfile: deploy/docker/Dockerfile.browser-agent
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -254,6 +277,9 @@ jobs:
             "${IMAGE_REF}"
 
   compose-image-anonymous-pull:
+    permissions:
+      contents: read
+      packages: read
     name: compose image anonymous pull smoke
     # OPS-002: if the repository is configured to promise anonymous GHCR pulls,
     # prove that the exact image pinned by deploy/compose/probectl.yml can be
@@ -264,12 +290,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - name: Anonymous pull exact compose image
         env:
           PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL: "1"
         run: bash scripts/check_compose_image_contract.sh
 
   binaries:
+    permissions:
+      contents: write
+      id-token: write
     name: binaries + checksums + release
     environment: release # SUP-03: environment-gated publish (see images job)
     needs: [require-green-ci, completeness-release-gate, license-trust-anchor]
@@ -277,6 +308,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -411,6 +444,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - name: appVersion must match the release tag
         run: |
           set -euo pipefail
@@ -516,6 +551,8 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -633,6 +670,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}

@@ -66,6 +66,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		return runActions(args[1:], stdout, stderr)
+	case "checkouts":
+		if len(args) < 2 {
+			printUsage(stderr)
+			return 2
+		}
+		return runCheckouts(args[1:], stdout, stderr)
 	default:
 		printUsage(stderr)
 		return 2
@@ -102,6 +108,7 @@ func printUsage(stderr io.Writer) {
 	fmt.Fprintln(stderr, "  probectl-workflow-policy permissions WORKFLOW")
 	fmt.Fprintln(stderr, "  probectl-workflow-policy images WORKFLOW_OR_DIRECTORY [...]")
 	fmt.Fprintln(stderr, "  probectl-workflow-policy actions WORKFLOW_OR_DIRECTORY [...]")
+	fmt.Fprintln(stderr, "  probectl-workflow-policy checkouts WORKFLOW_OR_DIRECTORY [...]")
 }
 
 func loadWorkflow(path string) (*yaml.Node, error) {

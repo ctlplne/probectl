@@ -411,6 +411,8 @@ secret-scan: ## Run gitleaks across the full git history, including deleted file
 workflow-permissions-gate: ## Self-test + enforce least-privilege boundaries for write-capable CI jobs.
 	bash scripts/check_workflow_permissions.sh SELFTEST
 	bash scripts/check_workflow_permissions.sh
+	bash scripts/check_release_permissions.sh SELFTEST
+	bash scripts/check_release_permissions.sh
 
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
