@@ -301,6 +301,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      attestations: write # SUP-18: actions/attest-build-provenance
     name: binaries + checksums + release
     environment: release # SUP-03: environment-gated publish (see images job)
     needs: [require-green-ci, completeness-release-gate, license-trust-anchor]
@@ -362,14 +363,27 @@ jobs:
       # dist/ BEFORE the signing loop below, so it ships signed and
       # self-verified like every other artifact. The container images carry
       # their own buildx-attested SBOMs (see the images job).
-      - name: Generate SBOM (SPDX)
+      # SUP-18: the SBOM scans the SHIPPED ARTIFACTS (dist/) — the cross-compiled
+      # binaries actually released — not the whole source tree. `path: .` pulled
+      # in 499 web devDependencies, the test module and the analyzer dev lock,
+      # none of which ship, so the published SBOM described the repo, not the
+      # release. dist/ is fully populated by the build steps above, before this.
+      - name: Generate SBOM (SPDX) over the shipped artifacts
         uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
         with:
-          path: .
+          path: dist
           format: spdx-json
           output-file: dist/probectl_${{ github.ref_name }}_sbom.spdx.json
           upload-artifact: true
           upload-release-assets: false # released via the dist/* glob, signed
+      # SUP-18: signed build-provenance attestation for every shipped blob
+      # (binaries, checksums, SBOM). The container images already carry buildx
+      # provenance (see the images job); this extends SLSA provenance to the
+      # non-image release artifacts so each one traces back to this workflow run.
+      - name: Attest build provenance for release artifacts
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: "dist/*"
       # U-006: keyless (Sigstore/Fulcio) signatures over every released binary
       # and the checksum manifest. The OIDC identity baked into each .pem is
       # THIS repository's release workflow — verifiers pin it (see

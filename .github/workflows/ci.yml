@@ -882,6 +882,17 @@ jobs:
             (cd internal/ebpf && bash gen_bpf.sh all)
             (cd internal/ebpf && go run ./gendigests .)   # U-014 manifest
           '
+      - name: govulncheck the -tags ebpf build (SUP-18)
+        # The default govulncheck lane (scripts/govulncheck_packages.sh) cannot
+        # even load the ebpf-tagged packages — they need the generated BPF
+        # bindings/objects produced by the step above — so the live eBPF agent's
+        # own dependency surface (cilium/ebpf et al.) went unscanned. Now that
+        # the objects exist, scan the ebpf build with the same pinned govulncheck
+        # version the rest of CI uses.
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          GOOS=linux CGO_ENABLED=0 "$(go env GOPATH)/bin/govulncheck" -tags ebpf ./internal/ebpf/...
       - name: Cache kernel image
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v4 (same pin trivy-action uses)
         with:
@@ -1459,7 +1470,7 @@ jobs:
       - name: govulncheck (Go dependencies)
         run: |
           set -o pipefail
-          GOVULNCHECK_VERSION=v1.1.4 bash scripts/govulncheck_packages.sh 2>&1 | tee govulncheck-report.txt
+          GOVULNCHECK_VERSION=v1.8.0 bash scripts/govulncheck_packages.sh 2>&1 | tee govulncheck-report.txt
       - name: Third-party license inventory is current (SUPPLY-002/SUPPLY-009 drift gate)
         # NOTICE + docs/third-party-licenses.md are generated from Go, npm, and
         # Python dependency metadata by scripts/gen_third_party.sh. A dependency

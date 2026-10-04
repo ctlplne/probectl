@@ -6,7 +6,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 go_cmd="${GO:-go}"
-govulncheck_version="${GOVULNCHECK_VERSION:-v1.1.4}"
+govulncheck_version="${GOVULNCHECK_VERSION:-v1.8.0}"
 
 split_module_dirs() {
   local dirs="${GO_MODULE_DIRS:-. test}"
