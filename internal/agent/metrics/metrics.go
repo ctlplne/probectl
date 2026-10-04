@@ -85,6 +85,7 @@ type Runtime struct {
 	timeouts    *basemetrics.Counter
 	rejections  *basemetrics.Counter
 	quarantined *basemetrics.Counter
+	bmpUnsupp   *basemetrics.Counter
 
 	bufferDepth atomic.Int64
 	active      atomic.Int64
@@ -115,6 +116,7 @@ func New(component, version, commit string, cfg Config) (*Runtime, error) {
 		timeouts:    reg.Counter("probectl_agent_session_timeouts_total", "Inbound collector sessions closed after a bounded handshake or read timeout."),
 		rejections:  reg.Counter("probectl_agent_session_rejections_total", "Inbound collector sessions rejected by the process-wide concurrency bound."),
 		quarantined: reg.Counter("probectl_agent_quarantined_total", "Undecodable buffered result frames sidelined to the quarantine sidecar so draining can resume (ING-28)."),
+		bmpUnsupp:   reg.Counter("probectl_agent_bmp_unsupported_updates_total", "BMP updates rejected by the v4-unicast parser (ADD-PATH / IPv6 / withdrawal) instead of fabricating or dropping routes (ING-27)."),
 		ready:       make(chan struct{}),
 	}
 	reg.Gauge("probectl_agent_buffer_depth", "Results currently waiting in this agent process's local buffer or queue.", func() float64 {
@@ -265,6 +267,15 @@ func (r *Runtime) SessionTimeout() {
 func (r *Runtime) SessionAdmissionRejected() {
 	if r != nil {
 		r.rejections.Inc()
+	}
+}
+
+// UnsupportedUpdate records one BMP update the v4-unicast parser rejected
+// (ADD-PATH / IPv6 / withdrawal) rather than fabricating a phantom route or
+// silently dropping it (ING-27).
+func (r *Runtime) UnsupportedUpdate() {
+	if r != nil {
+		r.bmpUnsupp.Inc()
 	}
 }
 

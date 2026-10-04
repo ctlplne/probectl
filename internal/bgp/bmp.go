@@ -28,18 +28,22 @@ import (
 )
 
 const (
-	bmpVersion            = 3
-	bmpCommonHeaderLen    = 6
-	bmpPeerHeaderLen      = 42
-	bmpRouteMonitoring    = 0
-	bmpPeerFlagIPv6       = 0x80
-	bmpMaxMessageBytes    = 1 << 20
-	bgpHeaderLen          = 19
-	bgpMessageTypeUpdate  = 2
-	bgpPathAttrASPath     = 2
-	bgpPathAttrAS4Path    = 17
-	bgpPathAttrExtended   = 0x10
-	defaultBMPCollectorID = "bmp"
+	bmpVersion           = 3
+	bmpCommonHeaderLen   = 6
+	bmpPeerHeaderLen     = 42
+	bmpRouteMonitoring   = 0
+	bmpPeerFlagIPv6      = 0x80
+	bmpMaxMessageBytes   = 1 << 20
+	bgpHeaderLen         = 19
+	bgpMessageTypeUpdate = 2
+	bgpPathAttrASPath    = 2
+	bgpPathAttrAS4Path   = 17
+	bgpPathAttrExtended  = 0x10
+	// ING-27: multiprotocol NLRI attributes (RFC 4760) — IPv6 and MP
+	// withdrawals live here, not in the trailing v4 NLRI field.
+	bgpPathAttrMPReachNLRI   = 14
+	bgpPathAttrMPUnreachNLRI = 15
+	defaultBMPCollectorID    = "bmp"
 
 	// A single embedded UPDATE is capped independently from the outer BMP
 	// frame. These fixed safety ceilings are deliberately not configurable:
@@ -103,6 +107,13 @@ var (
 	errBMPASPathLimit        = errors.New("bgp bmp: AS_PATH entry limit exceeded")
 	errBMPAnnouncementLimit  = errors.New("bgp bmp: announcement limit exceeded")
 	errBMPRoutePathWorkLimit = errors.New("bgp bmp: route/path work limit exceeded")
+	// ING-27: the v4-unicast NLRI parser cannot safely decode ADD-PATH
+	// (RFC 7911), IPv6 (MP_REACH_NLRI), or withdrawals (MP_UNREACH / the
+	// Withdrawn Routes field) — ADD-PATH misparses a path-id into phantom
+	// 0.0.0.0/0 routes, and the others were silently dropped. These are now
+	// REJECTED (never a phantom route) and counted, rather than fabricated or
+	// swallowed. docs/guardrails.md G7-9 (a detection signal must be truthful).
+	errBMPUnsupportedUpdate = errors.New("bgp bmp: unsupported update (ADD-PATH / IPv6 / withdrawal) rejected")
 )
 
 // BMPListener accepts direct router BMP sessions over tenant-bound mTLS and
@@ -166,6 +177,10 @@ type BMPSessionMetrics interface {
 	SessionTimeout()
 	SessionAdmissionRejected()
 	SetActiveSessions(int)
+	// UnsupportedUpdate counts a BMP update the v4-unicast parser rejected
+	// (ADD-PATH / IPv6 / withdrawal) instead of fabricating or dropping it
+	// (ING-27).
+	UnsupportedUpdate()
 }
 
 // BMPOption customizes a BMPListener.
@@ -749,6 +764,15 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 		}
 		obs, err := parseBMPRouteMonitoring(payload)
 		if err != nil {
+			// ING-27: an unsupported update (ADD-PATH / IPv6 / withdrawal) is
+			// counted, not silently dropped, and never fabricates a phantom route.
+			if errors.Is(err, errBMPUnsupportedUpdate) {
+				if l.sessionMetrics != nil {
+					l.sessionMetrics.UnsupportedUpdate()
+				}
+				l.log.Debug("skipping unsupported bmp update (add-path/ipv6/withdrawal)", "tenant_id", id.TenantID)
+				continue
+			}
 			l.log.Warn("skipping malformed bmp route-monitoring message", "tenant_id", id.TenantID, "error", err)
 			continue
 		}
@@ -1136,6 +1160,12 @@ func parseBGPUpdateRoutes(raw []byte) ([]bmpRouteAnnouncement, error) {
 	if len(body) < 2+withdrawnLen+2 {
 		return nil, errors.New("bgp bmp: withdrawn-routes length exceeds update body")
 	}
+	// ING-27: a non-empty Withdrawn Routes field is an unsupported case — reject
+	// with a metric rather than silently skip it (the old behavior), so a
+	// withdrawal is never invisible.
+	if withdrawnLen > 0 {
+		return nil, errBMPUnsupportedUpdate
+	}
 	pos := 2 + withdrawnLen
 	attrLen := int(binary.BigEndian.Uint16(body[pos : pos+2]))
 	pos += 2
@@ -1144,6 +1174,13 @@ func parseBGPUpdateRoutes(raw []byte) ([]bmpRouteAnnouncement, error) {
 	}
 	attrs := body[pos : pos+attrLen]
 	nlri := body[pos+attrLen:]
+	// ING-27: MP_REACH_NLRI (type 14, IPv6 and other AFIs) and MP_UNREACH_NLRI
+	// (type 15, MP withdrawals) carry their prefixes inside the attribute, not
+	// the trailing v4 NLRI field. The v4 parser cannot decode them, so reject
+	// with a metric instead of returning zero routes and no signal.
+	if bgpAttrsContainType(attrs, bgpPathAttrMPReachNLRI) || bgpAttrsContainType(attrs, bgpPathAttrMPUnreachNLRI) {
+		return nil, errBMPUnsupportedUpdate
+	}
 	if len(nlri) == 0 {
 		return nil, nil
 	}
@@ -1312,12 +1349,46 @@ func countBGPASPathEntries(value []byte, width int) (int, bool) {
 
 // countIPv4NLRI validates and counts announced prefixes without allocating
 // strings. It rejects one-past before route or prefix construction.
+// bgpAttrsContainType reports whether the path-attribute block carries an
+// attribute of the given type (ING-27: detect MP_REACH/MP_UNREACH). It tolerates
+// a malformed tail by stopping — detection, not validation, is the job here.
+func bgpAttrsContainType(attrs []byte, typ byte) bool {
+	for len(attrs) >= 3 {
+		flags := attrs[0]
+		headerLen := 3
+		attrLen := int(attrs[2])
+		if flags&bgpPathAttrExtended != 0 {
+			if len(attrs) < 4 {
+				return false
+			}
+			headerLen = 4
+			attrLen = int(binary.BigEndian.Uint16(attrs[2:4]))
+		}
+		if attrs[1] == typ {
+			return true
+		}
+		if len(attrs) < headerLen+attrLen {
+			return false
+		}
+		attrs = attrs[headerLen+attrLen:]
+	}
+	return false
+}
+
 func countIPv4NLRI(raw []byte) (int, error) {
 	count := 0
 	for len(raw) > 0 {
 		bits := int(raw[0])
 		if bits > 32 {
 			return 0, fmt.Errorf("bgp bmp: invalid ipv4 prefix length %d", bits)
+		}
+		// ING-27: a /0 in the v4 NLRI field is the ADD-PATH misparse signature —
+		// an RFC 7911 4-byte path-id whose leading zero byte reads as a 0-length
+		// prefix, fabricating a 0.0.0.0/0 phantom. Refuse it (never emit the
+		// phantom) rather than guess. A genuine IPv4 default-route announcement is
+		// vanishingly rare in Adj-RIB-In monitoring and is safely rejected too.
+		if bits == 0 {
+			return 0, errBMPUnsupportedUpdate
 		}
 		n := (bits + 7) / 8
 		if len(raw) < 1+n {

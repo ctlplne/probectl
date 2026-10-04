@@ -20,9 +20,10 @@ import (
 )
 
 type bmpSessionMetricsCapture struct {
-	timeouts   atomic.Int64
-	rejections atomic.Int64
-	active     atomic.Int64
+	timeouts    atomic.Int64
+	rejections  atomic.Int64
+	active      atomic.Int64
+	unsupported atomic.Int64
 }
 
 func (m *bmpSessionMetricsCapture) SessionTimeout() {
@@ -35,6 +36,10 @@ func (m *bmpSessionMetricsCapture) SessionAdmissionRejected() {
 
 func (m *bmpSessionMetricsCapture) SetActiveSessions(active int) {
 	m.active.Store(int64(active))
+}
+
+func (m *bmpSessionMetricsCapture) UnsupportedUpdate() {
+	m.unsupported.Add(1)
 }
 
 func TestBMPHandshakeStallDeadline(t *testing.T) {

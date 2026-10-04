@@ -204,10 +204,15 @@ func buildCardinalityBGPUpdate(t *testing.T, asPathEntries, announcements int) [
 	}
 	asPathAttr = append(asPathAttr, pathValue...)
 
-	body := make([]byte, 4, 4+len(asPathAttr)+announcements)
+	body := make([]byte, 4, 4+len(asPathAttr)+announcements*4)
 	binary.BigEndian.PutUint16(body[2:4], uint16(len(asPathAttr)))
 	body = append(body, asPathAttr...)
-	body = append(body, make([]byte, announcements)...) // repeated IPv4 /0 NLRIs
+	// Repeated IPv4 /24 NLRIs (4 bytes each). A /0 is no longer valid NLRI — the
+	// parser rejects it as the ADD-PATH misparse signature (ING-27) — so the
+	// cardinality fixtures use /24 to exercise the announcement limits.
+	for i := 0; i < announcements; i++ {
+		body = append(body, 0x18, byte(i>>16), byte(i>>8), byte(i))
+	}
 
 	msgLen := bgpHeaderLen + len(body)
 	if msgLen > 65535 {
