@@ -7,6 +7,7 @@
 package opendata
 
 import (
+	"container/list"
 	"sync"
 	"time"
 
@@ -22,21 +23,37 @@ const DefaultCacheMaxEntries = 65536
 // cache is a small TTL cache of enrichment results, keyed by IP. It exists to
 // shield rate-limited / slow upstreams: an IP looked up twice within the TTL is
 // served from memory (S15 watch-out — cache aggressively).
+//
+// It is an O(1) LRU: a doubly linked list (front = most-recently-used, back =
+// least-recently-used) threaded through a map[key]*list.Element. get/put move
+// the touched entry to the front; a put at capacity evicts the back. There is
+// no O(n) scan on the hot path — a single tenant's distinct-IP churn can no
+// longer serialize deployment-wide enrichment behind a full-map sweep under the
+// shared lock (docs/guardrails.md G7-10 — open-data enrichment stays per-tenant
+// fair and gracefully degrades). Expiry is lazy: an entry is checked on get and
+// the back is checked when it is evicted, so stale entries cost nothing until
+// they are touched.
 type cache struct {
 	mu  sync.Mutex
 	ttl time.Duration
 	max int
-	m   map[string]cacheEntry
+	ll  *list.List               // front = MRU, back = LRU
+	m   map[string]*list.Element // key -> element holding *cacheEntry
 	now func() time.Time
 
 	hits, misses, evictions, expired uint64
-	metrics                          cacheMetrics
+	// scans counts cache entries examined while deciding an overflow eviction.
+	// The O(1) LRU looks at a constant number of entries per capacity insert
+	// (the back of the list); the previous full-map-scan eviction examined
+	// ~len(m) entries per insert. The regression test asserts this stays O(1).
+	scans   uint64
+	metrics cacheMetrics
 }
 
 type cacheEntry struct {
-	e    Enrichment
-	exp  time.Time
-	last time.Time
+	key string
+	e   Enrichment
+	exp time.Time
 }
 
 type cacheMetrics struct {
@@ -50,7 +67,13 @@ type CacheStats struct {
 }
 
 func newCache(ttl time.Duration) *cache {
-	return &cache{ttl: ttl, max: DefaultCacheMaxEntries, m: make(map[string]cacheEntry), now: time.Now}
+	return &cache{
+		ttl: ttl,
+		max: DefaultCacheMaxEntries,
+		ll:  list.New(),
+		m:   make(map[string]*list.Element),
+		now: time.Now,
+	}
 }
 
 func (c *cache) get(key string) (Enrichment, bool) {
@@ -60,19 +83,19 @@ func (c *cache) get(key string) (Enrichment, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.now()
-	ent, ok := c.m[key]
+	el, ok := c.m[key]
 	if !ok {
 		c.recordMissLocked()
 		return Enrichment{}, false
 	}
+	ent := el.Value.(*cacheEntry)
 	if !now.Before(ent.exp) {
-		delete(c.m, key)
+		c.removeElementLocked(el)
 		c.recordExpiredLocked(1)
 		c.recordMissLocked()
 		return Enrichment{}, false
 	}
-	ent.last = now
-	c.m[key] = ent
+	c.ll.MoveToFront(el)
 	c.recordHitLocked()
 	return ent.e, true
 }
@@ -84,13 +107,18 @@ func (c *cache) put(key string, e Enrichment) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.now()
-	if _, exists := c.m[key]; !exists && len(c.m) >= c.max {
-		c.evictExpiredLocked(now)
+	if el, exists := c.m[key]; exists {
+		ent := el.Value.(*cacheEntry)
+		ent.e = e
+		ent.exp = now.Add(c.ttl)
+		c.ll.MoveToFront(el)
+		return
 	}
-	if _, exists := c.m[key]; !exists && len(c.m) >= c.max {
-		c.evictOldestLocked()
+	if len(c.m) >= c.max {
+		c.evictOverflowLocked(now)
 	}
-	c.m[key] = cacheEntry{e: e, exp: now.Add(c.ttl), last: now}
+	el := c.ll.PushFront(&cacheEntry{key: key, e: e, exp: now.Add(c.ttl)})
+	c.m[key] = el
 }
 
 func (c *cache) setTTL(ttl time.Duration) {
@@ -98,7 +126,7 @@ func (c *cache) setTTL(ttl time.Duration) {
 	defer c.mu.Unlock()
 	c.ttl = ttl
 	if ttl <= 0 {
-		c.m = make(map[string]cacheEntry)
+		c.resetLocked()
 	}
 }
 
@@ -107,13 +135,16 @@ func (c *cache) setMax(limit int) {
 	defer c.mu.Unlock()
 	c.max = limit
 	if limit <= 0 {
-		c.m = make(map[string]cacheEntry)
+		c.resetLocked()
 		return
 	}
-	now := c.now()
-	c.evictExpiredLocked(now)
+	// Config change (cold path): sweep expired entries once, then trim the LRU
+	// tail down to the new cap. Each removal is O(1); this is not the hot path.
+	c.sweepExpiredLocked(c.now())
 	for len(c.m) > limit {
-		c.evictOldestLocked()
+		if !c.evictBackLocked() {
+			break
+		}
 	}
 }
 
@@ -121,8 +152,8 @@ func (c *cache) stats() CacheStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var approx int64
-	for key, ent := range c.m {
-		approx += cacheEntryApproxBytes(key, ent.e)
+	for key, el := range c.m {
+		approx += cacheEntryApproxBytes(key, el.Value.(*cacheEntry).e)
 	}
 	return CacheStats{
 		Entries: len(c.m), MaxEntries: c.max, ApproxBytes: approx,
@@ -169,35 +200,62 @@ func cacheEntryApproxBytes(key string, e Enrichment) int64 {
 	return int64(n)
 }
 
-func (c *cache) evictExpiredLocked(now time.Time) {
+// evictOverflowLocked makes room for one new key when the cache is at capacity.
+// It examines the least-recently-used entry (the back of the list) and nothing
+// else — O(1), independent of len(m) — counting one scan. If that entry is
+// already expired it is accounted as an expiry; otherwise it is a cap eviction.
+func (c *cache) evictOverflowLocked(now time.Time) {
+	el := c.ll.Back()
+	if el == nil {
+		return
+	}
+	c.scans++
+	ent := el.Value.(*cacheEntry)
+	if !now.Before(ent.exp) {
+		c.removeElementLocked(el)
+		c.recordExpiredLocked(1)
+		return
+	}
+	c.removeElementLocked(el)
+	c.recordEvictionLocked()
+}
+
+// evictBackLocked drops the least-recently-used entry as a cap eviction. Used by
+// the cold setMax trim path. Returns false when the cache is already empty.
+func (c *cache) evictBackLocked() bool {
+	el := c.ll.Back()
+	if el == nil {
+		return false
+	}
+	c.removeElementLocked(el)
+	c.recordEvictionLocked()
+	return true
+}
+
+// sweepExpiredLocked removes every expired entry. It is O(n) and only called
+// from the cold setMax reconfiguration path, never from get/put.
+func (c *cache) sweepExpiredLocked(now time.Time) {
 	var n uint64
-	for key, ent := range c.m {
-		if !now.Before(ent.exp) {
-			delete(c.m, key)
+	for el := c.ll.Back(); el != nil; {
+		prev := el.Prev()
+		if ent := el.Value.(*cacheEntry); !now.Before(ent.exp) {
+			c.removeElementLocked(el)
 			n++
 		}
+		el = prev
 	}
 	c.recordExpiredLocked(n)
 }
 
-func (c *cache) evictOldestLocked() {
-	var (
-		oldestKey  string
-		oldestTime time.Time
-		ok         bool
-	)
-	for key, ent := range c.m {
-		if !ok || ent.last.Before(oldestTime) {
-			oldestKey, oldestTime, ok = key, ent.last, true
-		}
-	}
-	if ok {
-		delete(c.m, oldestKey)
-		c.evictions++
-		if c.metrics.evictions != nil {
-			c.metrics.evictions.Inc()
-		}
-	}
+func (c *cache) removeElementLocked(el *list.Element) {
+	ent := el.Value.(*cacheEntry)
+	c.ll.Remove(el)
+	delete(c.m, ent.key)
+}
+
+func (c *cache) resetLocked() {
+	c.ll = list.New()
+	c.m = make(map[string]*list.Element)
 }
 
 func (c *cache) recordHitLocked() {
@@ -211,6 +269,13 @@ func (c *cache) recordMissLocked() {
 	c.misses++
 	if c.metrics.misses != nil {
 		c.metrics.misses.Inc()
+	}
+}
+
+func (c *cache) recordEvictionLocked() {
+	c.evictions++
+	if c.metrics.evictions != nil {
+		c.metrics.evictions.Inc()
 	}
 }
 
