@@ -124,14 +124,14 @@ jobs:
       - name: Assert every Makefile binary is a published component
         run: |
           set -euo pipefail
-          expected="$({ grep -E '^BINARIES[[:space:]]*:=' Makefile | cut -d= -f2- | tr ' ' '\n'; printf '%s\n' probectl-bgp-analyzer probectl-browser-agent; } | grep . | sort -u)"
+          expected="$({ grep -E '^BINARIES[[:space:]]*:=' Makefile | cut -d= -f2- | tr ' ' '\n'; printf '%s\n' probectl-bgp-analyzer probectl-browser-agent probectl-bmp-listener; } | grep . | sort -u)"
           # The full set this workflow publishes: the images matrix plus the
           # special-image includes (eBPF + analyzer). Keep in lockstep
           # with the matrix above — this list is the single assertion point.
           published="$(printf '%s\n' \
             probectl-control probectl-agent probectl-endpoint \
             probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl \
-            probectl-ebpf-agent probectl-bgp-analyzer probectl-browser-agent | sort -u)"
+            probectl-ebpf-agent probectl-bgp-analyzer probectl-browser-agent probectl-bmp-listener | sort -u)"
           if ! diff <(echo "$expected") <(echo "$published"); then
             echo "::error::release.yml published components drift from Makefile BINARIES + special runtime images (TEST-011). Update the images matrix."
             exit 1
@@ -177,6 +177,7 @@ jobs:
           - probectl-flow-agent
           - probectl-device-agent
           - probectl-cloud-metrics
+          - probectl-bmp-listener
           - terraform-provider-probectl
           - probectl
         dockerfile: [deploy/docker/Dockerfile]

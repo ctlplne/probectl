@@ -1395,6 +1395,7 @@ jobs:
           - { component: probectl-flow-agent, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-flow-agent }
           - { component: probectl-device-agent, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-device-agent }
           - { component: probectl-cloud-metrics, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-cloud-metrics }
+          - { component: probectl-bmp-listener, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-bmp-listener }
           - { component: terraform-provider-probectl, dockerfile: deploy/docker/Dockerfile, buildComponent: terraform-provider-probectl }
           - { component: probectl, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl }
           - { component: probectl-bgp-analyzer, dockerfile: deploy/docker/Dockerfile.bgp-analyzer, buildComponent: probectl-control }
