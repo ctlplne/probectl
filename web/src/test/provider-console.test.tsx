@@ -5,10 +5,13 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
+import { Providers } from '../App'
+import { AppRoutes } from '../routes/AppRoutes'
 import { jsonResponse, defaultFetch } from './fetchStub'
 
 /** S-T1 surface: the provider/operator console at /provider — a visually-
@@ -645,6 +648,53 @@ describe('provider console (S-T1)', () => {
       expect(String(hit![0])).toContain('..%2Ftn_evil')
       expect(String(hit![0])).not.toContain('../tn_evil')
     })
+  })
+
+  test('WEB-10: the provider console is reachable with NO tenant session (separate privilege domain)', async () => {
+    // Tenant auth is not satisfied: /v1/me is 401 and readiness is up, so the
+    // tenant AuthProvider would redirect to the tenant login. The provider
+    // console is a separate privilege domain and must render its OWN operator
+    // sign-in regardless — it must not sit behind the tenant auth gate.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const u = String(input)
+        if (u.endsWith('/v1/me') && !u.includes('/provider/'))
+          return jsonResponse({ error: { code: 'unauthorized', message: 'no session' } }, 401)
+        if (u.endsWith('/readyz')) return jsonResponse({ ok: true })
+        if (u.endsWith('/provider/v1/me'))
+          return jsonResponse({ error: { code: 'unauthorized', message: 'no session' } }, 401)
+        return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
+      }),
+    )
+    render(
+      <Providers>
+        <MemoryRouter initialEntries={['/provider']}>
+          <AppRoutes />
+        </MemoryRouter>
+      </Providers>,
+    )
+    expect(await screen.findByText(/operator sign-in/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/authenticator code/i)).toBeInTheDocument()
+  })
+
+  test('WEB-10: an operator can sign out — it posts logout and returns to the operator sign-in', async () => {
+    const stub = providerStub({ loggedIn: true })
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    await screen.findByRole('table', { name: /tenant inventory/i })
+
+    await userEvent.click(screen.getByRole('button', { name: /sign out/i }))
+
+    // The server session is ended, and the console returns to the operator
+    // login — never a stale signed-in view.
+    await waitFor(() => {
+      const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => `${(c[1] as RequestInit | undefined)?.method ?? 'GET'} ${String(c[0])}`,
+      )
+      expect(calls.some((c) => c === 'POST /provider/v1/auth/logout')).toBe(true)
+    })
+    expect(await screen.findByText(/operator sign-in/i)).toBeInTheDocument()
   })
 })
 

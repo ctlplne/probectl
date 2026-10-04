@@ -11,6 +11,7 @@
 // renders honestly as "not enabled".
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, NotEnabledError, useProviderData } from "./providerData";
 import {
   Badge,
@@ -101,6 +102,20 @@ export function ProviderConsole({ search = "" }: ProviderConsoleProps) {
     "probe" | "login" | "dashboard" | "disabled" | "demo"
   >(demo ? "demo" : "probe");
   const [operator, setOperator] = useState<Operator | null>(null);
+  const queryClient = useQueryClient();
+
+  // WEB-10: a provider operator must be able to end the session. Best-effort
+  // server logout, then always clear local + cached provider state so the
+  // console returns to the operator login — never a stale signed-in view.
+  const handleSignOut = useCallback(() => {
+    void api<{ ok: boolean }>("POST", "/provider/v1/auth/logout")
+      .catch(() => {})
+      .finally(() => {
+        queryClient.clear();
+        setOperator(null);
+        setPhase("login");
+      });
+  }, [queryClient]);
 
   useEffect(() => {
     // Fail closed: in the demo workspace this console fetches nothing at all,
@@ -132,6 +147,11 @@ export function ProviderConsole({ search = "" }: ProviderConsoleProps) {
           <Badge tone="info">
             {operator.email} ({operator.role})
           </Badge>
+        ) : null}
+        {operator ? (
+          <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            {t("provider.signOut")}
+          </Button>
         ) : null}
       </header>
       <main className={styles.main}>

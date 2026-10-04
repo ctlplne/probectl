@@ -4,13 +4,60 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  type ComponentType,
+  type LazyExoticComponent,
+  type ReactNode,
+} from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '../shell/AppShell'
 import { NAV } from '../nav/ia'
 import { DemoModeProvider } from '../demo/DemoMode'
+import { AuthProvider } from '../auth/AuthProvider'
+import { useAuth } from '../auth/useAuth'
+import { TimeProvider } from '../time/TimeProvider'
+import { useI18n } from '../i18n/useI18n'
+import { resolveLocale } from '../i18n/core'
 import { LoadingState } from '../components'
 import { NotFoundPage, PlaceholderPage } from './RoutePage'
+
+/** AuthPreferenceBridge syncs the signed-in tenant/user's preferred locale into
+ *  the i18n context. It needs the tenant session, so it lives inside the tenant
+ *  AuthProvider (WEB-10 moved it here from App.tsx, which no longer mounts auth). */
+function AuthPreferenceBridge({ children }: { children: ReactNode }) {
+  const { tenant, user } = useAuth()
+  const { locale, setLocale } = useI18n()
+  const preferredLocale = user.locale ?? tenant.locale
+
+  useEffect(() => {
+    if (!preferredLocale) return
+    const next = resolveLocale(preferredLocale)
+    if (next !== locale) setLocale(next)
+  }, [locale, preferredLocale, setLocale])
+
+  return <>{children}</>
+}
+
+/** TenantApp is the layout for every tenant surface: it mounts the tenant
+ *  authentication gate (AuthProvider), the locale bridge, time and demo-mode
+ *  context, then the AppShell. The provider console is a SIBLING route outside
+ *  this element, so it never passes through the tenant auth gate (WEB-10). */
+function TenantApp() {
+  return (
+    <AuthProvider>
+      <AuthPreferenceBridge>
+        <TimeProvider>
+          <DemoModeProvider>
+            <AppShell />
+          </DemoModeProvider>
+        </TimeProvider>
+      </AuthPreferenceBridge>
+    </AuthProvider>
+  )
+}
 
 const ProviderConsole = lazy(() =>
   import('@ee/provider/ProviderConsole').then((module) => ({ default: module.ProviderConsole })),
@@ -99,13 +146,7 @@ export function AppRoutes() {
           domain. Not in the tenant nav; the API behind it is hidden
           (404) unless the deployment holds a provider license. */}
       <Route path="/provider/*" element={<ProviderRoute />} />
-      <Route
-        element={
-          <DemoModeProvider>
-            <AppShell />
-          </DemoModeProvider>
-        }
-      >
+      <Route element={<TenantApp />}>
         <Route index element={<Navigate to="/onboarding" replace />} />
         <Route path="/onboarding" element={deferred(OnboardingPage)} />
         <Route path="/targets" element={deferred(TargetsPage)} />

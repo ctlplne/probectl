@@ -1293,6 +1293,7 @@ const en = {
   'admin.secrets.empty.description':
     'Set PROBECTL_SECRETS_VAULT_ADDR (or CyberArk / cloud credentials) to enable secret references.',
   'provider.banner.title': 'probectl · PROVIDER PLANE',
+  'provider.signOut': 'Sign out',
   'provider.banner.domain': 'operator domain — no tenant context',
   'provider.loading': 'Checking the provider plane...',
   'provider.disabled.title': 'Provider plane not enabled',
@@ -2648,6 +2649,7 @@ const es: Record<MessageKey, string> = {
   'admin.secrets.empty.description':
     'Define PROBECTL_SECRETS_VAULT_ADDR (o credenciales CyberArk / cloud) para habilitar referencias de secretos.',
   'provider.banner.title': 'probectl · PLANO PROVEEDOR',
+  'provider.signOut': 'Cerrar sesión',
   'provider.banner.domain': 'dominio de operador — sin contexto de tenant',
   'provider.loading': 'Comprobando el plano proveedor...',
   'provider.disabled.title': 'Plano proveedor no habilitado',
@@ -3928,6 +3930,7 @@ const ar: Record<MessageKey, string> = {
   'admin.secrets.empty.description':
     'اضبط PROBECTL_SECRETS_VAULT_ADDR (أو اعتمادات CyberArk / cloud) لتفعيل مراجع الأسرار.',
   'provider.banner.title': 'probectl · مستوى المزوّد',
+  'provider.signOut': 'تسجيل الخروج',
   'provider.banner.domain': 'نطاق المشغل — بلا سياق مستأجر',
   'provider.loading': 'جار فحص مستوى المزوّد...',
   'provider.disabled.title': 'مستوى المزوّد غير مفعّل',
