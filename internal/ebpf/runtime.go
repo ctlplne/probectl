@@ -314,6 +314,15 @@ func (a *Agent) Run(ctx context.Context) error {
 // is REFUSED, never forwarded and never silently rewritten: the flow is
 // dropped with an error log (fail closed, docs/guardrails.md G7-1). The
 // tenant-verifying pipeline consumer re-checks downstream regardless.
+//
+// The agent_id is likewise the running collector's own registered identity, not
+// the source's: a source-provided agent_id (e.g. the id baked into a bundled
+// fixture) is OVERWRITTEN, never kept. The control plane verifies the
+// (tenant_id, agent_id) pair against the tenant's registry, and only the
+// collector's own registered id is guaranteed to resolve there — keeping a
+// stale/foreign baked id made the control plane reject the whole batch
+// ("agent not found") unless an operator hand-inserted that fixed id. This
+// matches observeL7, which has always stamped a.cfg.identity() unconditionally.
 func (a *Agent) observe(f Flow) {
 	if f.TenantID != "" && f.TenantID != a.cfg.TenantID {
 		a.log.Error("REJECTED flow: source asserted a foreign tenant (agent is tenant-bound, fail closed)",
@@ -321,9 +330,7 @@ func (a *Agent) observe(f Flow) {
 		return
 	}
 	f.TenantID = a.cfg.TenantID
-	if f.AgentID == "" {
-		f.AgentID = a.cfg.identity()
-	}
+	f.AgentID = a.cfg.identity()
 	if f.Host == "" {
 		f.Host = a.cfg.Host
 	}
