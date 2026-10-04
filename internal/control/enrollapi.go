@@ -304,7 +304,15 @@ func collectorConfig(plane, tenantID, agentID, collectionProfile, busNamespace s
 	}
 	switch plane {
 	case "bgp":
-		h.Env["PROBECTL_BGP_TENANT_ID"] = tenantID
+		// DPR-084: the BMP listener reads its tenant and its own registered
+		// collector id from PROBECTL_BMP_TENANT_ID + PROBECTL_BMP_AGENT_ID to
+		// heartbeat its own fleet entry (so the fleet view can say online/offline
+		// about it); empty = no heartbeat. The listener reads PROBECTL_BMP_* only
+		// — a PROBECTL_BGP_* tenant key reaches nothing — so hinting those two is
+		// what makes an operator who runs it with exactly these hints show online.
+		// PROBECTL_BMP_COLLECTOR is the collector label stamped on emitted events.
+		h.Env["PROBECTL_BMP_TENANT_ID"] = tenantID
+		h.Env["PROBECTL_BMP_AGENT_ID"] = agentID
 		h.Env["PROBECTL_BMP_COLLECTOR"] = agentID
 		h.Env["PROBECTL_BMP_LISTEN_ADDR"] = ":1179"
 		h.Env["PROBECTL_BMP_TLS_CERT_FILE"] = "/etc/probectl/bmp/tls.crt"

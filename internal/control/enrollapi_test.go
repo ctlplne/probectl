@@ -297,6 +297,41 @@ func TestDeviceCollectorConfigIncludesCompiledProfile(t *testing.T) {
 	}
 }
 
+// TestBGPCollectorHintsCarryBMPListenerHeartbeatEnv (RTP-05): the plane=bgp
+// registration hints must name the exact env keys cmd/probectl-bmp-listener
+// reads for its DPR-084 heartbeat. The listener reads the tenant from
+// PROBECTL_BMP_TENANT_ID and its own registered collector id from
+// PROBECTL_BMP_AGENT_ID (both must be set, non-empty, or it heartbeats
+// nothing and never shows online in the fleet view). The hints once emitted a
+// PROBECTL_BGP_TENANT_ID that the listener reads nowhere, so an operator who
+// started it with exactly the hinted env got no heartbeat.
+func TestBGPCollectorHintsCarryBMPListenerHeartbeatEnv(t *testing.T) {
+	const (
+		tenantID = "tenant-a"
+		agentID  = "agent-a"
+	)
+	h := collectorConfig("bgp", tenantID, agentID, "", "t-acme")
+
+	// Keyed by the env var cmd/probectl-bmp-listener/main.go consumes for the
+	// heartbeat, valued by what that key must carry from this enrollment.
+	heartbeatEnv := map[string]string{
+		"PROBECTL_BMP_TENANT_ID": tenantID, // main.go: tenant that registered the listener
+		"PROBECTL_BMP_AGENT_ID":  agentID,  // main.go: this listener's registered collector id
+	}
+	for key, want := range heartbeatEnv {
+		got, ok := h.Env[key]
+		if !ok {
+			t.Fatalf("bgp hint omits %s — the listener gets no DPR-084 heartbeat and never shows online: %+v", key, h.Env)
+		}
+		if got == "" {
+			t.Fatalf("bgp hint sets %s empty — the listener treats empty as no heartbeat", key)
+		}
+		if got != want {
+			t.Fatalf("bgp hint %s = %q, want %q", key, got, want)
+		}
+	}
+}
+
 // TestSuccessfulIssuanceAndRotationAreAudited (DPR-098): the lab rotated an
 // agent's SVID twice and the tenant audit stream showed nothing — only token
 // minting and collector registration were audited. A first SVID and every
