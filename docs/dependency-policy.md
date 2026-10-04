@@ -78,11 +78,24 @@ bytes but the manifest still states upgrade intent.
 
 ## Upgrade cadence
 
-- **Human-driven, never automated.** Pins are bumped by a person who reads the
-  release notes — there is no auto-update bot opening batched dependency PRs.
-  Each bump lands as **its own pull request** through the **full** gate set
+- **Bot-proposed, human-reviewed, never auto-merged.** An update bot opens the
+  pull requests and a person reads the release notes, reviews, and merges — the
+  bots never merge on their own and never batch unrelated bumps.
+  [`.github/dependabot.yml`](../.github/dependabot.yml) tracks the gomod (`/`
+  and `/test`), npm (`/web` and `/browser-worker`), pip (`/analyzer`), Docker
+  (`/deploy/docker`, `/browser-worker`) and GitHub-Actions ecosystems;
+  [`.github/renovate.json`](../.github/renovate.json) tracks the digest-pinned
+  image references in the Compose stacks and Helm values that Dependabot's
+  docker manager does not. Coverage is enforced by
+  `TestDependencyBotsCoverEveryLockfileAndDigestLocation` (SUP-16), so a new
+  lockfile or digest location cannot be added without a bot entry. Each bump
+  lands as **its own pull request** through the **full** gate set
   (unit/integration tests, the isolation suites, fuzz-smoke, and the eBPF
-  kernel-matrix where relevant). Never batched, never auto-merged.
+  kernel-matrix where relevant).
+- **Patch SLA (from advisory/PR open to merge):** `Critical 7 days`,
+  `High 30 days`, `Medium/Low 90 days` (best-effort, next regular review). The
+  clock is the dependency PR's open time (or the advisory date for an unchanged
+  pin that goes red); security bumps preempt the queue.
 - **Security releases** are handled out-of-band on the same gates. `govulncheck`
   and Trivy also run on a weekly schedule
   ([`.github/workflows/security-scan.yml`](../.github/workflows/security-scan.yml))

@@ -25,6 +25,22 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "build(deps)"
+  # SUP-16: the browser-worker ships a committed package-lock.json (the
+  # Playwright worker's npm tree) — keep it current like web/.
+  - package-ecosystem: npm
+    directory: "/browser-worker"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
+  # SUP-16: the Python analyzer's hash-locked runtime + dev requirements
+  # (analyzer/requirements.lock, requirements-dev.lock, pyproject.toml).
+  - package-ecosystem: pip
+    directory: "/analyzer"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
   - package-ecosystem: docker
     directory: "/deploy/docker"
     schedule:

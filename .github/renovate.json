@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "_comment": "SUP-16: Dependabot (.github/dependabot.yml) owns gomod, npm, pip, github-actions and Dockerfile FROM bumps. Renovate is scoped to ONLY the custom digest manager below, which bumps the @sha256:/digest: image pins in the Compose stacks and Helm values that Dependabot's docker manager does not track — so the two bots never overlap.",
+  "enabledManagers": ["custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "SUP-16: keep digest-pinned images current in Compose + Helm values + Dockerfiles",
+      "managerFilePatterns": [
+        "/^deploy/compose/.*\\.ya?ml$/",
+        "/^deploy/helm/.*/values.*\\.yaml$/",
+        "/^deploy/docker/Dockerfile.*$/"
+      ],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9./_-]*(?:\\.[a-z]{2,}(?::[0-9]+)?)?/[a-z0-9./_-]+|[a-z0-9][a-z0-9./_-]*)(?::(?<currentValue>[\\w][\\w.+-]*))?@(?<currentDigest>sha256:[a-f0-9]{64})",
+        "digest:\\s*[\"']?(?<currentDigest>sha256:[a-f0-9]{64})[\"']?[^\\n]*#\\s*renovate:\\s*(?<depName>[a-z0-9./_-]+)(?::(?<currentValue>[\\w.+-]+))?"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ]
+}
