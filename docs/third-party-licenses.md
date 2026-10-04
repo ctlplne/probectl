@@ -525,7 +525,7 @@ duty in `docs/opendata-aup.md`).
 | python:analyzer | `mypy-extensions` | 1.1.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `packaging` | 26.3 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pathspec` | 1.1.1 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
-| python:analyzer | `platformdirs` | 4.12.2 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
+| python:analyzer | `platformdirs` | 4.12.3 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pluggy` | 1.6.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pygments` | 2.21.0 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |
 | python:analyzer | `pytest` | 8.4.2 | dev/build-only | UNKNOWN (uv lock lacks license metadata) | analyzer/requirements-dev.lock; analyzer/pyproject.toml scope pins |

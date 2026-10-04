@@ -517,7 +517,7 @@ docs/third-party-licenses.md.
 - python:analyzer mypy-extensions 1.1.0 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
 - python:analyzer packaging 26.3 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
 - python:analyzer pathspec 1.1.1 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
-- python:analyzer platformdirs 4.12.2 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
+- python:analyzer platformdirs 4.12.3 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
 - python:analyzer pluggy 1.6.0 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
 - python:analyzer pygments 2.21.0 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
 - python:analyzer pytest 8.4.2 (dev/build-only) - UNKNOWN (uv lock lacks license metadata)
