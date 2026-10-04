@@ -2044,8 +2044,32 @@ func (c *Config) Redacted() map[string]any {
 		"alert_smtp_tls_mode":         c.AlertSMTPTLSMode,
 		"backup_retention_note":       c.BackupRetentionNote,
 		"data_planes_configured":      c.DataPlanes != "",
-		"envelope_key_configured":     c.EnvelopeKey != "", // a boolean, never the key
+		"envelope_key_configured":     c.envelopeKeySource() != "none", // RTO-06: resolved keyring (env key OR key file), never the key
+		"envelope_key_source":         c.envelopeKeySource(),           // non-secret label: "env" | "file" | "none"
 		"session_hmac_key_configured": len(c.SessionHMACKey) == crypto.KeySize,
+	}
+}
+
+// envelopeKeySource reports the NON-SECRET origin of the deployment envelope
+// (at-rest) KEK so the support bundle can show whether at-rest encryption is
+// actually configured (RTO-06). It mirrors the serve-path resolution in
+// cmd/probectl-control (builders) and the preflight check: an explicit
+// PROBECTL_ENVELOPE_KEY (inline, or a key a deployment secret manager / KMS
+// injected into that env var) always wins; otherwise the shipped-default key
+// file (PROBECTL_ENVELOPE_KEY_FILE, SEC-002) supplies the KEK. It returns only
+// the source label — never the key material and never the file path:
+//
+//	"env"  — PROBECTL_ENVELOPE_KEY is set (includes KMS/secret-manager injection)
+//	"file" — only PROBECTL_ENVELOPE_KEY_FILE is set (encryption-by-default)
+//	"none" — no deployment KEK is resolvable (keyless; only AllowKeylessDev boots)
+func (c *Config) envelopeKeySource() string {
+	switch {
+	case c.EnvelopeKey != "":
+		return "env"
+	case c.EnvelopeKeyFile != "":
+		return "file"
+	default:
+		return "none"
 	}
 }
 

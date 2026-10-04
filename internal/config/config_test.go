@@ -1144,6 +1144,74 @@ func TestRedactedDatabaseURLsRedactQueryCredentials(t *testing.T) {
 	}
 }
 
+// TestRedactedEnvelopeKeySourceReflectsResolvedKeyring (RTO-06): the support
+// bundle must report at-rest encryption as CONFIGURED whenever a deployment KEK
+// is resolvable — from an explicit/KMS-injected env key OR the shipped-default
+// key file (SEC-002) — and must label the source ("env" | "file" | "none")
+// without ever reflecting the key value or the key-file path. Before the fix,
+// Redacted read only EnvelopeKey, so the default file-backed KEK reported
+// encryption OFF in the support bundle when it was actually ON.
+func TestRedactedEnvelopeKeySourceReflectsResolvedKeyring(t *testing.T) {
+	const keyValue = "SENTINEL-ENVELOPE-KEY-VALUE-do-not-leak"
+	const keyFile = "/var/lib/probectl/SENTINEL-keyfile-path"
+	cases := []struct {
+		name           string
+		cfg            Config
+		wantConfigured bool
+		wantSource     string
+	}{
+		{
+			name:           "file only (shipped default)",
+			cfg:            Config{EnvelopeKeyFile: keyFile},
+			wantConfigured: true,
+			wantSource:     "file",
+		},
+		{
+			name:           "explicit env key",
+			cfg:            Config{EnvelopeKey: keyValue},
+			wantConfigured: true,
+			wantSource:     "env",
+		},
+		{
+			name:           "env key wins over file",
+			cfg:            Config{EnvelopeKey: keyValue, EnvelopeKeyFile: keyFile},
+			wantConfigured: true,
+			wantSource:     "env",
+		},
+		{
+			name:           "keyless",
+			cfg:            Config{},
+			wantConfigured: false,
+			wantSource:     "none",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := tc.cfg
+			red := cfg.Redacted()
+			if got := red["envelope_key_configured"]; got != tc.wantConfigured {
+				t.Errorf("envelope_key_configured = %v, want %v", got, tc.wantConfigured)
+			}
+			if got := red["envelope_key_source"]; got != tc.wantSource {
+				t.Errorf("envelope_key_source = %v, want %q", got, tc.wantSource)
+			}
+			// The redacted snapshot must carry only the non-secret source label —
+			// never the key material and never the key-file path.
+			raw, err := json.Marshal(red)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := string(raw)
+			if strings.Contains(out, keyValue) {
+				t.Errorf("envelope key value leaked into redacted config: %s", out)
+			}
+			if strings.Contains(out, keyFile) {
+				t.Errorf("envelope key-file path leaked into redacted config: %s", out)
+			}
+		})
+	}
+}
+
 func TestOTLPConfig(t *testing.T) {
 	// Disabled by default.
 	cfg, err := Load(envFunc(nil))
