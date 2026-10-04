@@ -200,4 +200,17 @@ describe('Admin identity surface', () => {
     await screen.findByText(/identity administration/i)
     expect(await axe(container)).toHaveNoViolations()
   })
+
+  test('WEB-22: the one-time SCIM token can be dismissed and leaves the DOM', async () => {
+    vi.stubGlobal('fetch', identityFetch({}))
+    renderApp('/admin')
+
+    await userEvent.clear(await screen.findByLabelText(/scim token name/i))
+    await userEvent.type(screen.getByLabelText(/scim token name/i), 'entra')
+    await userEvent.click(screen.getByRole('button', { name: /create scim token/i }))
+    expect(await screen.findByText(/plain-scim-token/i)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /dismiss/i }))
+    expect(screen.queryByText(/plain-scim-token/i)).not.toBeInTheDocument()
+  })
 })

@@ -125,6 +125,8 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
       return jsonResponse({ items: grants })
     if (url.endsWith('/provider/v1/operators') && method === 'GET')
       return jsonResponse({ items: [operator] })
+    if (url.endsWith('/provider/v1/operators') && method === 'POST')
+      return jsonResponse({ enroll_token: 'op_enroll_tok' }, 201)
     if (url.includes('/provider/v1/audit') && method === 'GET')
       return jsonResponse({
         items: [
@@ -580,6 +582,21 @@ describe('provider console (S-T1)', () => {
     const { container } = renderApp('/provider')
     await screen.findByRole('table', { name: /tenant inventory/i })
     expect(await axe(container)).toHaveNoViolations()
+  })
+
+  test('WEB-22: the one-time operator enrollment token can be dismissed', async () => {
+    vi.stubGlobal('fetch', providerStub())
+    renderApp('/provider')
+
+    const emailField = await screen.findByLabelText(/email/i)
+    const opForm = emailField.closest('form') as HTMLElement
+    await userEvent.type(emailField, 'op@msp.example')
+    await userEvent.type(within(opForm).getByLabelText(/name/i), 'Op One')
+    await userEvent.click(within(opForm).getByRole('button', { name: /^create$/i }))
+
+    expect(await screen.findByText('op_enroll_tok')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /dismiss/i }))
+    expect(screen.queryByText('op_enroll_tok')).not.toBeInTheDocument()
   })
 })
 

@@ -1474,7 +1474,16 @@ function OperatorsCard({ readOnly }: { readOnly: boolean }) {
         {enrollToken ? (
           <p className={styles.secret}>
             One-time enrollment token (share it over a secure channel; it is
-            never shown again): <strong>{enrollToken}</strong>
+            never shown again): <strong>{enrollToken}</strong>{" "}
+            {/* WEB-22: a one-time secret — let the operator clear it from the DOM. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setEnrollToken("")}
+            >
+              Dismiss
+            </Button>
           </p>
         ) : null}
         {error || loadError ? (

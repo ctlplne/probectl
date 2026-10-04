@@ -514,7 +514,11 @@ export function IdentityCard() {
         </form>
         {createdToken ? (
           <p role="status" className={styles.editionsLede}>
-            One-time SCIM token: <code>{createdToken}</code>
+            One-time SCIM token: <code>{createdToken}</code>{' '}
+            {/* WEB-22: a one-time secret — let the operator clear it from the DOM. */}
+            <Button type="button" variant="ghost" size="sm" onClick={() => setCreatedToken('')}>
+              Dismiss
+            </Button>
           </p>
         ) : null}
         {tokenError || revokeToken.isError ? (

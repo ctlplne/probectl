@@ -244,6 +244,13 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const [server, setServer] = useState(defaultControlPlaneURL)
   const [created, setCreated] = useState<AgentEnrollToken | null>(null)
 
+  // WEB-22: the join token is a one-time secret. Clear it whenever the dialog
+  // closes so it never lingers in state/DOM and reopening shows a fresh mint
+  // form rather than the stale token.
+  useEffect(() => {
+    if (!open) setCreated(null)
+  }, [open])
+
   function submit(e: FormEvent) {
     e.preventDefault()
     const ttl = Number(ttlMinutes)

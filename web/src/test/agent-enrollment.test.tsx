@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { assertNoDoublePrefix, defaultFetch, jsonResponse, pathOf } from './fetchStub'
@@ -63,5 +63,26 @@ describe('Admin agent enrollment journey (JOURNEY-002)', () => {
       ttl_seconds: 1800,
     })
     expect(capture.body).not.toHaveProperty('tenant_id')
+  })
+
+  test('WEB-22: the one-time join token clears on dismiss and reopening shows a fresh mint form', async () => {
+    vi.stubGlobal('fetch', enrollmentFetch({}))
+    renderApp('/admin')
+
+    await userEvent.click(await screen.findByRole('button', { name: /enroll agent/i }))
+    await userEvent.click(screen.getByRole('button', { name: /mint token/i }))
+    expect(await screen.findByDisplayValue('pjt_testtoken')).toBeInTheDocument()
+
+    await userEvent.click(
+      within(screen.getByRole('dialog', { name: /agent enrollment token/i })).getByRole('button', {
+        name: /done/i,
+      }),
+    )
+    expect(screen.queryByDisplayValue('pjt_testtoken')).not.toBeInTheDocument()
+
+    // Reopen -> fresh mint form, no stale token in the DOM.
+    await userEvent.click(screen.getByRole('button', { name: /enroll agent/i }))
+    expect(screen.queryByDisplayValue('pjt_testtoken')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /mint token/i })).toBeInTheDocument()
   })
 })
