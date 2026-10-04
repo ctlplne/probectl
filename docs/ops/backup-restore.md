@@ -506,3 +506,16 @@ Restore to a point in time:
 optional — `archive_mode = on` with a sealed, off-host, encrypted archive and an
 `archive_timeout` that meets your RPO. ClickHouse PITR uses its native
 `BACKUP ... TO` incrementals to the same off-host, encrypted store (see OPS-011).
+
+## Restoring onto a brand-new cluster (roles)
+
+A logical `pg_dump` does not carry cluster **roles**. `backup_postgres.sh` therefore
+writes a `<dump>.roles.sql` companion (`pg_dumpall --roles-only
+--no-role-passwords`, `probectl*` roles only — no password hashes leave the
+source). When restoring onto a fresh Postgres cluster, keep that companion next
+to the dump and set **`PGAPPPASSWORD`** to the application role's password:
+`restore_postgres.sh` recreates `probectl` + `probectl_app` + the NOLOGIN
+RLS/auth roles (as the bootstrap `PGSUPERUSER`, default `postgres`) and sets the
+login role's password from `PGAPPPASSWORD` before restoring the data, so the
+owners / GRANTs / RLS policies in the dump apply and the control plane can boot
+(RTO-15).

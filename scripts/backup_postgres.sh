@@ -65,3 +65,18 @@ mv "${TMP}" "${OUT}"
 trap - EXIT
 (cd "${OUT_DIR}" && sha256sum "$(basename "${OUT}")" > "$(basename "${OUT}").sha256")
 echo "backup_postgres: wrote ${OUT} ($(wc -c < "${OUT}") bytes)"
+
+# RTO-15: a logical pg_dump does NOT carry cluster ROLES, so restoring onto a
+# brand-new cluster aborted on the first object/policy that references the app
+# roles (probectl_app et al., created by migrations). Write a companion roles
+# file — all probectl* roles with their attributes, WITHOUT password hashes
+# (--no-role-passwords, so no secret leaves the source) — that restore_postgres.sh
+# applies before the data restore. The login role's password is re-set from the
+# operator's own credentials at restore time, not carried here.
+ROLES_OUT="${OUT}.roles.sql"
+docker compose -f "${COMPOSE_FILE}" exec -T "${PG_SERVICE}" \
+  pg_dumpall -U "${PGUSER}" --roles-only --no-role-passwords 2>/dev/null \
+  | grep -iE '(CREATE|ALTER|GRANT) .*probectl' > "${ROLES_OUT}"
+test -s "${ROLES_OUT}" || { echo "backup_postgres: refusing empty roles companion ${ROLES_OUT} (no probectl* roles found)" >&2; exit 1; }
+(cd "${OUT_DIR}" && sha256sum "$(basename "${ROLES_OUT}")" > "$(basename "${ROLES_OUT}").sha256")
+echo "backup_postgres: wrote ${ROLES_OUT} ($(grep -c 'CREATE ROLE' "${ROLES_OUT}") roles)"
