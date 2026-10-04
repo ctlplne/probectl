@@ -27,7 +27,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Multi-arch manifest digest, resolved 2026-07-14. Python is an established
 # project stack component; the exact digest + hash-locked wheel keep this
 # optional runtime reproducible.
-FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db
+# SUP-01: rebased onto a current python:3.12-slim-bookworm digest (debian 12.15).
+# The previously-pinned digest (debian 12.11) carried 43 fixable CRITICAL/HIGH
+# OS CVEs; this digest carries ~1, and the apt upgrade below pulls the remaining
+# security-patched packages (e.g. libpcre2 deb12u2) so the runtime base ships
+# with no fixable CRITICAL/HIGH OS vulnerabilities.
+FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 COPY analyzer/requirements.lock /tmp/requirements.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock \
     && rm /tmp/requirements.lock

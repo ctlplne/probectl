@@ -1545,10 +1545,34 @@ jobs:
           push: false
           tags: probectl/${{ matrix.component }}:ci
 
+  # SUP-01: EVERY shipped image is vuln-scanned, not just probectl-control. The
+  # matrix mirrors build-images (one entry per published image); the cipolicy
+  # gate TestEveryBuiltImageIsScanned fails if a build-images component is ever
+  # added without a matching scan here. Distroless Go images + the rebased
+  # bgp-analyzer base block on fixable CRITICAL/HIGH; the browser-agent
+  # (playwright/ubuntu) base is scanned report-only (exit_code 0) because its
+  # distro carries churning fixable HIGHs — whether to block those is a tracked
+  # accepted-CVE policy decision (design-partner-readiness decisions-needed D-35).
   image-scan:
-    name: image-scan
+    name: image-scan (${{ matrix.component }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { component: probectl-control, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-control, exit_code: "1" }
+          - { component: probectl-agent, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-agent, exit_code: "1" }
+          - { component: probectl-ebpf-agent, dockerfile: deploy/docker/Dockerfile.ebpf, buildComponent: probectl-ebpf-agent, exit_code: "1" }
+          - { component: probectl-endpoint, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-endpoint, exit_code: "1" }
+          - { component: probectl-flow-agent, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-flow-agent, exit_code: "1" }
+          - { component: probectl-device-agent, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-device-agent, exit_code: "1" }
+          - { component: probectl-cloud-metrics, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-cloud-metrics, exit_code: "1" }
+          - { component: probectl-bmp-listener, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-bmp-listener, exit_code: "1" }
+          - { component: terraform-provider-probectl, dockerfile: deploy/docker/Dockerfile, buildComponent: terraform-provider-probectl, exit_code: "1" }
+          - { component: probectl, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl, exit_code: "1" }
+          - { component: probectl-bgp-analyzer, dockerfile: deploy/docker/Dockerfile.bgp-analyzer, buildComponent: probectl-control, exit_code: "1" }
+          - { component: probectl-browser-agent, dockerfile: deploy/docker/Dockerfile.browser-agent, buildComponent: probectl-agent, exit_code: "0" }
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -1558,23 +1582,23 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          file: deploy/docker/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           build-args: |
-            COMPONENT=probectl-control
+            COMPONENT=${{ matrix.buildComponent }}
           load: true
-          tags: probectl/probectl-control:scan
+          tags: probectl/${{ matrix.component }}:scan
       - name: Trivy image scan (vuln)
         # Vuln-only: secret scanning is gitleaks' job (the secret-scan job, with
         # the .gitleaks.toml allowlist); see the dependency-scan step above.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
-          image-ref: probectl/probectl-control:scan
+          image-ref: probectl/${{ matrix.component }}:scan
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: "1"
+          exit-code: ${{ matrix.exit_code }}
 
   commitlint:
     name: commitlint
