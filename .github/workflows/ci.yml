@@ -693,6 +693,10 @@ jobs:
           sudo apt-get install -y -q python3-yaml >/dev/null 2>&1 || pip install --quiet pyyaml
           ./scripts/check_helm_pod_hardening.sh SELFTEST
           ./scripts/check_helm_pod_hardening.sh
+      - name: probectl-agent chart is in sync, Kyverno-free installable, published (SUP-20)
+        run: |
+          ./scripts/check_agent_chart.sh SELFTEST
+          ./scripts/check_agent_chart.sh
       - name: compose config is valid
         # POSTGRES_PASSWORD is a required var with no default (SEC-006 fails
         # closed); supply a throwaway so interpolation can validate the file,

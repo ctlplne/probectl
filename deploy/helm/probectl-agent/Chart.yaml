@@ -9,7 +9,11 @@ description: >-
   implied.
 type: application
 version: 0.2.0
-appVersion: "0.1.0"
+# SUP-20/OPS-001: track the app version the chart deploys (the control plane and
+# probectl chart are 0.6.5); a stale appVersion makes allowTagOnly default the
+# agent image tag to 0.1.0. The release workflow overrides this to the tag at
+# package time and asserts it matches, so the two charts can never drift.
+appVersion: "0.6.5"
 keywords:
   - observability
   - ebpf

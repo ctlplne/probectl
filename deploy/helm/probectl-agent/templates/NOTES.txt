@@ -27,3 +27,11 @@ Kernel matrix + the strict Localhost seccomp profile: deploy/agent/README.md.
 
 WARNING: bus.allowPlaintext=true — dev-only; production kafka requires TLS (U-010).
 {{- end }}
+
+Namespace Pod Security Admission (SUP-20):
+  This DaemonSet mounts hostPath and runs with elevated eBPF capabilities, so its
+  namespace MUST enforce the PRIVILEGED Pod Security level. A `restricted` or
+  `baseline` namespace rejects the pods. Label the namespace before installing:
+    kubectl label namespace {{ .Release.Namespace }} \
+      pod-security.kubernetes.io/enforce=privileged \
+      pod-security.kubernetes.io/enforce-version=latest

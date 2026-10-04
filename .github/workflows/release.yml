@@ -414,12 +414,17 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
-          appv="$(grep -E '^appVersion:' deploy/helm/probectl/Chart.yaml | awk '{print $2}' | tr -d '"')"
-          if [ "$appv" != "$tag" ]; then
-            echo "::error::Chart.yaml appVersion ($appv) != release tag ($tag) — bump the chart before tagging (OPS-001)."
-            exit 1
-          fi
-          echo "chart appVersion matches tag $tag"
+          # SUP-20/OPS-001: both the probectl chart and the probectl-agent chart
+          # must track the release tag — a lagging agent chart deploys an agent the
+          # control plane rejects.
+          for chart in deploy/helm/probectl deploy/helm/probectl-agent; do
+            appv="$(grep -E '^appVersion:' "$chart/Chart.yaml" | awk '{print $2}' | tr -d '"')"
+            if [ "$appv" != "$tag" ]; then
+              echo "::error::$chart/Chart.yaml appVersion ($appv) != release tag ($tag) — bump the chart before tagging (OPS-001)."
+              exit 1
+            fi
+            echo "$chart appVersion matches tag $tag"
+          done
       - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
       - name: Helm login + push (OCI to GHCR)
         run: |
@@ -457,6 +462,31 @@ jobs:
             --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
             "$chart_ref"
           echo "chart package and OCI digest verify"
+      - name: Package, sign and push the probectl-agent chart (SUP-20)
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          agent_pkg="probectl-agent-${tag}.tgz"
+          helm package deploy/helm/probectl-agent --version "${tag}" --app-version "${tag}"
+          cosign sign-blob --yes \
+            --output-signature "${agent_pkg}.sig" \
+            --output-certificate "${agent_pkg}.pem" \
+            "${agent_pkg}"
+          cosign verify-blob \
+            --certificate "${agent_pkg}.pem" --signature "${agent_pkg}.sig" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+            "${agent_pkg}"
+          agent_digest="$(bash scripts/helm_push_digest.sh "${agent_pkg}" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts")"
+          case "$agent_digest" in sha256:*) ;; *) echo "::error::agent chart push reported no immutable digest"; exit 1 ;; esac
+          agent_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts/probectl-agent@${agent_digest}"
+          printf '%s\n' "$agent_ref" > "probectl-agent-${tag}.chart-digest.txt"
+          cosign sign --yes "$agent_ref"
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+            "$agent_ref"
+          echo "agent chart package and OCI digest verify"
       - name: Attach signed chart package evidence to the release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
