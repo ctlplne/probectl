@@ -121,6 +121,57 @@ def test_load_vrp_no_source_is_none(tmp_path):
     assert load_vrp(AnalyzerConfig.from_file(write_config(tmp_path))) is None
 
 
+def _recording_urlopen(calls):
+    body = json.dumps(
+        {"roas": [{"prefix": "192.0.2.0/24", "asn": "AS64496", "maxLength": 24}]}
+    ).encode()
+
+    def fake(req, timeout, context):
+        calls.append(getattr(req, "full_url", str(req)))
+        return _FakeResponse(body)
+
+    return fake
+
+
+def test_load_vrp_refuses_file_url_without_fetching(monkeypatch, tmp_path):
+    # ING-26: a file:// "URL" would read a local path through the fetcher — it
+    # must be refused BEFORE any urlopen (not merely degrade after a failed read).
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "probectl_analyzer.pipeline.urllib.request.urlopen", _recording_urlopen(calls)
+    )
+    cfg = AnalyzerConfig.from_file(write_config(tmp_path, rpki_vrp_url="file:///etc/passwd"))
+    assert load_vrp(cfg) is None
+    assert calls == [], "a file:// source must be refused without opening it"
+
+
+def test_load_vrp_refuses_http_url_without_fetching(monkeypatch, tmp_path):
+    # ING-26: plaintext http:// is refused (only https by default), never fetched.
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "probectl_analyzer.pipeline.urllib.request.urlopen", _recording_urlopen(calls)
+    )
+    cfg = AnalyzerConfig.from_file(write_config(tmp_path, rpki_vrp_url="http://rpki.example/vrp"))
+    assert load_vrp(cfg) is None
+    assert calls == [], "a plaintext http:// source must be refused without opening it"
+
+
+def test_load_vrp_allows_insecure_only_with_flag(monkeypatch, tmp_path):
+    # ING-26: the explicit local-dev flag opts an http:// source back in.
+    body = json.dumps(
+        {"roas": [{"prefix": "192.0.2.0/24", "asn": "AS64496", "maxLength": 24}]}
+    ).encode()
+    monkeypatch.setattr(
+        "probectl_analyzer.pipeline.urllib.request.urlopen",
+        lambda req, timeout, context: _FakeResponse(body),
+    )
+    cfg = AnalyzerConfig.from_file(
+        write_config(tmp_path, rpki_vrp_url="http://rpki.example/vrp", rpki_vrp_allow_insecure=True)
+    )
+    vrp = load_vrp(cfg)
+    assert vrp is not None and len(vrp) == 1
+
+
 # ── JSONL sink contract (one event per line, flushed) ───────────────────────
 
 

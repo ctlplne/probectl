@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ssl
 import time
+import urllib.parse
 import urllib.request
 from collections.abc import Iterable
 from typing import BinaryIO
@@ -49,6 +50,18 @@ def load_vrp(config: AnalyzerConfig) -> VRPSet | None:
         if config.rpki_vrp_file:
             vrp = VRPSet.from_file(config.rpki_vrp_file, keep=keep)
         else:
+            # ING-26 (G7-12): the VRP URL must be https. http:// is plaintext and
+            # file:// turns the "URL" into a local-file read; refuse both unless
+            # the operator explicitly opted in for local development.
+            scheme = urllib.parse.urlparse(source).scheme.lower()
+            if scheme != "https" and not config.rpki_vrp_allow_insecure:
+                _log.warning(
+                    "refusing insecure RPKI VRP source; only https is allowed "
+                    "(set rpki_vrp_allow_insecure for local dev) — degrading to unknown",
+                    source=source,
+                    scheme=scheme,
+                )
+                return None
             ctx = ssl.create_default_context()
             req = urllib.request.Request(source, headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:

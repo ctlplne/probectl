@@ -33,6 +33,11 @@ IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 # fetch failure (docs/guardrails.md G7-10).
 MAX_VRP_BYTES = 1 << 30
 _STREAM_CHUNK = 1 << 16
+# ING-26: a single entry (one ROA object) is tiny; a region that cannot be
+# decoded within this bound is pathological. Rejecting it here keeps the parse
+# linear — without it, one giant/undelimited entry makes each failed raw_decode
+# re-scan an ever-growing buffer (quadratic) up to the 1 GiB total bound.
+_MAX_ENTRY_BYTES = 1 << 20
 _HEADER_LIMIT = 1 << 20  # metadata before the "roas" array must fit here
 _ROAS_KEY = re.compile(r'"roas"\s*:\s*\[')
 _SEPARATORS = re.compile(r"[\s,]*")
@@ -102,6 +107,13 @@ def iter_roas(
         try:
             obj, end = decoder.raw_decode(buf, idx)
         except json.JSONDecodeError as err:
+            # ING-26: a single entry that will not decode within the per-entry
+            # bound is rejected quickly, so a pathological giant/undelimited
+            # entry cannot drive quadratic re-parsing of a growing buffer.
+            if len(buf) - idx > _MAX_ENTRY_BYTES:
+                raise VRPError(
+                    f"VRP entry exceeds the {_MAX_ENTRY_BYTES}-byte per-entry bound"
+                ) from err
             if fill():  # the entry may straddle the chunk boundary
                 continue
             raise VRPError(f"malformed or truncated VRP export: {err.msg}") from err

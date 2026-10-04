@@ -82,6 +82,27 @@ def test_truncated_and_oversized_exports_are_refused():
         list(iter_roas(io.BytesIO(b'{"metadata": {}}'), chunk_size=16))
 
 
+def test_iter_roas_rejects_an_oversized_single_entry_without_quadratic_scan():
+    # ING-26: a single undelimited entry (an object that never closes) must be
+    # rejected within the per-entry bound, not drive a quadratic re-scan of an
+    # ever-growing buffer up to the 1 GiB total bound.
+    giant = b'{"roas":[' + b"{" * (4 << 20)  # 4 MiB of '{' — never decodes
+
+    class Counting(io.BytesIO):
+        read_bytes = 0
+
+        def read(self, size=-1):
+            chunk = super().read(size)
+            self.read_bytes += len(chunk)
+            return chunk
+
+    src = Counting(giant)
+    with pytest.raises(VRPError, match="per-entry"):
+        list(iter_roas(src, chunk_size=1 << 16))
+    # Linear: the scan stops near the per-entry bound, nowhere near the full 4 MiB.
+    assert src.read_bytes < (2 << 20), f"read {src.read_bytes} bytes — expected a bounded scan"
+
+
 def test_memory_stays_bounded_for_a_large_export():
     # 200k ROAs (~15 MB of JSON) with a one-prefix filter: the rolling buffer
     # never holds more than a couple of chunks, and only one ROA is kept.

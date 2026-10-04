@@ -38,6 +38,10 @@ class AnalyzerConfig:
     collector: str = ""
     rpki_vrp_file: str | None = None
     rpki_vrp_url: str | None = None
+    # ING-26: the VRP URL must be https. http:// is plaintext and file:// reads a
+    # local path through the "URL" (SSRF/local-file-read, docs/guardrails.md
+    # G7-12). An operator may opt into http/file ONLY for local development.
+    rpki_vrp_allow_insecure: bool = False
     log_level: str = "INFO"
     # DPR-056: a routing anomaly is re-announced by every collector peer on
     # every update; one event per (prefix, kind, origin) per window keeps the
@@ -65,6 +69,7 @@ class AnalyzerConfig:
             collector=str(d.get("collector", "")),
             rpki_vrp_file=d.get("rpki_vrp_file"),
             rpki_vrp_url=d.get("rpki_vrp_url"),
+            rpki_vrp_allow_insecure=bool(d.get("rpki_vrp_allow_insecure", False)),
             log_level=str(d.get("log_level", "INFO")),
             event_suppression_seconds=suppression,
         )
