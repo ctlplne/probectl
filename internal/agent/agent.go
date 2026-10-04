@@ -215,6 +215,21 @@ func (a *Agent) drainOnce(ctx context.Context, client resultStreamer) (retErr er
 	}
 	requests, firstBadIndex, firstBadErr := frameRequestsPrefix(frames)
 	if firstBadErr != nil {
+		// ING-28: a poison HEAD frame (firstBadIndex == 0) leaves the good
+		// prefix empty, so the old `len(requests)==0 → return` made drainOnce a
+		// no-op forever: nothing is removed, draining never progresses, and once
+		// the buffer fills every new result is shed with ErrBufferFull. Quarantine
+		// the undecodable head — sideline it to the quarantine sidecar, drop
+		// exactly that one frame (FIFO), count it, and let the next cycle convert
+		// the good frames behind it. Only a genuine decode failure is quarantined;
+		// an unsupported (future) version is deliberately RETAINED so an older
+		// binary never destroys data a newer agent wrote.
+		if firstBadIndex == 0 && !errors.Is(firstBadErr, errUnsupportedResultEnvelopeVersion) {
+			if err := a.quarantinePoisonHead(frames[0], firstBadErr); err != nil {
+				return err
+			}
+			return nil
+		}
 		a.log.Error("retaining malformed buffered result",
 			"frame_index", firstBadIndex,
 			"converted_prefix", len(requests),
@@ -271,6 +286,30 @@ func (a *Agent) drainOnce(ctx context.Context, client resultStreamer) (retErr er
 	if remainingRecords > 0 && pace > 0 {
 		sleep(ctx, jittered(pace))
 	}
+	return nil
+}
+
+// quarantinePoisonHead sidelines an undecodable head frame out of the buffer so
+// draining can make progress (ING-28). The sidecar persist + FIFO drop happen
+// inside the buffer under its lock; here we only record the metric and log (no
+// payload bytes — the frame failed to parse, so only its size and the decode
+// error are emitted, never tenant data). A sidecar write failure is returned so
+// the drain fails closed rather than silently losing the frame.
+func (a *Agent) quarantinePoisonHead(frame []byte, cause error) error {
+	n, err := a.buffer.QuarantineHead()
+	if err != nil {
+		return err
+	}
+	if a.metrics != nil {
+		a.metrics.Quarantine()
+		a.metrics.SetBufferDepth(a.buffer.Len())
+	}
+	a.log.Error("quarantined undecodable buffered result head frame",
+		"frame_bytes", len(frame),
+		"quarantined_bytes", n,
+		"quarantined_total", a.buffer.Quarantined(),
+		"remaining_records", a.buffer.Len(),
+		"error", cause.Error())
 	return nil
 }
 

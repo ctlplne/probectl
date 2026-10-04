@@ -84,6 +84,7 @@ type Runtime struct {
 	errors      *basemetrics.Counter
 	timeouts    *basemetrics.Counter
 	rejections  *basemetrics.Counter
+	quarantined *basemetrics.Counter
 
 	bufferDepth atomic.Int64
 	active      atomic.Int64
@@ -113,6 +114,7 @@ func New(component, version, commit string, cfg Config) (*Runtime, error) {
 		errors:      reg.Counter("probectl_agent_errors_total", "Probe, collection, buffer, or publish errors observed by this agent process."),
 		timeouts:    reg.Counter("probectl_agent_session_timeouts_total", "Inbound collector sessions closed after a bounded handshake or read timeout."),
 		rejections:  reg.Counter("probectl_agent_session_rejections_total", "Inbound collector sessions rejected by the process-wide concurrency bound."),
+		quarantined: reg.Counter("probectl_agent_quarantined_total", "Undecodable buffered result frames sidelined to the quarantine sidecar so draining can resume (ING-28)."),
 		ready:       make(chan struct{}),
 	}
 	reg.Gauge("probectl_agent_buffer_depth", "Results currently waiting in this agent process's local buffer or queue.", func() float64 {
@@ -239,6 +241,15 @@ func (r *Runtime) SetBufferDepth(depth int) {
 		depth = 0
 	}
 	r.bufferDepth.Store(int64(depth))
+}
+
+// Quarantine records one undecodable buffer frame moved to the quarantine
+// sidecar so a poison head frame cannot wedge the store-and-forward drain
+// (ING-28).
+func (r *Runtime) Quarantine() {
+	if r != nil {
+		r.quarantined.Inc()
+	}
 }
 
 // SessionTimeout records one inbound collector session closed by its bounded

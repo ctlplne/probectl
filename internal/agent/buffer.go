@@ -25,6 +25,15 @@ var ErrBufferFull = errors.New("agent: store-and-forward buffer full")
 
 const bufferFileName = "buffer.log"
 
+// quarantineFileName is the sidecar beside the buffer that holds poison frames
+// pulled out of the FIFO (ING-28). A single undecodable head frame otherwise
+// wedges the drain forever — frameToRequest can never convert it, so the good
+// prefix stays empty and draining never progresses. Rather than destroy the
+// bytes, QuarantineHead moves them here (same length-prefixed format as
+// buffer.log) so the good frames behind it can drain and the poison frame is
+// preserved for offline inspection.
+const quarantineFileName = "quarantine.log"
+
 // maxFrameLen bounds the length prefix readFrame will honor before allocating
 // (RESIL-006). A corrupt or maliciously-large length prefix (a crash-torn tail,
 // or a tampered buffer file on a customer host) would otherwise request up to
@@ -42,14 +51,15 @@ var ErrFrameTooLarge = errors.New("agent: buffer frame length exceeds cap (corru
 // in order on reconnect. The on-disk file holds exactly the undrained records as
 // length-prefixed frames: [uint32 big-endian length][payload].
 type Buffer struct {
-	mu         sync.Mutex
-	path       string
-	maxRecords int
-	maxBytes   int64 // RESIL-009: on-disk byte cap (0 = unbounded by bytes)
-	fsync      bool
-	count      int
-	bytes      int64 // current on-disk footprint (frame headers + payloads)
-	dropped    uint64
+	mu          sync.Mutex
+	path        string
+	maxRecords  int
+	maxBytes    int64 // RESIL-009: on-disk byte cap (0 = unbounded by bytes)
+	fsync       bool
+	count       int
+	bytes       int64 // current on-disk footprint (frame headers + payloads)
+	dropped     uint64
+	quarantined uint64 // ING-28: undecodable head frames sidelined out of the FIFO
 }
 
 // frameOverhead is the per-frame length-prefix header byte count (RESIL-009).
@@ -260,6 +270,65 @@ func (b *Buffer) Remove(n int) error {
 		n = len(cur)
 	}
 	return b.rewriteLocked(cur[n:])
+}
+
+// QuarantineHead removes the oldest (head) frame from the live buffer and
+// appends it, verbatim, to the sidecar quarantine file beside buffer.log
+// (ING-28). It is the escape hatch for a poison head frame that frameToRequest
+// can never decode: without it, the empty good-prefix makes drainOnce a no-op
+// and, once the buffer fills, every new result is shed with ErrBufferFull.
+// Removing exactly the head frame lets the good frames behind it drain, while
+// the sidecar preserves the bytes for offline inspection rather than destroying
+// tenant data. It returns the number of bytes quarantined (0 when the buffer is
+// empty). The sidecar is written before the head is dropped, so a sidecar write
+// failure fails closed (the frame is retained) rather than silently losing it.
+func (b *Buffer) QuarantineHead() (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur, err := b.readAll()
+	if err != nil {
+		return 0, err
+	}
+	if len(cur) == 0 {
+		return 0, nil
+	}
+	head := cur[0]
+	if err := b.appendQuarantineLocked(head); err != nil {
+		return 0, err
+	}
+	if err := b.rewriteLocked(cur[1:]); err != nil {
+		return 0, err
+	}
+	b.quarantined++
+	return len(head), nil
+}
+
+// Quarantined returns the number of poison head frames sidelined to the
+// quarantine sidecar since the buffer was opened (ING-28).
+func (b *Buffer) Quarantined() uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.quarantined
+}
+
+// appendQuarantineLocked appends one frame to the quarantine sidecar using the
+// same length-prefixed format as buffer.log. The caller holds b.mu.
+func (b *Buffer) appendQuarantineLocked(frame []byte) error {
+	qpath := filepath.Join(filepath.Dir(b.path), quarantineFileName)
+	f, err := os.OpenFile(qpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("agent: quarantine open: %w", err)
+	}
+	defer f.Close()
+	if err := writeFrame(f, frame); err != nil {
+		return err
+	}
+	if b.fsync {
+		if err := f.Sync(); err != nil {
+			return fmt.Errorf("agent: quarantine sync: %w", err)
+		}
+	}
+	return nil
 }
 
 // readAll reads every readable frame from the buffer file. A torn tail frame
