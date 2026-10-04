@@ -120,6 +120,13 @@ tenant audit rows are pruned only below the SIEM delivery watermark):
   not every RWX driver applies the pod's `fsGroup`, and an NFS export or a
   pre-created directory that stays root-owned fails startup with
   `audit worm store: … mkdir …/audit-worm: permission denied`.
+- `probectl-provider-audit-worm`: a PVC for the signed audit segments, backed by
+  an Object-Lock / WORM volume separate from the tenant object store
+  (`values-multitenant.yaml` sets `audit.worm.existingClaim` to this name and
+  mounts it at `/var/lib/probectl/audit-worm`; the chart derives
+  `PROBECTL_AUDIT_WORM_DIR` from that mount, so never pass it through
+  `control.extraEnv`). Like the object store it must be writable by uid/gid
+  65532.
 - `probectl-provider-runtime`: an externally managed Secret containing
   `PROBECTL_ENVELOPE_KEY`, `PROBECTL_SESSION_HMAC_KEY`,
   `PROBECTL_DATABASE_URL`, `PROBECTL_OIDC_CLIENT_SECRET` when OIDC needs one,
@@ -163,7 +170,6 @@ helm install probectl deploy/helm/probectl \
   --set objectStore.existingClaim=probectl-provider-objects-rwx \
   --set database.url='postgres://declaration-only@db:5432/probectl?sslmode=verify-full' \
   --set oidc.issuer=... --set oidc.clientId=... \
-  --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/objects/audit-worm \
   --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
   --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest \
   --set 'control.trustedProxies={10.244.0.0/16}'

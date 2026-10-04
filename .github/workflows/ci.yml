@@ -684,6 +684,10 @@ jobs:
         run: |
           python3 -m pip install --quiet pyyaml==6.0.3 # SUPPLY-006: exact pin
           make gitops-gate
+      - name: README MSP install command renders + pre-create list is complete (SUP-07)
+        run: |
+          ./scripts/check_helm_readme_install.sh SELFTEST
+          ./scripts/check_helm_readme_install.sh
       - name: compose config is valid
         # POSTGRES_PASSWORD is a required var with no default (SEC-006 fails
         # closed); supply a throwaway so interpolation can validate the file,
