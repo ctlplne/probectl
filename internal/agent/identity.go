@@ -318,8 +318,9 @@ func RotationDue(notBefore, notAfter, now time.Time) bool {
 
 // enrollHTTPClientCapturing is enrollHTTPClient plus a function that returns
 // the server trust material to persist: the --ca-file bytes, or — under a pin
-// — the certificate the server actually presented (PEM), captured during the
-// pinned handshake. Neither: nothing (system roots verify the gRPC server too).
+// — the ISSUING CA from the chain the server presented (PEM), captured during
+// the pinned handshake (serverTrustAnchor; the leaf itself only when the server
+// presents no chain). Neither: nothing (system roots verify the gRPC server too).
 func enrollHTTPClientCapturing(caPin, caFile string) (*http.Client, func() []byte, error) {
 	var (
 		mu       sync.Mutex
@@ -336,7 +337,7 @@ func enrollHTTPClientCapturing(caPin, caFile string) (*http.Client, func() []byt
 				return err
 			}
 			mu.Lock()
-			captured = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: raw[0]})
+			captured = serverTrustAnchor(raw)
 			mu.Unlock()
 			return nil
 		}
@@ -353,6 +354,26 @@ func enrollHTTPClientCapturing(caPin, caFile string) (*http.Client, func() []byt
 		defer mu.Unlock()
 		return captured
 	}, nil
+}
+
+// serverTrustAnchor picks the certificate to PERSIST as the control-plane trust
+// (server-ca.pem) from the chain the server presented during a pinned handshake.
+// The leaf (raw[0]) already authenticated the server against the pin; what we
+// store is the ISSUING CA — the top of the presented chain — so that a later
+// server-certificate renewal (a fresh leaf under the SAME CA) still verifies
+// against the stored anchor instead of silently breaking every pinned agent
+// (ING-35). server-ca.pem is loaded as a RootCAs pool at runtime
+// (crypto.ClientMTLSConfig), so a CA anchor trusts the whole hierarchy.
+//
+// raw[len-1] is the top of the chain: for a leaf+CA (or leaf+intermediate+root)
+// chain it is the issuing CA, and for a lone self-signed leaf (a quickstart with
+// no chain) it collapses to that leaf — the historical leaf-pin behavior, which
+// still carries the renewal caveat because the server presents no CA to pin.
+func serverTrustAnchor(raw [][]byte) []byte {
+	if len(raw) == 0 {
+		return nil
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: raw[len(raw)-1]})
 }
 
 // enrollHTTPClient verifies the server by pin (first contact, self-signed

@@ -9,6 +9,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -88,6 +89,82 @@ func TestEnrollWritesIdentityWithPin(t *testing.T) {
 	block, _ := pem.Decode(serverCA)
 	if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, srv.Certificate().Raw) {
 		t.Fatal("server-ca.pem must hold the certificate the pinned enrollment verified")
+	}
+}
+
+// ING-35: with --ca-pin the agent must persist the ISSUING CA (the top of the
+// chain the control plane presents), not the pinned LEAF, as the control-plane
+// trust (server-ca.pem). Pinning the leaf means a routine server-certificate
+// renewal — a fresh leaf under the SAME CA — breaks mTLS on every pinned agent,
+// because server-ca.pem is loaded as a RootCAs pool to verify the control plane.
+// This drives the capture through the real Enroll entry point against a server
+// that presents a [leaf, CA] chain.
+func TestEnrollPinCapturesIssuingCANotLeaf(t *testing.T) {
+	ca, err := crypto.GenerateCA("probectl Test CA", time.Hour)
+	if err != nil {
+		t.Fatalf("generate CA: %v", err)
+	}
+	leafPEM, leafKeyPEM, err := ca.IssueServerCert("control.local", []string{"127.0.0.1"}, time.Hour)
+	if err != nil {
+		t.Fatalf("issue server leaf: %v", err)
+	}
+	// Present the full chain [leaf, CA] exactly as a real control plane would.
+	chain, err := tls.X509KeyPair(append(append([]byte{}, leafPEM...), ca.CertPEM()...), leafKeyPEM)
+	if err != nil {
+		t.Fatalf("build server chain: %v", err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n",
+			"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
+			"spiffe_id": "spiffe://probectl/tenant/t-1/agent/a-1",
+			"tenant_id": "t-1", "agent_id": "a-1", "serial": "ab12",
+			"not_after": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339Nano),
+		})
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{chain}}
+	srv.StartTLS()
+	defer srv.Close()
+
+	// The operator reads the LEAF fingerprint off the server, so first contact
+	// still authenticates the exact presented leaf against the pin.
+	if block, _ := pem.Decode(leafPEM); block == nil || !bytes.Equal(srv.Certificate().Raw, block.Bytes) {
+		t.Fatal("test setup: server did not present our leaf as the first chain cert")
+	}
+	pin := hex.EncodeToString(crypto.Hash(srv.Certificate().Raw))
+
+	dir := filepath.Join(t.TempDir(), "identity")
+	if _, _, err := Enroll(context.Background(), EnrollOptions{
+		Server: srv.URL, Token: "pjt_good", Dir: dir, Hostname: "h1", CAPin: pin,
+	}); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+
+	serverCA, err := os.ReadFile(filepath.Join(dir, IdentityServerCAFile))
+	if err != nil {
+		t.Fatalf("server trust not persisted: %v", err)
+	}
+	// The stored anchor is the ISSUING CA, not the pinned leaf.
+	if bytes.Equal(serverCA, leafPEM) {
+		t.Fatal("server-ca.pem pinned the LEAF — a server-cert renewal will break every pinned agent (ING-35)")
+	}
+	if !bytes.Equal(serverCA, ca.CertPEM()) {
+		t.Fatalf("server-ca.pem must be the issuing CA\n got: %q\nwant: %q", serverCA, ca.CertPEM())
+	}
+	// Renewal survives: a DIFFERENT leaf freshly issued under the SAME CA still
+	// verifies against the stored anchor (the runtime loads server-ca.pem as a
+	// RootCAs pool, so trust flows from the CA to any leaf it signs).
+	renewedLeafPEM, _, err := ca.IssueServerCert("control.local", []string{"127.0.0.1"}, time.Hour)
+	if err != nil {
+		t.Fatalf("issue renewed leaf: %v", err)
+	}
+	if err := crypto.VerifyPublicCertificateIssuedByPEM(renewedLeafPEM, serverCA); err != nil {
+		t.Fatalf("a renewed leaf under the same CA must verify against the stored anchor: %v", err)
+	}
+	// Guard the point of the fix: the renewed leaf would NOT verify against the
+	// pinned leaf, so the old leaf-pin behavior is exactly what breaks renewal.
+	if err := crypto.VerifyPublicCertificateIssuedByPEM(renewedLeafPEM, leafPEM); err == nil {
+		t.Fatal("renewed leaf unexpectedly verified against the LEAF anchor; the regression would go undetected")
 	}
 }
 
