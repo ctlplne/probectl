@@ -222,3 +222,32 @@ func TestTenantAuditRetentionBoundReturnsClientValidationError(t *testing.T) {
 		t.Fatalf("engine did not receive bounded tenant audit policy: %+v", fake.set)
 	}
 }
+
+// TestLifecycleRetentionPutMergesOmittedFields proves WEB-08: a partial update
+// (one field) leaves the other retention keys untouched instead of resetting
+// them to the deployment default.
+func TestLifecycleRetentionPutMergesOmittedFields(t *testing.T) {
+	audit, ai := 90, 7
+	fake := &fakeTenantLifecycle{policy: tenantlife.RetentionPolicy{
+		AuditRetentionDays:    &audit,
+		AIAnswerRetentionDays: &ai,
+	}}
+	srv := testServer(fakePinger{})
+	srv.tenantLife = fake
+
+	rec := lifecycleReq(t, srv, http.MethodPut, "/v1/lifecycle/retention", map[string]any{
+		"flow_retention_days": 7,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if fake.set.AuditRetentionDays == nil || *fake.set.AuditRetentionDays != 90 {
+		t.Fatalf("audit retention reset by a partial update (WEB-08): %v", fake.set.AuditRetentionDays)
+	}
+	if fake.set.AIAnswerRetentionDays == nil || *fake.set.AIAnswerRetentionDays != 7 {
+		t.Fatalf("ai_answer retention reset by a partial update (WEB-08): %v", fake.set.AIAnswerRetentionDays)
+	}
+	if fake.set.FlowRetentionDays == nil || *fake.set.FlowRetentionDays != 7 {
+		t.Fatalf("flow retention not applied: %v", fake.set.FlowRetentionDays)
+	}
+}

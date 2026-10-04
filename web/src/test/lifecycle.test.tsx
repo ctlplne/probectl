@@ -59,10 +59,19 @@ describe('tenant data lifecycle (S-T5)', () => {
     expect(screen.getByText(/residency eu/i)).toBeInTheDocument()
   })
 
-  test('saving retention PUTs the right payload (blank = deployment default)', async () => {
+  test('editing one retention field preserves the others in the PUT body (WEB-08)', async () => {
     const base = defaultFetch()
     const stub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).endsWith('/v1/lifecycle/retention') && init?.method === 'PUT')
+      const url = String(input)
+      if (url.endsWith('/v1/lifecycle/retention') && (init?.method ?? 'GET') === 'GET')
+        return jsonResponse({
+          tenant_id: '00000000-0000-0000-0000-000000000001',
+          flow_retention_days: 30,
+          audit_retention_days: 90,
+          ai_answer_retention_days: 7,
+          isolation_model: 'pooled',
+        })
+      if (url.endsWith('/v1/lifecycle/retention') && init?.method === 'PUT')
         return jsonResponse({
           tenant_id: '00000000-0000-0000-0000-000000000001',
           flow_retention_days: 14,
@@ -72,7 +81,12 @@ describe('tenant data lifecycle (S-T5)', () => {
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', stub)
     renderApp('/admin')
-    await userEvent.type(await screen.findByLabelText(/flow days/i), '14')
+    // The form pre-fills the loaded policy; editing only Flow must not clear the
+    // others (previously every un-retyped field was sent as null and reset).
+    const flow = await screen.findByLabelText(/flow days/i)
+    await waitFor(() => expect((flow as HTMLInputElement).value).toBe('30'))
+    await userEvent.clear(flow)
+    await userEvent.type(flow, '14')
     await userEvent.click(screen.getByRole('button', { name: /save retention/i }))
     expect(await screen.findByText(/retention saved/i)).toBeInTheDocument()
     const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls
@@ -81,16 +95,10 @@ describe('tenant data lifecycle (S-T5)', () => {
         String(c[0]).endsWith('/v1/lifecycle/retention') &&
         (c[1] as RequestInit | undefined)?.method === 'PUT',
     )
-    expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({
-      ai_answer_retention_days: null,
-      audit_retention_days: null,
-      derived_identity_retention_days: null,
-      ebpf_retention_days: null,
-      flow_retention_days: 14,
-      object_retention_days: null,
-      otel_retention_days: null,
-      path_retention_days: null,
-    })
+    const body = JSON.parse(String((put![1] as RequestInit).body))
+    expect(body.flow_retention_days).toBe(14)
+    expect(body.audit_retention_days).toBe(90)
+    expect(body.ai_answer_retention_days).toBe(7)
   })
 
   test('saving retention surfaces structured API errors', async () => {

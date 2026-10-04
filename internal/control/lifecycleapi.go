@@ -209,22 +209,36 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 			return apierror.BadRequest(fmt.Sprintf("audit_retention_days cannot be below the deployment floor of %d days", floorDays))
 		}
 	}
+	// WEB-08: this is a partial update — a field omitted (JSON null / absent)
+	// means "leave it unchanged", not "reset to the deployment default". Merge
+	// the submitted fields over the tenant's current policy so saving one knob
+	// never silently clears the others.
+	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(tid))
+	current, err := e.RetentionFor(ctx, tid)
+	if err != nil {
+		return apierror.Internal("retention read failed").Wrap(err)
+	}
+	keep := func(set, cur *int) *int {
+		if set != nil {
+			return set
+		}
+		return cur
+	}
 	policy := tenantlife.RetentionPolicy{
 		TenantID:                     tid,
-		FlowRetentionDays:            in.FlowRetentionDays,
-		OtelRetentionDays:            in.OtelRetentionDays,
-		EBPFRetentionDays:            in.EBPFRetentionDays,
-		PathRetentionDays:            in.PathRetentionDays,
-		AuditRetentionDays:           in.AuditRetentionDays,
-		AIAnswerRetentionDays:        in.AIAnswerRetentionDays,
-		ObjectRetentionDays:          in.ObjectRetentionDays,
-		DerivedIdentityRetentionDays: in.DerivedIdentityRetentionDays,
+		FlowRetentionDays:            keep(in.FlowRetentionDays, current.FlowRetentionDays),
+		OtelRetentionDays:            keep(in.OtelRetentionDays, current.OtelRetentionDays),
+		EBPFRetentionDays:            keep(in.EBPFRetentionDays, current.EBPFRetentionDays),
+		PathRetentionDays:            keep(in.PathRetentionDays, current.PathRetentionDays),
+		AuditRetentionDays:           keep(in.AuditRetentionDays, current.AuditRetentionDays),
+		AIAnswerRetentionDays:        keep(in.AIAnswerRetentionDays, current.AIAnswerRetentionDays),
+		ObjectRetentionDays:          keep(in.ObjectRetentionDays, current.ObjectRetentionDays),
+		DerivedIdentityRetentionDays: keep(in.DerivedIdentityRetentionDays, current.DerivedIdentityRetentionDays),
 		UpdatedBy:                    auditActor(r), // DPR-083: the principal who set the clocks, not the tenant id
 	}
 	if err := validateLifecycleRetentionPolicy(policy); err != nil {
 		return err
 	}
-	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(tid))
 	if err := e.SetRetention(ctx, policy, auditActor(r)); err != nil {
 		if errors.Is(err, tenantlife.ErrAuditRetentionExceedsMaximum) {
 			return apierror.Validation("audit_retention_days cannot exceed the deployment audit-retention maximum")

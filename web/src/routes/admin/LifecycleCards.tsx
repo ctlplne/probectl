@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import styles from '../pages.module.css'
 import {
   Badge,
@@ -56,13 +56,39 @@ export function LifecycleCard() {
   const [attestation, setAttestation] = useState<LifecycleEraseAttestation | null>(null)
   const closeEraseDialog = useCallback(() => setEraseOpen(false), [])
 
+  // WEB-08: pre-fill the form from the loaded policy so saving one field submits
+  // the current values of the others (the server also merges, but the form must
+  // not send null for a field the admin simply did not retype). Re-syncs to the
+  // server state when it (re)loads, e.g. after a successful save.
+  useEffect(() => {
+    if (!data) return
+    setRetentionDays(() => {
+      const next: Record<string, string> = {}
+      for (const field of retentionFields) {
+        const v = data[field.key]
+        next[field.key] = v != null ? String(v) : ''
+      }
+      return next
+    })
+  }, [data])
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setSaved(false)
+    // WEB-08: a blank field means "unchanged"; a non-blank field must be a whole
+    // number of days (Number('30d') is NaN, which would serialize to null and
+    // silently reset the field).
+    for (const field of retentionFields) {
+      const value = (retentionDays[field.key] ?? '').trim()
+      if (value !== '' && !/^\d+$/.test(value)) {
+        setError(`${field.label} retention must be a whole number of days`)
+        return
+      }
+    }
     try {
       const payload = retentionFields.reduce((acc, field) => {
-        const value = retentionDays[field.key] ?? ''
+        const value = (retentionDays[field.key] ?? '').trim()
         acc[field.key] = value === '' ? null : Number(value)
         return acc
       }, {} as LifecycleRetentionInput)
