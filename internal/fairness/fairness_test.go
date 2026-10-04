@@ -58,10 +58,13 @@ func eventually(t *testing.T, fn func() bool) {
 	// (go g.refresh), so this polls for an off-hot-path goroutine to land. The
 	// old 200×1ms (~200ms) budget was too tight under -race on a loaded CI
 	// runner — the refresh goroutine may not even be scheduled in that window —
-	// which flaked TestPolicyLifecycle ("condition not reached"). A ~5s deadline
-	// still fails fast on a real break (the loop returns the instant fn() is
-	// true) but absorbs scheduler/-race jitter.
-	deadline := time.Now().Add(5 * time.Second)
+	// which flaked TestPolicyLifecycle ("condition not reached"). Even 5s was
+	// occasionally starved when the cross-tenant-isolation job runs every
+	// package's -race tests in parallel next to the 12-image build + eBPF-QEMU
+	// jobs, so the budget is 30s. The loop returns the INSTANT fn() is true, so
+	// this never slows the happy path — it only widens the worst-case wait
+	// before declaring a genuine break, fully absorbing scheduler/-race jitter.
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if fn() {
 			return
