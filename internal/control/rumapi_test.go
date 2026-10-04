@@ -509,3 +509,32 @@ func TestRUMConsumerDropsGarbageAndUnscoped(t *testing.T) {
 		t.Fatalf("nothing should have ingested, got %+v", apps)
 	}
 }
+
+// TestRUMBeaconHostAllowListRefusesForgedHost proves WEB-11's per-key host
+// binding: a key that enumerates its hosts refuses a beacon reporting any other
+// host (403) while still accepting the registered host. Before the fix the
+// forged-host beacon was accepted (202) and published.
+func TestRUMBeaconHostAllowListRefusesForgedHost(t *testing.T) {
+	fb := &fakeRUMBus{}
+	eng, apps, on, err := BuildRUM(&config.Config{
+		RUMEnabled:    true,
+		RUMApps:       map[string]string{"pk_abc": tenancy.DefaultTenantID.String() + "/storefront;hosts=web.acme.example"},
+		RUMRatePerMin: 1000,
+	}, intelTestLog())
+	if err != nil || !on {
+		t.Fatalf("BuildRUM: on=%v err=%v", on, err)
+	}
+	srv := testServer(fakePinger{}).WithRUM(eng, apps, fb.publish, 1000)
+
+	forged := `{"v":1,"id":"b1","key":"pk_abc","consent":true,"host":"forged.example","page":"/","vitals":{"lcp_ms":1000},"errors":0,"failed_requests":0}`
+	if rec := postBeacon(srv, forged); rec.Code != http.StatusForbidden {
+		t.Fatalf("forged-host beacon status = %d, want 403 (host allow-list not enforced; WEB-11)", rec.Code)
+	}
+	ok := `{"v":1,"id":"b2","key":"pk_abc","consent":true,"host":"web.acme.example","page":"/","vitals":{"lcp_ms":1000},"errors":0,"failed_requests":0}`
+	if rec := postBeacon(srv, ok); rec.Code != http.StatusAccepted {
+		t.Fatalf("registered-host beacon status = %d, want 202", rec.Code)
+	}
+	if len(fb.payloads) != 1 {
+		t.Fatalf("only the registered-host beacon may publish, got %d", len(fb.payloads))
+	}
+}

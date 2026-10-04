@@ -183,7 +183,17 @@ func (e *Engine) ObserveRUM(r *resultv1.Result) []incident.Signal {
 	agg, ok := ts.apps[key]
 	if !ok {
 		if len(ts.apps) >= maxAppsPerTenant {
-			return nil // bounded
+			// Reclaim slots whose window has aged out before refusing a new
+			// (app|host). RUM app keys are public page identifiers by design, so
+			// without reclamation a flood of forged-host beacons fills the
+			// bounded table and permanently hides a real host's views until
+			// restart (ING-34 / WEB-11); reclaiming aged-out slots keeps that
+			// flood from being permanent. State stays tenant-scoped
+			// (docs/guardrails.md G7-1).
+			ts.evictEmptyLocked(at)
+		}
+		if len(ts.apps) >= maxAppsPerTenant {
+			return nil // still full of in-window aggregates — genuinely bounded
 		}
 		agg = &appAgg{app: app, host: host, pages: map[string]*pageAgg{}}
 		ts.apps[key] = agg
@@ -255,6 +265,32 @@ func (p *pageAgg) prune(now time.Time) {
 	if len(p.views) > ringSize {
 		p.views = p.views[len(p.views)-ringSize:]
 	}
+}
+
+// evictEmptyLocked reclaims (app|host) slots whose entire window has aged out
+// as of now — every page prunes to zero in-window views. It is how the bounded
+// maxAppsPerTenant table stays usable under a forged-host beacon flood: once a
+// forged aggregate's samples age past the window it no longer occupies a slot,
+// so a real host is admitted again (ING-34 / WEB-11). Alerting latches for the
+// evicted key are dropped with it (a later re-appearance re-arms). Caller holds
+// e.mu; state stays tenant-scoped (docs/guardrails.md G7-1). Returns freed count.
+func (ts *tenantState) evictEmptyLocked(now time.Time) int {
+	freed := 0
+	for key, agg := range ts.apps {
+		inWindow := false
+		for _, pg := range agg.pages {
+			pg.prune(now)
+			if len(pg.views) > 0 {
+				inWindow = true
+			}
+		}
+		if !inWindow {
+			delete(ts.apps, key)
+			delete(ts.alerted, key)
+			freed++
+		}
+	}
+	return freed
 }
 
 func (h *hostObs) prune(now time.Time) {

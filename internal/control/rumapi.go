@@ -46,6 +46,13 @@ type RUMApp struct {
 	// CORS reflection. Empty => default wildcard ("*"). Still no credentials on
 	// either path, and the app key is never treated as a secret.
 	AllowedOrigins []string
+	// AllowedHosts, when non-empty, binds this public app key to a fixed set of
+	// reported beacon hosts: a beacon whose host is not on the list is refused
+	// 403 (WEB-11). It closes the forged-host vector at the door for operators
+	// who enumerate their hosts; keys that leave it empty still rely on the
+	// engine's aged-out-slot reclamation so a flood cannot permanently hide a
+	// real host. Hosts are compared after the beacon host is normalized.
+	AllowedHosts []string
 }
 
 // BuildRUM parses the app-key registry from config. Returns ok=false when
@@ -112,6 +119,12 @@ func parseRUMAppConfig(raw string) (RUMApp, error) {
 				return RUMApp{}, fmt.Errorf("rum: app entry %q has invalid origins: %w", raw, err)
 			}
 			out.AllowedOrigins = origins
+		case "hosts":
+			hosts, err := parseRUMAllowedHosts(val)
+			if err != nil {
+				return RUMApp{}, fmt.Errorf("rum: app entry %q has invalid hosts: %w", raw, err)
+			}
+			out.AllowedHosts = hosts
 		default:
 			return RUMApp{}, fmt.Errorf("rum: app entry %q has unknown option %q", raw, name)
 		}
@@ -137,6 +150,30 @@ func parseRUMAllowedOrigins(raw string) ([]string, error) {
 		return nil, fmt.Errorf("at least one origin is required")
 	}
 	return origins, nil
+}
+
+// parseRUMAllowedHosts parses a pipe-separated bare-host allow-list for an app
+// key's ;hosts= option (WEB-11). Each host is lowercased and must be a bare
+// host (no scheme, port, path, userinfo or whitespace) so it compares equal to
+// the beacon host after rum.ParseBeacon normalizes it.
+func parseRUMAllowedHosts(raw string) ([]string, error) {
+	parts := strings.Split(raw, "|")
+	hosts := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		h := strings.ToLower(strings.TrimSpace(part))
+		if h == "" || len(h) > 253 || strings.ContainsAny(h, ":/@ \t?#") {
+			return nil, fmt.Errorf("host %q must be a bare host with no scheme/port/path", part)
+		}
+		if !seen[h] {
+			hosts = append(hosts, h)
+			seen[h] = true
+		}
+	}
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("at least one host is required")
+	}
+	return hosts, nil
 }
 
 func normalizeRUMOrigin(raw string) (string, bool) {
@@ -217,6 +254,15 @@ func rumCORS(w http.ResponseWriter, reqOrigin string, allowed []string) {
 	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 
+func rumHostAllowed(host string, allowed []string) bool {
+	for _, h := range allowed {
+		if host == h {
+			return true
+		}
+	}
+	return false
+}
+
 func rumOriginAllowed(reqOrigin string, allowed []string) bool {
 	norm, ok := normalizeRUMOrigin(reqOrigin)
 	if !ok {
@@ -292,6 +338,13 @@ func (s *Server) handleRUMBeacon(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		s.rumEngine.RecordReject(app.Tenant, reason)
 		return apierror.BadRequest("beacon rejected: " + string(reason))
+	}
+	// WEB-11: a key that enumerates its hosts refuses a beacon for any other
+	// host — the forged-host vector closed at the door. beacon.Host is already
+	// normalized (lowercased, bare) by ParseBeacon, matching the configured list.
+	if len(app.AllowedHosts) > 0 && !rumHostAllowed(beacon.Host, app.AllowedHosts) {
+		s.rumEngine.RecordReject(app.Tenant, rum.RejectBadField)
+		return apierror.Forbidden("rum host not allowed")
 	}
 	if beacon.ID != "" && s.rumDedupe.remember(app.Tenant+"|"+app.App+"|"+beacon.ID) {
 		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "duplicate": true})

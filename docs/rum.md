@@ -127,6 +127,13 @@ The ingest endpoint treats every beacon as untrusted input
   origins at startup; `single` profile keeps wildcard compatibility when no list
   is set. Off-list or missing Origins fail with `403`, and no beacon is
   published.
+- **Host allow-list.** Add `;hosts=app.example|www.app.example` to a RUM app
+  binding to accept beacons only for those reported hosts; a beacon whose host
+  is anything else fails with `403` and is not published. This binds a public
+  key to its real sites so a leaked key cannot file junk hosts. Keys that leave
+  `hosts=` unset are still protected from permanent blinding: an (app, host)
+  slot whose 15-minute window has aged out is reclaimed, so a forged-host flood
+  cannot keep a real host out of the view once the flood stops.
 - **Size cap.** 16 KiB max; over that is a `413`.
 - **Rate limit.** A per-key **token bucket** — the classic rate limiter: each
   key holds a bucket of tokens refilled at the configured per-minute rate, each
@@ -170,7 +177,7 @@ flowchart LR
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_RUM_ENABLED` | `false` | turns on the beacon ingest + convergence engine (it's an inbound surface, so it's opt-in) |
-| `PROBECTL_RUM_APPS` | (none) | the public app-key registry: `pk_key1=tenant/app;origins=https://shop.example\|https://www.shop.example,pk_key2=tenant2/app2` (origins are required under `multi-tenant`/`regulated`, optional in `single`; enabled but empty is a startup error — a mis-bound key could file beacons under the wrong tenant) |
+| `PROBECTL_RUM_APPS` | (none) | the public app-key registry: `pk_key1=tenant/app;origins=https://shop.example\|https://www.shop.example;hosts=shop.example\|www.shop.example,pk_key2=tenant2/app2` (origins are required under `multi-tenant`/`regulated`, optional in `single`; the optional `hosts=` list refuses a beacon for any other host with 403; enabled but empty is a startup error — a mis-bound key could file beacons under the wrong tenant) |
 | `PROBECTL_RUM_RATE_PER_MIN` | `300` | per-key beacon rate limit (`0` = unlimited) |
 
 Deliberately out of scope: full APM — no traces, no session replay, no

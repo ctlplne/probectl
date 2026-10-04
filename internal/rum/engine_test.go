@@ -261,3 +261,42 @@ func TestPageStatsAggregation(t *testing.T) {
 		t.Fatalf("p75 lcp = %v want 2000", snap.Apps[0].P75LCPms)
 	}
 }
+
+// TestForgedHostFloodDoesNotPermanentlyHideRealHost proves the ING-34 / WEB-11
+// blinding is not permanent: a flood of forged-host beacons on a public app key
+// fills the bounded per-tenant table, but once that flood's window ages out a
+// real host's beacon reclaims a slot and the real host is visible again. Before
+// the eviction fix the real host was dropped until process restart.
+func TestForgedHostFloodDoesNotPermanentlyHideRealHost(t *testing.T) {
+	e := NewEngine()
+	const app = "shop"
+	const realHost = "www.realshop.example"
+
+	// t0: an outsider holding the public key floods every slot with forged hosts.
+	for i := 0; i < maxAppsPerTenant; i++ {
+		e.ObserveRUM(view("t1", app, fmt.Sprintf("forged-%d.example", i), "/", false, 0, at(0)))
+	}
+	e.mu.Lock()
+	filled := len(e.tenants["t1"].apps)
+	e.mu.Unlock()
+	if filled != maxAppsPerTenant {
+		t.Fatalf("setup: want %d forged slots filled, got %d", maxAppsPerTenant, filled)
+	}
+
+	// Once the forged window has aged out (> window = 15m), a real user beacons.
+	realAt := at(16)
+	e.ObserveRUM(view("t1", app, realHost, "/", false, 0, realAt))
+	e.ObserveRUM(view("t1", app, realHost, "/", false, 0, realAt))
+
+	// The RUM view rendered at that moment must now show the real host.
+	e.clock = func() time.Time { return realAt }
+	present := false
+	for _, a := range e.Snapshot("t1").Apps {
+		if a.Host == realHost {
+			present = true
+		}
+	}
+	if !present {
+		t.Fatalf("real host %q hidden after a forged-host flood aged out: a public-key flood permanently blinded the RUM view (ING-34/WEB-11)", realHost)
+	}
+}

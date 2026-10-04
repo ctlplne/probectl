@@ -751,7 +751,9 @@ type Config struct {
 	// RUM convergence (S47b, F20). OFF by default: enabling opens the beacon
 	// ingest (an unauthenticated-session inbound surface). RUMApps maps public
 	// app keys to "tenant/app" routing bindings, with optional
-	// ";origins=https://site.example|https://www.site.example" allow-lists.
+	// ";origins=https://site.example|https://www.site.example" allow-lists and
+	// an optional ";hosts=site.example|www.site.example" beacon-host allow-list
+	// (a beacon reporting any other host is refused 403 — WEB-11).
 	// Origins are required under multi-tenant/regulated deployment profiles.
 	// The key in a page is an identifier, not a secret; RUMRatePerMin bounds
 	// each key's beacon rate. Privacy (consent, URL redaction, no IP storage)

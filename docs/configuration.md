@@ -2352,7 +2352,7 @@ each other for the same service.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_RUM_ENABLED`      | `false` | the browser-beacon ingest + synthetic↔RUM convergence engine (an inbound surface — opt-in) |
-| `PROBECTL_RUM_APPS`         | (none)  | public app-key registry `pk_key=tenant/app;origins=https://shop.example\|https://www.shop.example,...` — origins are required under `multi-tenant`/`regulated`, optional in `single`; each beacon binds to its KEY's tenant; enabled-but-empty fails startup |
+| `PROBECTL_RUM_APPS`         | (none)  | public app-key registry `pk_key=tenant/app;origins=https://shop.example\|https://www.shop.example;hosts=shop.example\|www.shop.example,...` — origins are required under `multi-tenant`/`regulated`, optional in `single`; the optional `hosts=` list refuses a beacon reporting any other host (403); each beacon binds to its KEY's tenant; enabled-but-empty fails startup |
 | `PROBECTL_RUM_RATE_PER_MIN` | `300`   | per-key beacon rate limit (429 + Retry-After above it; 0 = unlimited) |
 
 Beacons ingest at `POST /ingest/rum` (public-key routed, optional origin
