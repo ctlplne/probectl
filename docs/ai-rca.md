@@ -378,6 +378,10 @@ Two routes carry the whole feature, and both require the same permission:
   `investigation_plan`, a bounded read-only receipt of the steps probectl tried
   and why any step was skipped or blocked.
 - `POST /v1/ai/feedback` — body `{answer_id, rating: up|down, comment?}` → `204`.
+  When answer persistence is enabled (`PROBECTL_AI_PERSIST_ANSWERS`), an
+  unknown or foreign `answer_id` is rejected `404` — feedback may only reference
+  an answer this tenant was issued. With persistence off there is no issued-id
+  ledger, so that existence check is only available when persistence is on.
   Also requires `ai.query`. Stored tenant-scoped (row-level security — the
   database itself filters every row by tenant) and audited.
 

@@ -505,6 +505,22 @@ func (s *Server) handleAIFeedback(w http.ResponseWriter, r *http.Request) error 
 		return apierror.Unavailable("feedback persistence is unavailable")
 	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		// RTA-04: feedback must reference an answer this tenant was actually
+		// issued. When answer persistence is on, the ai_answers ledger lets us
+		// enforce that — a foreign/unknown answer_id is rejected 404 (RLS scopes
+		// the lookup to the caller's tenant, so another tenant's id reads as
+		// absent). With persistence off there is no issued-id ledger to check
+		// against, so the existence guarantee is only available in that mode
+		// (docs/ai-rca.md).
+		if s.cfg.AIPersistAnswers {
+			ok, err := (store.AIAnswers{}).Exists(ctx, sc, fb.AnswerID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return apierror.NotFound("unknown answer_id")
+			}
+		}
 		if err := (store.AIFeedback{}).Save(ctx, sc, store.AIFeedbackInput{
 			AnswerID: fb.AnswerID, Question: fb.Question, Rating: string(fb.Rating), Comment: fb.Comment, UserID: fb.UserID,
 		}); err != nil {

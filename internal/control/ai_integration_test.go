@@ -24,6 +24,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/topology"
 )
 
@@ -229,5 +230,46 @@ func TestAIAskGroundedCitedAndTenantScoped(t *testing.T) {
 	mustJSON(t, rec, &copiedIDAnswer)
 	if !copiedIDAnswer.InsufficientEvidence || len(copiedIDAnswer.Evidence) != 0 {
 		t.Errorf("cross-tenant incident subject must return no evidence, got %+v", copiedIDAnswer)
+	}
+}
+
+// TestAIFeedbackRejectsForeignAnswerID proves RTA-04: with answer persistence
+// enabled, feedback referencing an answer this tenant was never issued is
+// rejected 404, while feedback for a real persisted answer still succeeds.
+// Before the fix a made-up answer_id was accepted (204).
+func TestAIFeedbackRejectsForeignAnswerID(t *testing.T) {
+	_, db := setupAPI(t)
+	cfg := &config.Config{AuthMode: "dev", AIPersistAnswers: true}
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
+		WithTenantStatus(NewTenantStatusCache(db.Pool(), 0))
+	h := srv.Handler()
+	ctx := context.Background()
+
+	tn, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("aifb-%d", time.Now().UnixNano()), "AI Feedback")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	tenant := tn.ID
+
+	answerID := fmt.Sprintf("ans_%d_1", time.Now().UnixNano())
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.AIAnswers{}).Save(ctx, sc, store.AIAnswerInput{
+			AnswerID: answerID, Question: "why?", RootCause: "because", Confidence: "high",
+			Model: "builtin", ConfigHash: "h", Payload: []byte(`{}`),
+		})
+	}); err != nil {
+		t.Fatalf("seed answer: %v", err)
+	}
+
+	if rec := apiReq(t, h, http.MethodPost, "/v1/ai/feedback", tenant, map[string]any{
+		"answer_id": answerID, "rating": "up",
+	}); rec.Code != http.StatusNoContent {
+		t.Fatalf("feedback for a real persisted answer: status %d body %s", rec.Code, rec.Body)
+	}
+
+	if rec := apiReq(t, h, http.MethodPost, "/v1/ai/feedback", tenant, map[string]any{
+		"answer_id": "ans_does_not_exist", "rating": "down",
+	}); rec.Code != http.StatusNotFound {
+		t.Fatalf("feedback for a foreign answer_id: status %d, want 404 (RTA-04); body %s", rec.Code, rec.Body)
 	}
 }

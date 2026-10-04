@@ -46,6 +46,20 @@ func (AIAnswers) Save(ctx context.Context, s tenancy.Scope, in AIAnswerInput) er
 	return nil
 }
 
+// Exists reports whether an answer artifact with this id exists in the caller's
+// tenant scope (RTA-04). It backs the AI-feedback existence check: feedback may
+// only reference an answer this tenant was actually issued. RLS confines the
+// lookup to the caller's tenant, so a foreign-tenant answer id reads as absent.
+func (AIAnswers) Exists(ctx context.Context, s tenancy.Scope, answerID string) (bool, error) {
+	var ok bool
+	if err := s.Q.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM ai_answers WHERE tenant_id = $1 AND answer_id = $2)`,
+		s.Tenant.String(), answerID).Scan(&ok); err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
 // PruneOlderThan deletes this tenant's artifacts older than the retention
 // window (U-093), returning how many were removed. Called opportunistically on
 // save — answer volume is low, so retention needs no scheduler.
