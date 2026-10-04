@@ -76,11 +76,16 @@ func (s ScimTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantI
 		func(ctx context.Context, sc tenancy.Scope) error {
 			var resolved string
 			// DPR-096: verify by reading; the last-used stamp is best-effort.
+			// AUTHZ-08: an expired token is rejected exactly like a revoked one
+			// (→ pgx.ErrNoRows → ErrInvalidScimToken → 401). NULL expires_at is
+			// non-expiring. The pre-tenant resolveCredential step routes by hash
+			// only, so this scoped read is the enforcement point.
 			if err := sc.Q.QueryRow(ctx,
 				`SELECT tenant_id::text FROM scim_tokens
 				  WHERE token_hash = $1
 				    AND tenant_id = $2
-				    AND revoked_at IS NULL`,
+				    AND revoked_at IS NULL
+				    AND (expires_at IS NULL OR expires_at > now())`,
 				tokenHash, tenantID,
 			).Scan(&resolved); err != nil {
 				return err

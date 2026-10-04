@@ -8,7 +8,6 @@ package control
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -85,14 +84,31 @@ func (s *Server) scim(fn func(w http.ResponseWriter, r *http.Request, tenantID s
 			return nil
 		}
 		tokenHash := crypto.Hash([]byte(tok))
-		if !s.scimLimiter.allow(hex.EncodeToString(tokenHash)) {
+		// AUTHZ-08: authenticate BEFORE rate-limiting, and key the limiter by the
+		// resolved tenant. Keying by the raw (unauthenticated) token hash let a
+		// flood of unknown tokens fill the shared bucket map, whose >4096 eviction
+		// wipes the whole map and resets a legitimate tenant's throttle. Unknown
+		// tokens now 401 at auth and never populate the map.
+		tenantID, err := s.scimTenant(r.Context(), tokenHash)
+		if err != nil {
+			writeSCIMError(w, http.StatusUnauthorized, "", "invalid or missing bearer token")
+			return nil
+		}
+		if !s.scimLimiter.allow(tenantID) {
 			w.Header().Set("Retry-After", "60")
 			writeSCIMError(w, http.StatusTooManyRequests, "tooMany", "SCIM token rate limit exceeded")
 			return nil
 		}
-		tenantID, err := s.scimTenant(r.Context(), tokenHash)
-		if err != nil {
-			writeSCIMError(w, http.StatusUnauthorized, "", "invalid or missing bearer token")
+		// AUTHZ-08: a suspended or offboarding tenant must not provision or
+		// deprovision over SCIM, the same lifecycle gate the /v1 principal path,
+		// MCP, and the webhook ingest paths enforce.
+		if lerr := s.checkTenantLifecycle(r, tenantID); lerr != nil {
+			status, detail := http.StatusForbidden, "tenant lifecycle forbids SCIM operations"
+			var ae *apierror.Error
+			if errors.As(lerr, &ae) {
+				status, detail = httpStatus(ae.Kind), ae.Message
+			}
+			writeSCIMError(w, status, "", detail)
 			return nil
 		}
 		fn(w, r, tenantID)
@@ -478,6 +494,20 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 				return e
 			}
 		}
+		// AUTHZ-08: a SCIM sync must never empty the Administrator group and lock
+		// the tenant out of all admin access. The /v1 directory path already
+		// guards this (directoryapi.go); SCIM did not. Re-check inside the same
+		// transaction, so a membership PATCH that would leave zero admins rolls
+		// the whole request back with a 409.
+		if role.IsSystem && role.Slug == directoryAdminRole {
+			remaining, e := store.RoleBindings{}.MembersOfRole(ctx, sc, role.ID)
+			if e != nil {
+				return e
+			}
+			if len(remaining) == 0 {
+				return apierror.Conflict("cannot remove the last administrator")
+			}
+		}
 		g = s.groupToSCIMScoped(ctx, sc, r, *role)
 		return auditSCIM(ctx, sc, "directory.group_update", role.ID, map[string]any{
 			"added": len(gp.Add), "removed": len(gp.Remove),
@@ -488,6 +518,11 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 		var ae *apierror.Error
 		if errors.As(err, &ae) && ae.Kind == apierror.KindNotFound {
 			writeSCIMError(w, http.StatusNotFound, "", "group not found")
+			return
+		}
+		// AUTHZ-08: a last-administrator conflict is a 409, not a 500.
+		if isConflict(err) {
+			writeSCIMError(w, http.StatusConflict, "mutability", "cannot remove the last administrator")
 			return
 		}
 		// A failed sync must look failed: the transaction rolled back, so
@@ -503,14 +538,27 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 func (s *Server) scimDeleteGroup(w http.ResponseWriter, r *http.Request, tenantID string) {
 	id := r.PathValue("id")
 	if err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		if _, e := (store.Roles{}).Get(ctx, sc, id); e != nil {
+		role, e := (store.Roles{}).Get(ctx, sc, id)
+		if e != nil {
 			return e
+		}
+		// AUTHZ-08: a system group (Administrator and the other seeded roles)
+		// cannot be deleted. store.Roles.Delete silently affects zero rows for a
+		// system role (WHERE is_system = false) and returns nil, so the handler
+		// answered 204 and wrote a bogus directory.group_delete audit row over a
+		// group that still exists. Refuse BEFORE deleting or auditing.
+		if role.IsSystem {
+			return apierror.Conflict("system groups cannot be deleted")
 		}
 		if e := (store.Roles{}).Delete(ctx, sc, id); e != nil {
 			return e
 		}
 		return auditSCIM(ctx, sc, "directory.group_delete", id, nil)
 	}); err != nil {
+		if isConflict(err) {
+			writeSCIMError(w, http.StatusConflict, "mutability", "system groups cannot be deleted")
+			return
+		}
 		writeSCIMError(w, http.StatusNotFound, "", "group not found")
 		return
 	}
