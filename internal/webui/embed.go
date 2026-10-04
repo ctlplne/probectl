@@ -25,7 +25,14 @@ import (
 	"strings"
 )
 
-//go:embed all:dist
+// WEB-17: embed `dist`, NOT `all:dist`. The `all:` prefix pulls in dotfiles,
+// which in a real Vite build includes dist/.vite/manifest.json — a build-metadata
+// file that then became reachable at GET /ui/.vite/manifest.json. The SPA needs
+// only its normal-named assets under dist/assets/, so dropping `all:` keeps the
+// manifest out of the binary entirely (the handler's dot-segment guard is the
+// defense in depth).
+//
+//go:embed dist
 var dist embed.FS
 
 // built reports whether a REAL UI bundle is embedded (a built asset other than
@@ -54,6 +61,12 @@ func Handler(prefix string) http.Handler {
 	if err != nil {
 		return http.NotFoundHandler()
 	}
+	return handlerFS(prefix, sub)
+}
+
+// handlerFS is the serving logic over an arbitrary file system, so the fallback
+// and dot-segment rules are testable without a real embedded build.
+func handlerFS(prefix string, sub fs.FS) http.Handler {
 	fileServer := http.StripPrefix(prefix, http.FileServer(http.FS(sub)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// SPA fallback: serve index.html for paths that aren't real files, so a
@@ -63,12 +76,30 @@ func Handler(prefix string) http.Handler {
 			serveIndex(w, r, sub)
 			return
 		}
-		if _, err := fs.Stat(sub, strings.TrimPrefix(rel, "/")); err != nil {
+		clean := strings.TrimPrefix(rel, "/")
+		// WEB-17: never serve a dot-prefixed path segment (build metadata such as
+		// .vite/manifest.json, or any future dotfile) — fall back to the SPA shell.
+		// A real SPA asset path never starts a segment with a dot.
+		if hasDotSegment(clean) {
+			serveIndex(w, r, sub)
+			return
+		}
+		if _, err := fs.Stat(sub, clean); err != nil {
 			serveIndex(w, r, sub)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// hasDotSegment reports whether any path segment begins with a dot.
+func hasDotSegment(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func serveIndex(w http.ResponseWriter, _ *http.Request, sub fs.FS) {
