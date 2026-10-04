@@ -182,8 +182,7 @@ func verifyServePosture(ctx context.Context, cfg *config.Config, db *store.DB, l
 	}
 	log.Info("tenant isolation posture verified (RLS forced, serve login + app role non-bypass)")
 
-	chScoped := cfg.FlowCHTenantScoping && cfg.OTelCHTenantScoping &&
-		cfg.EBPFCHTenantScoping && cfg.PathCHTenantScoping && cfg.EndpointCHTenantScoping && cfg.IngestStrictTenantLanes
+	chScoped := cfg.TenantScopingComplete()
 	if err := tenancy.AssertDeploymentProfilePosture(ctx, db.Pool(), cfg.DeploymentProfile, chScoped); err != nil {
 		return fmt.Errorf("deployment profile self-check failed: %w", err)
 	}

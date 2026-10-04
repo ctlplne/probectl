@@ -132,6 +132,11 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if d.Silo != nil {
 		svc.WithSilo(d.Silo, d.SiloInvalidate)
 	}
+	// TEN-04 / VER-02: refuse a second tenant on the degraded single-tenant
+	// profile at creation time, not only at boot. The profile + scoping pair is
+	// the same one builders.go feeds tenancy.AssertDeploymentProfilePosture, so
+	// the boot self-check and this runtime check stay in lockstep.
+	svc.WithDeploymentProfile(cfg.DeploymentProfile, cfg.TenantScopingComplete())
 	// AUD-13 / G7-7: a tenant-side break-glass revoke is recorded on the
 	// tenant's own tamper-evident chain as well as the provider stream. The
 	// append runs inside the tenant's storage scope so RLS confines it.

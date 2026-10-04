@@ -847,6 +847,11 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "license_read_only", http.StatusForbidden
 	case errors.Is(err, ErrBandExhausted):
 		code, status = "tenant_band_exhausted", http.StatusForbidden
+	case errors.Is(err, ErrSingleProfileTenantCap):
+		// TEN-04 / VER-02: a deployment-posture precondition the operator can fix
+		// (switch the profile or enable tenant scoping), not a permission denial —
+		// so a distinct 409 the console can explain, like ir_key_unavailable.
+		code, status = "single_profile_tenant_cap", http.StatusConflict
 	case errors.Is(err, ErrNotFound):
 		code, status = "not_found", http.StatusNotFound
 	case errors.Is(err, ErrConflict):

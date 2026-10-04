@@ -71,8 +71,19 @@ type TelemetryReader interface {
 var (
 	ErrReadOnly      = errors.New("provider: license expired — the provider plane is read-only (new tenants/config are blocked; running telemetry is unaffected)")
 	ErrBandExhausted = errors.New("provider: licensed tenant band exhausted")
-	ErrNotConsented  = errors.New("provider: break-glass grant is not active (missing consent, expired, denied, or revoked)")
-	ErrNotGrantee    = errors.New("provider: break-glass grants are operator-bound — only the requesting operator may use one")
+	// ErrSingleProfileTenantCap refuses to CREATE a second tenant on a deployment
+	// running the degraded single-tenant profile (PROBECTL_DEPLOYMENT_PROFILE=single
+	// with the ClickHouse row-policies and the bus strict-lane OFF). The boot-time
+	// tenancy.AssertDeploymentProfilePosture already refuses to START such a
+	// deployment once Postgres holds more than one tenant; without this runtime
+	// guard a provider-plane tenant provisioned AFTER boot slips past that
+	// invariant, and the control plane then crash-loops (or silently over-shares
+	// the degraded stores) on its next restart (TEN-04 / VER-02; guardrail 1, fail
+	// closed). It is distinct from ErrBandExhausted — that is a license ceiling,
+	// this is a deployment-posture one, with a different way out.
+	ErrSingleProfileTenantCap = errors.New("provider: a second tenant is refused on the single-tenant deployment profile")
+	ErrNotConsented           = errors.New("provider: break-glass grant is not active (missing consent, expired, denied, or revoked)")
+	ErrNotGrantee             = errors.New("provider: break-glass grants are operator-bound — only the requesting operator may use one")
 	// ErrTenantIRKeyMissing (DPR-036): the break-glass transaction seals its
 	// attribution to the tenant's IR public key and fails closed when that
 	// key is absent. Before this sentinel the operator saw a bare 500 with
@@ -149,6 +160,19 @@ type Service struct {
 	// service built without it; TenantRevoke then fails closed so a revoke is
 	// never left unrecorded on the tenant side.
 	tenantAudit TenantAuditAppender
+
+	// deploymentProfile + chTenantScoped mirror the boot-time
+	// tenancy.AssertDeploymentProfilePosture invariant at the provider's own
+	// tenant-CREATION seam (TEN-04 / VER-02). The single-tenant profile leaves the
+	// high-cardinality ClickHouse row-policies AND the bus strict-lane OFF
+	// (chTenantScoped=false), so a SECOND tenant provisioned at runtime would
+	// over-share those degraded stores and the next boot — where
+	// AssertDeploymentProfilePosture refuses to start once Postgres holds >1
+	// tenant — would crash-loop. These let Provision refuse that second tenant
+	// loudly instead. deploymentProfile == "" leaves the gate inert (unit services
+	// that never wire it; the check only ever tightens, never loosens, isolation).
+	deploymentProfile string
+	chTenantScoped    bool
 }
 
 // NewService wires the provider service. envelope is required (TOTP secrets
@@ -195,6 +219,19 @@ func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
 // as the provider stream (AUD-13 / G7-7).
 func (s *Service) WithTenantAudit(a TenantAuditAppender) *Service {
 	s.tenantAudit = a
+	return s
+}
+
+// WithDeploymentProfile teaches the service the deployment's isolation posture so
+// Provision can refuse a second tenant on the degraded single-tenant profile at
+// CREATION time, not only at boot (TEN-04 / VER-02). profile is
+// PROBECTL_DEPLOYMENT_PROFILE; chTenantScoped is the config.TenantScopingComplete
+// signal (every ClickHouse plane plus the bus strict-lane tenant-scoped) — the
+// exact pair builders.go feeds tenancy.AssertDeploymentProfilePosture, so the
+// boot check and this runtime check always agree.
+func (s *Service) WithDeploymentProfile(profile string, chTenantScoped bool) *Service {
+	s.deploymentProfile = profile
+	s.chTenantScoped = chTenantScoped
 	return s
 }
 
@@ -559,6 +596,14 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 			return Tenant{}, fmt.Errorf("%w: %d of %d in use", ErrBandExhausted, n, tenantBand)
 		}
 	}
+	// TEN-04 / VER-02: refuse a SECOND tenant on the degraded single-tenant
+	// profile at creation time, mirroring the boot-time
+	// tenancy.AssertDeploymentProfilePosture invariant so a tenant provisioned at
+	// runtime can no longer slip past it and crash-loop the next restart. Runs for
+	// every isolation model, because the boot check counts ALL tenants.
+	if err := s.assertDeploymentProfileAllowsAnotherTenant(ctx); err != nil {
+		return Tenant{}, err
+	}
 	name = strings.TrimSpace(name)
 	if model == tenancy.IsolationPooled {
 		var t Tenant
@@ -685,6 +730,33 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationMod
 		}
 	}
 	return t, nil
+}
+
+// assertDeploymentProfileAllowsAnotherTenant fails closed when provisioning would
+// push a degraded single-tenant deployment past its one-tenant ceiling (TEN-04 /
+// VER-02). It mirrors tenancy.AssertDeploymentProfilePosture exactly: a no-op
+// unless the profile is "single" AND tenant scoping is incomplete
+// (chTenantScoped=false). An operator who has explicitly scoped every ClickHouse
+// plane and the bus is not degraded and may run many tenants — the boot check
+// treats them the same — so the gate must not over-refuse there. Otherwise the
+// second active tenant is refused with an error that names BOTH ways out: switch
+// PROBECTL_DEPLOYMENT_PROFILE, or turn the scoping flags on (guardrail 1).
+func (s *Service) assertDeploymentProfileAllowsAnotherTenant(ctx context.Context) error {
+	if s.deploymentProfile != "single" || s.chTenantScoped {
+		return nil
+	}
+	n, err := s.store.CountActiveTenants(ctx)
+	if err != nil {
+		return err
+	}
+	if n >= 1 {
+		return fmt.Errorf("%w: PROBECTL_DEPLOYMENT_PROFILE=single leaves the ClickHouse row-policies "+
+			"and the bus strict-lane OFF, so this deployment may serve only 1 tenant (%d already active) — "+
+			"set PROBECTL_DEPLOYMENT_PROFILE=multi-tenant (or regulated), or enable every "+
+			"PROBECTL_*STORE_TENANT_SCOPING plane plus PROBECTL_INGEST_STRICT_TENANT_LANES=true, "+
+			"before provisioning another (TEN-04/VER-02, fail closed)", ErrSingleProfileTenantCap, n)
+	}
+	return nil
 }
 
 func tenantProvisionAuditData(t Tenant) map[string]any {

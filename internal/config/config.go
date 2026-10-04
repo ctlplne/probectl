@@ -1937,6 +1937,20 @@ func (c *Config) TLSEnabled() bool { return c.TLSCertFile != "" && c.TLSKeyFile 
 // the edge, so the edge — not the app listener — is the right signal.
 func (c *Config) CookieSecure() bool { return c.TLSEnabled() || c.PublicTLS }
 
+// TenantScopingComplete reports whether every high-cardinality ClickHouse plane
+// AND the bus strict-lane are tenant-scoped at the storage layer — the
+// chTenantScoped signal tenancy.AssertDeploymentProfilePosture consumes at boot
+// (builders.go) and ee/provider consumes at tenant-creation time (TEN-04/VER-02).
+// When true the single-tenant profile is no longer degraded (the DB-enforced
+// boundary is on across the pooled planes), so the one-tenant posture ceiling
+// does not apply. Single source of truth so the boot check and the provider
+// runtime check can never drift apart (add a plane here and both see it).
+func (c *Config) TenantScopingComplete() bool {
+	return c.FlowCHTenantScoping && c.OTelCHTenantScoping &&
+		c.EBPFCHTenantScoping && c.PathCHTenantScoping &&
+		c.EndpointCHTenantScoping && c.IngestStrictTenantLanes
+}
+
 // AgentTransportEnabled reports whether the agent gRPC transport should run — an
 // address and the full mTLS material (cert, key, CA) are configured.
 func (c *Config) AgentTransportEnabled() bool {
