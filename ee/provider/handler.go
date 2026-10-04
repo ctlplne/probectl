@@ -758,8 +758,8 @@ func (h *Handler) handleConsentRevoke(w http.ResponseWriter, r *http.Request, te
 var (
 	errUnauthorized = errors.New("provider: operator authentication required")
 	// errRateLimited refuses a throttled/locked login dimension (SEC-003).
-	errRateLimited          = errors.New("provider: too many login attempts (locked, backing off)")
-	errForbiddenRole        = errors.New("provider: insufficient role")
+	errRateLimited   = errors.New("provider: too many login attempts (locked, backing off)")
+	errForbiddenRole = errors.New("provider: insufficient role")
 	// errForbiddenConsent refuses a provider/MSP attempt to change a tenant's
 	// remote-AI egress consent — only the tenant admin sets it (AUD-11).
 	errForbiddenConsent     = errors.New("provider: ai_remote_egress is tenant consent and cannot be set from the provider console; the tenant sets it via /v1/governance/policy")
