@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,99 @@ func openapiPaths(t *testing.T) map[string]bool {
 		set[p] = true
 	}
 	return set
+}
+
+// nonV1ExcludedExact and nonV1ExcludedPrefix are the single reasoned allowlist of
+// served non-/v1 surfaces intentionally absent from the tenant-facing OpenAPI:
+// operational endpoints, standards-defined surfaces, SCIM (RFC 7644, its own spec),
+// and the provider plane (ee/provider/openapi.json, a separate privilege domain —
+// ARCH-006). Shared by TestNonV1SurfacesDocumentedOrExcluded and the non-/v1 half
+// of TestOpenAPIMatchesRoutes (INV-04) so the two gates cannot drift apart. Adding
+// an entry here is the deliberate, reviewed act of excluding a surface from the
+// published spec — never a way to silence a genuinely undocumented route. (ARCH-013)
+var nonV1ExcludedExact = map[string]bool{
+	"/metrics":                  true, // Prometheus exposition, not REST
+	"/version":                  true, // build metadata
+	"/.well-known/security.txt": true, // RFC 9116
+	"/openapi.json":             true, // the spec itself
+	"/ui/":                      true, // ARCH-004 embedded SPA (not a REST surface)
+	"/{$}":                      true, // root redirect to /ui/
+}
+
+var nonV1ExcludedPrefix = []string{
+	"/scim/v2/",        // SCIM is RFC 7644, documented separately
+	"/ingest/changes/", // signed CI/CD change webhooks (HMAC; docs/change.md)
+	"/ingest/itsm/",    // signed ITSM webhooks (HMAC; docs/change.md)
+	// ARCH-006: the provider/management plane is a separate privilege domain
+	// (docs/architecture.md), mounted method-less as a sub-router and documented in
+	// ee/provider/openapi.json — not in the tenant-facing spec.
+	"/provider/",
+}
+
+// mountRe matches every router mount — mux.Handle / mux.HandleFunc with an optional
+// "VERB " method prefix — capturing the method (group 1, empty for a method-less
+// sub-router mount) and the path (group 2). ARCH-006: the method prefix is optional
+// so a method-less or HandleFunc mount cannot slip past the documentation gate.
+var mountRe = regexp.MustCompile(`mux\.Handle(?:Func)?\("(?:([A-Z]+) )?(/[^"]*)"`)
+
+// servedNonV1Surfaces scans the router source for every mounted NON-/v1 surface,
+// returning each as "METHOD /path" (or "/path" for a method-less mount). The /v1
+// surface is owned by the exact parity check in TestOpenAPIMatchesRoutes, so it is
+// excluded here. Scanning the source means a NEW mounted surface is seen the moment
+// it is added, with no registration step to forget.
+func servedNonV1Surfaces(t *testing.T) []string {
+	t.Helper()
+	src, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatalf("read server.go: %v", err)
+	}
+	var out []string
+	for _, m := range mountRe.FindAllStringSubmatch(string(src), -1) {
+		method, path := m[1], m[2]
+		if strings.HasPrefix(path, "/v1/") {
+			continue
+		}
+		if method == "" {
+			out = append(out, path)
+		} else {
+			out = append(out, method+" "+path)
+		}
+	}
+	return out
+}
+
+// undocumentedServedSurfaces returns the served surfaces ("METHOD /path" or "/path")
+// whose PATH is neither documented in a published spec nor covered by the reasoned
+// allowlist — the non-/v1 half of "no undocumented routes" (CONTRIBUTING.md; INV-04 /
+// ARCH-013). It is the single checker both non-/v1 gates run, so a planted
+// undocumented surface is caught identically by each. Any /v1 surface is skipped:
+// those are owned by the exact bidirectional parity check.
+func undocumentedServedSurfaces(served []string, documented, excludedExact map[string]bool, excludedPrefix []string) []string {
+	var out []string
+	for _, s := range served {
+		path := s
+		if i := strings.IndexByte(s, ' '); i >= 0 {
+			path = s[i+1:]
+		}
+		if strings.HasPrefix(path, "/v1/") {
+			continue
+		}
+		if documented[path] || excludedExact[path] {
+			continue
+		}
+		excluded := false
+		for _, p := range excludedPrefix {
+			if strings.HasPrefix(path, p) {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ARCH-013: every versioned (/v1) route the server mounts MUST be documented in
@@ -100,53 +194,8 @@ func TestAPIRouteTableEntriesAreUniqueAndPermissioned(t *testing.T) {
 // undocumented route.
 func TestNonV1SurfacesDocumentedOrExcluded(t *testing.T) {
 	documented := openapiPaths(t)
-
-	// Surfaces deliberately excluded from the tenant-facing OpenAPI: operational
-	// endpoints, standards-defined surfaces, and SCIM (RFC 7644, its own spec).
-	excludedExact := map[string]bool{
-		"/metrics":                  true, // Prometheus exposition, not REST
-		"/version":                  true, // build metadata
-		"/.well-known/security.txt": true, // RFC 9116
-		"/openapi.json":             true, // the spec itself
-		"/ui/":                      true, // ARCH-004 embedded SPA (not a REST surface)
-		"/{$}":                      true, // root redirect to /ui/
-	}
-	excludedPrefix := []string{
-		"/scim/v2/",        // SCIM is RFC 7644, documented separately
-		"/ingest/changes/", // signed CI/CD change webhooks (HMAC; docs/change.md)
-		"/ingest/itsm/",    // signed ITSM webhooks (HMAC; docs/change.md)
-		// ARCH-006: the provider/management plane is a separate privilege domain
-		// (docs/architecture.md), mounted method-less as a sub-router and documented in
-		// ee/provider/openapi.json — not in the tenant-facing spec.
-		"/provider/",
-	}
-
-	src, err := os.ReadFile("server.go")
-	if err != nil {
-		t.Fatalf("read server.go: %v", err)
-	}
-	// ARCH-006: also catch HandleFunc and method-less mounts (e.g. the method-less
-	// "/provider/" sub-router). The method prefix is optional so a future
-	// method-less or HandleFunc mount cannot slip past the documentation gate.
-	re := regexp.MustCompile(`mux\.Handle(?:Func)?\("(?:[A-Z]+ )?(/[^"]*)"`)
-	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
-		path := m[1]
-		if strings.HasPrefix(path, "/v1/") {
-			continue // covered by TestEveryV1RouteIsDocumented
-		}
-		if documented[path] || excludedExact[path] {
-			continue
-		}
-		excluded := false
-		for _, p := range excludedPrefix {
-			if strings.HasPrefix(path, p) {
-				excluded = true
-				break
-			}
-		}
-		if !excluded {
-			t.Errorf("mounted surface %q is neither documented in openapi.json nor in the explicit exclusion list (ARCH-013)", path)
-		}
+	for _, undoc := range undocumentedServedSurfaces(servedNonV1Surfaces(t), documented, nonV1ExcludedExact, nonV1ExcludedPrefix) {
+		t.Errorf("mounted surface %q is neither documented in openapi.json nor in the explicit exclusion list (ARCH-013)", undoc)
 	}
 }
 
@@ -155,7 +204,6 @@ func TestNonV1SurfacesDocumentedOrExcluded(t *testing.T) {
 // HandleFunc mount that escaped the regex would never be checked against the
 // spec or the exclusion list — a silent undocumented surface.
 func TestMountRegexCatchesMethodlessAndHandleFunc(t *testing.T) {
-	re := regexp.MustCompile(`mux\.Handle(?:Func)?\("(?:[A-Z]+ )?(/[^"]*)"`)
 	fixture := `
 		mux.Handle("GET /v1/tests", h)
 		mux.Handle("/provider/", sub)            // method-less sub-router
@@ -163,8 +211,8 @@ func TestMountRegexCatchesMethodlessAndHandleFunc(t *testing.T) {
 		mux.HandleFunc("/legacy/", legacy)        // method-less HandleFunc
 	`
 	got := map[string]bool{}
-	for _, m := range re.FindAllStringSubmatch(fixture, -1) {
-		got[m[1]] = true
+	for _, m := range mountRe.FindAllStringSubmatch(fixture, -1) {
+		got[m[2]] = true // group 2 is the path (group 1 is the optional method)
 	}
 	for _, want := range []string{"/v1/tests", "/provider/", "/{$}", "/legacy/"} {
 		if !got[want] {

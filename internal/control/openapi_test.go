@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -190,13 +191,22 @@ func TestOpenAPITypeAcceptsNullableUnion(t *testing.T) {
 	}
 }
 
-// TestOpenAPIMatchesRoutes upholds "no undocumented routes" (CONTRIBUTING.md):
-// the registered /v1 routes must exactly equal the /v1 operations documented in
-// openapi.json — neither an undocumented handler nor a documented-but-missing
-// route may exist. The route table (apiRoutes) is the single source of truth.
+// TestOpenAPIMatchesRoutes upholds "no undocumented routes" (CONTRIBUTING.md) for
+// the WHOLE served surface, not just /v1:
+//
+//   - the registered /v1 routes must exactly equal the /v1 operations documented in
+//     openapi.json — neither an undocumented handler nor a documented-but-missing
+//     route may exist (the route table, apiRoutes, is the single source of truth); and
+//   - every NON-/v1 surface mounted on the router (auth, enroll, ingest, SCIM,
+//     metrics, provider, ...) must be documented in a published spec or listed in the
+//     reasoned allowlist (INV-04 / ARCH-013). A route must not be invisible to this
+//     gate merely because it is mounted off /v1.
 func TestOpenAPIMatchesRoutes(t *testing.T) {
 	for _, mismatch := range routeSpecMismatches(registeredRouteOps(testServer(nil).apiRoutes()), documentedV1Ops(t)) {
 		t.Error(mismatch)
+	}
+	for _, undoc := range undocumentedServedSurfaces(servedNonV1Surfaces(t), openapiPaths(t), nonV1ExcludedExact, nonV1ExcludedPrefix) {
+		t.Errorf("served surface %q is neither documented in a published spec nor in the reasoned allowlist (INV-04 / ARCH-013: no undocumented routes)", undoc)
 	}
 }
 
@@ -253,6 +263,38 @@ func TestOpenAPIGateCatchesPlantedRouteAndSpecDrift(t *testing.T) {
 	}
 	if !strings.Contains(joined, `operation "POST /v1/__planted_spec_drift" is documented but has no registered route`) {
 		t.Fatalf("planted documented phantom drift was not detected:\n%s", joined)
+	}
+}
+
+// TestOpenAPIGateCatchesPlantedNonV1Route is the INV-04 regression proof. The
+// non-/v1 half of TestOpenAPIMatchesRoutes makes the gate reach past /v1; before it,
+// a route mounted off /v1 with no spec entry slipped through this gate unseen (only
+// the sibling route_coverage gate caught it). This plants a bogus non-/v1 surface
+// through the SAME production checker the gate runs and asserts it is flagged — and
+// that a surface under a reasoned allowlist prefix is NOT, so the gate can never be
+// "passed" by widening the allowlist. Reverting undocumentedServedSurfaces to the
+// pre-fix /v1-only behavior (or dropping the non-/v1 block from the gate) lets the
+// planted route slip through and reddens this test.
+func TestOpenAPIGateCatchesPlantedNonV1Route(t *testing.T) {
+	documented := openapiPaths(t)
+
+	// A bogus surface mounted off /v1, documented in no spec and under no reasoned
+	// allowlist prefix: exactly the defect the old /v1-only gate missed.
+	const planted = "GET /zzz-undocumented"
+	if got := undocumentedServedSurfaces([]string{planted}, documented, nonV1ExcludedExact, nonV1ExcludedPrefix); !slices.Contains(got, planted) {
+		t.Fatalf("planted undocumented non-/v1 route %q was not flagged (INV-04 regression): %v", planted, got)
+	}
+
+	// A surface UNDER the reasoned /scim/v2/ prefix is intentionally allowed: the
+	// gate must catch genuinely undocumented routes, not pass by allowlist-widening.
+	if under := undocumentedServedSurfaces([]string{"GET /scim/v2/__probe"}, documented, nonV1ExcludedExact, nonV1ExcludedPrefix); len(under) != 0 {
+		t.Fatalf("surface under a reasoned allowlist prefix should not be flagged: %v", under)
+	}
+
+	// Sanity: the live non-/v1 surface set is clean under the same checker, so the
+	// gate's green state reflects a real contract rather than a vacuous one.
+	if undoc := undocumentedServedSurfaces(servedNonV1Surfaces(t), documented, nonV1ExcludedExact, nonV1ExcludedPrefix); len(undoc) != 0 {
+		t.Fatalf("live non-/v1 surfaces are undocumented and unexcluded: %v", undoc)
 	}
 }
 
