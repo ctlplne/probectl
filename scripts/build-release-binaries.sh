@@ -43,6 +43,24 @@ assert_license_anchor() {
 	fi
 }
 
+assert_control_ui_bundled() {
+	# SUP-06/WEB-18: a downloadable control-plane binary MUST embed the built web
+	# UI, never the honest "ARCH-004 placeholder" that keeps a from-source build
+	# green. The release workflow (and the docker `web` stage) builds the Vite
+	# bundle and overlays it onto internal/webui/dist BEFORE this script compiles;
+	# if that did not happen the embed carries the placeholder, which must never
+	# ship. Grep the (cross-compiled) binary rather than running it.
+	local bin="$1"
+	if grep -qaF 'ARCH-004 placeholder' "$bin"; then
+		echo "::error::${bin} embeds the web-UI placeholder, not the built SPA — run 'npm --prefix web ci && npm --prefix web run build' and copy web/dist/* into internal/webui/dist before compiling (SUP-06/WEB-18)"
+		exit 1
+	fi
+	if ! grep -qaE '/ui/assets/index-' "$bin"; then
+		echo "::error::${bin} references no hashed /ui/assets bundle — the embedded UI is not a real Vite build (SUP-06)"
+		exit 1
+	fi
+}
+
 find_bpftool() {
 	local tool
 	tool="$(find /usr/lib -path '*linux-tools*' -name bpftool -type f 2>/dev/null | sort -V | tail -n1)"
@@ -76,6 +94,7 @@ build_plain_binary() {
 		-o "$out" "./cmd/${component}"
 	if [ "$component" = "probectl-control" ]; then
 		assert_license_anchor "$out"
+		assert_control_ui_bundled "$out"
 	fi
 }
 
