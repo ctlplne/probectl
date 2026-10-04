@@ -175,6 +175,7 @@ Commands:
   lifecycle subject-erase --subject ID --confirm ID [--reason TEXT]
                                 erase a subject inside the current tenant
   collector register --body JSON register a bus collector identity
+  verify-bundle <file>           verify a signed auditor bundle offline (no network)
   Resource groups (generated from the served API surface):
 {surface_commands}
   version                        print the CLI version
@@ -183,11 +184,12 @@ Global flags:
   --url <url>       API base URL (env PROBECTL_API_URL, default https://localhost:8443)
   --token <token>   Bearer auth token (env PROBECTL_API_TOKEN)
   --tenant <uuid>   tenant scope (env PROBECTL_TENANT)
+  --ca-file <path>  PEM CA bundle that verifies the control plane (env PROBECTL_CA_FILE; default: OS trust store)
   --json            output JSON instead of a table
 
 'test create' flags:
   --name <name>     required
-  --type <type>     required: icmp|tcp|udp|dns|http|a2a|noop
+  --type <type>     required: {probe_types}
   --target <target> required (except noop), e.g. host:port or an address
   --interval <sec>  default 60
   --timeout <sec>   default 3
@@ -235,6 +237,7 @@ Comandos:
   lifecycle subject-erase --subject ID --confirm ID [--reason TEXT]
                                 borra un sujeto dentro del tenant actual
   collector register --body JSON registra una identidad de colector de bus
+  verify-bundle <file>           verifica un paquete de auditor firmado sin conexion
   Grupos de recursos (generados desde la superficie API servida):
 {surface_commands}
   version                        imprime la version de la CLI
@@ -243,11 +246,12 @@ Flags globales:
   --url <url>       URL base de API (env PROBECTL_API_URL, default https://localhost:8443)
   --token <token>   token Bearer de API (env PROBECTL_API_TOKEN)
   --tenant <uuid>   alcance de tenant (env PROBECTL_TENANT)
+  --ca-file <path>  paquete CA en PEM que verifica el plano de control (env PROBECTL_CA_FILE; por defecto: almacen de confianza del SO)
   --json            salida JSON en vez de tabla
 
 Flags de 'test create':
   --name <name>     requerido
-  --type <type>     requerido: icmp|tcp|udp|dns|http|a2a|noop
+  --type <type>     requerido: {probe_types}
   --target <target> requerido (excepto noop), por ejemplo host:port o una direccion
   --interval <sec>  default 60
   --timeout <sec>   default 3

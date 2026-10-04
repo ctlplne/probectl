@@ -28,6 +28,10 @@ func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 	c := newClient(cfg)
 	switch args[0] {
 	case "list":
+		if wantsHelp(args) {
+			usage(stdout, cfg.Locale)
+			return 0
+		}
 		var l list[Test]
 		if err := c.do(http.MethodGet, "/v1/tests", nil, &l); err != nil {
 			return fail(stderr, err)
@@ -38,6 +42,10 @@ func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 		printTests(stdout, l.Items)
 		return 0
 	case "get":
+		if wantsHelp(args) {
+			usage(stdout, cfg.Locale)
+			return 0
+		}
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "test get: missing <id>")
 			return 2
@@ -54,6 +62,10 @@ func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 	case "create":
 		return testCreate(cfg, c, args[1:], stdout, stderr)
 	case "delete":
+		if wantsHelp(args) {
+			usage(stdout, cfg.Locale)
+			return 0
+		}
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "test delete: missing <id>")
 			return 2
@@ -138,6 +150,10 @@ func cmdAgent(cfg Config, args []string, stdout, stderr io.Writer) int {
 	c := newClient(cfg)
 	switch args[0] {
 	case "list":
+		if wantsHelp(args) {
+			usage(stdout, cfg.Locale)
+			return 0
+		}
 		var l list[Agent]
 		if err := c.do(http.MethodGet, "/v1/agents", nil, &l); err != nil {
 			return fail(stderr, err)
@@ -148,6 +164,10 @@ func cmdAgent(cfg Config, args []string, stdout, stderr io.Writer) int {
 		printAgents(stdout, l.Items)
 		return 0
 	case "get":
+		if wantsHelp(args) {
+			usage(stdout, cfg.Locale)
+			return 0
+		}
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "agent get: missing <id>")
 			return 2
@@ -162,6 +182,10 @@ func cmdAgent(cfg Config, args []string, stdout, stderr io.Writer) int {
 		printAgent(stdout, a)
 		return 0
 	case "delete":
+		if wantsHelp(args) {
+			usage(stdout, cfg.Locale)
+			return 0
+		}
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "agent delete: missing <id>")
 			return 2
@@ -272,6 +296,10 @@ func cmdDashboardReport(cfg Config, args []string, stdout, stderr io.Writer) int
 	if len(args) == 0 || args[0] != "download" {
 		return cmdSurface(cfg, surfaceCommands["dashboard-report"], args, stdout, stderr)
 	}
+	if wantsHelp(args) {
+		usage(stdout, cfg.Locale)
+		return 0
+	}
 	if len(args) < 2 {
 		fmt.Fprintln(stderr, "dashboard-report download: missing <id>")
 		return 2
@@ -295,6 +323,10 @@ func cmdDashboard(cfg Config, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	switch args[0] {
 	case "export":
+		if wantsHelp(args) {
+			usage(stdout, cfg.Locale)
+			return 0
+		}
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "dashboard export: missing <id>")
 			return 2

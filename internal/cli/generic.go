@@ -25,7 +25,40 @@ import (
 
 const maxSensitiveRequestBodyBytes int64 = 1 << 20
 
+// wantsHelp reports whether args request help (a -h or --help token anywhere).
+// CLI help must never dial the control plane (INV-07): a sub-command that let
+// -h fall through to a positional path parameter would send a tenant-scoped
+// request for "/-h", and one that ignored it would dial anyway. Handlers call
+// this before building or sending any request and print usage instead.
+func wantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+// printOperationUsage writes a concise, network-free usage line for one raw
+// operation to the given writer (stdout on the -h path), so `probectl <group>
+// <op> -h` and `probectl api <method> <path> -h` explain themselves without a
+// request.
+func printOperationUsage(w io.Writer, op apiOp) {
+	fmt.Fprintf(w, "usage: %s %s", op.Method, op.Path)
+	fmt.Fprint(w, " [--query k=v]")
+	if op.SensitiveBody {
+		fmt.Fprint(w, " --body-file <0600-file|->")
+	} else {
+		fmt.Fprint(w, " [--body JSON]")
+	}
+	fmt.Fprintln(w)
+}
+
 func cmdAPIWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if wantsHelp(args) {
+		usage(stdout, cfg.Locale)
+		return 0
+	}
 	if len(args) < 2 {
 		fmt.Fprintln(stderr, "api: expected <method> <path>")
 		return 2
@@ -130,6 +163,10 @@ func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writ
 }
 
 func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if wantsHelp(args) {
+		printOperationUsage(stdout, op)
+		return 0
+	}
 	path := op.Path
 	// ArgName names the positional path parameters in order ("id" or
 	// "id,role"); each consumes one leading argument (DPR-027).

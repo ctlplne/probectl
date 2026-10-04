@@ -203,6 +203,10 @@ const runRawOperationWrapperSpine = `{
 }`
 
 const runRawOperationWithStdinSpine = `{
+	if wantsHelp(args) {
+		printOperationUsage(stdout, op)
+		return 0
+	}
 	path := op.Path
 	for _, name := range op.argNames() {
 		if len(args) == 0 {
